@@ -125,7 +125,7 @@ VRDex holds a delegated credential that is broader than the use it is put to, so
 the containment is in how it is stored and used, not in the token itself.
 
 **Convex never sees the token.** `communityVrclinkingCredentials` stores only a
-`secretRef` (`arn:aws:secretsmanager:…` or `secret://…`), matching
+`secretRef` (`secret://…`), matching
 `collectorAccounts` and the event media-control credential. The adapter resolves
 the reference through its own IAM role. This is why the token is not encrypted
 in Convex: it is never there.
@@ -137,10 +137,13 @@ Constraints enforced in `vrclinkingCredentials.ts`:
   can delegate a key for a server they do not control;
 - each delegation records the single `guildId` it is authorized for, so a key
   that could technically read other guilds is never used to;
-- the reference itself is bound to that guild: the only accepted values are
-  `secret://vrdex/vrclinking/<guildId>` or an
-  `arn:aws:secretsmanager:<region>:<account>:secret:vrdex/vrclinking/<guildId>`
-  (with the optional Secrets Manager suffix). Syntax is not authorization — the
+- the reference itself is bound to that guild: the only accepted value is
+  `secret://vrdex/vrclinking/<guildId>`. An ARN form was accepted until its
+  pattern was found to permit any region and any 12-digit account, while the
+  adapter's execution role can read only its own — a cross-account ARN
+  registered cleanly, was selected for claims, and then failed every resolution
+  as `unavailable` with nothing pointing back at the reference. The name has no
+  region or account to get wrong. Syntax is not authorization either: the
   adapter resolves whatever it is given through its own IAM role, so accepting
   arbitrary well-formed names would let the owner of one guild register another
   tenant's reference and have VRDex spend that tenant's key;

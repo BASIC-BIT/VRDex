@@ -406,12 +406,11 @@ export function ConnectionsPanel({
                   <FieldText>
                     <strong>Do not paste your VRCLinking API key here.</strong> Store the key in the
                     operator secret store under the name{" "}
-                    <code>vrdex/vrclinking/&lt;server id&gt;</code> and enter its reference — either{" "}
-                    <code>secret://vrdex/vrclinking/&lt;server id&gt;</code> or the matching{" "}
-                    <code>arn:aws:secretsmanager:…</code> ARN. The reference has to name the server
-                    selected above; any other name is rejected, so that one community cannot
-                    register another&apos;s key. VRDex records the reference only; the key itself is
-                    never sent to or stored by VRDex&apos;s database.
+                    <code>vrdex/vrclinking/&lt;server id&gt;</code> and enter its reference:{" "}
+                    <code>secret://vrdex/vrclinking/&lt;server id&gt;</code>. The reference has to
+                    name the server selected above; any other name is rejected, so that one
+                    community cannot register another&apos;s key. VRDex records the reference only;
+                    the key itself is never sent to or stored by VRDex&apos;s database.
                   </FieldText>
                 </Field>
                 <Button className="mt-4" disabled={busy} type="submit" variant="secondary">

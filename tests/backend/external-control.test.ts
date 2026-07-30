@@ -963,6 +963,12 @@ describe("VRCLinking credential delegation", () => {
       // belongs to another guild would have VRDex spend another tenant's key.
       "secret://vrdex/vrclinking/99999999999999999",
       "arn:aws:secretsmanager:us-east-1:123456789012:secret:vrdex/vrclinking/99999999999999999",
+      // The ARN form is rejected outright now, even naming the right guild: the
+      // pattern permitted any region and account while the adapter's execution
+      // role reads only its own, so a cross-account reference registered
+      // cleanly and then failed every resolution as `unavailable`.
+      `arn:aws:secretsmanager:us-east-1:123456789012:secret:vrdex/vrclinking/${guildId}`,
+      `arn:aws:secretsmanager:eu-west-1:999988887777:secret:vrdex/vrclinking/${guildId}-AbC123`,
       "secret://vrdex/group-telemetry/oak",
       // An overlong ARN used to pass validation and then be truncated on write,
       // so the adapter resolved a different reference and every verification
@@ -1036,8 +1042,7 @@ describe("VRCLinking credential delegation", () => {
     await asOwner.mutation(api.vrclinkingCredentials.registerCredential, {
       profileSlug: "delegation-ok",
       guildId,
-      secretRef:
-        "arn:aws:secretsmanager:us-east-1:123456789012:secret:vrdex/vrclinking/12345678901234567-AbC123",
+      secretRef: "secret://vrdex/vrclinking/12345678901234567",
     });
 
     const listed = await asOwner.query(api.vrclinkingCredentials.listCredentials, {

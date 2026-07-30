@@ -146,7 +146,7 @@ export function claimErrorMessage(error: unknown): string {
   if (code === "ADAPTER_NOT_CONFIGURED" && detail?.startsWith(SECRET_REFERENCE_DETAIL_PREFIX)) {
     const requiredName = detail.slice(SECRET_REFERENCE_DETAIL_PREFIX.length);
 
-    return `That secret reference does not name this server. Use secret://${requiredName} or the matching Secrets Manager ARN.`;
+    return `That secret reference does not name this server. Use secret://${requiredName}.`;
   }
 
   return CLAIM_ERROR_COPY[code];

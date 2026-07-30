@@ -110,9 +110,16 @@ the adapter is strictly ahead of the control plane, so nothing is authorized
 against a stale key. Reversing the order leaves old Lambda values paired with new
 Convex ones for as long as any container stays warm.
 
-A delegated community credential needs none of this — it is read per request and
-never cached across one, so `put-secret-value` alone takes effect. Clear the two
-shell variables when you are done; they hold the live secrets.
+A delegated community credential is cheaper to rotate but not instant: the
+resolver caches each token for five minutes per warm container, so `put-secret-
+value` alone leaves the first claim routed to each stale environment sending the
+old token. That claim fails, burns the attempt's adapter cooldown, and only then
+drops that one container's cache entry. Ask the community to keep the old
+provider key valid for those five minutes, or run the same
+`update-function-configuration` recycle from step 2 to make the change immediate.
+
+Clear `NEW_BEARER` and `NEW_CAPABILITY` when you are done; they hold the live
+secrets.
 
 ## Why the URL needs two permissions
 

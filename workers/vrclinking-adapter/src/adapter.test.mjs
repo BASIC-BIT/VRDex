@@ -164,7 +164,11 @@ describe("adapter request validation", () => {
       validateRequest(baseBody({ delegations: [{ ...DELEGATION, guildId: "nope" }] })).error,
       "no_delegations",
     );
-    assert.equal(validateRequest(baseBody({ delegations: [arn] })).ok, true);
+    // The ARN form is no longer accepted at either end. Its pattern allowed any
+    // region and account while the execution role reads only its own, so a
+    // cross-account reference registered cleanly and then failed every
+    // resolution as `unavailable` with nothing naming the cause.
+    assert.equal(validateRequest(baseBody({ delegations: [arn] })).error, "no_delegations");
   });
 });
 

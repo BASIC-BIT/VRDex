@@ -45,21 +45,21 @@ function secretNameForGuild(guildId: string): string {
   return `vrdex/vrclinking/${guildId}`;
 }
 
+/**
+ * One accepted form: the name.
+ *
+ * The ARN form was accepted too, and it was a trap. Its pattern allowed any
+ * region and any 12-digit account, while the adapter's execution role can read
+ * only its own — so a community registering a cross-account ARN registered
+ * successfully, was selected for claims, and then failed every resolution with
+ * an AWS denial that surfaces as `unavailable` indefinitely, with nothing
+ * pointing back at the reference. The name has no region or account to get
+ * wrong and resolves through Secrets Manager wherever the adapter runs.
+ */
 function isSecretRefForGuild(value: string, guildId: string): boolean {
-  if (value.length > SECRET_REF_MAX_LENGTH) {
-    return false;
-  }
-
-  const name = secretNameForGuild(guildId);
-
-  if (value === `secret://${name}`) {
-    return true;
-  }
-
-  // Secrets Manager appends a six-character suffix to the name in the ARN.
-  return new RegExp(
-    `^arn:aws:secretsmanager:[a-z0-9-]{1,32}:\\d{12}:secret:${name}(-[A-Za-z0-9]{6})?$`,
-  ).test(value);
+  return (
+    value.length <= SECRET_REF_MAX_LENGTH && value === `secret://${secretNameForGuild(guildId)}`
+  );
 }
 
 /**

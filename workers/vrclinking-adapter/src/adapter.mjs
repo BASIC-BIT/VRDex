@@ -62,16 +62,11 @@ function withDeadline(work, remainingMs) {
  * `convex/vrclinkingCredentials.ts`.
  */
 function isSecretRefForGuild(secretRef, guildId) {
-  const name = `vrdex/vrclinking/${guildId}`;
-
-  if (secretRef === `secret://${name}`) {
-    return true;
-  }
-
-  // Secrets Manager appends a six-character suffix to the name in the ARN.
-  return new RegExp(
-    `^arn:aws:secretsmanager:[a-z0-9-]{1,32}:\\d{12}:secret:${name}(-[A-Za-z0-9]{6})?$`,
-  ).test(secretRef);
+  // One form, matching registration. The ARN form was accepted here too, and its
+  // pattern allowed any region and any 12-digit account while this adapter's
+  // execution role can read only its own — so it admitted references that could
+  // never resolve.
+  return secretRef === `secret://vrdex/vrclinking/${guildId}`;
 }
 
 /**
