@@ -986,6 +986,19 @@ export function isSafePublicSeedImportField(field: SeedImportPublicationField): 
 }
 
 /**
+ * Whether a bulk publish run may accept this field on the operator's behalf.
+ *
+ * Only `unreviewed` qualifies. `rejected` and `needs_correction` record a real
+ * review decision and must survive a bulk run, so trusting a source is never
+ * the same as undoing a rejection.
+ */
+export function canBulkAcceptSeedImportField(
+  reviewState: SeedImportFieldReviewState,
+): boolean {
+  return reviewState === "unreviewed";
+}
+
+/**
  * Publish-time gates for a candidate that was already queued for publication.
  *
  * Distinct from `getSeedImportPublicationBlockers`, which gates the *queue*

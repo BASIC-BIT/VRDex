@@ -2,7 +2,7 @@ import { v } from "convex/values";
 
 import { activeBrowserSessionSubjectOrNull } from "./_browserSessionAuthority";
 import type { Doc, Id } from "./_generated/dataModel";
-import { internalMutation, internalQuery, type MutationCtx } from "./_generated/server";
+import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { createProfileSortName } from "./_profileSubmissions";
 import { createProfileSearchDocument, upsertSearchDocument, vocabularyForProfile } from "./_searchDocuments";
 import { buildConciergeProfileFieldPatch } from "./_seedHandoffs";
@@ -10,6 +10,7 @@ import { recordVocabularyTerms } from "./_vocabulary";
 import {
   FAKE_SEED_IMPORT_FIXTURE_KEY,
   FAKE_SEED_IMPORT_FIXTURES,
+  canBulkAcceptSeedImportField,
   candidatePublicationStateForReviewState,
   createSeedImportCandidateDocuments,
   createSeedImportDocuments,
@@ -52,7 +53,7 @@ async function actorFromArgs(
   return (await activeBrowserSessionSubjectOrNull(ctx))?.subject;
 }
 
-async function getCandidateFields(ctx: Pick<MutationCtx, "db">, candidateId: Id<"seedImportCandidateProfiles">) {
+async function getCandidateFields(ctx: Pick<QueryCtx, "db">, candidateId: Id<"seedImportCandidateProfiles">) {
   return await ctx.db
     .query("seedImportCandidateFields")
     .withIndex("by_candidateId", (query) => query.eq("candidateId", candidateId))
@@ -404,14 +405,15 @@ export const matchCandidateToProfile = internalMutation({
   },
 });
 
-export const queueCandidatePublication = internalMutation({
-  args: {
-    candidateId: v.id("seedImportCandidateProfiles"),
-    reviewer: v.optional(seedImportAuthSubjectValidator),
-    reviewNote: reviewNoteValidator,
-    now: v.optional(v.number()),
-  },
-  handler: async (ctx, args) => {
+type QueueCandidateArgs = {
+  candidateId: Id<"seedImportCandidateProfiles">;
+  reviewer?: { tokenIdentifier: string; issuer: string; subject: string; displayName?: string };
+  reviewNote?: string;
+  now?: number;
+};
+
+async function queueCandidate(ctx: MutationCtx, args: QueueCandidateArgs) {
+  {
     const candidate = await ctx.db.get(args.candidateId);
 
     if (candidate === null) {
@@ -474,7 +476,17 @@ export const queueCandidatePublication = internalMutation({
       publicationState: "published_unclaimed" as const,
       note: "Publication is queued only; this mutation does not create or update public profiles.",
     };
+  }
+}
+
+export const queueCandidatePublication = internalMutation({
+  args: {
+    candidateId: v.id("seedImportCandidateProfiles"),
+    reviewer: v.optional(seedImportAuthSubjectValidator),
+    reviewNote: reviewNoteValidator,
+    now: v.optional(v.number()),
   },
+  handler: async (ctx, args) => await queueCandidate(ctx, args),
 });
 
 /**
@@ -548,13 +560,14 @@ export const setBatchPublicationPolicy = internalMutation({
  * Returns `published: false` with blockers instead of throwing so a bulk
  * publish run can skip ineligible candidates and continue.
  */
-export const publishQueuedCandidate = internalMutation({
-  args: {
-    candidateId: v.id("seedImportCandidateProfiles"),
-    reviewer: v.optional(seedImportAuthSubjectValidator),
-    now: v.optional(v.number()),
-  },
-  handler: async (ctx, args) => {
+type PublishCandidateArgs = {
+  candidateId: Id<"seedImportCandidateProfiles">;
+  reviewer?: { tokenIdentifier: string; issuer: string; subject: string; displayName?: string };
+  now?: number;
+};
+
+async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
+  {
     const candidate = await ctx.db.get(args.candidateId);
 
     if (candidate === null) {
@@ -687,6 +700,224 @@ export const publishQueuedCandidate = internalMutation({
       candidateId: candidate._id,
       profileId,
       slug: profile.slug,
+    };
+  }
+}
+
+export const publishQueuedCandidate = internalMutation({
+  args: {
+    candidateId: v.id("seedImportCandidateProfiles"),
+    reviewer: v.optional(seedImportAuthSubjectValidator),
+    now: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => await publishCandidate(ctx, args),
+});
+
+async function resolveBatch(
+  ctx: Pick<QueryCtx, "db">,
+  args: { batchId?: Id<"seedImportBatches">; externalBatchId?: string },
+) {
+  if (args.batchId !== undefined) {
+    return await ctx.db.get(args.batchId);
+  }
+
+  if (args.externalBatchId === undefined) {
+    throw new Error("Provide either batchId or externalBatchId.");
+  }
+
+  return await ctx.db
+    .query("seedImportBatches")
+    .withIndex("by_externalBatchId", (query) =>
+      query.eq("externalBatchId", args.externalBatchId as string),
+    )
+    .unique();
+}
+
+/**
+ * Read-only publication preview for a whole batch.
+ *
+ * Counts only. Never returns candidate names, field values, or source rows, so
+ * it is safe to run against production from an operator terminal.
+ */
+export const previewBatchPublication = internalQuery({
+  args: {
+    batchId: v.optional(v.id("seedImportBatches")),
+    externalBatchId: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const batch = await resolveBatch(ctx, args);
+
+    if (batch === null) {
+      throw new Error("Seed import batch not found.");
+    }
+
+    const candidates = await ctx.db
+      .query("seedImportCandidateProfiles")
+      .withIndex("by_batchId", (query) => query.eq("batchId", batch._id))
+      .collect();
+
+    const tally = (values: string[]) =>
+      values.reduce<Record<string, number>>((counts, value) => {
+        counts[value] = (counts[value] ?? 0) + 1;
+        return counts;
+      }, {});
+
+    const fieldReviewStates: string[] = [];
+
+    for (const candidate of candidates) {
+      const fields = await getCandidateFields(ctx, candidate._id);
+      fieldReviewStates.push(...fields.map((field) => field.reviewState));
+    }
+
+    return {
+      externalBatchId: batch.externalBatchId,
+      sourceName: batch.sourceName,
+      batchReviewState: batch.reviewState,
+      publicationPolicy: batch.publicationPolicy ?? "private_only",
+      candidateCount: candidates.length,
+      candidateReviewStates: tally(candidates.map((candidate) => candidate.reviewState)),
+      candidatePublicationStates: tally(candidates.map((candidate) => candidate.publicationState)),
+      candidateProfileTypes: tally(candidates.map((candidate) => candidate.profileType)),
+      alreadyPublishedCount: candidates.filter(
+        (candidate) => candidate.publishedProfileId !== undefined,
+      ).length,
+      fieldCount: fieldReviewStates.length,
+      fieldReviewStates: tally(fieldReviewStates),
+    };
+  },
+});
+
+/**
+ * Publish a whole batch in pages.
+ *
+ * Runs the same per-candidate path as the single-candidate mutations, including
+ * the queue-time gate, so bulk publishing cannot skip the field-safety checks
+ * (`unsafe_public_field`, `owner_confirmed_field_without_claim`,
+ * `field_needs_correction`) that gate a one-off publish.
+ *
+ * `acceptFields` is the trusted-source shortcut: it accepts fields that are
+ * still `unreviewed`, and deliberately leaves `rejected` and `needs_correction`
+ * fields alone because those record a real review decision.
+ *
+ * Call repeatedly until `remaining` reaches zero.
+ */
+export const bulkPublishBatch = internalMutation({
+  args: {
+    batchId: v.optional(v.id("seedImportBatches")),
+    externalBatchId: v.optional(v.string()),
+    reason: v.string(),
+    acceptFields: v.optional(v.boolean()),
+    limit: v.optional(v.number()),
+    reviewer: v.optional(seedImportAuthSubjectValidator),
+    now: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const batch = await resolveBatch(ctx, args);
+
+    if (batch === null) {
+      throw new Error("Seed import batch not found.");
+    }
+
+    const reason = optionalReviewNote(args.reason);
+
+    if (reason === undefined) {
+      throw new Error("Bulk publishing requires a reason recording the source permission.");
+    }
+
+    const now = args.now ?? Date.now();
+    const reviewer = await actorFromArgs(ctx, args.reviewer);
+    const limit = Math.max(1, Math.min(args.limit ?? 25, 200));
+
+    // Batch-level prerequisites, applied once and idempotent.
+    if (batch.reviewState !== "approved" || (batch.publicationPolicy ?? "private_only") !== "reviewed_publication_allowed") {
+      await ctx.db.patch(batch._id, {
+        reviewState: "approved",
+        publicationPolicy: "reviewed_publication_allowed",
+        reviewedBy: reviewer,
+        reviewedAt: now,
+        ...optionalValue(
+          "notes",
+          optionalReviewNote(
+            `Bulk publish by ${reviewer?.displayName ?? reviewer?.subject ?? "unknown operator"}: ${reason}`,
+          ),
+        ),
+        updatedAt: now,
+      });
+    }
+
+    const candidates = await ctx.db
+      .query("seedImportCandidateProfiles")
+      .withIndex("by_batchId", (query) => query.eq("batchId", batch._id))
+      .collect();
+    const pending = candidates.filter((candidate) => candidate.publishedProfileId === undefined);
+    const page = pending.slice(0, limit);
+
+    let published = 0;
+    const skipped: Array<{ externalCandidateId: string; blockers: string[] }> = [];
+
+    for (const candidate of page) {
+      if (args.acceptFields === true) {
+        const fields = await getCandidateFields(ctx, candidate._id);
+
+        for (const field of fields) {
+          if (canBulkAcceptSeedImportField(field.reviewState)) {
+            await ctx.db.patch(field._id, {
+              reviewState: "accepted",
+              reviewedAt: now,
+              ...optionalValue("reviewer", reviewer),
+              updatedAt: now,
+            });
+          }
+        }
+      }
+
+      if (candidate.reviewState !== "accepted") {
+        await ctx.db.patch(candidate._id, {
+          reviewState: "accepted",
+          publicationState: candidatePublicationStateForReviewState("accepted"),
+          ...optionalValue("reviewer", reviewer),
+          reviewedAt: now,
+          updatedAt: now,
+        });
+      }
+
+      const queueResult = await queueCandidate(ctx, {
+        candidateId: candidate._id,
+        ...optionalValue("reviewer", reviewer),
+        reviewNote: reason,
+        now,
+      });
+
+      if (!queueResult.queued) {
+        skipped.push({
+          externalCandidateId: candidate.externalCandidateId,
+          blockers: queueResult.blockers,
+        });
+        continue;
+      }
+
+      const publishResult = await publishCandidate(ctx, {
+        candidateId: candidate._id,
+        ...optionalValue("reviewer", reviewer),
+        now,
+      });
+
+      if (publishResult.published) {
+        published += 1;
+      } else {
+        skipped.push({
+          externalCandidateId: candidate.externalCandidateId,
+          blockers: publishResult.blockers,
+        });
+      }
+    }
+
+    return {
+      externalBatchId: batch.externalBatchId,
+      processed: page.length,
+      published,
+      skipped,
+      remaining: Math.max(0, pending.length - page.length),
     };
   },
 });

@@ -138,6 +138,53 @@ Publish behavior worth knowing:
 Ineligible candidates return `published: false` with a blocker list rather than
 throwing, so a bulk run can skip and continue.
 
+### Bulk Publishing A Batch
+
+Doing the three steps by hand is one call per candidate per field, which is not
+practical for a few hundred people. `pnpm ops:seed-publish` drives the whole
+batch.
+
+Preview first. Without `--apply` it writes nothing and prints counts only, so it
+is safe to run against production:
+
+```powershell
+pnpm ops:seed-publish -- --batch-id nwinn_2026_07_10_001 --prod
+```
+
+Then publish:
+
+```powershell
+pnpm ops:seed-publish -- `
+  --batch-id nwinn_2026_07_10_001 `
+  --actor-token operator:vrdex `
+  --actor-issuer vrdex `
+  --actor-subject seed-publish `
+  --actor-name "VRDex operator" `
+  --reason "Source confirmed public listing is permitted." `
+  --accept-fields `
+  --limit 25 `
+  --apply `
+  --prod
+```
+
+- `--reason` is required and is recorded on the batch. It is the record of the
+  operator asserting the source permits public listing.
+- `--accept-fields` is the trusted-source shortcut. It accepts fields still
+  marked `unreviewed`; `rejected` and `needs_correction` fields are always left
+  alone, so trusting a source never undoes a review decision. Without this flag
+  every field must already be reviewed or the candidate is skipped with
+  `field_unreviewed`.
+- `--limit` is the page size, not a cap. The script loops until the batch is
+  drained and prints running progress.
+- Re-running is safe. Already-published candidates are excluded by
+  `publishedProfileId`, so an interrupted run resumes.
+- The final report tallies skipped candidates by blocker and lists their
+  external candidate ids, so a partial success is actionable rather than silent.
+
+`--accept-fields` bypasses per-field human review by design. It is appropriate
+for a source whose data quality is trusted, and it is the operator's call, not a
+default.
+
 ## Lookup Grants
 
 The first grant for the operator is `super_admin`. Beta users receive only

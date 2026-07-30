@@ -103,6 +103,8 @@
     "ops:seed-import:json": "node scripts/import-seed-json.mjs",
     "preops:seed-handoff:create": "node scripts/guard-main-worktree.mjs",
     "ops:seed-handoff:create": "node scripts/create-seed-handoff.mjs",
+    "preops:seed-publish": "node scripts/guard-main-worktree.mjs",
+    "ops:seed-publish": "node scripts/publish-seed-batch.mjs",
     "prelint:web": "node scripts/guard-main-worktree.mjs",
     "lint:web": "pnpm --filter web lint",
     "pretest:web": "node scripts/guard-main-worktree.mjs",

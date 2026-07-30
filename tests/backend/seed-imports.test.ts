@@ -7,6 +7,7 @@ import {
   FAKE_SEED_IMPORT_FIXTURES,
   candidatePublicationStateForReviewState,
   createSeedImportDocumentsFromFixture,
+  canBulkAcceptSeedImportField,
   getSeedImportPublicationBlockers,
   getSeedImportPublishBlockers,
   normalizeSeedImportFixture,
@@ -294,6 +295,13 @@ describe("seed import publish guards", () => {
     });
 
     assert.ok(blockers.includes("candidate_profile_type_unsupported"));
+  });
+
+  it("bulk-accepts only unreviewed fields, never undoing a review decision", () => {
+    assert.equal(canBulkAcceptSeedImportField("unreviewed"), true);
+    assert.equal(canBulkAcceptSeedImportField("rejected"), false);
+    assert.equal(canBulkAcceptSeedImportField("needs_correction"), false);
+    assert.equal(canBulkAcceptSeedImportField("accepted"), false);
   });
 
   it("blocks publishing over a claimed matched profile", () => {
