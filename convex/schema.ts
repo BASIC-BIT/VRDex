@@ -649,6 +649,63 @@ export default defineSchema({
   // functions that could clean them up are even installed. `ensureUser` always
   // sets it, and a row without one simply never matches the index, so it can
   // authenticate nobody. Tighten to `v.string()` once the legacy rows are gone.
+  // ---------------------------------------------------------------------------
+  // Convex Auth leftovers, phase one of a two-phase removal.
+  //
+  // These are declared but unused. Nothing reads or writes them — the modules
+  // that did are deleted — and they exist only so a deployment that still holds
+  // Convex Auth documents can accept this schema. Convex rejects a push that
+  // leaves a populated table undeclared, and both `baseline-checks.yml` and
+  // `staging-deploy.yml` deploy on merge, before the cutover purge in
+  // `docs/backend/auth-sessions.md` could possibly run. Dropping them here would
+  // make the deploy fail before the cleanup that would have made dropping them
+  // safe.
+  //
+  // Delete this block once every deployment's purge is done, in the same change
+  // that tightens `users.clerkUserId` to `v.string()`.
+  authSessions: defineTable({
+    userId: v.id("users"),
+    expirationTime: v.number(),
+  }).index("userId", ["userId"]),
+  authAccounts: defineTable({
+    userId: v.id("users"),
+    provider: v.string(),
+    providerAccountId: v.string(),
+    secret: v.optional(v.string()),
+    emailVerified: v.optional(v.string()),
+    phoneVerified: v.optional(v.string()),
+  })
+    .index("userIdAndProvider", ["userId", "provider"])
+    .index("providerAndAccountId", ["provider", "providerAccountId"]),
+  authRefreshTokens: defineTable({
+    sessionId: v.id("authSessions"),
+    expirationTime: v.number(),
+    firstUsedTime: v.optional(v.number()),
+    parentRefreshTokenId: v.optional(v.id("authRefreshTokens")),
+  })
+    .index("sessionId", ["sessionId"])
+    .index("sessionIdAndParentRefreshTokenId", ["sessionId", "parentRefreshTokenId"]),
+  authVerificationCodes: defineTable({
+    accountId: v.id("authAccounts"),
+    provider: v.string(),
+    code: v.string(),
+    expirationTime: v.number(),
+    verifier: v.optional(v.string()),
+    emailVerified: v.optional(v.string()),
+    phoneVerified: v.optional(v.string()),
+  })
+    .index("accountId", ["accountId"])
+    .index("code", ["code"]),
+  authVerifiers: defineTable({
+    sessionId: v.optional(v.id("authSessions")),
+    signature: v.optional(v.string()),
+  }).index("signature", ["signature"]),
+  authRateLimits: defineTable({
+    identifier: v.string(),
+    lastAttemptTime: v.number(),
+    attemptsLeft: v.number(),
+  }).index("identifier", ["identifier"]),
+  // ---------------------------------------------------------------------------
   users: defineTable({
     clerkUserId: v.optional(v.string()),
     name: v.optional(v.string()),

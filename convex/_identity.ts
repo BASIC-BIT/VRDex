@@ -91,6 +91,23 @@ export async function identityEmailVerified(ctx: IdentityCtx) {
 }
 
 /**
+ * The email Clerk currently asserts, and whether it vouches for it.
+ *
+ * Exposed here rather than read directly by callers so the authorization
+ * boundary holds: `tests/backend/auth-session-authorization-boundary.test.ts`
+ * confines `ctx.auth.getUserIdentity()` to this module and
+ * `_browserSessionAuthority`.
+ */
+export async function identityEmail(ctx: IdentityCtx) {
+  const identity = await ctx.auth.getUserIdentity();
+
+  return {
+    email: identity?.email ?? undefined,
+    emailVerified: identity?.emailVerified === true,
+  };
+}
+
+/**
  * Provisioning happens on demand from `users:ensureCurrentUser` rather than a
  * Clerk webhook: no endpoint to expose, no signature to verify, and no replay
  * or retry semantics to get wrong. Idempotent, so a concurrent duplicate call

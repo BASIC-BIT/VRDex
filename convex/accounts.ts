@@ -3,7 +3,7 @@ import { claimError } from "./_claimErrors";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { query } from "./_generated/server";
-import { currentUserOrNull, identityEmailVerified } from "./_identity";
+import { currentUserOrNull, identityEmail, identityEmailVerified } from "./_identity";
 
 type AccountCtx = QueryCtx | MutationCtx;
 
@@ -109,12 +109,21 @@ export const viewer = query({
 
     // Connected sign-in methods are rendered by Clerk's own account UI, so this
     // no longer reports them.
+    //
+    // `emailVerified` comes from the token rather than the mirrored column, for
+    // the same reason the claim guards do. `ensureUser` runs from the client and
+    // can lag — a token refresh after an email change does not re-trigger it —
+    // so the column could still say "Verified" for an address Clerk no longer
+    // vouches for. Reading the claim makes what the account page displays agree
+    // with what the guards enforce.
+    const identity = await identityEmail(ctx);
+
     return {
       user: {
         id: user._id,
         name: user.name,
-        email: user.email,
-        emailVerified: user.emailVerificationTime !== undefined,
+        email: identity.email ?? user.email,
+        emailVerified: identity.emailVerified,
         image: user.image,
       },
     };

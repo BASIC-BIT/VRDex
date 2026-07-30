@@ -125,8 +125,13 @@ jobs:
           VRDEX_E2E_RUN_ID: deployed-${{ github.run_id }}-${{ github.run_attempt }}
         run: pnpm test:e2e:hosted
 
+      # Disabled, not skipped-by-accident: `auth-session.flow.spec.ts` is skipped
+      # wholesale until #226 rewires hosted auth to Clerk testing tokens. Running
+      # it would exit 0 without exercising a single session assertion, and the
+      # summary below would report that as a passing contract — false-green
+      # evidence for exactly the surface this cutover changes most.
       - name: Run recurring staging auth session contract
-        if: steps.gate.outputs.enabled == 'true' && vars.VRDEX_HOSTED_E2E_AUTH_HELPERS == 'true'
+        if: false
         id: auth_session
         env:
           PLAYWRIGHT_BASE_URL: ${{ steps.gate.outputs.base_url }}
@@ -163,7 +168,7 @@ jobs:
 
           Hosted adapter helpers: ${HOSTED_ADAPTER_HELPERS:-skipped}
 
-          Recurring auth session contract: ${HOSTED_AUTH_SESSION_OUTCOME:-skipped}
+          Recurring auth session contract: unavailable (auth-session specs are skipped until #226 rewires hosted auth to Clerk; this lane asserts nothing)
 
           Hosted developer credentials: ${HOSTED_DEVELOPER_CREDENTIALS:-skipped}
 
@@ -172,7 +177,7 @@ jobs:
           - hosted Convex profile creation
           - hosted public profile page readback
           - hosted discovery search readback
-          - disposable-account auth refresh, persistent-profile restart, and sign-out when auth helpers are enabled
+          - auth refresh, browser restart, and sign-out are NOT captured: see #226
           - hosted E2E cleanup
 
           Run: ${RUN_URL}
