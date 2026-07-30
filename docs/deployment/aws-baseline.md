@@ -10,7 +10,7 @@ VRDex uses AWS narrowly for early supporting infrastructure. The current baselin
 
 The first AWS baseline covers:
 
-- Amazon SES for Convex Auth password and email verification messages
+- Amazon SES, retired for authentication now that Clerk sends its own verification email; see [`ses-auth-email.md`](./ses-auth-email.md)
 - Route 53 DNS records for the SES sender domain
 - IAM credentials scoped to SES sending for Convex
 - a private S3 asset bucket for owner-authored profile assets, tracked by [#115](https://github.com/BASIC-BIT/VRDex/issues/115)

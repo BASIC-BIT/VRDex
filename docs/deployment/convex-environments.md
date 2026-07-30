@@ -156,10 +156,13 @@ on the production Discord application. The optional bot and collector paths, and
 the exact operator steps, are documented in
 [`claim-verification-enablement.md`](./claim-verification-enablement.md).
 
-Session durations are code-owned rather than dashboard-owned. See
-[`docs/backend/auth-sessions.md`](../backend/auth-sessions.md). Do not add
-`AUTH_SESSION_TOTAL_DURATION_MS` or `AUTH_SESSION_INACTIVE_DURATION_MS` as
-undocumented deployment overrides.
+Session durations are Clerk instance settings, not code and not Convex
+environment variables — the constants that once owned them are deleted. Set the
+session lifetime and inactivity timeout in each Clerk instance's session
+settings, and the token lifetime on its `convex` JWT template, which is also the
+revocation window. Verify by reading the template's lifetime in the Clerk
+dashboard; nothing in this repository can assert it. See
+[`docs/backend/auth-sessions.md`](../backend/auth-sessions.md).
 
 The production authenticated smoke lane does not require Convex E2E helpers and should not enable them in production. It reuses the normal production Auth configuration above and only supplies a pre-authenticated browser storage state from GitHub Actions.
 

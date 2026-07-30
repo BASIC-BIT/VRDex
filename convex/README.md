@@ -4,8 +4,9 @@ This directory holds the initial Convex backend slice for `VRDex`.
 
 - `health.ts` exposes the placeholder public query `health:status`
 - `schema.ts` defines the base `profiles` table for people/communities and the first `worlds` table
-- `auth.ts` and `http.ts` configure Convex Auth providers and HTTP routes
-- `accounts.ts` exposes current viewer and linked-provider helpers
+- `auth.config.ts` names the Clerk issuer Convex trusts; `http.ts` registers the app's HTTP routes
+- `_identity.ts` resolves a Clerk identity to a `users` row; `users.ts` provisions it on demand
+- `accounts.ts` exposes current-viewer helpers and the verified-Discord lookup claiming uses
 - `_profileSlugs.ts` contains pure profile slug validation, generation, and lookup helpers
 - `_profileStates.ts` contains pure claim-state and trust-label helpers
 - `_profilePermissions.ts` contains pure profile read/write permission baseline helpers

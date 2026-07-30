@@ -71,9 +71,12 @@ if (isVercel && requireConvexUrl) {
 
   const publishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.trim();
 
-  if (publishableKey && isProductionVercel && publishableKey.startsWith("pk_test_")) {
+  // Validated positively. Rejecting only `pk_test_` would let a truncated or
+  // otherwise malformed value through, and the build would succeed while
+  // ClerkProvider and the middleware failed at runtime.
+  if (publishableKey && isProductionVercel && !publishableKey.startsWith("pk_live_")) {
     errors.push(
-      "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY must use a live Clerk instance (pk_live_) for production builds.",
+      "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY must be a live Clerk publishable key (pk_live_...) for production builds.",
     );
   }
 }
