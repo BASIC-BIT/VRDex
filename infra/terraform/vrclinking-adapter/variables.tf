@@ -22,14 +22,30 @@ variable "source_zip_path" {
   default     = "../../../artifacts/vrclinking-adapter.zip"
 }
 
+# Both must live in `aws_region`. `bootstrap.mjs` builds one
+# `SecretsManagerClient` with the function's default region and sends every ARN
+# to that endpoint, so a secret stored elsewhere plans and applies cleanly and
+# then fails every cold start with `adapter_misconfigured` — a deployment that
+# looks correct in Terraform and answers nothing. Caught here rather than at
+# runtime, where the only symptom is a 500.
 variable "bearer_token_secret_arn" {
-  description = "Secrets Manager ARN holding the shared adapter bearer token. Must match Convex's VRCHAT_PROOF_ADAPTER_BEARER_TOKEN."
+  description = "Secrets Manager ARN holding the shared adapter bearer token, in aws_region. Must match Convex's VRCHAT_PROOF_ADAPTER_BEARER_TOKEN."
   type        = string
+
+  validation {
+    condition     = can(regex("^arn:aws:secretsmanager:${var.aws_region}:\\d{12}:secret:", var.bearer_token_secret_arn))
+    error_message = "bearer_token_secret_arn must be a Secrets Manager ARN in aws_region; the adapter resolves every secret through one regional client."
+  }
 }
 
 variable "capability_key_secret_arn" {
-  description = "Secrets Manager ARN holding the capability signing key. Must match Convex's VRCLINKING_ADAPTER_CAPABILITY_KEY, and must be a different value from the bearer token."
+  description = "Secrets Manager ARN holding the capability signing key, in aws_region. Must match Convex's VRCLINKING_ADAPTER_CAPABILITY_KEY, and must be a different value from the bearer token."
   type        = string
+
+  validation {
+    condition     = can(regex("^arn:aws:secretsmanager:${var.aws_region}:\\d{12}:secret:", var.capability_key_secret_arn))
+    error_message = "capability_key_secret_arn must be a Secrets Manager ARN in aws_region; the adapter resolves every secret through one regional client."
+  }
 }
 
 variable "provider_base_url" {

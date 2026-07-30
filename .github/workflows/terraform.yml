@@ -31,6 +31,7 @@ on:
           - rate-limit-redis
           - restream-worker
           - group-telemetry-collector
+          - vrclinking-adapter
       apply:
         description: Apply the selected stack after a successful plan.
         required: true
