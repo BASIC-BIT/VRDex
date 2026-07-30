@@ -32,9 +32,9 @@ import {
   seedImportPublicationPolicyValidator,
 } from "./_seedImportValidators";
 import {
+  createProfileSlugBase,
   findAvailableProfileSlug,
   getProfileBySlug,
-  toProfileSlug,
   validateProfileSlug,
 } from "./_profileSlugs";
 
@@ -638,9 +638,11 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
     // proposedSlug. Otherwise a candidate with no slug whose name normalizes onto
     // an existing profile silently allocates a suffixed slug and creates a second
     // public profile for the same person instead of asking the operator to match.
-    const derivedBaseSlug = toProfileSlug(candidate.proposedDisplayName);
-    const collisionSlug =
-      validProposedSlug ?? (derivedBaseSlug.ok ? derivedBaseSlug.slug : undefined);
+    // Built with createProfileSlugBase, the same function findAvailableProfileSlug
+    // allocates from. toProfileSlug errors on reserved, too-short, or empty names
+    // that the allocator repairs, so using it here would skip the collision check
+    // for exactly those repaired names.
+    const collisionSlug = validProposedSlug ?? createProfileSlugBase(candidate.proposedDisplayName);
     const slugCollisionProfile =
       collisionSlug === undefined ? null : await getProfileBySlug(ctx.db, collisionSlug);
     const targetSlug =

@@ -1,6 +1,20 @@
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseWriter } from "./_generated/server";
 import type { AuthSubject } from "./_communityAuthority";
+import {
+  PROFILE_ALIAS_MAX_COUNT,
+  PROFILE_ALIAS_MAX_LENGTH,
+  PROFILE_SUBTYPE_MAX_LENGTH,
+  PROFILE_TAG_MAX_COUNT,
+  PROFILE_TAG_MAX_LENGTH,
+} from "./_profileSubmissions";
+import {
+  PROFILE_BIO_MAX_LENGTH,
+  PROFILE_HEADLINE_MAX_LENGTH,
+  PROFILE_PERSON_PRONOUNS_MAX_LENGTH,
+  PROFILE_REGION_MAX_LENGTH,
+  PROFILE_TIMEZONE_MAX_LENGTH,
+} from "./_profileUpdates";
 
 export type SeedImportFixture = {
   batchId: string;
@@ -136,7 +150,8 @@ export type SeedImportPublicationBlocker =
   | "unsafe_public_field"
   | "candidate_not_queued_for_publication"
   | "candidate_profile_type_unsupported"
-  | "matched_profile_type_mismatch";
+  | "matched_profile_type_mismatch"
+  | "field_exceeds_public_profile_limits";
 
 type SeedImportPublicationCandidate = Pick<
   Doc<"seedImportCandidateProfiles">,
@@ -1024,6 +1039,54 @@ export function canBulkApproveSeedImportBatch(
   return reviewState === "draft" || reviewState === "ready_for_review" || reviewState === "approved";
 }
 
+const PUBLIC_LIST_FIELD_LIMITS: Record<string, { maxItems: number; maxLength: number }> = {
+  aliases: { maxItems: PROFILE_ALIAS_MAX_COUNT, maxLength: PROFILE_ALIAS_MAX_LENGTH },
+  tags: { maxItems: PROFILE_TAG_MAX_COUNT, maxLength: PROFILE_TAG_MAX_LENGTH },
+  "person.roleTags": { maxItems: PROFILE_TAG_MAX_COUNT, maxLength: PROFILE_TAG_MAX_LENGTH },
+  "community.categoryTags": { maxItems: PROFILE_TAG_MAX_COUNT, maxLength: PROFILE_TAG_MAX_LENGTH },
+};
+
+const PUBLIC_TEXT_FIELD_LIMITS: Record<string, number> = {
+  headline: PROFILE_HEADLINE_MAX_LENGTH,
+  bio: PROFILE_BIO_MAX_LENGTH,
+  region: PROFILE_REGION_MAX_LENGTH,
+  timezone: PROFILE_TIMEZONE_MAX_LENGTH,
+  "person.pronouns": PROFILE_PERSON_PRONOUNS_MAX_LENGTH,
+  "community.subtype": PROFILE_SUBTYPE_MAX_LENGTH,
+};
+
+/**
+ * Whether an accepted field would exceed the bounds the rest of the app enforces
+ * on public profiles.
+ *
+ * Private seed staging is deliberately more permissive than a public profile: it
+ * accepts far longer text and longer lists so a source can be captured verbatim.
+ * Writing those values straight onto a public profile would store data no public
+ * editing path could ever produce.
+ */
+export function exceedsPublicProfileLimits(
+  field: Pick<Doc<"seedImportCandidateFields">, "fieldKey" | "value">,
+): boolean {
+  const listLimits = PUBLIC_LIST_FIELD_LIMITS[field.fieldKey];
+
+  if (listLimits !== undefined) {
+    const values = Array.isArray(field.value) ? field.value : [];
+
+    return (
+      values.length > listLimits.maxItems ||
+      values.some((value) => typeof value === "string" && value.trim().length > listLimits.maxLength)
+    );
+  }
+
+  const textLimit = PUBLIC_TEXT_FIELD_LIMITS[field.fieldKey];
+
+  if (textLimit !== undefined) {
+    return typeof field.value === "string" && field.value.trim().length > textLimit;
+  }
+
+  return false;
+}
+
 /**
  * Field-level review and safety gates.
  *
@@ -1056,6 +1119,10 @@ export function getSeedImportFieldBlockers(
       !isSafePublicSeedImportField(field)
     ) {
       blockers.add("unsafe_public_field");
+    }
+
+    if (field.reviewState === "accepted" && exceedsPublicProfileLimits(field)) {
+      blockers.add("field_exceeds_public_profile_limits");
     }
   }
 

@@ -138,6 +138,11 @@ Publish behavior worth knowing:
   with no slug at all.
 - A person candidate matched to a community profile is blocked with
   `matched_profile_type_mismatch` rather than attempting a cross-type write.
+- Accepted fields are also checked against the public profile bounds the rest of
+  the app enforces (8 aliases of 60 characters, a 600-character bio, and so on).
+  Private seed staging is deliberately more permissive so a source can be captured
+  verbatim, so an oversized field is reported as
+  `field_exceeds_public_profile_limits` rather than written to a public profile.
 - Slug collision is checked on the derived base slug as well as an explicit
   `proposedSlug`. A candidate whose name normalizes onto an existing profile is
   blocked with `slug_collision_blocks_publication` rather than silently getting a
@@ -258,9 +263,15 @@ Notes:
 - Accepting sets `opted_out`, not `suppressed`. `suppressed` stays reserved for
   moderation action rather than a request someone made about themselves, and an
   already-`suppressed` profile keeps that state.
-- Retraction also rebuilds the search documents of any world that credits the
-  profile, so searching the retracted name stops surfacing its world
-  associations.
+- Retraction schedules a paged rebuild of the search documents of any world that
+  credits the profile, so searching the retracted name stops surfacing its world
+  associations. The rebuild is scheduled rather than inline so a profile credited
+  on many worlds cannot roll back the acceptance itself.
+- Known limitation: an event stores `communityName` directly, and both the event
+  search document and the public event page deliberately fall back to that stored
+  name when the linked profile is not publicly readable. Retracting a community
+  profile therefore does not remove its name from events it hosts. Suppressing
+  that fallback needs a decision about what an event should display instead.
 - Known limitation: retraction does **not** reconcile `vocabularyTerms`. Nothing
   in the codebase decrements vocabulary usage, so a tag or genre contributed by a
   retracted profile can still appear in discovery vocabulary with its usage count.

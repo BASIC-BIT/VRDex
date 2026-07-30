@@ -341,6 +341,59 @@ describe("seed import publish guards", () => {
     }
   });
 
+  it("blocks accepted fields that exceed public profile limits", () => {
+    const blockers = getSeedImportPublishBlockers({
+      batch: publishableBatch,
+      candidate: queuedCandidate,
+      fields: [
+        {
+          fieldKey: "bio",
+          // Valid in private staging, far past the 600-character public limit.
+          value: "x".repeat(1_200),
+          confidence: "medium" as const,
+          reviewState: "accepted" as const,
+          visibility: "public" as const,
+        },
+      ],
+    });
+
+    assert.ok(blockers.includes("field_exceeds_public_profile_limits"));
+
+    const aliasBlockers = getSeedImportPublishBlockers({
+      batch: publishableBatch,
+      candidate: queuedCandidate,
+      fields: [
+        {
+          fieldKey: "aliases",
+          value: Array.from({ length: 20 }, (_, index) => `alias-${index}`),
+          confidence: "medium" as const,
+          reviewState: "accepted" as const,
+          visibility: "public" as const,
+        },
+      ],
+    });
+
+    assert.ok(aliasBlockers.includes("field_exceeds_public_profile_limits"));
+
+    // Within limits, so no blocker.
+    assert.deepEqual(
+      getSeedImportPublishBlockers({
+        batch: publishableBatch,
+        candidate: queuedCandidate,
+        fields: [
+          {
+            fieldKey: "bio",
+            value: "Short bio",
+            confidence: "medium" as const,
+            reviewState: "accepted" as const,
+            visibility: "public" as const,
+          },
+        ],
+      }),
+      [],
+    );
+  });
+
   it("rechecks field review states at publish time", () => {
     const blockers = getSeedImportPublishBlockers({
       batch: publishableBatch,

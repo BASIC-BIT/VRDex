@@ -29,6 +29,10 @@ export async function hasAcceptedSuppression(
   identity: SuppressionIdentity,
 ): Promise<boolean> {
   const profileId = identity.profileId;
+  // Requests that name a specific profile are excluded from the name scan below.
+  // Such a request already resolved to its target by id or slug; letting it also
+  // match on name would block an unrelated namesake the requester never named.
+  const targetedProfileIds = new Set<string>();
 
   if (profileId !== undefined) {
     const byProfileId = await db
@@ -41,6 +45,8 @@ export async function hasAcceptedSuppression(
     if (byProfileId.length > 0) {
       return true;
     }
+
+    targetedProfileIds.add(profileId);
   }
 
   const slug = identity.slug;
@@ -92,10 +98,33 @@ export async function hasAcceptedSuppression(
     .withIndex("by_state_createdAt", (query) => query.eq("state", "accepted"))
     .collect();
 
-  return acceptedRequests.some(
-    (request) =>
-      request.displayName !== undefined &&
-      normalizedNames.has(createProfileSortName(request.displayName)) &&
-      (request.profileType === undefined || request.profileType === identity.profileType),
-  );
+  for (const request of acceptedRequests) {
+    if (request.displayName === undefined) {
+      continue;
+    }
+
+    if (!normalizedNames.has(createProfileSortName(request.displayName))) {
+      continue;
+    }
+
+    if (request.profileType !== undefined && request.profileType !== identity.profileType) {
+      continue;
+    }
+
+    // A request filed against a profile that still exists is targeted, not a
+    // name-only pre-claim request, so it must not match a namesake.
+    if (request.profileId !== undefined) {
+      if (targetedProfileIds.has(request.profileId)) {
+        return true;
+      }
+
+      if ((await db.get(request.profileId)) !== null) {
+        continue;
+      }
+    }
+
+    return true;
+  }
+
+  return false;
 }

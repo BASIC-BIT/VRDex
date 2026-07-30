@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 
+import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, mutation, type MutationCtx } from "./_generated/server";
 import { activeBrowserSessionSubjectOrNull } from "./_browserSessionAuthority";
@@ -89,40 +90,6 @@ export const requestProfileSuppression = mutation({
     return { requestId };
   },
 });
-
-/**
- * Rebuild search documents for worlds that credit this profile.
- *
- * The public world projection filters hidden attributions dynamically, but a
- * world's stored search document keeps the profile's display name in `searchText`
- * and `exactTokens` until something rebuilds it. Without this, searching the
- * opted-out identity still surfaces its world associations.
- */
-async function reindexWorldsCreditingProfile(
-  db: MutationCtx["db"],
-  profile: Doc<"profiles">,
-) {
-  const credits = await db
-    .query("worldProfileCredits")
-    .withIndex("by_profileType_profileSlug", (query) =>
-      query.eq("profileType", profile.profileType).eq("profileSlug", profile.slug),
-    )
-    .collect();
-  const worldIds = [...new Set(credits.map((credit) => credit.worldId))];
-
-  for (const worldId of worldIds) {
-    const world = await db.get(worldId);
-
-    if (world === null) {
-      continue;
-    }
-
-    const hiddenProfileKeys = await getHiddenWorldAttributionProfileKeys(db, world);
-    await upsertSearchDocument(db, createWorldSearchDocument(world, { hiddenProfileKeys }));
-  }
-
-  return worldIds.length;
-}
 
 /**
  * Whether a slug-matched profile is actually the one a request names.
@@ -270,7 +237,14 @@ export const resolveProfileSuppression = internalMutation({
 
         if (updated !== null) {
           await upsertSearchDocument(ctx.db, createProfileSearchDocument(updated));
-          await reindexWorldsCreditingProfile(ctx.db, updated);
+          // Scheduled rather than inline: the cascade is unbounded in principle, and
+          // an oversized transaction would roll back the acceptance itself, leaving a
+          // safety request unaccepted and the profile public. Retraction of the
+          // profile must land even if the cascade needs many passes.
+          await ctx.scheduler.runAfter(0, internal.suppressions.reindexWorldsCreditingProfile, {
+            profileType: updated.profileType,
+            profileSlug: updated.slug,
+          });
         }
 
         applied.push(profile._id);
@@ -294,5 +268,57 @@ export const resolveProfileSuppression = internalMutation({
       state: args.state,
       appliedToProfileIds: applied,
     };
+  },
+});
+
+const WORLD_REINDEX_PAGE_SIZE = 25;
+
+/**
+ * Rebuild search documents for worlds crediting a retracted profile, in pages.
+ *
+ * The public world projection filters hidden attributions dynamically, but a
+ * world's stored search document keeps the profile's display name in `searchText`
+ * and `exactTokens` until something rebuilds it, so searching the retracted
+ * identity would still surface its world associations.
+ *
+ * Reschedules itself while pages remain, so a profile credited on many worlds
+ * cannot push this over a transaction limit.
+ */
+export const reindexWorldsCreditingProfile = internalMutation({
+  args: {
+    profileType: v.union(v.literal("person"), v.literal("community")),
+    profileSlug: v.string(),
+    cursor: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const credits = await ctx.db
+      .query("worldProfileCredits")
+      .withIndex("by_profileType_profileSlug", (query) =>
+        query.eq("profileType", args.profileType).eq("profileSlug", args.profileSlug),
+      )
+      .paginate({ numItems: WORLD_REINDEX_PAGE_SIZE, cursor: args.cursor ?? null });
+
+    const worldIds = [...new Set(credits.page.map((credit) => credit.worldId))];
+
+    for (const worldId of worldIds) {
+      const world = await ctx.db.get(worldId);
+
+      if (world === null) {
+        continue;
+      }
+
+      const hiddenProfileKeys = await getHiddenWorldAttributionProfileKeys(ctx.db, world);
+      await upsertSearchDocument(ctx.db, createWorldSearchDocument(world, { hiddenProfileKeys }));
+    }
+
+    if (!credits.isDone) {
+      await ctx.scheduler.runAfter(0, internal.suppressions.reindexWorldsCreditingProfile, {
+        profileType: args.profileType,
+        profileSlug: args.profileSlug,
+        cursor: credits.continueCursor,
+      });
+    }
+
+    return { reindexed: worldIds.length, isDone: credits.isDone };
   },
 });
