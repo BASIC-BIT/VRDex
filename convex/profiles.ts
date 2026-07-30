@@ -18,7 +18,12 @@ import {
 } from "./_profileAssets";
 import { canReadProfile } from "./_profilePermissions";
 import { toPublicProfile } from "./_profilePublic";
-import { findAvailableProfileSlug, getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
+import {
+  createProfileSlugBase,
+  findAvailableProfileSlug,
+  getProfileBySlug,
+  validateProfileSlug,
+} from "./_profileSlugs";
 import { sanitizeCommunitySubmissionProfileInput } from "./_profileSubmissions";
 import { getPublicProfileWorldCredits } from "./_profileWorldCredits";
 import {
@@ -309,20 +314,23 @@ export const submitCommunityProfile = mutation({
     const input = sanitizeCommunitySubmissionProfileInput(args);
     const now = Date.now();
 
+    const slug = await findAvailableProfileSlug(ctx.db, input.displayName);
+
     // Community submissions publish immediately, so they are the other way an
     // accepted suppression request can be bypassed: someone can submit an identity
-    // that asked not to be listed. A pre-claim request may name someone who has no
-    // profile at all, which is exactly the case this covers.
+    // that asked not to be listed. Both the base slug the name would naturally take
+    // and the slug actually allocated are checked, because a request may have been
+    // filed with only a slug and no display name, and because the base slug being
+    // taken pushes the allocation to a suffixed variant.
     if (
       await hasAcceptedSuppression(ctx.db, {
+        slugs: [createProfileSlugBase(input.displayName), slug],
         displayNames: [input.displayName],
         profileType: input.profileType,
       })
     ) {
       throw new Error("This profile cannot be submitted.");
     }
-
-    const slug = await findAvailableProfileSlug(ctx.db, input.displayName);
     const sourceAttribution = {
       submittedAt: now,
       submitter: subject,

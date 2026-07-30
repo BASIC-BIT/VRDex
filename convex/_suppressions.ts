@@ -4,7 +4,8 @@ import { createProfileSortName } from "./_profileSubmissions";
 
 export type SuppressionIdentity = {
   profileId?: Id<"profiles">;
-  slug?: string;
+  /** Every slug this publication could occupy: the base slug and any allocated one. */
+  slugs?: string[];
   /**
    * Every name this publication could surface. A candidate matched to an existing
    * profile has two: its own proposed name and the matched profile's current
@@ -59,9 +60,7 @@ export async function hasAcceptedSuppression(
     targetedProfileIds.add(profileId);
   }
 
-  const slug = identity.slug;
-
-  if (slug !== undefined) {
+  for (const slug of identity.slugs ?? []) {
     const bySlug = await db
       .query("profileSuppressionRequests")
       .withIndex("by_profileSlug_state", (query) =>

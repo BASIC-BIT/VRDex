@@ -11,9 +11,7 @@ import {
   createWorldSearchDocument,
   getHiddenWorldAttributionProfileKeys,
   upsertSearchDocument,
-  vocabularyForWorld,
 } from "./_searchDocuments";
-import { recordVocabularyTerms } from "./_vocabulary";
 import { seedImportAuthSubjectValidator as authSubjectValidator } from "./_seedImportValidators";
 
 const profileType = v.union(v.literal("person"), v.literal("community"));
@@ -426,13 +424,12 @@ export const reindexWorldsCreditingProfile = internalMutation({
       }
 
       const hiddenProfileKeys = await getHiddenWorldAttributionProfileKeys(ctx.db, world);
-      // Vocabulary alongside the search document, matching
-      // search:rebuildWorldSearchDocuments. A creator role that was excluded while
-      // the profile was private would otherwise stay missing from discovery facets.
-      await Promise.all([
-        upsertSearchDocument(ctx.db, createWorldSearchDocument(world, { hiddenProfileKeys })),
-        recordVocabularyTerms(ctx.db, vocabularyForWorld(world, { hiddenProfileKeys }), now),
-      ]);
+      // Search document only. recordVocabularyTerms increments usageCount
+      // unconditionally, so replaying a world's vocabulary on every reindex would
+      // inflate counts -- a world credited by candidates published across ten pages
+      // would gain ten. Reconciling visibility changes needs reference-counted
+      // vocabulary, which is tracked separately.
+      await upsertSearchDocument(ctx.db, createWorldSearchDocument(world, { hiddenProfileKeys }));
       reindexed += 1;
     }
 

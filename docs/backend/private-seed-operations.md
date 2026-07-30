@@ -338,9 +338,12 @@ Notes:
   name when the linked profile is not publicly readable. Retracting a community
   profile therefore does not remove its name from events it hosts. Suppressing
   that fallback needs a decision about what an event should display instead.
-- Known limitation: retraction does **not** reconcile `vocabularyTerms`. Nothing
-  in the codebase decrements vocabulary usage, so a tag or genre contributed by a
-  retracted profile can still appear in discovery vocabulary with its usage count.
+- Known limitation: neither retraction nor publication reconciles
+  `vocabularyTerms`. `recordVocabularyTerms` only ever increments, so a tag or
+  genre contributed by a retracted profile keeps its usage count, and a creator
+  role that was hidden while a profile was private stays missing from discovery
+  facets until an unrelated full rebuild. The reindex deliberately does not replay
+  vocabulary — that would inflate counts on every pass rather than fix them.
   Reference-counted vocabulary is a separate change.
 
 ## Lookup Grants

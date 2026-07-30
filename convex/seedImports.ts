@@ -639,7 +639,7 @@ async function queueCandidate(ctx: MutationCtx, args: QueueCandidateArgs) {
     // name-only request happened to record.
     const suppressed = await hasAcceptedSuppression(ctx.db, {
       ...optionalValue("profileId", matchedProfile?._id),
-      slug: collisionSlug,
+      slugs: [collisionSlug],
       displayNames: [
         candidate.proposedDisplayName,
         ...(matchedProfile === null ? [] : [matchedProfile.displayName]),
@@ -842,7 +842,7 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
       (await findAvailableProfileSlug(ctx.db, validProposedSlug ?? candidate.proposedDisplayName));
     const suppressed = await hasAcceptedSuppression(ctx.db, {
       ...optionalValue("profileId", matchedProfile?._id),
-      slug: targetSlug,
+      slugs: [targetSlug, collisionSlug].filter((value): value is string => value !== undefined),
       // Both names: a name-only pre-claim request may name the existing profile
       // rather than whatever the candidate proposes to call it.
       displayNames: [
