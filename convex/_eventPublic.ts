@@ -400,7 +400,11 @@ async function getPublicEventWorldRecords(db: DatabaseReader, event: Doc<"events
   );
 }
 
-async function getPublicEventParticipantRecords(db: DatabaseReader, event: Doc<"events">) {
+async function getPublicEventParticipantRecords(
+  db: DatabaseReader,
+  event: Doc<"events">,
+  options: { includeMediaKit?: boolean } = {},
+) {
   const associations = await db
     .query("eventParticipants")
     .withIndex("by_eventId", (query) => query.eq("eventId", event._id))
@@ -419,8 +423,15 @@ async function getPublicEventParticipantRecords(db: DatabaseReader, event: Doc<"
         return null;
       }
 
-      const mediaKit = await getPublicProfileMediaKit(db, profile);
+      if (options.includeMediaKit === false) {
+        return {
+          association,
+          profile,
+          imageUrl: publicProfileCardImage(profile),
+        };
+      }
 
+      const mediaKit = await getPublicProfileMediaKit(db, profile);
       return {
         association,
         profile,
@@ -433,7 +444,11 @@ async function getPublicEventParticipantRecords(db: DatabaseReader, event: Doc<"
   return records.filter((record): record is PublicEventParticipantRecord => record !== null);
 }
 
-async function getPublicEventSlotRecords(db: DatabaseReader, event: Doc<"events">) {
+async function getPublicEventSlotRecords(
+  db: DatabaseReader,
+  event: Doc<"events">,
+  options: { includeMediaKit?: boolean } = {},
+) {
   const slots = await db
     .query("eventSlots")
     .withIndex("by_eventId_reviewState_startAt", (query) =>
@@ -457,8 +472,15 @@ async function getPublicEventSlotRecords(db: DatabaseReader, event: Doc<"events"
         return { slot };
       }
 
-      const mediaKit = await getPublicProfileMediaKit(db, profile);
+      if (options.includeMediaKit === false) {
+        return {
+          slot,
+          profile,
+          imageUrl: publicProfileCardImage(profile),
+        };
+      }
 
+      const mediaKit = await getPublicProfileMediaKit(db, profile);
       return {
         slot,
         profile,
@@ -523,6 +545,7 @@ async function getPublicEventMediaRecord(db: DatabaseReader, event: Doc<"events"
 async function getPublicEventRecord(
   db: DatabaseReader,
   event: Doc<"events">,
+  options: { includeAssociationMediaKits?: boolean } = {},
 ): Promise<PublicEventRecord | null> {
   if (event.publicationState !== "published") {
     return null;
@@ -531,8 +554,12 @@ async function getPublicEventRecord(
   const [community, worlds, participants, slots, media] = await Promise.all([
     getPublishedCommunity(db, event),
     getPublicEventWorldRecords(db, event),
-    getPublicEventParticipantRecords(db, event),
-    getPublicEventSlotRecords(db, event),
+    getPublicEventParticipantRecords(db, event, {
+      includeMediaKit: options.includeAssociationMediaKits,
+    }),
+    getPublicEventSlotRecords(db, event, {
+      includeMediaKit: options.includeAssociationMediaKits,
+    }),
     getPublicEventMediaRecord(db, event),
   ]);
 
@@ -580,7 +607,11 @@ export async function getPublicEventPreviews(
     Math.min(options.limit ?? EVENT_PREVIEW_DEFAULT_LIMIT, EVENT_PREVIEW_MAX_LIMIT),
   );
   const records = (
-    await Promise.all(events.map((event) => getPublicEventRecord(db, event)))
+    await Promise.all(
+      events.map((event) =>
+        getPublicEventRecord(db, event, { includeAssociationMediaKits: false }),
+      ),
+    )
   ).filter((record): record is PublicEventRecord => record !== null);
 
   return records

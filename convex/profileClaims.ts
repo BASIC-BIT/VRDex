@@ -95,7 +95,9 @@ export const getClaimTargetBySlug = query({
     const mediaKit = await getPublicProfileMediaKit(ctx.db, profile);
 
     return {
-      avatarImageUrl: mediaKit.profileImage?.imageUrl ?? profile.avatarImageUrl,
+      avatarImageUrl:
+        (hasPublicProfile ? mediaKit.profileImage?.imageUrl : undefined) ??
+        profile.avatarImageUrl,
       avatarAppearance: mediaKit.avatarAppearance,
       displayName: profile.displayName,
       hasPublicProfile,

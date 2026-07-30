@@ -918,4 +918,68 @@ describe("public event projection", () => {
     assert.equal(expandedPreviews.length, 8);
     assert.equal(expandedPreviews[7]?.title, "Afterglow Harbor 8");
   });
+
+  it("does not hydrate participant media kits for compact previews", async () => {
+    const now = Date.UTC(2026, 4, 24, 12, 0, 0);
+    const event = {
+      _id: "event123",
+      slug: "afterglow-harbor",
+      title: "Afterglow Harbor",
+      sortTitle: "afterglow harbor",
+      startAt: now + 3_600_000,
+      sourceType: "community",
+      sourceLabel: "Community listing",
+      publicationState: "published",
+      updatedAt: now,
+    } as unknown as Doc<"events">;
+    const participant = {
+      _id: "participant123",
+      eventId: event._id,
+      personProfileId: "profile123",
+      roleLabel: "DJ",
+      sourceType: "community",
+      sourceLabel: "Fixture lineup",
+      confirmationState: "confirmed",
+      updatedAt: now,
+    } as unknown as Doc<"eventParticipants">;
+    const profile = {
+      _id: participant.personProfileId,
+      profileType: "person",
+      slug: "dj-aurora",
+      displayName: "DJ Aurora",
+      sortName: "dj aurora",
+      aliases: [],
+      tags: [],
+      claimState: "claimed_verified",
+      publicationState: "published",
+      publicSurfacingState: "public",
+      creationSource: "self",
+      avatarImageUrl: "https://example.invalid/dj-aurora.png",
+      person: { roleTags: [] },
+      updatedAt: now,
+    } as unknown as Doc<"profiles">;
+    const queriedTables: string[] = [];
+    const db = {
+      get: async (id: string) => id === profile._id ? profile : null,
+      query: (table: string) => {
+        queriedTables.push(table);
+        const records = table === "eventParticipants" ? [participant] : [];
+        const indexedQuery = {
+          filter: () => indexedQuery,
+          take: async () => records,
+        };
+
+        return {
+          withIndex: () => indexedQuery,
+        };
+      },
+    } as unknown as DatabaseReader;
+
+    const previews = await getPublicEventPreviews(db, [event], { now });
+
+    assert.equal(previews[0]?.participantCount, 1);
+    assert.equal(queriedTables.includes("profileAssets"), false);
+    assert.equal(queriedTables.includes("profileAssetPlacements"), false);
+    assert.equal(queriedTables.includes("profileAssetDisplayPreferences"), false);
+  });
 });
