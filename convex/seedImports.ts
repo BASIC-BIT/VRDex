@@ -183,7 +183,37 @@ async function hasLiveHandoffInvitation(
     )
     .collect();
 
-  return profileInvitations.some((invitation) => isLiveHandoffInvitation(invitation, now));
+  if (profileInvitations.some((invitation) => isLiveHandoffInvitation(invitation, now))) {
+    return true;
+  }
+
+  // Legacy rows: an invitation created before its candidate was matched carries no
+  // profileId, so the lookup above cannot see it. The match guard prevents new ones,
+  // but existing rows still need covering, so every other candidate sharing this
+  // matched profile is followed to its own invitations.
+  const siblings = await ctx.db
+    .query("seedImportCandidateProfiles")
+    .withIndex("by_matchedProfileId", (query) => query.eq("matchedProfileId", matchedProfileId))
+    .collect();
+
+  for (const sibling of siblings) {
+    if (sibling._id === candidateId) {
+      continue;
+    }
+
+    const siblingInvitations = await ctx.db
+      .query("seedHandoffInvitations")
+      .withIndex("by_candidateId_state", (query) =>
+        query.eq("candidateId", sibling._id).eq("state", "active"),
+      )
+      .collect();
+
+    if (siblingInvitations.some((invitation) => isLiveHandoffInvitation(invitation, now))) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 async function getCandidateFields(ctx: Pick<QueryCtx, "db">, candidateId: Id<"seedImportCandidateProfiles">) {
@@ -1158,6 +1188,19 @@ export const bulkPublishBatch = internalMutation({
         isDone: true as const,
         haltedByPolicyChange: true as const,
       };
+    }
+
+    // A batch that was authorized and then restored to private_only was revoked
+    // deliberately. Auto-relaxing it again would let a timed-out first-page retry
+    // undo the mid-run kill switch, so reauthorization must be an explicit
+    // setBatchPublicationPolicy call.
+    if (
+      (batch.publicationPolicy ?? "private_only") !== "reviewed_publication_allowed" &&
+      (batch.publicationAuthorizations ?? []).length > 0
+    ) {
+      throw new Error(
+        "This batch was revoked to private_only after being authorized. Relax it explicitly with seedImports:setBatchPublicationPolicy before bulk publishing again.",
+      );
     }
 
     if (!canBulkApproveSeedImportBatch(batch.reviewState)) {

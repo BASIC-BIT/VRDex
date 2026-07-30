@@ -143,6 +143,9 @@ Publish behavior worth knowing:
   with no slug at all.
 - A person candidate matched to a community profile is blocked with
   `matched_profile_type_mismatch` rather than attempting a cross-type write.
+- An invalid `proposedSlug` blocks only the create path. A merge keeps the matched
+  profile's slug and never allocates from the proposal, and there is no mutation for
+  correcting a proposed slug, so blocking would strand a valid explicit match.
 - A candidate whose proposed display name falls outside the public bounds (2-80
   characters) is blocked with `display_name_outside_public_limits`, but only when
   creating a new profile; a merge preserves the matched profile's own name. Seed
@@ -251,7 +254,10 @@ pnpm ops:seed-publish -- `
   genuinely intended.
 - Restoring `private_only` or un-approving the batch mid-run is a working kill
   switch. Prerequisites are relaxed only on the first page, so a later page stops
-  and returns `haltedByPolicyChange` instead of re-enabling publication.
+  and returns `haltedByPolicyChange` instead of re-enabling publication. A batch
+  that was authorized and then restored to `private_only` also refuses to
+  auto-relax on a *new* run, so a timed-out first-page retry cannot undo the
+  revocation; reauthorize explicitly with `setBatchPublicationPolicy`.
 - Candidates already queued through the manual workflow proceed straight to
   publish rather than being skipped as `candidate_already_queued_for_publication`.
 - Re-running is safe. Already-published candidates are excluded by

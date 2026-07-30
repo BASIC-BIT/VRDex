@@ -1219,7 +1219,13 @@ export function getSeedImportPublishBlockers(args: {
     blockers.add("candidate_profile_type_unsupported");
   }
 
-  if (args.hasInvalidProposedSlug === true) {
+  // Create-only, like the slug-collision and display-name checks: a merge keeps the
+  // matched profile's slug and never allocates from the proposal, and there is no
+  // mutation for correcting a proposed slug, so blocking would strand the match.
+  if (
+    args.hasInvalidProposedSlug === true &&
+    (args.matchedProfile === null || args.matchedProfile === undefined)
+  ) {
     blockers.add("invalid_proposed_slug");
   }
 
@@ -1324,7 +1330,13 @@ export function getSeedImportPublicationBlockers(args: {
     blockers.add("candidate_claim_not_unclaimed");
   }
 
-  if (args.hasInvalidProposedSlug === true) {
+  // Create-only, like the slug-collision and display-name checks: a merge keeps the
+  // matched profile's slug and never allocates from the proposal, and there is no
+  // mutation for correcting a proposed slug, so blocking would strand the match.
+  if (
+    args.hasInvalidProposedSlug === true &&
+    (args.matchedProfile === null || args.matchedProfile === undefined)
+  ) {
     blockers.add("invalid_proposed_slug");
   }
 

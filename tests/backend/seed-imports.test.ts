@@ -294,6 +294,34 @@ describe("seed import review and publication guards", () => {
     );
   });
 
+  it("ignores an invalid proposed slug for an explicit match", () => {
+    assert.ok(
+      getSeedImportPublicationBlockers({
+        batch: approvedBatch,
+        candidate: acceptedCandidate,
+        fields: acceptedPublicFields,
+        hasInvalidProposedSlug: true,
+      }).includes("invalid_proposed_slug"),
+    );
+
+    assert.ok(
+      !getSeedImportPublicationBlockers({
+        batch: approvedBatch,
+        candidate: {
+          ...acceptedCandidate,
+          matchedProfileId: "profile_matched" as Id<"profiles">,
+        },
+        fields: acceptedPublicFields,
+        matchedProfile: {
+          _id: "profile_matched" as Id<"profiles">,
+          claimState: "unclaimed" as const,
+          publicSurfacingState: "public" as const,
+        },
+        hasInvalidProposedSlug: true,
+      }).includes("invalid_proposed_slug"),
+    );
+  });
+
   it("blocks a cross-type match at the queue gate", () => {
     const blockers = getSeedImportPublicationBlockers({
       batch: approvedBatch,
