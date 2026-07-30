@@ -93,7 +93,10 @@ At least one secret backend must be configured or every request resolves to
 
 Secrets are named `vrdex/vrclinking/<guildId>` — Convex only accepts a delegation
 whose reference names the guild it is for, so provision the secret under that
-name (or the matching Secrets Manager ARN) before the operator registers it.
+name before the operator registers it. The reference itself is always
+`secret://vrdex/vrclinking/<guildId>`; the ARN form is rejected at both ends,
+because its pattern admitted any region and account while the execution role
+reads only its own.
 
 That naming rule is a shape check on both sides, not authorization: the names
 are derived from the guild id, so anyone who reaches this endpoint can construct

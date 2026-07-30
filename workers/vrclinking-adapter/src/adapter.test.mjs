@@ -99,6 +99,42 @@ describe("adapter request validation", () => {
     assert.equal(validateRequest(baseBody()).ok, true);
   });
 
+  // Every index the control plane gets back is resolved against the batch it
+  // sent, so dropping an entry must not renumber the survivors. It used to: a
+  // match on the second delegation was reported as index 0, and Convex then
+  // re-checked and stamped the first. Where the credential that answered had
+  // been revoked mid-flight, the unrelated still-active row passed the re-check
+  // in its place and the claim was granted on a revoked answer.
+  it("reports the index a delegation had in the request, not after filtering", async () => {
+    const goodGuild = "12345678901234599";
+    const valid = signDelegation(
+      goodGuild,
+      `secret://vrdex/vrclinking/${goodGuild}`,
+      FAR_FUTURE,
+    );
+    const dropped = { ...DELEGATION, capability: "f".repeat(64) };
+    const validated = validateRequest(baseBody({ delegations: [dropped, valid] }));
+
+    assert.equal(validated.ok, true);
+    assert.equal(validated.request.delegations.length, 1);
+    assert.equal(validated.request.delegations[0].requestIndex, 1);
+
+    const result = await verifyLinkage({
+      request: validated.request,
+      resolveSecret,
+      getGuildMemberByDiscordId: async () => ({
+        id: DISCORD_ID,
+        vrcId: VRC_ID,
+        isVerified: true,
+      }),
+    });
+
+    assert.equal(result.verified, true);
+    assert.equal(result.matchedDelegationIndex, 1);
+    assert.equal(result.matchedGuildId, goodGuild);
+    assert.deepEqual(result.consultedDelegationIndexes, [1]);
+  });
+
   // Convex abandons the adapter request at ten seconds. Five sequential
   // lookups with their own timeouts can outlast that, so a match found after
   // the caller gave up is unusable and every provider call past that point

@@ -81,13 +81,25 @@ once per container and caches them for that container's life, so a warm
 environment keeps serving the old pair after Secrets Manager and Convex have
 moved on. Recycle the fleet explicitly rather than waiting it out:
 
+Run it as a script, not line by line. `set -e` is what stops a half-rotation:
+without it a failed `put-secret-value` still recycles the fleet and still writes
+both Convex variables, leaving the adapter on one new secret and one old while
+Convex holds two new ones — every claim `unavailable` until someone works out
+which of the four values is the odd one.
+
 ```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
 # 1. Generate once and hold both values: step 3 needs the same bytes, and
 #    Secrets Manager is not the place to read them back from mid-rotation.
 NEW_BEARER=$(openssl rand -hex 32)
 NEW_CAPABILITY=$(openssl rand -hex 32)
-[ "$NEW_BEARER" = "$NEW_CAPABILITY" ] && echo "regenerate: values must differ" && return 1
+[ "$NEW_BEARER" != "$NEW_CAPABILITY" ] || { echo "regenerate: values must differ"; exit 1; }
 
+# Both writes land before anything else moves. Secrets Manager keeps the
+# previous version as AWSPREVIOUS, so if the second write fails the first is
+# revertable with `update-secret-version-stage`.
 aws secretsmanager put-secret-value --secret-id vrdex/vrclinking/bearer-token \
   --secret-string "$NEW_BEARER"
 aws secretsmanager put-secret-value --secret-id vrdex/vrclinking/capability-key \
@@ -109,6 +121,21 @@ Between steps 2 and 3 every claim fails with `401`, which is the safe direction:
 the adapter is strictly ahead of the control plane, so nothing is authorized
 against a stale key. Reversing the order leaves old Lambda values paired with new
 Convex ones for as long as any container stays warm.
+
+If it stops partway, roll the secrets back rather than pressing on — the pair
+has to match across the boundary, and Secrets Manager still holds the previous
+version of each:
+
+```bash
+aws secretsmanager update-secret-version-stage \
+  --secret-id vrdex/vrclinking/bearer-token --version-stage AWSCURRENT \
+  --move-to-version-id "$(aws secretsmanager list-secret-version-ids \
+      --secret-id vrdex/vrclinking/bearer-token \
+      --query 'Versions[?contains(VersionStages, `AWSPREVIOUS`)].VersionId' --output text)"
+```
+
+Then re-run the recycle in step 2 so no container is left on the abandoned
+value, and confirm with `GET /healthz` before retrying.
 
 A delegated community credential is cheaper to rotate but not instant: the
 resolver caches each token for five minutes per warm container, so `put-secret-

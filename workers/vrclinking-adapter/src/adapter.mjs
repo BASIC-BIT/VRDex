@@ -145,14 +145,24 @@ export function validateRequest(body) {
   }
 
   const delegations = Array.isArray(body.delegations) ? body.delegations : [];
-  const usable = delegations.filter(
-    (delegation) =>
-      typeof delegation?.guildId === "string" &&
-      DISCORD_SNOWFLAKE_PATTERN.test(delegation.guildId) &&
-      typeof delegation?.secretRef === "string" &&
-      isSecretRefForGuild(delegation.secretRef, delegation.guildId) &&
-      verifyCapability(delegation),
-  );
+  // Stamped before filtering, and reported instead of the position in the
+  // filtered array. The control plane looks the returned index up in the batch
+  // it *sent*, so any dropped entry shifted every later one: a match on the
+  // second delegation came back as index 0, and Convex then re-checked and
+  // stamped the first. If the credential that actually answered was revoked
+  // mid-flight, the unrelated still-active row passed the re-check in its place
+  // and the claim was granted on a revoked answer.
+  const usable = delegations
+    .map((delegation, requestIndex) => ({ delegation, requestIndex }))
+    .filter(
+      ({ delegation }) =>
+        typeof delegation?.guildId === "string" &&
+        DISCORD_SNOWFLAKE_PATTERN.test(delegation.guildId) &&
+        typeof delegation?.secretRef === "string" &&
+        isSecretRefForGuild(delegation.secretRef, delegation.guildId) &&
+        verifyCapability(delegation),
+    )
+    .map(({ delegation, requestIndex }) => ({ ...delegation, requestIndex }));
 
   if (usable.length === 0) {
     return { ok: false, error: "no_delegations" };
@@ -201,7 +211,11 @@ export async function verifyLinkage({
   // could not consult anything".
   let consulted = false;
 
-  for (const [index, delegation] of request.delegations.entries()) {
+  // `requestIndex`, not the loop position: `validateRequest` may have dropped
+  // entries, and the control plane resolves every index it gets back against
+  // the batch it sent.
+  for (const delegation of request.delegations) {
+    const index = delegation.requestIndex;
     // Out of budget. Reported as a failure rather than a silent stop: if
     // nothing was consulted this becomes `unavailable`, which is the honest
     // answer — "we ran out of time" is not "VRCLinking says no".
