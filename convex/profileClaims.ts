@@ -25,6 +25,7 @@ import { canReadProfile } from "./_profilePermissions";
 import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 import { createProfileSearchDocument, upsertSearchDocument } from "./_searchDocuments";
 import { normalizeVrchatTargetId } from "./_vrchatIdentity";
+import { getPublicProfileMediaKit } from "./_profileAssets";
 
 const DAY_MS = 86_400_000;
 // Minimum gap between adapter-backed checks of one attempt, whatever the
@@ -91,8 +92,13 @@ export const getClaimTargetBySlug = query({
       return null;
     }
 
+    const mediaKit = await getPublicProfileMediaKit(ctx.db, profile);
+
     return {
-      avatarImageUrl: profile.avatarImageUrl,
+      avatarImageUrl:
+        (hasPublicProfile ? mediaKit.profileImage?.imageUrl : undefined) ??
+        profile.avatarImageUrl,
+      avatarAppearance: mediaKit.avatarAppearance,
       displayName: profile.displayName,
       hasPublicProfile,
       profileId: profile._id,

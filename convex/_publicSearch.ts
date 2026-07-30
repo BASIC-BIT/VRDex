@@ -3,6 +3,7 @@ import type { QueryCtx } from "./_generated/server";
 import { getPublicProfileMediaKit } from "./_profileAssets";
 import { toProfileLookupResult } from "./_profileLookup";
 import { canReadProfile } from "./_profilePermissions";
+import { getProfileTrustLabel } from "./_profileStates";
 import { firstSafePublicImageUrl } from "./_publicFields";
 import {
   normalizeSearchQuery,
@@ -21,6 +22,16 @@ export function publicSearchLookupAvatarUrl(
   result: Pick<PublicSearchResult, "imageUrl" | "profileImageUrl">,
 ): string | undefined {
   return firstSafePublicImageUrl(result.imageUrl, result.profileImageUrl);
+}
+
+export function publicSearchLookupUsesLogo(
+  result: Pick<PublicSearchResult, "imageUrl" | "logoImageUrl" | "profileImageUrl">,
+): boolean {
+  return (
+    result.logoImageUrl !== undefined &&
+    result.imageUrl === result.logoImageUrl &&
+    result.logoImageUrl !== result.profileImageUrl
+  );
 }
 
 function boundedLimit(value: number | undefined, fallback: number, max: number): number {
@@ -42,18 +53,19 @@ export async function projectPublicSearchResult(
     return null;
   }
 
-  const result = toPublicSearchResult(
-    document,
-    searchText,
-    await getPublicProfileMediaKit(ctx.db, profile),
-  );
+  const mediaKit = await getPublicProfileMediaKit(ctx.db, profile);
+  const result = toPublicSearchResult(document, searchText, mediaKit);
+  const usesLogo = publicSearchLookupUsesLogo(result);
   const person = toProfileLookupResult(profile, {
     avatarImageUrl: publicSearchLookupAvatarUrl(result),
+    avatarImageKind: usesLogo ? "logo" : "profile",
+    ...(usesLogo ? {} : { avatarAppearance: mediaKit.avatarAppearance }),
     sourceLabel: result.source?.label,
   });
 
   return {
     ...result,
+    trustLabel: getProfileTrustLabel(profile.claimState, profile.creationSource),
     ...(person === null ? {} : { person }),
     ...(profile.claimState === "unclaimed" ? { claimEligible: true } : {}),
   };
