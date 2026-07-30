@@ -24,6 +24,8 @@ const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 const clerkConfigured = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
 const convex = convexUrl ? new ConvexReactClient(convexUrl) : null;
 const PROVISION_RETRY_CEILING_MS = 8_000;
+// After this many consecutive failures the gate gives up and renders anyway.
+const PROVISION_ATTEMPT_LIMIT = 3;
 
 /**
  * Provisions the VRDex `users` row for a Clerk identity, and holds authenticated
@@ -54,6 +56,9 @@ function ProvisionedChildren({ children }: { children: ReactNode }) {
   const ensureCurrentUser = useMutation(api.users.ensureCurrentUser);
   const viewer = useQuery(api.accounts.viewer, isAuthenticated ? {} : "skip");
   const [retry, setRetry] = useState(0);
+  // Keyed by identity rather than a bare flag, so giving up on one identity does
+  // not permanently suppress retries after a later profile change.
+  const [failedIdentity, setFailedIdentity] = useState<string | null>(null);
   const retryTimer = useRef<number | undefined>(undefined);
   // Render state, not a ref: the gate below has to re-evaluate when a sync
   // completes, and a ref would release children without a re-render.
@@ -70,12 +75,15 @@ function ProvisionedChildren({ children }: { children: ReactNode }) {
       ].join("|")
     : null;
 
+  const gaveUp =
+    failedIdentity !== null && failedIdentity === identitySignature;
+
   useEffect(() => {
     if (!isAuthenticated) {
       return;
     }
 
-    if (provisioned && identitySignature === syncedIdentity) {
+    if (gaveUp || (provisioned && identitySignature === syncedIdentity)) {
       return;
     }
 
@@ -94,6 +102,11 @@ function ProvisionedChildren({ children }: { children: ReactNode }) {
 
         // Nothing else would retry a transient failure while the layout stays
         // mounted, which would leave the account permanently unusable.
+        if (retry + 1 >= PROVISION_ATTEMPT_LIMIT) {
+          setFailedIdentity(identitySignature);
+          return;
+        }
+
         retryTimer.current = window.setTimeout(
           () => setRetry((attempt) => attempt + 1),
           Math.min(PROVISION_RETRY_CEILING_MS, 500 * 2 ** retry),
@@ -110,6 +123,7 @@ function ProvisionedChildren({ children }: { children: ReactNode }) {
     };
   }, [
     ensureCurrentUser,
+    gaveUp,
     identitySignature,
     isAuthenticated,
     provisioned,
@@ -125,7 +139,11 @@ function ProvisionedChildren({ children }: { children: ReactNode }) {
   const identitySettled =
     identitySignature !== null && syncedIdentity === identitySignature;
 
-  if (isAuthenticated && !(provisioned && identitySettled)) {
+  // Give up rather than blank the app forever. This provider wraps public pages
+  // too, so a provisioning outage would otherwise leave a signed-in visitor with
+  // nothing at all — worse than letting account-dependent surfaces fall back to
+  // their own error states while everything else keeps working.
+  if (isAuthenticated && !gaveUp && !(provisioned && identitySettled)) {
     return null;
   }
 
