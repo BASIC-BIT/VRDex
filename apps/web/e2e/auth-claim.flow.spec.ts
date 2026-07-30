@@ -185,23 +185,34 @@ async function recordGuildControlProof(
  * VRChat account labelled `Verified` rather than merely `Claimed` — pass
  * silently. Hosted runs keep the tolerance because staging can lag the branch.
  */
-async function expectCurrentOrHostedLagTrustState(page: Page, hostedLagCopy: Locator) {
+async function hostedTargetRunsCurrentRevision(request: APIRequestContext) {
   if (!process.env.PLAYWRIGHT_BASE_URL) {
+    return true;
+  }
+
+  const currentRevision = process.env.GITHUB_SHA?.trim().slice(0, 7);
+  if (!currentRevision) {
+    return false;
+  }
+
+  const response = await request.get("/deployment");
+  return response.ok() && (await response.text()).includes(currentRevision);
+}
+
+async function expectCurrentOrHostedLagTrustState(
+  page: Page,
+  request: APIRequestContext,
+  hostedLagCopy: Locator,
+) {
+  if (await hostedTargetRunsCurrentRevision(request)) {
     await expect(profileStatusCopy(page, "Claimed")).toHaveCount(0);
     await expect(page.getByLabel("Verified profile")).toHaveCount(0);
     return;
   }
 
-  await expect.poll(
-    async () => {
-      const hasCurrentTrustState =
-        await profileStatusCopy(page, "Claimed").count() === 0 &&
-        await page.getByLabel("Verified profile").count() === 0;
-
-      return hasCurrentTrustState || await hostedLagCopy.isVisible();
-    },
-    hostedActionExpectOptions,
-  ).toBe(true);
+  await expect(
+    hostedLagCopy.or(page.getByLabel("Verified profile")).first(),
+  ).toBeVisible(hostedActionExpectOptions);
 }
 
 async function hostedTargetHasClaimJourney(page: Page, headingName: string) {
@@ -338,6 +349,7 @@ test("verified email account with linked Discord can claim person and community 
     if (process.env.PLAYWRIGHT_BASE_URL) {
       await expectCurrentOrHostedLagTrustState(
         page,
+        request,
         page.getByRole("heading", { name: "Claimed", exact: true }).or(page.getByText("Person profile / Claimed", { exact: true })),
       );
     } else {
@@ -349,8 +361,8 @@ test("verified email account with linked Discord can claim person and community 
     await expect(page.getByText("You manage this profile, but it is not verified yet.")).toBeVisible();
     await expect(page.getByLabel("VRChat profile URL or user ID")).toBeVisible();
 
-    await gotoFlowPage(page, "/account");
     if (!process.env.PLAYWRIGHT_BASE_URL) {
+      await gotoFlowPage(page, "/account");
       const accountProfileLink = page.getByRole("link", { name: "View profile" });
       await expect(accountProfileLink).toHaveAttribute("href", `/p/${encodeURIComponent(createdSlug!)}`);
       await expect(accountProfileLink).toHaveClass(/bg-accent/);
@@ -406,6 +418,7 @@ test("verified email account with linked Discord can claim person and community 
     if (process.env.PLAYWRIGHT_BASE_URL) {
       await expectCurrentOrHostedLagTrustState(
         page,
+        request,
         profileStatusCopy(page, "Claimed").or(page.getByText("Community profile / Claimed", { exact: true })),
       );
     } else {
@@ -500,6 +513,7 @@ test("verified email account can complete VRChat adapter claims @flow", async ({
     if (process.env.PLAYWRIGHT_BASE_URL) {
       await expectCurrentOrHostedLagTrustState(
         page,
+        request,
         profileStatusCopy(page, "Claimed").or(page.getByText("Person profile / Claimed", { exact: true })),
       );
     } else {
