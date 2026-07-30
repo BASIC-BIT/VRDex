@@ -193,10 +193,30 @@ function visibilityKeyForSeedField(fieldKey: string) {
   return fieldKey as keyof NonNullable<PersonProfile["fieldVisibility"]>;
 }
 
+export type SeedFieldPatchOptions = {
+  /**
+   * `private` forces every copied field private, which is the concierge handoff
+   * contract: a prepared profile must reveal nothing until its owner decides.
+   * `reviewed` honors each field's reviewed `visibility`, which is what
+   * publication needs — forcing private there would publish an empty profile.
+   */
+  fieldVisibilitySource?: "private" | "reviewed";
+  /**
+   * Whether supported fields absent from `fields` are cleared on an existing
+   * profile. True is the concierge contract (the accepted selection is the whole
+   * truth). Publication must not clear, or merging a candidate into an existing
+   * profile erases content the import never proposed to replace.
+   */
+  clearUnselectedFields?: boolean;
+};
+
 export function buildConciergeProfileFieldPatch(
   fields: Doc<"seedImportCandidateFields">[],
   profile?: PersonProfile,
+  options?: SeedFieldPatchOptions,
 ): Partial<PersonProfile> {
+  const fieldVisibilitySource = options?.fieldVisibilitySource ?? "private";
+  const clearUnselectedFields = options?.clearUnselectedFields ?? profile !== undefined;
   const patch: Partial<PersonProfile> = {};
   const fieldVisibility: NonNullable<PersonProfile["fieldVisibility"]> = {
     ...(profile?.fieldVisibility ?? {}),
@@ -205,7 +225,7 @@ export function buildConciergeProfileFieldPatch(
   let personChanged = false;
   const selectedFieldKeys = new Set(fields.map((field) => field.fieldKey));
 
-  for (const fieldKey of profile === undefined ? [] : CONCIERGE_PROFILE_FIELD_KEYS) {
+  for (const fieldKey of clearUnselectedFields ? CONCIERGE_PROFILE_FIELD_KEYS : []) {
     if (selectedFieldKeys.has(fieldKey)) {
       continue;
     }
@@ -257,7 +277,8 @@ export function buildConciergeProfileFieldPatch(
 
   for (const field of fields) {
     const value = normalizeSafePrivateSeedFieldValue(field.fieldKey, field.value);
-    fieldVisibility[visibilityKeyForSeedField(field.fieldKey)] = "private";
+    fieldVisibility[visibilityKeyForSeedField(field.fieldKey)] =
+      fieldVisibilitySource === "private" ? "private" : field.visibility;
 
     switch (field.fieldKey) {
       case "aliases":

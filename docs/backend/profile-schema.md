@@ -246,7 +246,10 @@ Current recommendation:
 - these tables preserve provenance, confidence, field visibility, review state, reviewer metadata, matched profile links, and queue-only publication metadata
 - internal fake fixture tooling can create candidate rows for backend tests and review workflow development
 - `seedImports:queueCandidatePublication` records a queue marker only; it does not create public `profiles` rows or overwrite existing owner-authored fields
-- actual publication, merge, owner handoff, and public surfacing remain deferred until the claim, suppression, and field-ownership rules are implemented end to end
+- `seedImports:publishQueuedCandidate` consumes that queue marker and is what actually creates or promotes the public unclaimed profile, copying accepted fields only and preserving each field's reviewed visibility
+- `seedImports:bulkPublishBatch` runs the same per-candidate path in cursor pages for a whole batch; see [Publication](./private-seed-operations.md#publication)
+- publication requires the batch's `publicationPolicy` to be `reviewed_publication_allowed`, which an operator sets deliberately with a recorded reason; a batch with no explicit policy fails closed
+- owner handoff remains a separate flow: accepting a concierge handoff still publishes nothing
 
 ## State Semantics
 
@@ -297,13 +300,16 @@ The claimed-owner field visibility path is `profilePrivacy:updateFieldVisibility
 
 The `migrations:backfillProfilePublicSurfacingState` internal mutation sets missing legacy `publicSurfacingState` values to `"public"` and fills `publicSurfacingUpdatedAt` so previously-written profiles keep their existing publication behavior after the surfacing-state schema addition.
 
-The `migrations:publishGatedProfiles` internal mutation takes previously gated profiles live: it flips `draft_private` / `opted_out` profiles to `published` / `public` and reindexes each one for search, since a flipped profile that is not reindexed stays invisible to discovery.
+The `migrations:publishGatedProfiles` internal mutation takes previously gated profiles live: it flips `draft_private` profiles to `published` and reindexes each one for search and vocabulary, since a flipped profile that is not reindexed stays invisible to discovery.
 
-It deliberately skips:
+It only touches profiles that are `draft_private` **and** `public`, which is the default-private state with no explicit surfacing decision attached. It deliberately skips:
 
+- `opted_out` profiles. This is the canonical "keep off ordinary public surfaces" signal and it is what `seedHandoffs` writes on a prepared concierge profile, including *unclaimed* ones prepared for outreach but never accepted. Those were offered on the explicit promise that nothing is published, so claim state cannot be used to discard the opt-out.
 - `suppressed` profiles, which are a moderation state rather than a default.
-- Profiles with an accepted `profileSuppressionRequests` row, which records someone asking not to be listed.
-- Claimed profiles, because publication of an owned profile is the owner's decision and they already have a control for it in account privacy settings. This also covers concierge handoff acceptances, which were accepted on the explicit understanding that accepting publishes nothing.
+- Profiles with an accepted `profileSuppressionRequests` row, which records someone asking not to be listed. All three request shapes are checked (profile id, slug, and pre-claim name/type), not just slug.
+- Claimed profiles, because publication of an owned profile is the owner's decision.
+
+Known limitation: there is currently **no** owner-facing control that changes `publicationState` or `publicSurfacingState`. `profilePrivacy:updateFieldVisibility` controls individual field visibility only. An owner who accepts a concierge handoff therefore has no self-service path to publish their profile, and needs an operator. That gap is not addressed here.
 
 Unlike the other migrations it is **not** part of `migrations:runAll`, because publishing profiles publicly is outward-facing and not cleanly reversible. Run it deliberately:
 

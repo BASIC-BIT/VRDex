@@ -123,6 +123,22 @@ Publish behavior worth knowing:
 
 - Only `accepted` candidate fields are copied. Unreviewed and rejected fields
   are dropped.
+- Each copied field keeps its reviewed `visibility`. Publication uses the shared
+  seed field mapper in `reviewed` mode; the concierge handoff path uses the same
+  mapper in `private` mode, which forces every field private. Publishing with the
+  concierge default would produce a profile with nothing visible on it.
+- Merging into an existing profile only applies accepted seed fields. Fields the
+  candidate never proposed are left untouched, and the profile's original
+  `publishedAt` is preserved.
+- An accepted suppression request blocks publication whether it was filed by
+  profile id, by slug, or as a pre-claim `displayName` + `profileType` request
+  with no slug at all.
+- A person candidate matched to a community profile is blocked with
+  `matched_profile_type_mismatch` rather than attempting a cross-type write.
+- Published profiles carry no `sourceAttribution`. That field makes the public
+  serializer render a profile as `Community submitted`, which would be false
+  provenance for an operator import; `creationSource: "import"` records the real
+  origin.
 - A batch with no explicit `publicationPolicy` fails closed and is treated as
   `private_only`. Legacy batches need step 1 before they can publish.
 - Person candidates only. Community candidates return
@@ -169,15 +185,25 @@ pnpm ops:seed-publish -- `
 
 - `--reason` is required and is recorded on the batch. It is the record of the
   operator asserting the source permits public listing.
-- `--accept-fields` is the trusted-source shortcut. It accepts fields still
-  marked `unreviewed`; `rejected` and `needs_correction` fields are always left
-  alone, so trusting a source never undoes a review decision. Without this flag
-  every field must already be reviewed or the candidate is skipped with
+- `--accept-fields` is the trusted-source shortcut. It accepts candidates and
+  fields still marked `unreviewed`; `rejected` and `needs_correction` are always
+  left alone, so trusting a source never undoes a review decision. Without this
+  flag every field must already be reviewed or the candidate is skipped with
   `field_unreviewed`.
-- `--limit` is the page size, not a cap. The script loops until the batch is
-  drained and prints running progress.
+- `--limit` is the page size, not a cap. The script pages with a cursor until the
+  batch is drained and prints running progress. Cursor paging matters: a
+  permanently blocked candidate never receives a `publishedProfileId`, so
+  offset-style paging would re-read the same page forever.
+- Batches already marked `rejected` or `superseded` are refused. Those are review
+  decisions; move them with `seedImports:setBatchReviewState` first if that is
+  genuinely intended.
+- Candidates already queued through the manual workflow proceed straight to
+  publish rather than being skipped as `candidate_already_queued_for_publication`.
 - Re-running is safe. Already-published candidates are excluded by
   `publishedProfileId`, so an interrupted run resumes.
+- Preview field counts are sampled from the first 250 candidates, because field
+  stats need one query per candidate. The preview says so when it samples;
+  candidate counts are always exact.
 - The final report tallies skipped candidates by blocker and lists their
   external candidate ids, so a partial success is actionable rather than silent.
 

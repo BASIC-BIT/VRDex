@@ -7,7 +7,9 @@ import {
   FAKE_SEED_IMPORT_FIXTURES,
   candidatePublicationStateForReviewState,
   createSeedImportDocumentsFromFixture,
+  canBulkAcceptSeedImportCandidate,
   canBulkAcceptSeedImportField,
+  canBulkApproveSeedImportBatch,
   getSeedImportPublicationBlockers,
   getSeedImportPublishBlockers,
   normalizeSeedImportFixture,
@@ -302,6 +304,36 @@ describe("seed import publish guards", () => {
     assert.equal(canBulkAcceptSeedImportField("rejected"), false);
     assert.equal(canBulkAcceptSeedImportField("needs_correction"), false);
     assert.equal(canBulkAcceptSeedImportField("accepted"), false);
+  });
+
+  it("bulk-accepts only unreviewed candidates, never undoing a review decision", () => {
+    assert.equal(canBulkAcceptSeedImportCandidate("unreviewed"), true);
+    assert.equal(canBulkAcceptSeedImportCandidate("rejected"), false);
+    assert.equal(canBulkAcceptSeedImportCandidate("needs_correction"), false);
+    assert.equal(canBulkAcceptSeedImportCandidate("accepted"), false);
+  });
+
+  it("bulk-approves only pre-decision batch states", () => {
+    assert.equal(canBulkApproveSeedImportBatch("draft"), true);
+    assert.equal(canBulkApproveSeedImportBatch("ready_for_review"), true);
+    assert.equal(canBulkApproveSeedImportBatch("approved"), true);
+    assert.equal(canBulkApproveSeedImportBatch("rejected"), false);
+    assert.equal(canBulkApproveSeedImportBatch("superseded"), false);
+  });
+
+  it("blocks publishing a person candidate onto a community profile", () => {
+    const blockers = getSeedImportPublishBlockers({
+      batch: publishableBatch,
+      candidate: { ...queuedCandidate, matchedProfileId: "profile_community" as Id<"profiles"> },
+      matchedProfile: {
+        _id: "profile_community" as Id<"profiles">,
+        claimState: "unclaimed" as const,
+        publicSurfacingState: "public" as const,
+        profileType: "community" as const,
+      },
+    });
+
+    assert.ok(blockers.includes("matched_profile_type_mismatch"));
   });
 
   it("blocks publishing over a claimed matched profile", () => {

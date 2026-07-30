@@ -3,7 +3,13 @@ import { Migrations } from "@convex-dev/migrations";
 import { components, internal } from "./_generated/api";
 import type { DataModel, Doc } from "./_generated/dataModel";
 import { internalMutation } from "./_generated/server";
-import { createProfileSearchDocument, upsertSearchDocument } from "./_searchDocuments";
+import {
+  createProfileSearchDocument,
+  upsertSearchDocument,
+  vocabularyForProfile,
+} from "./_searchDocuments";
+import { hasAcceptedSuppression } from "./_suppressions";
+import { recordVocabularyTerms } from "./_vocabulary";
 
 type LegacyProfile = Doc<"profiles"> & {
   publicSurfacingState?: Doc<"profiles">["publicSurfacingState"];
@@ -42,38 +48,43 @@ export const runBackfillProfilePublicSurfacingState = migrations.runner(
 /**
  * Take previously gated profiles live.
  *
- * Flips `draft_private` / `opted_out` profiles to published and publicly
- * surfaced, and reindexes them for search (a flipped profile that is not
- * reindexed stays invisible to discovery).
+ * Flips default-private profiles to published and reindexes them for search and
+ * vocabulary (a flipped profile that is not reindexed stays invisible to
+ * discovery).
+ *
+ * Only `draft_private` + `public` profiles are touched: that combination is the
+ * default-private state with no explicit surfacing decision attached.
  *
  * Deliberately preserved:
- * - `suppressed` profiles, which are a moderation state, not a default.
+ * - `opted_out` profiles. This is the canonical "keep off ordinary public
+ *   surfaces" signal, and it is what `seedHandoffs` writes on a prepared
+ *   concierge profile, including *unclaimed* ones that have been prepared for
+ *   outreach but never accepted. Those were offered on the explicit promise that
+ *   nothing is published, so claim state cannot be used to discard the opt-out.
+ * - `suppressed` profiles, which are a moderation state.
  * - Any profile with an accepted `profileSuppressionRequests` row, which is the
  *   record of someone asking not to be listed.
- * - Claimed profiles. Publication of an owned profile is the owner's call, and
- *   they already have a control for it in account privacy settings. This also
- *   covers concierge handoff acceptances, which were accepted on the explicit
- *   understanding that accepting publishes nothing.
+ * - Claimed profiles, since publication of an owned profile is the owner's call.
  */
 export const publishGatedProfiles = migrations.define({
   table: "profiles",
   migrateOne: async (ctx, profile) => {
-    if (profile.publicSurfacingState === "suppressed" || profile.claimState !== "unclaimed") {
+    if (profile.claimState !== "unclaimed") {
       return;
     }
 
-    if (profile.publicationState === "published" && profile.publicSurfacingState === "public") {
+    if (profile.publicationState !== "draft_private" || profile.publicSurfacingState !== "public") {
       return;
     }
 
-    const acceptedSuppressionRequests = await ctx.db
-      .query("profileSuppressionRequests")
-      .withIndex("by_profileSlug_state", (query) =>
-        query.eq("profileSlug", profile.slug).eq("state", "accepted"),
-      )
-      .take(1);
+    const suppressed = await hasAcceptedSuppression(ctx.db, {
+      profileId: profile._id,
+      slug: profile.slug,
+      displayName: profile.displayName,
+      profileType: profile.profileType,
+    });
 
-    if (acceptedSuppressionRequests.length > 0) {
+    if (suppressed) {
       return;
     }
 
@@ -81,9 +92,7 @@ export const publishGatedProfiles = migrations.define({
 
     await ctx.db.patch(profile._id, {
       publicationState: "published",
-      publicSurfacingState: "public",
       publicSurfacingUpdatedAt: now,
-      publicSurfacingReason: undefined,
       publishedAt: profile.publishedAt ?? now,
       updatedAt: now,
     });
@@ -91,7 +100,13 @@ export const publishGatedProfiles = migrations.define({
     const published = await ctx.db.get(profile._id);
 
     if (published !== null) {
-      await upsertSearchDocument(ctx.db, createProfileSearchDocument(published));
+      // Search and vocabulary are updated together everywhere else profiles
+      // publish. Indexing search alone would surface the profile while leaving
+      // its tags and genres missing from discovery vocabulary and usage counts.
+      await Promise.all([
+        upsertSearchDocument(ctx.db, createProfileSearchDocument(published)),
+        recordVocabularyTerms(ctx.db, vocabularyForProfile(published), now),
+      ]);
     }
   },
 });

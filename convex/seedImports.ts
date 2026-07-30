@@ -6,11 +6,14 @@ import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from
 import { createProfileSortName } from "./_profileSubmissions";
 import { createProfileSearchDocument, upsertSearchDocument, vocabularyForProfile } from "./_searchDocuments";
 import { buildConciergeProfileFieldPatch } from "./_seedHandoffs";
+import { hasAcceptedSuppression } from "./_suppressions";
 import { recordVocabularyTerms } from "./_vocabulary";
 import {
   FAKE_SEED_IMPORT_FIXTURE_KEY,
   FAKE_SEED_IMPORT_FIXTURES,
+  canBulkAcceptSeedImportCandidate,
   canBulkAcceptSeedImportField,
+  canBulkApproveSeedImportBatch,
   candidatePublicationStateForReviewState,
   createSeedImportCandidateDocuments,
   createSeedImportDocuments,
@@ -32,6 +35,8 @@ import { findAvailableProfileSlug, getProfileBySlug, validateProfileSlug } from 
 
 const reviewNoteValidator = v.optional(v.string());
 
+const PREVIEW_FIELD_SAMPLE_CANDIDATES = 250;
+
 function optionalValue<T>(key: string, value: T | undefined): Record<string, T> {
   return value === undefined ? {} : { [key]: value };
 }
@@ -40,6 +45,26 @@ function optionalReviewNote(value: string | undefined): string | undefined {
   const normalized = value?.trim().replace(/\s+/g, " ");
 
   return normalized ? normalized.slice(0, 1_000) : undefined;
+}
+
+/**
+ * Append an audit line to a batch's notes rather than replacing them.
+ *
+ * Source notes recorded at import time and earlier review context are exactly
+ * the provenance that matters when a batch is relaxed for publication, so a
+ * policy record must not overwrite them. Oldest entries are dropped first if the
+ * combined note would exceed the stored limit.
+ */
+function appendBatchNote(existing: string | undefined, entry: string): string | undefined {
+  const normalizedEntry = optionalReviewNote(entry);
+
+  if (normalizedEntry === undefined) {
+    return existing;
+  }
+
+  const combined = existing === undefined ? normalizedEntry : `${existing}\n${normalizedEntry}`;
+
+  return combined.length <= 4_000 ? combined : combined.slice(combined.length - 4_000);
 }
 
 async function actorFromArgs(
@@ -532,7 +557,8 @@ export const setBatchPublicationPolicy = internalMutation({
         "notes",
         reason === undefined
           ? undefined
-          : optionalReviewNote(
+          : appendBatchNote(
+              batch.notes,
               `Publication policy ${previousPolicy} -> ${args.publicationPolicy} by ${
                 reviewer?.displayName ?? reviewer?.subject ?? "unknown operator"
               }: ${reason}`,
@@ -608,12 +634,12 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
     const targetSlug =
       matchedProfile?.slug ??
       (await findAvailableProfileSlug(ctx.db, validProposedSlug ?? candidate.proposedDisplayName));
-    const acceptedSuppressionRequests = await ctx.db
-      .query("profileSuppressionRequests")
-      .withIndex("by_profileSlug_state", (query) =>
-        query.eq("profileSlug", targetSlug).eq("state", "accepted"),
-      )
-      .take(1);
+    const suppressed = await hasAcceptedSuppression(ctx.db, {
+      ...optionalValue("profileId", matchedProfile?._id),
+      slug: targetSlug,
+      displayName: candidate.proposedDisplayName,
+      profileType: candidate.profileType,
+    });
 
     const blockers = getSeedImportPublishBlockers({
       batch,
@@ -621,7 +647,7 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
       matchedProfile,
       slugCollisionProfile,
       hasInvalidProposedSlug: proposedSlugValidation !== undefined && !proposedSlugValidation.ok,
-      hasAcceptedSuppressionRequest: acceptedSuppressionRequests.length > 0,
+      hasAcceptedSuppressionRequest: suppressed,
     });
 
     if (blockers.length > 0) {
@@ -629,15 +655,21 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
     }
 
     const now = args.now ?? Date.now();
-    const reviewer = await actorFromArgs(ctx, args.reviewer);
     const fields = await getCandidateFields(ctx, candidate._id);
     const acceptedFields = fields.filter((field) => field.reviewState === "accepted");
+
+    // Publication keeps each field's reviewed visibility and never clears fields
+    // the candidate did not propose. The concierge defaults do the opposite:
+    // everything private, and the accepted selection replaces the whole profile.
+    const publishFieldPatchOptions = {
+      fieldVisibilitySource: "reviewed" as const,
+      clearUnselectedFields: false,
+    };
 
     const publicSurfacing = {
       publicationState: "published" as const,
       publicSurfacingState: "public" as const,
       publicSurfacingUpdatedAt: now,
-      publishedAt: now,
     };
 
     let profileId: Id<"profiles">;
@@ -646,14 +678,20 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
       const existingPerson = matchedProfile as Extract<Doc<"profiles">, { profileType: "person" }>;
 
       await ctx.db.patch(matchedProfile._id, {
-        ...buildConciergeProfileFieldPatch(acceptedFields, existingPerson),
+        ...buildConciergeProfileFieldPatch(acceptedFields, existingPerson, publishFieldPatchOptions),
         ...publicSurfacing,
+        // Preserve the original first-publication timestamp on a merge.
+        publishedAt: matchedProfile.publishedAt ?? now,
         publicSurfacingReason: undefined,
         updatedAt: now,
       });
       profileId = matchedProfile._id;
     } else {
-      const fieldPatch = buildConciergeProfileFieldPatch(acceptedFields);
+      const fieldPatch = buildConciergeProfileFieldPatch(
+        acceptedFields,
+        undefined,
+        publishFieldPatchOptions,
+      );
 
       profileId = await ctx.db.insert("profiles", {
         ...fieldPatch,
@@ -665,13 +703,13 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
         outboundLinks: fieldPatch.outboundLinks ?? [],
         claimState: "unclaimed",
         ...publicSurfacing,
+        publishedAt: now,
         creationSource: "import",
         profileType: "person",
         person: fieldPatch.person ?? { roleTags: [] },
-        ...optionalValue(
-          "sourceAttribution",
-          reviewer === undefined ? undefined : { submittedAt: now, submitter: reviewer },
-        ),
+        // No sourceAttribution: toPublicProfile renders any profile carrying it
+        // as "Community submitted", which would be false provenance for an
+        // operator import. creationSource already records that it came from one.
         updatedAt: now,
       });
     }
@@ -762,9 +800,13 @@ export const previewBatchPublication = internalQuery({
         return counts;
       }, {});
 
+    // Field stats need one query per candidate, so they are sampled rather than
+    // exhaustive: an import may carry thousands of candidates, and a preview that
+    // blows the query's read limit would block publishing instead of informing it.
+    const fieldStatsSampleSize = Math.min(candidates.length, PREVIEW_FIELD_SAMPLE_CANDIDATES);
     const fieldReviewStates: string[] = [];
 
-    for (const candidate of candidates) {
+    for (const candidate of candidates.slice(0, fieldStatsSampleSize)) {
       const fields = await getCandidateFields(ctx, candidate._id);
       fieldReviewStates.push(...fields.map((field) => field.reviewState));
     }
@@ -781,6 +823,8 @@ export const previewBatchPublication = internalQuery({
       alreadyPublishedCount: candidates.filter(
         (candidate) => candidate.publishedProfileId !== undefined,
       ).length,
+      fieldStatsSampledCandidates: fieldStatsSampleSize,
+      fieldStatsComplete: fieldStatsSampleSize === candidates.length,
       fieldCount: fieldReviewStates.length,
       fieldReviewStates: tally(fieldReviewStates),
     };
@@ -795,11 +839,14 @@ export const previewBatchPublication = internalQuery({
  * (`unsafe_public_field`, `owner_confirmed_field_without_claim`,
  * `field_needs_correction`) that gate a one-off publish.
  *
- * `acceptFields` is the trusted-source shortcut: it accepts fields that are
- * still `unreviewed`, and deliberately leaves `rejected` and `needs_correction`
- * fields alone because those record a real review decision.
+ * `acceptFields` is the trusted-source shortcut: it accepts candidates and
+ * fields that are still `unreviewed`, and deliberately leaves `rejected` and
+ * `needs_correction` alone because those record a real review decision.
  *
- * Call repeatedly until `remaining` reaches zero.
+ * Call repeatedly, passing back `nextCursor`, until `remaining` reaches zero.
+ * Paging is cursor-based rather than "first unpublished": a permanently blocked
+ * candidate never gets a `publishedProfileId`, so offset paging would re-select
+ * the same page forever and never reach the rest of the batch.
  */
 export const bulkPublishBatch = internalMutation({
   args: {
@@ -808,6 +855,7 @@ export const bulkPublishBatch = internalMutation({
     reason: v.string(),
     acceptFields: v.optional(v.boolean()),
     limit: v.optional(v.number()),
+    cursor: v.optional(v.string()),
     reviewer: v.optional(seedImportAuthSubjectValidator),
     now: v.optional(v.number()),
   },
@@ -824,12 +872,21 @@ export const bulkPublishBatch = internalMutation({
       throw new Error("Bulk publishing requires a reason recording the source permission.");
     }
 
+    if (!canBulkApproveSeedImportBatch(batch.reviewState)) {
+      throw new Error(
+        `Batch review state "${batch.reviewState}" is an explicit review decision. Move it with seedImports:setBatchReviewState before bulk publishing.`,
+      );
+    }
+
     const now = args.now ?? Date.now();
     const reviewer = await actorFromArgs(ctx, args.reviewer);
     const limit = Math.max(1, Math.min(args.limit ?? 25, 200));
 
     // Batch-level prerequisites, applied once and idempotent.
-    if (batch.reviewState !== "approved" || (batch.publicationPolicy ?? "private_only") !== "reviewed_publication_allowed") {
+    if (
+      batch.reviewState !== "approved" ||
+      (batch.publicationPolicy ?? "private_only") !== "reviewed_publication_allowed"
+    ) {
       await ctx.db.patch(batch._id, {
         reviewState: "approved",
         publicationPolicy: "reviewed_publication_allowed",
@@ -837,7 +894,8 @@ export const bulkPublishBatch = internalMutation({
         reviewedAt: now,
         ...optionalValue(
           "notes",
-          optionalReviewNote(
+          appendBatchNote(
+            batch.notes,
             `Bulk publish by ${reviewer?.displayName ?? reviewer?.subject ?? "unknown operator"}: ${reason}`,
           ),
         ),
@@ -845,12 +903,13 @@ export const bulkPublishBatch = internalMutation({
       });
     }
 
-    const candidates = await ctx.db
+    const pageResult = await ctx.db
       .query("seedImportCandidateProfiles")
       .withIndex("by_batchId", (query) => query.eq("batchId", batch._id))
-      .collect();
-    const pending = candidates.filter((candidate) => candidate.publishedProfileId === undefined);
-    const page = pending.slice(0, limit);
+      .paginate({ numItems: limit, cursor: args.cursor ?? null });
+    const page = pageResult.page.filter(
+      (candidate) => candidate.publishedProfileId === undefined,
+    );
 
     let published = 0;
     const skipped: Array<{ externalCandidateId: string; blockers: string[] }> = [];
@@ -864,14 +923,17 @@ export const bulkPublishBatch = internalMutation({
             await ctx.db.patch(field._id, {
               reviewState: "accepted",
               reviewedAt: now,
-              ...optionalValue("reviewer", reviewer),
+              ...optionalValue("reviewedBy", reviewer),
               updatedAt: now,
             });
           }
         }
       }
 
-      if (candidate.reviewState !== "accepted") {
+      if (
+        args.acceptFields === true &&
+        canBulkAcceptSeedImportCandidate(candidate.reviewState)
+      ) {
         await ctx.db.patch(candidate._id, {
           reviewState: "accepted",
           publicationState: candidatePublicationStateForReviewState("accepted"),
@@ -881,19 +943,24 @@ export const bulkPublishBatch = internalMutation({
         });
       }
 
-      const queueResult = await queueCandidate(ctx, {
-        candidateId: candidate._id,
-        ...optionalValue("reviewer", reviewer),
-        reviewNote: reason,
-        now,
-      });
-
-      if (!queueResult.queued) {
-        skipped.push({
-          externalCandidateId: candidate.externalCandidateId,
-          blockers: queueResult.blockers,
+      // A candidate already queued through the manual workflow goes straight to
+      // publish; re-queueing it would only return
+      // candidate_already_queued_for_publication and strand it.
+      if (candidate.publicationState !== "published_unclaimed") {
+        const queueResult = await queueCandidate(ctx, {
+          candidateId: candidate._id,
+          ...optionalValue("reviewer", reviewer),
+          reviewNote: reason,
+          now,
         });
-        continue;
+
+        if (!queueResult.queued) {
+          skipped.push({
+            externalCandidateId: candidate.externalCandidateId,
+            blockers: queueResult.blockers,
+          });
+          continue;
+        }
       }
 
       const publishResult = await publishCandidate(ctx, {
@@ -917,7 +984,8 @@ export const bulkPublishBatch = internalMutation({
       processed: page.length,
       published,
       skipped,
-      remaining: Math.max(0, pending.length - page.length),
+      nextCursor: pageResult.isDone ? null : pageResult.continueCursor,
+      isDone: pageResult.isDone,
     };
   },
 });

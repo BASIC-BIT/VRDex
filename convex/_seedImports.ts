@@ -135,7 +135,8 @@ export type SeedImportPublicationBlocker =
   | "owner_confirmed_field_without_claim"
   | "unsafe_public_field"
   | "candidate_not_queued_for_publication"
-  | "candidate_profile_type_unsupported";
+  | "candidate_profile_type_unsupported"
+  | "matched_profile_type_mismatch";
 
 type SeedImportPublicationCandidate = Pick<
   Doc<"seedImportCandidateProfiles">,
@@ -999,6 +1000,31 @@ export function canBulkAcceptSeedImportField(
 }
 
 /**
+ * Whether a bulk publish run may accept this candidate on the operator's behalf.
+ *
+ * Mirrors `canBulkAcceptSeedImportField`: only `unreviewed` qualifies, so an
+ * explicit `rejected` or `needs_correction` decision survives a bulk run.
+ */
+export function canBulkAcceptSeedImportCandidate(
+  reviewState: SeedImportCandidateReviewState,
+): boolean {
+  return reviewState === "unreviewed";
+}
+
+/**
+ * Whether a bulk publish run may approve this batch on the operator's behalf.
+ *
+ * `rejected` and `superseded` are review decisions, not initial workflow states,
+ * so reversing them requires a deliberate `setBatchReviewState` call rather than
+ * a side effect of bulk publishing.
+ */
+export function canBulkApproveSeedImportBatch(
+  reviewState: SeedImportBatchReviewState,
+): boolean {
+  return reviewState === "draft" || reviewState === "ready_for_review" || reviewState === "approved";
+}
+
+/**
  * Publish-time gates for a candidate that was already queued for publication.
  *
  * Distinct from `getSeedImportPublicationBlockers`, which gates the *queue*
@@ -1009,7 +1035,7 @@ export function canBulkAcceptSeedImportField(
 export function getSeedImportPublishBlockers(args: {
   batch: Pick<Doc<"seedImportBatches">, "publicationPolicy" | "reviewState">;
   candidate: SeedImportPublicationCandidate & Pick<Doc<"seedImportCandidateProfiles">, "profileType">;
-  matchedProfile?: SeedImportPublicationProfile | null;
+  matchedProfile?: (SeedImportPublicationProfile & { profileType?: Doc<"profiles">["profileType"] }) | null;
   hasInvalidProposedSlug?: boolean;
   hasAcceptedSuppressionRequest?: boolean;
   slugCollisionProfile?: SeedImportPublicationProfile | null;
@@ -1049,6 +1075,15 @@ export function getSeedImportPublishBlockers(args: {
   if (args.matchedProfile !== null && args.matchedProfile !== undefined) {
     if (args.matchedProfile.claimState !== "unclaimed") {
       blockers.add("matched_profile_claimed");
+    }
+
+    // A person candidate matched to a community profile would feed a community
+    // document to the person-only mapper and fail schema validation on write.
+    if (
+      args.matchedProfile.profileType !== undefined &&
+      args.matchedProfile.profileType !== args.candidate.profileType
+    ) {
+      blockers.add("matched_profile_type_mismatch");
     }
   }
 

@@ -78,6 +78,12 @@ function printPreview(preview) {
   console.log(`  candidate types:       ${JSON.stringify(preview.candidateProfileTypes)}`);
   console.log(`  fields:                ${preview.fieldCount}`);
   console.log(`  field review:          ${JSON.stringify(preview.fieldReviewStates)}`);
+
+  if (preview.fieldStatsComplete === false) {
+    console.log(
+      `  note: field counts sampled from the first ${preview.fieldStatsSampledCandidates} of ${preview.candidateCount} candidates.`,
+    );
+  }
 }
 
 function reportSkipped(skipped) {
@@ -144,6 +150,7 @@ function main() {
 
   let publishedTotal = 0;
   let processedTotal = 0;
+  let cursor;
   const skipped = [];
 
   console.log("");
@@ -155,23 +162,26 @@ function main() {
       acceptFields: flag("--accept-fields"),
       limit,
       reviewer,
+      ...(cursor === undefined || cursor === null ? {} : { cursor }),
     });
 
     publishedTotal += page.published;
     processedTotal += page.processed;
     skipped.push(...page.skipped);
 
-    console.log(`  published ${publishedTotal}, skipped ${skipped.length}, ${page.remaining} remaining`);
+    console.log(`  published ${publishedTotal}, skipped ${skipped.length}`);
 
-    if (page.remaining === 0) {
+    if (page.isDone) {
       break;
     }
 
-    // A page that processes nothing cannot make progress; stop rather than
-    // looping forever over the same candidates.
-    if (page.processed === 0) {
-      fail("Bulk publish stopped making progress. Inspect the batch state before retrying.");
+    // The cursor always advances past the page just read, so a batch where every
+    // candidate is blocked still terminates instead of re-reading page one.
+    if (page.nextCursor === null || page.nextCursor === undefined) {
+      break;
     }
+
+    cursor = page.nextCursor;
   }
 
   console.log(
