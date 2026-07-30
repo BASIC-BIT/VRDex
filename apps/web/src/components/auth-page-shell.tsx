@@ -4,7 +4,10 @@ import { Notice } from "@/components/ui/notice";
 import { BrandLink, PageContainer, PageShell } from "@/components/ui/page-shell";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 
-export const AUTH_UNAVAILABLE_COPY = "Sign-in is temporarily unavailable.";
+// Worded to read correctly under both headings this notice appears beneath.
+// "Sign-in is temporarily unavailable." was wrong on `/sign-up`, where the page
+// says "Create account".
+export const AUTH_UNAVAILABLE_COPY = "Accounts are temporarily unavailable.";
 
 /**
  * Shared chrome for the sign-in and sign-up routes. Both mount a Clerk component
