@@ -118,8 +118,12 @@ holding only some of them would offer a method that throws:
 
 One thing still gates the path, and it is not code: **no community has delegated
 a credential.** Until one has, the method is offered wherever those three
-variables are set, and every attempt reports that no linked server confirmed the
-account — the adapter has nothing to consult.
+variables are set, and every attempt short-circuits to `unavailable` before the
+adapter is called — `verifyVrchatProofViaAdapter` has nothing to ask, so it does
+not post the claimant's Discord id anywhere. The claim page renders that as
+"VRCLinking could not be reached", which is the state to expect from a
+pre-delegation smoke test; a genuine no-match looks different and only becomes
+reachable once a delegation exists.
 
 API keys are minted from a logged-in VRCLinking account and member reads are
 guild-scoped, so this needs a per-community delegated key or a partner

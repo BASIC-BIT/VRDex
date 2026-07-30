@@ -218,8 +218,10 @@ What is left needs something outside the codebase:
 
 1. **Putting a real key in the secret store** and recording its reference
    against a community. Until one community has done this, the method is offered
-   wherever the adapter is configured and every attempt answers "no linked
-   server confirmed that account" — the adapter has nothing to consult.
+   wherever the adapter is configured and every attempt short-circuits to
+   `unavailable` — `verifyVrchatProofViaAdapter` has nothing to ask, so it never
+   posts the claimant's Discord id. A genuine no-match is a different state and
+   only becomes reachable once a delegation exists.
 2. **Talking to VRCLinking** about third-party server-to-server use, which has
    no published terms. Currently deferred.
 

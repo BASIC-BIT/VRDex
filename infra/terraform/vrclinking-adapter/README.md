@@ -82,11 +82,16 @@ environment keeps serving the old pair after Secrets Manager and Convex have
 moved on. Recycle the fleet explicitly rather than waiting it out:
 
 ```bash
-# 1. New values, both secrets, in place before either side switches.
+# 1. Generate once and hold both values: step 3 needs the same bytes, and
+#    Secrets Manager is not the place to read them back from mid-rotation.
+NEW_BEARER=$(openssl rand -hex 32)
+NEW_CAPABILITY=$(openssl rand -hex 32)
+[ "$NEW_BEARER" = "$NEW_CAPABILITY" ] && echo "regenerate: values must differ" && return 1
+
 aws secretsmanager put-secret-value --secret-id vrdex/vrclinking/bearer-token \
-  --secret-string "$(openssl rand -hex 32)"
+  --secret-string "$NEW_BEARER"
 aws secretsmanager put-secret-value --secret-id vrdex/vrclinking/capability-key \
-  --secret-string "$(openssl rand -hex 32)"
+  --secret-string "$NEW_CAPABILITY"
 
 # 2. Force every warm container to re-bootstrap. A configuration update replaces
 #    them; the ARNs are unchanged, so this is the no-op edit that does it.
@@ -106,7 +111,8 @@ against a stale key. Reversing the order leaves old Lambda values paired with ne
 Convex ones for as long as any container stays warm.
 
 A delegated community credential needs none of this — it is read per request and
-never cached across one, so `put-secret-value` alone takes effect.
+never cached across one, so `put-secret-value` alone takes effect. Clear the two
+shell variables when you are done; they hold the live secrets.
 
 ## Why the URL needs two permissions
 
