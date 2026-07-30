@@ -321,6 +321,44 @@ describe("seed import publish guards", () => {
     assert.equal(canBulkApproveSeedImportBatch("superseded"), false);
   });
 
+  it("rechecks matched-profile surfacing at publish time", () => {
+    for (const publicSurfacingState of ["opted_out", "suppressed"] as const) {
+      const blockers = getSeedImportPublishBlockers({
+        batch: publishableBatch,
+        candidate: { ...queuedCandidate, matchedProfileId: "profile_matched" as Id<"profiles"> },
+        matchedProfile: {
+          _id: "profile_matched" as Id<"profiles">,
+          claimState: "unclaimed" as const,
+          publicSurfacingState,
+          profileType: "person" as const,
+        },
+      });
+
+      assert.ok(
+        blockers.includes("matched_profile_not_publicly_surfaceable"),
+        `expected ${publicSurfacingState} to block publication`,
+      );
+    }
+  });
+
+  it("rechecks field review states at publish time", () => {
+    const blockers = getSeedImportPublishBlockers({
+      batch: publishableBatch,
+      candidate: queuedCandidate,
+      fields: [
+        {
+          fieldKey: "bio",
+          value: "Reverted after queueing",
+          confidence: "low" as const,
+          reviewState: "needs_correction" as const,
+          visibility: "public" as const,
+        },
+      ],
+    });
+
+    assert.ok(blockers.includes("field_needs_correction"));
+  });
+
   it("blocks publishing a person candidate onto a community profile", () => {
     const blockers = getSeedImportPublishBlockers({
       batch: publishableBatch,

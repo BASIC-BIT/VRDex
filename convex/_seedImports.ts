@@ -1025,6 +1025,44 @@ export function canBulkApproveSeedImportBatch(
 }
 
 /**
+ * Field-level review and safety gates.
+ *
+ * Shared by the queue-time and publish-time gates: field review states can change
+ * between queueing and publishing, so consuming the queue has to re-run these or
+ * a field moved back to `needs_correction` would simply be dropped and the
+ * profile published anyway.
+ */
+export function getSeedImportFieldBlockers(
+  fields: SeedImportPublicationField[],
+): SeedImportPublicationBlocker[] {
+  const blockers = new Set<SeedImportPublicationBlocker>();
+
+  for (const field of fields) {
+    if (field.reviewState === "unreviewed") {
+      blockers.add("field_unreviewed");
+    }
+
+    if (field.reviewState === "needs_correction") {
+      blockers.add("field_needs_correction");
+    }
+
+    if (field.reviewState === "accepted" && field.confidence === "owner_confirmed") {
+      blockers.add("owner_confirmed_field_without_claim");
+    }
+
+    if (
+      field.reviewState === "accepted" &&
+      field.visibility === "public" &&
+      !isSafePublicSeedImportField(field)
+    ) {
+      blockers.add("unsafe_public_field");
+    }
+  }
+
+  return [...blockers];
+}
+
+/**
  * Publish-time gates for a candidate that was already queued for publication.
  *
  * Distinct from `getSeedImportPublicationBlockers`, which gates the *queue*
@@ -1035,6 +1073,7 @@ export function canBulkApproveSeedImportBatch(
 export function getSeedImportPublishBlockers(args: {
   batch: Pick<Doc<"seedImportBatches">, "publicationPolicy" | "reviewState">;
   candidate: SeedImportPublicationCandidate & Pick<Doc<"seedImportCandidateProfiles">, "profileType">;
+  fields?: SeedImportPublicationField[];
   matchedProfile?: (SeedImportPublicationProfile & { profileType?: Doc<"profiles">["profileType"] }) | null;
   hasInvalidProposedSlug?: boolean;
   hasAcceptedSuppressionRequest?: boolean;
@@ -1085,6 +1124,13 @@ export function getSeedImportPublishBlockers(args: {
     ) {
       blockers.add("matched_profile_type_mismatch");
     }
+
+    // Re-checked at publish time, not just at queue time: a merge resets
+    // publicSurfacingState to public, so a profile opted out or suppressed after
+    // queueing would have its explicit surfacing decision erased.
+    if (args.matchedProfile.publicSurfacingState !== "public") {
+      blockers.add("matched_profile_not_publicly_surfaceable");
+    }
   }
 
   if (
@@ -1097,6 +1143,10 @@ export function getSeedImportPublishBlockers(args: {
 
   if (args.hasAcceptedSuppressionRequest === true) {
     blockers.add("suppression_request_blocks_publication");
+  }
+
+  for (const blocker of getSeedImportFieldBlockers(args.fields ?? [])) {
+    blockers.add(blocker);
   }
 
   return [...blockers];
@@ -1167,26 +1217,8 @@ export function getSeedImportPublicationBlockers(args: {
     blockers.add("slug_collision_blocks_publication");
   }
 
-  for (const field of args.fields) {
-    if (field.reviewState === "unreviewed") {
-      blockers.add("field_unreviewed");
-    }
-
-    if (field.reviewState === "needs_correction") {
-      blockers.add("field_needs_correction");
-    }
-
-    if (field.reviewState === "accepted" && field.confidence === "owner_confirmed") {
-      blockers.add("owner_confirmed_field_without_claim");
-    }
-
-    if (
-      field.reviewState === "accepted" &&
-      field.visibility === "public" &&
-      !isSafePublicSeedImportField(field)
-    ) {
-      blockers.add("unsafe_public_field");
-    }
+  for (const blocker of getSeedImportFieldBlockers(args.fields)) {
+    blockers.add(blocker);
   }
 
   return [...blockers];

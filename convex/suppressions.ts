@@ -1,9 +1,11 @@
 import { v } from "convex/values";
 
-import { mutation } from "./_generated/server";
+import { internalMutation, mutation } from "./_generated/server";
 import { activeBrowserSessionSubjectOrNull } from "./_browserSessionAuthority";
 import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 import { normalizeProfileInlineText } from "./_profileSubmissions";
+import { createProfileSearchDocument, upsertSearchDocument } from "./_searchDocuments";
+import { seedImportAuthSubjectValidator as authSubjectValidator } from "./_seedImportValidators";
 
 const profileType = v.union(v.literal("person"), v.literal("community"));
 const suppressionRequestType = v.union(
@@ -79,5 +81,92 @@ export const requestProfileSuppression = mutation({
     }
 
     return { requestId };
+  },
+});
+
+/**
+ * Resolve a suppression request, applying the surfacing change on acceptance.
+ *
+ * Without this, `requestProfileSuppression` only ever wrote `submitted` rows and
+ * nothing could reach `accepted`, which meant the accepted-suppression guard on
+ * publication could never fire and there was no way to retract an already-public
+ * profile. Accepting a request that names a profile sets it to `opted_out` and
+ * reindexes it so discovery drops it.
+ *
+ * A pre-claim request with no profile id or slug has no profile to change. It is
+ * still recorded as accepted, which blocks future seed publication for that
+ * name/type through `hasAcceptedSuppression`.
+ */
+export const resolveProfileSuppression = internalMutation({
+  args: {
+    requestId: v.id("profileSuppressionRequests"),
+    state: v.union(v.literal("under_review"), v.literal("accepted"), v.literal("rejected")),
+    resolutionNote: v.optional(v.string()),
+    actor: v.optional(authSubjectValidator),
+    now: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const request = await ctx.db.get(args.requestId);
+
+    if (request === null) {
+      throw new Error("Suppression request not found.");
+    }
+
+    const now = args.now ?? Date.now();
+    const actor = args.actor ?? (await activeBrowserSessionSubjectOrNull(ctx))?.subject;
+
+    await ctx.db.patch(request._id, {
+      state: args.state,
+      ...optionalValue("resolutionNote", optionalText(args.resolutionNote, 1_000)),
+      updatedAt: now,
+    });
+
+    const profile =
+      request.profileId !== undefined
+        ? await ctx.db.get(request.profileId)
+        : request.profileSlug === undefined
+          ? null
+          : await getProfileBySlug(ctx.db, request.profileSlug);
+
+    if (args.state !== "accepted" || profile === null) {
+      return {
+        requestId: request._id,
+        state: args.state,
+        appliedToProfile: false as const,
+      };
+    }
+
+    await ctx.db.patch(profile._id, {
+      publicSurfacingState: "opted_out",
+      publicSurfacingUpdatedAt: now,
+      publicSurfacingReason:
+        request.requestType === "owner_opt_out"
+          ? "Owner opt-out request accepted."
+          : "Pre-claim safety suppression request accepted.",
+      updatedAt: now,
+    });
+
+    const updated = await ctx.db.get(profile._id);
+
+    if (updated !== null) {
+      await upsertSearchDocument(ctx.db, createProfileSearchDocument(updated));
+    }
+
+    await ctx.db.insert("profileAuditEvents", {
+      profileId: profile._id,
+      action: "suppression_accepted",
+      ...optionalValue("actor", actor),
+      sourceType: "moderator",
+      note: "Profile opted out of public surfacing by accepted suppression request.",
+      createdAt: now,
+    });
+
+    return {
+      requestId: request._id,
+      state: args.state,
+      appliedToProfile: true as const,
+      profileId: profile._id,
+      slug: profile.slug,
+    };
   },
 });

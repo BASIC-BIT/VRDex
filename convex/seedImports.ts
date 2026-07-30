@@ -641,9 +641,15 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
       profileType: candidate.profileType,
     });
 
+    // Fields are loaded before the gate so publish-time field review states are
+    // re-checked. Filtering to accepted alone would silently drop a field moved
+    // back to needs_correction and publish the profile anyway.
+    const fields = await getCandidateFields(ctx, candidate._id);
+
     const blockers = getSeedImportPublishBlockers({
       batch,
       candidate,
+      fields,
       matchedProfile,
       slugCollisionProfile,
       hasInvalidProposedSlug: proposedSlugValidation !== undefined && !proposedSlugValidation.ok,
@@ -655,7 +661,6 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
     }
 
     const now = args.now ?? Date.now();
-    const fields = await getCandidateFields(ctx, candidate._id);
     const acceptedFields = fields.filter((field) => field.reviewState === "accepted");
 
     // Publication keeps each field's reviewed visibility and never clears fields
@@ -882,23 +887,34 @@ export const bulkPublishBatch = internalMutation({
     const reviewer = await actorFromArgs(ctx, args.reviewer);
     const limit = Math.max(1, Math.min(args.limit ?? 25, 200));
 
-    // Batch-level prerequisites, applied once and idempotent.
-    if (
+    // Batch-level prerequisites and the run's audit note. The note is written on
+    // the first page of a run (no cursor yet) regardless of whether the
+    // prerequisites needed changing, so the required reason is always recorded
+    // even when the batch was already approved and relaxed.
+    const isFirstPage = args.cursor === undefined;
+    const needsPrerequisites =
       batch.reviewState !== "approved" ||
-      (batch.publicationPolicy ?? "private_only") !== "reviewed_publication_allowed"
-    ) {
+      (batch.publicationPolicy ?? "private_only") !== "reviewed_publication_allowed";
+
+    if (isFirstPage || needsPrerequisites) {
       await ctx.db.patch(batch._id, {
-        reviewState: "approved",
-        publicationPolicy: "reviewed_publication_allowed",
-        reviewedBy: reviewer,
-        reviewedAt: now,
-        ...optionalValue(
-          "notes",
-          appendBatchNote(
-            batch.notes,
-            `Bulk publish by ${reviewer?.displayName ?? reviewer?.subject ?? "unknown operator"}: ${reason}`,
-          ),
-        ),
+        ...(needsPrerequisites
+          ? {
+              reviewState: "approved" as const,
+              publicationPolicy: "reviewed_publication_allowed" as const,
+              reviewedBy: reviewer,
+              reviewedAt: now,
+            }
+          : {}),
+        ...(isFirstPage
+          ? optionalValue(
+              "notes",
+              appendBatchNote(
+                batch.notes,
+                `Bulk publish by ${reviewer?.displayName ?? reviewer?.subject ?? "unknown operator"}: ${reason}`,
+              ),
+            )
+          : {}),
         updatedAt: now,
       });
     }

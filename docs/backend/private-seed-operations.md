@@ -146,10 +146,11 @@ Publish behavior worth knowing:
   half-published.
 - Re-running publish on an already-published candidate returns the existing
   profile instead of creating a duplicate.
-- An accepted `profileSuppressionRequests` row for the target slug blocks
-  publication. This is the escape hatch for someone who asks not to be listed.
+- An accepted `profileSuppressionRequests` row blocks publication. See
+  [Suppression Requests](#suppression-requests) for how a request is accepted.
 - Restoring `private_only` blocks future publication but does not retract
-  profiles already published from the batch. Use suppression for that.
+  profiles already published from the batch. Retract those with
+  `suppressions:resolveProfileSuppression`.
 
 Ineligible candidates return `published: false` with a blocker list rather than
 throwing, so a bulk run can skip and continue.
@@ -210,6 +211,32 @@ pnpm ops:seed-publish -- `
 `--accept-fields` bypasses per-field human review by design. It is appropriate
 for a source whose data quality is trusted, and it is the operator's call, not a
 default.
+
+## Suppression Requests
+
+`suppressions:requestProfileSuppression` is public and records a `submitted`
+request. It changes nothing on its own.
+
+`suppressions:resolveProfileSuppression` is the operator side. Accepting a
+request sets the named profile to `publicSurfacingState: "opted_out"`, records a
+`suppression_accepted` audit event, and reindexes the profile so discovery drops
+it. This is both the retraction path for an already-public profile and what makes
+the accepted-suppression publication guard reachable.
+
+```powershell
+pnpm exec convex run --prod suppressions:resolveProfileSuppression `
+  '{"requestId":"<request-id>","state":"accepted","resolutionNote":"Handled over DM."}'
+```
+
+Notes:
+
+- `state` accepts `under_review`, `accepted`, or `rejected`. Only `accepted`
+  changes a profile.
+- A pre-claim request with no profile id or slug has no profile to change. It is
+  still recorded as accepted, which blocks future seed publication for that
+  name and profile type.
+- Accepting sets `opted_out`, not `suppressed`. `suppressed` stays reserved for
+  moderation action rather than a request someone made about themselves.
 
 ## Lookup Grants
 
