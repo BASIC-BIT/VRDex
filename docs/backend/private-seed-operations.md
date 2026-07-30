@@ -11,15 +11,16 @@ Locked behavior:
 
 - Real source files stay outside the repository.
 - The operator must confirm permission to use the source before importing it.
-- Permissioned JSON imports receive `private_only` publication policy.
-- Imported candidates do not enter public profiles, search documents, public
-  APIs, or anonymous lookup.
+- Permissioned JSON imports receive `private_only` publication policy on import.
+- A `private_only` batch cannot publish. Its candidates stay out of public
+  profiles, search documents, public APIs, and anonymous lookup until an
+  operator explicitly relaxes the batch policy.
 - Operator review, source freshness, link reachability, and owner confirmation
   remain separate states.
 - PostHog flags never authorize private Convex reads.
 
-NWinn data uses this private-only path. It must not be converted directly into
-reviewed public unclaimed profiles.
+Publication is an explicit per-batch operator decision, never a default. See
+[Publication](#publication).
 
 ## Input Shape
 
@@ -100,6 +101,42 @@ tools or review snapshot query:
 `Reviewed` means accepted for the intended private use. It does not mean
 current or owner-verified. The field review mutation accepts `lastCheckedAt`
 only when an actual recheck occurred and rejects future timestamps.
+
+## Publication
+
+Publishing a private batch takes three deliberate steps. Each one re-checks the
+gates, so a policy change or a suppression request between steps stops the
+publish.
+
+1. **Relax the batch policy.** `seedImports:setBatchPublicationPolicy` moves a
+   batch from `private_only` to `reviewed_publication_allowed`. A `reviewNote`
+   is required and is recorded on the batch, because this is the record of the
+   operator asserting the source permits public listing.
+2. **Queue each candidate.** `seedImports:queueCandidatePublication` marks
+   intent and validates review state, slug, and suppression. It writes no
+   public data.
+3. **Publish.** `seedImports:publishQueuedCandidate` creates or promotes the
+   public unclaimed profile, indexes it for search and vocabulary, and records
+   `publishedProfileId` / `publishedAt` on the candidate.
+
+Publish behavior worth knowing:
+
+- Only `accepted` candidate fields are copied. Unreviewed and rejected fields
+  are dropped.
+- A batch with no explicit `publicationPolicy` fails closed and is treated as
+  `private_only`. Legacy batches need step 1 before they can publish.
+- Person candidates only. Community candidates return
+  `candidate_profile_type_unsupported` and are skipped rather than
+  half-published.
+- Re-running publish on an already-published candidate returns the existing
+  profile instead of creating a duplicate.
+- An accepted `profileSuppressionRequests` row for the target slug blocks
+  publication. This is the escape hatch for someone who asks not to be listed.
+- Restoring `private_only` blocks future publication but does not retract
+  profiles already published from the batch. Use suppression for that.
+
+Ineligible candidates return `published: false` with a blocker list rather than
+throwing, so a bulk run can skip and continue.
 
 ## Lookup Grants
 

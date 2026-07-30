@@ -297,6 +297,20 @@ The claimed-owner field visibility path is `profilePrivacy:updateFieldVisibility
 
 The `migrations:backfillProfilePublicSurfacingState` internal mutation sets missing legacy `publicSurfacingState` values to `"public"` and fills `publicSurfacingUpdatedAt` so previously-written profiles keep their existing publication behavior after the surfacing-state schema addition.
 
+The `migrations:publishGatedProfiles` internal mutation takes previously gated profiles live: it flips `draft_private` / `opted_out` profiles to `published` / `public` and reindexes each one for search, since a flipped profile that is not reindexed stays invisible to discovery.
+
+It deliberately skips:
+
+- `suppressed` profiles, which are a moderation state rather than a default.
+- Profiles with an accepted `profileSuppressionRequests` row, which records someone asking not to be listed.
+- Claimed profiles, because publication of an owned profile is the owner's decision and they already have a control for it in account privacy settings. This also covers concierge handoff acceptances, which were accepted on the explicit understanding that accepting publishes nothing.
+
+Unlike the other migrations it is **not** part of `migrations:runAll`, because publishing profiles publicly is outward-facing and not cleanly reversible. Run it deliberately:
+
+```powershell
+pnpm exec convex run --prod migrations:runPublishGatedProfiles
+```
+
 Deploy-time migrations use `@convex-dev/migrations` and are run by `migrations:runAll` after production function deploys when `CONVEX_DEPLOY_KEY` is configured.
 
 ## Initial Indexes

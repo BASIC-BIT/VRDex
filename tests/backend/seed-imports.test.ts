@@ -8,6 +8,7 @@ import {
   candidatePublicationStateForReviewState,
   createSeedImportDocumentsFromFixture,
   getSeedImportPublicationBlockers,
+  getSeedImportPublishBlockers,
   normalizeSeedImportFixture,
   type SeedImportFixture,
 } from "../../convex/_seedImports";
@@ -226,5 +227,86 @@ describe("seed import review and publication guards", () => {
       "suppression_request_blocks_publication",
       "slug_collision_blocks_publication",
     ]));
+  });
+});
+
+describe("seed import publish guards", () => {
+  const publishableBatch = {
+    reviewState: "approved" as const,
+    publicationPolicy: "reviewed_publication_allowed" as const,
+  };
+  const queuedCandidate = {
+    reviewState: "accepted" as const,
+    publicationState: "published_unclaimed" as const,
+    claimState: "unclaimed" as const,
+    profileType: "person" as const,
+    proposedSlug: "dj-example",
+  };
+
+  it("allows publishing an approved, accepted, queued person candidate", () => {
+    assert.deepEqual(
+      getSeedImportPublishBlockers({ batch: publishableBatch, candidate: queuedCandidate }),
+      [],
+    );
+  });
+
+  it("fails closed when the batch has no explicit publication policy", () => {
+    const blockers = getSeedImportPublishBlockers({
+      batch: { reviewState: "approved" as const },
+      candidate: queuedCandidate,
+    });
+
+    assert.ok(blockers.includes("source_private_only"));
+  });
+
+  it("blocks a private_only batch", () => {
+    const blockers = getSeedImportPublishBlockers({
+      batch: { reviewState: "approved" as const, publicationPolicy: "private_only" as const },
+      candidate: queuedCandidate,
+    });
+
+    assert.ok(blockers.includes("source_private_only"));
+  });
+
+  it("requires the candidate to be queued for publication first", () => {
+    const blockers = getSeedImportPublishBlockers({
+      batch: publishableBatch,
+      candidate: { ...queuedCandidate, publicationState: "review_pending" as const },
+    });
+
+    assert.ok(blockers.includes("candidate_not_queued_for_publication"));
+  });
+
+  it("honours an accepted suppression request", () => {
+    const blockers = getSeedImportPublishBlockers({
+      batch: publishableBatch,
+      candidate: queuedCandidate,
+      hasAcceptedSuppressionRequest: true,
+    });
+
+    assert.ok(blockers.includes("suppression_request_blocks_publication"));
+  });
+
+  it("skips community candidates instead of half-publishing them", () => {
+    const blockers = getSeedImportPublishBlockers({
+      batch: publishableBatch,
+      candidate: { ...queuedCandidate, profileType: "community" as const },
+    });
+
+    assert.ok(blockers.includes("candidate_profile_type_unsupported"));
+  });
+
+  it("blocks publishing over a claimed matched profile", () => {
+    const blockers = getSeedImportPublishBlockers({
+      batch: publishableBatch,
+      candidate: { ...queuedCandidate, matchedProfileId: "profile_claimed" as Id<"profiles"> },
+      matchedProfile: {
+        _id: "profile_claimed" as Id<"profiles">,
+        claimState: "claimed_verified" as const,
+        publicSurfacingState: "public" as const,
+      },
+    });
+
+    assert.ok(blockers.includes("matched_profile_claimed"));
   });
 });

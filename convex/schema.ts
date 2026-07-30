@@ -2174,6 +2174,8 @@ export default defineSchema({
     reviewNote: v.optional(v.string()),
     publicationQueuedBy: v.optional(authSubject),
     publicationQueuedAt: v.optional(v.number()),
+    publishedProfileId: v.optional(v.id("profiles")),
+    publishedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })

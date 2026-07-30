@@ -133,7 +133,9 @@ export type SeedImportPublicationBlocker =
   | "field_unreviewed"
   | "field_needs_correction"
   | "owner_confirmed_field_without_claim"
-  | "unsafe_public_field";
+  | "unsafe_public_field"
+  | "candidate_not_queued_for_publication"
+  | "candidate_profile_type_unsupported";
 
 type SeedImportPublicationCandidate = Pick<
   Doc<"seedImportCandidateProfiles">,
@@ -981,6 +983,75 @@ export function isSafePublicSeedImportField(field: SeedImportPublicationField): 
   }
 
   return true;
+}
+
+/**
+ * Publish-time gates for a candidate that was already queued for publication.
+ *
+ * Distinct from `getSeedImportPublicationBlockers`, which gates the *queue*
+ * step: that one rejects a candidate already in `published_unclaimed`, while
+ * this one requires it. Policy, review state, and suppression requests are all
+ * re-checked here because any of them can change between queue and publish.
+ */
+export function getSeedImportPublishBlockers(args: {
+  batch: Pick<Doc<"seedImportBatches">, "publicationPolicy" | "reviewState">;
+  candidate: SeedImportPublicationCandidate & Pick<Doc<"seedImportCandidateProfiles">, "profileType">;
+  matchedProfile?: SeedImportPublicationProfile | null;
+  hasInvalidProposedSlug?: boolean;
+  hasAcceptedSuppressionRequest?: boolean;
+  slugCollisionProfile?: SeedImportPublicationProfile | null;
+}): SeedImportPublicationBlocker[] {
+  const blockers = new Set<SeedImportPublicationBlocker>();
+
+  if ((args.batch.publicationPolicy ?? "private_only") !== "reviewed_publication_allowed") {
+    blockers.add("source_private_only");
+  }
+
+  if (args.batch.reviewState !== "approved") {
+    blockers.add("batch_not_approved");
+  }
+
+  if (args.candidate.reviewState !== "accepted") {
+    blockers.add("candidate_not_accepted");
+  }
+
+  if (args.candidate.publicationState !== "published_unclaimed") {
+    blockers.add("candidate_not_queued_for_publication");
+  }
+
+  if (args.candidate.claimState !== "unclaimed") {
+    blockers.add("candidate_claim_not_unclaimed");
+  }
+
+  // ponytail: person-only for this slice. Community candidates need a community
+  // field mapper; they are skipped rather than half-published.
+  if (args.candidate.profileType !== "person") {
+    blockers.add("candidate_profile_type_unsupported");
+  }
+
+  if (args.hasInvalidProposedSlug === true) {
+    blockers.add("invalid_proposed_slug");
+  }
+
+  if (args.matchedProfile !== null && args.matchedProfile !== undefined) {
+    if (args.matchedProfile.claimState !== "unclaimed") {
+      blockers.add("matched_profile_claimed");
+    }
+  }
+
+  if (
+    args.slugCollisionProfile !== null &&
+    args.slugCollisionProfile !== undefined &&
+    args.slugCollisionProfile._id !== args.candidate.matchedProfileId
+  ) {
+    blockers.add("slug_collision_blocks_publication");
+  }
+
+  if (args.hasAcceptedSuppressionRequest === true) {
+    blockers.add("suppression_request_blocks_publication");
+  }
+
+  return [...blockers];
 }
 
 export function getSeedImportPublicationBlockers(args: {

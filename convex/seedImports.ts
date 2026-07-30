@@ -1,8 +1,12 @@
 import { v } from "convex/values";
 
 import { activeBrowserSessionSubjectOrNull } from "./_browserSessionAuthority";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery, type MutationCtx } from "./_generated/server";
+import { createProfileSortName } from "./_profileSubmissions";
+import { createProfileSearchDocument, upsertSearchDocument, vocabularyForProfile } from "./_searchDocuments";
+import { buildConciergeProfileFieldPatch } from "./_seedHandoffs";
+import { recordVocabularyTerms } from "./_vocabulary";
 import {
   FAKE_SEED_IMPORT_FIXTURE_KEY,
   FAKE_SEED_IMPORT_FIXTURES,
@@ -11,6 +15,7 @@ import {
   createSeedImportDocuments,
   createSeedImportDocumentsFromFixture,
   getSeedImportPublicationBlockers,
+  getSeedImportPublishBlockers,
   normalizePermissionedSeedImport,
   normalizeSeedImportFixture,
   seedImportCandidateFingerprint,
@@ -20,8 +25,9 @@ import {
   seedImportBatchReviewStateValidator,
   seedImportCandidateReviewStateValidator,
   seedImportFieldReviewStateValidator,
+  seedImportPublicationPolicyValidator,
 } from "./_seedImportValidators";
-import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
+import { findAvailableProfileSlug, getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 
 const reviewNoteValidator = v.optional(v.string());
 
@@ -467,6 +473,220 @@ export const queueCandidatePublication = internalMutation({
       candidateId: candidate._id,
       publicationState: "published_unclaimed" as const,
       note: "Publication is queued only; this mutation does not create or update public profiles.",
+    };
+  },
+});
+
+/**
+ * Relax or restore a batch's publication policy.
+ *
+ * `private_only` batches are blocked from publication by
+ * `getSeedImportPublicationBlockers`. Relaxing a batch to
+ * `reviewed_publication_allowed` is an explicit operator decision that the
+ * source permits public listing, so a reason note is required and recorded on
+ * the batch. Restoring `private_only` re-blocks future publication but does not
+ * retract profiles already published from the batch.
+ */
+export const setBatchPublicationPolicy = internalMutation({
+  args: {
+    batchId: v.id("seedImportBatches"),
+    publicationPolicy: seedImportPublicationPolicyValidator,
+    reviewer: v.optional(seedImportAuthSubjectValidator),
+    reviewNote: reviewNoteValidator,
+    now: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const batch = await ctx.db.get(args.batchId);
+
+    if (batch === null) {
+      throw new Error("Seed import batch not found.");
+    }
+
+    const reason = optionalReviewNote(args.reviewNote);
+
+    if (args.publicationPolicy === "reviewed_publication_allowed" && reason === undefined) {
+      throw new Error(
+        "Relaxing a seed import batch to reviewed_publication_allowed requires a reviewNote recording the source permission.",
+      );
+    }
+
+    const now = args.now ?? Date.now();
+    const reviewer = await actorFromArgs(ctx, args.reviewer);
+    const previousPolicy = batch.publicationPolicy ?? "private_only";
+
+    await ctx.db.patch(batch._id, {
+      publicationPolicy: args.publicationPolicy,
+      ...optionalValue(
+        "notes",
+        reason === undefined
+          ? undefined
+          : optionalReviewNote(
+              `Publication policy ${previousPolicy} -> ${args.publicationPolicy} by ${
+                reviewer?.displayName ?? reviewer?.subject ?? "unknown operator"
+              }: ${reason}`,
+            ),
+      ),
+      updatedAt: now,
+    });
+
+    return {
+      batchId: batch._id,
+      previousPolicy,
+      publicationPolicy: args.publicationPolicy,
+    };
+  },
+});
+
+/**
+ * Publish a queued candidate as a public unclaimed profile.
+ *
+ * `queueCandidatePublication` only marks intent; this mutation is what actually
+ * creates or promotes the profile, indexes it for search, and records the link
+ * back on the candidate. It re-checks every gate at publish time because policy,
+ * review state, and suppression requests can all change after queueing.
+ *
+ * Returns `published: false` with blockers instead of throwing so a bulk
+ * publish run can skip ineligible candidates and continue.
+ */
+export const publishQueuedCandidate = internalMutation({
+  args: {
+    candidateId: v.id("seedImportCandidateProfiles"),
+    reviewer: v.optional(seedImportAuthSubjectValidator),
+    now: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const candidate = await ctx.db.get(args.candidateId);
+
+    if (candidate === null) {
+      throw new Error("Seed import candidate not found.");
+    }
+
+    const batch = await ctx.db.get(candidate.batchId);
+
+    if (batch === null) {
+      throw new Error("Seed import batch not found.");
+    }
+
+    // Already published: return the existing profile rather than creating a duplicate.
+    if (candidate.publishedProfileId !== undefined) {
+      const published = await ctx.db.get(candidate.publishedProfileId);
+
+      if (published !== null) {
+        return {
+          published: true as const,
+          alreadyPublished: true as const,
+          candidateId: candidate._id,
+          profileId: published._id,
+          slug: published.slug,
+        };
+      }
+    }
+
+    const proposedSlugValidation =
+      candidate.proposedSlug === undefined ? undefined : validateProfileSlug(candidate.proposedSlug);
+    const validProposedSlug =
+      proposedSlugValidation !== undefined && proposedSlugValidation.ok
+        ? proposedSlugValidation.slug
+        : undefined;
+    const matchedProfile =
+      candidate.matchedProfileId === undefined ? null : await ctx.db.get(candidate.matchedProfileId);
+    const slugCollisionProfile =
+      validProposedSlug === undefined ? null : await getProfileBySlug(ctx.db, validProposedSlug);
+    const targetSlug =
+      matchedProfile?.slug ??
+      (await findAvailableProfileSlug(ctx.db, validProposedSlug ?? candidate.proposedDisplayName));
+    const acceptedSuppressionRequests = await ctx.db
+      .query("profileSuppressionRequests")
+      .withIndex("by_profileSlug_state", (query) =>
+        query.eq("profileSlug", targetSlug).eq("state", "accepted"),
+      )
+      .take(1);
+
+    const blockers = getSeedImportPublishBlockers({
+      batch,
+      candidate,
+      matchedProfile,
+      slugCollisionProfile,
+      hasInvalidProposedSlug: proposedSlugValidation !== undefined && !proposedSlugValidation.ok,
+      hasAcceptedSuppressionRequest: acceptedSuppressionRequests.length > 0,
+    });
+
+    if (blockers.length > 0) {
+      return { published: false as const, blockers };
+    }
+
+    const now = args.now ?? Date.now();
+    const reviewer = await actorFromArgs(ctx, args.reviewer);
+    const fields = await getCandidateFields(ctx, candidate._id);
+    const acceptedFields = fields.filter((field) => field.reviewState === "accepted");
+
+    const publicSurfacing = {
+      publicationState: "published" as const,
+      publicSurfacingState: "public" as const,
+      publicSurfacingUpdatedAt: now,
+      publishedAt: now,
+    };
+
+    let profileId: Id<"profiles">;
+
+    if (matchedProfile !== null) {
+      const existingPerson = matchedProfile as Extract<Doc<"profiles">, { profileType: "person" }>;
+
+      await ctx.db.patch(matchedProfile._id, {
+        ...buildConciergeProfileFieldPatch(acceptedFields, existingPerson),
+        ...publicSurfacing,
+        publicSurfacingReason: undefined,
+        updatedAt: now,
+      });
+      profileId = matchedProfile._id;
+    } else {
+      const fieldPatch = buildConciergeProfileFieldPatch(acceptedFields);
+
+      profileId = await ctx.db.insert("profiles", {
+        ...fieldPatch,
+        slug: targetSlug,
+        displayName: candidate.proposedDisplayName,
+        sortName: createProfileSortName(candidate.proposedDisplayName),
+        aliases: fieldPatch.aliases ?? [],
+        tags: fieldPatch.tags ?? [],
+        outboundLinks: fieldPatch.outboundLinks ?? [],
+        claimState: "unclaimed",
+        ...publicSurfacing,
+        creationSource: "import",
+        profileType: "person",
+        person: fieldPatch.person ?? { roleTags: [] },
+        ...optionalValue(
+          "sourceAttribution",
+          reviewer === undefined ? undefined : { submittedAt: now, submitter: reviewer },
+        ),
+        updatedAt: now,
+      });
+    }
+
+    const profile = await ctx.db.get(profileId);
+
+    if (profile === null) {
+      throw new Error("Unable to load published profile.");
+    }
+
+    await Promise.all([
+      upsertSearchDocument(ctx.db, createProfileSearchDocument(profile)),
+      recordVocabularyTerms(ctx.db, vocabularyForProfile(profile), now),
+    ]);
+
+    await ctx.db.patch(candidate._id, {
+      publishedProfileId: profileId,
+      publishedAt: now,
+      matchedProfileId: profileId,
+      updatedAt: now,
+    });
+
+    return {
+      published: true as const,
+      alreadyPublished: false as const,
+      candidateId: candidate._id,
+      profileId,
+      slug: profile.slug,
     };
   },
 });
