@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import { capturedRoutes, prepareVisualPage, waitForVisualReady } from "./public-routes";
+import { AUTH_UNAVAILABLE_COPY } from "../src/lib/auth-copy";
 
 test.beforeEach(async ({ page }) => {
   await prepareVisualPage(page);
@@ -18,9 +19,12 @@ for (const route of capturedRoutes) {
     // a broken sign-in as the expected appearance — and would break again as soon
     // as credentials exist. The redirect and heading assertions above still run;
     // only the pixel comparison is skipped. Tracked in #226.
-    const clerkUnconfigured = await page
-      .getByText("Sign-in is temporarily unavailable.")
-      .count();
+    //
+    // Matched against the exported constant, not a copy of it. This guard held a
+    // duplicate of the string, so editing the notice silently stopped the skip
+    // from firing and three routes failed against baselines that were never
+    // meant to exist.
+    const clerkUnconfigured = await page.getByText(AUTH_UNAVAILABLE_COPY).count();
 
     test.skip(
       clerkUnconfigured > 0,

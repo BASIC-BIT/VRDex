@@ -3,11 +3,7 @@ import type { ReactNode } from "react";
 import { Notice } from "@/components/ui/notice";
 import { BrandLink, PageContainer, PageShell } from "@/components/ui/page-shell";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
-
-// Worded to read correctly under both headings this notice appears beneath.
-// "Sign-in is temporarily unavailable." was wrong on `/sign-up`, where the page
-// says "Create account".
-export const AUTH_UNAVAILABLE_COPY = "Accounts are temporarily unavailable.";
+import { AUTH_UNAVAILABLE_COPY } from "@/lib/auth-copy";
 
 /**
  * Shared chrome for the sign-in and sign-up routes. Both mount a Clerk component
@@ -51,11 +47,7 @@ export function AuthPageShell({
   );
 }
 
-/**
- * Shown when this environment has no auth credentials. Deliberately says nothing
- * about which provider is missing or that the cause is configuration — a visitor
- * cannot act on either, and neither belongs in product copy.
- */
+/** Shown when this environment has no auth credentials. See `AUTH_UNAVAILABLE_COPY`. */
 export function AuthUnavailableNotice() {
   return (
     <Notice className="py-5 leading-7" variant="dashed">
