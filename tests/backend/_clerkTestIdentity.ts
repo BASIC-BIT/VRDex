@@ -16,6 +16,9 @@ export function newClerkUserId(prefix = "user") {
 export function clerkTestIdentity(clerkUserId: string) {
   return {
     subject: clerkUserId,
+    // The claim guards read `emailVerified` from the token, so a helper that
+    // stands in for a verified user has to assert it.
+    emailVerified: true,
     issuer: "https://test.clerk.accounts.dev",
     tokenIdentifier: `https://test.clerk.accounts.dev|${clerkUserId}`,
   };

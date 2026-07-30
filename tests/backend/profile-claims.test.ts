@@ -59,12 +59,12 @@ describe("profile claim lifecycle", () => {
       return {
         profileId,
         ownerIdentity: {
-          subject: clerkUserId,
+          subject: clerkUserId, emailVerified: true,
           issuer: "test",
           tokenIdentifier: `test|${userId}`,
         },
         otherIdentity: {
-          subject: clerkUserId2,
+          subject: clerkUserId2, emailVerified: true,
           issuer: "test",
           tokenIdentifier: `test|${otherUserId}`,
         },
@@ -295,7 +295,7 @@ describe("profile claim lifecycle", () => {
       return {
         attemptId,
         identity: {
-          subject: clerkUserId6,
+          subject: clerkUserId6, emailVerified: true,
           issuer: "test",
           tokenIdentifier: `test|${userId}`,
         },
@@ -515,7 +515,7 @@ describe("profile claim lifecycle", () => {
         attemptId,
         claimRequestId,
         identity: {
-          subject: clerkUserId9,
+          subject: clerkUserId9, emailVerified: true,
           issuer: "test",
           tokenIdentifier: `test|${userId}`,
         },

@@ -49,7 +49,7 @@ async function seedOwnedCommunity(t: ReturnType<typeof convexTest>) {
     return {
       userId,
       identity: {
-        subject: clerkUserId,
+        subject: clerkUserId, emailVerified: true,
         issuer: "test",
         tokenIdentifier: `test|${userId}`,
       },

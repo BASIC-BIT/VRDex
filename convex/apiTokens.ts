@@ -5,7 +5,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { getAccountFeatureAccess } from "./_accountFeatures";
 import { getCurrentUser, requireCurrentUser } from "./accounts";
-import { requireUser } from "./_identity";
+import { identityEmailVerified, requireUser } from "./_identity";
 import {
   apiRouteClassValidator,
   apiScopeValidator,
@@ -179,7 +179,7 @@ async function createUserOwnedToken(
       ctx.db.get(args.ownerUserId),
       getAccountFeatureAccess(ctx.db, args.ownerUserId, now),
     ]);
-    if (owner?.email === undefined || owner.emailVerificationTime === undefined) {
+    if (owner?.email === undefined || !(await identityEmailVerified(ctx))) {
       throw new Error("verified_email_required");
     }
     if (!access.canUseTemporalParsing) {

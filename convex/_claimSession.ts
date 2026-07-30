@@ -1,6 +1,7 @@
 import { ConvexError } from "convex/values";
 
 import { claimError } from "./_claimErrors";
+import { identityEmailVerified } from "./_identity";
 import {
   activeBrowserSessionOrNull,
   requireActiveBrowserSessionSubject,
@@ -38,9 +39,12 @@ export async function requireClaimSession(ctx: ClaimSessionCtx) {
 export async function requireVerifiedActiveBrowserSession(ctx: ClaimSessionCtx) {
   const activeSession = await requireClaimSession(ctx);
 
+  // Reads the Clerk claim, not the mirrored `emailVerificationTime`. This is the
+  // guard `profileClaims`, `profileConnections`, `discordVerification`, and
+  // `vrclinkingCredentials` all go through, so a stale row must not satisfy it.
   if (
     activeSession.user.email === undefined ||
-    activeSession.user.emailVerificationTime === undefined
+    !(await identityEmailVerified(ctx))
   ) {
     throw claimError("EMAIL_NOT_VERIFIED");
   }

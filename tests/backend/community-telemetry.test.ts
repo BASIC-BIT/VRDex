@@ -137,7 +137,7 @@ describe("community telemetry control plane", () => {
         grantedAt: NOW,
         updatedAt: NOW,
       });
-      return { subject: clerkUserId2, issuer: "test", tokenIdentifier: `test|${userId}` };
+      return { subject: clerkUserId2, emailVerified: true, issuer: "test", tokenIdentifier: `test|${userId}` };
     });
     await registerAccount(t);
 

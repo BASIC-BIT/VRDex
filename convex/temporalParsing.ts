@@ -91,6 +91,10 @@ async function requireTemporalAccess(
   if (user === null) {
     throw new Error("account_not_found");
   }
+  // Deliberately the mirrored column, not `identityEmailVerified`. This gates a
+  // closed beta rather than claim-level authority, and `acquirePrewarmLease`
+  // reaches it as an internalMutation where no browser token need exist — a token
+  // check there would fail every server-initiated prewarm.
   if (user.email === undefined || user.emailVerificationTime === undefined) {
     throw new Error("verified_email_required");
   }

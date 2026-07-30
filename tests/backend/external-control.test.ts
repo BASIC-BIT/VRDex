@@ -18,6 +18,7 @@ import {
 } from "../../convex/_externalControl";
 
 import { newClerkUserId } from "./_clerkTestIdentity";
+
 const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
   "../../convex/profileConnections.ts": () => import("../../convex/profileConnections"),
@@ -88,6 +89,7 @@ async function webSessionIdentity(ctx: never, userId: string) {
 
   return {
     subject: user.clerkUserId,
+    emailVerified: true,
     issuer: "test",
     tokenIdentifier: `test|${user.clerkUserId}`,
   };

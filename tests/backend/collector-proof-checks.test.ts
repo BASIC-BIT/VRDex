@@ -97,6 +97,7 @@ async function webSessionIdentity(ctx: never, userId: string) {
 
   return {
     subject: user.clerkUserId,
+    emailVerified: true,
     issuer: "test",
     tokenIdentifier: `test|${user.clerkUserId}`,
   };

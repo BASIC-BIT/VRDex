@@ -122,7 +122,7 @@ describe("private seed Convex handlers", () => {
         grantedAt: NOW,
         updatedAt: NOW,
       });
-      return { subject: clerkUserId };
+      return { subject: clerkUserId, emailVerified: true };
     });
 
     const results = await t.withIdentity(identity).query(
@@ -221,7 +221,7 @@ describe("private seed Convex handlers", () => {
         email: "recipient@example.invalid",
         emailVerificationTime: NOW,
       });
-      return { subject: clerkUserId2 };
+      return { subject: clerkUserId2, emailVerified: true };
     });
 
     await assert.rejects(
@@ -268,7 +268,7 @@ describe("private seed Convex handlers", () => {
         email: "recipient@example.invalid",
         emailVerificationTime: NOW,
       });
-      return { subject: clerkUserId3 };
+      return { subject: clerkUserId3, emailVerified: true };
     });
 
     await assert.rejects(
@@ -366,10 +366,10 @@ describe("private seed Convex handlers", () => {
       });
       return {
         acceptingIdentity: {
-          subject: clerkUserId4,
+          subject: clerkUserId4, emailVerified: true,
         },
         otherIdentity: {
-          subject: clerkUserId5,
+          subject: clerkUserId5, emailVerified: true,
         },
       };
     });

@@ -96,12 +96,12 @@ async function seedOwnedProfile(assetCount = 2) {
       userId,
       assetIds,
       ownerIdentity: {
-        subject: clerkUserId,
+        subject: clerkUserId, emailVerified: true,
         issuer: "test",
         tokenIdentifier: `test|${userId}`,
       },
       otherIdentity: {
-        subject: clerkUserId2,
+        subject: clerkUserId2, emailVerified: true,
         issuer: "test",
         tokenIdentifier: `test|${otherUserId}`,
       },
