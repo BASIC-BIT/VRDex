@@ -314,7 +314,9 @@ Notes:
   type agree with it, since a slug recorded before any profile held it can be
   acquired by someone else in the meantime.
 - If nothing matches, the request is still recorded as accepted, which blocks
-  future seed publication for that name and profile type.
+  future publication for that name and profile type — both seed publication and
+  `profiles:submitCommunityProfile`, since community submissions publish
+  immediately and would otherwise be the way to reintroduce a retracted identity.
 - Accepting sets `opted_out`, not `suppressed`. `suppressed` stays reserved for
   moderation action rather than a request someone made about themselves, and an
   already-`suppressed` profile keeps that state.

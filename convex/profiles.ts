@@ -28,6 +28,7 @@ import {
 } from "./_searchDocuments";
 import { searchPublicDocuments } from "./_publicSearch";
 import { ensureShortLinkForTarget } from "./_shortLinks";
+import { hasAcceptedSuppression } from "./_suppressions";
 import { recordVocabularyTerms } from "./_vocabulary";
 import { userOwnsProfile } from "./_profileOwnership";
 import { applyApiProfileUpdate } from "./_profileUpdates";
@@ -307,6 +308,20 @@ export const submitCommunityProfile = mutation({
     const { subject } = await requireActiveBrowserSessionSubject(ctx);
     const input = sanitizeCommunitySubmissionProfileInput(args);
     const now = Date.now();
+
+    // Community submissions publish immediately, so they are the other way an
+    // accepted suppression request can be bypassed: someone can submit an identity
+    // that asked not to be listed. A pre-claim request may name someone who has no
+    // profile at all, which is exactly the case this covers.
+    if (
+      await hasAcceptedSuppression(ctx.db, {
+        displayNames: [input.displayName],
+        profileType: input.profileType,
+      })
+    ) {
+      throw new Error("This profile cannot be submitted.");
+    }
+
     const slug = await findAvailableProfileSlug(ctx.db, input.displayName);
     const sourceAttribution = {
       submittedAt: now,

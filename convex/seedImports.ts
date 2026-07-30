@@ -183,37 +183,12 @@ async function hasLiveHandoffInvitation(
     )
     .collect();
 
-  if (profileInvitations.some((invitation) => isLiveHandoffInvitation(invitation, now))) {
-    return true;
-  }
-
-  // Legacy rows: an invitation created before its candidate was matched carries no
-  // profileId, so the lookup above cannot see it. The match guard prevents new ones,
-  // but existing rows still need covering, so every other candidate sharing this
-  // matched profile is followed to its own invitations.
-  const siblings = await ctx.db
-    .query("seedImportCandidateProfiles")
-    .withIndex("by_matchedProfileId", (query) => query.eq("matchedProfileId", matchedProfileId))
-    .collect();
-
-  for (const sibling of siblings) {
-    if (sibling._id === candidateId) {
-      continue;
-    }
-
-    const siblingInvitations = await ctx.db
-      .query("seedHandoffInvitations")
-      .withIndex("by_candidateId_state", (query) =>
-        query.eq("candidateId", sibling._id).eq("state", "active"),
-      )
-      .collect();
-
-    if (siblingInvitations.some((invitation) => isLiveHandoffInvitation(invitation, now))) {
-      return true;
-    }
-  }
-
-  return false;
+  // Legacy invitations created before their candidate was matched carry no
+  // profileId. Rather than walking every sibling candidate here -- which a
+  // duplicate-heavy batch turns into tens of thousands of reads per page --
+  // migrations:backfillHandoffInvitationProfileIds fills that field in, so this one
+  // indexed lookup is sufficient.
+  return profileInvitations.some((invitation) => isLiveHandoffInvitation(invitation, now));
 }
 
 async function getCandidateFields(ctx: Pick<QueryCtx, "db">, candidateId: Id<"seedImportCandidateProfiles">) {

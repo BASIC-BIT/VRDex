@@ -326,7 +326,7 @@ pnpm exec convex run --prod search:rebuildWorldSearchDocuments
 
 The migration deliberately does not reindex worlds per row; that would mean one full `worlds` scan per migrated profile.
 
-That runner executes `backfillProfilePublicSurfacingState` first. A legacy profile with no `publicSurfacingState` would otherwise be skipped while the publication migration's cursor advanced, and running the backfill afterwards cannot make a completed migration revisit it.
+That runner executes `backfillProfilePublicSurfacingState` and `backfillHandoffInvitationProfileIds` first. The second gives every active handoff invitation a `profileId` — one created before its candidate was matched carries none, which would make the migration's liveness check blind to it. A legacy profile with no `publicSurfacingState` would otherwise be skipped while the publication migration's cursor advanced, and running the backfill afterwards cannot make a completed migration revisit it.
 
 Deploy-time migrations use `@convex-dev/migrations` and are run by `migrations:runAll` after production function deploys when `CONVEX_DEPLOY_KEY` is configured.
 

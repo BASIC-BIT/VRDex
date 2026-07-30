@@ -42,6 +42,35 @@ export const backfillProfilePublicSurfacingState = migrations.define({
   },
 });
 
+/**
+ * Give every active handoff invitation a `profileId`.
+ *
+ * An invitation created before its candidate was matched carries none, which makes
+ * every profile-indexed liveness check blind to it. Backfilling from the
+ * candidate's `matchedProfileId` lets all publication paths use one cheap
+ * `by_profileId_state` lookup instead of walking sibling candidates.
+ */
+export const backfillHandoffInvitationProfileIds = migrations.define({
+  table: "seedHandoffInvitations",
+  migrateOne: async (ctx, invitation) => {
+    if (invitation.profileId !== undefined || invitation.state !== "active") {
+      return;
+    }
+
+    const candidate = await ctx.db.get(invitation.candidateId);
+
+    if (candidate?.matchedProfileId === undefined) {
+      return;
+    }
+
+    return { profileId: candidate.matchedProfileId };
+  },
+});
+
+export const runBackfillHandoffInvitationProfileIds = migrations.runner(
+  internal.migrations.backfillHandoffInvitationProfileIds,
+);
+
 export const runBackfillProfilePublicSurfacingState = migrations.runner(
   internal.migrations.backfillProfilePublicSurfacingState,
 );
@@ -157,6 +186,7 @@ export const publishGatedProfiles = migrations.define({
 // newly visible attribution and records world vocabulary with it.
 export const runPublishGatedProfiles = migrations.runner([
   internal.migrations.backfillProfilePublicSurfacingState,
+  internal.migrations.backfillHandoffInvitationProfileIds,
   internal.migrations.publishGatedProfiles,
 ]);
 
@@ -165,4 +195,5 @@ export const runPublishGatedProfiles = migrations.runner([
 // mean to, rather than it firing as a side effect of a function deploy.
 export const runAll = migrations.runner([
   internal.migrations.backfillProfilePublicSurfacingState,
+  internal.migrations.backfillHandoffInvitationProfileIds,
 ]);
