@@ -6,35 +6,85 @@ import {
   ConvexReactClient,
   useConvexAuth,
   useMutation,
+  useQuery,
 } from "convex/react";
 import { ConvexProviderWithClerk } from "convex/react-clerk";
-import { useCallback, useEffect, useMemo, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import { api } from "@convex-generated-api";
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 const clerkConfigured = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
 const convex = convexUrl ? new ConvexReactClient(convexUrl) : null;
+const PROVISION_RETRY_CEILING_MS = 8_000;
 
 /**
- * Provisions the VRDex `users` row for a Clerk identity on first authenticated
- * load. Doing it here instead of through a Clerk webhook means no endpoint to
- * expose, no signature to verify, and no replay handling; the mutation is
- * idempotent, so repeat calls just refresh the row.
+ * Provisions the VRDex `users` row for a Clerk identity, and holds authenticated
+ * children until it exists.
+ *
+ * Provisioning on demand keeps Clerk as the only identity source without a
+ * webhook to expose, verify, and make replay-safe. But it cannot be
+ * fire-and-forget: a brand-new identity's children mount first, and any query
+ * behind `requireUser` throws while the row is missing. `developer-tokens-panel`
+ * is the concrete case — its `temporalParsing.getAccess` query throws, and the
+ * panel's error boundary latches on "temporarily unavailable" even after the row
+ * appears.
+ *
+ * Gating on `viewer` rather than on the mutation means Convex reactivity opens
+ * the gate as soon as the row lands, and an existing user waits only for a query
+ * that authenticated pages already make.
  */
-function EnsureUser() {
+function ProvisionedChildren({ children }: { children: ReactNode }) {
   const { isAuthenticated } = useConvexAuth();
   const ensureCurrentUser = useMutation(api.users.ensureCurrentUser);
+  const viewer = useQuery(api.accounts.viewer, isAuthenticated ? {} : "skip");
+  const [retry, setRetry] = useState(0);
+  const retryTimer = useRef<number | undefined>(undefined);
+
+  const provisioned = viewer !== undefined && viewer !== null;
 
   useEffect(() => {
-    if (!isAuthenticated) {
+    if (!isAuthenticated || provisioned) {
       return;
     }
 
-    void ensureCurrentUser({});
-  }, [ensureCurrentUser, isAuthenticated]);
+    let cancelled = false;
 
-  return null;
+    void ensureCurrentUser({}).catch(() => {
+      if (cancelled) {
+        return;
+      }
+
+      // Nothing else would retry a transient failure while the layout stays
+      // mounted, which would leave the account permanently unusable.
+      retryTimer.current = window.setTimeout(
+        () => setRetry((attempt) => attempt + 1),
+        Math.min(PROVISION_RETRY_CEILING_MS, 500 * 2 ** retry),
+      );
+    });
+
+    return () => {
+      cancelled = true;
+
+      if (retryTimer.current !== undefined) {
+        window.clearTimeout(retryTimer.current);
+        retryTimer.current = undefined;
+      }
+    };
+  }, [ensureCurrentUser, isAuthenticated, provisioned, retry]);
+
+  if (isAuthenticated && !provisioned) {
+    return null;
+  }
+
+  return children;
 }
 
 /**
@@ -67,8 +117,7 @@ export function ConvexClientProvider({ children }: { children: ReactNode }) {
 
   return (
     <ConvexProviderWithClerk client={convex} useAuth={useAuth}>
-      <EnsureUser />
-      {children}
+      <ProvisionedChildren>{children}</ProvisionedChildren>
     </ConvexProviderWithClerk>
   );
 }

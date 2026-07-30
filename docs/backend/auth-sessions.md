@@ -122,6 +122,34 @@ template gap. The development template in use emits:
 }
 ```
 
+## Cutover: retire the Convex Auth rows before the first sign-in
+
+`clerkUserId` is optional so the first deploy does not reject rows created under
+Convex Auth. Those rows are inert — nothing can authenticate as them, because a
+row without a `clerkUserId` matches the index for nobody.
+
+**Order matters.** `ensureUser` binds a Clerk identity by inserting a *new* row;
+it never adopts a legacy one, because there is no trustworthy way to decide which
+legacy row a Clerk subject corresponds to. So anything still pointing at a legacy
+row becomes unreachable the moment its owner signs in with Clerk.
+
+Production on 2026-07-30 held two `users` rows and exactly one row referencing
+either of them — a single `accountFeatureGrants` row. Nothing else: 0 owned
+profiles, 0 claims, 0 events, 0 API tokens, 0 OAuth applications.
+
+Per deployment, before anyone signs in:
+
+1. Re-check the counts. If a profile has been claimed since, this section is out
+   of date and the orphaning is no longer trivial.
+2. Delete the Convex Auth tables and the legacy `users` rows.
+3. Sign in through Clerk, which provisions a fresh row.
+4. Recreate the `accountFeatureGrants` row against the new user id.
+5. Once no legacy rows remain anywhere, tighten `clerkUserId` to `v.string()`.
+
+Doing step 3 before step 2 is not fatal — it leaves a duplicate legacy row and an
+orphaned grant, both fixable by hand — but it costs a manual reconciliation that
+the ordering above avoids.
+
 Verify every secret after writing it, per
 [`convex-environments.md`](../deployment/convex-environments.md). A trailing
 `\r` in a Convex environment variable is invisible in both the dashboard and
