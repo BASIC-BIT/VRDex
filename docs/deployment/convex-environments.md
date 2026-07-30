@@ -119,6 +119,7 @@ Development/staging Convex env names:
 - `VRCHAT_PROOF_ADAPTER_URL`: optional hosted adapter stub URL, usually `https://staging.vrdex.net/api/e2e/adapters/vrchat-proof`
 - `VRCLINKING_PROOF_ADAPTER_URL`: optional hosted adapter stub URL, usually `https://staging.vrdex.net/api/e2e/adapters/vrchat-proof`
 - `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN`: staging-only adapter token matching the hosted app environment
+- `VRCLINKING_ADAPTER_CAPABILITY_KEY`: staging-only capability signing key, and a different value from the bearer token. Required alongside the two above, not optional with them: `getClaimJourneyContext` hides the VRCLinking method unless all three are set, so omitting this one leaves the method invisible and the hosted stub unexercised — with nothing reporting a misconfiguration, because hiding is the designed behaviour
 
 The browser-facing token stays in the web host and GitHub Actions as `VRDEX_E2E_BROWSER_TOKEN` / `VRDEX_HOSTED_E2E_BROWSER_TOKEN`; it is not needed by Convex.
 

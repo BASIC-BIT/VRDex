@@ -154,20 +154,28 @@ export const registerCredential = mutation({
     const sameGuild = existing.find((row) => row.guildId === guildId);
 
     if (sameGuild !== undefined) {
-      // A replacement is a different key. Carrying the old one's audit history
-      // forward made the Connections page attribute its queries and matches to
-      // a credential that has answered nothing — the operator's only way to
-      // tell a working delegation from an untested one.
+      // A replacement is a different key, and it gets a different row.
+      //
+      // Patching in place kept the id, and every version of a delegation
+      // derives the same guild-scoped reference — so the id-and-reference
+      // recheck at the grant could not tell a response obtained with the
+      // superseded key from one obtained with its replacement. The resolver
+      // caches a token for five minutes, which is exactly long enough for a
+      // claim in flight across a replacement to be granted on the old key and
+      // stamped against the new row. A fresh id makes that recheck fail, which
+      // is what it is for.
+      //
+      // Revoking rather than deleting also stops the replacement inheriting an
+      // audit history it did not earn: the Connections page would otherwise
+      // attribute the old key's queries and matches to a credential that has
+      // answered nothing, which is the operator's only way to tell a working
+      // delegation from an untested one.
       await ctx.db.patch(sameGuild._id, {
-        secretRef,
-        delegatedByUserId: user._id,
-        lastConsultedAt: undefined,
-        lastUsedAt: undefined,
-        lastResultSummary: undefined,
+        state: "revoked",
+        revokedAt: now,
+        revokedReason: "Replaced by a new delegated credential.",
         updatedAt: now,
       });
-
-      return { credentialId: sameGuild._id, replaced: true };
     }
 
     const credentialId = await ctx.db.insert("communityVrclinkingCredentials", {
@@ -180,7 +188,7 @@ export const registerCredential = mutation({
       updatedAt: now,
     });
 
-    return { credentialId, replaced: false };
+    return { credentialId, replaced: sameGuild !== undefined };
   },
 });
 

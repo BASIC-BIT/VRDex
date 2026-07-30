@@ -172,22 +172,27 @@ satisfies all of that and still answers `401` to every real request, so a
 green `/healthz` after a partial rotation is exactly as green as after a clean
 one.
 
-The check that distinguishes them sends the bearer Convex now holds. A `401`
-means the two sides disagree:
+The check has to read the bearer from **Convex**, not from Secrets Manager.
+Secrets Manager is the same source the adapter loads from, so a request built
+from it tests the adapter against itself and passes whether or not Convex ever
+caught up — which is precisely the state a half-finished rotation leaves:
 
 ```bash
-BEARER=$(aws secretsmanager get-secret-value --secret-id vrdex/vrclinking/bearer-token \
-  --query SecretString --output text)
+BEARER=$(pnpm exec convex env get --prod VRCHAT_PROOF_ADAPTER_BEARER_TOKEN)
 printf 'header = "authorization: Bearer %s"\n' "$BEARER" |
   curl -K - -s -o /dev/null -w '%{http_code}\n' -X POST "$FUNCTION_URL" \
     -H 'content-type: application/json' -d '{}'
-# 400 unsupported_target_type = the bearer matches; the body is deliberately junk.
-# 401 = the adapter and Secrets Manager disagree, so the rotation is half-applied.
+# 400 unsupported_target_type = production Convex and the adapter agree on the
+#     bearer; the body is deliberately junk and was rejected on its merits.
+# 401 = they disagree, so the rotation is half-applied.
 ```
 
-Verifying the capability key needs a signed delegation, which is more apparatus
-than a rotation check warrants — the bearer check above catches the case this
-script can actually produce, since both values move together or neither does.
+This covers the bearer only. The capability key cannot be checked without
+minting a signed delegation, which is more apparatus than a rotation check
+warrants — so if the *second* `convex env set` is the one that failed, this
+check passes and claims still fail. The script writes both or neither, and the
+`trap` recycles on failure, which is what keeps that case to a window rather
+than a resting state; re-running the script from the top is the fix either way.
 
 A delegated community credential is cheaper to rotate but not instant: the
 resolver caches each token for five minutes per warm container, so `put-secret-

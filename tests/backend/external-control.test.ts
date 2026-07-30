@@ -1157,6 +1157,59 @@ describe("VRCLinking credential delegation", () => {
     assert.equal(use.accepted, true);
   });
 
+  // Replacement takes a new row rather than patching in place. Every version of
+  // a delegation derives the same guild-scoped reference, so with a stable id
+  // the grant's recheck could not tell a response obtained with the superseded
+  // key from one obtained with its replacement — and the resolver caches a
+  // token for five minutes, which is long enough for a claim in flight across a
+  // replacement to be granted on the old key and stamped against the new row.
+  it("issues a new credential id when a community replaces its key", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const seeded = await seedOwnedCommunity(t, "delegation-replace", now);
+    const guildId = "52345678901234567";
+
+    await t.run(async (ctx) => {
+      await recordExternalControlProof(ctx.db, {
+        userId: seeded.userId,
+        assetType: "discord_guild",
+        assetExternalId: guildId,
+        controlLevel: "owner",
+        evidenceSource: "discord_oauth",
+        now,
+      });
+    });
+
+    const asOwner = t.withIdentity(seeded.identity);
+    const register = () =>
+      asOwner.mutation(api.vrclinkingCredentials.registerCredential, {
+        profileSlug: "delegation-replace",
+        guildId,
+        secretRef: `secret://vrdex/vrclinking/${guildId}`,
+      });
+
+    const first = await register();
+    const second = await register();
+
+    assert.equal(second.replaced, true);
+    assert.notEqual(second.credentialId, first.credentialId);
+
+    // The superseded row is revoked rather than deleted, so a response carrying
+    // its id fails the grant recheck instead of matching the live delegation.
+    assert.equal(
+      (await t.run(async (ctx) => await ctx.db.get(first.credentialId)))?.state,
+      "revoked",
+    );
+    assert.deepEqual(
+      (
+        await asOwner.query(api.vrclinkingCredentials.listCredentials, {
+          profileSlug: "delegation-replace",
+        })
+      ).length,
+      1,
+    );
+  });
+
   // Every row for a guild derives the same guild-scoped reference, so sending
   // one per row made the adapter repeat an identical lookup — spending that
   // community's quota once per row and, at five rows, filling the entire

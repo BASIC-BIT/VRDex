@@ -324,9 +324,10 @@ export function ConnectionsPanel({
             VRDex only ever asks whether a given member is linked and verified.
           </p>
           <Notice className="mt-3">
-            Optional, and not required for anything today. Set this up only if you already run
-            VRCLinking and want VRDex ready to use it; there is nothing to gain from creating a
-            credential for it otherwise.
+            Optional, and it now does something: members claiming a person profile can choose
+            VRCLinking instead of posting a proof code, and that check only reaches servers whose
+            operators have delegated a credential. Without one from your community, your members
+            see the method and it finds nothing.
           </Notice>
 
           {connectedGuilds.length === 0 && (vrclinkingCredentials?.length ?? 0) === 0 ? (
