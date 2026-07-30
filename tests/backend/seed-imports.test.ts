@@ -96,7 +96,10 @@ describe("seed import fake fixture creation", () => {
 });
 
 describe("seed import review and publication guards", () => {
-  const approvedBatch = { reviewState: "approved" as const };
+  const approvedBatch = {
+    reviewState: "approved" as const,
+    publicationPolicy: "reviewed_publication_allowed" as const,
+  };
   const acceptedCandidate = {
     reviewState: "accepted" as const,
     publicationState: "review_pending" as const,
@@ -164,7 +167,9 @@ describe("seed import review and publication guards", () => {
       ],
     });
 
+    // source_private_only too: a batch with no explicit policy fails closed.
     assert.deepEqual(new Set(blockers), new Set([
+      "source_private_only",
       "batch_not_approved",
       "candidate_not_accepted",
       "candidate_not_pending_publication",
@@ -241,6 +246,26 @@ describe("seed import review and publication guards", () => {
     });
 
     assert.ok(blockers.includes("candidate_profile_type_unsupported"));
+  });
+
+  it("blocks a cross-type match at the queue gate", () => {
+    const blockers = getSeedImportPublicationBlockers({
+      batch: approvedBatch,
+      candidate: {
+        ...acceptedCandidate,
+        profileType: "person" as const,
+        matchedProfileId: "profile_community" as Id<"profiles">,
+      },
+      fields: acceptedPublicFields,
+      matchedProfile: {
+        _id: "profile_community" as Id<"profiles">,
+        claimState: "unclaimed" as const,
+        publicSurfacingState: "public" as const,
+        profileType: "community" as const,
+      },
+    });
+
+    assert.ok(blockers.includes("matched_profile_type_mismatch"));
   });
 
   it("blocks a slug collision only when creating a new profile", () => {

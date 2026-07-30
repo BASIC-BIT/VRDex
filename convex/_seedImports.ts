@@ -1260,7 +1260,7 @@ export function getSeedImportPublicationBlockers(args: {
   batch: Pick<Doc<"seedImportBatches">, "publicationPolicy" | "reviewState">;
   candidate: SeedImportPublicationCandidate;
   fields: SeedImportPublicationField[];
-  matchedProfile?: SeedImportPublicationProfile | null;
+  matchedProfile?: (SeedImportPublicationProfile & { profileType?: Doc<"profiles">["profileType"] }) | null;
   hasInvalidProposedSlug?: boolean;
   hasAcceptedSuppressionRequest?: boolean;
   hasLiveHandoffInvitation?: boolean;
@@ -1268,7 +1268,10 @@ export function getSeedImportPublicationBlockers(args: {
 }): SeedImportPublicationBlocker[] {
   const blockers = new Set<SeedImportPublicationBlocker>();
 
-  if (args.batch.publicationPolicy === "private_only") {
+  // Fail closed on a missing policy, matching the publish gate. Rejecting only the
+  // literal private_only would queue a legacy candidate — mutating it out of the
+  // private review lookup — and then skip it at publish.
+  if ((args.batch.publicationPolicy ?? "private_only") !== "reviewed_publication_allowed") {
     blockers.add("source_private_only");
   }
 
@@ -1308,6 +1311,18 @@ export function getSeedImportPublicationBlockers(args: {
     if (matchedProfile.publicSurfacingState !== "public") {
       blockers.add("matched_profile_not_publicly_surfaceable");
     }
+  }
+
+  // Rejected before queueing, not only at publish: queueing mutates the candidate
+  // out of the private review lookup, so a cross-type match would strand it there.
+  if (
+    args.matchedProfile !== null &&
+    args.matchedProfile !== undefined &&
+    args.matchedProfile.profileType !== undefined &&
+    args.candidate.profileType !== undefined &&
+    args.matchedProfile.profileType !== args.candidate.profileType
+  ) {
+    blockers.add("matched_profile_type_mismatch");
   }
 
   if (args.hasAcceptedSuppressionRequest === true) {
