@@ -15,6 +15,7 @@ import {
   normalizeSeedImportFixture,
   type SeedImportFixture,
 } from "../../convex/_seedImports";
+import { readOption } from "../../scripts/publish-seed-batch.mjs";
 
 function cloneFixture(fixture: SeedImportFixture): SeedImportFixture {
   return structuredClone(fixture);
@@ -539,5 +540,14 @@ describe("seed import publish guards", () => {
     });
 
     assert.ok(blockers.includes("matched_profile_claimed"));
+  });
+});
+
+describe("seed publish CLI option parsing", () => {
+  it("treats a missing or flag-shaped value as absent", () => {
+    assert.equal(readOption(["--reason", "Source permits it."], "--reason"), "Source permits it.");
+    assert.equal(readOption(["--reason", "--accept-fields", "--apply"], "--reason"), undefined);
+    assert.equal(readOption(["--apply", "--reason"], "--reason"), undefined);
+    assert.equal(readOption(["--apply"], "--reason"), undefined);
   });
 });

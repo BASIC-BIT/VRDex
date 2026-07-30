@@ -147,7 +147,9 @@ Publish behavior worth knowing:
   characters) is blocked with `display_name_outside_public_limits`. Seed
   normalization allows up to 160 and no minimum.
 - A candidate with a live concierge handoff invitation is blocked with
-  `live_handoff_invitation_blocks_publication`. Publishing while someone holds a
+  `live_handoff_invitation_blocks_publication`, checked both by candidate and by
+  matched profile — several candidates can point at the same prepared profile, so
+  publishing one would expose another's private handoff destination. Publishing while someone holds a
   private review link would break the promise that link was sent under, and
   queueing would invalidate the link. Revoke the invitation first with
   `seedHandoffs:revokeInvitation` if publication is genuinely intended.
@@ -226,8 +228,10 @@ pnpm ops:seed-publish -- `
   left alone, so trusting a source never undoes a review decision. Without this
   flag every field must already be reviewed or the candidate is skipped with
   `field_unreviewed`.
-- `--limit` is the page size, not a cap. The script pages with a cursor until the
-  batch is drained and prints running progress. Cursor paging matters: a
+- `--limit` is the page size, not a cap, and is clamped to 10. `--accept-fields`
+  patches every field of every candidate in a page and both gates rescan them, all
+  in one Convex transaction, so pages stay small. The script pages with a cursor
+  until the batch is drained and prints running progress. Cursor paging matters: a
   permanently blocked candidate never receives a `publishedProfileId`, so
   offset-style paging would re-read the same page forever.
 - Batches already marked `rejected` or `superseded` are refused. Those are review

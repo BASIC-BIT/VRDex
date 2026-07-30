@@ -19,9 +19,23 @@ const USAGE = [
   "needs-correction fields are always left alone.",
 ].join("\n");
 
+export function readOption(argv, name) {
+  const index = argv.indexOf(name);
+
+  if (index === -1) {
+    return undefined;
+  }
+
+  const value = argv[index + 1];
+
+  // A missing next token, or one that is itself a flag, means the operator omitted
+  // the value. Returning it would record e.g. "--accept-fields" as the publication
+  // reason and still pass the required-argument checks.
+  return value === undefined || value.startsWith("--") ? undefined : value;
+}
+
 function option(name) {
-  const index = args.indexOf(name);
-  return index === -1 ? undefined : args[index + 1];
+  return readOption(args, name);
 }
 
 function flag(name) {

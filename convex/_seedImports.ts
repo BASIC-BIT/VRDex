@@ -1134,11 +1134,10 @@ export function getSeedImportFieldBlockers(
       blockers.add("owner_confirmed_field_without_claim");
     }
 
-    if (
-      field.reviewState === "accepted" &&
-      field.visibility === "public" &&
-      !isSafePublicSeedImportField(field)
-    ) {
+    // Visibility is deliberately not part of this condition. The mapper throws for
+    // unsupported keys and malformed values at any visibility, and a throw inside a
+    // bulk page rolls back every candidate in it instead of reporting a blocker.
+    if (field.reviewState === "accepted" && !isSafePublicSeedImportField(field)) {
       blockers.add("unsafe_public_field");
     }
 

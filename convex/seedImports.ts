@@ -42,6 +42,11 @@ import {
 const reviewNoteValidator = v.optional(v.string());
 
 const PREVIEW_FIELD_SAMPLE_CANDIDATES = 50;
+// ponytail: conservative because --accept-fields patches every field of every
+// candidate in a page, then both gates rescan them, and publication does a
+// vocabulary lookup and write per list value. Split field acceptance and
+// vocabulary recording into separately paged mutations if larger pages are needed.
+const BULK_PUBLISH_MAX_PAGE_SIZE = 10;
 const PREVIEW_CANDIDATE_READ_CAP = 2_000;
 
 function optionalValue<T>(key: string, value: T | undefined): Record<string, T> {
@@ -110,6 +115,7 @@ function requireOperatorIdentity<T>(actor: T | undefined, action: string): T {
 async function hasLiveHandoffInvitation(
   ctx: Pick<QueryCtx, "db">,
   candidateId: Id<"seedImportCandidateProfiles">,
+  matchedProfileId: Id<"profiles"> | undefined,
   now: number,
 ) {
   const invitations = await ctx.db
@@ -119,7 +125,25 @@ async function hasLiveHandoffInvitation(
     )
     .collect();
 
-  return invitations.some((invitation) => isLiveHandoffInvitation(invitation, now));
+  if (invitations.some((invitation) => isLiveHandoffInvitation(invitation, now))) {
+    return true;
+  }
+
+  // Also by matched profile: several candidates may reference the same prepared
+  // profile, so publishing one would expose another candidate's private handoff
+  // destination and break its still-live invitation on acceptance.
+  if (matchedProfileId === undefined) {
+    return false;
+  }
+
+  const profileInvitations = await ctx.db
+    .query("seedHandoffInvitations")
+    .withIndex("by_profileId_state", (query) =>
+      query.eq("profileId", matchedProfileId).eq("state", "active"),
+    )
+    .collect();
+
+  return profileInvitations.some((invitation) => isLiveHandoffInvitation(invitation, now));
 }
 
 async function getCandidateFields(ctx: Pick<QueryCtx, "db">, candidateId: Id<"seedImportCandidateProfiles">) {
@@ -560,6 +584,7 @@ async function queueCandidate(ctx: MutationCtx, args: QueueCandidateArgs) {
       hasLiveHandoffInvitation: await hasLiveHandoffInvitation(
         ctx,
         candidate._id,
+        candidate.matchedProfileId,
         args.now ?? Date.now(),
       ),
     });
@@ -773,6 +798,7 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
       hasLiveHandoffInvitation: await hasLiveHandoffInvitation(
         ctx,
         candidate._id,
+        candidate.matchedProfileId,
         args.now ?? Date.now(),
       ),
     });
@@ -1028,7 +1054,7 @@ export const bulkPublishBatch = internalMutation({
     // candidate in this page and then rescans them in the queue and publish gates,
     // all in one Convex transaction. Split field acceptance into its own paged
     // mutation if batches ever need larger pages.
-    const limit = Math.max(1, Math.min(args.limit ?? 25, 50));
+    const limit = Math.max(1, Math.min(args.limit ?? 10, BULK_PUBLISH_MAX_PAGE_SIZE));
 
     // Batch-level prerequisites and the run's audit note. The note is written on
     // the first page of a run (no cursor yet) regardless of whether the
