@@ -161,7 +161,13 @@ Publish behavior worth knowing:
   `candidate_profile_type_unsupported` and are skipped rather than
   half-published.
 - Re-running publish on an already-published candidate returns the existing
-  profile instead of creating a duplicate.
+  profile instead of creating a duplicate. Review state is immutable once a
+  candidate has published: `setCandidateReviewState` and
+  `setCandidateFieldReviewState` both reject a published candidate, because
+  re-running publication cannot retract data that is already public. Withdraw it
+  through [Suppression Requests](#suppression-requests) instead.
+- Publishing a profile also schedules a rebuild of any world crediting it, since
+  those worlds hid the attribution while the profile was not publicly readable.
 - An accepted `profileSuppressionRequests` row blocks publication. See
   [Suppression Requests](#suppression-requests) for how a request is accepted.
 - Restoring `private_only` blocks future publication but does not retract
@@ -252,7 +258,10 @@ pnpm exec convex run --prod suppressions:resolveProfileSuppression `
 Notes:
 
 - `state` accepts `under_review`, `accepted`, or `rejected`. Only `accepted`
-  changes a profile.
+  changes a profile, and **acceptance is terminal**: an accepted request cannot be
+  moved back to `under_review` or `rejected`, because that would drop it from the
+  publication guard without restoring profiles already retracted. Reversing a
+  retraction is a deliberate re-publication.
 - Identity is re-resolved **at acceptance time**, not at request time: profile id,
   then slug, then display name and profile type. A pre-claim request filed before
   its profile existed therefore still retracts a profile that was published in
@@ -279,7 +288,8 @@ Notes:
 - An operator identity is required. `resolveProfileSuppression` throws without
   `actor` and no browser session, because a pre-claim request matching no profile
   writes no audit event, and an accepted request must never block publication with
-  no record of who decided it.
+  no record of who decided it. `seedImports:bulkPublishBatch` enforces the same
+  rule, so a direct `convex run` cannot publish as an unknown operator.
 - Known limitation: an event stores `communityName` directly, and both the event
   search document and the public event page deliberately fall back to that stored
   name when the linked profile is not publicly readable. Retracting a community

@@ -1280,10 +1280,12 @@ export function getSeedImportPublicationBlockers(args: {
     blockers.add("suppression_request_blocks_publication");
   }
 
+  // Create-only, matching the publish gate: a deliberate match merges into the
+  // matched profile and keeps its slug, so the colliding slug is never written.
   if (
+    (args.matchedProfile === null || args.matchedProfile === undefined) &&
     args.slugCollisionProfile !== null &&
-    args.slugCollisionProfile !== undefined &&
-    args.slugCollisionProfile._id !== args.candidate.matchedProfileId
+    args.slugCollisionProfile !== undefined
   ) {
     blockers.add("slug_collision_blocks_publication");
   }

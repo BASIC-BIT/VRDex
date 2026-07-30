@@ -13,6 +13,16 @@ export type SuppressionIdentity = {
    */
   displayNames: string[];
   profileType: Doc<"profiles">["profileType"];
+  /**
+   * Pre-loaded accepted requests. The name check has no index to use, so a bulk
+   * page that calls this per candidate would otherwise re-read the whole accepted
+   * set once per candidate.
+   *
+   * ponytail: one read per page instead of one per candidate. If the accepted
+   * history ever grows past a single transaction's read budget, persist the
+   * canonical sort name on requests and add a state/type/name index.
+   */
+  acceptedRequests?: Doc<"profileSuppressionRequests">[];
 };
 
 /**
@@ -93,10 +103,12 @@ export async function hasAcceptedSuppression(
     return false;
   }
 
-  const acceptedRequests = await db
-    .query("profileSuppressionRequests")
-    .withIndex("by_state_createdAt", (query) => query.eq("state", "accepted"))
-    .collect();
+  const acceptedRequests =
+    identity.acceptedRequests ??
+    (await db
+      .query("profileSuppressionRequests")
+      .withIndex("by_state_createdAt", (query) => query.eq("state", "accepted"))
+      .collect());
 
   for (const request of acceptedRequests) {
     if (request.displayName === undefined) {

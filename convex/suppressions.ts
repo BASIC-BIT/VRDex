@@ -237,6 +237,17 @@ export const resolveProfileSuppression = internalMutation({
       );
     }
 
+    // Acceptance is terminal. Leaving it would remove the request from the
+    // publication guard without restoring profiles the scheduled job already
+    // opted out, and a change mid-retraction would strand part of a namesake set
+    // because later pages stop once the request is no longer accepted. Reversing a
+    // retraction is a deliberate re-publication, not a state edit.
+    if (request.state === "accepted" && args.state !== "accepted") {
+      throw new Error(
+        "An accepted suppression request cannot be reopened. Re-publish the profile deliberately instead.",
+      );
+    }
+
     await ctx.db.patch(request._id, {
       state: args.state,
       ...optionalValue("resolutionNote", optionalText(args.resolutionNote, 1_000)),

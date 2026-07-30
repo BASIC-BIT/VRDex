@@ -224,12 +224,47 @@ describe("seed import review and publication guards", () => {
       hasAcceptedSuppressionRequest: true,
     });
 
+    // No slug_collision blocker: a deliberate match merges into the matched
+    // profile and keeps its slug, so the colliding slug is never written.
     assert.deepEqual(new Set(blockers), new Set([
       "matched_profile_claimed",
       "matched_profile_not_publicly_surfaceable",
       "suppression_request_blocks_publication",
-      "slug_collision_blocks_publication",
     ]));
+  });
+
+  it("blocks a slug collision only when creating a new profile", () => {
+    const slugCollisionProfile = {
+      _id: "profile_collision" as Id<"profiles">,
+      claimState: "unclaimed" as const,
+      publicSurfacingState: "public" as const,
+    };
+
+    assert.ok(
+      getSeedImportPublicationBlockers({
+        batch: approvedBatch,
+        candidate: acceptedCandidate,
+        fields: acceptedPublicFields,
+        slugCollisionProfile,
+      }).includes("slug_collision_blocks_publication"),
+    );
+
+    assert.ok(
+      !getSeedImportPublicationBlockers({
+        batch: approvedBatch,
+        candidate: {
+          ...acceptedCandidate,
+          matchedProfileId: "profile_matched" as Id<"profiles">,
+        },
+        fields: acceptedPublicFields,
+        matchedProfile: {
+          _id: "profile_matched" as Id<"profiles">,
+          claimState: "unclaimed" as const,
+          publicSurfacingState: "public" as const,
+        },
+        slugCollisionProfile,
+      }).includes("slug_collision_blocks_publication"),
+    );
   });
 });
 

@@ -107,6 +107,13 @@ export const publishGatedProfiles = migrations.define({
         upsertSearchDocument(ctx.db, createProfileSearchDocument(published)),
         recordVocabularyTerms(ctx.db, vocabularyForProfile(published), now),
       ]);
+
+      // Worlds crediting this slug hid the attribution while the profile was not
+      // publicly readable; rebuild them now that it is.
+      await ctx.scheduler.runAfter(0, internal.suppressions.reindexWorldsCreditingProfile, {
+        profileType: published.profileType,
+        profileSlug: published.slug,
+      });
     }
   },
 });

@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 
+import { internal } from "./_generated/api";
 import { activeBrowserSessionSubjectOrNull } from "./_browserSessionAuthority";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "./_generated/server";
@@ -340,6 +341,8 @@ export const setCandidateReviewState = internalMutation({
       throw new Error("Seed import candidate not found.");
     }
 
+    requireUnpublishedCandidate(candidate);
+
     const now = args.now ?? Date.now();
     const reviewer = await actorFromArgs(ctx, args.reviewer);
     const reviewed = args.reviewState !== "unreviewed";
@@ -361,6 +364,24 @@ export const setCandidateReviewState = internalMutation({
   },
 });
 
+/**
+ * Review state is immutable once a candidate has published.
+ *
+ * Re-running publication cannot reconcile a review reversal: the copied data is
+ * already on a public profile and the idempotent early return would report
+ * success while leaving it there. Withdrawing published data goes through
+ * `suppressions:resolveProfileSuppression`, which actually retracts it.
+ */
+function requireUnpublishedCandidate(
+  candidate: Doc<"seedImportCandidateProfiles">,
+): void {
+  if (candidate.publishedProfileId !== undefined) {
+    throw new Error(
+      "This candidate has already published. Retract the profile with suppressions:resolveProfileSuppression instead of changing review state.",
+    );
+  }
+}
+
 export const setCandidateFieldReviewState = internalMutation({
   args: {
     fieldId: v.id("seedImportCandidateFields"),
@@ -375,6 +396,12 @@ export const setCandidateFieldReviewState = internalMutation({
 
     if (field === null) {
       throw new Error("Seed import candidate field not found.");
+    }
+
+    const fieldCandidate = await ctx.db.get(field.candidateId);
+
+    if (fieldCandidate !== null) {
+      requireUnpublishedCandidate(fieldCandidate);
     }
 
     const now = args.now ?? Date.now();
@@ -441,6 +468,8 @@ type QueueCandidateArgs = {
   reviewer?: { tokenIdentifier: string; issuer: string; subject: string; displayName?: string };
   reviewNote?: string;
   now?: number;
+  /** Pre-loaded accepted suppression requests, so a bulk page reads them once. */
+  acceptedRequests?: Doc<"profileSuppressionRequests">[];
 };
 
 async function queueCandidate(ctx: MutationCtx, args: QueueCandidateArgs) {
@@ -460,19 +489,27 @@ async function queueCandidate(ctx: MutationCtx, args: QueueCandidateArgs) {
       candidate.proposedSlug === undefined ? undefined : validateProfileSlug(candidate.proposedSlug);
     const validProposedSlug =
       proposedSlugValidation !== undefined && proposedSlugValidation.ok ? proposedSlugValidation.slug : undefined;
-    const [fields, matchedProfile, slugCollisionProfile, acceptedSuppressionRequests] = await Promise.all([
+    const [fields, matchedProfile] = await Promise.all([
       getCandidateFields(ctx, candidate._id),
       candidate.matchedProfileId === undefined ? Promise.resolve(null) : ctx.db.get(candidate.matchedProfileId),
-      validProposedSlug === undefined ? Promise.resolve(null) : getProfileBySlug(ctx.db, validProposedSlug),
-      validProposedSlug === undefined
-        ? Promise.resolve([])
-        : ctx.db
-            .query("profileSuppressionRequests")
-            .withIndex("by_profileSlug_state", (query) =>
-              query.eq("profileSlug", validProposedSlug).eq("state", "accepted"),
-            )
-            .take(1),
     ]);
+    // Same base builder the allocator uses, so reserved or too-short names that
+    // findAvailableProfileSlug repairs are checked here too.
+    const collisionSlug = validProposedSlug ?? createProfileSlugBase(candidate.proposedDisplayName);
+    const slugCollisionProfile = await getProfileBySlug(ctx.db, collisionSlug);
+    // The shared identity-aware check, not a slug-only lookup. A slug-only hit
+    // would reject the legitimate current owner of a slug that some older
+    // name-only request happened to record.
+    const suppressed = await hasAcceptedSuppression(ctx.db, {
+      ...optionalValue("profileId", matchedProfile?._id),
+      slug: collisionSlug,
+      displayNames: [
+        candidate.proposedDisplayName,
+        ...(matchedProfile === null ? [] : [matchedProfile.displayName]),
+      ],
+      profileType: candidate.profileType,
+      ...optionalValue("acceptedRequests", args.acceptedRequests),
+    });
     const blockers = getSeedImportPublicationBlockers({
       batch,
       candidate,
@@ -480,7 +517,7 @@ async function queueCandidate(ctx: MutationCtx, args: QueueCandidateArgs) {
       matchedProfile,
       slugCollisionProfile,
       hasInvalidProposedSlug: proposedSlugValidation !== undefined && !proposedSlugValidation.ok,
-      hasAcceptedSuppressionRequest: acceptedSuppressionRequests.length > 0,
+      hasAcceptedSuppressionRequest: suppressed,
     });
 
     if (blockers.length > 0) {
@@ -596,6 +633,8 @@ type PublishCandidateArgs = {
   candidateId: Id<"seedImportCandidateProfiles">;
   reviewer?: { tokenIdentifier: string; issuer: string; subject: string; displayName?: string };
   now?: number;
+  /** Pre-loaded accepted suppression requests, so a bulk page reads them once. */
+  acceptedRequests?: Doc<"profileSuppressionRequests">[];
 };
 
 async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
@@ -659,6 +698,7 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
         ...(matchedProfile === null ? [] : [matchedProfile.displayName]),
       ],
       profileType: candidate.profileType,
+      ...optionalValue("acceptedRequests", args.acceptedRequests),
     });
 
     // Fields are loaded before the gate so publish-time field review states are
@@ -751,6 +791,13 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
       recordVocabularyTerms(ctx.db, vocabularyForProfile(profile), now),
     ]);
 
+    // A world crediting this slug hid the attribution while the profile was not
+    // publicly readable, so its search document needs rebuilding now that it is.
+    await ctx.scheduler.runAfter(0, internal.suppressions.reindexWorldsCreditingProfile, {
+      profileType: profile.profileType,
+      profileSlug: profile.slug,
+    });
+
     await ctx.db.patch(candidate._id, {
       publishedProfileId: profileId,
       publishedAt: now,
@@ -818,10 +865,13 @@ export const previewBatchPublication = internalQuery({
     // Both reads are capped. An import may carry thousands of candidates with tens
     // of fields each, and a preview that blows the query's read limit would block
     // publishing rather than inform it.
-    const candidates = await ctx.db
+    const candidateRows = await ctx.db
       .query("seedImportCandidateProfiles")
       .withIndex("by_batchId", (query) => query.eq("batchId", batch._id))
-      .take(PREVIEW_CANDIDATE_READ_CAP);
+      .take(PREVIEW_CANDIDATE_READ_CAP + 1);
+
+    const truncated = candidateRows.length > PREVIEW_CANDIDATE_READ_CAP;
+    const candidates = truncated ? candidateRows.slice(0, PREVIEW_CANDIDATE_READ_CAP) : candidateRows;
 
     const tally = (values: string[]) =>
       values.reduce<Record<string, number>>((counts, value) => {
@@ -844,7 +894,7 @@ export const previewBatchPublication = internalQuery({
       batchReviewState: batch.reviewState,
       publicationPolicy: batch.publicationPolicy ?? "private_only",
       candidateCount: candidates.length,
-      candidateCountComplete: candidates.length < PREVIEW_CANDIDATE_READ_CAP,
+      candidateCountComplete: !truncated,
       candidateReviewStates: tally(candidates.map((candidate) => candidate.reviewState)),
       candidatePublicationStates: tally(candidates.map((candidate) => candidate.publicationState)),
       candidateProfileTypes: tally(candidates.map((candidate) => candidate.profileType)),
@@ -902,6 +952,16 @@ export const bulkPublishBatch = internalMutation({
 
     const now = args.now ?? Date.now();
     const reviewer = await actorFromArgs(ctx, args.reviewer);
+
+    // Enforced in the backend, not just the CLI wrapper: this mutation approves a
+    // batch and publishes public profiles, so it must never record its actions as
+    // an unknown operator.
+    if (reviewer === undefined) {
+      throw new Error(
+        "Bulk publishing requires an operator identity. Pass reviewer when calling outside a browser session.",
+      );
+    }
+
     // ponytail: capped at 50 because --accept-fields patches every field of every
     // candidate in this page and then rescans them in the queue and publish gates,
     // all in one Convex transaction. Split field acceptance into its own paged
@@ -968,6 +1028,13 @@ export const bulkPublishBatch = internalMutation({
       (candidate) => candidate.publishedProfileId === undefined,
     );
 
+    // Read once per page rather than once per candidate: the name-based suppression
+    // check has no index to use, and this page may hold 50 candidates.
+    const acceptedRequests = await ctx.db
+      .query("profileSuppressionRequests")
+      .withIndex("by_state_createdAt", (query) => query.eq("state", "accepted"))
+      .collect();
+
     let published = 0;
     const skipped: Array<{ externalCandidateId: string; blockers: string[] }> = [];
 
@@ -1010,6 +1077,7 @@ export const bulkPublishBatch = internalMutation({
         const queueResult = await queueCandidate(ctx, {
           candidateId: candidate._id,
           ...optionalValue("reviewer", reviewer),
+          acceptedRequests,
           now,
         });
 
@@ -1025,6 +1093,7 @@ export const bulkPublishBatch = internalMutation({
       const publishResult = await publishCandidate(ctx, {
         candidateId: candidate._id,
         ...optionalValue("reviewer", reviewer),
+        acceptedRequests,
         now,
       });
 
