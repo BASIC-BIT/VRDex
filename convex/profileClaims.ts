@@ -37,6 +37,15 @@ const ADAPTER_CHECK_COOLDOWN_MS = 60_000;
 // Linking credentials are spent, so an unbounded backlog is the same abuse
 // either way.
 const MAX_OPEN_PROOF_ATTEMPTS = 3;
+// Everything a VRCLinking attempt needs before it can reach the adapter. Each
+// is required at a different depth — the endpoint in `proofAdapterUrl`, the
+// token in `proofAdapterHeaders`, the signing key in `signDelegation` — so
+// checking only the first still offers the claimant a method that throws.
+const VRCLINKING_ADAPTER_ENV = [
+  "VRCLINKING_PROOF_ADAPTER_URL",
+  "VRCHAT_PROOF_ADAPTER_BEARER_TOKEN",
+  "VRCLINKING_ADAPTER_CAPABILITY_KEY",
+] as const;
 const DISCORD_ADMINISTRATOR_PERMISSION = BigInt(8);
 const DISCORD_GUILD_ID_PATTERN = /^\d{17,20}$/;
 const noSuitableMatchConfirmed = v.boolean();
@@ -416,8 +425,13 @@ export const getClaimJourneyContext = query({
       // Whether the deployment can consult VRCLinking at all. The Terraform
       // stack defaults disabled, so in any environment without an adapter
       // deployed, offering the method on profile type alone hands the claimant
-      // a choice that reaches `requiredEnv` in `proofAdapterUrl` and throws.
-      vrclinkingConfigured: optionalEnv("VRCLINKING_PROOF_ADAPTER_URL") !== undefined,
+      // a choice that reaches `requiredEnv` and throws. All three, not just the
+      // endpoint: a URL with either companion secret missing fails just as hard,
+      // one layer further in — `proofAdapterHeaders` and `signDelegation` each
+      // require their own.
+      vrclinkingConfigured: VRCLINKING_ADAPTER_ENV.every(
+        (name) => optionalEnv(name) !== undefined,
+      ),
       pendingClaimRequest: request
         ? {
             id: request._id,
@@ -510,7 +524,10 @@ export const cancelClaimJourneyPending = mutation({
       .withIndex("by_profileId_userId_state_updatedAt", (q) =>
         q.eq("profileId", profile._id).eq("userId", user._id).eq("state", "pending"),
       )
-      .filter((q) => q.neq(q.field("targetType"), "vrclinking"))
+      // Same reason the journey context no longer excludes them: the claim form
+      // creates VRCLinking attempts now. Leaving the exclusion here made "Start
+      // over" a no-op on the one panel that offers it, stranding the claimant on
+      // a pending attempt until it expired.
       .order("desc")
       .first();
     if (proof === null) {

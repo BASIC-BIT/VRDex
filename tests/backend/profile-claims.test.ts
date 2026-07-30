@@ -538,6 +538,74 @@ describe("profile claim lifecycle", () => {
     assert.equal(claimRequest?.state, "rejected");
   });
 
+  // Both surfaces excluded VRCLinking attempts while nothing in the browser
+  // could create one. The claim form now does, and the pending panel it renders
+  // replaces the method picker — so a claimant whose attempt found no match
+  // could neither cancel it nor pick another method until it expired.
+  it("shows and cancels a pending VRCLinking attempt", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const seeded = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        email: "vrclinking-cancel@example.test",
+        emailVerificationTime: now,
+      });
+      const profileId = await ctx.db.insert("profiles", {
+        profileType: "person",
+        slug: "vrclinking-cancel",
+        displayName: "VRCLinking Cancel",
+        sortName: "vrclinking cancel",
+        aliases: [],
+        tags: [],
+        claimState: "unclaimed",
+        publicationState: "published",
+        publicSurfacingState: "public",
+        creationSource: "self",
+        person: { roleTags: [] },
+        updatedAt: now,
+      });
+      const attemptId = await ctx.db.insert("profileVerificationAttempts", {
+        profileId,
+        userId,
+        method: "vrchat_user_proof",
+        targetType: "vrclinking",
+        targetExternalId: "usr_e2e00000-0000-4000-8000-000000000003",
+        proofCode: "VRDEX-VRCLINKING",
+        state: "pending",
+        createdAt: now,
+        updatedAt: now,
+        expiresAt: now + 60_000,
+      });
+      const sessionId = await ctx.db.insert("authSessions", {
+        userId,
+        expirationTime: now + 60_000,
+      });
+
+      return {
+        attemptId,
+        identity: {
+          subject: `${userId}|${sessionId}`,
+          issuer: "test",
+          tokenIdentifier: `test|${userId}`,
+        },
+      };
+    });
+
+    const journey = await t
+      .withIdentity(seeded.identity)
+      .query(api.profileClaims.getClaimJourneyContext, { profileSlug: "vrclinking-cancel" });
+    assert.equal(journey?.pendingProof?.targetType, "vrclinking");
+
+    const canceled = await t
+      .withIdentity(seeded.identity)
+      .mutation(api.profileClaims.cancelClaimJourneyPending, {
+        profileSlug: "vrclinking-cancel",
+        pendingType: "proof",
+      });
+    assert.equal(canceled.canceled, true);
+    assert.equal((await t.run(async (ctx) => await ctx.db.get(seeded.attemptId)))?.state, "failed");
+  });
+
   // The bot-token path proves the same thing the OAuth round-trip does, so it
   // has to leave the same durable record. Without it the guild is verified but
   // absent from the connection model, and nothing can delegate for it.
