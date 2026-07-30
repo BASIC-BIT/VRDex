@@ -4,12 +4,20 @@
  * Derived everywhere rather than read back from the row. The reference is a
  * pure function of the guild id, so the stored string never carried
  * information — and a deployment upgraded from when the ARN form was accepted
- * still holds rows in that shape. Three places compare a reference against a
- * credential (selection, `recordCredentialUse`, and the final grant in
- * `recordVrchatProofVerification`); each one that read the stored value instead
- * rejected those rows, and rejecting at the *last* of the three is the worst
- * version — the provider call has already been made and the match already
- * found, and the claimant is told `unavailable`.
+ * still holds rows in that shape.
+ *
+ * Four places compare a reference against a credential, and each one that read
+ * the stored value instead silently dropped those rows at a different point:
+ *
+ * | Site | What reading the stored value cost |
+ * | --- | --- |
+ * | `reserveAdapterDelegations` | the delegation was never sent to the adapter |
+ * | `recordCredentialConsultations` | the audit said "Not used yet" for a key being queried on every claim |
+ * | `recordCredentialUse` | the match was found and then not attributed |
+ * | `recordVrchatProofVerification` | the claim was rejected `unavailable` after verifying |
+ *
+ * They were found one at a time, in that order, each after the previous was
+ * called fixed. Derive here rather than adding a fifth.
  */
 export function vrclinkingSecretName(guildId: string): string {
   return `vrdex/vrclinking/${guildId}`;

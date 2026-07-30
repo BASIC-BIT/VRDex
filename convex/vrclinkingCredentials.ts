@@ -376,10 +376,16 @@ export const recordCredentialConsultations = internalMutation({
       args.consulted.map(async ({ credentialId, secretRef }) => {
         const credential = await ctx.db.get(credentialId);
 
+        // Derived, like the other three comparison sites. Reading the stored
+        // value discarded every consultation of a row registered before the ARN
+        // form was retired, so `/account/connections` kept showing "Not used
+        // yet" for a key that was being queried on every claim — the one
+        // surface an operator has for telling a dead delegation from a live
+        // one, reporting the opposite of the truth.
         if (
           credential === null ||
           credential.state !== "active" ||
-          credential.secretRef !== secretRef
+          secretRefForGuild(credential.guildId) !== secretRef
         ) {
           return;
         }

@@ -87,9 +87,35 @@ both Convex variables, leaving the adapter on one new secret and one old while
 Convex holds two new ones — every claim `unavailable` until someone works out
 which of the four values is the odd one.
 
+The two secrets are separate objects, so the pair is not written atomically.
+`bootstrap.mjs` reads them independently at cold start, which means a container
+starting between the two writes caches the new bearer with the old capability
+key and keeps that pair for its lifetime. The `trap` below is what bounds it:
+on any failure it recycles the fleet before exiting, so no container is left
+holding a mix. It is also why the recycle in step 2 is not optional even when
+both writes clearly succeeded.
+
+Holding both values in a single secret would remove the window rather than
+bound it, at the cost of a migration and a change to what the stack reads. That
+is worth doing if rotation ever becomes routine; at one operator running this by
+hand, the trap is the proportionate answer.
+
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
+
+recycle() {
+  aws lambda update-function-configuration \
+    --function-name vrdex-vrclinking-adapter \
+    --description "rotated $(date -u +%Y-%m-%dT%H:%M:%SZ)" >/dev/null
+  aws lambda wait function-updated --function-name vrdex-vrclinking-adapter
+}
+
+# Any exit before the end recycles the fleet, so no container survives holding
+# a bearer and capability key from different rotations. Cheap, and the only
+# thing standing between a failed second write and an adapter that rejects
+# every request until someone notices.
+trap 'echo "rotation failed - recycling so no container keeps a mixed pair"; recycle' ERR
 
 # 1. Generate once and hold both values: step 3 needs the same bytes, and
 #    Secrets Manager is not the place to read them back from mid-rotation.
@@ -97,8 +123,9 @@ NEW_BEARER=$(openssl rand -hex 32)
 NEW_CAPABILITY=$(openssl rand -hex 32)
 [ "$NEW_BEARER" != "$NEW_CAPABILITY" ] || { echo "regenerate: values must differ"; exit 1; }
 
-# Both writes land before anything else moves, so a failure here has not yet
-# touched the fleet or Convex.
+# Not atomic across the two secrets — a cold start landing between these writes
+# caches the new bearer against the old capability key. The trap above is what
+# keeps that from outliving the script.
 aws secretsmanager put-secret-value --secret-id vrdex/vrclinking/bearer-token \
   --secret-string "$NEW_BEARER"
 aws secretsmanager put-secret-value --secret-id vrdex/vrclinking/capability-key \
@@ -106,10 +133,7 @@ aws secretsmanager put-secret-value --secret-id vrdex/vrclinking/capability-key 
 
 # 2. Force every warm container to re-bootstrap. A configuration update replaces
 #    them; the ARNs are unchanged, so this is the no-op edit that does it.
-aws lambda update-function-configuration \
-  --function-name vrdex-vrclinking-adapter \
-  --description "rotated $(date -u +%Y-%m-%d)"
-aws lambda wait function-updated --function-name vrdex-vrclinking-adapter
+recycle
 
 # 3. Only then point Convex at the new values.
 pnpm exec convex env set VRCHAT_PROOF_ADAPTER_BEARER_TOKEN "$NEW_BEARER"

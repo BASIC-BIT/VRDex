@@ -1066,6 +1066,97 @@ describe("VRCLinking credential delegation", () => {
     );
   });
 
+  // Every surface that compares a reference against a credential derives it
+  // from the guild id rather than reading the stored string, so a row written
+  // before the ARN form was retired still works end to end. Four sites had to
+  // learn this one at a time; the audit path was the last and the quietest —
+  // it reported "Not used yet" for a key being queried on every claim, which is
+  // the opposite of what an operator needs to tell a dead delegation from a
+  // live one.
+  it("selects, stamps, and accepts a delegation stored in the retired ARN form", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const seeded = await seedOwnedCommunity(t, "delegation-legacy", now);
+    const guildId = "32345678901234567";
+    const legacyRef = `arn:aws:secretsmanager:us-east-1:123456789012:secret:vrdex/vrclinking/${guildId}-AbC123`;
+
+    await t.run(async (ctx) => {
+      await recordExternalControlProof(ctx.db, {
+        userId: seeded.userId,
+        assetType: "discord_guild",
+        assetExternalId: guildId,
+        controlLevel: "owner",
+        evidenceSource: "discord_oauth",
+        now,
+      });
+    });
+
+    await t.withIdentity(seeded.identity).mutation(api.vrclinkingCredentials.registerCredential, {
+      profileSlug: "delegation-legacy",
+      guildId,
+      secretRef: `secret://vrdex/vrclinking/${guildId}`,
+    });
+
+    // Registered through the mutation, then rewritten to the retired form:
+    // registration rejects that form now, and the row an upgraded deployment
+    // already holds is exactly what this is about.
+    const credentialId = await t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("communityVrclinkingCredentials")
+        .filter((q) => q.eq(q.field("guildId"), guildId))
+        .first();
+
+      await ctx.db.patch(row!._id, { secretRef: legacyRef });
+
+      return row!._id;
+    });
+
+    // Selection resolves the claimant's Discord identity, so the reservation
+    // needs a user with one — not the community owner who delegated the key.
+    const claimantId = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        email: "legacy-claimant@example.test",
+        emailVerificationTime: now,
+      });
+      await ctx.db.insert("authAccounts", {
+        userId,
+        provider: "discord",
+        providerAccountId: "discord-legacy-claimant",
+      });
+
+      return userId;
+    });
+
+    const reserved = await t.mutation(internal.vrclinkingCredentials.reserveAdapterDelegations, {
+      userId: claimantId,
+    });
+    const delegation = reserved?.delegations.find(
+      (row: { guildId: string }) => row.guildId === guildId,
+    );
+
+    assert.notEqual(delegation, undefined);
+    assert.equal(delegation?.secretRef, `secret://vrdex/vrclinking/${guildId}`);
+
+    await t.run(async (ctx) =>
+      ctx.runMutation(internal.vrclinkingCredentials.recordCredentialConsultations, {
+        consulted: [{ credentialId, secretRef: delegation!.secretRef }],
+      }),
+    );
+    assert.notEqual(
+      (await t.run(async (ctx) => await ctx.db.get(credentialId)))?.lastConsultedAt,
+      undefined,
+    );
+
+    const use = await t.run(async (ctx) =>
+      ctx.runMutation(internal.vrclinkingCredentials.recordCredentialUse, {
+        credentialId,
+        secretRef: delegation!.secretRef,
+        resultSummary: "Confirmed a VRC Linking identity attestation.",
+      }),
+    );
+    assert.equal(use.accepted, true);
+  });
+
   // Selection sorts by `lastConsultedAt`, so a delegation that is skipped but
   // never stamped stays at the head of the index forever. Once there are more
   // of those than the scan window, no usable delegation is reachable again.
