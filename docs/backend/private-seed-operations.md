@@ -144,8 +144,13 @@ Publish behavior worth knowing:
 - A person candidate matched to a community profile is blocked with
   `matched_profile_type_mismatch` rather than attempting a cross-type write.
 - A candidate whose proposed display name falls outside the public bounds (2-80
-  characters) is blocked with `display_name_outside_public_limits`. Seed
+  characters) is blocked with `display_name_outside_public_limits`, but only when
+  creating a new profile; a merge preserves the matched profile's own name. Seed
   normalization allows up to 160 and no minimum.
+- Accepted fields are run through the publication mapper's own normalization at the
+  gate, so an unsupported key or a malformed value (an `aliases` string instead of
+  an array, a link with no label) is reported as `unsafe_public_field` rather than
+  throwing mid-page and rolling back every candidate in it.
 - A candidate with a live concierge handoff invitation is blocked with
   `live_handoff_invitation_blocks_publication`, checked both by candidate and by
   matched profile — several candidates can point at the same prepared profile, so
@@ -153,6 +158,9 @@ Publish behavior worth knowing:
   private review link would break the promise that link was sent under, and
   queueing would invalidate the link. Revoke the invitation first with
   `seedHandoffs:revokeInvitation` if publication is genuinely intended.
+  `seedImports:matchCandidateToProfile` is frozen for the same reason: an
+  invitation created before a match carries no `profileId`, so repointing the
+  candidate afterwards would hide it from the profile-based check.
 - Accepted fields are also checked against the public profile bounds the rest of
   the app enforces (8 aliases of 60 characters, a 600-character bio, and so on).
   Private seed staging is deliberately more permissive so a source can be captured
@@ -221,8 +229,11 @@ pnpm ops:seed-publish -- `
   --prod
 ```
 
-- `--reason` is required and is recorded on the batch. It is the record of the
-  operator asserting the source permits public listing.
+- `--reason` is required and is recorded on the batch as `publicationAuthorization`,
+  which is written once and never overwritten. It is the durable record of the
+  operator asserting the source permits public listing. The reason is also appended
+  to `notes`, but `notes` is a mutable review buffer and is not the record of
+  authorization.
 - `--accept-fields` is the trusted-source shortcut. It accepts candidates and
   fields still marked `unreviewed`; `rejected` and `needs_correction` are always
   left alone, so trusting a source never undoes a review decision. Without this

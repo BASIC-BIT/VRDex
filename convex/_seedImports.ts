@@ -1095,6 +1095,25 @@ export function exceedsPublicProfileLimits(
 }
 
 /**
+ * Whether the publication mapper can actually convert this field.
+ *
+ * `normalizeSafePrivateSeedFieldValue` is the same function the mapper calls, and
+ * it throws on unsupported keys and malformed values — an `aliases` string instead
+ * of an array, a link with an HTTPS URL but no label. Running it here turns those
+ * into a blocker instead of an exception mid-page.
+ */
+export function isMappableSeedImportField(
+  field: Pick<Doc<"seedImportCandidateFields">, "fieldKey" | "value">,
+): boolean {
+  try {
+    normalizeSafePrivateSeedFieldValue(field.fieldKey, field.value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Whether a proposed display name is outside the bounds the public profile paths
  * enforce. Seed normalization allows up to 160 characters and no minimum, so a
  * name valid in staging can be invalid as a public profile.
@@ -1134,10 +1153,15 @@ export function getSeedImportFieldBlockers(
       blockers.add("owner_confirmed_field_without_claim");
     }
 
-    // Visibility is deliberately not part of this condition. The mapper throws for
-    // unsupported keys and malformed values at any visibility, and a throw inside a
-    // bulk page rolls back every candidate in it instead of reporting a blocker.
-    if (field.reviewState === "accepted" && !isSafePublicSeedImportField(field)) {
+    // Visibility is deliberately not part of this condition, and the mapper's own
+    // normalization is run here rather than only checking key/URL shape. The mapper
+    // throws for unsupported keys *and* malformed values at any visibility, and a
+    // throw inside a bulk page rolls back every candidate in it instead of
+    // reporting one blocker and continuing.
+    if (
+      field.reviewState === "accepted" &&
+      (!isSafePublicSeedImportField(field) || !isMappableSeedImportField(field))
+    ) {
       blockers.add("unsafe_public_field");
     }
 
@@ -1241,7 +1265,10 @@ export function getSeedImportPublishBlockers(args: {
     blockers.add("live_handoff_invitation_blocks_publication");
   }
 
+  // Create-only: a merge preserves the matched profile's existing displayName and
+  // never writes the candidate's, so the public bound does not apply there.
   if (
+    (args.matchedProfile === null || args.matchedProfile === undefined) &&
     args.candidate.proposedDisplayName !== undefined &&
     displayNameOutsidePublicLimits(args.candidate.proposedDisplayName)
   ) {
@@ -1342,7 +1369,10 @@ export function getSeedImportPublicationBlockers(args: {
     blockers.add("candidate_profile_type_unsupported");
   }
 
+  // Create-only: a merge preserves the matched profile's existing displayName and
+  // never writes the candidate's, so the public bound does not apply there.
   if (
+    (args.matchedProfile === null || args.matchedProfile === undefined) &&
     args.candidate.proposedDisplayName !== undefined &&
     displayNameOutsidePublicLimits(args.candidate.proposedDisplayName)
   ) {

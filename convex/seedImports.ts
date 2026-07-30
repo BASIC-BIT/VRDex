@@ -79,6 +79,33 @@ function appendBatchNote(existing: string | undefined, entry: string): string | 
   return combined.length <= 4_000 ? combined : combined.slice(combined.length - 4_000);
 }
 
+/**
+ * The immutable publication-authorization record, written only the first time a
+ * batch is authorized.
+ *
+ * Kept out of `notes`, which any later `setBatchReviewState` call can replace and
+ * which `appendBatchNote` trims oldest-first, so a still-public batch cannot lose
+ * the only record of why publication was permitted.
+ */
+function publicationAuthorizationPatch(
+  batch: Doc<"seedImportBatches">,
+  reason: string,
+  actor: { tokenIdentifier: string; issuer: string; subject: string; displayName?: string } | undefined,
+  now: number,
+) {
+  if (batch.publicationAuthorization !== undefined) {
+    return {};
+  }
+
+  return {
+    publicationAuthorization: {
+      reason,
+      ...optionalValue("authorizedBy", actor),
+      authorizedAt: now,
+    },
+  };
+}
+
 async function actorFromArgs(
   ctx: MutationCtx,
   actor: { tokenIdentifier: string; issuer: string; subject: string; displayName?: string } | undefined,
@@ -503,6 +530,24 @@ export const matchCandidateToProfile = internalMutation({
 
     requireUnpublishedCandidate(candidate);
 
+    // Matching is frozen while an invitation is live. An invitation created before
+    // the match carries no profileId, so repointing the candidate afterwards leaves
+    // the by_profileId index unable to see it: publishing another candidate into the
+    // same profile would expose this one's private destination, and acceptance would
+    // then fail because the invitation's profile no longer matches its candidate.
+    if (
+      await hasLiveHandoffInvitation(
+        ctx,
+        candidate._id,
+        candidate.matchedProfileId,
+        args.now ?? Date.now(),
+      )
+    ) {
+      throw new Error(
+        "This candidate has a live handoff invitation. Revoke it with seedHandoffs:revokeInvitation before changing its match.",
+      );
+    }
+
     if (args.matchedProfileId !== undefined) {
       const profile = await ctx.db.get(args.matchedProfileId);
 
@@ -671,6 +716,9 @@ export const setBatchPublicationPolicy = internalMutation({
 
     await ctx.db.patch(batch._id, {
       publicationPolicy: args.publicationPolicy,
+      ...(args.publicationPolicy === "reviewed_publication_allowed" && reason !== undefined
+        ? publicationAuthorizationPatch(batch, reason, reviewer, now)
+        : {}),
       ...optionalValue(
         "notes",
         reason === undefined
@@ -1089,6 +1137,7 @@ export const bulkPublishBatch = internalMutation({
 
     if (isFirstPage) {
       await ctx.db.patch(batch._id, {
+        ...publicationAuthorizationPatch(batch, reason, reviewer, now),
         ...(needsPrerequisites
           ? {
               reviewState: "approved" as const,

@@ -249,6 +249,51 @@ describe("seed import review and publication guards", () => {
     assert.ok(blockers.includes("candidate_profile_type_unsupported"));
   });
 
+  it("blocks accepted fields the publication mapper cannot convert", () => {
+    const blockers = getSeedImportPublicationBlockers({
+      batch: approvedBatch,
+      candidate: acceptedCandidate,
+      fields: [
+        {
+          fieldKey: "aliases",
+          // A string where the mapper requires an array; previously this passed both
+          // gates and then threw mid-page.
+          value: "Not An Array",
+          confidence: "medium" as const,
+          reviewState: "accepted" as const,
+          visibility: "private" as const,
+        },
+      ],
+    });
+
+    assert.ok(blockers.includes("unsafe_public_field"));
+  });
+
+  it("applies display-name bounds only when creating a profile", () => {
+    const shortName = { ...acceptedCandidate, proposedDisplayName: "x" };
+
+    assert.ok(
+      getSeedImportPublicationBlockers({
+        batch: approvedBatch,
+        candidate: shortName,
+        fields: acceptedPublicFields,
+      }).includes("display_name_outside_public_limits"),
+    );
+
+    assert.ok(
+      !getSeedImportPublicationBlockers({
+        batch: approvedBatch,
+        candidate: { ...shortName, matchedProfileId: "profile_matched" as Id<"profiles"> },
+        fields: acceptedPublicFields,
+        matchedProfile: {
+          _id: "profile_matched" as Id<"profiles">,
+          claimState: "unclaimed" as const,
+          publicSurfacingState: "public" as const,
+        },
+      }).includes("display_name_outside_public_limits"),
+    );
+  });
+
   it("blocks a cross-type match at the queue gate", () => {
     const blockers = getSeedImportPublicationBlockers({
       batch: approvedBatch,
