@@ -210,14 +210,26 @@ async function expectCurrentOrHostedLagTrustState(
     return;
   }
 
-  // Shared staging may still render either of the pre-branch trust states.
-  // Exact-current deployments take the strict branch above instead.
-  await expect(
-    hostedLagCopy
-      .or(page.getByLabel("Owner verified"))
-      .or(page.getByLabel("Verified profile"))
-      .first(),
-  ).toBeVisible(hostedActionExpectOptions);
+  // GITHUB_SHA is the pull request's own commit, which never matches a shared
+  // staging target, so this branch runs for every PR regardless of what staging is
+  // actually serving. Both trust states are therefore legitimate here: the
+  // pre-branch indicator while a target still lags, and its absence once the target
+  // carries the change that removed it. Require one of them rather than the older
+  // one specifically, or every PR fails the moment staging catches up.
+  const laggingTrustState = hostedLagCopy
+    .or(page.getByLabel("Owner verified"))
+    .or(page.getByLabel("Verified profile"))
+    .first();
+
+  try {
+    await laggingTrustState.waitFor({ state: "visible", timeout: 10_000 });
+    return;
+  } catch {
+    // Fall through to the current-revision invariant below.
+  }
+
+  await expect(profileStatusCopy(page, "Claimed")).toHaveCount(0);
+  await expect(page.getByLabel("Verified profile")).toHaveCount(0);
 }
 
 async function hostedTargetHasClaimJourney(page: Page, headingName: string) {
