@@ -9,8 +9,9 @@ docs update and a changelog entry so early consumers and agents can adapt.
 
 ## Unreleased
 
-- documented avatar appearance and trust metadata on public search results, and
-  allowed same-origin profile asset URLs on public event image fields
+- documented avatar appearance and trust metadata on public search results,
+  documented event-host avatar appearance, and allowed same-origin profile
+  asset URLs on public event image fields
 - added a default-off hosted MCP OAuth event-write surface with per-user
   `AuthInfo`, exact `mcp:write events:write` authorization, durable community
   ownership checks, transactional idempotency receipts, public readback, and

@@ -5647,6 +5647,33 @@ components:
       properties:
         bannerImageUrl:
           $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+        communityAvatarAppearance:
+          type: object
+          properties:
+            borderColor:
+              type: string
+            borderEnabled:
+              type: boolean
+            borderSoftnessPx:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            borderWidthPx:
+              type: integer
+              exclusiveMinimum: 0
+              maximum: 9007199254740991
+            radiusPercent:
+              type: integer
+              minimum: 0
+              maximum: 50
+          required:
+            - borderColor
+            - borderEnabled
+            - borderSoftnessPx
+            - borderWidthPx
+            - radiusPercent
+          additionalProperties: {}
+          description: Bounded public avatar presentation hints.
         communityImageUrl:
           $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
         communityName:
@@ -5741,6 +5768,33 @@ components:
       properties:
         bannerImageUrl:
           $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
+        communityAvatarAppearance:
+          type: object
+          properties:
+            borderColor:
+              type: string
+            borderEnabled:
+              type: boolean
+            borderSoftnessPx:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            borderWidthPx:
+              type: integer
+              exclusiveMinimum: 0
+              maximum: 9007199254740991
+            radiusPercent:
+              type: integer
+              minimum: 0
+              maximum: 50
+          required:
+            - borderColor
+            - borderEnabled
+            - borderSoftnessPx
+            - borderWidthPx
+            - radiusPercent
+          additionalProperties: {}
+          description: Bounded public avatar presentation hints.
         communityImageUrl:
           $ref: "#/components/schemas/AbsoluteOrRootRelativeUrl"
         communityName:
@@ -6280,6 +6334,33 @@ components:
         nextEvent:
           type: object
           properties:
+            communityAvatarAppearance:
+              type: object
+              properties:
+                borderColor:
+                  type: string
+                borderEnabled:
+                  type: boolean
+                borderSoftnessPx:
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+                borderWidthPx:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                radiusPercent:
+                  type: integer
+                  minimum: 0
+                  maximum: 50
+              required:
+                - borderColor
+                - borderEnabled
+                - borderSoftnessPx
+                - borderWidthPx
+                - radiusPercent
+              additionalProperties: {}
+              description: Bounded public avatar presentation hints.
             communityName:
               type: string
             communitySlug:

@@ -208,6 +208,13 @@ describe("@vrdex/api-contracts", () => {
       id: "event_123",
       slug: "afterglow-night",
       title: "Afterglow Night",
+      communityAvatarAppearance: {
+        borderColor: "#67e8f9",
+        borderEnabled: true,
+        borderSoftnessPx: 12,
+        borderWidthPx: 4,
+        radiusPercent: 18,
+      },
       communityImageUrl: "/api/v0/profiles/afterglow/assets/avatar/file",
       startAt: 1770000000000,
       source: { sourceType: "manual", label: "Owner-authored" },

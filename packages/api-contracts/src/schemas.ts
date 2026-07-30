@@ -355,6 +355,7 @@ export const PublicEventWorldSummarySchema = z
 export const PublicEventPreviewSchema = z
   .object({
     bannerImageUrl: absoluteOrRootRelativeUrl.optional(),
+    communityAvatarAppearance: PublicProfileAvatarAppearanceSchema.optional(),
     communityImageUrl: absoluteOrRootRelativeUrl.optional(),
     communityName: z.string().optional(),
     communitySlug: slug.optional(),

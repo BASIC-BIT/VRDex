@@ -110,7 +110,7 @@ function EntityTypeIcon({ result }: { result: PublicSearchResult }) {
       {entityIcon(result)}
       <span
         aria-hidden="true"
-        className="pointer-events-none absolute top-full right-0 z-10 mt-1.5 rounded-control border border-border bg-surface-strong px-2 py-1 text-xs font-medium whitespace-nowrap text-foreground opacity-0 shadow-panel transition-opacity group-hover/type:opacity-100"
+        className="pointer-events-none absolute top-full right-0 z-10 mt-1.5 rounded-control border border-border bg-surface-strong px-2 py-1 text-xs font-medium whitespace-nowrap text-foreground opacity-0 shadow-panel transition-opacity group-hover/type:opacity-100 group-focus-visible:opacity-100"
       >
         {label}
       </span>

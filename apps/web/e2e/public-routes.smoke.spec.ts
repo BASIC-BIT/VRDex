@@ -400,6 +400,8 @@ test.describe("fixture lookup smoke", () => {
       await resultTypeIcon.hover();
       await expect(resultTypeTooltip).toHaveCSS("opacity", "1");
     }
+    await searchResult.focus();
+    await expect(resultTypeTooltip).toHaveCSS("opacity", "1");
     const searchBox = await searchMark.boundingBox();
 
     await page.goto("/search?q=BASICBIT&view=dj");
