@@ -324,9 +324,10 @@ export function ConnectionsPanel({
             VRDex only ever asks whether a given member is linked and verified.
           </p>
           <Notice className="mt-3">
-            Optional, and not required for anything today. Set this up only if you already run
-            VRCLinking and want VRDex ready to use it; there is nothing to gain from creating a
-            credential for it otherwise.
+            Optional, and it now does something: members claiming a person profile can choose
+            VRCLinking instead of posting a proof code, and that check only reaches servers whose
+            operators have delegated a credential. Without one from your community, your members
+            see the method and it finds nothing.
           </Notice>
 
           {connectedGuilds.length === 0 && (vrclinkingCredentials?.length ?? 0) === 0 ? (
@@ -406,12 +407,11 @@ export function ConnectionsPanel({
                   <FieldText>
                     <strong>Do not paste your VRCLinking API key here.</strong> Store the key in the
                     operator secret store under the name{" "}
-                    <code>vrdex/vrclinking/&lt;server id&gt;</code> and enter its reference — either{" "}
-                    <code>secret://vrdex/vrclinking/&lt;server id&gt;</code> or the matching{" "}
-                    <code>arn:aws:secretsmanager:…</code> ARN. The reference has to name the server
-                    selected above; any other name is rejected, so that one community cannot
-                    register another&apos;s key. VRDex records the reference only; the key itself is
-                    never sent to or stored by VRDex&apos;s database.
+                    <code>vrdex/vrclinking/&lt;server id&gt;</code> and enter its reference:{" "}
+                    <code>secret://vrdex/vrclinking/&lt;server id&gt;</code>. The reference has to
+                    name the server selected above; any other name is rejected, so that one
+                    community cannot register another&apos;s key. VRDex records the reference only;
+                    the key itself is never sent to or stored by VRDex&apos;s database.
                   </FieldText>
                 </Field>
                 <Button className="mt-4" disabled={busy} type="submit" variant="secondary">

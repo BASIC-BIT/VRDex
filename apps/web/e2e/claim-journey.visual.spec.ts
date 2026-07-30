@@ -15,5 +15,13 @@ test("profile-scoped claim journey @visual", async ({ page }, testInfo) => {
     "true",
   );
   await expect(page.getByLabel("VRChat profile URL or user ID")).toBeVisible();
+  await expect(page.getByRole("button", { name: /Use VRCLinking/ })).toBeVisible();
   await captureRouteScreenshot(page, testInfo, "claim-profile");
+
+  // Selecting it replaces the lower half of the form — its own disclosure and
+  // submit label — so the picker shot above does not cover the method itself.
+  await page.getByRole("button", { name: /Use VRCLinking/ }).click();
+  await expect(page.getByRole("button", { name: "Check VRCLinking" })).toBeVisible();
+  await expect(page.getByText(/which server answered/)).toBeVisible();
+  await captureRouteScreenshot(page, testInfo, "claim-profile-vrclinking");
 });

@@ -963,6 +963,12 @@ describe("VRCLinking credential delegation", () => {
       // belongs to another guild would have VRDex spend another tenant's key.
       "secret://vrdex/vrclinking/99999999999999999",
       "arn:aws:secretsmanager:us-east-1:123456789012:secret:vrdex/vrclinking/99999999999999999",
+      // The ARN form is rejected outright now, even naming the right guild: the
+      // pattern permitted any region and account while the adapter's execution
+      // role reads only its own, so a cross-account reference registered
+      // cleanly and then failed every resolution as `unavailable`.
+      `arn:aws:secretsmanager:us-east-1:123456789012:secret:vrdex/vrclinking/${guildId}`,
+      `arn:aws:secretsmanager:eu-west-1:999988887777:secret:vrdex/vrclinking/${guildId}-AbC123`,
       "secret://vrdex/group-telemetry/oak",
       // An overlong ARN used to pass validation and then be truncated on write,
       // so the adapter resolved a different reference and every verification
@@ -1036,8 +1042,7 @@ describe("VRCLinking credential delegation", () => {
     await asOwner.mutation(api.vrclinkingCredentials.registerCredential, {
       profileSlug: "delegation-ok",
       guildId,
-      secretRef:
-        "arn:aws:secretsmanager:us-east-1:123456789012:secret:vrdex/vrclinking/12345678901234567-AbC123",
+      secretRef: "secret://vrdex/vrclinking/12345678901234567",
     });
 
     const listed = await asOwner.query(api.vrclinkingCredentials.listCredentials, {
@@ -1058,6 +1063,208 @@ describe("VRCLinking credential delegation", () => {
         profileSlug: "delegation-ok",
       }),
       [],
+    );
+  });
+
+  // Every surface that compares a reference against a credential derives it
+  // from the guild id rather than reading the stored string, so a row written
+  // before the ARN form was retired still works end to end. Four sites had to
+  // learn this one at a time; the audit path was the last and the quietest —
+  // it reported "Not used yet" for a key being queried on every claim, which is
+  // the opposite of what an operator needs to tell a dead delegation from a
+  // live one.
+  it("selects, stamps, and accepts a delegation stored in the retired ARN form", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const seeded = await seedOwnedCommunity(t, "delegation-legacy", now);
+    const guildId = "32345678901234567";
+    const legacyRef = `arn:aws:secretsmanager:us-east-1:123456789012:secret:vrdex/vrclinking/${guildId}-AbC123`;
+
+    await t.run(async (ctx) => {
+      await recordExternalControlProof(ctx.db, {
+        userId: seeded.userId,
+        assetType: "discord_guild",
+        assetExternalId: guildId,
+        controlLevel: "owner",
+        evidenceSource: "discord_oauth",
+        now,
+      });
+    });
+
+    await t.withIdentity(seeded.identity).mutation(api.vrclinkingCredentials.registerCredential, {
+      profileSlug: "delegation-legacy",
+      guildId,
+      secretRef: `secret://vrdex/vrclinking/${guildId}`,
+    });
+
+    // Registered through the mutation, then rewritten to the retired form:
+    // registration rejects that form now, and the row an upgraded deployment
+    // already holds is exactly what this is about.
+    const credentialId = await t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("communityVrclinkingCredentials")
+        .filter((q) => q.eq(q.field("guildId"), guildId))
+        .first();
+
+      await ctx.db.patch(row!._id, { secretRef: legacyRef });
+
+      return row!._id;
+    });
+
+    // Selection resolves the claimant's Discord identity, so the reservation
+    // needs a user with one — not the community owner who delegated the key.
+    const claimantId = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        email: "legacy-claimant@example.test",
+        emailVerificationTime: now,
+      });
+      await ctx.db.insert("authAccounts", {
+        userId,
+        provider: "discord",
+        providerAccountId: "discord-legacy-claimant",
+      });
+
+      return userId;
+    });
+
+    const reserved = await t.mutation(internal.vrclinkingCredentials.reserveAdapterDelegations, {
+      userId: claimantId,
+    });
+    const delegation = reserved?.delegations.find(
+      (row: { guildId: string }) => row.guildId === guildId,
+    );
+
+    assert.notEqual(delegation, undefined);
+    assert.equal(delegation?.secretRef, `secret://vrdex/vrclinking/${guildId}`);
+
+    await t.run(async (ctx) =>
+      ctx.runMutation(internal.vrclinkingCredentials.recordCredentialConsultations, {
+        consulted: [{ credentialId, secretRef: delegation!.secretRef }],
+      }),
+    );
+    assert.notEqual(
+      (await t.run(async (ctx) => await ctx.db.get(credentialId)))?.lastConsultedAt,
+      undefined,
+    );
+
+    const use = await t.run(async (ctx) =>
+      ctx.runMutation(internal.vrclinkingCredentials.recordCredentialUse, {
+        credentialId,
+        secretRef: delegation!.secretRef,
+        resultSummary: "Confirmed a VRC Linking identity attestation.",
+      }),
+    );
+    assert.equal(use.accepted, true);
+  });
+
+  // Replacement takes a new row rather than patching in place. Every version of
+  // a delegation derives the same guild-scoped reference, so with a stable id
+  // the grant's recheck could not tell a response obtained with the superseded
+  // key from one obtained with its replacement — and the resolver caches a
+  // token for five minutes, which is long enough for a claim in flight across a
+  // replacement to be granted on the old key and stamped against the new row.
+  it("issues a new credential id when a community replaces its key", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const seeded = await seedOwnedCommunity(t, "delegation-replace", now);
+    const guildId = "52345678901234567";
+
+    await t.run(async (ctx) => {
+      await recordExternalControlProof(ctx.db, {
+        userId: seeded.userId,
+        assetType: "discord_guild",
+        assetExternalId: guildId,
+        controlLevel: "owner",
+        evidenceSource: "discord_oauth",
+        now,
+      });
+    });
+
+    const asOwner = t.withIdentity(seeded.identity);
+    const register = () =>
+      asOwner.mutation(api.vrclinkingCredentials.registerCredential, {
+        profileSlug: "delegation-replace",
+        guildId,
+        secretRef: `secret://vrdex/vrclinking/${guildId}`,
+      });
+
+    const first = await register();
+    const second = await register();
+
+    assert.equal(second.replaced, true);
+    assert.notEqual(second.credentialId, first.credentialId);
+
+    // The superseded row is revoked rather than deleted, so a response carrying
+    // its id fails the grant recheck instead of matching the live delegation.
+    assert.equal(
+      (await t.run(async (ctx) => await ctx.db.get(first.credentialId)))?.state,
+      "revoked",
+    );
+    assert.deepEqual(
+      (
+        await asOwner.query(api.vrclinkingCredentials.listCredentials, {
+          profileSlug: "delegation-replace",
+        })
+      ).length,
+      1,
+    );
+  });
+
+  // Every row for a guild derives the same guild-scoped reference, so sending
+  // one per row made the adapter repeat an identical lookup — spending that
+  // community's quota once per row and, at five rows, filling the entire
+  // fan-out with a single server while a guild that could actually attest the
+  // claimant waited for a cooldown-limited retry.
+  it("sends one delegation per guild even when several profiles delegate it", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const guildId = "42345678901234567";
+    const first = await seedOwnedCommunity(t, "delegation-dup-a", now);
+    const second = await seedOwnedCommunity(t, "delegation-dup-b", now);
+
+    for (const [seeded, slug] of [
+      [first, "delegation-dup-a"],
+      [second, "delegation-dup-b"],
+    ] as const) {
+      await t.run(async (ctx) => {
+        await recordExternalControlProof(ctx.db, {
+          userId: seeded.userId,
+          assetType: "discord_guild",
+          assetExternalId: guildId,
+          controlLevel: "owner",
+          evidenceSource: "discord_oauth",
+          now,
+        });
+      });
+
+      await t.withIdentity(seeded.identity).mutation(api.vrclinkingCredentials.registerCredential, {
+        profileSlug: slug,
+        guildId,
+        secretRef: `secret://vrdex/vrclinking/${guildId}`,
+      });
+    }
+
+    const claimantId = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        email: "dup-claimant@example.test",
+        emailVerificationTime: now,
+      });
+      await ctx.db.insert("authAccounts", {
+        userId,
+        provider: "discord",
+        providerAccountId: "discord-dup-claimant",
+      });
+
+      return userId;
+    });
+
+    const reserved = await t.mutation(internal.vrclinkingCredentials.reserveAdapterDelegations, {
+      userId: claimantId,
+    });
+
+    assert.deepEqual(
+      reserved?.delegations.map((delegation: { guildId: string }) => delegation.guildId),
+      [guildId],
     );
   });
 

@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { getLinkedProviderAccount } from "./accounts";
 import { requireVerifiedActiveBrowserSession } from "./_claimSession";
 import { claimError } from "./_claimErrors";
+import { vrclinkingSecretName, vrclinkingSecretRef } from "./_vrclinkingSecretRef";
 import type { Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import {
@@ -41,25 +42,24 @@ const DISCORD_GUILD_ID_PATTERN = /^\d{17,20}$/;
  * control of removes the choice: the only reference they can register is the one
  * an operator provisioned for their own server.
  */
-function secretNameForGuild(guildId: string): string {
-  return `vrdex/vrclinking/${guildId}`;
-}
+const secretNameForGuild = vrclinkingSecretName;
+const secretRefForGuild = vrclinkingSecretRef;
 
+/**
+ * One accepted form: the name.
+ *
+ * The ARN form was accepted too, and it was a trap. Its pattern allowed any
+ * region and any 12-digit account, while the adapter's execution role can read
+ * only its own — so a community registering a cross-account ARN registered
+ * successfully, was selected for claims, and then failed every resolution with
+ * an AWS denial that surfaces as `unavailable` indefinitely, with nothing
+ * pointing back at the reference. The name has no region or account to get
+ * wrong and resolves through Secrets Manager wherever the adapter runs.
+ */
 function isSecretRefForGuild(value: string, guildId: string): boolean {
-  if (value.length > SECRET_REF_MAX_LENGTH) {
-    return false;
-  }
-
-  const name = secretNameForGuild(guildId);
-
-  if (value === `secret://${name}`) {
-    return true;
-  }
-
-  // Secrets Manager appends a six-character suffix to the name in the ARN.
-  return new RegExp(
-    `^arn:aws:secretsmanager:[a-z0-9-]{1,32}:\\d{12}:secret:${name}(-[A-Za-z0-9]{6})?$`,
-  ).test(value);
+  return (
+    value.length <= SECRET_REF_MAX_LENGTH && value === `secret://${secretNameForGuild(guildId)}`
+  );
 }
 
 /**
@@ -154,20 +154,28 @@ export const registerCredential = mutation({
     const sameGuild = existing.find((row) => row.guildId === guildId);
 
     if (sameGuild !== undefined) {
-      // A replacement is a different key. Carrying the old one's audit history
-      // forward made the Connections page attribute its queries and matches to
-      // a credential that has answered nothing — the operator's only way to
-      // tell a working delegation from an untested one.
+      // A replacement is a different key, and it gets a different row.
+      //
+      // Patching in place kept the id, and every version of a delegation
+      // derives the same guild-scoped reference — so the id-and-reference
+      // recheck at the grant could not tell a response obtained with the
+      // superseded key from one obtained with its replacement. The resolver
+      // caches a token for five minutes, which is exactly long enough for a
+      // claim in flight across a replacement to be granted on the old key and
+      // stamped against the new row. A fresh id makes that recheck fail, which
+      // is what it is for.
+      //
+      // Revoking rather than deleting also stops the replacement inheriting an
+      // audit history it did not earn: the Connections page would otherwise
+      // attribute the old key's queries and matches to a credential that has
+      // answered nothing, which is the operator's only way to tell a working
+      // delegation from an untested one.
       await ctx.db.patch(sameGuild._id, {
-        secretRef,
-        delegatedByUserId: user._id,
-        lastConsultedAt: undefined,
-        lastUsedAt: undefined,
-        lastResultSummary: undefined,
+        state: "revoked",
+        revokedAt: now,
+        revokedReason: "Replaced by a new delegated credential.",
         updatedAt: now,
       });
-
-      return { credentialId: sameGuild._id, replaced: true };
     }
 
     const credentialId = await ctx.db.insert("communityVrclinkingCredentials", {
@@ -180,7 +188,7 @@ export const registerCredential = mutation({
       updatedAt: now,
     });
 
-    return { credentialId, replaced: false };
+    return { credentialId, replaced: sameGuild !== undefined };
   },
 });
 
@@ -295,10 +303,25 @@ export const reserveAdapterDelegations = internalMutation({
     const now = Date.now();
     const usable = [];
     const skipped = [];
+    // One guild may back several community profiles, and every row for it
+    // derives the same guild-scoped reference — so sending each one made the
+    // adapter repeat an identical `/members/<guildId>` lookup, spending that
+    // community's quota once per row and, with five rows, filling the whole
+    // fan-out with a single server while a guild that could actually attest the
+    // claimant waited for a cooldown-limited retry.
+    const seenGuilds = new Set<string>();
 
     for (const row of candidates) {
       if (usable.length >= MAX_ADAPTER_DELEGATIONS) {
         break;
+      }
+
+      // Stamped, not skipped: `lastRotatedAt` is the selection cursor, and a
+      // duplicate left unstamped pins the head of the index exactly like an
+      // ineligible row does.
+      if (seenGuilds.has(row.guildId)) {
+        skipped.push(row._id);
+        continue;
       }
 
       const proof = await getActiveControlProof(
@@ -313,6 +336,7 @@ export const reserveAdapterDelegations = internalMutation({
         continue;
       }
 
+      seenGuilds.add(row.guildId);
       usable.push(row);
     }
 
@@ -336,7 +360,22 @@ export const reserveAdapterDelegations = internalMutation({
       delegations: usable.map((row) => ({
         credentialId: row._id,
         guildId: row.guildId,
-        secretRef: row.secretRef,
+        // Derived, not read back. The reference is a pure function of the guild
+        // id, so the stored string carries no information — and a deployment
+        // upgraded from when the ARN form was accepted still holds rows in that
+        // shape. Emitting them verbatim meant the adapter dropped every one,
+        // leaving those communities listed as delegated while silently
+        // answering nothing. Deriving here retires the old rows without a
+        // migration, and `recordCredentialUse` re-checks the same value.
+        secretRef: secretRefForGuild(row.guildId),
+        // Which version of this delegation the adapter is being asked about.
+        // Every version derives the same reference, and the adapter caches a
+        // resolved token for five minutes keyed on it — so without this a warm
+        // container could answer a claim reserved against a replacement row
+        // using the token it cached for the row that replacement superseded.
+        // A cache key rather than a credential: the capability still authorizes
+        // the request, so a forged generation costs only a cache miss.
+        generation: row._creationTime,
       })),
     };
   },
@@ -369,10 +408,16 @@ export const recordCredentialConsultations = internalMutation({
       args.consulted.map(async ({ credentialId, secretRef }) => {
         const credential = await ctx.db.get(credentialId);
 
+        // Derived, like the other three comparison sites. Reading the stored
+        // value discarded every consultation of a row registered before the ARN
+        // form was retired, so `/account/connections` kept showing "Not used
+        // yet" for a key that was being queried on every claim — the one
+        // surface an operator has for telling a dead delegation from a live
+        // one, reporting the opposite of the truth.
         if (
           credential === null ||
           credential.state !== "active" ||
-          credential.secretRef !== secretRef
+          secretRefForGuild(credential.guildId) !== secretRef
         ) {
           return;
         }
@@ -397,10 +442,14 @@ export const recordCredentialUse = internalMutation({
   handler: async (ctx, args) => {
     const credential = await ctx.db.get(args.credentialId);
 
+    // Compared against the derived reference, matching what selection sent.
+    // Reading the stored string here would reject any row registered before the
+    // ARN form was retired, which is exactly the population deriving on read
+    // exists to keep working.
     if (
       credential === null ||
       credential.state !== "active" ||
-      credential.secretRef !== args.secretRef
+      secretRefForGuild(credential.guildId) !== args.secretRef
     ) {
       return { accepted: false };
     }

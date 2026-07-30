@@ -26,6 +26,7 @@ import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 import { createProfileSearchDocument, upsertSearchDocument } from "./_searchDocuments";
 import { normalizeVrchatTargetId } from "./_vrchatIdentity";
 import { getPublicProfileMediaKit } from "./_profileAssets";
+import { vrclinkingSecretRef } from "./_vrclinkingSecretRef";
 
 const DAY_MS = 86_400_000;
 // Minimum gap between adapter-backed checks of one attempt, whatever the
@@ -38,6 +39,15 @@ const ADAPTER_CHECK_COOLDOWN_MS = 60_000;
 // Linking credentials are spent, so an unbounded backlog is the same abuse
 // either way.
 const MAX_OPEN_PROOF_ATTEMPTS = 3;
+// Everything a VRCLinking attempt needs before it can reach the adapter. Each
+// is required at a different depth — the endpoint in `proofAdapterUrl`, the
+// token in `proofAdapterHeaders`, the signing key in `signDelegation` — so
+// checking only the first still offers the claimant a method that throws.
+const VRCLINKING_ADAPTER_ENV = [
+  "VRCLINKING_PROOF_ADAPTER_URL",
+  "VRCHAT_PROOF_ADAPTER_BEARER_TOKEN",
+  "VRCLINKING_ADAPTER_CAPABILITY_KEY",
+] as const;
 const DISCORD_ADMINISTRATOR_PERMISSION = BigInt(8);
 const DISCORD_GUILD_ID_PATTERN = /^\d{17,20}$/;
 const noSuitableMatchConfirmed = v.boolean();
@@ -367,6 +377,7 @@ export const getClaimJourneyContext = query({
         lastVerifiedProof: null,
         emailVerified: false,
         hasDiscord: false,
+        vrclinkingConfigured: false,
         pendingClaimRequest: null,
         pendingProof: null,
       };
@@ -391,7 +402,10 @@ export const getClaimJourneyContext = query({
         .withIndex("by_profileId_userId_state_updatedAt", (q) =>
           q.eq("profileId", profile._id).eq("userId", user._id).eq("state", "pending"),
         )
-        .filter((q) => q.neq(q.field("targetType"), "vrclinking"))
+        // VRCLinking attempts were excluded here while nothing in the browser
+        // could create one. The claim form now can, and hiding them left a
+        // claimant with a pending attempt looking at the method picker again —
+        // no status, no retry, no way to cancel.
         .order("desc")
         .first(),
     ]);
@@ -415,6 +429,16 @@ export const getClaimJourneyContext = query({
       verified: profile.claimState === "claimed_verified",
       emailVerified: user.email !== undefined && user.emailVerificationTime !== undefined,
       hasDiscord: discordAccount !== null,
+      // Whether the deployment can consult VRCLinking at all. The Terraform
+      // stack defaults disabled, so in any environment without an adapter
+      // deployed, offering the method on profile type alone hands the claimant
+      // a choice that reaches `requiredEnv` and throws. All three, not just the
+      // endpoint: a URL with either companion secret missing fails just as hard,
+      // one layer further in — `proofAdapterHeaders` and `signDelegation` each
+      // require their own.
+      vrclinkingConfigured: VRCLINKING_ADAPTER_ENV.every(
+        (name) => optionalEnv(name) !== undefined,
+      ),
       pendingClaimRequest: request
         ? {
             id: request._id,
@@ -437,6 +461,11 @@ export const getClaimJourneyContext = query({
           : {
               at: settledProof.verifiedAt,
               connectionOnly: settledProof.connectionOnly === true,
+              // Which method actually settled it. The browser cannot infer this
+              // — a collector or the VRCLinking adapter may resolve an attempt
+              // long after the page that started it — and the completion event
+              // is attributed from it.
+              targetType: settledProof.targetType,
             },
       pendingProof: proof
         ? {
@@ -502,7 +531,10 @@ export const cancelClaimJourneyPending = mutation({
       .withIndex("by_profileId_userId_state_updatedAt", (q) =>
         q.eq("profileId", profile._id).eq("userId", user._id).eq("state", "pending"),
       )
-      .filter((q) => q.neq(q.field("targetType"), "vrclinking"))
+      // Same reason the journey context no longer excludes them: the claim form
+      // creates VRCLinking attempts now. Leaving the exclusion here made "Start
+      // over" a no-op on the one panel that offers it, stranding the claimant on
+      // a pending attempt until it expired.
       .order("desc")
       .first();
     if (proof === null) {
@@ -1137,6 +1169,29 @@ export const startVrchatProof = mutation({
       throw claimError("TOO_MANY_OPEN_PROOFS", args.targetType);
     }
 
+    // The open-attempt cap alone does not bound an adapter-backed target. It
+    // counts `pending` rows, cancelling makes a row `failed`, and the adapter
+    // cooldown lives on the attempt — so submit, consult, "Start over", repeat
+    // spends a delegated community's provider quota as fast as the claimant can
+    // click, with `MAX_OPEN_PROOF_ATTEMPTS` never reached. Rate-limiting
+    // creation is what closes that: the loop can only turn as often as a single
+    // attempt could be re-checked.
+    if (args.targetType === "vrclinking") {
+      const previous = await ctx.db
+        .query("profileVerificationAttempts")
+        .withIndex("by_userId_targetType_createdAt", (q) =>
+          q
+            .eq("userId", user._id)
+            .eq("targetType", args.targetType)
+            .gt("createdAt", now - ADAPTER_CHECK_COOLDOWN_MS),
+        )
+        .first();
+
+      if (previous !== null) {
+        throw claimError("ADAPTER_COOLDOWN", args.targetType);
+      }
+    }
+
     const attemptId = await ctx.db.insert("profileVerificationAttempts", {
       profileId: profile._id,
       userId: user._id,
@@ -1218,10 +1273,15 @@ export const recordVrchatProofVerification = internalMutation({
     if (args.vrclinkingDelegation !== undefined) {
       const credential = await ctx.db.get(args.vrclinkingDelegation.credentialId);
 
+      // Derived, matching selection and `recordCredentialUse`. Reading the
+      // stored value here rejected any row registered before the ARN form was
+      // retired — and rejecting at this point is the worst of the three: the
+      // provider call is already spent and the match already found, so the
+      // claimant is told `unavailable` after a verification that succeeded.
       if (
         credential === null ||
         credential.state !== "active" ||
-        credential.secretRef !== args.vrclinkingDelegation.secretRef
+        vrclinkingSecretRef(credential.guildId) !== args.vrclinkingDelegation.secretRef
       ) {
         return { state: "unavailable" as const };
       }
@@ -1298,7 +1358,11 @@ export const recordVrchatProofVerification = internalMutation({
         updatedAt: now,
       });
 
-      return { state: "failed" as const };
+      // Named, like the Discord claim path. Unnamed, the browser could not tell
+      // this from a real negative, so a claimant who lost a race was told no
+      // server had confirmed their account — when the attestation may well have
+      // matched and only the listing moved underneath it.
+      return { state: "failed" as const, reason: "already_owned" as const };
     }
 
     // Attempts stay pending for a day, so the claimability check at the start
@@ -1317,7 +1381,7 @@ export const recordVrchatProofVerification = internalMutation({
         updatedAt: now,
       });
 
-      return { state: "failed" as const };
+      return { state: "failed" as const, reason: "not_claimable" as const };
     }
 
     // Same rule as the Discord paths, and for the same reason. Placing a proof
@@ -1548,7 +1612,12 @@ export const verifyVrchatProofViaAdapter = action({
             userId: attemptContext.attempt.userId,
           })) as {
             discordUserId: string;
-            delegations: { credentialId: Id<"communityVrclinkingCredentials">; guildId: string; secretRef: string }[];
+            delegations: {
+              credentialId: Id<"communityVrclinkingCredentials">;
+              guildId: string;
+              secretRef: string;
+              generation: number;
+            }[];
           } | null)
         : null;
 
@@ -1569,9 +1638,11 @@ export const verifyVrchatProofViaAdapter = action({
       delegationContext === null
         ? []
         : await Promise.all(
-            delegationContext.delegations.map(async ({ guildId, secretRef }) => ({
+            delegationContext.delegations.map(async ({ guildId, secretRef, generation }) => ({
               guildId,
               secretRef,
+              // Cache-busting only — the capability below is what authorizes.
+              generation,
               ...(await signDelegation(guildId, secretRef)),
             })),
           );

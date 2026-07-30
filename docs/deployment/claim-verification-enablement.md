@@ -106,17 +106,24 @@ A client is implemented: `workers/vrclinking-adapter` resolves a delegated
 credential reference and answers the single `GET /members/{guildId}` question,
 and community owners can register a delegation from `/account/connections`.
 
-Two things still gate the path, neither of them code:
+`infra/terraform/vrclinking-adapter` deploys the adapter, and the claim form
+offers VRCLinking on person profiles. Three Convex variables gate the method,
+and `getClaimJourneyContext` hides it unless all three are set — an environment
+holding only some of them would offer a method that throws:
 
-1. **The adapter is not deployed.** It needs somewhere to run with either the
-   Secrets Manager task-role policy or a mounted secret directory,
-   `VRCLINKING_PROOF_ADAPTER_URL` pointed at it, and
-   `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN` set to the same value in Convex and on
-   the adapter. Its README documents the configuration and a local run.
-2. **No claimant-facing entry point exists yet.** The claim UI submits only
-   `vrchat_user` and `vrchat_group`, so a registered delegation cannot be
-   exercised by a member until that method is added. Register delegations
-   ahead of it if you like, but expect no member-visible effect yet.
+- `VRCLINKING_PROOF_ADAPTER_URL`, the deployed Function URL.
+- `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN`, the same value on both sides.
+- `VRCLINKING_ADAPTER_CAPABILITY_KEY`, the signing key, which must be a
+  different value from the bearer token.
+
+One thing still gates the path, and it is not code: **no community has delegated
+a credential.** Until one has, the method is offered wherever those three
+variables are set, and every attempt short-circuits to `unavailable` before the
+adapter is called — `verifyVrchatProofViaAdapter` has nothing to ask, so it does
+not post the claimant's Discord id anywhere. The claim page renders that as
+"VRCLinking could not be reached", which is the state to expect from a
+pre-delegation smoke test; a genuine no-match looks different and only becomes
+reachable once a delegation exists.
 
 API keys are minted from a logged-in VRCLinking account and member reads are
 guild-scoped, so this needs a per-community delegated key or a partner

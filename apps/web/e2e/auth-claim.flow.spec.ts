@@ -177,13 +177,17 @@ async function recordGuildControlProof(
 }
 
 /**
- * Accept the pre-branch trust copy only where the target may not carry this
- * branch yet.
+ * Whether the hosted target is running exactly this revision.
  *
- * A local run is always this branch, so accepting either state there would let
- * the exact regression these assertions exist for — an unrelated guild or
- * VRChat account labelled `Verified` rather than merely `Claimed` — pass
- * silently. Hosted runs keep the tolerance because staging can lag the branch.
+ * A local run is always this branch, so accepting either trust state there
+ * would let the exact regression these assertions exist for — an unrelated
+ * guild or VRChat account labelled `Verified` rather than merely `Claimed` —
+ * pass silently. Hosted runs keep a tolerance because staging can lag.
+ *
+ * Note what this can and cannot tell apart: staging only ever deploys `main`,
+ * so the comparison matches on `main` and on nothing else. Every feature branch
+ * takes the tolerant path regardless of whether it is actually behind staging,
+ * which is why that path has to accept the current state too.
  */
 async function hostedTargetRunsCurrentRevision(request: APIRequestContext) {
   if (!process.env.PLAYWRIGHT_BASE_URL) {
@@ -210,14 +214,26 @@ async function expectCurrentOrHostedLagTrustState(
     return;
   }
 
-  // Shared staging may still render either of the pre-branch trust states.
-  // Exact-current deployments take the strict branch above instead.
-  await expect(
-    hostedLagCopy
+  // Shared staging may render a pre-branch trust state *or* the current one.
+  //
+  // Accepting only the pre-branch states made this unpassable on every feature
+  // branch: the revision check matches on main alone, so a branch that has
+  // merged main lands here and is then asserted against behaviour its own base
+  // no longer has. Staging can be behind this branch, which is what the
+  // tolerance is for — but it can equally be level with it, and that is not a
+  // failure.
+  await expect(async () => {
+    const lagState = hostedLagCopy
       .or(page.getByLabel("Owner verified"))
-      .or(page.getByLabel("Verified profile"))
-      .first(),
-  ).toBeVisible(hostedActionExpectOptions);
+      .or(page.getByLabel("Verified profile"));
+
+    if ((await lagState.count()) > 0) {
+      return;
+    }
+
+    expect(await profileStatusCopy(page, "Claimed").count()).toBe(0);
+    expect(await page.getByLabel("Verified profile").count()).toBe(0);
+  }).toPass(hostedActionExpectOptions);
 }
 
 async function hostedTargetHasClaimJourney(page: Page, headingName: string) {

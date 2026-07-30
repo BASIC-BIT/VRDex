@@ -12,6 +12,7 @@ VRDex keeps small infrastructure stacks separate so credentials, blast radius, a
 - `web-domains/`: Vercel web project-domain bindings and Route 53 DNS for `vrdex.net` and `www.vrdex.net`.
 - `restream-worker/`: validation-only hosted restream worker benchmark foundation for ECR, ECS/Fargate, logs, roles, secret references, and the disabled kill switch.
 - `group-telemetry-collector/`: validation-only account-scoped collector fleet foundation with one-secret isolation, bounded compute, startup gate, logs, task-health alarms, and an optional tagged cost budget.
+- `vrclinking-adapter/`: the VRCLinking proof adapter as a Lambda behind a public Function URL, with an execution role that can read every delegated community credential under the `vrdex/vrclinking/` name prefix. The only stack here that is deployed and serving production traffic without CI planning it — see its README for the deploy, rotation, and secret-ownership runbook.
 
 Each non-bootstrap stack uses the shared S3 state bucket `vrdex-terraform-state` with a stack-specific state key and S3 native locking. `state-mgmt/` intentionally uses local state because it manages that bucket. Do not commit `terraform.tfvars`, local state, plans, or provider directories.
 

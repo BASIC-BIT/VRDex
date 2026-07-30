@@ -1984,7 +1984,13 @@ export default defineSchema({
     // selected by the index rather than filtered after the fact; filtering
     // afterwards let never-stamped vrclinking rows hold the head of the scan
     // window forever and starve the queue.
-    .index("by_state_targetType_lastCheckedAt", ["state", "targetType", "lastCheckedAt"]),
+    .index("by_state_targetType_lastCheckedAt", ["state", "targetType", "lastCheckedAt"])
+    // Creation rate per claimant and target, independent of state. The open
+    // attempt cap counts only `pending` rows, so cancelling one frees its slot
+    // immediately — and because the adapter cooldown lives on the attempt row,
+    // a fresh attempt starts with none. Without this index there was no way to
+    // see the attempts a claimant had just discarded.
+    .index("by_userId_targetType_createdAt", ["userId", "targetType", "createdAt"]),
   // A user proved they control an external asset. This is deliberately not a
   // claim: proving you administer a Discord guild says nothing about which
   // VRDex profile that guild represents. Profile ownership is granted only
