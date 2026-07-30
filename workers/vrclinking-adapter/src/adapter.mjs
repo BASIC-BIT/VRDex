@@ -231,7 +231,10 @@ export async function verifyLinkage({
       // provider lookup's own deadline, so an unbounded resolution here ran
       // past the fan-out budget and past the caller's timeout, and the lookup
       // that followed spent provider quota on an answer nobody could receive.
-      token = await withDeadline(resolveSecret(delegation.secretRef), deadline - now());
+      token = await withDeadline(
+        resolveSecret(delegation.secretRef, delegation.generation),
+        deadline - now(),
+      );
     } catch (error) {
       failures.push(
         error instanceof SecretResolutionError ? error.reason : "secret_resolution_failed",
@@ -272,7 +275,7 @@ export async function verifyLinkage({
       // rotation take the full cache TTL to take effect, and every attempt in
       // that window burns the claimant's cooldown for nothing.
       if (reason === "credential_rejected") {
-        resolveSecret.invalidate?.(delegation.secretRef);
+        resolveSecret.invalidate?.(delegation.secretRef, delegation.generation);
       }
 
       failures.push(reason);

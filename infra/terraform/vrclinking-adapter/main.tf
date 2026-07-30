@@ -46,8 +46,7 @@ data "aws_iam_policy_document" "runtime" {
     actions = ["secretsmanager:GetSecretValue"]
     resources = [
       local.secret_arn_pattern,
-      var.bearer_token_secret_arn,
-      var.capability_key_secret_arn,
+      var.shared_secret_arn,
     ]
   }
 
@@ -109,8 +108,7 @@ resource "aws_lambda_function" "adapter" {
       # Lambda environment variables are readable by anyone with
       # `lambda:GetFunctionConfiguration`, which is a wider audience than the
       # execution role.
-      VRDEX_VRCLINKING_BEARER_SECRET_ARN     = var.bearer_token_secret_arn
-      VRDEX_VRCLINKING_CAPABILITY_SECRET_ARN = var.capability_key_secret_arn
+      VRDEX_VRCLINKING_SHARED_SECRET_ARN = var.shared_secret_arn
     }
   }
 

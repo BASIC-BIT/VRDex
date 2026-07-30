@@ -1606,7 +1606,12 @@ export const verifyVrchatProofViaAdapter = action({
             userId: attemptContext.attempt.userId,
           })) as {
             discordUserId: string;
-            delegations: { credentialId: Id<"communityVrclinkingCredentials">; guildId: string; secretRef: string }[];
+            delegations: {
+              credentialId: Id<"communityVrclinkingCredentials">;
+              guildId: string;
+              secretRef: string;
+              generation: number;
+            }[];
           } | null)
         : null;
 
@@ -1627,9 +1632,11 @@ export const verifyVrchatProofViaAdapter = action({
       delegationContext === null
         ? []
         : await Promise.all(
-            delegationContext.delegations.map(async ({ guildId, secretRef }) => ({
+            delegationContext.delegations.map(async ({ guildId, secretRef, generation }) => ({
               guildId,
               secretRef,
+              // Cache-busting only — the capability below is what authorizes.
+              generation,
               ...(await signDelegation(guildId, secretRef)),
             })),
           );

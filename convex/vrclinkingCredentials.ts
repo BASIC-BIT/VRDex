@@ -368,6 +368,14 @@ export const reserveAdapterDelegations = internalMutation({
         // answering nothing. Deriving here retires the old rows without a
         // migration, and `recordCredentialUse` re-checks the same value.
         secretRef: secretRefForGuild(row.guildId),
+        // Which version of this delegation the adapter is being asked about.
+        // Every version derives the same reference, and the adapter caches a
+        // resolved token for five minutes keyed on it — so without this a warm
+        // container could answer a claim reserved against a replacement row
+        // using the token it cached for the row that replacement superseded.
+        // A cache key rather than a credential: the capability still authorizes
+        // the request, so a forged generation costs only a cache miss.
+        generation: row._creationTime,
       })),
     };
   },

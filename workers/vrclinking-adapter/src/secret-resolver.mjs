@@ -93,17 +93,28 @@ export function createSecretResolver({ secretDir, awsClient, cacheTtlMs = 300_00
    * `credential_rejected` for the rest of the TTL while the adapter replays the
    * old token — and every one of those attempts burns the claimant's cooldown.
    */
-  resolveSecret.invalidate = function invalidate(secretRef) {
+  resolveSecret.invalidate = function invalidate(secretRef, generation) {
     const classified = classifySecretRef(secretRef);
 
     if (classified.kind !== "invalid") {
-      cache.delete(classified.id);
+      cache.delete(cacheKey(classified.id, generation));
     }
   };
 
   return resolveSecret;
 
-  async function resolveSecret(secretRef) {
+  // Keyed by reference *and* generation. A community replacing its key keeps the
+  // same guild-derived reference — the reference is a pure function of the guild
+  // id — so a reference-only key let a warm container answer a claim reserved
+  // against the *new* credential row with the token it had cached for the old
+  // one. That verdict then passed both the row-id and reference rechecks and was
+  // attributed to the replacement. The generation is a cache key, not a
+  // credential: forging one costs a cache miss and a fresh read, nothing more.
+  function cacheKey(id, generation) {
+    return generation === undefined ? id : `${id}#${generation}`;
+  }
+
+  async function resolveSecret(secretRef, generation) {
     const classified = classifySecretRef(secretRef);
 
     if (classified.kind === "invalid") {
@@ -112,7 +123,8 @@ export function createSecretResolver({ secretDir, awsClient, cacheTtlMs = 300_00
       });
     }
 
-    const cached = cache.get(classified.id);
+    const key = cacheKey(classified.id, generation);
+    const cached = cache.get(key);
     if (cached !== undefined && cached.expiresAt > clock()) {
       return cached.token;
     }
@@ -156,7 +168,7 @@ export function createSecretResolver({ secretDir, awsClient, cacheTtlMs = 300_00
     }
 
     const token = extractToken(raw);
-    cache.set(classified.id, { token, expiresAt: clock() + cacheTtlMs });
+    cache.set(key, { token, expiresAt: clock() + cacheTtlMs });
 
     return token;
   }

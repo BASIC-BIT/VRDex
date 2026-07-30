@@ -567,3 +567,48 @@ describe("VRCLinking client", () => {
     assert.equal(seenHeaders.authorization, "Bearer tok");
   });
 });
+
+describe("resolver cache generations", () => {
+  // Every version of a delegation derives the same guild-scoped reference, so a
+  // reference-only cache key let a warm container answer a claim reserved
+  // against a replacement row with the token it had cached for the row that
+  // replacement superseded — and that verdict then passed both the row-id and
+  // reference rechecks on the control plane.
+  it("does not serve a replaced credential's token to its replacement", async () => {
+    let reads = 0;
+    const resolve = createSecretResolver({
+      awsClient: {
+        getSecretValue: async () => {
+          reads += 1;
+          return { SecretString: `token-${reads}` };
+        },
+      },
+    });
+    const ref = "secret://vrdex/vrclinking/123456789012345678";
+
+    assert.equal(await resolve(ref, 1), "token-1");
+    assert.equal(await resolve(ref, 1), "token-1", "same generation is still cached");
+    assert.equal(await resolve(ref, 2), "token-2", "a new generation must re-read");
+    assert.equal(reads, 2);
+  });
+
+  it("invalidates only the generation whose token the provider rejected", async () => {
+    let reads = 0;
+    const resolve = createSecretResolver({
+      awsClient: {
+        getSecretValue: async () => {
+          reads += 1;
+          return { SecretString: `token-${reads}` };
+        },
+      },
+    });
+    const ref = "secret://vrdex/vrclinking/123456789012345678";
+
+    await resolve(ref, 1);
+    await resolve(ref, 2);
+    resolve.invalidate(ref, 1);
+
+    assert.equal(await resolve(ref, 2), "token-2", "untouched");
+    assert.equal(await resolve(ref, 1), "token-3", "re-read after invalidation");
+  });
+});
