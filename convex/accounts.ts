@@ -52,14 +52,26 @@ export async function getLinkedProviderAccount(
     return null;
   }
 
-  const watermark = await ctx.db
+  // One user can verify more than one Discord account, and the verification code
+  // keeps a watermark per `(userId, discordUserId)` without marking any of them
+  // current. Index order would then hand back an arbitrary — possibly stale —
+  // account, so pick the most recently updated one deterministically.
+  const watermarks = await ctx.db
     .query("discordVerificationWatermarks")
     .withIndex("by_userId_discordUserId", (query) => query.eq("userId", userId))
-    .first();
+    .collect();
 
-  return watermark === null
+  const current = watermarks.reduce<(typeof watermarks)[number] | null>(
+    (latest, watermark) =>
+      latest === null || watermark.updatedAt > latest.updatedAt
+        ? watermark
+        : latest,
+    null,
+  );
+
+  return current === null
     ? null
-    : { providerAccountId: watermark.discordUserId };
+    : { providerAccountId: current.discordUserId };
 }
 
 export const viewer = query({

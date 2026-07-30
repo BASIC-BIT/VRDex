@@ -1,6 +1,6 @@
 "use client";
 
-import { useAuth } from "@clerk/nextjs";
+import { useAuth, useUser } from "@clerk/nextjs";
 import {
   ConvexProviderWithAuth,
   ConvexReactClient,
@@ -40,35 +40,63 @@ const PROVISION_RETRY_CEILING_MS = 8_000;
  * Gating on `viewer` rather than on the mutation means Convex reactivity opens
  * the gate as soon as the row lands, and an existing user waits only for a query
  * that authenticated pages already make.
+ *
+ * Provisioning also re-runs whenever Clerk's identity changes, not only when the
+ * row is missing. Clerk's profile modal can change the primary email without
+ * remounting this provider, and a changed address arrives unverified: syncing
+ * only on absence would leave a stale `emailVerificationTime` behind and let a
+ * client-side navigation into a claim flow pass the verified-email requirement on
+ * an address Clerk no longer vouches for.
  */
 function ProvisionedChildren({ children }: { children: ReactNode }) {
   const { isAuthenticated } = useConvexAuth();
+  const { user } = useUser();
   const ensureCurrentUser = useMutation(api.users.ensureCurrentUser);
   const viewer = useQuery(api.accounts.viewer, isAuthenticated ? {} : "skip");
   const [retry, setRetry] = useState(0);
   const retryTimer = useRef<number | undefined>(undefined);
+  const syncedIdentity = useRef<string | null>(null);
 
   const provisioned = viewer !== undefined && viewer !== null;
+  // Changes when Clerk's profile does, so an email change resyncs.
+  const identitySignature = user
+    ? [
+        user.id,
+        user.primaryEmailAddress?.emailAddress ?? "",
+        user.primaryEmailAddress?.verification?.status ?? "",
+        user.updatedAt?.getTime() ?? "",
+      ].join("|")
+    : null;
 
   useEffect(() => {
-    if (!isAuthenticated || provisioned) {
+    if (!isAuthenticated) {
+      return;
+    }
+
+    if (provisioned && identitySignature === syncedIdentity.current) {
       return;
     }
 
     let cancelled = false;
 
-    void ensureCurrentUser({}).catch(() => {
-      if (cancelled) {
-        return;
-      }
+    void ensureCurrentUser({})
+      .then(() => {
+        if (!cancelled) {
+          syncedIdentity.current = identitySignature;
+        }
+      })
+      .catch(() => {
+        if (cancelled) {
+          return;
+        }
 
-      // Nothing else would retry a transient failure while the layout stays
-      // mounted, which would leave the account permanently unusable.
-      retryTimer.current = window.setTimeout(
-        () => setRetry((attempt) => attempt + 1),
-        Math.min(PROVISION_RETRY_CEILING_MS, 500 * 2 ** retry),
-      );
-    });
+        // Nothing else would retry a transient failure while the layout stays
+        // mounted, which would leave the account permanently unusable.
+        retryTimer.current = window.setTimeout(
+          () => setRetry((attempt) => attempt + 1),
+          Math.min(PROVISION_RETRY_CEILING_MS, 500 * 2 ** retry),
+        );
+      });
 
     return () => {
       cancelled = true;
@@ -78,7 +106,7 @@ function ProvisionedChildren({ children }: { children: ReactNode }) {
         retryTimer.current = undefined;
       }
     };
-  }, [ensureCurrentUser, isAuthenticated, provisioned, retry]);
+  }, [ensureCurrentUser, identitySignature, isAuthenticated, provisioned, retry]);
 
   if (isAuthenticated && !provisioned) {
     return null;
