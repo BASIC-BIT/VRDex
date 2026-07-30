@@ -193,12 +193,12 @@ test.describe("fixture lookup smoke", () => {
     await expect(page.getByRole("link", { name: "Twitch: twitch.tv", exact: true })).toBeVisible();
     await expect(page.getByText("BASIC", { exact: true })).toHaveCount(2);
     const copyButton = page.getByRole("button", { name: "Copy" }).first();
-    const copyButtonWidth = await copyButton.evaluate((element) => element.getBoundingClientRect().width);
+    const copyButtonWidth = await copyButton.evaluate((element) => (element as HTMLElement).offsetWidth);
     await copyButton.click();
     const copiedButton = page.getByRole("button", { name: "Copied" }).first();
     await expect(copiedButton).toBeVisible();
-    const copiedButtonWidth = await copiedButton.evaluate((element) => element.getBoundingClientRect().width);
-    expect(Math.abs(copiedButtonWidth - copyButtonWidth)).toBeLessThan(0.5);
+    const copiedButtonWidth = await copiedButton.evaluate((element) => (element as HTMLElement).offsetWidth);
+    expect(copiedButtonWidth).toBe(copyButtonWidth);
     await expect.poll(async () => await page.evaluate(() => JSON.parse(window.localStorage.getItem("vrdex.lookup.recentSearches") ?? "[]")[0])).toBe("BASICBIT");
     await page.getByRole("button", { name: "Clear lookup" }).click();
     await page.getByLabel("DJ name").focus();
@@ -213,6 +213,38 @@ test.describe("fixture lookup smoke", () => {
     await expect(page.getByRole("option", { name: /BASICBIT/i })).toBeVisible();
     await lookupInput.fill("unrelated query");
     await expect(page.getByRole("option", { name: /BASICBIT/i })).toHaveCount(0);
+  });
+
+  test("lookup promotes Shift+Enter and multiline paste into bulk mode", async ({ page }) => {
+    await page.goto("/search?view=dj");
+    const lookupInput = page.getByLabel("DJ name");
+
+    await lookupInput.fill("BASICBIT");
+    await lookupInput.press("Shift+Enter");
+
+    const shiftedBulkEditor = page.getByLabel("Lineup text");
+    await expect(shiftedBulkEditor).toBeFocused();
+    await expect(shiftedBulkEditor).toHaveValue("BASICBIT\n");
+    await expect(page.getByRole("button", { name: "Single" })).toHaveAttribute("aria-pressed", "true");
+
+    await page.goto("/search?view=dj");
+    const pasteTarget = page.getByLabel("DJ name");
+
+    await pasteTarget.evaluate((element) => {
+      const clipboardData = new DataTransfer();
+
+      clipboardData.setData("text/plain", "BASICBIT\nDJ Aurora");
+      element.dispatchEvent(new ClipboardEvent("paste", {
+        bubbles: true,
+        cancelable: true,
+        clipboardData,
+      }));
+    });
+
+    const pastedBulkEditor = page.getByLabel("Lineup text");
+    await expect(pastedBulkEditor).toBeFocused();
+    await expect(pastedBulkEditor).toHaveValue("BASICBIT\nDJ Aurora");
+    await expect(page.getByText("2 pasted entries")).toBeVisible();
   });
 
   test("standard search hides stale suggestions as soon as the visible query changes", async ({ page }) => {
@@ -318,27 +350,109 @@ test.describe("fixture lookup smoke", () => {
       "href",
       "/claim/playwright-sparse-import?source=search",
     );
-    await expect(sparseResult.getByText("Imported profile seed", { exact: true })).toBeVisible();
+    await expect(sparseResult.getByText("Imported profile seed", { exact: true })).toHaveCount(0);
 
     await page.goto("/search?q=Sparse%20Import&view=dj");
     await expect(page.getByRole("link", { name: "Sparse Import", exact: true })).toBeVisible();
-    await expect(page.getByText("Imported profile seed / Unclaimed", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText(/Imported profile seed|Unclaimed/, { exact: true })).toHaveCount(0);
 
     await page.goto("/search?q=DJ%20Aurora&view=dj");
-    await expect(page.getByText("Community submitted", { exact: true }).first()).toBeVisible();
-    await expect(page.getByText("Community submitted / Community submitted", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("Community submitted", { exact: true })).toHaveCount(0);
   });
 
   test("lookup suggestions include authorized private seed rows", async ({ page }) => {
     await page.goto("/lookup");
     await page.getByLabel("DJ name").fill("nwinn");
 
-    const privateOption = page.getByRole("option", { name: /DJ Northstar.*Private seed.*NWinn/i });
+    const privateOption = page.getByRole("option", { name: "DJ Northstar", exact: true });
 
     await expect(privateOption).toBeVisible();
+    await expect(privateOption).not.toContainText(/Private seed|NWinn/);
     await privateOption.click();
-    await expect(page).toHaveURL(/\/search\?q=DJ%20Northstar&view=dj$/);
-    await expect(page.locator(".lookup-result-card.lookup-private-result").filter({ hasText: "DJ Northstar" })).toBeVisible();
+    await expect(page).toHaveURL((url) =>
+      url.pathname === "/search" &&
+      url.searchParams.get("q") === "DJ Northstar" &&
+      url.searchParams.get("view") === "dj",
+    );
+    const privateResult = page.locator(".lookup-result-card.ph-no-capture").filter({ hasText: "DJ Northstar" });
+    await expect(privateResult).toBeVisible();
+    await expect(privateResult).not.toContainText(/Private seed|Source|Reviewed|Freshness|Jul 9, 2026|Checked Jul 8, 2026/);
+  });
+
+  test("logo-only DJ suggestions stay contained and unframed", async ({ page }) => {
+    await page.route("**/lookup/suggest?q=logo-only", async (route) => {
+      await route.fulfill({
+        contentType: "application/json",
+        json: {
+          privateResults: [],
+          results: [{
+            aliases: [],
+            avatarImageKind: "logo",
+            avatarImageUrl: "/seed/fixture-avatar-luma.svg",
+            displayName: "Logo Only",
+            genres: [],
+            outboundLinks: [],
+            profilePath: "/p/logo-only",
+            roleTags: ["DJ"],
+            slug: "logo-only",
+            tags: [],
+            trustLabel: "claimed_unverified",
+          }],
+          viewerAccess: { allowed: false, source: "signed_out" },
+        },
+      });
+    });
+
+    await page.goto("/search?view=dj");
+    await page.getByLabel("DJ name").fill("logo-only");
+    const option = page.getByRole("option", { name: /Logo Only/ });
+    const logo = option.locator(".lookup-avatar--logo");
+
+    await expect(option).toBeVisible();
+    await expect(logo).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await expect(logo).toHaveCSS("border-top-width", "0px");
+    await expect(logo).toHaveCSS("border-radius", "0px");
+    await expect(logo.locator("img")).toHaveCSS("object-fit", "contain");
+  });
+
+  test("verified profiles use the same compact mark across profile and search views", async ({ page }, testInfo) => {
+    await page.goto("/p/basicbit");
+    const profileMark = page.getByLabel("Verified profile");
+    await expect(profileMark).toBeVisible();
+    const profileBox = await profileMark.boundingBox();
+
+    await page.goto("/search?q=BASICBIT");
+    const searchRegion = page.getByRole("region", { name: "Search results" });
+    const searchResult = searchRegion.getByRole("link", { name: /BASICBIT Verified profile/ });
+    const searchMark = searchRegion.getByLabel("Verified profile");
+    const resultTypeIcon = searchRegion.getByRole("img", { name: "Person" });
+    const resultTypeTooltip = searchRegion.getByText("Person", { exact: true });
+    await expect(searchMark).toBeVisible();
+    await expect(resultTypeIcon).toBeVisible();
+    await expect(resultTypeTooltip).toHaveCSS("opacity", "0");
+    if (testInfo.project.name === "desktop-chromium") {
+      await searchResult.hover({ position: { x: 200, y: 45 } });
+      await expect(resultTypeTooltip).toHaveCSS("opacity", "0");
+      await resultTypeIcon.hover();
+      await expect(resultTypeTooltip).toHaveCSS("opacity", "1");
+    }
+    await searchResult.focus();
+    await expect(resultTypeTooltip).toHaveCSS("opacity", "1");
+    const searchBox = await searchMark.boundingBox();
+
+    await page.goto("/search?q=BASICBIT&view=dj");
+    const lookupMark = page.getByLabel("Verified profile").first();
+    await expect(lookupMark).toBeVisible();
+    const lookupBox = await lookupMark.boundingBox();
+
+    expect(profileBox).not.toBeNull();
+    expect(searchBox).not.toBeNull();
+    expect(lookupBox).not.toBeNull();
+    expect(profileBox!.width).toBeLessThanOrEqual(18);
+    expect(profileBox!.width).toBe(searchBox!.width);
+    expect(profileBox!.height).toBe(searchBox!.height);
+    expect(profileBox!.width).toBe(lookupBox!.width);
+    expect(profileBox!.height).toBe(lookupBox!.height);
   });
 
   test("bulk lookup summaries dedupe overlapping public and private rows", async ({ page }) => {

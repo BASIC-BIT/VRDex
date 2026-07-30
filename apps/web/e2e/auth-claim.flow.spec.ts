@@ -1,6 +1,7 @@
 import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 
 import { gotoFlowPage } from "./flow-navigation";
+import { captureRouteScreenshot } from "./public-routes";
 import { E2E_DISCORD_GUILD_ID } from "../src/lib/e2e-discord-fixture";
 
 test.describe.configure({ mode: "serial" });
@@ -184,13 +185,39 @@ async function recordGuildControlProof(
  * VRChat account labelled `Verified` rather than merely `Claimed` — pass
  * silently. Hosted runs keep the tolerance because staging can lag the branch.
  */
-async function expectCurrentOrHostedLagTrustCopy(currentCopy: Locator, hostedLagCopy: Locator) {
+async function hostedTargetRunsCurrentRevision(request: APIRequestContext) {
   if (!process.env.PLAYWRIGHT_BASE_URL) {
-    await expect(currentCopy).toBeVisible(hostedActionExpectOptions);
+    return true;
+  }
+
+  const currentRevision = process.env.GITHUB_SHA?.trim().slice(0, 7);
+  if (!currentRevision) {
+    return false;
+  }
+
+  const response = await request.get("/deployment");
+  return response.ok() && (await response.text()).includes(currentRevision);
+}
+
+async function expectCurrentOrHostedLagTrustState(
+  page: Page,
+  request: APIRequestContext,
+  hostedLagCopy: Locator,
+) {
+  if (await hostedTargetRunsCurrentRevision(request)) {
+    await expect(profileStatusCopy(page, "Claimed")).toHaveCount(0);
+    await expect(page.getByLabel("Verified profile")).toHaveCount(0);
     return;
   }
 
-  await expect(currentCopy.or(hostedLagCopy).first()).toBeVisible(hostedActionExpectOptions);
+  // Shared staging may still render either of the pre-branch trust states.
+  // Exact-current deployments take the strict branch above instead.
+  await expect(
+    hostedLagCopy
+      .or(page.getByLabel("Owner verified"))
+      .or(page.getByLabel("Verified profile"))
+      .first(),
+  ).toBeVisible(hostedActionExpectOptions);
 }
 
 async function hostedTargetHasClaimJourney(page: Page, headingName: string) {
@@ -324,20 +351,34 @@ test("verified email account with linked Discord can claim person and community 
 
     await gotoFlowPage(page, `/p/${createdSlug}`);
     await expect(page.getByRole("heading", { name: displayName })).toBeVisible(hostedActionExpectOptions);
-    await expectCurrentOrHostedLagTrustCopy(
-      profileStatusCopy(page, "Claimed"),
-      page.getByRole("heading", { name: "Claimed", exact: true }).or(page.getByText("Person profile / Claimed", { exact: true })),
-    );
+    if (process.env.PLAYWRIGHT_BASE_URL) {
+      await expectCurrentOrHostedLagTrustState(
+        page,
+        request,
+        profileStatusCopy(page, "Claimed").or(
+          page.getByText("Person profile / Claimed", { exact: true }),
+        ),
+      );
+    } else {
+      await expect(profileStatusCopy(page, "Claimed")).toHaveCount(0);
+      await expect(page.getByLabel("Verified profile")).toHaveCount(0);
+    }
 
     await gotoFlowPage(page, `/claim/${encodeURIComponent(createdSlug!)}`);
     await expect(page.getByText("You manage this profile, but it is not verified yet.")).toBeVisible();
     await expect(page.getByLabel("VRChat profile URL or user ID")).toBeVisible();
 
-    await gotoFlowPage(page, "/account");
-    await expect(page.getByRole("link", { name: "Verify with VRChat" })).toHaveAttribute(
-      "href",
-      `/claim/${encodeURIComponent(createdSlug!)}?source=account`,
-    );
+    if (!process.env.PLAYWRIGHT_BASE_URL) {
+      await gotoFlowPage(page, "/account");
+      const accountProfileLink = page.getByRole("link", { name: "View profile" });
+      await expect(accountProfileLink).toHaveAttribute("href", `/p/${encodeURIComponent(createdSlug!)}`);
+      await expect(accountProfileLink).toHaveClass(/bg-accent/);
+      await expect(page.getByRole("link", { name: "Verify with VRChat" })).toHaveAttribute(
+        "href",
+        `/claim/${encodeURIComponent(createdSlug!)}?source=account`,
+      );
+      await captureRouteScreenshot(page, testInfo, "account-owned-profile");
+    }
 
     if (!(await recordGuildControlProof(request, e2eToken, email, E2E_DISCORD_GUILD_ID))) {
       testInfo.annotations.push({
@@ -381,18 +422,16 @@ test("verified email account with linked Discord can claim person and community 
     await expect(page.getByRole("heading", { name: `Playwright Community Claim ${runSuffix}` })).toBeVisible(
       hostedActionExpectOptions,
     );
-    // Claimed, not verified: the fixture guild is not on record for this fresh
-    // listing, and control of a server the claimant picked is not evidence that
-    // the server is this listing's. A hosted target that predates that rule
-    // still shows the verified label, so both are accepted here.
-    await expectCurrentOrHostedLagTrustCopy(
-      profileStatusCopy(page, "Claimed"),
-      page
-        .getByLabel("Owner verified")
-        .or(profileStatusCopy(page, "Verified"))
-        .or(page.getByRole("heading", { name: "Verified owner", exact: true }))
-        .or(page.getByText("Community profile / Verified", { exact: true })),
-    );
+    if (process.env.PLAYWRIGHT_BASE_URL) {
+      await expectCurrentOrHostedLagTrustState(
+        page,
+        request,
+        profileStatusCopy(page, "Claimed").or(page.getByText("Community profile / Claimed", { exact: true })),
+      );
+    } else {
+      await expect(profileStatusCopy(page, "Claimed")).toHaveCount(0);
+      await expect(page.getByLabel("Verified profile")).toHaveCount(0);
+    }
   } finally {
     await cleanupAuthAndProfiles(request, e2eToken, email, [createdSlug, communitySlug], runId);
   }
@@ -478,18 +517,16 @@ test("verified email account can complete VRChat adapter claims @flow", async ({
 
     await gotoFlowPage(page, `/p/${vrchatPersonSlug}`);
     await expect(page.getByRole("heading", { name: `Playwright VRChat Proof ${runSuffix}` })).toBeVisible(hostedActionExpectOptions);
-    // Claimed, not verified: the fixture VRChat account is not on record for
-    // this fresh listing, and controlling an account is not evidence that the
-    // account is the one the listing represents. A hosted target predating that
-    // rule still shows the verified label, so both are accepted.
-    await expectCurrentOrHostedLagTrustCopy(
-      profileStatusCopy(page, "Claimed"),
-      page
-        .getByLabel("Owner verified")
-        .or(profileStatusCopy(page, "Verified"))
-        .or(page.getByRole("heading", { name: "Verified owner", exact: true }))
-        .or(page.getByText("Person profile / Verified", { exact: true })),
-    );
+    if (process.env.PLAYWRIGHT_BASE_URL) {
+      await expectCurrentOrHostedLagTrustState(
+        page,
+        request,
+        profileStatusCopy(page, "Claimed").or(page.getByText("Person profile / Claimed", { exact: true })),
+      );
+    } else {
+      await expect(profileStatusCopy(page, "Claimed")).toHaveCount(0);
+      await expect(page.getByLabel("Verified profile")).toHaveCount(0);
+    }
 
   } finally {
     await cleanupAuthAndProfiles(

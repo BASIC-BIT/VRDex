@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BadgeCheck, ExternalLink } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 import { Fragment, type CSSProperties, type ReactNode } from "react";
 
 import { EventPreviewCard, type PublicEventPreview } from "./event-public-page";
@@ -8,6 +8,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card, Eyebrow, SectionHeading } from "@/components/ui/card";
 import { CopyValueRow } from "@/components/ui/copy-value-row";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
+import { VerifiedTrustMark } from "@/components/ui/verified-trust-mark";
 import { avatarFrameStyle, defaultAvatarAppearance, type AvatarAppearance } from "@/lib/avatar-appearance";
 import { cn } from "@/lib/cn";
 import { profileClaimPath } from "@/lib/profile-claim";
@@ -174,22 +175,6 @@ type PublicCommunityProfile = PublicProfileBase & {
 
 export type PublicProfile = PublicPersonProfile | PublicCommunityProfile;
 
-function trustLabelCopy(label: ProfileTrustLabel) {
-  if (label === "claimed_verified") {
-    return "Verified";
-  }
-
-  if (label === "claimed_unverified") {
-    return "Claimed";
-  }
-
-  if (label === "community_submitted") {
-    return "Community submitted";
-  }
-
-  return "Unclaimed";
-}
-
 function initialsFor(name: string): string {
   const initials = name
     .split(/\s+/)
@@ -252,16 +237,6 @@ function safeCreditUrl(url: string | undefined): string | null {
   } catch {
     return null;
   }
-}
-
-function formatSubmittedAt(value: number | undefined): string | null {
-  if (value === undefined) {
-    return null;
-  }
-
-  return new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric" }).format(
-    new Date(value),
-  );
 }
 
 function roleLabel(role: WorldCreatorRole): string {
@@ -373,7 +348,6 @@ export function ProfileBackendNotice({ kind }: { kind: "missing-url" | "error" }
 }
 
 export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
-  const trust = trustLabelCopy(profile.trustLabel);
   const isPerson = profile.profileType === "person";
   const bannerStyle = safeImageBackground(profile.bannerImageUrl);
   const avatarImageStyle = safeImageBackground(profile.avatarImageUrl);
@@ -429,8 +403,6 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
   const hasWatchSurface = Boolean(twitchLink || vrcdnStreams.length > 0);
   const aliases = profile.aliases.slice(0, 3);
   const remainingAliases = profile.aliases.slice(3);
-  const sourceDate = formatSubmittedAt(profile.source?.submittedAt);
-  const sourceLine = [trust, sourceDate].filter(Boolean).join(" / ");
   const metadata = Array.from(new Set([
     isPerson ? profile.person.pronouns : profile.community.subtype,
     profile.region,
@@ -558,28 +530,10 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
                     {!hasAvatarImage ? initialsFor(profile.displayName) : null}
                   </div>
                   {profile.trustLabel === "claimed_verified" ? (
-                    <span
-                      aria-describedby={`profile-verified-${profile.slug}`}
-                      aria-label="Owner verified"
-                      className="group absolute -right-2 -bottom-2 grid size-8 place-items-center rounded-full border-2 border-media bg-accent text-on-accent shadow-panel outline-none focus-visible:ring-2 focus-visible:ring-focus"
-                      role="img"
-                      tabIndex={0}
-                    >
-                      <BadgeCheck aria-hidden="true" className="size-5" />
-                      <span
-                        className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 hidden -translate-x-1/2 whitespace-nowrap rounded-control bg-foreground px-2 py-1 text-xs font-medium text-background shadow-panel group-hover:block group-focus:block"
-                        id={`profile-verified-${profile.slug}`}
-                        role="tooltip"
-                      >
-                        Owner verified
-                      </span>
-                    </span>
+                    <VerifiedTrustMark className="verified-trust-mark--avatar" />
                   ) : null}
                 </div>
                 <div className="min-w-0">
-                  {profile.trustLabel === "claimed_verified" ? null : (
-                    <p className="text-sm text-white/75">{sourceLine}</p>
-                  )}
                   <h1
                     className="break-words text-4xl leading-none font-semibold sm:text-5xl"
                     id={`profile-title-${profile.slug}`}

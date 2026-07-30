@@ -387,6 +387,10 @@ test(
       ).toBeVisible();
 
       await restoredPage.getByRole("button", { name: "Sign out" }).click();
+      await restoredPage
+        .getByRole("dialog", { name: "Sign out?" })
+        .getByRole("button", { name: "Sign out" })
+        .click();
       await expect(restoredPage).toHaveURL(/\/sign-in$/);
       await expect(siblingPage).toHaveURL(/\/sign-in(?:\?|$)/);
       await expect(
