@@ -183,6 +183,18 @@ Per deployment, before anyone signs in:
 4. Recreate the `accountFeatureGrants` row against the new user id.
 5. Once no legacy rows remain anywhere, tighten `clerkUserId` to `v.string()`.
 
+### Run the Discord watermark backfill after deploying
+
+`discordVerificationWatermarks.appliedAt` is new. Rows written before it carry
+no success timestamp, and selecting the current Discord identity falls back to
+`updatedAt` for them — a field `reserveGuildVerificationGeneration` bumps before
+it reads guilds, so a later failed attempt could make an older account rank as
+current.
+
+Run `migrations:runBackfillDiscordWatermarkAppliedAt` (or `migrations:runAll`)
+once per deployment after the functions land, which freezes the best available
+timestamp into the immutable field.
+
 ### Stored auth subjects do not survive the issuer change
 
 `toAuthSubject` persists `tokenIdentifier`, `issuer`, and `subject`, and two

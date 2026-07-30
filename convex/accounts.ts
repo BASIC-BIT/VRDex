@@ -67,11 +67,13 @@ export async function getLinkedProviderAccount(
     .withIndex("by_userId_discordUserId", (query) => query.eq("userId", userId))
     .collect();
 
-  // `appliedAt` is newer than the table, so a row written before it existed has
-  // none even when its `appliedGeneration` proves reconciliation succeeded.
-  // Requiring the field outright would strip person-claim and VRC Linking access
-  // from every already-verified user until they redid OAuth. Fall back to
-  // `updatedAt` for those, and treat a row with neither as never completed.
+  // `appliedAt` is newer than the table. `migrations:backfillDiscordWatermarkAppliedAt`
+  // stamps it on rows that predate it and whose `appliedGeneration` proves
+  // reconciliation completed, so this fallback only covers the window before that
+  // migration runs — without it, an already-verified user would lose person-claim
+  // and VRC Linking access until they redid OAuth. The fallback is `updatedAt`,
+  // which a failed reservation can move; the migration exists precisely so
+  // ranking does not rely on it for long.
   const completedAt = (watermark: (typeof watermarks)[number]) =>
     watermark.appliedAt ??
     (watermark.appliedGeneration > 0 ? watermark.updatedAt : undefined);
