@@ -13,6 +13,11 @@ output "role_arn" {
   value       = aws_iam_role.adapter.arn
 }
 
+output "aws_region" {
+  description = "Region every rotation command must target. The AWS CLI otherwise uses the operator shell's region, which can miss the secret entirely or act on a same-named function elsewhere."
+  value       = var.aws_region
+}
+
 output "shared_secret_arn" {
   description = "The shared-secret object the rotation runbook writes. An identifier, not a value — the secret itself is never in Terraform state."
   value       = var.shared_secret_arn

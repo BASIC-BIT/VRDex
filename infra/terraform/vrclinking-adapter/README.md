@@ -108,6 +108,10 @@ cd infra/terraform/vrclinking-adapter
 #    cold start on the new one.
 FUNCTION=$(terraform output -raw function_name)
 SECRET=$(terraform output -raw shared_secret_arn)
+#    The region too: every AWS command below is regional, and the CLI otherwise
+#    uses whatever the operator's shell is configured for — which can miss the
+#    secret entirely, or act on a same-named function in another region.
+export AWS_REGION=$(terraform output -raw aws_region)
 
 # 1. One write, both values. There is no window in which the adapter can read a
 #    half-rotated pair, so this either happens or it does not.
@@ -183,6 +187,7 @@ still signed with the old key and rejected under the new one. Compare both
 halves directly rather than inferring one from the other:
 
 ```bash
+export AWS_REGION=$(terraform -chdir=infra/terraform/vrclinking-adapter output -raw aws_region)
 SHARED=$(aws secretsmanager get-secret-value \
   --secret-id "$(terraform -chdir=infra/terraform/vrclinking-adapter output -raw shared_secret_arn)" \
   --query SecretString --output text)
