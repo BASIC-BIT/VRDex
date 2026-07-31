@@ -521,10 +521,31 @@ async function writeCredentialFiles(args: {
   return { envPs1, envSh, outputDir, summary };
 }
 
+/**
+ * This generator signs in by driving the email/password sign-up form and the
+ * `/api/e2e/auth` route, both of which the Clerk cutover removed. Left in place
+ * rather than deleted because #226 ports it to Clerk testing credentials, and
+ * `check-api-mcp-rollout-readiness` asserts the `package.json` entry exists.
+ *
+ * Fails immediately instead of part-way through: without this it still runs,
+ * launches a browser, and dies on a missing selector after creating nothing —
+ * an error that reads like a flake rather than a retired code path.
+ *
+ * The guard is a condition rather than an unconditional throw so the body stays
+ * reachable code for whoever does that port; flip
+ * `VRDEX_MCP_SMOKE_GENERATOR_PORTED` once the flow works against Clerk.
+ */
+const RETIRED_UNTIL_CLERK =
+  "pnpm ops:mcp-oauth-smoke-credentials is unavailable: it creates its temporary account through the email/password sign-up form and /api/e2e/auth, both removed by the Clerk cutover. Supply VRDEX_MCP_OAUTH_CLIENT_ID and VRDEX_MCP_OAUTH_CLIENT_SECRET, or VRDEX_MCP_INSPECTOR_OAUTH_TOKEN, from an OAuth app registered by hand. Tracked in #226.";
+
 async function main() {
   if (process.argv.slice(2).includes("--help")) {
     printHelp();
     return;
+  }
+
+  if (process.env.VRDEX_MCP_SMOKE_GENERATOR_PORTED !== "true") {
+    throw new Error(RETIRED_UNTIL_CLERK);
   }
 
   const options = parseArgs(process.argv.slice(2));

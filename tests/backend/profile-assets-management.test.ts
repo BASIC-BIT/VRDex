@@ -11,6 +11,7 @@ import {
 } from "../../convex/_profileAssets";
 import schemaModule from "../../convex/schema";
 
+import { newClerkUserId } from "./_clerkTestIdentity";
 process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "true";
 process.env.VRDEX_PROFILE_MEDIA_DIRECT_UPLOAD_ENABLED = "true";
 process.env.VRDEX_PROFILE_MEDIA_ACCESSIBILITY_GENERATION_ENABLED = "true";
@@ -25,21 +26,17 @@ async function seedOwnedProfile(assetCount = 2) {
   const t = convexTest({ schema, modules });
   const now = Date.now();
   const seeded = await t.run(async (ctx) => {
+    const clerkUserId = newClerkUserId();
     const userId = await ctx.db.insert("users", {
+      clerkUserId: clerkUserId,
       email: "media-owner@example.test",
       emailVerificationTime: now,
     });
+    const clerkUserId2 = newClerkUserId();
     const otherUserId = await ctx.db.insert("users", {
+      clerkUserId: clerkUserId2,
       email: "media-other@example.test",
       emailVerificationTime: now,
-    });
-    const ownerSessionId = await ctx.db.insert("authSessions", {
-      userId,
-      expirationTime: now + 60_000,
-    });
-    const otherSessionId = await ctx.db.insert("authSessions", {
-      userId: otherUserId,
-      expirationTime: now + 60_000,
     });
     const profileId = await ctx.db.insert("profiles", {
       profileType: "person",
@@ -99,12 +96,12 @@ async function seedOwnedProfile(assetCount = 2) {
       userId,
       assetIds,
       ownerIdentity: {
-        subject: `${userId}|${ownerSessionId}`,
+        subject: clerkUserId, emailVerified: true,
         issuer: "test",
         tokenIdentifier: `test|${userId}`,
       },
       otherIdentity: {
-        subject: `${otherUserId}|${otherSessionId}`,
+        subject: clerkUserId2, emailVerified: true,
         issuer: "test",
         tokenIdentifier: `test|${otherUserId}`,
       },

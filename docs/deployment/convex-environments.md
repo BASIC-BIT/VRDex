@@ -86,9 +86,13 @@ public community profile for search smoke coverage. Its guard permits only
 is accidentally present. Staging runs the same internal mutation after its
 Convex deploy and before its Vercel deploy.
 
-## Auth Email Environment
+## Transactional Email Environment
 
-Convex deployments that send password or email verification messages through SES must set:
+**No deployment needs these today.** Clerk sends the verification and password
+email this section used to describe, and nothing in the codebase calls SES. They
+are documented for whichever feature adopts SES next.
+
+A Convex deployment that does send through SES must set:
 
 - `AWS_SES_REGION`
 - `AWS_SES_FROM_EMAIL`
@@ -102,17 +106,27 @@ The hosted SES baseline is documented in `docs/deployment/ses-auth-email.md` and
 
 Hosted mutation-backed Playwright runs use only the shared development/staging target. Do not enable these helpers in production.
 
+### Preview deployments need a project-level default
+
+`convex/auth.config.ts` reads `CLERK_JWT_ISSUER_DOMAIN` on every hosted
+deployment, and `convex deploy --preview-create` evaluates it while creating the
+deployment. Nothing in CI can set the variable first: `convex deploy` has no
+`--env` flag, and `convex env set` needs a deployment that already exists.
+
+Set `CLERK_JWT_ISSUER_DOMAIN` as a **preview environment-variable default** on
+the Convex project, from the dashboard's project settings. New previews then
+inherit it at creation. Without it, `Deploy Convex preview functions` fails
+before any Vercel step runs.
+
 Development/staging Convex env names:
 
 - `VRDEX_ENABLE_E2E_HELPERS=true`
 - `VRDEX_E2E_CONVEX_SECRET`: non-empty sentinel also configured in the hosted app environment
 - `VRDEX_ENABLE_E2E_AUTH_HELPERS=true`: optional, only when hosted auth/claim E2E is intentionally enabled
 - `VRDEX_ENABLE_E2E_ADAPTER_HELPERS=true`: optional, only when hosted adapter E2E is intentionally enabled
-- `SITE_URL=https://staging.vrdex.net`: required by Convex Auth OAuth and email/password redirects back to the hosted web app
-- `AUTH_DISCORD_ID` and `AUTH_DISCORD_SECRET`: staging Discord OAuth application credentials; the Discord redirect URI must include the active staging Convex Auth callback URL
-- `AUTH_GOOGLE_ID` and `AUTH_GOOGLE_SECRET`: staging Google OAuth application credentials; the Google redirect URI must include the active staging Convex Auth callback URL
-- `JWT_PRIVATE_KEY`: Convex Auth RS256 private key, generated for the shared development deployment and never printed
-- `JWKS`: Convex Auth public key set matching `JWT_PRIVATE_KEY`
+- `CLERK_JWT_ISSUER_DOMAIN`: staging Clerk Frontend API origin, read by `convex/auth.config.ts`
+- `SITE_URL=https://staging.vrdex.net`: builds the Discord verification callback URL
+- `AUTH_DISCORD_ID` and `AUTH_DISCORD_SECRET`: staging Discord credentials for the purpose-scoped community-verification round-trip. These are **not** sign-in credentials — Clerk holds those — but `convex/discordVerification.ts` still requires them
 - `DISCORD_API_BASE_URL`: optional hosted adapter stub base URL, usually `https://staging.vrdex.net/api/e2e/adapters/discord`
 - `DISCORD_OAUTH_AUTHORIZE_URL`: optional consent-screen override, for pointing the OAuth round-trip at a stub instead of Discord. Defaults to `https://discord.com/oauth2/authorize`. The browser follows it carrying the `state` that authorizes the round-trip, so it must be https unless it is loopback
 - `DISCORD_BOT_TOKEN`: staging-only adapter token matching the hosted app environment
@@ -125,18 +139,23 @@ The browser-facing token stays in the web host and GitHub Actions as `VRDEX_E2E_
 
 The shared development deployment `scrupulous-corgi-247` is the current hosted E2E backend for Vercel `staging`. The `Staging Deploy` GitHub Actions workflow deploys Convex development functions with `CONVEX_DEPLOY_KEY_DEV` before deploying Vercel `staging` and running hosted data-flow health.
 
-Production Convex Auth env names:
+Production Convex auth env names:
 
-- `SITE_URL=https://vrdex.net`: required by Convex Auth OAuth and email/password redirects back to the hosted web app
-- `AUTH_DISCORD_ID` and `AUTH_DISCORD_SECRET`: production Discord OAuth application credentials; the Discord redirect URI must include the active production Convex Auth callback URL
-- `AUTH_GOOGLE_ID` and `AUTH_GOOGLE_SECRET`: production Google OAuth application credentials; the Google redirect URI must include the active production Convex Auth callback URL
-- `JWT_PRIVATE_KEY`: Convex Auth RS256 private key, generated for the production deployment and never printed
-- `JWKS`: Convex Auth public key set matching `JWT_PRIVATE_KEY`
-- `AWS_SES_REGION`, `AWS_SES_FROM_EMAIL`, `AWS_ACCESS_KEY_ID`, and `AWS_SECRET_ACCESS_KEY`: production SES sender configuration for email/password verification
+- `CLERK_JWT_ISSUER_DOMAIN=https://<clerk-frontend-api>`: production Clerk Frontend API origin, read by `convex/auth.config.ts`. Must match the issuer of the `convex` JWT template on the production Clerk instance
+- `SITE_URL=https://vrdex.net`: builds the Discord verification callback URL
+- `AUTH_DISCORD_ID` and `AUTH_DISCORD_SECRET`: production Discord credentials for the purpose-scoped community-verification round-trip. Still required by `convex/discordVerification.ts`; they are no longer sign-in credentials
+
+Retired when Clerk replaced Convex Auth, and safe to delete from every Convex
+deployment once the cutover is verified:
+
+- `AUTH_GOOGLE_ID` and `AUTH_GOOGLE_SECRET`: Google sign-in now runs through Clerk. Do not delete the Google OAuth *client* — point it at Clerk's callback URL instead
+- `JWT_PRIVATE_KEY` and `JWKS`: Convex Auth signed its own tokens; Clerk signs them now
+- `AWS_SES_REGION`, `AWS_SES_FROM_EMAIL`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`: these sent email/password verification codes. Clerk sends its own, so they are unused **unless** another feature adopts SES — check before deleting
 
 Discord community verification needs no additional production Convex environment
 variables. It reuses `AUTH_DISCORD_ID`, `AUTH_DISCORD_SECRET`, and `SITE_URL`
-through a purpose-scoped OAuth round-trip; it requires only that
+through a purpose-scoped OAuth round-trip independent of sign-in; it requires
+only that
 `https://vrdex.net/api/discord/verify/callback` is registered as a redirect URI
 on the production Discord application.
 
@@ -167,17 +186,20 @@ rotation sequence. The optional bot and collector paths, and the exact operator
 steps, are documented in
 [`claim-verification-enablement.md`](./claim-verification-enablement.md).
 
-Session durations are code-owned rather than dashboard-owned. See
-[`docs/backend/auth-sessions.md`](../backend/auth-sessions.md). Do not add
-`AUTH_SESSION_TOTAL_DURATION_MS` or `AUTH_SESSION_INACTIVE_DURATION_MS` as
-undocumented deployment overrides.
+Session durations are Clerk instance settings, not code and not Convex
+environment variables — the constants that once owned them are deleted. Set the
+session lifetime and inactivity timeout in each Clerk instance's session
+settings, and the token lifetime on its `convex` JWT template, which is also the
+revocation window. Verify by reading the template's lifetime in the Clerk
+dashboard; nothing in this repository can assert it. See
+[`docs/backend/auth-sessions.md`](../backend/auth-sessions.md).
 
 The production authenticated smoke lane does not require Convex E2E helpers and should not enable them in production. It reuses the normal production Auth configuration above and only supplies a pre-authenticated browser storage state from GitHub Actions.
 
 GitHub Actions repository settings for the optional authenticated smoke:
 
 - variable `VRDEX_PRODUCTION_SMOKE_BASE_URL=https://vrdex.net`: required so auth cookies target the stable public production domain
-- optional variable `VRDEX_PRODUCTION_AUTH_SMOKE_PROVIDER`: expected linked provider, usually `discord` or `google`; if unset, the smoke accepts either provider
+- `VRDEX_PRODUCTION_AUTH_SMOKE_PROVIDER` is retired: the account page no longer renders linked providers, because Clerk shows them only inside its own profile modal. The smoke asserts the management affordance instead of a provider label
 - secret `VRDEX_PRODUCTION_AUTH_SMOKE_STORAGE_STATE_B64`: base64-encoded Playwright `storageState` JSON from a dedicated production test account
 
 The lane remains skipped unless both `VRDEX_PRODUCTION_SMOKE_BASE_URL` and `VRDEX_PRODUCTION_AUTH_SMOKE_STORAGE_STATE_B64` are configured. Do not store OAuth credentials in CI, and do not enable production mutation helper routes for this check.
@@ -236,12 +258,20 @@ $env:CONVEX_DEPLOYMENT="dev:scrupulous-corgi-247"; $env:CONVEX_SELF_HOSTED_URL="
 
 ## Custom Domains
 
-Current recommendation: keep client API traffic on the Convex cloud URL unless a separate API custom domain is configured, and use readable Convex Cloud HTTP Actions domains for Auth callback URLs.
+Current recommendation: keep client API traffic on the Convex cloud URL unless a separate API custom domain is configured, and use readable Convex Cloud HTTP Actions domains for the HTTP Actions the app still serves.
 
 - development/staging Convex API: `https://scrupulous-corgi-247.convex.cloud`
-- development/staging Convex HTTP Actions and Auth callbacks: `https://db.staging.vrdex.net`
+- development/staging Convex HTTP Actions: `https://db.staging.vrdex.net`
 - production Convex API: `https://superb-pig-954.convex.cloud`
-- production Convex HTTP Actions and Auth callbacks: `https://db.vrdex.net`
+- production Convex HTTP Actions: `https://db.vrdex.net`
+
+**Convex no longer serves sign-in callbacks.** `convex/http.ts` dropped
+`/api/auth/*` when Clerk replaced Convex Auth, so the OAuth redirect URIs below
+that name `db.vrdex.net/api/auth/callback/...` are historical. Following them
+during cutover would point a Google or Discord client at a 404. Register Clerk's
+callback URLs on those OAuth clients instead — Clerk's dashboard shows the exact
+values per instance — and keep the custom domains only for the HTTP Actions the
+app still uses.
 
 Convex Cloud custom domains are configured from each deployment's dashboard settings and require a Convex Pro plan. Do not create Route 53 records alone; Convex must first provide the deployment-specific DNS records and certificate binding.
 
@@ -253,14 +283,15 @@ Staging HTTP Actions domain bootstrap, started 2026-06-15:
    - `db.staging.vrdex.net CNAME convex.domains`
    - `_convex_domains.db.staging.vrdex.net TXT scrupulous-corgi-247`
 4. Wait for Convex certificate/domain status to become active.
-5. Add staging OAuth redirect URIs for both providers:
-   - `https://db.staging.vrdex.net/api/auth/callback/discord`
-   - `https://db.staging.vrdex.net/api/auth/callback/google`
-6. Keep the legacy `https://scrupulous-corgi-247.convex.site/api/auth/callback/...` redirects until the custom callback host is verified in end-to-end sign-in.
+5. Historical, do not follow: staging OAuth redirect URIs used to be
+   `https://db.staging.vrdex.net/api/auth/callback/{discord,google}`. Those
+   routes no longer exist. Point the staging OAuth clients at the staging Clerk
+   instance's callback URLs.
+6. Historical: the legacy `convex.site/api/auth/callback/...` redirects are also gone with Convex Auth.
 7. Override the staging deployment's `CONVEX_SITE_URL` to `https://db.staging.vrdex.net` in the Convex custom domain settings.
 8. Rerun staging auth smoke checks from `https://staging.vrdex.net/sign-in`.
 
-Current status: `db.staging.vrdex.net` is configured and verified for the staging deployment, Google and Discord both allow the new callback URLs, and staging `CONVEX_SITE_URL` is selected as `https://db.staging.vrdex.net`.
+Current status: `db.staging.vrdex.net` is configured and verified for the staging deployment and staging `CONVEX_SITE_URL` is selected as `https://db.staging.vrdex.net`. The Convex-hosted sign-in callbacks it once served are gone; staging sign-in runs through the staging Clerk instance.
 
 Production HTTP Actions domain bootstrap, completed 2026-06-16:
 
@@ -270,14 +301,15 @@ Production HTTP Actions domain bootstrap, completed 2026-06-16:
    - `db.vrdex.net CNAME convex.domains`
    - `_convex_domains.db.vrdex.net TXT superb-pig-954`
 4. Wait for Route 53 to report the change as `INSYNC` and for Convex certificate/domain status to become active.
-5. Add production OAuth redirect URIs for each configured provider:
-   - `https://db.vrdex.net/api/auth/callback/google`
-   - `https://db.vrdex.net/api/auth/callback/discord`
-6. Keep the legacy `https://superb-pig-954.convex.site/api/auth/callback/...` redirects until the custom callback host is verified in end-to-end sign-in.
+5. Historical, do not follow: production OAuth redirect URIs used to be
+   `https://db.vrdex.net/api/auth/callback/{google,discord}`. Those routes no
+   longer exist. Point the production OAuth clients at the production Clerk
+   instance's callback URLs.
+6. Historical: the legacy `convex.site/api/auth/callback/...` redirects are also gone with Convex Auth.
 7. Select `https://db.vrdex.net` as the production deployment's canonical `CONVEX_SITE_URL`.
 8. Rerun production auth smoke checks from `https://vrdex.net/sign-in`.
 
-Current production status: `db.vrdex.net` is configured and verified for the production deployment, Google and Discord allow the new callback URLs, production `CONVEX_SITE_URL` is selected as `https://db.vrdex.net`, and Google and Discord sign-in from `https://vrdex.net/sign-in` return to an authenticated `/account` session.
+Current production status: `db.vrdex.net` is configured and verified for the production deployment and production `CONVEX_SITE_URL` is selected as `https://db.vrdex.net`. Sign-in no longer runs through it: the Convex auth callbacks were removed with Convex Auth, and production sign-in is pending the Clerk cutover.
 
 ## Notes
 

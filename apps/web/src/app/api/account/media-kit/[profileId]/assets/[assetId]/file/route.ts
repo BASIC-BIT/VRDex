@@ -1,4 +1,4 @@
-import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
+import { convexAuthToken } from "@/lib/server/auth";
 import { api } from "@convex-generated-api";
 
 import { convexHttpClient } from "@/lib/server/convex-http";
@@ -32,7 +32,7 @@ function safeFileName(value: string): string {
 }
 
 export async function GET(request: Request, context: RouteContext) {
-  const authToken = await convexAuthNextjsToken();
+  const authToken = await convexAuthToken();
   if (authToken === undefined) {
     return Response.json({ error: "Sign in required." }, { status: 401 });
   }

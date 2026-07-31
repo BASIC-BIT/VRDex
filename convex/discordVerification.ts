@@ -4,10 +4,9 @@ import {
   claimSessionUserOrNull,
   requireVerifiedActiveBrowserSession,
 } from "./_claimSession";
-import { isAuthSessionInvalidError } from "./_authSessionGuard";
 import { requireSecureOutboundUrl } from "./_secureUrl";
 import { boundedFetch } from "./_boundedFetch";
-import { claimError } from "./_claimErrors";
+import { claimError, isSignInRequiredError } from "./_claimErrors";
 import { internal } from "./_generated/api";
 import { action, internalMutation, mutation, query } from "./_generated/server";
 import {
@@ -215,7 +214,7 @@ export const consumeVerificationState = internalMutation({
     try {
       ({ user } = await requireVerifiedActiveBrowserSession(ctx));
     } catch (error) {
-      if (isAuthSessionInvalidError(error) && row !== null && row.expiresAt > Date.now()) {
+      if (isSignInRequiredError(error) && row !== null && row.expiresAt > Date.now()) {
         throw new ConvexError({
           ...(error.data as Record<string, unknown>),
           returnTo: row.returnTo,
@@ -376,6 +375,7 @@ export const recordGuildControlProofs = internalMutation({
       // refuses anything below it — so only the applied cursor moves.
       await ctx.db.patch(watermark._id, {
         appliedGeneration: args.generation,
+        appliedAt: now,
         updatedAt: now,
       });
     }
@@ -791,7 +791,7 @@ export const completeGuildVerification = action({
       // provider failure. Translating it to `failed` sends the user back with
       // their stale auth cookies intact instead of reaching
       // `invalidAuthSessionResponse` in the callback route.
-      if (isAuthSessionInvalidError(error)) {
+      if (isSignInRequiredError(error)) {
         // Carrying `returnTo` with it. The single-use state row is already
         // consumed by this point, so it is the only surviving record of where
         // the user started; without it they sign in again and land on

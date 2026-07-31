@@ -35,7 +35,7 @@ Moderators may override profile fields later for safety, corrections, and abuse 
 
 ## Ownership Records
 
-`profileOwners` records are the durable owner authority link between Convex Auth `users` and `profiles`.
+`profileOwners` records are the durable owner authority link between VRDex `users` and `profiles`. `users` is VRDex's own table, keyed to Clerk by `clerkUserId`.
 
 Locked decision: ownership is attached to a profile record, not inferred from provider login alone.
 
@@ -67,7 +67,7 @@ A weaker approval method must not downgrade an already verified profile. For exa
 
 ## Claim Methods
 
-Current claim-level actions require a signed-in Convex Auth user with a verified email address.
+Current claim-level actions require a signed-in user whose Clerk token asserts a verified email address. The check reads the token claim rather than the mirrored `emailVerificationTime` column — see [`auth-sessions.md`](./auth-sessions.md).
 
 Locked decision: claiming a suitable existing unclaimed profile attaches ownership to that existing profile record and preserves its `_id`, slug, source history, and related references.
 

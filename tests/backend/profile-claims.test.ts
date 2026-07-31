@@ -6,6 +6,7 @@ import { convexTest } from "convex-test";
 import { api, internal } from "../../convex/_generated/api";
 import schemaModule from "../../convex/schema";
 
+import { clerkTestIdentity, newClerkUserId } from "./_clerkTestIdentity";
 const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
   "../../convex/profileClaims.ts": () => import("../../convex/profileClaims"),
@@ -20,21 +21,17 @@ describe("profile claim lifecycle", () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
     const seeded = await t.run(async (ctx) => {
+      const clerkUserId = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId,
         email: "private-claim-target@example.test",
         emailVerificationTime: now,
       });
+      const clerkUserId2 = newClerkUserId();
       const otherUserId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId2,
         email: "private-claim-target-other@example.test",
         emailVerificationTime: now,
-      });
-      const ownerSessionId = await ctx.db.insert("authSessions", {
-        userId,
-        expirationTime: now + 60_000,
-      });
-      const otherSessionId = await ctx.db.insert("authSessions", {
-        userId: otherUserId,
-        expirationTime: now + 60_000,
       });
       const profileId = await ctx.db.insert("profiles", {
         profileType: "person",
@@ -59,9 +56,9 @@ describe("profile claim lifecycle", () => {
         visibility: "public",
         source: "owner_authored",
         uploadedBy: {
-          tokenIdentifier: `test|${userId}`,
+          tokenIdentifier: `test|${clerkUserId}`,
           issuer: "test",
-          subject: `${userId}|${ownerSessionId}`,
+          subject: clerkUserId,
         },
         uploadedAt: now,
         state: "active",
@@ -87,12 +84,12 @@ describe("profile claim lifecycle", () => {
       return {
         profileId,
         ownerIdentity: {
-          subject: `${userId}|${ownerSessionId}`,
+          subject: clerkUserId, emailVerified: true,
           issuer: "test",
           tokenIdentifier: `test|${userId}`,
         },
         otherIdentity: {
-          subject: `${otherUserId}|${otherSessionId}`,
+          subject: clerkUserId2, emailVerified: true,
           issuer: "test",
           tokenIdentifier: `test|${otherUserId}`,
         },
@@ -135,7 +132,9 @@ describe("profile claim lifecycle", () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
     const attemptId = await t.run(async (ctx) => {
+      const clerkUserId3 = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId3,
         email: "claim-lifecycle@example.test",
         emailVerificationTime: now,
       });
@@ -180,7 +179,9 @@ describe("profile claim lifecycle", () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
     const { attemptId, profileId } = await t.run(async (ctx) => {
+      const clerkUserId4 = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId4,
         email: "expired-proof@example.test",
         emailVerificationTime: now,
       });
@@ -236,7 +237,9 @@ describe("profile claim lifecycle", () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
     const attemptId = await t.run(async (ctx) => {
+      const clerkUserId5 = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId5,
         email: "expired-adapter-miss@example.test",
         emailVerificationTime: now,
       });
@@ -284,7 +287,9 @@ describe("profile claim lifecycle", () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
     const seeded = await t.run(async (ctx) => {
+      const clerkUserId6 = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId6,
         email: "expired-vrclinking@example.test",
         emailVerificationTime: now,
       });
@@ -315,15 +320,11 @@ describe("profile claim lifecycle", () => {
         updatedAt: now - 1000,
         expiresAt: now - 1,
       });
-      const sessionId = await ctx.db.insert("authSessions", {
-        userId,
-        expirationTime: now + 60_000,
-      });
 
       return {
         attemptId,
         identity: {
-          subject: `${userId}|${sessionId}`,
+          subject: clerkUserId6, emailVerified: true,
           issuer: "test",
           tokenIdentifier: `test|${userId}`,
         },
@@ -360,7 +361,9 @@ describe("profile claim lifecycle", () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
     const { attemptId, profileId } = await t.run(async (ctx) => {
+      const clerkUserId7 = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId7,
         email: "proof-suppressed@example.test",
         emailVerificationTime: now,
       });
@@ -423,7 +426,9 @@ describe("profile claim lifecycle", () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
     const { attemptId, profileId } = await t.run(async (ctx) => {
+      const clerkUserId8 = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId8,
         email: "proof-replay@example.test",
         emailVerificationTime: now,
       });
@@ -492,7 +497,9 @@ describe("profile claim lifecycle", () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
     const seeded = await t.run(async (ctx) => {
+      const clerkUserId9 = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId9,
         email: "scoped-cancel@example.test",
         emailVerificationTime: now,
       });
@@ -534,16 +541,12 @@ describe("profile claim lifecycle", () => {
         updatedAt: now,
         expiresAt: now + 60_000,
       });
-      const sessionId = await ctx.db.insert("authSessions", {
-        userId,
-        expirationTime: now + 60_000,
-      });
 
       return {
         attemptId,
         claimRequestId,
         identity: {
-          subject: `${userId}|${sessionId}`,
+          subject: clerkUserId9, emailVerified: true,
           issuer: "test",
           tokenIdentifier: `test|${userId}`,
         },
@@ -577,7 +580,9 @@ describe("profile claim lifecycle", () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
     const seeded = await t.run(async (ctx) => {
+      const clerkUserId = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId,
         email: "vrclinking-cancel@example.test",
         emailVerificationTime: now,
       });
@@ -607,18 +612,9 @@ describe("profile claim lifecycle", () => {
         updatedAt: now,
         expiresAt: now + 60_000,
       });
-      const sessionId = await ctx.db.insert("authSessions", {
-        userId,
-        expirationTime: now + 60_000,
-      });
-
       return {
         attemptId,
-        identity: {
-          subject: `${userId}|${sessionId}`,
-          issuer: "test",
-          tokenIdentifier: `test|${userId}`,
-        },
+        identity: clerkTestIdentity(clerkUserId),
       };
     });
 
@@ -659,7 +655,9 @@ describe("profile claim lifecycle", () => {
     const now = Date.now();
     const guildId = "123456789012345678";
     const seeded = await t.run(async (ctx) => {
+      const clerkUserId10 = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId10,
         email: "bot-approval@example.test",
         emailVerificationTime: now,
       });

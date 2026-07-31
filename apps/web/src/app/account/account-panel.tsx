@@ -1,11 +1,12 @@
 "use client";
 
+import { useClerk } from "@clerk/nextjs";
 import { useQuery } from "convex/react";
 import Link from "next/link";
 import { Component, type ReactNode } from "react";
 
 import { api } from "@convex-generated-api";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Notice } from "@/components/ui/notice";
 import { VerifiedTrustMark } from "@/components/ui/verified-trust-mark";
 import { cn } from "@/lib/cn";
@@ -13,10 +14,12 @@ import { ownerProfileDestinationPath, profileClaimPath } from "@/lib/profile-cla
 import { AccountSignOutControl } from "./sign-out-control";
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+const clerkConfigured = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
 
 function ConnectedAccountPanel({ mediaKitEnabled }: { mediaKitEnabled: boolean }) {
   const viewer = useQuery(api.accounts.viewer);
   const ownedProfiles = useQuery(api.profilePrivacy.listOwnedPrivacyProfilesForAccount);
+  const { openUserProfile } = useClerk();
 
   if (viewer === undefined || ownedProfiles === undefined) {
     return <p className="text-sm text-muted">Loading account…</p>;
@@ -61,7 +64,6 @@ function ConnectedAccountPanel({ mediaKitEnabled }: { mediaKitEnabled: boolean }
             <Link className={buttonVariants({ variant: "secondary" })} href="/account/privacy">Privacy controls</Link>
             <Link className={buttonVariants({ variant: "secondary" })} href="/account/connections">Connections</Link>
             <Link className={buttonVariants({ variant: "secondary" })} href="/account/appearance">Personalization</Link>
-            <Link className={buttonVariants({ variant: "secondary" })} href="/account/security">Security</Link>
             {mediaKitEnabled ? (
               <Link className={buttonVariants({ variant: "secondary" })} href="/account/media-kit">Media kit</Link>
             ) : null}
@@ -70,17 +72,27 @@ function ConnectedAccountPanel({ mediaKitEnabled }: { mediaKitEnabled: boolean }
         </div>
 
         <div className="lg:border-l lg:border-border lg:pl-8">
-          <h2 className="text-lg font-semibold">Sign-in methods</h2>
-          <ul className="mt-4 divide-y divide-border border-y border-border text-sm">
-            {viewer.linkedProviders.length === 0 ? (
-              <li className="py-3 text-muted">No sign-in methods linked.</li>
-            ) : viewer.linkedProviders.map((account) => (
-              <li className="flex items-center justify-between gap-4 py-3" key={`${account.provider}:${account.providerAccountId}`}>
-                <span className="font-medium capitalize">{account.provider}</span>
-                <span className="text-muted">{account.emailVerified ? "Verified email" : "Connected"}</span>
-              </li>
-            ))}
-          </ul>
+          <h2 className="text-lg font-semibold">Sign-in and security</h2>
+          <p className="mt-3 text-sm leading-6 text-muted">
+            Connect Google or Discord, change your password, and review signed-in
+            devices. Linked accounts can use different email addresses.
+          </p>
+          <Button
+            className="mt-4"
+            type="button"
+            variant="secondary"
+            // Opens Clerk's full profile surface, which also exposes account
+            // deletion when the instance allows it. VRDex has no reconciliation
+            // for a deleted Clerk identity (#227): the `users` and `profileOwners`
+            // rows would survive under an unreachable `clerkUserId`, and
+            // re-registering provisions a different user that cannot manage them.
+            // Self-service deletion must stay disabled on every Clerk instance
+            // until #227 lands. That is an instance setting — Clerk's Backend API
+            // does not expose it, so it cannot be asserted from here.
+            onClick={() => openUserProfile()}
+          >
+            Manage sign-in methods
+          </Button>
         </div>
       </section>
 
@@ -175,7 +187,10 @@ class AccountPanelErrorBoundary extends Component<{ children: ReactNode }, { has
 }
 
 export function AccountPanel({ mediaKitEnabled }: { mediaKitEnabled: boolean }) {
-  if (!convexUrl) {
+  // `useClerk()` inside the connected panel asserts a ClerkProvider ancestor, and
+  // the provider is only mounted when Clerk has credentials. Bail out here rather
+  // than making that hook conditional.
+  if (!convexUrl || !clerkConfigured) {
     return (
       <Notice className="leading-7" variant="dashed">
         Account details are temporarily unavailable. Try again shortly.

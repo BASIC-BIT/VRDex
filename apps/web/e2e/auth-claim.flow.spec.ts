@@ -4,6 +4,13 @@ import { gotoFlowPage } from "./flow-navigation";
 import { captureRouteScreenshot } from "./public-routes";
 import { E2E_DISCORD_GUILD_ID } from "../src/lib/e2e-discord-fixture";
 
+
+// Skipped, not deleted: the coverage is still wanted once these run against
+// Clerk testing tokens rather than a sign-in form.
+test.skip(
+  true,
+  "Hosted E2E auth is not wired to Clerk yet: these specs signed in by driving the removed email/password form, and CI has no Clerk credentials. Tracked in #226.",
+);
 test.describe.configure({ mode: "serial" });
 
 const hostedActionExpectOptions = { timeout: process.env.PLAYWRIGHT_BASE_URL ? 20_000 : 5_000 };

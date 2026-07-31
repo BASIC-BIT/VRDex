@@ -25,7 +25,7 @@ This repo keeps durable markdown under `docs/` so product, developer, engineerin
 - `docs/deployment/docs-site.md` - Docusaurus docs deployment runbook for `docs.vrdex.net`
 - `docs/developers/self-hosting-and-iac.md` - self-hosting, hosted deployment, and IaC ownership direction
 - `docs/deployment/vercel-preview.md` - initial Vercel hosted-preview setup and validation path
-- `docs/deployment/ses-auth-email.md` - SES auth email and Convex environment variables
+- `docs/deployment/ses-auth-email.md` - SES stack, retired for authentication, and its Convex environment variables
 - `docs/testing/playwright-visual-preview.md` - current Playwright screenshot preview and data-flow artifact workflow
 - `docs/testing/playwright-image-diffing.md` - planned committed-baseline image diff workflow
 
