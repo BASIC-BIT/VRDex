@@ -60,6 +60,14 @@ Split one overloaded signal into two honest ones.
    That is checkable, already evidenced, and does not depend on knowing who the
    person is.
 
+   Note the tense: *the account that **currently** claimed it*.
+   `profileExternalLinks` and `externalControlProofs` are stored separately from
+   `profileOwners`, so a transfer or revocation leaves the previous owner's links
+   and proofs intact. A projection reading only those rows would keep presenting
+   a former owner's account as this profile's verified identity. It has to join
+   the active owner, or ownership changes have to revoke or rebind the
+   owner-authored links.
+
 3. **No profile-level "verified person" label.** The tempting shorthand — has
    claimed the profile and has ≥1 verified identity — reintroduces exactly what
    points 1 and 2 remove. An impersonator can claim a listing named for somebody
@@ -163,6 +171,13 @@ implemented:
   their listing is not verified, keeps treating them as an upgrade candidate,
   and records the weaker outcome. Completion should be defined by the identity
   that was just proven.
+- **`getClaimJourneyContext` carries its own copy of the flag** —
+  `verified: profile.claimState === "claimed_verified"` — and `claim-flow.tsx`
+  reads it to classify the viewer (`isUnverifiedViewer` / `isVerifiedViewer`)
+  and to choose which methods to offer. After the migration it is false for
+  every owner, so even an owner holding a valid identity proof is shown as
+  unverified and prompted to prove again. It needs the identity-specific
+  predicate, alongside the result field above.
 - **The public contract.** `PublicProfileSchema` exposes `trustLabel` and
   ordinary outbound links; the MCP consumer renders `profile.trustLabel` and
   nothing else
@@ -217,7 +232,13 @@ and deploy two meets it and fails validation despite the cleanup having run.
 The surfaces the migration touches are more than the profile rows:
 
 - `ALLOWED_CLAIM_STATE_TRANSITIONS` and `getProfileTrustLabel` in
-  [`_profileStates.ts`](../../convex/_profileStates.ts)
+  [`_profileStates.ts`](../../convex/_profileStates.ts). **Renaming matters as
+  much as removing here.** Dropping only `claimed_verified` leaves
+  `getProfileTrustLabel` returning `claimed_unverified` for every claimed
+  profile, so consumers keep receiving a profile-level *verification*
+  classification — the thing this proposal removes — under a name that now
+  describes nothing. The surviving label becomes `claimed`, and the API enum and
+  its consumers migrate with it.
 - the `/api/v0/claims/[slug]/status` contract and its `claimStateForTrustLabel`
   mapping
 - the discovery cards that branch on `trustLabel === "claimed_verified"`
