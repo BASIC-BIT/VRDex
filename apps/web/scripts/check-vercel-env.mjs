@@ -79,15 +79,41 @@ if (isVercel && (requireConvexUrl || isProductionVercel)) {
     }
   }
 
-  const publishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.trim();
+}
 
-  // Validated positively. Rejecting only `pk_test_` would let a truncated or
-  // otherwise malformed value through, and the build would succeed while
-  // ClerkProvider and the middleware failed at runtime.
-  if (publishableKey && isProductionVercel && !publishableKey.startsWith("pk_live_")) {
-    errors.push(
-      "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY must be a live Clerk publishable key (pk_live_...) for production builds.",
-    );
+// Tier validation is deliberately outside the block above: that one is gated on
+// `VRDEX_REQUIRE_CONVEX_URL`, and a preview which simply omitted the flag would
+// skip this entirely. Whenever a Clerk key is present on a Vercel build, it must
+// match the environment's tier.
+//
+// Both tiers are checked positively, in both directions. Positively, because
+// rejecting only the wrong prefix would let a truncated or otherwise malformed
+// value through, and the build would succeed while ClerkProvider and the
+// middleware failed at runtime. In both directions, because the tenants have to
+// stay isolated either way: production carrying test keys is the obvious
+// failure, but a preview carrying the *live* pair is the quieter one — it
+// authenticates real users against the production Clerk tenant from an
+// unreviewed deployment, where every session it mints is a real one.
+//
+// `infra/terraform/vercel/variables.tf` enforces the same split for keys managed
+// as code; this catches the environments set by hand in the dashboard, which is
+// where they live today.
+if (isVercel) {
+  const expectedTier = isProductionVercel ? "live" : "test";
+
+  for (const [name, prefix, label] of [
+    ["NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "pk", "publishable"],
+    ["CLERK_SECRET_KEY", "sk", "secret"],
+  ]) {
+    const value = process.env[name]?.trim();
+
+    if (value && !value.startsWith(`${prefix}_${expectedTier}_`)) {
+      errors.push(
+        `${name} must be a ${expectedTier} Clerk ${label} key (${prefix}_${expectedTier}_...) for ${
+          isProductionVercel ? "production" : "non-production"
+        } Vercel builds.`,
+      );
+    }
   }
 }
 
