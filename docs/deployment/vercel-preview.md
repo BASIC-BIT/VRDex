@@ -308,10 +308,14 @@ The validation fails when:
 
 - Playwright fixtures are enabled.
 - Any E2E helper switch is enabled for a production Vercel build.
-- public submissions are marked auth-ready before auth exists.
+- A Clerk key is missing: both are required for every production build, and for any build with `VRDEX_REQUIRE_CONVEX_URL=true`.
+- Only one Clerk key is set. Both, or neither — one key alone mounts `ClerkProvider` and selects `clerkMiddleware` with no server-side credential, which fails at runtime rather than falling back to unconfigured auth.
+- A Clerk key is from the wrong tier: production requires `pk_live_`/`sk_live_`, every other Vercel environment requires `pk_test_`/`sk_test_`, so a preview cannot authenticate against the production tenant.
+- A rate-limit variable is missing or invalid for a production build: `VRDEX_RATE_LIMIT_STORE` must be `redis-rest` or `upstash`, and the REST URL must be https and not a local backend.
 - `NEXT_PUBLIC_CONVEX_URL` is invalid.
 - `NEXT_PUBLIC_CONVEX_URL` points at localhost during a Vercel build.
 - `VRDEX_REQUIRE_CONVEX_URL=true` and `NEXT_PUBLIC_CONVEX_URL` is missing.
+- `NEXT_PUBLIC_POSTHOG_HOST` is invalid or points at a local backend during a Vercel build.
 
 ## Live smoke check
 

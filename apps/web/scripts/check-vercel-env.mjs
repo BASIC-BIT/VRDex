@@ -100,11 +100,31 @@ if (isVercel && (requireConvexUrl || isProductionVercel)) {
 // where they live today.
 if (isVercel) {
   const expectedTier = isProductionVercel ? "live" : "test";
-
-  for (const [name, prefix, label] of [
+  const clerkKeys = [
     ["NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "pk", "publishable"],
     ["CLERK_SECRET_KEY", "sk", "secret"],
-  ]) {
+  ];
+
+  // Neither key is a valid state — that is the deliberate unconfigured-auth
+  // fallback, where `ClerkProvider` is not mounted and the middleware fails
+  // closed. Both keys is the working state. One key is neither: a lone
+  // publishable key still makes `layout.tsx` mount `ClerkProvider` and
+  // `middleware.ts` select `clerkMiddleware`, so the build succeeds and then
+  // every server-side authentication fails at runtime for want of a secret.
+  //
+  // Checked here rather than in the block above because that one is gated on
+  // `VRDEX_REQUIRE_CONVEX_URL`, so a preview omitting the flag never reached it.
+  const present = clerkKeys.filter(([name]) => process.env[name]?.trim());
+
+  if (present.length === 1) {
+    const [missing] = clerkKeys.filter(([name]) => !process.env[name]?.trim());
+
+    errors.push(
+      `${missing[0]} is required because ${present[0][0]} is set. Set both Clerk keys, or neither for a build with authentication deliberately unconfigured.`,
+    );
+  }
+
+  for (const [name, prefix, label] of clerkKeys) {
     const value = process.env[name]?.trim();
 
     if (value && !value.startsWith(`${prefix}_${expectedTier}_`)) {
