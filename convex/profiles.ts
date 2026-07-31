@@ -194,7 +194,9 @@ export const updateProfileForApiOwner = internalMutation({
           displayNames: [proposedDisplayName, ...(args.aliases ?? profile.aliases)],
           profileType: profile.profileType,
         },
-        "This display name cannot be used.",
+        // Uses the approved default rather than a rename-specific sentence: only
+        // "This profile cannot be submitted." and "This profile cannot be created."
+        // carry BASIC's sign-off, and unapproved public copy must not ship.
       );
     }
 

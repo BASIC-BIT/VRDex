@@ -332,7 +332,10 @@ Notes:
   `_profileClaimCreation`, and display-name changes through
   `profiles:updateProfileForApiOwner`. Creating a profile is not the only way to
   surface one — renaming does it without creating anything — so the check belongs
-  with the act of surfacing. Aliases count as names everywhere this is checked --
+  with the act of surfacing. Aliases *and* `searchAliases` count as names
+  everywhere this is checked, because `createProfileSearchDocument` puts search
+  aliases into `searchText` and `exactTokens`: a profile carrying the identity only
+  there stays findable by it while nothing on the page shows it. Otherwise --
   submission, claim creation, API updates including alias-only ones, both seed
   gates, the publication migration, and retraction target resolution -- since a
   write could otherwise carry an unrelated display name and put the suppressed one

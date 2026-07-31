@@ -674,7 +674,13 @@ async function queueCandidate(ctx: MutationCtx, args: QueueCandidateArgs) {
       displayNames: [
         candidate.proposedDisplayName,
         ...acceptedAliasNames(fields),
-        ...(matchedProfile === null ? [] : [matchedProfile.displayName, ...matchedProfile.aliases]),
+        ...(matchedProfile === null
+          ? []
+          : [
+              matchedProfile.displayName,
+              ...matchedProfile.aliases,
+              ...(matchedProfile.searchAliases ?? []),
+            ]),
       ],
       profileType: candidate.profileType,
       ...optionalValue("acceptedRequests", args.acceptedRequests),
@@ -886,7 +892,13 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
       displayNames: [
         candidate.proposedDisplayName,
         ...acceptedAliasNames(fields),
-        ...(matchedProfile === null ? [] : [matchedProfile.displayName, ...matchedProfile.aliases]),
+        ...(matchedProfile === null
+          ? []
+          : [
+              matchedProfile.displayName,
+              ...matchedProfile.aliases,
+              ...(matchedProfile.searchAliases ?? []),
+            ]),
       ],
       profileType: candidate.profileType,
       ...optionalValue("acceptedRequests", args.acceptedRequests),
@@ -937,12 +949,20 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
     };
 
     let profileId: Id<"profiles">;
+    // Only a profile that was already publicly readable has contributed vocabulary.
+    // Snapshotting a draft_private match's terms as "before" would filter them out
+    // of the introduced set, leaving the now-public profile searchable while its
+    // facets never reach vocabularyTerms.
+    const matchedProfileWasPublic =
+      matchedProfile !== null &&
+      matchedProfile.publicationState === "published" &&
+      matchedProfile.publicSurfacingState === "public";
     const vocabularyBefore = new Set(
-      matchedProfile === null
-        ? []
-        : vocabularyForProfile(matchedProfile).map(
+      matchedProfileWasPublic && matchedProfile !== null
+        ? vocabularyForProfile(matchedProfile).map(
             (candidate) => `${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`,
-          ),
+          )
+        : [],
     );
 
     if (matchedProfile !== null) {
@@ -1243,8 +1263,10 @@ export const bulkPublishBatch = internalMutation({
     }
 
     if (isFirstPage) {
+      const authorizationPatch = publicationAuthorizationPatch(batch, reason, reviewer, now);
+
       await ctx.db.patch(batch._id, {
-        ...publicationAuthorizationPatch(batch, reason, reviewer, now),
+        ...authorizationPatch,
         ...(needsPrerequisites
           ? {
               reviewState: "approved" as const,
@@ -1253,13 +1275,20 @@ export const bulkPublishBatch = internalMutation({
               reviewedAt: now,
             }
           : {}),
-        ...optionalValue(
-          "notes",
-          appendBatchNote(
-            batch.notes,
-            `Bulk publish by ${reviewer?.displayName ?? reviewer?.subject ?? "unknown operator"}: ${reason}`,
-          ),
-        ),
+        // Skipped when the authorization patch is a no-op, i.e. the batch already
+        // carries this policy and reason. A cursor-less retry after a lost response
+        // would otherwise append the note again, and a long reason repeated a few
+        // times trims away the source and review context appendBatchNote exists to
+        // preserve.
+        ...(Object.keys(authorizationPatch).length === 0
+          ? {}
+          : optionalValue(
+              "notes",
+              appendBatchNote(
+                batch.notes,
+                `Bulk publish by ${reviewer?.displayName ?? reviewer?.subject ?? "unknown operator"}: ${reason}`,
+              ),
+            )),
         updatedAt: now,
       });
     }

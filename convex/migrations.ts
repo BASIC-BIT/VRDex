@@ -148,7 +148,11 @@ export const publishGatedProfiles = migrations.define({
       slugs: [profile.slug],
       // Aliases too: they default to public, so publishing a legacy profile whose
       // aliases carry a suppressed identity would expose and index it.
-      displayNames: [profile.displayName, ...profile.aliases],
+      displayNames: [
+        profile.displayName,
+        ...profile.aliases,
+        ...(profile.searchAliases ?? []),
+      ],
       profileType: profile.profileType,
     });
 

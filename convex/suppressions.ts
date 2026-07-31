@@ -170,7 +170,12 @@ async function resolveSuppressionTargetPage(
   const matches = result.page.filter(
     (profile) =>
       profile.sortName === sortName ||
-      profile.aliases.some((alias) => createProfileSortName(alias) === sortName),
+      // searchAliases too: createProfileSearchDocument puts them in searchText and
+      // exactTokens, so a profile carrying the identity only there stays findable
+      // by it even though nothing on the page shows it.
+      [...profile.aliases, ...(profile.searchAliases ?? [])].some(
+        (alias) => createProfileSortName(alias) === sortName,
+      ),
   );
 
   if (!result.isDone) {
