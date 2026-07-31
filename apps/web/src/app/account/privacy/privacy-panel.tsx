@@ -126,6 +126,15 @@ const demoProfiles: PrivacyProfile[] = [
 ];
 
 function privacyErrorMessage(error: unknown): string {
+  // Structured data first: Convex redacts plain error messages in production, so
+  // matching on the message alone never sees a suppression conflict there and the
+  // editor tells the owner to retry something that cannot succeed.
+  const data = (error as { data?: { code?: string; message?: string } } | null)?.data;
+
+  if (data?.code === "IDENTITY_SUPPRESSED") {
+    return data.message ?? "This profile cannot be submitted.";
+  }
+
   const message = error instanceof Error ? error.message : String(error);
   const match = message.match(
     /Only a claimed profile owner can update profile privacy\.|Profile not found\.|Unsupported profile field visibility key "[^"]+"\.|Unsupported profile field visibility state for "[^"]+"\.|A signed-in account is required\./,

@@ -545,14 +545,22 @@ export async function reindexWorldSearchDocument(
   const afterKeys = new Set(nextDocument.vocabularyKeys ?? []);
 
   await upsertSearchDocument(db, nextDocument);
-  await recordVocabularyTerms(
-    db,
-    vocabularyForWorld(world, { hiddenProfileKeys }).filter(
-      (candidate) =>
-        !beforeKeys.has(`${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`),
-    ),
-    now,
-  );
+
+  // Deduplicated by scoped key before recording. Two attributions sharing a role
+  // produce two candidates for one key, and the document stores that key once, so
+  // recording both would increment twice while a later release decrements once --
+  // permanently inflating the term.
+  const addedCandidates = new Map<string, VocabularyCandidate>();
+
+  for (const candidate of vocabularyForWorld(world, { hiddenProfileKeys })) {
+    const scopedKey = `${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`;
+
+    if (!beforeKeys.has(scopedKey) && !addedCandidates.has(scopedKey)) {
+      addedCandidates.set(scopedKey, candidate);
+    }
+  }
+
+  await recordVocabularyTerms(db, [...addedCandidates.values()], now);
 
   const removedKeys = [...beforeKeys].filter((key) => !afterKeys.has(key));
 

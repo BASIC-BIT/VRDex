@@ -235,6 +235,42 @@ function acceptedAliasNames(fields: Doc<"seedImportCandidateFields">[]): string[
   return names;
 }
 
+/**
+ * Names a merge or create would actually surface.
+ *
+ * The mapper *overwrites* a profile's alias array when the candidate carries an
+ * accepted `aliases` field, so the post-merge identity is the candidate's aliases
+ * in that case and the profile's existing ones otherwise. Checking the union would
+ * block a merge over an alias the publication is about to replace.
+ */
+function effectiveSurfacedNames(
+  fields: Doc<"seedImportCandidateFields">[],
+  matchedProfile: Doc<"profiles"> | null,
+  proposedDisplayName: string,
+): string[] {
+  const replacesAliases = fields.some(
+    (field) => field.fieldKey === "aliases" && field.reviewState === "accepted",
+  );
+  const candidateAliases = acceptedAliasNames(fields);
+
+  if (matchedProfile === null) {
+    return [proposedDisplayName, ...candidateAliases];
+  }
+
+  const profileNames = surfacedProfileNames(matchedProfile);
+
+  if (!replacesAliases) {
+    return profileNames;
+  }
+
+  // Display name and searchAliases survive a merge; ordinary aliases do not.
+  return [
+    matchedProfile.displayName,
+    ...(matchedProfile.searchAliases ?? []),
+    ...candidateAliases,
+  ];
+}
+
 async function getCandidateFields(ctx: Pick<QueryCtx, "db">, candidateId: Id<"seedImportCandidateProfiles">) {
   return await ctx.db
     .query("seedImportCandidateFields")
@@ -692,10 +728,7 @@ async function queueCandidate(ctx: MutationCtx, args: QueueCandidateArgs) {
       // unrelated slug- or name-only request. Accepted aliases are checked either
       // way, since those genuinely are copied onto the profile.
       slugs: matchedProfile === null ? [collisionSlug] : [matchedProfile.slug],
-      displayNames:
-        matchedProfile === null
-          ? [candidate.proposedDisplayName, ...acceptedAliasNames(fields)]
-          : [...surfacedProfileNames(matchedProfile), ...acceptedAliasNames(fields)],
+      displayNames: effectiveSurfacedNames(fields, matchedProfile, candidate.proposedDisplayName),
       profileType: candidate.profileType,
       ...optionalValue("acceptedRequests", args.acceptedRequests),
     });
@@ -919,10 +952,7 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
         matchedProfile === null
           ? [targetSlug, collisionSlug].filter((value): value is string => value !== undefined)
           : [matchedProfile.slug],
-      displayNames:
-        matchedProfile === null
-          ? [candidate.proposedDisplayName, ...acceptedAliasNames(fields)]
-          : [...surfacedProfileNames(matchedProfile), ...acceptedAliasNames(fields)],
+      displayNames: effectiveSurfacedNames(fields, matchedProfile, candidate.proposedDisplayName),
       profileType: candidate.profileType,
       ...optionalValue("acceptedRequests", args.acceptedRequests),
     });
