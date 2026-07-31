@@ -781,14 +781,23 @@ export const setBatchPublicationPolicy = internalMutation({
     );
     const previousPolicy = batch.publicationPolicy ?? "private_only";
 
+    const authorizationPatch =
+      args.publicationPolicy === "reviewed_publication_allowed" && reason !== undefined
+        ? publicationAuthorizationPatch(batch, reason, reviewer, now)
+        : {};
+    // The note shares the authorization patch's idempotency signal, so a retry
+    // after a lost response does not append a duplicate policy line and trim away
+    // earlier source and review context.
+    const recordsNewAuthorization =
+      args.publicationPolicy !== "reviewed_publication_allowed" ||
+      Object.keys(authorizationPatch).length > 0;
+
     await ctx.db.patch(batch._id, {
       publicationPolicy: args.publicationPolicy,
-      ...(args.publicationPolicy === "reviewed_publication_allowed" && reason !== undefined
-        ? publicationAuthorizationPatch(batch, reason, reviewer, now)
-        : {}),
+      ...authorizationPatch,
       ...optionalValue(
         "notes",
-        reason === undefined
+        reason === undefined || !recordsNewAuthorization
           ? undefined
           : appendBatchNote(
               batch.notes,
