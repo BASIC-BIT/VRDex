@@ -62,10 +62,20 @@ if (isProductionVercel) {
 // runtime with nobody able to sign in, so fail the build instead. Convex-side
 // CLERK_JWT_ISSUER_DOMAIN is enforced separately by the Convex CLI, which
 // requires it on every hosted deployment (see convex/auth.config.ts).
-if (isVercel && requireConvexUrl) {
+//
+// Production is unconditional. Gating solely on `VRDEX_REQUIRE_CONVEX_URL` let a
+// production deployment that merely omitted that flag build with no Clerk
+// credentials at all: middleware would then redirect every protected route to
+// `/sign-in`, which can only render the unavailable notice. Previews keep the
+// opt-in so a shell-only build still works without auth secrets.
+if (isVercel && (requireConvexUrl || isProductionVercel)) {
   for (const name of ["NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "CLERK_SECRET_KEY"]) {
     if (!process.env[name]?.trim()) {
-      errors.push(`${name} is required when Convex is configured.`);
+      errors.push(
+        isProductionVercel
+          ? `${name} is required for production Vercel builds.`
+          : `${name} is required when Convex is configured.`,
+      );
     }
   }
 
