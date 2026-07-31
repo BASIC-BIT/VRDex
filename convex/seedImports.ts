@@ -93,21 +93,28 @@ function appendBatchNote(existing: string | undefined, entry: string): string | 
  */
 function publicationAuthorizationPatch(
   batch: Doc<"seedImportBatches">,
+  policy: "private_only" | "reviewed_publication_allowed",
   reason: string,
   actor: { tokenIdentifier: string; issuer: string; subject: string; displayName?: string } | undefined,
   now: number,
 ) {
   const existing = batch.publicationAuthorizations ?? [];
   const latest = existing[existing.length - 1];
-  const alreadyAuthorized =
-    (batch.publicationPolicy ?? "private_only") === "reviewed_publication_allowed";
+  const currentPolicy = batch.publicationPolicy ?? "private_only";
 
-  // A no-op when the batch is already authorized under the same reason. Timestamps
-  // cannot identify a retry -- a caller that times out and retries without `now`
-  // gets a fresh Date.now() -- so the current policy plus the reason is the signal.
-  // A genuine reauthorization after a revoke has a private_only policy to relax and
-  // therefore still appends.
-  if (alreadyAuthorized && latest !== undefined && latest.reason === reason) {
+  // A no-op when the batch already sits at the requested policy under the same
+  // reason. Timestamps cannot identify a retry -- a caller that times out and
+  // retries without `now` gets a fresh Date.now() -- so current policy plus the
+  // last recorded reason is the signal. Recording revocations as well as
+  // authorizations is what makes that comparison correct in both directions: with
+  // only authorizations stored, a revocation retry compared its reason against an
+  // older authorization and always looked new.
+  if (
+    currentPolicy === policy &&
+    latest !== undefined &&
+    latest.reason === reason &&
+    (latest.policy ?? "reviewed_publication_allowed") === policy
+  ) {
     return {};
   }
 
@@ -115,6 +122,7 @@ function publicationAuthorizationPatch(
     publicationAuthorizations: [
       ...existing,
       {
+        policy,
         reason,
         ...optionalValue("authorizedBy", actor),
         authorizedAt: now,
@@ -207,6 +215,13 @@ function acceptedAliasNames(fields: Doc<"seedImportCandidateFields">[]): string[
 
   for (const field of fields) {
     if (field.fieldKey !== "aliases" || field.reviewState !== "accepted") {
+      continue;
+    }
+
+    // Reviewed visibility decides, matching surfacedProfileNames for existing
+    // profiles: the mapper copies a private alias but the public projection and
+    // discovery both omit it, so it is not an identity this publication surfaces.
+    if (field.visibility === "private") {
       continue;
     }
 
@@ -780,22 +795,15 @@ export const setBatchPublicationPolicy = internalMutation({
     const previousPolicy = batch.publicationPolicy ?? "private_only";
 
     const authorizationPatch =
-      args.publicationPolicy === "reviewed_publication_allowed" && reason !== undefined
-        ? publicationAuthorizationPatch(batch, reason, reviewer, now)
-        : {};
+      reason === undefined
+        ? {}
+        : publicationAuthorizationPatch(batch, args.publicationPolicy, reason, reviewer, now);
     // The note shares the authorization patch's idempotency signal, so a retry
     // after a lost response does not append a duplicate policy line and trim away
     // earlier source and review context.
-    // A revocation is idempotent too: re-running the same private_only change with
-    // the same reason should not append a second audit line and trim older context.
-    const alreadyAtRequestedPolicy =
-      (batch.publicationPolicy ?? "private_only") === args.publicationPolicy;
-    const existingAuthorizations = batch.publicationAuthorizations ?? [];
-    const latestAuthorization = existingAuthorizations[existingAuthorizations.length - 1];
-    const recordsNewAuthorization =
-      args.publicationPolicy === "reviewed_publication_allowed"
-        ? Object.keys(authorizationPatch).length > 0
-        : !(alreadyAtRequestedPolicy && latestAuthorization?.reason === reason);
+    // Both directions share one idempotency signal now that revocations are also
+    // recorded, so a repeated call of either kind appends nothing.
+    const recordsNewAuthorization = Object.keys(authorizationPatch).length > 0;
 
     await ctx.db.patch(batch._id, {
       publicationPolicy: args.publicationPolicy,
@@ -1284,7 +1292,13 @@ export const bulkPublishBatch = internalMutation({
     }
 
     if (isFirstPage) {
-      const authorizationPatch = publicationAuthorizationPatch(batch, reason, reviewer, now);
+      const authorizationPatch = publicationAuthorizationPatch(
+        batch,
+        "reviewed_publication_allowed",
+        reason,
+        reviewer,
+        now,
+      );
 
       await ctx.db.patch(batch._id, {
         ...authorizationPatch,

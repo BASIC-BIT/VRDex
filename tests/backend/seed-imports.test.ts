@@ -101,7 +101,11 @@ describe("seed import review and publication guards", () => {
     reviewState: "approved" as const,
     publicationPolicy: "reviewed_publication_allowed" as const,
     publicationAuthorizations: [
-      { reason: "Source confirmed public listing is permitted.", authorizedAt: 1_788_220_800_000 },
+      {
+        policy: "reviewed_publication_allowed" as const,
+        reason: "Source confirmed public listing is permitted.",
+        authorizedAt: 1_788_220_800_000,
+      },
     ],
   };
   const acceptedCandidate = {
@@ -326,6 +330,28 @@ describe("seed import review and publication guards", () => {
     );
   });
 
+  it("treats a revoked batch as unauthorized despite its history", () => {
+    const blockers = getSeedImportPublicationBlockers({
+      batch: {
+        reviewState: "approved" as const,
+        publicationPolicy: "reviewed_publication_allowed" as const,
+        // Only a revocation on record: the list holds both directions, so a
+        // non-empty history is not proof of authorization.
+        publicationAuthorizations: [
+          {
+            policy: "private_only" as const,
+            reason: "Source withdrew permission.",
+            authorizedAt: 1_788_220_800_000,
+          },
+        ],
+      },
+      candidate: acceptedCandidate,
+      fields: acceptedPublicFields,
+    });
+
+    assert.deepEqual(blockers, ["publication_not_authorized"]);
+  });
+
   it("blocks a relaxed batch that carries no recorded authorization", () => {
     const blockers = getSeedImportPublicationBlockers({
       batch: {
@@ -399,7 +425,11 @@ describe("seed import publish guards", () => {
     reviewState: "approved" as const,
     publicationPolicy: "reviewed_publication_allowed" as const,
     publicationAuthorizations: [
-      { reason: "Source confirmed public listing is permitted.", authorizedAt: 1_788_220_800_000 },
+      {
+        policy: "reviewed_publication_allowed" as const,
+        reason: "Source confirmed public listing is permitted.",
+        authorizedAt: 1_788_220_800_000,
+      },
     ],
   };
   const queuedCandidate = {

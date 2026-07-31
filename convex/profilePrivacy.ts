@@ -5,6 +5,8 @@ import {
   requireActiveBrowserSessionSubject,
 } from "./_browserSessionAuthority";
 import { mutation, query } from "./_generated/server";
+import { getProfileFieldVisibility } from "./_profileFieldVisibility";
+import { assertIdentityNotSuppressed } from "./_suppressions";
 import {
   applyProfileFieldVisibilityUpdate,
   listOwnedPrivacyProfiles,
@@ -48,6 +50,22 @@ export const updateFieldVisibility = mutation({
 
     if (profile === null) {
       throw new Error("Profile not found.");
+    }
+
+    // Making a private alias visible is itself an act of surfacing. Without this,
+    // an accepted name-only suppression could be bypassed by storing the name as a
+    // private alias and then flipping its visibility, which also rebuilds the
+    // search document.
+    const aliasesBecomeVisible =
+      getProfileFieldVisibility(profile, "aliases") === "private" &&
+      args.fieldVisibility.aliases !== undefined &&
+      args.fieldVisibility.aliases !== "private";
+
+    if (aliasesBecomeVisible) {
+      await assertIdentityNotSuppressed(ctx.db, {
+        displayNames: profile.aliases,
+        profileType: profile.profileType,
+      });
     }
 
     const now = Date.now();

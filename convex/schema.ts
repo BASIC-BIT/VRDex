@@ -2241,6 +2241,10 @@ export default defineSchema({
     publicationAuthorizations: v.optional(
       v.array(
         v.object({
+          // Both directions are recorded, so the history shows why publication was
+          // permitted *and* why it was revoked. `policy` is optional for rows
+          // written before revocations were recorded.
+          policy: v.optional(seedImportPublicationPolicyValidator),
           reason: v.string(),
           authorizedBy: v.optional(authSubject),
           authorizedAt: v.number(),

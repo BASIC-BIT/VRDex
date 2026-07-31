@@ -242,8 +242,10 @@ pnpm ops:seed-publish -- `
 ```
 
 - `--reason` is required and is recorded on the batch in
-  `publicationAuthorizations`, an append-only list so a batch revoked to
-  `private_only` and later reauthorized keeps a record for each authorization. It is the durable record of the
+  `publicationAuthorizations`, an append-only list recording **both** directions —
+  each authorization and each revocation, with its `policy`, reason, actor, and
+  timestamp — so a batch revoked and later reauthorized keeps the full history.
+  Repeating either call with the same reason is a no-op rather than a second entry. It is the durable record of the
   operator asserting the source permits public listing. The reason is also appended
   to `notes`, but `notes` is a mutable review buffer and is not the record of
   authorization.

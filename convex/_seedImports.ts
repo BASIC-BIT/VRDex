@@ -1205,7 +1205,13 @@ export function getSeedImportPublishBlockers(args: {
   // carry reviewed_publication_allowed with no recorded reason, and publishing
   // those would create public profiles with nothing establishing that the source
   // permitted it. setBatchPublicationPolicy is what records that.
-  if ((args.batch.publicationAuthorizations ?? []).length === 0) {
+  // An authorization entry specifically: the list also records revocations, so a
+  // batch that was authorized and later revoked must not read as authorized here.
+  if (
+    !(args.batch.publicationAuthorizations ?? []).some(
+      (record) => (record.policy ?? "reviewed_publication_allowed") === "reviewed_publication_allowed",
+    )
+  ) {
     blockers.add("publication_not_authorized");
   }
 
@@ -1324,7 +1330,13 @@ export function getSeedImportPublicationBlockers(args: {
 
   // Same as the publish gate: a relaxed policy with no recorded authorization is
   // not a decision anyone made.
-  if ((args.batch.publicationAuthorizations ?? []).length === 0) {
+  // An authorization entry specifically: the list also records revocations, so a
+  // batch that was authorized and later revoked must not read as authorized here.
+  if (
+    !(args.batch.publicationAuthorizations ?? []).some(
+      (record) => (record.policy ?? "reviewed_publication_allowed") === "reviewed_publication_allowed",
+    )
+  ) {
     blockers.add("publication_not_authorized");
   }
 

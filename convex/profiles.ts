@@ -24,6 +24,7 @@ import {
   getProfileBySlug,
   validateProfileSlug,
 } from "./_profileSlugs";
+import { getProfileFieldVisibility } from "./_profileFieldVisibility";
 import {
   createProfileSortName,
   sanitizeCommunitySubmissionProfileInput,
@@ -195,7 +196,15 @@ export const updateProfileForApiOwner = internalMutation({
           // would reject an unrelated /p/bob owner renaming to a name whose base
           // slug happens to be suppressed.
           slugs: [],
-          displayNames: [proposedDisplayName, ...(args.aliases ?? profile.aliases)],
+          // Aliases only when they would actually be visible. A private alias is
+          // absent from public pages and search, so submitting it here would reject
+          // an edit that surfaces nothing.
+          displayNames: [
+            proposedDisplayName,
+            ...(getProfileFieldVisibility(profile, "aliases") === "private"
+              ? []
+              : (args.aliases ?? profile.aliases)),
+          ],
           profileType: profile.profileType,
         },
         // Uses the approved default rather than a rename-specific sentence: only
