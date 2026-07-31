@@ -32,7 +32,22 @@ function problem(status: 400 | 403 | 404 | 500, title: string, detail: string) {
   });
 }
 
+const IDENTITY_SUPPRESSED_DETAIL = "This profile cannot be submitted.";
+
 function profileUpdateErrorResponse(error: unknown) {
+  // Structured data first: Convex redacts plain error messages on production
+  // deployments, so reading only Error.message returns the serialized payload or
+  // generic Convex text instead of the intended reason.
+  const data = (error as { data?: { code?: string; message?: string } } | null)?.data;
+
+  if (data?.code === "IDENTITY_SUPPRESSED") {
+    // Reuses the existing 400 title rather than introducing a 409 with a new one:
+    // that would mean unapproved public copy, a wider status union in `problem`,
+    // and a new response in both OpenAPI artifacts. The approved message still
+    // reaches the caller as the problem detail, which is the part that matters.
+    return problem(400, "Invalid profile update request", data.message ?? IDENTITY_SUPPRESSED_DETAIL);
+  }
+
   const message = error instanceof Error ? error.message : "The profile update request is invalid.";
 
   if (message.includes("permission") || message.includes("Only a claimed profile owner")) {

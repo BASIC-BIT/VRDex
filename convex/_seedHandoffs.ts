@@ -183,6 +183,64 @@ function genreSlug(value: string): string {
     .replace(/^-+|-+$/g, "") || "genre";
 }
 
+/**
+ * Genre provenance for a seed source. Only a concierge handoff, where the owner
+ * confirmed the fields themselves, may claim `owner_selected`.
+ */
+function genreSourceForSeedSource(
+  sourceType: Doc<"seedImportBatches">["sourceType"] | undefined,
+): NonNullable<PersonProfile["genres"]>[number]["source"] {
+  switch (sourceType) {
+    case undefined:
+      return "owner_selected";
+    case "partner":
+      return "partner_import";
+    case "community":
+      return "community_submitted";
+    default:
+      return "manual_review";
+  }
+}
+
+/**
+ * Genre confidence for a converted field.
+ *
+ * Concierge handoffs keep `high`: the owner just confirmed those fields.
+ * Publication carries the field's reviewed confidence through instead of
+ * flattening it, mapping `owner_confirmed` down to `high` since an unclaimed
+ * imported profile cannot claim owner confirmation.
+ */
+function genreConfidenceForSeedField(
+  fieldConfidence: Doc<"seedImportCandidateFields">["confidence"],
+  sourceType: Doc<"seedImportBatches">["sourceType"] | undefined,
+): NonNullable<PersonProfile["genres"]>[number]["confidence"] {
+  if (sourceType === undefined) {
+    return "high";
+  }
+
+  switch (fieldConfidence) {
+    case "low":
+      return "low";
+    case "high":
+    case "owner_confirmed":
+      return "high";
+    default:
+      return "medium";
+  }
+}
+
+function linkSourceForSeedSource(
+  sourceType: Doc<"seedImportBatches">["sourceType"] | undefined,
+): NonNullable<PersonProfile["outboundLinks"]>[number]["source"] {
+  switch (sourceType) {
+    case undefined:
+    case "partner":
+      return "partner_provided";
+    default:
+      return "reviewed";
+  }
+}
+
 function visibilityKeyForSeedField(fieldKey: string) {
   if (fieldKey === "person.pronouns") {
     return "personPronouns" as const;
@@ -193,10 +251,39 @@ function visibilityKeyForSeedField(fieldKey: string) {
   return fieldKey as keyof NonNullable<PersonProfile["fieldVisibility"]>;
 }
 
+export type SeedFieldPatchOptions = {
+  /**
+   * `private` forces every copied field private, which is the concierge handoff
+   * contract: a prepared profile must reveal nothing until its owner decides.
+   * `reviewed` honors each field's reviewed `visibility`, which is what
+   * publication needs — forcing private there would publish an empty profile.
+   */
+  fieldVisibilitySource?: "private" | "reviewed";
+  /**
+   * Whether supported fields absent from `fields` are cleared on an existing
+   * profile. True is the concierge contract (the accepted selection is the whole
+   * truth). Publication must not clear, or merging a candidate into an existing
+   * profile erases content the import never proposed to replace.
+   */
+  clearUnselectedFields?: boolean;
+  /**
+   * Provenance stamped on converted genres and links. The concierge default
+   * (`owner_selected` / `partner_provided`) describes a profile its owner just
+   * confirmed. Publication of an unclaimed imported profile must not claim owner
+   * selection, so it derives provenance from the batch's source type instead.
+   */
+  sourceType?: Doc<"seedImportBatches">["sourceType"];
+};
+
 export function buildConciergeProfileFieldPatch(
   fields: Doc<"seedImportCandidateFields">[],
   profile?: PersonProfile,
+  options?: SeedFieldPatchOptions,
 ): Partial<PersonProfile> {
+  const fieldVisibilitySource = options?.fieldVisibilitySource ?? "private";
+  const clearUnselectedFields = options?.clearUnselectedFields ?? profile !== undefined;
+  const genreSource = genreSourceForSeedSource(options?.sourceType);
+  const linkSource = linkSourceForSeedSource(options?.sourceType);
   const patch: Partial<PersonProfile> = {};
   const fieldVisibility: NonNullable<PersonProfile["fieldVisibility"]> = {
     ...(profile?.fieldVisibility ?? {}),
@@ -205,7 +292,7 @@ export function buildConciergeProfileFieldPatch(
   let personChanged = false;
   const selectedFieldKeys = new Set(fields.map((field) => field.fieldKey));
 
-  for (const fieldKey of profile === undefined ? [] : CONCIERGE_PROFILE_FIELD_KEYS) {
+  for (const fieldKey of clearUnselectedFields ? CONCIERGE_PROFILE_FIELD_KEYS : []) {
     if (selectedFieldKeys.has(fieldKey)) {
       continue;
     }
@@ -257,12 +344,16 @@ export function buildConciergeProfileFieldPatch(
 
   for (const field of fields) {
     const value = normalizeSafePrivateSeedFieldValue(field.fieldKey, field.value);
-    fieldVisibility[visibilityKeyForSeedField(field.fieldKey)] = "private";
+    fieldVisibility[visibilityKeyForSeedField(field.fieldKey)] =
+      fieldVisibilitySource === "private" ? "private" : field.visibility;
 
     switch (field.fieldKey) {
       case "aliases":
         patch.aliases = value as string[];
-        if (profile !== undefined) {
+        // Only cleared under concierge semantics, where the accepted selection is
+        // the whole profile. Publication must not wipe search-only handles and old
+        // spellings that the import never proposed to replace.
+        if (profile !== undefined && clearUnselectedFields) {
           patch.searchAliases = [];
         }
         break;
@@ -273,8 +364,8 @@ export function buildConciergeProfileFieldPatch(
         patch.genres = (value as string[]).map((displayName) => ({
           slug: genreSlug(displayName),
           displayName,
-          source: "owner_selected" as const,
-          confidence: "high" as const,
+          source: genreSource,
+          confidence: genreConfidenceForSeedField(field.confidence, options?.sourceType),
           explicit: false,
         }));
         break;
@@ -288,7 +379,7 @@ export function buildConciergeProfileFieldPatch(
       case "outboundLinks":
         patch.outboundLinks = (value as Array<Record<string, unknown>>).map((link) => ({
           ...(link as Omit<NonNullable<PersonProfile["outboundLinks"]>[number], "source">),
-          source: "partner_provided" as const,
+          source: linkSource,
         }));
         break;
       case "person.pronouns":

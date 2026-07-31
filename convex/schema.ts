@@ -2209,6 +2209,8 @@ export default defineSchema({
     requesterContact: v.optional(v.string()),
     requesterNote: v.optional(v.string()),
     resolutionNote: v.optional(v.string()),
+    resolvedBy: v.optional(authSubject),
+    resolvedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -2233,6 +2235,22 @@ export default defineSchema({
     receivedAt: v.number(),
     sourceObservedAt: v.optional(v.number()),
     publicationPolicy: v.optional(seedImportPublicationPolicyValidator),
+    // Append-only: the durable record of each time publication was authorized.
+    // `notes` is a mutable review buffer and cannot hold this, and a batch can be
+    // revoked to private_only and later reauthorized with a new reason.
+    publicationAuthorizations: v.optional(
+      v.array(
+        v.object({
+          // Both directions are recorded, so the history shows why publication was
+          // permitted *and* why it was revoked. `policy` is optional for rows
+          // written before revocations were recorded.
+          policy: v.optional(seedImportPublicationPolicyValidator),
+          reason: v.string(),
+          authorizedBy: v.optional(authSubject),
+          authorizedAt: v.number(),
+        }),
+      ),
+    ),
     importedBy: v.optional(authSubject),
     reviewState: seedImportBatchReviewStateValidator,
     reviewedBy: v.optional(authSubject),
@@ -2260,6 +2278,9 @@ export default defineSchema({
     reviewNote: v.optional(v.string()),
     publicationQueuedBy: v.optional(authSubject),
     publicationQueuedAt: v.optional(v.number()),
+    publishedProfileId: v.optional(v.id("profiles")),
+    publishedAt: v.optional(v.number()),
+    publishedBy: v.optional(authSubject),
     createdAt: v.number(),
     updatedAt: v.number(),
   })

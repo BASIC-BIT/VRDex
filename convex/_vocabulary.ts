@@ -144,3 +144,85 @@ export async function recordVocabularyTerms(
     });
   }
 }
+
+/**
+ * Release vocabulary usages a profile or world no longer contributes.
+ *
+ * The counterpart to `recordVocabularyTerms`, which only ever increments. Without
+ * this, replacing a visible tag leaves the old term's `usageCount` inflated
+ * forever while the search document correctly drops it.
+ *
+ * Only the delta should be passed — terms the caller genuinely removed. Counts
+ * floor at zero rather than going negative, because the wider model is not
+ * reference-counted yet and a stray release must not corrupt a shared term.
+ */
+export async function releaseVocabularyTerms(
+  db: DatabaseWriter,
+  candidates: VocabularyCandidate[],
+  now: number,
+) {
+  for (const candidate of candidates) {
+    const key = createVocabularyKey(normalizeVocabularyLabel(candidate.label ?? ""));
+
+    if (!key) {
+      continue;
+    }
+
+    const existing = await db
+      .query("vocabularyTerms")
+      .withIndex("by_scope_key", (query) => query.eq("scope", candidate.scope).eq("key", key))
+      .unique();
+
+    if (!existing) {
+      continue;
+    }
+
+    await db.patch(existing._id, {
+      usageCount: Math.max(0, existing.usageCount - 1),
+      updatedAt: now,
+    });
+  }
+}
+
+/**
+ * Release usages by scope-qualified key, for callers that only hold the keys a
+ * search document recorded rather than the original candidates.
+ *
+ * `collectVocabularyKeys` writes them scope-qualified as `scope:key`, so each is
+ * split back apart here. Counts floor at zero for the same reason as
+ * `releaseVocabularyTerms`.
+ */
+export async function releaseVocabularyKeys(
+  db: DatabaseWriter,
+  scopedKeys: string[],
+  now: number,
+) {
+  for (const scopedKey of scopedKeys) {
+    const separator = scopedKey.indexOf(":");
+
+    if (separator <= 0) {
+      continue;
+    }
+
+    const scope = scopedKey.slice(0, separator) as VocabularyCandidate["scope"];
+    const key = scopedKey.slice(separator + 1);
+
+    if (!key) {
+      continue;
+    }
+
+    const existing = await db
+      .query("vocabularyTerms")
+      .withIndex("by_scope_key", (query) => query.eq("scope", scope).eq("key", key))
+      .unique();
+
+    if (!existing) {
+      continue;
+    }
+
+    await db.patch(existing._id, {
+      usageCount: Math.max(0, existing.usageCount - 1),
+      updatedAt: now,
+    });
+  }
+}

@@ -30,6 +30,9 @@ Current recommendation:
 - Imported fields are not owner-confirmed unless the owner actually confirms them.
 - Partner-provided data must not bypass owner visibility controls after claim.
 - Publication defaults should be safe and reviewed.
+- Publication is an explicit per-batch operator decision with a recorded reason,
+  never a default; see
+  [Publication](../backend/private-seed-operations.md#publication).
 
 ## Domain Objects
 
@@ -46,7 +49,11 @@ Suggested fields:
 - `sourceContact` optional internal owner for the import relationship
 - `receivedAt`
 - `sourceObservedAt` optional source-provided snapshot or as-of time
-- `publicationPolicy`: new permissioned JSON imports are always `private_only`
+- `publicationPolicy`: new permissioned JSON imports are always `private_only`; an
+  operator relaxes it to `reviewed_publication_allowed` to permit publication
+- `publicationAuthorizations` append-only records of each publication
+  authorization, each holding the operator's reason, actor, and timestamp; kept
+  separate from `notes`, which is a mutable review buffer
 - `importedBy`
 - `reviewState`: `draft`, `ready_for_review`, `approved`, `rejected`, `superseded`
 - `reviewedBy` optional reviewer metadata
@@ -73,6 +80,9 @@ Suggested fields:
 - `reviewNote` optional internal note
 - `publicationQueuedBy` optional reviewer metadata when the queue marker is set
 - `publicationQueuedAt` optional queue marker timestamp
+- `publishedProfileId` optional public profile created or promoted by publication
+- `publishedAt` optional publication timestamp
+- `publishedBy` optional operator who published it
 - `createdAt`
 - `updatedAt`
 
@@ -232,11 +242,21 @@ Implemented in [#117](https://github.com/BASIC-BIT/VRDex/issues/117):
 - queue-only publication guard and marker
 - backend helper tests for fake fixture creation and publication blockers
 
-Deferred after [#117](https://github.com/BASIC-BIT/VRDex/issues/117):
+Implemented after [#117](https://github.com/BASIC-BIT/VRDex/issues/117):
 
-- real partner import tooling
+- real partner import tooling (`pnpm ops:seed-import:json`)
+- profile creation and merge on publication, plus public profile, search, and
+  vocabulary surfacing of published candidate data
+- bulk publication driver (`pnpm ops:seed-publish`)
+
+Publication is gated on an operator explicitly relaxing the batch's
+`publicationPolicy`; see
+[Publication](../backend/private-seed-operations.md#publication) for the
+authoritative workflow.
+
+Still deferred:
+
 - reviewer UI
 - public reviewer-facing APIs
 - owner claim/handoff confirmation for imported fields
-- actual profile creation, merge, or overwrite behavior
-- public profile/search/API surfacing of imported candidate data
+- community candidate publication (person candidates only today)
