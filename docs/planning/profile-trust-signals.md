@@ -2,8 +2,15 @@
 
 ## Status
 
-Proposed. Supersedes the profile-level `claimed_verified` signal described in
-[`profile-claim-journey.md`](./profile-claim-journey.md).
+**Proposed, not adopted.** Nothing here is in force. The current recommendation
+remains the profile-level `claimed_verified` model in
+[`profile-claim-journey.md`](./profile-claim-journey.md), including
+`success_verified` and the verified-first method ordering, until this document
+is accepted.
+
+What it *would* supersede, on adoption: that model, those journey states, and
+the ordering. The pointers in that document say so rather than declaring the
+rule retired, so an agent reading either one finds the same status.
 
 ## The problem
 
