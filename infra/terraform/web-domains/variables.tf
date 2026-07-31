@@ -66,11 +66,17 @@ variable "tags" {
 #
 # The mail records are Clerk's own sender identity, unrelated to the SES stack:
 # SES is retired for authentication, and Clerk sends its verification mail.
+#
+# Every value here is a checked-in default rather than a `terraform.tfvars`
+# entry, because tfvars is gitignored and CI has none. Gating these behind an
+# operator-supplied variable meant only an out-of-band apply could create them —
+# and this stack applies from main, so the next CI run destroyed them as
+# orphaned state. They are public DNS records, not secrets; anyone can dig them.
 
 variable "manage_clerk_dns" {
-  description = "Create the Clerk production CNAME records. Leave false until the Clerk production instance exists."
+  description = "Create the Clerk production CNAME records."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "clerk_frontend_api_subdomain" {
@@ -92,19 +98,19 @@ variable "clerk_mail_subdomain" {
 }
 
 variable "clerk_mail_target" {
-  description = "Clerk-issued mail CNAME target, e.g. mail.<id>.clerk.services. Instance-specific."
+  description = "Clerk-issued mail CNAME target. Instance-specific but not secret: it is a public DNS record."
   type        = string
-  default     = null
+  default     = "mail.49kratywlj1f.clerk.services"
 }
 
 variable "clerk_dkim1_target" {
-  description = "Clerk-issued DKIM CNAME target for clk._domainkey, e.g. dkim1.<id>.clerk.services."
+  description = "Clerk-issued DKIM CNAME target for clk._domainkey."
   type        = string
-  default     = null
+  default     = "dkim1.49kratywlj1f.clerk.services"
 }
 
 variable "clerk_dkim2_target" {
-  description = "Clerk-issued DKIM CNAME target for clk2._domainkey, e.g. dkim2.<id>.clerk.services."
+  description = "Clerk-issued DKIM CNAME target for clk2._domainkey."
   type        = string
-  default     = null
+  default     = "dkim2.49kratywlj1f.clerk.services"
 }
