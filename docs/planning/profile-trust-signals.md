@@ -21,10 +21,14 @@ produces a qualifying row is `recordOperatorAssociation` in
 [`profileConnections.ts`](../../convex/profileConnections.ts) — an
 `internalMutation` with no self-service surface and no caller outside tests.
 
-Concierge-seeded profiles can therefore be verified, by hand. Profiles created
-through public submission cannot, ever. The submit form captures `displayName`,
+What is impossible is *self-service* verification, and that is the precise
+claim. `recordOperatorAssociation` accepts any profile slug and does not inspect
+`creationSource`, so an operator can associate and thereby enable verification
+for a community-submitted profile exactly as for a concierge-seeded one. The
+barrier is not the profile's origin — it is that no path a claimant can walk
+produces a qualifying association, and the submit form captures `displayName`,
 `aliases`, `tags`, `roleTags`, `categoryTags`, `subtype` — no service-typed
-identifier — so there is nothing for an association to attach to at creation.
+identifier for one to attach to.
 
 **The guard does not protect what it appears to.** Impersonation lives in the
 display name, not the account linkage: a claimant can name a profile "Nyx" and
@@ -56,10 +60,22 @@ Split one overloaded signal into two honest ones.
    That is checkable, already evidenced, and does not depend on knowing who the
    person is.
 
-3. **A "verified person"**, if the term is kept, means: has claimed the profile
-   **and** has at least one verified platform identity. That is
-   `∃ profileExternalLinks row with verifiedByProofId` — reachable today by the
-   claimant's own proof, because nothing in it asserts identity.
+3. **No profile-level "verified person" label.** The tempting shorthand — has
+   claimed the profile and has ≥1 verified identity — reintroduces exactly what
+   points 1 and 2 remove. An impersonator can claim a listing named for somebody
+   else and prove their *own* VRChat account; that satisfies the predicate, and
+   rendering the result as "verified person" makes the profile-level identity
+   claim all over again, one word further down.
+
+   The predicate is still useful *internally* — filtering, ranking, deciding
+   whether to prompt someone to prove an identity. It must not be surfaced as a
+   trust label. Anything a viewer sees stays attached to the named account.
+
+   Where it is computed, it must join `externalControlProofs` and exclude
+   revoked rows. `revokeExternalControlProof` marks the proof revoked and
+   deliberately leaves the link and its `verifiedByProofId` intact, so testing
+   for the foreign key alone reports as verified an identity whose evidence has
+   been withdrawn.
 
 4. **Notability is editorial, not computed.** If a famous-person mark is wanted,
    it stays a human judgement recorded by an operator. Deriving it would
@@ -78,10 +94,20 @@ Most of this is a presentation change over data the model already carries.
 | Display handle | `profileExternalLinks.assetDisplayName` | Present, optional |
 | Profile-level label | `getProfileTrustLabel` in [`_profileStates.ts`](../../convex/_profileStates.ts) | Changes |
 
-`claimState` is a trust label rather than a permission gate. The only
-authorization that reads it is `canReadProfile`, distinguishing `unclaimed` from
-claimed; nothing keys on `claimed_verified`. Retiring it as a *signal* therefore
-has a small blast radius.
+`claimState` is read by several permission gates, but **all of them key on the
+`unclaimed` boundary and none on `claimed_verified`**:
+
+- `canEditProfileField` in [`_profilePermissions.ts`](../../convex/_profilePermissions.ts)
+  — `claimed_owner` requires `!== "unclaimed"`, `community_submitter` requires
+  `=== "unclaimed"`
+- [`profileAssets.ts`](../../convex/profileAssets.ts) — three `=== "unclaimed"`
+  gates on asset operations
+- [`_profilePrivacy.ts`](../../convex/_profilePrivacy.ts) and
+  [`oauthApps.ts`](../../convex/oauthApps.ts) — same boundary
+
+Retiring `claimed_verified` therefore changes no authorization, because nothing
+authorizes on it. That is a narrower claim than "`claimState` is not a
+permission gate", which is false.
 
 ## What changes
 
@@ -100,11 +126,24 @@ association on record is not a reason to withhold anything.
 
 **Schema.** No new tables. Typed identity handles captured during onboarding
 write `profileExternalLinks` rows, which already distinguish an unproven
-assertion (`verifiedByProofId` absent) from a proven one. Retiring
-`claimed_verified` from `claimState` needs a migration for existing rows and
-touches `ALLOWED_CLAIM_STATE_TRANSITIONS`, `getProfileTrustLabel`, the
-`/api/v0/claims/[slug]/status` contract, and the discovery cards that branch on
-it.
+assertion (`verifiedByProofId` absent) from a proven one.
+
+**Migration.** Retiring `claimed_verified` from `claimState` touches more than
+the profile rows:
+
+- `ALLOWED_CLAIM_STATE_TRANSITIONS` and `getProfileTrustLabel` in
+  [`_profileStates.ts`](../../convex/_profileStates.ts)
+- the `/api/v0/claims/[slug]/status` contract and its `claimStateForTrustLabel`
+  mapping
+- the discovery cards that branch on `trustLabel === "claimed_verified"`
+- `_seedImportValidators.ts` and `_seedImports.ts`, which accept the literal
+- **`searchDocuments`, which cache the ranking.** `trustRankForProfile` in
+  [`_searchDocuments.ts`](../../convex/_searchDocuments.ts) assigns 40 to
+  `claimed_verified` against 28 to `claimed_unverified`, and the value is
+  persisted as both `trustRank` and `featuredRank` and fed into the search
+  score. Migrating profile rows alone leaves formerly verified profiles ranked
+  above their peers indefinitely under a signal that no longer exists — every
+  affected search document has to be rebuilt in the same migration.
 
 ## Resolved
 
@@ -133,7 +172,20 @@ Discord control proof passing its revalidation window because the owner has not
 re-authenticated says nothing about whether they still run the server.
 
 Absence is not information a viewer can weigh; a date is. So the mark reads
-"verified · 30 Jul 2026" and stays. It is removed when something actually
-contradicts it: the owner disconnects the account, the link row is revoked
-(`profileExternalLinks.state` / `removedAt` already model this), or control is
-proven by somebody else.
+"verified · 30 Jul 2026" and stays.
+
+Removal needs affirmative evidence that *this* verifier lost control:
+
+- the owner disconnects the account, or the link row is revoked
+  (`profileExternalLinks.state` / `removedAt` already model this)
+- the proof behind it is revoked — `externalControlProofs` marked revoked, for
+  example by Discord reconciliation finding the permission gone
+- for `vrchat_user` only, somebody else proves control of the same account. A
+  personal VRChat account has one holder, so a second `self` proof is a genuine
+  contradiction
+
+**Not** a second proof on a shared asset. Discord guilds and VRChat groups have
+several legitimate administrators, so another staff member proving control says
+nothing about whether the first one still has it. Treating that as
+contradiction would let any co-admin silently strip a community's mark by
+verifying their own access.
