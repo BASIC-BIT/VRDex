@@ -57,6 +57,15 @@ Current recommendation:
   show the asset is the one the listing represents, and the target id comes from
   the claimant. Without an independent association the claim grants
   `claimed_unverified`, and upgrades later once one exists.
+  **A replacement is proposed but not adopted — see
+  [`profile-trust-signals.md`](./profile-trust-signals.md). Until that proposal
+  is accepted, the rule above and the verified journey states below remain the
+  current recommendation.** The objection on record is that this rule is
+  unreachable in practice: the proof path writes its own association, so a
+  claimant's evidence never satisfies it, and the only qualifying writer has no
+  self-service surface. The proposal moves verification off the profile and onto
+  the individual external account it attests, which would also retire
+  `success_verified` and the verified-first ordering in the sections below.
 - `profileConnections:recordOperatorAssociation` is the writer that records such
   an association. It is internal, run with the deployment key, and deliberately
   has no self-service surface — self-service is what the rule exists to rule
@@ -99,7 +108,10 @@ Current recommendation:
 - `owned_by_another`: render a calm terminal state without verification forms.
 - `success_unverified`: owner control was granted through Discord person claim;
   offer profile access and keep the VRChat upgrade path available on return.
-- `success_verified`: verified owner control was granted.
+- `success_verified`: verified owner control was granted. Together with the
+  verified-first ordering in step 5 above, this is one of the profile-level
+  verification states [`profile-trust-signals.md`](./profile-trust-signals.md)
+  proposes retiring; it stands until that proposal is adopted.
 - `failed` or `expired`: give an accurate recovery action rather than replacing
   the error with a false profile-not-found message.
 - `provider_unavailable`: preserve the pending proof and distinguish an adapter
