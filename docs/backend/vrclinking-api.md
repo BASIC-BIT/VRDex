@@ -125,7 +125,7 @@ VRDex holds a delegated credential that is broader than the use it is put to, so
 the containment is in how it is stored and used, not in the token itself.
 
 **Convex never sees the token.** `communityVrclinkingCredentials` stores only a
-`secretRef` (`arn:aws:secretsmanager:…` or `secret://…`), matching
+`secretRef` (`secret://…`), matching
 `collectorAccounts` and the event media-control credential. The adapter resolves
 the reference through its own IAM role. This is why the token is not encrypted
 in Convex: it is never there.
@@ -137,10 +137,13 @@ Constraints enforced in `vrclinkingCredentials.ts`:
   can delegate a key for a server they do not control;
 - each delegation records the single `guildId` it is authorized for, so a key
   that could technically read other guilds is never used to;
-- the reference itself is bound to that guild: the only accepted values are
-  `secret://vrdex/vrclinking/<guildId>` or an
-  `arn:aws:secretsmanager:<region>:<account>:secret:vrdex/vrclinking/<guildId>`
-  (with the optional Secrets Manager suffix). Syntax is not authorization — the
+- the reference itself is bound to that guild: the only accepted value is
+  `secret://vrdex/vrclinking/<guildId>`. An ARN form was accepted until its
+  pattern was found to permit any region and any 12-digit account, while the
+  adapter's execution role can read only its own — a cross-account ARN
+  registered cleanly, was selected for claims, and then failed every resolution
+  as `unavailable` with nothing pointing back at the reference. The name has no
+  region or account to get wrong. Syntax is not authorization either: the
   adapter resolves whatever it is given through its own IAM role, so accepting
   arbitrary well-formed names would let the owner of one guild register another
   tenant's reference and have VRDex spend that tenant's key;
@@ -204,24 +207,25 @@ differently does not need a migration.
 
 ## Remaining work
 
-The adapter service is built at `workers/vrclinking-adapter` (see its README),
-and delegation is manageable from `/account/connections`. What is left needs
-something outside the codebase:
+The adapter service is built at `workers/vrclinking-adapter`, deployed by
+`infra/terraform/vrclinking-adapter`, offered on the claim form, and manageable
+from `/account/connections`. Two secrets must match across the boundary, and
+both sides refuse to start or call without them:
 
-1. **Deploying the adapter.** It needs somewhere to run with either the Secrets
-   Manager task-role policy or a mounted secret directory, and
-   `VRCLINKING_PROOF_ADAPTER_URL` in Convex pointed at it.
-   Two secrets must match across the boundary, and both sides refuse to start
-   or call without them:
-   - `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN`, the same name on both sides.
-   - the capability signing key — `VRCLINKING_ADAPTER_CAPABILITY_KEY` in Convex,
-     `VRDEX_VRCLINKING_CAPABILITY_KEY` in the adapter. Keep it a different value
-     from the bearer token; that separation is the whole point of it.
+- `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN`, the same name on both sides.
+- the capability signing key — `VRCLINKING_ADAPTER_CAPABILITY_KEY` in Convex,
+  `VRDEX_VRCLINKING_CAPABILITY_KEY` in the adapter. Keep it a different value
+  from the bearer token; that separation is the whole point of it.
 
-   Its README documents the configuration and a local run.
-2. **Putting a real key in the secret store** and recording its reference
-   against a community.
-3. **Talking to VRCLinking** about third-party server-to-server use, which has
+What is left needs something outside the codebase:
+
+1. **Putting a real key in the secret store** and recording its reference
+   against a community. Until one community has done this, the method is offered
+   wherever the adapter is configured and every attempt short-circuits to
+   `unavailable` — `verifyVrchatProofViaAdapter` has nothing to ask, so it never
+   posts the claimant's Discord id. A genuine no-match is a different state and
+   only becomes reachable once a delegation exists.
+2. **Talking to VRCLinking** about third-party server-to-server use, which has
    no published terms. Currently deferred.
 
 The OAuth guild verification already shipped covers Discord community claiming

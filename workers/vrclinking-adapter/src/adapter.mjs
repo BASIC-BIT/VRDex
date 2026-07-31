@@ -13,7 +13,7 @@ const DISCORD_SNOWFLAKE_PATTERN = /^\d{17,20}$/;
 const MAX_DELEGATIONS = 5;
 // Convex abandons the adapter request at ten seconds. Stopping short of that
 // keeps the fan-out inside the window whose answer can still be used.
-const DEFAULT_FAN_OUT_BUDGET_MS = 8_000;
+export const DEFAULT_FAN_OUT_BUDGET_MS = 8_000;
 
 /**
  * Reject once the budget is spent, whatever the underlying work does.
@@ -62,16 +62,11 @@ function withDeadline(work, remainingMs) {
  * `convex/vrclinkingCredentials.ts`.
  */
 function isSecretRefForGuild(secretRef, guildId) {
-  const name = `vrdex/vrclinking/${guildId}`;
-
-  if (secretRef === `secret://${name}`) {
-    return true;
-  }
-
-  // Secrets Manager appends a six-character suffix to the name in the ARN.
-  return new RegExp(
-    `^arn:aws:secretsmanager:[a-z0-9-]{1,32}:\\d{12}:secret:${name}(-[A-Za-z0-9]{6})?$`,
-  ).test(secretRef);
+  // One form, matching registration. The ARN form was accepted here too, and its
+  // pattern allowed any region and any 12-digit account while this adapter's
+  // execution role can read only its own — so it admitted references that could
+  // never resolve.
+  return secretRef === `secret://vrdex/vrclinking/${guildId}`;
 }
 
 /**
@@ -150,14 +145,24 @@ export function validateRequest(body) {
   }
 
   const delegations = Array.isArray(body.delegations) ? body.delegations : [];
-  const usable = delegations.filter(
-    (delegation) =>
-      typeof delegation?.guildId === "string" &&
-      DISCORD_SNOWFLAKE_PATTERN.test(delegation.guildId) &&
-      typeof delegation?.secretRef === "string" &&
-      isSecretRefForGuild(delegation.secretRef, delegation.guildId) &&
-      verifyCapability(delegation),
-  );
+  // Stamped before filtering, and reported instead of the position in the
+  // filtered array. The control plane looks the returned index up in the batch
+  // it *sent*, so any dropped entry shifted every later one: a match on the
+  // second delegation came back as index 0, and Convex then re-checked and
+  // stamped the first. If the credential that actually answered was revoked
+  // mid-flight, the unrelated still-active row passed the re-check in its place
+  // and the claim was granted on a revoked answer.
+  const usable = delegations
+    .map((delegation, requestIndex) => ({ delegation, requestIndex }))
+    .filter(
+      ({ delegation }) =>
+        typeof delegation?.guildId === "string" &&
+        DISCORD_SNOWFLAKE_PATTERN.test(delegation.guildId) &&
+        typeof delegation?.secretRef === "string" &&
+        isSecretRefForGuild(delegation.secretRef, delegation.guildId) &&
+        verifyCapability(delegation),
+    )
+    .map(({ delegation, requestIndex }) => ({ ...delegation, requestIndex }));
 
   if (usable.length === 0) {
     return { ok: false, error: "no_delegations" };
@@ -206,7 +211,11 @@ export async function verifyLinkage({
   // could not consult anything".
   let consulted = false;
 
-  for (const [index, delegation] of request.delegations.entries()) {
+  // `requestIndex`, not the loop position: `validateRequest` may have dropped
+  // entries, and the control plane resolves every index it gets back against
+  // the batch it sent.
+  for (const delegation of request.delegations) {
+    const index = delegation.requestIndex;
     // Out of budget. Reported as a failure rather than a silent stop: if
     // nothing was consulted this becomes `unavailable`, which is the honest
     // answer — "we ran out of time" is not "VRCLinking says no".
@@ -222,7 +231,10 @@ export async function verifyLinkage({
       // provider lookup's own deadline, so an unbounded resolution here ran
       // past the fan-out budget and past the caller's timeout, and the lookup
       // that followed spent provider quota on an answer nobody could receive.
-      token = await withDeadline(resolveSecret(delegation.secretRef), deadline - now());
+      token = await withDeadline(
+        resolveSecret(delegation.secretRef, delegation.generation),
+        deadline - now(),
+      );
     } catch (error) {
       failures.push(
         error instanceof SecretResolutionError ? error.reason : "secret_resolution_failed",
@@ -263,17 +275,22 @@ export async function verifyLinkage({
       // rotation take the full cache TTL to take effect, and every attempt in
       // that window burns the claimant's cooldown for nothing.
       if (reason === "credential_rejected") {
-        resolveSecret.invalidate?.(delegation.secretRef);
+        resolveSecret.invalidate?.(delegation.secretRef, delegation.generation);
       }
 
       failures.push(reason);
       continue;
     }
 
-    consulted = true;
+    // The audit stamp records that this delegation's credential was spent on a
+    // provider call, which is true whatever came back. `consulted` is a
+    // different claim — that the provider made a statement this adapter can
+    // read — and is set below, once that is actually known.
     consultedIndexes.push(index);
 
     if (member === null || member === undefined) {
+      // A usable answer: the provider looked and reports no such linked member.
+      consulted = true;
       continue;
     }
 
@@ -289,6 +306,13 @@ export async function verifyLinkage({
       failures.push("schema_drift");
       continue;
     }
+
+    // Only now. Setting this before the check above made the drift branch
+    // decorative: with drift on the only delegation, `failures` was non-empty
+    // but `consulted` was already true, so the caller got a 200 negative and
+    // the claimant was told no server confirmed their account — the exact
+    // outcome the check exists to prevent.
+    consulted = true;
 
     if (member.isVerified === true && member.vrcId === request.targetExternalId) {
       return {
