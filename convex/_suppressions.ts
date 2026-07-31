@@ -2,6 +2,7 @@ import { ConvexError } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
+import { getProfileFieldVisibility } from "./_profileFieldVisibility";
 import { createProfileSortName } from "./_profileSubmissions";
 
 export type SuppressionIdentity = {
@@ -183,4 +184,24 @@ export async function assertIdentityNotSuppressed(
   if (await hasAcceptedSuppression(db, identity)) {
     throw new ConvexError({ code: IDENTITY_SUPPRESSED_ERROR_CODE, message });
   }
+}
+
+/**
+ * Names a profile actually surfaces publicly.
+ *
+ * `aliases` respect `fieldVisibility.aliases`: a private alias is omitted by both
+ * `toPublicProfile` and `createProfileSearchDocument`, so treating it as a
+ * surfaced identity would retract an unrelated public profile over data nobody can
+ * see. `searchAliases` are always indexed, so they always count.
+ */
+export function surfacedProfileNames(
+  profile: Pick<Doc<"profiles">, "displayName" | "aliases" | "searchAliases" | "fieldVisibility">,
+): string[] {
+  const aliasesAreVisible = getProfileFieldVisibility(profile, "aliases") !== "private";
+
+  return [
+    profile.displayName,
+    ...(aliasesAreVisible ? profile.aliases : []),
+    ...(profile.searchAliases ?? []),
+  ];
 }

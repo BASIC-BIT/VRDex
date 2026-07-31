@@ -6,6 +6,7 @@ import { internalMutation, mutation, type MutationCtx } from "./_generated/serve
 import { activeBrowserSessionSubjectOrNull } from "./_browserSessionAuthority";
 import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 import { createProfileSortName, normalizeProfileInlineText } from "./_profileSubmissions";
+import { surfacedProfileNames } from "./_suppressions";
 import {
   createProfileSearchDocument,
   createWorldSearchDocument,
@@ -58,7 +59,11 @@ export const requestProfileSuppression = mutation({
     const profile = slugValidation ? await getProfileBySlug(ctx.db, slugValidation.slug) : null;
     const displayName = optionalText(args.displayName ?? profile?.displayName, 120);
 
-    if (profile === null && displayName === undefined) {
+    // A validated slug counts even when no profile holds it yet. The pre-claim case
+    // is precisely "this slug is about me, do not let it be taken", and the
+    // publication guards and retraction resolver both honour slug-only requests --
+    // requiring a *resolved* profile made that documented shape impossible to file.
+    if (profile === null && displayName === undefined && slugValidation === undefined) {
       throw new Error("Suppression requests need a profile slug or display name.");
     }
 
@@ -167,15 +172,8 @@ async function resolveSuppressionTargetPage(
     .query("profiles")
     .withIndex("by_profileType_sortName", (query) => query.eq("profileType", encodedType))
     .paginate({ numItems: PROFILE_RETRACTION_PAGE_SIZE, cursor: innerCursor });
-  const matches = result.page.filter(
-    (profile) =>
-      profile.sortName === sortName ||
-      // searchAliases too: createProfileSearchDocument puts them in searchText and
-      // exactTokens, so a profile carrying the identity only there stays findable
-      // by it even though nothing on the page shows it.
-      [...profile.aliases, ...(profile.searchAliases ?? [])].some(
-        (alias) => createProfileSortName(alias) === sortName,
-      ),
+  const matches = result.page.filter((profile) =>
+    surfacedProfileNames(profile).some((name) => createProfileSortName(name) === sortName),
   );
 
   if (!result.isDone) {

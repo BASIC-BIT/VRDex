@@ -332,10 +332,12 @@ Notes:
   `_profileClaimCreation`, and display-name changes through
   `profiles:updateProfileForApiOwner`. Creating a profile is not the only way to
   surface one — renaming does it without creating anything — so the check belongs
-  with the act of surfacing. Aliases *and* `searchAliases` count as names
-  everywhere this is checked, because `createProfileSearchDocument` puts search
-  aliases into `searchText` and `exactTokens`: a profile carrying the identity only
-  there stays findable by it while nothing on the page shows it. Otherwise --
+  with the act of surfacing. `surfacedProfileNames` decides what counts: the
+  display name, `aliases` when `fieldVisibility.aliases` is not `private`, and
+  `searchAliases` always, since `createProfileSearchDocument` indexes those into
+  `searchText` and `exactTokens` regardless. A private alias is omitted by both the
+  public projection and the search document, so treating it as a surfaced identity
+  would retract an unrelated profile over data nobody can see. Otherwise --
   submission, claim creation, API updates including alias-only ones, both seed
   gates, the publication migration, and retraction target resolution -- since a
   write could otherwise carry an unrelated display name and put the suppressed one
@@ -372,13 +374,17 @@ Notes:
   therefore does not remove its name from events it hosts or performs at.
   Suppressing either needs a decision about what an event should display instead,
   which is public copy and needs owner sign-off.
-- Known limitation: neither retraction nor publication reconciles
-  `vocabularyTerms`. `recordVocabularyTerms` only ever increments, so a tag or
-  genre contributed by a retracted profile keeps its usage count, and a creator
-  role that was hidden while a profile was private stays missing from discovery
-  facets until an unrelated full rebuild. The reindex deliberately does not replay
-  vocabulary — that would inflate counts on every pass rather than fix them.
-  Reference-counted vocabulary is a separate change.
+- Seed publication reconciles `vocabularyTerms` in both directions: a merge records
+  terms it introduces and releases terms it removes, so replacing a visible tag no
+  longer leaves the old one inflated.
+- Known limitation: retraction still does not reconcile `vocabularyTerms`, and the
+  wider model is not reference-counted — `releaseVocabularyTerms` floors at zero
+  precisely because a shared term has no owner. A tag contributed by a retracted
+  profile keeps its usage count, and a creator role hidden while a profile was
+  private stays missing from discovery facets until a full rebuild. The world
+  reindex deliberately does not replay vocabulary, which would inflate counts on
+  every pass rather than fix them. Reference-counted vocabulary is a separate
+  change.
 
 ## Lookup Grants
 

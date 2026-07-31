@@ -190,7 +190,11 @@ export const updateProfileForApiOwner = internalMutation({
       await assertIdentityNotSuppressed(
         ctx.db,
         {
-          slugs: renamesProfile ? [createProfileSlugBase(proposedDisplayName)] : [],
+          // No slug: applyApiProfileUpdate patches displayName and sortName only, so
+          // this path never occupies a slug derived from the new name. Checking one
+          // would reject an unrelated /p/bob owner renaming to a name whose base
+          // slug happens to be suppressed.
+          slugs: [],
           displayNames: [proposedDisplayName, ...(args.aliases ?? profile.aliases)],
           profileType: profile.profileType,
         },

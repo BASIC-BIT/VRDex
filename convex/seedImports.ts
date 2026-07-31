@@ -7,8 +7,12 @@ import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from
 import { createProfileSortName } from "./_profileSubmissions";
 import { createProfileSearchDocument, upsertSearchDocument, vocabularyForProfile } from "./_searchDocuments";
 import { buildConciergeProfileFieldPatch, isLiveHandoffInvitation } from "./_seedHandoffs";
-import { hasAcceptedSuppression } from "./_suppressions";
-import { createVocabularyKey, recordVocabularyTerms } from "./_vocabulary";
+import { hasAcceptedSuppression, surfacedProfileNames } from "./_suppressions";
+import {
+  createVocabularyKey,
+  recordVocabularyTerms,
+  releaseVocabularyTerms,
+} from "./_vocabulary";
 import {
   FAKE_SEED_IMPORT_FIXTURE_KEY,
   FAKE_SEED_IMPORT_FIXTURES,
@@ -674,13 +678,7 @@ async function queueCandidate(ctx: MutationCtx, args: QueueCandidateArgs) {
       displayNames: [
         candidate.proposedDisplayName,
         ...acceptedAliasNames(fields),
-        ...(matchedProfile === null
-          ? []
-          : [
-              matchedProfile.displayName,
-              ...matchedProfile.aliases,
-              ...(matchedProfile.searchAliases ?? []),
-            ]),
+        ...(matchedProfile === null ? [] : surfacedProfileNames(matchedProfile)),
       ],
       profileType: candidate.profileType,
       ...optionalValue("acceptedRequests", args.acceptedRequests),
@@ -788,9 +786,16 @@ export const setBatchPublicationPolicy = internalMutation({
     // The note shares the authorization patch's idempotency signal, so a retry
     // after a lost response does not append a duplicate policy line and trim away
     // earlier source and review context.
+    // A revocation is idempotent too: re-running the same private_only change with
+    // the same reason should not append a second audit line and trim older context.
+    const alreadyAtRequestedPolicy =
+      (batch.publicationPolicy ?? "private_only") === args.publicationPolicy;
+    const existingAuthorizations = batch.publicationAuthorizations ?? [];
+    const latestAuthorization = existingAuthorizations[existingAuthorizations.length - 1];
     const recordsNewAuthorization =
-      args.publicationPolicy !== "reviewed_publication_allowed" ||
-      Object.keys(authorizationPatch).length > 0;
+      args.publicationPolicy === "reviewed_publication_allowed"
+        ? Object.keys(authorizationPatch).length > 0
+        : !(alreadyAtRequestedPolicy && latestAuthorization?.reason === reason);
 
     await ctx.db.patch(batch._id, {
       publicationPolicy: args.publicationPolicy,
@@ -901,13 +906,7 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
       displayNames: [
         candidate.proposedDisplayName,
         ...acceptedAliasNames(fields),
-        ...(matchedProfile === null
-          ? []
-          : [
-              matchedProfile.displayName,
-              ...matchedProfile.aliases,
-              ...(matchedProfile.searchAliases ?? []),
-            ]),
+        ...(matchedProfile === null ? [] : surfacedProfileNames(matchedProfile)),
       ],
       profileType: candidate.profileType,
       ...optionalValue("acceptedRequests", args.acceptedRequests),
@@ -966,12 +965,14 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
       matchedProfile !== null &&
       matchedProfile.publicationState === "published" &&
       matchedProfile.publicSurfacingState === "public";
-    const vocabularyBefore = new Set(
+    const vocabularyBeforeCandidates =
       matchedProfileWasPublic && matchedProfile !== null
-        ? vocabularyForProfile(matchedProfile).map(
-            (candidate) => `${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`,
-          )
-        : [],
+        ? vocabularyForProfile(matchedProfile)
+        : [];
+    const vocabularyBefore = new Set(
+      vocabularyBeforeCandidates.map(
+        (candidate) => `${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`,
+      ),
     );
 
     if (matchedProfile !== null) {
@@ -1020,18 +1021,29 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
       throw new Error("Unable to load published profile.");
     }
 
-    // Only vocabulary this publication actually introduced. recordVocabularyTerms
-    // increments unconditionally, so replaying an existing profile's whole
-    // vocabulary on a merge inflates counts for terms nothing changed -- and
-    // several candidates matched to one profile compound it.
-    const introducedVocabulary = vocabularyForProfile(profile).filter(
+    // Both directions of the delta. recordVocabularyTerms only increments, so
+    // replaying an unchanged set inflates counts, and a merge that replaces a
+    // visible tag would leave the old term's count inflated forever while the
+    // search document correctly drops it.
+    const vocabularyAfter = vocabularyForProfile(profile);
+    const afterKeys = new Set(
+      vocabularyAfter.map(
+        (candidate) => `${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`,
+      ),
+    );
+    const introducedVocabulary = vocabularyAfter.filter(
       (candidate) =>
         !vocabularyBefore.has(`${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`),
+    );
+    const removedVocabulary = vocabularyBeforeCandidates.filter(
+      (candidate) =>
+        !afterKeys.has(`${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`),
     );
 
     await Promise.all([
       upsertSearchDocument(ctx.db, createProfileSearchDocument(profile)),
       recordVocabularyTerms(ctx.db, introducedVocabulary, now),
+      releaseVocabularyTerms(ctx.db, removedVocabulary, now),
     ]);
 
     await ctx.db.patch(candidate._id, {

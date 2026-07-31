@@ -9,7 +9,7 @@ import {
   vocabularyForProfile,
 } from "./_searchDocuments";
 import { isLiveHandoffInvitation } from "./_seedHandoffs";
-import { hasAcceptedSuppression } from "./_suppressions";
+import { hasAcceptedSuppression, surfacedProfileNames } from "./_suppressions";
 import { recordVocabularyTerms } from "./_vocabulary";
 
 type LegacyProfile = Doc<"profiles"> & {
@@ -146,13 +146,8 @@ export const publishGatedProfiles = migrations.define({
     const suppressed = await hasAcceptedSuppression(ctx.db, {
       profileId: profile._id,
       slugs: [profile.slug],
-      // Aliases too: they default to public, so publishing a legacy profile whose
-      // aliases carry a suppressed identity would expose and index it.
-      displayNames: [
-        profile.displayName,
-        ...profile.aliases,
-        ...(profile.searchAliases ?? []),
-      ],
+      // Every name this profile would surface, respecting alias field visibility.
+      displayNames: surfacedProfileNames(profile),
       profileType: profile.profileType,
     });
 
