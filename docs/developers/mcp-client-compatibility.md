@@ -607,28 +607,18 @@ temporary reviewed smoke client through the same helper below when
 anonymous/data/DCR/CIMD evidence runnable even when reviewed OAuth smoke
 credentials and helper prerequisites are absent.
 
-When staging E2E auth helpers are enabled but those repository secrets have not
-yet been installed, an operator can mint a temporary reviewed smoke client
-through the normal hosted developer app flow:
+When those repository secrets have not yet been installed, an operator used to
+mint a temporary reviewed smoke client with
+`pnpm ops:mcp-oauth-smoke-credentials`. **That command is unavailable and exits
+non-zero.** It created its temporary account through the email/password sign-up
+form and `/api/e2e/auth`, both removed by the Clerk cutover.
 
-```sh
-VRDEX_E2E_BROWSER_TOKEN="<browser-token>" \
-  pnpm ops:mcp-oauth-smoke-credentials -- \
-    --base-url https://staging.vrdex.net
-```
-
-The helper creates a verified E2E account through the existing gated auth
-helpers, creates a confidential OAuth app with `client_credentials` and
-`mcp:read`, verifies token issuance, authenticates an MCP `tools/list` request
-with the issued bearer token, and writes ignored PowerShell/Bash env files under
-`.tmp-gh-artifacts/mcp-oauth-smoke-credentials/`. It prints the
-client id and file paths only; the one-time client secret is written only to the
-ignored env files. Source the generated env file, then run the Claude Code and
-Inspector hosted OAuth smokes before recording the two matrix rows. The helper
-fails closed unless the hosted target has `VRDEX_ENABLE_E2E_HELPERS`,
-`VRDEX_ENABLE_E2E_AUTH_HELPERS`, the matching browser token, and the server-side
-E2E Convex secret configured. It refuses production origins unless
-`--allow-production` is passed for an explicit emergency operator run.
+Until it is ported to Clerk testing credentials (#226), register a confidential
+OAuth app by hand with `client_credentials` and `mcp:read`, then export its
+credentials as `VRDEX_MCP_OAUTH_CLIENT_ID` and `VRDEX_MCP_OAUTH_CLIENT_SECRET`
+— or supply an already-issued bearer token as
+`VRDEX_MCP_INSPECTOR_OAUTH_TOKEN` — before running the Claude Code and
+Inspector hosted OAuth smokes and recording the two matrix rows.
 
 Before dispatching the workflow for hosted OAuth evidence, audit the repository
 prerequisites:

@@ -183,7 +183,19 @@ export function sanitizePostHogEvent<T extends CapturedEvent>(event: T): T {
  * `sanitizeAnalyticsUrl`, so handoff tokens and claim slugs never reach
  * PostHog. Removing either protection would leak credentials into replays.
  */
-export const SESSION_REPLAY_MASKED_SELECTOR = "[data-ph-no-capture]";
+export const SESSION_REPLAY_MASKED_SELECTOR = [
+  "[data-ph-no-capture]",
+  // Clerk renders its profile and auth surfaces into a body-level portal, so
+  // they sit outside every `data-ph-no-capture` wrapper in the app tree. That
+  // modal shows the account email, linked identities, and signed-in device
+  // details — exactly the material the marked regions exist to keep out of
+  // replays — and the markup is provider-controlled, so it cannot be annotated
+  // from here. Masked by selector instead.
+  ".cl-modalContent",
+  ".cl-userProfile-root",
+  ".cl-userButtonPopoverCard",
+  ".cl-card",
+].join(", ");
 
 export type DiscoveryAnalyticsSurface =
   | "featured"

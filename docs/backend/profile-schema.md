@@ -155,12 +155,16 @@ Current recommendation:
 
 ## Ownership And Claim Tables
 
-Convex Auth provides the `users` and `authAccounts` tables used by account and provider-link flows.
+Clerk provides authentication. `users` is VRDex's own table and remains the
+identity spine every `v.id("users")` foreign key points at; `clerkUserId` links a
+row to its Clerk identity. There is no `authAccounts` table — connected sign-in
+providers live in Clerk. See
+[`auth-sessions.md`](./auth-sessions.md).
 
 `profileOwners` stores durable profile authority:
 
 - `profileId`: profile receiving ownership
-- `userId`: Convex Auth user that owns the profile
+- `userId`: VRDex user that owns the profile
 - `roleKey`: currently the singleton literal `owner`
 - `state`: `"active" | "revoked"`
 - `grantedByClaimRequestId`: optional claim request that granted ownership
@@ -289,9 +293,11 @@ Convex schema validation cannot enforce conditional timestamp invariants, so pro
 
 Locked decision: `profiles:submitCommunityProfile` is the public community-submitted unclaimed write path. It requires `ctx.auth.getUserIdentity()` to return a signed-in identity, generates the slug server-side, publishes the profile as `creationSource: "community"` plus `claimState: "unclaimed"`, and stores narrow source attribution for later moderation and display decisions.
 
-Current recommendation: `profileClaims:createClaimedDiscordPersonProfile` and `profileClaims:createClaimedDiscordCommunityProfile` are the explicit Discord no-match creation paths. They require Convex auth, verified email, a linked Discord account, and caller confirmation that no suitable unclaimed match exists. They create self-authored public profiles, record an approved Discord claim request, grant singleton owner authority, and leave the profile at `claimed_unverified`.
+Current recommendation: `profileClaims:createClaimedDiscordPersonProfile` and `profileClaims:createClaimedDiscordCommunityProfile` are the explicit Discord no-match creation paths. They require Convex auth, verified email, a Discord identity VRDex has itself verified, and caller confirmation that no suitable unclaimed match exists. They create self-authored public profiles, record an approved Discord claim request, grant singleton owner authority, and leave the profile at `claimed_unverified`.
 
-Current recommendation: Discord community Administrator verification remains the stronger server-authority path for community profiles. A linked Discord account alone can create and control a new community profile, but it does not prove server administration and must not set `claimed_verified` by itself.
+Current recommendation: Discord community Administrator verification remains the stronger server-authority path for community profiles. A verified Discord identity alone can create and control a new community profile, but it does not prove server administration and must not set `claimed_verified` by itself.
+
+"Verified Discord identity" means a `discordVerificationWatermarks` row VRDex wrote through its own purpose-scoped OAuth round-trip — not a Discord sign-in method linked in Clerk. Clerk owns which providers an account can sign in with, and that says nothing about control of a Discord identity, so the two are deliberately unrelated. `accounts:getLinkedProviderAccount` reads the watermark.
 
 The claimed-owner field visibility path is `profilePrivacy:updateFieldVisibility`. It requires an active profile owner, stores non-public field overrides on `profiles.fieldVisibility`, treats omitted or explicit `public` fields as the public default, patches `updatedAt`, and refreshes the profile search document so discovery follows the new field visibility.
 

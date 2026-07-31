@@ -34,11 +34,4 @@ crons.hourly(
   {},
 );
 
-crons.interval(
-  "expire abandoned recent authentication challenges",
-  { minutes: 10 },
-  internal.recentAuthChallenges.expireAbandoned,
-  {},
-);
-
 export default crons;

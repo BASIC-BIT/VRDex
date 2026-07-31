@@ -192,6 +192,12 @@ export function ClaimFlow({
   // one for a second VRChat group or account. Excluding them left that
   // instruction pointing at a page that rendered nothing but "already managed".
   const isVerifiedViewer = context?.ownership === "viewer" && context.verified;
+  // The existing-owner upgrade branch renders VRChat and, when configured,
+  // VRCLinking — never the Discord quick-claim, which has nothing to offer
+  // someone who already owns the profile. The card grid below keys off the same
+  // condition, so it also decides whether a Discord affordance is reachable.
+  const isOwnerUpgradeBranch =
+    (isUnverifiedViewer || isVerifiedViewer) && profile.profileType === "person";
   const canUseClaimJourney =
     context?.ownership === "available" || isUnverifiedViewer || isVerifiedViewer;
   // The OAuth round-trip remounts this component with no selection, so the
@@ -597,7 +603,7 @@ export function ClaimFlow({
       <Link2 aria-hidden="true" className="mb-2 size-5 text-accent" />
       Ask a community that already links your Discord and VRChat accounts, instead of posting a
       code. Grants ownership.
-      {vrclinkingMethodBlocked ? " Link Discord from your account first." : ""}
+      {vrclinkingMethodBlocked ? " Verify your Discord account first." : ""}
     </MethodCard>
   );
   const discordMethodCard = (
@@ -613,7 +619,7 @@ export function ClaimFlow({
       {profile.profileType === "person"
         ? "Fast access with your linked account. This claims the profile but does not verify that it represents you."
         : "Confirm you own, administer, or manage the community’s Discord server. Grants ownership."}
-      {discordMethodBlocked ? " Link Discord from your account first." : ""}
+      {discordMethodBlocked ? " Verify your Discord account first." : ""}
     </MethodCard>
   );
 
@@ -820,8 +826,8 @@ export function ClaimFlow({
                       both prove control and both count as an upgrade. Leaving
                       VRCLinking out of this branch stranded exactly the owners
                       the quick-claim path creates unverified. */}
-                  <div className={cn("mt-4 grid gap-3", (isUnverifiedViewer || isVerifiedViewer) && profile.profileType === "person" && !vrclinkingAvailable ? undefined : "sm:grid-cols-2")}>
-                    {(isUnverifiedViewer || isVerifiedViewer) && profile.profileType === "person" ? (
+                  <div className={cn("mt-4 grid gap-3", isOwnerUpgradeBranch && !vrclinkingAvailable ? undefined : "sm:grid-cols-2")}>
+                    {isOwnerUpgradeBranch ? (
                       <>
                         {vrchatMethodCard}
                         {vrclinkingAvailable ? vrclinkingMethodCard : null}
@@ -834,9 +840,29 @@ export function ClaimFlow({
                       </>
                     )}
                   </div>
-                  {!isUnverifiedViewer && !isVerifiedViewer && discordMethodBlocked ? (
-                    <Link className="mt-3 inline-block text-sm underline underline-offset-4" href="/account">
-                      Review sign-in methods
+                  {/* Points at the purpose-scoped round-trip, not `/account`.
+                      `hasDiscord` is a VRDex verification watermark now, and the
+                      only thing that writes one is this OAuth flow. `/account`
+                      opens Clerk's profile, where linking Discord as a sign-in
+                      method writes nothing VRDex reads — so sending a blocked
+                      claimant there left them looping: link Discord, come back,
+                      still blocked, no other affordance on the page.
+
+                      Each term is gated on its card actually being rendered.
+                      The owner-upgrade branch omits the Discord card entirely,
+                      so `discordMethodBlocked` alone would offer verification
+                      that unlocks nothing visible — which is what happens for an
+                      existing owner wherever VRCLinking is unconfigured, the
+                      repository default. */}
+                  {(!isOwnerUpgradeBranch && discordMethodBlocked) ||
+                  (vrclinkingAvailable && vrclinkingMethodBlocked) ? (
+                    <Link
+                      className={cn(buttonVariants({ variant: "secondary" }), "mt-3")}
+                      href={discordVerifyHref}
+                    >
+                      {discordVerifyState === "verified"
+                        ? "Check Discord again"
+                        : "Verify with Discord"}
                     </Link>
                   ) : null}
                 </fieldset>

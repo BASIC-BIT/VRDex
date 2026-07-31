@@ -1,66 +1,38 @@
 import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { ConvexError } from "convex/values";
 
-import {
-  AUTH_SESSION_INVALID_CODE,
-  requireActiveAuthSession,
-} from "./_authSessionGuard";
+import { currentUserOrNull, identityEmailVerified, requireUser } from "./_identity";
 import { toAuthSubject } from "./_communityAuthority";
 
 type BrowserSessionCtx = MutationCtx | QueryCtx;
 
+/**
+ * Browser identity for claim-level and account-level code. Clerk is the session
+ * authority now, so there is no separate session record to validate: a token
+ * Convex accepted is live, and a revoked or expired one produces no identity at
+ * all. That collapses the old "revoked" state into "anonymous" and removes the
+ * try/catch this file used to need.
+ *
+ * The exported surface is unchanged so the ~18 modules importing it — claim
+ * flows, profiles, events, seeds, short links, telemetry — need no edits.
+ */
 export async function activeBrowserSessionOrNull(ctx: BrowserSessionCtx) {
-  const identity = await ctx.auth.getUserIdentity();
+  const user = await currentUserOrNull(ctx);
 
-  if (identity === null) {
-    return null;
-  }
-
-  try {
-    return await requireActiveAuthSession(ctx);
-  } catch (error) {
-    if (
-      error instanceof ConvexError &&
-      typeof error.data === "object" &&
-      error.data !== null &&
-      "code" in error.data &&
-      error.data.code === AUTH_SESSION_INVALID_CODE
-    ) {
-      return null;
-    }
-    throw error;
-  }
-}
-
-export async function browserSessionState(ctx: BrowserSessionCtx) {
-  const identity = await ctx.auth.getUserIdentity();
-
-  if (identity === null) {
-    return "anonymous" as const;
-  }
-
-  return (await activeBrowserSessionOrNull(ctx)) === null
-    ? ("revoked" as const)
-    : ("active" as const);
+  return user === null ? null : { user, userId: user._id };
 }
 
 export async function activeBrowserSessionSubjectOrNull(
   ctx: BrowserSessionCtx,
 ) {
-  const activeSession = await activeBrowserSessionOrNull(ctx);
-  if (activeSession === null) {
-    return null;
-  }
   const identity = await ctx.auth.getUserIdentity();
-  if (identity === null) {
+  const activeSession = await activeBrowserSessionOrNull(ctx);
+
+  if (identity === null || activeSession === null) {
     return null;
   }
 
-  return {
-    ...activeSession,
-    subject: toAuthSubject(identity),
-  };
+  return { ...activeSession, subject: toAuthSubject(identity) };
 }
 
 export async function requireActiveBrowserSessionSubject(
@@ -73,7 +45,7 @@ export async function requireActiveBrowserSessionSubject(
   }
 
   return {
-    ...(await requireActiveAuthSession(ctx)),
+    ...(await requireUser(ctx)),
     subject: toAuthSubject(identity),
   };
 }
@@ -81,9 +53,11 @@ export async function requireActiveBrowserSessionSubject(
 export async function requireActiveVerifiedEmailUser(
   ctx: BrowserSessionCtx,
 ): Promise<Doc<"users">> {
-  const { user } = await requireActiveAuthSession(ctx);
+  const { user } = await requireUser(ctx);
 
-  if (user.email === undefined || user.emailVerificationTime === undefined) {
+  // Same reasoning as `accounts.requireVerifiedEmailUser`: the Clerk claim is
+  // authoritative, the mirrored timestamp can lag.
+  if (user.email === undefined || !(await identityEmailVerified(ctx))) {
     throw new Error(
       "A verified email address is required before claim-level actions.",
     );

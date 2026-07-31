@@ -236,14 +236,13 @@ describe("API/MCP rollout readiness checker", () => {
     assert.match(previewWorkflow, /HOSTED_E2E_DEVELOPER_CREDENTIALS: \$\{\{ vars\.VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS \}\}/);
     assert.match(previewWorkflow, /HOSTED_E2E_BROWSER_TOKEN: \$\{\{ secrets\.VRDEX_HOSTED_E2E_BROWSER_TOKEN \}\}/);
     assert.match(previewWorkflow, /::add-mask::\$e2e_convex_secret/);
-    assert.match(previewWorkflow, /generate-convex-auth-preview-keys\.mjs/);
     assert.match(previewWorkflow, /generate-preview-developer-runtime-secrets\.mjs/);
-    assert.match(previewWorkflow, /::add-mask::\$jwt_private_key/);
-    assert.match(previewWorkflow, /::add-mask::\$jwks/);
     assert.match(previewWorkflow, /convex env set --preview-name "\$PREVIEW_NAME" VRDEX_ENABLE_E2E_AUTH_HELPERS/);
     assert.match(previewWorkflow, /convex env set --preview-name "\$PREVIEW_NAME" VRDEX_E2E_CONVEX_SECRET/);
-    assert.match(previewWorkflow, /convex env set --preview-name "\$PREVIEW_NAME" JWT_PRIVATE_KEY/);
-    assert.match(previewWorkflow, /convex env set --preview-name "\$PREVIEW_NAME" JWKS/);
+    // Clerk signs the tokens Convex trusts, so the preview provisions the issuer
+    // rather than minting its own RS256 pair.
+    assert.match(previewWorkflow, /convex env set --preview-name "\$PREVIEW_NAME" CLERK_JWT_ISSUER_DOMAIN/);
+    assert.doesNotMatch(previewWorkflow, /JWT_PRIVATE_KEY|JWKS/);
     assert.match(
       previewWorkflow,
       /convex env set --preview-name "\$PREVIEW_NAME" VRDEX_ENABLE_PREVIEW_OAUTH_TOKEN_BRIDGE/,

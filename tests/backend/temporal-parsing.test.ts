@@ -15,6 +15,7 @@ import {
   temporalProviderRetryDelayMs,
 } from "../../convex/temporalParsingActions";
 
+import { newClerkUserId } from "./_clerkTestIdentity";
 const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
   "../../convex/temporalParsing.ts": () => import("../../convex/temporalParsing"),
@@ -32,7 +33,9 @@ const actor = {
 async function createAuthorizedUser(t: ReturnType<typeof convexTest>, suffix: string) {
   return await t.run(async (ctx) => {
     const now = Date.now();
+    const clerkUserId = newClerkUserId();
     const userId = await ctx.db.insert("users", {
+      clerkUserId: clerkUserId,
       name: `Temporal ${suffix}`,
       email: `${suffix}@example.test`,
       emailVerificationTime: now,
@@ -105,6 +108,7 @@ describe("temporal parsing control plane", () => {
   it("requires the closed-beta account grant", async () => {
     const t = convexTest({ schema, modules });
     const userId = await t.run((ctx) => ctx.db.insert("users", {
+      clerkUserId: newClerkUserId(),
       name: "Unapproved parser",
       email: "unapproved@example.test",
       emailVerificationTime: Date.now(),

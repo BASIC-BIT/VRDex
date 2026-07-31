@@ -2,7 +2,14 @@
 
 ## Current Recommendation
 
-Use Amazon SES for Convex Auth password and email verification messages.
+**Retired for authentication.** Clerk sends its own verification and password
+email, so SES is no longer part of sign-in — see
+[`auth-sessions.md`](../backend/auth-sessions.md).
+
+The stack below is kept because the domain identity and DKIM records are
+reusable, and because nothing should delete production DNS on the strength of
+one migration. Do not wire it back into an auth flow. Check whether any other
+feature has adopted SES before removing the infrastructure.
 
 The Terraform stack at `infra/terraform/ses` provisions the SES domain identity, DKIM, custom MAIL FROM records, and an optional least-privilege IAM access key for Convex.
 

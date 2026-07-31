@@ -20,6 +20,14 @@ temporal_input_hash_key = "REPLACE_WITH_A_BASE64_ENCODED_32_BYTE_SECRET"
 twitch_client_id     = null
 twitch_client_secret = null
 
+# Optional. Clerk instances are per-environment: production takes the live pair,
+# preview and staging take the development instance's test pair. Leave null to
+# leave whatever is already set in the Vercel dashboard untouched.
+clerk_production_publishable_key = null
+clerk_production_secret_key      = null
+clerk_preview_publishable_key    = null
+clerk_preview_secret_key         = null
+
 manage_production_environment = true
 manage_preview_environment    = true
 

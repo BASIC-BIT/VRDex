@@ -63,12 +63,6 @@ function normalizeE2eEmail(email: string) {
   return normalized;
 }
 
-async function deleteE2eAuthCodes(ctx: MutationCtx, email: string) {
-  const codes = await ctx.db.query("e2eAuthCodes").withIndex("by_email", (query) => query.eq("email", email)).collect();
-
-  await Promise.all(codes.map((code) => ctx.db.delete(code._id)));
-}
-
 async function deleteE2eProfile(ctx: MutationCtx, profile: Doc<"profiles">) {
   if (!profile.sourceAttribution?.submitter.tokenIdentifier.startsWith("e2e:")) {
     throw new Error("Only E2E-created profiles can be cleaned up by this helper.");
@@ -110,17 +104,15 @@ async function userByEmail(ctx: MutationCtx, email: string) {
 async function cleanupE2eUserByEmail(ctx: MutationCtx, email: string) {
   const user = await userByEmail(ctx, email);
 
-  await deleteE2eAuthCodes(ctx, email);
-
   if (user === null) {
     return { deleted: false };
   }
 
   await cleanupE2eDeveloperCredentials(ctx, user._id);
 
-  const [accounts, sessions, claimRequests, verificationAttempts, profileOwners, controlProofs] = await Promise.all([
-    ctx.db.query("authAccounts").withIndex("userIdAndProvider", (query) => query.eq("userId", user._id)).collect(),
-    ctx.db.query("authSessions").withIndex("userId", (query) => query.eq("userId", user._id)).collect(),
+  // Clerk owns accounts and sessions, so there are no auth tables left to
+  // sweep. The Clerk-side test user is torn down by the Playwright fixture.
+  const [claimRequests, verificationAttempts, profileOwners, controlProofs, discordWatermarks] = await Promise.all([
     ctx.db.query("profileClaimRequests").withIndex("by_userId_state", (query) => query.eq("userId", user._id)).collect(),
     ctx.db.query("profileVerificationAttempts").withIndex("by_userId_state", (query) => query.eq("userId", user._id)).collect(),
     ctx.db.query("profileOwners").withIndex("by_userId_state", (query) => query.eq("userId", user._id)).collect(),
@@ -129,23 +121,15 @@ async function cleanupE2eUserByEmail(ctx: MutationCtx, email: string) {
     // state, not just `active`: OAuth reconciliation revokes rows and the
     // hourly sweep marks them stale, and both survived an active-only filter.
     ctx.db.query("externalControlProofs").withIndex("by_userId_assetType_assetExternalId", (query) => query.eq("userId", user._id)).collect(),
+    ctx.db.query("discordVerificationWatermarks").withIndex("by_userId_discordUserId", (query) => query.eq("userId", user._id)).collect(),
   ]);
-  const verificationCodes = await Promise.all(
-    accounts.map((account) => ctx.db.query("authVerificationCodes").withIndex("accountId", (query) => query.eq("accountId", account._id)).collect()),
-  );
-  const refreshTokens = await Promise.all(
-    sessions.map((session) => ctx.db.query("authRefreshTokens").withIndex("sessionId", (query) => query.eq("sessionId", session._id)).collect()),
-  );
 
   await Promise.all([
-    ...verificationCodes.flat().map((code) => ctx.db.delete(code._id)),
-    ...refreshTokens.flat().map((token) => ctx.db.delete(token._id)),
     ...claimRequests.map((claimRequest) => ctx.db.delete(claimRequest._id)),
     ...verificationAttempts.map((attempt) => ctx.db.delete(attempt._id)),
     ...profileOwners.map((owner) => ctx.db.delete(owner._id)),
     ...controlProofs.map((proof) => ctx.db.delete(proof._id)),
-    ...accounts.map((account) => ctx.db.delete(account._id)),
-    ...sessions.map((session) => ctx.db.delete(session._id)),
+    ...discordWatermarks.map((watermark) => ctx.db.delete(watermark._id)),
     ctx.db.delete(user._id),
   ]);
 
@@ -193,48 +177,6 @@ async function cleanupE2eDeveloperCredentials(ctx: MutationCtx, userId: Doc<"use
   await Promise.all(oauthApplications.map((application) => ctx.db.delete(application._id)));
 }
 
-export const recordAuthCode = internalMutation({
-  args: {
-    email: v.string(),
-    code: v.string(),
-    expiresAt: v.number(),
-  },
-  handler: async (ctx, args) => {
-    requireE2eAuthHelper();
-
-    const email = normalizeE2eEmail(args.email);
-    await deleteE2eAuthCodes(ctx, email);
-
-    return await ctx.db.insert("e2eAuthCodes", {
-      email,
-      code: args.code,
-      createdAt: Date.now(),
-      expiresAt: args.expiresAt,
-    });
-  },
-});
-
-export const consumeAuthCode = mutation({
-  args: {
-    secret: v.string(),
-    email: v.string(),
-  },
-  handler: async (ctx, args) => {
-    requireE2eAuthHelper(args.secret);
-
-    const email = normalizeE2eEmail(args.email);
-    const codes = await ctx.db.query("e2eAuthCodes").withIndex("by_email", (query) => query.eq("email", email)).collect();
-    const code = [...codes].sort((left, right) => right._creationTime - left._creationTime)[0];
-
-    if (code === undefined || code.expiresAt < Date.now()) {
-      throw new Error("No active E2E auth code found for this email.");
-    }
-
-    await Promise.all(codes.map((entry) => ctx.db.delete(entry._id)));
-
-    return { code: code.code };
-  },
-});
 
 export const linkDiscordAccountByEmail = mutation({
   args: {
@@ -261,21 +203,31 @@ export const linkDiscordAccountByEmail = mutation({
       throw new Error("Discord provider account id is required.");
     }
 
+    // Claiming reads VRDex's own Discord verification watermark rather than a
+    // sign-in provider account, so that is what this seeds.
+    const now = Date.now();
     const existing = await ctx.db
-      .query("authAccounts")
-      .withIndex("userIdAndProvider", (query) => query.eq("userId", user._id).eq("provider", "discord"))
+      .query("discordVerificationWatermarks")
+      .withIndex("by_userId_discordUserId", (query) =>
+        query.eq("userId", user._id).eq("discordUserId", providerAccountId),
+      )
       .unique();
 
     if (existing !== null) {
-      await ctx.db.patch(existing._id, { providerAccountId, emailVerified: email });
+      await ctx.db.patch(existing._id, { updatedAt: now });
       return { linked: true };
     }
 
-    await ctx.db.insert("authAccounts", {
+    await ctx.db.insert("discordVerificationWatermarks", {
       userId: user._id,
-      provider: "discord",
-      providerAccountId,
-      emailVerified: email,
+      discordUserId: providerAccountId,
+      issuedGeneration: 1,
+      appliedGeneration: 1,
+      // Stands in for a completed round-trip, so it needs the success stamp the
+      // current-identity selection ranks on.
+      appliedAt: now,
+      issuedAt: now,
+      updatedAt: now,
     });
 
     return { linked: true };
@@ -325,72 +277,6 @@ export const recordGuildControlProofByEmail = mutation({
   },
 });
 
-export const setAuthSessionStateByEmail = mutation({
-  args: {
-    secret: v.string(),
-    email: v.string(),
-    state: v.union(
-      v.literal("absolute_expired"),
-      v.literal("inactive_expired"),
-      v.literal("invalid_refresh"),
-      v.literal("revoked"),
-    ),
-    now: v.number(),
-  },
-  handler: async (ctx, args) => {
-    requireE2eAuthHelper(args.secret);
-
-    const email = normalizeE2eEmail(args.email);
-    const user = await userByEmail(ctx, email);
-
-    if (user === null) {
-      throw new Error("E2E user not found.");
-    }
-
-    const sessions = await ctx.db
-      .query("authSessions")
-      .withIndex("userId", (query) => query.eq("userId", user._id))
-      .collect();
-    const session = [...sessions].sort(
-      (left, right) => right._creationTime - left._creationTime,
-    )[0];
-
-    if (session === undefined) {
-      throw new Error("E2E auth session not found.");
-    }
-
-    const refreshTokens = await ctx.db
-      .query("authRefreshTokens")
-      .withIndex("sessionId", (query) => query.eq("sessionId", session._id))
-      .collect();
-
-    if (args.state === "absolute_expired") {
-      await ctx.db.patch(session._id, { expirationTime: args.now - 1 });
-    } else if (args.state === "inactive_expired") {
-      await Promise.all(
-        refreshTokens
-          .filter((token) => token.firstUsedTime === undefined)
-          .map((token) =>
-            ctx.db.patch(token._id, { expirationTime: args.now - 1 }),
-          ),
-      );
-    } else if (args.state === "invalid_refresh") {
-      await Promise.all(
-        refreshTokens
-          .filter((token) => token.firstUsedTime === undefined)
-          .map((token) => ctx.db.delete(token._id)),
-      );
-    } else {
-      await Promise.all(refreshTokens.map((token) => ctx.db.delete(token._id)));
-      await ctx.db.delete(session._id);
-    }
-
-    return {
-      state: args.state,
-      affectedRefreshTokens: refreshTokens.length,
-    };
-  },
-});
 
 export const cleanupAuthUserByEmail = mutation({
   args: {

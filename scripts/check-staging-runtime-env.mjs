@@ -3,7 +3,9 @@ import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
 export const STAGING_BASE_ENVIRONMENT_NAMES = Object.freeze([
+  "CLERK_SECRET_KEY",
   "CONVEX_URL",
+  "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY",
   "NEXT_PUBLIC_CONVEX_URL",
   "VRDEX_DEPLOYMENT_ENV",
   "VRDEX_E2E_BROWSER_TOKEN",

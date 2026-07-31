@@ -16,7 +16,7 @@ import {
   normalizeOAuthConsentTransactionHash,
   oauthConsentTransactionDisposition,
 } from "./_oauthConsentTransactions";
-import { requireActiveAuthSession } from "./_authSessionGuard";
+import { requireUser } from "./_identity";
 
 const transactionArgs = {
   transactionHash: v.string(),
@@ -109,7 +109,7 @@ export const create = internalMutation({
 export const get = query({
   args: transactionArgs,
   handler: async (ctx, args) => {
-    const { user } = await requireActiveAuthSession(ctx);
+    const { user } = await requireUser(ctx);
     const transactionHash = normalizeOAuthConsentTransactionHash(args.transactionHash);
     const transaction = await ctx.db
       .query("oauthConsentTransactions")

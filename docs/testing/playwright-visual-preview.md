@@ -110,15 +110,20 @@ The `@flow` Playwright test is the first mutation-backed journey. It:
 - captures screenshots for both readback pages
 - cleans up the E2E-created profile, search document, and audit event by slug
 
-The local `@flow` suite also covers the first auth/claim path without real OAuth or SES:
+The auth/claim half of that suite **currently verifies nothing.** `auth-claim.flow`,
+`auth-session.flow`, `account-sessions.flow`, and `developer-credentials.flow`
+each carry a file-level `test.skip(true, ...)`: they signed in by driving the
+email/password form and the `/api/e2e/auth` route, both removed by the Clerk
+cutover, and CI has no Clerk credentials. Playwright exits 0 on a fully skipped
+file, so nothing fails — which is exactly why this is called out here rather
+than left to be inferred from a green run.
 
-- creates an `@e2e.vrdex.local` email/password account through the sign-in UI
-- captures the one-time verification code through a token-gated E2E auth helper
-- verifies the email with Convex Auth
-- links a Discord account through a token-gated E2E helper
-- claims an E2E-created person profile through the account UI
-- verifies the public profile moves to the `Claimed` trust label
-- cleans up the test user, auth records, profile owner, claim request, and E2E profile
+Nothing about account creation, email verification, Discord linking, person
+claiming, session refresh, or developer credentials is covered until #226
+rewires these against `@clerk/testing`. The specs are skipped rather than
+deleted because the coverage is still wanted.
+
+Profile submission above is unaffected and still runs.
 
 The helper route is disabled unless all of these are true:
 
@@ -128,7 +133,7 @@ The helper route is disabled unless all of these are true:
 
 The browser token gates the Next.js helper route. The Convex secret is never sent to the browser; the server route passes it to the public Convex E2E mutations so direct Convex calls also need the matching deployment secret.
 
-Auth helper routes also require `VRDEX_ENABLE_E2E_AUTH_HELPERS=true` and only accept `@e2e.vrdex.local` emails. Local Playwright webserver runs set this automatically; hosted staging must opt in explicitly before hosted auth/claim flows run.
+The Next.js auth helper route is gone: `/api/e2e/auth` was removed with Convex Auth, and nothing in `apps/web/src` reads `VRDEX_ENABLE_E2E_AUTH_HELPERS` any more. The flag still gates the Convex-side helpers in `convex/e2e.ts`, so it is not inert — but with the browser-facing route deleted and every spec that drove it skipped, enabling it on a hosted target buys no coverage today. #226 decides what replaces the route, since `@clerk/testing` issues its own testing tokens rather than minting accounts through an app endpoint.
 
 Adapter helper routes require `VRDEX_ENABLE_E2E_ADAPTER_HELPERS=true` and are used only by Convex actions during E2E tests. Local Playwright webserver runs point Convex at local Discord and VRChat/VRCLinking adapter stubs so the UI exercises the real claim actions without real Discord, VRChat, or VRCLinking calls.
 

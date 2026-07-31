@@ -22,16 +22,21 @@ for (const route of routes) {
   });
 }
 
-test("sign-in reveals email and password on request", async ({ page }) => {
+test("sign-in offers a route to create an account", async ({ page }) => {
   await page.goto("/sign-in");
-  await expect(page.getByLabel("Email")).toHaveCount(0);
-  await expect(page.getByLabel("Password")).toHaveCount(0);
 
-  await page.getByRole("button", { name: "Use email and password" }).click();
+  // The credential fields and the progressive-disclosure button belonged to the
+  // removed VRDex form; Clerk's identifier-first UI owns them now and asserting
+  // its markup would break on any upstream change. What is still VRDex's, and
+  // still worth guarding, is that a visitor can reach account creation — the
+  // action Clerk routes to `/sign-up`, which needs its own catch-all route to
+  // exist rather than 404.
+  await expect(page.getByRole("heading", { name: "Sign in", exact: true })).toBeVisible();
 
-  await expect(page.getByLabel("Email")).toBeVisible();
-  await expect(page.getByLabel("Password")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Use email and password" })).toHaveCount(0);
+  await page.goto("/sign-up");
+  await expect(
+    page.getByRole("heading", { name: "Create account", exact: true }),
+  ).toBeVisible();
 });
 
 test("legacy discovery query redirects to search", async ({ page }) => {

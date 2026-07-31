@@ -13,6 +13,13 @@ import path from "node:path";
 
 import { authSessionMatrixIdentity } from "./auth-session-matrix-identity";
 
+
+// Skipped, not deleted: the coverage is still wanted once these run against
+// Clerk testing tokens rather than a sign-in form.
+test.skip(
+  true,
+  "Hosted E2E auth is not wired to Clerk yet: these specs signed in by driving the removed email/password form, and CI has no Clerk credentials. Tracked in #226.",
+);
 test.describe.configure({ mode: "serial" });
 
 const DAY_SECONDS = 24 * 60 * 60;

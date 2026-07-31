@@ -1,5 +1,5 @@
-import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
-import { activeAuthSessionViewerQuery } from "@/lib/server/active-auth-session";
+import { convexAuthToken } from "@/lib/server/auth";
+import { viewerQuery } from "@/lib/server/auth";
 import { convexHttpClient } from "@/lib/server/convex-http";
 import {
   completedTemporalResponse,
@@ -16,7 +16,7 @@ export async function GET(
   request: Request,
   context: { params: Promise<{ continuationToken: string }> },
 ) {
-  const authToken = await convexAuthNextjsToken();
+  const authToken = await convexAuthToken();
   if (authToken === undefined) {
     return problem(401, "Sign in required", "Sign in to continue this temporal parse.");
   }
@@ -27,7 +27,7 @@ export async function GET(
 
   const convex = convexHttpClient();
   convex.setAuth(authToken);
-  const viewer = await convex.query(activeAuthSessionViewerQuery, {});
+  const viewer = await convex.query(viewerQuery, {});
   if (viewer === null) {
     return problem(401, "Sign in required", "Sign in to continue this temporal parse.");
   }

@@ -197,12 +197,10 @@
     "yaml": "^2.8.2"
   },
   "dependencies": {
-    "@auth/core": "^0.37.4",
+    "@aws-sdk/client-secrets-manager": "^3.1055.0",
     "@aws-sdk/client-ses": "^3.1055.0",
-    "@convex-dev/auth": "^0.0.92",
     "@convex-dev/migrations": "^0.3.4",
-    "@vrdex/temporal-runtime": "workspace:*",
-    "@aws-sdk/client-secrets-manager": "^3.1055.0"
+    "@vrdex/temporal-runtime": "workspace:*"
   },
   "optionalDependencies": {
     "keytar": "7.9.0"

@@ -29,10 +29,19 @@ test("production Vercel builds require the shared rate-limit store", () => {
   assert.match(result.stderr, /VRDEX_RATE_LIMIT_REDIS_REST_TOKEN is required/);
 });
 
+// Carries the Clerk live pair because production now requires it — this test is
+// about the rate-limit contract, so it has to satisfy every other production
+// requirement to reach the accepted state.
+const productionClerkKeys = {
+  CLERK_SECRET_KEY: "sk_live_test",
+  NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_live_test",
+};
+
 test("production Vercel builds accept the Terraform-managed rate-limit contract", () => {
   const result = checkVercelEnvironment({
     VERCEL: "1",
     VERCEL_ENV: "production",
+    ...productionClerkKeys,
     VRDEX_RATE_LIMIT_REDIS_REST_TOKEN: "test-token",
     VRDEX_RATE_LIMIT_REDIS_REST_URL: "https://redis.example.test",
     VRDEX_RATE_LIMIT_STORE: "upstash",
@@ -40,6 +49,59 @@ test("production Vercel builds accept the Terraform-managed rate-limit contract"
 
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /Vercel production environment accepted/);
+});
+
+test("production Vercel builds require both Clerk keys", () => {
+  const missing = checkVercelEnvironment({
+    VERCEL: "1",
+    VERCEL_ENV: "production",
+    VRDEX_RATE_LIMIT_REDIS_REST_TOKEN: "test-token",
+    VRDEX_RATE_LIMIT_REDIS_REST_URL: "https://redis.example.test",
+    VRDEX_RATE_LIMIT_STORE: "upstash",
+  });
+
+  assert.equal(missing.status, 1);
+  assert.match(missing.stderr, /NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY is required for production/);
+  assert.match(missing.stderr, /CLERK_SECRET_KEY is required for production/);
+
+  // One key alone is the dangerous state: it mounts ClerkProvider and selects
+  // clerkMiddleware with no server-side credential, so it fails at runtime
+  // rather than falling back to unconfigured auth.
+  const halfConfigured = checkVercelEnvironment({
+    VERCEL: "1",
+    VERCEL_ENV: "preview",
+    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_test_only",
+  });
+
+  assert.equal(halfConfigured.status, 1);
+  assert.match(halfConfigured.stderr, /CLERK_SECRET_KEY is required because/);
+});
+
+test("Vercel builds reject Clerk keys from the wrong instance tier", () => {
+  const productionWithTestKeys = checkVercelEnvironment({
+    VERCEL: "1",
+    VERCEL_ENV: "production",
+    CLERK_SECRET_KEY: "sk_test_wrong",
+    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_test_wrong",
+    VRDEX_RATE_LIMIT_REDIS_REST_TOKEN: "test-token",
+    VRDEX_RATE_LIMIT_REDIS_REST_URL: "https://redis.example.test",
+    VRDEX_RATE_LIMIT_STORE: "upstash",
+  });
+
+  assert.equal(productionWithTestKeys.status, 1);
+  assert.match(productionWithTestKeys.stderr, /must be a live Clerk publishable key/);
+
+  // The quieter direction: a preview on the live tenant authenticates real
+  // users from an unreviewed deployment.
+  const previewWithLiveKeys = checkVercelEnvironment({
+    VERCEL: "1",
+    VERCEL_ENV: "preview",
+    ...productionClerkKeys,
+  });
+
+  assert.equal(previewWithLiveKeys.status, 1);
+  assert.match(previewWithLiveKeys.stderr, /must be a test Clerk publishable key/);
+  assert.match(previewWithLiveKeys.stderr, /must be a test Clerk secret key/);
 });
 
 test("production Vercel builds reject local rate-limit endpoints", () => {
