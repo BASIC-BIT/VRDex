@@ -10,6 +10,7 @@ import { canReadProfile } from "./_profilePermissions";
 import { assertIdentityNotSuppressed } from "./_suppressions";
 import {
   applyProfileFieldVisibilityUpdate,
+  assertProfilePrivacyOwner,
   listOwnedPrivacyProfiles,
 } from "./_profilePrivacy";
 import {
@@ -52,6 +53,11 @@ export const updateFieldVisibility = mutation({
     if (profile === null) {
       throw new Error("Profile not found.");
     }
+
+    // Before the suppression guard reads private aliases: a non-owner must get the
+    // ordinary owner-authority error, not IDENTITY_SUPPRESSED, which would tell them
+    // the profile stores a suppressed identity they cannot see.
+    await assertProfilePrivacyOwner(ctx.db, profile, userId);
 
     // Making a private alias visible is itself an act of surfacing. Without this,
     // an accepted name-only suppression could be bypassed by storing the name as a

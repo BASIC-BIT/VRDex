@@ -39,16 +39,21 @@ export async function listOwnedPrivacyProfiles(db: DatabaseReader, userId: Id<"u
     .sort((first, second) => first.displayName.localeCompare(second.displayName));
 }
 
+export async function assertProfilePrivacyOwner(
+  db: DatabaseReader,
+  profile: Doc<"profiles">,
+  userId: Id<"users">,
+) {
+  if (profile.claimState === "unclaimed" || !(await userOwnsProfile(db, profile._id, userId))) {
+    throw new Error("Only a claimed profile owner can update profile privacy.");
+  }
+}
+
 export async function applyProfileFieldVisibilityUpdate(
   db: DatabaseWriter,
   input: ProfilePrivacyUpdateInput,
 ) {
-  if (
-    input.profile.claimState === "unclaimed" ||
-    !(await userOwnsProfile(db, input.profile._id, input.userId))
-  ) {
-    throw new Error("Only a claimed profile owner can update profile privacy.");
-  }
+  await assertProfilePrivacyOwner(db, input.profile, input.userId);
 
   const fieldVisibility = normalizeProfileFieldVisibility(input.fieldVisibility);
 
