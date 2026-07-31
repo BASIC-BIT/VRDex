@@ -2,13 +2,11 @@ import { v } from "convex/values";
 
 import { internalMutation, query, type QueryCtx } from "./_generated/server";
 import {
-  createWorldSearchDocument,
-  getHiddenWorldAttributionProfileKeys,
+  reindexWorldSearchDocument,
   sortSearchResults,
   toPublicSearchResult,
   type SearchEntityType,
   upsertSearchDocument,
-  vocabularyForWorld,
 } from "./_searchDocuments";
 import { projectPublicSearchResult, searchPublicDocuments } from "./_publicSearch";
 import { SEEDED_VOCABULARY_TERMS, recordVocabularyTerms } from "./_vocabulary";
@@ -142,11 +140,9 @@ export const rebuildWorldSearchDocuments = internalMutation({
     const worlds = await ctx.db.query("worlds").collect();
 
     for (const world of worlds) {
-      const hiddenProfileKeys = await getHiddenWorldAttributionProfileKeys(ctx.db, world);
-      await Promise.all([
-        upsertSearchDocument(ctx.db, createWorldSearchDocument(world, { hiddenProfileKeys })),
-        recordVocabularyTerms(ctx.db, vocabularyForWorld(world, { hiddenProfileKeys }), now),
-      ]);
+      // Delta-aware, so re-running this against already-indexed worlds does not
+      // increment every existing tag and creator-role count again.
+      await reindexWorldSearchDocument(ctx.db, world, now);
     }
 
     return { indexed: worlds.length };

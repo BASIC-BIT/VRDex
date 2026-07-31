@@ -686,15 +686,16 @@ async function queueCandidate(ctx: MutationCtx, args: QueueCandidateArgs) {
     // name-only request happened to record.
     const suppressed = await hasAcceptedSuppression(ctx.db, {
       ...optionalValue("profileId", matchedProfile?._id),
-      // The matched profile's own slug too: publish uses it as targetSlug, so a
-      // slug-only suppression naming it would queue the candidate here and then
-      // reject it at publish, stranding it for every bulk retry.
-      slugs: [collisionSlug, ...(matchedProfile === null ? [] : [matchedProfile.slug])],
-      displayNames: [
-        candidate.proposedDisplayName,
-        ...acceptedAliasNames(fields),
-        ...(matchedProfile === null ? [] : surfacedProfileNames(matchedProfile)),
-      ],
+      // The effective post-publication identity, not the union of both. A merge
+      // keeps the matched profile's slug and display name and writes neither of the
+      // candidate's, so checking those would strand a valid merge against an
+      // unrelated slug- or name-only request. Accepted aliases are checked either
+      // way, since those genuinely are copied onto the profile.
+      slugs: matchedProfile === null ? [collisionSlug] : [matchedProfile.slug],
+      displayNames:
+        matchedProfile === null
+          ? [candidate.proposedDisplayName, ...acceptedAliasNames(fields)]
+          : [...surfacedProfileNames(matchedProfile), ...acceptedAliasNames(fields)],
       profileType: candidate.profileType,
       ...optionalValue("acceptedRequests", args.acceptedRequests),
     });
@@ -912,15 +913,16 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
 
     const suppressed = await hasAcceptedSuppression(ctx.db, {
       ...optionalValue("profileId", matchedProfile?._id),
-      slugs: [targetSlug, collisionSlug].filter((value): value is string => value !== undefined),
-      // Every name this publication would surface: the proposed name, any accepted
-      // aliases, and the matched profile's own name and aliases. A name-only
-      // pre-claim request may match any of them.
-      displayNames: [
-        candidate.proposedDisplayName,
-        ...acceptedAliasNames(fields),
-        ...(matchedProfile === null ? [] : surfacedProfileNames(matchedProfile)),
-      ],
+      // Same effective identity as the queue gate: a merge keeps the matched
+      // profile's slug and display name, so only a create checks the candidate's.
+      slugs:
+        matchedProfile === null
+          ? [targetSlug, collisionSlug].filter((value): value is string => value !== undefined)
+          : [matchedProfile.slug],
+      displayNames:
+        matchedProfile === null
+          ? [candidate.proposedDisplayName, ...acceptedAliasNames(fields)]
+          : [...surfacedProfileNames(matchedProfile), ...acceptedAliasNames(fields)],
       profileType: candidate.profileType,
       ...optionalValue("acceptedRequests", args.acceptedRequests),
     });

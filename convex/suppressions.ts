@@ -9,17 +9,12 @@ import { createProfileSortName, normalizeProfileInlineText } from "./_profileSub
 import { surfacedProfileNames } from "./_suppressions";
 import {
   createProfileSearchDocument,
-  createWorldSearchDocument,
-  getHiddenWorldAttributionProfileKeys,
+  reindexWorldSearchDocument,
   upsertSearchDocument,
   vocabularyForProfile,
-  vocabularyForWorld,
 } from "./_searchDocuments";
 import {
-  createVocabularyKey,
-  recordVocabularyTerms,
   releaseVocabularyTerms,
-  releaseVocabularyKeys,
 } from "./_vocabulary";
 import { seedImportAuthSubjectValidator as authSubjectValidator } from "./_seedImportValidators";
 
@@ -453,38 +448,7 @@ export const reindexWorldsCreditingProfile = internalMutation({
         continue;
       }
 
-      const hiddenProfileKeys = await getHiddenWorldAttributionProfileKeys(ctx.db, world);
-      const existingDocument = await ctx.db
-        .query("searchDocuments")
-        .withIndex("by_worldId", (query) => query.eq("worldId", world._id))
-        .unique();
-      const nextDocument = createWorldSearchDocument(world, { hiddenProfileKeys });
-      // The delta, not a replay. recordVocabularyTerms increments unconditionally,
-      // so replaying a world's whole vocabulary on every reindex would inflate its
-      // counts; omitting it entirely left a newly visible creator role missing and a
-      // newly hidden one inflated.
-      const beforeKeys = new Set(existingDocument?.vocabularyKeys ?? []);
-      const afterKeys = new Set(nextDocument.vocabularyKeys ?? []);
-      const worldVocabulary = vocabularyForWorld(world, { hiddenProfileKeys });
-
-      await Promise.all([
-        upsertSearchDocument(ctx.db, nextDocument),
-        recordVocabularyTerms(
-          ctx.db,
-          worldVocabulary.filter(
-            (candidate) =>
-              !beforeKeys.has(`${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`),
-          ),
-          now,
-        ),
-      ]);
-
-      const removedKeys = [...beforeKeys].filter((key) => !afterKeys.has(key));
-
-      if (removedKeys.length > 0) {
-        await releaseVocabularyKeys(ctx.db, removedKeys, now);
-      }
-
+      await reindexWorldSearchDocument(ctx.db, world, now);
       reindexed += 1;
     }
 

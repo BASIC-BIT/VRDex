@@ -330,7 +330,7 @@ Follow it with one world search rebuild, which covers every attribution that bec
 pnpm exec convex run --prod search:rebuildWorldSearchDocuments
 ```
 
-The migration deliberately does not reindex worlds per row; that would mean one full `worlds` scan per migrated profile.
+The migration deliberately does not reindex worlds per row; that would mean one full `worlds` scan per migrated profile. The rebuild is delta-aware — it compares each world's stored `vocabularyKeys` against the rebuilt ones and records only what appeared, releasing what went away — so running it against already-indexed worlds does not re-increment existing counts.
 
 That runner executes `backfillProfilePublicSurfacingState` and `backfillHandoffInvitationProfileIds` first. The second gives every active handoff invitation a `profileId` — one created before its candidate was matched carries none, which would make the migration's liveness check blind to it. A legacy profile with no `publicSurfacingState` would otherwise be skipped while the publication migration's cursor advanced, and running the backfill afterwards cannot make a completed migration revisit it.
 

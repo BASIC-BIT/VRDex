@@ -11,6 +11,8 @@ import {
   collectVocabularyKeys,
   createVocabularyCandidates,
   createVocabularyKey,
+  recordVocabularyTerms,
+  releaseVocabularyKeys,
   type VocabularyCandidate,
 } from "./_vocabulary";
 
@@ -517,4 +519,44 @@ export async function upsertSearchDocument(db: DatabaseWriter, input: SearchDocu
   }
 
   return await db.insert("searchDocuments", input);
+}
+
+/**
+ * Rebuild one world's search document and reconcile its vocabulary as a delta.
+ *
+ * `recordVocabularyTerms` increments unconditionally, so replaying a world's whole
+ * vocabulary on every rebuild inflates counts for terms nothing changed. Comparing
+ * the stored document's `vocabularyKeys` against the rebuilt ones records only what
+ * appeared and releases only what went away, which is what makes a rebuild safe to
+ * run repeatedly.
+ */
+export async function reindexWorldSearchDocument(
+  db: DatabaseWriter,
+  world: Doc<"worlds">,
+  now: number,
+) {
+  const hiddenProfileKeys = await getHiddenWorldAttributionProfileKeys(db, world);
+  const existingDocument = await db
+    .query("searchDocuments")
+    .withIndex("by_worldId", (query) => query.eq("worldId", world._id))
+    .unique();
+  const nextDocument = createWorldSearchDocument(world, { hiddenProfileKeys });
+  const beforeKeys = new Set(existingDocument?.vocabularyKeys ?? []);
+  const afterKeys = new Set(nextDocument.vocabularyKeys ?? []);
+
+  await upsertSearchDocument(db, nextDocument);
+  await recordVocabularyTerms(
+    db,
+    vocabularyForWorld(world, { hiddenProfileKeys }).filter(
+      (candidate) =>
+        !beforeKeys.has(`${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`),
+    ),
+    now,
+  );
+
+  const removedKeys = [...beforeKeys].filter((key) => !afterKeys.has(key));
+
+  if (removedKeys.length > 0) {
+    await releaseVocabularyKeys(db, removedKeys, now);
+  }
 }

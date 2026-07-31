@@ -33,6 +33,19 @@ function problem(status: 400 | 403 | 404 | 500, title: string, detail: string) {
 }
 
 function profileUpdateErrorResponse(error: unknown) {
+  // Structured data first: Convex redacts plain error messages on production
+  // deployments, so reading only Error.message returns the serialized payload or
+  // generic Convex text instead of the intended reason.
+  const data = (error as { data?: { code?: string; message?: string } } | null)?.data;
+
+  if (data?.code === "IDENTITY_SUPPRESSED") {
+    return problem(
+      409,
+      "Profile identity is unavailable",
+      data.message ?? "This profile cannot be submitted.",
+    );
+  }
+
   const message = error instanceof Error ? error.message : "The profile update request is invalid.";
 
   if (message.includes("permission") || message.includes("Only a claimed profile owner")) {
