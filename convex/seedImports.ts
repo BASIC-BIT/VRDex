@@ -781,9 +781,14 @@ export const setBatchPublicationPolicy = internalMutation({
 
     const reason = optionalReviewNote(args.reviewNote);
 
-    if (args.publicationPolicy === "reviewed_publication_allowed" && reason === undefined) {
+    // Required in both directions. A revocation without one changed the policy while
+    // appending nothing, so a previously authorized batch's durable history ended on
+    // an authorization despite having been revoked.
+    if (reason === undefined) {
       throw new Error(
-        "Relaxing a seed import batch to reviewed_publication_allowed requires a reviewNote recording the source permission.",
+        args.publicationPolicy === "reviewed_publication_allowed"
+          ? "Relaxing a seed import batch to reviewed_publication_allowed requires a reviewNote recording the source permission."
+          : "Revoking a seed import batch to private_only requires a reviewNote recording why publication was withdrawn.",
       );
     }
 

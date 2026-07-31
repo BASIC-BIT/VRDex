@@ -245,7 +245,9 @@ pnpm ops:seed-publish -- `
   `publicationAuthorizations`, an append-only list recording **both** directions —
   each authorization and each revocation, with its `policy`, reason, actor, and
   timestamp — so a batch revoked and later reauthorized keeps the full history.
-  Repeating either call with the same reason is a no-op rather than a second entry. It is the durable record of the
+  Repeating either call with the same reason is a no-op rather than a second entry.
+  A `reviewNote` is required in **both** directions, so a revocation always leaves a
+  record rather than ending the history on the authorization it reversed. It is the durable record of the
   operator asserting the source permits public listing. The reason is also appended
   to `notes`, but `notes` is a mutable review buffer and is not the record of
   authorization.
@@ -379,14 +381,14 @@ Notes:
 - Seed publication reconciles `vocabularyTerms` in both directions: a merge records
   terms it introduces and releases terms it removes, so replacing a visible tag no
   longer leaves the old one inflated.
-- Known limitation: retraction still does not reconcile `vocabularyTerms`, and the
-  wider model is not reference-counted — `releaseVocabularyTerms` floors at zero
-  precisely because a shared term has no owner. A tag contributed by a retracted
-  profile keeps its usage count, and a creator role hidden while a profile was
-  private stays missing from discovery facets until a full rebuild. The world
-  reindex deliberately does not replay vocabulary, which would inflate counts on
-  every pass rather than fix them. Reference-counted vocabulary is a separate
-  change.
+- Retraction releases the profile's public vocabulary, and the world reindex
+  reconciles the before/after delta of each world's `vocabularyKeys`, so a creator
+  role that becomes visible is recorded and one that becomes hidden is released.
+  Deltas rather than replays, since `recordVocabularyTerms` only increments.
+- Known limitation: the vocabulary model is still not reference-counted, which is
+  why every release floors at zero — a shared term has no owner, so a stray release
+  must not corrupt it. Counts are reconciled along the paths this PR touches, not
+  globally.
 
 ## Lookup Grants
 

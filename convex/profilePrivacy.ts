@@ -56,12 +56,15 @@ export const updateFieldVisibility = mutation({
     // an accepted name-only suppression could be bypassed by storing the name as a
     // private alias and then flipping its visibility, which also rebuilds the
     // search document.
+    // The submitted map replaces the stored one and omitted keys default to public,
+    // so a partial update like { bio: "private" } silently reveals private aliases.
+    // The transition is therefore computed from the effective post-update value,
+    // not from whether the caller named the alias key.
     const aliasesBecomeVisible =
       getProfileFieldVisibility(profile, "aliases") === "private" &&
-      args.fieldVisibility.aliases !== undefined &&
-      args.fieldVisibility.aliases !== "private";
+      (args.fieldVisibility.aliases ?? "public") !== "private";
 
-    if (aliasesBecomeVisible) {
+    if (aliasesBecomeVisible && profile.aliases.length > 0) {
       await assertIdentityNotSuppressed(ctx.db, {
         displayNames: profile.aliases,
         profileType: profile.profileType,

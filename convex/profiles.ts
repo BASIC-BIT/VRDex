@@ -181,7 +181,11 @@ export const updateProfileForApiOwner = internalMutation({
       createProfileSortName(args.displayName) !== createProfileSortName(profile.displayName);
     const changesAliases = args.aliases !== undefined;
 
-    if (renamesProfile || changesAliases) {
+    // Only when the profile is actually publicly readable. A hidden profile --
+    // opted_out or suppressed -- surfaces nothing through this mutation, which never
+    // changes publicSurfacingState, so guarding it would block an owner from editing
+    // a profile that is already retracted. Republication re-checks the identity.
+    if ((renamesProfile || changesAliases) && canReadProfile("public", profile)) {
       // No profileId: an accepted request against *this* profile would otherwise
       // match every proposed name, so an already-opted-out profile could never be
       // renamed even though renaming never restores public surfacing. Only the

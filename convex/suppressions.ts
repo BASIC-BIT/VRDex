@@ -12,7 +12,15 @@ import {
   createWorldSearchDocument,
   getHiddenWorldAttributionProfileKeys,
   upsertSearchDocument,
+  vocabularyForProfile,
+  vocabularyForWorld,
 } from "./_searchDocuments";
+import {
+  createVocabularyKey,
+  recordVocabularyTerms,
+  releaseVocabularyTerms,
+  releaseVocabularyKeys,
+} from "./_vocabulary";
 import { seedImportAuthSubjectValidator as authSubjectValidator } from "./_seedImportValidators";
 
 const profileType = v.union(v.literal("person"), v.literal("community"));
@@ -332,6 +340,12 @@ export const retractProfilesForSuppression = internalMutation({
       // profile, but downgrading would destroy the distinct moderation state and
       // its reason; the request is still accepted and audited.
       const alreadySuppressed = profile.publicSurfacingState === "suppressed";
+      // Captured before the state change: after it, the profile is no longer
+      // publicly readable and contributes nothing to release.
+      const vocabularyBefore =
+        profile.publicationState === "published" && profile.publicSurfacingState === "public"
+          ? vocabularyForProfile(profile)
+          : [];
 
       if (!alreadySuppressed) {
         await ctx.db.patch(profile._id, {
@@ -348,6 +362,10 @@ export const retractProfilesForSuppression = internalMutation({
 
         if (updated !== null) {
           await upsertSearchDocument(ctx.db, createProfileSearchDocument(updated));
+          // The profile no longer contributes to discovery, so its terms are
+          // released. Snapshotted before the patch, because vocabularyForProfile
+          // reads the visible fields.
+          await releaseVocabularyTerms(ctx.db, vocabularyBefore, now);
           reindexKeys.push({ profileType: updated.profileType, profileSlug: updated.slug });
         }
 
@@ -436,12 +454,37 @@ export const reindexWorldsCreditingProfile = internalMutation({
       }
 
       const hiddenProfileKeys = await getHiddenWorldAttributionProfileKeys(ctx.db, world);
-      // Search document only. recordVocabularyTerms increments usageCount
-      // unconditionally, so replaying a world's vocabulary on every reindex would
-      // inflate counts -- a world credited by candidates published across ten pages
-      // would gain ten. Reconciling visibility changes needs reference-counted
-      // vocabulary, which is tracked separately.
-      await upsertSearchDocument(ctx.db, createWorldSearchDocument(world, { hiddenProfileKeys }));
+      const existingDocument = await ctx.db
+        .query("searchDocuments")
+        .withIndex("by_worldId", (query) => query.eq("worldId", world._id))
+        .unique();
+      const nextDocument = createWorldSearchDocument(world, { hiddenProfileKeys });
+      // The delta, not a replay. recordVocabularyTerms increments unconditionally,
+      // so replaying a world's whole vocabulary on every reindex would inflate its
+      // counts; omitting it entirely left a newly visible creator role missing and a
+      // newly hidden one inflated.
+      const beforeKeys = new Set(existingDocument?.vocabularyKeys ?? []);
+      const afterKeys = new Set(nextDocument.vocabularyKeys ?? []);
+      const worldVocabulary = vocabularyForWorld(world, { hiddenProfileKeys });
+
+      await Promise.all([
+        upsertSearchDocument(ctx.db, nextDocument),
+        recordVocabularyTerms(
+          ctx.db,
+          worldVocabulary.filter(
+            (candidate) =>
+              !beforeKeys.has(`${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`),
+          ),
+          now,
+        ),
+      ]);
+
+      const removedKeys = [...beforeKeys].filter((key) => !afterKeys.has(key));
+
+      if (removedKeys.length > 0) {
+        await releaseVocabularyKeys(ctx.db, removedKeys, now);
+      }
+
       reindexed += 1;
     }
 

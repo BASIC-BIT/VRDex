@@ -183,3 +183,46 @@ export async function releaseVocabularyTerms(
     });
   }
 }
+
+/**
+ * Release usages by scope-qualified key, for callers that only hold the keys a
+ * search document recorded rather than the original candidates.
+ *
+ * `collectVocabularyKeys` writes them scope-qualified as `scope:key`, so each is
+ * split back apart here. Counts floor at zero for the same reason as
+ * `releaseVocabularyTerms`.
+ */
+export async function releaseVocabularyKeys(
+  db: DatabaseWriter,
+  scopedKeys: string[],
+  now: number,
+) {
+  for (const scopedKey of scopedKeys) {
+    const separator = scopedKey.indexOf(":");
+
+    if (separator <= 0) {
+      continue;
+    }
+
+    const scope = scopedKey.slice(0, separator) as VocabularyCandidate["scope"];
+    const key = scopedKey.slice(separator + 1);
+
+    if (!key) {
+      continue;
+    }
+
+    const existing = await db
+      .query("vocabularyTerms")
+      .withIndex("by_scope_key", (query) => query.eq("scope", scope).eq("key", key))
+      .unique();
+
+    if (!existing) {
+      continue;
+    }
+
+    await db.patch(existing._id, {
+      usageCount: Math.max(0, existing.usageCount - 1),
+      updatedAt: now,
+    });
+  }
+}
