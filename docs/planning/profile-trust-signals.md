@@ -218,7 +218,13 @@ two-phase shape for the same reason.
 
 1. **Deploy one:** keep `claimed_verified` accepted by the schema and the public
    types. Ship the per-identity signal, **stop every writer that produces the
-   literal**, and only then run the profile and search-document migration.
+   literal**, and only then migrate every table that persists it — profile rows,
+   search documents, **and `seedImportCandidateProfiles`**, whose `claimState`
+   uses `seedImportClaimStateValidator`
+   ([`schema.ts`](../../convex/schema.ts)). Changing
+   `_seedImportValidators.ts` and `_seedImports.ts` as *code* does not touch
+   stored candidate rows, and deploy two would reject them exactly as it would
+   reject an unmigrated profile.
 2. **Deploy two:** contract the schema literal and the public types, once no row
    carries it.
 
@@ -242,7 +248,9 @@ The surfaces the migration touches are more than the profile rows:
 - the `/api/v0/claims/[slug]/status` contract and its `claimStateForTrustLabel`
   mapping
 - the discovery cards that branch on `trustLabel === "claimed_verified"`
-- `_seedImportValidators.ts` and `_seedImports.ts`, which accept the literal
+- `_seedImportValidators.ts` and `_seedImports.ts`, which accept the literal —
+  and the `seedImportCandidateProfiles` **rows** that persist it, which the code
+  change alone does not touch
 - **`searchDocuments`, which cache the ranking.** `trustRankForProfile` in
   [`_searchDocuments.ts`](../../convex/_searchDocuments.ts) assigns 40 to
   `claimed_verified` against 28 to `claimed_unverified`, and the value is
