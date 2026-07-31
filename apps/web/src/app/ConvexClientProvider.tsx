@@ -24,6 +24,10 @@ const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 const clerkConfigured = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
 const convex = convexUrl ? new ConvexReactClient(convexUrl) : null;
 const PROVISION_RETRY_CEILING_MS = 8_000;
+// Backoff is 500ms doubling to the ceiling, so four failures is roughly seven
+// seconds of waiting before the app renders regardless. Long enough to cover a
+// slow first provision, short enough that a broken one is not a blank page.
+const PROVISION_GATE_ATTEMPTS = 4;
 
 /**
  * Provisions the VRDex `users` row for a Clerk identity, and holds authenticated
@@ -90,8 +94,10 @@ function ProvisionedChildren({ children }: { children: ReactNode }) {
 
         // Retried because nothing else would while the layout stays mounted, and
         // a row that never appears leaves the account unusable. Unbounded on
-        // purpose: this retry no longer gates rendering, so it cannot strand the
-        // app, and giving up would silently stop mirroring profile changes.
+        // purpose: giving up entirely would silently stop mirroring profile
+        // changes for the rest of the session. The render gate below stops
+        // waiting long before this does, so retrying forever cannot strand the
+        // app.
         retryTimer.current = window.setTimeout(
           () => setRetry((attempt) => attempt + 1),
           Math.min(PROVISION_RETRY_CEILING_MS, 500 * 2 ** retry),
@@ -113,10 +119,17 @@ function ProvisionedChildren({ children }: { children: ReactNode }) {
   // mount there is the race this gate exists to close — `temporalParsing.getAccess`
   // would reach `requireUser` before the row lands and latch its error boundary.
   //
-  // Bounded by a single Convex query that authenticated pages already issue, so it
-  // costs a round-trip rather than stranding anyone. Public pages are unaffected:
-  // an anonymous visitor never enters this branch.
-  if (isAuthenticated && (viewer === undefined || viewer === null)) {
+  // Gives up after `PROVISION_GATE_ATTEMPTS` failures rather than waiting on a
+  // row that may never arrive. Provisioning that keeps failing used to render
+  // nothing at all, for the whole session: `viewer` stays `null` when the query
+  // resolves and finds no row, which is exactly the state a failing
+  // `ensureCurrentUser` leaves behind. A latched error boundary on one panel is
+  // recoverable and legible; a blank authenticated app is neither.
+  //
+  // Public pages are unaffected: an anonymous visitor never enters this branch.
+  const provisioningUnresolved = viewer === undefined || viewer === null;
+
+  if (isAuthenticated && provisioningUnresolved && retry < PROVISION_GATE_ATTEMPTS) {
     return null;
   }
 

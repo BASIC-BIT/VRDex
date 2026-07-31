@@ -628,6 +628,12 @@ jobs:
 
           Hosted developer credentials: ${HOSTED_DEVELOPER_CREDENTIALS:-skipped}
 
+          The auth-helper and developer-credential flags above report
+          configuration, not coverage. `auth-claim.flow` and
+          `developer-credentials.flow` are skipped in full until hosted auth is
+          rewired to Clerk (#226), so enabling either flag exercises nothing.
+          Only the captured flow below actually ran.
+
           Captured flow:
           - hosted test-gated profile submission form
           - hosted Convex profile creation
