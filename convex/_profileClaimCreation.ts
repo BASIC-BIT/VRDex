@@ -2,12 +2,13 @@ import type { AuthSubject } from "./_communityAuthority";
 import type { Id } from "./_generated/dataModel";
 import type { DatabaseWriter } from "./_generated/server";
 import { approveProfileClaimForUser } from "./_profileOwnership";
-import { findAvailableProfileSlug } from "./_profileSlugs";
+import { createProfileSlugBase, findAvailableProfileSlug } from "./_profileSlugs";
 import {
   type CommunitySubmissionProfileInput,
   sanitizeCommunitySubmissionProfileInput,
 } from "./_profileSubmissions";
 import { createProfileSearchDocument, upsertSearchDocument, vocabularyForProfile } from "./_searchDocuments";
+import { assertIdentityNotSuppressed } from "./_suppressions";
 import { ensureShortLinkForTarget } from "./_shortLinks";
 import { recordVocabularyTerms } from "./_vocabulary";
 
@@ -26,6 +27,16 @@ export async function createClaimedDiscordProfileForUser(
   const input = sanitizeCommunitySubmissionProfileInput(options.input);
   const now = options.now;
   const slug = await findAvailableProfileSlug(db, input.displayName);
+
+  // Claim creation inserts published/public directly, so it is another way to put
+  // a retracted identity back in front of people: a verified user with a linked
+  // Discord account can declare no suitable match and recreate it.
+  await assertIdentityNotSuppressed(db, {
+    slugs: [createProfileSlugBase(input.displayName), slug],
+    displayNames: [input.displayName],
+    profileType: input.profileType,
+  });
+
   const sharedFields = {
     slug,
     displayName: input.displayName,

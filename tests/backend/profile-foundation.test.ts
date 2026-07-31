@@ -62,7 +62,8 @@ type ProfileClaimTestTable =
   | "profileAuditEvents"
   | "searchDocuments"
   | "shortLinks"
-  | "vocabularyTerms";
+  | "vocabularyTerms"
+  | "profileSuppressionRequests";
 type ProfileClaimTestRow = Record<string, unknown> & {
   _id: string;
   _creationTime: number;
@@ -89,6 +90,7 @@ function createProfileClaimTestDb(
     "searchDocuments",
     "shortLinks",
     "vocabularyTerms",
+    "profileSuppressionRequests",
   ];
   const tables = Object.fromEntries(
     tableNames.map((tableName) => [
@@ -375,6 +377,37 @@ describe("profile ownership helpers", () => {
     await assert.rejects(
       () => grantProfileOwner(conflictingOwnerDb.db as never, { profileId, userId, now: 2 }),
       /PROFILE_ALREADY_OWNED/,
+    );
+  });
+
+  it("refuses Discord claim creation for a suppressed identity", async () => {
+    const { db } = createProfileClaimTestDb({
+      profileSuppressionRequests: [
+        {
+          displayName: "DJ No Match",
+          profileType: "person",
+          requestType: "pre_claim_safety",
+          state: "accepted",
+        },
+      ],
+    });
+
+    // Claim creation inserts published/public directly, so it is a way to put a
+    // retracted identity back in front of people without going through submission.
+    await assert.rejects(
+      createClaimedDiscordProfileForUser(db as never, {
+        userId: "user-suppressed" as Id<"users">,
+        discordProviderAccountId: "discord-suppressed-1",
+        input: {
+          profileType: "person",
+          displayName: " DJ No Match ",
+          aliases: [],
+          tags: [],
+          person: { roleTags: [] },
+        },
+        now: 1_790_000_000_000,
+      }),
+      /cannot be submitted/,
     );
   });
 

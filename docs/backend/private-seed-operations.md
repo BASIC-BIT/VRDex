@@ -326,11 +326,14 @@ Notes:
   type agree with it, since a slug recorded before any profile held it can be
   acquired by someone else in the meantime.
 - If nothing matches, the request is still recorded as accepted, which blocks
-  future publication for that name and profile type — seed publication,
-  `profiles:submitCommunityProfile`, and display-name changes through
-  `profiles:updateProfileForApiOwner`. Community submission and renaming both
-  surface an identity immediately, so either would otherwise be a way to
-  reintroduce a retracted one.
+  future publication for that name and profile type. Every path that can put an
+  identity in front of the public shares one guard, `assertIdentityNotSuppressed`:
+  `profiles:submitCommunityProfile`, Discord claim creation in
+  `_profileClaimCreation`, and display-name changes through
+  `profiles:updateProfileForApiOwner`. Creating a profile is not the only way to
+  surface one — renaming does it without creating anything — so the check belongs
+  with the act of surfacing. Seed publication deliberately reports a blocker
+  instead of throwing, so a bulk page can skip one candidate and continue.
 - Accepting sets `opted_out`, not `suppressed`. `suppressed` stays reserved for
   moderation action rather than a request someone made about themselves, and an
   already-`suppressed` profile keeps that state.

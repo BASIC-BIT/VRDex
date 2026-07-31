@@ -36,7 +36,7 @@ import {
 } from "./_searchDocuments";
 import { searchPublicDocuments } from "./_publicSearch";
 import { ensureShortLinkForTarget } from "./_shortLinks";
-import { hasAcceptedSuppression } from "./_suppressions";
+import { assertIdentityNotSuppressed } from "./_suppressions";
 import { recordVocabularyTerms } from "./_vocabulary";
 import { userOwnsProfile } from "./_profileOwnership";
 import { applyApiProfileUpdate } from "./_profileUpdates";
@@ -174,14 +174,18 @@ export const updateProfileForApiOwner = internalMutation({
     // to a profile that already holds the name is unaffected.
     if (
       args.displayName !== undefined &&
-      createProfileSortName(args.displayName) !== createProfileSortName(profile.displayName) &&
-      (await hasAcceptedSuppression(ctx.db, {
-        profileId: profile._id,
-        displayNames: [args.displayName],
-        profileType: profile.profileType,
-      }))
+      createProfileSortName(args.displayName) !== createProfileSortName(profile.displayName)
     ) {
-      throw new Error("This display name cannot be used.");
+      await assertIdentityNotSuppressed(
+        ctx.db,
+        {
+          profileId: profile._id,
+          slugs: [createProfileSlugBase(args.displayName)],
+          displayNames: [args.displayName],
+          profileType: profile.profileType,
+        },
+        "This display name cannot be used.",
+      );
     }
 
     const now = Date.now();
@@ -342,15 +346,11 @@ export const submitCommunityProfile = mutation({
     // and the slug actually allocated are checked, because a request may have been
     // filed with only a slug and no display name, and because the base slug being
     // taken pushes the allocation to a suffixed variant.
-    if (
-      await hasAcceptedSuppression(ctx.db, {
-        slugs: [createProfileSlugBase(input.displayName), slug],
-        displayNames: [input.displayName],
-        profileType: input.profileType,
-      })
-    ) {
-      throw new Error("This profile cannot be submitted.");
-    }
+    await assertIdentityNotSuppressed(ctx.db, {
+      slugs: [createProfileSlugBase(input.displayName), slug],
+      displayNames: [input.displayName],
+      profileType: input.profileType,
+    });
     const sourceAttribution = {
       submittedAt: now,
       submitter: subject,

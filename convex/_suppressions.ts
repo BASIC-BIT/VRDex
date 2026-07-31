@@ -150,3 +150,25 @@ export async function hasAcceptedSuppression(
 
   return false;
 }
+
+/**
+ * Reject an identity an accepted suppression request covers.
+ *
+ * Shared by every path that can put an identity in front of the public: community
+ * submission, Discord claim creation, and display-name changes. Creating a profile
+ * is not the only way to surface one -- renaming does it without creating
+ * anything -- so the check belongs with the act of surfacing, and having one
+ * helper keeps a new path from quietly missing it.
+ *
+ * Seed publication deliberately does not use this: it reports blockers rather than
+ * throwing, so a bulk page can skip one candidate and continue.
+ */
+export async function assertIdentityNotSuppressed(
+  db: DatabaseReader,
+  identity: SuppressionIdentity,
+  message = "This profile cannot be submitted.",
+): Promise<void> {
+  if (await hasAcceptedSuppression(db, identity)) {
+    throw new Error(message);
+  }
+}
