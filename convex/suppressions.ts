@@ -157,16 +157,25 @@ async function resolveSuppressionTargetPage(
   // which type is in progress so a request with no stored type still covers both.
   const sortName = createProfileSortName(request.displayName);
   const [encodedType, innerCursor] = decodeSuppressionCursor(cursor, request.profileType);
+  // ponytail: pages the whole profile type rather than seeking the sortName, because
+  // a profile can surface the requested identity through `aliases` while its display
+  // name is unrelated and there is no alias index. The write-side guards treat
+  // aliases as identity, so acceptance must too, or such a profile stays public
+  // forever while every future write is blocked. Retraction is rare and already
+  // scheduled and paged; add an alias index if that stops being true.
   const result = await db
     .query("profiles")
-    .withIndex("by_profileType_sortName", (query) =>
-      query.eq("profileType", encodedType).eq("sortName", sortName),
-    )
+    .withIndex("by_profileType_sortName", (query) => query.eq("profileType", encodedType))
     .paginate({ numItems: PROFILE_RETRACTION_PAGE_SIZE, cursor: innerCursor });
+  const matches = result.page.filter(
+    (profile) =>
+      profile.sortName === sortName ||
+      profile.aliases.some((alias) => createProfileSortName(alias) === sortName),
+  );
 
   if (!result.isDone) {
     return {
-      profiles: result.page,
+      profiles: matches,
       isDone: false,
       continueCursor: `${encodedType}:${result.continueCursor}`,
     };
@@ -176,7 +185,7 @@ async function resolveSuppressionTargetPage(
     request.profileType === undefined && encodedType === "person";
 
   return {
-    profiles: result.page,
+    profiles: matches,
     isDone: !shouldContinueToCommunity,
     ...(shouldContinueToCommunity ? { continueCursor: "community:" } : {}),
   };

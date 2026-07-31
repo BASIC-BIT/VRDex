@@ -191,6 +191,31 @@ async function hasLiveHandoffInvitation(
   return profileInvitations.some((invitation) => isLiveHandoffInvitation(invitation, now));
 }
 
+/**
+ * Public alias names a candidate's accepted fields would put on the profile.
+ *
+ * Aliases count as identity for suppression: an accepted `aliases` field can carry
+ * a suppressed name while the proposed display name is unrelated, and the mapper
+ * would copy it onto a public profile and into its search document.
+ */
+function acceptedAliasNames(fields: Doc<"seedImportCandidateFields">[]): string[] {
+  const names: string[] = [];
+
+  for (const field of fields) {
+    if (field.fieldKey !== "aliases" || field.reviewState !== "accepted") {
+      continue;
+    }
+
+    for (const value of Array.isArray(field.value) ? field.value : []) {
+      if (typeof value === "string") {
+        names.push(value);
+      }
+    }
+  }
+
+  return names;
+}
+
 async function getCandidateFields(ctx: Pick<QueryCtx, "db">, candidateId: Id<"seedImportCandidateProfiles">) {
   return await ctx.db
     .query("seedImportCandidateFields")
@@ -648,7 +673,8 @@ async function queueCandidate(ctx: MutationCtx, args: QueueCandidateArgs) {
       slugs: [collisionSlug, ...(matchedProfile === null ? [] : [matchedProfile.slug])],
       displayNames: [
         candidate.proposedDisplayName,
-        ...(matchedProfile === null ? [] : [matchedProfile.displayName]),
+        ...acceptedAliasNames(fields),
+        ...(matchedProfile === null ? [] : [matchedProfile.displayName, ...matchedProfile.aliases]),
       ],
       profileType: candidate.profileType,
       ...optionalValue("acceptedRequests", args.acceptedRequests),
@@ -846,14 +872,21 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
     const targetSlug =
       matchedProfile?.slug ??
       (await findAvailableProfileSlug(ctx.db, validProposedSlug ?? candidate.proposedDisplayName));
+    // Fields are loaded before both the suppression check and the gate: their
+    // accepted aliases are part of the identity, and publish-time review states
+    // must be re-checked rather than merely filtered.
+    const fields = await getCandidateFields(ctx, candidate._id);
+
     const suppressed = await hasAcceptedSuppression(ctx.db, {
       ...optionalValue("profileId", matchedProfile?._id),
       slugs: [targetSlug, collisionSlug].filter((value): value is string => value !== undefined),
-      // Both names: a name-only pre-claim request may name the existing profile
-      // rather than whatever the candidate proposes to call it.
+      // Every name this publication would surface: the proposed name, any accepted
+      // aliases, and the matched profile's own name and aliases. A name-only
+      // pre-claim request may match any of them.
       displayNames: [
         candidate.proposedDisplayName,
-        ...(matchedProfile === null ? [] : [matchedProfile.displayName]),
+        ...acceptedAliasNames(fields),
+        ...(matchedProfile === null ? [] : [matchedProfile.displayName, ...matchedProfile.aliases]),
       ],
       profileType: candidate.profileType,
       ...optionalValue("acceptedRequests", args.acceptedRequests),
@@ -863,11 +896,6 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
       await actorFromArgs(ctx, args.reviewer),
       "Publishing a seed import candidate",
     );
-
-    // Fields are loaded before the gate so publish-time field review states are
-    // re-checked. Filtering to accepted alone would silently drop a field moved
-    // back to needs_correction and publish the profile anyway.
-    const fields = await getCandidateFields(ctx, candidate._id);
 
     const blockers = getSeedImportPublishBlockers({
       batch,

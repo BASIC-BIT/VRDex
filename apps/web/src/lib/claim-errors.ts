@@ -74,6 +74,8 @@ const CLAIM_ERROR_COPY: Record<ClaimErrorCode, string> = {
     "Verification is temporarily unavailable. Nothing changed; try again shortly.",
   NOT_PROFILE_OWNER: "You need to manage this profile before changing its connections.",
   VERIFICATION_STATE_INVALID: "That verification link expired. Start the check again.",
+  // Copy approved by BASIC on 2026-07-30, alongside the submission-form string
+  // "This profile cannot be submitted." in _suppressions.ts.
   IDENTITY_SUPPRESSED: "This profile cannot be created.",
   AUTH_SESSION_INVALID: "Your session is no longer valid. Sign in again to continue.",
 };

@@ -59,6 +59,14 @@ const userSafeErrorPatterns = [
 ];
 
 function submissionErrorMessage(error: unknown): string {
+  // Structured data first: Convex redacts plain error messages on production
+  // deployments, so pattern-matching the message alone never sees this case there.
+  const data = (error as { data?: { code?: string; message?: string } } | null)?.data;
+
+  if (data?.code === "IDENTITY_SUPPRESSED") {
+    return data.message ?? "This profile cannot be submitted.";
+  }
+
   const message = error instanceof Error ? error.message : String(error);
 
   for (const pattern of userSafeErrorPatterns) {

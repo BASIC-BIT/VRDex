@@ -1,3 +1,5 @@
+import { ConvexError } from "convex/values";
+
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
 import { createProfileSortName } from "./_profileSubmissions";
@@ -162,13 +164,23 @@ export async function hasAcceptedSuppression(
  *
  * Seed publication deliberately does not use this: it reports blockers rather than
  * throwing, so a bulk page can skip one candidate and continue.
+ *
+ * Throws `ConvexError`, not a plain `Error`: Convex redacts plain messages on
+ * production deployments, so a client would receive a generic failure and tell the
+ * user to retry something that can never succeed.
  */
+export const IDENTITY_SUPPRESSED_ERROR_CODE = "IDENTITY_SUPPRESSED" as const;
+
+// Copy approved by BASIC on 2026-07-30, alongside "This profile cannot be
+// created." for the claim path in apps/web/src/lib/claim-errors.ts.
+export const IDENTITY_SUPPRESSED_MESSAGE = "This profile cannot be submitted.";
+
 export async function assertIdentityNotSuppressed(
   db: DatabaseReader,
   identity: SuppressionIdentity,
-  message = "This profile cannot be submitted.",
+  message = IDENTITY_SUPPRESSED_MESSAGE,
 ): Promise<void> {
   if (await hasAcceptedSuppression(db, identity)) {
-    throw new Error(message);
+    throw new ConvexError({ code: IDENTITY_SUPPRESSED_ERROR_CODE, message });
   }
 }

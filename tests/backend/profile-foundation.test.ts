@@ -418,6 +418,41 @@ describe("profile ownership helpers", () => {
     );
   });
 
+  it("refuses Discord claim creation when an alias carries the suppressed identity", async () => {
+    const { db } = createProfileClaimTestDb({
+      profileSuppressionRequests: [
+        {
+          displayName: "DJ Hidden",
+          profileType: "person",
+          requestType: "pre_claim_safety",
+          state: "accepted",
+        },
+      ],
+    });
+
+    // The display name is unrelated; the suppressed identity rides in aliases,
+    // which toPublicProfile exposes and the search document indexes.
+    await assert.rejects(
+      createClaimedDiscordProfileForUser(db as never, {
+        userId: "user-alias" as Id<"users">,
+        discordProviderAccountId: "discord-alias-1",
+        input: {
+          profileType: "person",
+          displayName: "Totally Different Name",
+          aliases: ["DJ Hidden"],
+          tags: [],
+          person: { roleTags: [] },
+        },
+        now: 1_790_000_000_000,
+      }),
+      (error: unknown) => {
+        const data = (error as { data?: { code?: string } }).data;
+        assert.equal(data?.code, "IDENTITY_SUPPRESSED");
+        return true;
+      },
+    );
+  });
+
   it("creates a new claimed Discord person profile when no match is selected", async () => {
     const now = 1_790_000_000_000;
     const userId = "user-person" as Id<"users">;

@@ -332,15 +332,18 @@ Notes:
   `_profileClaimCreation`, and display-name changes through
   `profiles:updateProfileForApiOwner`. Creating a profile is not the only way to
   surface one — renaming does it without creating anything — so the check belongs
-  with the act of surfacing. Aliases count as names for this purpose, since a
-  submission could otherwise carry an unrelated display name and put the suppressed
-  one in `aliases`, which the public projection exposes and search indexes. A
+  with the act of surfacing. Aliases count as names everywhere this is checked --
+  submission, claim creation, API updates including alias-only ones, both seed
+  gates, the publication migration, and retraction target resolution -- since a
+  write could otherwise carry an unrelated display name and put the suppressed one
+  in `aliases`, which the public projection exposes and search indexes. A
   rename evaluates only the *proposed* identity, so an already-retracted profile
   can still be renamed to something unrelated while it stays hidden. Seed
   publication deliberately reports a blocker instead of throwing, so a bulk page
-  can skip one candidate and continue, and Discord claim creation raises the
-  structured `IDENTITY_SUPPRESSED` claim error because Convex redacts plain error
-  messages in production.
+  can skip one candidate and continue. Both throwing paths raise structured errors
+  carrying `IDENTITY_SUPPRESSED`, because Convex redacts plain error messages on
+  production deployments — a plain `Error` would reach the browser as a generic
+  failure and tell someone to retry a permanent rejection.
 - Accepting sets `opted_out`, not `suppressed`. `suppressed` stays reserved for
   moderation action rather than a request someone made about themselves, and an
   already-`suppressed` profile keeps that state.

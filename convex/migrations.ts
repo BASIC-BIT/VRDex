@@ -146,7 +146,9 @@ export const publishGatedProfiles = migrations.define({
     const suppressed = await hasAcceptedSuppression(ctx.db, {
       profileId: profile._id,
       slugs: [profile.slug],
-      displayNames: [profile.displayName],
+      // Aliases too: they default to public, so publishing a legacy profile whose
+      // aliases carry a suppressed identity would expose and index it.
+      displayNames: [profile.displayName, ...profile.aliases],
       profileType: profile.profileType,
     });
 

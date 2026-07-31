@@ -172,19 +172,26 @@ export const updateProfileForApiOwner = internalMutation({
     // request covers, putting that identity straight back on public pages and in
     // search. Only checked when the name actually changes, so an unrelated update
     // to a profile that already holds the name is unaffected.
-    if (
+    // Aliases count as names here, so an alias-only update needs the same guard: a
+    // caller can leave displayName untouched and put the suppressed name in
+    // aliases, which the public projection exposes and search indexes.
+    const renamesProfile =
       args.displayName !== undefined &&
-      createProfileSortName(args.displayName) !== createProfileSortName(profile.displayName)
-    ) {
+      createProfileSortName(args.displayName) !== createProfileSortName(profile.displayName);
+    const changesAliases = args.aliases !== undefined;
+
+    if (renamesProfile || changesAliases) {
       // No profileId: an accepted request against *this* profile would otherwise
       // match every proposed name, so an already-opted-out profile could never be
       // renamed even though renaming never restores public surfacing. Only the
       // proposed identity is evaluated.
+      const proposedDisplayName = args.displayName ?? profile.displayName;
+
       await assertIdentityNotSuppressed(
         ctx.db,
         {
-          slugs: [createProfileSlugBase(args.displayName)],
-          displayNames: [args.displayName, ...(args.aliases ?? [])],
+          slugs: renamesProfile ? [createProfileSlugBase(proposedDisplayName)] : [],
+          displayNames: [proposedDisplayName, ...(args.aliases ?? profile.aliases)],
           profileType: profile.profileType,
         },
         "This display name cannot be used.",
