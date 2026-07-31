@@ -108,9 +108,25 @@ Most of this is a presentation change over data the model already carries.
 - [`_profilePrivacy.ts`](../../convex/_profilePrivacy.ts) and
   [`oauthApps.ts`](../../convex/oauthApps.ts) — same boundary
 
-Retiring `claimed_verified` therefore changes no authorization, because nothing
-authorizes on it. That is a narrower claim than "`claimState` is not a
-permission gate", which is false.
+**One gate does key on `claimed_verified`**, and it is a real authorization
+decision rather than a label:
+[`_profileOwnership.ts`](../../convex/_profileOwnership.ts) rejects a claim on a
+`claimed_verified` profile that has **no active owner**, throwing
+`PROFILE_STATE_UNSUPPORTED("verified_without_owner")`. The reasoning is written
+into the code: the badge is preserved across the grant, so the first arrival
+would inherit it on the strength of a throwaway asset. No in-repo path produces
+that state today, but the seed-import candidate schema carries
+`claimed_verified` and the deferred ownership-transfer flow creates it the moment
+it revokes an owner.
+
+Migrating those rows to the ordinary claimed state **removes that protection**.
+The migration has to quarantine or otherwise preserve the no-owner guard before
+the literal is retired — an orphaned verified listing must not become claimable
+by whoever asks first.
+
+Every other gate keys on the `unclaimed` boundary. So the accurate statement is
+that retiring `claimed_verified` changes exactly one authorization, and that one
+matters.
 
 ## What changes
 
@@ -154,6 +170,24 @@ implemented:
   `claimed_verified` without adding a sanitized verified-identities
   representation removes the only verification signal API and MCP clients have,
   rather than replacing it.
+- **Reconciliation must be able to revoke stale proofs.** Once the projection
+  treats stale-but-not-revoked as verified, a proof the sweeper has already
+  marked `stale` becomes durable — but
+  [`discordVerification.ts`](../../convex/discordVerification.ts) only revokes
+  proofs whose state is still `active` when a guild goes missing. A verifier who
+  loses the server after the sweep would keep the mark indefinitely, because
+  nothing can withdraw it. Subject-specific revocation has to cover stale rows
+  before stale is treated as historical evidence.
+- **The audit action** is derived from `targetClaimState`, so once strong proofs
+  stop producing `claimed_verified`, every successful claim records
+  `profile_claim_approved_unverified` — a durable, indexed trail that
+  misclassifies identity-verified claims regardless of what the UI shows. The
+  action needs deriving from the proof result rather than from custody state.
+- **The account-page prompt** keys on `claimState === "claimed_unverified"`
+  ([`account-panel.tsx`](../../apps/web/src/app/account/account-panel.tsx)), so
+  after the migration every formerly verified owner is offered "Verify with
+  VRChat" — and community profiles are offered a person-only method. It needs
+  the identity-specific predicate instead.
 
 **Schema.** No new tables. Typed identity handles captured during onboarding
 write `profileExternalLinks` rows, which already distinguish an unproven
@@ -168,10 +202,17 @@ function that would clean them up exists, and validation rejects them. The
 two-phase shape for the same reason.
 
 1. **Deploy one:** keep `claimed_verified` accepted by the schema and the public
-   types. Ship the per-identity signal, and run the profile and search-document
-   migration.
+   types. Ship the per-identity signal, **stop every writer that produces the
+   literal**, and only then run the profile and search-document migration.
 2. **Deploy two:** contract the schema literal and the public types, once no row
    carries it.
+
+Stopping the writers is not optional and cannot be deferred to deploy two.
+`approveProfileClaimForUser` maps `verified: true` to `claimed_verified`, and
+both [`profileClaims.ts`](../../convex/profileClaims.ts) and
+[`profileConnections.ts`](../../convex/profileConnections.ts) still pass that
+flag — so a claim completing *after* `migrations:runAll` recreates a legacy row,
+and deploy two meets it and fails validation despite the cleanup having run.
 
 The surfaces the migration touches are more than the profile rows:
 
@@ -227,8 +268,11 @@ Removal needs affirmative evidence that *this* verifier lost control:
 
 - the owner disconnects the account, or the link row is revoked
   (`profileExternalLinks.state` / `removedAt` already model this)
-- the proof behind it is revoked — `externalControlProofs` marked revoked, for
-  example by Discord reconciliation finding the permission gone
+- **no** non-revoked proof remains for that verifier and asset. Revoking "the
+  proof behind it" is not enough on its own: one VRDex user can manage a guild
+  through two linked Discord identities, and `listProfileConnections` already
+  handles exactly that case, so reconciliation revoking one referenced proof
+  would hide a connection the verifier demonstrably still controls
 A second proof of the same `vrchat_user` by a different `externalControlProofs.userId`
 is **a conflict to record and review, not grounds for automatic removal**. That
 field identifies another *VRDex account*, not another person — the same holder
