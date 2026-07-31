@@ -57,3 +57,60 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+# Clerk production instance DNS. Clerk issues the Frontend API and Account
+# Portal certificates only once all five records resolve, and
+# `CLERK_JWT_ISSUER_DOMAIN` on the Convex production deployment must be
+# `https://${clerk_frontend_api_subdomain}.${hosted_zone_name}` — the same host
+# the production publishable key encodes.
+#
+# The mail records are Clerk's own sender identity, unrelated to the SES stack:
+# SES is retired for authentication, and Clerk sends its verification mail.
+#
+# Every value here is a checked-in default rather than a `terraform.tfvars`
+# entry, because tfvars is gitignored and CI has none. Gating these behind an
+# operator-supplied variable meant only an out-of-band apply could create them —
+# and this stack applies from main, so the next CI run destroyed them as
+# orphaned state. They are public DNS records, not secrets; anyone can dig them.
+
+variable "manage_clerk_dns" {
+  description = "Create the Clerk production CNAME records."
+  type        = bool
+  default     = true
+}
+
+variable "clerk_frontend_api_subdomain" {
+  description = "Subdomain for the Clerk Frontend API. Must match the host encoded in the production publishable key."
+  type        = string
+  default     = "clerk"
+}
+
+variable "clerk_accounts_subdomain" {
+  description = "Subdomain for the Clerk Account Portal."
+  type        = string
+  default     = "accounts"
+}
+
+variable "clerk_mail_subdomain" {
+  description = "Subdomain Clerk sends authentication email from."
+  type        = string
+  default     = "clkmail"
+}
+
+variable "clerk_mail_target" {
+  description = "Clerk-issued mail CNAME target. Instance-specific but not secret: it is a public DNS record."
+  type        = string
+  default     = "mail.49kratywlj1f.clerk.services"
+}
+
+variable "clerk_dkim1_target" {
+  description = "Clerk-issued DKIM CNAME target for clk._domainkey."
+  type        = string
+  default     = "dkim1.49kratywlj1f.clerk.services"
+}
+
+variable "clerk_dkim2_target" {
+  description = "Clerk-issued DKIM CNAME target for clk2._domainkey."
+  type        = string
+  default     = "dkim2.49kratywlj1f.clerk.services"
+}
