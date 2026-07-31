@@ -29,6 +29,7 @@ export const CLAIM_ERROR_CODES = [
   "ADAPTER_UNAVAILABLE",
   "NOT_PROFILE_OWNER",
   "VERIFICATION_STATE_INVALID",
+  "IDENTITY_SUPPRESSED",
 ] as const;
 
 export type ClaimErrorCode = (typeof CLAIM_ERROR_CODES)[number];

@@ -176,12 +176,15 @@ export const updateProfileForApiOwner = internalMutation({
       args.displayName !== undefined &&
       createProfileSortName(args.displayName) !== createProfileSortName(profile.displayName)
     ) {
+      // No profileId: an accepted request against *this* profile would otherwise
+      // match every proposed name, so an already-opted-out profile could never be
+      // renamed even though renaming never restores public surfacing. Only the
+      // proposed identity is evaluated.
       await assertIdentityNotSuppressed(
         ctx.db,
         {
-          profileId: profile._id,
           slugs: [createProfileSlugBase(args.displayName)],
-          displayNames: [args.displayName],
+          displayNames: [args.displayName, ...(args.aliases ?? [])],
           profileType: profile.profileType,
         },
         "This display name cannot be used.",
@@ -348,7 +351,9 @@ export const submitCommunityProfile = mutation({
     // taken pushes the allocation to a suffixed variant.
     await assertIdentityNotSuppressed(ctx.db, {
       slugs: [createProfileSlugBase(input.displayName), slug],
-      displayNames: [input.displayName],
+      // Aliases too: a submission can carry an unrelated display name and put the
+      // suppressed one in aliases, which toPublicProfile exposes and search indexes.
+      displayNames: [input.displayName, ...input.aliases],
       profileType: input.profileType,
     });
     const sourceAttribution = {

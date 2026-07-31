@@ -28,6 +28,7 @@ export type ClaimErrorCode =
   | "ADAPTER_UNAVAILABLE"
   | "NOT_PROFILE_OWNER"
   | "VERIFICATION_STATE_INVALID"
+  | "IDENTITY_SUPPRESSED"
   // Raised by the shared auth-session guard rather than a claim path, and
   // rethrown untouched so session convergence still sees it. Mapped here so a
   // claim surface says what actually happened instead of the generic fallback.
@@ -73,12 +74,16 @@ const CLAIM_ERROR_COPY: Record<ClaimErrorCode, string> = {
     "Verification is temporarily unavailable. Nothing changed; try again shortly.",
   NOT_PROFILE_OWNER: "You need to manage this profile before changing its connections.",
   VERIFICATION_STATE_INVALID: "That verification link expired. Start the check again.",
+  IDENTITY_SUPPRESSED: "This profile cannot be created.",
   AUTH_SESSION_INVALID: "Your session is no longer valid. Sign in again to continue.",
 };
 
 const OUTCOME_BY_CODE: Record<ClaimErrorCode, ClaimFailureOutcome> = {
   SIGN_IN_REQUIRED: "not_verified",
   EMAIL_NOT_VERIFIED: "not_verified",
+  // "conflict", not "unknown": this is a permanent rejection, so the retry
+  // affordance an unknown failure offers would be misleading.
+  IDENTITY_SUPPRESSED: "conflict",
   DISCORD_NOT_LINKED: "unavailable",
   PROFILE_NOT_FOUND: "unknown",
   INVALID_PROFILE_SLUG: "unknown",

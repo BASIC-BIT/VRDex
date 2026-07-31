@@ -407,7 +407,14 @@ describe("profile ownership helpers", () => {
         },
         now: 1_790_000_000_000,
       }),
-      /cannot be submitted/,
+      (error: unknown) => {
+        // Structured, not a plain Error: Convex redacts plain messages in
+        // production, so the claim client could not tell a permanent safety
+        // rejection from a transient failure.
+        const data = (error as { data?: { code?: string } }).data;
+        assert.equal(data?.code, "IDENTITY_SUPPRESSED");
+        return true;
+      },
     );
   });
 
