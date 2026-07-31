@@ -105,13 +105,21 @@ export async function recordVocabularyTerms(
   candidates: VocabularyCandidate[],
   now: number,
 ) {
+  // Deduplicated by scoped key here rather than at each call site. Distinct labels
+  // can canonicalize to one key -- "Drum & Bass" and "Drum and Bass" -- and a search
+  // document stores that key once, so incrementing per candidate would overstate the
+  // count against a single later release. Every caller gets this for free.
+  const seen = new Set<string>();
+
   for (const candidate of candidates) {
     const label = normalizeVocabularyLabel(candidate.label ?? "");
     const key = createVocabularyKey(label);
 
-    if (!key) {
+    if (!key || seen.has(`${candidate.scope}:${key}`)) {
       continue;
     }
+
+    seen.add(`${candidate.scope}:${key}`);
 
     const aliases = normalizeVocabularyAliases(candidate.aliases);
 
@@ -161,12 +169,18 @@ export async function releaseVocabularyTerms(
   candidates: VocabularyCandidate[],
   now: number,
 ) {
+  // Same deduplication as recordVocabularyTerms: releasing a shared key twice would
+  // erase another contributor's usage.
+  const seen = new Set<string>();
+
   for (const candidate of candidates) {
     const key = createVocabularyKey(normalizeVocabularyLabel(candidate.label ?? ""));
 
-    if (!key) {
+    if (!key || seen.has(`${candidate.scope}:${key}`)) {
       continue;
     }
+
+    seen.add(`${candidate.scope}:${key}`);
 
     const existing = await db
       .query("vocabularyTerms")
@@ -197,12 +211,16 @@ export async function releaseVocabularyKeys(
   scopedKeys: string[],
   now: number,
 ) {
+  const seen = new Set<string>();
+
   for (const scopedKey of scopedKeys) {
     const separator = scopedKey.indexOf(":");
 
-    if (separator <= 0) {
+    if (separator <= 0 || seen.has(scopedKey)) {
       continue;
     }
+
+    seen.add(scopedKey);
 
     const scope = scopedKey.slice(0, separator) as VocabularyCandidate["scope"];
     const key = scopedKey.slice(separator + 1);
