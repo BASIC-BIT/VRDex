@@ -6,6 +6,7 @@ import {
 } from "./_browserSessionAuthority";
 import { mutation, query } from "./_generated/server";
 import { getProfileFieldVisibility } from "./_profileFieldVisibility";
+import { canReadProfile } from "./_profilePermissions";
 import { assertIdentityNotSuppressed } from "./_suppressions";
 import {
   applyProfileFieldVisibilityUpdate,
@@ -64,7 +65,15 @@ export const updateFieldVisibility = mutation({
       getProfileFieldVisibility(profile, "aliases") === "private" &&
       (args.fieldVisibility.aliases ?? "public") !== "private";
 
-    if (aliasesBecomeVisible && profile.aliases.length > 0) {
+    // Only when the profile is publicly readable, matching updateProfileForApiOwner.
+    // applyProfileFieldVisibilityUpdate patches fieldVisibility alone and never
+    // restores publicSurfacingState, so on an opted_out or suppressed profile the
+    // alias stays invisible everywhere and there is nothing to guard.
+    if (
+      aliasesBecomeVisible &&
+      profile.aliases.length > 0 &&
+      canReadProfile("public", profile)
+    ) {
       await assertIdentityNotSuppressed(ctx.db, {
         displayNames: profile.aliases,
         profileType: profile.profileType,
