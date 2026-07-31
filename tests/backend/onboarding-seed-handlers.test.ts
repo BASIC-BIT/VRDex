@@ -6,6 +6,7 @@ import { convexTest } from "convex-test";
 import { api, internal } from "../../convex/_generated/api";
 import schemaModule from "../../convex/schema";
 
+import { newClerkUserId } from "./_clerkTestIdentity";
 const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
   "../../convex/seedAccess.ts": () => import("../../convex/seedAccess"),
@@ -108,7 +109,9 @@ describe("private seed Convex handlers", () => {
     const t = convexTest({ schema, modules });
     await importCandidate(t);
     const identity = await t.run(async (ctx) => {
+      const clerkUserId = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId,
         name: "Seed lookup operator",
       });
       await ctx.db.insert("accountFeatureGrants", {
@@ -119,11 +122,7 @@ describe("private seed Convex handlers", () => {
         grantedAt: NOW,
         updatedAt: NOW,
       });
-      const sessionId = await ctx.db.insert("authSessions", {
-        userId,
-        expirationTime: Date.now() + 60_000,
-      });
-      return { subject: `${userId}|${sessionId}` };
+      return { subject: clerkUserId, emailVerified: true };
     });
 
     const results = await t.withIdentity(identity).query(
@@ -215,16 +214,14 @@ describe("private seed Convex handlers", () => {
         reviewState: "rejected",
         updatedAt: liveNow + 1,
       });
+      const clerkUserId2 = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId2,
         name: "Verified recipient",
         email: "recipient@example.invalid",
         emailVerificationTime: NOW,
       });
-      const sessionId = await ctx.db.insert("authSessions", {
-        userId,
-        expirationTime: Date.now() + 60_000,
-      });
-      return { subject: `${userId}|${sessionId}` };
+      return { subject: clerkUserId2, emailVerified: true };
     });
 
     await assert.rejects(
@@ -264,16 +261,14 @@ describe("private seed Convex handlers", () => {
         reviewState: "rejected",
         updatedAt: liveNow + 1,
       });
+      const clerkUserId3 = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId3,
         name: "Verified recipient",
         email: "recipient@example.invalid",
         emailVerificationTime: NOW,
       });
-      const sessionId = await ctx.db.insert("authSessions", {
-        userId,
-        expirationTime: Date.now() + 60_000,
-      });
-      return { subject: `${userId}|${sessionId}` };
+      return { subject: clerkUserId3, emailVerified: true };
     });
 
     await assert.rejects(
@@ -347,20 +342,16 @@ describe("private seed Convex handlers", () => {
       now: NOW,
     });
     const { acceptingIdentity, otherIdentity } = await t.run(async (ctx) => {
+      const clerkUserId4 = newClerkUserId();
       const acceptingUserId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId4,
         name: "Accepting user",
         email: "accepting@example.invalid",
         emailVerificationTime: NOW,
       });
-      const otherUserId = await ctx.db.insert("users", { name: "Other user" });
-      const acceptingSessionId = await ctx.db.insert("authSessions", {
-        userId: acceptingUserId,
-        expirationTime: Date.now() + 60_000,
-      });
-      const otherSessionId = await ctx.db.insert("authSessions", {
-        userId: otherUserId,
-        expirationTime: Date.now() + 60_000,
-      });
+      const clerkUserId5 = newClerkUserId();
+      const otherUserId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId5, name: "Other user" });
       const profileId = await ctx.db.insert("profiles", privateProfile("claimed_unverified"));
       const invitation = await ctx.db.query("seedHandoffInvitations").first();
       if (invitation === null) {
@@ -375,10 +366,10 @@ describe("private seed Convex handlers", () => {
       });
       return {
         acceptingIdentity: {
-          subject: `${acceptingUserId}|${acceptingSessionId}`,
+          subject: clerkUserId4, emailVerified: true,
         },
         otherIdentity: {
-          subject: `${otherUserId}|${otherSessionId}`,
+          subject: clerkUserId5, emailVerified: true,
         },
       };
     });

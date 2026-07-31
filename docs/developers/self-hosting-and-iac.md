@@ -21,7 +21,7 @@ The hosted BASIC BIT deployment uses:
 - `Next.js` web app in `apps/web`
 - Vercel project `vr-dex-web` for web hosting and staging deploys
 - Convex Cloud development and production deployments for application data/functions/auth
-- AWS SES for auth email
+- AWS SES for transactional email. Not required for authentication: Clerk sends its own verification and password email, and nothing in the codebase sends through SES today
 - Route 53 for `vrdex.net` DNS records
 - PostHog project `447783` for hosted product analytics
 - Upstash Redis through the Redis REST adapter for hosted API/MCP rate-limit counters
@@ -35,7 +35,7 @@ The hosted BASIC BIT deployment uses:
 | Area | Current owner | Notes |
 | --- | --- | --- |
 | Terraform backend | `infra/terraform/state-mgmt` | S3 bucket `vrdex-terraform-state`; stack-specific state keys with S3 native locking. |
-| SES auth email | `infra/terraform/ses` | Domain identity, DKIM, MAIL FROM, Route 53 records, and optional IAM sender key. |
+| SES transactional email | `infra/terraform/ses` | Domain identity, DKIM, MAIL FROM, Route 53 records, and optional IAM sender key. Retired for authentication; retained for the domain identity. |
 | PostHog project metadata | `infra/terraform/posthog` | Imports hosted project `447783`; sensitive project token output feeds Vercel stack locally. |
 | Hosted Vercel web domains | `infra/terraform/web-domains` | Owns the `vrdex.net` and `www.vrdex.net` Vercel project-domain bindings and Route 53 records. |
 | Hosted Vercel PostHog env vars | `infra/terraform/vercel` | Owns `NEXT_PUBLIC_POSTHOG_KEY`/`NEXT_PUBLIC_POSTHOG_HOST` for production, default preview, and configured staging custom environment IDs. |
@@ -55,7 +55,7 @@ A self-hosted operator should expect to provide:
 - a web host capable of running the Next.js app
 - a Convex deployment or compatible backend path supported by the repo at that time
 - a domain and DNS host
-- an SES sender identity or documented transactional email substitute once supported
+- an SES sender identity or documented transactional email substitute once supported. A self-hoster does not need one to run authentication, which Clerk handles
 - an asset object store compatible with the profile asset runtime configuration
 - OAuth provider applications for enabled login providers
 - a product analytics choice, with BASIC BIT hosted PostHog keys intentionally omitted from committed defaults

@@ -149,6 +149,13 @@ jobs:
 
           echo "enabled=true" >> "$GITHUB_OUTPUT"
 
+      # This evaluates `convex/auth.config.ts`, which reads
+      # CLERK_JWT_ISSUER_DOMAIN on any hosted deployment, so the variable must
+      # already exist on a newly created preview. The CLI cannot seed it — there
+      # is no `--env` on `convex deploy`, and `convex env set` needs the
+      # deployment to exist — so it has to come from the project's preview
+      # environment-variable defaults in the Convex dashboard. See
+      # docs/deployment/convex-environments.md.
       - name: Deploy Convex preview functions
         if: steps.convex-preview-gate.outputs.enabled == 'true'
         id: convex-preview
@@ -178,20 +185,16 @@ jobs:
           preview_e2e_auth_enabled=false
           if [ "$HOSTED_E2E_AUTH_HELPERS" = "true" ] && [ "$HOSTED_E2E_DEVELOPER_CREDENTIALS" = "true" ] && [ -n "$HOSTED_E2E_BROWSER_TOKEN" ]; then
             e2e_convex_secret=$(openssl rand -hex 32)
-            node scripts/generate-convex-auth-preview-keys.mjs
             node scripts/generate-preview-developer-runtime-secrets.mjs
-            jwt_private_key=$(<.tmp-gh-artifacts/convex-auth-preview/jwt-private-key)
-            jwks=$(<.tmp-gh-artifacts/convex-auth-preview/jwks.json)
             echo "::add-mask::$e2e_convex_secret"
-            echo "::add-mask::$jwt_private_key"
-            echo "::add-mask::$jwks"
             echo "VRDEX_PREVIEW_E2E_CONVEX_SECRET=$e2e_convex_secret" >> "$GITHUB_ENV"
             printf '%s' true | pnpm exec convex env set --preview-name "$PREVIEW_NAME" VRDEX_ENABLE_E2E_HELPERS
             printf '%s' true | pnpm exec convex env set --preview-name "$PREVIEW_NAME" VRDEX_ENABLE_E2E_AUTH_HELPERS
             printf '%s' true | pnpm exec convex env set --preview-name "$PREVIEW_NAME" VRDEX_ENABLE_PREVIEW_OAUTH_TOKEN_BRIDGE
             printf '%s' "$e2e_convex_secret" | pnpm exec convex env set --preview-name "$PREVIEW_NAME" VRDEX_E2E_CONVEX_SECRET
-            printf '%s' "$jwt_private_key" | pnpm exec convex env set --preview-name "$PREVIEW_NAME" JWT_PRIVATE_KEY
-            printf '%s' "$jwks" | pnpm exec convex env set --preview-name "$PREVIEW_NAME" JWKS
+            # Clerk signs the tokens Convex trusts, so the preview no longer mints
+            # its own RS256 pair. Authenticated preview flows need a Clerk instance
+            # and CLERK_JWT_ISSUER_DOMAIN below; see #226.
             preview_e2e_auth_enabled=true
           else
             printf '%s' false | pnpm exec convex env set --preview-name "$PREVIEW_NAME" VRDEX_ENABLE_E2E_HELPERS
@@ -220,6 +223,7 @@ jobs:
       - name: Deploy Vercel preview output
         id: deploy
         env:
+          CLERK_JWT_ISSUER_DOMAIN: ${{ secrets.CLERK_JWT_ISSUER_DOMAIN }}
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_PREVIEW }}
           CONVEX_PREVIEW_URL: ${{ steps.convex-preview.outputs.convex_url }}
           HEAD_REF: ${{ steps.pr.outputs.head_ref }}
@@ -272,6 +276,11 @@ jobs:
           fi
           if [ "${VRDEX_PREVIEW_E2E_AUTH_ENABLED:-false}" = "true" ]; then
             printf '%s' "$deployment_url" | pnpm exec convex env set --preview-name "$PREVIEW_NAME" SITE_URL
+            # Redundant on the create path, which seeds it via `--env`, but keeps
+            # an existing preview in sync when the secret rotates.
+            if [ -n "${CLERK_JWT_ISSUER_DOMAIN:-}" ]; then
+              printf '%s' "$CLERK_JWT_ISSUER_DOMAIN" | pnpm exec convex env set --preview-name "$PREVIEW_NAME" CLERK_JWT_ISSUER_DOMAIN
+            fi
           fi
 
           echo "url=$deployment_url" >> "$GITHUB_OUTPUT"

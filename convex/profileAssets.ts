@@ -3,7 +3,7 @@ import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery, query, mutation, type MutationCtx } from "./_generated/server";
 import type { AuthSubject } from "./_communityAuthority";
-import { requireActiveAuthSession } from "./_authSessionGuard";
+import { requireUser } from "./_identity";
 import {
   activeBrowserSessionOrNull,
   requireActiveBrowserSessionSubject,
@@ -97,7 +97,7 @@ function requestsGalleryPlacement(placements: Array<"profile_image" | "banner" |
 }
 
 async function requireOwnedAppearanceProfile(ctx: MutationCtx, requestedProfileId: Id<"profiles">) {
-  const { user } = await requireActiveAuthSession(ctx);
+  const { user } = await requireUser(ctx);
   const profile = await ctx.db.get(requestedProfileId);
 
   if (profile === null) {
@@ -268,7 +268,7 @@ export const createUploadIntentForOwnedProfile = mutation({
       throw new Error("Claim this profile before adding media.");
     }
 
-    const { user } = await requireActiveAuthSession(ctx);
+    const { user } = await requireUser(ctx);
     const now = Date.now();
     if (args.replacesAssetId !== undefined) {
       const replacedAsset = await ctx.db.get(args.replacesAssetId);
@@ -337,7 +337,7 @@ export const cancelOwnedUploadIntent = mutation({
   },
   handler: async (ctx, args) => {
     assertProfileMediaKitEnabled();
-    const { user } = await requireActiveAuthSession(ctx);
+    const { user } = await requireUser(ctx);
     const intent = await ctx.db.get(args.intentId);
 
     if (
@@ -444,7 +444,7 @@ export const claimOwnedAccessibilityGeneration = mutation({
     assertProfileMediaKitEnabled();
     assertProfileMediaAccessibilityGenerationEnabled();
     const profile = await requireOwnedAppearanceProfile(ctx, args.profileId);
-    const { user } = await requireActiveAuthSession(ctx);
+    const { user } = await requireUser(ctx);
     const requestId = args.requestId.trim();
     const provider = args.provider.trim();
     const model = args.model.trim();
@@ -773,7 +773,7 @@ export const updateOwnedAssetMetadata = mutation({
   handler: async (ctx, args) => {
     assertProfileMediaKitEnabled();
     const { profile, asset } = await requireOwnedAsset(ctx, args.profileId, args.assetId);
-    const { user } = await requireActiveAuthSession(ctx);
+    const { user } = await requireUser(ctx);
     const now = Date.now();
     const label = sanitizeProfileAssetLabel(args.label);
     const altText = sanitizeProfileAssetAltText(args.altText);
@@ -816,7 +816,7 @@ export const reorderOwnedGallery = mutation({
   handler: async (ctx, args) => {
     assertProfileMediaKitEnabled();
     const profile = await requireOwnedAppearanceProfile(ctx, args.profileId);
-    const { user } = await requireActiveAuthSession(ctx);
+    const { user } = await requireUser(ctx);
     const uniqueIds = [...new Set(args.assetIds)];
     if (uniqueIds.length !== args.assetIds.length || uniqueIds.length > PROFILE_ASSET_MAX_ACTIVE_COUNT) {
       throw new Error("Gallery order is invalid.");
@@ -886,7 +886,7 @@ export const setOwnedFeaturedAsset = mutation({
   handler: async (ctx, args) => {
     assertProfileMediaKitEnabled();
     const profile = await requireOwnedAppearanceProfile(ctx, args.profileId);
-    const { user } = await requireActiveAuthSession(ctx);
+    const { user } = await requireUser(ctx);
     if (args.assetId !== null) {
       const asset = await ctx.db.get(args.assetId);
       if (asset === null || asset.profileId !== profile._id || asset.state !== "active") {
@@ -943,7 +943,7 @@ export const setOwnedAssetDeleted = mutation({
   handler: async (ctx, args) => {
     assertProfileMediaKitEnabled();
     const { profile, asset } = await requireOwnedAsset(ctx, args.profileId, args.assetId);
-    const { user } = await requireActiveAuthSession(ctx);
+    const { user } = await requireUser(ctx);
     const now = Date.now();
     const assetPlacements = await ctx.db
       .query("profileAssetPlacements")

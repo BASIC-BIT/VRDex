@@ -28,6 +28,7 @@ import {
   activeBrowserSessionOrNull,
   requireActiveBrowserSessionSubject,
 } from "./_browserSessionAuthority";
+import { identityEmailVerified } from "./_identity";
 
 type PersonProfile = Extract<Doc<"profiles">, { profileType: "person" }>;
 
@@ -367,7 +368,7 @@ export const acceptInvitation = mutation({
 
     if (
       user.email === undefined ||
-      user.emailVerificationTime === undefined
+      !(await identityEmailVerified(ctx))
     ) {
       throw new Error(
         "A verified email address is required before claim-level actions.",

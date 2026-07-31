@@ -44,3 +44,24 @@ export function claimError(code: ClaimErrorCode, detail?: string): ConvexError<{
 }> {
   return new ConvexError(detail === undefined ? { code } : { code, detail });
 }
+
+/**
+ * True for either code that means "this request is not signed in".
+ *
+ * `requireClaimSession` maps `_identity`'s `UNAUTHENTICATED` to the browser-facing
+ * `SIGN_IN_REQUIRED`, because the client's `ClaimErrorCode` union has no entry for
+ * the former. Callback recovery paths run *outside* that mapping decision and must
+ * match whichever one actually surfaced, or they silently stop attaching
+ * `returnTo` and drop the user on a generic failure.
+ */
+export function isSignInRequiredError(
+  error: unknown,
+): error is ConvexError<{ code: string }> {
+  return (
+    error instanceof ConvexError &&
+    typeof error.data === "object" &&
+    error.data !== null &&
+    "code" in error.data &&
+    (error.data.code === "SIGN_IN_REQUIRED" || error.data.code === "UNAUTHENTICATED")
+  );
+}

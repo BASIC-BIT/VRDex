@@ -1,6 +1,7 @@
 import { ConvexError } from "convex/values";
 
 import { claimError } from "./_claimErrors";
+import { identityEmailVerified, isUnauthenticatedError } from "./_identity";
 import {
   activeBrowserSessionOrNull,
   requireActiveBrowserSessionSubject,
@@ -26,6 +27,14 @@ export async function requireClaimSession(ctx: ClaimSessionCtx) {
   try {
     return await requireActiveBrowserSessionSubject(ctx);
   } catch (error) {
+    // `requireUser` raises `UNAUTHENTICATED`, which is not in the browser's
+    // `ClaimErrorCode` union — rethrowing it unchanged would show the claim
+    // surface's generic failure instead of telling the user to sign in. The
+    // removed session guard mapped its equivalent, so map this one too.
+    if (isUnauthenticatedError(error)) {
+      throw claimError("SIGN_IN_REQUIRED");
+    }
+
     if (error instanceof ConvexError) {
       throw error;
     }
@@ -38,9 +47,12 @@ export async function requireClaimSession(ctx: ClaimSessionCtx) {
 export async function requireVerifiedActiveBrowserSession(ctx: ClaimSessionCtx) {
   const activeSession = await requireClaimSession(ctx);
 
+  // Reads the Clerk claim, not the mirrored `emailVerificationTime`. This is the
+  // guard `profileClaims`, `profileConnections`, `discordVerification`, and
+  // `vrclinkingCredentials` all go through, so a stale row must not satisfy it.
   if (
     activeSession.user.email === undefined ||
-    activeSession.user.emailVerificationTime === undefined
+    !(await identityEmailVerified(ctx))
   ) {
     throw claimError("EMAIL_NOT_VERIFIED");
   }

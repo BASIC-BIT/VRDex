@@ -1,14 +1,14 @@
-import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
+import { convexAuthToken } from "@/lib/server/auth";
 import { fetchAction, fetchQuery } from "convex/nextjs";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { api } from "@convex-generated-api";
 import { appendReturnPathQuery, resolveSameOriginUrl } from "@/lib/return-path";
 import {
-  invalidAuthSessionRedirectResponse,
-  invalidAuthSessionSignInPath,
-  isAuthSessionInvalidError,
-} from "@/lib/server/invalid-auth-session";
+  unauthenticatedRedirectResponse,
+  signInPath,
+  isUnauthenticatedError,
+} from "@/lib/server/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +22,7 @@ function withStatus(path: string, status: string, count?: number): string {
  * The single-use state row is the only record of it, and by the time a revoked
  * session surfaces the actions have either consumed that row or refused to.
  * Both attach it to the error so sign-in can return the user to the claim they
- * were part-way through; `invalidAuthSessionSignInPath` validates the value.
+ * were part-way through; `signInPath` validates the value.
  */
 function carriedReturnTo(error: unknown): string {
   const carried = (error as { data?: { returnTo?: unknown } }).data?.returnTo;
@@ -33,7 +33,7 @@ function carriedReturnTo(error: unknown): string {
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get("code");
   const state = request.nextUrl.searchParams.get("state");
-  const token = await convexAuthNextjsToken();
+  const token = await convexAuthToken();
 
   if (!token) {
     // No session at all — the refresh failed while the user was on Discord's
@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.redirect(
       new URL(
-        invalidAuthSessionSignInPath(pending.returnTo ?? "/account"),
+        signInPath(pending.returnTo ?? "/account"),
         request.nextUrl.origin,
       ),
     );
@@ -80,8 +80,8 @@ export async function GET(request: NextRequest) {
         // it surfaces here. Redirecting past it leaves the stale auth cookies
         // in place; the successful-code branch below clears them, and a
         // declined one is no different.
-        if (isAuthSessionInvalidError(error)) {
-          return invalidAuthSessionRedirectResponse(request, carriedReturnTo(error));
+        if (isUnauthenticatedError(error)) {
+          return unauthenticatedRedirectResponse(request, carriedReturnTo(error));
         }
 
         // An unknown or expired state is not worth surfacing: the user simply
@@ -122,8 +122,8 @@ export async function GET(request: NextRequest) {
     // Same reasoning as the start route: a revoked session is not an outage,
     // and sending the user back with `failed` would tell them the Discord check
     // went wrong when the fix is to sign in again.
-    if (isAuthSessionInvalidError(error)) {
-      return invalidAuthSessionRedirectResponse(request, carriedReturnTo(error));
+    if (isUnauthenticatedError(error)) {
+      return unauthenticatedRedirectResponse(request, carriedReturnTo(error));
     }
 
     console.error(

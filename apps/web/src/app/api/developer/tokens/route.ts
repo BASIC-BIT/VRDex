@@ -1,4 +1,4 @@
-import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
+import { convexAuthToken } from "@/lib/server/auth";
 import { api } from "@convex-generated-api";
 import {
   createApiTokenValue,
@@ -11,13 +11,9 @@ import { apiProblemResponse } from "@/lib/server/api-v0";
 import { temporalTokenScopeEligibilityProblem } from "@/lib/server/api-token-errors";
 import { convexHttpClient } from "@/lib/server/convex-http";
 import {
-  invalidAuthSessionResponse,
-  isAuthSessionInvalidError,
-} from "@/lib/server/invalid-auth-session";
-import {
-  isRecentAuthRequiredError,
-  recentAuthRequiredResponse,
-} from "@/lib/recent-auth";
+  unauthenticatedResponse,
+  isUnauthenticatedError,
+} from "@/lib/server/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -57,7 +53,7 @@ function optionalExpiry(value: unknown) {
 }
 
 export async function POST(request: Request) {
-  const authToken = await convexAuthNextjsToken();
+  const authToken = await convexAuthToken();
 
   if (authToken === undefined) {
     return problem(401, "Sign in required", "A signed-in VRDex account is required to create API tokens.");
@@ -125,13 +121,10 @@ export async function POST(request: Request) {
       },
     );
   } catch (error) {
-    if (isAuthSessionInvalidError(error)) {
-      return invalidAuthSessionResponse("/developers/tokens");
+    if (isUnauthenticatedError(error)) {
+      return unauthenticatedResponse("/developers/tokens");
     }
 
-    if (isRecentAuthRequiredError(error)) {
-      return recentAuthRequiredResponse("/developers/tokens");
-    }
 
     const eligibility = temporalTokenScopeEligibilityProblem(error);
     if (eligibility !== null) {

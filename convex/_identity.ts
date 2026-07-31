@@ -1,0 +1,173 @@
+import { ConvexError } from "convex/values";
+
+import type { Doc } from "./_generated/dataModel";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
+
+export const UNAUTHENTICATED_CODE = "UNAUTHENTICATED";
+
+type IdentityCtx = QueryCtx | MutationCtx;
+
+export function isUnauthenticatedError(
+  error: unknown,
+): error is ConvexError<{ code: string }> {
+  return (
+    error instanceof ConvexError &&
+    typeof error.data === "object" &&
+    error.data !== null &&
+    "code" in error.data &&
+    error.data.code === UNAUTHENTICATED_CODE
+  );
+}
+
+/**
+ * Clerk is the session authority, so there is no VRDex session record to
+ * validate. `users` remains the identity spine every other table points at,
+ * keyed to Clerk by `clerkUserId`.
+ *
+ * Revocation is eventually consistent, and that is a real change from the
+ * Convex Auth design this replaced. Revoking a Clerk session stops it minting
+ * *new* tokens, but an already-issued Convex JWT stays valid until it expires:
+ * Convex validates the signature and expiry locally and cannot introspect
+ * Clerk from a query or mutation. So a holder of a stolen token keeps access
+ * for up to the `convex` template's lifetime after the session is revoked,
+ * where deleting a VRDex session row used to cut it immediately.
+ *
+ * The template lifetime is therefore the revocation window, and it is the knob
+ * to turn — see `docs/backend/auth-sessions.md`. Do not assume a validated
+ * token implies a live session.
+ */
+async function clerkUserIdOrNull(ctx: IdentityCtx) {
+  const identity = await ctx.auth.getUserIdentity();
+
+  return identity === null ? null : identity.subject;
+}
+
+export async function currentUserOrNull(
+  ctx: IdentityCtx,
+): Promise<Doc<"users"> | null> {
+  const clerkUserId = await clerkUserIdOrNull(ctx);
+
+  if (clerkUserId === null) {
+    return null;
+  }
+
+  return await ctx.db
+    .query("users")
+    .withIndex("clerkUserId", (query) => query.eq("clerkUserId", clerkUserId))
+    .unique();
+}
+
+/**
+ * Drop-in replacement for the removed `requireActiveAuthSession`. Callers only
+ * ever destructured `{ user }` or `{ userId }`, so those are the only fields
+ * carried forward.
+ */
+export async function requireUser(ctx: IdentityCtx) {
+  const user = await currentUserOrNull(ctx);
+
+  if (user === null) {
+    throw new ConvexError({ code: UNAUTHENTICATED_CODE });
+  }
+
+  return { user, userId: user._id };
+}
+
+/**
+ * Whether Clerk vouches for the current identity's email, read from the token
+ * Convex just validated.
+ *
+ * Deliberately not `users.emailVerificationTime`. That column is mirrored by
+ * `ensureUser` from the client, so it can lag: a primary-email change arrives
+ * unverified, and any client-side gate meant to close that window can be defeated
+ * by a provisioning outage, a stale token, or simply a request that does not come
+ * from the browser. Reading the claim makes the check independent of all of it —
+ * a token asserting a verified address is either present or it is not, and Clerk
+ * will not mint one for an address it no longer vouches for.
+ */
+export async function identityEmailVerified(ctx: IdentityCtx) {
+  const identity = await ctx.auth.getUserIdentity();
+
+  return identity !== null && identity.emailVerified === true;
+}
+
+/**
+ * The email Clerk currently asserts, and whether it vouches for it.
+ *
+ * Exposed here rather than read directly by callers so the authorization
+ * boundary holds: `tests/backend/auth-session-authorization-boundary.test.ts`
+ * confines `ctx.auth.getUserIdentity()` to this module and
+ * `_browserSessionAuthority`.
+ */
+export async function identityEmail(ctx: IdentityCtx) {
+  const identity = await ctx.auth.getUserIdentity();
+
+  return {
+    email: identity?.email ?? undefined,
+    emailVerified: identity?.emailVerified === true,
+  };
+}
+
+/**
+ * Provisioning happens on demand from `users:ensureCurrentUser` rather than a
+ * Clerk webhook: no endpoint to expose, no signature to verify, and no replay
+ * or retry semantics to get wrong. Idempotent, so a concurrent duplicate call
+ * refreshes the row instead of inserting a second one.
+ */
+export async function ensureUser(ctx: MutationCtx) {
+  const identity = await ctx.auth.getUserIdentity();
+
+  if (identity === null) {
+    throw new ConvexError({ code: UNAUTHENTICATED_CODE });
+  }
+
+  const existing = await ctx.db
+    .query("users")
+    .withIndex("clerkUserId", (query) =>
+      query.eq("clerkUserId", identity.subject),
+    )
+    .unique();
+
+  // The schema stores a verification *time* while Clerk asserts a boolean. Keep
+  // the original timestamp while the address stays verified, but clear it the
+  // moment Clerk stops vouching for the address — a changed primary email
+  // arrives unverified, and the claim guards check only that an email and a
+  // timestamp exist, so a preserved timestamp would let an unverified address
+  // satisfy claim-level verification.
+  const emailVerified = identity.emailVerified === true;
+  const emailUnchanged =
+    existing !== null && existing.email === (identity.email ?? undefined);
+  const emailVerificationTime = !emailVerified
+    ? undefined
+    : emailUnchanged && existing.emailVerificationTime !== undefined
+      ? existing.emailVerificationTime
+      : Date.now();
+
+  const profile = {
+    clerkUserId: identity.subject,
+    name: identity.name ?? undefined,
+    image: identity.pictureUrl ?? undefined,
+    email: identity.email ?? undefined,
+    emailVerificationTime,
+  };
+
+  if (existing === null) {
+    const userId = await ctx.db.insert("users", profile);
+
+    return (await ctx.db.get(userId))!;
+  }
+
+  // Called on every authenticated request path, so skip the write when nothing
+  // actually changed rather than churning the document.
+  const unchanged =
+    existing.clerkUserId === profile.clerkUserId &&
+    existing.name === profile.name &&
+    existing.image === profile.image &&
+    existing.email === profile.email &&
+    existing.emailVerificationTime === profile.emailVerificationTime;
+
+  if (!unchanged) {
+    await ctx.db.patch(existing._id, profile);
+  }
+
+  return (await ctx.db.get(existing._id))!;
+}

@@ -1,6 +1,0 @@
-const MINUTE_MS = 60 * 1_000;
-const DAY_MS = 24 * 60 * MINUTE_MS;
-
-export const AUTH_JWT_DURATION_MS = 60 * MINUTE_MS;
-export const AUTH_SESSION_INACTIVE_DURATION_MS = 30 * DAY_MS;
-export const AUTH_SESSION_TOTAL_DURATION_MS = 90 * DAY_MS;

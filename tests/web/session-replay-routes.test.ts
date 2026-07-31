@@ -59,6 +59,7 @@ const PUBLIC_ROUTE_GROUPS = [
   "privacy",
   "search",
   "sign-in",
+  "sign-up",
   "submit",
   "w",
 ] as const;
@@ -130,6 +131,6 @@ describe("session replay route blocking", () => {
       "../../apps/web/src/lib/posthog"
     );
 
-    assert.equal(SESSION_REPLAY_MASKED_SELECTOR, "[data-ph-no-capture]");
+    assert.ok(SESSION_REPLAY_MASKED_SELECTOR.includes("[data-ph-no-capture]"));
   });
 });

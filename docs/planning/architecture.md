@@ -29,7 +29,7 @@ Current likely stack direction based on adjacent repos and your preference:
 
 - `Next.js` app on Vercel for web UX and preview environments
 - `Convex` for backend data model, functions, auth-adjacent app logic, and scheduling
-- `AWS` for SES auth email, private S3 asset storage, DNS-adjacent infrastructure, and surrounding infrastructure that fits better there
+- `AWS` for SES transactional email, private S3 asset storage, DNS-adjacent infrastructure, and surrounding infrastructure that fits better there
 - `Stripe` for subscriptions, billing portal, and webhook-backed entitlement updates
 
 ### Community telemetry
@@ -53,7 +53,7 @@ Current recommendation:
 
 Email infrastructure direction:
 
-- Amazon SES is the current default for verification and transactional mail; see `docs/deployment/ses-auth-email.md`
+- Amazon SES is the current default for transactional mail. Auth verification mail is Clerk's, not SES's; see `docs/deployment/ses-auth-email.md`
 
 Asset infrastructure direction:
 

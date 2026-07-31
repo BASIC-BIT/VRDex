@@ -1,10 +1,9 @@
 "use client";
 
-import { useAuthActions } from "@convex-dev/auth/react";
+import { useClerk } from "@clerk/nextjs";
 import { useEffect, useId, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { requestBrowserSignOut } from "@/lib/auth-session";
 
 type SignOutControlProps = {
   signOut: () => Promise<void>;
@@ -121,13 +120,14 @@ export function SignOutControl({ signOut }: SignOutControlProps) {
 }
 
 export function AccountSignOutControl() {
-  const { signOut } = useAuthActions();
+  const { signOut } = useClerk();
 
   return (
     <SignOutControl
+      // Clerk clears its own cookies and handles the redirect, so this no longer
+      // needs the manual `window.location.assign` the Convex Auth path required.
       signOut={async () => {
-        await requestBrowserSignOut(signOut);
-        window.location.assign("/sign-in");
+        await signOut({ redirectUrl: "/sign-in" });
       }}
     />
   );

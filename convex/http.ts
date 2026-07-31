@@ -1,12 +1,10 @@
 import { httpRouter } from "convex/server";
 
-import { auth } from "./auth";
 import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 
+// Clerk hosts the auth endpoints, so Convex no longer serves /api/auth/*.
 const http = httpRouter();
-
-auth.addHttpRoutes(http);
 
 function json(value: unknown, status = 200) {
   return new Response(JSON.stringify(value), {

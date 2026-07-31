@@ -4,7 +4,7 @@ import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { getCurrentUser, requireCurrentUser } from "./accounts";
-import { requireRecentAuthSession } from "./_authSessionGuard";
+import { requireUser } from "./_identity";
 import {
   apiRouteClassValidator,
   apiScopeValidator,
@@ -771,7 +771,7 @@ export const createPersonalApplication = mutation({
     ownerCommunitySlug: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const { user } = await requireRecentAuthSession(ctx);
+    const { user } = await requireUser(ctx);
     const ownerCommunity =
       args.ownerCommunitySlug === undefined
         ? undefined
@@ -1435,7 +1435,7 @@ export const revokePersonalApplication = mutation({
     reason: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const { user } = await requireRecentAuthSession(ctx);
+    const { user } = await requireUser(ctx);
     const application = await ctx.db.get(args.applicationId);
     const result = await revokeManageableApplication(ctx, {
       application,

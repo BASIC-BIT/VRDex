@@ -64,7 +64,7 @@ The first useful version should feel small and sharp:
 - `Current recommendation`: Keep anonymous public reads first, then authenticated reads, then narrow audited writes.
 - `Current recommendation`: Use Convex as the authoritative application data and policy layer, with Next.js route handlers as the public HTTP gateway.
 - `Current recommendation`: Put the VRDex OAuth authorization server in Next.js route handlers backed by Convex tables and internal Convex functions. Convex remains the data/control plane; Next owns browser redirects, consent UX, metadata endpoints, token routes, CORS, and HTTP semantics.
-- `Current recommendation`: Do not treat Convex Auth's inbound sign-in providers as the third-party developer OAuth issuer. Convex Auth remains first-party account authentication; the VRDex developer platform issues tokens for external clients.
+- `Current recommendation`: Do not treat the inbound sign-in providers as the third-party developer OAuth issuer. Clerk remains first-party account authentication — Convex Auth filled that role before the cutover, and the separation is unchanged by the swap; the VRDex developer platform issues its own tokens for external clients.
 - `Current recommendation`: Keep the first issuer in the web app instead of adding a separate identity provider. VRDex needs app-specific developer ownership, dynamic MCP client handling, self-hosted behavior, quota policy, audit records, and product checks in the same deployment boundary; an external IdP can be revisited only if it cleanly owns those custom platform rules.
 - `Current recommendation`: Treat the in-app issuer as narrow platform security code, not a broad replacement for first-party login providers. Current MCP/OpenAI guidance favors established identity providers for generic apps, so the VRDex issuer must stay intentionally small, heavily tested, and limited to the OAuth subset this platform needs: metadata discovery, Authorization Code with PKCE, Client Credentials, refresh-token rotation, revocation, constrained DCR, public-client CIMD, resource-bound JWT access tokens, and exact redirect validation.
 - `Current recommendation`: Use shared TypeScript API contract schemas as the source of truth for runtime validation, response typing, example generation, and OpenAPI generation. Convex validators remain the database/function boundary.
@@ -552,7 +552,7 @@ Issuer placement:
 - Next.js route handlers own the OAuth HTTP surface.
 - Convex stores applications, grants, consents, tokens, rotation state, revocation state, and audit events.
 - Next route handlers call Convex queries/mutations/actions for durable state changes.
-- Convex Auth continues to authenticate the signed-in VRDex account during authorization and consent.
+- Clerk authenticates the signed-in VRDex account during authorization and consent. The route handlers mint a Convex credential from the session with `convexAuthToken()`; this was Convex Auth before the Clerk cutover.
 - A separate OAuth service is deferred until scale, compliance, or cross-app reuse justifies the operational cost.
 
 Rationale:

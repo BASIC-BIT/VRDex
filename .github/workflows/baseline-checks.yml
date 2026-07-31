@@ -464,7 +464,12 @@ jobs:
 
   playwright-auth-session-matrix:
     name: Playwright Auth Session Matrix
-    if: github.event_name == 'pull_request'
+    # Disabled, not merely failing: this lane runs only `auth-session.flow.spec.ts`
+    # under `@auth-session-matrix`, and that spec is skipped in full until hosted
+    # E2E auth is wired to Clerk (#226). A skipped Playwright run exits 0, so the
+    # lane reported pass — and the summary below claimed three browsers and
+    # restart/invalid-refresh coverage that never executed. Re-enable with #226.
+    if: false
     needs: [build-web]
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -512,9 +517,9 @@ jobs:
 
           Outcome: ${MATRIX_OUTCOME}
 
-          Browsers: Chromium, Firefox, and WebKit.
-
-          Coverage: persistent-profile restart and invalid refresh failure.
+          Coverage: none. The specs this lane runs are skipped until hosted E2E
+          auth is wired to Clerk (#226). Nothing about session restart, refresh
+          failure, or cross-browser behaviour is verified here.
 
           Run: ${RUN_URL}
           EOF
@@ -622,6 +627,12 @@ jobs:
           Hosted adapter helpers: ${HOSTED_ADAPTER_HELPERS:-skipped}
 
           Hosted developer credentials: ${HOSTED_DEVELOPER_CREDENTIALS:-skipped}
+
+          The auth-helper and developer-credential flags above report
+          configuration, not coverage. `auth-claim.flow` and
+          `developer-credentials.flow` are skipped in full until hosted auth is
+          rewired to Clerk (#226), so enabling either flag exercises nothing.
+          Only the captured flow below actually ran.
 
           Captured flow:
           - hosted test-gated profile submission form

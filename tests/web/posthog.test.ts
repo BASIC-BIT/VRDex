@@ -60,7 +60,20 @@ describe("PostHog privacy", () => {
   });
 
   it("keeps the replay masking selector aligned with the blocked claim region", () => {
-    assert.equal(SESSION_REPLAY_MASKED_SELECTOR, "[data-ph-no-capture]");
+    assert.ok(SESSION_REPLAY_MASKED_SELECTOR.includes("[data-ph-no-capture]"));
+  });
+
+  // Clerk portals its profile and auth surfaces to the document body, outside
+  // every `data-ph-no-capture` wrapper in the app tree, and that modal renders
+  // the account email, linked identities, and signed-in devices. The markup is
+  // provider-controlled, so a selector is the only way to mask it.
+  it("masks Clerk's body-level modal portals", () => {
+    for (const selector of [".cl-modalContent", ".cl-userProfile-root"]) {
+      assert.ok(
+        SESSION_REPLAY_MASKED_SELECTOR.includes(selector),
+        `${selector} must stay in the replay mask`,
+      );
+    }
   });
 
   // A replay recording carries its own copy of the page URL, in the rrweb meta
