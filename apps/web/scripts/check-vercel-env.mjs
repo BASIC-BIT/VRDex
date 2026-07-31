@@ -127,9 +127,10 @@ if (isProductionVercel) {
   }
 }
 
-if (process.env.NEXT_PUBLIC_VRDEX_SUBMISSIONS_AUTH_READY === "true") {
-  errors.push("NEXT_PUBLIC_VRDEX_SUBMISSIONS_AUTH_READY must stay false until web auth is wired.");
-}
+// `NEXT_PUBLIC_VRDEX_SUBMISSIONS_AUTH_READY` used to be rejected here to keep
+// `/submit` locked until web auth existed. Clerk is that auth, and `/submit` is
+// protected by `clerkMiddleware`, so the flag gated nothing and failing a build
+// over it would now block a correctly configured deployment.
 
 if (convexUrl) {
   const parsedConvexUrl = parseUrl("NEXT_PUBLIC_CONVEX_URL", convexUrl);

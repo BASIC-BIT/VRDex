@@ -36,7 +36,11 @@ function DeploymentRow({ item }: { item: DeploymentItem }) {
 export default function DeploymentPage() {
   const deploymentUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null;
   const convexConfigured = Boolean(process.env.NEXT_PUBLIC_CONVEX_URL);
-  const submissionsAuthReady = process.env.NEXT_PUBLIC_VRDEX_SUBMISSIONS_AUTH_READY === "true";
+  // Replaced `NEXT_PUBLIC_VRDEX_SUBMISSIONS_AUTH_READY`, which this page used to
+  // report as "locked until auth issue lands". Auth has landed: `/submit` is
+  // protected by `clerkMiddleware`, so the flag described a gate that no longer
+  // exists and every correctly configured deployment published a false failure.
+  const clerkConfigured = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
 
   const deploymentItems: DeploymentItem[] = [
     {
@@ -67,9 +71,9 @@ export default function DeploymentPage() {
       tone: convexConfigured ? "ok" : "warn",
     },
     {
-      label: "Submission auth gate",
-      value: submissionsAuthReady ? "unlocked" : "locked until auth issue lands",
-      tone: submissionsAuthReady ? "warn" : "ok",
+      label: "Clerk",
+      value: clerkConfigured ? "configured" : "not configured",
+      tone: clerkConfigured ? "ok" : "warn",
     },
   ];
 
@@ -109,7 +113,7 @@ export default function DeploymentPage() {
                 A shell-only Vercel preview may run without Convex. Set <code className="font-mono text-[0.95em]">NEXT_PUBLIC_CONVEX_URL</code> to a hosted Convex deployment when you want the homepage and server baseline to read live backend data.
               </p>
               <p>
-                Keep <code className="font-mono text-[0.95em]">NEXT_PUBLIC_VRDEX_SUBMISSIONS_AUTH_READY</code> false until the auth foundation lands, so <code className="font-mono text-[0.95em]">/submit</code> stays locked for public visitors.
+                Set <code className="font-mono text-[0.95em]">NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY</code> and <code className="font-mono text-[0.95em]">CLERK_SECRET_KEY</code> for any deployment that should accept sign-in. Without them <code className="font-mono text-[0.95em]">/submit</code> and every other protected route redirect to an unavailable sign-in page.
               </p>
               <p>
                 See <code className="font-mono text-[0.95em]">docs/deployment/vercel-preview.md</code> for the repository and Vercel setup contract.

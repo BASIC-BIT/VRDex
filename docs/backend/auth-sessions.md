@@ -133,17 +133,37 @@ staging, and production each need their own.
 the `emailVerificationTime` column, which is only a mirrored copy and can lag a
 profile change. Without the claim, every request looks unverified and
 `requireVerifiedEmailUser` rejects claim-level actions with `EMAIL_NOT_VERIFIED`
-— a failure that looks like a claim bug rather than a template gap. The
-development template in use emits:
+— a failure that looks like a claim bug rather than a template gap.
+
+**The template must also emit `"aud": "convex"`.** `auth.config.ts` sets
+`applicationID: "convex"`, which Convex checks against the token's audience, so
+a template without it has every otherwise-valid token rejected — provisioning
+included, meaning nobody can sign in at all. The Convex preset supplies it;
+the risk is editing the claims afterwards and dropping it.
+
+Take the preset as-is rather than pasting a subset. These are the claims on the
+development instance, read back from Clerk's API — the audience and
+`email_verified` are the two VRDex depends on, and the rest are preset defaults
+worth keeping so a later need does not require a template change:
 
 ```json
 {
-  "email": "{{user.primary_email_address}}",
-  "email_verified": "{{user.email_verified}}",
+  "aud": "convex",
   "name": "{{user.full_name}}",
-  "picture": "{{user.image_url}}"
+  "email": "{{user.primary_email_address}}",
+  "picture": "{{user.image_url}}",
+  "nickname": "{{user.username}}",
+  "given_name": "{{user.first_name}}",
+  "updated_at": "{{user.updated_at}}",
+  "family_name": "{{user.last_name}}",
+  "phone_number": "{{user.primary_phone_number}}",
+  "email_verified": "{{user.email_verified}}",
+  "phone_number_verified": "{{user.phone_number_verified}}"
 }
 ```
+
+That template's lifetime is 3600 seconds, so the revocation window described
+above is up to an hour on this instance.
 
 ### Required instance setting: disable self-service account deletion
 

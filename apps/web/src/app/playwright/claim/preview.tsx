@@ -9,9 +9,11 @@ const previewClient = new ConvexReactClient("https://playwright-preview.convex.c
 export function ClaimFlowPreview({
   discordLinked = true,
   privateProfile = false,
+  vrclinkingConfigured = true,
 }: {
   discordLinked?: boolean;
   privateProfile?: boolean;
+  vrclinkingConfigured?: boolean;
 }) {
   return (
     <ConvexProvider client={previewClient}>
@@ -27,7 +29,11 @@ export function ClaimFlowPreview({
           // screenshotted, and the VRCLinking card renders on this flag alone.
           // Left out, the diff loop would keep asserting the pre-existing VRChat
           // UI and never see a change to the card that was added here.
-          vrclinkingConfigured: true,
+          //
+          // Toggleable because false is the repository default, and an owner on
+          // a deployment without the adapter is the state where a Discord
+          // affordance would unlock nothing visible.
+          vrclinkingConfigured,
           ownership: privateProfile ? "viewer" : "available",
           verified: privateProfile,
           pendingClaimRequest: null,

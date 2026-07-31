@@ -110,7 +110,7 @@ Set these in the Vercel project as needed:
 - `NEXT_PUBLIC_CONVEX_URL`: optional for a shell-only preview; set to the hosted Convex deployment URL for live backend reads.
 - `CONVEX_ADMIN_TOKEN`: server-only Convex admin/deploy token for route handlers that call internal Convex functions, currently needed by developer credential inventory API routes.
 - `VRDEX_REQUIRE_CONVEX_URL=true`: optional; use when previews must fail instead of showing missing-backend states.
-- `NEXT_PUBLIC_VRDEX_SUBMISSIONS_AUTH_READY=false`: legacy flag; auth-backed submissions now rely on Clerk configuration.
+- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY`: required for any deployment that should accept sign-in. Production builds fail without them; a shell-only preview may omit both. `NEXT_PUBLIC_VRDEX_SUBMISSIONS_AUTH_READY` is retired — it gated `/submit` before web auth existed, and `clerkMiddleware` protects that route now.
 - `NEXT_PUBLIC_POSTHOG_KEY`: optional public PostHog project key; BASIC BIT hosted deployments should set this through `infra/terraform/vercel` for PostHog project `447783`.
 - `NEXT_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com`: optional PostHog ingestion host; also managed through `infra/terraform/vercel` for hosted deployments.
 
@@ -178,7 +178,7 @@ The `staging` Vercel environment points at the shared Convex development deploym
 - `NEXT_PUBLIC_CONVEX_URL=https://scrupulous-corgi-247.convex.cloud`
 - `CONVEX_URL=https://scrupulous-corgi-247.convex.cloud`
 - `VRDEX_REQUIRE_CONVEX_URL=true`
-- `NEXT_PUBLIC_VRDEX_SUBMISSIONS_AUTH_READY=false`
+- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY`
 - `VRDEX_ENABLE_E2E_HELPERS=true`
 - `VRDEX_E2E_BROWSER_TOKEN`: sensitive value matching GitHub Actions secret `VRDEX_HOSTED_E2E_BROWSER_TOKEN`
 - `VRDEX_E2E_CONVEX_SECRET`: sensitive value matching Convex dev env `VRDEX_E2E_CONVEX_SECRET`
