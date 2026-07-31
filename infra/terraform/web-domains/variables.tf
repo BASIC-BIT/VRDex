@@ -67,16 +67,23 @@ variable "tags" {
 # The mail records are Clerk's own sender identity, unrelated to the SES stack:
 # SES is retired for authentication, and Clerk sends its verification mail.
 #
-# Every value here is a checked-in default rather than a `terraform.tfvars`
-# entry, because tfvars is gitignored and CI has none. Gating these behind an
-# operator-supplied variable meant only an out-of-band apply could create them —
-# and this stack applies from main, so the next CI run destroyed them as
-# orphaned state. They are public DNS records, not secrets; anyone can dig them.
+# These default to off with no targets, and hosted CI supplies both through
+# `TERRAFORM_WEB_DOMAINS_*` repository variables — the same mechanism the SES and
+# profile-assets stacks already use for BASIC BIT specifics.
+#
+# Two failure modes shaped that. Defaulting them off with the targets in a
+# gitignored `terraform.tfvars` meant CI could never create the records, so only
+# an out-of-band apply could, and the next run from main destroyed them as
+# orphaned state. Defaulting them *on* with BASIC BIT's instance id baked in
+# fixed that but broke fork isolation: a self-hoster copying the example and
+# changing only the domain would silently delegate their authentication-email DNS
+# to BASIC BIT's Clerk tenant, which `docs/developers/self-hosting-and-iac.md`
+# forbids. Neither the value nor the flag belongs in a committed default.
 
 variable "manage_clerk_dns" {
-  description = "Create the Clerk production CNAME records."
+  description = "Create the Clerk production CNAME records. Hosted CI sets this; leave false for self-hosted deployments and forks."
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "clerk_frontend_api_subdomain" {
@@ -98,19 +105,19 @@ variable "clerk_mail_subdomain" {
 }
 
 variable "clerk_mail_target" {
-  description = "Clerk-issued mail CNAME target. Instance-specific but not secret: it is a public DNS record."
+  description = "Clerk-issued mail CNAME target for your own instance, e.g. mail.<id>.clerk.services."
   type        = string
-  default     = "mail.49kratywlj1f.clerk.services"
+  default     = null
 }
 
 variable "clerk_dkim1_target" {
-  description = "Clerk-issued DKIM CNAME target for clk._domainkey."
+  description = "Clerk-issued DKIM CNAME target for clk._domainkey on your own instance."
   type        = string
-  default     = "dkim1.49kratywlj1f.clerk.services"
+  default     = null
 }
 
 variable "clerk_dkim2_target" {
-  description = "Clerk-issued DKIM CNAME target for clk2._domainkey."
+  description = "Clerk-issued DKIM CNAME target for clk2._domainkey on your own instance."
   type        = string
-  default     = "dkim2.49kratywlj1f.clerk.services"
+  default     = null
 }

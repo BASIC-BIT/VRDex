@@ -65,6 +65,10 @@ env:
   TERRAFORM_RATE_LIMIT_STAGING_CUSTOM_ENVIRONMENT_IDS: ${{ vars.TERRAFORM_RATE_LIMIT_STAGING_CUSTOM_ENVIRONMENT_IDS }}
   TERRAFORM_RATE_LIMIT_MANAGE_PREVIEW_ENVIRONMENT: ${{ vars.TERRAFORM_RATE_LIMIT_MANAGE_PREVIEW_ENVIRONMENT }}
   TERRAFORM_PROFILE_ASSETS_VERCEL_TEAM_SLUG: ${{ vars.TERRAFORM_PROFILE_ASSETS_VERCEL_TEAM_SLUG || 'basicbit' }}
+  TERRAFORM_WEB_DOMAINS_MANAGE_CLERK_DNS: ${{ vars.TERRAFORM_WEB_DOMAINS_MANAGE_CLERK_DNS }}
+  TERRAFORM_WEB_DOMAINS_CLERK_MAIL_TARGET: ${{ vars.TERRAFORM_WEB_DOMAINS_CLERK_MAIL_TARGET }}
+  TERRAFORM_WEB_DOMAINS_CLERK_DKIM1_TARGET: ${{ vars.TERRAFORM_WEB_DOMAINS_CLERK_DKIM1_TARGET }}
+  TERRAFORM_WEB_DOMAINS_CLERK_DKIM2_TARGET: ${{ vars.TERRAFORM_WEB_DOMAINS_CLERK_DKIM2_TARGET }}
 
 jobs:
   terraform-fmt:
@@ -420,6 +424,13 @@ jobs:
               ;;
             web-domains)
               if [ -n "$TERRAFORM_ROUTE53_ZONE_ID" ]; then args+=("-var=route53_zone_id=$TERRAFORM_ROUTE53_ZONE_ID"); fi
+              # Clerk records stay off unless this deployment supplies its own
+              # instance targets, so a fork never points authentication-email DNS
+              # at someone else's Clerk tenant.
+              if [ -n "$TERRAFORM_WEB_DOMAINS_MANAGE_CLERK_DNS" ]; then args+=("-var=manage_clerk_dns=$TERRAFORM_WEB_DOMAINS_MANAGE_CLERK_DNS"); fi
+              if [ -n "$TERRAFORM_WEB_DOMAINS_CLERK_MAIL_TARGET" ]; then args+=("-var=clerk_mail_target=$TERRAFORM_WEB_DOMAINS_CLERK_MAIL_TARGET"); fi
+              if [ -n "$TERRAFORM_WEB_DOMAINS_CLERK_DKIM1_TARGET" ]; then args+=("-var=clerk_dkim1_target=$TERRAFORM_WEB_DOMAINS_CLERK_DKIM1_TARGET"); fi
+              if [ -n "$TERRAFORM_WEB_DOMAINS_CLERK_DKIM2_TARGET" ]; then args+=("-var=clerk_dkim2_target=$TERRAFORM_WEB_DOMAINS_CLERK_DKIM2_TARGET"); fi
               ;;
             ses)
               args+=("-var=domain_name=$TERRAFORM_SES_DOMAIN_NAME")
