@@ -597,7 +597,7 @@ export function ClaimFlow({
       <Link2 aria-hidden="true" className="mb-2 size-5 text-accent" />
       Ask a community that already links your Discord and VRChat accounts, instead of posting a
       code. Grants ownership.
-      {vrclinkingMethodBlocked ? " Link Discord from your account first." : ""}
+      {vrclinkingMethodBlocked ? " Verify your Discord account first." : ""}
     </MethodCard>
   );
   const discordMethodCard = (
@@ -613,7 +613,7 @@ export function ClaimFlow({
       {profile.profileType === "person"
         ? "Fast access with your linked account. This claims the profile but does not verify that it represents you."
         : "Confirm you own, administer, or manage the community’s Discord server. Grants ownership."}
-      {discordMethodBlocked ? " Link Discord from your account first." : ""}
+      {discordMethodBlocked ? " Verify your Discord account first." : ""}
     </MethodCard>
   );
 
@@ -834,9 +834,26 @@ export function ClaimFlow({
                       </>
                     )}
                   </div>
-                  {!isUnverifiedViewer && !isVerifiedViewer && discordMethodBlocked ? (
-                    <Link className="mt-3 inline-block text-sm underline underline-offset-4" href="/account">
-                      Review sign-in methods
+                  {/* Points at the purpose-scoped round-trip, not `/account`.
+                      `hasDiscord` is a VRDex verification watermark now, and the
+                      only thing that writes one is this OAuth flow. `/account`
+                      opens Clerk's profile, where linking Discord as a sign-in
+                      method writes nothing VRDex reads — so sending a blocked
+                      claimant there left them looping: link Discord, come back,
+                      still blocked, no other affordance on the page.
+
+                      Shown for the owner-upgrade branch too. VRCLinking is
+                      blocked by the same missing watermark, and that branch
+                      renders the card while previously offering no way to
+                      unblock it. */}
+                  {discordMethodBlocked || (vrclinkingAvailable && vrclinkingMethodBlocked) ? (
+                    <Link
+                      className={cn(buttonVariants({ variant: "secondary" }), "mt-3")}
+                      href={discordVerifyHref}
+                    >
+                      {discordVerifyState === "verified"
+                        ? "Check Discord again"
+                        : "Verify with Discord"}
                     </Link>
                   ) : null}
                 </fieldset>
