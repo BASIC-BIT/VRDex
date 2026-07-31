@@ -198,7 +198,13 @@ Per deployment, before anyone signs in:
 
 1. Re-check the counts. If a profile has been claimed since, this section is out
    of date and the orphaning is no longer trivial.
-2. Delete the Convex Auth tables and the legacy `users` rows.
+2. Delete the legacy `users` rows and every table in the phase-one block of
+   `convex/schema.ts`. Six belong to the Convex Auth component — `authSessions`,
+   `authAccounts`, `authRefreshTokens`, `authVerificationCodes`, `authVerifiers`,
+   `authRateLimits` — and two are VRDex's own: `recentAuthChallenges`, which
+   backed step-up re-authentication, and `e2eAuthCodes`, which held E2E
+   verification codes and had no expiry sweep, so a cancelled staging run can
+   have left rows behind. All eight must be empty before the declarations can go.
 3. Sign in through Clerk, which provisions a fresh row.
 4. Recreate the `accountFeatureGrants` row against the new user id.
 5. Once no legacy rows remain anywhere, tighten `clerkUserId` to `v.string()`.

@@ -4,7 +4,7 @@
 
 Locked first-pass direction for [#57](https://github.com/BASIC-BIT/VRDex/issues/57).
 
-VRDex uses AWS narrowly for early supporting infrastructure. The current baseline is intentionally small: transactional auth email first, private profile asset storage next, and no broad AWS application platform before the product needs it.
+VRDex uses AWS narrowly for early supporting infrastructure. The current baseline is intentionally small: a transactional email sender identity, private profile asset storage, and no broad AWS application platform before the product needs it. Authentication email is Clerk's, not SES's.
 
 ## Scope
 
@@ -28,7 +28,11 @@ Non-goals for this baseline:
 
 ## Email Delivery
 
-Locked decision: use Amazon SES for auth verification and transactional email.
+Locked decision: use Amazon SES for transactional email. **Auth verification is
+no longer part of this** — Clerk sends its own verification and password email,
+so the SES stack is retained for its domain identity and DKIM records rather
+than rewired into a sign-in flow. Nothing in the codebase sends through SES
+today; see [`ses-auth-email.md`](./ses-auth-email.md).
 
 Current hosted baseline:
 
@@ -48,7 +52,7 @@ Verified state as of this baseline pass:
 - Terraform plan against the hosted stack: no changes
 - SES send quota: `Max24HourSend=50000`, `MaxSendRate=14`, `SentLast24Hours=0`
 
-Convex deployments that send email must set:
+A Convex deployment that sends email through SES must set the following. None do today — see the retirement note above:
 
 - `AWS_SES_REGION`
 - `AWS_SES_FROM_EMAIL`

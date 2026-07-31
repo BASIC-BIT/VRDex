@@ -86,9 +86,13 @@ public community profile for search smoke coverage. Its guard permits only
 is accidentally present. Staging runs the same internal mutation after its
 Convex deploy and before its Vercel deploy.
 
-## Auth Email Environment
+## Transactional Email Environment
 
-Convex deployments that send password or email verification messages through SES must set:
+**No deployment needs these today.** Clerk sends the verification and password
+email this section used to describe, and nothing in the codebase calls SES. They
+are documented for whichever feature adopts SES next.
+
+A Convex deployment that does send through SES must set:
 
 - `AWS_SES_REGION`
 - `AWS_SES_FROM_EMAIL`

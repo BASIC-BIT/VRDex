@@ -705,6 +705,41 @@ export default defineSchema({
     lastAttemptTime: v.number(),
     attemptsLeft: v.number(),
   }).index("identifier", ["identifier"]),
+  // These two are VRDex's own, not the component's, which is why they were
+  // missed when the block above was written — but the deploy does not care who
+  // owned them, only whether a populated table is declared.
+  //
+  // `e2eAuthCodes` is the likelier of the two to hold rows: nothing expired
+  // them, so a staging run cancelled between `recordAuthCode` and teardown left
+  // a document behind indefinitely.
+  recentAuthChallenges: defineTable({
+    actionClass: v.union(
+      v.literal("developer_oauth_application"),
+      v.literal("developer_token"),
+      v.literal("session_revocation"),
+    ),
+    challengeId: v.string(),
+    completedAt: v.optional(v.number()),
+    completedSessionId: v.optional(v.id("authSessions")),
+    expiresAt: v.number(),
+    originalSessionId: v.id("authSessions"),
+    authenticatedSessionId: v.optional(v.id("authSessions")),
+    proofMethod: v.optional(v.literal("password")),
+    proofClaimedAt: v.optional(v.number()),
+    proofHash: v.optional(v.string()),
+    proofObservedAt: v.optional(v.number()),
+    userId: v.id("users"),
+  })
+    .index("by_challengeId", ["challengeId"])
+    .index("by_completedSessionId", ["completedSessionId"])
+    .index("by_expiresAt", ["expiresAt"])
+    .index("by_originalSessionId", ["originalSessionId"]),
+  e2eAuthCodes: defineTable({
+    email: v.string(),
+    code: v.string(),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+  }).index("by_email", ["email"]),
   // ---------------------------------------------------------------------------
   users: defineTable({
     clerkUserId: v.optional(v.string()),
