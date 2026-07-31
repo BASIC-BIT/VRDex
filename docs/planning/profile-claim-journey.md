@@ -57,6 +57,12 @@ Current recommendation:
   show the asset is the one the listing represents, and the target id comes from
   the claimant. Without an independent association the claim grants
   `claimed_unverified`, and upgrades later once one exists.
+  **Superseded 2026-07-30 — see
+  [`profile-trust-signals.md`](./profile-trust-signals.md).** This rule is
+  unreachable in practice: the proof path writes its own association, so a
+  claimant's evidence never satisfies it, and the only qualifying writer has no
+  self-service surface. The replacement moves verification off the profile and
+  onto the individual external account it actually attests.
 - `profileConnections:recordOperatorAssociation` is the writer that records such
   an association. It is internal, run with the deployment key, and deliberately
   has no self-service surface — self-service is what the rule exists to rule
