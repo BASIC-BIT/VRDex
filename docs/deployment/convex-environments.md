@@ -9,6 +9,38 @@ VRDex keeps four Convex execution targets separate:
 - deployed smoke testing: the shared development Convex deployment
 - production release: the production Convex deployment
 
+## Targeting a deployment from the CLI
+
+Use `pnpm cx -- <local|dev|prod> <convex args>`. The target is a required
+positional and is never inferred:
+
+```bash
+pnpm cx -- prod run seedImports:listBatchesForReview
+pnpm cx -- dev env list
+pnpm cx -- local dev --once --run health:status
+```
+
+`convex --prod` does not work in this repository. The repo `.env.local` sets
+`CONVEX_DEPLOYMENT=anonymous:anonymous-agent` so that local development needs no
+cloud project, which leaves `--prod` with no project to resolve against. The
+wrapper supplies `CONVEX_DEPLOYMENT` and `CONVEX_DEPLOY_KEY` for the named
+target instead.
+
+It also clears `CONVEX_URL`, `CONVEX_DEPLOYMENT`, `CONVEX_DEPLOY_KEY`, and the
+self-hosted pair from the child environment before setting the target's own
+values. A shell that has run `pnpm dev:backend:local` keeps `CONVEX_URL`
+pointing at `127.0.0.1:3210`, which otherwise silently wins over a command line
+that reads `prod`.
+
+Credentials are read from `.env.local` in the main checkout — worktrees do not
+carry it, and the wrapper locates the main checkout through
+`git rev-parse --git-common-dir` rather than requiring a variable. They are
+passed to the Convex CLI through its environment and never printed; the banner
+names the deployment and the env file only.
+
+A target that is missing either of its two variables fails and names both,
+rather than falling back to whichever credentials are present.
+
 ## Current Deployments
 
 Do not commit deploy keys. Store them in GitHub/hosting secret stores and local ignored env files only.
