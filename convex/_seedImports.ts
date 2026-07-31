@@ -153,6 +153,7 @@ export type SeedImportPublicationBlocker =
   | "candidate_not_queued_for_publication"
   | "candidate_profile_type_unsupported"
   | "matched_profile_type_mismatch"
+  | "publication_not_authorized"
   | "field_exceeds_public_profile_limits"
   | "display_name_outside_public_limits"
   | "live_handoff_invitation_blocks_publication";
@@ -1182,7 +1183,10 @@ export function getSeedImportFieldBlockers(
  * re-checked here because any of them can change between queue and publish.
  */
 export function getSeedImportPublishBlockers(args: {
-  batch: Pick<Doc<"seedImportBatches">, "publicationPolicy" | "reviewState">;
+  batch: Pick<
+    Doc<"seedImportBatches">,
+    "publicationPolicy" | "reviewState" | "publicationAuthorizations"
+  >;
   candidate: SeedImportPublicationCandidate & Pick<Doc<"seedImportCandidateProfiles">, "profileType">;
   fields?: SeedImportPublicationField[];
   matchedProfile?: (SeedImportPublicationProfile & { profileType?: Doc<"profiles">["profileType"] }) | null;
@@ -1195,6 +1199,14 @@ export function getSeedImportPublishBlockers(args: {
 
   if ((args.batch.publicationPolicy ?? "private_only") !== "reviewed_publication_allowed") {
     blockers.add("source_private_only");
+  }
+
+  // A relaxed policy alone is not authorization. Legacy and fixture batches can
+  // carry reviewed_publication_allowed with no recorded reason, and publishing
+  // those would create public profiles with nothing establishing that the source
+  // permitted it. setBatchPublicationPolicy is what records that.
+  if ((args.batch.publicationAuthorizations ?? []).length === 0) {
+    blockers.add("publication_not_authorized");
   }
 
   if (args.batch.reviewState !== "approved") {
@@ -1289,7 +1301,10 @@ export function getSeedImportPublishBlockers(args: {
 }
 
 export function getSeedImportPublicationBlockers(args: {
-  batch: Pick<Doc<"seedImportBatches">, "publicationPolicy" | "reviewState">;
+  batch: Pick<
+    Doc<"seedImportBatches">,
+    "publicationPolicy" | "reviewState" | "publicationAuthorizations"
+  >;
   candidate: SeedImportPublicationCandidate;
   fields: SeedImportPublicationField[];
   matchedProfile?: (SeedImportPublicationProfile & { profileType?: Doc<"profiles">["profileType"] }) | null;
@@ -1305,6 +1320,12 @@ export function getSeedImportPublicationBlockers(args: {
   // private review lookup — and then skip it at publish.
   if ((args.batch.publicationPolicy ?? "private_only") !== "reviewed_publication_allowed") {
     blockers.add("source_private_only");
+  }
+
+  // Same as the publish gate: a relaxed policy with no recorded authorization is
+  // not a decision anyone made.
+  if ((args.batch.publicationAuthorizations ?? []).length === 0) {
+    blockers.add("publication_not_authorized");
   }
 
   if (args.batch.reviewState !== "approved") {

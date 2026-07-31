@@ -100,6 +100,11 @@ export const runBackfillProfilePublicSurfacingState = migrations.runner(
  */
 export const publishGatedProfiles = migrations.define({
   table: "profiles",
+  // ponytail: smaller than the 50-row default because migrateOne has no page hook
+  // to preload the accepted-suppression set, so each row re-reads it. Raise this
+  // once suppression requests carry a canonical name/type index that allows a
+  // targeted lookup instead of a full scan.
+  batchSize: 10,
   migrateOne: async (ctx, profile) => {
     if (profile.claimState !== "unclaimed") {
       return;
@@ -173,9 +178,6 @@ export const publishGatedProfiles = migrations.define({
   },
 });
 
-// Runs the surfacing backfill first. A legacy profile with no publicSurfacingState
-// would be skipped by publishGatedProfiles while its migration cursor advanced, and
-// running the backfill afterwards cannot make a completed migration revisit it.
 // Runs the surfacing backfill first: a legacy profile with no publicSurfacingState
 // would be skipped by publishGatedProfiles while its cursor advanced, and running
 // the backfill afterwards cannot make a completed migration revisit it.

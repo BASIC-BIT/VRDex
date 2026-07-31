@@ -100,6 +100,9 @@ describe("seed import review and publication guards", () => {
   const approvedBatch = {
     reviewState: "approved" as const,
     publicationPolicy: "reviewed_publication_allowed" as const,
+    publicationAuthorizations: [
+      { reason: "Source confirmed public listing is permitted.", authorizedAt: 1_788_220_800_000 },
+    ],
   };
   const acceptedCandidate = {
     reviewState: "accepted" as const,
@@ -171,6 +174,7 @@ describe("seed import review and publication guards", () => {
     // source_private_only too: a batch with no explicit policy fails closed.
     assert.deepEqual(new Set(blockers), new Set([
       "source_private_only",
+      "publication_not_authorized",
       "batch_not_approved",
       "candidate_not_accepted",
       "candidate_not_pending_publication",
@@ -322,6 +326,19 @@ describe("seed import review and publication guards", () => {
     );
   });
 
+  it("blocks a relaxed batch that carries no recorded authorization", () => {
+    const blockers = getSeedImportPublicationBlockers({
+      batch: {
+        reviewState: "approved" as const,
+        publicationPolicy: "reviewed_publication_allowed" as const,
+      },
+      candidate: acceptedCandidate,
+      fields: acceptedPublicFields,
+    });
+
+    assert.deepEqual(blockers, ["publication_not_authorized"]);
+  });
+
   it("blocks a cross-type match at the queue gate", () => {
     const blockers = getSeedImportPublicationBlockers({
       batch: approvedBatch,
@@ -381,6 +398,9 @@ describe("seed import publish guards", () => {
   const publishableBatch = {
     reviewState: "approved" as const,
     publicationPolicy: "reviewed_publication_allowed" as const,
+    publicationAuthorizations: [
+      { reason: "Source confirmed public listing is permitted.", authorizedAt: 1_788_220_800_000 },
+    ],
   };
   const queuedCandidate = {
     reviewState: "accepted" as const,
@@ -404,6 +424,7 @@ describe("seed import publish guards", () => {
     });
 
     assert.ok(blockers.includes("source_private_only"));
+    assert.ok(blockers.includes("publication_not_authorized"));
   });
 
   it("blocks a private_only batch", () => {

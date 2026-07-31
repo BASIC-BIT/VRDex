@@ -227,7 +227,12 @@ describe("permissioned seed import", () => {
       ],
     });
 
-    assert.deepEqual(blockers, ["source_private_only"]);
+    // publication_not_authorized too: a private_only batch has no authorization
+    // record, and both are required before anything publishes.
+    assert.deepEqual(new Set(blockers), new Set([
+      "source_private_only",
+      "publication_not_authorized",
+    ]));
   });
 
   it("rejects future freshness timestamps", () => {

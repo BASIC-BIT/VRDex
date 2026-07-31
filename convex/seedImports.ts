@@ -8,7 +8,7 @@ import { createProfileSortName } from "./_profileSubmissions";
 import { createProfileSearchDocument, upsertSearchDocument, vocabularyForProfile } from "./_searchDocuments";
 import { buildConciergeProfileFieldPatch, isLiveHandoffInvitation } from "./_seedHandoffs";
 import { hasAcceptedSuppression } from "./_suppressions";
-import { recordVocabularyTerms } from "./_vocabulary";
+import { createVocabularyKey, recordVocabularyTerms } from "./_vocabulary";
 import {
   FAKE_SEED_IMPORT_FIXTURE_KEY,
   FAKE_SEED_IMPORT_FIXTURES,
@@ -909,6 +909,13 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
     };
 
     let profileId: Id<"profiles">;
+    const vocabularyBefore = new Set(
+      matchedProfile === null
+        ? []
+        : vocabularyForProfile(matchedProfile).map(
+            (candidate) => `${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`,
+          ),
+    );
 
     if (matchedProfile !== null) {
       const existingPerson = matchedProfile as Extract<Doc<"profiles">, { profileType: "person" }>;
@@ -956,9 +963,18 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
       throw new Error("Unable to load published profile.");
     }
 
+    // Only vocabulary this publication actually introduced. recordVocabularyTerms
+    // increments unconditionally, so replaying an existing profile's whole
+    // vocabulary on a merge inflates counts for terms nothing changed -- and
+    // several candidates matched to one profile compound it.
+    const introducedVocabulary = vocabularyForProfile(profile).filter(
+      (candidate) =>
+        !vocabularyBefore.has(`${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`),
+    );
+
     await Promise.all([
       upsertSearchDocument(ctx.db, createProfileSearchDocument(profile)),
-      recordVocabularyTerms(ctx.db, vocabularyForProfile(profile), now),
+      recordVocabularyTerms(ctx.db, introducedVocabulary, now),
     ]);
 
     await ctx.db.patch(candidate._id, {

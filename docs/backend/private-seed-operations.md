@@ -183,6 +183,15 @@ Publish behavior worth knowing:
   origin.
 - A batch with no explicit `publicationPolicy` fails closed and is treated as
   `private_only`. Legacy batches need step 1 before they can publish.
+- A relaxed policy alone is not authorization. Both gates also require a non-empty
+  `publicationAuthorizations` history and report `publication_not_authorized`
+  otherwise, so a legacy or fixture batch that already carries
+  `reviewed_publication_allowed` still has to go through step 1 to record *why*
+  publication was permitted.
+- Merging into an existing profile records only the vocabulary that merge actually
+  introduced. `recordVocabularyTerms` increments unconditionally, so replaying the
+  whole profile's vocabulary would inflate counts for terms nothing changed, and
+  several candidates matched to one profile would compound it.
 - Person candidates only. Community candidates return
   `candidate_profile_type_unsupported` and are skipped rather than
   half-published.

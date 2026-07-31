@@ -53,6 +53,9 @@ const userSafeErrorPatterns = [
   /Community subtype must be \d+ characters or fewer\./,
   /Community fields cannot be submitted for a person profile\./,
   /Person fields cannot be submitted for a community profile\./,
+  // Retrying cannot succeed while the suppression stands, so the generic
+  // "backend unreachable, try again" fallback would be actively misleading.
+  /This profile cannot be submitted\./,
 ];
 
 function submissionErrorMessage(error: unknown): string {
