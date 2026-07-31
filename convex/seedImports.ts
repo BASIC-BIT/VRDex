@@ -1076,14 +1076,30 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
         (candidate) => `${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`,
       ),
     );
-    const introducedVocabulary = vocabularyAfter.filter(
-      (candidate) =>
-        !vocabularyBefore.has(`${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`),
-    );
-    const removedVocabulary = vocabularyBeforeCandidates.filter(
-      (candidate) =>
-        !afterKeys.has(`${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`),
-    );
+    // Deduplicated by scoped key, like the world path. Distinct labels can
+    // canonicalize to one key -- "Drum & Bass" and "Drum and Bass" -- and the search
+    // document stores that key once, so recording both would increment twice
+    // against a single later release.
+    const introducedVocabulary = [
+      ...new Map(
+        vocabularyAfter
+          .map((candidate) => [
+            `${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`,
+            candidate,
+          ] as const)
+          .filter(([scopedKey]) => !vocabularyBefore.has(scopedKey)),
+      ).values(),
+    ];
+    const removedVocabulary = [
+      ...new Map(
+        vocabularyBeforeCandidates
+          .map((candidate) => [
+            `${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`,
+            candidate,
+          ] as const)
+          .filter(([scopedKey]) => !afterKeys.has(scopedKey)),
+      ).values(),
+    ];
 
     await Promise.all([
       upsertSearchDocument(ctx.db, createProfileSearchDocument(profile)),
