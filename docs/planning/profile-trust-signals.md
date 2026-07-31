@@ -67,9 +67,12 @@ Split one overloaded signal into two honest ones.
    rendering the result as "verified person" makes the profile-level identity
    claim all over again, one word further down.
 
-   The predicate is still useful *internally* — filtering, ranking, deciding
-   whether to prompt someone to prove an identity. It must not be surfaced as a
-   trust label. Anything a viewer sees stays attached to the named account.
+   The predicate is still useful *internally* — identity-specific filtering, and
+   deciding whether to prompt someone to prove an account they have named. It
+   must not be surfaced as a trust label, and it must not carry search weight:
+   ranking on it rewards the same unbound proof at profile level, letting an
+   impersonator's listing outrank honest unproved ones without a badge ever
+   being drawn. Anything a viewer sees stays attached to the named account.
 
    Where it is computed, it must join `externalControlProofs` and exclude
    revoked rows. `revokeExternalControlProof` marks the proof revoked and
@@ -124,12 +127,53 @@ profile-level badge. If any corroboration rule survives, it should be a
 claimant's proven account contradicts is worth refusing and flagging; no
 association on record is not a reason to withhold anything.
 
+Three further surfaces have to change with it, or the model is stated but not
+implemented:
+
+- **`listProfileConnections`** reports `verified` only while the proof is
+  `active` *and* inside `revalidateAfter`
+  ([`profileConnections.ts`](../../convex/profileConnections.ts)), and the
+  `markOverdueControlProofsStale` cron flips every overdue proof to `stale`. So
+  the persist-with-date decision below is not merely unimplemented — the current
+  projection actively contradicts it, and every mark still vanishes on the
+  revalidation window. The projection has to treat stale-but-not-revoked as
+  verified, and expose `verifiedAt` so the date can be rendered at all.
+- **Claim completion** derives `verified` from
+  `result.claimState === "claimed_verified"` at three points in
+  [`claim-flow.tsx`](../../apps/web/src/app/claim/%5Bslug%5D/claim-flow.tsx)
+  (`:357`, `:411`, `:525`), feeding completion copy, the owner-upgrade branch,
+  and the `claim_completed` analytics outcome. Retiring the state without a
+  replacement result field tells a claimant whose proof just succeeded that
+  their listing is not verified, keeps treating them as an upgrade candidate,
+  and records the weaker outcome. Completion should be defined by the identity
+  that was just proven.
+- **The public contract.** `PublicProfileSchema` exposes `trustLabel` and
+  ordinary outbound links; the MCP consumer renders `profile.trustLabel` and
+  nothing else
+  ([`vrdex-mcp.ts`](../../apps/web/src/lib/server/vrdex-mcp.ts)). Dropping
+  `claimed_verified` without adding a sanitized verified-identities
+  representation removes the only verification signal API and MCP clients have,
+  rather than replacing it.
+
 **Schema.** No new tables. Typed identity handles captured during onboarding
 write `profileExternalLinks` rows, which already distinguish an unproven
 assertion (`verifiedByProofId` absent) from a proven one.
 
-**Migration.** Retiring `claimed_verified` from `claimState` touches more than
-the profile rows:
+**Migration, in two deployments.** The schema literal cannot be removed in the
+same deploy as the data migration. CI runs `convex deploy` and only then
+`migrations:runAll` ([`baseline-checks.yml`](../../.github/workflows/baseline-checks.yml)),
+so a contracted schema meets the surviving `claimed_verified` rows before the
+function that would clean them up exists, and validation rejects them. The
+`clerkUserId` field in [`schema.ts`](../../convex/schema.ts) documents the same
+two-phase shape for the same reason.
+
+1. **Deploy one:** keep `claimed_verified` accepted by the schema and the public
+   types. Ship the per-identity signal, and run the profile and search-document
+   migration.
+2. **Deploy two:** contract the schema literal and the public types, once no row
+   carries it.
+
+The surfaces the migration touches are more than the profile rows:
 
 - `ALLOWED_CLAIM_STATE_TRANSITIONS` and `getProfileTrustLabel` in
   [`_profileStates.ts`](../../convex/_profileStates.ts)
@@ -171,8 +215,13 @@ Revoking on lapse would also produce false negatives from unrelated causes — a
 Discord control proof passing its revalidation window because the owner has not
 re-authenticated says nothing about whether they still run the server.
 
-Absence is not information a viewer can weigh; a date is. So the mark reads
-"verified · 30 Jul 2026" and stays.
+Absence is not information a viewer can weigh; a date is. So the mark carries
+the date it was proven and stays.
+
+**Candidate copy, pending BASIC's approval — not prescribed:**
+`verified · 30 Jul 2026`. Recorded here as a shape rather than a decision; the
+exact wording is BASIC's to set before it ships, per the copy policy in
+`AGENTS.md`.
 
 Removal needs affirmative evidence that *this* verifier lost control:
 
@@ -180,9 +229,12 @@ Removal needs affirmative evidence that *this* verifier lost control:
   (`profileExternalLinks.state` / `removedAt` already model this)
 - the proof behind it is revoked — `externalControlProofs` marked revoked, for
   example by Discord reconciliation finding the permission gone
-- for `vrchat_user` only, somebody else proves control of the same account. A
-  personal VRChat account has one holder, so a second `self` proof is a genuine
-  contradiction
+A second proof of the same `vrchat_user` by a different `externalControlProofs.userId`
+is **a conflict to record and review, not grounds for automatic removal**. That
+field identifies another *VRDex account*, not another person — the same holder
+signing up twice, or moving accounts, proves the same VRChat id through both
+without ever losing control. Revoking on it would delete valid evidence in
+exactly the case the affirmative-contradiction rule exists to protect.
 
 **Not** a second proof on a shared asset. Discord guilds and VRChat groups have
 several legitimate administrators, so another staff member proving control says
