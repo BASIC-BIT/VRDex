@@ -24,7 +24,10 @@ import {
   getProfileBySlug,
   validateProfileSlug,
 } from "./_profileSlugs";
-import { sanitizeCommunitySubmissionProfileInput } from "./_profileSubmissions";
+import {
+  createProfileSortName,
+  sanitizeCommunitySubmissionProfileInput,
+} from "./_profileSubmissions";
 import { getPublicProfileWorldCredits } from "./_profileWorldCredits";
 import {
   createProfileSearchDocument,
@@ -162,6 +165,23 @@ export const updateProfileForApiOwner = internalMutation({
 
     if (!(await userOwnsProfile(ctx.db, profile._id, args.ownerUserId))) {
       throw new Error("You do not have permission to update this profile.");
+    }
+
+    // Renaming is another way to reintroduce a retracted identity: an owner of some
+    // other public profile could rename it to a name an accepted suppression
+    // request covers, putting that identity straight back on public pages and in
+    // search. Only checked when the name actually changes, so an unrelated update
+    // to a profile that already holds the name is unaffected.
+    if (
+      args.displayName !== undefined &&
+      createProfileSortName(args.displayName) !== createProfileSortName(profile.displayName) &&
+      (await hasAcceptedSuppression(ctx.db, {
+        profileId: profile._id,
+        displayNames: [args.displayName],
+        profileType: profile.profileType,
+      }))
+    ) {
+      throw new Error("This display name cannot be used.");
     }
 
     const now = Date.now();

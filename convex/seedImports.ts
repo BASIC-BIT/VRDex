@@ -1187,16 +1187,24 @@ export const bulkPublishBatch = internalMutation({
       };
     }
 
-    // A batch that was authorized and then restored to private_only was revoked
-    // deliberately. Auto-relaxing it again would let a timed-out first-page retry
-    // undo the mid-run kill switch, so reauthorization must be an explicit
-    // setBatchPublicationPolicy call.
+    // A batch that was authorized and then rolled back -- to private_only, or out
+    // of approved -- was stopped deliberately. Auto-restoring either would let a
+    // timed-out first-page retry undo the kill switch, so resuming must be an
+    // explicit operator action.
+    const previouslyAuthorized = (batch.publicationAuthorizations ?? []).length > 0;
+
     if (
-      (batch.publicationPolicy ?? "private_only") !== "reviewed_publication_allowed" &&
-      (batch.publicationAuthorizations ?? []).length > 0
+      previouslyAuthorized &&
+      (batch.publicationPolicy ?? "private_only") !== "reviewed_publication_allowed"
     ) {
       throw new Error(
         "This batch was revoked to private_only after being authorized. Relax it explicitly with seedImports:setBatchPublicationPolicy before bulk publishing again.",
+      );
+    }
+
+    if (previouslyAuthorized && batch.reviewState !== "approved") {
+      throw new Error(
+        `This batch was moved to "${batch.reviewState}" after being authorized. Re-approve it explicitly with seedImports:setBatchReviewState before bulk publishing again.`,
       );
     }
 

@@ -266,7 +266,9 @@ pnpm ops:seed-publish -- `
   and returns `haltedByPolicyChange` instead of re-enabling publication. A batch
   that was authorized and then restored to `private_only` also refuses to
   auto-relax on a *new* run, so a timed-out first-page retry cannot undo the
-  revocation; reauthorize explicitly with `setBatchPublicationPolicy`.
+  revocation; reauthorize explicitly with `setBatchPublicationPolicy`. Moving an
+  authorized batch out of `approved` is refused the same way and needs an explicit
+  `setBatchReviewState`, since either rollback is a deliberate stop.
 - Candidates already queued through the manual workflow proceed straight to
   publish rather than being skipped as `candidate_already_queued_for_publication`.
 - Re-running is safe. Already-published candidates are excluded by
@@ -324,9 +326,11 @@ Notes:
   type agree with it, since a slug recorded before any profile held it can be
   acquired by someone else in the meantime.
 - If nothing matches, the request is still recorded as accepted, which blocks
-  future publication for that name and profile type — both seed publication and
-  `profiles:submitCommunityProfile`, since community submissions publish
-  immediately and would otherwise be the way to reintroduce a retracted identity.
+  future publication for that name and profile type — seed publication,
+  `profiles:submitCommunityProfile`, and display-name changes through
+  `profiles:updateProfileForApiOwner`. Community submission and renaming both
+  surface an identity immediately, so either would otherwise be a way to
+  reintroduce a retracted one.
 - Accepting sets `opted_out`, not `suppressed`. `suppressed` stays reserved for
   moderation action rather than a request someone made about themselves, and an
   already-`suppressed` profile keeps that state.
