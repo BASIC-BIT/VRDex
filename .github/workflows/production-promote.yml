@@ -1,0 +1,129 @@
+name: Promote Production Web
+
+# Vercel's Git integration builds production deployments but does not alias them
+# to vrdex.net, so the live site can sit on an older build indefinitely. That is
+# how the Clerk cutover ended up half-applied: Convex production had already
+# deployed the Clerk backend while vrdex.net still served the pre-Clerk bundle,
+# whose sign-in called Convex Auth functions that no longer existed.
+#
+# Manual on purpose. Promotion is the moment real users move to a new build, and
+# the checks below cannot prove a release is *wanted* — only that it is not
+# obviously broken.
+
+on:
+  workflow_dispatch:
+    inputs:
+      deployment_url:
+        description: Vercel deployment URL to promote, e.g. https://vr-dex-abc123-basicbit.vercel.app
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-promote
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    name: Promote Production Web
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      # Fails closed on the states that produced a broken production sign-in
+      # before: a build that predates the auth routes, or one built without Clerk
+      # credentials so every protected route lands on the unavailable notice.
+      - name: Verify the deployment is promotable
+        env:
+          DEPLOYMENT_URL: ${{ inputs.deployment_url }}
+        run: |
+          set -euo pipefail
+
+          case "$DEPLOYMENT_URL" in
+            https://*.vercel.app) ;;
+            *) echo "::error::deployment_url must be an https://*.vercel.app URL."; exit 1 ;;
+          esac
+
+          sign_up=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$DEPLOYMENT_URL/sign-up")
+          if [ "$sign_up" != "200" ]; then
+            echo "::error::$DEPLOYMENT_URL/sign-up returned $sign_up. A build without the auth routes would leave production unable to sign anyone in."
+            exit 1
+          fi
+
+          body=$(curl -s --max-time 20 "$DEPLOYMENT_URL/sign-in")
+
+          if printf '%s' "$body" | grep -q 'Accounts are temporarily unavailable'; then
+            echo "::error::$DEPLOYMENT_URL renders the auth-unavailable notice, so it was built without Clerk credentials."
+            exit 1
+          fi
+
+          if ! printf '%s' "$body" | grep -q 'pk_live_'; then
+            echo "::error::$DEPLOYMENT_URL does not carry a live Clerk publishable key."
+            exit 1
+          fi
+
+          echo "Deployment looks promotable: /sign-up is 200 and a live Clerk key is present."
+
+      # Independent of the build: a promotion is worthless if the Clerk instance
+      # the build points at cannot serve tokens.
+      - name: Verify Clerk production is serving
+        run: |
+          set -euo pipefail
+
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 https://clerk.vrdex.net/v1/environment)
+          if [ "$code" != "200" ]; then
+            echo "::error::https://clerk.vrdex.net/v1/environment returned $code. Promoting now would point every user at a Clerk frontend API that cannot serve TLS."
+            exit 1
+          fi
+
+          echo "Clerk production frontend API is serving."
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Promote
+        env:
+          DEPLOYMENT_URL: ${{ inputs.deployment_url }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: pnpm dlx vercel@54.4.1 promote "$DEPLOYMENT_URL" --token "$VERCEL_TOKEN" --scope "$VERCEL_ORG_ID"
+
+      # Asserts against the live domain rather than the deployment URL, so an
+      # alias that did not actually move is reported as a failure.
+      - name: Verify vrdex.net serves the promoted build
+        env:
+          DEPLOYMENT_URL: ${{ inputs.deployment_url }}
+        run: |
+          set -euo pipefail
+
+          sign_up=""
+          for _ in $(seq 1 12); do
+            sleep 10
+            sign_up=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 https://vrdex.net/sign-up || echo 000)
+            [ "$sign_up" = "200" ] && break
+          done
+
+          {
+            echo "## Production promote"
+            echo ""
+            echo "Promoted: $DEPLOYMENT_URL"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$sign_up" != "200" ]; then
+            echo "::error::https://vrdex.net/sign-up returned $sign_up after promotion. The alias may not have moved."
+            echo "Result: FAILED - vrdex.net/sign-up returned $sign_up" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          echo "Result: vrdex.net is serving the promoted build." >> "$GITHUB_STEP_SUMMARY"
