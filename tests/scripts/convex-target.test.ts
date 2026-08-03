@@ -153,6 +153,31 @@ describe("convex target resolution", () => {
     assert.match(error(result), /missing CONVEX_URL/);
   });
 
+  it("rejects a hosted url for the local target", () => {
+    // CONVEX_URL wins target selection outright, so a stale hosted value beside
+    // a local deployment name would reach that host under a local banner.
+    const result = resolveConvexTarget("local", {
+      ...configured,
+      CONVEX_URL: "https://superb-pig-954.convex.cloud",
+    });
+
+    assert.equal(result.ok, false);
+    assert.match(error(result), /not a loopback address/);
+  });
+
+  it("accepts the loopback spellings", () => {
+    for (const url of ["http://127.0.0.1:3210", "http://localhost:3210", "http://[::1]:3210"]) {
+      assert.equal(resolveConvexTarget("local", { ...configured, CONVEX_URL: url }).ok, true, url);
+    }
+  });
+
+  it("rejects a local url it cannot parse", () => {
+    const result = resolveConvexTarget("local", { ...configured, CONVEX_URL: "127.0.0.1:3210" });
+
+    assert.equal(result.ok, false);
+    assert.match(error(result), /not a loopback address/);
+  });
+
   it("rejects a cloud deployment under the local variable", () => {
     const result = resolveConvexTarget("local", {
       ...configured,

@@ -41,6 +41,11 @@ export const CONVEX_TARGETS = {
     // backend instead of saying which variable is missing.
     passthroughVars: ["CONVEX_URL"],
     requiredPassthrough: true,
+    // CONVEX_URL wins target selection outright, so a stale hosted value beside
+    // a local deployment name would send the command to that host under a local
+    // banner. It is the only value here that is forwarded rather than derived,
+    // so it is the only one that needs its own shape check.
+    loopbackOnly: true,
     prefixes: ["anonymous:", "local:"],
   },
   dev: {
@@ -49,6 +54,7 @@ export const CONVEX_TARGETS = {
     label: "shared development / staging",
     passthroughVars: [],
     requiredPassthrough: false,
+    loopbackOnly: false,
     prefixes: ["dev:"],
   },
   prod: {
@@ -57,6 +63,7 @@ export const CONVEX_TARGETS = {
     label: "PRODUCTION",
     passthroughVars: [],
     requiredPassthrough: false,
+    loopbackOnly: false,
     prefixes: ["prod:"],
   },
 } as const;
@@ -214,6 +221,24 @@ export const CX_TARGET_HELP =
   "The deployment is the target argument to cx, which this would override after " +
   "the banner had already named a different one.";
 
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "[::1]", "localhost"]);
+
+/**
+ * The hostname when `value` is a loopback URL, otherwise null. An unparseable
+ * value is null too: a URL the wrapper cannot read is one it cannot vouch for.
+ */
+export function loopbackHostOrNull(value: string) {
+  let parsed: URL;
+
+  try {
+    parsed = new URL(value);
+  } catch {
+    return null;
+  }
+
+  return LOOPBACK_HOSTS.has(parsed.hostname) ? parsed.hostname : null;
+}
+
 type ResolvedConvexTarget =
   | {
       deployment: string;
@@ -295,6 +320,19 @@ export function resolveConvexTarget(
     const value = values[variable]?.trim();
 
     if (value) {
+      if (target.loopbackOnly && variable === "CONVEX_URL") {
+        const host = loopbackHostOrNull(value);
+
+        if (host === null) {
+          return {
+            error:
+              `Cannot target ${name}: ${variable} is "${value}", which is not a loopback ` +
+              "address. The local target must not address a hosted backend.",
+            ok: false,
+          };
+        }
+      }
+
       passthrough[variable] = value;
       continue;
     }
