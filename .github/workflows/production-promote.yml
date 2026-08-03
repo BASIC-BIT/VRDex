@@ -31,7 +31,10 @@ env:
   # tenant is still `pk_live_`, and any non-local Convex URL passes the build
   # check, so neither tier nor presence proves which backend is in play.
   EXPECTED_CLERK_HOST: clerk.vrdex.net
-  EXPECTED_CONVEX_HOST: superb-pig-954.convex.cloud
+  # Full origin, not host. `check-vercel-env.mjs` accepts http as well as https,
+  # and `ConvexReactClient` receives the URL verbatim, so an http backend on an
+  # https origin has its WebSocket blocked after an otherwise clean promotion.
+  EXPECTED_CONVEX_ORIGIN: https://superb-pig-954.convex.cloud
 
 jobs:
   promote:
@@ -121,19 +124,25 @@ jobs:
             python3 -c 'import re,sys; html=open("/tmp/deployment.html",encoding="utf-8").read(); m=re.search(sys.argv[1]+r"=\"([^\"]*)\"", html); print((m.group(1) if m else "MISSING").strip())' "$1"
           }
 
-          convex=$(attr data-convex-deployment)
-          if [ "$convex" != "$EXPECTED_CONVEX_HOST" ]; then
-            echo "::error::$DEPLOYMENT_URL points at Convex '$convex', expected '$EXPECTED_CONVEX_HOST'."
+          # Both Convex targets. `convexHttpClient()` resolves
+          # `CONVEX_URL ?? NEXT_PUBLIC_CONVEX_URL`, so the API, OAuth, MCP, and
+          # account route handlers can read a different deployment than the
+          # browser while the public URL looks correct.
+          for attr_name in data-convex-browser data-convex-server; do
+            value=$(attr "$attr_name")
+            if [ "$value" != "$EXPECTED_CONVEX_ORIGIN" ]; then
+              echo "::error::$DEPLOYMENT_URL reports $attr_name as '$value', expected '$EXPECTED_CONVEX_ORIGIN'."
+              exit 1
+            fi
+          done
+
+          clerk_origin=$(attr data-clerk-frontend-api)
+          if [ "$clerk_origin" != "https://$EXPECTED_CLERK_HOST" ]; then
+            echo "::error::$DEPLOYMENT_URL points at Clerk '$clerk_origin', expected 'https://$EXPECTED_CLERK_HOST'."
             exit 1
           fi
 
-          clerk_host=$(attr data-clerk-frontend-api)
-          if [ "$clerk_host" != "$EXPECTED_CLERK_HOST" ]; then
-            echo "::error::$DEPLOYMENT_URL points at Clerk '$clerk_host', expected '$EXPECTED_CLERK_HOST'."
-            exit 1
-          fi
-
-          echo "Deployment resolves Convex $convex and Clerk $clerk_host."
+          echo "Deployment resolves both Convex targets to $EXPECTED_CONVEX_ORIGIN and Clerk to $clerk_origin."
 
       # Independent of the build: a promotion is worthless if the Clerk instance
       # the build points at cannot serve tokens, and actively harmful while

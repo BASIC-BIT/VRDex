@@ -17,14 +17,22 @@ function shortSha(value: string | undefined) {
   return value ? value.slice(0, 7) : "not available";
 }
 
-/** Host of a URL, or `unknown` when unset or unparseable. */
-function hostLabel(value: string | undefined) {
+/**
+ * Canonical origin of a URL, or `unknown` when unset or unparseable.
+ *
+ * Scheme included deliberately. Reducing to a host would let
+ * `http://superb-pig-954.convex.cloud` compare equal to the production target,
+ * and `check-vercel-env.mjs` accepts both schemes — but `ConvexReactClient` gets
+ * the URL verbatim, so an http backend on an https origin has its WebSocket
+ * blocked and every data and account action fails after a successful promotion.
+ */
+function originLabel(value: string | undefined) {
   if (!value) {
     return "unknown";
   }
 
   try {
-    return new URL(value).host;
+    return new URL(value).origin;
   } catch {
     return "unknown";
   }
@@ -83,9 +91,15 @@ export default function DeploymentPage() {
   // Rendered hidden rather than as visible rows: both values are already public
   // (`NEXT_PUBLIC_*` ship in the client bundle), and keeping them out of the
   // layout means the release gate does not churn this page's visual baselines.
+  //
+  // Both Convex targets, because they can diverge. `convexHttpClient()` resolves
+  // `CONVEX_URL ?? NEXT_PUBLIC_CONVEX_URL`, so the API, OAuth, MCP, and account
+  // route handlers can be reading a different deployment than the browser while
+  // the public URL looks correct.
   const backendIdentity = {
-    convex: hostLabel(process.env.NEXT_PUBLIC_CONVEX_URL),
-    clerk: hostLabel(clerkFrontendApiHost()),
+    convexBrowser: originLabel(process.env.NEXT_PUBLIC_CONVEX_URL),
+    convexServer: originLabel(process.env.CONVEX_URL ?? process.env.NEXT_PUBLIC_CONVEX_URL),
+    clerk: originLabel(clerkFrontendApiHost()),
   };
 
   const deploymentItems: DeploymentItem[] = [
@@ -173,7 +187,8 @@ export default function DeploymentPage() {
             will move the vrdex.net alias. Hidden, so it adds no layout. */}
         <div
           hidden
-          data-convex-deployment={backendIdentity.convex}
+          data-convex-browser={backendIdentity.convexBrowser}
+          data-convex-server={backendIdentity.convexServer}
           data-clerk-frontend-api={backendIdentity.clerk}
         />
       </PageContainer>
