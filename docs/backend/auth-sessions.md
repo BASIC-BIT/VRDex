@@ -259,7 +259,10 @@ a no-op rather than an error.
 Four things about it are deliberate:
 
 - **`dryRun` defaults to true.** The first run reports; pass `false` to act.
-- **Both ends of the regrant are named, and only that row's active grants move.**
+- **Both ends of the regrant are named, and only that row's live grants move.**
+  Live is `isAccountFeatureGrantActive` — the definition the rest of the codebase
+  authorizes against — so a revoked or expired grant stays on the legacy row and
+  blocks it, rather than being moved onto an account that never held it.
   Matching a legacy row to a Clerk one by email would hand privileges to whoever
   holds a matching address. Moving *every* legacy row's grants would be worse:
   `view_private_seed_lookup` and `use_temporal_parsing_beta` are issued per beta

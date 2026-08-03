@@ -1,6 +1,7 @@
 import { Migrations } from "@convex-dev/migrations";
 import { v } from "convex/values";
 
+import { isAccountFeatureGrantActive } from "./_accountFeatureModel";
 import { components, internal } from "./_generated/api";
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 import { internalMutation } from "./_generated/server";
@@ -445,11 +446,19 @@ export const purgeConvexAuthLeftovers = internalMutation({
         .withIndex("by_userId_feature_state", (q) => q.eq("userId", args.regrantGrantsFrom as Id<"users">))
         .collect();
 
+      const now = Date.now();
+
       for (const grant of grants) {
-        // Revoked grants stay put and block. Moving one would write a history
-        // in which the Clerk account held and lost a feature it never had, and
-        // deleting one would discard the record of a revocation.
-        if (grant.state !== "active") {
+        // The codebase's own definition of a live grant, not a reimplementation
+        // of it. `isAccountFeatureGrantActive` requires an unexpired `expiresAt`
+        // as well as `state === "active"`, and checking state alone would move an
+        // expired grant that conveys no privilege — rewriting its ownership onto
+        // the Clerk account for exactly the reason revoked grants are left alone.
+        //
+        // Anything not live stays put and blocks. Moving one writes a history in
+        // which the Clerk account held and lost a feature it never had; deleting
+        // one discards the record of a revocation or an expiry.
+        if (!isAccountFeatureGrantActive(grant, now)) {
           continue;
         }
 
