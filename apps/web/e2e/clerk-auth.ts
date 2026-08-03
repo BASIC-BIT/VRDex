@@ -280,8 +280,21 @@ async function requireClerkOnTarget(page: Page) {
  * until a signed-in page has rendered. Every `/api/e2e/auth` helper resolves the
  * account by email against that row, so returning before `/account` shows the
  * identity would make the next helper call fail with "E2E user not found."
+ *
+ * `onAuthenticated` fires the moment `clerk.signIn()` resolves, which is the
+ * first instant a Convex row can exist — before that point nothing has been
+ * provisioned and nothing can be. A teardown that has to decide whether an
+ * absent row means "cleaned up" or "never created" cannot tell from the cleanup
+ * response alone; this is the signal that separates them. Everything before the
+ * call can fail (`requireClerkOnTarget` in particular, which is a network wait
+ * against the target), and those failures leave a Clerk user with no Convex
+ * counterpart at all.
  */
-export async function signInClerkTestAccount(page: Page, account: ClerkTestAccount) {
+export async function signInClerkTestAccount(
+  page: Page,
+  account: ClerkTestAccount,
+  options?: { onAuthenticated?: () => void },
+) {
   await ensureClerkSetup();
   await setupClerkTestingToken({ page });
 
@@ -290,6 +303,8 @@ export async function signInClerkTestAccount(page: Page, account: ClerkTestAccou
   await gotoFlowPage(page, "/");
   await requireClerkOnTarget(page);
   await clerk.signIn({ page, emailAddress: account.email });
+
+  options?.onAuthenticated?.();
 
   await gotoFlowPage(page, "/account");
   await expect(page.getByRole("heading", { name: account.email })).toBeVisible(hostedExpectOptions);

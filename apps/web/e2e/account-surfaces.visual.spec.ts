@@ -8,7 +8,7 @@ import {
   signInClerkTestAccount,
   type ClerkTestAccount,
 } from "./clerk-auth";
-import { captureRouteScreenshot, waitForVisualReady } from "./public-routes";
+import { captureRouteScreenshot, prepareVisualPage, waitForVisualReady } from "./public-routes";
 
 /**
  * Signed-in screenshot coverage.
@@ -89,10 +89,34 @@ test.skip(
   "Skipped, no coverage produced: VRDEX_ENABLE_E2E_AUTH_HELPERS is not \"true\", so the Convex rows these accounts provision could not be cleaned up.",
 );
 
-test.describe("account surfaces @visual @flow", () => {
+// `@account-visual` so the hosted lane can own this suite separately. Its two
+// projects matter here: the account surfaces have a distinct mobile layout, and
+// `test:e2e:hosted` pins `--project=desktop-chromium`, so left in that lane the
+// mobile instances would exist only in the local `@visual` run — where the
+// availability gate skips them and no mobile capture would ever be produced.
+test.describe("account surfaces @visual @flow @account-visual", () => {
   let account: ClerkTestAccount | undefined;
 
+  let authenticated = false;
+
   test.beforeEach(async ({ page }, testInfo) => {
+    // Resolved before an account exists, because it throws on a hosted run with
+    // no `VRDEX_E2E_BROWSER_TOKEN`. Called only from the teardown, that throw
+    // landed *after* a real Clerk account had been created and before either
+    // cleanup ran, so every attempt leaked a pair. Failing here costs nothing.
+    e2eBrowserToken();
+
+    // Same normalization every other `@visual` spec applies, minus the clock.
+    // These pages render timestamps, so the freeze is exactly what they want —
+    // but Clerk decides token freshness from `Date.now()`, and a page reporting
+    // 2025 while holding a token minted today is reasoning about refresh against
+    // a clock nearly two years out while Convex validates `exp` against the real
+    // one. Live timestamps are the reason these are `@visual` and not yet
+    // `@snapshot`; see the file header.
+    await prepareVisualPage(page, { freezeClock: false });
+
+    authenticated = false;
+
     // Matches the hosted flow specs. The default 30s covers this hook *and* the
     // test body, while `signInClerkTestAccount` alone allows a 15s Clerk load
     // followed by a 30s identity assertion — so account creation, navigation,
@@ -103,7 +127,11 @@ test.describe("account surfaces @visual @flow", () => {
     account = await createClerkTestAccount(
       `${testInfo.workerIndex}-${testInfo.repeatEachIndex}-${Date.now()}`,
     );
-    await signInClerkTestAccount(page, account);
+    await signInClerkTestAccount(page, account, {
+      onAuthenticated: () => {
+        authenticated = true;
+      },
+    });
   });
 
   test.afterEach(async ({ page, request }) => {
@@ -200,7 +228,15 @@ test.describe("account surfaces @visual @flow", () => {
     // Keeping both on failure looks like a leak and is the opposite — a
     // recoverable pair, visible in the Clerk dashboard, re-cleanable through the
     // ordinary path. The test still fails loudly below.
-    const clerkDeletion = cleaned && drained ? await deleteClerkTestAccount(target) : undefined;
+    //
+    // Unless the account was never signed in. `signInClerkTestAccount` can fail
+    // before `clerk.signIn()` — `requireClerkOnTarget` is a 15s network wait
+    // against the target — and then no token ever existed, so no
+    // `ensureCurrentUser` could have run and there is no row to protect. Requiring
+    // `cleaned` there kept the Clerk user on every attempt, which is a plain leak
+    // rather than a recoverable pair: absence is confirmed, not raced.
+    const rowSettled = authenticated ? cleaned && drained : drained;
+    const clerkDeletion = rowSettled ? await deleteClerkTestAccount(target) : undefined;
 
     const email = target?.email;
 
@@ -214,10 +250,14 @@ test.describe("account surfaces @visual @flow", () => {
     const clerkDeleted =
       clerkDeletion !== undefined && (clerkDeletion.ok || clerkDeletion.status === 404);
 
-    const failure = !cleaned
-      ? `Convex cleanup did not delete a row for ${email} (HTTP ${lastCleanup?.status()}). The Clerk user was kept so the pair can still be cleaned up by hand.`
-      : !drained
-        ? `Convex cleanup for ${email} was still deleting rows after ${CLEANUP_DRAIN_PASSES} passes (HTTP ${lastCleanup?.status()}), so provisioning is outrunning it. The Clerk user was kept rather than orphaning whatever lands next.`
+    // `!cleaned` is only a failure when the account reached an authenticated
+    // page, since that is the only case where a row should exist. A sign-in that
+    // failed earlier legitimately leaves nothing to delete, and the Clerk user
+    // has already been removed above.
+    const failure = !drained
+      ? `Convex cleanup for ${email} never reached a clean pass in ${CLEANUP_DRAIN_PASSES} attempts (HTTP ${lastCleanup?.status()}). The Clerk user was kept so the pair can still be cleaned up by hand.`
+      : authenticated && !cleaned
+        ? `Convex cleanup did not delete a row for ${email} (HTTP ${lastCleanup?.status()}) even though sign-in completed. The Clerk user was kept rather than orphaning a row that may still land.`
         : !clerkDeleted
           ? `Clerk did not confirm deletion of ${email} (${
               clerkDeletion ? `HTTP ${clerkDeletion.status}` : "no response"

@@ -538,6 +538,25 @@ jobs:
           VRDEX_E2E_RUN_ID: pr-${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}
         run: pnpm test:e2e:hosted
 
+      # Separate from the step above because it is the only suite that needs both
+      # projects. The account surfaces have a distinct mobile layout, and
+      # `test:e2e:hosted` pins desktop, so folding these in there would capture
+      # desktop only. `always()` so a failure above still produces the signed-in
+      # screenshots — they are most useful on the run that broke something.
+      - name: Capture signed-in account screenshots
+        if: always() && steps.gate.outputs.enabled == 'true'
+        id: account-visual
+        env:
+          PLAYWRIGHT_BASE_URL: ${{ vars.VRDEX_HOSTED_E2E_BASE_URL }}
+          PLAYWRIGHT_SKIP_WEBSERVERS: "true"
+          VRDEX_ENABLE_E2E_AUTH_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_AUTH_HELPERS }}
+          VRDEX_E2E_BROWSER_TOKEN: ${{ secrets.VRDEX_HOSTED_E2E_BROWSER_TOKEN }}
+          VRDEX_ENABLE_E2E_CLERK_AUTH: ${{ vars.VRDEX_HOSTED_E2E_CLERK_AUTH }}
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.VRDEX_HOSTED_E2E_CLERK_PUBLISHABLE_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.VRDEX_HOSTED_E2E_CLERK_SECRET_KEY }}
+          VRDEX_E2E_RUN_ID: pr-${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}
+        run: pnpm test:e2e:hosted:account-visual
+
       - name: Write hosted data-flow summary
         if: always() && steps.gate.outputs.enabled == 'true'
         env:
