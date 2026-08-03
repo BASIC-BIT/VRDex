@@ -316,12 +316,27 @@ Four fields, and only one of them is the good news:
   worst answer, not zero, so count it yourself.
 - **`moreRemaining`** — the row budget ran out; rerun with the same arguments.
 
-**Resolve every `targetAlreadyHas` entry before running destructively, not
-after.** Decide which row survives and delete the other. Afterwards both rows
-point at the same user, so the field that told them apart is gone and you are
-left inferring from `_creationTime`. For a one-per-user table this is not
-cosmetic: a duplicate `billingCustomerMappings` means a subscription lookup can
-resolve to either Stripe customer.
+**`targetAlreadyHas` counts presence, not collisions.** It asks only "how many
+rows in this table already point at the destination", and compares no business
+key at all. Owning two profiles is perfectly legal, so a destination owning
+profile A and a legacy row owning profile B reports `profileOwners.userId: 1`
+while the reassignment produces no duplicate whatsoever. **Deleting on the count
+alone destroys valid ownership.** Which entries are real depends on the table:
+
+- **One-per-user tables** — `billingCustomerMappings`, `temporalParsingPreferences`
+  — collide on the user id itself, so any entry is a genuine duplicate.
+- **Many-per-user tables** — `profileOwners`, `apiTokens`, `oauthApplications`,
+  and every event or audit table — collide only when the two rows share the
+  table's *own* key. Compare it: `profileId` for `profileOwners`,
+  `discordUserId` for `discordVerificationWatermarks`, and so on. Different keys
+  are two legitimate records that both belong to the same person after the move.
+
+**Resolve the genuine duplicates before running destructively, not after**, and
+leave the rest alone. Afterwards both rows point at the same user, so the field
+that told them apart is gone and you are left inferring from `_creationTime`.
+For a one-per-user table this is not cosmetic: a duplicate
+`billingCustomerMappings` means a subscription lookup can resolve to either
+Stripe customer.
 
 A dry run moves nothing, so rerunning it reports the same tables forever. It is
 there to be read once and acted on, not iterated.
@@ -329,7 +344,23 @@ there to be read once and acted on, not iterated.
 Deliberately never moved, and so absent from both reports: the nineteen
 `authSubject`-keyed audit tables — `profileAuditEvents` and its siblings. Those
 record what a subject *did*. Repointing them would falsify history rather than
-repair ownership, the same reason a revoked grant stays where it is.
+repair ownership.
+
+**Grants are not among them, and the reassignment does not spare the revoked
+ones.** `accountFeatureGrants.userId` is the first entry in `USER_REFERENCES`
+and step 2 patches every row matching it without reading `state` or any expiry,
+so a revoked or expired grant is repointed along with the live ones and its
+recorded holder becomes the Clerk row. That is the audit cost of using the
+reassignment, and it is the one place where it is less conservative than the
+purge's `regrantGrantsFrom`, which moves live grants only. It is defensible for
+the case this runbook is for — the two rows are the same person, so "who held
+this" is still true — and it is wrong for any case where they are not, which is
+one more reason step 2 requires confirmed identity rather than a blocked row.
+
+To keep those rows exactly as they are, do not use step 2 for that user: pass
+`regrantGrantsFrom` / `regrantGrantsToClerkUserId` to the purge instead, which
+moves only what `isAccountFeatureGrantActive` accepts. The trade is that it
+handles grants alone, so any *other* reference still blocks the row.
 
 The purge's own report carries one more of these. **`staleCommunityAuthorities`**
 counts active authorities whose `subject.issuer` differs from the deployment's

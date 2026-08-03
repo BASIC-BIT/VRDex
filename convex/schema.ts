@@ -643,12 +643,16 @@ export default defineSchema({
   // spine that every other table's `v.id("users")` points at; `clerkUserId` is
   // the only link back to the auth provider.
   //
-  // Optional deliberately, as the first half of a two-phase change. Rows created
-  // under Convex Auth have no `clerkUserId`, and a required field would make
-  // schema validation reject them on the very first deploy — before the
-  // functions that could clean them up are even installed. `ensureUser` always
-  // sets it, and a row without one simply never matches the index, so it can
-  // authenticate nobody. Tighten to `v.string()` once the legacy rows are gone.
+  // Required, as the second half of a two-phase change that is now complete:
+  // both first-party deployments hold zero rows created under Convex Auth. It
+  // was `v.optional(v.string())` until then, because a required field would have
+  // made schema validation reject those rows on the very first deploy — before
+  // the functions that could clean them up were installed.
+  //
+  // That cuts both ways now. **This revision cannot be deployed onto a database
+  // that still holds legacy rows**, and the migrations that would fix one are
+  // deleted here too. `docs/backend/auth-sessions.md` pins the staged revision
+  // to deploy first and gives the sequence.
   users: defineTable({
     clerkUserId: v.string(),
     name: v.optional(v.string()),
