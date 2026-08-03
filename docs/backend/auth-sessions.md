@@ -240,10 +240,12 @@ pass it back as `legacyCursor` to inspect the next page, and keep going until
 it is null — that is how you see every `blockedUsers` entry before deleting
 anything.
 
-Starting the destructive pass from a cursor you paged to is fine, and is in fact
-how it is meant to run — see the rerun note below. What is never safe is
-inventing a cursor: every walk must begin at null and move forward, or rows
-before the starting point are neither examined nor reported.
+**Start the destructive pass with no cursor**, then carry the ones it returns.
+Resuming it from a cursor you paged to during discovery would skip every legacy
+row before that point, and a short enough remainder would report itself finished
+with those rows still present. Cursors are tagged with the mode that produced
+them and a destructive run rejects a dry-run cursor, so this is an error rather
+than a silent skip.
 
 `clerkUsers` is a capped sample, and `clerkUsersTruncated` says when it is one.
 If your account is not in the list, read the id off Clerk's dashboard —
@@ -269,7 +271,15 @@ reliably advance the page on its own: a page where every legacy row is blocked
 deletes nothing, so without a cursor the same page returns forever while
 `moreRemaining` stays true, and later deletable rows are never reached. Fifty
 blocked rows are enough to wedge the loop permanently. The cursor is held in
-place, rather than advanced, on any pass where the delete budget ran out.
+place, rather than advanced, on any destructive pass where the delete budget ran
+out.
+
+**`purgeComplete`, not `moreRemaining`, is what the schema tightening waits on.**
+A walk reaching its end is not the same as the purge being finished: blockers are
+reported and then the cursor moves past them, so the last page can come back
+clean while rows survive behind it. `purgeComplete` is true only when no legacy
+row remains at all. When it is false, resolve whatever `blockedUsers` reported
+and run a **new** walk from no cursor — the affected rows are behind the old one.
 
 Keeping the regrant arguments on every rerun is correct: once the source row is
 gone its grants have already moved, and the migration treats a missing source as

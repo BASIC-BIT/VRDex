@@ -339,6 +339,20 @@ const CLERK_USER_REPORT_LIMIT = 25;
 // unknown rather than undercounted from a truncated page.
 const STALE_AUTHORITY_SCAN_LIMIT = 1_000;
 
+// Cursors carry the mode that produced them.
+//
+// A destructive walk must begin at the first legacy row: starting it from a
+// cursor an operator paged to during discovery skips everything before that
+// point, and if the remainder fits one page the run reports itself finished with
+// those rows still present. Forbidding cursors outright was tried and wedged the
+// loop on a fully blocked page, so the rule is narrower — a destructive run
+// accepts only cursors a destructive run produced, and the first one has none.
+const CURSOR_MODES = { dry: "dry:", live: "live:" } as const;
+
+function tagCursor(dryRun: boolean, cursor: string | null): string | null {
+  return cursor === null ? null : `${dryRun ? CURSOR_MODES.dry : CURSOR_MODES.live}${cursor}`;
+}
+
 /** Just enough of a Convex query to probe one index for one value. */
 type IndexedTableQuery = {
   withIndex: (
@@ -404,10 +418,30 @@ export const purgeConvexAuthLeftovers = internalMutation({
     // `moreRemaining` would be false whenever the auth tables happened to fit,
     // ending the rerun loop with legacy rows still present and the schema change
     // that requires `clerkUserId` failing later for no visible reason.
+    // A destructive run takes only its own cursors, so its walk always starts at
+    // the first legacy row. A dry run may resume from either, since it reads.
+    let rawCursor: string | null = null;
+
+    if (args.legacyCursor !== undefined) {
+      if (args.legacyCursor.startsWith(CURSOR_MODES.live)) {
+        rawCursor = args.legacyCursor.slice(CURSOR_MODES.live.length);
+      } else if (args.legacyCursor.startsWith(CURSOR_MODES.dry)) {
+        if (!dryRun) {
+          throw new Error(
+            "That cursor came from a dry run. A destructive walk must start with no cursor so no legacy row is skipped, then carry the nextLegacyCursor it returns.",
+          );
+        }
+
+        rawCursor = args.legacyCursor.slice(CURSOR_MODES.dry.length);
+      } else {
+        throw new Error("legacyCursor must be a nextLegacyCursor from a previous run.");
+      }
+    }
+
     const legacyPage = await ctx.db
       .query("users")
       .withIndex("clerkUserId", (q) => q.eq("clerkUserId", undefined))
-      .paginate({ numItems: LEGACY_USER_PAGE, cursor: args.legacyCursor ?? null });
+      .paginate({ numItems: LEGACY_USER_PAGE, cursor: rawCursor });
     const legacy = legacyPage.page;
     const moreLegacy = !legacyPage.isDone;
     const legacyIds = new Set<string>(legacy.map((user) => user._id));
@@ -661,11 +695,39 @@ export const purgeConvexAuthLeftovers = internalMutation({
       // Held in place when the delete budget ran out. Those rows were examined
       // but not deleted, so advancing past them would leave them behind while
       // the walk reported itself finished.
-      nextLegacyCursor: usersDeferred
-        ? (args.legacyCursor ?? null)
-        : moreLegacy
-          ? legacyPage.continueCursor
-          : null,
+      nextLegacyCursor: tagCursor(
+        dryRun,
+        // Held in place only when a *destructive* pass ran out of delete budget:
+        // those rows were examined but not deleted, and advancing past them would
+        // leave them behind while the walk reported itself finished.
+        //
+        // A dry run deletes nothing, so its budget is always spent on counting
+        // and `usersDeferred` is always true once the auth tables exceed one
+        // batch. Holding the cursor for it would pin discovery to the first page
+        // forever — the exact failure the cursor was added to remove.
+        !dryRun && usersDeferred
+          ? rawCursor
+          : moreLegacy
+            ? legacyPage.continueCursor
+            : null,
+      ),
+      // False whenever any legacy row survives, blocked or merely unreached. The
+      // walk ending is not the same as the purge being finished: a page's
+      // blockers are reported and then the cursor moves past them, so a walk can
+      // reach its end with rows still present. Resolve the references, then start
+      // a *new* walk from no cursor — the rows are behind this one.
+      //
+      // This is the flag the schema tightening depends on, not `moreRemaining`.
+      purgeComplete:
+        !dryRun &&
+        !usersDeferred &&
+        !moreLegacy &&
+        (
+          await ctx.db
+            .query("users")
+            .withIndex("clerkUserId", (q) => q.eq("clerkUserId", undefined))
+            .take(1)
+        ).length === 0,
       legacyUsers: legacy.length,
       deletedUsers: usersDeferred ? [] : deletableUsers.map((user) => user.email ?? user._id),
       regrantedGrants: regranted,
