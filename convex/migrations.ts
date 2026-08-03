@@ -339,6 +339,23 @@ const CLERK_USER_REPORT_LIMIT = 25;
 // unknown rather than undercounted from a truncated page.
 const STALE_AUTHORITY_SCAN_LIMIT = 1_000;
 
+// Rows repointed per `reassignLegacyUserReferences` invocation. Smaller than the
+// purge's delete budget because each row is a read plus a write and the loop
+// spans 31 tables, and the whole point of bounding it is to stay under the limit
+// rather than near it.
+const REASSIGN_BATCH = 500;
+
+// Ceiling on the per-table collision report. Past it the entry is `-1`, meaning
+// "many, inspect by hand" — a duplicate-ownership warning is useless if the
+// number it shows came from a truncated page.
+const COLLISION_REPORT_LIMIT = 100;
+
+// Ceiling on the authorization-subject re-verification. Past it the result is
+// null: this scan answers "does any authorization-bearing reference to the legacy
+// subject survive", and a zero from a page that did not cover the table would
+// read as "verified none" while meaning "did not look".
+const AUTHORIZATION_SCAN_LIMIT = 1_000;
+
 // Cursors carry the mode that produced them.
 //
 // A destructive walk must begin at the first legacy row: starting it from a
@@ -353,12 +370,16 @@ function tagCursor(dryRun: boolean, cursor: string | null): string | null {
   return cursor === null ? null : `${dryRun ? CURSOR_MODES.dry : CURSOR_MODES.live}${cursor}`;
 }
 
-/** Just enough of a Convex query to probe one index for one value. */
+/** Just enough of a Convex query to read one index for one value. */
 type IndexedTableQuery = {
   withIndex: (
     index: string,
     build: (q: { eq: (field: string, value: string) => unknown }) => unknown,
-  ) => { first: () => Promise<{ _id: string } | null> };
+  ) => {
+    first: () => Promise<{ _id: string } | null>;
+    collect: () => Promise<{ _id: string }[]>;
+    take: (count: number) => Promise<{ _id: string }[]>;
+  };
 };
 
 export const purgeConvexAuthLeftovers = internalMutation({
@@ -780,6 +801,182 @@ export const purgeConvexAuthLeftovers = internalMutation({
       // read here fails the whole mutation, so a deployment with enough authority
       // history could never delete a single row on account of a diagnostic.
       staleCommunityAuthorities: staleAuthorities,
+    };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// One-off identity reassignment, for the case the purge deliberately refuses.
+//
+// `ensureUser` binds a Clerk identity by inserting a *new* `users` row rather
+// than adopting a legacy one, because nothing can derive which pre-cutover row a
+// Clerk subject corresponds to. When the same person signed in before and after
+// the cutover, their footprint therefore sits on a row nobody can authenticate
+// as: on production that is `basicbit`, owned by the legacy row with an active
+// `profileOwners` record, so the owner cannot edit their own profile.
+//
+// `purgeConvexAuthLeftovers` correctly refuses to delete such a row — deleting it
+// would leave a dangling `v.id("users")` that reads as valid and resolves to
+// nothing. This moves the footprint instead, which is what makes the row
+// deletable and the purge completable.
+//
+// Deliberately a separate function from the purge's regrant. That one moves live
+// `accountFeatureGrants` and nothing else, because "move every grant on every
+// legacy row" is a privilege-escalation primitive. This is the opposite
+// operation: an operator asserting that two rows are one person and merging
+// them, with both ends named. Keeping them apart keeps the purge's narrow rule
+// narrow.
+//
+// What it does NOT touch, on purpose:
+//
+// - `authSubject`-keyed rows. Nineteen tables carry them, and they are not
+//   `v.id("users")` references. The two that govern authorization —
+//   `communityAuthorities.subjectTokenIdentifier` and `events.submitter` via
+//   `isSameAuthSubject` — were verified empty on production before this was
+//   written; re-verify rather than assume. The rest are audit trails
+//   (`profileAuditEvents` and friends) recording what a subject actually did, and
+//   rewriting them would falsify history rather than repair ownership.
+// - Any field other than the user reference. No `updatedAt` bump: these rows did
+//   not change state, their owner was corrected.
+export const reassignLegacyUserReferences = internalMutation({
+  args: {
+    // Both ends named, neither inferred — the same rule the regrant follows, for
+    // the same reason. Matching by email would make this "whoever holds the
+    // address inherits the profile".
+    fromUserId: v.id("users"),
+    toClerkUserId: v.string(),
+    dryRun: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const dryRun = args.dryRun ?? true;
+
+    const source = await ctx.db.get(args.fromUserId);
+
+    if (source === null) {
+      throw new Error(`fromUserId ${args.fromUserId} does not exist.`);
+    }
+
+    if (source.clerkUserId !== undefined) {
+      throw new Error(
+        `fromUserId ${args.fromUserId} carries a clerkUserId, so it is reachable by signing in. This moves a footprint off an unreachable row; it is not a way to merge two live accounts.`,
+      );
+    }
+
+    const target = await ctx.db
+      .query("users")
+      .withIndex("clerkUserId", (q) => q.eq("clerkUserId", args.toClerkUserId))
+      .unique();
+
+    if (target === null) {
+      throw new Error(
+        `No users row carries clerkUserId ${args.toClerkUserId}. Sign in through Clerk first so ensureUser provisions one.`,
+      );
+    }
+
+    const moved: Record<string, number> = {};
+    // What the destination already holds, per table. A reassignment can create a
+    // logical duplicate — two `profileOwners` rows for one profile, two billing
+    // mappings for one user — and Convex enforces no uniqueness, so nothing would
+    // reject it. Reported rather than guessed at, so a dry run shows the collision
+    // before a real run creates it.
+    const targetAlreadyHas: Record<string, number> = {};
+
+    // Bounded per invocation, for the reason the purge's table clearing is.
+    // `apiTokenEvents`, `mcpToolEvents` and `temporalParseJobs` grow per request,
+    // so one identity's history in them is unbounded; collecting all 31 references
+    // and patching them in a single transaction would exceed Convex's limits, roll
+    // back, and leave the account permanently unrepairable — the failure this
+    // function exists to fix.
+    //
+    // No cursor: a patched row stops matching `field == fromUserId`, so the next
+    // invocation resumes where this one stopped. Rerun until `moreRemaining` is
+    // false. A dry run has nothing to advance it, so it reports the first page and
+    // stops — that is enough to see the shape before committing.
+    let budget = REASSIGN_BATCH;
+
+    for (const [table, field, index] of USER_REFERENCES) {
+      // The collision scan is deliberately outside the move budget. It is bounded
+      // per table by its own cap, so it costs a fixed amount however large the
+      // source history is — and tying it to the budget meant a source with a full
+      // batch in an early table stopped the loop before it ever looked at
+      // `profileOwners` or billing. A dry run moves nothing, so rerunning would
+      // report the same first tables forever while the runbook tells the operator
+      // to review this report *before* any rows move.
+      //
+      // One past the cap, so a truncated count is reported as such rather than as
+      // a small number that reads like the whole picture.
+      const existing = await (ctx.db.query(table) as unknown as IndexedTableQuery)
+        .withIndex(index, (q) => q.eq(field, target._id))
+        .take(COLLISION_REPORT_LIMIT + 1);
+
+      if (existing.length > 0) {
+        targetAlreadyHas[`${table}.${field}`] =
+          existing.length > COLLISION_REPORT_LIMIT ? -1 : existing.length;
+      }
+
+      if (budget <= 0) {
+        continue;
+      }
+
+      const rows = await (ctx.db.query(table) as unknown as IndexedTableQuery)
+        .withIndex(index, (q) => q.eq(field, args.fromUserId))
+        .take(budget);
+
+      if (rows.length > 0) {
+        moved[`${table}.${field}`] = rows.length;
+        budget -= rows.length;
+      }
+
+      if (!dryRun) {
+        // Same narrowing as the probe above: the row ids come back as strings
+        // because `IndexedTableQuery` erases the table, and `patch` wants the
+        // branded `Id`. The pairing is what `convex-auth-purge.test.ts` checks.
+        await Promise.all(
+          rows.map((row) =>
+            ctx.db.patch(row._id as Id<"users">, { [field]: target._id } as never),
+          ),
+        );
+      }
+    }
+
+    // Null rather than a count when the scan could not see the whole table. This
+    // value is the re-verification that no authorization-bearing subject
+    // reference survives, so a zero from a truncated page is the worst possible
+    // answer: it reads as "verified none" and means "did not look".
+    const countSubjects = async <T>(rows: T[], match: (row: T) => boolean) =>
+      rows.length > AUTHORIZATION_SCAN_LIMIT ? null : rows.filter(match).length;
+
+    return {
+      dryRun,
+      from: source.email ?? source._id,
+      to: { clerkUserId: target.clerkUserId, email: target.email },
+      moved,
+      // `-1` marks a count that hit `COLLISION_REPORT_LIMIT`; treat it as "many,
+      // inspect by hand" rather than as a number.
+      targetAlreadyHas,
+      // True when the row budget ran out. Rerun with the same arguments until it
+      // is false; moved rows no longer match, so each pass resumes automatically.
+      moreRemaining: budget <= 0,
+      // Left in place by design. Non-zero here is not a failure, it is the audit
+      // trail staying truthful — but it does mean the legacy *subject* is still
+      // referenced somewhere, which `purgeConvexAuthLeftovers` does not care about
+      // because those are not `v.id("users")` fields.
+      authorizationSubjectsLeft: {
+        // Active only. The runbook says anything counted here has to be re-granted
+        // by hand, so including a revoked authority would have an operator restore
+        // a capability somebody deliberately removed. `staleCommunityAuthorities`
+        // was corrected for exactly this and I reintroduced it here.
+        communityAuthorities: await countSubjects(
+          await ctx.db.query("communityAuthorities").take(AUTHORIZATION_SCAN_LIMIT + 1),
+          (authority) =>
+            authority.state === "active" &&
+            authority.subject.subject.startsWith(args.fromUserId),
+        ),
+        events: await countSubjects(
+          await ctx.db.query("events").take(AUTHORIZATION_SCAN_LIMIT + 1),
+          (event) => (event.submitter?.subject ?? "").startsWith(args.fromUserId),
+        ),
+      },
     };
   },
 });

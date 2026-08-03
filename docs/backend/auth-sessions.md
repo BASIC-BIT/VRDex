@@ -315,6 +315,46 @@ retained, so a walk whose blockers appeared on an earlier page ends with an empt
 one while those rows survive. `purgeComplete` is the only value that means no
 legacy row is left.
 
+### When a legacy row is blocked because it is still someone
+
+The purge refuses to delete a referenced row, and on production that refusal is
+permanent on its own: the same person signed in before and after the cutover, so
+`basicbit` is owned by the legacy row through an active `profileOwners` record
+while `ensureUser` provisioned a *separate* row for their Clerk identity. The
+owner cannot edit their own profile, holds no `super_admin`, and no number of
+purge reruns changes it.
+
+`migrations:reassignLegacyUserReferences` repairs that, and it is the step
+between the two dry runs rather than a variant of either:
+
+```powershell
+pnpm cx -- prod run migrations:reassignLegacyUserReferences `
+  '{"fromUserId": "<legacy users._id>", "toClerkUserId": "user_...", "dryRun": true}'
+```
+
+Read the dry run before repeating it with `"dryRun": false`:
+
+- **`moved`** is what will be repointed, per `table.field`.
+- **`targetAlreadyHas`** is what the destination already holds in those same
+  places. Convex enforces no uniqueness, so a reassignment can leave two
+  `profileOwners` rows for one profile or two billing mappings for one user and
+  nothing will reject it. A `-1` means the count hit the report cap — inspect
+  that table by hand rather than reading it as a number.
+- **`authorizationSubjectsLeft`** re-checks the two tables that authorize by auth
+  subject rather than by `v.id("users")` — `communityAuthorities` and `events`.
+  Those are invisible to the purge, and nothing can derive which Clerk subject a
+  Convex Auth one was, so anything counted here has to be re-granted by hand.
+  `null` means the scan was truncated and did not look, which is not zero.
+- **`moreRemaining`** true means the row budget ran out. Rerun with the same
+  arguments; repointed rows stop matching, so each pass resumes on its own.
+
+Then rerun the purge. `blockedUsers` should be empty and the row deletable.
+
+Deliberately not moved: the nineteen `authSubject`-keyed tables that are audit
+trails — `profileAuditEvents` and friends. Those record what a subject did.
+Repointing them would falsify history rather than repair ownership, which is the
+same reason the purge leaves revoked grants where they are.
+
 `staleCommunityAuthorities` in the report is informational: those rows key on
 token identifier rather than `users._id`, so they never block the purge, but the
 issuer change already stopped them matching their owners and they have to be
