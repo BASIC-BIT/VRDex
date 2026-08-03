@@ -22,15 +22,22 @@ function fail(message) {
   process.exit(1);
 }
 
-// Resolved before any file reading, so a mistyped target fails before the
-// script touches the seed source at all.
-const target = convexTargetEnv(option("--target") ?? "local");
+// Assigned at the start of main(), never at module scope: tests import the
+// chunking helpers from this file, and resolving a target on import fails
+// wherever there is no .env.local -- CI, for one.
+let target;
 
-if (!target.ok) {
-  fail(target.error);
+function requireTarget() {
+  const resolved = convexTargetEnv(option("--target") ?? "local");
+
+  if (!resolved.ok) {
+    fail(resolved.error);
+  }
+
+  console.error(`→ convex ${resolved.label} (${resolved.deployment})`);
+
+  return resolved;
 }
-
-console.error(`→ convex ${target.label} (${target.deployment})`);
 
 function serializedByteLength(value) {
   return Buffer.byteLength(JSON.stringify(value), "utf8");
@@ -129,6 +136,8 @@ function runConvexMutation(mutationArgs) {
 }
 
 function main() {
+  target = requireTarget();
+
   const file = option("--file");
   const actorToken = option("--actor-token");
   const actorIssuer = option("--actor-issuer");

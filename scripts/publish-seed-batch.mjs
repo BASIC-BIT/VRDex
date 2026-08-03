@@ -48,15 +48,22 @@ function fail(message) {
   process.exit(1);
 }
 
-// Resolved once, before any argument validation, so a mistyped target fails
-// before the script starts describing what it would publish.
-const target = convexTargetEnv(option("--target") ?? "local");
+// Assigned at the start of main(), never at module scope: tests import
+// readOption from this file, and resolving a target on import fails wherever
+// there is no .env.local -- CI, for one.
+let target;
 
-if (!target.ok) {
-  fail(target.error);
+function requireTarget() {
+  const resolved = convexTargetEnv(option("--target") ?? "local");
+
+  if (!resolved.ok) {
+    fail(resolved.error);
+  }
+
+  console.error(`→ convex ${resolved.label} (${resolved.deployment})`);
+
+  return resolved;
 }
-
-console.error(`→ convex ${target.label} (${target.deployment})`);
 
 function runConvex(functionName, functionArgs) {
   const result = spawnSync(
@@ -130,6 +137,8 @@ function reportSkipped(skipped) {
 }
 
 function main() {
+  target = requireTarget();
+
   const batchId = option("--batch-id");
 
   if (!batchId) {
