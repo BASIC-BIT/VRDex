@@ -226,7 +226,8 @@ pnpm cx -- <target> run migrations:purgeConvexAuthLeftovers `
 #    run this against a row just because step 1 listed it.
 #
 #    Read the preview — see "Reading the reassignment preview" below, and resolve
-#    every targetAlreadyHas collision before the destructive run. Then run it
+#    the genuine targetAlreadyHas duplicates (not every entry: most are not
+#    collisions) before the destructive run. Then run it
 #    again with "dryRun": false, and keep rerunning with the same arguments while
 #    moreRemaining is true (the row budget ran out; repointed rows stop matching,
 #    so each pass resumes on its own). A dry run patches nothing, so blockedUsers
@@ -302,11 +303,10 @@ Four fields, and only one of them is the good news:
 - **`moved`** — what this pass will repoint, per `table.field`.
 - **`targetAlreadyHas`** — what the destination *already* holds in those same
   places, counted across all 31 fields even when the move budget runs out. **This
-  is the one to act on.** Convex enforces no uniqueness, so nothing rejects two
-  active `profileOwners` rows for one profile, or two
-  `billingCustomerMappings` for one user, and the app will resolve whichever it
-  happens to read first. `-1` means the count hit 100 — read it as "many,
-  inspect by hand", not as a number.
+  is the one to inspect**, though not every entry needs acting on; see below.
+  Convex enforces no uniqueness, so nothing rejects two active `profileOwners`
+  rows for one profile, and the app resolves whichever it reads first. `-1` means
+  the count hit 100 — read it as "many, inspect by hand", not as a number.
 - **`authorizationSubjectsLeft`** — `communityAuthorities` and `events` authorize
   by auth subject rather than by `v.id("users")`, so the purge cannot see them
   and this cannot move them. Non-zero is not a failure; it is the audit trail
@@ -323,20 +323,26 @@ profile A and a legacy row owning profile B reports `profileOwners.userId: 1`
 while the reassignment produces no duplicate whatsoever. **Deleting on the count
 alone destroys valid ownership.** Which entries are real depends on the table:
 
-- **One-per-user tables** — `billingCustomerMappings`, `temporalParsingPreferences`
-  — collide on the user id itself, so any entry is a genuine duplicate.
-- **Many-per-user tables** — `profileOwners`, `apiTokens`, `oauthApplications`,
-  and every event or audit table — collide only when the two rows share the
-  table's *own* key. Compare it: `profileId` for `profileOwners`,
-  `discordUserId` for `discordVerificationWatermarks`, and so on. Different keys
-  are two legitimate records that both belong to the same person after the move.
+**Read the table's own indexes to find its key, and compare that.** They are
+where the real cardinality is written down, and guessing from the table name
+gets it wrong in both directions:
+
+- `temporalParsingPreferences` is one row per user — `userId`, one setting, a
+  single `by_userId` index. Any entry there is a genuine duplicate.
+- `billingCustomerMappings` looks like it should be, and is not: it holds a
+  separate row per `stripeEnvironment` and keeps archived ones alongside the
+  active one, so `by_userId_state` having two entries is routine. The key to
+  compare is the environment and the state, not the user.
+- `profileOwners` is per profile, `discordVerificationWatermarks` per
+  `discordUserId`, and `apiTokens`, `oauthApplications` and every event table are
+  unbounded per user by design.
 
 **Resolve the genuine duplicates before running destructively, not after**, and
 leave the rest alone. Afterwards both rows point at the same user, so the field
 that told them apart is gone and you are left inferring from `_creationTime`.
-For a one-per-user table this is not cosmetic: a duplicate
-`billingCustomerMappings` means a subscription lookup can resolve to either
-Stripe customer.
+Where it matters it really matters: two *active* `billingCustomerMappings` in
+one `stripeEnvironment` means a subscription lookup can resolve to either Stripe
+customer.
 
 A dry run moves nothing, so rerunning it reports the same tables forever. It is
 there to be read once and acted on, not iterated.
