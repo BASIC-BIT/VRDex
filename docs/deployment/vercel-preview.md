@@ -259,8 +259,11 @@ The `Staging Deploy` workflow runs after `Baseline Checks` succeeds on `main` an
 - secrets `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`: deploy Vercel `staging`
 - variable `VRDEX_HOSTED_E2E_BASE_URL`: hosted health target, currently `https://staging.vrdex.net`
 - secret `VRDEX_HOSTED_E2E_BROWSER_TOKEN`: browser token for hosted E2E helper calls
+- variable `VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN`: Clerk Frontend API origin of the development instance backing staging, as a full `https://` origin. The workflow writes it to Convex as `CLERK_JWT_ISSUER_DOMAIN` before deploying functions
 
-If any required GitHub deployment setting is missing, the workflow writes a skip summary and exits successfully instead of partially deploying staging. When enabled, the workflow first audits the Vercel staging variable-name contract, then deploys Convex development functions, deploys Vercel `staging`, and runs `pnpm test:e2e:hosted` against `VRDEX_HOSTED_E2E_BASE_URL`. Because GitHub Actions snapshots secrets and variables when a run starts, rerun the workflow after completing provider bootstrap.
+Those settings behave differently when absent, and the difference is deliberate. Missing any of the first four means this repository is not configured to deploy staging at all, so the workflow writes a skip summary and exits successfully rather than deploying partially. **A missing `VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN` fails the job instead.** Staging *is* configured in that case, and is missing a setting its own auth config requires — `convex/auth.config.ts` reads it on every hosted deployment and the Convex CLI refuses to push without it. Skipping there would report a green workflow while staging silently stopped updating, which is exactly what left staging serving a pre-Clerk build for three days. See [`convex-environments.md`](./convex-environments.md).
+
+When enabled, the workflow audits the Vercel staging variable-name contract, checks that the issuer matches the Clerk publishable key Vercel is about to serve, writes the issuer to Convex, deploys Convex development functions, deploys Vercel `staging`, re-checks the issuer against what shipped, and runs `pnpm test:e2e:hosted` against `VRDEX_HOSTED_E2E_BASE_URL`. Because GitHub Actions snapshots secrets and variables when a run starts, rerun the workflow after completing provider bootstrap.
 
 ## Hosted production environment
 

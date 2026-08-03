@@ -207,14 +207,21 @@ These must be the **development** instance backing the hosted target, not produc
 
 **What the secret key can do:** create, read, and delete users on the staging Clerk development instance, and mint sign-in tickets for them. It cannot touch the production tenant — a separate instance with separate keys — and it is never placed on a deployment, only in the Actions runner.
 
-**Rotation and recovery**, for compromise, maintainer turnover, or routine rotation:
+**Rotating the secret key only** — the common case, and what compromise or maintainer turnover calls for. The instance, its publishable key, and the issuer are unchanged:
 
-1. In the Clerk dashboard, on the **development** instance for the VRDex application, open **API keys** and rotate the secret key. The publishable key changes only if the instance itself is recreated.
-2. `gh secret set VRDEX_HOSTED_E2E_CLERK_SECRET_KEY` (and `..._PUBLISHABLE_KEY` if it changed).
-3. If the publishable key changed, its host changed too: update the Vercel staging `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY`, and the `VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN` repository variable. `staging-deploy.yml` fails the deploy when the served key and the Convex issuer disagree, so a partial rotation is caught rather than silently breaking every signed-in request.
-4. Re-run `Deploy Staging`, then confirm with `pnpm test:e2e:hosted:auth-session`.
+1. In the Clerk dashboard, on the **development** instance for the VRDex application, open **API keys** and rotate the secret key.
+2. `gh secret set VRDEX_HOSTED_E2E_CLERK_SECRET_KEY`.
+3. Re-run `Deploy Staging`, then confirm with `pnpm test:e2e:hosted:auth-session`.
 
-Revoking the old key immediately is safe: it is used only by CI, so the blast radius of rotating without warning is a failed workflow run, not a user-facing outage.
+**Moving staging to a different Clerk instance** — a recreated instance, or a deliberate migration. The publishable key's host changes, so the Convex issuer has to change with it, and the two live in different places:
+
+1. On the new instance, create the JWT template named exactly `convex` from Clerk's Convex preset. **Templates do not carry across instances**, and neither issuer check can see this — both compare hosts, so a deployment with no template passes every comparison while Clerk cannot mint the token Convex expects and every authenticated backend call fails. Take the preset as-is; `docs/backend/auth-sessions.md` records why `aud: "convex"` and `email_verified` in particular are load-bearing.
+2. Set the Vercel staging `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY` to the new instance's pair. Setting the variables is enough; no deploy is needed first.
+3. `gh variable set VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN --body https://<new-frontend-api-host>`, then `gh secret set` for both `VRDEX_HOSTED_E2E_CLERK_PUBLISHABLE_KEY` and `VRDEX_HOSTED_E2E_CLERK_SECRET_KEY`.
+4. Re-run `Deploy Staging`. No special input: the pre-deploy check reads the key Vercel is *about to* serve, so a rotation where both sides have been updated simply agrees, and both providers move together in one run.
+5. Confirm with `pnpm test:e2e:hosted:auth-session`. This is what actually proves the template — it asserts that a Clerk session resolves to a *verified Convex identity*, which is exactly what a missing or misconfigured `convex` template breaks.
+
+Updating only one side fails that check before anything is written, which is the point. If the run then fails *before the Vercel deploy succeeds*, the workflow restores the previous issuer rather than leaving Convex ahead of the deployed app. After a successful Vercel deploy it deliberately does not: both providers are on the new instance by then, and restoring Convex alone would create the mismatch.
 
 Hosted developer-credential E2E additionally requires repository variable `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true`. Keep it unset until the hosted target has deployed the developer token routes, OAuth app registration routes, and OAuth token endpoints under test.
 
