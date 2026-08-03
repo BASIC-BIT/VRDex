@@ -200,13 +200,102 @@ the Convex project, from the dashboard's project settings. New previews then
 inherit it at creation. Without it, `Deploy Convex preview functions` fails
 before any Vercel step runs.
 
+### Staging provisions it in the workflow
+
+The shared development/staging deployment already exists, so `convex env set`
+does work there — and `staging-deploy.yml` runs it from
+`vars.VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN` in a `Provision Convex auth
+configuration` step placed **before** `convex deploy`. Ordering is the point:
+`auth.config.ts` is evaluated at push time and the CLI refuses to push while the
+variable is unset, so setting it after the deploy never runs at all.
+
+This used to be a hand-set dashboard value, and that is what failed. Nobody set
+it when Clerk replaced Convex Auth in #224. Every staging deploy failed from that
+merge onward with:
+
+```text
+✖ Environment variable CLERK_JWT_ISSUER_DOMAIN is used in auth config file
+  but its value was not set.
+```
+
+Staging kept serving a pre-cutover build — with the removed email/password
+sign-in form — for three days while `main` moved on, and nothing surfaced it
+because the failure was inside a workflow nobody was watching.
+`tests/scripts/staging-runtime-env.test.ts` pins the ordering.
+
+**An unset variable fails the job; it does not skip it.** The other entries in
+the gate's `missing` list mean "this repository is not set up to deploy staging
+at all", which is a legitimate skip. This one means staging *is* set up and is
+missing a setting its own auth config requires — so skipping would report a green
+workflow while staging silently stopped updating, which is a quieter version of
+the same outage.
+
+### The issuer is checked against the key Vercel will serve
+
+Convex's issuer and the web publishable key are configured in different places —
+a repository variable and the Vercel project — and nothing compared them. A stale
+or cross-instance issuer deploys cleanly and then rejects every signed-in
+request, because Convex validates the issuer it was *told* about rather than the
+one the browser authenticated against. The `Audit Vercel staging runtime
+variable names` step cannot catch it: it reads names, never values.
+
+So the issuer is checked twice, both through
+`scripts/check-clerk-issuer-match.mjs`, plus a format check that runs on every
+path. Before the `convex env set`, the issuer is compared against the key the
+current deployment serves; after the Vercel deploy, against what actually
+shipped. Both decode the key's base64-encoded host and fail on a mismatch, and
+both reject a `pk_live_` key outright so the staging and production tenants
+cannot be crossed. `production-promote.yml` does the same for the live tenant.
+
+The format check is separate and unconditional, because `auth.config.ts` takes
+the value verbatim: a bare host or a trailing slash matches no token issuer, and
+no path that can write the variable may skip that.
+
+**Rotating staging to a different Clerk instance** is a manual sequence rather
+than a workflow input, documented in
+[`playwright-visual-preview.md`](../testing/playwright-visual-preview.md). Vercel
+is updated and deployed first, then the issuer variable, then a normal staging
+deploy — so the pre-deploy comparison agrees by the time it runs and never has
+to be skipped. There is a short window between those steps where staging auth is
+down, which is inherent to changing two providers that must agree.
+
+A dispatch input that skipped the comparison existed briefly and was removed.
+Three rounds of review found a fresh hole in it each time: it bypassed the
+format validation, then left the rollback unreachable on the path it created,
+and would finally have needed Vercel deployment rollback and repository-variable
+writes from CI to be correct. That is a two-provider migration system inside a
+deploy workflow, for an operation performed by hand about once a year.
+
+If a run changes the issuer and then fails, the previous value is restored in
+two cases, and both mean Convex is ahead of what staging serves: the Vercel
+deploy did not succeed, or the post-deploy comparison reported a **confirmed
+mismatch** — the deployed key naming a different Clerk instance than the issuer
+just written.
+
+Keyed on that confirmation rather than on the step failing, because a transient
+fetch error fails the step too and proves nothing about the pairing; rolling back
+on one would break a pairing that is very likely correct. The script exits 2 for
+a mismatch and 1 for everything else so the two can be told apart. The
+pre-deploy comparison can also be inconclusive — a target serving no key at
+all — so a mismatch reaching the post-deploy check is not unreachable merely
+because the earlier one passed.
+
+The restore re-pushes functions only when the Convex deploy had itself
+succeeded. If it had not, nothing carrying the new issuer was ever published, so
+putting the variable back is the whole repair — and re-pushing there would
+publish the functions that just failed their typecheck.
+
+The value is not a secret. A Clerk Frontend API origin is public — it is encoded
+in the publishable key every browser downloads — so it lives in a repository
+variable rather than a repository secret, where it can be read and audited.
+
 Development/staging Convex env names:
 
 - `VRDEX_ENABLE_E2E_HELPERS=true`
 - `VRDEX_E2E_CONVEX_SECRET`: non-empty sentinel also configured in the hosted app environment
 - `VRDEX_ENABLE_E2E_AUTH_HELPERS=true`: optional, only when hosted auth/claim E2E is intentionally enabled
 - `VRDEX_ENABLE_E2E_ADAPTER_HELPERS=true`: optional, only when hosted adapter E2E is intentionally enabled
-- `CLERK_JWT_ISSUER_DOMAIN`: staging Clerk Frontend API origin, read by `convex/auth.config.ts`
+- `CLERK_JWT_ISSUER_DOMAIN`: staging Clerk Frontend API origin, read by `convex/auth.config.ts`. **Provisioned by `staging-deploy.yml`, not by hand** — see below
 - `SITE_URL=https://staging.vrdex.net`: builds the Discord verification callback URL
 - `AUTH_DISCORD_ID` and `AUTH_DISCORD_SECRET`: staging Discord credentials for the purpose-scoped community-verification round-trip. These are **not** sign-in credentials — Clerk holds those — but `convex/discordVerification.ts` still requires them
 - `DISCORD_API_BASE_URL`: optional hosted adapter stub base URL, usually `https://staging.vrdex.net/api/e2e/adapters/discord`

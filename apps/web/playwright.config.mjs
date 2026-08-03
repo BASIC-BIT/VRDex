@@ -86,14 +86,36 @@ export default defineConfig({
   timeout: 30_000,
   retries: process.env.CI ? 1 : 0,
   fullyParallel: true,
+  // Overridable so two Playwright runs in one job do not share these. Playwright
+  // clears both when a run starts, so the staging deploy's second invocation was
+  // deleting the first run's report, traces, and always-recorded videos before
+  // the upload step collected them — the artifact showed only the later run.
+  outputDir: process.env.PLAYWRIGHT_OUTPUT_DIR ?? "test-results",
   // The JSON report exists so CI can state what actually ran instead of asserting
   // it. A skipped Playwright file still exits 0, so an outcome of `success` alone
   // cannot distinguish "everything passed" from "nothing executed" — which is how
   // the auth-session matrix lane reported coverage it never produced.
+  //
+  // Overridable for the same reason as the two above, and it matters more: the
+  // baseline-checks summary counts passed/failed/skipped out of this file, so a
+  // second run in the same job overwriting it would not lose an artifact, it
+  // would make CI report one lane's totals under another lane's name.
   reporter: [
     ["list"],
-    ["html", { open: "never", outputFolder: "playwright-report" }],
-    ["json", { outputFile: "playwright-artifacts/results.json" }],
+    [
+      "html",
+      {
+        open: "never",
+        outputFolder: process.env.PLAYWRIGHT_HTML_REPORT_DIR ?? "playwright-report",
+      },
+    ],
+    [
+      "json",
+      {
+        outputFile:
+          process.env.PLAYWRIGHT_JSON_REPORT_FILE ?? "playwright-artifacts/results.json",
+      },
+    ],
   ],
   expect: {
     toHaveScreenshot: {

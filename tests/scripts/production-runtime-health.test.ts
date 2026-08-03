@@ -249,6 +249,13 @@ test("hosted auth E2E is wired to Clerk testing tokens rather than skipped", asy
   assert.match(harness, /Hosted auth E2E is enabled for this target but/);
   assert.match(harness, /throw new Error\(/);
 
+  // ...and when the two switches disagree. Clerk auth on with the deployment's
+  // helper off makes every authenticated spec skip its own guard, leaving the
+  // signed-out redirect test to pass alone and Playwright to exit 0 over a
+  // contract that never ran.
+  assert.match(harness, /VRDEX_ENABLE_E2E_AUTH_HELPERS is not/);
+  assert.match(harness, /reporting a contract that never ran/);
+
   assert.match(authSession, /@auth-session-staging/);
   assert.match(
     webPackage.scripts?.["test:e2e:hosted:auth-session"] ?? "",
@@ -257,11 +264,11 @@ test("hosted auth E2E is wired to Clerk testing tokens rather than skipped", asy
 });
 
 test("deployed auth checks separate recurring staging from manual production", async () => {
-  const source = await readFile(
+  const deployedHealthSource = await readFile(
     ".github/workflows/deployed-health.yml",
     "utf8",
   );
-  const workflow = parseYaml(source) as {
+  const workflow = parseYaml(deployedHealthSource) as {
     on?: {
       workflow_dispatch?: {
         inputs?: Record<string, { default?: boolean; type?: string }>;
@@ -270,6 +277,7 @@ test("deployed auth checks separate recurring staging from manual production", a
     jobs?: Record<
       string,
       {
+        if?: string;
         steps?: Array<{
           env?: Record<string, string>;
           name?: string;
@@ -293,11 +301,49 @@ test("deployed auth checks separate recurring staging from manual production", a
     },
   );
 
+  const hostedDataFlow = workflow.jobs?.["hosted-data-flow"];
+  assert.ok(hostedDataFlow);
+  assert.doesNotMatch(hostedDataFlow.if ?? "", /event_name == 'push'/);
+
   const stagingStep = workflow.jobs?.["hosted-data-flow"]?.steps?.find(
     (step) => step.name === "Run recurring staging auth session contract",
   );
   assert.ok(stagingStep);
   assert.equal(stagingStep.run, "pnpm test:e2e:hosted:auth-session");
+
+  const stagingDeploySource = await readFile(
+    ".github/workflows/staging-deploy.yml",
+    "utf8",
+  );
+  const stagingDeploy = parseYaml(stagingDeploySource) as {
+    jobs?: Record<
+      string,
+      {
+        steps?: Array<{
+          env?: Record<string, string>;
+          name?: string;
+          run?: string;
+        }>;
+      }
+    >;
+  };
+  const stagingDeploySteps = stagingDeploy.jobs?.["deploy-staging"]?.steps ?? [];
+  const deployIndex = stagingDeploySteps.findIndex(
+    (step) => step.name === "Deploy Vercel staging",
+  );
+  const postDeployAuthIndex = stagingDeploySteps.findIndex(
+    (step) => step.name === "Run recurring staging auth session contract",
+  );
+  assert.ok(deployIndex >= 0);
+  assert.ok(postDeployAuthIndex > deployIndex);
+  assert.equal(
+    stagingDeploySteps[postDeployAuthIndex]?.run,
+    "pnpm test:e2e:hosted:auth-session",
+  );
+  assert.equal(
+    stagingDeploySteps[postDeployAuthIndex]?.env?.PLAYWRIGHT_BASE_URL,
+    "${{ steps.gate.outputs.hosted_base_url }}",
+  );
 
   const productionConfigurationGate = workflow.jobs?.["production-smoke"]?.steps?.find(
     (step) => step.name === "Check production smoke configuration",

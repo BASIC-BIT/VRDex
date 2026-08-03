@@ -59,7 +59,7 @@ concurrency:
 jobs:
   hosted-data-flow:
     name: Hosted Data Flow Health
-    if: github.event_name == 'push' || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.target == 'all' || inputs.target == 'staging-mutation'))
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.target == 'all' || inputs.target == 'staging-mutation'))
     runs-on: ubuntu-latest
     timeout-minutes: 20
 

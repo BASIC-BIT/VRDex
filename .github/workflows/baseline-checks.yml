@@ -543,10 +543,21 @@ jobs:
       # `test:e2e:hosted` pins desktop, so folding these in there would capture
       # desktop only. `always()` so a failure above still produces the signed-in
       # screenshots — they are most useful on the run that broke something.
+      #
+      # The three PLAYWRIGHT_* overrides are not optional. Playwright clears the
+      # output directory and both reports when a run starts, so without them this
+      # second run in the job would delete the first one's traces, videos, HTML
+      # report and results.json before the upload step collects them — the exact
+      # failure #213 fixed for the staging deploy, arriving here by the same route.
+      # The uploaded artifact would show only this step, under a name that says
+      # hosted data-flow.
       - name: Capture signed-in account screenshots
         if: always() && steps.gate.outputs.enabled == 'true'
         id: account-visual
         env:
+          PLAYWRIGHT_OUTPUT_DIR: test-results-account-visual
+          PLAYWRIGHT_HTML_REPORT_DIR: playwright-report-account-visual
+          PLAYWRIGHT_JSON_REPORT_FILE: playwright-artifacts/results-account-visual.json
           PLAYWRIGHT_BASE_URL: ${{ vars.VRDEX_HOSTED_E2E_BASE_URL }}
           PLAYWRIGHT_SKIP_WEBSERVERS: "true"
           VRDEX_ENABLE_E2E_AUTH_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_AUTH_HELPERS }}
@@ -614,6 +625,8 @@ jobs:
           path: |
             apps/web/playwright-report
             apps/web/test-results
+            apps/web/playwright-report-account-visual
+            apps/web/test-results-account-visual
             apps/web/playwright-artifacts
 
   playwright-public-preview:

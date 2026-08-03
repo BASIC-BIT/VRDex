@@ -249,14 +249,23 @@ These must be the **development** instance backing the hosted target, not produc
 
 **What the secret key can do:** create, read, and delete users on the staging Clerk development instance, and mint sign-in tickets for them. It cannot touch the production tenant — a separate instance with separate keys — and it is never placed on a deployment, only in the Actions runner.
 
-**Rotation and recovery**, for compromise, maintainer turnover, or routine rotation:
+**Rotating the secret key only** — the common case, and what compromise or maintainer turnover calls for. The instance, its publishable key, and the issuer are unchanged:
 
-1. In the Clerk dashboard, on the **development** instance for the VRDex application, open **API keys** and rotate the secret key. The publishable key changes only if the instance itself is recreated.
-2. `gh secret set VRDEX_HOSTED_E2E_CLERK_SECRET_KEY` (and `..._PUBLISHABLE_KEY` if it changed).
-3. If the publishable key changed, its host changed too: update the Vercel staging `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY`, and the `VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN` repository variable. `staging-deploy.yml` fails the deploy when the served key and the Convex issuer disagree, so a partial rotation is caught rather than silently breaking every signed-in request.
-4. Re-run `Deploy Staging`, then confirm with `pnpm test:e2e:hosted:auth-session`.
+1. In the Clerk dashboard, on the **development** instance for the VRDex application, open **API keys** and rotate the secret key.
+2. `gh secret set VRDEX_HOSTED_E2E_CLERK_SECRET_KEY`.
+3. Re-run `Deploy Staging`, then confirm with `pnpm test:e2e:hosted:auth-session`.
 
-Revoking the old key immediately is safe: it is used only by CI, so the blast radius of rotating without warning is a failed workflow run, not a user-facing outage.
+**Moving staging to a different Clerk instance** — a recreated instance, or a deliberate migration. This is a manual sequence, not a workflow input. It is done rarely and by hand, and automating it inside `Staging Deploy` would mean rolling back two providers and rewriting a repository variable from CI to be correct.
+
+The order matters because the pre-deploy check compares the configured issuer against the key the deployment currently serves, and that check never skips:
+
+1. On the new instance, create the JWT template named exactly `convex` from Clerk's Convex preset. **Templates do not carry across instances**, and no issuer check can see this — they compare hosts — so a move without it passes every comparison while Clerk cannot mint the token Convex expects.
+2. Set the Vercel staging `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY` to the new instance's pair, and deploy Vercel so staging serves them. **Staging authentication is down from here until step 4**, because Convex still trusts the old issuer. That window is inherent to changing two providers that must agree; it is short and expected, not a fault.
+3. `gh variable set VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN --body https://<new-frontend-api-host>`, then `gh secret set` for both `VRDEX_HOSTED_E2E_CLERK_PUBLISHABLE_KEY` and `VRDEX_HOSTED_E2E_CLERK_SECRET_KEY`.
+4. Run `Deploy Staging`. The pre-deploy check now compares the new issuer against the new key staging already serves, so it agrees and the deploy proceeds.
+5. Confirm with `pnpm test:e2e:hosted:auth-session`. This is what actually proves the JWT template, since it asserts a Clerk session resolves to a *verified Convex identity*.
+
+Doing step 3 before step 2 makes step 4 abort at the pre-deploy check, which is the guard working: the issuer would not match what staging serves.
 
 Hosted developer-credential E2E additionally requires repository variable `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true`. Keep it unset until the hosted target has deployed the developer token routes, OAuth app registration routes, and OAuth token endpoints under test.
 
@@ -301,17 +310,27 @@ The final `PR Verification Report` job runs after the Playwright and Storybook j
 
 The `Deployed Health Checks` workflow runs after merges to `main`, after successful GitHub deployment status events for production deployments, on a daily schedule, and through manual dispatch. It has two independent checks:
 
-- `Hosted Data Flow Health` uses `VRDEX_HOSTED_E2E_BASE_URL` and `VRDEX_HOSTED_E2E_BROWSER_TOKEN` to run the mutation-backed hosted flow against a dev/staging target.
+- `Hosted Data Flow Health` uses `VRDEX_HOSTED_E2E_BASE_URL` and `VRDEX_HOSTED_E2E_BROWSER_TOKEN` to run scheduled or manually dispatched mutation-backed hosted flow checks against a dev/staging target.
 - `Production Smoke Health` uses the production deployment status URL when the workflow was triggered by a successful production deployment, otherwise `VRDEX_PRODUCTION_SMOKE_BASE_URL`, to run read-only public route smoke against production.
 
 Manual dispatch can run `all`, `staging-mutation`, or `production-smoke`. The optional `base_url` override applies only when dispatching a single selected target. The deployed health workflow uploads artifacts and fails the workflow on test failure, but it does not create GitHub issues automatically.
 
-The recurring staging lane also runs the auth-session contract, which asserts
-that a Clerk session resolves to a verified Convex identity on that deployment.
-It uses only disposable `@e2e.vrdex.net` accounts created on the staging Clerk
-development instance and deleted in the same run, and the staging helper
-boundary. With `VRDEX_HOSTED_E2E_CLERK_AUTH` unset it skips; with it set and the
-Clerk keys absent it fails.
+The merge-triggered `Staging Deploy` workflow runs the auth-session contract
+after the matching Convex and Vercel deployment is live, which is the point of
+running it there: on a `push` it fired while those deployments were still going
+out, so it asserted against the *previous* deployment and reported that as the
+health of this one. Scheduled and manually dispatched staging health repeat the
+same contract.
+
+The contract asserts that a Clerk session resolves to a verified Convex identity
+on that deployment. It uses only disposable `@e2e.vrdex.net` accounts created on
+the staging Clerk development instance and deleted in the same run, and the
+staging helper boundary. With `VRDEX_HOSTED_E2E_CLERK_AUTH` unset it skips; with
+it set and the Clerk keys absent it fails.
+
+Both staging Playwright runs write to distinct report and results directories,
+because Playwright clears those when a run starts and the second invocation would
+otherwise discard the first run's evidence before it was uploaded.
 
 Production authenticated smoke is a separate manual one-shot option. Supply a
 fresh base64-encoded Playwright storage state for the disposable production
