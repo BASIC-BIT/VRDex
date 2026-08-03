@@ -32,14 +32,20 @@ values. A shell that has run `pnpm dev:backend:local` keeps `CONVEX_URL`
 pointing at `127.0.0.1:3210`, which otherwise silently wins over a command line
 that reads `prod`.
 
-Credentials are read from `.env.local` in the main checkout — worktrees do not
-carry it, and the wrapper locates the main checkout through
+Cloud credentials are read from `.env.local` in the main checkout — worktrees do
+not carry it, and the wrapper locates the main checkout through
 `git rev-parse --git-common-dir` rather than requiring a variable. Exactly one
 file is read: when the main checkout has one, a worktree copy is ignored
 entirely rather than merged per key, so a credential removed by rotation stays
 removed instead of being refilled from a stale worktree. Values are passed to
 the Convex CLI through its environment and never printed; the banner names the
 deployment and the env file only.
+
+`local` reverses that order and reads the active worktree first, because
+`pnpm dev:backend:local` writes the running backend's deployment name and port
+into that worktree's own `.env.local`. Reading the main checkout first would
+point `local` at a different instance, or at one that is not running. The banner
+names the file it used, so the source is never a guess.
 
 A target that is missing either of its two variables fails and names both,
 rather than falling back to whichever credentials are present.

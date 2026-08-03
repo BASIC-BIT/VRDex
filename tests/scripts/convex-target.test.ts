@@ -2,10 +2,33 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  orderEnvRoots,
   resolveConvexTarget,
   resolveTargetName,
   targetSelectorFlagError,
 } from "../../scripts/convex-target";
+
+describe("env file precedence", () => {
+  const worktree = "/repo-wt/feature";
+  const main = "/repo";
+
+  it("keeps cloud credentials main-authoritative", () => {
+    // So a credential removed by rotation is not refilled from a stale worktree.
+    assert.deepEqual(orderEnvRoots("prod", worktree, main), [main, worktree]);
+    assert.deepEqual(orderEnvRoots("dev", worktree, main), [main, worktree]);
+  });
+
+  it("resolves local from the active worktree first", () => {
+    // dev:backend:local writes the running backend's name and port there, so
+    // main-first would target a different instance, or one that is not running.
+    assert.deepEqual(orderEnvRoots("local", worktree, main), [worktree, main]);
+  });
+
+  it("has one root when not in a linked worktree", () => {
+    assert.deepEqual(orderEnvRoots("prod", main, main), [main]);
+    assert.deepEqual(orderEnvRoots("local", main, undefined), [main]);
+  });
+});
 
 describe("target name parsing", () => {
   it("accepts both the separate and equals forms", () => {

@@ -329,10 +329,21 @@ export function mainCheckoutRoot() {
  * would run on withdrawn credentials while reporting the main file as its
  * source.
  */
-function envRoots() {
-  const main = mainCheckoutRoot();
+export function orderEnvRoots(name: string, active: string, main: string | undefined) {
+  if (main === undefined || main === active) {
+    return [active];
+  }
 
-  return main === undefined || main === repoRoot ? [repoRoot] : [main, repoRoot];
+  // Cloud credentials are main-authoritative, so rotation cannot be undone by a
+  // stale worktree copy. The local backend is the opposite: run-convex-local.mjs
+  // writes the running backend's deployment name and port into the *active*
+  // worktree's .env.local, and reading main first would point `local` at a
+  // different instance -- or one that is not running at all.
+  return name === "local" ? [active, main] : [main, active];
+}
+
+function envRoots(name: string) {
+  return orderEnvRoots(name, repoRoot, mainCheckoutRoot());
 }
 
 export type ConvexTargetEnv =
@@ -346,7 +357,7 @@ export type ConvexTargetEnv =
  */
 export function convexTargetEnv(name: string): ConvexTargetEnv {
   const values: NodeJS.ProcessEnv = {};
-  const roots = envRoots();
+  const roots = envRoots(name);
   let envPath: string | undefined;
 
   for (const root of roots) {
