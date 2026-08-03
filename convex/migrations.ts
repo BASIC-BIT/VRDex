@@ -314,6 +314,12 @@ export const USER_REFERENCES = [
   ["temporalPrewarmLeases", "ownerUserId", null],
 ] as const;
 
+// Documents read or deleted per invocation across the eight tables. Well under
+// Convex's transaction limits with room for the reference scan that runs first,
+// and large enough that any deployment this repository has produced clears in a
+// single pass.
+const PURGE_BATCH = 2_000;
+
 /** Just enough of a Convex query to probe one index for one value. */
 type IndexedTableQuery = {
   withIndex: (
@@ -352,6 +358,10 @@ export const purgeConvexAuthLeftovers = internalMutation({
     const users = await ctx.db.query("users").collect();
     const legacy = users.filter((user) => user.clerkUserId === undefined);
     const legacyIds = new Set<string>(legacy.map((user) => user._id));
+
+    // What `auth.config.ts` trusts today. An authority whose subject carries this
+    // issuer was granted under Clerk and still matches its owner.
+    const currentIssuer = process.env.CLERK_JWT_ISSUER_DOMAIN ?? "";
 
     let regrantTarget: Id<"users"> | undefined;
 
@@ -420,6 +430,32 @@ export const purgeConvexAuthLeftovers = internalMutation({
     // could exceed a transaction limit for no reason at all.
     if (legacy.length > 0) {
       for (const [table, field, index] of USER_REFERENCES) {
+        // `accountFeatureGrants` is the one table where a hit is not necessarily
+        // a blocker, because the regrant above moves some of its rows. An
+        // existence probe cannot express that: a user with a reissued feature has
+        // an active grant *and* an older revoked one, `first()` returns whichever
+        // the index orders first, and excluding the regranted active row would
+        // hide the revoked row still pointing at the user. The dry run would then
+        // report the row deletable while the real run — which patches before it
+        // scans, so the probe sees the revoked row — refused to delete it.
+        //
+        // Enumerated instead, which is safe because it is keyed by user and
+        // `accountFeature` has three members: a handful of rows each.
+        if (table === "accountFeatureGrants") {
+          for (const user of legacy) {
+            const grants = await ctx.db
+              .query("accountFeatureGrants")
+              .withIndex("by_userId_feature_state", (q) => q.eq("userId", user._id))
+              .collect();
+
+            if (grants.some((grant) => !regrantedGrantIds.has(grant._id))) {
+              block(user._id, `${table}.${field}`);
+            }
+          }
+
+          continue;
+        }
+
         if (index !== null) {
           // Existence, not enumeration: one keyed probe per legacy user, which is
           // a handful of reads regardless of how large the table has grown. The
@@ -436,7 +472,7 @@ export const purgeConvexAuthLeftovers = internalMutation({
               .withIndex(index, (q) => q.eq(field, user._id))
               .first();
 
-            if (hit !== null && !(table === "accountFeatureGrants" && regrantedGrantIds.has(hit._id))) {
+            if (hit !== null) {
               block(user._id, `${table}.${field}`);
             }
           }
@@ -462,24 +498,50 @@ export const purgeConvexAuthLeftovers = internalMutation({
     const deletableUsers = legacy.filter((user) => !blocked.has(user._id));
     const clearedTables: Record<string, number> = {};
 
+    // Bounded per invocation, because this is the one part that scales with
+    // history rather than with entity count: a deployment that ran Convex Auth
+    // for a year holds a session and refresh-token row per sign-in, and reading —
+    // let alone deleting — all of them in one transaction exceeds Convex's limits.
+    // That would strand the tables permanently, since every retry fails the same
+    // way and the schema drop needs them empty.
+    //
+    // Deleting always from the front means no cursor to carry: rerun until
+    // `moreRemaining` is false.
+    let budget = PURGE_BATCH;
+
     for (const table of CONVEX_AUTH_TABLES) {
-      const rows = await ctx.db.query(table).collect();
+      const rows = await ctx.db.query(table).take(budget);
       clearedTables[table] = rows.length;
+      budget -= rows.length;
 
       if (!dryRun) {
         await Promise.all(rows.map((row) => ctx.db.delete(row._id)));
       }
+
+      if (budget <= 0) {
+        break;
+      }
     }
 
-    if (!dryRun) {
+    // Users last, and only once the tables above fit in one pass. Deleting a
+    // legacy `users` row while `authAccounts` rows still reference it would leave
+    // exactly the dangling reference the whole reference scan exists to prevent —
+    // for the duration of however many reruns the tables take.
+    const usersDeferred = budget <= 0;
+
+    if (!dryRun && !usersDeferred) {
       await Promise.all(deletableUsers.map((user) => ctx.db.delete(user._id)));
     }
 
     return {
       dryRun,
       clearedTables,
+      // True when the batch budget ran out. Rerun with the same arguments until
+      // it is false; the regrant is idempotent because a moved grant no longer
+      // sits on a legacy row.
+      moreRemaining: usersDeferred,
       legacyUsers: legacy.length,
-      deletedUsers: deletableUsers.map((user) => user.email ?? user._id),
+      deletedUsers: usersDeferred ? [] : deletableUsers.map((user) => user.email ?? user._id),
       regrantedGrants: regranted,
       // Non-empty means those rows survive on purpose. Resolve each reference
       // before rerunning; the schema drop stays blocked until this is empty.
@@ -496,11 +558,27 @@ export const purgeConvexAuthLeftovers = internalMutation({
       clerkUsers: users
         .filter((user) => user.clerkUserId !== undefined)
         .map((user) => ({ clerkUserId: user.clerkUserId, email: user.email })),
-      // Keyed by token identifier, not by `users._id`, so these do not block the
-      // purge — but the issuer change already stopped them matching their owners
-      // and they have to be re-granted by hand. Reported so that is not a
-      // surprise later.
-      staleCommunityAuthorities: (await ctx.db.query("communityAuthorities").collect()).length,
+      // Keyed by token identifier rather than `users._id`, so these never block
+      // the purge — but the issuer change stopped them matching their owners, and
+      // nothing can derive which Clerk subject a Convex Auth one was. They have
+      // to be re-granted by hand.
+      //
+      // Only active rows issued under a *different* issuer are reported. A count
+      // of every row would sweep in revoked authorities and ones granted after
+      // the cutover, and the runbook says to re-grant what appears here — so a
+      // raw count would have someone restoring capabilities that were
+      // deliberately revoked, or duplicating a grant that already works.
+      //
+      // Null rather than a number when the issuer is unset, which happens only on
+      // a misconfigured deployment. Comparing against "" would mark every active
+      // authority stale and produce a plausible-looking count that is wrong in
+      // the direction this finding was about.
+      staleCommunityAuthorities:
+        currentIssuer === ""
+          ? null
+          : (await ctx.db.query("communityAuthorities").collect()).filter(
+              (authority) => authority.state === "active" && authority.subject.issuer !== currentIssuer,
+            ).length,
     };
   },
 });

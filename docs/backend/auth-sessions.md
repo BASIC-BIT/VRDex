@@ -236,7 +236,15 @@ emails. Take `regrantGrantsFrom` from the first and
 Staging needs no regrant arguments today — its legacy rows are E2E fixtures with
 no grants — but check `blockedUsers` rather than assuming that.
 
-Three things about it are deliberate:
+**Rerun until `moreRemaining` is false.** The eight tables are cleared up to a
+fixed batch per invocation, because a deployment that ran Convex Auth for a year
+holds a session and refresh-token row per sign-in and reading all of them in one
+transaction exceeds Convex's limits — which would strand the tables permanently,
+since every retry would fail the same way. Legacy `users` rows are deleted only
+on the pass that finishes the tables, so a row is never removed while
+`authAccounts` still references it. Both current deployments clear in one pass.
+
+Four things about it are deliberate:
 
 - **`dryRun` defaults to true.** The first run reports; pass `false` to act.
 - **Both ends of the regrant are named, and only that row's active grants move.**
@@ -262,6 +270,14 @@ that drops the eight declarations.
 token identifier rather than `users._id`, so they never block the purge, but the
 issuer change already stopped them matching their owners and they have to be
 re-granted by hand.
+
+It counts only **active** authorities whose `subject.issuer` differs from the
+deployment's `CLERK_JWT_ISSUER_DOMAIN`, which is the set that actually needs
+re-granting. Revoked authorities are excluded — re-granting one would restore a
+capability somebody deliberately removed — and so are authorities granted since
+the cutover, which already match their owners and would be duplicated. The value
+is `null` rather than a number when the issuer is unset, so a misconfigured
+deployment cannot report a plausible-looking count that is wrong.
 
 ### Run the Discord watermark backfill after deploying
 
