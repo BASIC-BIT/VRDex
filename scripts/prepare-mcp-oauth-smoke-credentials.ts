@@ -290,13 +290,20 @@ async function createSignedInClerkAccount(args: {
     body: JSON.stringify({ email_address: [args.email], skip_password_requirement: true }),
   });
 
+  // Read once, then parse the saved text. An `await response.text()` inside the
+  // assertion message is evaluated eagerly — even when the assertion passes —
+  // which consumed the body and made the following `response.json()` throw on
+  // every *successful* creation, so the generated-credential path could never
+  // get past its own happy path.
+  const responseBody = await response.text();
+
   assert.equal(
     response.ok,
     true,
-    `Clerk test user creation failed. HTTP ${response.status}: ${await response.text()}`,
+    `Clerk test user creation failed. HTTP ${response.status}: ${responseBody}`,
   );
 
-  const user = (await response.json()) as { id?: unknown };
+  const user = JSON.parse(responseBody) as { id?: unknown };
 
   assert.ok(typeof user.id === "string" && user.id, "Clerk test user creation returned no user id.");
 
@@ -591,7 +598,14 @@ async function main() {
   const runSuffix = safeRunId(options.runId);
   // `+clerk_test` suppresses every Clerk delivery attempt; `@e2e.vrdex.net` is
   // the only domain `normalizeE2eEmail` in `convex/e2e.ts` accepts.
-  const email = `mcp-oauth-${runSuffix}+clerk_test@e2e.vrdex.net`;
+  //
+  // Bounded to the 64-character local-part maximum. `safeRunId` allows 80, and
+  // the fixed `mcp-oauth-` prefix plus the `+clerk_test` marker spend 21 of the
+  // budget, so an operator-supplied `--run-id` over 43 characters produced an
+  // address Clerk rejects — after the run id had already passed this script's
+  // own validation.
+  const emailRunSuffix = runSuffix.slice(0, 64 - "mcp-oauth-".length - "+clerk_test".length);
+  const email = `mcp-oauth-${emailRunSuffix}+clerk_test@e2e.vrdex.net`;
   let clerkUserId: string | undefined;
 
   try {

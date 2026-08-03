@@ -5,6 +5,7 @@ import {
   createClerkTestAccount,
   deleteClerkTestAccount,
   hostedHelperLagReason,
+  hostedTargetRunsCurrentRevision,
   signInClerkTestAccount,
   type ClerkTestAccount,
 } from "./clerk-auth";
@@ -105,7 +106,17 @@ async function createE2eProfile({
 async function createSignedInClerkAccount(page: Page, runSuffix: string) {
   const account = await createClerkTestAccount(runSuffix);
 
-  await signInClerkTestAccount(page, account);
+  // Deleted here rather than left to the caller's `finally`. The caller assigns
+  // its `account` from the *return* value, so a throw between creation and
+  // return leaves it undefined and the teardown with nothing to delete — and
+  // sign-in failures are exactly the auth drift these tests exist to catch, so
+  // that path would leak a disposable Clerk user on every occurrence.
+  try {
+    await signInClerkTestAccount(page, account);
+  } catch (error) {
+    await deleteClerkTestAccount(account);
+    throw error;
+  }
 
   return account;
 }
@@ -129,7 +140,7 @@ async function linkDiscordAccount(
     return null;
   }
 
-  const lagReason = hostedHelperLagReason(linkResponse.status(), await linkResponse.text());
+  const lagReason = await hostedHelperLagReason(request, linkResponse.status(), await linkResponse.text());
 
   if (lagReason !== null) {
     return lagReason;
@@ -159,7 +170,7 @@ async function recordGuildControlProof(
     return null;
   }
 
-  const lagReason = hostedHelperLagReason(response.status(), await response.text());
+  const lagReason = await hostedHelperLagReason(request, response.status(), await response.text());
 
   if (lagReason !== null) {
     return lagReason;
@@ -168,33 +179,6 @@ async function recordGuildControlProof(
   await expect(response).toBeOK();
 
   return null;
-}
-
-/**
- * Whether the hosted target is running exactly this revision.
- *
- * A local run is always this branch, so accepting either trust state there
- * would let the exact regression these assertions exist for — an unrelated
- * guild or VRChat account labelled `Verified` rather than merely `Claimed` —
- * pass silently. Hosted runs keep a tolerance because staging can lag.
- *
- * Note what this can and cannot tell apart: staging only ever deploys `main`,
- * so the comparison matches on `main` and on nothing else. Every feature branch
- * takes the tolerant path regardless of whether it is actually behind staging,
- * which is why that path has to accept the current state too.
- */
-async function hostedTargetRunsCurrentRevision(request: APIRequestContext) {
-  if (!process.env.PLAYWRIGHT_BASE_URL) {
-    return true;
-  }
-
-  const currentRevision = process.env.GITHUB_SHA?.trim().slice(0, 7);
-  if (!currentRevision) {
-    return false;
-  }
-
-  const response = await request.get("/deployment");
-  return response.ok() && (await response.text()).includes(currentRevision);
 }
 
 async function expectCurrentOrHostedLagTrustState(
@@ -597,7 +581,8 @@ test("E2E auth helper stays gated without the browser token @flow", async ({ req
   // There is no gate to assert on a route the target does not serve. Checked
   // here rather than skipped up front so a deployed-but-ungated route still
   // fails loudly: only the specific not-deployed shape is excused.
-  const lagReason = hostedHelperLagReason(
+  const lagReason = await hostedHelperLagReason(
+    request,
     missingTokenResponse.status(),
     await missingTokenResponse.text(),
   );

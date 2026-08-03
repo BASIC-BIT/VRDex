@@ -130,6 +130,31 @@ export function clerkTestEmail(runSuffix: string) {
 }
 
 /**
+ * Whether the target is serving this exact commit.
+ *
+ * A local run always is, by definition. For hosted runs this matches on `main`
+ * and nothing else, because staging only ever deploys `main`: a feature branch
+ * reads `false` and keeps the tolerances below, while the post-merge health lane
+ * reads `true` and loses them. That asymmetry is the point — the branch
+ * genuinely is ahead of staging, and after merge it genuinely is not.
+ */
+export async function hostedTargetRunsCurrentRevision(request: APIRequestContext) {
+  if (!process.env.PLAYWRIGHT_BASE_URL) {
+    return true;
+  }
+
+  const revision = process.env.GITHUB_SHA?.trim().slice(0, 7);
+
+  if (!revision) {
+    return false;
+  }
+
+  const response = await request.get("/deployment");
+
+  return response.ok() && (await response.text()).includes(revision);
+}
+
+/**
  * Why a `/api/e2e/auth` failure is the shared hosted target lagging this branch,
  * or `null` when it is a real failure.
  *
@@ -149,8 +174,21 @@ export function clerkTestEmail(runSuffix: string) {
  * once staging catches up a genuine failure has to fail rather than be excused
  * indefinitely as an old deployment.
  */
-export function hostedHelperLagReason(status: number, body: string): string | null {
+export async function hostedHelperLagReason(
+  request: APIRequestContext,
+  status: number,
+  body: string,
+): Promise<string | null> {
   if (!process.env.PLAYWRIGHT_BASE_URL) {
+    return null;
+  }
+
+  // Nothing is lag once the target is running this exact commit. Without this,
+  // the post-merge `deployed-health.yml` lane would annotate and pass through a
+  // later regression that deleted or misrouted `/api/e2e/auth` — the tolerance
+  // outliving the deployment gap it was written for, which is how a lane starts
+  // reporting green over nothing.
+  if (await hostedTargetRunsCurrentRevision(request)) {
     return null;
   }
 
@@ -249,10 +287,6 @@ export async function signInClerkTestAccount(page: Page, account: ClerkTestAccou
   await gotoFlowPage(page, "/account");
   await expect(page.getByRole("heading", { name: account.email })).toBeVisible(hostedExpectOptions);
   await expect(page.getByText("Verified", { exact: true })).toBeVisible(hostedExpectOptions);
-}
-
-export async function signOutClerkTestAccount(page: Page) {
-  await clerk.signOut({ page });
 }
 
 /**

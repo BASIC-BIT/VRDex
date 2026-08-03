@@ -150,7 +150,7 @@ async function cleanupE2eUserByEmail(ctx: MutationCtx, email: string) {
 }
 
 async function cleanupE2eDeveloperCredentials(ctx: MutationCtx, userId: Doc<"users">["_id"]) {
-  const [apiTokens, apiTokenEvents, oauthApplications, oauthAuthorizationCodes, oauthRefreshTokens, oauthClientEvents] =
+  const [apiTokens, apiTokenEvents, oauthApplications, oauthAuthorizationCodes, oauthRefreshTokens, oauthClientEvents, oauthConsentTransactions] =
     await Promise.all([
       ctx.db.query("apiTokens").withIndex("by_ownerUserId_createdAt", (query) => query.eq("ownerUserId", userId)).collect(),
       ctx.db.query("apiTokenEvents").withIndex("by_ownerUserId_createdAt", (query) => query.eq("ownerUserId", userId)).collect(),
@@ -158,6 +158,12 @@ async function cleanupE2eDeveloperCredentials(ctx: MutationCtx, userId: Doc<"use
       ctx.db.query("oauthAuthorizationCodes").withIndex("by_userId_createdAt", (query) => query.eq("userId", userId)).collect(),
       ctx.db.query("oauthRefreshTokens").withIndex("by_userId_expiresAt", (query) => query.eq("userId", userId)).collect(),
       ctx.db.query("oauthClientEvents").withIndex("by_ownerUserId_createdAt", (query) => query.eq("ownerUserId", userId)).collect(),
+      // `/oauth/authorize` inserts one of these before consent is submitted, so
+      // a hosted run that fails between those two points leaves a row behind.
+      // Nothing else would ever collect it: the only expiry sweep runs when the
+      // same user starts another transaction, which cannot happen once this
+      // helper deletes the user.
+      ctx.db.query("oauthConsentTransactions").withIndex("by_userId_expiresAt", (query) => query.eq("userId", userId)).collect(),
     ]);
   const [oauthApplicationSecrets, oauthAccessTokens] = await Promise.all([
     Promise.all(
@@ -186,6 +192,7 @@ async function cleanupE2eDeveloperCredentials(ctx: MutationCtx, userId: Doc<"use
     ...oauthRefreshTokens.map((token) => ctx.db.delete(token._id)),
     ...oauthAccessTokens.flat().map((token) => ctx.db.delete(token._id)),
     ...oauthClientEvents.map((event) => ctx.db.delete(event._id)),
+    ...oauthConsentTransactions.map((transaction) => ctx.db.delete(transaction._id)),
   ]);
   await Promise.all(oauthApplications.map((application) => ctx.db.delete(application._id)));
 }

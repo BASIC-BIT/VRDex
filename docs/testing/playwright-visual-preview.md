@@ -201,7 +201,20 @@ It also requires Clerk credentials in the runner, which are repository settings 
 - repository variable `VRDEX_HOSTED_E2E_CLERK_AUTH=true`
 - repository secrets `VRDEX_HOSTED_E2E_CLERK_PUBLISHABLE_KEY` and `VRDEX_HOSTED_E2E_CLERK_SECRET_KEY`
 
-These must be the **development** instance backing the hosted target, not production. `clerkSetup()` rejects a production secret key outright, and `apps/web/scripts/check-vercel-env.mjs` already requires `pk_test`/`sk_test` on every non-production Vercel build, so the correct pair is the one the target itself runs on. The secret key can create and delete users on that instance, which is why it is scoped to a disposable staging tenant and never shared with production.
+These must be the **development** instance backing the hosted target, not production. `clerkSetup()` rejects a production secret key outright, and `apps/web/scripts/check-vercel-env.mjs` already requires `pk_test`/`sk_test` on every non-production Vercel build, so the correct pair is the one the target itself runs on.
+
+**Owner:** BASIC (repository owner) holds the Clerk dashboard and GitHub repository-settings access for both. There is no shared or team-held copy.
+
+**What the secret key can do:** create, read, and delete users on the staging Clerk development instance, and mint sign-in tickets for them. It cannot touch the production tenant — a separate instance with separate keys — and it is never placed on a deployment, only in the Actions runner.
+
+**Rotation and recovery**, for compromise, maintainer turnover, or routine rotation:
+
+1. In the Clerk dashboard, on the **development** instance for the VRDex application, open **API keys** and rotate the secret key. The publishable key changes only if the instance itself is recreated.
+2. `gh secret set VRDEX_HOSTED_E2E_CLERK_SECRET_KEY` (and `..._PUBLISHABLE_KEY` if it changed).
+3. If the publishable key changed, its host changed too: update the Vercel staging `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY`, and the `VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN` repository variable. `staging-deploy.yml` fails the deploy when the served key and the Convex issuer disagree, so a partial rotation is caught rather than silently breaking every signed-in request.
+4. Re-run `Deploy Staging`, then confirm with `pnpm test:e2e:hosted:auth-session`.
+
+Revoking the old key immediately is safe: it is used only by CI, so the blast radius of rotating without warning is a failed workflow run, not a user-facing outage.
 
 Hosted developer-credential E2E additionally requires repository variable `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true`. Keep it unset until the hosted target has deployed the developer token routes, OAuth app registration routes, and OAuth token endpoints under test.
 

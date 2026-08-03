@@ -5,7 +5,6 @@ import {
   createClerkTestAccount,
   deleteClerkTestAccount,
   signInClerkTestAccount,
-  signOutClerkTestAccount,
   type ClerkTestAccount,
 } from "./clerk-auth";
 import { gotoFlowPage } from "./flow-navigation";
@@ -87,9 +86,27 @@ test("a Clerk session resolves to a verified Convex identity and clears on sign-
     const siblingPage = await context.newPage();
     await gotoFlowPage(siblingPage, "/account");
     await expect(siblingPage.getByRole("heading", { name: account.email })).toBeVisible(hostedExpectOptions);
+
+    // Driven through the account UI rather than `clerk.signOut`. Calling Clerk
+    // directly would keep passing if `SignOutControl` stopped invoking it, or if
+    // its `signOut({ redirectUrl: "/sign-in" })` wiring regressed — and the
+    // deleted session spec was the only other place that clicked the real
+    // control. `account-sign-out.spec.ts` covers the dialog against a fixture
+    // callback, so this is the one place the button meets real Clerk.
+    await page.getByRole("button", { name: "Sign out" }).click();
+    const confirmDialog = page.getByRole("dialog");
+    await expect(confirmDialog.getByRole("heading", { name: "Sign out?" })).toBeVisible();
+    await confirmDialog.getByRole("button", { name: "Sign out", exact: true }).click();
+
+    // The control's own redirect, not a navigation this test performed.
+    await expect(page).toHaveURL(/\/sign-in(?:\?|$)/, hostedExpectOptions);
+
+    // The sibling tab shared the session, so it must lose it too — a sign-out
+    // that only clears the tab that performed it is not a sign-out.
+    await gotoFlowPage(siblingPage, "/account");
+    await expect(siblingPage).toHaveURL(/\/sign-in\?returnTo=/, hostedExpectOptions);
     await siblingPage.close();
 
-    await signOutClerkTestAccount(page);
     await gotoFlowPage(page, "/account");
     await expect(page).toHaveURL(/\/sign-in\?returnTo=/, hostedExpectOptions);
   } finally {

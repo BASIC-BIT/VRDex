@@ -137,8 +137,13 @@ jobs:
       # `VRDEX_HOSTED_E2E_CLERK_AUTH=true` and no Clerk keys the run errors
       # rather than skipping, so this cannot go back to reporting a green
       # contract over nothing.
+      # Also gated on the Clerk-auth flag, not just the hosted-data gate. Without
+      # it the step runs with no Clerk credentials, the authenticated test skips,
+      # the signed-out redirect test passes, Playwright exits 0 — and the summary
+      # reports the session contract as successful while the identity, reload,
+      # sibling-tab, and sign-out assertions never ran.
       - name: Run recurring staging auth session contract
-        if: steps.gate.outputs.enabled == 'true'
+        if: steps.gate.outputs.enabled == 'true' && vars.VRDEX_HOSTED_E2E_CLERK_AUTH == 'true'
         id: auth_session
         env:
           PLAYWRIGHT_BASE_URL: ${{ steps.gate.outputs.base_url }}
