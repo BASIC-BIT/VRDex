@@ -28,6 +28,29 @@ function userReferencesInSchema(): string[] {
   return references.sort();
 }
 
+/** `.index("name", ["col", ...])` declarations for one table. */
+function indexesOf(table: string): Map<string, string[]> {
+  const tableStarts = [...schema.matchAll(/^ {2}(\w+): defineTable\(/gm)];
+  const found = new Map<string, string[]>();
+
+  for (const [index, start] of tableStarts.entries()) {
+    if (start[1] !== table) {
+      continue;
+    }
+
+    const body = schema.slice(start.index ?? 0, tableStarts[index + 1]?.index ?? schema.length);
+
+    for (const declaration of body.matchAll(/\.index\("([^"]+)", \[([^\]]+)\]\)/g)) {
+      found.set(
+        declaration[1],
+        declaration[2].split(",").map((column) => column.trim().replace(/"/g, "")),
+      );
+    }
+  }
+
+  return found;
+}
+
 describe("Convex Auth purge", () => {
   // The purge deletes legacy `users` rows. Convex does not enforce referential
   // integrity, so a reference this list misses becomes a dangling id that still
@@ -36,6 +59,43 @@ describe("Convex Auth purge", () => {
   //
   // This is the check that makes the hand-maintained list safe: adding a new
   // `v.id("users")` field to the schema fails here until the purge knows about it.
+  // The purge narrows `ctx.db.query(table)` to probe these by name, because a
+  // union of table names collapses the valid index names to the ones every table
+  // shares. That trade is only safe if the pairing is checked somewhere, and
+  // here is somewhere: a name that does not exist, or one whose leading column is
+  // not this field, throws mid-purge or silently matches on the wrong column.
+  it("names an index that exists and leads with the field it probes", () => {
+    for (const [table, field, index] of USER_REFERENCES) {
+      if (index === null) {
+        continue;
+      }
+
+      const columns = indexesOf(table).get(index);
+
+      assert.ok(columns, `${table} has no index named ${index}, so the purge would throw probing it.`);
+      assert.equal(
+        columns[0],
+        field,
+        `${table}.${index} leads with ${columns[0]}, not ${field}. An equality on the wrong leading column matches the wrong rows.`,
+      );
+    }
+  });
+
+  // The inverse of the entry above: a field that *does* have a usable index but
+  // is listed as null gets a full table scan it does not need. Harmless on a
+  // bounded table, and a transaction-limit failure on one that grows per request.
+  it("uses an index wherever the schema offers one", () => {
+    const missed = USER_REFERENCES.filter(([table, field, index]) => {
+      if (index !== null) {
+        return false;
+      }
+
+      return [...indexesOf(table).values()].some((columns) => columns[0] === field);
+    }).map(([table, field]) => `${table}.${field}`);
+
+    assert.deepEqual(missed, [], `these could use an index but are scanned: ${missed.join(", ")}`);
+  });
+
   it("checks every users reference in the schema", () => {
     const declared = new Set(USER_REFERENCES.map(([table, field]) => `${table}.${field}`));
     const purged = new Set<string>(CONVEX_AUTH_TABLES);

@@ -265,39 +265,62 @@ export const CONVEX_AUTH_TABLES = [
 // Kept as data rather than 38 hand-written queries because the whole point is
 // that the list is exhaustive — a missed entry is silent corruption, and a
 // table is far easier to check against the schema than a wall of lookups.
+//
+// The third element is an index whose *leading* column is that field, or null.
+// With one, the check is a keyed existence probe per legacy user. Without one it
+// is a full scan, so the eight entries carrying null are exactly the ones that
+// must stay bounded by entity count rather than by request volume: applications,
+// their secrets, community credentials, profile links, handoff invitations,
+// prewarm leases, and who revoked a token. Every table that grows per request —
+// `apiWriteAuditEvents`, `mcpToolEvents`, `apiTokenEvents`, `oauthClientEvents`,
+// `oauthAccessTokens` — has an index here, which is why `oauthAccessTokens`
+// gained `by_userId` in `schema.ts`: it was the one unbounded table with no way
+// to look a user up.
+//
+// `tests/backend/convex-auth-purge.test.ts` checks each named index exists in
+// the schema and leads with that field, because a wrong name is a runtime throw
+// in the middle of a purge rather than a type error.
 export const USER_REFERENCES = [
-  ["accountFeatureGrants", "userId"],
-  ["apiTokenEvents", "ownerUserId"],
-  ["apiTokens", "ownerUserId"],
-  ["apiTokens", "revokedByUserId"],
-  ["apiWriteAuditEvents", "ownerUserId"],
-  ["billingCustomerMappings", "userId"],
-  ["billingEntitlementSnapshots", "userId"],
-  ["billingSubscriptionSnapshots", "userId"],
-  ["communityVrclinkingCredentials", "delegatedByUserId"],
-  ["discordVerificationStates", "userId"],
-  ["discordVerificationWatermarks", "userId"],
-  ["externalControlProofs", "userId"],
-  ["mcpEventWriteReceipts", "ownerUserId"],
-  ["mcpToolEvents", "ownerUserId"],
-  ["oauthAccessTokens", "userId"],
-  ["oauthApplicationSecrets", "revokedByUserId"],
-  ["oauthApplications", "ownerUserId"],
-  ["oauthApplications", "revokedByUserId"],
-  ["oauthAuthorizationCodes", "userId"],
-  ["oauthClientEvents", "ownerUserId"],
-  ["oauthConsentTransactions", "userId"],
-  ["oauthRefreshTokens", "userId"],
-  ["profileAssetAccessibilityGenerationEvents", "userId"],
-  ["profileClaimRequests", "userId"],
-  ["profileExternalLinks", "linkedByUserId"],
-  ["profileOwners", "userId"],
-  ["profileVerificationAttempts", "userId"],
-  ["seedHandoffInvitations", "acceptedByUserId"],
-  ["temporalParseJobs", "ownerUserId"],
-  ["temporalParsingPreferences", "userId"],
-  ["temporalPrewarmLeases", "ownerUserId"],
+  ["accountFeatureGrants", "userId", "by_userId_feature_state"],
+  ["apiTokenEvents", "ownerUserId", "by_ownerUserId_createdAt"],
+  ["apiTokens", "ownerUserId", "by_ownerUserId_createdAt"],
+  ["apiTokens", "revokedByUserId", null],
+  ["apiWriteAuditEvents", "ownerUserId", "by_ownerUserId_createdAt"],
+  ["billingCustomerMappings", "userId", "by_userId_state"],
+  ["billingEntitlementSnapshots", "userId", "by_userId_entitlementKey_status"],
+  ["billingSubscriptionSnapshots", "userId", "by_userId_status"],
+  ["communityVrclinkingCredentials", "delegatedByUserId", null],
+  ["discordVerificationStates", "userId", "by_userId_createdAt"],
+  ["discordVerificationWatermarks", "userId", "by_userId_discordUserId"],
+  ["externalControlProofs", "userId", "by_userId_assetType_assetExternalId"],
+  ["mcpEventWriteReceipts", "ownerUserId", "by_owner_client_tool_key"],
+  ["mcpToolEvents", "ownerUserId", "by_ownerUserId_createdAt"],
+  ["oauthAccessTokens", "userId", "by_userId"],
+  ["oauthApplicationSecrets", "revokedByUserId", null],
+  ["oauthApplications", "ownerUserId", "by_ownerUserId_createdAt"],
+  ["oauthApplications", "revokedByUserId", null],
+  ["oauthAuthorizationCodes", "userId", "by_userId_createdAt"],
+  ["oauthClientEvents", "ownerUserId", "by_ownerUserId_createdAt"],
+  ["oauthConsentTransactions", "userId", "by_userId_expiresAt"],
+  ["oauthRefreshTokens", "userId", "by_userId_expiresAt"],
+  ["profileAssetAccessibilityGenerationEvents", "userId", "by_userId_createdAt"],
+  ["profileClaimRequests", "userId", "by_userId_state"],
+  ["profileExternalLinks", "linkedByUserId", null],
+  ["profileOwners", "userId", "by_userId_state"],
+  ["profileVerificationAttempts", "userId", "by_userId_state"],
+  ["seedHandoffInvitations", "acceptedByUserId", null],
+  ["temporalParseJobs", "ownerUserId", "by_ownerUserId_idempotencyKeyHash"],
+  ["temporalParsingPreferences", "userId", "by_userId"],
+  ["temporalPrewarmLeases", "ownerUserId", null],
 ] as const;
+
+/** Just enough of a Convex query to probe one index for one value. */
+type IndexedTableQuery = {
+  withIndex: (
+    index: string,
+    build: (q: { eq: (field: string, value: string) => unknown }) => unknown,
+  ) => { first: () => Promise<{ _id: string } | null> };
+};
 
 export const purgeConvexAuthLeftovers = internalMutation({
   args: {
@@ -387,19 +410,52 @@ export const purgeConvexAuthLeftovers = internalMutation({
     const regrantedGrantIds = new Set(regranted.map((entry) => entry.split(":")[1]));
     const blocked = new Map<string, string[]>();
 
-    for (const [table, field] of USER_REFERENCES) {
-      for (const row of await ctx.db.query(table).collect()) {
-        const value = (row as Record<string, unknown>)[field];
+    const block = (userId: string, reference: string) => {
+      blocked.set(userId, [...(blocked.get(userId) ?? []), reference]);
+    };
 
-        if (typeof value !== "string" || !legacyIds.has(value)) {
+    // Skipped entirely when there is nothing to delete. A deployment that never
+    // ran Convex Auth — every self-hosted one — reaches this with no legacy rows,
+    // and reading 31 tables to confirm a no-op is the one case where the scan
+    // could exceed a transaction limit for no reason at all.
+    if (legacy.length > 0) {
+      for (const [table, field, index] of USER_REFERENCES) {
+        if (index !== null) {
+          // Existence, not enumeration: one keyed probe per legacy user, which is
+          // a handful of reads regardless of how large the table has grown. The
+          // report names what blocks a row, not how many times.
+          for (const user of legacy) {
+            // `table` is a union, so TypeScript intersects the index names valid
+            // for every member and is left with `by_id`/`by_creation_time`. It
+            // cannot express "this index belongs to this table" across a loop.
+            // Narrowed here rather than with `any`, and the pairing is checked
+            // for real by `convex-auth-purge.test.ts`, which reads each index out
+            // of the schema and asserts it leads with this field — a stronger
+            // guarantee than the collapsed union would have given.
+            const hit = await (ctx.db.query(table) as unknown as IndexedTableQuery)
+              .withIndex(index, (q) => q.eq(field, user._id))
+              .first();
+
+            if (hit !== null && !(table === "accountFeatureGrants" && regrantedGrantIds.has(hit._id))) {
+              block(user._id, `${table}.${field}`);
+            }
+          }
+
           continue;
         }
 
-        if (table === "accountFeatureGrants" && regrantedGrantIds.has(row._id)) {
-          continue;
-        }
+        // No index leads with this field. Every such table is bounded by entity
+        // count rather than request volume, so a scan stays small — and `collect`
+        // throws past the transaction limit rather than silently returning a
+        // prefix, so an unforeseen one fails the purge instead of under-reporting
+        // references and deleting a row that still has them.
+        for (const row of await ctx.db.query(table).collect()) {
+          const value = (row as Record<string, unknown>)[field];
 
-        blocked.set(value, [...(blocked.get(value) ?? []), `${table}.${field}`]);
+          if (typeof value === "string" && legacyIds.has(value)) {
+            block(value, `${table}.${field}`);
+          }
+        }
       }
     }
 

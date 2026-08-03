@@ -216,10 +216,11 @@ local backend:
 
 ```powershell
 # staging (scrupulous-corgi-247)
-pnpm cx -- dev run migrations:purgeConvexAuthLeftovers '{\"dryRun\": true}'
+pnpm cx -- dev run migrations:purgeConvexAuthLeftovers '{"dryRun": true}'
 
 # production (superb-pig-954)
-pnpm cx -- prod run migrations:purgeConvexAuthLeftovers '{\"regrantGrantsFrom\": \"<legacy users._id>\", \"regrantGrantsToClerkUserId\": \"user_...\", \"dryRun\": true}'
+pnpm cx -- prod run migrations:purgeConvexAuthLeftovers `
+  '{"regrantGrantsFrom": "<legacy users._id>", "regrantGrantsToClerkUserId": "user_...", "dryRun": true}'
 ```
 
 It moves the named legacy row's active `accountFeatureGrants` onto the `users`

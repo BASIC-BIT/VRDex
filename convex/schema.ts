@@ -1843,7 +1843,11 @@ export default defineSchema({
     .index("by_clientId_expiresAt", ["clientId", "expiresAt"])
     .index("by_applicationId_issuedAt", ["applicationId", "issuedAt"])
     .index("by_dynamicClientId_issuedAt", ["dynamicClientId", "issuedAt"])
-    .index("by_status_expiresAt", ["status", "expiresAt"]),
+    .index("by_status_expiresAt", ["status", "expiresAt"])
+    // The only `v.id("users")` reference on an unbounded table with no way to
+    // look it up. One row per issued access token, so checking whether a user is
+    // still referenced would otherwise mean reading the whole table.
+    .index("by_userId", ["userId"]),
   temporalPrewarmLeases: defineTable({
     key: v.string(),
     ownerUserId: v.id("users"),
