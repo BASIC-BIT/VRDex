@@ -1161,6 +1161,7 @@ describe("VRCLinking credential delegation", () => {
     // needs a user with one — not the community owner who delegated the key.
     const claimantId = await t.run(async (ctx) => {
       const userId = await ctx.db.insert("users", {
+        clerkUserId: `user_test_${globalThis.crypto.randomUUID()}`,
         email: "legacy-claimant@example.test",
         emailVerificationTime: now,
       });
@@ -1296,6 +1297,7 @@ describe("VRCLinking credential delegation", () => {
 
     const claimantId = await t.run(async (ctx) => {
       const userId = await ctx.db.insert("users", {
+        clerkUserId: `user_test_${globalThis.crypto.randomUUID()}`,
         email: "dup-claimant@example.test",
         emailVerificationTime: now,
       });

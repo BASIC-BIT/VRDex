@@ -190,188 +190,35 @@ curl -s https://clerk.vrdex.net/v1/environment | jq '.user_settings.actions.dele
 this is still outstanding. Substitute the instance's own Frontend API host for
 development or staging.
 
-## Cutover: retire the Convex Auth rows before the first sign-in
+## Cutover: the Convex Auth rows are gone
 
-`clerkUserId` is optional so the first deploy does not reject rows created under
-Convex Auth. Those rows are inert — nothing can authenticate as them, because a
-row without a `clerkUserId` matches the index for nobody.
+Completed 2026-08-03. Both deployments hold zero legacy `users` rows and zero
+rows in the eight tables the two-phase removal existed to drop, so
+`users.clerkUserId` is now `v.string()` and those declarations are deleted.
 
-**Order matters.** `ensureUser` binds a Clerk identity by inserting a *new* row;
-it never adopts a legacy one, because there is no trustworthy way to decide which
-legacy row a Clerk subject corresponds to. So anything still pointing at a legacy
-row becomes unreachable the moment its owner signs in with Clerk.
+The migrations that did it — `purgeConvexAuthLeftovers` and
+`reassignLegacyUserReferences` — went with them. They queried tables the schema
+no longer declares and searched for rows it can no longer represent, so keeping
+them would have meant keeping the declarations they existed to remove. Their
+history is in the commits, if a self-hosted deployment ever needs the same
+sequence.
 
-Production on 2026-07-30 held two `users` rows and exactly one row referencing
-either of them — a single `accountFeatureGrants` row. Nothing else: 0 owned
-profiles, 0 claims, 0 events, 0 API tokens, 0 OAuth applications.
+Two things from that work are worth carrying forward, because neither was
+obvious and both cost real time:
 
-That ordering was not achieved. Both deployments were signed into through Clerk
-before anything was deleted, so the purge runs against a `users` table holding
-legacy rows *and* Clerk rows, with the production `super_admin` grant left on a
-legacy one. Recoverable, and the reason the purge takes regrant arguments.
+**`ensureUser` binds a Clerk identity by inserting a new row, never by adopting
+a legacy one** — there is no trustworthy way to decide which pre-cutover row a
+Clerk subject corresponds to. So anyone who signed in both before and after the
+cutover ended up with their footprint on a row nobody could authenticate as. On
+production that meant the owner of `basicbit` neither owned their profile nor
+held `super_admin` until the footprint was moved across explicitly.
 
-`migrations:purgeConvexAuthLeftovers` does the whole thing. Run it per
-deployment, staging first, naming the target with `pnpm cx` — `convex --prod`
-cannot resolve a project in this repository at all, and would run against the
-local backend:
-
-```powershell
-# staging (scrupulous-corgi-247)
-pnpm cx -- dev run migrations:purgeConvexAuthLeftovers '{"dryRun": true}'
-
-# production (superb-pig-954)
-pnpm cx -- prod run migrations:purgeConvexAuthLeftovers `
-  '{"regrantGrantsFrom": "<legacy users._id>", "regrantGrantsToClerkUserId": "user_...", "dryRun": true}'
-```
-
-It moves the named legacy row's active `accountFeatureGrants` onto the `users`
-row carrying `regrantGrantsToClerkUserId`, deletes the legacy rows, and clears
-all eight tables in the phase-one block of `convex/schema.ts`.
-
-Both ids in the production invocation come out of the dry run, so run it bare
-first. `blockedUsers` is keyed by full `users._id` and names what each legacy row
-is still referenced by; `clerkUsers` lists the Clerk identities with their
-emails. Take `regrantGrantsFrom` from the first and
-`regrantGrantsToClerkUserId` from the second.
-
-A dry run examines one page of legacy rows and deletes nothing, so it would
-otherwise re-read the same page forever. When `nextLegacyCursor` is non-null,
-pass it back as `legacyCursor` to inspect the next page, and keep going until
-it is null — that is how you see every `blockedUsers` entry before deleting
-anything.
-
-**Start the destructive pass with no cursor**, then carry the ones it returns.
-Resuming it from a cursor you paged to during discovery would skip every legacy
-row before that point, and a short enough remainder would report itself finished
-with those rows still present. Cursors are tagged with the mode that produced
-them and a destructive run rejects a dry-run cursor, so this is an error rather
-than a silent skip.
-
-`clerkUsers` is a capped sample, and `clerkUsersTruncated` says when it is one.
-If your account is not in the list, read the id off Clerk's dashboard —
-**Users → the account → User ID** — rather than assuming the list is complete.
-The migration validates whatever id you pass, so this is a discovery
-convenience, not the source of truth.
-
-Staging needs no regrant arguments today — its legacy rows are E2E fixtures with
-no grants — but check `blockedUsers` rather than assuming that.
-
-**Rerun until `moreRemaining` is false, passing `nextLegacyCursor` back as
-`legacyCursor` each time.** The eight tables are cleared up to a fixed batch per
-invocation, and legacy `users` rows a page at a time, because a deployment that
-ran Convex Auth for a year holds a session and refresh-token row per sign-in —
-reading all of them in one transaction exceeds Convex's limits, which would
-strand the tables permanently since every retry fails the same way. Legacy rows
-are deleted only on the pass that finishes the tables, so a row is never removed
-while `authAccounts` still references it. Both current deployments clear in one
-pass.
-
-Carry the cursor on destructive runs, not just dry ones. Deleting rows does not
-reliably advance the page on its own: a page where every legacy row is blocked
-deletes nothing, so without a cursor the same page returns forever while
-`moreRemaining` stays true, and later deletable rows are never reached. Fifty
-blocked rows are enough to wedge the loop permanently. The cursor is held in
-place, rather than advanced, on any destructive pass where the delete budget ran
-out.
-
-**`purgeComplete`, not `moreRemaining`, is what the schema tightening waits on.**
-A walk reaching its end is not the same as the purge being finished: blockers are
-reported and then the cursor moves past them, so the last page can come back
-clean while rows survive behind it. `purgeComplete` is true only when no legacy
-row remains at all. When it is false, resolve whatever `blockedUsers` reported
-and run a **new** walk from no cursor — the affected rows are behind the old one.
-
-Keeping the regrant arguments on every rerun is correct: once the source row is
-gone its grants have already moved, and the migration treats a missing source as
-a no-op rather than an error.
-
-Four things about it are deliberate:
-
-- **`dryRun` defaults to true.** The first run reports; pass `false` to act.
-- **Both ends of the regrant are named, and only that row's live grants move.**
-  Live is `isAccountFeatureGrantActive` — the definition the rest of the codebase
-  authorizes against — so a revoked or expired grant stays on the legacy row and
-  blocks it, rather than being moved onto an account that never held it.
-  Matching a legacy row to a Clerk one by email would hand privileges to whoever
-  holds a matching address. Moving *every* legacy row's grants would be worse:
-  `view_private_seed_lookup` and `use_temporal_parsing_beta` are issued per beta
-  user, so a deployment holding several would collapse them onto one account.
-  Grants on any other legacy row block that row instead — someone else's
-  privileges are a reason to stop, not to reassign.
-- **It refuses to delete a legacy row anything still references.** Convex does
-  not enforce referential integrity, so removing a referenced row leaves an id
-  that still reads as a valid `v.id("users")` and resolves to nothing. Every
-  such field is listed in `USER_REFERENCES`, and
-  `tests/backend/convex-auth-purge.test.ts` fails if the schema grows one the
-  list does not name. A non-empty `blockedUsers` in the report means those rows
-  survived on purpose — resolve each reference and rerun.
-
-Then sign in through Clerk if you have not, confirm **`purgeComplete` is true on
-every deployment**, and tighten `clerkUserId` to `v.string()` in the same change
-that drops the eight declarations.
-
-An empty `blockedUsers` is not the gate. It reports what the *current page*
-retained, so a walk whose blockers appeared on an earlier page ends with an empty
-one while those rows survive. `purgeComplete` is the only value that means no
-legacy row is left.
-
-### When a legacy row is blocked because it is still someone
-
-The purge refuses to delete a referenced row, and on production that refusal is
-permanent on its own: the same person signed in before and after the cutover, so
-`basicbit` is owned by the legacy row through an active `profileOwners` record
-while `ensureUser` provisioned a *separate* row for their Clerk identity. The
-owner cannot edit their own profile, holds no `super_admin`, and no number of
-purge reruns changes it.
-
-`migrations:reassignLegacyUserReferences` repairs that, and it is the step
-between the two dry runs rather than a variant of either:
-
-```powershell
-pnpm cx -- prod run migrations:reassignLegacyUserReferences `
-  '{"fromUserId": "<legacy users._id>", "toClerkUserId": "user_...", "dryRun": true}'
-```
-
-Read the dry run before repeating it with `"dryRun": false`:
-
-- **`moved`** is what will be repointed, per `table.field`.
-- **`targetAlreadyHas`** is what the destination already holds in those same
-  places. Convex enforces no uniqueness, so a reassignment can leave two
-  `profileOwners` rows for one profile or two billing mappings for one user and
-  nothing will reject it. A `-1` means the count hit the report cap — inspect
-  that table by hand rather than reading it as a number.
-- **`authorizationSubjectsLeft`** re-checks the two tables that authorize by auth
-  subject rather than by `v.id("users")` — `communityAuthorities` and `events`.
-  Those are invisible to the purge, and nothing can derive which Clerk subject a
-  Convex Auth one was, so anything counted here has to be re-granted by hand.
-  `null` means the scan was truncated and did not look, which is not zero.
-- **`moreRemaining`** true means the row budget ran out. Rerun with the same
-  arguments; repointed rows stop matching, so each pass resumes on its own.
-
-Then rerun the purge. `blockedUsers` should be empty and the row deletable.
-
-Deliberately not moved: the nineteen `authSubject`-keyed tables that are audit
-trails — `profileAuditEvents` and friends. Those record what a subject did.
-Repointing them would falsify history rather than repair ownership, which is the
-same reason the purge leaves revoked grants where they are.
-
-`staleCommunityAuthorities` in the report is informational: those rows key on
-token identifier rather than `users._id`, so they never block the purge, but the
-issuer change already stopped them matching their owners and they have to be
-re-granted by hand.
-
-It counts only **active** authorities whose `subject.issuer` differs from the
-deployment's `CLERK_JWT_ISSUER_DOMAIN`, which is the set that actually needs
-re-granting. Revoked authorities are excluded — re-granting one would restore a
-capability somebody deliberately removed — and so are authorities granted since
-the cutover, which already match their owners and would be duplicated.
-
-It is `null` rather than a number whenever the answer would be a guess: when the
-issuer is unset, and when the table is longer than one bounded read. Read `null`
-as "count these yourself", never as zero. The scan is bounded because the purge
-is not informational and this is: an unbounded read fails the whole mutation, so
-a deployment with enough authority history would never delete a row on account
-of a diagnostic.
+**A doc that records counts goes stale silently.** This page recorded production
+as "0 owned profiles, 0 claims" from 2026-07-30 and was wrong by the time it
+mattered: a profile had been claimed since, so the legacy row was referenced by
+five tables rather than the one expected. The purge refused to delete it, which
+is the only reason that was discovered rather than executed. Prefer a check that
+reads current state over a note about what it used to be.
 
 ### Run the Discord watermark backfill after deploying
 
