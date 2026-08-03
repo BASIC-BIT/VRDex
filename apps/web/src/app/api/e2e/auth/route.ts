@@ -57,6 +57,22 @@ function convexClient() {
   return new ConvexHttpClient(convexUrl);
 }
 
+/**
+ * Surfaces the Convex-side reason instead of letting the throw become an opaque
+ * 500. Callers need to tell a genuine failure apart from a shared staging target
+ * that has not deployed this revision yet, and an HTML error page cannot carry
+ * that distinction.
+ */
+async function runHelperMutation<T>(operation: () => Promise<T>) {
+  try {
+    return NextResponse.json(await operation());
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    return NextResponse.json({ error: message }, { status: 400 });
+  }
+}
+
 export async function POST(request: NextRequest) {
   const convexSecret = requireE2eAuthRequest(request);
 
@@ -74,26 +90,28 @@ export async function POST(request: NextRequest) {
 
   if (action === "link-discord") {
     const providerAccountId = typeof body.providerAccountId === "string" ? body.providerAccountId : "";
-    const result = await convexClient().mutation(api.e2e.linkDiscordAccountByEmail, {
-      secret: convexSecret,
-      email,
-      providerAccountId,
-    });
 
-    return NextResponse.json(result);
+    return await runHelperMutation(() =>
+      convexClient().mutation(api.e2e.linkDiscordAccountByEmail, {
+        secret: convexSecret,
+        email,
+        providerAccountId,
+      }),
+    );
   }
 
   if (action === "record-guild-proof") {
     const guildId = typeof body.guildId === "string" ? body.guildId : "";
     const guildName = typeof body.guildName === "string" ? body.guildName : undefined;
-    const result = await convexClient().mutation(api.e2e.recordGuildControlProofByEmail, {
-      secret: convexSecret,
-      email,
-      guildId,
-      ...(guildName !== undefined ? { guildName } : {}),
-    });
 
-    return NextResponse.json(result);
+    return await runHelperMutation(() =>
+      convexClient().mutation(api.e2e.recordGuildControlProofByEmail, {
+        secret: convexSecret,
+        email,
+        guildId,
+        ...(guildName !== undefined ? { guildName } : {}),
+      }),
+    );
   }
 
   return e2eError("Unsupported E2E auth helper action.", 400);

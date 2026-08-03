@@ -253,7 +253,7 @@ Manual dispatch can run `all`, `staging-mutation`, or `production-smoke`. The op
 
 The recurring staging lane also runs the auth-session contract, which asserts
 that a Clerk session resolves to a verified Convex identity on that deployment.
-It uses only disposable `@e2e.vrdex.local` accounts created on the staging Clerk
+It uses only disposable `@e2e.vrdex.net` accounts created on the staging Clerk
 development instance and deleted in the same run, and the staging helper
 boundary. With `VRDEX_HOSTED_E2E_CLERK_AUTH` unset it skips; with it set and the
 Clerk keys absent it fails.

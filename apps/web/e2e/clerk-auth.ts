@@ -115,13 +115,35 @@ async function clerkBackendRequest(path: string, init: RequestInit) {
 /**
  * The address is `+clerk_test` so Clerk suppresses every delivery attempt,
  * including the "new device" notice a ticket sign-in would otherwise trigger,
- * and `@e2e.vrdex.local` because `normalizeE2eEmail` in `convex/e2e.ts` accepts
+ * and `@e2e.vrdex.net` because `normalizeE2eEmail` in `convex/e2e.ts` accepts
  * that domain and nothing else.
+ *
+ * Not `.local`, which the first hosted run proved Clerk rejects outright:
+ * `422 form_param_format_invalid: Email address must be a valid email address.`
  */
+export const E2E_EMAIL_DOMAIN = "@e2e.vrdex.net";
+
 export function clerkTestEmail(runSuffix: string) {
   const normalized = runSuffix.replace(/[^a-z0-9]+/gi, "-").toLowerCase().slice(0, 48);
 
-  return `${normalized}+clerk_test@e2e.vrdex.local`;
+  return `${normalized}+clerk_test${E2E_EMAIL_DOMAIN}`;
+}
+
+/**
+ * Whether a helper response is the shared hosted target refusing the current
+ * disposable domain because it predates that change.
+ *
+ * Deliberately narrow: it matches the allowlist message alone, so once staging
+ * carries this revision a genuine helper failure fails the test instead of being
+ * excused indefinitely. Hosted-only for the same reason — a local run is always
+ * this branch, where a domain mismatch is a real bug.
+ */
+export function isHostedEmailDomainLag(status: number, body: string) {
+  return (
+    Boolean(process.env.PLAYWRIGHT_BASE_URL) &&
+    status === 400 &&
+    /E2E auth helpers only accept .* emails\./.test(body)
+  );
 }
 
 /**

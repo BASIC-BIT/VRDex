@@ -589,9 +589,9 @@ async function main() {
   const context = await browser.newContext({ baseURL: origin });
   const page = await context.newPage();
   const runSuffix = safeRunId(options.runId);
-  // `+clerk_test` suppresses every Clerk delivery attempt; `@e2e.vrdex.local` is
+  // `+clerk_test` suppresses every Clerk delivery attempt; `@e2e.vrdex.net` is
   // the only domain `normalizeE2eEmail` in `convex/e2e.ts` accepts.
-  const email = `mcp-oauth-${runSuffix}+clerk_test@e2e.vrdex.local`;
+  const email = `mcp-oauth-${runSuffix}+clerk_test@e2e.vrdex.net`;
   let clerkUserId: string | undefined;
 
   try {

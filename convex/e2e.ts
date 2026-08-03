@@ -53,11 +53,24 @@ function requireE2eAuthHelper(secret?: string) {
   }
 }
 
+/**
+ * These helpers delete accounts by email, so the domain is the blast radius.
+ * `e2e.vrdex.net` is a subdomain nothing routes mail for and no real account can
+ * hold, which keeps the guard as tight as the old one.
+ *
+ * It replaced `e2e.vrdex.local` because Clerk rejects that address outright —
+ * `.local` is not a valid TLD to its Backend API, so the accounts these helpers
+ * exist to serve could not be created at all:
+ *
+ *     422 form_param_format_invalid: Email address must be a valid email address.
+ */
+const E2E_EMAIL_DOMAIN = "@e2e.vrdex.net";
+
 function normalizeE2eEmail(email: string) {
   const normalized = email.trim().toLowerCase();
 
-  if (!normalized.endsWith("@e2e.vrdex.local")) {
-    throw new Error("E2E auth helpers only accept @e2e.vrdex.local emails.");
+  if (!normalized.endsWith(E2E_EMAIL_DOMAIN)) {
+    throw new Error(`E2E auth helpers only accept ${E2E_EMAIL_DOMAIN} emails.`);
   }
 
   return normalized;
