@@ -238,7 +238,14 @@ A dry run examines one page of legacy rows and deletes nothing, so it would
 otherwise re-read the same page forever. When `nextLegacyPageAfter` is non-null,
 pass it back as `legacyPageAfter` to inspect the next page, and keep going until
 it is null — that is how you see every `blockedUsers` entry before deleting
-anything. Destructive runs need no cursor: the rows they delete stop matching.
+anything.
+
+**Drop the cursor before setting `dryRun` to false.** Destructive runs need none:
+the rows they delete stop matching, so each pass resumes at the first remaining
+row on its own. Carrying the cursor over would skip every row before it, and a
+short enough remainder would report `moreRemaining: false` with those rows still
+present. The migration rejects the combination rather than ignoring it, so the
+mistake is a clear error instead of a purge that claims to be finished.
 
 `clerkUsers` is a capped sample, and `clerkUsersTruncated` says when it is one.
 If your account is not in the list, read the id off Clerk's dashboard —

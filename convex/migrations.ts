@@ -384,6 +384,22 @@ export const purgeConvexAuthLeftovers = internalMutation({
       );
     }
 
+    // `legacyPageAfter` is a discovery aid, and combining it with a destructive
+    // run is the natural mistake: page through with dry runs, then flip `dryRun`
+    // to false on the last command with the cursor still in it. That would skip
+    // every legacy row before the cursor, and if the remaining suffix fits one
+    // page it would report `moreRemaining: false` with the skipped rows intact —
+    // a purge that claims to be finished and is not, discovered later as the
+    // schema change failing on `clerkUserId`.
+    //
+    // Rejected rather than ignored. Silently dropping it would be safe but would
+    // leave the operator believing they resumed from where they were reading.
+    if (!dryRun && args.legacyPageAfter !== undefined) {
+      throw new Error(
+        "legacyPageAfter is for dry-run discovery only. A destructive run must start from the first remaining legacy row; drop the cursor and rerun until moreRemaining is false.",
+      );
+    }
+
     // Indexed, not scanned. `undefined` is a queryable index value in Convex —
     // it matches documents lacking the field — so the legacy rows come straight
     // off `clerkUserId` rather than out of a full `users` read. That matters for
