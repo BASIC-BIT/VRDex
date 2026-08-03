@@ -15,16 +15,6 @@ on:
         required: false
         type: boolean
         default: false
-      clerk_instance_rotation:
-        description: >-
-          Moving staging to a different Clerk instance. Skips the pre-deploy
-          comparison, which would otherwise measure the new issuer against the
-          key the previous deployment still serves and abort before Vercel can
-          publish the matching one. Format validation and the post-deploy
-          comparison still run, so the new pair must agree by the end.
-        required: false
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -154,12 +144,15 @@ jobs:
       # existed, which serves no key to compare — the outage this workflow has to
       # remain able to fix. It forgives nothing else; an HTTP error throws.
       #
-      # Skipped only for a deliberate instance rotation, where disagreeing with
-      # the current deployment is the intended state. Dispatch-only and default
-      # off, so no merge reaches it, and the post-deploy comparison still runs
-      # with no escape.
+      # Always runs. There is no rotation escape: moving staging to another Clerk
+      # instance is a documented manual sequence, not a workflow input. Three
+      # rounds of review found a fresh hole in that input each time — it bypassed
+      # format validation, then made the rollback unreachable, then would have
+      # needed Vercel deployment rollback and repository-variable writes to be
+      # correct. That is a two-provider migration system inside a deploy
+      # workflow, for something done by hand once a year.
       - name: Verify the staging Clerk issuer before mutating Convex
-        if: steps.gate.outputs.enabled == 'true' && !inputs.clerk_instance_rotation
+        if: steps.gate.outputs.enabled == 'true'
         env:
           HOSTED_BASE_URL: ${{ steps.gate.outputs.hosted_base_url }}
           CLERK_JWT_ISSUER_DOMAIN: ${{ vars.VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN }}
@@ -300,10 +293,26 @@ jobs:
           DEPLOYMENT_URL: ${{ steps.vercel.outputs.url }}
           CLERK_JWT_ISSUER_DOMAIN: ${{ vars.VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
+
+          # Exit 2 is a confirmed mismatch: the deployed key names a different
+          # Clerk instance than the issuer just written. Any other non-zero
+          # status is a failure to reach or read the deployment, which proves
+          # nothing about the pairing. Recorded so the rollback can tell them
+          # apart — it must repair the first and must not act on the second.
+          set +e
           node scripts/check-clerk-issuer-match.mjs \
             --base-url "$DEPLOYMENT_URL" \
             --issuer "$CLERK_JWT_ISSUER_DOMAIN"
+          status=$?
+          set -e
+
+          if [ "$status" -eq 2 ]; then
+            echo "mismatch=true" >> "$GITHUB_OUTPUT"
+          fi
+
+          exit "$status"
+
       - name: Install Playwright Chromium
         if: steps.gate.outputs.enabled == 'true'
         working-directory: apps/web
@@ -369,20 +378,18 @@ jobs:
       # comparison by design, so a mistyped or unpublished Vercel key is not
       # caught until after Convex has already been told to trust the new issuer.
       #
-      # Two ways to reach it, because "did Vercel publish?" is only half the
-      # question.
+      # Two ways to reach it, and both mean the same thing: Convex is ahead of
+      # what staging actually serves.
       #
-      # Vercel not succeeding leaves Convex ahead of the deployment outright.
+      # Vercel not succeeding leaves it ahead outright.
       #
-      # Vercel succeeding is normally proof the pair agrees, since the
-      # pre-deploy comparison already measured this issuer against the key that
-      # deployment serves — so a later failure, including a transient fetch
-      # error in the post-deploy verifier, is not evidence of a mismatch, and
-      # rolling back there would create one. That reasoning depends entirely on
-      # the pre-deploy comparison having run. A rotation skips it by design, so
-      # on that path a failed post-deploy verification is the *first* evidence
-      # about the pairing, and it is evidence against — most often a Vercel key
-      # that was never updated, which restoring the previous issuer repairs.
+      # The post-deploy comparison reporting a *confirmed* mismatch — exit 2,
+      # not merely a failed step — means the deployed key names a different
+      # Clerk instance than the issuer just written. Keyed off that rather than
+      # the step's outcome because a transient fetch error also fails the step,
+      # and rolling back on one of those would break a pairing that is very
+      # likely correct. The precheck can be inconclusive (a target serving no
+      # key at all), so a mismatch is not unreachable just because it passed.
       #
       # Still runs last so a failure anywhere after the mutation reaches it, and
       # a skipped Vercel deploy also counts as not-succeeded.
@@ -397,7 +404,7 @@ jobs:
           && steps.provision.outputs.previous_issuer != ''
           && (
             steps.vercel.outcome != 'success'
-            || (inputs.clerk_instance_rotation && steps.verify_issuer.outcome != 'success')
+            || steps.verify_issuer.outputs.mismatch == 'true'
           )
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_DEV }}

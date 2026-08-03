@@ -251,37 +251,34 @@ The format check is separate and unconditional, because `auth.config.ts` takes
 the value verbatim: a bare host or a trailing slash matches no token issuer, and
 no path that can write the variable may skip that.
 
-**Rotating staging to a different Clerk instance** is the one case where
-disagreeing with the current deployment is intended, since the pre-deploy
-comparison necessarily measures the new issuer against the old deployed key.
-Dispatch `Staging Deploy` with `clerk_instance_rotation` to skip that comparison
-only. It is default-off and dispatch-only, so no merge reaches it, and both the
-format check and the post-deploy comparison still run.
+**Rotating staging to a different Clerk instance** is a manual sequence rather
+than a workflow input, documented in
+[`playwright-visual-preview.md`](../testing/playwright-visual-preview.md). Vercel
+is updated and deployed first, then the issuer variable, then a normal staging
+deploy — so the pre-deploy comparison agrees by the time it runs and never has
+to be skipped. There is a short window between those steps where staging auth is
+down, which is inherent to changing two providers that must agree.
 
-An earlier attempt read Vercel's *pending* configuration instead, which would
-have made a rotation an ordinary run with no input at all. It does not work:
-`vercel env pull` does not write `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` back for
-this environment, even though the audit step confirms by name that it is set.
-Two staging deploys failed before that was clear. Do not reintroduce it without
-first confirming the pull actually returns that value.
+A dispatch input that skipped the comparison existed briefly and was removed.
+Three rounds of review found a fresh hole in it each time: it bypassed the
+format validation, then left the rollback unreachable on the path it created,
+and would finally have needed Vercel deployment rollback and repository-variable
+writes from CI to be correct. That is a two-provider migration system inside a
+deploy workflow, for an operation performed by hand about once a year.
 
-If a run changes the issuer and then fails **before the Vercel deploy succeeds**,
-the previous value is restored. Not afterwards on an ordinary run: once Vercel
-has published, it is serving a key the pre-deploy comparison already validated
-against this issuer, so the two agree — and restoring Convex alone would create
-the mismatch the rollback exists to prevent, including when the post-deploy
-verifier failed only on transport.
+If a run changes the issuer and then fails, the previous value is restored in
+two cases, and both mean Convex is ahead of what staging serves: the Vercel
+deploy did not succeed, or the post-deploy comparison reported a **confirmed
+mismatch** — the deployed key naming a different Clerk instance than the issuer
+just written.
 
-**A rotation is the exception**, because it skips that pre-deploy comparison. On
-that path a failed post-deploy verification is the first evidence about the
-pairing and it is evidence against — most often a Vercel key that was never
-updated — so the rollback runs there too. Without that, the recovery would be
-unreachable in exactly the situation it exists for.
-
-Read it as the incident boundary. On an ordinary run, a failure after a
-successful Vercel deploy leaves both providers on the new instance and needs no
-repair. Before it, or on a rotation whose verification failed, Convex is ahead
-of the deployment, and that is what the rollback covers.
+Keyed on that confirmation rather than on the step failing, because a transient
+fetch error fails the step too and proves nothing about the pairing; rolling back
+on one would break a pairing that is very likely correct. The script exits 2 for
+a mismatch and 1 for everything else so the two can be told apart. The
+pre-deploy comparison can also be inconclusive — a target serving no key at
+all — so a mismatch reaching the post-deploy check is not unreachable merely
+because the earlier one passed.
 
 The restore re-pushes functions only when the Convex deploy had itself
 succeeded. If it had not, nothing carrying the new issuer was ever published, so

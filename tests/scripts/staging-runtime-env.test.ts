@@ -259,7 +259,11 @@ test("staging deploy parses and audits main before provider mutation", () => {
   assert.match(steps[preCheckIndex]?.run ?? "", /--base-url/);
   assert.doesNotMatch(steps[preCheckIndex]?.run ?? "", /env pull/);
   assert.match(steps[preCheckIndex]?.run ?? "", /--allow-missing-key/);
-  assert.match(steps[preCheckIndex]?.if ?? "", /clerk_instance_rotation/);
+  // No rotation escape at all: instance moves are a manual sequence, so this
+  // comparison and the format check above cover every path that writes the
+  // issuer.
+  assert.doesNotMatch(steps[preCheckIndex]?.if ?? "", /rotation/);
+  assert.doesNotMatch(workflow, /clerk_instance_rotation/);
 
   // The authoritative pass, against what actually shipped, with no such escape.
   assert.ok(keyCheckIndex > vercelDeployIndex);
@@ -278,20 +282,18 @@ test("staging deploy parses and audits main before provider mutation", () => {
   assert.ok(rollbackIndex > keyCheckIndex);
   assert.ok(rollbackIndex > steps.findIndex((step) => step.name === "Run hosted staging data-flow health"));
   assert.match(steps[rollbackIndex]?.if ?? "", /failure\(\)/);
-  // Not once Vercel has published — it then serves a key the pre-deploy check
-  // already validated against this issuer, so a later failure is not evidence
-  // of a mismatch and restoring Convex would create one.
   assert.match(steps[rollbackIndex]?.if ?? "", /steps\.vercel\.outcome != 'success'/);
 
-  // Except on the rotation path, which skips that pre-deploy check by design.
-  // There, a failed post-deploy verification is the first evidence about the
-  // pairing and it is evidence against — usually a Vercel key that was never
-  // updated. Without this the recovery is unreachable exactly when the rotation
-  // it guards has gone wrong.
-  assert.match(
-    steps[rollbackIndex]?.if ?? "",
-    /inputs\.clerk_instance_rotation && steps\.verify_issuer\.outcome != 'success'/,
-  );
+  // Keyed on a *confirmed* mismatch, not on the verifier step failing. A
+  // transient fetch error fails the step too and proves nothing about the
+  // pairing, so rolling back on one would break a pairing very likely correct.
+  assert.match(steps[rollbackIndex]?.if ?? "", /steps\.verify_issuer\.outputs\.mismatch == 'true'/);
+  assert.doesNotMatch(steps[rollbackIndex]?.if ?? "", /verify_issuer\.outcome/);
+
+  // ...which requires the verifier to record it, distinguishing exit 2 from any
+  // other non-zero status.
+  assert.match(steps[keyCheckIndex]?.run ?? "", /status" -eq 2/);
+  assert.match(steps[keyCheckIndex]?.run ?? "", /mismatch=true/);
   assert.match(steps[rollbackIndex]?.run ?? "", /convex env set CLERK_JWT_ISSUER_DOMAIN/);
   // Re-pushes only when the Convex deploy that would have published the new
   // issuer actually succeeded. Otherwise nothing carrying it was published, so

@@ -29,6 +29,9 @@ const CLERK_KEY_SEARCH_PATTERN = /pk_(test|live)_[A-Za-z0-9+/=_-]+/;
 // Node's decoder ignores the suffix, so the host and the `$` terminator both
 // came out right and every comparison passed on a key Clerk cannot use.
 const CLERK_KEY_STRICT_PATTERN = /^pk_(test|live)_[A-Za-z0-9+/]+={0,2}$/;
+/** A confirmed key/issuer mismatch, as opposed to any other failure. */
+export const MISMATCH_EXIT_CODE = 2;
+
 const ISSUER_PATTERN = /^https:\/\/[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i;
 
 /**
@@ -211,7 +214,11 @@ async function main() {
     console.error(
       `::error::${source} names Clerk instance '${servedHost}' but Convex is configured to trust '${expectedHost}'. Convex would reject every signed-in request. Fix VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN or the Vercel publishable key so both name one instance.`,
     );
-    process.exit(1);
+    // Exit 2, not 1. A caller has to tell a *confirmed* mismatch from a failure
+    // to reach the deployment at all: the first means the pairing is genuinely
+    // wrong and a rollback repairs it, the second means we learned nothing and
+    // rolling back would break a pairing that may well be correct.
+    process.exit(MISMATCH_EXIT_CODE);
   }
 
   console.log(`Clerk key and Convex issuer both resolve to ${servedHost}.`);
