@@ -24,8 +24,6 @@
     "lint": "eslint",
     "pretest:e2e": "node ../../scripts/guard-main-worktree.mjs",
     "test:e2e": "playwright test --grep-invert \"@visual|@snapshot|@storybook\"",
-    "pretest:e2e:auth-session-matrix": "node ../../scripts/guard-main-worktree.mjs",
-    "test:e2e:auth-session-matrix": "playwright test --config playwright.auth.config.mjs",
     "pretest:e2e:hosted": "node ../../scripts/guard-main-worktree.mjs",
     "test:e2e:hosted": "playwright test --grep @flow --grep-invert @fixture --project=desktop-chromium",
     "pretest:e2e:hosted:auth-session": "node ../../scripts/guard-main-worktree.mjs",
@@ -51,7 +49,8 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1068.0",
-    "@convex-dev/auth": "^0.0.92",
+    "@aws-sdk/s3-presigned-post": "^3.1068.0",
+    "@clerk/nextjs": "^7.6.3",
     "@modelcontextprotocol/server": "2.0.0-beta.2",
     "@vercel/oidc-aws-credentials-provider": "^3.1.4",
     "@vrdex/api-contracts": "workspace:*",
@@ -69,6 +68,7 @@
     "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {
+    "@clerk/testing": "^2.2.16",
     "@playwright/test": "^1.60.0",
     "@storybook/addon-a11y": "10.4.2",
     "@storybook/nextjs-vite": "10.4.2",

@@ -6,9 +6,11 @@ import { convexTest } from "convex-test";
 import { api, internal } from "../../convex/_generated/api";
 import schemaModule from "../../convex/schema";
 
+import { clerkTestIdentity, newClerkUserId } from "./_clerkTestIdentity";
 const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
   "../../convex/profileClaims.ts": () => import("../../convex/profileClaims"),
+  "../../convex/vrclinkingCredentials.ts": () => import("../../convex/vrclinkingCredentials"),
 };
 const schema = (
   schemaModule as unknown as { default?: typeof schemaModule }
@@ -19,21 +21,17 @@ describe("profile claim lifecycle", () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
     const seeded = await t.run(async (ctx) => {
+      const clerkUserId = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId,
         email: "private-claim-target@example.test",
         emailVerificationTime: now,
       });
+      const clerkUserId2 = newClerkUserId();
       const otherUserId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId2,
         email: "private-claim-target-other@example.test",
         emailVerificationTime: now,
-      });
-      const ownerSessionId = await ctx.db.insert("authSessions", {
-        userId,
-        expirationTime: now + 60_000,
-      });
-      const otherSessionId = await ctx.db.insert("authSessions", {
-        userId: otherUserId,
-        expirationTime: now + 60_000,
       });
       const profileId = await ctx.db.insert("profiles", {
         profileType: "person",
@@ -46,7 +44,32 @@ describe("profile claim lifecycle", () => {
         publicationState: "draft_private",
         publicSurfacingState: "opted_out",
         creationSource: "concierge",
+        avatarImageUrl: "https://example.invalid/private-claim-target.png",
         person: { roleTags: [] },
+        updatedAt: now,
+      });
+      const profileImageAssetId = await ctx.db.insert("profileAssets", {
+        profileId,
+        storageKey: "profiles/private-claim-target/profile-image.png",
+        mimeType: "image/png",
+        byteSize: 1_024,
+        visibility: "public",
+        source: "owner_authored",
+        uploadedBy: {
+          tokenIdentifier: `test|${clerkUserId}`,
+          issuer: "test",
+          subject: clerkUserId,
+        },
+        uploadedAt: now,
+        state: "active",
+        updatedAt: now,
+      });
+      await ctx.db.insert("profileAssetPlacements", {
+        profileId,
+        assetId: profileImageAssetId,
+        placement: "profile_image",
+        position: 0,
+        state: "active",
         updatedAt: now,
       });
       await ctx.db.insert("profileOwners", {
@@ -61,12 +84,12 @@ describe("profile claim lifecycle", () => {
       return {
         profileId,
         ownerIdentity: {
-          subject: `${userId}|${ownerSessionId}`,
+          subject: clerkUserId, emailVerified: true,
           issuer: "test",
           tokenIdentifier: `test|${userId}`,
         },
         otherIdentity: {
-          subject: `${otherUserId}|${otherSessionId}`,
+          subject: clerkUserId2, emailVerified: true,
           issuer: "test",
           tokenIdentifier: `test|${otherUserId}`,
         },
@@ -94,6 +117,10 @@ describe("profile claim lifecycle", () => {
     assert.equal(ownerResult?.hasPublicProfile, false);
     assert.equal(ownerResult?.profileId, seeded.profileId);
     assert.equal(ownerResult?.slug, "private-claim-target");
+    assert.equal(
+      ownerResult?.avatarImageUrl,
+      "https://example.invalid/private-claim-target.png",
+    );
 
     const ownerJourney = await t.withIdentity(seeded.ownerIdentity).query(api.profileClaims.getClaimJourneyContext, {
       profileSlug: "private-claim-target",
@@ -105,7 +132,9 @@ describe("profile claim lifecycle", () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
     const attemptId = await t.run(async (ctx) => {
+      const clerkUserId3 = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId3,
         email: "claim-lifecycle@example.test",
         emailVerificationTime: now,
       });
@@ -150,7 +179,9 @@ describe("profile claim lifecycle", () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
     const { attemptId, profileId } = await t.run(async (ctx) => {
+      const clerkUserId4 = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId4,
         email: "expired-proof@example.test",
         emailVerificationTime: now,
       });
@@ -206,7 +237,9 @@ describe("profile claim lifecycle", () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
     const attemptId = await t.run(async (ctx) => {
+      const clerkUserId5 = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId5,
         email: "expired-adapter-miss@example.test",
         emailVerificationTime: now,
       });
@@ -254,7 +287,9 @@ describe("profile claim lifecycle", () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
     const seeded = await t.run(async (ctx) => {
+      const clerkUserId6 = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId6,
         email: "expired-vrclinking@example.test",
         emailVerificationTime: now,
       });
@@ -285,15 +320,11 @@ describe("profile claim lifecycle", () => {
         updatedAt: now - 1000,
         expiresAt: now - 1,
       });
-      const sessionId = await ctx.db.insert("authSessions", {
-        userId,
-        expirationTime: now + 60_000,
-      });
 
       return {
         attemptId,
         identity: {
-          subject: `${userId}|${sessionId}`,
+          subject: clerkUserId6, emailVerified: true,
           issuer: "test",
           tokenIdentifier: `test|${userId}`,
         },
@@ -324,11 +355,80 @@ describe("profile claim lifecycle", () => {
     assert.equal(attempt?.evidenceSource, "vrclinking");
   });
 
-  it("rejects replay after a proof has granted ownership", async () => {
+  // Attempts stay pending for a day, so the claimability check at the start
+  // cannot speak for a moderation decision taken after it.
+  it("refuses a proof for a listing suppressed while it was pending", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
     const { attemptId, profileId } = await t.run(async (ctx) => {
+      const clerkUserId7 = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId7,
+        email: "proof-suppressed@example.test",
+        emailVerificationTime: now,
+      });
+      const profileId = await ctx.db.insert("profiles", {
+        profileType: "person",
+        slug: "proof-suppressed",
+        displayName: "Proof Suppressed",
+        sortName: "proof suppressed",
+        aliases: [],
+        tags: [],
+        claimState: "unclaimed",
+        publicationState: "published",
+        // Suppressed after the attempt was created, which is the whole point.
+        publicSurfacingState: "suppressed",
+        creationSource: "self",
+        person: { roleTags: [] },
+        updatedAt: now,
+      });
+      const attemptId = await ctx.db.insert("profileVerificationAttempts", {
+        profileId,
+        userId,
+        method: "vrchat_user_proof",
+        targetType: "vrchat_user",
+        targetExternalId: "usr_5e7adcef-c7f4-4df1-b4e6-e86fb529ac09",
+        proofCode: "VRDEX-ONE-TIME",
+        state: "pending",
+        createdAt: now,
+        updatedAt: now,
+        expiresAt: now + 60_000,
+      });
+
+      return { attemptId, profileId };
+    });
+
+    const result = await t.mutation(internal.profileClaims.recordVrchatProofVerification, {
+      attemptId,
+      evidenceSource: "vrchat_api",
+      evidenceSummary: "Proof code was found after the listing was suppressed.",
+    });
+
+    // Settled, not thrown: the collector treats anything but an ownership
+    // conflict as retryable, so throwing would have it retry until expiry. The
+    // reason travels with it so the claim page does not report a listing that
+    // moved underneath the attempt as a failed attestation.
+    assert.deepEqual(result, { state: "failed", reason: "not_claimable" });
+
+    const { attempt, owners } = await t.run(async (ctx) => ({
+      attempt: await ctx.db.get(attemptId),
+      owners: await ctx.db
+        .query("profileOwners")
+        .withIndex("by_profileId_state", (q) => q.eq("profileId", profileId))
+        .collect(),
+    }));
+
+    assert.equal(attempt?.state, "failed");
+    assert.equal(owners.length, 0);
+  });
+
+  it("reports the settled outcome instead of failing a replayed proof", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const { attemptId, profileId } = await t.run(async (ctx) => {
+      const clerkUserId8 = newClerkUserId();
+      const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId8,
         email: "proof-replay@example.test",
         emailVerificationTime: now,
       });
@@ -362,19 +462,26 @@ describe("profile claim lifecycle", () => {
       return { attemptId, profileId };
     });
 
-    await t.mutation(internal.profileClaims.recordVrchatProofVerification, {
+    const first = await t.mutation(internal.profileClaims.recordVrchatProofVerification, {
       attemptId,
       evidenceSource: "vrchat_api",
       evidenceSummary: "Synthetic verified proof.",
     });
-    await assert.rejects(
-      t.mutation(internal.profileClaims.recordVrchatProofVerification, {
-        attemptId,
-        evidenceSource: "vrchat_api",
-        evidenceSummary: "Synthetic replay.",
-      }),
-      /Only pending verification attempts can be approved/,
+    // The collector fleet polls the same attempt an adapter action is checking,
+    // so it can settle it mid-flight. Throwing here reported an error for a
+    // click whose ownership grant had already succeeded, so the replay has to
+    // hand back what the first pass produced — without granting again.
+    const replay = await t.mutation(internal.profileClaims.recordVrchatProofVerification, {
+      attemptId,
+      evidenceSource: "vrchat_api",
+      evidenceSummary: "Synthetic replay.",
+    });
+
+    assert.deepEqual(
+      { claimState: replay.claimState, connectionOnly: replay.connectionOnly },
+      { claimState: first.claimState, connectionOnly: first.connectionOnly },
     );
+    assert.equal(replay.claimRequestId, undefined);
 
     const owners = await t.run(async (ctx) =>
       ctx.db
@@ -390,7 +497,9 @@ describe("profile claim lifecycle", () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
     const seeded = await t.run(async (ctx) => {
+      const clerkUserId9 = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId9,
         email: "scoped-cancel@example.test",
         emailVerificationTime: now,
       });
@@ -432,16 +541,12 @@ describe("profile claim lifecycle", () => {
         updatedAt: now,
         expiresAt: now + 60_000,
       });
-      const sessionId = await ctx.db.insert("authSessions", {
-        userId,
-        expirationTime: now + 60_000,
-      });
 
       return {
         attemptId,
         claimRequestId,
         identity: {
-          subject: `${userId}|${sessionId}`,
+          subject: clerkUserId9, emailVerified: true,
           issuer: "test",
           tokenIdentifier: `test|${userId}`,
         },
@@ -465,5 +570,162 @@ describe("profile claim lifecycle", () => {
     });
     const claimRequest = await t.run(async (ctx) => await ctx.db.get(seeded.claimRequestId));
     assert.equal(claimRequest?.state, "rejected");
+  });
+
+  // Both surfaces excluded VRCLinking attempts while nothing in the browser
+  // could create one. The claim form now does, and the pending panel it renders
+  // replaces the method picker — so a claimant whose attempt found no match
+  // could neither cancel it nor pick another method until it expired.
+  it("shows and cancels a pending VRCLinking attempt", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const seeded = await t.run(async (ctx) => {
+      const clerkUserId = newClerkUserId();
+      const userId = await ctx.db.insert("users", {
+        clerkUserId,
+        email: "vrclinking-cancel@example.test",
+        emailVerificationTime: now,
+      });
+      const profileId = await ctx.db.insert("profiles", {
+        profileType: "person",
+        slug: "vrclinking-cancel",
+        displayName: "VRCLinking Cancel",
+        sortName: "vrclinking cancel",
+        aliases: [],
+        tags: [],
+        claimState: "unclaimed",
+        publicationState: "published",
+        publicSurfacingState: "public",
+        creationSource: "self",
+        person: { roleTags: [] },
+        updatedAt: now,
+      });
+      const attemptId = await ctx.db.insert("profileVerificationAttempts", {
+        profileId,
+        userId,
+        method: "vrchat_user_proof",
+        targetType: "vrclinking",
+        targetExternalId: "usr_e2e00000-0000-4000-8000-000000000003",
+        proofCode: "VRDEX-VRCLINKING",
+        state: "pending",
+        createdAt: now,
+        updatedAt: now,
+        expiresAt: now + 60_000,
+      });
+      return {
+        attemptId,
+        identity: clerkTestIdentity(clerkUserId),
+      };
+    });
+
+    const journey = await t
+      .withIdentity(seeded.identity)
+      .query(api.profileClaims.getClaimJourneyContext, { profileSlug: "vrclinking-cancel" });
+    assert.equal(journey?.pendingProof?.targetType, "vrclinking");
+
+    const canceled = await t
+      .withIdentity(seeded.identity)
+      .mutation(api.profileClaims.cancelClaimJourneyPending, {
+        profileSlug: "vrclinking-cancel",
+        pendingType: "proof",
+      });
+    assert.equal(canceled.canceled, true);
+    assert.equal((await t.run(async (ctx) => await ctx.db.get(seeded.attemptId)))?.state, "failed");
+
+    // Cancelling frees the open-attempt slot at once, and a new attempt carries
+    // no adapter cooldown of its own, so submit → consult → "Start over" would
+    // otherwise loop as fast as the claimant can click and spend a delegated
+    // community's provider quota without ever reaching MAX_OPEN_PROOF_ATTEMPTS.
+    await assert.rejects(
+      () =>
+        t.withIdentity(seeded.identity).mutation(api.profileClaims.startVrchatProof, {
+          profileSlug: "vrclinking-cancel",
+          targetType: "vrclinking",
+          targetExternalId: "usr_e2e00000-0000-4000-8000-000000000003",
+        }),
+      /ADAPTER_COOLDOWN/,
+    );
+  });
+
+  // The bot-token path proves the same thing the OAuth round-trip does, so it
+  // has to leave the same durable record. Without it the guild is verified but
+  // absent from the connection model, and nothing can delegate for it.
+  it("records a control proof and profile link when the bot token approves", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const guildId = "123456789012345678";
+    const seeded = await t.run(async (ctx) => {
+      const clerkUserId10 = newClerkUserId();
+      const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId10,
+        email: "bot-approval@example.test",
+        emailVerificationTime: now,
+      });
+      const profileId = await ctx.db.insert("profiles", {
+        profileType: "community",
+        slug: "bot-approval",
+        displayName: "Bot Approval",
+        sortName: "bot approval",
+        aliases: [],
+        tags: [],
+        claimState: "unclaimed",
+        publicationState: "published",
+        publicSurfacingState: "public",
+        creationSource: "self",
+        community: { categoryTags: [] },
+        updatedAt: now,
+      });
+      const claimRequestId = await ctx.db.insert("profileClaimRequests", {
+        profileId,
+        profileSlug: "bot-approval",
+        profileType: "community",
+        requestedDisplayName: "Bot Approval",
+        userId,
+        method: "discord_community_admin",
+        state: "pending",
+        discordGuildId: guildId,
+        // Caller-supplied label from the request step. It must never become the
+        // durable name — an admin of a real server could otherwise present it
+        // under any name they liked.
+        discordGuildName: "Totally Not A Scam Server",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      return { userId, profileId, claimRequestId };
+    });
+
+    await t.mutation(internal.profileClaims.recordDiscordCommunityAdminApproval, {
+      claimRequestId: seeded.claimRequestId,
+      evidenceSummary: "Administrator permission confirmed by the Discord bot.",
+      discordUserId: "discord-subject-bot",
+      guildName: "Bot Approval HQ",
+    });
+
+    await t.run(async (ctx) => {
+      const proofs = await ctx.db
+        .query("externalControlProofs")
+        .withIndex("by_userId_state", (q) => q.eq("userId", seeded.userId).eq("state", "active"))
+        .collect();
+      assert.equal(proofs.length, 1);
+      assert.equal(proofs[0]?.assetExternalId, guildId);
+      assert.equal(proofs[0]?.evidenceSource, "discord_bot");
+      assert.equal(proofs[0]?.controlLevel, "administrator");
+      // Bound to the identity the bot actually checked, so a later OAuth
+      // round-trip by a different Discord account cannot revoke it.
+      assert.equal(proofs[0]?.evidenceSubjectId, "discord-subject-bot");
+      assert.equal(proofs[0]?.assetDisplayName, "Bot Approval HQ");
+
+      const links = await ctx.db
+        .query("profileExternalLinks")
+        .withIndex("by_profileId_state", (q) =>
+          q.eq("profileId", seeded.profileId).eq("state", "active"),
+        )
+        .collect();
+      assert.equal(links.length, 1);
+      assert.equal(links[0]?.assetExternalId, guildId);
+      assert.equal(links[0]?.assetDisplayName, "Bot Approval HQ");
+      assert.equal(links[0]?.verifiedByProofId, proofs[0]?._id);
+    });
   });
 });

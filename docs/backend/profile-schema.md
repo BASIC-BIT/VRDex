@@ -4,7 +4,9 @@
 
 This doc captures the durable profile schema foundation from `#9` through `#13`, plus later extensions in `#20`, `#22`, `#23`, `#25`, `#26`, `#30`, `#31`, `#32`, `#33`, `#82`, `#90`, the DJ lookup genre slice, and the first file-backed media-kit and bounded appearance slices.
 
-The implemented schema is intentionally narrow. It establishes one shared `profiles` table for people and communities plus first-slice account ownership, claim request, verification attempt, field visibility, media asset, and bounded appearance tables without introducing normalized link tables or advanced moderation workflows.
+The implemented schema is intentionally narrow. It establishes one shared `profiles` table for people and communities plus first-slice account ownership, claim request, verification attempt, field visibility, media asset, and bounded appearance tables, without advanced moderation workflows.
+
+One normalized link table now exists: `#200` added `profileExternalLinks` and `externalControlProofs` for the claim verification platform. See [External Control Proofs And Profile Links](#external-control-proofs-and-profile-links). That is a deliberate exception to the "no normalized link tables" posture above, and it is scoped to external assets — Discord servers, VRChat groups, and VRChat accounts. Aliases, authored blocks, and outbound links remain inline.
 
 ## Locked Decisions
 
@@ -84,8 +86,8 @@ Current recommendation:
 - user-provided public HTTPS image URLs should be treated as import sources; VRDex should reject private/internal destinations, copy bounded PNG/SVG/JPEG/WebP responses into managed object storage such as S3, and serve the VRDex-owned object as the canonical asset
 - one uploaded asset can fill multiple placements, such as both profile picture and primary logo
 - public UX should say `primary logo` and `additional logos` instead of `non-primary` or defaulting to `alternative logo`
-- uploaded assets can have loose labels, optional public captions and credits,
-  and an owner-authored accessibility description
+- uploaded assets can have loose labels, optional public captions, credit names
+  and safe HTTP(S) credit links, and an owner-authored accessibility description
 - PNG and SVG logos are required from day one
 - unclaimed and community-submitted profiles may carry public logos/assets, but public projections must preserve claim, source, and trust labels
 - public media-kit surfaces should support individual asset downloads and a zip of all public logos
@@ -96,15 +98,21 @@ Candidate `profileAssets` fields:
 
 - `profileId`: owning person or community profile
 - `kind`: broad asset kind such as `image` or `logo`, kept flexible enough for later expansion
-- `storageKey`: canonical managed-storage object key
+- `storageKey`: optimized display object key
+- `sourceStorageKey`: optional exact private source object key for uploads made
+  after source preservation was introduced
+- `downloadStorageKey`: optional metadata-sanitized, full-resolution download
+  object key in the uploaded image format
 - `originalFileName`: optional original upload filename
 - `sourceUrl`: optional HTTPS URL used for import-by-download
-- `mimeType`: validated stored MIME type, including PNG and SVG support for logos
-- `byteSize`: stored object size
+- `mimeType` and `byteSize`: validated optimized display type and size
+- optional source/download MIME, byte-size, and SHA-256 fields for the preserved
+  variants
 - `label`: optional loose display label
 - `caption`: optional public caption or description
 - `altText`: optional concise accessibility description
 - `credit`: optional public creator or photographer credit
+- `creditUrl`: optional public HTTP(S) credit link without embedded credentials
 - `contentSha256`: normalized-content digest used to reject duplicate uploads,
   including recoverable removed assets, without exposing it publicly
 - `width` and `height`: validated stored dimensions
@@ -125,6 +133,11 @@ Candidate placement fields can live on the profile or in a companion placement t
 
 Convex automatically provides `_id` and `_creationTime`; those are not duplicated in the schema.
 
+Owner-triggered accessibility suggestions use a separate bounded telemetry
+table. It records request id, owner/profile, provider/model, result, image byte
+count, latency, output length, and an error code. It does not store the image or
+generated description.
+
 ## Bounded Profile Appearance
 
 Locked decision:
@@ -142,12 +155,16 @@ Current recommendation:
 
 ## Ownership And Claim Tables
 
-Convex Auth provides the `users` and `authAccounts` tables used by account and provider-link flows.
+Clerk provides authentication. `users` is VRDex's own table and remains the
+identity spine every `v.id("users")` foreign key points at; `clerkUserId` links a
+row to its Clerk identity. There is no `authAccounts` table — connected sign-in
+providers live in Clerk. See
+[`auth-sessions.md`](./auth-sessions.md).
 
 `profileOwners` stores durable profile authority:
 
 - `profileId`: profile receiving ownership
-- `userId`: Convex Auth user that owns the profile
+- `userId`: VRDex user that owns the profile
 - `roleKey`: currently the singleton literal `owner`
 - `state`: `"active" | "revoked"`
 - `grantedByClaimRequestId`: optional claim request that granted ownership
@@ -156,7 +173,74 @@ Convex Auth provides the `users` and `authAccounts` tables used by account and p
 
 `profileVerificationAttempts` stores proof-code attempts for external proof readers. Attempts have a proof code, target type, target external id, state, expiry, and optional evidence summary.
 
-The first automated proof reader is an adapter action configured by `VRCHAT_PROOF_ADAPTER_URL`; it avoids hard-coding guessed VRChat or VRCLinking API behavior into the product backend.
+Proof reading is split by target type:
+
+- `vrchat_user` and `vrchat_group` attempts are read by the collector fleet on
+  its own schedule. `VRCHAT_PROOF_ADAPTER_URL` is optional and deliberately
+  unset in production; with no adapter configured, a manual "check now" reports
+  `queued` rather than failing.
+- `vrclinking` attempts have no collector path at all. They require
+  `VRCLINKING_PROOF_ADAPTER_URL`, because the answer comes from a community's
+  delegated key rather than from a posted code.
+
+Both adapters exist so provider behaviour is not hard-coded into the product
+backend. See `docs/backend/profile-access-and-claims.md` for the claim rules
+and `docs/deployment/group-telemetry-collector.md` for the fleet.
+
+## External Control Proofs And Profile Links
+
+`#200` splits two things a claim used to conflate: whether somebody controls an
+external asset, and which profile that asset stands for. They are separate
+because proving you administer a Discord server says nothing about which
+community listing that server represents.
+
+`externalControlProofs` records the first — durable evidence that a user
+controls an asset:
+
+- `userId`, `assetType` (`discord_guild` | `vrchat_group` | `vrchat_user`), `assetExternalId`
+- `controlLevel`: `manager` | `administrator` | `owner` | `self`
+- `state`: `"active" | "stale" | "revoked"`. `revoked` is a decision — Discord
+  reported the access gone, or an operator withdrew it — and carries `revokedAt`
+  and `revokedReason`. `stale` is only the passage of time: the revalidation
+  sweep marks a proof whose `revalidateAfter` has passed, and re-verifying
+  restores it to `active`. Both stop backing claims and delegations; only
+  `revoked` says anything happened
+- `evidenceSource` and `evidenceSummary`: how control was shown
+- `evidenceSubjectId`: which external identity produced the evidence. A user may
+  verify through more than one Discord account, and a result is only
+  authoritative about the guilds of the identity that produced it
+- `verifiedAt`, `revalidateAfter`, `lastRevalidatedAt`: proofs expire. A lapsed
+  proof stops backing claims and delegations without deleting the record
+
+`profileExternalLinks` records the second — a many-to-many association between a
+profile and an asset:
+
+- `profileId`, `assetType`, `assetExternalId`, optional `assetDisplayName`
+- `linkRole`: `primary` | `secondary`. One community may hold several servers and
+  groups; one of each kind is primary
+- `state`: `"active" | "removed"`
+- `linkedByUserId`: absent when an operator seeded the association rather than a
+  claimant asserting it
+- `verifiedByProofId`: the control proof that backed the link when it was made
+
+The trust rule between them: a proof alone grants `claimed_unverified`
+ownership. `claimed_verified` additionally requires an active link recorded by
+somebody other than the claimant — otherwise a claim corroborates itself, and
+any asset could verify any listing.
+
+Links deliberately outlive proofs. A community that stops being administered by
+its original claimant keeps its association; what lapses is the authority to act
+on it.
+
+Supporting tables from the same slice:
+
+- `communityVrclinkingCredentials`: a community's delegated VRCLinking key,
+  stored as a `secretRef` only — never the key itself — bound to the guild it is
+  for, with rotation and consultation stamps
+- `discordVerificationStates`: single-use OAuth round-trip state
+- `discordVerificationWatermarks`: per Discord identity, when the newest applied
+  reconciliation read that identity's guilds, so overlapping callbacks landing
+  out of order cannot resurrect revoked access
 
 ## Reviewed Seed Import Staging Tables
 
@@ -166,7 +250,10 @@ Current recommendation:
 - these tables preserve provenance, confidence, field visibility, review state, reviewer metadata, matched profile links, and queue-only publication metadata
 - internal fake fixture tooling can create candidate rows for backend tests and review workflow development
 - `seedImports:queueCandidatePublication` records a queue marker only; it does not create public `profiles` rows or overwrite existing owner-authored fields
-- actual publication, merge, owner handoff, and public surfacing remain deferred until the claim, suppression, and field-ownership rules are implemented end to end
+- `seedImports:publishQueuedCandidate` consumes that queue marker and is what actually creates or promotes the public unclaimed profile, copying accepted fields only and preserving each field's reviewed visibility
+- `seedImports:bulkPublishBatch` runs the same per-candidate path in cursor pages for a whole batch; see [Publication](./private-seed-operations.md#publication)
+- publication requires the batch's `publicationPolicy` to be `reviewed_publication_allowed`, which an operator sets deliberately with a recorded reason; a batch with no explicit policy fails closed
+- owner handoff remains a separate flow: accepting a concierge handoff still publishes nothing
 
 ## State Semantics
 
@@ -209,13 +296,43 @@ Convex schema validation cannot enforce conditional timestamp invariants, so pro
 
 Locked decision: `profiles:submitCommunityProfile` is the public community-submitted unclaimed write path. It requires `ctx.auth.getUserIdentity()` to return a signed-in identity, generates the slug server-side, publishes the profile as `creationSource: "community"` plus `claimState: "unclaimed"`, and stores narrow source attribution for later moderation and display decisions.
 
-Current recommendation: `profileClaims:createClaimedDiscordPersonProfile` and `profileClaims:createClaimedDiscordCommunityProfile` are the explicit Discord no-match creation paths. They require Convex auth, verified email, a linked Discord account, and caller confirmation that no suitable unclaimed match exists. They create self-authored public profiles, record an approved Discord claim request, grant singleton owner authority, and leave the profile at `claimed_unverified`.
+Current recommendation: `profileClaims:createClaimedDiscordPersonProfile` and `profileClaims:createClaimedDiscordCommunityProfile` are the explicit Discord no-match creation paths. They require Convex auth, verified email, a Discord identity VRDex has itself verified, and caller confirmation that no suitable unclaimed match exists. They create self-authored public profiles, record an approved Discord claim request, grant singleton owner authority, and leave the profile at `claimed_unverified`.
 
-Current recommendation: Discord community Administrator verification remains the stronger server-authority path for community profiles. A linked Discord account alone can create and control a new community profile, but it does not prove server administration and must not set `claimed_verified` by itself.
+Current recommendation: Discord community Administrator verification remains the stronger server-authority path for community profiles. A verified Discord identity alone can create and control a new community profile, but it does not prove server administration and must not set `claimed_verified` by itself.
+
+"Verified Discord identity" means a `discordVerificationWatermarks` row VRDex wrote through its own purpose-scoped OAuth round-trip — not a Discord sign-in method linked in Clerk. Clerk owns which providers an account can sign in with, and that says nothing about control of a Discord identity, so the two are deliberately unrelated. `accounts:getLinkedProviderAccount` reads the watermark.
 
 The claimed-owner field visibility path is `profilePrivacy:updateFieldVisibility`. It requires an active profile owner, stores non-public field overrides on `profiles.fieldVisibility`, treats omitted or explicit `public` fields as the public default, patches `updatedAt`, and refreshes the profile search document so discovery follows the new field visibility.
 
 The `migrations:backfillProfilePublicSurfacingState` internal mutation sets missing legacy `publicSurfacingState` values to `"public"` and fills `publicSurfacingUpdatedAt` so previously-written profiles keep their existing publication behavior after the surfacing-state schema addition.
+
+The `migrations:publishGatedProfiles` internal mutation takes previously gated profiles live: it flips `draft_private` profiles to `published` and reindexes each one for search and vocabulary, since a flipped profile that is not reindexed stays invisible to discovery.
+
+It only touches profiles that are `draft_private` **and** `public`, which is the default-private state with no explicit surfacing decision attached. It deliberately skips:
+
+- `opted_out` profiles. This is the canonical "keep off ordinary public surfaces" signal and it is what `seedHandoffs` writes on a prepared concierge profile, including *unclaimed* ones prepared for outreach but never accepted. Those were offered on the explicit promise that nothing is published, so claim state cannot be used to discard the opt-out.
+- `suppressed` profiles, which are a moderation state rather than a default.
+- Profiles with an accepted `profileSuppressionRequests` row, which records someone asking not to be listed. All three request shapes are checked (profile id, slug, and pre-claim name/type), not just slug.
+- Claimed profiles, because publication of an owned profile is the owner's decision.
+- Profiles with a live concierge handoff invitation, which are instead marked `opted_out` with reason `Concierge handoff invitation pending.` A bare skip would advance the migration cursor, leaving a profile whose invitation later expires stuck at `draft_private` with no record of why; `opted_out` is the same state `seedHandoffs` writes on a prepared concierge profile, and the ordinary publication and suppression paths govern it from there. The migration bypasses both publication gates, so it repeats their handoff check: an invitation can reuse a legacy `draft_private` profile whose surfacing state is still `public`, and publishing it would expose the profile while its private review link is live.
+
+Known limitation: there is currently **no** owner-facing control that changes `publicationState` or `publicSurfacingState`. `profilePrivacy:updateFieldVisibility` controls individual field visibility only. An owner who accepts a concierge handoff therefore has no self-service path to publish their profile, and needs an operator. That gap is not addressed here.
+
+Unlike the other migrations it is **not** part of `migrations:runAll`, because publishing profiles publicly is outward-facing and not cleanly reversible. Run it deliberately:
+
+```powershell
+pnpm cx -- prod run migrations:runPublishGatedProfiles
+```
+
+Follow it with one world search rebuild, which covers every attribution that became visible and records world vocabulary with it:
+
+```powershell
+pnpm cx -- prod run search:rebuildWorldSearchDocuments
+```
+
+The migration deliberately does not reindex worlds per row; that would mean one full `worlds` scan per migrated profile. The rebuild is delta-aware — it compares each world's stored `vocabularyKeys` against the rebuilt ones and records only what appeared, releasing what went away — so running it against already-indexed worlds does not re-increment existing counts.
+
+That runner executes `backfillProfilePublicSurfacingState` and `backfillHandoffInvitationProfileIds` first. The second gives every active handoff invitation a `profileId` — one created before its candidate was matched carries none, which would make the migration's liveness check blind to it. A legacy profile with no `publicSurfacingState` would otherwise be skipped while the publication migration's cursor advanced, and running the backfill afterwards cannot make a completed migration revisit it.
 
 Deploy-time migrations use `@convex-dev/migrations` and are run by `migrations:runAll` after production function deploys when `CONVEX_DEPLOY_KEY` is configured.
 
@@ -232,6 +349,11 @@ Deploy-time migrations use `@convex-dev/migrations` and are run by `migrations:r
 - `profileOwners.by_userId_state`: account profile ownership lookup
 - `profileClaimRequests.by_profileId_state`: profile claim review lookup
 - `profileVerificationAttempts.by_state_expiresAt`: pending proof attempt expiry scans
+- `externalControlProofs.by_userId_assetType_assetExternalId`: one user's proof for a given asset, in any state
+- `externalControlProofs.by_assetType_assetExternalId_state`: who currently proves control of an asset
+- `externalControlProofs.by_state_revalidateAfter`: revalidation sweeps
+- `profileExternalLinks.by_profileId_assetType_state`: a profile's active connections, primary first
+- `profileExternalLinks.by_assetType_assetExternalId_state`: which profiles an asset backs
 
 ## Implementation Boundaries
 

@@ -6,6 +6,7 @@ import type { QueryCtx } from "../../convex/_generated/server";
 import {
   projectPublicSearchResult,
   publicSearchLookupAvatarUrl,
+  publicSearchLookupUsesLogo,
   searchPublicDocuments,
 } from "../../convex/_publicSearch";
 import { toProfileLookupResult } from "../../convex/_profileLookup";
@@ -17,7 +18,88 @@ import {
   sortSearchResults,
   toPublicSearchResult,
 } from "../../convex/_searchDocuments";
-import { createVocabularyKey, collectVocabularyKeys, SEEDED_VOCABULARY_TERMS } from "../../convex/_vocabulary";
+import {
+  createVocabularyKey,
+  collectVocabularyKeys,
+  recordVocabularyTerms,
+  releaseVocabularyTerms,
+  SEEDED_VOCABULARY_TERMS,
+} from "../../convex/_vocabulary";
+
+function createVocabularyDb(rows: Array<Record<string, unknown>>) {
+  const db = {
+    query(table: string) {
+      assert.equal(table, "vocabularyTerms");
+
+      return {
+        withIndex(_index: string, builder: (query: unknown) => unknown) {
+          const values: Record<string, unknown> = {};
+          const query = {
+            eq(field: string, value: unknown) {
+              values[field] = value;
+              return query;
+            },
+          };
+
+          builder(query);
+
+          return {
+            async unique() {
+              return (
+                rows.find((row) =>
+                  Object.entries(values).every(([field, value]) => row[field] === value),
+                ) ?? null
+              );
+            },
+          };
+        },
+      };
+    },
+    async patch(id: string, patch: Record<string, unknown>) {
+      Object.assign(rows.find((row) => row._id === id) as Record<string, unknown>, patch);
+    },
+    async insert(_table: string, row: Record<string, unknown>) {
+      rows.push({ ...row, _id: `term${rows.length}` });
+    },
+  };
+
+  return { db, rows };
+}
+
+describe("vocabulary usage counts", () => {
+  // Distinct labels can canonicalize to one key, but the search document stores that
+  // key once. Counting per label would inflate the term, and a later release of the
+  // same profile would then erase another profile's contribution.
+  const colliding = [
+    { scope: "profile_tag" as const, label: "Drum & Bass" },
+    { scope: "profile_tag" as const, label: "Drum and Bass" },
+  ];
+
+  it("counts colliding labels once when recording", async () => {
+    const store = createVocabularyDb([]);
+
+    await recordVocabularyTerms(store.db as never, colliding, 5);
+
+    assert.equal(store.rows.length, 1);
+    assert.equal(store.rows[0].key, createVocabularyKey("Drum & Bass"));
+    assert.equal(store.rows[0].usageCount, 1);
+  });
+
+  it("releases colliding labels once", async () => {
+    const store = createVocabularyDb([
+      {
+        _id: "term0",
+        scope: "profile_tag",
+        key: createVocabularyKey("Drum & Bass"),
+        usageCount: 2,
+      },
+    ]);
+
+    await releaseVocabularyTerms(store.db as never, colliding, 5);
+
+    assert.equal(store.rows[0].usageCount, 1);
+  });
+});
 
 describe("vocabulary normalization", () => {
   it("normalizes obvious duplicate terms into stable keys", () => {
@@ -342,6 +424,56 @@ describe("search document projection", () => {
     assert.equal(await projectPublicSearchResult(ctx, document, "BASICBIT"), null);
   });
 
+  it("projects profile verification without exposing it as provenance copy", async () => {
+    const profile = {
+      _id: "profile123",
+      slug: "basicbit",
+      displayName: "BASICBIT",
+      aliases: [],
+      tags: [],
+      genres: [],
+      outboundLinks: [],
+      claimState: "claimed_verified",
+      creationSource: "self",
+      publicationState: "published",
+      publicSurfacingState: "public",
+      profileType: "person",
+      person: { roleTags: [] },
+      updatedAt: 2,
+    } as unknown as Doc<"profiles">;
+    const document = {
+      entityType: "profile",
+      profileType: "person",
+      profileId: profile._id,
+      slug: profile.slug,
+      routePath: `/p/${profile.slug}`,
+      title: profile.displayName,
+      searchText: profile.displayName,
+      exactTokens: ["basicbit"],
+      vocabularyKeys: [],
+      trustRank: 40,
+      featuredRank: 0,
+      publicState: "public",
+      updatedAt: 1,
+    } as unknown as Doc<"searchDocuments">;
+    const queryBuilder = {
+      withIndex: () => queryBuilder,
+      collect: async () => [],
+      unique: async () => null,
+    };
+    const ctx = {
+      db: {
+        get: async () => profile,
+        query: () => queryBuilder,
+      },
+    } as unknown as QueryCtx;
+
+    const result = await projectPublicSearchResult(ctx, document, "BASICBIT");
+
+    assert.equal(result?.trustLabel, "claimed_verified");
+    assert.equal(result?.source, undefined);
+  });
+
   it("applies the result limit after dropping stale search documents", async () => {
     const hiddenProfile = {
       _id: "hiddenProfile",
@@ -505,13 +637,78 @@ describe("search document projection", () => {
     assert.equal(result?.avatarImageUrl, "/api/profile-assets/basicbit");
   });
 
-  it("keeps the configured compact-display image ahead of the profile-image fallback", () => {
+  it("preserves avatar appearance through public search and lookup projections", () => {
+    const avatarAppearance = {
+      borderEnabled: true,
+      borderColor: "#67e8f9",
+      borderWidthPx: 4,
+      borderSoftnessPx: 12,
+      radiusPercent: 18,
+    };
+    const profile = {
+      slug: "basicbit",
+      displayName: "BASICBIT",
+      aliases: [],
+      tags: [],
+      genres: [],
+      claimState: "claimed_verified",
+      creationSource: "self",
+      profileType: "person",
+      person: { roleTags: ["VRDJ"] },
+      outboundLinks: [],
+    } as unknown as Doc<"profiles">;
+    const document = {
+      entityType: "profile",
+      profileType: "person",
+      slug: "basicbit",
+      routePath: "/p/basicbit",
+      title: "BASICBIT",
+      searchText: "BASICBIT",
+      exactTokens: ["basicbit"],
+      vocabularyKeys: [],
+      trustRank: 40,
+      featuredRank: 40,
+      publicState: "public",
+      updatedAt: 1,
+    } as unknown as Doc<"searchDocuments">;
+    const mediaKit = {
+      additionalLogos: [],
+      assets: [],
+      avatarAppearance,
+      compactDisplay: "profile_image" as const,
+      galleryAssets: [],
+      logos: [],
+    };
+
+    assert.deepEqual(toPublicSearchResult(document, "", mediaKit).avatarAppearance, avatarAppearance);
+    assert.deepEqual(
+      toProfileLookupResult(profile, { avatarAppearance })?.avatarAppearance,
+      avatarAppearance,
+    );
     assert.equal(
-      publicSearchLookupAvatarUrl({
-        imageUrl: "/api/v0/profiles/basicbit/assets/compact-logo/file",
-        profileImageUrl: "/api/v0/profiles/basicbit/assets/profile-image/file",
-      }),
+      toProfileLookupResult(profile, { avatarImageKind: "profile" })?.avatarImageKind,
+      "profile",
+    );
+  });
+
+  it("keeps the configured compact-display image ahead of the profile-image fallback", () => {
+    const compactLogoResult = {
+      imageUrl: "/api/v0/profiles/basicbit/assets/compact-logo/file",
+      logoImageUrl: "/api/v0/profiles/basicbit/assets/compact-logo/file",
+      profileImageUrl: "/api/v0/profiles/basicbit/assets/profile-image/file",
+    };
+
+    assert.equal(
+      publicSearchLookupAvatarUrl(compactLogoResult),
       "/api/v0/profiles/basicbit/assets/compact-logo/file",
+    );
+    assert.equal(publicSearchLookupUsesLogo(compactLogoResult), true);
+    assert.equal(
+      publicSearchLookupUsesLogo({
+        ...compactLogoResult,
+        imageUrl: compactLogoResult.profileImageUrl,
+      }),
+      false,
     );
   });
 

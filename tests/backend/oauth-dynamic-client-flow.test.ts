@@ -7,6 +7,7 @@ import { OAUTH_CONSENT_TRANSACTION_TTL_MS } from "../../packages/api-contracts/s
 import { internal } from "../../convex/_generated/api";
 import schemaModule from "../../convex/schema";
 
+import { newClerkUserId } from "./_clerkTestIdentity";
 const modules = {
   "../../convex/_apiTokens.ts": () => import("../../convex/_apiTokens"),
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
@@ -104,7 +105,9 @@ describe("OAuth dynamic client authorization", () => {
     });
 
     const { transactionId, userId } = await t.run(async (ctx) => {
-      const userId = await ctx.db.insert("users", {});
+      const clerkUserId = newClerkUserId();
+      const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId,});
       const transactionId = await ctx.db.insert("oauthConsentTransactions", {
         transactionHash,
         userId,

@@ -11,15 +11,16 @@ Locked behavior:
 
 - Real source files stay outside the repository.
 - The operator must confirm permission to use the source before importing it.
-- Permissioned JSON imports receive `private_only` publication policy.
-- Imported candidates do not enter public profiles, search documents, public
-  APIs, or anonymous lookup.
+- Permissioned JSON imports receive `private_only` publication policy on import.
+- A `private_only` batch cannot publish. Its candidates stay out of public
+  profiles, search documents, public APIs, and anonymous lookup until an
+  operator explicitly relaxes the batch policy.
 - Operator review, source freshness, link reachability, and owner confirmation
   remain separate states.
 - PostHog flags never authorize private Convex reads.
 
-NWinn data uses this private-only path. It must not be converted directly into
-reviewed public unclaimed profiles.
+Publication is an explicit per-batch operator decision, never a default. See
+[Publication](#publication).
 
 ## Input Shape
 
@@ -80,12 +81,11 @@ pnpm ops:seed-import:json -- `
   --actor-issuer vrdex `
   --actor-subject seed-import `
   --actor-name "VRDex operator" `
-  --prod
+  --target prod
 ```
 
 The command prints counts only. It does not print source rows or field values.
-For a named development or preview deployment, replace `--prod` with
-`--deployment <deployment-name>`.
+For the shared development deployment, use `--target dev`.
 
 ## Review And Freshness
 
@@ -101,6 +101,294 @@ tools or review snapshot query:
 current or owner-verified. The field review mutation accepts `lastCheckedAt`
 only when an actual recheck occurred and rejects future timestamps.
 
+## Publication
+
+Publishing a private batch takes three deliberate steps. Each one re-checks the
+gates, so a policy change or a suppression request between steps stops the
+publish.
+
+All three mutations require an operator identity and reject a call with no `actor`
+and no browser session; `publishQueuedCandidate` records it as `publishedBy` on the
+candidate. `seedImports:bulkPublishBatch` enforces the same contract, so no path
+can publish as an unknown operator.
+
+1. **Relax the batch policy.** `seedImports:setBatchPublicationPolicy` moves a
+   batch from `private_only` to `reviewed_publication_allowed`. A `reviewNote`
+   is required and is recorded on the batch, because this is the record of the
+   operator asserting the source permits public listing.
+2. **Queue each candidate.** `seedImports:queueCandidatePublication` marks
+   intent and validates review state, slug, and suppression. It writes no
+   public data.
+3. **Publish.** `seedImports:publishQueuedCandidate` creates or promotes the
+   public unclaimed profile, indexes it for search and vocabulary, and records
+   `publishedProfileId` / `publishedAt` on the candidate.
+
+Publish behavior worth knowing:
+
+- An `unreviewed` field **blocks** the candidate with `field_unreviewed` rather
+  than being skipped, at both the queue and publish gates. Every field must be
+  reviewed before that candidate can publish; use `--accept-fields` for a trusted
+  source. `rejected` fields alone are simply not copied.
+- Only `accepted` fields are copied onto the profile.
+- Each copied field keeps its reviewed `visibility`. Publication uses the shared
+  seed field mapper in `reviewed` mode; the concierge handoff path uses the same
+  mapper in `private` mode, which forces every field private. Publishing with the
+  concierge default would produce a profile with nothing visible on it.
+- Merging into an existing profile only applies accepted seed fields. Fields the
+  candidate never proposed are left untouched, and the profile's original
+  `publishedAt` is preserved.
+- An accepted suppression request blocks publication whether it was filed by
+  profile id, by slug, or as a pre-claim `displayName` + `profileType` request
+  with no slug at all.
+- A person candidate matched to a community profile is blocked with
+  `matched_profile_type_mismatch` rather than attempting a cross-type write.
+- An invalid `proposedSlug` blocks only the create path. A merge keeps the matched
+  profile's slug and never allocates from the proposal, and there is no mutation for
+  correcting a proposed slug, so blocking would strand a valid explicit match.
+- A candidate whose proposed display name falls outside the public bounds (2-80
+  characters) is blocked with `display_name_outside_public_limits`, but only when
+  creating a new profile; a merge preserves the matched profile's own name. Seed
+  normalization allows up to 160 and no minimum.
+- Accepted fields are run through the publication mapper's own normalization at the
+  gate, so an unsupported key or a malformed value (an `aliases` string instead of
+  an array, a link with no label) is reported as `unsafe_public_field` rather than
+  throwing mid-page and rolling back every candidate in it.
+- A candidate with a live concierge handoff invitation is blocked with
+  `live_handoff_invitation_blocks_publication`, checked both by candidate and by
+  matched profile — several candidates can point at the same prepared profile, so
+  publishing one would expose another's private handoff destination. Publishing while someone holds a
+  private review link would break the promise that link was sent under, and
+  queueing would invalidate the link. Revoke the invitation first with
+  `seedHandoffs:revokeInvitation` if publication is genuinely intended.
+  `seedImports:matchCandidateToProfile` is frozen for the same reason: an
+  invitation created before a match carries no `profileId`, so repointing the
+  candidate afterwards would hide it from the profile-based check.
+- Accepted fields are also checked against the public profile bounds the rest of
+  the app enforces (8 aliases of 60 characters, a 600-character bio, and so on).
+  Private seed staging is deliberately more permissive so a source can be captured
+  verbatim, so an oversized field is reported as
+  `field_exceeds_public_profile_limits` rather than written to a public profile.
+- Slug collision is checked on the derived base slug as well as an explicit
+  `proposedSlug`, but **only when creating a new profile**. A candidate whose name
+  normalizes onto an existing profile is blocked with
+  `slug_collision_blocks_publication` rather than silently getting a suffixed slug.
+  Resolve it with `seedImports:matchCandidateToProfile`: a matched candidate merges
+  into the matched profile and keeps its slug, so the collision no longer applies.
+  Genuinely distinct people sharing a name surface here too and need the same
+  explicit decision.
+- Published profiles carry no `sourceAttribution`. That field makes the public
+  serializer render a profile as `Community submitted`, which would be false
+  provenance for an operator import; `creationSource: "import"` records the real
+  origin.
+- A batch with no explicit `publicationPolicy` fails closed and is treated as
+  `private_only`. Legacy batches need step 1 before they can publish.
+- A relaxed policy alone is not authorization. Both gates also require a non-empty
+  `publicationAuthorizations` history and report `publication_not_authorized`
+  otherwise, so a legacy or fixture batch that already carries
+  `reviewed_publication_allowed` still has to go through step 1 to record *why*
+  publication was permitted.
+- Merging into an existing profile records only the vocabulary that merge actually
+  introduced. `recordVocabularyTerms` increments unconditionally, so replaying the
+  whole profile's vocabulary would inflate counts for terms nothing changed, and
+  several candidates matched to one profile would compound it.
+- Person candidates only. Community candidates return
+  `candidate_profile_type_unsupported` and are skipped rather than
+  half-published.
+- Re-running publish on an already-published candidate returns the existing
+  profile instead of creating a duplicate. Review state is immutable once a
+  candidate has published: `setCandidateReviewState` and
+  `setCandidateFieldReviewState` both reject a published candidate, because
+  re-running publication cannot retract data that is already public. Withdraw it
+  through [Suppression Requests](#suppression-requests) instead.
+- Publishing a profile also schedules a rebuild of any world crediting it, since
+  those worlds hid the attribution while the profile was not publicly readable.
+- An accepted `profileSuppressionRequests` row blocks publication. See
+  [Suppression Requests](#suppression-requests) for how a request is accepted.
+- Restoring `private_only` blocks future publication but does not retract
+  profiles already published from the batch. Retract those with
+  `suppressions:resolveProfileSuppression`.
+
+Ineligible candidates return `published: false` with a blocker list rather than
+throwing, so a bulk run can skip and continue.
+
+### Bulk Publishing A Batch
+
+Doing the three steps by hand is one call per candidate per field, which is not
+practical for a few hundred people. `pnpm ops:seed-publish` drives the whole
+batch.
+
+Preview first. Without `--apply` it writes nothing and prints counts only, so it
+is safe to run against production:
+
+```powershell
+pnpm ops:seed-publish -- --batch-id nwinn_2026_07_10_001 --target prod
+```
+
+Then publish:
+
+```powershell
+pnpm ops:seed-publish -- `
+  --batch-id nwinn_2026_07_10_001 `
+  --actor-token operator:vrdex `
+  --actor-issuer vrdex `
+  --actor-subject seed-publish `
+  --actor-name "VRDex operator" `
+  --reason "Source confirmed public listing is permitted." `
+  --accept-fields `
+  --limit 25 `
+  --apply `
+  --target prod
+```
+
+- `--reason` is required and is recorded on the batch in
+  `publicationAuthorizations`, an append-only list recording **both** directions —
+  each authorization and each revocation, with its `policy`, reason, actor, and
+  timestamp — so a batch revoked and later reauthorized keeps the full history.
+  Repeating either call with the same reason is a no-op rather than a second entry.
+  A `reviewNote` is required in **both** directions, so a revocation always leaves a
+  record rather than ending the history on the authorization it reversed. It is the durable record of the
+  operator asserting the source permits public listing. The reason is also appended
+  to `notes`, but `notes` is a mutable review buffer and is not the record of
+  authorization.
+- `--accept-fields` is the trusted-source shortcut. It accepts candidates and
+  fields still marked `unreviewed`; `rejected` and `needs_correction` are always
+  left alone, so trusting a source never undoes a review decision. Without this
+  flag every field must already be reviewed or the candidate is skipped with
+  `field_unreviewed`.
+- `--limit` is the page size, not a cap, and is clamped to 10. `--accept-fields`
+  patches every field of every candidate in a page and both gates rescan them, all
+  in one Convex transaction, so pages stay small. The script pages with a cursor
+  until the batch is drained and prints running progress. Cursor paging matters: a
+  permanently blocked candidate never receives a `publishedProfileId`, so
+  offset-style paging would re-read the same page forever.
+- Batches already marked `rejected` or `superseded` are refused. Those are review
+  decisions; move them with `seedImports:setBatchReviewState` first if that is
+  genuinely intended.
+- Restoring `private_only` or un-approving the batch mid-run is a working kill
+  switch. Prerequisites are relaxed only on the first page, so a later page stops
+  and returns `haltedByPolicyChange` instead of re-enabling publication. A batch
+  that was authorized and then restored to `private_only` also refuses to
+  auto-relax on a *new* run, so a timed-out first-page retry cannot undo the
+  revocation; reauthorize explicitly with `setBatchPublicationPolicy`. Moving an
+  authorized batch out of `approved` is refused the same way and needs an explicit
+  `setBatchReviewState`, since either rollback is a deliberate stop.
+- Candidates already queued through the manual workflow proceed straight to
+  publish rather than being skipped as `candidate_already_queued_for_publication`.
+- Re-running is safe. Already-published candidates are excluded by
+  `publishedProfileId`, so an interrupted run resumes, and a retry of the same
+  authorization does not append a duplicate record.
+- Re-importing the exact same permissioned payload stays idempotent after a batch
+  has been authorized. Adding *new* candidates to a batch that has **ever** been
+  authorized is rejected, including one since revoked to `private_only`: a later
+  reauthorization would otherwise publish them under authorization records that
+  never described them. Import additions as a new batch.
+- Preview reads are bounded: candidate rows are capped at 2,000 and field stats
+  are sampled from the first 50 candidates, because field stats need one query per
+  candidate. The preview reports when either is truncated. Publication itself is
+  unaffected — it pages over the whole batch.
+- The final report tallies skipped candidates by blocker and lists their
+  external candidate ids, so a partial success is actionable rather than silent.
+
+`--accept-fields` bypasses per-field human review by design. It is appropriate
+for a source whose data quality is trusted, and it is the operator's call, not a
+default.
+
+## Suppression Requests
+
+`suppressions:requestProfileSuppression` is public and records a `submitted`
+request. It changes nothing on its own.
+
+`suppressions:resolveProfileSuppression` is the operator side. Accepting a
+request sets every matching profile to `publicSurfacingState: "opted_out"`,
+records a `suppression_accepted` audit event, and reindexes the profile so it
+drops out of search results. This is both the retraction path for an
+already-public profile and what makes the accepted-suppression publication guard
+reachable.
+
+```powershell
+pnpm cx -- prod run suppressions:resolveProfileSuppression `
+  '{"requestId":"<request-id>","state":"accepted","resolutionNote":"Handled over DM.","actor":{"tokenIdentifier":"operator:vrdex","issuer":"vrdex","subject":"suppression-review","displayName":"VRDex operator"}}'
+```
+
+Notes:
+
+- `state` accepts `under_review`, `accepted`, or `rejected`. Only `accepted`
+  changes a profile, and **acceptance is terminal**: an accepted request cannot be
+  moved back to `under_review` or `rejected`, because that would drop it from the
+  publication guard without restoring profiles already retracted. Reversing a
+  retraction is a deliberate re-publication.
+- Identity is re-resolved **at acceptance time**, not at request time: profile id,
+  then slug, then display name and profile type. A pre-claim request filed before
+  its profile existed therefore still retracts a profile that was published in
+  between, and acceptance can affect more than one profile.
+- The mutation returns `{ requestId, state, retractionScheduled }`. It does not
+  return retracted profile ids, because retraction runs asynchronously. Observe
+  completion through the profiles' `publicSurfacingState` or their
+  `suppression_accepted` rows in `profileAuditEvents`.
+- A slug match is only trusted when the request's stored display name and profile
+  type agree with it, since a slug recorded before any profile held it can be
+  acquired by someone else in the meantime.
+- If nothing matches, the request is still recorded as accepted, which blocks
+  future publication for that name and profile type. Every path that can put an
+  identity in front of the public shares one guard, `assertIdentityNotSuppressed`:
+  `profiles:submitCommunityProfile`, Discord claim creation in
+  `_profileClaimCreation`, and display-name changes through
+  `profiles:updateProfileForApiOwner`. Creating a profile is not the only way to
+  surface one — renaming does it without creating anything — so the check belongs
+  with the act of surfacing. `surfacedProfileNames` decides what counts: the
+  display name, `aliases` when `fieldVisibility.aliases` is not `private`, and
+  `searchAliases` always, since `createProfileSearchDocument` indexes those into
+  `searchText` and `exactTokens` regardless. A private alias is omitted by both the
+  public projection and the search document, so treating it as a surfaced identity
+  would retract an unrelated profile over data nobody can see. Otherwise --
+  submission, claim creation, API updates including alias-only ones, both seed
+  gates, the publication migration, and retraction target resolution -- since a
+  write could otherwise carry an unrelated display name and put the suppressed one
+  in `aliases`, which the public projection exposes and search indexes. A
+  rename evaluates only the *proposed* identity, so an already-retracted profile
+  can still be renamed to something unrelated while it stays hidden. Seed
+  publication deliberately reports a blocker instead of throwing, so a bulk page
+  can skip one candidate and continue. Both throwing paths raise structured errors
+  carrying `IDENTITY_SUPPRESSED`, because Convex redacts plain error messages on
+  production deployments — a plain `Error` would reach the browser as a generic
+  failure and tell someone to retry a permanent rejection.
+- Accepting sets `opted_out`, not `suppressed`. `suppressed` stays reserved for
+  moderation action rather than a request someone made about themselves, and an
+  already-`suppressed` profile keeps that state.
+- Acceptance itself only writes the request: `state`, `resolutionNote`,
+  `resolvedBy`, and `resolvedAt`. The actual profile retraction and the world
+  search rebuild are scheduled and paged. That ordering is deliberate — acceptance
+  already blocks new publication through the suppression guard, so it must land
+  durably even if a common name resolves to many profiles or a profile is credited
+  on many worlds. An oversized transaction would otherwise roll the acceptance
+  back and leave everything public.
+- An operator identity is required. `resolveProfileSuppression` throws without
+  `actor` and no browser session, because a pre-claim request matching no profile
+  writes no audit event, and an accepted request must never block publication with
+  no record of who decided it. Re-accepting an already-accepted request is a no-op
+  rather than an error, so a retry after a timeout does not overwrite the original
+  resolver or duplicate audit rows.
+- Known limitation: events keep denormalized identity strings that survive
+  retraction. An event stores `communityName` directly, and both the event search
+  document and the public event page deliberately fall back to it when the linked
+  profile is not publicly readable; an `eventSlots` row likewise keeps a
+  `displayLabel` that is commonly the performer's exact name, still emitted by
+  `toPublicEvent` when the linked profile becomes unreadable. Retracting a profile
+  therefore does not remove its name from events it hosts or performs at.
+  Suppressing either needs a decision about what an event should display instead,
+  which is public copy and needs owner sign-off.
+- Seed publication reconciles `vocabularyTerms` in both directions: a merge records
+  terms it introduces and releases terms it removes, so replacing a visible tag no
+  longer leaves the old one inflated.
+- Retraction releases the profile's public vocabulary, and the world reindex
+  reconciles the before/after delta of each world's `vocabularyKeys`, so a creator
+  role that becomes visible is recorded and one that becomes hidden is released.
+  Deltas rather than replays, since `recordVocabularyTerms` only increments.
+- Known limitation: the vocabulary model is still not reference-counted, which is
+  why every release floors at zero — a shared term has no owner, so a stray release
+  must not corrupt it. Counts are reconciled along the paths this PR touches, not
+  globally.
+
 ## Lookup Grants
 
 The first grant for the operator is `super_admin`. Beta users receive only
@@ -110,7 +398,7 @@ superseded, while a super-admin can inspect unreviewed private staging records
 across import policies.
 
 ```powershell
-pnpm exec convex run --prod accountFeatureGrants:grant `
+pnpm cx -- prod run accountFeatureGrants:grant `
   '{"userId":"<convex-user-id>","feature":"view_private_seed_lookup","grantedBy":{"tokenIdentifier":"operator:vrdex","issuer":"vrdex","subject":"seed-access"}}'
 ```
 
@@ -133,11 +421,10 @@ pnpm ops:seed-handoff:create -- `
   --actor-subject concierge-handoff `
   --actor-name "VRDex operator" `
   --base-url https://vrdex.gg `
-  --prod
+  --target prod
 ```
 
-For a named development or preview deployment, replace `--prod` with
-`--deployment <deployment-name>`.
+For the shared development deployment, use `--target dev`.
 
 The script generates a 256-bit token and prints the link once. Convex stores
 only its SHA-256 hash. Invitations expire within 90 days, are revocable through

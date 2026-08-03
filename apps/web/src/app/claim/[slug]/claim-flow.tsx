@@ -4,27 +4,37 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { usePostHog } from "posthog-js/react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { BadgeCheck, Building2, ShieldCheck, UserRound } from "lucide-react";
+import { BadgeCheck, Building2, Link2, ShieldCheck, UserRound } from "lucide-react";
 
 import { api } from "@convex-generated-api";
 import type { Id } from "../../../../../../convex/_generated/dataModel";
 import { buttonVariants, Button } from "@/components/ui/button";
 import { CopyValueRow } from "@/components/ui/copy-value-row";
-import { EntityImage } from "@/components/ui/entity-image";
-import { Field, FieldText, Input } from "@/components/ui/field";
+import { ProfileAvatarImage } from "@/components/ui/profile-avatar-image";
+import { Field, FieldText, Input, Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
-import { captureProductEvent } from "@/lib/posthog";
+import type { AvatarAppearance } from "@/lib/avatar-appearance";
+import { captureProductEvent, type ClaimAnalyticsMethod } from "@/lib/posthog";
+import { claimErrorMessage, claimFailureOutcome } from "@/lib/claim-errors";
 import { cn } from "@/lib/cn";
 import {
   ownerProfileDestinationPath,
   profileClaimPath,
   type ClaimEntrySource,
+  type DiscordVerifyStatus,
 } from "@/lib/profile-claim";
 
 type ProfileType = "person" | "community";
-type ClaimMethod = "discord" | "vrchat";
+/**
+ * `vrclinking` is person-only: it attests that the claimant's Discord identity
+ * is linked to the VRChat account being claimed, which is a statement about a
+ * person rather than about a community. `requireCompatibleProofTarget` enforces
+ * the same rule server-side.
+ */
+type ClaimMethod = "discord" | "vrchat" | "vrclinking";
 type ClaimProfile = {
   avatarImageUrl?: string;
+  avatarAppearance?: AvatarAppearance;
   displayName: string;
   hasPublicProfile: boolean;
   profileId?: string;
@@ -38,31 +48,11 @@ type Status =
   | { kind: "error"; message: string }
   | { kind: "complete"; message: string; verified: boolean };
 
-function errorMessage(error: unknown): string {
-  const value = error instanceof Error ? error.message : String(error);
-  const known = [
-    "A verified email address is required before claim-level actions.",
-    "A linked Discord account is required for this claim method.",
-    "This profile already has an active owner.",
-    "This community profile already has an active owner.",
-    "Enter a valid Discord server id.",
-    "Enter a valid VRChat group URL or id.",
-    "Enter a valid VRChat profile URL or user id.",
-    "Verification attempt has expired.",
-  ];
-
-  return known.find((message) => value.includes(message)) ??
-    "We could not complete that check. Nothing changed; try again or choose another method.";
-}
-
-function outcomeForError(error: unknown): "conflict" | "expired" | "not_verified" | "unavailable" | "unknown" {
-  const value = error instanceof Error ? error.message : String(error);
-  if (value.includes("active owner")) return "conflict";
-  if (value.includes("expired")) return "expired";
-  if (value.includes("verified email")) return "not_verified";
-  if (value.includes("not configured") || value.includes("linked Discord")) return "unavailable";
-  return "unknown";
-}
+// Claim failures arrive as structured ConvexError codes; matching on message
+// text no longer works because Convex redacts plain Error messages in
+// production. See apps/web/src/lib/claim-errors.ts.
+const errorMessage = claimErrorMessage;
+const outcomeForError = claimFailureOutcome;
 
 function MethodCard({
   active,
@@ -97,18 +87,33 @@ function MethodCard({
   );
 }
 
+const CONTROL_LEVEL_LABELS: Record<string, string> = {
+  owner: "Owner",
+  administrator: "Administrator",
+  manager: "Manage Server",
+  self: "You",
+};
+
 export function ClaimFlow({
+  discordVerify = null,
   previewContext,
   profile,
   source,
 }: {
+  discordVerify?: DiscordVerifyStatus;
   previewContext?: {
     emailVerified: boolean;
     hasDiscord: boolean;
+    vrclinkingConfigured?: boolean;
     ownership: "available" | "viewer" | "other";
     verified: boolean;
     pendingClaimRequest: null;
     pendingProof: null;
+    lastVerifiedProof?: {
+      at: number;
+      connectionOnly: boolean;
+      targetType: "vrclinking" | "vrchat_user" | "vrchat_group";
+    } | null;
   };
   profile: ClaimProfile;
   source: ClaimEntrySource;
@@ -118,8 +123,14 @@ export function ClaimFlow({
     previewContext ? "skip" : { profileSlug: profile.slug },
   );
   const context = previewContext ?? queriedContext;
+  const manageableGuilds = useQuery(
+    api.discordVerification.getManageableGuilds,
+    previewContext ? "skip" : {},
+  );
   const claimPerson = useMutation(api.profileClaims.claimExistingPersonWithDiscord);
-  const requestCommunityClaim = useMutation(api.profileClaims.requestCommunityDiscordAdminClaim);
+  const claimWithVerifiedGuild = useMutation(
+    api.profileConnections.claimCommunityWithVerifiedGuild,
+  );
   const startVrchatProof = useMutation(api.profileClaims.startVrchatProof);
   const cancelPending = useMutation(api.profileClaims.cancelClaimJourneyPending);
   const verifyDiscord = useAction(api.profileClaims.verifyDiscordCommunityAdminClaim);
@@ -127,7 +138,7 @@ export function ClaimFlow({
   const posthog = usePostHog();
   const [selectedMethod, setMethod] = useState<ClaimMethod | null>(
     previewContext
-      ? previewContext.hasDiscord && profile.profileType === "community"
+      ? profile.profileType === "community"
         ? "discord"
         : "vrchat"
       : null,
@@ -135,6 +146,40 @@ export function ClaimFlow({
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const statusRef = useRef<HTMLDivElement>(null);
   const completionRef = useRef<HTMLDivElement>(null);
+  // A claim can complete without any handler running: the collector resolves a
+  // VRChat attempt on its own schedule and the reactive context updates under a
+  // user who never clicks again. Tracking completion only in the click handlers
+  // therefore dropped the successful claims on the default production path.
+  // `undefined` means no snapshot has been observed yet, which is a different
+  // thing from `null` ("observed, and this account has no verified proof").
+  // Collapsing the two suppressed the announcement for the case that matters
+  // most: an account whose *first* collector proof resolves goes null → stamp.
+  const [seenVerifiedProofAt, setSeenVerifiedProofAt] = useState<number | null | undefined>(
+    undefined,
+  );
+  const [collectorCompletion, setCollectorCompletion] = useState<
+    { verified: boolean; connectionOnly: boolean; method: ClaimAnalyticsMethod } | null
+  >(null);
+  // Only the person quick-claim needs Discord as a linked sign-in provider.
+  // The community path claims against a control proof recorded by the
+  // purpose-scoped OAuth round-trip, which a Google or email/password account
+  // can complete just as well — gating it on `hasDiscord` let such a user
+  // verify a server, see it in the picker, and then be unable to submit.
+  const discordNeedsLinkedAccount = profile.profileType === "person";
+  const discordMethodBlocked = discordNeedsLinkedAccount && !context?.hasDiscord;
+  // VRCLinking answers from the claimant's Discord identity, so a linked
+  // Discord account is not optional here the way it is for the community path.
+  const vrclinkingMethodBlocked = !context?.hasDiscord;
+  // Hidden, not disabled, where the deployment has no adapter: a disabled card
+  // reads as "you are missing something" when the answer is that this
+  // environment cannot consult VRCLinking at all.
+  const vrclinkingAvailable =
+    profile.profileType === "person" && context?.vrclinkingConfigured === true;
+  const verifiedGuilds = manageableGuilds ?? [];
+  const discordVerifyState = discordVerify;
+  const discordVerifyHref = `/api/discord/verify/start?returnTo=${encodeURIComponent(
+    profileClaimPath(profile.slug, source),
+  )}`;
   const publicProfilePath = `/${profile.profileType === "community" ? "c" : "p"}/${profile.slug}`;
   const backPath = ownerProfileDestinationPath(profile, "/account");
   const appearancePath = profile.profileId
@@ -142,10 +187,27 @@ export function ClaimFlow({
     : "/account/appearance";
   const completionPath = ownerProfileDestinationPath(profile, appearancePath);
   const isUnverifiedViewer = context?.ownership === "viewer" && !context.verified;
-  const canUseClaimJourney = context?.ownership === "available" || isUnverifiedViewer;
+  // A verified owner still needs this journey: it is the only surface that
+  // creates a control proof, and `/account/connections` sends them here to make
+  // one for a second VRChat group or account. Excluding them left that
+  // instruction pointing at a page that rendered nothing but "already managed".
+  const isVerifiedViewer = context?.ownership === "viewer" && context.verified;
+  // The existing-owner upgrade branch renders VRChat and, when configured,
+  // VRCLinking — never the Discord quick-claim, which has nothing to offer
+  // someone who already owns the profile. The card grid below keys off the same
+  // condition, so it also decides whether a Discord affordance is reachable.
+  const isOwnerUpgradeBranch =
+    (isUnverifiedViewer || isVerifiedViewer) && profile.profileType === "person";
+  const canUseClaimJourney =
+    context?.ownership === "available" || isUnverifiedViewer || isVerifiedViewer;
+  // The OAuth round-trip remounts this component with no selection, so the
+  // fallback is what an owner returning from Discord verification lands on. An
+  // existing unverified owner picked Discord to get here; dropping them back on
+  // the VRChat proof hides the server picker they just verified a server for.
   const method: ClaimMethod =
     selectedMethod ??
-    (context?.hasDiscord && profile.profileType === "community" && context.ownership === "available"
+    (profile.profileType === "community" &&
+    (context?.ownership === "available" || discordVerify === "verified")
       ? "discord"
       : "vrchat");
 
@@ -161,9 +223,63 @@ export function ClaimFlow({
     if (status.kind === "complete") completionRef.current?.focus();
   }, [status]);
 
+  const observedContext = context ?? null;
+
+  // The backend reports the verification as a fact; this only notices that it
+  // is new. Inferring it from ownership, `verified`, and the pending row
+  // disappearing was wrong four different ways — see `lastVerifiedProof` in
+  // `getClaimJourneyContext`. Adjusting state during render is React's
+  // supported way to react to a changed query value; an effect would mean a
+  // synchronous setState and a cascading render.
+  // A loading or skipped query is not a snapshot. Reading it as "no verified
+  // proof" would make the first loaded value look like an advance and replay
+  // the announcement for a proof that completed before this page opened.
+  const verifiedProofAt =
+    observedContext === null ? undefined : (observedContext.lastVerifiedProof?.at ?? null);
+
+  if (verifiedProofAt !== seenVerifiedProofAt) {
+    const previous = seenVerifiedProofAt;
+
+    setSeenVerifiedProofAt(verifiedProofAt);
+
+    // Only an advance counts, and only one observed on this page: arriving at a
+    // profile whose proof completed earlier must not replay the announcement.
+    if (
+      previous !== undefined &&
+      verifiedProofAt !== undefined &&
+      verifiedProofAt !== null &&
+      (previous === null || verifiedProofAt > previous)
+    ) {
+      setCollectorCompletion({
+        verified: observedContext?.verified === true,
+        connectionOnly: observedContext?.lastVerifiedProof?.connectionOnly === true,
+        method:
+          observedContext?.lastVerifiedProof?.targetType === "vrclinking" ? "vrclinking" : "vrchat",
+      });
+    }
+  }
+
+  useEffect(() => {
+    if (collectorCompletion === null || collectorCompletion.connectionOnly) {
+      // A connection-only proof changed no ownership, so counting it as a
+      // completed claim would inflate the funnel with connection additions.
+      return;
+    }
+
+    captureProductEvent(posthog, "claim_completed", {
+      method: collectorCompletion.method,
+      outcome: collectorCompletion.verified ? "claimed_verified" : "claimed_unverified",
+      profile_type: profile.profileType,
+    });
+  }, [collectorCompletion, posthog, profile.profileType]);
+
   function selectMethod(nextMethod: ClaimMethod) {
     setMethod(nextMethod);
     setStatus({ kind: "idle" });
+    // The form stays mounted after a collector-resolved completion, so without
+    // this the latch from the first proof rejects every later transition: a
+    // second proof would keep showing the first result and emit no event.
+    setCollectorCompletion(null);
     captureProductEvent(posthog, "claim_method_selected", {
       method: nextMethod,
       profile_type: profile.profileType,
@@ -177,12 +293,32 @@ export function ClaimFlow({
       method,
       profile_type: profile.profileType,
     });
+    setCollectorCompletion(null);
     setStatus({
       kind: "working",
-      message: method === "vrchat" ? "Creating your proof code…" : "Checking Discord access…",
+      message:
+        method === "vrchat"
+          ? "Creating your proof code…"
+          : method === "vrclinking"
+            ? "Asking VRCLinking…"
+            : "Checking Discord access…",
     });
 
     try {
+      // No code to post: the answer comes from a community's delegated key, so
+      // the attempt is opened and consulted in one step rather than handing the
+      // claimant something to go and do.
+      if (method === "vrclinking") {
+        const started = await startVrchatProof({
+          profileSlug: profile.slug,
+          targetType: "vrclinking",
+          targetExternalId: String(form.get("targetExternalId") ?? ""),
+        });
+
+        await checkProof(started.attemptId, "vrclinking");
+        return;
+      }
+
       if (method === "vrchat") {
         await startVrchatProof({
           profileSlug: profile.slug,
@@ -201,7 +337,7 @@ export function ClaimFlow({
           message: alreadyOwned ? "This profile is already yours." : "Profile claimed. You can manage it now.",
           verified: false,
         });
-        captureProductEvent(posthog, "claim_completed", {
+      captureProductEvent(posthog, "claim_completed", {
           method,
           outcome: alreadyOwned ? "already_owned" : "claimed_unverified",
           profile_type: profile.profileType,
@@ -209,24 +345,38 @@ export function ClaimFlow({
         return;
       }
 
-      const result = await requestCommunityClaim({
+      // Control was already proved during the Discord OAuth round-trip, so
+      // claiming is a single step: pair the existing proof with this profile.
+      const result = await claimWithVerifiedGuild({
         profileSlug: profile.slug,
-        discordGuildId: String(form.get("discordGuildId") ?? ""),
+        guildId: String(form.get("discordGuildId") ?? ""),
       });
-      if (result.state === "already_owned") {
-        setStatus({
-          kind: "complete",
-          message: "This community is already yours.",
-          verified: true,
-        });
+      // Server control is proved either way. Whether it verifies *this listing*
+      // depends on the server already being on record for it, so report what the
+      // claim actually produced rather than assuming the stronger outcome.
+      const verified = result.claimState === "claimed_verified";
+      // A null claim request means the mutation attached the server and changed
+      // no ownership — this caller already owned the profile. Counting that as a
+      // completed claim inflates the funnel with connection additions.
+      const connectionOnly = result.claimRequestId === null;
+
+      setStatus({
+        kind: "complete",
+        message: connectionOnly
+          ? "Server control verified. That server is now connected to this profile."
+          : verified
+            ? "Server control verified. This community is now yours."
+            : "Server control verified, and this community is now yours. The listing is not marked verified, which needs VRDex to have this server on record for it — contact support if it should be.",
+        verified,
+      });
+
+      if (!connectionOnly) {
         captureProductEvent(posthog, "claim_completed", {
           method,
-          outcome: "already_owned",
+          outcome: verified ? "claimed_verified" : "claimed_unverified",
           profile_type: profile.profileType,
         });
-        return;
       }
-      setStatus({ kind: "notice", message: "Discord check ready. Finish the permission check below." });
     } catch (error) {
       setStatus({ kind: "error", message: errorMessage(error) });
       captureProductEvent(posthog, "claim_failed", {
@@ -237,15 +387,86 @@ export function ClaimFlow({
     }
   }
 
-  async function checkProof(attemptId: Id<"profileVerificationAttempts">) {
-    setStatus({ kind: "working", message: "Checking for your proof code…" });
+  // `proofMethod`, not the `method` state: this runs from the pending panel
+  // after a reload, where nothing has been selected, and it settles the same
+  // journey whose selected/submitted events already carry a method. Reporting
+  // every terminal event as `vrchat` split each VRCLinking journey across two
+  // methods and made method-level funnels wrong for both.
+  async function checkProof(
+    attemptId: Id<"profileVerificationAttempts">,
+    proofMethod: ClaimAnalyticsMethod = "vrchat",
+  ) {
+    const viaVrclinking = proofMethod === "vrclinking";
+
+    setStatus({
+      kind: "working",
+      message: viaVrclinking ? "Asking VRCLinking…" : "Checking for your proof code…",
+    });
     try {
       const result = await verifyVrchat({ attemptId });
       if ("claimState" in result) {
-        setStatus({ kind: "complete", message: "Ownership verified. This profile is now yours.", verified: true });
-        captureProductEvent(posthog, "claim_completed", {
-          method: "vrchat",
-          outcome: "claimed_verified",
+        // Proving control of the target does not by itself establish that the
+        // target is the one this listing represents, so report the state the
+        // claim actually reached.
+        const verified = result.claimState === "claimed_verified";
+        // The backend classifies a proof that changed no ownership — an existing
+        // owner proving another account or group — as connection-only. Reading
+        // it as a fresh claim announced ownership the profile never changed
+        // hands over, and counted a connection addition in the claim funnel.
+        const connectionOnly = result.connectionOnly === true;
+
+        setStatus({
+          kind: "complete",
+          message: connectionOnly
+            ? "Control verified. That account is now connected to this profile."
+            : verified
+              ? "Ownership verified. This profile is now yours."
+              : "Ownership confirmed, and this profile is now yours. It is not marked verified yet, because this account or group was not already on record for the listing.",
+          verified,
+        });
+        // No `claim_completed` here. This same verification advances
+        // `lastVerifiedProof`, so the observer below emits it — from the
+        // backend's own classification, and for background collector
+        // resolutions too. Emitting in both places counted every
+        // adapter-resolved claim twice, and PostHog has no dedupe key to
+        // collapse them.
+      } else if (result.state === "verified") {
+        // The collector fleet resolves attempts on its own schedule, so it may
+        // have landed the verdict between render and this click. Reporting the
+        // stale "we could not find the code yet" for an attempt that already
+        // succeeded told users their completed claim had failed.
+        //
+        // Deliberately no `complete` status here: the action returns only the
+        // attempt state, so this branch cannot tell a verified listing from one
+        // the backend left `claimed_unverified`, and a `complete` status takes
+        // precedence over the observer that does know. Clear the working state
+        // and let `lastVerifiedProof` report the real outcome.
+        setStatus({ kind: "idle" });
+      } else if (result.state === "failed") {
+        // A lost ownership race and a listing that stopped being claimable both
+        // settle as `failed`, and neither is a negative attestation — the match
+        // may have been found and the listing simply moved underneath it.
+        // Reporting them as "no server confirmed your account" blamed the
+        // claimant's linkage for something it had nothing to do with.
+        const raced =
+          "reason" in result && (result.reason === "already_owned" || result.reason === "not_claimable");
+
+        setStatus({
+          kind: "error",
+          message: raced
+            ? result.reason === "already_owned"
+              ? "This profile already has an active owner."
+              : "This listing is no longer available to claim."
+            : viaVrclinking
+              ? "No linked server confirmed that VRChat account for you. Start again to try another method."
+              : "This verification attempt was rejected. Start again to get a new code.",
+        });
+        captureProductEvent(posthog, "claim_failed", {
+          method: proofMethod,
+          // A lost race is a conflict, not a failed attestation. Counting it as
+          // `not_verified` would read as VRCLinking rejecting claimants it
+          // never actually rejected.
+          outcome: raced ? "conflict" : "not_verified",
           profile_type: profile.profileType,
         });
       } else {
@@ -255,17 +476,32 @@ export function ClaimFlow({
             : result.state === "unavailable"
               ? "unavailable"
               : null;
-        setStatus({
-          kind: "error",
-          message: result.state === "expired"
-            ? "This proof code expired. Start again to get a new code."
-            : result.state === "unavailable"
-              ? "VRChat verification is temporarily unavailable. Your proof is still pending; try again shortly."
-            : "We could not find the proof code yet. Check where you placed it, then try again.",
-        });
+        // `queued` means nothing was checked just now — VRDex reads VRChat on
+        // its own schedule — so telling the user to go re-check where they put
+        // the code would be wrong.
+        setStatus(
+          result.state === "queued"
+            ? {
+                kind: "notice",
+                message:
+                  "Your proof is queued. VRDex checks VRChat for the code automatically; this page updates once it is found.",
+              }
+            : {
+                kind: "error",
+                message: result.state === "expired"
+                  ? "This proof code expired. Start again to get a new code."
+                  : result.state === "unavailable"
+                    ? viaVrclinking
+                      ? "VRCLinking could not be reached. Your attempt is still pending; try again shortly."
+                      : "VRChat verification is temporarily unavailable. Your proof is still pending; try again shortly."
+                    : viaVrclinking
+                      ? "No linked server has confirmed that VRChat account yet. Try again shortly, or use another method."
+                      : "We could not find the proof code yet. Check where you placed it, then try again.",
+              },
+        );
         if (outcome !== null) {
           captureProductEvent(posthog, "claim_failed", {
-            method: "vrchat",
+            method: proofMethod,
             outcome,
             profile_type: profile.profileType,
           });
@@ -274,7 +510,7 @@ export function ClaimFlow({
     } catch (error) {
       setStatus({ kind: "error", message: errorMessage(error) });
       captureProductEvent(posthog, "claim_failed", {
-        method: "vrchat",
+        method: proofMethod,
         outcome: outcomeForError(error),
         profile_type: profile.profileType,
       });
@@ -286,16 +522,28 @@ export function ClaimFlow({
     try {
       const result = await verifyDiscord({ claimRequestId: requestId });
       if ("claimState" in result) {
-        setStatus({ kind: "complete", message: "Administrator access verified. This community is now yours.", verified: true });
-        captureProductEvent(posthog, "claim_completed", {
+        const verified = result.claimState === "claimed_verified";
+        setStatus({
+          kind: "complete",
+          message: verified
+            ? "Server control verified. This community is now yours."
+            : "Server control verified, and this community is now yours. The listing is not marked verified, which needs VRDex to have this server on record for it — contact support if it should be.",
+          verified,
+        });
+      captureProductEvent(posthog, "claim_completed", {
           method: "discord",
-          outcome: "claimed_verified",
+          outcome: verified ? "claimed_verified" : "claimed_unverified",
           profile_type: profile.profileType,
         });
       } else {
         setStatus({
           kind: "error",
-          message: "Administrator access was not found. Check the server and your role, then start again.",
+          message:
+            result.reason === "already_owned"
+              ? "Someone else claimed this community while the check was running."
+              : result.reason === "not_claimable"
+                ? "This listing is no longer available to claim."
+                : "Administrator access was not found. Check the server and your role, then start again.",
         });
         if (result.state === "rejected") {
           captureProductEvent(posthog, "claim_failed", {
@@ -316,9 +564,21 @@ export function ClaimFlow({
   }
 
   async function startOver(pendingType: "claim_request" | "proof") {
+    setCollectorCompletion(null);
     setStatus({ kind: "working", message: "Canceling this attempt…" });
     try {
-      await cancelPending({ profileSlug: profile.slug, pendingType });
+      const result = await cancelPending({ profileSlug: profile.slug, pendingType });
+
+      // Nothing was cancelled, so the collector resolved the proof between the
+      // click and this mutation. Say nothing and let the completion observer
+      // report the real outcome; "Attempt canceled" would assert something that
+      // did not happen.
+      if (!result.canceled) {
+        setStatus({ kind: "idle" });
+
+        return;
+      }
+
       setStatus({ kind: "notice", message: "Attempt canceled. Choose a method to start again." });
     } catch (error) {
       setStatus({ kind: "error", message: errorMessage(error) });
@@ -328,35 +588,59 @@ export function ClaimFlow({
   const vrchatMethodCard = (
     <MethodCard active={method === "vrchat"} title="Verify with VRChat" onClick={() => selectMethod("vrchat")}>
       <ShieldCheck aria-hidden="true" className="mb-2 size-5 text-accent" />
-      Match a one-time code on your VRChat {profile.profileType === "person" ? "profile" : "group"}. Grants verified ownership.
+      Match a one-time code on your VRChat {profile.profileType === "person" ? "profile" : "group"}. Grants ownership.
+    </MethodCard>
+  );
+  const vrclinkingMethodCard = (
+    <MethodCard
+      active={method === "vrclinking"}
+      disabled={vrclinkingMethodBlocked}
+      title="Use VRCLinking"
+      onClick={() => {
+        if (!vrclinkingMethodBlocked) selectMethod("vrclinking");
+      }}
+    >
+      <Link2 aria-hidden="true" className="mb-2 size-5 text-accent" />
+      Ask a community that already links your Discord and VRChat accounts, instead of posting a
+      code. Grants ownership.
+      {vrclinkingMethodBlocked ? " Verify your Discord account first." : ""}
     </MethodCard>
   );
   const discordMethodCard = (
     <MethodCard
       active={method === "discord"}
-      disabled={!context?.hasDiscord}
+      disabled={discordMethodBlocked}
       title={profile.profileType === "person" ? "Use linked Discord" : "Verify Discord admin"}
       onClick={() => {
-        if (context?.hasDiscord) selectMethod("discord");
+        if (!discordMethodBlocked) selectMethod("discord");
       }}
     >
       {profile.profileType === "person" ? <UserRound aria-hidden="true" className="mb-2 size-5 text-accent" /> : <Building2 aria-hidden="true" className="mb-2 size-5 text-accent" />}
       {profile.profileType === "person"
         ? "Fast access with your linked account. This claims the profile but does not verify that it represents you."
-        : "Confirm Administrator access in the community’s Discord server. Grants verified ownership."}
-      {!context?.hasDiscord ? " Link Discord from your account first." : ""}
+        : "Confirm you own, administer, or manage the community’s Discord server. Grants ownership."}
+      {discordMethodBlocked ? " Verify your Discord account first." : ""}
     </MethodCard>
   );
 
   return (
-    <div className="grid gap-8 py-4 sm:py-8 lg:grid-cols-[minmax(0,0.72fr)_minmax(0,1.28fr)] lg:gap-12">
+    // The whole page, not the claim section alone. A claim page carries the
+    // proof code, the target ids, and — for a draft, opted-out, or suppressed
+    // profile — an identity nobody outside the account can see. Blocking one
+    // region left the summary aside recording that identity, and the next
+    // surface added outside the region would have leaked the same way.
+    <div
+      className="grid gap-8 py-4 ph-no-capture sm:py-8 lg:grid-cols-[minmax(0,0.72fr)_minmax(0,1.28fr)] lg:gap-12"
+      data-ph-no-capture
+    >
       <aside className="lg:sticky lg:top-24 lg:self-start">
         <Link className="text-sm text-muted underline underline-offset-4" href={backPath}>
           {profile.hasPublicProfile ? "Back to profile" : "Back to account"}
         </Link>
         <div className="mt-5 rounded-card border border-border bg-surface p-5">
-          <EntityImage
+          <ProfileAvatarImage
             alt=""
+            appearance={profile.avatarAppearance}
             className="size-16 rounded-card"
             label={profile.displayName}
             src={profile.avatarImageUrl}
@@ -371,7 +655,7 @@ export function ClaimFlow({
         </div>
       </aside>
 
-      <section aria-labelledby="claim-heading" className="ph-no-capture" data-ph-no-capture>
+      <section aria-labelledby="claim-heading">
         <h1 className="text-3xl font-semibold sm:text-4xl" id="claim-heading">
           Claim {profile.displayName}
         </h1>
@@ -391,7 +675,9 @@ export function ClaimFlow({
             </Link>
           </Notice>
         ) : null}
-        {(context?.ownership === "viewer" && context.verified) || status.kind === "complete" ? (
+        {(context?.ownership === "viewer" && context.verified) ||
+        status.kind === "complete" ||
+        collectorCompletion !== null ? (
           <div
             aria-live="polite"
             className="outline-none"
@@ -404,7 +690,15 @@ export function ClaimFlow({
                 <BadgeCheck aria-hidden="true" className="mt-0.5 size-5 shrink-0" />
                 <div>
                   <p className="font-semibold">
-                    {status.kind === "complete" ? status.message : "You already manage this profile."}
+                    {status.kind === "complete"
+                      ? status.message
+                      : collectorCompletion !== null
+                        ? collectorCompletion.connectionOnly
+                          ? "Control confirmed. That account or group is now connected to this profile."
+                          : collectorCompletion.verified
+                            ? "Ownership confirmed. This profile is now yours."
+                            : "Ownership confirmed, and this profile is now yours. It is not marked verified yet, because this account or group was not already on record for the listing."
+                        : "You already manage this profile."}
                   </p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <Link className={buttonVariants({ variant: "primary" })} href={completionPath}>
@@ -430,7 +724,20 @@ export function ClaimFlow({
         {isUnverifiedViewer && status.kind !== "complete" ? (
           <Notice className="mt-8">
             <p className="font-semibold">You manage this profile, but it is not verified yet.</p>
-            <p className="mt-1">Complete the VRChat proof below to add verified status.</p>
+            <p className="mt-1">
+              {profile.profileType === "community"
+                ? "Prove control of its Discord server or VRChat group below to record that control."
+                : "Complete the VRChat proof below to record that control."}
+            </p>
+          </Notice>
+        ) : null}
+        {isVerifiedViewer && status.kind !== "complete" ? (
+          <Notice className="mt-8">
+            <p className="font-semibold">Adding another connection?</p>
+            <p className="mt-1">
+              This profile is already verified. Proving control of another server, group, or account
+              below adds it to the list you can connect from your account page.
+            </p>
           </Notice>
         ) : null}
         {canUseClaimJourney && !context?.emailVerified ? (
@@ -441,7 +748,36 @@ export function ClaimFlow({
 
         {canUseClaimJourney && context?.emailVerified && status.kind !== "complete" ? (
           <>
-            {context.pendingProof && !context.pendingProof.expired ? (
+            {context.pendingProof &&
+            !context.pendingProof.expired &&
+            context.pendingProof.targetType === "vrclinking" ? (
+              // No proof code to show: this attempt is answered by a delegated
+              // credential, not by something the claimant posts. Showing the
+              // code panel would hand them a task that does nothing.
+              <div className="mt-8 rounded-card border border-border bg-surface p-5">
+                <h2 className="text-xl font-semibold">Waiting on VRCLinking</h2>
+                <p className="mt-2 text-sm leading-6 text-muted">
+                  No community that has delegated a credential reported your Discord account as
+                  linked to this VRChat account yet. If you have just linked it, check again in a
+                  minute.
+                </p>
+                <p className="mt-2 break-all text-sm text-muted">
+                  {context.pendingProof.targetExternalId}
+                </p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <Button
+                    disabled={status.kind === "working"}
+                    variant="primary"
+                    onClick={() => void checkProof(context.pendingProof!.id, "vrclinking")}
+                  >
+                    Check again
+                  </Button>
+                  <Button disabled={status.kind === "working"} variant="ghost" onClick={() => void startOver("proof")}>
+                    Start over
+                  </Button>
+                </div>
+              </div>
+            ) : context.pendingProof && !context.pendingProof.expired ? (
               <div className="mt-8 rounded-card border border-border bg-surface p-5">
                 <h2 className="text-xl font-semibold">Finish your VRChat proof</h2>
                 <p className="mt-2 text-sm leading-6 text-muted">
@@ -455,7 +791,7 @@ export function ClaimFlow({
                   <Button disabled={status.kind === "working"} variant="ghost" onClick={() => void startOver("proof")}>Start over</Button>
                 </div>
               </div>
-            ) : context.pendingClaimRequest && !isUnverifiedViewer ? (
+            ) : context.pendingClaimRequest && !isUnverifiedViewer && !isVerifiedViewer ? (
               <div className="mt-8 rounded-card border border-border bg-surface p-5">
                 <h2 className="text-xl font-semibold">Finish your Discord check</h2>
                 <p className="mt-2 text-sm leading-6 text-muted">
@@ -473,27 +809,81 @@ export function ClaimFlow({
               <form className="mt-8" onSubmit={submit}>
                 <fieldset>
                   <legend className="text-xl font-semibold">
-                    {isUnverifiedViewer ? "Verify this profile with VRChat" : "Choose how to confirm ownership"}
+                    {isVerifiedViewer
+                      ? "Prove control of another server, group, or account"
+                      : isUnverifiedViewer
+                        ? profile.profileType === "person"
+                          ? "Verify this profile with VRChat"
+                          : "Verify this community"
+                        : "Choose how to confirm ownership"}
                   </legend>
-                  <div className={cn("mt-4 grid gap-3", isUnverifiedViewer ? undefined : "sm:grid-cols-2")}>
-                    {isUnverifiedViewer ? (
-                      vrchatMethodCard
+                  {/* An unverified community owner (created through the no-match
+                      path) can upgrade to verified by proving Discord server
+                      control, so both methods must stay reachable for them. For
+                      an existing person owner the Discord claim is the one
+                      method with nothing to offer — it would just report the
+                      ownership they already hold — while VRChat and VRCLinking
+                      both prove control and both count as an upgrade. Leaving
+                      VRCLinking out of this branch stranded exactly the owners
+                      the quick-claim path creates unverified. */}
+                  <div className={cn("mt-4 grid gap-3", isOwnerUpgradeBranch && !vrclinkingAvailable ? undefined : "sm:grid-cols-2")}>
+                    {isOwnerUpgradeBranch ? (
+                      <>
+                        {vrchatMethodCard}
+                        {vrclinkingAvailable ? vrclinkingMethodCard : null}
+                      </>
                     ) : (
                       <>
                         {profile.profileType === "person" ? vrchatMethodCard : discordMethodCard}
                         {profile.profileType === "person" ? discordMethodCard : vrchatMethodCard}
+                        {vrclinkingAvailable ? vrclinkingMethodCard : null}
                       </>
                     )}
                   </div>
-                  {!isUnverifiedViewer && !context.hasDiscord ? (
-                    <Link className="mt-3 inline-block text-sm underline underline-offset-4" href="/account">
-                      Review sign-in methods
+                  {/* Points at the purpose-scoped round-trip, not `/account`.
+                      `hasDiscord` is a VRDex verification watermark now, and the
+                      only thing that writes one is this OAuth flow. `/account`
+                      opens Clerk's profile, where linking Discord as a sign-in
+                      method writes nothing VRDex reads — so sending a blocked
+                      claimant there left them looping: link Discord, come back,
+                      still blocked, no other affordance on the page.
+
+                      Each term is gated on its card actually being rendered.
+                      The owner-upgrade branch omits the Discord card entirely,
+                      so `discordMethodBlocked` alone would offer verification
+                      that unlocks nothing visible — which is what happens for an
+                      existing owner wherever VRCLinking is unconfigured, the
+                      repository default. */}
+                  {(!isOwnerUpgradeBranch && discordMethodBlocked) ||
+                  (vrclinkingAvailable && vrclinkingMethodBlocked) ? (
+                    <Link
+                      className={cn(buttonVariants({ variant: "secondary" }), "mt-3")}
+                      href={discordVerifyHref}
+                    >
+                      {discordVerifyState === "verified"
+                        ? "Check Discord again"
+                        : "Verify with Discord"}
                     </Link>
                   ) : null}
                 </fieldset>
 
                 <div className="mt-6 border-t border-border pt-6">
-                  {method === "vrchat" ? (
+                  {method === "vrclinking" ? (
+                    <Field>
+                      VRChat profile URL or user ID
+                      <Input
+                        autoComplete="off"
+                        name="targetExternalId"
+                        placeholder="https://vrchat.com/home/user/usr_…"
+                        required
+                      />
+                      <FieldText>
+                        VRDex asks the communities that have delegated a VRCLinking credential whether
+                        your Discord account is linked to this VRChat account and verified. It receives a
+                        yes or no and which server answered — nothing else.
+                      </FieldText>
+                    </Field>
+                  ) : method === "vrchat" ? (
                     <Field>
                       {profile.profileType === "person" ? "VRChat profile URL or user ID" : "VRChat group URL or group ID"}
                       <Input
@@ -505,25 +895,77 @@ export function ClaimFlow({
                       <FieldText>We only use this identifier to check the one-time proof code.</FieldText>
                     </Field>
                   ) : profile.profileType === "community" ? (
-                    <Field>
-                      Discord server ID
-                      <Input autoComplete="off" inputMode="numeric" name="discordGuildId" pattern="\d{17,20}" required />
-                      <FieldText>VRDex checks server ownership or the Administrator permission. It does not read message content.</FieldText>
-                    </Field>
+                    verifiedGuilds.length > 0 ? (
+                      <Field>
+                        Discord server
+                        <Select name="discordGuildId" required>
+                          {verifiedGuilds.map((guild) => (
+                            <option key={guild.guildId} value={guild.guildId}>
+                              {guild.guildName ?? guild.guildId} ({CONTROL_LEVEL_LABELS[guild.controlLevel]})
+                            </option>
+                          ))}
+                        </Select>
+                        <FieldText>
+                          Only servers you own or administer appear here. VRDex reads your server list and
+                          permissions once, then discards the access token. It never reads message content.
+                        </FieldText>
+                      </Field>
+                    ) : (
+                      <Notice>
+                        <p className="font-semibold">Verify your Discord servers first.</p>
+                        <p className="mt-1">
+                          VRDex checks which servers you own, administer, or manage. You will return here to
+                          finish the claim.
+                        </p>
+                        <Link
+                          className={cn(buttonVariants({ variant: "primary" }), "mt-4")}
+                          href={discordVerifyHref}
+                        >
+                          {discordVerifyState === "verified"
+                            ? "Check Discord servers again"
+                            : "Verify with Discord"}
+                        </Link>
+                        {discordVerifyState === "verified" ? (
+                          <p className="mt-3 text-sm">
+                            Discord did not report any server you own, administer, or manage.
+                          </p>
+                        ) : null}
+                        {discordVerifyState === "failed" || discordVerifyState === "unavailable" ? (
+                          <p className="mt-3 text-sm">
+                            That check could not finish. Nothing changed; try again.
+                          </p>
+                        ) : null}
+                      </Notice>
+                    )
                   ) : (
                     <Notice>
                       This grants profile controls using your linked Discord account. It does not add a verified-owner badge.
                     </Notice>
                   )}
-                  <Button
-                    className="mt-5"
-                    disabled={status.kind === "working" || (method === "discord" && !context.hasDiscord)}
-                    size="lg"
-                    type="submit"
-                    variant="primary"
-                  >
-                    {method === "vrchat" ? "Create proof code" : profile.profileType === "community" ? "Continue with Discord" : "Claim with Discord"}
-                  </Button>
+                  {method === "vrchat" ||
+                  method === "vrclinking" ||
+                  profile.profileType !== "community" ||
+                  verifiedGuilds.length > 0 ? (
+                    <Button
+                      className="mt-5"
+                      disabled={
+                        status.kind === "working" ||
+                        (method === "discord" && discordMethodBlocked) ||
+                        (method === "vrclinking" && vrclinkingMethodBlocked)
+                      }
+                      size="lg"
+                      type="submit"
+                      variant="primary"
+                    >
+                      {method === "vrclinking"
+                        ? "Check VRCLinking"
+                        : method === "vrchat"
+                          ? "Create proof code"
+                          : profile.profileType === "community"
+                            ? "Claim with this server"
+                            : "Claim with Discord"}
+                    </Button>
+                  ) : null}
                 </div>
               </form>
             )}

@@ -1,3 +1,5 @@
+import { containsProofCode, proofSurfaceFields } from "./proof-matching.mjs";
+
 const DEFAULT_BASE_URL = "https://api.vrchat.cloud/api/1";
 
 export class VrchatProviderError extends Error {
@@ -108,12 +110,12 @@ export class VrchatClient {
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
     } catch (error) {
+      clearTimeout(timeout);
       if (error?.name === "AbortError") throw new VrchatProviderError("Provider request timed out.", { category: "timeout" });
       throw new VrchatProviderError("Provider request failed.", { category: "network" });
-    } finally {
-      clearTimeout(timeout);
     }
     if (!response.ok) {
+      clearTimeout(timeout);
       if (response.status === 429) this.requestCounts.rateLimited += 1;
       else if (response.status >= 500) this.requestCounts.serverError += 1;
       else this.requestCounts.clientError += 1;
@@ -124,9 +126,21 @@ export class VrchatClient {
       });
     }
     this.requestCounts.success += 1;
-    if (response.status === 204) return null;
+    if (response.status === 204) {
+      clearTimeout(timeout);
+      return null;
+    }
+    // The deadline stays armed until the body is read. `fetch` resolves on
+    // headers, so clearing it here — as the `finally` above used to — left a
+    // provider that sends headers and then stalls the body with no timeout at
+    // all: the await never settles, the worker never leaves `checkProofs`,
+    // telemetry stops, and the claimed batch stays stamped until a restart.
     try { return await response.json(); }
-    catch { throw new VrchatProviderError("Provider returned malformed JSON.", { status: response.status, category: "schema_drift" }); }
+    catch (error) {
+      if (error?.name === "AbortError") throw new VrchatProviderError("Provider request timed out.", { category: "timeout" });
+      throw new VrchatProviderError("Provider returned malformed JSON.", { status: response.status, category: "schema_drift" });
+    }
+    finally { clearTimeout(timeout); }
   }
 
   async getGroup(groupId, { maxAgeMs = 0 } = {}) {
@@ -144,6 +158,32 @@ export class VrchatClient {
     };
     this.groupCache.set(groupId, { cachedAt: this.clock(), group: normalized });
     return normalized;
+  }
+
+  /**
+   * Look for a one-time ownership proof code on a VRChat user or group.
+   *
+   * Returns only a boolean. The bio or description text is read in-process and
+   * deliberately never returned, cached, or logged, so the control plane learns
+   * whether the code was present and nothing else about the subject.
+   */
+  async findProofCode(targetType, targetExternalId, proofCode) {
+    const isGroup = targetType === "vrchat_group";
+    const path = isGroup
+      ? `/groups/${encodeURIComponent(requireExternalId(targetExternalId, "grp_", "Group ID"))}`
+      : `/users/${encodeURIComponent(requireExternalId(targetExternalId, "usr_", "User ID"))}`;
+    const record = await this.request(path);
+
+    if (!record || typeof record !== "object") {
+      throw new VrchatProviderError("Proof target response is malformed.", {
+        category: "schema_drift",
+      });
+    }
+
+    return containsProofCode(
+      proofSurfaceFields(targetType).map((field) => record[field]),
+      proofCode,
+    );
   }
 
   async joinGroup(groupId) {

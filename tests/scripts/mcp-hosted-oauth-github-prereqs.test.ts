@@ -71,6 +71,10 @@ describe("hosted MCP OAuth GitHub prerequisites audit", () => {
       { name: "VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS", value: "true" },
     ], [
       { name: "VRDEX_HOSTED_E2E_BROWSER_TOKEN" },
+      // The generator signs in through Clerk since #226, so readiness now
+      // depends on these too.
+      { name: "VRDEX_HOSTED_E2E_CLERK_PUBLISHABLE_KEY" },
+      { name: "VRDEX_HOSTED_E2E_CLERK_SECRET_KEY" },
     ]);
 
     try {
@@ -79,6 +83,34 @@ describe("hosted MCP OAuth GitHub prerequisites audit", () => {
       assert.equal(result.status, 0, result.stderr);
       assert.match(result.stdout, /Temporary OAuth credential generation \| no \| pass/);
       assert.match(result.stdout, /Hosted MCP OAuth evidence path \| yes \| pass/);
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
+  it("withholds readiness when the Clerk keys the generator signs in with are absent", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vrdex-mcp-oauth-prereqs-"));
+    // Exactly what the audit checked before #226, and nothing more. This
+    // combination reported `pass` and sent an operator to dispatch a workflow
+    // whose OAuth smoke would then skip, because the generator cannot create its
+    // temporary account without Clerk credentials.
+    const ghCommand = await writeFakeGh(directory, [
+      { name: "VRDEX_HOSTED_E2E_AUTH_HELPERS", value: "true" },
+      { name: "VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS", value: "true" },
+    ], [
+      { name: "VRDEX_HOSTED_E2E_BROWSER_TOKEN" },
+    ]);
+
+    try {
+      const result = runPrereqs([], ghCommand);
+
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stdout, /Temporary OAuth credential generation \| no \| partial/);
+      assert.match(result.stdout, /VRDEX_HOSTED_E2E_CLERK_SECRET_KEY=missing/);
+
+      const required = runPrereqs(["--require-ready"], ghCommand);
+
+      assert.notEqual(required.status, 0);
     } finally {
       await rm(directory, { force: true, recursive: true });
     }

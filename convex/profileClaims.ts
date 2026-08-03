@@ -1,21 +1,54 @@
 import { v } from "convex/values";
 
 import { getLinkedProviderAccount } from "./accounts";
+import { boundedFetch } from "./_boundedFetch";
+import { signDelegation } from "./_delegationCapability";
+import { requireSecureOutboundUrl } from "./_secureUrl";
+import { claimError } from "./_claimErrors";
+import { identityEmailVerified } from "./_identity";
 import {
-  activeBrowserSessionOrNull,
-  requireActiveBrowserSessionSubject,
-} from "./_browserSessionAuthority";
+  claimSessionUserOrNull,
+  requireClaimSession,
+  requireVerifiedActiveBrowserSession,
+} from "./_claimSession";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import {
+  getActiveControlProof,
+  getActiveProfileLinks,
+  linkProfileToAsset,
+  recordExternalControlProof,
+} from "./_externalControl";
 import { createClaimedDiscordProfileForUser } from "./_profileClaimCreation";
 import { approveProfileClaimForUser, getActiveProfileOwner, userOwnsProfile } from "./_profileOwnership";
 import { canReadProfile } from "./_profilePermissions";
 import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 import { createProfileSearchDocument, upsertSearchDocument } from "./_searchDocuments";
 import { normalizeVrchatTargetId } from "./_vrchatIdentity";
+import { getPublicProfileMediaKit } from "./_profileAssets";
+import { vrclinkingSecretRef } from "./_vrclinkingSecretRef";
 
 const DAY_MS = 86_400_000;
+// Minimum gap between adapter-backed checks of one attempt, whatever the
+// target type: they all spend somebody's provider quota.
+const ADAPTER_CHECK_COOLDOWN_MS = 60_000;
+// Bounds provider spend that the per-attempt cooldown alone cannot: one
+// claimant creating many attempts and having each consulted once. Applies to
+// every proof target — the collector fleet polls `vrchat_user`/`vrchat_group`
+// attempts against a shared service-account budget just as delegated VRC
+// Linking credentials are spent, so an unbounded backlog is the same abuse
+// either way.
+const MAX_OPEN_PROOF_ATTEMPTS = 3;
+// Everything a VRCLinking attempt needs before it can reach the adapter. Each
+// is required at a different depth — the endpoint in `proofAdapterUrl`, the
+// token in `proofAdapterHeaders`, the signing key in `signDelegation` — so
+// checking only the first still offers the claimant a method that throws.
+const VRCLINKING_ADAPTER_ENV = [
+  "VRCLINKING_PROOF_ADAPTER_URL",
+  "VRCHAT_PROOF_ADAPTER_BEARER_TOKEN",
+  "VRCLINKING_ADAPTER_CAPABILITY_KEY",
+] as const;
 const DISCORD_ADMINISTRATOR_PERMISSION = BigInt(8);
 const DISCORD_GUILD_ID_PATTERN = /^\d{17,20}$/;
 const noSuitableMatchConfirmed = v.boolean();
@@ -48,23 +81,6 @@ const claimedCommunityProfileArgs = {
   ),
 };
 
-async function requireVerifiedActiveBrowserSession(
-  ctx: Parameters<typeof requireActiveBrowserSessionSubject>[0],
-) {
-  const activeSession = await requireActiveBrowserSessionSubject(ctx);
-
-  if (
-    activeSession.user.email === undefined ||
-    activeSession.user.emailVerificationTime === undefined
-  ) {
-    throw new Error(
-      "A verified email address is required before claim-level actions.",
-    );
-  }
-
-  return activeSession;
-}
-
 export const getClaimTargetBySlug = query({
   args: {
     profileSlug: v.string(),
@@ -80,16 +96,20 @@ export const getClaimTargetBySlug = query({
       return null;
     }
 
-    const activeSession = await activeBrowserSessionOrNull(ctx);
-    const user = activeSession?.user ?? null;
+    const user = await claimSessionUserOrNull(ctx);
     const hasPublicProfile = canReadProfile("public", profile);
     const isOwner = user !== null && await userOwnsProfile(ctx.db, profile._id, user._id);
     if (!hasPublicProfile && !isOwner) {
       return null;
     }
 
+    const mediaKit = await getPublicProfileMediaKit(ctx.db, profile);
+
     return {
-      avatarImageUrl: profile.avatarImageUrl,
+      avatarImageUrl:
+        (hasPublicProfile ? mediaKit.profileImage?.imageUrl : undefined) ??
+        profile.avatarImageUrl,
+      avatarAppearance: mediaKit.avatarAppearance,
       displayName: profile.displayName,
       hasPublicProfile,
       profileId: profile._id,
@@ -116,13 +136,28 @@ type DiscordCommunityClaimAdapterContext = {
 type VerifyAdapterResult =
   | { state: Doc<"profileVerificationAttempts">["state"] }
   | { state: "unavailable" }
+  // No adapter configured for this target: the collector fleet reads it on its
+  // own schedule, so nothing was checked just now. Distinct from `pending`,
+  // which means we asked and the code was not there.
+  | { state: "queued" }
   | {
-      claimRequestId: Id<"profileClaimRequests">;
+      // Absent when the proof only added a connection to a profile the caller
+      // already owns — no claim was requested, so no claim request exists.
+      claimRequestId: Id<"profileClaimRequests"> | undefined;
       profileId: Id<"profiles">;
       claimState: Doc<"profiles">["claimState"];
+      // The backend's own classification, rather than something the caller
+      // reconstructs. A missing claim request is one symptom of it, but a proof
+      // replayed after the collector already settled it has no request either.
+      connectionOnly: boolean;
     };
 type DiscordAdminAdapterResult =
-  | { state: Doc<"profileClaimRequests">["state"] }
+  | {
+      state: Doc<"profileClaimRequests">["state"];
+      // Why it was refused, when it was not "we checked Discord and you are not
+      // an administrator". The claimant can act on the difference.
+      reason?: "not_claimable" | "already_owned";
+    }
   | {
       profileId: Id<"profiles">;
       claimState: Doc<"profiles">["claimState"];
@@ -145,6 +180,16 @@ type ProofAdapterResponse = {
   verified?: boolean;
   evidenceSource?: "vrchat_api" | "vrclinking" | "manual";
   evidenceSummary?: string;
+  /** Set by the VRC Linking adapter to name the delegation that answered. */
+  matchedGuildId?: string;
+  /** Index into the delegations sent; unambiguous when guilds repeat. */
+  matchedDelegationIndex?: number;
+  /**
+   * Indexes the adapter actually put a provider question to. Not the same as
+   * the delegations sent: it stops at the first match, and a credential whose
+   * secret would not resolve was never asked.
+   */
+  consultedDelegationIndexes?: number[];
 };
 
 function optionalEnv(name: string): string | undefined {
@@ -157,7 +202,10 @@ function requiredEnv(name: string): string {
   const value = optionalEnv(name);
 
   if (!value) {
-    throw new Error(`${name} is not configured.`);
+    // Surfaces as "this method is not available yet" rather than a redacted
+    // server error, which is what made the missing production adapter
+    // configuration so hard to diagnose.
+    throw claimError("ADAPTER_NOT_CONFIGURED", name);
   }
 
   return value;
@@ -167,34 +215,72 @@ async function requireLinkedDiscordAccount(ctx: Parameters<typeof getLinkedProvi
   const account = await getLinkedProviderAccount(ctx, userId, "discord");
 
   if (account === null) {
-    throw new Error("A linked Discord account is required for this claim method.");
+    throw claimError("DISCORD_NOT_LINKED");
   }
 
   return account;
 }
 
+/**
+ * A hidden listing must not be claimable by slug.
+ *
+ * Every claim *query* gates on `canReadProfile`, but the mutations resolved the
+ * profile without it, so knowing or guessing the slug of an unowned draft,
+ * opted-out, or safety-suppressed profile was enough to take ownership of it —
+ * past the UI's not-found boundary and past the moderation state that hid it.
+ * An existing owner still passes: they can already see their own profile.
+ */
+function requireClaimableVisibility(
+  profile: Doc<"profiles">,
+  activeOwner: { userId: Id<"users"> } | null,
+  userId: Id<"users">,
+) {
+  if (activeOwner?.userId === userId) {
+    return;
+  }
+
+  if (!canReadProfile("public", profile)) {
+    throw claimError("PROFILE_NOT_FOUND");
+  }
+}
+
+/**
+ * Resolve a slug the caller may claim, or refuse in a way that says nothing.
+ *
+ * Takes the viewer because the visibility gate has to run before anything else
+ * can answer a question about the profile — including its type. Returns the
+ * owner it had to read anyway, so callers do not read it twice.
+ */
 async function getClaimableProfileBySlug(
   ctx: Parameters<typeof getProfileBySlug>[0],
   slug: string,
   expectedProfileType: "person" | "community",
+  userId: Id<"users">,
 ) {
   const validation = validateProfileSlug(slug);
 
   if (!validation.ok) {
-    throw new Error("A valid profile slug is required.");
+    throw claimError("INVALID_PROFILE_SLUG");
   }
 
   const profile = await getProfileBySlug(ctx, validation.slug);
 
   if (profile === null) {
-    throw new Error("Profile not found.");
+    throw claimError("PROFILE_NOT_FOUND");
   }
+
+  // Before the type check, not after. `WRONG_PROFILE_TYPE` for a mismatched
+  // method and `PROFILE_NOT_FOUND` for a matching one told a prober both that a
+  // hidden listing exists and what type it is — which the public query refuses
+  // to answer. An owner still gets through; they can already see their own.
+  const activeOwner = await getActiveProfileOwner(ctx, profile._id);
+  requireClaimableVisibility(profile, activeOwner, userId);
 
   if (profile.profileType !== expectedProfileType) {
-    throw new Error(`This claim method requires a ${expectedProfileType} profile.`);
+    throw claimError("WRONG_PROFILE_TYPE", expectedProfileType);
   }
 
-  return profile;
+  return { profile, activeOwner };
 }
 
 function requireNoSuitableMatchConfirmed(confirmed: boolean) {
@@ -223,12 +309,43 @@ function proofEvidenceSourceForTarget(
 
 function requireCompatibleProofTarget(profile: Doc<"profiles">, targetType: VrchatTargetType) {
   if (targetType === "vrchat_user" && profile.profileType !== "person") {
-    throw new Error("VRChat user proof requires a person profile.");
+    throw claimError("WRONG_PROFILE_TYPE", "person");
   }
 
   if (targetType === "vrchat_group" && profile.profileType !== "community") {
-    throw new Error("VRChat group proof requires a community profile.");
+    throw claimError("WRONG_PROFILE_TYPE", "community");
   }
+
+  // A VRC Linking attestation names a VRChat *account*, so it belongs to a
+  // person profile. The caller's lookup already resolves `vrclinking` against
+  // `"person"` and throws before reaching here, but stating it locally means the
+  // constraint survives someone editing that ternary — otherwise a community
+  // attempt would persist a `vrchat_user` asset on a community profile and
+  // violate `assetTypeAllowedForProfile`.
+  if (targetType === "vrclinking" && profile.profileType !== "person") {
+    throw claimError("WRONG_PROFILE_TYPE", "person");
+  }
+}
+
+/**
+ * Audit provenance for a verified proof.
+ *
+ * One fixed string claimed a proof code was read by the VRChat proof adapter,
+ * which is wrong for both other paths now reaching this mutation: VRC Linking
+ * never uses the proof code, and collector reads involve no adapter. Support
+ * and audit consumers should not have to know that.
+ */
+function proofAuditNote(
+  targetType: VrchatTargetType,
+  evidenceSource: Doc<"profileVerificationAttempts">["evidenceSource"],
+): string {
+  if (targetType === "vrclinking") {
+    return "VRC Linking reported a verified Discord-to-VRChat link for this claimant.";
+  }
+
+  return evidenceSource === "vrchat_api"
+    ? "The proof code was found on the VRChat target by the collector fleet."
+    : "The proof code was found on the VRChat target by the configured proof adapter.";
 }
 
 function createProofCode(): string {
@@ -248,8 +365,7 @@ export const getClaimJourneyContext = query({
       return null;
     }
 
-    const activeSession = await activeBrowserSessionOrNull(ctx);
-    const user = activeSession?.user ?? null;
+    const user = await claimSessionUserOrNull(ctx);
     const publiclyReadable = canReadProfile("public", profile);
     if (user === null) {
       if (!publiclyReadable) {
@@ -259,8 +375,10 @@ export const getClaimJourneyContext = query({
       return {
         ownership: "signed_out" as const,
         verified: false,
+        lastVerifiedProof: null,
         emailVerified: false,
         hasDiscord: false,
+        vrclinkingConfigured: false,
         pendingClaimRequest: null,
         pendingProof: null,
       };
@@ -285,19 +403,53 @@ export const getClaimJourneyContext = query({
         .withIndex("by_profileId_userId_state_updatedAt", (q) =>
           q.eq("profileId", profile._id).eq("userId", user._id).eq("state", "pending"),
         )
-        .filter((q) => q.neq(q.field("targetType"), "vrclinking"))
+        // VRCLinking attempts were excluded here while nothing in the browser
+        // could create one. The claim form now can, and hiding them left a
+        // claimant with a pending attempt looking at the method picker again —
+        // no status, no retry, no way to cancel.
         .order("desc")
         .first(),
     ]);
     const request = pendingRequests;
     const proof = pendingProofs;
+    // The most recent attempt that has already settled. A pending proof simply
+    // disappearing is not evidence it succeeded — the hourly expiry cron and a
+    // cancellation from another tab both remove it — so the UI needs the
+    // terminal state to tell a completion from either of those.
+    const settledProof = await ctx.db
+      .query("profileVerificationAttempts")
+      .withIndex("by_profileId_userId_state_updatedAt", (q) =>
+        q.eq("profileId", profile._id).eq("userId", user._id).eq("state", "verified"),
+      )
+      .order("desc")
+      .first();
 
     return {
       ownership:
         owner === null ? ("available" as const) : owner.userId === user._id ? ("viewer" as const) : ("other" as const),
       verified: profile.claimState === "claimed_verified",
-      emailVerified: user.email !== undefined && user.emailVerificationTime !== undefined,
+      // Same source as the gate this display leads into. Every action the claim
+      // journey offers goes through `requireVerifiedActiveBrowserSession`, which
+      // reads the token claim, so reporting the mirrored column here could invite
+      // the user into an action the server then refuses — `ensureUser` mirrors
+      // from the client and does not re-run on a token refresh, so an email change
+      // leaves the column saying "verified" for an address Clerk dropped.
+      //
+      // `temporalParsing.getAccess` deliberately still reports the column: its
+      // gate is the mirrored one too, for the internalMutation paths that have no
+      // browser token. Each display matches its own gate.
+      emailVerified: user.email !== undefined && (await identityEmailVerified(ctx)),
       hasDiscord: discordAccount !== null,
+      // Whether the deployment can consult VRCLinking at all. The Terraform
+      // stack defaults disabled, so in any environment without an adapter
+      // deployed, offering the method on profile type alone hands the claimant
+      // a choice that reaches `requiredEnv` and throws. All three, not just the
+      // endpoint: a URL with either companion secret missing fails just as hard,
+      // one layer further in — `proofAdapterHeaders` and `signDelegation` each
+      // require their own.
+      vrclinkingConfigured: VRCLINKING_ADAPTER_ENV.every(
+        (name) => optionalEnv(name) !== undefined,
+      ),
       pendingClaimRequest: request
         ? {
             id: request._id,
@@ -306,6 +458,26 @@ export const getClaimJourneyContext = query({
             discordGuildName: request.discordGuildName,
           }
         : null,
+      // The one fact the UI needs, reported rather than inferred. Watching
+      // ownership, `verified`, and the pending row disappearing produced a wrong
+      // answer four different ways — it missed owners who were already `viewer`,
+      // announced expiries and cancellations as successes, missed a proof that
+      // resolved before the pending state ever rendered, and counted
+      // connection-only proofs as claims. An advancing timestamp here is
+      // unambiguous, and `connectionOnly` says whether ownership actually
+      // changed.
+      lastVerifiedProof:
+        settledProof?.verifiedAt === undefined
+          ? null
+          : {
+              at: settledProof.verifiedAt,
+              connectionOnly: settledProof.connectionOnly === true,
+              // Which method actually settled it. The browser cannot infer this
+              // — a collector or the VRCLinking adapter may resolve an attempt
+              // long after the page that started it — and the completion event
+              // is attributed from it.
+              targetType: settledProof.targetType,
+            },
       pendingProof: proof
         ? {
             id: proof._id,
@@ -326,15 +498,22 @@ export const cancelClaimJourneyPending = mutation({
     pendingType: v.union(v.literal("claim_request"), v.literal("proof")),
   },
   handler: async (ctx, args) => {
-    const { user } = await requireActiveBrowserSessionSubject(ctx);
+    const { user } = await requireClaimSession(ctx);
     const validation = validateProfileSlug(args.profileSlug);
     if (!validation.ok) {
-      throw new Error("A valid profile slug is required.");
+      throw claimError("INVALID_PROFILE_SLUG");
     }
     const profile = await getProfileBySlug(ctx.db, validation.slug);
     if (profile === null) {
-      throw new Error("Profile not found.");
+      throw claimError("PROFILE_NOT_FOUND");
     }
+
+    // Same gate as every other claim endpoint, and for the same reason: a
+    // hidden listing answered `{ canceled: false }` while an unused slug threw
+    // `PROFILE_NOT_FOUND`, which tells a prober the listing exists. An owner
+    // still gets through — they can already see their own.
+    const activeOwner = await getActiveProfileOwner(ctx.db, profile._id);
+    requireClaimableVisibility(profile, activeOwner, user._id);
 
     const now = Date.now();
 
@@ -363,7 +542,10 @@ export const cancelClaimJourneyPending = mutation({
       .withIndex("by_profileId_userId_state_updatedAt", (q) =>
         q.eq("profileId", profile._id).eq("userId", user._id).eq("state", "pending"),
       )
-      .filter((q) => q.neq(q.field("targetType"), "vrclinking"))
+      // Same reason the journey context no longer excludes them: the claim form
+      // creates VRCLinking attempts now. Leaving the exclusion here made "Start
+      // over" a no-op on the one panel that offers it, stranding the claimant on
+      // a pending attempt until it expired.
       .order("desc")
       .first();
     if (proof === null) {
@@ -378,36 +560,54 @@ export const cancelClaimJourneyPending = mutation({
   },
 });
 
-function proofAdapterUrl(targetType: VrchatTargetType): string {
-  if (targetType === "vrclinking") {
-    return requiredEnv("VRCLINKING_PROOF_ADAPTER_URL");
-  }
+/**
+ * Adapter endpoint for a proof target, or null when none is configured.
+ *
+ * VRC Linking has no other reader, so a missing endpoint there is a
+ * misconfiguration. VRChat targets are read by the collector fleet in
+ * production, where `VRCHAT_PROOF_ADAPTER_URL` is deliberately unset — treating
+ * that as an error is what made "Check proof now" fail in the first place, so
+ * an absent VRChat adapter means "the collector has this", not "broken".
+ */
+function proofAdapterUrl(targetType: VrchatTargetType): string | null {
+  const configured =
+    targetType === "vrclinking"
+      ? requiredEnv("VRCLINKING_PROOF_ADAPTER_URL")
+      : (optionalEnv("VRCHAT_PROOF_ADAPTER_URL") ?? null);
 
-  return requiredEnv("VRCHAT_PROOF_ADAPTER_URL");
+  return configured === null ? null : requireSecureOutboundUrl(configured, "adapter_url");
 }
 
+/**
+ * Both adapters require this bearer token, so treating it as optional here only
+ * bought a silent failure: Convex would post with no `authorization`, the
+ * adapter would answer 401, and `!response.ok` maps that to the non-terminal
+ * `unavailable` — a claim that stalls forever with the misconfiguration
+ * reported nowhere. If an adapter is configured, so must its token be.
+ */
 function proofAdapterHeaders(): Record<string, string> {
-  const token = optionalEnv("VRCHAT_PROOF_ADAPTER_BEARER_TOKEN");
-
   return {
     "content-type": "application/json",
-    ...(token !== undefined ? { authorization: `Bearer ${token}` } : {}),
+    authorization: `Bearer ${requiredEnv("VRCHAT_PROOF_ADAPTER_BEARER_TOKEN")}`,
   };
 }
 
 async function fetchDiscordJson<T>(path: string): Promise<T> {
-  const baseUrl = optionalEnv("DISCORD_API_BASE_URL") ?? "https://discord.com/api/v10";
-  const response = await fetch(`${baseUrl}${path}`, {
+  const baseUrl = requireSecureOutboundUrl(
+    optionalEnv("DISCORD_API_BASE_URL") ?? "https://discord.com/api/v10",
+    "discord_api_url",
+  );
+  const response = await boundedFetch(`${baseUrl}${path}`, {
     headers: {
       authorization: `Bot ${requiredEnv("DISCORD_BOT_TOKEN")}`,
     },
   });
 
   if (!response.ok) {
-    throw new Error(`Discord API returned HTTP ${response.status}.`);
+    throw claimError("ADAPTER_UNAVAILABLE", `discord_${response.status}`);
   }
 
-  return (await response.json()) as T;
+  return response.body as T;
 }
 
 async function verifyDiscordAdministratorPermission(discordGuildId: string, discordUserId: string) {
@@ -419,9 +619,15 @@ async function verifyDiscordAdministratorPermission(discordGuildId: string, disc
     fetchDiscordJson<DiscordRole[]>(`/guilds/${encodeURIComponent(discordGuildId)}/roles`),
   ]);
 
+  // The provider's own name for the guild. The claim request carries a caller-
+  // supplied label, which must never reach a durable proof or link: an admin of
+  // a real server could otherwise present it under a misleading name.
+  const guildName = typeof guild.name === "string" && guild.name.length > 0 ? guild.name : undefined;
+
   if (guild.owner_id === discordUserId) {
     return {
       verified: true,
+      guildName,
       evidenceSummary: `Discord user ${discordUserId} owns guild ${guild.name ?? discordGuildId}.`,
     };
   }
@@ -434,6 +640,7 @@ async function verifyDiscordAdministratorPermission(discordGuildId: string, disc
 
   return {
     verified,
+    guildName,
     evidenceSummary: verified
       ? `Discord user ${discordUserId} has Administrator permission in guild ${guild.name ?? discordGuildId}.`
       : `Discord user ${discordUserId} does not have Administrator permission in guild ${guild.name ?? discordGuildId}.`,
@@ -446,14 +653,13 @@ export const claimExistingPersonWithDiscord = mutation({
   },
   handler: async (ctx, args) => {
     const { subject, user } = await requireVerifiedActiveBrowserSession(ctx);
-    const [profile, discordAccount] = await Promise.all([
-      getClaimableProfileBySlug(ctx.db, args.profileSlug, "person"),
+    const [{ profile, activeOwner }, discordAccount] = await Promise.all([
+      getClaimableProfileBySlug(ctx.db, args.profileSlug, "person", user._id),
       requireLinkedDiscordAccount(ctx, user._id),
     ]);
-    const activeOwner = await getActiveProfileOwner(ctx.db, profile._id);
 
     if (activeOwner !== null && activeOwner.userId !== user._id) {
-      throw new Error("This profile already has an active owner.");
+      throw claimError("PROFILE_ALREADY_OWNED");
     }
 
     if (activeOwner !== null) {
@@ -555,6 +761,16 @@ export const createClaimedDiscordCommunityProfile = mutation({
   },
 });
 
+/**
+ * Opens a pending Discord Administrator check for `verifyDiscordCommunityAdminClaim`
+ * to resolve through the bot token.
+ *
+ * The claim UI now proves guild control during the OAuth round-trip and claims
+ * in one step, so nothing calls this today. It is kept deliberately: it and its
+ * verifier are the bot-token path, which the deferred discord-gateway work
+ * builds on for ongoing re-validation, and the claim journey still resumes any
+ * pending request this created.
+ */
 export const requestCommunityDiscordAdminClaim = mutation({
   args: {
     profileSlug: v.string(),
@@ -563,19 +779,17 @@ export const requestCommunityDiscordAdminClaim = mutation({
   },
   handler: async (ctx, args) => {
     const { user } = await requireVerifiedActiveBrowserSession(ctx);
-    const [profile, discordAccount] = await Promise.all([
-      getClaimableProfileBySlug(ctx.db, args.profileSlug, "community"),
+    const [{ profile, activeOwner }, discordAccount] = await Promise.all([
+      getClaimableProfileBySlug(ctx.db, args.profileSlug, "community", user._id),
       requireLinkedDiscordAccount(ctx, user._id),
     ]);
     const discordGuildId = args.discordGuildId.trim();
     if (!DISCORD_GUILD_ID_PATTERN.test(discordGuildId)) {
-      throw new Error("Enter a valid Discord server id.");
+      throw claimError("INVALID_DISCORD_GUILD_ID");
     }
 
-    const activeOwner = await getActiveProfileOwner(ctx.db, profile._id);
-
     if (activeOwner !== null && activeOwner.userId !== user._id) {
-      throw new Error("This community profile already has an active owner.");
+      throw claimError("PROFILE_ALREADY_OWNED");
     }
 
     if (activeOwner !== null) {
@@ -639,29 +853,81 @@ export const recordDiscordCommunityAdminApproval = internalMutation({
   args: {
     claimRequestId: v.id("profileClaimRequests"),
     evidenceSummary: v.string(),
+    discordUserId: v.string(),
+    guildName: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const claimRequest = await ctx.db.get(args.claimRequestId);
 
     if (claimRequest === null) {
-      throw new Error("Claim request not found.");
+      throw claimError("PROOF_NOT_FOUND");
     }
 
     if (claimRequest.method !== "discord_community_admin" || claimRequest.state !== "pending") {
-      throw new Error("Only pending Discord community admin claims can be approved this way.");
+      throw claimError("PROOF_NOT_PENDING");
     }
 
     if (claimRequest.profileId === undefined) {
-      throw new Error("Claim request is missing a profile target.");
+      throw claimError("PROFILE_NOT_FOUND");
     }
 
     const profile = await ctx.db.get(claimRequest.profileId);
 
     if (profile === null || profile.profileType !== "community") {
-      throw new Error("Community profile not found.");
+      throw claimError("PROFILE_NOT_FOUND");
     }
 
     const now = Date.now();
+
+    // Same recheck the VRChat proof path does, and needed more here: these
+    // requests never expire, so a claimant can sit on one until after
+    // moderation has made the listing draft, opted out, or suppressed and then
+    // verify. The check at request time cannot speak for a decision taken
+    // after it.
+    const currentOwner = await getActiveProfileOwner(ctx.db, profile._id);
+
+    if (currentOwner?.userId !== claimRequest.userId && !canReadProfile("public", profile)) {
+      await ctx.db.patch(claimRequest._id, {
+        state: "rejected",
+        evidenceSummary: "The listing stopped being claimable before this request was verified.",
+        reviewedAt: now,
+        updatedAt: now,
+      });
+
+      // Returned, not thrown. A throw rolls this mutation back, taking the
+      // patch with it, so the request would stay pending and every retry would
+      // repeat the Discord calls to reach the same dead end.
+      return { state: "rejected" as const, reason: "not_claimable" as const };
+    }
+
+    // Another claimant won while this request was out at Discord. Letting
+    // `approveProfileClaimForUser` throw rolled the whole mutation back, so the
+    // request stayed pending and every retry repeated the provider calls to
+    // fail on the same conflict. Settle it here instead, as the proof path
+    // does.
+    if (currentOwner !== null && currentOwner.userId !== claimRequest.userId) {
+      await ctx.db.patch(claimRequest._id, {
+        state: "rejected",
+        evidenceSummary: "Another claimant took ownership before this request was verified.",
+        reviewedAt: now,
+        updatedAt: now,
+      });
+
+      // Same reason as above: throwing would roll the rejection back.
+      return { state: "rejected" as const, reason: "already_owned" as const };
+    }
+
+    // Same rule as the OAuth path: Administrator in a server the claimant named
+    // proves they run that server, not that the server is this listing's. Read
+    // before the link below is written, and only associations somebody else put
+    // on record count — otherwise the claim corroborates itself on the retry.
+    const guildBacksThisProfile =
+      claimRequest.discordGuildId !== undefined &&
+      (await getActiveProfileLinks(ctx.db, profile._id, "discord_guild")).some(
+        (link) =>
+          link.assetExternalId === claimRequest.discordGuildId &&
+          link.linkedByUserId !== claimRequest.userId,
+      );
 
     await ctx.db.patch(claimRequest._id, {
       state: "approved",
@@ -675,10 +941,50 @@ export const recordDiscordCommunityAdminApproval = internalMutation({
       profileId: profile._id,
       userId: claimRequest.userId,
       grantedByClaimRequestId: claimRequest._id,
-      verified: true,
+      verified: guildBacksThisProfile,
       now,
-      note: "Discord Administrator permission verified by the Discord claim adapter.",
+      note: guildBacksThisProfile
+        ? "Discord Administrator permission verified by the Discord claim adapter for a server already backing this profile."
+        : "Discord Administrator permission verified by the Discord claim adapter. The server did not already back this profile, so ownership is unverified.",
     });
+
+    // The bot-token path proves the same thing the OAuth round-trip does, so it
+    // has to leave the same durable record. Without it the guild is verified but
+    // absent from the connection model: nothing shows under `/account/connections`
+    // and nothing can delegate a VRC Linking credential for it.
+    if (claimRequest.discordGuildId !== undefined) {
+      // `claimRequest.discordGuildName` is a caller-supplied label from the
+      // request step. Only the name the bot read from Discord may become durable
+      // — otherwise an admin of a real server could display it under any name
+      // they liked.
+      const displayName =
+        args.guildName === undefined ? {} : { assetDisplayName: args.guildName };
+      const proofId = await recordExternalControlProof(ctx.db, {
+        userId: claimRequest.userId,
+        assetType: "discord_guild",
+        assetExternalId: claimRequest.discordGuildId,
+        ...displayName,
+        controlLevel: "administrator",
+        evidenceSource: "discord_bot",
+        evidenceSummary: args.evidenceSummary,
+        // The Discord identity the bot actually checked. Reconciliation treats a
+        // proof with no recorded subject as belonging to whoever verifies next,
+        // so leaving this off would let a later OAuth round-trip by a different
+        // Discord account revoke this one.
+        evidenceSubjectId: args.discordUserId,
+        now,
+      });
+
+      await linkProfileToAsset(ctx.db, {
+        profileId: profile._id,
+        assetType: "discord_guild",
+        assetExternalId: claimRequest.discordGuildId,
+        ...displayName,
+        linkedByUserId: claimRequest.userId,
+        verifiedByProofId: proofId,
+        now,
+      });
+    }
 
     const updatedProfile = await ctx.db.get(profile._id);
     if (updatedProfile !== null) {
@@ -701,19 +1007,19 @@ export const getDiscordCommunityClaimForAdapter = internalQuery({
     const claimRequest = await ctx.db.get(args.claimRequestId);
 
     if (claimRequest === null) {
-      throw new Error("Claim request not found.");
+      throw claimError("PROOF_NOT_FOUND");
     }
 
     if (claimRequest.userId !== user._id) {
-      throw new Error("Claim request does not belong to the signed-in user.");
+      throw claimError("PROOF_NOT_FOUND");
     }
 
     if (claimRequest.method !== "discord_community_admin" || claimRequest.state !== "pending") {
-      throw new Error("Only pending Discord community admin claims can be verified this way.");
+      throw claimError("PROOF_NOT_PENDING");
     }
 
     if (claimRequest.discordGuildId === undefined) {
-      throw new Error("Claim request is missing a Discord guild id.");
+      throw claimError("INVALID_DISCORD_GUILD_ID");
     }
 
     const discordAccount = await requireLinkedDiscordAccount(ctx, user._id);
@@ -734,7 +1040,7 @@ export const recordDiscordCommunityAdminRejection = internalMutation({
     const claimRequest = await ctx.db.get(args.claimRequestId);
 
     if (claimRequest === null) {
-      throw new Error("Claim request not found.");
+      throw claimError("PROOF_NOT_FOUND");
     }
 
     if (claimRequest.method !== "discord_community_admin" || claimRequest.state !== "pending") {
@@ -765,7 +1071,7 @@ export const verifyDiscordCommunityAdminClaim = action({
     const guildId = claimContext.claimRequest.discordGuildId;
 
     if (guildId === undefined) {
-      throw new Error("Claim request is missing a Discord guild id.");
+      throw claimError("INVALID_DISCORD_GUILD_ID");
     }
 
     const result = await verifyDiscordAdministratorPermission(guildId, claimContext.discordUserId);
@@ -780,6 +1086,10 @@ export const verifyDiscordCommunityAdminClaim = action({
     return await ctx.runMutation(internal.profileClaims.recordDiscordCommunityAdminApproval, {
       claimRequestId: args.claimRequestId,
       evidenceSummary: result.evidenceSummary,
+      // The identity the bot actually checked, and the provider's own name for
+      // the guild — not the label the claimant typed.
+      discordUserId: claimContext.discordUserId,
+      ...(result.guildName !== undefined ? { guildName: result.guildName } : {}),
     });
   },
 });
@@ -792,33 +1102,32 @@ export const startVrchatProof = mutation({
   },
   handler: async (ctx, args) => {
     const { user } = await requireVerifiedActiveBrowserSession(ctx);
-    const profile = await getClaimableProfileBySlug(
+    const { profile, activeOwner } = await getClaimableProfileBySlug(
       ctx.db,
       args.profileSlug,
       args.targetType === "vrchat_group" ? "community" : "person",
+      user._id,
     );
     requireCompatibleProofTarget(profile, args.targetType);
 
-    const activeOwner = await getActiveProfileOwner(ctx.db, profile._id);
     if (activeOwner !== null && activeOwner.userId !== user._id) {
-      throw new Error("This profile already has an active owner.");
+      throw claimError("PROFILE_ALREADY_OWNED");
     }
 
-    const targetExternalId =
-      args.targetType === "vrclinking"
-        ? args.targetExternalId.trim()
-        : normalizeVrchatTargetId(args.targetExternalId, args.targetType);
+    // A VRC Linking attestation names a VRChat account exactly as a direct
+    // proof does — it becomes the `assetExternalId` of a `self`-level
+    // `vrchat_user` proof — so it gets the same validation. Trimming alone let
+    // arbitrary text become the identity of a durable control proof.
+    const targetExternalId = normalizeVrchatTargetId(
+      args.targetExternalId,
+      args.targetType === "vrclinking" ? "vrchat_user" : args.targetType,
+    );
     if (!targetExternalId) {
-      throw new Error(
-        args.targetType === "vrchat_group"
-          ? "Enter a valid VRChat group URL or id."
-          : args.targetType === "vrchat_user"
-            ? "Enter a valid VRChat profile URL or user id."
-            : "A VRC Linking user id is required.",
-      );
+      throw claimError("INVALID_VRCHAT_TARGET", args.targetType);
     }
 
     const now = Date.now();
+
     const pendingAttempts = await ctx.db
       .query("profileVerificationAttempts")
       .withIndex("by_profileId_userId_state_updatedAt", (q) =>
@@ -848,6 +1157,52 @@ export const startVrchatProof = mutation({
         .map((attempt) => ctx.db.patch(attempt._id, { state: "expired", updatedAt: now })),
     );
 
+    // A per-attempt cooldown alone is bypassable: unlimited pending attempts,
+    // each read once, still spends provider quota one attempt at a time. Cap
+    // how many of a given target type a claimant may hold open. Counted per
+    // type so a VRC Linking backlog cannot lock someone out of VRChat proofs,
+    // and checked only on the create path so re-reading an existing code always
+    // works — the cap is on how much polling a claimant can queue, not on
+    // reading back what they already queued.
+    const openAttempts = await ctx.db
+      .query("profileVerificationAttempts")
+      .withIndex("by_userId_state", (q) => q.eq("userId", user._id).eq("state", "pending"))
+      .collect();
+
+    if (
+      openAttempts.filter(
+        (attempt) => attempt.targetType === args.targetType && attempt.expiresAt > now,
+      ).length >= MAX_OPEN_PROOF_ATTEMPTS
+    ) {
+      // Its own code, not `PROOF_NOT_PENDING`: nothing was created and nothing
+      // was resolved, and the outstanding attempts may well be on other
+      // profiles, so the copy has to point somewhere the claimant can act.
+      throw claimError("TOO_MANY_OPEN_PROOFS", args.targetType);
+    }
+
+    // The open-attempt cap alone does not bound an adapter-backed target. It
+    // counts `pending` rows, cancelling makes a row `failed`, and the adapter
+    // cooldown lives on the attempt — so submit, consult, "Start over", repeat
+    // spends a delegated community's provider quota as fast as the claimant can
+    // click, with `MAX_OPEN_PROOF_ATTEMPTS` never reached. Rate-limiting
+    // creation is what closes that: the loop can only turn as often as a single
+    // attempt could be re-checked.
+    if (args.targetType === "vrclinking") {
+      const previous = await ctx.db
+        .query("profileVerificationAttempts")
+        .withIndex("by_userId_targetType_createdAt", (q) =>
+          q
+            .eq("userId", user._id)
+            .eq("targetType", args.targetType)
+            .gt("createdAt", now - ADAPTER_CHECK_COOLDOWN_MS),
+        )
+        .first();
+
+      if (previous !== null) {
+        throw claimError("ADAPTER_COOLDOWN", args.targetType);
+      }
+    }
+
     const attemptId = await ctx.db.insert("profileVerificationAttempts", {
       profileId: profile._id,
       userId: user._id,
@@ -863,7 +1218,7 @@ export const startVrchatProof = mutation({
     const attempt = await ctx.db.get(attemptId);
 
     if (attempt === null) {
-      throw new Error("Unable to create verification attempt.");
+      throw claimError("PROOF_NOT_FOUND");
     }
 
     return {
@@ -888,7 +1243,7 @@ export const getVerificationAttemptForAdapter = internalQuery({
     }
 
     if (attempt.userId !== user._id) {
-      throw new Error("Verification attempt does not belong to the signed-in user.");
+      throw claimError("PROOF_NOT_FOUND");
     }
 
     const profile = await ctx.db.get(attempt.profileId);
@@ -914,16 +1269,76 @@ export const recordVrchatProofVerification = internalMutation({
     attemptId: v.id("profileVerificationAttempts"),
     evidenceSource: v.union(v.literal("vrchat_api"), v.literal("vrclinking"), v.literal("manual")),
     evidenceSummary: v.string(),
+    // The delegation a VRC Linking attestation came from, re-validated here so
+    // the check and the ownership grant are one transaction. Checking it in a
+    // separate mutation left a window in which the owner could revoke or
+    // repoint the delegation and the grant would still land on its say-so.
+    vrclinkingDelegation: v.optional(
+      v.object({
+        credentialId: v.id("communityVrclinkingCredentials"),
+        secretRef: v.string(),
+      }),
+    ),
   },
   handler: async (ctx, args) => {
+    if (args.vrclinkingDelegation !== undefined) {
+      const credential = await ctx.db.get(args.vrclinkingDelegation.credentialId);
+
+      // Derived, matching selection and `recordCredentialUse`. Reading the
+      // stored value here rejected any row registered before the ARN form was
+      // retired — and rejecting at this point is the worst of the three: the
+      // provider call is already spent and the match already found, so the
+      // claimant is told `unavailable` after a verification that succeeded.
+      if (
+        credential === null ||
+        credential.state !== "active" ||
+        vrclinkingSecretRef(credential.guildId) !== args.vrclinkingDelegation.secretRef
+      ) {
+        return { state: "unavailable" as const };
+      }
+
+      const proof = await getActiveControlProof(
+        ctx.db,
+        credential.delegatedByUserId,
+        "discord_guild",
+        credential.guildId,
+      );
+
+      if (
+        proof === null ||
+        (proof.revalidateAfter !== undefined && proof.revalidateAfter <= Date.now())
+      ) {
+        return { state: "unavailable" as const };
+      }
+    }
+
     const attempt = await ctx.db.get(args.attemptId);
 
     if (attempt === null) {
-      throw new Error("Verification attempt not found.");
+      throw claimError("PROOF_NOT_FOUND");
     }
 
     if (attempt.state !== "pending") {
-      throw new Error("Only pending verification attempts can be approved.");
+      // The collector fleet polls the same attempt the adapter action is
+      // verifying, so it can settle it while that fetch is in flight. Throwing
+      // reported an error for a click whose ownership grant had already
+      // succeeded, so report the settled outcome instead.
+      if (attempt.state === "verified") {
+        const settled = await ctx.db.get(attempt.profileId);
+
+        if (settled === null) {
+          throw claimError("PROFILE_NOT_FOUND");
+        }
+
+        return {
+          claimRequestId: undefined,
+          profileId: settled._id,
+          claimState: settled.claimState,
+          connectionOnly: attempt.connectionOnly === true,
+        };
+      }
+
+      throw claimError("PROOF_NOT_PENDING");
     }
 
     const now = Date.now();
@@ -934,42 +1349,156 @@ export const recordVrchatProofVerification = internalMutation({
 
     const profile = await ctx.db.get(attempt.profileId);
     if (profile === null) {
-      throw new Error("Profile not found.");
+      throw claimError("PROFILE_NOT_FOUND");
     }
 
-    const claimRequestId = await ctx.db.insert("profileClaimRequests", {
-      profileId: profile._id,
-      profileSlug: profile.slug,
-      profileType: profile.profileType,
-      requestedDisplayName: profile.displayName,
-      userId: attempt.userId,
-      method: attempt.method,
-      state: "approved",
-      vrchatTargetId: attempt.targetExternalId,
-      evidenceSource: args.evidenceSource,
-      evidenceSummary: args.evidenceSummary,
-      createdAt: now,
-      updatedAt: now,
-      verifiedAt: now,
-      reviewedAt: now,
-    });
+    const existingOwner = await getActiveProfileOwner(ctx.db, profile._id);
+    const ownedByClaimant = existingOwner !== null && existingOwner.userId === attempt.userId;
+
+    // Another claimant won while this attempt was out at the adapter. Left to
+    // `approveProfileClaimForUser`, the throw rolls the whole mutation back, so
+    // the attempt stays pending and retries keep spending delegated provider
+    // calls until it expires — and `vrclinking` attempts have no collector
+    // wrapper to settle them. The collector's own conflict handling stays for
+    // the batch path; this covers the direct one.
+    if (existingOwner !== null && !ownedByClaimant) {
+      await ctx.db.patch(attempt._id, {
+        state: "failed",
+        evidenceSource: args.evidenceSource,
+        evidenceSummary: "Another claimant took ownership before this proof resolved.",
+        updatedAt: now,
+      });
+
+      // Named, like the Discord claim path. Unnamed, the browser could not tell
+      // this from a real negative, so a claimant who lost a race was told no
+      // server had confirmed their account — when the attestation may well have
+      // matched and only the listing moved underneath it.
+      return { state: "failed" as const, reason: "already_owned" as const };
+    }
+
+    // Attempts stay pending for a day, so the claimability check at the start
+    // cannot speak for a moderation decision taken after it. A listing made
+    // draft, opted out, or safety-suppressed in that window must not still hand
+    // itself over because a proof was already in flight.
+    //
+    // Settled rather than thrown: the collector's caller only treats an
+    // ownership conflict as terminal, so throwing would have it retry an
+    // attempt that can never succeed until it expires.
+    if (!ownedByClaimant && !canReadProfile("public", profile)) {
+      await ctx.db.patch(attempt._id, {
+        state: "failed",
+        evidenceSource: args.evidenceSource,
+        evidenceSummary: "The listing stopped being claimable before this proof resolved.",
+        updatedAt: now,
+      });
+
+      return { state: "failed" as const, reason: "not_claimable" as const };
+    }
+
+    // Same rule as the Discord paths, and for the same reason. Placing a proof
+    // code in a VRChat group's description proves the claimant administers that
+    // group; it says nothing about whether the group is the one this listing
+    // represents, and `startVrchatProof` takes the target id from the claimant.
+    // Without this the Discord guard is decorative: claim any listing with any
+    // guild to get `claimed_unverified`, then upgrade it to `claimed_verified`
+    // with a throwaway VRChat group. Read before the link is written below, and
+    // only associations somebody else recorded count.
+    const assetType = attempt.targetType === "vrchat_group" ? "vrchat_group" : "vrchat_user";
+    const assetBacksThisProfile = (
+      await getActiveProfileLinks(ctx.db, profile._id, assetType)
+    ).some(
+      (link) =>
+        link.assetExternalId === attempt.targetExternalId &&
+        link.linkedByUserId !== attempt.userId,
+    );
+
+    // An existing owner proving control of *another* account or group is adding
+    // a connection, not claiming the profile again. Writing an approved claim
+    // request and re-running the ownership grant filled the audit trail with
+    // history asserting ownership was granted a second time, for a profile whose
+    // ownership never changed.
+    //
+    // The test is "can this proof change anything", not "is the owner already
+    // verified". An owner sitting at `claimed_unverified` who proves a target
+    // the listing does not name cannot upgrade either — nothing about the
+    // profile changes — so that is a connection too. Only a proof that actually
+    // upgrades is a claim.
+    const upgradesClaimState =
+      profile.claimState !== "claimed_verified" && assetBacksThisProfile;
+    const connectionOnly = ownedByClaimant && !upgradesClaimState;
+
+    const claimRequestId = connectionOnly
+      ? undefined
+      : await ctx.db.insert("profileClaimRequests", {
+          profileId: profile._id,
+          profileSlug: profile.slug,
+          profileType: profile.profileType,
+          requestedDisplayName: profile.displayName,
+          userId: attempt.userId,
+          method: attempt.method,
+          state: "approved",
+          vrchatTargetId: attempt.targetExternalId,
+          evidenceSource: args.evidenceSource,
+          evidenceSummary: args.evidenceSummary,
+          createdAt: now,
+          updatedAt: now,
+          verifiedAt: now,
+          reviewedAt: now,
+        });
 
     await ctx.db.patch(attempt._id, {
       state: "verified",
+      connectionOnly,
       evidenceSource: args.evidenceSource,
       evidenceSummary: args.evidenceSummary,
       verifiedAt: now,
       updatedAt: now,
     });
-    await approveProfileClaimForUser(ctx.db, {
-      profile,
-      profileId: profile._id,
-      userId: attempt.userId,
-      grantedByClaimRequestId: claimRequestId,
-      verified: true,
-      now,
-      note: "External profile proof code was verified by the VRChat proof adapter.",
-    });
+    if (!connectionOnly) {
+      await approveProfileClaimForUser(ctx.db, {
+        profile,
+        profileId: profile._id,
+        userId: attempt.userId,
+        ...(claimRequestId === undefined ? {} : { grantedByClaimRequestId: claimRequestId }),
+        verified: assetBacksThisProfile,
+        now,
+        note: assetBacksThisProfile
+          ? proofAuditNote(attempt.targetType, args.evidenceSource)
+          : `${proofAuditNote(attempt.targetType, args.evidenceSource)} The target did not already back this profile, so ownership is unverified.`,
+      });
+    }
+
+    // Record the durable control proof and profile association so VRChat
+    // targets participate in the same many-to-many link model as Discord
+    // guilds, rather than the association living only on the claim request.
+    // A VRC Linking attestation targets a `usr_…` account just as a direct
+    // proof does, so it earns the same connection; skipping it left a profile
+    // verified with nothing shown under its connections.
+    {
+      const proofId = await recordExternalControlProof(ctx.db, {
+        userId: attempt.userId,
+        assetType,
+        assetExternalId: attempt.targetExternalId,
+        // A group proof shows the claimant can edit the group's description,
+        // which staff roles can also do. That is authority to administer, not
+        // evidence of ownership, and recording `owner` would overstate it and
+        // could satisfy a future owner-only check. A bio on one's own profile
+        // does prove `self`.
+        controlLevel: assetType === "vrchat_user" ? "self" : "administrator",
+        evidenceSource: args.evidenceSource,
+        evidenceSummary: args.evidenceSummary,
+        now,
+      });
+
+      await linkProfileToAsset(ctx.db, {
+        profileId: profile._id,
+        assetType,
+        assetExternalId: attempt.targetExternalId,
+        linkedByUserId: attempt.userId,
+        verifiedByProofId: proofId,
+        now,
+      });
+    }
 
     const updatedProfile = await ctx.db.get(profile._id);
     if (updatedProfile !== null) {
@@ -980,6 +1509,7 @@ export const recordVrchatProofVerification = internalMutation({
       claimRequestId,
       profileId: profile._id,
       claimState: updatedProfile?.claimState ?? profile.claimState,
+      connectionOnly,
     };
   },
 });
@@ -994,7 +1524,7 @@ export const recordVrchatProofFailure = internalMutation({
     const attempt = await ctx.db.get(args.attemptId);
 
     if (attempt === null) {
-      throw new Error("Verification attempt not found.");
+      throw claimError("PROOF_NOT_FOUND");
     }
 
     if (attempt.state !== "pending") {
@@ -1023,49 +1553,321 @@ export const verifyVrchatProofViaAdapter = action({
     })) as VerificationAttemptAdapterContext | null;
 
     if (attemptContext === null) {
-      throw new Error("Verification attempt not found.");
+      throw claimError("PROOF_NOT_FOUND");
     }
 
     if (attemptContext.attempt.state !== "pending") {
       return { state: attemptContext.attempt.state };
     }
 
+    // An attempt that is already expired is expired regardless of whether the
+    // adapter could be reached, so settle it before spending a provider call or
+    // reading a delegated credential. Expiry *during* verification is still
+    // handled after the fetch below.
+    if (attemptContext.attempt.expiresAt <= Date.now()) {
+      await ctx.runMutation(internal.profileClaims.recordVrchatProofFailure, {
+        attemptId: args.attemptId,
+        evidenceSource: proofEvidenceSourceForTarget(attemptContext.attempt.targetType),
+        evidenceSummary: "The proof attempt expired before adapter verification started.",
+      });
+
+      return { state: "expired" as const };
+    }
+
     const adapterUrl = proofAdapterUrl(attemptContext.attempt.targetType);
-    const response = await fetch(adapterUrl, {
+
+    // No adapter for a VRChat target means the collector fleet reads it on its
+    // own schedule. The attempt stays pending and the collector resolves it, so
+    // report that rather than failing the user's manual check.
+    if (adapterUrl === null) {
+      return { state: "queued" as const };
+    }
+
+    // Every adapter-backed check spends somebody's provider quota, and a
+    // negative leaves the attempt pending, so an unthrottled caller could drain
+    // it by retrying. Reserved atomically, so concurrent callers and a throwing
+    // fetch cannot both slip through.
+    //
+    // For every target type, not only VRCLinking: a configured
+    // `VRCHAT_PROOF_ADAPTER_URL` was reachable on every click. And before the
+    // delegation selection below, which patches `lastRotatedAt` across the
+    // credential pool — a denied caller was still generating cross-tenant
+    // writes and reordering other communities' delegations for free.
+    const reservation = (await ctx.runMutation(internal.profileClaims.reserveAdapterCheck, {
+      attemptId: args.attemptId,
+      cooldownMs: ADAPTER_CHECK_COOLDOWN_MS,
+    })) as { granted: boolean; state: Doc<"profileVerificationAttempts">["state"] | null };
+
+    if (!reservation.granted) {
+      // A denial can mean "too soon" or "already settled". Only the first is
+      // pending; reporting the second as pending contradicts the completion the
+      // observer is showing.
+      return {
+        state:
+          reservation.state === null || reservation.state === "pending"
+            ? ("pending" as const)
+            : reservation.state,
+      };
+    }
+
+    // VRC Linking answers from a community's delegated credential rather than
+    // from a proof code, so that path carries the claimant's Discord identity
+    // and the delegations VRDex may consult. Only secret *references* travel.
+    const delegationContext =
+      attemptContext.attempt.targetType === "vrclinking"
+        ? // Selecting and stamping are one transaction, so the rotation cursor
+          // has already advanced for every row this pass considered, including
+          // ones skipped as ineligible. Neither was sent anywhere, which is why
+          // this is separate from the operator-visible "was queried" stamp.
+          ((await ctx.runMutation(internal.vrclinkingCredentials.reserveAdapterDelegations, {
+            userId: attemptContext.attempt.userId,
+          })) as {
+            discordUserId: string;
+            delegations: {
+              credentialId: Id<"communityVrclinkingCredentials">;
+              guildId: string;
+              secretRef: string;
+              generation: number;
+            }[];
+          } | null)
+        : null;
+
+    // No linked Discord account, or no community has delegated a credential:
+    // either way there is nothing to ask. Short-circuit rather than posting the
+    // claimant's Discord id to an adapter that cannot answer.
+    if (
+      attemptContext.attempt.targetType === "vrclinking" &&
+      (delegationContext === null || delegationContext.delegations.length === 0)
+    ) {
+      return { state: "unavailable" as const };
+    }
+
+    // Signed here rather than in the reservation mutation: the capability is
+    // short-lived and bound to this request, and the cooldown above can still
+    // deny a reservation that was already made.
+    const signedDelegations =
+      delegationContext === null
+        ? []
+        : await Promise.all(
+            delegationContext.delegations.map(async ({ guildId, secretRef, generation }) => ({
+              guildId,
+              secretRef,
+              // Cache-busting only — the capability below is what authorizes.
+              generation,
+              ...(await signDelegation(guildId, secretRef)),
+            })),
+          );
+
+    const adapterRequest = {
       method: "POST",
       headers: proofAdapterHeaders(),
       body: JSON.stringify({
         targetType: attemptContext.attempt.targetType,
         targetExternalId: attemptContext.attempt.targetExternalId,
-        proofCode: attemptContext.attempt.proofCode,
-        profile: attemptContext.profile,
+        // The VRC Linking adapter answers from the claimant's Discord identity
+        // and a delegated key; it neither reads nor validates these. Sending a
+        // live one-time proof code and the profile record to a service that has
+        // no use for them is avoidable exposure.
+        ...(delegationContext === null
+          ? {
+              proofCode: attemptContext.attempt.proofCode,
+              profile: attemptContext.profile,
+            }
+          : {
+              discordUserId: delegationContext.discordUserId,
+              delegations: signedDelegations,
+            }),
       }),
-    });
+    };
+
+    /**
+     * The attempt's current state when the collector settled it mid-call,
+     * otherwise the caller's own outcome.
+     *
+     * A configured `VRCHAT_PROOF_ADAPTER_URL` does not stop the collector fleet
+     * polling the same attempts, so it can grant ownership while this request
+     * is in flight. Reporting the adapter's answer from the pre-call snapshot
+     * then told the claimant the check had failed for a claim that had already
+     * succeeded — an error and a `claim_failed` event beside the completion the
+     * observer was showing.
+     */
+    const settledOr = async <T extends string>(fallback: T) => {
+      const settled = (await ctx.runQuery(internal.profileClaims.getVerificationAttemptForAdapter, {
+        attemptId: args.attemptId,
+      })) as { attempt: Doc<"profileVerificationAttempts"> } | null;
+
+      return {
+        state:
+          settled === null || settled.attempt.state === "pending"
+            ? fallback
+            : settled.attempt.state,
+      };
+    };
+
+    // A refused connection, a DNS failure, or a deadline that fires mid-request
+    // is "we could not ask", which is exactly what `unavailable` reports. Left
+    // to throw, the claimant saw a generic failure for a question the adapter
+    // never answered.
+    let response;
+
+    try {
+      response = await boundedFetch(adapterUrl, adapterRequest);
+    } catch {
+      return await settledOr("unavailable" as const);
+    }
 
     if (attemptContext.attempt.expiresAt <= Date.now()) {
-      await ctx.runMutation(internal.profileClaims.recordVrchatProofFailure, {
+      // `recordVrchatProofFailure` reports the state it found rather than
+      // overwriting a settled one, so use its answer: the collector can verify
+      // this attempt in the same window, and announcing `expired` over its
+      // grant would tell the claimant they had run out of time for a claim that
+      // had just succeeded.
+      const failure = (await ctx.runMutation(internal.profileClaims.recordVrchatProofFailure, {
         attemptId: args.attemptId,
         evidenceSource: proofEvidenceSourceForTarget(attemptContext.attempt.targetType),
         evidenceSummary: "The proof attempt expired before adapter verification completed.",
-      });
-      return { state: "expired" as const };
+      })) as { state: Doc<"profileVerificationAttempts">["state"] };
+
+      return { state: failure.state };
     }
 
+    const result = (response.body ?? {}) as ProofAdapterResponse;
+
+    // A 200 with an empty, truncated, or non-JSON body is not a verdict.
+    // Reading the missing field as a negative told the claimant the code was
+    // not found when the adapter never actually said anything.
+    if (response.ok && typeof result.verified !== "boolean") {
+      return await settledOr("unavailable" as const);
+    }
+
+    // Stamped from what the adapter says it asked, and only after it answers.
+    // Stamping every selected delegation before the request wrote "last queried"
+    // for keys a DNS failure meant were never sent, and for keys after the
+    // first match, which the adapter never reaches — so the operator's audit
+    // trail showed tested keys that had never been tested, and hid the ones
+    // that genuinely never had.
+    if (delegationContext !== null && Array.isArray(result.consultedDelegationIndexes)) {
+      // Carrying the reference each was consulted through, so a delegation
+      // replaced while the adapter was answering is not stamped as though the
+      // new key had been the one asked.
+      const consulted = result.consultedDelegationIndexes
+        .map((index) => delegationContext.delegations[index])
+        .filter((delegation) => delegation !== undefined)
+        .map(({ credentialId, secretRef }) => ({ credentialId, secretRef }));
+
+      if (consulted.length > 0) {
+        await ctx.runMutation(internal.vrclinkingCredentials.recordCredentialConsultations, {
+          consulted,
+        });
+      }
+    }
+
+    // Read after the stamping above, not before it. The adapter maps "could not
+    // consult anything" to a 503 rather than a body flag — precisely so "we
+    // could not ask anyone" never reaches the claimant as "we asked and the
+    // code was not there" — but that response still names the delegations that
+    // did answer, with a rejected key or a rate limit. Returning first left
+    // exactly those reporting as never queried. Do not add a body-level
+    // `unavailable` check here without also making the adapter emit one — it
+    // does not.
     if (!response.ok) {
-      return { state: "unavailable" as const };
+      return await settledOr("unavailable" as const);
     }
-
-    const result = (await response.json()) as ProofAdapterResponse;
 
     if (result.verified !== true) {
-      return { state: "pending" as const };
+      return await settledOr("pending" as const);
+    }
+
+    // Only the delegation the adapter says answered gets the operator-visible
+    // audit stamp.
+    // Index first: two communities may delegate for the same guild, and
+    // matching on guild id alone would stamp whichever was listed first rather
+    // than the delegation that actually answered.
+    // Index only. The guild-id fallback picked the first delegation for that
+    // guild, and one guild may back several community profiles — so with two
+    // credential rows for it in the same batch, a response whose actual
+    // credential was revoked mid-flight could validate the unrelated
+    // still-active row and grant on the superseded answer. The contract in
+    // `docs/backend/vrclinking-api.md` requires the index.
+    const matched =
+      typeof result.matchedDelegationIndex === "number"
+        ? delegationContext?.delegations[result.matchedDelegationIndex]
+        : undefined;
+
+    // A `vrclinking` positive is only as good as the delegation it came from,
+    // so it has to name one. Without this, an adapter that returned the bare
+    // `{ verified, evidenceSource, evidenceSummary }` shape — or an index
+    // outside the batch — skipped the re-check below entirely and granted the
+    // claim on nothing. The contract in `docs/backend/vrclinking-api.md`
+    // requires the match metadata; this enforces it.
+    if (attemptContext.attempt.targetType === "vrclinking" && matched === undefined) {
+      return await settledOr("unavailable" as const);
+    }
+
+    if (matched !== undefined) {
+      // Re-checked, not just stamped. The owner can revoke the delegation, or
+      // repoint it at a different key, between the reservation and this
+      // response — and the delegator's own control proof can lapse in the same
+      // window. Accepting the verdict anyway would let a revoked credential
+      // grant ownership.
+      const use = (await ctx.runMutation(internal.vrclinkingCredentials.recordCredentialUse, {
+        credentialId: matched.credentialId,
+        secretRef: matched.secretRef,
+        resultSummary: "Confirmed a VRC Linking identity attestation.",
+      })) as { accepted: boolean };
+
+      if (!use.accepted) {
+        return await settledOr("unavailable" as const);
+      }
     }
 
     return await ctx.runMutation(internal.profileClaims.recordVrchatProofVerification, {
       attemptId: args.attemptId,
       evidenceSource: result.evidenceSource ?? proofEvidenceSourceForTarget(attemptContext.attempt.targetType),
       evidenceSummary: result.evidenceSummary ?? "Proof code was found by the configured adapter.",
+      // Re-validated inside that mutation, atomically with the grant.
+      ...(matched === undefined
+        ? {}
+        : {
+            vrclinkingDelegation: {
+              credentialId: matched.credentialId,
+              secretRef: matched.secretRef,
+            },
+          }),
     });
+  },
+});
+
+/**
+ * Claim the right to run one adapter-backed check of an attempt.
+ *
+ * Checking a timestamp in the action and stamping it after the fetch leaves a
+ * window where concurrent callers all pass, and a fetch that throws never
+ * stamps at all. Reserving inside a mutation makes the check and the stamp one
+ * atomic step, so the cooldown holds under both.
+ */
+export const reserveAdapterCheck = internalMutation({
+  args: { attemptId: v.id("profileVerificationAttempts"), cooldownMs: v.number() },
+  handler: async (ctx, args) => {
+    const attempt = await ctx.db.get(args.attemptId);
+
+    // Reports the state it saw, not just the refusal. The collector can settle
+    // the attempt between the action's first read and this reservation, and
+    // answering a flat "pending" there told the claimant the code was not found
+    // on a page the observer was already showing as complete.
+    if (attempt === null || attempt.state !== "pending") {
+      return { granted: false, state: attempt?.state ?? null };
+    }
+
+    const now = Date.now();
+
+    if (attempt.lastCheckedAt !== undefined && attempt.lastCheckedAt > now - args.cooldownMs) {
+      return { granted: false, state: attempt.state };
+    }
+
+    await ctx.db.patch(args.attemptId, { lastCheckedAt: now });
+
+    return { granted: true, state: attempt.state };
   },
 });
 

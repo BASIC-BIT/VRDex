@@ -4,13 +4,13 @@
 
 Locked first-pass direction for [#57](https://github.com/BASIC-BIT/VRDex/issues/57).
 
-VRDex uses AWS narrowly for early supporting infrastructure. The current baseline is intentionally small: transactional auth email first, private profile asset storage next, and no broad AWS application platform before the product needs it.
+VRDex uses AWS narrowly for early supporting infrastructure. The current baseline is intentionally small: a transactional email sender identity, private profile asset storage, and no broad AWS application platform before the product needs it. Authentication email is Clerk's, not SES's.
 
 ## Scope
 
 The first AWS baseline covers:
 
-- Amazon SES for Convex Auth password and email verification messages
+- Amazon SES, retired for authentication now that Clerk sends its own verification email; see [`ses-auth-email.md`](./ses-auth-email.md)
 - Route 53 DNS records for the SES sender domain
 - IAM credentials scoped to SES sending for Convex
 - a private S3 asset bucket for owner-authored profile assets, tracked by [#115](https://github.com/BASIC-BIT/VRDex/issues/115)
@@ -28,7 +28,11 @@ Non-goals for this baseline:
 
 ## Email Delivery
 
-Locked decision: use Amazon SES for auth verification and transactional email.
+Locked decision: use Amazon SES for transactional email. **Auth verification is
+no longer part of this** — Clerk sends its own verification and password email,
+so the SES stack is retained for its domain identity and DKIM records rather
+than rewired into a sign-in flow. Nothing in the codebase sends through SES
+today; see [`ses-auth-email.md`](./ses-auth-email.md).
 
 Current hosted baseline:
 
@@ -48,7 +52,7 @@ Verified state as of this baseline pass:
 - Terraform plan against the hosted stack: no changes
 - SES send quota: `Max24HourSend=50000`, `MaxSendRate=14`, `SentLast24Hours=0`
 
-Convex deployments that send email must set:
+A Convex deployment that sends email through SES must set the following. None do today — see the retirement note above:
 
 - `AWS_SES_REGION`
 - `AWS_SES_FROM_EMAIL`
@@ -68,9 +72,11 @@ The first asset-storage implementation uses:
 - server-side encryption; SSE-S3 is acceptable for the first slice because S3 encrypts new object uploads by default
 - authenticated Convex upload intents plus token-gated Next.js upload/import routes for controlled browser uploads
 - import-by-URL guarded to public HTTPS destinations with bounded response sizes before any object is written
-- content-derived image validation, bounded decoded dimensions, raster
-  re-encoding with metadata removal, and a restricted SVG profile before any
-  object is written
+- direct browser POSTs into a quarantine prefix using short-lived presigned
+  policies bound to one object key, exact byte size, and declared content type
+- content-derived image validation, bounded decoded dimensions, exact private
+  source preservation, original-format metadata-sanitized downloads, optimized
+  WebP displays, and a restricted SVG profile before publication
 - app-generated reads through `/api/v0/profiles/:slug/assets/:assetId/file` and `/api/v0/profiles/:slug/logos.zip`, instead of public bucket objects
 - deterministic object prefixes keyed by asset upload date and upload intent token
 - metadata sufficient to connect uploaded objects to profile records, uploader, upload time, and moderation/review state
@@ -106,11 +112,17 @@ delete the private object. Before the launch flag is enabled, add a 24-object /
 within 24 hours, and remove soft-deleted objects after a 30-day recovery
 window.
 
+Abandoned direct-upload objects under `profile-assets/quarantine/` expire after
+two days through the checked-in S3 lifecycle rule. This bounds uploads that
+never reach completion; it does not replace the application reconciliation job
+for post-validation variant writes or the 30-day hard-delete process for
+recoverable assets.
+
 Deferred follow-on work:
 
 - moderation or malware scanning
 - CloudFront, responsive variants, or a dedicated image CDN
-- physical-object retention, expired-intent cleanup, and orphan reconciliation
+- post-write orphan reconciliation and recoverable-asset hard deletion
 
 Runtime environment/config names:
 
@@ -118,6 +130,12 @@ Runtime environment/config names:
   only after the hosted upload/read/download smoke test and retained-storage
   launch gates pass; absence keeps owner gallery entry points and mutations
   disabled
+- `VRDEX_PROFILE_MEDIA_DIRECT_UPLOAD_ENABLED=true` in both Vercel and Convex
+  only after the S3 CORS/lifecycle Terraform change and synthetic staging
+  source/display/download smoke pass
+- `VRDEX_PROFILE_MEDIA_ACCESSIBILITY_GENERATION_ENABLED=true` in both Vercel
+  and Convex only after the owner/rate/timeout staging smoke; `OPENAI_API_KEY`
+  and optional `VRDEX_PROFILE_MEDIA_ACCESSIBILITY_MODEL` belong in Vercel only
 - `VRDEX_PROFILE_ASSET_BUCKET` or fallback `VRDEX_ASSET_BUCKET`
 - `VRDEX_PROFILE_ASSET_REGION`, fallback `AWS_REGION`, or fallback `AWS_DEFAULT_REGION`
 - `VRDEX_PROFILE_ASSET_ROLE_ARN` for hosted Vercel OIDC role-based auth
@@ -137,6 +155,7 @@ Current stacks:
 - `infra/terraform/profile-assets`: private S3 asset bucket, Vercel OIDC IAM role, and hosted profile asset env vars
 - `infra/terraform/docs-site`: hosted docs Vercel project/domain and Route 53 DNS
 - `infra/terraform/restream-worker`: validation-only hosted worker benchmark foundation; CI validates it but does not plan or apply it
+- `infra/terraform/vrclinking-adapter`: VRCLinking proof adapter Lambda, Function URL, execution role, and log group. Deployed and live; CI validates but does not plan it, because planning needs the built artifact and the shared-secret ARN. Applied manually with `-var-file=environments/production.tfvars`, which is mandatory — see the stack README
 
 Keep stack state, plans, local provider caches, and `terraform.tfvars` uncommitted.
 

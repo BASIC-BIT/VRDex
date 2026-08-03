@@ -5,8 +5,12 @@ import {
   requireActiveBrowserSessionSubject,
 } from "./_browserSessionAuthority";
 import { mutation, query } from "./_generated/server";
+import { getProfileFieldVisibility } from "./_profileFieldVisibility";
+import { canReadProfile } from "./_profilePermissions";
+import { assertIdentityNotSuppressed } from "./_suppressions";
 import {
   applyProfileFieldVisibilityUpdate,
+  assertProfilePrivacyOwner,
   listOwnedPrivacyProfiles,
 } from "./_profilePrivacy";
 import {
@@ -48,6 +52,38 @@ export const updateFieldVisibility = mutation({
 
     if (profile === null) {
       throw new Error("Profile not found.");
+    }
+
+    // Before the suppression guard reads private aliases: a non-owner must get the
+    // ordinary owner-authority error, not IDENTITY_SUPPRESSED, which would tell them
+    // the profile stores a suppressed identity they cannot see.
+    await assertProfilePrivacyOwner(ctx.db, profile, userId);
+
+    // Making a private alias visible is itself an act of surfacing. Without this,
+    // an accepted name-only suppression could be bypassed by storing the name as a
+    // private alias and then flipping its visibility, which also rebuilds the
+    // search document.
+    // The submitted map replaces the stored one and omitted keys default to public,
+    // so a partial update like { bio: "private" } silently reveals private aliases.
+    // The transition is therefore computed from the effective post-update value,
+    // not from whether the caller named the alias key.
+    const aliasesBecomeVisible =
+      getProfileFieldVisibility(profile, "aliases") === "private" &&
+      (args.fieldVisibility.aliases ?? "public") !== "private";
+
+    // Only when the profile is publicly readable, matching updateProfileForApiOwner.
+    // applyProfileFieldVisibilityUpdate patches fieldVisibility alone and never
+    // restores publicSurfacingState, so on an opted_out or suppressed profile the
+    // alias stays invisible everywhere and there is nothing to guard.
+    if (
+      aliasesBecomeVisible &&
+      profile.aliases.length > 0 &&
+      canReadProfile("public", profile)
+    ) {
+      await assertIdentityNotSuppressed(ctx.db, {
+        displayNames: profile.aliases,
+        profileType: profile.profileType,
+      });
     }
 
     const now = Date.now();

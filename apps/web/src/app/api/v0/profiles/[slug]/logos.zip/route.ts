@@ -12,7 +12,16 @@ type RouteContext = {
   }>;
 };
 
-function extensionForMimeType(mimeType: string): string {
+function extensionForMimeType(mimeType: string, originalFileName?: string): string {
+  const originalExtension = originalFileName?.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1];
+  if (
+    (mimeType === "image/jpeg" && (originalExtension === "jpg" || originalExtension === "jpeg")) ||
+    (mimeType === "image/png" && originalExtension === "png") ||
+    (mimeType === "image/webp" && originalExtension === "webp") ||
+    (mimeType === "image/svg+xml" && originalExtension === "svg")
+  ) {
+    return originalExtension;
+  }
   if (mimeType === "image/svg+xml") {
     return "svg";
   }
@@ -63,12 +72,17 @@ export async function GET(request: Request, context: RouteContext) {
           return null;
         }
 
-        const object = await getProfileAssetObject(asset.storageKey);
+        const object = await getProfileAssetObject(
+          asset.downloadStorageKey ?? asset.storageKey,
+        );
         if (object === null) {
           return null;
         }
 
-        const extension = extensionForMimeType(asset.mimeType);
+        const extension = extensionForMimeType(
+          asset.downloadMimeType ?? asset.mimeType,
+          asset.originalFileName,
+        );
         const name = safeFilePart(asset.label ?? (index === 0 ? "primary-logo" : `logo-${index + 1}`));
 
         return {

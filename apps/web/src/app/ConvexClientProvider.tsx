@@ -1,238 +1,172 @@
 "use client";
 
-import { ConvexAuthNextjsProvider } from "@convex-dev/auth/nextjs";
-import { ConvexReactClient, useConvexAuth, useQuery } from "convex/react";
-import { usePostHog } from "posthog-js/react";
-import { usePathname } from "next/navigation";
+import { useAuth, useUser } from "@clerk/nextjs";
 import {
+  ConvexProviderWithAuth,
+  ConvexReactClient,
+  useConvexAuth,
+  useMutation,
+  useQuery,
+} from "convex/react";
+import { ConvexProviderWithClerk } from "convex/react-clerk";
+import {
+  useCallback,
   useEffect,
   useMemo,
-  useReducer,
   useRef,
+  useState,
   type ReactNode,
 } from "react";
 
 import { api } from "@convex-generated-api";
-import {
-  AUTH_SESSION_RESTORE_SLOW_MS,
-  AUTH_SIGNOUT_FAILED_BROWSER_EVENT,
-  AUTH_SIGNOUT_REQUESTED_BROWSER_EVENT,
-  authLifecycleEvent,
-  authSessionRestoreSlowEvent,
-  authSessionDiagnosticContext,
-  authSessionRouteClass,
-  nextAuthRevocationConvergenceStarted,
-  shouldConvergeRevokedSession,
-  type AuthSessionLifecycleState,
-  type AuthSessionTransitionIntent,
-} from "@/lib/auth-session";
-import { captureProductEvent } from "@/lib/posthog";
-import { validateSignInReturnTo } from "@/lib/safe-return-to";
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+const clerkConfigured = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
 const convex = convexUrl ? new ConvexReactClient(convexUrl) : null;
-const authRestorePageStartedAt =
-  typeof performance === "undefined" ? 0 : performance.now();
-let authRestoreSlowReportedForPageLoad = false;
+const PROVISION_RETRY_CEILING_MS = 8_000;
+// Backoff is 500ms doubling to the ceiling, so four failures is roughly seven
+// seconds of waiting before the app renders regardless. Long enough to cover a
+// slow first provision, short enough that a broken one is not a blank page.
+const PROVISION_GATE_ATTEMPTS = 4;
 
-function AuthLifecycleTelemetry({
-  credentialPresent,
-}: {
-  credentialPresent: boolean;
-}) {
-  const { isAuthenticated, isLoading } = useConvexAuth();
-  const posthog = usePostHog();
-  const pathname = usePathname();
-  const activeSessionState = useQuery(
-    api.authSessionAuthority.status,
-    isAuthenticated ? {} : "skip",
-  );
-  const routeClass = useMemo(
-    () => authSessionRouteClass(pathname),
-    [pathname],
-  );
-  const previousState = useRef<AuthSessionLifecycleState | null>(null);
-  const restoreStartedAt = useRef(authRestorePageStartedAt);
-  const restoreSlowEmitted = useRef(
-    authRestoreSlowReportedForPageLoad,
-  );
-  const revocationConvergenceStarted = useRef(false);
-  const [convergenceRetryVersion, retryConvergence] = useReducer(
-    (version: number) => version + 1,
-    0,
-  );
-  const transitionIntent =
-    useRef<AuthSessionTransitionIntent>("unclassified");
+/**
+ * Provisions the VRDex `users` row for a Clerk identity, and holds authenticated
+ * children until it exists.
+ *
+ * Provisioning on demand keeps Clerk as the only identity source without a
+ * webhook to expose, verify, and make replay-safe. It cannot be entirely
+ * fire-and-forget though: a brand-new identity's children mount first, and any
+ * query behind `requireUser` throws while the row is missing.
+ * `developer-tokens-panel` is the concrete case — its `temporalParsing.getAccess`
+ * query throws, and the panel's error boundary latches on "temporarily
+ * unavailable" even after the row appears.
+ *
+ * What this gate deliberately does *not* do is enforce verification freshness.
+ * An earlier revision tried, holding children until the row matched Clerk's
+ * current identity, and it could not be made sound: a provisioning outage, a
+ * token minted before a profile change, or any caller that is not this browser
+ * all defeat a client-side gate. That invariant lives on the server instead —
+ * `identityEmailVerified` reads the claim out of the token Convex just validated,
+ * so the guards do not trust this component at all. Re-syncing here is
+ * best-effort mirroring of display fields, and safe to fail.
+ */
+function ProvisionedChildren({ children }: { children: ReactNode }) {
+  const { isAuthenticated } = useConvexAuth();
+  const { user } = useUser();
+  const ensureCurrentUser = useMutation(api.users.ensureCurrentUser);
+  const viewer = useQuery(api.accounts.viewer, isAuthenticated ? {} : "skip");
+  const [retry, setRetry] = useState(0);
+  const retryTimer = useRef<number | undefined>(undefined);
+  const syncedIdentity = useRef<string | null>(null);
 
-  const diagnosticContext = () =>
-    authSessionDiagnosticContext({
-      hostname: window.location.hostname,
-      userAgent: navigator.userAgent,
-    });
+  const provisioned = viewer !== undefined && viewer !== null;
+  // Changes when Clerk's profile does, so an email or name edit is mirrored.
+  const identitySignature = user
+    ? [
+        user.id,
+        user.primaryEmailAddress?.emailAddress ?? "",
+        user.primaryEmailAddress?.verification?.status ?? "",
+        user.updatedAt?.getTime() ?? "",
+      ].join("|")
+    : null;
 
   useEffect(() => {
-    if (
-      activeSessionState !== "revoked" ||
-      revocationConvergenceStarted.current ||
-      !shouldConvergeRevokedSession(routeClass)
-    ) {
+    if (!isAuthenticated) {
       return;
     }
 
-    revocationConvergenceStarted.current =
-      nextAuthRevocationConvergenceStarted(
-        revocationConvergenceStarted.current,
-        "revocation_detected",
-    );
-    captureProductEvent(posthog, "session_revocation_detected", {});
-    const transientReturnTo =
-      pathname === "/sign-in" || pathname.startsWith("/auth/reauth/")
-        ? validateSignInReturnTo(
-            new URLSearchParams(window.location.search).get("returnTo"),
-          )
-        : "/account";
-    window.location.assign(
-      `/auth/session-converge?returnTo=${encodeURIComponent(
-        routeClass === "protected" ? pathname : transientReturnTo,
-      )}`,
-    );
-  }, [
-    activeSessionState,
-    convergenceRetryVersion,
-    pathname,
-    posthog,
-    routeClass,
-  ]);
-
-  useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      revocationConvergenceStarted.current =
-        nextAuthRevocationConvergenceStarted(
-          revocationConvergenceStarted.current,
-          "signed_out",
-        );
+    if (provisioned && identitySignature === syncedIdentity.current) {
+      return;
     }
-  }, [isAuthenticated, isLoading]);
 
-  useEffect(() => {
-    const onSignoutRequested = () => {
-      transitionIntent.current = "explicit_signout_current_tab";
-      revocationConvergenceStarted.current =
-        nextAuthRevocationConvergenceStarted(
-          revocationConvergenceStarted.current,
-          "signout_requested",
-        );
-      captureProductEvent(posthog, "auth_session_signout_requested", {});
-    };
-    const onSignoutFailed = () => {
-      transitionIntent.current = "unclassified";
-      revocationConvergenceStarted.current =
-        nextAuthRevocationConvergenceStarted(
-          revocationConvergenceStarted.current,
-          "signout_failed",
-        );
-      retryConvergence();
-    };
+    let cancelled = false;
 
-    window.addEventListener(
-      AUTH_SIGNOUT_REQUESTED_BROWSER_EVENT,
-      onSignoutRequested,
-    );
-    window.addEventListener(
-      AUTH_SIGNOUT_FAILED_BROWSER_EVENT,
-      onSignoutFailed,
-    );
+    void ensureCurrentUser({})
+      .then(() => {
+        if (!cancelled) {
+          syncedIdentity.current = identitySignature;
+        }
+      })
+      .catch(() => {
+        if (cancelled) {
+          return;
+        }
+
+        // Retried because nothing else would while the layout stays mounted, and
+        // a row that never appears leaves the account unusable. Unbounded on
+        // purpose: giving up entirely would silently stop mirroring profile
+        // changes for the rest of the session. The render gate below stops
+        // waiting long before this does, so retrying forever cannot strand the
+        // app.
+        retryTimer.current = window.setTimeout(
+          () => setRetry((attempt) => attempt + 1),
+          Math.min(PROVISION_RETRY_CEILING_MS, 500 * 2 ** retry),
+        );
+      });
+
     return () => {
-      window.removeEventListener(
-        AUTH_SIGNOUT_REQUESTED_BROWSER_EVENT,
-        onSignoutRequested,
-      );
-      window.removeEventListener(
-        AUTH_SIGNOUT_FAILED_BROWSER_EVENT,
-        onSignoutFailed,
-      );
-    };
-  }, [posthog]);
+      cancelled = true;
 
-  useEffect(() => {
-    if (!isLoading || restoreSlowEmitted.current) {
-      return;
-    }
-
-    const elapsed = performance.now() - restoreStartedAt.current;
-    const timeout = window.setTimeout(() => {
-      const slowEvent = authSessionRestoreSlowEvent({
-        alreadyEmitted: restoreSlowEmitted.current,
-        credentialPresent,
-        elapsedMs: performance.now() - restoreStartedAt.current,
-        routeClass,
-      });
-      if (slowEvent === null) {
-        return;
+      if (retryTimer.current !== undefined) {
+        window.clearTimeout(retryTimer.current);
+        retryTimer.current = undefined;
       }
-      restoreSlowEmitted.current = true;
-      authRestoreSlowReportedForPageLoad = true;
-      captureProductEvent(posthog, slowEvent.event, {
-        ...slowEvent.properties,
-        ...diagnosticContext(),
-      });
-    }, Math.max(0, AUTH_SESSION_RESTORE_SLOW_MS - elapsed));
+    };
+  }, [ensureCurrentUser, identitySignature, isAuthenticated, provisioned, retry]);
 
-    return () => window.clearTimeout(timeout);
-  }, [credentialPresent, isLoading, posthog, routeClass]);
+  // Waits for the query to resolve, not just for a known-absent row. On a new
+  // identity's first render `viewer` is still `undefined`, and letting children
+  // mount there is the race this gate exists to close — `temporalParsing.getAccess`
+  // would reach `requireUser` before the row lands and latch its error boundary.
+  //
+  // Gives up after `PROVISION_GATE_ATTEMPTS` failures rather than waiting on a
+  // row that may never arrive. Provisioning that keeps failing used to render
+  // nothing at all, for the whole session: `viewer` stays `null` when the query
+  // resolves and finds no row, which is exactly the state a failing
+  // `ensureCurrentUser` leaves behind. A latched error boundary on one panel is
+  // recoverable and legible; a blank authenticated app is neither.
+  //
+  // Public pages are unaffected: an anonymous visitor never enters this branch.
+  const provisioningUnresolved = viewer === undefined || viewer === null;
 
-  useEffect(() => {
-    const currentState: AuthSessionLifecycleState = isLoading
-      ? "restoring"
-      : isAuthenticated
-        ? "authenticated"
-        : "anonymous";
-    const lifecycleEvent = authLifecycleEvent(
-      previousState.current,
-      currentState,
-      {
-        credentialPresent,
-        intent: transitionIntent.current,
-        restoreDurationMs: performance.now() - restoreStartedAt.current,
-        routeClass,
-      },
-    );
+  if (isAuthenticated && provisioningUnresolved && retry < PROVISION_GATE_ATTEMPTS) {
+    return null;
+  }
 
-    previousState.current = currentState;
-
-    if (lifecycleEvent !== null) {
-      posthog?.capture(lifecycleEvent.event, {
-        ...lifecycleEvent.properties,
-        ...diagnosticContext(),
-      });
-      transitionIntent.current = "unclassified";
-    }
-  }, [
-    credentialPresent,
-    isAuthenticated,
-    isLoading,
-    posthog,
-    routeClass,
-  ]);
-
-  return null;
+  return children;
 }
 
-export function ConvexClientProvider({
-  children,
-  credentialPresent,
-}: {
-  children: ReactNode;
-  credentialPresent: boolean;
-}) {
+/**
+ * Reports a settled, signed-out state when Clerk has no credentials in this
+ * environment. Nine components call `useConvexAuth()`, which requires one of the
+ * `ConvexProviderWith*` ancestors — a plain `ConvexProvider` makes every one of
+ * them throw and takes down public pages along with sign-in.
+ */
+function useUnauthenticated() {
+  const fetchAccessToken = useCallback(async () => null, []);
+
+  return useMemo(
+    () => ({ isLoading: false, isAuthenticated: false, fetchAccessToken }),
+    [fetchAccessToken],
+  );
+}
+
+export function ConvexClientProvider({ children }: { children: ReactNode }) {
   if (!convex) {
     return children;
   }
 
+  if (!clerkConfigured) {
+    return (
+      <ConvexProviderWithAuth client={convex} useAuth={useUnauthenticated}>
+        {children}
+      </ConvexProviderWithAuth>
+    );
+  }
+
   return (
-    <ConvexAuthNextjsProvider client={convex}>
-      <AuthLifecycleTelemetry credentialPresent={credentialPresent} />
-      {children}
-    </ConvexAuthNextjsProvider>
+    <ConvexProviderWithClerk client={convex} useAuth={useAuth}>
+      <ProvisionedChildren>{children}</ProvisionedChildren>
+    </ConvexProviderWithClerk>
   );
 }

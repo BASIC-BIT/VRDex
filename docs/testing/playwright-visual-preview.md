@@ -52,16 +52,21 @@ PLAYWRIGHT_BASE_URL=https://vrdex.net PLAYWRIGHT_SKIP_WEBSERVERS=true pnpm test:
 
 The local Playwright suite starts a local Convex backend and Next dev server by default.
 
-The focused authentication matrix is:
+The focused authentication contract is:
 
 ```powershell
-pnpm test:e2e:auth-session-matrix
+pnpm test:e2e:hosted:auth-session
 ```
 
-It positively selects the auth-session contract and runs serially in
-Chromium, Firefox, and WebKit. The restart assertion closes the first
-persistent browser profile and launches the same profile again; it does not
-simulate restart by copying cookies into a fresh context.
+It is hosted-only. `convex/auth.config.ts` deliberately pins local deployments
+to the unresolvable issuer `https://clerk-issuer.invalid`, so a local backend
+rejects every Clerk token by design and no test wiring changes that — point
+`PLAYWRIGHT_BASE_URL` at a hosted target and supply the Clerk keys below.
+
+The three-browser `test:e2e:auth-session-matrix` lane was removed with #226. It
+drove persistent browser profiles to exercise Convex Auth refresh-token
+rotation; Clerk owns sessions now, so there is nothing of ours left in that
+path to assert.
 
 Before an authentication-sensitive release, manually check the ordinary
 remembered-session and explicit-sign-out paths in current Firefox and Safari
@@ -110,15 +115,51 @@ The `@flow` Playwright test is the first mutation-backed journey. It:
 - captures screenshots for both readback pages
 - cleans up the E2E-created profile, search document, and audit event by slug
 
-The local `@flow` suite also covers the first auth/claim path without real OAuth or SES:
+## Auth-backed E2E
 
-- creates an `@e2e.vrdex.local` email/password account through the sign-in UI
-- captures the one-time verification code through a token-gated E2E auth helper
-- verifies the email with Convex Auth
-- links a Discord account through a token-gated E2E helper
-- claims an E2E-created person profile through the account UI
-- verifies the public profile moves to the `Claimed` trust label
-- cleans up the test user, auth records, profile owner, claim request, and E2E profile
+Issue #226 rewired the auth half of the suite onto `@clerk/testing`. Two of the
+four specs it covered were not rewired but deleted, because their subject matter
+went away with Convex Auth rather than changing hands:
+
+- `account-sessions.flow.spec.ts` drove reauthentication challenges and session
+  revocation. `docs/backend/auth-sessions.md` records that the step-up was
+  replaced by in-page confirmations, and nothing in `apps/web/src` mentions
+  reauth any more.
+- The three-browser matrix in `auth-session.flow.spec.ts` drove
+  `__convexAuth` cookies and hand-seeded `absolute_expired` / `invalid_refresh`
+  / `revoked` session rows. `_browserSessionAuthority.ts` records that Clerk
+  collapsed `revoked` into plain `anonymous`.
+
+What runs now:
+
+- `auth-claim.flow.spec.ts` — person and community claiming, VRChat adapter
+  claims, and the negative helper-gate check
+- `developer-credentials.flow.spec.ts` — v0 bearer tokens and OAuth PKCE. Its
+  `RECENT_AUTH_REQUIRED` step-up block went with the step-up itself.
+- `auth-session.flow.spec.ts` — rewritten as the seam contract: whether a Clerk
+  session resolves to a *verified Convex identity* on this deployment. That is
+  what a `convex` JWT template missing `aud` or `email_verified`, or a
+  `CLERK_JWT_ISSUER_DOMAIN` naming a different instance than the publishable
+  key, actually breaks — none of which a build catches.
+
+Accounts come from `apps/web/e2e/clerk-auth.ts`: the Clerk Backend API creates
+the user (which arrives with its email already verified, and so with
+`email_verified` in the token), `setupClerkTestingToken` bypasses bot
+protection, and a one-time sign-in ticket replaces the removed form. Teardown
+deletes both sides — the Clerk user and, through `/api/e2e/auth`, the Convex
+rows keyed to it. Convex never hears about a Clerk deletion on its own, because
+provisioning is on-demand from the client rather than webhook-driven.
+
+These specs need Clerk credentials, so they run on hosted targets only and skip
+locally. Two switches gate them, and they are deliberately separate:
+`VRDEX_HOSTED_E2E_AUTH_HELPERS` says the deployment exposes `/api/e2e/auth`;
+`VRDEX_HOSTED_E2E_CLERK_AUTH` says CI holds credentials for that deployment's
+Clerk instance. **With the second unset the auth specs skip; with it set to
+`true` and the keys missing they fail rather than skip.** That asymmetry is the
+point — the removed `Playwright Auth Session Matrix` lane reported green for
+months over a spec that ran nothing.
+
+Profile submission above is unaffected and still runs locally.
 
 The helper route is disabled unless all of these are true:
 
@@ -128,7 +169,16 @@ The helper route is disabled unless all of these are true:
 
 The browser token gates the Next.js helper route. The Convex secret is never sent to the browser; the server route passes it to the public Convex E2E mutations so direct Convex calls also need the matching deployment secret.
 
-Auth helper routes also require `VRDEX_ENABLE_E2E_AUTH_HELPERS=true` and only accept `@e2e.vrdex.local` emails. Local Playwright webserver runs set this automatically; hosted staging must opt in explicitly before hosted auth/claim flows run.
+`/api/e2e/auth` is back, narrower than before. It no longer mints accounts or
+sessions — Clerk does both — and its `consume-code` and `set-session-state`
+actions are gone with the Convex Auth tables they named. What is left is the
+VRDex-side state a claim depends on and no external provider can seed during a
+test: `link-discord` writes the Discord verification watermark,
+`record-guild-proof` stands in for the Discord OAuth round-trip, and `DELETE`
+tears down the Convex rows for an account. It exists as a route rather than
+direct Convex calls from the specs because `VRDEX_E2E_CONVEX_SECRET` must not
+reach the browser or the test runner; Playwright only ever holds the browser
+token.
 
 Adapter helper routes require `VRDEX_ENABLE_E2E_ADAPTER_HELPERS=true` and are used only by Convex actions during E2E tests. Local Playwright webserver runs point Convex at local Discord and VRChat/VRCLinking adapter stubs so the UI exercises the real claim actions without real Discord, VRChat, or VRCLinking calls.
 
@@ -146,6 +196,33 @@ Hosted extended profile field-visibility E2E additionally requires repository va
 
 Hosted auth/claim E2E additionally requires `VRDEX_ENABLE_E2E_AUTH_HELPERS=true` in both the hosted app and Convex deployment. Keep it unset until the staging auth flow is intentionally enabled; production must never enable it.
 
+It also requires Clerk credentials in the runner, which are repository settings rather than deployment ones:
+
+- repository variable `VRDEX_HOSTED_E2E_CLERK_AUTH=true`
+- repository secrets `VRDEX_HOSTED_E2E_CLERK_PUBLISHABLE_KEY` and `VRDEX_HOSTED_E2E_CLERK_SECRET_KEY`
+
+These must be the **development** instance backing the hosted target, not production. `clerkSetup()` rejects a production secret key outright, and `apps/web/scripts/check-vercel-env.mjs` already requires `pk_test`/`sk_test` on every non-production Vercel build, so the correct pair is the one the target itself runs on.
+
+**Owner:** BASIC (repository owner) holds the Clerk dashboard and GitHub repository-settings access for both. There is no shared or team-held copy.
+
+**What the secret key can do:** create, read, and delete users on the staging Clerk development instance, and mint sign-in tickets for them. It cannot touch the production tenant — a separate instance with separate keys — and it is never placed on a deployment, only in the Actions runner.
+
+**Rotating the secret key only** — the common case, and what compromise or maintainer turnover calls for. The instance, its publishable key, and the issuer are unchanged:
+
+1. In the Clerk dashboard, on the **development** instance for the VRDex application, open **API keys** and rotate the secret key.
+2. `gh secret set VRDEX_HOSTED_E2E_CLERK_SECRET_KEY`.
+3. Re-run `Deploy Staging`, then confirm with `pnpm test:e2e:hosted:auth-session`.
+
+**Moving staging to a different Clerk instance** — a recreated instance, or a deliberate migration. The publishable key's host changes, so the Convex issuer has to change with it, and the two live in different places:
+
+1. On the new instance, create the JWT template named exactly `convex` from Clerk's Convex preset. **Templates do not carry across instances**, and neither issuer check can see this — both compare hosts, so a deployment with no template passes every comparison while Clerk cannot mint the token Convex expects and every authenticated backend call fails. Take the preset as-is; `docs/backend/auth-sessions.md` records why `aud: "convex"` and `email_verified` in particular are load-bearing.
+2. Set the Vercel staging `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY` to the new instance's pair. Setting the variables is enough; no deploy is needed first.
+3. `gh variable set VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN --body https://<new-frontend-api-host>`, then `gh secret set` for both `VRDEX_HOSTED_E2E_CLERK_PUBLISHABLE_KEY` and `VRDEX_HOSTED_E2E_CLERK_SECRET_KEY`.
+4. Re-run `Deploy Staging`. No special input: the pre-deploy check reads the key Vercel is *about to* serve, so a rotation where both sides have been updated simply agrees, and both providers move together in one run.
+5. Confirm with `pnpm test:e2e:hosted:auth-session`. This is what actually proves the template — it asserts that a Clerk session resolves to a *verified Convex identity*, which is exactly what a missing or misconfigured `convex` template breaks.
+
+Updating only one side fails that check before anything is written, which is the point. If the run then fails *before the Vercel deploy succeeds*, the workflow restores the previous issuer rather than leaving Convex ahead of the deployed app. After a successful Vercel deploy it deliberately does not: both providers are on the new instance by then, and restoring Convex alone would create the mismatch.
+
 Hosted developer-credential E2E additionally requires repository variable `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true`. Keep it unset until the hosted target has deployed the developer token routes, OAuth app registration routes, and OAuth token endpoints under test.
 
 Hosted adapter E2E additionally requires `VRDEX_ENABLE_E2E_ADAPTER_HELPERS=true` in the hosted app and these Convex env values on the shared development deployment:
@@ -155,8 +232,11 @@ Hosted adapter E2E additionally requires `VRDEX_ENABLE_E2E_ADAPTER_HELPERS=true`
 - `VRCHAT_PROOF_ADAPTER_URL=<hosted app URL>/api/e2e/adapters/vrchat-proof`
 - `VRCLINKING_PROOF_ADAPTER_URL=<hosted app URL>/api/e2e/adapters/vrchat-proof`
 - `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN=<staging-only adapter token>`
+- `VRCLINKING_ADAPTER_CAPABILITY_KEY=<staging-only signing key>` — signs the
+  per-delegation capability the VRCLinking adapter verifies as
+  `VRDEX_VRCLINKING_CAPABILITY_KEY`. Keep it distinct from the bearer token
 
-GitHub Actions only runs hosted extended profile, auth, adapter, and developer-credential flows when repository variables `VRDEX_HOSTED_E2E_EXTENDED_PROFILE_FLOW=true`, `VRDEX_HOSTED_E2E_AUTH_HELPERS=true`, `VRDEX_HOSTED_E2E_ADAPTER_HELPERS=true`, and `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true` are set. Keep the optional variables unset until the matching hosted app and Convex capabilities are configured.
+GitHub Actions only runs hosted extended profile, auth, adapter, and developer-credential flows when repository variables `VRDEX_HOSTED_E2E_EXTENDED_PROFILE_FLOW=true`, `VRDEX_HOSTED_E2E_AUTH_HELPERS=true`, `VRDEX_HOSTED_E2E_ADAPTER_HELPERS=true`, `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true`, and `VRDEX_HOSTED_E2E_CLERK_AUTH=true` are set. Keep the optional variables unset until the matching hosted app and Convex capabilities are configured. `VRDEX_HOSTED_E2E_CLERK_AUTH` is the one that is not merely a skip switch: once it is `true`, absent Clerk keys fail the run.
 
 `VERCEL_ENV=production` blocks the E2E route unless `VRDEX_ALLOW_PRODUCTION_E2E_HELPERS=true` is explicitly set. Keep that override unset for VRDex production.
 
@@ -192,11 +272,21 @@ The `Deployed Health Checks` workflow runs after merges to `main`, after success
 Manual dispatch can run `all`, `staging-mutation`, or `production-smoke`. The optional `base_url` override applies only when dispatching a single selected target. The deployed health workflow uploads artifacts and fails the workflow on test failure, but it does not create GitHub issues automatically.
 
 The merge-triggered `Staging Deploy` workflow runs the auth-session contract
-after the matching Convex and Vercel staging deployment is live. Scheduled and
-manually dispatched staging health can repeat the same contract when
-`VRDEX_HOSTED_E2E_AUTH_HELPERS=true`. Both paths use only disposable
-`@e2e.vrdex.local` accounts and the staging helper boundary. A direct `main`
-push does not start staging health against the previous deployment.
+after the matching Convex and Vercel deployment is live, which is the point of
+running it there: on a `push` it fired while those deployments were still going
+out, so it asserted against the *previous* deployment and reported that as the
+health of this one. Scheduled and manually dispatched staging health repeat the
+same contract.
+
+The contract asserts that a Clerk session resolves to a verified Convex identity
+on that deployment. It uses only disposable `@e2e.vrdex.net` accounts created on
+the staging Clerk development instance and deleted in the same run, and the
+staging helper boundary. With `VRDEX_HOSTED_E2E_CLERK_AUTH` unset it skips; with
+it set and the Clerk keys absent it fails.
+
+Both staging Playwright runs write to distinct report and results directories,
+because Playwright clears those when a run starts and the second invocation would
+otherwise discard the first run's evidence before it was uploaded.
 
 Production authenticated smoke is a separate manual one-shot option. Supply a
 fresh base64-encoded Playwright storage state for the disposable production

@@ -35,6 +35,12 @@ const inspectorTokenSecret = "VRDEX_MCP_INSPECTOR_OAUTH_TOKEN";
 const authHelpersVariable = "VRDEX_HOSTED_E2E_AUTH_HELPERS";
 const developerCredentialsVariable = "VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS";
 const browserTokenSecret = "VRDEX_HOSTED_E2E_BROWSER_TOKEN";
+// The generator signs its temporary account in through Clerk since #226, so the
+// smoke skips without these even when everything above is configured. Audited
+// here too, or `--require-ready` reports pass and sends an operator to dispatch
+// a workflow that will decline to do the thing they asked for.
+const clerkPublishableKeySecret = "VRDEX_HOSTED_E2E_CLERK_PUBLISHABLE_KEY";
+const clerkSecretKeySecret = "VRDEX_HOSTED_E2E_CLERK_SECRET_KEY";
 
 function nonEmpty(value: string | undefined) {
   const trimmed = value?.trim();
@@ -175,12 +181,16 @@ function buildRows(variables: Map<string, string>, secrets: Set<string>): AuditR
   const hasAuthHelpers = envFlag(variables.get(authHelpersVariable));
   const hasDeveloperCredentials = envFlag(variables.get(developerCredentialsVariable));
   const hasBrowserToken = secrets.has(browserTokenSecret);
+  const hasClerkPublishableKey = secrets.has(clerkPublishableKeySecret);
+  const hasClerkSecretKey = secrets.has(clerkSecretKeySecret);
 
   const reviewedClientStatus = statusForRequiredInputs([hasReviewedClientId, hasReviewedClientSecret]);
   const temporaryCredentialStatus = statusForRequiredInputs([
     hasAuthHelpers,
     hasDeveloperCredentials,
     hasBrowserToken,
+    hasClerkPublishableKey,
+    hasClerkSecretKey,
   ]);
   const hostedOauthEvidenceReady = reviewedClientStatus === "pass" || temporaryCredentialStatus === "pass";
   const hostedOauthEvidencePartial =
@@ -215,11 +225,13 @@ function buildRows(variables: Map<string, string>, secrets: Set<string>): AuditR
         enabledVariableSummary(variables, authHelpersVariable),
         enabledVariableSummary(variables, developerCredentialsVariable),
         secretSummary(secrets, browserTokenSecret),
+        secretSummary(secrets, clerkPublishableKeySecret),
+        secretSummary(secrets, clerkSecretKeySecret),
       ].join("; "),
       name: "Temporary OAuth credential generation",
       nextAction: temporaryCredentialStatus === "pass"
         ? "Dispatch deployed-health hosted-mcp-smoke with mcp_oauth=true so the workflow mints temporary smoke credentials."
-        : `Configure ${authHelpersVariable}=true, ${developerCredentialsVariable}=true, and secret ${browserTokenSecret}.`,
+        : `Configure ${authHelpersVariable}=true, ${developerCredentialsVariable}=true, and secrets ${browserTokenSecret}, ${clerkPublishableKeySecret}, ${clerkSecretKeySecret}.`,
       required: false,
       status: temporaryCredentialStatus,
     },

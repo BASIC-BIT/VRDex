@@ -154,17 +154,20 @@ Locked implementation behavior:
   the same property in PostHog without becoming an authorization dependency.
 - Browser events use the same-origin `/ingest` reverse proxy. Next.js routes
   ingestion and SDK asset requests to the configured PostHog host.
-- Session replay starts only on explicitly public, non-form routes. It remains
-  disabled on lookup, handoff, sign-in, account, submission, and editor routes.
+- Session replay runs on every route (BASIC's decision, 2026-07-27), superseding
+  the earlier public-route allowlist. Safety comes from masking rather than
+  route exclusion: every private route group carries a blocking layout, and
+  `tests/web/session-replay-routes.test.ts` fails if a route group ships without
+  being classified as private-with-a-layout or explicitly public.
 - PostHog's `ph-no-capture` class excludes marked private surfaces from
   autocapture, while `[data-ph-no-capture]` blocks and masks session replay.
 - Inputs are masked, `[data-ph-no-capture]` blocks sensitive surfaces, URL
   queries and fragments are removed, and `/handoff/<token>` is normalized to
   `/handoff/redacted` before capture.
 
-The proxy adds application-host transfer and request volume. Route-limited
-replay keeps that cost and privacy exposure bounded while preserving replay on
-public discovery and profile surfaces.
+The proxy adds application-host transfer and request volume. Recording every
+route raises both, which the blocking layouts bound on the privacy side: a
+blocked route still produces a session, but its DOM is not captured.
 
 Initial events:
 
@@ -197,7 +200,8 @@ scope enums only. Do not attach tokens, IDs, emails, provider payloads,
 redirects, route slugs, IP addresses, or device fingerprints. PostHog's SDK
 still supplies its standard transport envelope and person/session metadata;
 this narrower contract applies to properties supplied by VRDex. Authentication,
-account, claim, and developer routes remain outside session replay.
+account, claim, and developer routes are recorded like every other route, with
+their DOM blocked from capture by a route-level `[data-ph-no-capture]` layout.
 
 Discovery and lookup events avoid search terms, profile slugs, private profile
 fields, raw authentication identifiers, seed values, and unsupported popularity

@@ -1,10 +1,8 @@
 import type { Metadata } from "next";
-import { ConvexAuthNextjsServerProvider } from "@convex-dev/auth/nextjs/server";
+import { ClerkProvider } from "@clerk/nextjs";
 import { IBM_Plex_Mono, Space_Grotesk } from "next/font/google";
-import { cookies } from "next/headers";
 import { ConvexClientProvider } from "./ConvexClientProvider";
 import { PostHogProvider } from "./PostHogProvider";
-import { authSessionCredentialPresent } from "@/lib/auth-session";
 import "./globals.css";
 
 const spaceGrotesk = Space_Grotesk({
@@ -37,11 +35,6 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const credentialPresent = process.env.NEXT_PUBLIC_CONVEX_URL
-    ? authSessionCredentialPresent(
-        (await cookies()).getAll().map(({ name }) => name),
-      )
-    : false;
   const shell = (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -51,7 +44,7 @@ export default async function RootLayout({
         className={`${spaceGrotesk.variable} ${ibmPlexMono.variable} antialiased`}
       >
         <PostHogProvider>
-          <ConvexClientProvider credentialPresent={credentialPresent}>
+          <ConvexClientProvider>
             {children}
           </ConvexClientProvider>
         </PostHogProvider>
@@ -59,9 +52,17 @@ export default async function RootLayout({
     </html>
   );
 
-  if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
+  // Gated on the Clerk key alone, independently of Convex. `ClerkProvider` throws
+  // without a publishable key, which would take the whole app down rather than
+  // just sign-in — that is why public routes stay renderable in environments with
+  // no Clerk credentials, and what lets the public Playwright suites run without
+  // auth secrets. But a shell-only preview may carry Clerk credentials while
+  // deliberately omitting NEXT_PUBLIC_CONVEX_URL, and `/sign-in` renders `<SignIn>`
+  // whenever the key exists; tying the two together made those routes throw on a
+  // missing Clerk context. `ConvexClientProvider` degrades on its own.
+  if (!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) {
     return shell;
   }
 
-  return <ConvexAuthNextjsServerProvider>{shell}</ConvexAuthNextjsServerProvider>;
+  return <ClerkProvider>{shell}</ClerkProvider>;
 }

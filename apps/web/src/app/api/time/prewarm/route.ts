@@ -1,20 +1,20 @@
-import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
+import { convexAuthToken } from "@/lib/server/auth";
 import { api, internal } from "@convex-generated-api";
 
-import { activeAuthSessionViewerQuery } from "@/lib/server/active-auth-session";
+import { viewerQuery } from "@/lib/server/auth";
 import { convexAdminHttpClient, convexHttpClient } from "@/lib/server/convex-http";
 import { problem } from "@/lib/server/temporal-api";
 
 export const dynamic = "force-dynamic";
 
 export async function POST() {
-  const authToken = await convexAuthNextjsToken();
+  const authToken = await convexAuthToken();
   if (authToken === undefined) {
     return problem(401, "Sign in required", "Sign in to prepare VRDex Time.");
   }
   const convex = convexHttpClient();
   convex.setAuth(authToken);
-  const viewer = await convex.query(activeAuthSessionViewerQuery, {});
+  const viewer = await convex.query(viewerQuery, {});
   if (viewer === null) {
     return problem(401, "Sign in required", "Sign in to prepare VRDex Time.");
   }

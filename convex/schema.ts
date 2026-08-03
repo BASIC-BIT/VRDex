@@ -1,6 +1,5 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
-import { authTables } from "@convex-dev/auth/server";
 
 import {
   apiRouteClassValidator,
@@ -444,9 +443,45 @@ const profileVerificationAttemptState = v.union(
 
 const profileVerificationEvidenceSource = v.union(
   v.literal("discord_api"),
+  v.literal("discord_oauth"),
+  v.literal("discord_bot"),
   v.literal("vrchat_api"),
   v.literal("vrclinking"),
   v.literal("manual"),
+);
+
+// An external asset a user can prove control of. Deliberately independent of
+// profile type: one Discord guild can back several community profiles, and one
+// community can hold several guilds and VRChat groups.
+const externalAssetType = v.union(
+  v.literal("discord_guild"),
+  v.literal("vrchat_group"),
+  v.literal("vrchat_user"),
+);
+
+// Ordered weakest to strongest by `externalControlLevelRank` in
+// `_externalControl.ts`. `self` means the user proved they are that account.
+const externalControlLevel = v.union(
+  v.literal("manager"),
+  v.literal("administrator"),
+  v.literal("owner"),
+  v.literal("self"),
+);
+
+const externalControlProofState = v.union(
+  v.literal("active"),
+  v.literal("stale"),
+  v.literal("revoked"),
+);
+
+const profileExternalLinkRole = v.union(
+  v.literal("primary"),
+  v.literal("secondary"),
+);
+
+const profileExternalLinkState = v.union(
+  v.literal("active"),
+  v.literal("removed"),
 );
 
 const suppressionRequestType = v.union(
@@ -604,22 +639,79 @@ const sharedProfileFields = {
 };
 
 export default defineSchema({
-  ...authTables,
-  users: defineTable({
-    name: v.optional(v.string()),
-    image: v.optional(v.string()),
-    email: v.optional(v.string()),
-    emailVerificationTime: v.optional(v.number()),
-    phone: v.optional(v.string()),
-    phoneVerificationTime: v.optional(v.number()),
-    isAnonymous: v.optional(v.boolean()),
+  // Clerk owns authentication and sessions. `users` stays the VRDex identity
+  // spine that every other table's `v.id("users")` points at; `clerkUserId` is
+  // the only link back to the auth provider.
+  //
+  // Optional deliberately, as the first half of a two-phase change. Rows created
+  // under Convex Auth have no `clerkUserId`, and a required field would make
+  // schema validation reject them on the very first deploy — before the
+  // functions that could clean them up are even installed. `ensureUser` always
+  // sets it, and a row without one simply never matches the index, so it can
+  // authenticate nobody. Tighten to `v.string()` once the legacy rows are gone.
+  // ---------------------------------------------------------------------------
+  // Convex Auth leftovers, phase one of a two-phase removal.
+  //
+  // These are declared but unused. Nothing reads or writes them — the modules
+  // that did are deleted — and they exist only so a deployment that still holds
+  // Convex Auth documents can accept this schema. Convex rejects a push that
+  // leaves a populated table undeclared, and both `baseline-checks.yml` and
+  // `staging-deploy.yml` deploy on merge, before the cutover purge in
+  // `docs/backend/auth-sessions.md` could possibly run. Dropping them here would
+  // make the deploy fail before the cleanup that would have made dropping them
+  // safe.
+  //
+  // Delete this block once every deployment's purge is done, in the same change
+  // that tightens `users.clerkUserId` to `v.string()`.
+  authSessions: defineTable({
+    userId: v.id("users"),
+    expirationTime: v.number(),
+  }).index("userId", ["userId"]),
+  authAccounts: defineTable({
+    userId: v.id("users"),
+    provider: v.string(),
+    providerAccountId: v.string(),
+    secret: v.optional(v.string()),
+    emailVerified: v.optional(v.string()),
+    phoneVerified: v.optional(v.string()),
   })
-    .index("email", ["email"])
-    .index("phone", ["phone"]),
-  authRefreshTokens: authTables.authRefreshTokens.index(
-    "by_sessionId_firstUsedTime_expirationTime",
-    ["sessionId", "firstUsedTime", "expirationTime"],
-  ),
+    .index("userIdAndProvider", ["userId", "provider"])
+    .index("providerAndAccountId", ["provider", "providerAccountId"]),
+  authRefreshTokens: defineTable({
+    sessionId: v.id("authSessions"),
+    expirationTime: v.number(),
+    firstUsedTime: v.optional(v.number()),
+    parentRefreshTokenId: v.optional(v.id("authRefreshTokens")),
+  })
+    .index("sessionId", ["sessionId"])
+    .index("sessionIdAndParentRefreshTokenId", ["sessionId", "parentRefreshTokenId"]),
+  authVerificationCodes: defineTable({
+    accountId: v.id("authAccounts"),
+    provider: v.string(),
+    code: v.string(),
+    expirationTime: v.number(),
+    verifier: v.optional(v.string()),
+    emailVerified: v.optional(v.string()),
+    phoneVerified: v.optional(v.string()),
+  })
+    .index("accountId", ["accountId"])
+    .index("code", ["code"]),
+  authVerifiers: defineTable({
+    sessionId: v.optional(v.id("authSessions")),
+    signature: v.optional(v.string()),
+  }).index("signature", ["signature"]),
+  authRateLimits: defineTable({
+    identifier: v.string(),
+    lastAttemptTime: v.number(),
+    attemptsLeft: v.number(),
+  }).index("identifier", ["identifier"]),
+  // These two are VRDex's own, not the component's, which is why they were
+  // missed when the block above was written — but the deploy does not care who
+  // owned them, only whether a populated table is declared.
+  //
+  // `e2eAuthCodes` is the likelier of the two to hold rows: nothing expired
+  // them, so a staging run cancelled between `recordAuthCode` and teardown left
+  // a document behind indefinitely.
   recentAuthChallenges: defineTable({
     actionClass: v.union(
       v.literal("developer_oauth_application"),
@@ -642,6 +734,25 @@ export default defineSchema({
     .index("by_completedSessionId", ["completedSessionId"])
     .index("by_expiresAt", ["expiresAt"])
     .index("by_originalSessionId", ["originalSessionId"]),
+  e2eAuthCodes: defineTable({
+    email: v.string(),
+    code: v.string(),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+  }).index("by_email", ["email"]),
+  // ---------------------------------------------------------------------------
+  users: defineTable({
+    clerkUserId: v.optional(v.string()),
+    name: v.optional(v.string()),
+    image: v.optional(v.string()),
+    email: v.optional(v.string()),
+    emailVerificationTime: v.optional(v.number()),
+    phone: v.optional(v.string()),
+    phoneVerificationTime: v.optional(v.number()),
+  })
+    .index("clerkUserId", ["clerkUserId"])
+    .index("email", ["email"])
+    .index("phone", ["phone"]),
   profiles: defineTable(
     v.union(
       v.object({
@@ -679,15 +790,26 @@ export default defineSchema({
     uploadToken: v.string(),
     requestedBy: authSubject,
     targetProfileId: v.optional(v.id("profiles")),
+    replacesAssetId: v.optional(v.id("profileAssets")),
     originalFileName: v.optional(v.string()),
     sourceUrl: v.optional(v.string()),
     mimeType: v.string(),
     byteSize: v.number(),
     storageKey: v.string(),
+    quarantineStorageKey: v.optional(v.string()),
+    sourceStorageKey: v.optional(v.string()),
+    downloadStorageKey: v.optional(v.string()),
+    sourceMimeType: v.optional(v.string()),
+    sourceByteSize: v.optional(v.number()),
+    sourceContentSha256: v.optional(v.string()),
+    downloadMimeType: v.optional(v.string()),
+    downloadByteSize: v.optional(v.number()),
+    downloadContentSha256: v.optional(v.string()),
     label: v.optional(v.string()),
     caption: v.optional(v.string()),
     altText: v.optional(v.string()),
     credit: v.optional(v.string()),
+    creditUrl: v.optional(v.string()),
     contentSha256: v.optional(v.string()),
     width: v.optional(v.number()),
     height: v.optional(v.number()),
@@ -711,14 +833,23 @@ export default defineSchema({
   profileAssets: defineTable({
     profileId: v.id("profiles"),
     storageKey: v.string(),
+    sourceStorageKey: v.optional(v.string()),
+    downloadStorageKey: v.optional(v.string()),
     originalFileName: v.optional(v.string()),
     sourceUrl: v.optional(v.string()),
     mimeType: v.string(),
     byteSize: v.number(),
+    sourceMimeType: v.optional(v.string()),
+    sourceByteSize: v.optional(v.number()),
+    sourceContentSha256: v.optional(v.string()),
+    downloadMimeType: v.optional(v.string()),
+    downloadByteSize: v.optional(v.number()),
+    downloadContentSha256: v.optional(v.string()),
     label: v.optional(v.string()),
     caption: v.optional(v.string()),
     altText: v.optional(v.string()),
     credit: v.optional(v.string()),
+    creditUrl: v.optional(v.string()),
     contentSha256: v.optional(v.string()),
     width: v.optional(v.number()),
     height: v.optional(v.number()),
@@ -755,6 +886,23 @@ export default defineSchema({
     sectionOrder: v.optional(v.array(profilePublicSection)),
     updatedAt: v.number(),
   }).index("by_profileId", ["profileId"]),
+  profileAssetAccessibilityGenerationEvents: defineTable({
+    requestId: v.string(),
+    userId: v.id("users"),
+    profileId: v.id("profiles"),
+    provider: v.string(),
+    model: v.string(),
+    result: v.union(v.literal("started"), v.literal("succeeded"), v.literal("failed")),
+    imageBytes: v.number(),
+    descriptionLength: v.optional(v.number()),
+    latencyMs: v.optional(v.number()),
+    errorCode: v.optional(v.string()),
+    createdAt: v.number(),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_requestId", ["requestId"])
+    .index("by_userId_createdAt", ["userId", "createdAt"])
+    .index("by_profileId_createdAt", ["profileId", "createdAt"]),
   worlds: defineTable({
     slug: v.string(),
     displayName: v.string(),
@@ -1429,7 +1577,8 @@ export default defineSchema({
       "status",
       "createdAt",
     ])
-    .index("by_status_expiresAt", ["status", "expiresAt"]),
+    .index("by_status_expiresAt", ["status", "expiresAt"])
+    .index("by_revokedByUserId", ["revokedByUserId"]),
   apiTokenEvents: defineTable({
     tokenId: v.optional(v.id("apiTokens")),
     tokenPrefix: v.optional(v.string()),
@@ -1540,7 +1689,8 @@ export default defineSchema({
       "status",
       "createdAt",
     ])
-    .index("by_status_createdAt", ["status", "createdAt"]),
+    .index("by_status_createdAt", ["status", "createdAt"])
+    .index("by_revokedByUserId", ["revokedByUserId"]),
   oauthApplicationSecrets: defineTable({
     applicationId: v.id("oauthApplications"),
     clientId: v.string(),
@@ -1557,7 +1707,8 @@ export default defineSchema({
   })
     .index("by_applicationId_status_createdAt", ["applicationId", "status", "createdAt"])
     .index("by_clientId_status_createdAt", ["clientId", "status", "createdAt"])
-    .index("by_secretPrefix", ["secretPrefix"]),
+    .index("by_secretPrefix", ["secretPrefix"])
+    .index("by_revokedByUserId", ["revokedByUserId"]),
   oauthDynamicClients: defineTable({
     clientId: v.string(),
     clientName: v.string(),
@@ -1695,13 +1846,18 @@ export default defineSchema({
     .index("by_clientId_expiresAt", ["clientId", "expiresAt"])
     .index("by_applicationId_issuedAt", ["applicationId", "issuedAt"])
     .index("by_dynamicClientId_issuedAt", ["dynamicClientId", "issuedAt"])
-    .index("by_status_expiresAt", ["status", "expiresAt"]),
+    .index("by_status_expiresAt", ["status", "expiresAt"])
+    // The only `v.id("users")` reference on an unbounded table with no way to
+    // look it up. One row per issued access token, so checking whether a user is
+    // still referenced would otherwise mean reading the whole table.
+    .index("by_userId", ["userId"]),
   temporalPrewarmLeases: defineTable({
     key: v.string(),
     ownerUserId: v.id("users"),
     requestedAt: v.number(),
     expiresAt: v.number(),
-  }).index("by_key", ["key"]),
+  }).index("by_key", ["key"])
+    .index("by_ownerUserId", ["ownerUserId"]),
   temporalParsingPreferences: defineTable({
     userId: v.id("users"),
     retainInputs: v.boolean(),
@@ -1889,11 +2045,169 @@ export default defineSchema({
     updatedAt: v.number(),
     expiresAt: v.number(),
     verifiedAt: v.optional(v.number()),
+    // True when verification only recorded a control proof and link for a
+    // profile the claimant already owned verified — no ownership changed and no
+    // claim request was written. Persisted because the UI cannot reconstruct it
+    // from claim state afterwards, and reporting such a proof as a completed
+    // claim inflates the funnel with connection additions.
+    connectionOnly: v.optional(v.boolean()),
+    // Paces the collector so a pending attempt is not re-read from the
+    // provider on every worker pass.
+    lastCheckedAt: v.optional(v.number()),
+    // The collector that was served this attempt. `recordProofCheckResult`
+    // accepts a verdict only from this collector, so one leaked worker key
+    // cannot attest arbitrary attempts it was never given.
+    lastCheckedByCollectorAccountId: v.optional(v.id("collectorAccounts")),
   })
     .index("by_profileId_state", ["profileId", "state"])
     .index("by_profileId_userId_state_updatedAt", ["profileId", "userId", "state", "updatedAt"])
     .index("by_userId_state", ["userId", "state"])
-    .index("by_state_expiresAt", ["state", "expiresAt"]),
+    .index("by_state_expiresAt", ["state", "expiresAt"])
+    // targetType precedes lastCheckedAt so collector-eligible attempts are
+    // selected by the index rather than filtered after the fact; filtering
+    // afterwards let never-stamped vrclinking rows hold the head of the scan
+    // window forever and starve the queue.
+    .index("by_state_targetType_lastCheckedAt", ["state", "targetType", "lastCheckedAt"])
+    // Creation rate per claimant and target, independent of state. The open
+    // attempt cap counts only `pending` rows, so cancelling one frees its slot
+    // immediately — and because the adapter cooldown lives on the attempt row,
+    // a fresh attempt starts with none. Without this index there was no way to
+    // see the attempts a claimant had just discarded.
+    .index("by_userId_targetType_createdAt", ["userId", "targetType", "createdAt"]),
+  // A user proved they control an external asset. This is deliberately not a
+  // claim: proving you administer a Discord guild says nothing about which
+  // VRDex profile that guild represents. Profile ownership is granted only
+  // when a proof is paired with a `profileExternalLinks` row.
+  externalControlProofs: defineTable({
+    userId: v.id("users"),
+    assetType: externalAssetType,
+    assetExternalId: v.string(),
+    assetDisplayName: v.optional(v.string()),
+    controlLevel: externalControlLevel,
+    state: externalControlProofState,
+    evidenceSource: profileVerificationEvidenceSource,
+    // Which external identity the evidence came from — for Discord, the
+    // provider account id that completed the OAuth round-trip. A user may
+    // verify through more than one Discord account, and a later result is only
+    // authoritative about the guilds of the identity that produced it.
+    evidenceSubjectId: v.optional(v.string()),
+    evidenceSummary: v.optional(v.string()),
+    verifiedAt: v.number(),
+    revalidateAfter: v.optional(v.number()),
+    lastRevalidatedAt: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+    revokedReason: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_userId_assetType_assetExternalId", ["userId", "assetType", "assetExternalId"])
+    .index("by_userId_state", ["userId", "state"])
+    .index("by_assetType_assetExternalId_state", ["assetType", "assetExternalId", "state"])
+    .index("by_state_revalidateAfter", ["state", "revalidateAfter"]),
+  // A community operator's delegated VRCLinking API key, held so VRDex can read
+  // that guild's Discord-to-VRChat linkage.
+  //
+  // Only a reference is stored. VRCLinking keys are account-scoped and grant
+  // broad read over every guild the granting account can see, so the token
+  // itself lives in the operator secret store and is resolved by the adapter,
+  // never by Convex. `guildId` records the single guild this delegation is
+  // authorized for, so a key that can technically read more cannot be used to.
+  communityVrclinkingCredentials: defineTable({
+    communityProfileId: v.id("profiles"),
+    guildId: v.string(),
+    secretRef: v.string(),
+    state: v.union(v.literal("active"), v.literal("revoked")),
+    delegatedByUserId: v.id("users"),
+    // Three separate facts, because conflating them makes one of them wrong.
+    // `lastRotatedAt` is a selection cursor only: every row a selection pass
+    // considers is stamped, eligible or not, or ineligible rows pin the head of
+    // the index forever. `lastConsultedAt` is operator-visible and means the
+    // reference was actually sent to the adapter. `lastUsedAt` records only the
+    // consultation that matched, so an operator's audit trail is not noise from
+    // every other community's proofs.
+    lastRotatedAt: v.optional(v.number()),
+    lastConsultedAt: v.optional(v.number()),
+    lastUsedAt: v.optional(v.number()),
+    lastResultSummary: v.optional(v.string()),
+    revokedAt: v.optional(v.number()),
+    revokedReason: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_communityProfileId_state", ["communityProfileId", "state"])
+    .index("by_guildId_state", ["guildId", "state"])
+    .index("by_state_lastRotatedAt", ["state", "lastRotatedAt"])
+    .index("by_delegatedByUserId", ["delegatedByUserId"]),
+  // Short-lived CSRF state for the purpose-scoped Discord guild-verification
+  // OAuth round-trip. Stored server-side rather than in a cookie so the flow
+  // survives browser restarts and stays bound to the signed-in user.
+  discordVerificationStates: defineTable({
+    userId: v.id("users"),
+    state: v.string(),
+    returnTo: v.string(),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+  })
+    .index("by_state", ["state"])
+    .index("by_expiresAt", ["expiresAt"])
+    .index("by_userId_createdAt", ["userId", "createdAt"]),
+  // Orders OAuth reconciliations for one Discord identity.
+  //
+  // Overlapping callbacks can land out of order, and the proof rows alone
+  // cannot order them: a result with no manageable guilds writes no proof and
+  // revokes nothing, so it leaves no trace for a later-arriving older result to
+  // lose against — which is exactly the case where that older result would
+  // resurrect access Discord had just reported as gone.
+  //
+  // A counter rather than a timestamp. `Date.now()` in two action workers can
+  // tie or run backwards under clock skew, and this decides whether revoked
+  // access comes back. `issuedGeneration` is reserved before the guild read;
+  // `appliedGeneration` is the newest result already written.
+  discordVerificationWatermarks: defineTable({
+    userId: v.id("users"),
+    discordUserId: v.string(),
+    issuedGeneration: v.number(),
+    appliedGeneration: v.number(),
+    // Stamped only when a reconciliation actually lands, unlike `updatedAt`,
+    // which `reserveGuildVerificationGeneration` bumps before the guild read.
+    // Selecting the current Discord identity needs a success-only timestamp, or
+    // a reservation that then failed would outrank a completed verification.
+    appliedAt: v.optional(v.number()),
+    // When `issuedGeneration` was drawn. A reservation whose callback dies
+    // without applying would otherwise suppress every earlier reader forever,
+    // so an outstanding one stops counting once it is older than a round-trip
+    // could plausibly take.
+    issuedAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_userId_discordUserId", ["userId", "discordUserId"]),
+  // Many-to-many association between a profile and an external asset. One
+  // community may hold several Discord guilds and VRChat groups (one marked
+  // `primary`), and one guild may back several community profiles.
+  profileExternalLinks: defineTable({
+    profileId: v.id("profiles"),
+    assetType: externalAssetType,
+    assetExternalId: v.string(),
+    assetDisplayName: v.optional(v.string()),
+    linkRole: profileExternalLinkRole,
+    state: profileExternalLinkState,
+    // Absent when an operator seeded the association rather than a claimant
+    // asserting it. That distinction is what makes the association usable as
+    // independent corroboration of a claim.
+    linkedByUserId: v.optional(v.id("users")),
+    verifiedByProofId: v.optional(v.id("externalControlProofs")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    removedAt: v.optional(v.number()),
+  })
+    .index("by_profileId_state", ["profileId", "state"])
+    .index("by_profileId_assetType_state", ["profileId", "assetType", "state"])
+    .index("by_assetType_assetExternalId_state", ["assetType", "assetExternalId", "state"])
+    .index("by_profileId_assetType_assetExternalId", [
+      "profileId",
+      "assetType",
+      "assetExternalId",
+    ])
+    .index("by_linkedByUserId", ["linkedByUserId"]),
   profileSuppressionRequests: defineTable({
     profileId: v.optional(v.id("profiles")),
     profileSlug: v.optional(v.string()),
@@ -1905,6 +2219,8 @@ export default defineSchema({
     requesterContact: v.optional(v.string()),
     requesterNote: v.optional(v.string()),
     resolutionNote: v.optional(v.string()),
+    resolvedBy: v.optional(authSubject),
+    resolvedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -1929,6 +2245,22 @@ export default defineSchema({
     receivedAt: v.number(),
     sourceObservedAt: v.optional(v.number()),
     publicationPolicy: v.optional(seedImportPublicationPolicyValidator),
+    // Append-only: the durable record of each time publication was authorized.
+    // `notes` is a mutable review buffer and cannot hold this, and a batch can be
+    // revoked to private_only and later reauthorized with a new reason.
+    publicationAuthorizations: v.optional(
+      v.array(
+        v.object({
+          // Both directions are recorded, so the history shows why publication was
+          // permitted *and* why it was revoked. `policy` is optional for rows
+          // written before revocations were recorded.
+          policy: v.optional(seedImportPublicationPolicyValidator),
+          reason: v.string(),
+          authorizedBy: v.optional(authSubject),
+          authorizedAt: v.number(),
+        }),
+      ),
+    ),
     importedBy: v.optional(authSubject),
     reviewState: seedImportBatchReviewStateValidator,
     reviewedBy: v.optional(authSubject),
@@ -1956,6 +2288,9 @@ export default defineSchema({
     reviewNote: v.optional(v.string()),
     publicationQueuedBy: v.optional(authSubject),
     publicationQueuedAt: v.optional(v.number()),
+    publishedProfileId: v.optional(v.id("profiles")),
+    publishedAt: v.optional(v.number()),
+    publishedBy: v.optional(authSubject),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -2009,13 +2344,8 @@ export default defineSchema({
   })
     .index("by_tokenHash", ["tokenHash"])
     .index("by_candidateId_state", ["candidateId", "state"])
-    .index("by_profileId_state", ["profileId", "state"]),
-  e2eAuthCodes: defineTable({
-    email: v.string(),
-    code: v.string(),
-    createdAt: v.number(),
-    expiresAt: v.number(),
-  }).index("by_email", ["email"]),
+    .index("by_profileId_state", ["profileId", "state"])
+    .index("by_acceptedByUserId", ["acceptedByUserId"]),
   vocabularyTerms: defineTable({
     scope: vocabularyScope,
     key: v.string(),

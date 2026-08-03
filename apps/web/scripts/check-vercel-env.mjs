@@ -58,6 +58,85 @@ if (isProductionVercel) {
   }
 }
 
+// Clerk is the auth provider. Missing keys would build cleanly and then fail at
+// runtime with nobody able to sign in, so fail the build instead. Convex-side
+// CLERK_JWT_ISSUER_DOMAIN is enforced separately by the Convex CLI, which
+// requires it on every hosted deployment (see convex/auth.config.ts).
+//
+// Production is unconditional. Gating solely on `VRDEX_REQUIRE_CONVEX_URL` let a
+// production deployment that merely omitted that flag build with no Clerk
+// credentials at all: middleware would then redirect every protected route to
+// `/sign-in`, which can only render the unavailable notice. Previews keep the
+// opt-in so a shell-only build still works without auth secrets.
+if (isVercel && (requireConvexUrl || isProductionVercel)) {
+  for (const name of ["NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "CLERK_SECRET_KEY"]) {
+    if (!process.env[name]?.trim()) {
+      errors.push(
+        isProductionVercel
+          ? `${name} is required for production Vercel builds.`
+          : `${name} is required when Convex is configured.`,
+      );
+    }
+  }
+
+}
+
+// Tier validation is deliberately outside the block above: that one is gated on
+// `VRDEX_REQUIRE_CONVEX_URL`, and a preview which simply omitted the flag would
+// skip this entirely. Whenever a Clerk key is present on a Vercel build, it must
+// match the environment's tier.
+//
+// Both tiers are checked positively, in both directions. Positively, because
+// rejecting only the wrong prefix would let a truncated or otherwise malformed
+// value through, and the build would succeed while ClerkProvider and the
+// middleware failed at runtime. In both directions, because the tenants have to
+// stay isolated either way: production carrying test keys is the obvious
+// failure, but a preview carrying the *live* pair is the quieter one — it
+// authenticates real users against the production Clerk tenant from an
+// unreviewed deployment, where every session it mints is a real one.
+//
+// `infra/terraform/vercel/variables.tf` enforces the same split for keys managed
+// as code; this catches the environments set by hand in the dashboard, which is
+// where they live today.
+if (isVercel) {
+  const expectedTier = isProductionVercel ? "live" : "test";
+  const clerkKeys = [
+    ["NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "pk", "publishable"],
+    ["CLERK_SECRET_KEY", "sk", "secret"],
+  ];
+
+  // Neither key is a valid state — that is the deliberate unconfigured-auth
+  // fallback, where `ClerkProvider` is not mounted and the middleware fails
+  // closed. Both keys is the working state. One key is neither: a lone
+  // publishable key still makes `layout.tsx` mount `ClerkProvider` and
+  // `middleware.ts` select `clerkMiddleware`, so the build succeeds and then
+  // every server-side authentication fails at runtime for want of a secret.
+  //
+  // Checked here rather than in the block above because that one is gated on
+  // `VRDEX_REQUIRE_CONVEX_URL`, so a preview omitting the flag never reached it.
+  const present = clerkKeys.filter(([name]) => process.env[name]?.trim());
+
+  if (present.length === 1) {
+    const [missing] = clerkKeys.filter(([name]) => !process.env[name]?.trim());
+
+    errors.push(
+      `${missing[0]} is required because ${present[0][0]} is set. Set both Clerk keys, or neither for a build with authentication deliberately unconfigured.`,
+    );
+  }
+
+  for (const [name, prefix, label] of clerkKeys) {
+    const value = process.env[name]?.trim();
+
+    if (value && !value.startsWith(`${prefix}_${expectedTier}_`)) {
+      errors.push(
+        `${name} must be a ${expectedTier} Clerk ${label} key (${prefix}_${expectedTier}_...) for ${
+          isProductionVercel ? "production" : "non-production"
+        } Vercel builds.`,
+      );
+    }
+  }
+}
+
 if (isProductionVercel) {
   const rateLimitStore = process.env.VRDEX_RATE_LIMIT_STORE?.trim().toLowerCase();
 
@@ -94,9 +173,10 @@ if (isProductionVercel) {
   }
 }
 
-if (process.env.NEXT_PUBLIC_VRDEX_SUBMISSIONS_AUTH_READY === "true") {
-  errors.push("NEXT_PUBLIC_VRDEX_SUBMISSIONS_AUTH_READY must stay false until web auth is wired.");
-}
+// `NEXT_PUBLIC_VRDEX_SUBMISSIONS_AUTH_READY` used to be rejected here to keep
+// `/submit` locked until web auth existed. Clerk is that auth, and `/submit` is
+// protected by `clerkMiddleware`, so the flag gated nothing and failing a build
+// over it would now block a correctly configured deployment.
 
 if (convexUrl) {
   const parsedConvexUrl = parseUrl("NEXT_PUBLIC_CONVEX_URL", convexUrl);

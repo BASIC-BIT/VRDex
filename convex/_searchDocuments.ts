@@ -5,11 +5,14 @@ import type { toProfileLookupResult } from "./_profileLookup";
 import { visibleProfileField, visibleProfileList } from "./_profileFieldVisibility";
 import { firstSafeHttpsUrl, optionalField, safeHttpsUrl } from "./_publicFields";
 import { canReadProfile } from "./_profilePermissions";
+import type { ProfileTrustLabel } from "./_profileStates";
 import { getProfileBySlug } from "./_profileSlugs";
 import {
   collectVocabularyKeys,
   createVocabularyCandidates,
   createVocabularyKey,
+  recordVocabularyTerms,
+  releaseVocabularyKeys,
   type VocabularyCandidate,
 } from "./_vocabulary";
 
@@ -25,6 +28,8 @@ export type PublicSearchResult = {
   imageUrl?: string;
   profileImageUrl?: string;
   logoImageUrl?: string;
+  avatarAppearance?: PublicProfileMediaKit["avatarAppearance"];
+  trustLabel?: ProfileTrustLabel;
   source?: {
     sourceType: Doc<"searchDocuments">["sourceType"];
     label: string;
@@ -456,6 +461,9 @@ export function toPublicSearchResult(
     ...optionalField("imageUrl", imageUrl),
     ...optionalField("profileImageUrl", profileImageUrl),
     ...optionalField("logoImageUrl", logoImageUrl),
+    ...(document.entityType === "profile" && mediaKit
+      ? { avatarAppearance: mediaKit.avatarAppearance }
+      : {}),
     ...optionalField("startsAt", document.startsAt),
     source:
       document.sourceType && document.sourceLabel
@@ -511,4 +519,52 @@ export async function upsertSearchDocument(db: DatabaseWriter, input: SearchDocu
   }
 
   return await db.insert("searchDocuments", input);
+}
+
+/**
+ * Rebuild one world's search document and reconcile its vocabulary as a delta.
+ *
+ * `recordVocabularyTerms` increments unconditionally, so replaying a world's whole
+ * vocabulary on every rebuild inflates counts for terms nothing changed. Comparing
+ * the stored document's `vocabularyKeys` against the rebuilt ones records only what
+ * appeared and releases only what went away, which is what makes a rebuild safe to
+ * run repeatedly.
+ */
+export async function reindexWorldSearchDocument(
+  db: DatabaseWriter,
+  world: Doc<"worlds">,
+  now: number,
+) {
+  const hiddenProfileKeys = await getHiddenWorldAttributionProfileKeys(db, world);
+  const existingDocument = await db
+    .query("searchDocuments")
+    .withIndex("by_worldId", (query) => query.eq("worldId", world._id))
+    .unique();
+  const nextDocument = createWorldSearchDocument(world, { hiddenProfileKeys });
+  const beforeKeys = new Set(existingDocument?.vocabularyKeys ?? []);
+  const afterKeys = new Set(nextDocument.vocabularyKeys ?? []);
+
+  await upsertSearchDocument(db, nextDocument);
+
+  // Deduplicated by scoped key before recording. Two attributions sharing a role
+  // produce two candidates for one key, and the document stores that key once, so
+  // recording both would increment twice while a later release decrements once --
+  // permanently inflating the term.
+  const addedCandidates = new Map<string, VocabularyCandidate>();
+
+  for (const candidate of vocabularyForWorld(world, { hiddenProfileKeys })) {
+    const scopedKey = `${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`;
+
+    if (!beforeKeys.has(scopedKey) && !addedCandidates.has(scopedKey)) {
+      addedCandidates.set(scopedKey, candidate);
+    }
+  }
+
+  await recordVocabularyTerms(db, [...addedCandidates.values()], now);
+
+  const removedKeys = [...beforeKeys].filter((key) => !afterKeys.has(key));
+
+  if (removedKeys.length > 0) {
+    await releaseVocabularyKeys(db, removedKeys, now);
+  }
 }

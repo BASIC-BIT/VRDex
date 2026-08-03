@@ -32,6 +32,43 @@ locals {
     TWITCH_CLIENT_ID     = var.twitch_client_id
     TWITCH_CLIENT_SECRET = var.twitch_client_secret
   } : {}
+
+  # Each environment gets its own Clerk instance's pair, so these are managed as
+  # two independent groups rather than one value set across targets.
+  manage_clerk_production = nonsensitive(
+    var.manage_production_environment &&
+    var.clerk_production_publishable_key != null &&
+    var.clerk_production_secret_key != null
+  )
+
+  manage_clerk_preview = nonsensitive(
+    var.clerk_preview_publishable_key != null &&
+    var.clerk_preview_secret_key != null
+  )
+
+  # Iterated instead of the value maps below: those derive from the sensitive
+  # secret-key variables, and Terraform rejects a sensitive `for_each`. Same
+  # reason `twitch_keys` exists.
+  clerk_keys            = toset(["NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "CLERK_SECRET_KEY"])
+  clerk_production_keys = local.manage_clerk_production ? local.clerk_keys : toset([])
+  clerk_preview_keys    = local.manage_clerk_preview ? local.clerk_keys : toset([])
+
+  clerk_production_values = local.manage_clerk_production ? {
+    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY = var.clerk_production_publishable_key
+    CLERK_SECRET_KEY                  = var.clerk_production_secret_key
+  } : {}
+
+  clerk_preview_values = local.manage_clerk_preview ? {
+    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY = var.clerk_preview_publishable_key
+    CLERK_SECRET_KEY                  = var.clerk_preview_secret_key
+  } : {}
+
+  # The publishable key reaches the browser, so marking it sensitive in Vercel
+  # would only make it unreadable to operators without protecting anything.
+  clerk_sensitive_keys = {
+    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY = false
+    CLERK_SECRET_KEY                  = true
+  }
 }
 
 resource "vercel_project_environment_variable" "posthog_standard" {
@@ -140,4 +177,45 @@ resource "vercel_project_environment_variable" "twitch_staging_custom" {
   custom_environment_ids = [each.value.custom_environment_id]
   sensitive              = true
   comment                = "Server-only Twitch app credentials for cached public profile live status."
+}
+
+resource "vercel_project_environment_variable" "clerk_production" {
+  for_each = local.clerk_production_keys
+
+  project_id = data.vercel_project.web.id
+  team_id    = var.vercel_team_id
+  key        = each.key
+  value      = local.clerk_production_values[each.key]
+  target     = ["production"]
+  sensitive  = local.clerk_sensitive_keys[each.key]
+  comment    = "Clerk production instance credentials. Required: the build fails without them."
+}
+
+resource "vercel_project_environment_variable" "clerk_preview" {
+  for_each = var.manage_preview_environment ? local.clerk_preview_keys : toset([])
+
+  project_id = data.vercel_project.web.id
+  team_id    = var.vercel_team_id
+  key        = each.key
+  value      = local.clerk_preview_values[each.key]
+  target     = ["preview"]
+  sensitive  = local.clerk_sensitive_keys[each.key]
+  comment    = "Clerk development instance credentials for preview deployments."
+}
+
+resource "vercel_project_environment_variable" "clerk_staging_custom" {
+  for_each = {
+    for pair in setproduct(local.clerk_preview_keys, var.staging_custom_environment_ids) : "${pair[0]}_${pair[1]}" => {
+      key                   = pair[0]
+      custom_environment_id = pair[1]
+    }
+  }
+
+  project_id             = data.vercel_project.web.id
+  team_id                = var.vercel_team_id
+  key                    = each.value.key
+  value                  = local.clerk_preview_values[each.value.key]
+  custom_environment_ids = [each.value.custom_environment_id]
+  sensitive              = local.clerk_sensitive_keys[each.value.key]
+  comment                = "Clerk development instance credentials for the staging environment."
 }

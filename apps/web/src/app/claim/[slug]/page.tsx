@@ -4,20 +4,23 @@ import { ClaimFlow } from "./claim-flow";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 import { Notice } from "@/components/ui/notice";
 import { fetchClaimProfileBySlug } from "@/convex/server";
-import { parseClaimEntrySource } from "@/lib/profile-claim";
+import { parseClaimEntrySource, parseDiscordVerifyStatus } from "@/lib/profile-claim";
 
 export default async function ClaimProfilePage({
   params,
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ source?: string | string[] }>;
+  searchParams: Promise<{ source?: string | string[]; discordVerify?: string | string[] }>;
 }) {
   const [{ slug }, resolvedSearchParams] = await Promise.all([params, searchParams]);
   const result = await fetchClaimProfileBySlug(slug);
   const rawSource = Array.isArray(resolvedSearchParams.source)
     ? resolvedSearchParams.source[0]
     : resolvedSearchParams.source;
+  const rawDiscordVerify = Array.isArray(resolvedSearchParams.discordVerify)
+    ? resolvedSearchParams.discordVerify[0]
+    : resolvedSearchParams.discordVerify;
 
   if (result.kind === "live" && result.profile === null) {
     notFound();
@@ -33,6 +36,12 @@ export default async function ClaimProfilePage({
         {result.kind === "live" && result.profile ? (
           <ClaimFlow
             profile={{
+              avatarAppearance:
+                "avatarAppearance" in result.profile && result.profile.avatarAppearance
+                  ? result.profile.avatarAppearance
+                  : "mediaKit" in result.profile && result.profile.mediaKit?.avatarAppearance
+                    ? result.profile.mediaKit.avatarAppearance
+                  : undefined,
               avatarImageUrl:
                 "avatarImageUrl" in result.profile && typeof result.profile.avatarImageUrl === "string"
                   ? result.profile.avatarImageUrl
@@ -49,6 +58,7 @@ export default async function ClaimProfilePage({
               profileType: result.profile.profileType,
               slug: result.profile.slug,
             }}
+            discordVerify={parseDiscordVerifyStatus(rawDiscordVerify)}
             source={parseClaimEntrySource(rawSource)}
           />
         ) : (

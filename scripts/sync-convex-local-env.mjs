@@ -11,17 +11,20 @@ const convexHome = path.join(repoRoot, ".convex-home");
 const convexTmp = path.join(repoRoot, ".convex-tmp");
 const localConvexEnvNames = [
   "SITE_URL",
-  "JWT_PRIVATE_KEY",
-  "JWKS",
   "VRDEX_ENABLE_E2E_HELPERS",
   "VRDEX_ENABLE_E2E_AUTH_HELPERS",
   "VRDEX_ENABLE_E2E_ADAPTER_HELPERS",
   "VRDEX_E2E_CONVEX_SECRET",
   "DISCORD_API_BASE_URL",
+  "DISCORD_OAUTH_AUTHORIZE_URL",
   "DISCORD_BOT_TOKEN",
   "VRCHAT_PROOF_ADAPTER_URL",
   "VRCLINKING_PROOF_ADAPTER_URL",
   "VRCHAT_PROOF_ADAPTER_BEARER_TOKEN",
+  // Convex functions read deployment env, not the web server's process env, so
+  // omitting this made a local VRCLinking attempt throw in `signDelegation`
+  // even with the key configured for Playwright.
+  "VRCLINKING_ADAPTER_CAPABILITY_KEY",
 ];
 const localDeploymentName = process.env.CONVEX_LOCAL_DEPLOYMENT_NAME || "anonymous-agent";
 const localCloudPort = process.env.CONVEX_LOCAL_CLOUD_PORT || "3210";

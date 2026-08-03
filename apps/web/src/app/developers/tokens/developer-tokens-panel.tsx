@@ -3,13 +3,10 @@
 import { api } from "@convex-generated-api";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { usePostHog } from "posthog-js/react";
 import {
   Component,
   type FormEvent,
   type ReactNode,
-  useEffect,
   useRef,
   useState,
 } from "react";
@@ -20,13 +17,6 @@ import { Field, FieldText, Input, Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { Table, TableCell, TableFrame, TableHead, TableHeaderCell } from "@/components/ui/table";
 import { cn } from "@/lib/cn";
-import {
-  RECENT_AUTH_REQUIRED_CODE,
-  browserRecentAuthDraftStorage,
-  saveRecentAuthDraft,
-  takeRecentAuthDraft,
-} from "@/lib/recent-auth";
-import { captureProductEvent } from "@/lib/posthog";
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 const tokenScopes = [
@@ -70,8 +60,6 @@ function tokenStatusText(status: string) {
 }
 
 function ConnectedDeveloperTokensPanel() {
-  const router = useRouter();
-  const posthog = usePostHog();
   const { isAuthenticated, isLoading } = useConvexAuth();
   const tokens = useQuery(
     api.apiTokens.listPersonalTokens,
@@ -83,47 +71,9 @@ function ConnectedDeveloperTokensPanel() {
   );
   const revokeToken = useMutation(api.apiTokens.revokePersonalToken);
   const formRef = useRef<HTMLFormElement>(null);
-  const draftRestored = useRef(false);
   const [createdTokenValue, setCreatedTokenValue] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  useEffect(() => {
-    if (
-      draftRestored.current ||
-      formRef.current === null ||
-      temporalAccess === undefined
-    ) {
-      return;
-    }
-
-    draftRestored.current = true;
-    const draft = takeRecentAuthDraft(
-      browserRecentAuthDraftStorage(),
-      "developer_token",
-    );
-    if (draft === null) {
-      return;
-    }
-
-    const label = formRef.current.elements.namedItem("label");
-    const expiry = formRef.current.elements.namedItem("expiresInDays");
-    if (label instanceof HTMLInputElement && typeof draft.label === "string") {
-      label.value = draft.label;
-    }
-    if (
-      expiry instanceof HTMLSelectElement &&
-      typeof draft.expiresInDays === "string"
-    ) {
-      expiry.value = draft.expiresInDays;
-    }
-    const scopes = Array.isArray(draft.scopes) ? draft.scopes : [];
-    for (const checkbox of formRef.current.querySelectorAll<HTMLInputElement>(
-      'input[name="scope"]',
-    )) {
-      checkbox.checked = scopes.includes(checkbox.value);
-    }
-  }, [temporalAccess, tokens]);
 
   async function createToken(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -132,6 +82,17 @@ function ConnectedDeveloperTokensPanel() {
     const scopes = formData.getAll("scope").map(String);
     const label = String(formData.get("label") ?? "");
     const expiresAt = expiresAtFromForm(formData.get("expiresInDays"));
+
+    // Step-up authentication is gone, so a confirmation is what stops an
+    // accidental click from minting a credential. It is not a security
+    // boundary — ownership checks on the mutation are.
+    if (
+      !window.confirm(
+        `Create the API token "${label || "Untitled"}"? The value is shown once.`,
+      )
+    ) {
+      return;
+    }
 
     setStatus(null);
     setCreatedTokenValue(null);
@@ -151,36 +112,10 @@ function ConnectedDeveloperTokensPanel() {
       const body = (await response.json()) as {
         code?: string;
         detail?: string;
-        reauthUrl?: string;
         tokenValue?: string;
       };
 
       if (!response.ok || !body.tokenValue) {
-        if (
-          body.code === RECENT_AUTH_REQUIRED_CODE &&
-          body.reauthUrl !== undefined
-        ) {
-          captureProductEvent(posthog, "sensitive_action_denied", {
-            action_class: "developer_token",
-            reason: "stale",
-          });
-          captureProductEvent(posthog, "recent_auth_challenge_presented", {
-            action_class: "developer_token",
-          });
-          saveRecentAuthDraft(
-            browserRecentAuthDraftStorage(),
-            "developer_token",
-            {
-              expiresInDays: String(
-                formData.get("expiresInDays") ?? "",
-              ),
-              label,
-              scopes,
-            },
-          );
-          router.push(body.reauthUrl);
-          return;
-        }
 
         setStatus(body.detail ?? "Token creation failed.");
         return;

@@ -51,11 +51,11 @@ test("unified BASICBIT search views @visual", async ({ page }, testInfo) => {
 test("unified sparse import search views @visual", async ({ page }, testInfo) => {
   await page.goto("/search?q=Sparse%20Import");
   await expect(page.getByText("Sparse Import", { exact: true })).toBeVisible();
-  await expect(page.getByText("Imported profile seed", { exact: true })).toBeVisible();
+  await expect(page.getByText("Imported profile seed", { exact: true })).toHaveCount(0);
   await captureRouteScreenshot(page, testInfo, "search-sparse-import-standard");
 
   await page.goto("/search?q=Sparse%20Import&view=dj");
   await expect(page.getByRole("link", { name: "Sparse Import", exact: true })).toBeVisible();
-  await expect(page.getByText("Imported profile seed / Unclaimed", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText(/Imported profile seed|Unclaimed/, { exact: true })).toHaveCount(0);
   await captureRouteScreenshot(page, testInfo, "search-sparse-import-dj");
 });

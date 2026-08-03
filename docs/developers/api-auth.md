@@ -79,8 +79,9 @@ the access-token lifetime, then remove it after old access tokens have expired.
 VRDex's OAuth issuer is implemented by Next.js route handlers backed by Convex
 state. Convex remains the durable store for apps, grants, consents, tokens,
 revocation state, and audit events; the web app owns browser redirects,
-metadata, token HTTP semantics, CORS, and consent UX. Convex Auth still handles
-first-party sign-in and is not the external developer-platform issuer.
+metadata, token HTTP semantics, CORS, and consent UX. Clerk handles first-party
+sign-in and is unrelated to this issuer: VRDex issues developer tokens to third
+parties, while Clerk authenticates VRDex's own users.
 
 | Endpoint | Purpose |
 | --- | --- |

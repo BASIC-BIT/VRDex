@@ -26,6 +26,10 @@ export class RequestBudget {
     for (let index = 0; index < count; index += 1) this.requests.push(now);
     return true;
   }
+  remaining(now = Date.now()) {
+    this.requests = this.requests.filter((timestamp) => timestamp > now - this.windowMs);
+    return Math.max(0, this.limit - this.requests.length);
+  }
   retryAfterMs(count = 1, now = Date.now()) {
     this.requests = this.requests.filter((timestamp) => timestamp > now - this.windowMs);
     if (count > this.limit) return this.windowMs;
@@ -53,21 +57,59 @@ export function pollId(integrationId, observedAt) {
 }
 
 export class TelemetryControlClient {
-  constructor({ endpoint, collectorAccountId, workerApiKey, workerId = `collector-${randomUUID()}`, fetcher = fetch }) {
+  constructor({ endpoint, collectorAccountId, workerApiKey, vrchatUserId, workerId = `collector-${randomUUID()}`, fetcher = fetch }) {
     this.endpoint = endpoint;
     this.collectorAccountId = collectorAccountId;
     this.workerApiKey = workerApiKey;
+    // The identity recorded in this worker's own secret. The control plane
+    // rejects the request when it does not match the collector the account id
+    // names, so a mismatched secret/collector pairing cannot do work.
+    this.vrchatUserId = vrchatUserId;
     this.workerId = workerId;
     this.fetcher = fetcher;
   }
-  async send(operation, body = {}) {
+  // Every control-plane call is bounded. Cleanup calls run on the shutdown
+  // path, where an unbounded fetch against a wedged control plane outlasts the
+  // orchestrator's SIGKILL grace period and strands the work the call was
+  // trying to hand back.
+  async send(operation, body = {}, { timeoutMs = 15_000, requirePayload = false } = {}) {
     const response = await this.fetcher(this.endpoint, {
       method: "POST",
       headers: { authorization: `Bearer ${this.workerApiKey}`, "content-type": "application/json", "x-vrdex-collector-account": this.collectorAccountId },
-      body: JSON.stringify({ operation, workerId: this.workerId, ...body }),
+      body: JSON.stringify({
+        operation,
+        workerId: this.workerId,
+        ...(this.vrchatUserId === undefined ? {} : { vrchatUserId: this.vrchatUserId }),
+        ...body,
+      }),
+      signal: AbortSignal.timeout(timeoutMs),
     });
-    const payload = await response.json().catch(() => ({}));
+    let payload = {};
+    let unreadable = false;
+
+    try {
+      const text = await response.text();
+      payload = text.length === 0 ? {} : JSON.parse(text);
+    } catch {
+      unreadable = true;
+    }
+
     if (!response.ok) throw new Error(`Control plane ${response.status}: ${payload.error ?? "request_failed"}`);
+    // A body that could not be read is not an empty result — but only where the
+    // caller needs the payload. For `claim` and `proof_claim`, swallowing it made
+    // an aborted read indistinguishable from "no work available", so a batch the
+    // control plane had already stamped sat out its whole cooldown with nobody
+    // looking at it.
+    //
+    // Write-only operations are the opposite: a 2xx whose body was truncated
+    // means the mutation committed. Throwing there routes a succeeded poll into
+    // `failureDisposition`, which reports a provider failure, increments
+    // `consecutiveFailures`, and marks coverage degraded — blaming VRChat for a
+    // control-plane transport fault.
+    if (unreadable && requirePayload) {
+      throw new Error(`Control plane ${response.status}: response_unreadable`);
+    }
+
     return payload;
   }
 }

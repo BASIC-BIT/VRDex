@@ -62,7 +62,8 @@ type ProfileClaimTestTable =
   | "profileAuditEvents"
   | "searchDocuments"
   | "shortLinks"
-  | "vocabularyTerms";
+  | "vocabularyTerms"
+  | "profileSuppressionRequests";
 type ProfileClaimTestRow = Record<string, unknown> & {
   _id: string;
   _creationTime: number;
@@ -89,6 +90,7 @@ function createProfileClaimTestDb(
     "searchDocuments",
     "shortLinks",
     "vocabularyTerms",
+    "profileSuppressionRequests",
   ];
   const tables = Object.fromEntries(
     tableNames.map((tableName) => [
@@ -374,7 +376,80 @@ describe("profile ownership helpers", () => {
     const conflictingOwnerDb = createOwnerDb([{ ...existingOwner, userId: "otherUser" }]);
     await assert.rejects(
       () => grantProfileOwner(conflictingOwnerDb.db as never, { profileId, userId, now: 2 }),
-      /already has an active owner/,
+      /PROFILE_ALREADY_OWNED/,
+    );
+  });
+
+  it("refuses Discord claim creation for a suppressed identity", async () => {
+    const { db } = createProfileClaimTestDb({
+      profileSuppressionRequests: [
+        {
+          displayName: "DJ No Match",
+          profileType: "person",
+          requestType: "pre_claim_safety",
+          state: "accepted",
+        },
+      ],
+    });
+
+    // Claim creation inserts published/public directly, so it is a way to put a
+    // retracted identity back in front of people without going through submission.
+    await assert.rejects(
+      createClaimedDiscordProfileForUser(db as never, {
+        userId: "user-suppressed" as Id<"users">,
+        discordProviderAccountId: "discord-suppressed-1",
+        input: {
+          profileType: "person",
+          displayName: " DJ No Match ",
+          aliases: [],
+          tags: [],
+          person: { roleTags: [] },
+        },
+        now: 1_790_000_000_000,
+      }),
+      (error: unknown) => {
+        // Structured, not a plain Error: Convex redacts plain messages in
+        // production, so the claim client could not tell a permanent safety
+        // rejection from a transient failure.
+        const data = (error as { data?: { code?: string } }).data;
+        assert.equal(data?.code, "IDENTITY_SUPPRESSED");
+        return true;
+      },
+    );
+  });
+
+  it("refuses Discord claim creation when an alias carries the suppressed identity", async () => {
+    const { db } = createProfileClaimTestDb({
+      profileSuppressionRequests: [
+        {
+          displayName: "DJ Hidden",
+          profileType: "person",
+          requestType: "pre_claim_safety",
+          state: "accepted",
+        },
+      ],
+    });
+
+    // The display name is unrelated; the suppressed identity rides in aliases,
+    // which toPublicProfile exposes and the search document indexes.
+    await assert.rejects(
+      createClaimedDiscordProfileForUser(db as never, {
+        userId: "user-alias" as Id<"users">,
+        discordProviderAccountId: "discord-alias-1",
+        input: {
+          profileType: "person",
+          displayName: "Totally Different Name",
+          aliases: ["DJ Hidden"],
+          tags: [],
+          person: { roleTags: [] },
+        },
+        now: 1_790_000_000_000,
+      }),
+      (error: unknown) => {
+        const data = (error as { data?: { code?: string } }).data;
+        assert.equal(data?.code, "IDENTITY_SUPPRESSED");
+        return true;
+      },
     );
   });
 
@@ -521,7 +596,7 @@ describe("profile ownership helpers", () => {
           verified: false,
           now: 3,
         }),
-      /already has an active owner/,
+      /PROFILE_ALREADY_OWNED/,
     );
     assert.equal(tables.profileOwners.length, 1);
     assert.equal(tables.profiles[0]?._id, profileId);
@@ -1249,7 +1324,7 @@ describe("profile media kit asset helpers", () => {
         mimeType: "image/svg+xml",
         now: Date.UTC(2026, 5, 15),
       }),
-      "profile-assets/2026-06-15/abcdef0123456789abcdef01/aurora-logo.svg",
+      "profile-assets/2026-06-15/abcdef0123456789abcdef01/aurora-logo/display.svg",
     );
     assert.equal(
       createProfileAssetStorageKey({
@@ -1257,7 +1332,7 @@ describe("profile media kit asset helpers", () => {
         mimeType: "image/png",
         now: Date.UTC(2026, 5, 15),
       }),
-      "profile-assets/2026-06-15/abcdef0123456789abcdef01/asset.png",
+      "profile-assets/2026-06-15/abcdef0123456789abcdef01/asset/display.webp",
     );
   });
 

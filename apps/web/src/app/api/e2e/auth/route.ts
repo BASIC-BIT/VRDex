@@ -5,6 +5,24 @@ import { api } from "@convex-generated-api";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * Server-side seam for the Clerk-backed auth E2E specs.
+ *
+ * Clerk owns accounts and sessions, so this route no longer mints them: the
+ * Playwright fixture in `e2e/clerk-auth.ts` creates and deletes the Clerk user
+ * through the Backend API, and signs in with a testing token. What is left here
+ * is the VRDex-side state a claim depends on but that no external provider can
+ * seed during a test — the Discord verification watermark and a guild control
+ * proof — plus teardown of the Convex rows keyed to that account.
+ *
+ * The route exists rather than the specs calling Convex directly because
+ * `VRDEX_E2E_CONVEX_SECRET` must not reach the browser or the runner. Playwright
+ * only ever holds the browser token.
+ *
+ * Deliberately absent, and not to be restored: `consume-code` (Convex Auth email
+ * codes) and `set-session-state` (Convex Auth session rows). Both named tables
+ * that no longer exist, and their behaviour is Clerk's now.
+ */
 function e2eError(message: string, status = 403) {
   return NextResponse.json({ error: message }, { status });
 }
@@ -39,6 +57,22 @@ function convexClient() {
   return new ConvexHttpClient(convexUrl);
 }
 
+/**
+ * Surfaces the Convex-side reason instead of letting the throw become an opaque
+ * 500. Callers need to tell a genuine failure apart from a shared staging target
+ * that has not deployed this revision yet, and an HTML error page cannot carry
+ * that distinction.
+ */
+async function runHelperMutation<T>(operation: () => Promise<T>) {
+  try {
+    return NextResponse.json(await operation());
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    return NextResponse.json({ error: message }, { status: 400 });
+  }
+}
+
 export async function POST(request: NextRequest) {
   const convexSecret = requireE2eAuthRequest(request);
 
@@ -54,48 +88,30 @@ export async function POST(request: NextRequest) {
   const action = typeof body.action === "string" ? body.action : "";
   const email = typeof body.email === "string" ? body.email : "";
 
-  if (action === "consume-code") {
-    const result = await convexClient().mutation(api.e2e.consumeAuthCode, { secret: convexSecret, email });
-
-    return NextResponse.json(result);
-  }
-
   if (action === "link-discord") {
     const providerAccountId = typeof body.providerAccountId === "string" ? body.providerAccountId : "";
-    const result = await convexClient().mutation(api.e2e.linkDiscordAccountByEmail, {
-      secret: convexSecret,
-      email,
-      providerAccountId,
-    });
 
-    return NextResponse.json(result);
-  }
-
-  if (action === "set-session-state") {
-    const state =
-      body.state === "absolute_expired" ||
-      body.state === "inactive_expired" ||
-      body.state === "invalid_refresh" ||
-      body.state === "revoked"
-        ? body.state
-        : null;
-    const now = typeof body.now === "number" ? body.now : Number.NaN;
-
-    if (state === null || !Number.isFinite(now)) {
-      return e2eError("Invalid E2E auth session state.", 400);
-    }
-
-    const result = await convexClient().mutation(
-      api.e2e.setAuthSessionStateByEmail,
-      {
+    return await runHelperMutation(() =>
+      convexClient().mutation(api.e2e.linkDiscordAccountByEmail, {
         secret: convexSecret,
         email,
-        state,
-        now,
-      },
+        providerAccountId,
+      }),
     );
+  }
 
-    return NextResponse.json(result);
+  if (action === "record-guild-proof") {
+    const guildId = typeof body.guildId === "string" ? body.guildId : "";
+    const guildName = typeof body.guildName === "string" ? body.guildName : undefined;
+
+    return await runHelperMutation(() =>
+      convexClient().mutation(api.e2e.recordGuildControlProofByEmail, {
+        secret: convexSecret,
+        email,
+        guildId,
+        ...(guildName !== undefined ? { guildName } : {}),
+      }),
+    );
   }
 
   return e2eError("Unsupported E2E auth helper action.", 400);

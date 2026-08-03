@@ -1,4 +1,4 @@
-import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
+import { convexAuthToken } from "@/lib/server/auth";
 import { api, internal } from "@convex-generated-api";
 import type { FunctionReturnType } from "convex/server";
 import Link from "next/link";
@@ -11,9 +11,9 @@ import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/pa
 import { oauthConsentSummary, oauthScopeLabel } from "@/lib/oauth-consent-copy";
 import { convexAdminHttpClient, convexHttpClient } from "@/lib/server/convex-http";
 import {
-  invalidAuthSessionRedirectPath,
-  isAuthSessionInvalidError,
-} from "@/lib/server/invalid-auth-session";
+  signInPath,
+  isUnauthenticatedError,
+} from "@/lib/server/auth";
 import { oauthAuthorizeProblemDetail } from "@/lib/server/oauth-authorize-problem";
 import {
   hashOAuthConsentTransactionValue,
@@ -65,7 +65,7 @@ export default async function AuthorizeReviewPage({ searchParams }: AuthorizeRev
     return <AuthorizationProblem detail="The OAuth consent transaction is invalid or expired." />;
   }
 
-  const authToken = await convexAuthNextjsToken();
+  const authToken = await convexAuthToken();
 
   if (authToken === undefined) {
     const redirectTo = `/oauth/authorize/review?transaction=${encodeURIComponent(transaction)}`;
@@ -84,9 +84,9 @@ export default async function AuthorizeReviewPage({ searchParams }: AuthorizeRev
       transactionHash: await hashOAuthConsentTransactionValue(transaction),
     });
   } catch (error) {
-    if (isAuthSessionInvalidError(error)) {
+    if (isUnauthenticatedError(error)) {
       redirect(
-        invalidAuthSessionRedirectPath(
+        signInPath(
           `/oauth/authorize/review?transaction=${encodeURIComponent(transaction)}`,
         ),
       );

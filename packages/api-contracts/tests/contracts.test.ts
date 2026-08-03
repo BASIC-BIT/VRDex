@@ -185,11 +185,19 @@ describe("@vrdex/api-contracts", () => {
       type: "community",
       results: [
         {
+          avatarAppearance: {
+            borderColor: "#67e8f9",
+            borderEnabled: true,
+            borderSoftnessPx: 12,
+            borderWidthPx: 4,
+            radiusPercent: 18,
+          },
           entityType: "profile",
           profileType: "community",
           slug: "afterglow",
           routePath: "/c/afterglow",
           title: "Afterglow",
+          trustLabel: "claimed_verified",
           source: { sourceType: "community", label: "Community submitted" },
           score: 42,
         },
@@ -200,6 +208,14 @@ describe("@vrdex/api-contracts", () => {
       id: "event_123",
       slug: "afterglow-night",
       title: "Afterglow Night",
+      communityAvatarAppearance: {
+        borderColor: "#67e8f9",
+        borderEnabled: true,
+        borderSoftnessPx: 12,
+        borderWidthPx: 4,
+        radiusPercent: 18,
+      },
+      communityImageUrl: "/api/v0/profiles/afterglow/assets/avatar/file",
       startAt: 1770000000000,
       source: { sourceType: "manual", label: "Owner-authored" },
       watchSurfaceEnabled: false,
@@ -422,28 +438,50 @@ describe("@vrdex/api-contracts", () => {
     ApiProfileAssetUploadIntentCreateRequestSchema.parse({
       originalFileName: "gallery.webp",
       mimeType: "image/webp",
+      byteSize: 1024,
       label: "Gallery image",
       altText: "A gallery contract test image.",
+      creditUrl: "https://example.test/artist",
       placements: ["gallery", "featured"],
     });
     ApiProfileAssetUploadIntentCreateRequestSchema.parse({
       originalFileName: "missing-alt.webp",
       mimeType: "image/webp",
+      byteSize: 1024,
       label: "Missing alt",
       placements: ["gallery"],
     });
     assert.throws(() => ApiProfileAssetUploadIntentCreateRequestSchema.parse({
       originalFileName: "missing-title.webp",
       mimeType: "image/webp",
+      byteSize: 1024,
       altText: "A gallery image without a title.",
       placements: ["gallery"],
     }), /require a title/);
     assert.throws(() => ApiProfileAssetUploadIntentCreateRequestSchema.parse({
       originalFileName: "featured-only.webp",
       mimeType: "image/webp",
+      byteSize: 1024,
       label: "Featured only",
       placements: ["featured"],
     }), /must also be a gallery item/);
+    for (const creditUrl of [
+      "javascript:alert(1)",
+      "https://user:secret@example.test/artist",
+    ]) {
+      assert.throws(() => ApiProfileAssetUploadIntentCreateRequestSchema.parse({
+        originalFileName: "unsafe-credit.webp",
+        mimeType: "image/webp",
+        byteSize: 1024,
+        label: "Unsafe credit",
+        creditUrl,
+        placements: ["gallery"],
+      }), /HTTP or HTTPS without embedded credentials/);
+    }
+    assert.throws(() => ApiProfileAssetUploadIntentCreateRequestSchema.parse({
+      originalFileName: "missing-size.webp",
+      mimeType: "image/webp",
+    }), /require byteSize/);
 
     ApiProfileAssetUploadIntentCreateResponseSchema.parse({
       profileId: "profile123",

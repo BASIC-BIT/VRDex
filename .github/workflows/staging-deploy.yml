@@ -45,6 +45,7 @@ jobs:
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
           HOSTED_BASE_URL: ${{ vars.VRDEX_HOSTED_E2E_BASE_URL }}
           HOSTED_BROWSER_TOKEN: ${{ secrets.VRDEX_HOSTED_E2E_BROWSER_TOKEN }}
+          CLERK_JWT_ISSUER_DOMAIN: ${{ vars.VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN }}
         run: |
           set -euo pipefail
 
@@ -64,6 +65,19 @@ jobs:
               printf -- '- %s\n' "${missing[@]}"
             } >> "$GITHUB_STEP_SUMMARY"
             exit 0
+          fi
+
+          # Fails the job rather than joining `missing` above, and the
+          # difference matters. Everything in that list means "this repository
+          # is not set up to deploy staging at all", which is a legitimate skip.
+          # This one means staging *is* set up and is missing a setting its own
+          # auth config requires — the exact state that froze staging on a
+          # pre-Clerk build for three days. Skipping on it would report a green
+          # workflow while staging silently stopped updating, which is a worse
+          # version of the failure this check exists to remove.
+          if [ -z "$CLERK_JWT_ISSUER_DOMAIN" ]; then
+            echo "::error::VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN is not set. convex/auth.config.ts reads CLERK_JWT_ISSUER_DOMAIN on every hosted deployment and the Convex CLI refuses to push without it, so staging cannot deploy. Set the repository variable to the Clerk Frontend API origin of the development instance backing staging."
+            exit 1
           fi
 
           echo "enabled=true" >> "$GITHUB_OUTPUT"
@@ -105,8 +119,122 @@ jobs:
 
           node scripts/check-staging-runtime-env.mjs "${args[@]}"
 
+      # Compared against the key Vercel is *about to* serve, not the one the
+      # current deployment already serves, and before either provider changes.
+      #
+      # That distinction removes a whole class of problem rather than guarding
+      # it. Comparing against the live site made a deliberate instance rotation
+      # impossible — the old key is what is deployed, by definition — which
+      # needed an escape hatch, which then needed its own rollback, which then
+      # needed a boundary. Reading the pending configuration makes a rotation
+      # ordinary: set the Vercel pair, run this, and both providers move
+      # together within one run.
+      #
+      # Unconditional, so the origin-format validation inside the script runs on
+      # every path that can write the issuer, and fail-closed, because a pending
+      # key that cannot be read is a reason to stop rather than to guess.
+      #
+      # The pulled file holds every staging value, so it is deleted on exit and
+      # only the decoded Clerk host — public, encoded in the key itself — is ever
+      # printed.
+      - name: Verify the staging Clerk issuer before mutating Convex
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          CLERK_JWT_ISSUER_DOMAIN: ${{ vars.VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          pending_env="$RUNNER_TEMP/vrdex-vercel-staging-pending.env"
+          trap 'rm -f "$pending_env"' EXIT
+
+          pnpm dlx vercel@54.4.1 env pull "$pending_env" \
+            --environment=staging \
+            --git-branch main \
+            --yes \
+            --token "$VERCEL_TOKEN" > /dev/null
+
+          pending_key=$(tr -d '\r' < "$pending_env" \
+            | sed -n 's/^NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=//p' \
+            | tr -d '"' \
+            | tail -n 1)
+
+          if [ -z "$pending_key" ]; then
+            echo "::error::The Vercel staging environment has no NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY, so the instance it will serve cannot be compared with the Convex issuer."
+            exit 1
+          fi
+
+          node scripts/check-clerk-issuer-match.mjs \
+            --publishable-key "$pending_key" \
+            --issuer "$CLERK_JWT_ISSUER_DOMAIN"
+
+      # Must run before the deploy below, not with the other `convex env set`
+      # calls after it. `convex/auth.config.ts` reads CLERK_JWT_ISSUER_DOMAIN at
+      # push time, and the CLI refuses to push at all while it is unset — so a
+      # variable set afterwards never gets the chance to be set.
+      #
+      # Provisioned here rather than by hand because a hand-set value is exactly
+      # what failed: nobody set it when Clerk replaced Convex Auth in #224, every
+      # staging deploy failed from that merge onward, and staging served a
+      # pre-cutover build for three days while main moved on without it.
+      #
+      # The value is not a secret. A Clerk Frontend API origin is public — it is
+      # encoded in the publishable key the browser already downloads — so it
+      # lives in a repository variable where it can be read and audited.
+      - name: Provision Convex auth configuration
+        if: steps.gate.outputs.enabled == 'true'
+        id: provision
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_DEV }}
+          CLERK_JWT_ISSUER_DOMAIN: ${{ vars.VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN }}
+        run: |
+          set -euo pipefail
+
+          # Captured so a failed run can put it back. A retrieval failure is not
+          # treated as "no previous value": that conflation meant a transient
+          # error let the mutation proceed with nothing recorded, and a later
+          # failure then found an empty previous issuer and declined to roll
+          # back — leaving Convex on the new issuer with no way home. If the
+          # current state cannot be read, this aborts before changing anything.
+          #
+          # Read through `env list` rather than `env get` so a genuinely unset
+          # variable is distinguishable from a command that failed: the listing
+          # succeeding is the signal that retrieval worked. The dump carries
+          # every value on the deployment, so it is captured into a variable and
+          # never echoed.
+          if ! env_dump=$(pnpm exec convex env list 2>&1); then
+            echo "::error::Could not read the current Convex environment, so the issuer this run would replace cannot be recorded. Refusing to change it without a rollback value."
+            exit 1
+          fi
+
+          previous=$(printf '%s\n' "$env_dump" | tr -d '\r' | sed -n 's/^CLERK_JWT_ISSUER_DOMAIN=//p' | tail -n 1)
+
+          # An unset variable is a legitimate empty — the original outage state,
+          # where there is nothing to restore. A value that is not an origin is
+          # also unrestorable, but for the opposite reason: putting it back would
+          # restore something already broken. Both proceed; both say which.
+          if [ -z "$previous" ]; then
+            echo "No CLERK_JWT_ISSUER_DOMAIN is set on this deployment, so there is no previous value to roll back to."
+          elif ! printf '%s' "$previous" | grep -qE '^https://[A-Za-z0-9.-]+$'; then
+            echo "::warning::The current CLERK_JWT_ISSUER_DOMAIN is not an https origin, so it is not a value worth restoring. Rollback will be unavailable for this run."
+            previous=""
+          fi
+
+          echo "previous_issuer=$previous" >> "$GITHUB_OUTPUT"
+
+          if [ "$previous" = "$CLERK_JWT_ISSUER_DOMAIN" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Convex already trusts $CLERK_JWT_ISSUER_DOMAIN."
+            exit 0
+          fi
+
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          printf '%s' "$CLERK_JWT_ISSUER_DOMAIN" | pnpm exec convex env set CLERK_JWT_ISSUER_DOMAIN
+
       - name: Deploy Convex development functions
         if: steps.gate.outputs.enabled == 'true'
+        id: convex_deploy
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_DEV }}
         run: pnpm exec convex deploy --yes --typecheck=enable
@@ -152,6 +280,32 @@ jobs:
             echo "Hosted health target: ${{ steps.gate.outputs.hosted_base_url }}"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # The two halves of staging auth are configured independently: Convex gets
+      # its issuer from a repository variable, and Vercel gets its publishable
+      # key from the Vercel project. Nothing previously compared them. A stale or
+      # cross-instance issuer would deploy cleanly and then reject every
+      # signed-in request, because Convex validates a token issuer it was told
+      # about rather than the one the browser actually authenticated against —
+      # and the preceding audit checks variable *names* only, so it cannot see
+      # this.
+      #
+      # Decoded rather than prefix-matched, and compared against the deployment
+      # that just went out. `production-promote.yml` does the same for the live
+      # tenant; this is the staging counterpart with a `pk_test_` key.
+      # Authoritative check on what actually shipped. The pre-mutation guard
+      # above can be inconclusive when the target served no key; this one runs
+      # against the deployment that just went out, so it always has one.
+      - name: Verify the staging Clerk key matches the Convex issuer
+        if: steps.gate.outputs.enabled == 'true'
+        id: verify_issuer
+        env:
+          DEPLOYMENT_URL: ${{ steps.vercel.outputs.url }}
+          CLERK_JWT_ISSUER_DOMAIN: ${{ vars.VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN }}
+        run: |
+          set -euo pipefail
+          node scripts/check-clerk-issuer-match.mjs \
+            --base-url "$DEPLOYMENT_URL" \
+            --issuer "$CLERK_JWT_ISSUER_DOMAIN"
       - name: Install Playwright Chromium
         if: steps.gate.outputs.enabled == 'true'
         working-directory: apps/web
@@ -168,20 +322,99 @@ jobs:
           VRDEX_ENABLE_E2E_AUTH_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_AUTH_HELPERS }}
           VRDEX_ENABLE_E2E_ADAPTER_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_ADAPTER_HELPERS }}
           VRDEX_ENABLE_E2E_DEVELOPER_CREDENTIALS: ${{ vars.VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS }}
+          # Without these the Clerk-backed claim and developer-credential specs
+          # report unavailable and skip, so this health step would pass after
+          # every staging deployment without exercising any of the auth coverage
+          # it is meant to protect. Same wiring as the baseline and
+          # deployed-health lanes.
+          VRDEX_ENABLE_E2E_CLERK_AUTH: ${{ vars.VRDEX_HOSTED_E2E_CLERK_AUTH }}
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.VRDEX_HOSTED_E2E_CLERK_PUBLISHABLE_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.VRDEX_HOSTED_E2E_CLERK_SECRET_KEY }}
           VRDEX_E2E_BROWSER_TOKEN: ${{ secrets.VRDEX_HOSTED_E2E_BROWSER_TOKEN }}
           VRDEX_E2E_RUN_ID: staging-deploy-${{ github.run_id }}-${{ github.run_attempt }}
         run: pnpm test:e2e:hosted
 
+
+      # After the deployment it is testing, not before it. On a merge this used
+      # to run from `deployed-health.yml` on the `push` event, which fires while
+      # the matching Convex and Vercel deployments are still going out — so it
+      # asserted against the *previous* deployment and reported that as the
+      # health of this one.
+      #
+      # Gated on the Clerk flag for the same reason the deployed-health copy is:
+      # without credentials the authenticated test skips, the signed-out one
+      # passes, and Playwright exits 0 over a contract that never ran.
       - name: Run recurring staging auth session contract
-        if: steps.gate.outputs.enabled == 'true'
+        if: steps.gate.outputs.enabled == 'true' && vars.VRDEX_HOSTED_E2E_CLERK_AUTH == 'true'
         env:
           PLAYWRIGHT_BASE_URL: ${{ steps.gate.outputs.hosted_base_url }}
           PLAYWRIGHT_RECORD_VIDEO: "true"
           PLAYWRIGHT_SKIP_WEBSERVERS: "true"
+          # Distinct output locations. Playwright clears its report and results
+          # directories when a run starts, so a second invocation sharing them
+          # discarded the first run's report, traces, and videos before the
+          # upload step could collect them.
+          PLAYWRIGHT_OUTPUT_DIR: test-results-auth-session
+          PLAYWRIGHT_HTML_REPORT_DIR: playwright-report-auth-session
           VRDEX_ENABLE_E2E_AUTH_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_AUTH_HELPERS }}
+          VRDEX_ENABLE_E2E_CLERK_AUTH: ${{ vars.VRDEX_HOSTED_E2E_CLERK_AUTH }}
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.VRDEX_HOSTED_E2E_CLERK_PUBLISHABLE_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.VRDEX_HOSTED_E2E_CLERK_SECRET_KEY }}
           VRDEX_E2E_BROWSER_TOKEN: ${{ secrets.VRDEX_HOSTED_E2E_BROWSER_TOKEN }}
           VRDEX_E2E_RUN_ID: staging-auth-session-${{ github.run_id }}-${{ github.run_attempt }}
         run: pnpm test:e2e:hosted:auth-session
+
+      # Anything between the `env set` and the post-deploy verification failing
+      # leaves Convex trusting an instance the deployed web app does not
+      # authenticate against, which rejects every signed-in staging request. The
+      # rotation path makes that reachable in practice: it skips the pre-deploy
+      # comparison by design, so a mistyped or unpublished Vercel key is not
+      # caught until after Convex has already been told to trust the new issuer.
+      #
+      # Gated on the *Vercel deploy* not having succeeded, which is the real
+      # boundary. Once Vercel has published, it is serving a key the pre-deploy
+      # check already validated against this issuer, so the two providers agree
+      # — and a later failure, including a transient fetch error in the
+      # post-deploy verifier, is not evidence the pairing is wrong. Rolling
+      # Convex back there would turn a correct rotation into the mismatch this
+      # step exists to prevent.
+      #
+      # Still runs last so a failure anywhere after the mutation reaches it, and
+      # a skipped Vercel deploy also counts as not-succeeded.
+      #
+      # Re-pushes as well as restoring the variable, because `auth.config.ts` is
+      # evaluated at push time — putting the value back without a deploy would
+      # leave the running provider config on the value being rolled back.
+      - name: Restore the previous Convex issuer
+        if: failure() && steps.provision.outputs.changed == 'true' && steps.provision.outputs.previous_issuer != '' && steps.vercel.outcome != 'success'
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_DEV }}
+          PREVIOUS_ISSUER: ${{ steps.provision.outputs.previous_issuer }}
+          CONVEX_DEPLOY_OUTCOME: ${{ steps.convex_deploy.outcome }}
+        run: |
+          set -euo pipefail
+
+          printf '%s' "$PREVIOUS_ISSUER" | pnpm exec convex env set CLERK_JWT_ISSUER_DOMAIN
+
+          # Only re-push when the deploy that would have published the new issuer
+          # actually succeeded. If it did not, nothing was pushed carrying the new
+          # value — the running provider config is still the old one — so
+          # restoring the variable is the whole repair. Re-pushing there would
+          # publish the very functions that just failed their typecheck, with
+          # typechecking turned off to get them through.
+          if [ "$CONVEX_DEPLOY_OUTCOME" = "success" ]; then
+            pnpm exec convex deploy --yes --typecheck=enable
+            note="and functions re-pushed"
+          else
+            note="without re-pushing, because the Convex deploy that would have published it never succeeded"
+          fi
+
+          {
+            echo ""
+            echo "## Staging issuer rolled back"
+            echo ""
+            echo "This run changed the Convex issuer and then failed, so it was restored to \`$PREVIOUS_ISSUER\` $note. Staging is back on the instance it was serving before this run."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload staging deploy artifacts
         if: always() && steps.gate.outputs.enabled == 'true'
@@ -193,4 +426,6 @@ jobs:
           path: |
             apps/web/playwright-report
             apps/web/test-results
+            apps/web/playwright-report-auth-session
+            apps/web/test-results-auth-session
             apps/web/playwright-artifacts

@@ -2047,7 +2047,7 @@
           "Assets"
         ],
         "summary": "Complete a profile asset upload intent",
-        "description": "Uploads the image file for a direct-upload intent, or triggers the server-side source import for a sourceUrl intent. Send the one-time x-vrdex-upload-token value returned by the upload-intent creation endpoint. Do not send bearer credentials on this transport.",
+        "description": "Uploads a multipart image on the compatibility path, completes an already-staged direct upload with an empty request, or triggers the server-side source import for a sourceUrl intent. Send the one-time x-vrdex-upload-token value returned by the upload-intent creation endpoint. Do not send bearer credentials on this transport.",
         "parameters": [
           {
             "in": "path",
@@ -2144,6 +2144,82 @@
           },
           "501": {
             "description": "Profile asset storage is not configured for this deployment.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProfileAssetUploadErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v0/profile-assets/upload-intents/{intentId}/direct-upload": {
+      "post": {
+        "operationId": "createProfileAssetDirectUploadTarget",
+        "tags": [
+          "Assets"
+        ],
+        "summary": "Create a direct profile-media upload target",
+        "description": "Returns a short-lived private object-storage form target bound to the upload intent's object key, declared content type, and exact byte size. Upload the source with the returned form fields, then complete the upload intent. Do not send bearer credentials on this transport.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "intentId",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Profile asset upload intent id."
+            },
+            "required": true,
+            "description": "Profile asset upload intent id."
+          },
+          {
+            "in": "header",
+            "name": "x-vrdex-upload-token",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "One-time upload token returned by the profile asset upload-intent creation endpoint."
+            },
+            "required": true,
+            "description": "One-time upload token returned by the profile asset upload-intent creation endpoint."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Short-lived direct upload target.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProfileAssetDirectUploadTargetResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The one-time upload token was missing.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProfileAssetUploadErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The upload intent was not found, expired, already used, or the token was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProfileAssetUploadErrorResponse"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Direct upload or profile asset storage is not configured for this deployment.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5298,6 +5374,11 @@
             "type": "string",
             "maxLength": 120
           },
+          "creditUrl": {
+            "type": "string",
+            "maxLength": 2048,
+            "format": "uri"
+          },
           "placements": {
             "maxItems": 8,
             "type": "array",
@@ -6846,6 +6927,41 @@
       "PublicSearchResult": {
         "type": "object",
         "properties": {
+          "avatarAppearance": {
+            "type": "object",
+            "properties": {
+              "borderColor": {
+                "type": "string"
+              },
+              "borderEnabled": {
+                "type": "boolean"
+              },
+              "borderSoftnessPx": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "borderWidthPx": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "radiusPercent": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 50
+              }
+            },
+            "required": [
+              "borderColor",
+              "borderEnabled",
+              "borderSoftnessPx",
+              "borderWidthPx",
+              "radiusPercent"
+            ],
+            "additionalProperties": {},
+            "description": "Bounded public avatar presentation hints."
+          },
           "entityType": {
             "type": "string",
             "enum": [
@@ -6935,6 +7051,16 @@
           "title": {
             "type": "string",
             "minLength": 1
+          },
+          "trustLabel": {
+            "type": "string",
+            "enum": [
+              "community_submitted",
+              "unclaimed",
+              "claimed_unverified",
+              "claimed_verified"
+            ],
+            "description": "The public trust and claim state shown for the profile."
           }
         },
         "required": [
@@ -7038,8 +7164,21 @@
                     "credit": {
                       "type": "string"
                     },
+                    "creditUrl": {
+                      "type": "string",
+                      "maxLength": 2048,
+                      "format": "uri"
+                    },
                     "downloadUrl": {
                       "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                    },
+                    "downloadByteSize": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "downloadMimeType": {
+                      "type": "string"
                     },
                     "imageUrl": {
                       "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
@@ -7049,6 +7188,9 @@
                     },
                     "mimeType": {
                       "type": "string"
+                    },
+                    "sourcePreserved": {
+                      "type": "boolean"
                     }
                   },
                   "additionalProperties": {},
@@ -7077,8 +7219,21 @@
                     "credit": {
                       "type": "string"
                     },
+                    "creditUrl": {
+                      "type": "string",
+                      "maxLength": 2048,
+                      "format": "uri"
+                    },
                     "downloadUrl": {
                       "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                    },
+                    "downloadByteSize": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "downloadMimeType": {
+                      "type": "string"
                     },
                     "imageUrl": {
                       "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
@@ -7088,6 +7243,9 @@
                     },
                     "mimeType": {
                       "type": "string"
+                    },
+                    "sourcePreserved": {
+                      "type": "boolean"
                     }
                   },
                   "additionalProperties": {},
@@ -7116,8 +7274,21 @@
                     "credit": {
                       "type": "string"
                     },
+                    "creditUrl": {
+                      "type": "string",
+                      "maxLength": 2048,
+                      "format": "uri"
+                    },
                     "downloadUrl": {
                       "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                    },
+                    "downloadByteSize": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "downloadMimeType": {
+                      "type": "string"
                     },
                     "imageUrl": {
                       "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
@@ -7127,6 +7298,9 @@
                     },
                     "mimeType": {
                       "type": "string"
+                    },
+                    "sourcePreserved": {
+                      "type": "boolean"
                     }
                   },
                   "additionalProperties": {},
@@ -7188,8 +7362,21 @@
                   "credit": {
                     "type": "string"
                   },
+                  "creditUrl": {
+                    "type": "string",
+                    "maxLength": 2048,
+                    "format": "uri"
+                  },
                   "downloadUrl": {
                     "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                  },
+                  "downloadByteSize": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "downloadMimeType": {
+                    "type": "string"
                   },
                   "imageUrl": {
                     "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
@@ -7199,6 +7386,9 @@
                   },
                   "mimeType": {
                     "type": "string"
+                  },
+                  "sourcePreserved": {
+                    "type": "boolean"
                   }
                 },
                 "additionalProperties": {},
@@ -7224,8 +7414,21 @@
                   "credit": {
                     "type": "string"
                   },
+                  "creditUrl": {
+                    "type": "string",
+                    "maxLength": 2048,
+                    "format": "uri"
+                  },
                   "downloadUrl": {
                     "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                  },
+                  "downloadByteSize": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "downloadMimeType": {
+                    "type": "string"
                   },
                   "imageUrl": {
                     "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
@@ -7235,6 +7438,9 @@
                   },
                   "mimeType": {
                     "type": "string"
+                  },
+                  "sourcePreserved": {
+                    "type": "boolean"
                   }
                 },
                 "additionalProperties": {},
@@ -7272,8 +7478,21 @@
                     "credit": {
                       "type": "string"
                     },
+                    "creditUrl": {
+                      "type": "string",
+                      "maxLength": 2048,
+                      "format": "uri"
+                    },
                     "downloadUrl": {
                       "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                    },
+                    "downloadByteSize": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "downloadMimeType": {
+                      "type": "string"
                     },
                     "imageUrl": {
                       "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
@@ -7283,6 +7502,9 @@
                     },
                     "mimeType": {
                       "type": "string"
+                    },
+                    "sourcePreserved": {
+                      "type": "boolean"
                     }
                   },
                   "additionalProperties": {},
@@ -7309,8 +7531,21 @@
                   "credit": {
                     "type": "string"
                   },
+                  "creditUrl": {
+                    "type": "string",
+                    "maxLength": 2048,
+                    "format": "uri"
+                  },
                   "downloadUrl": {
                     "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                  },
+                  "downloadByteSize": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "downloadMimeType": {
+                    "type": "string"
                   },
                   "imageUrl": {
                     "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
@@ -7320,6 +7555,9 @@
                   },
                   "mimeType": {
                     "type": "string"
+                  },
+                  "sourcePreserved": {
+                    "type": "boolean"
                   }
                 },
                 "additionalProperties": {},
@@ -7345,8 +7583,21 @@
                   "credit": {
                     "type": "string"
                   },
+                  "creditUrl": {
+                    "type": "string",
+                    "maxLength": 2048,
+                    "format": "uri"
+                  },
                   "downloadUrl": {
                     "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                  },
+                  "downloadByteSize": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "downloadMimeType": {
+                    "type": "string"
                   },
                   "imageUrl": {
                     "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
@@ -7356,6 +7607,9 @@
                   },
                   "mimeType": {
                     "type": "string"
+                  },
+                  "sourcePreserved": {
+                    "type": "boolean"
                   }
                 },
                 "additionalProperties": {},
@@ -7883,8 +8137,21 @@
                 "credit": {
                   "type": "string"
                 },
+                "creditUrl": {
+                  "type": "string",
+                  "maxLength": 2048,
+                  "format": "uri"
+                },
                 "downloadUrl": {
                   "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                },
+                "downloadByteSize": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "downloadMimeType": {
+                  "type": "string"
                 },
                 "imageUrl": {
                   "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
@@ -7894,6 +8161,9 @@
                 },
                 "mimeType": {
                   "type": "string"
+                },
+                "sourcePreserved": {
+                  "type": "boolean"
                 }
               },
               "additionalProperties": {},
@@ -7929,8 +8199,21 @@
                     "credit": {
                       "type": "string"
                     },
+                    "creditUrl": {
+                      "type": "string",
+                      "maxLength": 2048,
+                      "format": "uri"
+                    },
                     "downloadUrl": {
                       "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                    },
+                    "downloadByteSize": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "downloadMimeType": {
+                      "type": "string"
                     },
                     "imageUrl": {
                       "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
@@ -7940,6 +8223,9 @@
                     },
                     "mimeType": {
                       "type": "string"
+                    },
+                    "sourcePreserved": {
+                      "type": "boolean"
                     }
                   },
                   "additionalProperties": {},
@@ -7968,8 +8254,21 @@
                     "credit": {
                       "type": "string"
                     },
+                    "creditUrl": {
+                      "type": "string",
+                      "maxLength": 2048,
+                      "format": "uri"
+                    },
                     "downloadUrl": {
                       "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                    },
+                    "downloadByteSize": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "downloadMimeType": {
+                      "type": "string"
                     },
                     "imageUrl": {
                       "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
@@ -7979,6 +8278,9 @@
                     },
                     "mimeType": {
                       "type": "string"
+                    },
+                    "sourcePreserved": {
+                      "type": "boolean"
                     }
                   },
                   "additionalProperties": {},
@@ -8007,8 +8309,21 @@
                     "credit": {
                       "type": "string"
                     },
+                    "creditUrl": {
+                      "type": "string",
+                      "maxLength": 2048,
+                      "format": "uri"
+                    },
                     "downloadUrl": {
                       "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                    },
+                    "downloadByteSize": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "downloadMimeType": {
+                      "type": "string"
                     },
                     "imageUrl": {
                       "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
@@ -8018,6 +8333,9 @@
                     },
                     "mimeType": {
                       "type": "string"
+                    },
+                    "sourcePreserved": {
+                      "type": "boolean"
                     }
                   },
                   "additionalProperties": {},
@@ -8079,8 +8397,21 @@
                   "credit": {
                     "type": "string"
                   },
+                  "creditUrl": {
+                    "type": "string",
+                    "maxLength": 2048,
+                    "format": "uri"
+                  },
                   "downloadUrl": {
                     "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                  },
+                  "downloadByteSize": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "downloadMimeType": {
+                    "type": "string"
                   },
                   "imageUrl": {
                     "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
@@ -8090,6 +8421,9 @@
                   },
                   "mimeType": {
                     "type": "string"
+                  },
+                  "sourcePreserved": {
+                    "type": "boolean"
                   }
                 },
                 "additionalProperties": {},
@@ -8115,8 +8449,21 @@
                   "credit": {
                     "type": "string"
                   },
+                  "creditUrl": {
+                    "type": "string",
+                    "maxLength": 2048,
+                    "format": "uri"
+                  },
                   "downloadUrl": {
                     "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                  },
+                  "downloadByteSize": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "downloadMimeType": {
+                    "type": "string"
                   },
                   "imageUrl": {
                     "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
@@ -8126,6 +8473,9 @@
                   },
                   "mimeType": {
                     "type": "string"
+                  },
+                  "sourcePreserved": {
+                    "type": "boolean"
                   }
                 },
                 "additionalProperties": {},
@@ -8163,8 +8513,21 @@
                     "credit": {
                       "type": "string"
                     },
+                    "creditUrl": {
+                      "type": "string",
+                      "maxLength": 2048,
+                      "format": "uri"
+                    },
                     "downloadUrl": {
                       "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                    },
+                    "downloadByteSize": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "downloadMimeType": {
+                      "type": "string"
                     },
                     "imageUrl": {
                       "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
@@ -8174,6 +8537,9 @@
                     },
                     "mimeType": {
                       "type": "string"
+                    },
+                    "sourcePreserved": {
+                      "type": "boolean"
                     }
                   },
                   "additionalProperties": {},
@@ -8200,8 +8566,21 @@
                   "credit": {
                     "type": "string"
                   },
+                  "creditUrl": {
+                    "type": "string",
+                    "maxLength": 2048,
+                    "format": "uri"
+                  },
                   "downloadUrl": {
                     "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                  },
+                  "downloadByteSize": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "downloadMimeType": {
+                    "type": "string"
                   },
                   "imageUrl": {
                     "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
@@ -8211,6 +8590,9 @@
                   },
                   "mimeType": {
                     "type": "string"
+                  },
+                  "sourcePreserved": {
+                    "type": "boolean"
                   }
                 },
                 "additionalProperties": {},
@@ -8236,8 +8618,21 @@
                   "credit": {
                     "type": "string"
                   },
+                  "creditUrl": {
+                    "type": "string",
+                    "maxLength": 2048,
+                    "format": "uri"
+                  },
                   "downloadUrl": {
                     "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                  },
+                  "downloadByteSize": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "downloadMimeType": {
+                    "type": "string"
                   },
                   "imageUrl": {
                     "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
@@ -8247,6 +8642,9 @@
                   },
                   "mimeType": {
                     "type": "string"
+                  },
+                  "sourcePreserved": {
+                    "type": "boolean"
                   }
                 },
                 "additionalProperties": {},
@@ -8334,6 +8732,10 @@
             "type": "string",
             "minLength": 1
           },
+          "directUploadUrl": {
+            "type": "string",
+            "minLength": 1
+          },
           "uploadTokenHeader": {
             "type": "string",
             "const": "x-vrdex-upload-token"
@@ -8383,8 +8785,21 @@
                 "credit": {
                   "type": "string"
                 },
+                "creditUrl": {
+                  "type": "string",
+                  "maxLength": 2048,
+                  "format": "uri"
+                },
                 "downloadUrl": {
                   "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                },
+                "downloadByteSize": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "downloadMimeType": {
+                  "type": "string"
                 },
                 "imageUrl": {
                   "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
@@ -8394,6 +8809,9 @@
                 },
                 "mimeType": {
                   "type": "string"
+                },
+                "sourcePreserved": {
+                  "type": "boolean"
                 }
               },
               "additionalProperties": {},
@@ -8429,8 +8847,21 @@
                 "credit": {
                   "type": "string"
                 },
+                "creditUrl": {
+                  "type": "string",
+                  "maxLength": 2048,
+                  "format": "uri"
+                },
                 "downloadUrl": {
                   "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                },
+                "downloadByteSize": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "downloadMimeType": {
+                  "type": "string"
                 },
                 "imageUrl": {
                   "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
@@ -8440,6 +8871,9 @@
                 },
                 "mimeType": {
                   "type": "string"
+                },
+                "sourcePreserved": {
+                  "type": "boolean"
                 }
               },
               "additionalProperties": {},
@@ -8466,8 +8900,21 @@
               "credit": {
                 "type": "string"
               },
+              "creditUrl": {
+                "type": "string",
+                "maxLength": 2048,
+                "format": "uri"
+              },
               "downloadUrl": {
                 "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+              },
+              "downloadByteSize": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "downloadMimeType": {
+                "type": "string"
               },
               "imageUrl": {
                 "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
@@ -8477,6 +8924,9 @@
               },
               "mimeType": {
                 "type": "string"
+              },
+              "sourcePreserved": {
+                "type": "boolean"
               }
             },
             "additionalProperties": {},
@@ -8563,6 +9013,36 @@
         "additionalProperties": false,
         "description": "Profile asset upload transport error response."
       },
+      "ApiProfileAssetDirectUploadTargetResponse": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "fields": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "expiresAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "url",
+          "fields",
+          "expiresAt"
+        ],
+        "additionalProperties": false,
+        "description": "Short-lived private object-storage form target for one exact profile-media source upload."
+      },
       "ApiProfileAssetStorageProbeResponse": {
         "type": "object",
         "properties": {
@@ -8605,12 +9085,45 @@
         "type": "object",
         "properties": {
           "bannerImageUrl": {
-            "type": "string",
-            "format": "uri"
+            "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+          },
+          "communityAvatarAppearance": {
+            "type": "object",
+            "properties": {
+              "borderColor": {
+                "type": "string"
+              },
+              "borderEnabled": {
+                "type": "boolean"
+              },
+              "borderSoftnessPx": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "borderWidthPx": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "radiusPercent": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 50
+              }
+            },
+            "required": [
+              "borderColor",
+              "borderEnabled",
+              "borderSoftnessPx",
+              "borderWidthPx",
+              "radiusPercent"
+            ],
+            "additionalProperties": {},
+            "description": "Bounded public avatar presentation hints."
           },
           "communityImageUrl": {
-            "type": "string",
-            "format": "uri"
+            "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
           },
           "communityName": {
             "type": "string"
@@ -8636,8 +9149,7 @@
             "maximum": 9007199254740991
           },
           "posterImageUrl": {
-            "type": "string",
-            "format": "uri"
+            "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
           },
           "slug": {
             "type": "string",
@@ -8688,8 +9200,7 @@
             "type": "string"
           },
           "thumbnailImageUrl": {
-            "type": "string",
-            "format": "uri"
+            "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
           },
           "timezone": {
             "type": "string"
@@ -8734,12 +9245,45 @@
         "type": "object",
         "properties": {
           "bannerImageUrl": {
-            "type": "string",
-            "format": "uri"
+            "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+          },
+          "communityAvatarAppearance": {
+            "type": "object",
+            "properties": {
+              "borderColor": {
+                "type": "string"
+              },
+              "borderEnabled": {
+                "type": "boolean"
+              },
+              "borderSoftnessPx": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "borderWidthPx": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "radiusPercent": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 50
+              }
+            },
+            "required": [
+              "borderColor",
+              "borderEnabled",
+              "borderSoftnessPx",
+              "borderWidthPx",
+              "radiusPercent"
+            ],
+            "additionalProperties": {},
+            "description": "Bounded public avatar presentation hints."
           },
           "communityImageUrl": {
-            "type": "string",
-            "format": "uri"
+            "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
           },
           "communityName": {
             "type": "string"
@@ -8765,8 +9309,7 @@
             "maximum": 9007199254740991
           },
           "posterImageUrl": {
-            "type": "string",
-            "format": "uri"
+            "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
           },
           "slug": {
             "type": "string",
@@ -8817,8 +9360,7 @@
             "type": "string"
           },
           "thumbnailImageUrl": {
-            "type": "string",
-            "format": "uri"
+            "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
           },
           "timezone": {
             "type": "string"
@@ -9454,6 +9996,41 @@
           "nextEvent": {
             "type": "object",
             "properties": {
+              "communityAvatarAppearance": {
+                "type": "object",
+                "properties": {
+                  "borderColor": {
+                    "type": "string"
+                  },
+                  "borderEnabled": {
+                    "type": "boolean"
+                  },
+                  "borderSoftnessPx": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "borderWidthPx": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "radiusPercent": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 50
+                  }
+                },
+                "required": [
+                  "borderColor",
+                  "borderEnabled",
+                  "borderSoftnessPx",
+                  "borderWidthPx",
+                  "radiusPercent"
+                ],
+                "additionalProperties": {},
+                "description": "Bounded public avatar presentation hints."
+              },
               "communityName": {
                 "type": "string"
               },

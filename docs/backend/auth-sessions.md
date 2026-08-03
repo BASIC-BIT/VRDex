@@ -1,181 +1,426 @@
 # App authentication sessions
 
-Status: `Current recommendation` implemented for new sessions.
+Status: `Current recommendation` implemented.
 
-This contract covers first-party VRDex web sessions created through Discord,
-Google, or email/password. Provider access-token expiry is not the VRDex app
-session lifetime. The browser stores VRDex's refresh credential in an
-HTTP-only cookie; bearer tokens must not be moved to `localStorage` by
-application code.
+Clerk is VRDex's authentication and session authority. It owns sign-in, sign-up,
+connected accounts, session lifetime, and session revocation. VRDex owns
+authorization: what a signed-in user may do with profiles, claims, media,
+developer credentials, and the public API.
+
+Convex trusts Clerk through one setting — `convex/auth.config.ts` names the
+Clerk issuer as `domain` and `convex` as `applicationID`, matching the `convex`
+JWT template on the Clerk instance.
+
+## Identity model
+
+`users` remains the VRDex identity spine. Every other table's `v.id("users")`
+foreign key points at it, and `clerkUserId` is its only link to the auth
+provider.
+
+Rows are provisioned on demand: the first authenticated page load calls
+`users:ensureCurrentUser`, which inserts or refreshes the row from the Clerk
+identity. There is no Clerk webhook — no endpoint to expose, no signature to
+verify, and no replay or retry semantics to get wrong. The mutation is
+idempotent, so repeat calls refresh rather than duplicate.
+
+Convex code resolves identity through `convex/_identity.ts`:
+
+| Helper | Use |
+| --- | --- |
+| `requireUser(ctx)` | Returns `{ user, userId }`, throws `UNAUTHENTICATED` |
+| `currentUserOrNull(ctx)` | Returns the row or `null` |
+| `ensureUser(ctx)` | Idempotent provisioning from the Clerk identity |
+| `isUnauthenticatedError(error)` | Recognises the thrown code |
+
+Claim-level and account-level code uses `convex/_browserSessionAuthority.ts`,
+which sits on those helpers and adds the `authSubject` shape.
+
+`tests/backend/auth-session-authorization-boundary.test.ts` enforces the
+boundary: only `_identity.ts` and `_browserSessionAuthority.ts` may read
+`ctx.auth.getUserIdentity()` directly, the Convex HTTP router must stay free of
+browser-session authority, and every Next route forwarding a browser JWT to
+Convex must be inventoried.
 
 ## Session contract
 
-| Boundary | Contract |
+Session lifetime is Clerk's, configured on the Clerk instance rather than in
+this repository. VRDex does not reproduce the previous hand-rolled contract —
+there is no VRDex session record, no refresh-token tree, and no silent-refresh
+middleware, because Clerk performs all of it.
+
+| Boundary | Owner |
 | --- | --- |
-| JWT access token | 1 hour |
-| Inactivity timeout | 30 days since the latest successful refresh |
-| Remembered browser cookie | 30 days, renewed when tokens rotate |
-| Absolute lifetime | 90 days from sign-in |
-| Silent refresh | Middleware refreshes near JWT expiry and rotates the one-time refresh token |
-| Explicit sign-out | Deletes the current backend session and its refresh-token tree, then clears browser state |
-| Refresh-token reuse | Reuse outside the library's concurrency window invalidates the affected refresh-token subtree |
-| Sensitive actions | Credential issuance, OAuth app creation/revocation, and remote session revocation require authentication within the last 15 minutes |
-| Preview/staging | Separate Convex deployment, issuer, signing keys, callback host, cookies, and accounts from production |
+| Session lifetime and inactivity timeout | Clerk instance settings |
+| Token refresh and rotation | Clerk, via `ConvexProviderWithClerk` |
+| Session inventory and device list | Clerk, surfaced by `<UserProfile />` |
+| Session revocation | Clerk; a revoked session mints no further tokens |
+| Sign-out | Clerk `signOut()`, which clears its own cookies |
+| JWT lifetime reaching Convex | The `convex` JWT template, currently 1 hour |
+| Preview/staging isolation | Separate Clerk instance, keys, and Convex deployment |
 
-The cookie remains host-only with `Secure`, `HttpOnly`, `SameSite=Lax`, and
-`Path=/` on hosted HTTPS origins. No `Domain` attribute is set, so a session
-for `vrdex.net` is not sent to generated Vercel previews, `staging.vrdex.net`,
-or `db.vrdex.net`. OAuth callbacks use the Convex HTTP Actions host, then return
-an application code to the web origin; provider tokens do not become web
-session cookies.
+Server code has no session row to consult: an unauthenticated request — no
+token, or an expired one — is a single case, and the middleware redirects it to
+`/sign-in`.
 
-## Why this is explicit
+### Revocation is eventually consistent
 
-`@convex-dev/auth` 0.0.92 defaults backend sessions to 30 days total, refresh
-tokens to 30 days of inactivity, and JWTs to 1 hour. Its Next.js middleware
-defaults auth cookies to browser-session cookies unless `cookieConfig.maxAge`
-is supplied. A browser restart could therefore discard the server-readable
-refresh token while the backend session was still active.
+This is a deliberate regression from the previous design, and it should be
+understood before relying on revocation.
 
-VRDex sets both sides explicitly:
+Convex validates a JWT's signature and expiry locally. It cannot introspect
+Clerk from a query or mutation, so revoking a Clerk session stops that session
+minting *new* tokens but does not invalidate one already issued. A stolen token
+therefore keeps working until it expires, where deleting a VRDex `authSessions`
+row used to end access immediately.
 
-- `convex/_authSession.ts` owns backend JWT, inactivity, and absolute limits.
-- `apps/web/src/lib/auth-session.ts` owns the matching browser cookie limit and
-  sanitized lifecycle classification.
-- `apps/web/src/middleware.ts` supplies the remembered-cookie configuration.
+**The `convex` JWT template's lifetime is the revocation window.** It is
+currently one hour, which is a long time to hold a stolen token. Shorten it on
+each Clerk instance to tighten the window — the cost is more frequent token
+refreshes, which `ConvexProviderWithClerk` handles transparently. Treat any
+change here as a security decision, not a performance one.
 
-Changing one duration requires changing the matching constants and tests
-together. Existing backend session records keep the expiration time written
-when they were created; the 90-day cap applies to sessions created after the
-backend change deploys.
+Sensitive operations do not currently re-check revocation. Adding that would
+require an action calling Clerk's Backend API, which queries and mutations
+cannot do; the confirmations described below are about accidental clicks and are
+explicitly not a defence against a live attacker.
 
-## Recent authentication
+## Connected accounts
 
-Recent authentication is a non-sliding 15-minute window measured from
-successful completion of a server-side challenge and bound to the replacement
-VRDex session. An ordinary active session remains valid for routine use after
-that window. Sensitive browser operations fail closed with the typed
-`RECENT_AUTH_REQUIRED` code. The original secret-producing request is never
-stored or replayed automatically.
+A user may sign in with email, Google, or Discord, and link additional providers
+from Clerk's account UI even when the provider email addresses differ. That is
+the capability the previous verified-email matching could not express.
 
-The current step-up method is email/password only. Discord and Google remain
-ordinary sign-in methods, but ordinary OAuth sign-in cannot satisfy the
-recent-auth guard because the installed auth stack does not bind provider
-freshness to the resulting VRDex session. Password step-up verifies the exact
-original session, consumes a one-time proof, atomically creates and binds one
-replacement session, and deletes the original session and refresh-token tree.
-Concurrent tabs converge on that replacement. Because this is a full
-reauthentication, the replacement begins a new 90-day absolute lifetime.
+Provider linkage is Clerk state and is not readable from a Convex query or
+mutation without a network call. Claiming therefore does not consult sign-in
+provenance: `getLinkedProviderAccount` in `convex/accounts.ts` reads VRDex's own
+`discordVerificationWatermarks`, written by the purpose-scoped Discord OAuth
+round-trip in `convex/discordVerification.ts`.
 
-Developer forms may keep a bounded non-secret draft in `sessionStorage` across
-that redirect; token values, client secrets, passwords, and bearer credentials
-are never included.
+The practical effect: claiming a profile with Discord requires completing that
+verification round-trip, not merely having signed in with Discord. That is the
+evidence a claim actually depends on, and it decouples claiming from whichever
+provider a user happened to sign in with.
 
-Missing, deleted, expired, malformed, or wrong-user sessions return the
-ordinary invalid-session result rather than masquerading as a step-up
-challenge. Machine-authenticated API and OAuth token endpoints keep their own
-bearer-token authorization contract.
+## Sensitive actions
 
-## Revocation and account lifecycle
+Consequential browser actions — API token creation, OAuth application creation,
+and OAuth application revocation — show a confirmation immediately before the
+write. Cancelling performs no write.
 
-`/account/security` lists active sessions without tokens, provider payloads,
-IP addresses, or fingerprint-derived device names. It shows session creation,
-latest refresh activity, absolute expiry, and which session is current.
+Confirmations prevent accidental clicks. They are not a security boundary: an
+attacker controlling an active session can dismiss them. Authorization checks on
+each mutation, plus Clerk-side session revocation, remain the boundary. This
+trade-off is deliberate and replaces the previous recent-authentication step-up,
+which Discord- and Google-only accounts could not complete at all.
 
-Normal sign-out revokes only the current session. Revoking another session,
-all other sessions, or every session requires recent authentication. A
-revoked browser may keep an already-minted JWT for up to one hour, so every
-browser-session-authenticated backend entry point must use the centralized
-active-session guard before protected work. The static guard-coverage test
-prevents an unguarded query, mutation, action, or browser API route from being
-added silently. A global active-session subscription clears browser state when
-remote revocation is detected, including while the user is away from the
-security page.
+## Configuration
 
-Single-session revocation deletes the session record in the request
-transaction, making its refresh tokens unusable immediately. Refresh-token
-history is then deleted in bounded batches so a long rotation history cannot
-make revocation exceed Convex transaction limits.
+Clerk instances are separate per environment. Required values:
 
-Global revocation, account deletion, and security-sensitive linked-account
-changes must delete all `authSessions` and `authRefreshTokens` for the account.
+| Variable | Where | Notes |
+| --- | --- | --- |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | web | Public; encodes the Frontend API host |
+| `CLERK_SECRET_KEY` | web, server-side only | |
+| `CLERK_JWT_ISSUER_DOMAIN` | Convex deployment | Read by `convex/auth.config.ts` |
 
-Removing or revoking a Discord or Google grant does not silently extend third-
-party access. It also must not sign a user out merely because an optional
-provider API token expired. Require provider reauthorization only for a feature
-that actually needs fresh provider access. Account access continues through
-another linked method when policy allows it.
+The Clerk instance needs a JWT template named exactly `convex`, from Clerk's
+Convex preset. Templates do not carry across instances, so development,
+staging, and production each need their own.
 
-Broader step-up coverage remains separate work. Billing, account deletion,
-ownership transfer, and sign-in-method changes should require a recent
-authentication timestamp when those product actions are introduced, even when
-the ordinary session is valid.
+**The template must emit an `email_verified` claim.** Convex maps it to
+`identity.emailVerified`, and the claim guards read it directly through
+`identityEmailVerified` — the token Convex just validated is the authority, not
+the `emailVerificationTime` column, which is only a mirrored copy and can lag a
+profile change. Without the claim, every request looks unverified and
+`requireVerifiedEmailUser` rejects claim-level actions with `EMAIL_NOT_VERIFIED`
+— a failure that looks like a claim bug rather than a template gap.
 
-## Deployment and key rotation
+**The template must also emit `"aud": "convex"`.** `auth.config.ts` sets
+`applicationID: "convex"`, which Convex checks against the token's audience, so
+a template without it has every otherwise-valid token rejected — provisioning
+included, meaning nobody can sign in at all. The Convex preset supplies it;
+the risk is editing the claims afterwards and dropping it.
 
-Keep `SITE_URL`, `CONVEX_SITE_URL`, `JWT_PRIVATE_KEY`, and `JWKS` deployment-
-scoped. Preview callbacks must never mint production sessions. Vercel
-deployment URLs should not be used as the production smoke base URL.
+Take the preset as-is rather than pasting a subset. These are the claims on the
+development instance, read back from Clerk's API — the audience and
+`email_verified` are the two VRDex depends on, and the rest are preset defaults
+worth keeping so a later need does not require a template change:
 
-Rotating the Convex Auth signing key can invalidate JWTs that have at most one
-hour remaining. Treat rotation as an owner action: stage the new key pair,
-deploy consistently, monitor refresh failures, and expect silent refresh to
-mint a new JWT when the existing refresh session remains valid. Do not rotate
-provider credentials or Convex keys as part of an application PR.
+```json
+{
+  "aud": "convex",
+  "name": "{{user.full_name}}",
+  "email": "{{user.primary_email_address}}",
+  "picture": "{{user.image_url}}",
+  "nickname": "{{user.username}}",
+  "given_name": "{{user.first_name}}",
+  "updated_at": "{{user.updated_at}}",
+  "family_name": "{{user.last_name}}",
+  "phone_number": "{{user.primary_phone_number}}",
+  "email_verified": "{{user.email_verified}}",
+  "phone_number_verified": "{{user.phone_number_verified}}"
+}
+```
 
-## Observability
+That template's lifetime is 3600 seconds, so the revocation window described
+above is up to an hour on this instance.
 
-The client emits a fixed authentication lifecycle taxonomy:
+### Required instance setting: disable self-service account deletion
 
-- restore completion and a once-per-tab slow-restore signal;
-- coarse authenticated/anonymous state changes and explicit current-tab
-  sign-out intent;
-- recent-auth challenge presentation and completion;
-- sensitive-action denial;
-- session-revocation request, completion, and remote-revocation detection.
+The account page opens Clerk's full profile surface, which exposes account
+deletion when the instance permits it. VRDex cannot yet reconcile a deleted
+Clerk identity (#227): the `users` and `profileOwners` rows survive under a
+`clerkUserId` nobody can authenticate as, previously issued developer tokens
+keep working, and re-registering produces a different Clerk subject that cannot
+manage the original profiles.
 
-Application-supplied properties are typed coarse enums only. They contain no
-token, provider payload, email, user ID, session ID, redirect URL, route slug,
-IP address, or account secret. PostHog may still add its standard SDK envelope
-and person/session metadata; the application URL sanitizer removes queries and
-fragments and normalizes token-bearing paths. Session replay remains disabled
-on sign-in, account, claim, and developer surfaces.
+**Turn off "Allow users to delete their accounts" on every Clerk instance**
+— development, staging, and production — until #227 lands.
 
-Token refresh failures remain server errors until the auth library exposes a
-sanitized reason hook; never log raw JWTs or refresh tokens.
+This *is* assertable, contrary to what this doc said before. Clerk's Backend API
+`/v1/instance` does not expose it, which is what the earlier claim was based on,
+but the public Frontend API does — `user_settings.actions.delete_self`. No
+credentials needed, because the Frontend API is what the browser already reads:
 
-## Verification
+```sh
+curl -s https://clerk.vrdex.net/v1/environment | jq '.user_settings.actions.delete_self'
+```
 
-Clock-controlled tests cover active, inactivity-expired, absolute-expired,
-revoked, recent-auth boundary, ownership mismatch, and deletion
-classifications. Browser coverage retains:
+`false` is the required state. Both instances read `true` as of 2026-07-31, so
+this is still outstanding. Substitute the instance's own Frontend API host for
+development or staging.
 
-- persistent cookie attributes and browser restart;
-- silent refresh and rotation;
-- cold client state after a deployment/reload;
-- concurrent tabs and explicit sign-out;
-- inactivity and absolute expiry;
-- invalid or revoked refresh sessions;
-- transient failure without destructive client-state clearing.
+## Cutover: retire the Convex Auth rows before the first sign-in
 
-The required auth matrix positively selects only the auth-session contract and
-runs it in Playwright Chromium, Firefox, and WebKit. WebKit is useful engine
-coverage but is not a claim about testing desktop or mobile Safari itself.
+`clerkUserId` is optional so the first deploy does not reject rows created under
+Convex Auth. Those rows are inert — nothing can authenticate as them, because a
+row without a `clerkUserId` matches the index for nobody.
 
-Recurring hosted auth coverage runs only against the disposable staging
-account helpers. Production authenticated checks are manual one-shot,
-no-business-mutation reads with a freshly exported disposable account state.
-Their dedicated Playwright configuration disables traces, screenshots, video,
-HTML reports, and uploaded test artifacts; workflow output is limited to a
-fixed result classification.
+**Order matters.** `ensureUser` binds a Clerk identity by inserting a *new* row;
+it never adopts a legacy one, because there is no trustworthy way to decide which
+legacy row a Clerk subject corresponds to. So anything still pointing at a legacy
+row becomes unreachable the moment its owner signs in with Clerk.
 
-Production inspection is read-only and sanitized. Compare aggregate session
-durations, active/expired counts, and environment variable names; never export
-user records or token identifiers into issue or PR evidence.
+Production on 2026-07-30 held two `users` rows and exactly one row referencing
+either of them — a single `accountFeatureGrants` row. Nothing else: 0 owned
+profiles, 0 claims, 0 events, 0 API tokens, 0 OAuth applications.
 
-## Upstream references
+That ordering was not achieved. Both deployments were signed into through Clerk
+before anything was deleted, so the purge runs against a `users` table holding
+legacy rows *and* Clerk rows, with the production `super_admin` grant left on a
+legacy one. Recoverable, and the reason the purge takes regrant arguments.
 
-- [Convex Auth configuration](https://github.com/get-convex/convex-auth/blob/7fcda87ead1918f5b537e1e423698209f1d48747/src/server/types.ts)
-- [Convex Auth session implementation](https://github.com/get-convex/convex-auth/blob/7fcda87ead1918f5b537e1e423698209f1d48747/src/server/implementation/sessions.ts)
-- [Convex Auth refresh-token implementation](https://github.com/get-convex/convex-auth/blob/7fcda87ead1918f5b537e1e423698209f1d48747/src/server/implementation/refreshTokens.ts)
-- [Convex Auth Next.js cookie options](https://github.com/get-convex/convex-auth/blob/7fcda87ead1918f5b537e1e423698209f1d48747/src/nextjs/server/cookies.ts)
+`migrations:purgeConvexAuthLeftovers` does the whole thing. Run it per
+deployment, staging first, naming the target with `pnpm cx` — `convex --prod`
+cannot resolve a project in this repository at all, and would run against the
+local backend:
+
+```powershell
+# staging (scrupulous-corgi-247)
+pnpm cx -- dev run migrations:purgeConvexAuthLeftovers '{"dryRun": true}'
+
+# production (superb-pig-954)
+pnpm cx -- prod run migrations:purgeConvexAuthLeftovers `
+  '{"regrantGrantsFrom": "<legacy users._id>", "regrantGrantsToClerkUserId": "user_...", "dryRun": true}'
+```
+
+It moves the named legacy row's active `accountFeatureGrants` onto the `users`
+row carrying `regrantGrantsToClerkUserId`, deletes the legacy rows, and clears
+all eight tables in the phase-one block of `convex/schema.ts`.
+
+Both ids in the production invocation come out of the dry run, so run it bare
+first. `blockedUsers` is keyed by full `users._id` and names what each legacy row
+is still referenced by; `clerkUsers` lists the Clerk identities with their
+emails. Take `regrantGrantsFrom` from the first and
+`regrantGrantsToClerkUserId` from the second.
+
+A dry run examines one page of legacy rows and deletes nothing, so it would
+otherwise re-read the same page forever. When `nextLegacyCursor` is non-null,
+pass it back as `legacyCursor` to inspect the next page, and keep going until
+it is null — that is how you see every `blockedUsers` entry before deleting
+anything.
+
+**Start the destructive pass with no cursor**, then carry the ones it returns.
+Resuming it from a cursor you paged to during discovery would skip every legacy
+row before that point, and a short enough remainder would report itself finished
+with those rows still present. Cursors are tagged with the mode that produced
+them and a destructive run rejects a dry-run cursor, so this is an error rather
+than a silent skip.
+
+`clerkUsers` is a capped sample, and `clerkUsersTruncated` says when it is one.
+If your account is not in the list, read the id off Clerk's dashboard —
+**Users → the account → User ID** — rather than assuming the list is complete.
+The migration validates whatever id you pass, so this is a discovery
+convenience, not the source of truth.
+
+Staging needs no regrant arguments today — its legacy rows are E2E fixtures with
+no grants — but check `blockedUsers` rather than assuming that.
+
+**Rerun until `moreRemaining` is false, passing `nextLegacyCursor` back as
+`legacyCursor` each time.** The eight tables are cleared up to a fixed batch per
+invocation, and legacy `users` rows a page at a time, because a deployment that
+ran Convex Auth for a year holds a session and refresh-token row per sign-in —
+reading all of them in one transaction exceeds Convex's limits, which would
+strand the tables permanently since every retry fails the same way. Legacy rows
+are deleted only on the pass that finishes the tables, so a row is never removed
+while `authAccounts` still references it. Both current deployments clear in one
+pass.
+
+Carry the cursor on destructive runs, not just dry ones. Deleting rows does not
+reliably advance the page on its own: a page where every legacy row is blocked
+deletes nothing, so without a cursor the same page returns forever while
+`moreRemaining` stays true, and later deletable rows are never reached. Fifty
+blocked rows are enough to wedge the loop permanently. The cursor is held in
+place, rather than advanced, on any destructive pass where the delete budget ran
+out.
+
+**`purgeComplete`, not `moreRemaining`, is what the schema tightening waits on.**
+A walk reaching its end is not the same as the purge being finished: blockers are
+reported and then the cursor moves past them, so the last page can come back
+clean while rows survive behind it. `purgeComplete` is true only when no legacy
+row remains at all. When it is false, resolve whatever `blockedUsers` reported
+and run a **new** walk from no cursor — the affected rows are behind the old one.
+
+Keeping the regrant arguments on every rerun is correct: once the source row is
+gone its grants have already moved, and the migration treats a missing source as
+a no-op rather than an error.
+
+Four things about it are deliberate:
+
+- **`dryRun` defaults to true.** The first run reports; pass `false` to act.
+- **Both ends of the regrant are named, and only that row's live grants move.**
+  Live is `isAccountFeatureGrantActive` — the definition the rest of the codebase
+  authorizes against — so a revoked or expired grant stays on the legacy row and
+  blocks it, rather than being moved onto an account that never held it.
+  Matching a legacy row to a Clerk one by email would hand privileges to whoever
+  holds a matching address. Moving *every* legacy row's grants would be worse:
+  `view_private_seed_lookup` and `use_temporal_parsing_beta` are issued per beta
+  user, so a deployment holding several would collapse them onto one account.
+  Grants on any other legacy row block that row instead — someone else's
+  privileges are a reason to stop, not to reassign.
+- **It refuses to delete a legacy row anything still references.** Convex does
+  not enforce referential integrity, so removing a referenced row leaves an id
+  that still reads as a valid `v.id("users")` and resolves to nothing. Every
+  such field is listed in `USER_REFERENCES`, and
+  `tests/backend/convex-auth-purge.test.ts` fails if the schema grows one the
+  list does not name. A non-empty `blockedUsers` in the report means those rows
+  survived on purpose — resolve each reference and rerun.
+
+Then sign in through Clerk if you have not, confirm **`purgeComplete` is true on
+every deployment**, and tighten `clerkUserId` to `v.string()` in the same change
+that drops the eight declarations.
+
+An empty `blockedUsers` is not the gate. It reports what the *current page*
+retained, so a walk whose blockers appeared on an earlier page ends with an empty
+one while those rows survive. `purgeComplete` is the only value that means no
+legacy row is left.
+
+### When a legacy row is blocked because it is still someone
+
+The purge refuses to delete a referenced row, and on production that refusal is
+permanent on its own: the same person signed in before and after the cutover, so
+`basicbit` is owned by the legacy row through an active `profileOwners` record
+while `ensureUser` provisioned a *separate* row for their Clerk identity. The
+owner cannot edit their own profile, holds no `super_admin`, and no number of
+purge reruns changes it.
+
+`migrations:reassignLegacyUserReferences` repairs that, and it is the step
+between the two dry runs rather than a variant of either:
+
+```powershell
+pnpm cx -- prod run migrations:reassignLegacyUserReferences `
+  '{"fromUserId": "<legacy users._id>", "toClerkUserId": "user_...", "dryRun": true}'
+```
+
+Read the dry run before repeating it with `"dryRun": false`:
+
+- **`moved`** is what will be repointed, per `table.field`.
+- **`targetAlreadyHas`** is what the destination already holds in those same
+  places. Convex enforces no uniqueness, so a reassignment can leave two
+  `profileOwners` rows for one profile or two billing mappings for one user and
+  nothing will reject it. A `-1` means the count hit the report cap — inspect
+  that table by hand rather than reading it as a number.
+- **`authorizationSubjectsLeft`** re-checks the two tables that authorize by auth
+  subject rather than by `v.id("users")` — `communityAuthorities` and `events`.
+  Those are invisible to the purge, and nothing can derive which Clerk subject a
+  Convex Auth one was, so anything counted here has to be re-granted by hand.
+  `null` means the scan was truncated and did not look, which is not zero.
+- **`moreRemaining`** true means the row budget ran out. Rerun with the same
+  arguments; repointed rows stop matching, so each pass resumes on its own.
+
+Then rerun the purge. `blockedUsers` should be empty and the row deletable.
+
+Deliberately not moved: the nineteen `authSubject`-keyed tables that are audit
+trails — `profileAuditEvents` and friends. Those record what a subject did.
+Repointing them would falsify history rather than repair ownership, which is the
+same reason the purge leaves revoked grants where they are.
+
+`staleCommunityAuthorities` in the report is informational: those rows key on
+token identifier rather than `users._id`, so they never block the purge, but the
+issuer change already stopped them matching their owners and they have to be
+re-granted by hand.
+
+It counts only **active** authorities whose `subject.issuer` differs from the
+deployment's `CLERK_JWT_ISSUER_DOMAIN`, which is the set that actually needs
+re-granting. Revoked authorities are excluded — re-granting one would restore a
+capability somebody deliberately removed — and so are authorities granted since
+the cutover, which already match their owners and would be duplicated.
+
+It is `null` rather than a number whenever the answer would be a guess: when the
+issuer is unset, and when the table is longer than one bounded read. Read `null`
+as "count these yourself", never as zero. The scan is bounded because the purge
+is not informational and this is: an unbounded read fails the whole mutation, so
+a deployment with enough authority history would never delete a row on account
+of a diagnostic.
+
+### Run the Discord watermark backfill after deploying
+
+`discordVerificationWatermarks.appliedAt` is new. Rows written before it carry
+no success timestamp, and selecting the current Discord identity falls back to
+`updatedAt` for them — a field `reserveGuildVerificationGeneration` bumps before
+it reads guilds, so a later failed attempt could make an older account rank as
+current.
+
+Run `migrations:runBackfillDiscordWatermarkAppliedAt` (or `migrations:runAll`)
+once per deployment after the functions land, which freezes the best available
+timestamp into the immutable field.
+
+### Stored auth subjects do not survive the issuer change
+
+`toAuthSubject` persists `tokenIdentifier`, `issuer`, and `subject`, and two
+places compare them exactly: `communityAuthorities` is indexed by
+`subjectTokenIdentifier` (`_communityAuthority.ts`), and a standalone event
+authorizes its original submitter through `isSameAuthSubject`
+(`events.ts`). Changing the trusted issuer changes every one of those values,
+so those records stop matching their owners — delegated community staff lose
+their capabilities, and the submitter of an event with no community owner can
+no longer edit it.
+
+Setting `clerkUserId` does not help: these rows key on the token identifier,
+not on `users._id`, and nothing can derive which Clerk subject corresponds to a
+Convex Auth one. They have to be re-granted after the first Clerk sign-in.
+
+Production held 0 `events` and 0 `communityAuthorities` rows on 2026-07-30, so
+there is nothing to migrate there. The cutover has since happened, so **check
+both counts per deployment before purging** — staging in particular may hold
+rows — and re-grant rather than attempt a rewrite:
+
+```bash
+pnpm cx -- dev data communityAuthorities --limit 5
+pnpm cx -- dev data events --limit 5
+pnpm cx -- prod data communityAuthorities --limit 5
+pnpm cx -- prod data events --limit 5
+```
+
+Signing in through Clerk before purging is not fatal — it leaves a duplicate
+legacy row and an orphaned grant — but it is what happened on both deployments,
+and it is why the purge takes `regrantGrantsFrom` at all. `ensureUser` binds a
+Clerk identity by inserting a *new* row rather than adopting a legacy one, so the
+grant stays behind on a row nobody can authenticate as. Purging first would have
+avoided the reconciliation entirely.
+
+Verify every secret after writing it, per
+[`convex-environments.md`](../deployment/convex-environments.md). A trailing
+`\r` in a Convex environment variable is invisible in both the dashboard and
+`convex env get`, and one in `AUTH_GOOGLE_SECRET` broke production Google
+sign-in while consent, Discord, and staging all kept working.

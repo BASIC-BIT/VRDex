@@ -29,10 +29,19 @@ test("production Vercel builds require the shared rate-limit store", () => {
   assert.match(result.stderr, /VRDEX_RATE_LIMIT_REDIS_REST_TOKEN is required/);
 });
 
+// Carries the Clerk live pair because production now requires it — this test is
+// about the rate-limit contract, so it has to satisfy every other production
+// requirement to reach the accepted state.
+const productionClerkKeys = {
+  CLERK_SECRET_KEY: "sk_live_test",
+  NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_live_test",
+};
+
 test("production Vercel builds accept the Terraform-managed rate-limit contract", () => {
   const result = checkVercelEnvironment({
     VERCEL: "1",
     VERCEL_ENV: "production",
+    ...productionClerkKeys,
     VRDEX_RATE_LIMIT_REDIS_REST_TOKEN: "test-token",
     VRDEX_RATE_LIMIT_REDIS_REST_URL: "https://redis.example.test",
     VRDEX_RATE_LIMIT_STORE: "upstash",
@@ -40,6 +49,59 @@ test("production Vercel builds accept the Terraform-managed rate-limit contract"
 
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /Vercel production environment accepted/);
+});
+
+test("production Vercel builds require both Clerk keys", () => {
+  const missing = checkVercelEnvironment({
+    VERCEL: "1",
+    VERCEL_ENV: "production",
+    VRDEX_RATE_LIMIT_REDIS_REST_TOKEN: "test-token",
+    VRDEX_RATE_LIMIT_REDIS_REST_URL: "https://redis.example.test",
+    VRDEX_RATE_LIMIT_STORE: "upstash",
+  });
+
+  assert.equal(missing.status, 1);
+  assert.match(missing.stderr, /NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY is required for production/);
+  assert.match(missing.stderr, /CLERK_SECRET_KEY is required for production/);
+
+  // One key alone is the dangerous state: it mounts ClerkProvider and selects
+  // clerkMiddleware with no server-side credential, so it fails at runtime
+  // rather than falling back to unconfigured auth.
+  const halfConfigured = checkVercelEnvironment({
+    VERCEL: "1",
+    VERCEL_ENV: "preview",
+    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_test_only",
+  });
+
+  assert.equal(halfConfigured.status, 1);
+  assert.match(halfConfigured.stderr, /CLERK_SECRET_KEY is required because/);
+});
+
+test("Vercel builds reject Clerk keys from the wrong instance tier", () => {
+  const productionWithTestKeys = checkVercelEnvironment({
+    VERCEL: "1",
+    VERCEL_ENV: "production",
+    CLERK_SECRET_KEY: "sk_test_wrong",
+    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_test_wrong",
+    VRDEX_RATE_LIMIT_REDIS_REST_TOKEN: "test-token",
+    VRDEX_RATE_LIMIT_REDIS_REST_URL: "https://redis.example.test",
+    VRDEX_RATE_LIMIT_STORE: "upstash",
+  });
+
+  assert.equal(productionWithTestKeys.status, 1);
+  assert.match(productionWithTestKeys.stderr, /must be a live Clerk publishable key/);
+
+  // The quieter direction: a preview on the live tenant authenticates real
+  // users from an unreviewed deployment.
+  const previewWithLiveKeys = checkVercelEnvironment({
+    VERCEL: "1",
+    VERCEL_ENV: "preview",
+    ...productionClerkKeys,
+  });
+
+  assert.equal(previewWithLiveKeys.status, 1);
+  assert.match(previewWithLiveKeys.stderr, /must be a test Clerk publishable key/);
+  assert.match(previewWithLiveKeys.stderr, /must be a test Clerk secret key/);
 });
 
 test("production Vercel builds reject local rate-limit endpoints", () => {
@@ -144,53 +206,54 @@ test("fixture-backed handoff coverage runs in the flow lane and stays out of pro
   assert.doesNotMatch(productionSmokeScript, /media-kit\.visual\.spec\.ts/);
 });
 
-test("auth session browser coverage is bounded to its positive matrix", async () => {
-  const baseConfig = await readFile(
-    "apps/web/playwright.config.mjs",
-    "utf8",
-  );
-  const authConfig = await readFile(
-    "apps/web/playwright.auth.config.mjs",
-    "utf8",
-  );
-  const authFlow = await readFile(
+/**
+ * Replaces the old three-browser auth-session matrix assertions. That lane
+ * tested Convex Auth's refresh-token machinery through persistent browser
+ * profiles; Clerk owns sessions now, so the config, its teardown, and the
+ * `if: false` CI job it fed were removed with #226 rather than rewired.
+ *
+ * What is worth pinning instead is that the auth specs are actually wired to
+ * Clerk and cannot silently go back to reporting a pass over nothing.
+ */
+test("hosted auth E2E is wired to Clerk testing tokens rather than skipped", async () => {
+  const baseConfig = await readFile("apps/web/playwright.config.mjs", "utf8");
+  const harness = await readFile("apps/web/e2e/clerk-auth.ts", "utf8");
+  const authSession = await readFile(
     "apps/web/e2e/auth-session.flow.spec.ts",
     "utf8",
   );
-  const workflow = await readFile(
-    ".github/workflows/baseline-checks.yml",
+  const authClaim = await readFile("apps/web/e2e/auth-claim.flow.spec.ts", "utf8");
+  const developerCredentials = await readFile(
+    "apps/web/e2e/developer-credentials.flow.spec.ts",
     "utf8",
   );
   const webPackage = JSON.parse(
     await readFile("apps/web/package.json", "utf8"),
-  ) as { scripts?: Record<string, string> };
+  ) as { devDependencies?: Record<string, string>; scripts?: Record<string, string> };
 
-  assert.match(authConfig, /auth-chromium/);
-  assert.match(authConfig, /auth-firefox/);
-  assert.match(authConfig, /auth-webkit/);
-  assert.match(authConfig, /testMatch: "auth-session\.flow\.spec\.ts"/);
-  assert.match(authConfig, /grep: \/@auth-session-matrix\//);
-  assert.match(authConfig, /serviceWorkers: "block"/);
-  assert.match(
-    authConfig,
-    /globalTeardown: "\.\/e2e\/auth-session-matrix\.global-teardown\.ts"/,
-  );
-  assert.match(authConfig, /failOnFlakyTests: true/);
-  assert.match(authConfig, /retries: 1/);
-  assert.match(authConfig, /workers: 1/);
-  assert.match(authConfig, /dependencies/);
+  assert.ok(webPackage.devDependencies?.["@clerk/testing"]);
+  assert.match(harness, /from "@clerk\/testing\/playwright"/);
+  assert.match(harness, /setupClerkTestingToken/);
+  assert.match(harness, /clerk\.signIn/);
   assert.match(baseConfig, /trace: "on-first-retry"/);
-  assert.match(authFlow, /launchPersistentContext\(userDataDir/);
-  assert.match(authFlow, /@auth-session-matrix/);
+
+  // The blanket file-level skip the Clerk cutover left behind. A skipped
+  // Playwright file exits 0, so its return would be invisible in CI.
+  for (const spec of [authSession, authClaim, developerCredentials]) {
+    assert.doesNotMatch(spec, /test\.skip\(\s*true\s*,/);
+    assert.match(spec, /clerkTestAuthAvailability\(\)/);
+  }
+
+  // Fail-closed rather than skip when a hosted target asked for auth coverage
+  // and has no keys to run it with.
+  assert.match(harness, /Hosted auth E2E is enabled for this target but/);
+  assert.match(harness, /throw new Error\(/);
+
+  assert.match(authSession, /@auth-session-staging/);
   assert.match(
-    webPackage.scripts?.["test:e2e:auth-session-matrix"] ?? "",
-    /playwright test --config playwright\.auth\.config\.mjs/,
+    webPackage.scripts?.["test:e2e:hosted:auth-session"] ?? "",
+    /auth-session\.flow\.spec\.ts --grep @auth-session-staging/,
   );
-  assert.match(
-    workflow,
-    /playwright install --with-deps chromium firefox webkit/,
-  );
-  assert.match(workflow, /pnpm test:e2e:auth-session-matrix/);
 });
 
 test("deployed auth checks separate recurring staging from manual production", async () => {

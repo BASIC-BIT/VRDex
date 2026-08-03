@@ -42,11 +42,16 @@ type FixturePersonProfile = Extract<PublicProfile, { profileType: "person" }> & 
 
 const auroraProfileImage = {
   assetId: "fixture-aurora-profile-image",
-  label: "Profile image",
+  label: "Aurora press portrait",
+  caption: "Warm-room portrait for lineups and editorial coverage.",
   altText: "DJ Aurora framed by violet light and a warm orange glow.",
   credit: "Artwork by Afterglow Studio",
-  mimeType: "image/png",
-  byteSize: 184_000,
+  creditUrl: "https://example.invalid/afterglow-studio",
+  mimeType: "image/webp",
+  byteSize: 92_000,
+  downloadMimeType: "image/png",
+  downloadByteSize: 184_000,
+  sourcePreserved: true,
   imageUrl: "/api/e2e/fixture-assets/fixture-aurora-profile-image",
   downloadUrl: "/api/v0/profiles/playwright-dj-aurora/assets/fixture-aurora-profile-image/file?download=1",
 };
@@ -56,8 +61,12 @@ const auroraPrimaryLogo = {
   label: "Primary logo",
   caption: "Aurora wordmark for event flyers and lineup cards.",
   altText: "AURORA wordmark in white over violet and cyan light.",
+  creditUrl: "https://example.invalid/aurora-source",
   mimeType: "image/svg+xml",
   byteSize: 24_000,
+  downloadMimeType: "image/svg+xml",
+  downloadByteSize: 24_000,
+  sourcePreserved: true,
   imageUrl: "/api/e2e/fixture-assets/fixture-aurora-primary-logo",
   downloadUrl: "/api/v0/profiles/playwright-dj-aurora/assets/fixture-aurora-primary-logo/file?download=1",
 };
@@ -66,10 +75,31 @@ const auroraAdditionalLogo = {
   assetId: "fixture-aurora-alt-logo",
   label: "Square mark",
   altText: "Square Aurora monogram in warm orange light.",
+  credit: "Aurora Studio",
   mimeType: "image/png",
   byteSize: 96_000,
+  sourcePreserved: false,
   imageUrl: "/api/e2e/fixture-assets/fixture-aurora-alt-logo",
   downloadUrl: "/api/v0/profiles/playwright-dj-aurora/assets/fixture-aurora-alt-logo/file?download=1",
+};
+
+const auroraUncreditedMedia = {
+  assetId: "fixture-aurora-uncredited-media",
+  label: "Uncredited mark",
+  altText: "Square Aurora monogram in warm orange light.",
+  mimeType: "image/png",
+  byteSize: 96_000,
+  sourcePreserved: false,
+  imageUrl: "/api/e2e/fixture-assets/fixture-aurora-alt-logo",
+  downloadUrl: "/api/v0/profiles/playwright-dj-aurora/assets/fixture-aurora-uncredited-media/file?download=1",
+};
+
+const auroraAvatarAppearance = {
+  borderEnabled: true,
+  borderColor: "#67e8f9",
+  borderWidthPx: 4,
+  borderSoftnessPx: 12,
+  radiusPercent: 18,
 };
 
 const eventPreview = {
@@ -82,6 +112,7 @@ const eventPreview = {
   communityName: "Afterglow Social",
   communitySlug,
   communityImageUrl: "/api/e2e/fixture-assets/fixture-afterglow-event-poster",
+  communityAvatarAppearance: auroraAvatarAppearance,
   summary: "Late-night harbor club session with house, trance, and warm social energy.",
   posterImageUrl: "/api/e2e/fixture-assets/fixture-afterglow-event-poster",
   bannerImageUrl: "/api/e2e/fixture-assets/fixture-afterglow-event-banner",
@@ -153,7 +184,7 @@ const personProfile: FixturePersonProfile = {
     {
       type: "vrcdn",
       label: "VRCDN",
-      url: "https://vrcdn.live/dj-aurora",
+      url: "https://stream.vrcdn.live/live/dj-aurora.live.ts",
       source: "owner_authored",
     },
     {
@@ -182,17 +213,11 @@ const personProfile: FixturePersonProfile = {
     primaryLogo: auroraPrimaryLogo,
     additionalLogos: [auroraAdditionalLogo],
     logos: [auroraPrimaryLogo, auroraAdditionalLogo],
-    assets: [auroraProfileImage, auroraPrimaryLogo, auroraAdditionalLogo],
-    galleryAssets: [auroraProfileImage, auroraPrimaryLogo, auroraAdditionalLogo],
+    assets: [auroraProfileImage, auroraPrimaryLogo, auroraAdditionalLogo, auroraUncreditedMedia],
+    galleryAssets: [auroraProfileImage, auroraPrimaryLogo, auroraAdditionalLogo, auroraUncreditedMedia],
     logoZipUrl: "/api/v0/profiles/playwright-dj-aurora/logos.zip",
     compactDisplay: "profile_image",
-    avatarAppearance: {
-      borderEnabled: true,
-      borderColor: "#67e8f9",
-      borderWidthPx: 4,
-      borderSoftnessPx: 12,
-      radiusPercent: 18,
-    },
+    avatarAppearance: auroraAvatarAppearance,
   },
   upcomingEvents: [eventPreview],
   hostedEvents: [],
@@ -308,6 +333,20 @@ const basicBitProfile: FixturePersonProfile = {
   worldCredits: [],
   upcomingEvents: [],
   hostedEvents: [],
+  mediaKit: {
+    additionalLogos: [],
+    assets: [],
+    avatarAppearance: {
+      borderEnabled: true,
+      borderColor: "#67e8f9",
+      borderWidthPx: 4,
+      borderSoftnessPx: 8,
+      radiusPercent: 18,
+    },
+    compactDisplay: "profile_image",
+    galleryAssets: [],
+    logos: [],
+  },
   person: {
     roleTags: ["Software Dev", "3D Designer", "VRDJ"],
   },
@@ -833,7 +872,7 @@ const publicEvent: PublicEvent = {
     {
       type: "vrcdn",
       label: "VRCDN copy link",
-      url: "https://example.invalid/events/afterglow-vrcdn",
+      url: "https://stream.vrcdn.live/live/playwright-afterglow-harbor-sessions.live.ts",
       presentation: "copy",
     },
   ],
@@ -847,7 +886,7 @@ const publicEvent: PublicEvent = {
     {
       type: "vrcdn",
       label: "VRCDN copy link",
-      url: "https://example.invalid/events/afterglow-vrcdn",
+      url: "https://stream.vrcdn.live/live/playwright-afterglow-harbor-sessions.live.ts",
       presentation: "copy",
     },
   ],
@@ -872,6 +911,7 @@ const publicEvent: PublicEvent = {
       roleLabel: "Performer",
       trustLabel: "community_submitted",
       imageUrl: auroraProfileImage.imageUrl,
+      avatarAppearance: auroraAvatarAppearance,
       source: {
         sourceType: "community",
         label: "Afterglow lineup",
@@ -899,6 +939,7 @@ const publicEvent: PublicEvent = {
         displayName: "DJ Aurora",
         trustLabel: "community_submitted",
         imageUrl: auroraProfileImage.imageUrl,
+        avatarAppearance: auroraAvatarAppearance,
       },
       source: {
         sourceType: "community",
@@ -1022,6 +1063,8 @@ const discoveryResults: PublicSearchResult[] = [
     imageUrl: auroraProfileImage.imageUrl,
     profileImageUrl: auroraProfileImage.imageUrl,
     logoImageUrl: auroraPrimaryLogo.imageUrl,
+    avatarAppearance: auroraAvatarAppearance,
+    trustLabel: "community_submitted",
     source: {
       sourceType: "community",
       label: "Community submitted",
@@ -1037,6 +1080,8 @@ const discoveryResults: PublicSearchResult[] = [
     subtitle: "Person profile",
     summary: "Software Dev | 3D Designer | VRDJ",
     imageUrl: "/seed/basicbit-avatar.png",
+    avatarAppearance: basicBitProfile.mediaKit!.avatarAppearance,
+    trustLabel: "claimed_verified",
     person: toProfileLookupFixture(basicBitProfile)!,
     source: {
       sourceType: "owner",
@@ -1052,6 +1097,7 @@ const discoveryResults: PublicSearchResult[] = [
     title: generatedFixtureProfiles[0]!.displayName,
     subtitle: "Person profile",
     summary: generatedFixtureProfiles[0]!.headline,
+    trustLabel: generatedFixtureProfiles[0]!.trustLabel,
     person: toProfileLookupFixture(generatedFixtureProfiles[0]!)!,
     source: {
       sourceType: "community",
@@ -1068,6 +1114,7 @@ const discoveryResults: PublicSearchResult[] = [
     title: "Afterglow Social",
     subtitle: "Community profile",
     summary: "A warm VRChat club night for music-first communities.",
+    trustLabel: "community_submitted",
     source: {
       sourceType: "community",
       label: "Community submitted",
@@ -1094,6 +1141,7 @@ const discoveryResults: PublicSearchResult[] = [
     routePath: `/p/${sparseImportedProfile.slug}`,
     title: sparseImportedProfile.displayName,
     subtitle: "Person profile",
+    trustLabel: sparseImportedProfile.trustLabel,
     person: toProfileLookupFixture(sparseImportedProfile, "Imported profile seed")!,
     source: {
       sourceType: "import",
@@ -1162,6 +1210,9 @@ function toProfileLookupFixture(
     ...(profile.headline === undefined ? {} : { headline: profile.headline }),
     ...(profile.bio === undefined ? {} : { bio: profile.bio }),
     ...(profile.avatarImageUrl === undefined ? {} : { avatarImageUrl: profile.avatarImageUrl }),
+    ...("mediaKit" in profile && profile.mediaKit?.avatarAppearance
+      ? { avatarAppearance: profile.mediaKit.avatarAppearance }
+      : {}),
     ...(accentColor === undefined ? {} : { accentColor }),
     ...(secondaryColor === undefined ? {} : { secondaryColor }),
     ...(profile.region === undefined ? {} : { region: profile.region }),

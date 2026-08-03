@@ -98,19 +98,27 @@ or page-builder settings.
 `POST /api/v0/profiles/:slug/assets/upload-intent` requires `assets:write`,
 user authority, active ownership of the target profile, and a claimed profile.
 It returns an upload URL plus the `x-vrdex-upload-token` header value to use
-when posting the file or source import to
-`POST /api/v0/profile-assets/upload-intents/:intentId`. The upload transport
+when completing the file or source import through
+`POST /api/v0/profile-assets/upload-intents/:intentId`. When direct upload is
+enabled for a file intent, the response also includes `directUploadUrl`.
+POST to that URL with the one-time header to receive an exact-size/type-bound
+S3 form target, upload the source to the returned private quarantine target,
+then POST the empty completion request to `uploadUrl`. The upload transport
 does not accept bearer credentials; the one-time upload token is the credential
-for that operation. When that upload completes, the intent is consumed into an
+for those operations. When completion succeeds, the intent is consumed into an
 active public profile asset and any supplied media-kit placement metadata.
 Supported placement keys include `gallery` and singleton `featured` alongside
 the existing profile-image, banner, and logo placements. Upload intent metadata
-may include `label`, `caption`, `altText`, and `credit`.
+may include `label`, `caption`, `altText`, `credit`, and an HTTP(S)
+`creditUrl` without embedded credentials.
 
 Upload completion validates image content independently from the declared MIME
-type. Raster images are decoded, bounded, re-encoded, and stripped of embedded
-metadata; SVG uploads use a restricted profile that rejects active or external
-content.
+type. Raster uploads retain the exact source privately, publish a
+full-resolution metadata-sanitized artifact in the uploaded format for
+downloads, and use a bounded WebP derivative for display. SVG uploads retain a
+private exact source and publish only the restricted sanitized SVG. Existing
+assets created before source preservation continue to download their available
+display artifact and report `sourcePreserved=false`.
 
 `POST /api/v0/events` and `PATCH /api/v0/events/:slug` require `events:write`,
 user authority, and ownership of the target `communitySlug`. Event updates also

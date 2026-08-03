@@ -1,5 +1,5 @@
 import { fetchQuery } from "convex/nextjs";
-import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
+import { convexAuthToken } from "@/lib/server/auth";
 import type { FunctionReference } from "convex/server";
 import { api } from "@convex-generated-api";
 import type { PrivateSeedLookupResult, SeedLookupViewerAccess } from "@/app/_components/profile-lookup-page";
@@ -89,7 +89,7 @@ export async function fetchClaimProfileBySlug(slug: string) {
     const profile = await fetchQuery(
       api.profileClaims.getClaimTargetBySlug,
       { profileSlug: slug },
-      { token: await convexAuthNextjsToken() },
+      { token: await convexAuthToken() },
     );
 
     return { kind: "live" as const, profile };
@@ -348,7 +348,7 @@ export async function fetchProfileLookup(query: string) {
   }
 
   try {
-    const token = await convexAuthNextjsToken();
+    const token = await convexAuthToken();
     const publicResultsPromise = fixtureLookup.kind === "handled"
       ? Promise.resolve(fixtureLookup.results)
       : query

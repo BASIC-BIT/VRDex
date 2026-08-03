@@ -24,28 +24,26 @@ function readStorageState() {
     throw new Error("VRDEX_PRODUCTION_AUTH_SMOKE_STORAGE_STATE_B64 must decode to a Playwright storageState JSON object.");
   }
 
+  // Clerk owns the session cookies now. Its session cookie is `__session`, with
+  // `__client_uat` alongside it on production instances; the two `__convexAuth`
+  // cookies this used to require no longer exist.
   const currentAuthCookies = parsed.cookies.filter(
     (cookie) =>
-      cookie.name.includes("__convexAuth") &&
+      (cookie.name === "__session" || cookie.name.startsWith("__clerk")) &&
       typeof cookie.expires === "number" &&
       cookie.expires > Date.now() / 1_000,
   );
 
-  if (currentAuthCookies.length < 2) {
+  if (currentAuthCookies.length === 0) {
     throw new Error(
-      "The production auth smoke state is missing current VRDex session cookies; export a fresh one-shot state.",
+      "The production auth smoke state is missing a current Clerk session cookie; export a fresh one-shot state.",
     );
   }
 
   return parsed;
 }
 
-function escapeRegExp(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 const storageState = readStorageState();
-const expectedProvider = process.env.VRDEX_PRODUCTION_AUTH_SMOKE_PROVIDER?.trim().toLowerCase();
 
 test.describe("production authenticated account smoke @production-auth-one-shot", () => {
   test.skip(!process.env.PLAYWRIGHT_BASE_URL, "Production auth smoke is hosted-only.");
@@ -68,14 +66,16 @@ test.describe("production authenticated account smoke @production-auth-one-shot"
     }
     await expect(page.getByRole("heading", { name: "Not signed in" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
-    await expect(page.getByText("Sign-in methods", { exact: true })).toBeVisible();
-    await expect(page.getByText("No sign-in methods linked.", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("Sign-in and security", { exact: true })).toBeVisible();
 
-    if (expectedProvider) {
-      await expect(page.getByText(new RegExp(`^${escapeRegExp(expectedProvider)}$`, "i"))).toBeVisible();
-      return;
-    }
-
-    await expect(page.getByText(/^(discord|google)$/i).first()).toBeVisible();
+    // Linked providers are no longer rendered here. Clerk owns that list and
+    // shows it only after `openUserProfile()` opens its modal, so asserting a
+    // standalone "Discord" or "Google" label would time out on a healthy
+    // account. What this smoke can still prove without driving a vendor modal is
+    // that an authenticated account reaches its own account page with the
+    // management affordance present.
+    await expect(
+      page.getByRole("button", { name: "Manage sign-in methods" }),
+    ).toBeVisible();
   });
 });

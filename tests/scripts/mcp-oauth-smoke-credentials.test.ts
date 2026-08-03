@@ -92,8 +92,12 @@ describe("MCP OAuth smoke credential helper", () => {
     assert.match(result.stdout, /VRDEX_E2E_BROWSER_TOKEN/);
   });
 
+  // These guards were kept exercised while the generator was retired pending
+  // #226 precisely so the port would not have to rewrite them from memory.
+  const ported = {};
+
   it("fails closed when the E2E browser token is absent", () => {
-    const result = runCredentialHelper(["--base-url", "https://staging.vrdex.net"]);
+    const result = runCredentialHelper(["--base-url", "https://staging.vrdex.net"], ported);
 
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /VRDEX_E2E_BROWSER_TOKEN is required/);
@@ -102,7 +106,7 @@ describe("MCP OAuth smoke credential helper", () => {
   it("refuses production origins unless explicitly allowed", () => {
     const result = runCredentialHelper(
       ["--base-url", "https://vrdex.net"],
-      { VRDEX_E2E_BROWSER_TOKEN: "test-token" },
+      { ...ported, VRDEX_E2E_BROWSER_TOKEN: "test-token" },
     );
 
     assert.notEqual(result.status, 0);

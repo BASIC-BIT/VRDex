@@ -1,4 +1,11 @@
-import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
+import { createPresignedPost } from "@aws-sdk/s3-presigned-post";
 import { awsCredentialsProvider } from "@vercel/oidc-aws-credentials-provider";
 import { createHash } from "node:crypto";
 
@@ -23,6 +30,7 @@ type ProfileAssetUpload = {
   storageKey: string;
   body: Uint8Array;
   contentType: string;
+  cacheControl?: string;
 };
 
 type StorageProbeResult =
@@ -41,6 +49,19 @@ type StorageProbeResult =
 
 const cachedClients = new Map<string, S3Client>();
 const PROFILE_ASSET_STORAGE_PROBE_KEY = "profile-assets/.vrdex-storage-probe";
+
+export function shouldCleanupFailedProfileAssetUpload(
+  cleanupState: { state: "consumed" | "expired" | "pending" | "uploaded" } | null,
+): boolean {
+  return cleanupState?.state === "pending";
+}
+
+export function shouldInspectFailedProfileAssetUpload(
+  finalizationAttempted: boolean,
+  finalizationFailedDefinitively: boolean,
+): boolean {
+  return !finalizationAttempted || finalizationFailedDefinitively;
+}
 
 function vercelOidcRoleArn(): string | undefined {
   const roleArn = process.env.VRDEX_PROFILE_ASSET_ROLE_ARN;
@@ -81,6 +102,38 @@ function s3Client(config: StorageConfig): S3Client {
 
 export function isProfileAssetStorageConfigured(): boolean {
   return storageConfig() !== null;
+}
+
+export async function createProfileAssetDirectUploadTarget(input: {
+  storageKey: string;
+  contentType: string;
+  byteSize: number;
+  expiresAt: number;
+}) {
+  const config = storageConfig();
+
+  if (config === null) {
+    throw new Error("Profile asset storage is not configured.");
+  }
+
+  const expiresIn = Math.max(
+    1,
+    Math.min(10 * 60, Math.floor((input.expiresAt - Date.now()) / 1_000)),
+  );
+  return await createPresignedPost(s3Client(config), {
+    Bucket: config.bucket,
+    Key: input.storageKey,
+    Expires: expiresIn,
+    Fields: {
+      "Content-Type": input.contentType,
+      "Cache-Control": "private, no-store",
+    },
+    Conditions: [
+      ["content-length-range", input.byteSize, input.byteSize],
+      ["eq", "$Content-Type", input.contentType],
+      ["eq", "$Cache-Control", "private, no-store"],
+    ],
+  });
 }
 
 function isMissingObjectError(error: unknown): boolean {
@@ -166,7 +219,7 @@ export async function putProfileAssetObject(input: ProfileAssetUpload) {
         Key: input.storageKey,
         Body: input.body,
         ContentType: input.contentType,
-        CacheControl: "public, max-age=31536000, immutable",
+        CacheControl: input.cacheControl ?? "public, max-age=31536000, immutable",
         IfNoneMatch: "*",
         Metadata: { "vrdex-sha256": checksum },
       }),
@@ -187,6 +240,47 @@ export async function putProfileAssetObject(input: ProfileAssetUpload) {
       throw new Error("Profile asset upload intent already contains different content.");
     }
   }
+}
+
+export async function headProfileAssetObject(storageKey: string): Promise<StoredObjectHead | null> {
+  const config = storageConfig();
+
+  if (config === null) {
+    throw new Error("Profile asset storage is not configured.");
+  }
+
+  try {
+    return await s3Client(config).send(
+      new HeadObjectCommand({
+        Bucket: config.bucket,
+        Key: storageKey,
+      }),
+    );
+  } catch (error) {
+    if (isMissingObjectError(error)) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+export async function deleteProfileAssetObjects(storageKeys: string[]) {
+  const config = storageConfig();
+
+  if (config === null) {
+    throw new Error("Profile asset storage is not configured.");
+  }
+
+  await Promise.all(
+    [...new Set(storageKeys)].map((storageKey) =>
+      s3Client(config).send(
+        new DeleteObjectCommand({
+          Bucket: config.bucket,
+          Key: storageKey,
+        }),
+      ),
+    ),
+  );
 }
 
 export async function getProfileAssetObject(storageKey: string): Promise<StoredObject | null> {

@@ -5,6 +5,13 @@ import { apiRouteClasses, apiScopes, oauthApiScopes } from "./auth";
 export { z };
 
 const absoluteUrl = z.url();
+const safeHttpUrl = z
+  .url()
+  .max(2_048)
+  .refine((value) => {
+    const url = new URL(value);
+    return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password;
+  }, "URL must use HTTP or HTTPS without embedded credentials.");
 const absoluteOrRootRelativeUrl = z
   .union([absoluteUrl, z.string().regex(/^\/(?!\/)/)])
   .meta({
@@ -84,10 +91,14 @@ export const PublicProfileAssetSchema = z
     caption: z.string().optional(),
     altText: z.string().optional(),
     credit: z.string().optional(),
+    creditUrl: safeHttpUrl.optional(),
     downloadUrl: absoluteOrRootRelativeUrl.optional(),
+    downloadByteSize: z.number().int().positive().optional(),
+    downloadMimeType: z.string().optional(),
     imageUrl: absoluteOrRootRelativeUrl.optional(),
     label: z.string().optional(),
     mimeType: z.string().optional(),
+    sourcePreserved: z.boolean().optional(),
   })
   .passthrough()
   .meta({ description: "A public profile media or brand asset." });
@@ -247,6 +258,7 @@ export const PublicSearchEntityTypeSchema = z
 
 export const PublicSearchResultSchema = z
   .object({
+    avatarAppearance: PublicProfileAvatarAppearanceSchema.optional(),
     entityType: PublicSearchEntityTypeSchema,
     imageUrl: absoluteOrRootRelativeUrl.optional(),
     logoImageUrl: absoluteOrRootRelativeUrl.optional(),
@@ -260,6 +272,7 @@ export const PublicSearchResultSchema = z
     subtitle: z.string().optional(),
     summary: z.string().optional(),
     title: z.string().min(1),
+    trustLabel: TrustLabelSchema.optional(),
   })
   .passthrough()
   .meta({
@@ -341,20 +354,21 @@ export const PublicEventWorldSummarySchema = z
 
 export const PublicEventPreviewSchema = z
   .object({
-    bannerImageUrl: absoluteUrl.optional(),
-    communityImageUrl: absoluteUrl.optional(),
+    bannerImageUrl: absoluteOrRootRelativeUrl.optional(),
+    communityAvatarAppearance: PublicProfileAvatarAppearanceSchema.optional(),
+    communityImageUrl: absoluteOrRootRelativeUrl.optional(),
     communityName: z.string().optional(),
     communitySlug: slug.optional(),
     doorsOpenAt: timestampMs.optional(),
     endAt: timestampMs.optional(),
     participantCount: z.number().int().nonnegative().optional(),
-    posterImageUrl: absoluteUrl.optional(),
+    posterImageUrl: absoluteOrRootRelativeUrl.optional(),
     slug: slug.optional(),
     slotCount: z.number().int().nonnegative().optional(),
     source: PublicEventSourceSchema,
     startAt: timestampMs,
     summary: z.string().optional(),
-    thumbnailImageUrl: absoluteUrl.optional(),
+    thumbnailImageUrl: absoluteOrRootRelativeUrl.optional(),
     timezone: z.string().optional(),
     title: z.string().min(1),
     worlds: z.array(PublicEventWorldSummarySchema).optional(),
@@ -563,6 +577,7 @@ export const ApiProfileAssetUploadIntentCreateRequestSchema = z
     caption: z.string().max(240).optional(),
     altText: z.string().max(180).optional(),
     credit: z.string().max(120).optional(),
+    creditUrl: safeHttpUrl.optional(),
     placements: z.array(ProfileAssetPlacementSchema).max(8).optional(),
     position: z.number().int().nonnegative().optional(),
   })
@@ -570,6 +585,17 @@ export const ApiProfileAssetUploadIntentCreateRequestSchema = z
     message: "Send originalFileName for direct uploads or sourceUrl for server-side imports.",
   })
   .superRefine((value, context) => {
+    if (
+      value.originalFileName !== undefined &&
+      value.sourceUrl === undefined &&
+      value.byteSize === undefined
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "File uploads require byteSize.",
+        path: ["byteSize"],
+      });
+    }
     const placements = value.placements ?? [];
     if (placements.includes("featured") && !placements.includes("gallery")) {
       context.addIssue({
@@ -604,6 +630,7 @@ export const ApiProfileAssetUploadIntentCreateResponseSchema = z
     intentId: z.string().min(1),
     uploadToken: z.string().min(1),
     uploadUrl: z.string().min(1),
+    directUploadUrl: z.string().min(1).optional(),
     uploadTokenHeader: z.literal("x-vrdex-upload-token"),
     expiresAt: timestampMs,
   })
@@ -626,6 +653,18 @@ export const ProfileAssetUploadTokenHeaderSchema = z
     }),
   })
   .meta({ description: "Profile asset upload-token header." });
+
+export const ApiProfileAssetDirectUploadTargetResponseSchema = z
+  .object({
+    url: z.url(),
+    fields: z.record(z.string(), z.string()),
+    expiresAt: timestampMs,
+  })
+  .meta({
+    description:
+      "Short-lived private object-storage form target for one exact profile-media source upload.",
+    id: "ApiProfileAssetDirectUploadTargetResponse",
+  });
 
 export const ApiProfileAssetUploadIntentCompleteResponseSchema = z
   .object({

@@ -7,6 +7,7 @@ import { api, internal } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import schemaModule from "../../convex/schema";
 
+import { newClerkUserId } from "./_clerkTestIdentity";
 const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
   "../../convex/_communityAuthority.ts": () => import("../../convex/_communityAuthority"),
@@ -19,15 +20,13 @@ const identity = { subject: "telemetry-operator", issuer: "test", tokenIdentifie
 
 async function seedCommunity(t: ReturnType<typeof convexTest>, slug = "faceless") {
   return t.run(async (ctx) => {
+    const clerkUserId = newClerkUserId();
     const userId = await ctx.db.insert("users", {
+      clerkUserId: clerkUserId,
       email: `${slug}@example.test`,
       emailVerificationTime: NOW,
     });
-    const sessionId = await ctx.db.insert("authSessions", {
-      userId,
-      expirationTime: Date.now() + 60_000,
-    });
-    identity.subject = `${userId}|${sessionId}`;
+    identity.subject = clerkUserId;
     const communityProfileId = await ctx.db.insert("profiles", {
       slug,
       displayName: slug === "faceless" ? "The Faceless" : "Second Community",
@@ -123,7 +122,9 @@ describe("community telemetry control plane", () => {
     const t = convexTest({ schema, modules });
     const communityProfileId = await seedCommunity(t);
     const ownerIdentity = await t.run(async (ctx) => {
+      const clerkUserId2 = newClerkUserId();
       const userId = await ctx.db.insert("users", {
+        clerkUserId: clerkUserId2,
         name: "Community Owner",
         email: "owner@example.com",
         emailVerificationTime: NOW,
@@ -136,11 +137,7 @@ describe("community telemetry control plane", () => {
         grantedAt: NOW,
         updatedAt: NOW,
       });
-      const sessionId = await ctx.db.insert("authSessions", {
-        userId,
-        expirationTime: Date.now() + 60_000,
-      });
-      return { subject: `${userId}|${sessionId}`, issuer: "test", tokenIdentifier: `test|${userId}` };
+      return { subject: clerkUserId2, emailVerified: true, issuer: "test", tokenIdentifier: `test|${userId}` };
     });
     await registerAccount(t);
 

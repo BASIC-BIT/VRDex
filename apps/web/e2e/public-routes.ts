@@ -196,6 +196,7 @@ export async function expectDiscoveryPage(page: Page) {
   await expect(page.getByRole("heading", { name: "Worlds hosting events soon" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Neon Harbor", exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: /Afterglow Harbor Sessions/i }).first()).toBeVisible();
+  await expect(page.getByLabel("Verified profile").first()).toBeVisible();
   await expect(page.getByRole("heading", { name: "Featured", exact: true })).toHaveCount(0);
 }
 
@@ -227,15 +228,13 @@ export async function expectLookupPage(page: Page) {
 }
 
 export async function expectPrivateSeedLookupPage(page: Page) {
-  const privateResult = page.locator(".lookup-private-result:visible");
+  const privateResult = page.locator(".lookup-result-card.ph-no-capture:visible");
 
   await expect(page.getByRole("heading", { name: "Search VRDex" })).toBeVisible();
   await expect(privateResult).toHaveCount(1);
-  await expect(privateResult.getByText("Private seed", { exact: true })).toBeVisible();
   await expect(privateResult.getByText("DJ Northstar", { exact: true })).toBeVisible();
-  await expect(privateResult.getByText("NWinn", { exact: true })).toBeVisible();
-  await expect(privateResult.getByText("Jul 9, 2026", { exact: true })).toBeVisible();
-  await expect(privateResult.getByText("Checked Jul 8, 2026", { exact: true })).toBeVisible();
+  await expect(privateResult.getByText("Northstar", { exact: true })).toBeVisible();
+  await expect(privateResult).not.toContainText(/Private seed|NWinn|Source|Reviewed|Freshness|Jul 9, 2026|Checked Jul 8, 2026/);
   await expect(privateResult.getByRole("link", { name: "Twitch: dj-northstar" })).toBeVisible();
   await expect(privateResult.getByRole("link", { name: "VRChat profile: vrchat.com" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Open profile", exact: true })).toHaveCount(0);
@@ -246,12 +245,13 @@ export async function expectSubmitPage(page: Page) {
 }
 
 export async function expectSignInPage(page: Page) {
+  // Only the heading belongs to VRDex now. The provider buttons and the
+  // email/password fields are rendered by Clerk's own `<SignIn />`, and asserting
+  // a vendor's DOM would break on any upstream markup change. Which of Clerk's UI
+  // or the unconfigured-environment notice appears depends on whether the
+  // environment has Clerk credentials, so neither is asserted here; the callers
+  // that care about reaching this page already check the URL.
   await expect(page.getByRole("heading", { name: "Sign in", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Continue with Discord" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Continue with Google" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Use email and password" })).toBeVisible();
-  await expect(page.getByLabel("Email")).toHaveCount(0);
-  await expect(page.getByLabel("Password")).toHaveCount(0);
 }
 
 async function expectProtectedRouteRedirect(page: Page, returnTo: string) {
@@ -347,7 +347,7 @@ export async function expectPersonProfilePage(page: Page) {
   expect(await claimLink.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
   await expect(page.getByText("Melodic house DJ playing warm, vocal-led sets across VRChat club nights.")).toBeVisible();
   await expect(page.getByText("Known for sunrise handoffs, soft-focus visuals, and long blends that keep the room moving.")).toHaveCount(0);
-  await expect(page.getByText(/Jan 1, 2025/i)).toBeVisible();
+  await expect(page.getByText(/Jan 1, 2025/i)).toHaveCount(0);
   await expect(page.getByText(/Source:/i)).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Upcoming events" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Afterglow Harbor Sessions" })).toBeVisible();
@@ -360,6 +360,8 @@ export async function expectPersonProfilePage(page: Page) {
   await expect(page.getByRole("link", { name: /Watch on Twitch/i })).toBeVisible();
   await expect(page.getByText("Quest (MPEG-TS)", { exact: true })).toBeVisible();
   await expect(page.getByText("PC (RTSPT)", { exact: true })).toBeVisible();
+  await expect(page.getByText("https://stream.vrcdn.live/live/dj-aurora.live.ts", { exact: true })).toBeVisible();
+  await expect(page.getByText("rtspt://stream.vrcdn.live/live/dj-aurora", { exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "Open preview" })).toHaveAttribute(
     "href",
     "https://panel.vrcdn.live/preview/dj-aurora",
@@ -376,7 +378,7 @@ export async function expectVerifiedPersonProfilePage(page: Page) {
   await expect(page.getByRole("heading", { name: "BASICBIT" })).toBeVisible();
   await expect(page.getByRole("complementary", { name: "Profile ownership" })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Claim profile" })).toHaveCount(0);
-  await expect(page.getByLabel("Owner verified")).toBeVisible();
+  await expect(page.getByLabel("Verified profile")).toBeVisible();
   await expect(page.getByText("Multigenre DJ but I really love DnB <3", { exact: true })).toBeVisible();
   await expect(page.getByText(/Public lookup seed for validating operator workflows/i)).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Copy Discord" })).toBeVisible();
@@ -440,6 +442,9 @@ export async function expectEventPage(page: Page) {
     "/events/playwright-afterglow-harbor-sessions/edit",
   );
   await expect(page.getByText("Afterglow watch link", { exact: true })).toBeVisible();
+  await expect(
+    page.locator('a[href="https://stream.vrcdn.live/live/playwright-afterglow-harbor-sessions.live.ts"]'),
+  ).toBeVisible();
   await expect(page.getByText("Watch now", { exact: true })).toHaveCount(0);
 }
 

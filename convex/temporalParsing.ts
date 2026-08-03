@@ -10,7 +10,7 @@ import {
 } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import { getAccountFeatureAccess } from "./_accountFeatures";
-import { requireActiveAuthSession } from "./_authSessionGuard";
+import { requireUser } from "./_identity";
 import { requireActiveVerifiedEmailUser } from "./_browserSessionAuthority";
 
 const JOB_TTL_MS = 15 * 60_000;
@@ -91,6 +91,10 @@ async function requireTemporalAccess(
   if (user === null) {
     throw new Error("account_not_found");
   }
+  // Deliberately the mirrored column, not `identityEmailVerified`. This gates a
+  // closed beta rather than claim-level authority, and `acquirePrewarmLease`
+  // reaches it as an internalMutation where no browser token need exist — a token
+  // check there would fail every server-initiated prewarm.
   if (user.email === undefined || user.emailVerificationTime === undefined) {
     throw new Error("verified_email_required");
   }
@@ -327,7 +331,7 @@ export const acquirePrewarmLease = internalMutation({
 export const getAccess = query({
   args: {},
   handler: async (ctx) => {
-    const { user } = await requireActiveAuthSession(ctx);
+    const { user } = await requireUser(ctx);
     const access = await getAccountFeatureAccess(ctx.db, user._id);
     const preference = await ctx.db
       .query("temporalParsingPreferences")

@@ -65,12 +65,23 @@ When `VRDEX_HOSTED_E2E_AUTH_HELPERS=true`,
 on-demand preview workflow also creates a separate random Convex E2E secret. It enables
 the auth helper only on the named Convex preview and injects the matching helper
 flags, generated Convex secret, and repository browser token only into the
-matching Vercel preview. This supports temporary verified accounts and reviewed
-OAuth clients for hosted MCP compatibility evidence without enabling the helper
-on shared staging or production. The workflow also generates a preview-only
-Convex Auth RS256 key pair, stores the private key and public JWKS only on that
-Convex preview, and binds `SITE_URL` to the concrete Vercel deployment URL after
-deployment. Separate per-preview runtime material supplies the API token pepper,
+matching Vercel preview. This supports reviewed OAuth clients for hosted MCP compatibility evidence
+without enabling the helper on shared staging or production. The workflow binds
+`SITE_URL` to the concrete Vercel deployment URL after deployment.
+
+**It does not generate any Clerk configuration, and preview sign-in does not
+work on its own.** Clerk is an external prerequisite: a preview needs an
+instance, its keys on the Vercel preview, and `CLERK_JWT_ISSUER_DOMAIN`
+inherited from the Convex project's preview environment-variable defaults.
+Since #226 the authenticated flows use Clerk testing tokens rather than a
+sign-in form, and **this workflow does not wire them up.** `vercel-preview-deploy.yml`
+passes no Clerk E2E secrets, runs no auth spec, and invokes no
+credential generator, so installing those secrets changes nothing here.
+Authenticated E2E and generated MCP OAuth credentials run from
+`baseline-checks.yml` and `deployed-health.yml` against the shared staging
+target — see [`docs/testing/playwright-visual-preview.md`](../testing/playwright-visual-preview.md).
+A preview still needs its own Clerk instance and keys for a human to sign in to
+it by hand. Separate per-preview runtime material supplies the API token pepper,
 OAuth client-secret and refresh-token peppers, and OAuth access-token signing
 key needed by developer credential and client-credentials flows. The token route
 uses the dedicated preview capability described above instead of an admin key.
@@ -104,7 +115,7 @@ Set these in the Vercel project as needed:
 - `NEXT_PUBLIC_CONVEX_URL`: optional for a shell-only preview; set to the hosted Convex deployment URL for live backend reads.
 - `CONVEX_ADMIN_TOKEN`: server-only Convex admin/deploy token for route handlers that call internal Convex functions, currently needed by developer credential inventory API routes.
 - `VRDEX_REQUIRE_CONVEX_URL=true`: optional; use when previews must fail instead of showing missing-backend states.
-- `NEXT_PUBLIC_VRDEX_SUBMISSIONS_AUTH_READY=false`: legacy flag; auth-backed submissions now rely on Convex Auth configuration.
+- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY`: required for any deployment that should accept sign-in. Production builds fail without them; a shell-only preview may omit both. `NEXT_PUBLIC_VRDEX_SUBMISSIONS_AUTH_READY` is retired — it gated `/submit` before web auth existed, and `clerkMiddleware` protects that route now.
 - `NEXT_PUBLIC_POSTHOG_KEY`: optional public PostHog project key; BASIC BIT hosted deployments should set this through `infra/terraform/vercel` for PostHog project `447783`.
 - `NEXT_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com`: optional PostHog ingestion host; also managed through `infra/terraform/vercel` for hosted deployments.
 
@@ -172,7 +183,7 @@ The `staging` Vercel environment points at the shared Convex development deploym
 - `NEXT_PUBLIC_CONVEX_URL=https://scrupulous-corgi-247.convex.cloud`
 - `CONVEX_URL=https://scrupulous-corgi-247.convex.cloud`
 - `VRDEX_REQUIRE_CONVEX_URL=true`
-- `NEXT_PUBLIC_VRDEX_SUBMISSIONS_AUTH_READY=false`
+- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY`
 - `VRDEX_ENABLE_E2E_HELPERS=true`
 - `VRDEX_E2E_BROWSER_TOKEN`: sensitive value matching GitHub Actions secret `VRDEX_HOSTED_E2E_BROWSER_TOKEN`
 - `VRDEX_E2E_CONVEX_SECRET`: sensitive value matching Convex dev env `VRDEX_E2E_CONVEX_SECRET`
@@ -214,7 +225,7 @@ This command intentionally does not manage the Redis variables. Those remain
 owned by `infra/terraform/rate-limit-redis` so the Upstash database, endpoint,
 token, and Vercel bindings stay one Terraform state boundary.
 
-The Convex client URL is separate from the Convex Auth callback host. Staging Auth callbacks use `https://db.staging.vrdex.net`; the Convex HTTP Actions custom domain is verified, both OAuth providers include the callback URL, and deployment `scrupulous-corgi-247` selects it as `CONVEX_SITE_URL`.
+Convex no longer serves auth callbacks on staging either. The HTTP Actions custom domain `https://db.staging.vrdex.net` remains verified and `scrupulous-corgi-247` selects it as `CONVEX_SITE_URL`; sign-in runs through the staging Clerk instance.
 
 Current ownership: staging E2E helper variables and non-Redis developer runtime
 variables are bootstrap-managed Vercel settings; the checked-in bootstrap above
@@ -248,8 +259,15 @@ The `Staging Deploy` workflow runs after `Baseline Checks` succeeds on `main` an
 - secrets `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`: deploy Vercel `staging`
 - variable `VRDEX_HOSTED_E2E_BASE_URL`: hosted health target, currently `https://staging.vrdex.net`
 - secret `VRDEX_HOSTED_E2E_BROWSER_TOKEN`: browser token for hosted E2E helper calls
+- variable `VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN`: Clerk Frontend API origin of the development instance backing staging, as a full `https://` origin. The workflow writes it to Convex as `CLERK_JWT_ISSUER_DOMAIN` before deploying functions
 
-If any required GitHub deployment setting is missing, the workflow writes a skip summary and exits successfully instead of partially deploying staging. When enabled, the workflow first audits the Vercel staging variable-name contract, then deploys Convex development functions, deploys Vercel `staging`, and runs `pnpm test:e2e:hosted` against `VRDEX_HOSTED_E2E_BASE_URL`. Because GitHub Actions snapshots secrets and variables when a run starts, rerun the workflow after completing provider bootstrap.
+Those settings behave differently when absent, and the difference is deliberate. Missing any of the first four means this repository is not configured to deploy staging at all, so the workflow writes a skip summary and exits successfully rather than deploying partially. **A missing `VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN` fails the job instead.** Staging *is* configured in that case, and is missing a setting its own auth config requires — `convex/auth.config.ts` reads it on every hosted deployment and the Convex CLI refuses to push without it. Skipping there would report a green workflow while staging silently stopped updating, which is exactly what left staging serving a pre-Clerk build for three days. See [`convex-environments.md`](./convex-environments.md).
+
+When enabled, the workflow audits the Vercel staging variable-name contract, checks that the issuer matches the Clerk publishable key Vercel is about to serve, writes the issuer to Convex, deploys Convex development functions, deploys Vercel `staging`, re-checks the issuer against what shipped, and runs `pnpm test:e2e:hosted` against `VRDEX_HOSTED_E2E_BASE_URL`.
+
+It then runs `pnpm test:e2e:hosted:auth-session`, the contract asserting that a Clerk session resolves to a verified Convex identity on the deployment that just went out. That runs here rather than from `Deployed Health Checks` on the `push` event, because a push fires while these deployments are still going out — so the contract asserted against the *previous* deployment and reported that as the health of this one. It is gated on `VRDEX_HOSTED_E2E_CLERK_AUTH=true` with the Clerk keys present: unset and it skips; set with keys absent and it fails, rather than reporting a passing contract over assertions that never ran. The two Playwright runs write to separate report and results directories so the artifact keeps evidence from both.
+
+Because GitHub Actions snapshots secrets and variables when a run starts, rerun the workflow after completing provider bootstrap.
 
 ## Hosted production environment
 
@@ -265,16 +283,15 @@ Production Vercel hosting uses the same `vr-dex-web` project with the production
 Production must set the same API/OAuth/MCP runtime variables for any enabled
 developer API, OAuth issuer, or hosted MCP surface.
 
-The Convex client URL remains separate from the Convex Auth callback host. Production Auth callbacks use `https://db.vrdex.net`, and deployment `superb-pig-954` selects that URL as its canonical `CONVEX_SITE_URL`.
+Convex no longer serves auth callbacks. Clerk hosts sign-in, and `CONVEX_SITE_URL` on `superb-pig-954` stays `https://db.vrdex.net` for the HTTP Actions the app still uses.
 
-Current production auth status:
+Production auth status, pending cutover:
 
-- Google OAuth app `VRDex Production` is published and allows `https://db.vrdex.net/api/auth/callback/google`.
-- Google sign-in from `https://vrdex.net/sign-in` returns to an authenticated `https://vrdex.net/account` session.
-- Discord OAuth app `VRDex` uses client ID `1516492492189466625` and allows `https://db.vrdex.net/api/auth/callback/discord`.
-- Discord sign-in from `https://vrdex.net/sign-in` returns to an authenticated `https://vrdex.net/account` session.
-- Convex production includes `JWT_PRIVATE_KEY` and matching `JWKS`, required for Convex Auth to mint web session cookies after OAuth callbacks.
-- App sessions use the explicit remembered-session contract in [`docs/backend/auth-sessions.md`](../backend/auth-sessions.md): 30 days of inactivity, a 90-day absolute cap for newly created sessions, and one-hour JWT rotation.
+- Clerk is the sign-in provider. The production Clerk instance needs its own `convex` JWT template, its own keys, and its own Google and Discord OAuth credentials pointed at Clerk's callback URLs.
+- The existing Google and Discord OAuth clients are reused by repointing their redirect URIs at Clerk. Do not delete them — the Discord client is also used by community verification, which is independent of sign-in.
+- `CLERK_JWT_ISSUER_DOMAIN` on Convex must match the issuer of that template.
+- `JWT_PRIVATE_KEY` and `JWKS` are retired; Clerk signs tokens now.
+- Session lifetime is Clerk's, documented in [`docs/backend/auth-sessions.md`](../backend/auth-sessions.md). The previous 30-day inactivity / 90-day cap contract is not reproduced.
 
 ### Production authenticated account smoke
 
@@ -283,12 +300,61 @@ The `Deployed Health Checks` workflow always runs the production read-only route
 Repository settings for the authenticated lane:
 
 - variable `VRDEX_PRODUCTION_SMOKE_BASE_URL=https://vrdex.net`: required so auth cookies target the stable public domain instead of a generated Vercel deployment URL
-- optional variable `VRDEX_PRODUCTION_AUTH_SMOKE_PROVIDER`: expected linked provider, usually `discord` or `google`; if unset, the smoke accepts either provider
+- `VRDEX_PRODUCTION_AUTH_SMOKE_PROVIDER` is retired: the account page no longer renders linked providers, because Clerk shows them only inside its own profile modal. The smoke asserts the management affordance instead of a provider label
 - secret `VRDEX_PRODUCTION_AUTH_SMOKE_STORAGE_STATE_B64`: base64-encoded Playwright `storageState` JSON from a dedicated production test account that has completed OAuth sign-in
 
-This smoke does not enable production E2E helpers, does not mutate data, and does not store OAuth provider passwords in CI. It checks that the pre-authenticated production account can load `/account`, sees a sign-out control, and has at least one linked OAuth provider. Refresh the storage-state secret by manually signing in as the dedicated test account and exporting Playwright storage state before the session expires or after OAuth/provider/callback changes.
+This smoke does not enable production E2E helpers, does not mutate data, and does not store OAuth provider passwords in CI. It checks that the pre-authenticated production account can load `/account`, sees a sign-out control, and reaches the sign-in management affordance. Refresh the storage-state secret by manually signing in as the dedicated test account and exporting Playwright storage state before the session expires or after Clerk configuration changes.
 
-This lane validates the signed-in production account path and linked-provider rendering. It is not a full automated provider-login robot; provider credential entry and fresh OAuth consent should remain manual or use a provider-approved non-interactive test-account mechanism.
+This lane validates the signed-in production account path only. It deliberately
+does **not** verify provider linkage: Clerk renders linked providers inside its
+own profile modal, and driving a vendor modal from a production smoke would be
+brittle. Do not cite this lane as evidence that provider linking works. It is
+also not a full automated provider-login robot; credential entry and fresh
+consent remain manual or use a provider-approved non-interactive mechanism.
+
+## Promoting Production
+
+Vercel's Git integration builds production deployments but does not alias them
+to `vrdex.net`. The live site therefore stays on whatever build was last
+promoted, and a merged change can sit unreleased indefinitely with nothing
+reporting it.
+
+That is not hypothetical: during the Clerk cutover, Convex production deployed
+the Clerk backend while `vrdex.net` kept serving the pre-Clerk bundle, whose
+sign-in called Convex Auth functions the deploy had just deleted. Production
+sign-in was broken for hours while every read path returned 200.
+
+Promote with the `Promote Production Web` workflow:
+
+```sh
+gh workflow run production-promote.yml -f deployment_url=https://vr-dex-<id>-basicbit.vercel.app
+```
+
+Find the candidate with `vercel ls`, taking the newest `Ready` deployment whose
+environment is `Production`.
+
+Dispatch is manual on purpose. The preflight can show a build is not obviously
+broken; it cannot show that releasing it is wanted.
+
+It refuses to promote unless all of the following hold, each corresponding to a
+way production has broken or nearly broken before:
+
+- `/sign-up` returns 200 — a build predating the auth routes cannot sign anyone in
+- `/sign-in` returns 200 before its body is inspected — an error document still renders the shared auth layout, so its body would otherwise satisfy the content checks
+- the page does not render the auth-unavailable notice — that build was made without Clerk credentials
+- the publishable key decodes to `clerk.vrdex.net` — tier alone does not prove tenant, and another tenant's `pk_live_` key would have Convex reject every token
+- `/deployment` reports the backend identities the running build actually resolved, and each must match production exactly:
+  - `data-convex-browser` — `NEXT_PUBLIC_CONVEX_URL`, what the browser client uses
+  - `data-convex-server` — `CONVEX_URL ?? NEXT_PUBLIC_CONVEX_URL`, the precedence `convexHttpClient()` applies for the API, OAuth, MCP, and account route handlers. It is a separate value, so a build can serve the right data to the browser and the wrong data from its route handlers
+  - `data-clerk-frontend-api` — decoded from the publishable key, naming the Clerk tenant
+
+  Compared as complete URLs, not hosts or origins. Both clients receive the value verbatim, so `http://` (whose WebSocket an https origin blocks) and a stray path (which `ConvexHttpClient` would target) must both fail. A missing Convex URL is only a build warning, so without this a build with no backend is promotable
+- `clerk.vrdex.net/v1/environment` returns 200 — the instance must be able to issue tokens
+- that response has `user_settings.actions.delete_self` false — the promoted build exposes Clerk's profile surface, and VRDex cannot reconcile a deleted identity until [#227](https://github.com/BASIC-BIT/VRDex/issues/227)
+
+Afterwards it compares the `?dpl=` deployment id on `vrdex.net` against the
+requested deployment, so an alias that did not move fails rather than passing on
+a route check the previous release would also satisfy.
 
 ## Validation
 
@@ -298,10 +364,14 @@ The validation fails when:
 
 - Playwright fixtures are enabled.
 - Any E2E helper switch is enabled for a production Vercel build.
-- public submissions are marked auth-ready before auth exists.
+- A Clerk key is missing: both are required for every production build, and for any build with `VRDEX_REQUIRE_CONVEX_URL=true`.
+- Only one Clerk key is set. Both, or neither — one key alone mounts `ClerkProvider` and selects `clerkMiddleware` with no server-side credential, which fails at runtime rather than falling back to unconfigured auth.
+- A Clerk key is from the wrong tier: production requires `pk_live_`/`sk_live_`, every other Vercel environment requires `pk_test_`/`sk_test_`, so a preview cannot authenticate against the production tenant.
+- A rate-limit variable is missing or invalid for a production build: `VRDEX_RATE_LIMIT_STORE` must be `redis-rest` or `upstash`, and the REST URL must be https and not a local backend.
 - `NEXT_PUBLIC_CONVEX_URL` is invalid.
 - `NEXT_PUBLIC_CONVEX_URL` points at localhost during a Vercel build.
 - `VRDEX_REQUIRE_CONVEX_URL=true` and `NEXT_PUBLIC_CONVEX_URL` is missing.
+- `NEXT_PUBLIC_POSTHOG_HOST` is invalid or points at a local backend during a Vercel build.
 
 ## Live smoke check
 

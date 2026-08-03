@@ -17,6 +17,53 @@ function shortSha(value: string | undefined) {
   return value ? value.slice(0, 7) : "not available";
 }
 
+/**
+ * A backend URL reported whole, or `unknown` when unset or unparseable.
+ *
+ * Deliberately not reduced to a host or an origin. Both clients receive this
+ * value verbatim, so every part of it matters and each reduction hides a real
+ * failure: a host comparison accepts `http://`, whose WebSocket an https origin
+ * blocks, and an origin comparison accepts a stray path like `/wrong`, which
+ * `ConvexHttpClient` would then target for every server-side call. Only trailing
+ * slashes are normalised, being the one difference with no effect.
+ */
+function backendUrlLabel(value: string | undefined) {
+  const trimmed = value?.trim();
+
+  if (!trimmed) {
+    return "unknown";
+  }
+
+  try {
+    // Parsed rather than string-matched, so a malformed value reports `unknown`
+    // instead of being compared as-is.
+    new URL(trimmed);
+    return trimmed.replace(/\/+$/, "");
+  } catch {
+    return "unknown";
+  }
+}
+
+/**
+ * Frontend API host the publishable key encodes. The key is base64 after its
+ * prefix, so this is the only way to name the Clerk tenant from the client
+ * bundle — the tier prefix alone does not distinguish one instance from another.
+ */
+function clerkFrontendApiHost() {
+  const key = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.trim();
+
+  if (!key) {
+    return undefined;
+  }
+
+  try {
+    const decoded = atob(key.replace(/^pk_(test|live)_/, ""));
+    return `https://${decoded.replace(/\$+$/, "")}`;
+  } catch {
+    return undefined;
+  }
+}
+
 function DeploymentRow({ item }: { item: DeploymentItem }) {
   const toneClass =
     item.tone === "ok"
@@ -36,7 +83,30 @@ function DeploymentRow({ item }: { item: DeploymentItem }) {
 export default function DeploymentPage() {
   const deploymentUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null;
   const convexConfigured = Boolean(process.env.NEXT_PUBLIC_CONVEX_URL);
-  const submissionsAuthReady = process.env.NEXT_PUBLIC_VRDEX_SUBMISSIONS_AUTH_READY === "true";
+  // Replaced `NEXT_PUBLIC_VRDEX_SUBMISSIONS_AUTH_READY`, which this page used to
+  // report as "locked until auth issue lands". Auth has landed: `/submit` is
+  // protected by `clerkMiddleware`, so the flag described a gate that no longer
+  // exists and every correctly configured deployment published a false failure.
+  const clerkConfigured = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
+
+  // Which backend, not merely whether one is set. "Configured" is true for a
+  // production build accidentally pointed at staging, and promoting that would
+  // put vrdex.net on the wrong dataset and the wrong auth configuration.
+  // `production-promote.yml` reads these to refuse such a build.
+  //
+  // Rendered hidden rather than as visible rows: both values are already public
+  // (`NEXT_PUBLIC_*` ship in the client bundle), and keeping them out of the
+  // layout means the release gate does not churn this page's visual baselines.
+  //
+  // Both Convex targets, because they can diverge. `convexHttpClient()` resolves
+  // `CONVEX_URL ?? NEXT_PUBLIC_CONVEX_URL`, so the API, OAuth, MCP, and account
+  // route handlers can be reading a different deployment than the browser while
+  // the public URL looks correct.
+  const backendIdentity = {
+    convexBrowser: backendUrlLabel(process.env.NEXT_PUBLIC_CONVEX_URL),
+    convexServer: backendUrlLabel(process.env.CONVEX_URL ?? process.env.NEXT_PUBLIC_CONVEX_URL),
+    clerk: backendUrlLabel(clerkFrontendApiHost()),
+  };
 
   const deploymentItems: DeploymentItem[] = [
     {
@@ -67,9 +137,9 @@ export default function DeploymentPage() {
       tone: convexConfigured ? "ok" : "warn",
     },
     {
-      label: "Submission auth gate",
-      value: submissionsAuthReady ? "unlocked" : "locked until auth issue lands",
-      tone: submissionsAuthReady ? "warn" : "ok",
+      label: "Clerk",
+      value: clerkConfigured ? "configured" : "not configured",
+      tone: clerkConfigured ? "ok" : "warn",
     },
   ];
 
@@ -109,7 +179,7 @@ export default function DeploymentPage() {
                 A shell-only Vercel preview may run without Convex. Set <code className="font-mono text-[0.95em]">NEXT_PUBLIC_CONVEX_URL</code> to a hosted Convex deployment when you want the homepage and server baseline to read live backend data.
               </p>
               <p>
-                Keep <code className="font-mono text-[0.95em]">NEXT_PUBLIC_VRDEX_SUBMISSIONS_AUTH_READY</code> false until the auth foundation lands, so <code className="font-mono text-[0.95em]">/submit</code> stays locked for public visitors.
+                Set <code className="font-mono text-[0.95em]">NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY</code> and <code className="font-mono text-[0.95em]">CLERK_SECRET_KEY</code> for any deployment that should accept sign-in. Without them <code className="font-mono text-[0.95em]">/submit</code> and every other protected route redirect to an unavailable sign-in page.
               </p>
               <p>
                 See <code className="font-mono text-[0.95em]">docs/deployment/vercel-preview.md</code> for the repository and Vercel setup contract.
@@ -117,6 +187,16 @@ export default function DeploymentPage() {
             </div>
           </Card>
         </section>
+
+        {/* Machine-readable release gate. `production-promote.yml` requires these
+            to name the production Convex deployment and Clerk tenant before it
+            will move the vrdex.net alias. Hidden, so it adds no layout. */}
+        <div
+          hidden
+          data-convex-browser={backendIdentity.convexBrowser}
+          data-convex-server={backendIdentity.convexServer}
+          data-clerk-frontend-api={backendIdentity.clerk}
+        />
       </PageContainer>
     </PageShell>
   );

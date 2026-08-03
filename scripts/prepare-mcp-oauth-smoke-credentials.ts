@@ -153,6 +153,8 @@ function printHelp() {
     "",
     "Required environment:",
     "  VRDEX_E2E_BROWSER_TOKEN    Browser token matching the hosted E2E auth helper target.",
+    "  CLERK_SECRET_KEY           Secret key for the Clerk development instance backing the target.",
+    "  NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY  Matching publishable key. A production key is rejected.",
     "",
     "Options:",
     "  --base-url <url>           Hosted app origin or /mcp URL. Also reads VRDEX_MCP_OAUTH_SMOKE_BASE_URL or PLAYWRIGHT_BASE_URL.",
@@ -229,49 +231,116 @@ async function gotoFlowPage(page: import("@playwright/test").Page, pathName: str
   }
 }
 
-async function createVerifiedE2eAccount(args: {
-  browserToken: string;
-  email: string;
-  page: import("@playwright/test").Page;
-  password: string;
-  request: import("@playwright/test").APIRequestContext;
-}) {
-  await gotoFlowPage(args.page, "/sign-in");
-  await args.page.getByRole("button", { name: "Create account" }).click();
-  await args.page.getByLabel("Email").fill(args.email);
-  await args.page.getByLabel("Password").fill(args.password);
-  await args.page.getByRole("button", { name: "Create account" }).click();
-  const verificationCodeInput = args.page.getByLabel("Verification code");
+const CLERK_API_BASE = process.env.CLERK_API_URL?.trim().replace(/\/+$/, "") || "https://api.clerk.com";
 
-  try {
-    await verificationCodeInput.waitFor({ timeout: 15_000 });
-  } catch (error) {
-    const pageText = await args.page.locator("body").innerText().catch(() => "unavailable");
-    const cause = error instanceof Error ? error.message.split("\n", 1)[0] : String(error);
+/**
+ * Resolved through `apps/web` for the same reason Playwright is: this script
+ * lives at the repository root, where neither package is a dependency.
+ */
+async function loadClerkTesting() {
+  const webRequire = createRequire(path.join(repoRoot, "apps", "web", "package.json"));
 
-    throw new Error(`Account signup did not enter email verification mode (${cause}). Page text: ${pageText}`);
-  }
+  return await import(webRequire.resolve("@clerk/testing/playwright")) as unknown as
+    typeof import("@clerk/testing/playwright");
+}
 
-  const codeResponse = await args.request.post("/api/e2e/auth", {
-    data: { action: "consume-code", email: args.email },
-    headers: { "x-vrdex-e2e-token": args.browserToken },
-  });
+export function clerkKeysFromEnv() {
+  const secretKey = process.env.CLERK_SECRET_KEY?.trim() ?? "";
+  const publishableKey =
+    process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.trim() ??
+    process.env.CLERK_PUBLISHABLE_KEY?.trim() ??
+    "";
 
-  assert.equal(
-    codeResponse.ok(),
-    true,
-    `E2E auth helper did not return a verification code. HTTP ${codeResponse.status()}: ${await codeResponse.text()}`,
+  assert.ok(
+    secretKey && publishableKey,
+    "CLERK_SECRET_KEY and NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY are required. Use the development instance backing the target; clerkSetup() rejects a production secret key.",
   );
 
-  const authCode = (await codeResponse.json()) as { code?: string };
+  return { publishableKey, secretKey };
+}
 
-  assert.ok(authCode.code, "E2E auth helper returned no verification code.");
+async function clerkBackendRequest(pathName: string, init: RequestInit) {
+  const { secretKey } = clerkKeysFromEnv();
 
-  await verificationCodeInput.fill(authCode.code);
-  await Promise.all([
-    args.page.waitForURL(/\/account$/),
-    args.page.getByRole("button", { name: "Verify email" }).click(),
-  ]);
+  return await fetch(`${CLERK_API_BASE}${pathName}`, {
+    ...init,
+    headers: { ...init.headers, authorization: `Bearer ${secretKey}`, "content-type": "application/json" },
+  });
+}
+
+/**
+ * Creates the temporary account through the Clerk Backend API and signs in with
+ * a one-time ticket. Replaces the email/password sign-up form and the
+ * `/api/e2e/auth` verification-code lookup, both removed by the Clerk cutover.
+ *
+ * Backend-API addresses arrive already verified, so the account satisfies the
+ * verified-email guard on OAuth app registration without a code round-trip.
+ */
+async function createSignedInClerkAccount(args: {
+  email: string;
+  page: import("@playwright/test").Page;
+}) {
+  const { clerk, clerkSetup, setupClerkTestingToken } = await loadClerkTesting();
+  const { publishableKey } = clerkKeysFromEnv();
+
+  await clerkSetup({ publishableKey });
+
+  const response = await clerkBackendRequest("/v1/users", {
+    method: "POST",
+    body: JSON.stringify({ email_address: [args.email], skip_password_requirement: true }),
+  });
+
+  // Read once, then parse the saved text. An `await response.text()` inside the
+  // assertion message is evaluated eagerly — even when the assertion passes —
+  // which consumed the body and made the following `response.json()` throw on
+  // every *successful* creation, so the generated-credential path could never
+  // get past its own happy path.
+  const responseBody = await response.text();
+
+  assert.equal(
+    response.ok,
+    true,
+    `Clerk test user creation failed. HTTP ${response.status}: ${responseBody}`,
+  );
+
+  const user = JSON.parse(responseBody) as { id?: unknown };
+
+  assert.ok(typeof user.id === "string" && user.id, "Clerk test user creation returned no user id.");
+
+  const clerkUserId = user.id;
+
+  // Deleted here on failure rather than left to the caller's `finally`. The
+  // caller learns the id from the *return* value, so a throw in any of the
+  // browser steps below left it undefined and skipped teardown — and auth drift
+  // is exactly what this hosted path exists to detect, so failing runs and their
+  // retries would steadily accumulate users in the staging Clerk tenant.
+  try {
+    await setupClerkTestingToken({ page: args.page });
+    await gotoFlowPage(args.page, "/");
+    await clerk.signIn({ page: args.page, emailAddress: args.email });
+
+    // `users:ensureCurrentUser` provisions the Convex row on the first
+    // authenticated page load, and OAuth app registration needs it to exist.
+    await gotoFlowPage(args.page, "/account");
+    await args.page.getByRole("heading", { name: args.email }).waitFor({ timeout: 30_000 });
+  } catch (error) {
+    await deleteClerkAccount(clerkUserId);
+    throw error;
+  }
+
+  return { clerkUserId };
+}
+
+async function deleteClerkAccount(clerkUserId: string | undefined) {
+  if (clerkUserId === undefined) {
+    return;
+  }
+
+  try {
+    await clerkBackendRequest(`/v1/users/${encodeURIComponent(clerkUserId)}`, { method: "DELETE" });
+  } catch (error) {
+    console.warn(`Failed to delete Clerk test user ${clerkUserId}:`, error);
+  }
 }
 
 async function postSessionJson(
@@ -443,6 +512,7 @@ async function verifyClientCredentialsToken(args: {
 }
 
 async function writeCredentialFiles(args: {
+  accountEmail: string;
   clientId: string;
   clientName: string;
   clientSecret: string;
@@ -467,6 +537,10 @@ async function writeCredentialFiles(args: {
       `$env:VRDEX_MCP_OAUTH_CLIENT_SECRET = ${psSingleQuote(args.clientSecret)}`,
       `$env:VRDEX_CLAUDE_CODE_HOSTED_URL = ${psSingleQuote(hostedUrl)}`,
       `$env:VRDEX_MCP_INSPECTOR_HOSTED_URL = ${psSingleQuote(hostedUrl)}`,
+      // The Convex user and its OAuth application outlive this script, because
+      // the smokes that follow need the client. Emitting the address is what
+      // lets the caller delete them once those smokes are done.
+      `$env:VRDEX_MCP_OAUTH_SMOKE_ACCOUNT_EMAIL = ${psSingleQuote(args.accountEmail)}`,
       "",
     ].join("\n"),
   );
@@ -479,6 +553,7 @@ async function writeCredentialFiles(args: {
       `export VRDEX_MCP_OAUTH_CLIENT_SECRET=${shSingleQuote(args.clientSecret)}`,
       `export VRDEX_CLAUDE_CODE_HOSTED_URL=${shSingleQuote(hostedUrl)}`,
       `export VRDEX_MCP_INSPECTOR_HOSTED_URL=${shSingleQuote(hostedUrl)}`,
+      `export VRDEX_MCP_OAUTH_SMOKE_ACCOUNT_EMAIL=${shSingleQuote(args.accountEmail)}`,
       "",
     ].join("\n"),
   );
@@ -539,17 +614,20 @@ async function main() {
   const context = await browser.newContext({ baseURL: origin });
   const page = await context.newPage();
   const runSuffix = safeRunId(options.runId);
-  const email = `mcp-oauth-${runSuffix}@e2e.vrdex.local`;
-  const password = `VRDex-${runSuffix}-${randomBytes(12).toString("base64url")}-12345`;
+  // `+clerk_test` suppresses every Clerk delivery attempt; `@e2e.vrdex.net` is
+  // the only domain `normalizeE2eEmail` in `convex/e2e.ts` accepts.
+  //
+  // Bounded to the 64-character local-part maximum. `safeRunId` allows 80, and
+  // the fixed `mcp-oauth-` prefix plus the `+clerk_test` marker spend 21 of the
+  // budget, so an operator-supplied `--run-id` over 43 characters produced an
+  // address Clerk rejects — after the run id had already passed this script's
+  // own validation.
+  const emailRunSuffix = runSuffix.slice(0, 64 - "mcp-oauth-".length - "+clerk_test".length);
+  const email = `mcp-oauth-${emailRunSuffix}+clerk_test@e2e.vrdex.net`;
+  let clerkUserId: string | undefined;
 
   try {
-    await createVerifiedE2eAccount({
-      browserToken: options.browserToken,
-      email,
-      page,
-      password,
-      request: context.request,
-    });
+    ({ clerkUserId } = await createSignedInClerkAccount({ email, page }));
     const credentials = await createConfidentialMcpOAuthApp({
       clientName: options.clientName,
       origin,
@@ -564,6 +642,7 @@ async function main() {
 
     const files = await writeCredentialFiles({
       ...credentials,
+      accountEmail: email,
       clientName: options.clientName,
       origin,
       outputDir: options.outputDir,
@@ -582,6 +661,7 @@ async function main() {
     console.log(`| Bash env | ${files.envSh} |`);
     console.log(`| Next steps | ${files.summary} |`);
   } finally {
+    await deleteClerkAccount(clerkUserId);
     await context.close();
     await browser.close();
   }

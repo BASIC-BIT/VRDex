@@ -9,6 +9,7 @@ import type {
   SeedLookupViewerAccess,
 } from "./profile-lookup-page";
 import { EntityImage } from "@/components/ui/entity-image";
+import { ProfileAvatarImage } from "@/components/ui/profile-avatar-image";
 import { mergeLookupSuggestions } from "./lookup-suggestion-merge";
 import { Input, Textarea } from "@/components/ui/field";
 import { cn } from "@/lib/cn";
@@ -33,9 +34,9 @@ function isPrivateSuggestion(
   return "publicationState" in profile;
 }
 
-function profileOptionLabel(profile: ProfileLookupDisplayResult): string {
+function profileOptionLabel(profile: ProfileLookupDisplayResult): string | undefined {
   if (isPrivateSuggestion(profile)) {
-    return profile.source?.name ? `Private seed - ${profile.source.name}` : "Private seed";
+    return undefined;
   }
 
   const context = [...new Set([...profile.roleTags, ...profile.tags])].slice(0, 3).join(" / ");
@@ -44,15 +45,38 @@ function profileOptionLabel(profile: ProfileLookupDisplayResult): string {
 }
 
 function SuggestionAvatar({ profile }: { profile: ProfileLookupDisplayResult }) {
-  const avatarImageUrl = isPrivateSuggestion(profile) ? undefined : profile.avatarImageUrl;
+  if (isPrivateSuggestion(profile)) {
+    return (
+      <EntityImage
+        alt=""
+        className="lookup-suggestion-avatar"
+        label={profile.displayName}
+        sizes="38px"
+      />
+    );
+  }
+
+  if (profile.avatarImageKind === "logo") {
+    return (
+      <EntityImage
+        alt=""
+        className="lookup-suggestion-avatar lookup-avatar--logo"
+        imageClassName="object-contain"
+        label={profile.displayName}
+        sizes="38px"
+        src={profile.avatarImageUrl}
+      />
+    );
+  }
 
   return (
-    <EntityImage
+    <ProfileAvatarImage
       alt=""
+      appearance={profile.avatarAppearance}
       className="lookup-suggestion-avatar"
       label={profile.displayName}
       sizes="38px"
-      src={avatarImageUrl}
+      src={profile.avatarImageUrl}
     />
   );
 }
@@ -155,6 +179,8 @@ export function LookupSearchBox({
     typeof window === "undefined" ? [] : readRecentSearches()
   ));
   const recentSaveTimeoutRef = useRef<number | null>(null);
+  const bulkEditorRef = useRef<HTMLDivElement>(null);
+  const pendingBulkSelectionRef = useRef<number | null>(null);
   const [isPending, startTransition] = useTransition();
   const normalizedInitialQuery = initialQuery.trim();
   const parsedBulkLines = useMemo(() => parseBulkLookupLines(bulkText), [bulkText]);
@@ -221,6 +247,21 @@ export function LookupSearchBox({
 
     return () => controller.abort();
   }, [bulkMode, deferredQuery, normalizedInitialQuery, showPrivateSuggestions]);
+
+  useEffect(() => {
+    if (!bulkMode) {
+      return;
+    }
+
+    const editor = bulkEditorRef.current?.querySelector("textarea");
+    const selection = pendingBulkSelectionRef.current;
+
+    if (editor && selection !== null) {
+      editor.focus();
+      editor.setSelectionRange(selection, selection);
+      pendingBulkSelectionRef.current = null;
+    }
+  }, [bulkMode]);
 
   useEffect(() => {
     if (!bulkMode) {
@@ -307,6 +348,28 @@ export function LookupSearchBox({
     setIsOpen(false);
   }
 
+  function enterBulkMode(text: string, selection: number) {
+    setBulkText(text);
+    pendingBulkSelectionRef.current = selection;
+    setBulkMode(true);
+    setIsOpen(false);
+    setActiveIndex(-1);
+  }
+
+  function textWithInsertion(
+    input: HTMLInputElement,
+    insertion: string,
+  ): { selection: number; text: string } {
+    const start = input.selectionStart ?? input.value.length;
+    const end = input.selectionEnd ?? start;
+    const text = `${input.value.slice(0, start)}${insertion}${input.value.slice(end)}`;
+
+    return {
+      text,
+      selection: start + insertion.length,
+    };
+  }
+
   return (
     <div className="grid gap-2">
       <form
@@ -325,7 +388,7 @@ export function LookupSearchBox({
       >
         {view ? <input name="view" type="hidden" value={view} /> : null}
         {bulkMode ? (
-          <div className="lookup-bulk-editor">
+          <div className="lookup-bulk-editor" ref={bulkEditorRef}>
             <Textarea
               aria-label="Lineup text"
               className="lookup-input min-h-20 resize-y font-mono text-sm"
@@ -365,7 +428,26 @@ export function LookupSearchBox({
                 }
               }}
               onFocus={() => setIsOpen(true)}
+              onPaste={(event) => {
+                const pastedText = event.clipboardData.getData("text");
+
+                if (!/[\r\n]/.test(pastedText)) {
+                  return;
+                }
+
+                event.preventDefault();
+                const nextBulkValue = textWithInsertion(event.currentTarget, pastedText);
+
+                enterBulkMode(nextBulkValue.text, nextBulkValue.selection);
+              }}
               onKeyDown={(event) => {
+                if (event.key === "Enter" && event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
+                  event.preventDefault();
+                  const nextBulkValue = textWithInsertion(event.currentTarget, "\n");
+
+                  enterBulkMode(nextBulkValue.text, nextBulkValue.selection);
+                  return;
+                }
                 if (event.key === "Escape") {
                   setIsOpen(false);
                   setActiveIndex(-1);
@@ -446,6 +528,11 @@ export function LookupSearchBox({
                       activeIndex === index ? "bg-surface-strong" : undefined,
                     )}
                     key={isPrivateSuggestion(profile) ? `private:${profile.id}` : `public:${profile.slug}`}
+                    // Private seed suggestions are people and communities that
+                    // are deliberately absent from public discovery, rendered
+                    // here as ordinary button text on public routes — so a route
+                    // layout cannot cover them and `maskAllInputs` does not.
+                    {...(isPrivateSuggestion(profile) ? { "data-ph-no-capture": true } : {})}
                     type="button"
                     role="option"
                     aria-selected={activeIndex === index}
@@ -456,7 +543,9 @@ export function LookupSearchBox({
                     <SuggestionAvatar profile={profile} />
                     <span className="min-w-0">
                       <span className="block truncate font-medium">{profile.displayName}</span>
-                      <span className="block truncate text-xs text-muted">{profileOptionLabel(profile)}</span>
+                      {profileOptionLabel(profile) ? (
+                        <span className="block truncate text-xs text-muted">{profileOptionLabel(profile)}</span>
+                      ) : null}
                     </span>
                   </button>
                 ))}

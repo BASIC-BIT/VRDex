@@ -257,16 +257,14 @@ from this foundation and are not implied by a green PR.
   client session. Use comma-separated selectors or repeated flags to narrow
   the run; for example, `--client vscode,cursor` and
   `--client vscode --client cursor` are equivalent.
-- `pnpm ops:mcp-oauth-smoke-credentials` can mint temporary staging OAuth
-  smoke credentials through the existing gated E2E auth helper path when
-  `VRDEX_E2E_BROWSER_TOKEN` and the matching server-side helper configuration
-  are present. It creates a verified E2E account, creates a confidential
-  developer OAuth app with `client_credentials` and `mcp:read`, verifies token
-  issuance plus authenticated hosted MCP `tools/list`, and writes ignored env
-  files under `.tmp-gh-artifacts/` for
-  the Claude Code and MCP Inspector hosted OAuth smokes. It prints no client
-  secret and refuses production origins unless `--allow-production` is passed
-  for an explicit emergency operator run.
+- `pnpm ops:mcp-oauth-smoke-credentials` mints a temporary confidential OAuth
+  app. It creates its account through the Clerk Backend API and signs in with a
+  one-time ticket, so alongside `VRDEX_E2E_BROWSER_TOKEN` it needs
+  `CLERK_SECRET_KEY` and `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` for the
+  **development** instance backing the target — a production secret key is
+  rejected. Registering an OAuth app by hand and supplying
+  `VRDEX_MCP_OAUTH_CLIENT_ID` with `VRDEX_MCP_OAUTH_CLIENT_SECRET`, or
+  `VRDEX_MCP_INSPECTOR_OAUTH_TOKEN`, remains the alternative.
 - `pnpm ops:mcp-hosted-oauth-prereqs` reads GitHub Actions variable values and
   secret names through `gh` and reports whether hosted MCP OAuth evidence can use
   reviewed OAuth smoke secrets or the deployed-health temporary
@@ -390,7 +388,6 @@ pnpm ops:mcp-installed-clients
 pnpm ops:mcp-client-smokes -- --hosted-url <preview-or-production-like-/mcp-url> --hosted-query <known-public-query>
 pnpm ops:mcp-client-session-pack -- --hosted-url <preview-or-production-like-/mcp-url> --hosted-query <known-public-query>
 pnpm ops:mcp-add-mcp-preflight -- --hosted-url <preview-or-production-like-/mcp-url>
-VRDEX_E2E_BROWSER_TOKEN=<browser-token> pnpm ops:mcp-oauth-smoke-credentials -- --base-url <production-like-origin>
 pnpm ops:mcp-hosted-oauth-prereqs
 pnpm ops:api-platform-observability
 pnpm check:api-mcp-rollout

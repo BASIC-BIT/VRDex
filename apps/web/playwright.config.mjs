@@ -17,18 +17,6 @@ const skipWebServers = process.env.PLAYWRIGHT_SKIP_WEBSERVERS === "true" || Bool
 const skipConvexServer = skipWebServers || process.env.PLAYWRIGHT_SKIP_CONVEX_DEV === "true";
 const recordVideo = process.env.PLAYWRIGHT_RECORD_VIDEO === "true";
 const e2eHelpersEnabled = process.env.VRDEX_ENABLE_E2E_HELPERS ?? (hostedBaseURL ? undefined : "true");
-const localJwtKeys = hostedBaseURL
-  ? {}
-  : (() => {
-      const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
-      const jwtPrivateKey = privateKey.export({ format: "pem", type: "pkcs8" }).toString().trimEnd().replace(/\n/g, " ");
-      const jwk = publicKey.export({ format: "jwk" });
-
-      return {
-        JWT_PRIVATE_KEY: process.env.JWT_PRIVATE_KEY ?? jwtPrivateKey,
-        JWKS: process.env.JWKS ?? JSON.stringify({ keys: [{ use: "sig", ...jwk }] }),
-      };
-    })();
 const localApiCredentialEnv = hostedBaseURL
   ? {}
   : (() => {
@@ -71,6 +59,8 @@ const localE2eHelperEnv = hostedBaseURL
       VRCHAT_PROOF_ADAPTER_URL: process.env.VRCHAT_PROOF_ADAPTER_URL ?? `${baseURL}/api/e2e/adapters/vrchat-proof`,
       VRCLINKING_PROOF_ADAPTER_URL: process.env.VRCLINKING_PROOF_ADAPTER_URL ?? `${baseURL}/api/e2e/adapters/vrchat-proof`,
       VRCHAT_PROOF_ADAPTER_BEARER_TOKEN: process.env.VRCHAT_PROOF_ADAPTER_BEARER_TOKEN ?? "local-proof-adapter-token",
+      VRCLINKING_ADAPTER_CAPABILITY_KEY:
+        process.env.VRCLINKING_ADAPTER_CAPABILITY_KEY ?? "local-vrclinking-capability-key",
     };
 
 if (!hostedBaseURL) {
@@ -83,7 +73,6 @@ const sharedEnv = {
   CONVEX_URL: convexUrl,
   NEXT_PUBLIC_CONVEX_URL: convexUrl,
   SITE_URL: process.env.SITE_URL ?? baseURL,
-  ...localJwtKeys,
   ...localApiCredentialEnv,
   VRDEX_ENABLE_PLAYWRIGHT_FIXTURES: "true",
   ...localE2eHelperEnv,
@@ -97,7 +86,21 @@ export default defineConfig({
   timeout: 30_000,
   retries: process.env.CI ? 1 : 0,
   fullyParallel: true,
-  reporter: [["list"], ["html", { open: "never", outputFolder: "playwright-report" }]],
+  // Overridable so two Playwright runs in one job do not share these. Playwright
+  // clears both when a run starts, so the staging deploy's second invocation was
+  // deleting the first run's report, traces, and always-recorded videos before
+  // the upload step collected them — the artifact showed only the later run.
+  outputDir: process.env.PLAYWRIGHT_OUTPUT_DIR ?? "test-results",
+  reporter: [
+    ["list"],
+    [
+      "html",
+      {
+        open: "never",
+        outputFolder: process.env.PLAYWRIGHT_HTML_REPORT_DIR ?? "playwright-report",
+      },
+    ],
+  ],
   expect: {
     toHaveScreenshot: {
       pathTemplate: "{testDir}/__screenshots__{/projectName}/{arg}{ext}",

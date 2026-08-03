@@ -7,9 +7,11 @@ node_modules/
 .convex-tmp/
 .tmp-gh-artifacts/
 apps/web/playwright-report/
+apps/web/playwright-report-auth-session/
 apps/web/playwright-report-storybook/
 apps/web/playwright-artifacts/
 apps/web/test-results/
+apps/web/test-results-auth-session/
 apps/web/storybook-static/
 apps/docs/.docusaurus/
 apps/docs/build/
@@ -28,6 +30,8 @@ artifacts/restream-worker-benchmark/
 artifacts/restream-worker-benchmark-matrix/
 artifacts/restream-worker-live-control-benchmark/
 artifacts/group-telemetry-proof/
+artifacts/vrclinking-adapter.zip
+artifacts/vrclinking-adapter-stage/
 .env
 .env.local
 .terraform/
@@ -41,3 +45,6 @@ tfplan-*
 .vercel
 __pycache__/
 *.py[cod]
+
+# Claude Code personal settings
+.claude/settings.local.json

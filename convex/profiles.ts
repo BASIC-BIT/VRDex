@@ -18,8 +18,17 @@ import {
 } from "./_profileAssets";
 import { canReadProfile } from "./_profilePermissions";
 import { toPublicProfile } from "./_profilePublic";
-import { findAvailableProfileSlug, getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
-import { sanitizeCommunitySubmissionProfileInput } from "./_profileSubmissions";
+import {
+  createProfileSlugBase,
+  findAvailableProfileSlug,
+  getProfileBySlug,
+  validateProfileSlug,
+} from "./_profileSlugs";
+import { getProfileFieldVisibility } from "./_profileFieldVisibility";
+import {
+  createProfileSortName,
+  sanitizeCommunitySubmissionProfileInput,
+} from "./_profileSubmissions";
 import { getPublicProfileWorldCredits } from "./_profileWorldCredits";
 import {
   createProfileSearchDocument,
@@ -28,6 +37,7 @@ import {
 } from "./_searchDocuments";
 import { searchPublicDocuments } from "./_publicSearch";
 import { ensureShortLinkForTarget } from "./_shortLinks";
+import { assertIdentityNotSuppressed } from "./_suppressions";
 import { recordVocabularyTerms } from "./_vocabulary";
 import { userOwnsProfile } from "./_profileOwnership";
 import { applyApiProfileUpdate } from "./_profileUpdates";
@@ -156,6 +166,55 @@ export const updateProfileForApiOwner = internalMutation({
 
     if (!(await userOwnsProfile(ctx.db, profile._id, args.ownerUserId))) {
       throw new Error("You do not have permission to update this profile.");
+    }
+
+    // Renaming is another way to reintroduce a retracted identity: an owner of some
+    // other public profile could rename it to a name an accepted suppression
+    // request covers, putting that identity straight back on public pages and in
+    // search. Only checked when the name actually changes, so an unrelated update
+    // to a profile that already holds the name is unaffected.
+    // Aliases count as names here, so an alias-only update needs the same guard: a
+    // caller can leave displayName untouched and put the suppressed name in
+    // aliases, which the public projection exposes and search indexes.
+    const renamesProfile =
+      args.displayName !== undefined &&
+      createProfileSortName(args.displayName) !== createProfileSortName(profile.displayName);
+    const changesAliases = args.aliases !== undefined;
+
+    // Only when the profile is actually publicly readable. A hidden profile --
+    // opted_out or suppressed -- surfaces nothing through this mutation, which never
+    // changes publicSurfacingState, so guarding it would block an owner from editing
+    // a profile that is already retracted. Republication re-checks the identity.
+    if ((renamesProfile || changesAliases) && canReadProfile("public", profile)) {
+      // No profileId: an accepted request against *this* profile would otherwise
+      // match every proposed name, so an already-opted-out profile could never be
+      // renamed even though renaming never restores public surfacing. Only the
+      // proposed identity is evaluated.
+      const proposedDisplayName = args.displayName ?? profile.displayName;
+
+      await assertIdentityNotSuppressed(
+        ctx.db,
+        {
+          // No slug: applyApiProfileUpdate patches displayName and sortName only, so
+          // this path never occupies a slug derived from the new name. Checking one
+          // would reject an unrelated /p/bob owner renaming to a name whose base
+          // slug happens to be suppressed.
+          slugs: [],
+          // Aliases only when they would actually be visible. A private alias is
+          // absent from public pages and search, so submitting it here would reject
+          // an edit that surfaces nothing.
+          displayNames: [
+            proposedDisplayName,
+            ...(getProfileFieldVisibility(profile, "aliases") === "private"
+              ? []
+              : (args.aliases ?? profile.aliases)),
+          ],
+          profileType: profile.profileType,
+        },
+        // Uses the approved default rather than a rename-specific sentence: only
+        // "This profile cannot be submitted." and "This profile cannot be created."
+        // carry BASIC's sign-off, and unapproved public copy must not ship.
+      );
     }
 
     const now = Date.now();
@@ -307,7 +366,22 @@ export const submitCommunityProfile = mutation({
     const { subject } = await requireActiveBrowserSessionSubject(ctx);
     const input = sanitizeCommunitySubmissionProfileInput(args);
     const now = Date.now();
+
     const slug = await findAvailableProfileSlug(ctx.db, input.displayName);
+
+    // Community submissions publish immediately, so they are the other way an
+    // accepted suppression request can be bypassed: someone can submit an identity
+    // that asked not to be listed. Both the base slug the name would naturally take
+    // and the slug actually allocated are checked, because a request may have been
+    // filed with only a slug and no display name, and because the base slug being
+    // taken pushes the allocation to a suffixed variant.
+    await assertIdentityNotSuppressed(ctx.db, {
+      slugs: [createProfileSlugBase(input.displayName), slug],
+      // Aliases too: a submission can carry an unrelated display name and put the
+      // suppressed one in aliases, which toPublicProfile exposes and search indexes.
+      displayNames: [input.displayName, ...input.aliases],
+      profileType: input.profileType,
+    });
     const sourceAttribution = {
       submittedAt: now,
       submitter: subject,

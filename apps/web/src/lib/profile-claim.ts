@@ -1,4 +1,6 @@
 export type ClaimEntrySource = "account" | "profile" | "search";
+/** Outcome reported back by the Discord guild-verification callback route. */
+export type DiscordVerifyStatus = "verified" | "declined" | "failed" | "unavailable" | null;
 type ProfileRouteTarget = {
   hasPublicProfile: boolean;
   profileType: "person" | "community";
@@ -49,6 +51,18 @@ export function ownerProfileDestinationPath(
   }
 
   return `/${profile.profileType === "community" ? "c" : "p"}/${encodeURIComponent(profile.slug)}`;
+}
+
+const discordVerifyStatuses = new Set(["verified", "declined", "failed", "unavailable"]);
+
+export function parseDiscordVerifyStatus(
+  value: string | string[] | undefined,
+): DiscordVerifyStatus {
+  const candidate = Array.isArray(value) ? value[0] : value;
+
+  return candidate && discordVerifyStatuses.has(candidate)
+    ? (candidate as NonNullable<DiscordVerifyStatus>)
+    : null;
 }
 
 export function parseClaimEntrySource(value: string | string[] | undefined): ClaimEntrySource {

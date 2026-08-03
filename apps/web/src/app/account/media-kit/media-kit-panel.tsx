@@ -2,7 +2,6 @@
 
 import { useMutation, useQuery } from "convex/react";
 import { ArrowDown, ArrowUp, ImagePlus, RotateCcw, Star, Trash2 } from "lucide-react";
-import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 
@@ -16,6 +15,8 @@ import { cn } from "@/lib/cn";
 import { profileMediaMimeType } from "@/lib/profile-media-kit";
 
 import {
+  createProfileMediaAccessibilityPreview,
+  prepareProfileMediaMultipartFallback,
   prepareProfileMediaUpload,
   type PreparedProfileMediaUpload,
 } from "./prepare-profile-media-upload";
@@ -27,13 +28,18 @@ type MediaAsset = {
   caption?: string;
   altText?: string;
   credit?: string;
+  creditUrl?: string;
   mimeType: string;
   byteSize: number;
+  downloadMimeType?: string;
+  downloadByteSize?: number;
+  sourcePreserved?: boolean;
   width?: number;
   height?: number;
   gallery: boolean;
   featured: boolean;
   imageUrl?: string;
+  downloadUrl?: string;
 };
 
 type MediaProfile = {
@@ -49,8 +55,17 @@ type EditorActions = {
   upload: (
     profileId: string,
     file: File,
-    metadata: Pick<MediaAsset, "label" | "altText" | "credit">,
+    metadata: Pick<MediaAsset, "label" | "caption" | "altText" | "credit" | "creditUrl">,
+    onProgress: (value: number) => void,
   ) => Promise<void>;
+  generate: (profileId: string, source: File | MediaAsset) => Promise<string>;
+  replace: (
+    profileId: string,
+    asset: MediaAsset,
+    file: File,
+    position: number,
+    onProgress: (value: number) => void,
+  ) => Promise<string>;
   saveMetadata: (profileId: string, asset: MediaAsset) => Promise<void>;
   reorder: (profileId: string, assetIds: string[]) => Promise<void>;
   feature: (profileId: string, assetId: string | null) => Promise<void>;
@@ -67,6 +82,64 @@ const inputClass =
 
 function formatBytes(bytes: number) {
   return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function uploadDirectFile(
+  target: { url: string; fields: Record<string, string> },
+  file: File,
+  onProgress: (value: number) => void,
+) {
+  return new Promise<void>((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open("POST", target.url);
+    request.upload.addEventListener("progress", (event) => {
+      if (event.lengthComputable) onProgress(event.loaded / event.total);
+    });
+    request.addEventListener("load", () => {
+      if (request.status >= 200 && request.status < 300) {
+        onProgress(1);
+        resolve();
+      } else {
+        reject(new Error("Upload failed. Try again."));
+      }
+    });
+    request.addEventListener("error", () => reject(new Error("Upload failed. Try again.")));
+    request.addEventListener("abort", () => reject(new Error("Upload canceled.")));
+    const form = new FormData();
+    for (const [name, value] of Object.entries(target.fields)) form.set(name, value);
+    form.set("file", file);
+    request.send(form);
+  });
+}
+
+async function generatedAccessibilityDescription(profileId: string, source: File | MediaAsset) {
+  let file: File;
+  if (source instanceof File) {
+    file = source;
+  } else {
+    if (!source.imageUrl) throw new Error("Image preview is unavailable.");
+    const response = await fetch(source.imageUrl);
+    if (!response.ok) throw new Error("Image preview is unavailable.");
+    const blob = await response.blob();
+    file = new File([blob], "profile-media", { type: blob.type });
+  }
+  const imageDataUrl = await createProfileMediaAccessibilityPreview(file);
+  const response = await fetch(
+    `/api/account/media-kit/${encodeURIComponent(profileId)}/accessibility-description`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ imageDataUrl, requestId: crypto.randomUUID() }),
+    },
+  );
+  const body = await response.json().catch(() => null) as {
+    description?: string;
+    error?: string;
+  } | null;
+  if (!response.ok || !body?.description) {
+    throw new Error(body?.error || "Generation failed. Try again.");
+  }
+  return body.description;
 }
 
 function ActionStatusMessage({ className, status }: { className?: string; status: ActionStatus | null }) {
@@ -93,15 +166,20 @@ function AssetEditor({
   count,
   profileId,
   actions,
+  generationEnabled,
   operationBusy,
   runOperation,
   onRemoved,
+  onReplacementStarted,
+  onReplacementSettled,
+  onReplaced,
 }: {
   asset: MediaAsset;
   index: number;
   count: number;
   profileId: string;
   actions: EditorActions;
+  generationEnabled: boolean;
   operationBusy: boolean;
   runOperation: (
     successMessage: string,
@@ -109,10 +187,17 @@ function AssetEditor({
     setStatus: (status: ActionStatus | null) => void,
   ) => Promise<boolean>;
   onRemoved: (assetId: string) => void;
+  onReplacementStarted: (profileId: string) => void;
+  onReplacementSettled: (profileId: string) => void;
+  onReplaced: (profileId: string, assetId: string) => void;
 }) {
   const [draft, setDraft] = useState(asset);
   const [saving, setSaving] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [replacing, setReplacing] = useState(false);
   const [status, setStatus] = useState<ActionStatus | null>(null);
+  const cardBusy = operationBusy || saving || generating || replacing;
+  const assetName = draft.label || asset.label || `image ${index + 1}`;
 
   const save = async (event: FormEvent) => {
     event.preventDefault();
@@ -136,6 +221,56 @@ function AssetEditor({
       setStatus,
     );
     if (removed) onRemoved(asset.assetId);
+  };
+
+  const generate = async () => {
+    if (draft.altText?.trim()) return;
+    setGenerating(true);
+    setStatus(null);
+    try {
+      const altText = await actions.generate(profileId, asset);
+      setDraft((current) => current.altText?.trim() ? current : ({ ...current, altText }));
+      setStatus({ kind: "success", message: "Generated." });
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        message: error instanceof Error ? error.message : "Generation failed. Try again.",
+      });
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const replace = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (profileMediaMimeType(file.type, file.name) === null) {
+      setStatus({ kind: "error", message: "Choose a PNG, JPEG, WebP, or SVG image." });
+      return;
+    }
+    if (file.size <= 0 || file.size > 12 * 1024 * 1024) {
+      setStatus({ kind: "error", message: "Choose an image up to 12 MB." });
+      return;
+    }
+    setReplacing(true);
+    onReplacementStarted(profileId);
+    setStatus({ kind: "progress", message: "Preparing…" });
+    try {
+      const prepared = await prepareProfileMediaUpload(file);
+      const replacementAssetId = await actions.replace(profileId, asset, prepared.file, index, (value) => {
+        setStatus({ kind: "progress", message: `Uploading ${Math.round(value * 100)}%` });
+      });
+      onReplaced(profileId, replacementAssetId);
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        message: error instanceof Error ? error.message : "Replace failed. Try again.",
+      });
+    } finally {
+      setReplacing(false);
+      onReplacementSettled(profileId);
+    }
   };
 
   return (
@@ -163,15 +298,18 @@ function AssetEditor({
               <div>
                 <p className="font-medium">{asset.label || `Image ${index + 1}`}</p>
                 <p className="mt-1 text-xs text-muted">
-                  {asset.mimeType.replace("image/", "").toUpperCase()} · {formatBytes(asset.byteSize)}
+                  {asset.mimeType.replace("image/", "").toUpperCase()} display · {formatBytes(asset.byteSize)}
                   {asset.width && asset.height ? ` · ${asset.width}×${asset.height}` : ""}
+                  {asset.downloadMimeType
+                    ? ` · ${asset.downloadMimeType.replace("image/", "").toUpperCase()} download · ${formatBytes(asset.downloadByteSize ?? asset.byteSize)}`
+                    : ""}
                 </p>
               </div>
               <div className="flex gap-1">
-                <Button aria-label={`Move ${asset.label || `image ${index + 1}`} up`} disabled={operationBusy || index === 0} onClick={() => void move(-1)} size="sm" type="button" variant="ghost">
+                <Button aria-label={`Move ${assetName} up`} disabled={cardBusy || index === 0} onClick={() => void move(-1)} size="sm" type="button" variant="ghost">
                   <ArrowUp aria-hidden="true" className="size-4" />
                 </Button>
-                <Button aria-label={`Move ${asset.label || `image ${index + 1}`} down`} disabled={operationBusy || index === count - 1} onClick={() => void move(1)} size="sm" type="button" variant="ghost">
+                <Button aria-label={`Move ${assetName} down`} disabled={cardBusy || index === count - 1} onClick={() => void move(1)} size="sm" type="button" variant="ghost">
                   <ArrowDown aria-hidden="true" className="size-4" />
                 </Button>
               </div>
@@ -180,26 +318,40 @@ function AssetEditor({
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="text-sm font-medium">
                 Title
-                <input className={inputClass} maxLength={80} onChange={(event) => setDraft({ ...draft, label: event.target.value })} value={draft.label ?? ""} />
+                <input className={inputClass} disabled={cardBusy} maxLength={80} onChange={(event) => setDraft({ ...draft, label: event.target.value })} value={draft.label ?? ""} />
               </label>
               <label className="text-sm font-medium">
                 Credit
-                <input className={inputClass} maxLength={120} onChange={(event) => setDraft({ ...draft, credit: event.target.value })} value={draft.credit ?? ""} />
+                <input className={inputClass} disabled={cardBusy} maxLength={120} onChange={(event) => setDraft({ ...draft, credit: event.target.value })} value={draft.credit ?? ""} />
               </label>
             </div>
             <label className="text-sm font-medium">
-              Accessibility description
-              <textarea className={cn(inputClass, "min-h-20 resize-y")} maxLength={180} onChange={(event) => setDraft({ ...draft, altText: event.target.value })} value={draft.altText ?? ""} />
+              Credit link
+              <input className={inputClass} disabled={cardBusy} inputMode="url" maxLength={2048} onChange={(event) => setDraft({ ...draft, creditUrl: event.target.value })} type="url" value={draft.creditUrl ?? ""} />
             </label>
+            <div>
+              <div className="flex items-center justify-between gap-3">
+                <label className="text-sm font-medium" htmlFor={`asset-alt-${asset.assetId}`}>
+                  Accessibility description
+                </label>
+                {generationEnabled ? (
+                  <Button aria-label={`Generate accessibility description for ${assetName}`} disabled={cardBusy || Boolean(draft.altText?.trim())} onClick={() => void generate()} size="sm" type="button" variant="ghost">
+                    {generating ? "Generating…" : "Generate"}
+                  </Button>
+                ) : null}
+              </div>
+              <textarea className={cn(inputClass, "min-h-20 resize-y")} disabled={cardBusy} id={`asset-alt-${asset.assetId}`} maxLength={180} onChange={(event) => setDraft({ ...draft, altText: event.target.value })} value={draft.altText ?? ""} />
+            </div>
             <label className="text-sm font-medium">
               Caption
-              <textarea className={cn(inputClass, "min-h-20 resize-y")} maxLength={240} onChange={(event) => setDraft({ ...draft, caption: event.target.value })} value={draft.caption ?? ""} />
+              <textarea className={cn(inputClass, "min-h-20 resize-y")} disabled={cardBusy} maxLength={240} onChange={(event) => setDraft({ ...draft, caption: event.target.value })} value={draft.caption ?? ""} />
             </label>
 
             <div className="flex flex-wrap items-center gap-2 border-t border-border pt-4">
-              <Button disabled={operationBusy} type="submit" variant="primary">{saving ? "Saving…" : "Save"}</Button>
+              <Button aria-label={`Save ${assetName}`} disabled={cardBusy} type="submit" variant="primary">{saving ? "Saving…" : "Save"}</Button>
               <Button
-                disabled={operationBusy || asset.featured}
+                aria-label={asset.featured ? `${assetName} is featured` : `Make ${assetName} featured`}
+                disabled={cardBusy || asset.featured}
                 onClick={() => {
                   void runOperation(
                     "Featured.",
@@ -213,10 +365,19 @@ function AssetEditor({
                 <Star aria-hidden="true" className="mr-2 size-4" />
                 {asset.featured ? "Featured" : "Make featured"}
               </Button>
-              <Button className="ml-auto" disabled={operationBusy} onClick={() => void remove()} type="button" variant="ghost">
+              <Button aria-label={`Remove ${assetName}`} className="ml-auto" disabled={cardBusy} onClick={() => void remove()} type="button" variant="ghost">
                 <Trash2 aria-hidden="true" className="mr-2 size-4" />
                 Remove
               </Button>
+              {asset.downloadUrl ? (
+                <a aria-label={`Download ${assetName}`} className={buttonVariants({ size: "sm", variant: "secondary" })} download href={asset.downloadUrl}>
+                  Download
+                </a>
+              ) : null}
+              <label className={cn(buttonVariants({ size: "sm", variant: "secondary" }), "focus-within:ring-2 focus-within:ring-focus focus-within:ring-offset-2", cardBusy ? "pointer-events-none opacity-60" : "cursor-pointer")}>
+                {replacing ? "Replacing…" : "Replace"}
+                <input aria-label={`Replace ${assetName}`} accept=".png,.jpg,.jpeg,.webp,.svg,image/png,image/jpeg,image/webp,image/svg+xml" className="sr-only" disabled={cardBusy} onChange={(event) => void replace(event)} type="file" />
+              </label>
             </div>
             <ActionStatusMessage status={status} />
           </form>
@@ -273,7 +434,7 @@ function OtherAsset({
         </p>
         <ActionStatusMessage className="mt-2" status={status} />
       </div>
-      <Button className="col-span-2 justify-self-end sm:col-span-1" disabled={operationBusy} onClick={() => void remove()} type="button" variant="ghost">
+      <Button aria-label={`Remove ${asset.label || "Untitled image"}`} className="col-span-2 justify-self-end sm:col-span-1" disabled={operationBusy} onClick={() => void remove()} type="button" variant="ghost">
         <Trash2 aria-hidden="true" className="mr-2 size-4" />
         Remove
       </Button>
@@ -285,11 +446,13 @@ function MediaKitEditor({
   initialProfiles,
   initialProfileSlug,
   actions,
+  generationEnabled,
   onPreparationSettled,
 }: {
   initialProfiles: MediaProfile[];
   initialProfileSlug?: string;
   actions: EditorActions;
+  generationEnabled: boolean;
   onPreparationSettled?: () => void;
 }) {
   const [selectedId, setSelectedId] = useState(
@@ -299,20 +462,31 @@ function MediaKitEditor({
   );
   const [uploadStatus, setUploadStatus] = useState<ActionStatus | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [generatingUpload, setGeneratingUpload] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [operationBusy, setOperationBusy] = useState(false);
+  const [replacingProfileId, setReplacingProfileId] = useState<string | null>(null);
   const [galleryStatus, setGalleryStatus] = useState<ActionStatus | null>(null);
   const [removedStatus, setRemovedStatus] = useState<ActionStatus | null>(null);
   const [focusRestoreAssetId, setFocusRestoreAssetId] = useState<string | null>(null);
   const [focusActiveAssetId, setFocusActiveAssetId] = useState<string | null>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [preparedUpload, setPreparedUpload] = useState<PreparedProfileMediaUpload | null>(null);
-  const [preparedPreviewUrl, setPreparedPreviewUrl] = useState<string | null>(null);
-  const [uploadMetadata, setUploadMetadata] = useState({ label: "", altText: "", credit: "" });
+  const [uploadMetadata, setUploadMetadata] = useState({
+    label: "",
+    caption: "",
+    altText: "",
+    credit: "",
+    creditUrl: "",
+  });
   const prepareRequestRef = useRef(0);
   const uploadRequestRef = useRef(0);
+  const generationRequestRef = useRef(0);
   const profileSelectRef = useRef<HTMLSelectElement>(null);
   const shouldFocusProfileRef = useRef(false);
   const selectedProfile = initialProfiles.find((item) => item.profileId === selectedId);
+  const selectedProfileIdRef = useRef<string | null>(selectedProfile?.profileId ?? null);
+  selectedProfileIdRef.current = selectedProfile?.profileId ?? null;
   const profile = selectedProfile ?? initialProfiles[0];
   const activeAssets = profile?.assets.filter((asset) => asset.state === "active" && asset.gallery) ?? [];
   const otherActiveAssets = profile?.assets.filter((asset) => asset.state === "active" && !asset.gallery) ?? [];
@@ -324,10 +498,12 @@ function MediaKitEditor({
     if (selectedProfile) return;
     prepareRequestRef.current += 1;
     uploadRequestRef.current += 1;
+    generationRequestRef.current += 1;
+    setGeneratingUpload(false);
     setUploading(false);
     setPendingFile(null);
     setPreparedUpload(null);
-    setUploadMetadata({ label: "", altText: "", credit: "" });
+    setUploadMetadata({ label: "", caption: "", altText: "", credit: "", creditUrl: "" });
     setUploadStatus(null);
     setGalleryStatus(null);
     setRemovedStatus(null);
@@ -335,16 +511,6 @@ function MediaKitEditor({
     shouldFocusProfileRef.current = Boolean(fallbackId && selectedId);
     setSelectedId(fallbackId);
   }, [initialProfiles, selectedId, selectedProfile]);
-
-  useEffect(() => {
-    if (!preparedUpload?.changed) {
-      setPreparedPreviewUrl(null);
-      return;
-    }
-    const url = URL.createObjectURL(preparedUpload.file);
-    setPreparedPreviewUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [preparedUpload]);
 
   useEffect(() => {
     if (!selectedProfile || !shouldFocusProfileRef.current) return;
@@ -373,10 +539,12 @@ function MediaKitEditor({
   const selectProfile = (profileId: string) => {
     prepareRequestRef.current += 1;
     uploadRequestRef.current += 1;
+    generationRequestRef.current += 1;
+    setGeneratingUpload(false);
     setSelectedId(profileId);
     setPendingFile(null);
     setPreparedUpload(null);
-    setUploadMetadata({ label: "", altText: "", credit: "" });
+    setUploadMetadata({ label: "", caption: "", altText: "", credit: "", creditUrl: "" });
     setUploadStatus(null);
     setGalleryStatus(null);
     setRemovedStatus(null);
@@ -396,6 +564,8 @@ function MediaKitEditor({
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file || !profile) return;
+    generationRequestRef.current += 1;
+    setGeneratingUpload(false);
     if (profileMediaMimeType(file.type, file.name) === null) {
       setUploadStatus({ kind: "error", message: "Choose a PNG, JPEG, WebP, or SVG image." });
       return;
@@ -416,8 +586,10 @@ function MediaKitEditor({
         setPreparedUpload(prepared);
         setUploadMetadata({
           label: file.name.replace(/\.[^.]+$/, "").slice(0, 80),
+          caption: "",
           altText: "",
           credit: "",
+          creditUrl: "",
         });
         setUploadStatus(null);
       })
@@ -442,10 +614,16 @@ function MediaKitEditor({
       return;
     }
     setUploading(true);
+    setUploadProgress(0);
     setUploadStatus({ kind: "progress", message: `Uploading ${pendingFile.name}…` });
     const requestId = ++uploadRequestRef.current;
     try {
-      await actions.upload(selectedProfile.profileId, preparedUpload.file, uploadMetadata);
+      await actions.upload(
+        selectedProfile.profileId,
+        preparedUpload.file,
+        uploadMetadata,
+        setUploadProgress,
+      );
       if (uploadRequestRef.current !== requestId) return;
       setUploadStatus({ kind: "success", message: "Published." });
       setPendingFile(null);
@@ -458,6 +636,37 @@ function MediaKitEditor({
       });
     } finally {
       if (uploadRequestRef.current === requestId) setUploading(false);
+    }
+  };
+
+  const replacementSettled = (profileId: string) => {
+    setReplacingProfileId((current) => current === profileId ? null : current);
+  };
+
+  const replacedAsset = (profileId: string, assetId: string) => {
+    if (selectedProfileIdRef.current !== profileId) return;
+    setGalleryStatus({ kind: "success", message: "Replaced." });
+    setFocusActiveAssetId(assetId);
+  };
+
+  const generateUpload = async () => {
+    if (!pendingFile || !selectedProfile || uploadMetadata.altText.trim()) return;
+    const requestId = ++generationRequestRef.current;
+    setGeneratingUpload(true);
+    setUploadStatus(null);
+    try {
+      const altText = await actions.generate(selectedProfile.profileId, pendingFile);
+      if (generationRequestRef.current !== requestId) return;
+      setUploadMetadata((current) => current.altText.trim() ? current : ({ ...current, altText }));
+      setUploadStatus({ kind: "success", message: "Generated." });
+    } catch (error) {
+      if (generationRequestRef.current !== requestId) return;
+      setUploadStatus({
+        kind: "error",
+        message: error instanceof Error ? error.message : "Generation failed. Try again.",
+      });
+    } finally {
+      if (generationRequestRef.current === requestId) setGeneratingUpload(false);
     }
   };
 
@@ -497,7 +706,7 @@ function MediaKitEditor({
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
           <div>
             <label className="text-sm font-medium" htmlFor="media-profile">Profile</label>
-            <select className={cn(inputClass, "max-w-md")} disabled={uploading || operationBusy} id="media-profile" onChange={(event) => selectProfile(event.target.value)} ref={profileSelectRef} value={profile.profileId}>
+            <select className={cn(inputClass, "max-w-md")} disabled={uploading || generatingUpload || operationBusy || replacingProfileId !== null} id="media-profile" onChange={(event) => selectProfile(event.target.value)} ref={profileSelectRef} value={profile.profileId}>
               {initialProfiles.map((item) => <option key={item.profileId} value={item.profileId}>{item.displayName}</option>)}
             </select>
             <p className="mt-3 text-sm text-muted">{profile.activePublicAssetCount} / 12</p>
@@ -506,29 +715,28 @@ function MediaKitEditor({
             <Link className={buttonVariants({ variant: "secondary" })} href={`/${profile.profileType === "community" ? "c" : "p"}/${profile.slug}`}>
               View profile
             </Link>
-            <label className={cn(buttonVariants({ variant: "primary" }), "cursor-pointer focus-within:ring-2 focus-within:ring-focus focus-within:ring-offset-2", !selectedProfile || uploading || profile.activePublicAssetCount >= 12 ? "pointer-events-none opacity-60" : "")}>
+            <label className={cn(buttonVariants({ variant: "primary" }), "cursor-pointer focus-within:ring-2 focus-within:ring-focus focus-within:ring-offset-2", !selectedProfile || uploading || generatingUpload || profile.activePublicAssetCount >= 12 ? "pointer-events-none opacity-60" : "")}>
               <ImagePlus aria-hidden="true" className="mr-2 size-4" />
               {uploading ? (pendingFile ? "Uploading…" : "Preparing…") : "Add image"}
-              <input accept=".png,.jpg,.jpeg,.webp,.svg,image/png,image/jpeg,image/webp,image/svg+xml" className="sr-only" disabled={!selectedProfile || uploading || profile.activePublicAssetCount >= 12} onChange={chooseFile} type="file" />
+              <input accept=".png,.jpg,.jpeg,.webp,.svg,image/png,image/jpeg,image/webp,image/svg+xml" className="sr-only" disabled={!selectedProfile || uploading || generatingUpload || profile.activePublicAssetCount >= 12} onChange={chooseFile} type="file" />
             </label>
           </div>
         </div>
-        {uploading ? <progress aria-label={pendingFile ? "Image upload in progress" : "Image preparation in progress"} className="mt-5 w-full" /> : null}
+        {uploading ? (
+          <progress
+            aria-label={pendingFile ? "Image upload in progress" : "Image preparation in progress"}
+            className="mt-5 w-full"
+            {...(pendingFile ? { max: 1, value: uploadProgress } : {})}
+          />
+        ) : null}
         {!pendingFile ? <ActionStatusMessage className="mt-3" status={uploadStatus} /> : null}
         {selectedProfile && pendingFile ? (
           <form className="mt-4 grid gap-4 border-t border-border pt-4" onSubmit={publishUpload}>
-            <p className="text-sm font-medium">{pendingFile.name}</p>
-            {preparedUpload?.changed && preparedPreviewUrl ? (
-              <div className="grid gap-3 sm:grid-cols-[8rem_minmax(0,1fr)] sm:items-center">
-                <Image alt="" className="aspect-square w-32 rounded-control border border-border bg-canvas-muted object-contain" height={128} src={preparedPreviewUrl} unoptimized width={128} />
-                <p className="text-sm text-muted">
-                  {profileMediaMimeType(pendingFile.type, pendingFile.name)?.replace("image/", "").toUpperCase()} · {formatBytes(pendingFile.size)}
-                  {" → "}
-                  WEBP · {formatBytes(preparedUpload.file.size)}
-                  {preparedUpload.width && preparedUpload.height ? ` · ${preparedUpload.width} × ${preparedUpload.height}` : ""}
-                </p>
-              </div>
-            ) : null}
+            {/* A local filename can carry anything the uploader's disk does.
+                `maskAllInputs` covers the file input, not this rendered text. */}
+            <p className="text-sm font-medium" data-ph-no-capture>
+              {pendingFile.name}
+            </p>
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="text-sm font-medium">
                 Title
@@ -540,12 +748,30 @@ function MediaKitEditor({
               </label>
             </div>
             <label className="text-sm font-medium">
-              Accessibility description
-              <textarea className={cn(inputClass, "min-h-20 resize-y")} maxLength={180} onChange={(event) => setUploadMetadata({ ...uploadMetadata, altText: event.target.value })} value={uploadMetadata.altText} />
+              Credit link
+              <input className={inputClass} inputMode="url" maxLength={2048} onChange={(event) => setUploadMetadata({ ...uploadMetadata, creditUrl: event.target.value })} type="url" value={uploadMetadata.creditUrl} />
+            </label>
+            <div>
+              <div className="flex items-center justify-between gap-3">
+                <label className="text-sm font-medium" htmlFor="media-upload-alt">
+                  Accessibility description
+                </label>
+                {generationEnabled ? (
+                  <Button aria-label="Generate accessibility description for upload" disabled={uploading || generatingUpload || Boolean(uploadMetadata.altText.trim())} onClick={() => void generateUpload()} size="sm" type="button" variant="ghost">
+                    {generatingUpload ? "Generating…" : "Generate"}
+                  </Button>
+                ) : null}
+              </div>
+              <textarea className={cn(inputClass, "min-h-20 resize-y")} disabled={generatingUpload} id="media-upload-alt" maxLength={180} onChange={(event) => setUploadMetadata({ ...uploadMetadata, altText: event.target.value })} value={uploadMetadata.altText} />
+            </div>
+            <label className="text-sm font-medium">
+              Caption
+              <textarea className={cn(inputClass, "min-h-20 resize-y")} maxLength={240} onChange={(event) => setUploadMetadata({ ...uploadMetadata, caption: event.target.value })} value={uploadMetadata.caption} />
             </label>
             <div className="flex gap-2">
-              <Button disabled={uploading} type="submit" variant="primary">Publish</Button>
-              <Button disabled={uploading} onClick={() => {
+              <Button disabled={uploading || generatingUpload} type="submit" variant="primary">Publish</Button>
+              <Button disabled={uploading || generatingUpload} onClick={() => {
+                generationRequestRef.current += 1;
                 setPendingFile(null);
                 setPreparedUpload(null);
               }} type="button" variant="ghost">Cancel</Button>
@@ -574,10 +800,14 @@ function MediaKitEditor({
                 actions={actions}
                 asset={asset}
                 count={activeAssets.length}
+                generationEnabled={generationEnabled}
                 index={index}
                 key={asset.assetId}
                 onRemoved={setFocusRestoreAssetId}
-                operationBusy={operationBusy}
+                onReplacementSettled={replacementSettled}
+                onReplacementStarted={setReplacingProfileId}
+                onReplaced={replacedAsset}
+                operationBusy={operationBusy || replacingProfileId !== null}
                 profileId={profile.profileId}
                 runOperation={runOperation}
               />
@@ -617,6 +847,7 @@ function MediaKitEditor({
               <li className="flex flex-wrap items-center justify-between gap-3 py-3" key={asset.assetId}>
                 <span className="text-sm">{asset.label || "Untitled image"}</span>
                 <Button
+                  aria-label={`Restore ${asset.label || "Untitled image"}`}
                   disabled={operationBusy}
                   id={`restore-${asset.assetId}`}
                   onClick={() => void restoreAsset(asset.assetId)}
@@ -643,7 +874,7 @@ const demoProfiles: MediaProfile[] = [
     profileType: "person",
     slug: "playwright-dj-aurora",
     displayName: "DJ Aurora",
-    activePublicAssetCount: 3,
+    activePublicAssetCount: 4,
     assets: [
     {
       assetId: "aurora-primary",
@@ -652,13 +883,18 @@ const demoProfiles: MediaProfile[] = [
       caption: "Warm-room portrait for lineups and editorial coverage.",
       altText: "DJ Aurora framed by violet light and a warm orange glow.",
       credit: "Artwork by Afterglow Studio",
+      creditUrl: "https://example.invalid/afterglow-studio",
       mimeType: "image/webp",
-      byteSize: 428_000,
+      byteSize: 92_000,
+      downloadMimeType: "image/png",
+      downloadByteSize: 428_000,
+      sourcePreserved: true,
       width: 1600,
       height: 1200,
       gallery: true,
       featured: true,
       imageUrl: "/api/e2e/fixture-assets/fixture-aurora-profile-image",
+      downloadUrl: "/api/e2e/fixture-assets/fixture-aurora-profile-image?download=1",
     },
     {
       assetId: "aurora-logo",
@@ -667,11 +903,15 @@ const demoProfiles: MediaProfile[] = [
       caption: "Primary landscape mark on a dark background.",
       mimeType: "image/svg+xml",
       byteSize: 86_000,
+      downloadMimeType: "image/svg+xml",
+      downloadByteSize: 86_000,
+      sourcePreserved: true,
       width: 1200,
       height: 675,
       gallery: true,
       featured: false,
       imageUrl: "/api/e2e/fixture-assets/fixture-aurora-primary-logo",
+      downloadUrl: "/api/e2e/fixture-assets/fixture-aurora-primary-logo?download=1",
     },
     {
       assetId: "aurora-avatar",
@@ -680,11 +920,28 @@ const demoProfiles: MediaProfile[] = [
       altText: "AURORA wordmark in white over violet and cyan light.",
       mimeType: "image/png",
       byteSize: 210_000,
+      sourcePreserved: false,
       width: 800,
       height: 800,
       gallery: false,
       featured: false,
       imageUrl: "/api/e2e/fixture-assets/fixture-aurora-alt-logo",
+      downloadUrl: "/api/e2e/fixture-assets/fixture-aurora-alt-logo?download=1",
+    },
+    {
+      assetId: "aurora-banner",
+      state: "active",
+      label: "Legacy banner",
+      altText: "AURORA wordmark in white over violet and cyan light.",
+      mimeType: "image/webp",
+      byteSize: 180_000,
+      sourcePreserved: false,
+      width: 1200,
+      height: 675,
+      gallery: false,
+      featured: false,
+      imageUrl: "/api/e2e/fixture-assets/fixture-aurora-primary-logo",
+      downloadUrl: "/api/e2e/fixture-assets/fixture-aurora-primary-logo?download=1",
     },
     {
       assetId: "aurora-removed",
@@ -693,6 +950,15 @@ const demoProfiles: MediaProfile[] = [
       mimeType: "image/png",
       byteSize: 210_000,
       gallery: true,
+      featured: false,
+    },
+    {
+      assetId: "aurora-removed-banner",
+      state: "deleted",
+      label: "Removed banner",
+      mimeType: "image/webp",
+      byteSize: 180_000,
+      gallery: false,
       featured: false,
     },
     ],
@@ -723,7 +989,8 @@ function DemoMediaKitPanel({ initialProfileSlug }: { initialProfileSlug?: string
     return () => window.removeEventListener("vrdex:toggle-media-profile", toggleProfile);
   }, []);
   const actions = useMemo<EditorActions>(() => ({
-    upload: async (_profileId, file) => {
+    upload: async (_profileId, file, _metadata, onProgress) => {
+      onProgress(0.5);
       const bitmap = file.name.endsWith(".webp") ? await createImageBitmap(file) : null;
       window.dispatchEvent(new CustomEvent("vrdex:media-upload-attempt", {
         detail: {
@@ -737,6 +1004,38 @@ function DemoMediaKitPanel({ initialProfileSlug }: { initialProfileSlug?: string
       if (file.name === "slow.png") {
         await new Promise((resolve) => setTimeout(resolve, 500));
         window.dispatchEvent(new Event("vrdex:media-upload-settled"));
+      }
+      throw new Error("Synthetic preview storage does not accept new files.");
+    },
+    generate: async () => {
+      if ((window as typeof window & { vrdexGenerationFailure?: boolean }).vrdexGenerationFailure) {
+        throw new Error("Generation failed. Try again.");
+      }
+      if ((window as typeof window & { vrdexGenerationSlow?: boolean }).vrdexGenerationSlow) {
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        window.dispatchEvent(new Event("vrdex:media-generation-settled"));
+      }
+      return "A performer stands in violet and orange light.";
+    },
+    replace: async (profileId, asset, file, _position, onProgress) => {
+      onProgress(0.5);
+      if (file.name === "successful-replacement.png" || file.name === "slow-replacement.png") {
+        if (file.name === "slow-replacement.png") {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          window.dispatchEvent(new Event("vrdex:media-replacement-settled"));
+        }
+        const replacementAssetId = `${asset.assetId}-replacement`;
+        setProfiles((items) => items.map((profile) => profile.profileId === profileId
+          ? {
+              ...profile,
+              assets: profile.assets.map((current) =>
+                current.assetId === asset.assetId
+                  ? { ...current, assetId: replacementAssetId }
+                  : current,
+              ),
+            }
+          : profile));
+        return replacementAssetId;
       }
       throw new Error("Synthetic preview storage does not accept new files.");
     },
@@ -766,6 +1065,7 @@ function DemoMediaKitPanel({ initialProfileSlug }: { initialProfileSlug?: string
   return (
     <MediaKitEditor
       actions={actions}
+      generationEnabled
       initialProfiles={profiles}
       initialProfileSlug={initialProfileSlug}
       onPreparationSettled={() => window.dispatchEvent(new Event("vrdex:media-preparation-settled"))}
@@ -773,7 +1073,13 @@ function DemoMediaKitPanel({ initialProfileSlug }: { initialProfileSlug?: string
   );
 }
 
-function ConnectedMediaKitPanel({ initialProfileSlug }: { initialProfileSlug?: string }) {
+function ConnectedMediaKitPanel({
+  generationEnabled,
+  initialProfileSlug,
+}: {
+  generationEnabled: boolean;
+  initialProfileSlug?: string;
+}) {
   const profiles = useQuery(api.profileAssets.listOwnedMediaKitProfiles);
   const createUploadIntent = useMutation(api.profileAssets.createUploadIntentForOwnedProfile);
   const cancelUploadIntent = useMutation(api.profileAssets.cancelOwnedUploadIntent);
@@ -782,42 +1088,118 @@ function ConnectedMediaKitPanel({ initialProfileSlug }: { initialProfileSlug?: s
   const setFeatured = useMutation(api.profileAssets.setOwnedFeaturedAsset);
   const setDeleted = useMutation(api.profileAssets.setOwnedAssetDeleted);
 
+  const uploadAsset = async (
+    profileId: string,
+    file: File,
+    metadata: Pick<MediaAsset, "label" | "caption" | "altText" | "credit" | "creditUrl">,
+    onProgress: (value: number) => void,
+    placements: Array<"gallery" | "featured"> = ["gallery"],
+    position?: number,
+    replacesAssetId?: string,
+  ) => {
+    const createIntent = (uploadFile: File) => createUploadIntent({
+      profileId: profileId as Id<"profiles">,
+      originalFileName: uploadFile.name,
+      mimeType:
+        profileMediaMimeType(uploadFile.type, uploadFile.name) ??
+        uploadFile.type,
+      byteSize: uploadFile.size,
+      label: metadata.label,
+      caption: metadata.caption,
+      altText: metadata.altText,
+      credit: metadata.credit,
+      creditUrl: metadata.creditUrl,
+      placements,
+      position,
+      ...(replacesAssetId !== undefined
+        ? { replacesAssetId: replacesAssetId as Id<"profileAssets"> }
+        : {}),
+    });
+    let uploadFile = file;
+    let intent = await createIntent(uploadFile);
+    try {
+      if (!intent.directUploadUrl && uploadFile.size > 4 * 1024 * 1024) {
+        await cancelUploadIntent({
+          intentId: intent.intentId,
+          uploadToken: intent.uploadToken,
+        });
+        uploadFile = (await prepareProfileMediaMultipartFallback(uploadFile)).file;
+        intent = await createIntent(uploadFile);
+      }
+      if (intent.directUploadUrl) {
+        const targetResponse = await fetch(intent.directUploadUrl, {
+          method: "POST",
+          headers: { [intent.uploadTokenHeader]: intent.uploadToken },
+        });
+        const target = await targetResponse.json().catch(() => null) as {
+          url?: string;
+          fields?: Record<string, string>;
+          error?: string;
+        } | null;
+        if (!targetResponse.ok || !target?.url || !target.fields) {
+          throw new Error(target?.error || "Upload failed. Try again.");
+        }
+        await uploadDirectFile(
+          { url: target.url, fields: target.fields },
+          uploadFile,
+          onProgress,
+        );
+      }
+      const response = await fetch(intent.uploadUrl, {
+        method: "POST",
+        headers: { [intent.uploadTokenHeader]: intent.uploadToken },
+        ...(!intent.directUploadUrl
+          ? (() => {
+              const data = new FormData();
+              data.set("file", uploadFile);
+              return { body: data };
+            })()
+          : {}),
+      });
+      const body = await response.json().catch(() => null) as {
+        assetIds?: string[];
+        error?: string;
+      } | null;
+      if (!response.ok) {
+        throw new Error(body?.error || "Upload failed. Try again.");
+      }
+      return body?.assetIds?.[0];
+    } catch (error) {
+      await cancelUploadIntent({
+        intentId: intent.intentId,
+        uploadToken: intent.uploadToken,
+      }).catch(() => false);
+      throw error;
+    }
+  };
+
   if (profiles === undefined) return <p aria-busy="true" className="text-sm text-muted" role="status">Loading media kit…</p>;
   if (profiles === null) return <Notice variant="warning">Sign in to manage profile media.</Notice>;
 
   const actions: EditorActions = {
-    upload: async (profileId, file, metadata) => {
-      const intent = await createUploadIntent({
-        profileId: profileId as Id<"profiles">,
-        originalFileName: file.name,
-        mimeType:
-          profileMediaMimeType(file.type, file.name) ??
-          file.type,
-        byteSize: file.size,
-        label: metadata.label,
-        altText: metadata.altText,
-        credit: metadata.credit,
-        placements: ["gallery"],
-      });
-      try {
-        const data = new FormData();
-        data.set("file", file);
-        const response = await fetch(intent.uploadUrl, {
-          method: "POST",
-          headers: { [intent.uploadTokenHeader]: intent.uploadToken },
-          body: data,
-        });
-        if (!response.ok) {
-          const body = await response.json().catch(() => null) as { error?: string } | null;
-          throw new Error(body?.error || "Upload failed. Try again.");
-        }
-      } catch (error) {
-        await cancelUploadIntent({
-          intentId: intent.intentId,
-          uploadToken: intent.uploadToken,
-        }).catch(() => false);
-        throw error;
+    upload: async (profileId, file, metadata, onProgress) => {
+      await uploadAsset(profileId, file, metadata, onProgress);
+    },
+    replace: async (profileId, asset, file, position, onProgress) => {
+      const replacementAssetId = await uploadAsset(
+        profileId,
+        file,
+        {
+          label: asset.label,
+          caption: asset.caption,
+          altText: asset.altText,
+          credit: asset.credit,
+          creditUrl: asset.creditUrl,
+        },
+        onProgress,
+        [],
+        position,
+        asset.assetId,
+      );
+      if (!replacementAssetId) {
+        throw new Error("Replace failed. Try again.");
       }
+      return replacementAssetId;
     },
     saveMetadata: async (profileId, asset) => {
       await updateMetadata({
@@ -827,8 +1209,10 @@ function ConnectedMediaKitPanel({ initialProfileSlug }: { initialProfileSlug?: s
         caption: asset.caption,
         altText: asset.altText,
         credit: asset.credit,
+        creditUrl: asset.creditUrl,
       });
     },
+    generate: generatedAccessibilityDescription,
     reorder: async (profileId, assetIds) => {
       await reorderGallery({
         profileId: profileId as Id<"profiles">,
@@ -853,6 +1237,7 @@ function ConnectedMediaKitPanel({ initialProfileSlug }: { initialProfileSlug?: s
   return (
     <MediaKitEditor
       actions={actions}
+      generationEnabled={generationEnabled}
       initialProfiles={profiles as MediaProfile[]}
       initialProfileSlug={initialProfileSlug}
     />
@@ -861,14 +1246,16 @@ function ConnectedMediaKitPanel({ initialProfileSlug }: { initialProfileSlug?: s
 
 export function MediaKitPanel({
   demoMode,
+  generationEnabled,
   initialProfileSlug,
 }: {
   demoMode: boolean;
+  generationEnabled: boolean;
   initialProfileSlug?: string;
 }) {
   return demoMode ? (
     <DemoMediaKitPanel initialProfileSlug={initialProfileSlug} />
   ) : (
-    <ConnectedMediaKitPanel initialProfileSlug={initialProfileSlug} />
+    <ConnectedMediaKitPanel generationEnabled={generationEnabled} initialProfileSlug={initialProfileSlug} />
   );
 }
