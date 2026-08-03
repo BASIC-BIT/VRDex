@@ -649,33 +649,38 @@ jobs:
           import json, pathlib
           report = pathlib.Path("apps/web/playwright-artifacts/results.json")
           if not report.exists():
-              print("unknown unknown unknown")
+              print("unknown unknown unknown unknown")
               raise SystemExit
           data = json.loads(report.read_text(encoding="utf-8"))
-          tally = {"passed": 0, "failed": 0, "skipped": 0}
+          # `flaky` is Playwright's status for a test that failed an attempt and
+          # then passed; the run exits successfully. Folding it into `failed`
+          # would print failures next to `Outcome: success`, which is its own kind
+          # of summary nobody can trust. Counted on its own instead, because a
+          # retry that passed is worth seeing without being alarming.
+          tally = {"passed": 0, "failed": 0, "skipped": 0, "flaky": 0}
+          buckets = {"expected": "passed", "skipped": "skipped", "flaky": "flaky"}
           def walk(suite):
               for spec in suite.get("specs", []):
                   for test in spec.get("tests", []):
-                      status = test.get("status", "")
-                      key = "passed" if status == "expected" else "skipped" if status == "skipped" else "failed"
-                      tally[key] += 1
+                      tally[buckets.get(test.get("status", ""), "failed")] += 1
               for child in suite.get("suites", []):
                   walk(child)
           for suite in data.get("suites", []):
               walk(suite)
-          print(tally["passed"], tally["failed"], tally["skipped"])
+          print(tally["passed"], tally["failed"], tally["skipped"], tally["flaky"])
           PY
           )
           passed=$(echo "$counts" | cut -d' ' -f1)
           failed=$(echo "$counts" | cut -d' ' -f2)
           skipped=$(echo "$counts" | cut -d' ' -f3)
+          flaky=$(echo "$counts" | cut -d' ' -f4)
 
           {
             echo "## Playwright public screenshot preview"
             echo ""
             echo "Outcome: ${VISUAL_OUTCOME}"
             echo ""
-            echo "Tests: ${passed} passed, ${failed} failed, ${skipped} skipped."
+            echo "Tests: ${passed} passed, ${failed} failed, ${skipped} skipped, ${flaky} flaky."
             if [ "$skipped" != "0" ] && [ "$skipped" != "unknown" ]; then
               echo ""
               echo "Skipped tests produced no screenshots."

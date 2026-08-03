@@ -55,10 +55,31 @@ test.skip(
   clerkTestAuth.available ? "" : `Skipped, no coverage produced: ${clerkTestAuth.reason}`,
 );
 
+// Clerk auth and the E2E helpers are independently switchable, and with the
+// helpers off `DELETE /api/e2e/auth` answers 403. `cleanupClerkTestAccountData`
+// does not inspect the response, so the teardown would look successful while
+// every run left behind a `users` row keyed to a deleted Clerk identity — the
+// exact orphaning the production purge existed to clean up. Skipping is the
+// honest outcome: without a working teardown these tests should not create
+// accounts at all.
+const authHelpersEnabled = process.env.VRDEX_ENABLE_E2E_AUTH_HELPERS === "true";
+
+test.skip(
+  clerkTestAuth.available && !authHelpersEnabled,
+  "Skipped, no coverage produced: VRDEX_ENABLE_E2E_AUTH_HELPERS is not \"true\", so the Convex rows these accounts provision could not be cleaned up.",
+);
+
 test.describe("account surfaces @visual @flow", () => {
   let account: ClerkTestAccount | undefined;
 
   test.beforeEach(async ({ page }, testInfo) => {
+    // Matches the hosted flow specs. The default 30s covers this hook *and* the
+    // test body, while `signInClerkTestAccount` alone allows a 15s Clerk load
+    // followed by a 30s identity assertion — so account creation, navigation,
+    // and capture can exhaust the outer budget with every individual step still
+    // inside its intended hosted tolerance.
+    test.setTimeout(90_000);
+
     account = await createClerkTestAccount(
       `${testInfo.workerIndex}-${testInfo.repeatEachIndex}-${Date.now()}`,
     );
