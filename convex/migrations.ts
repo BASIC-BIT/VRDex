@@ -1,7 +1,7 @@
 import { Migrations } from "@convex-dev/migrations";
 import { v } from "convex/values";
 
-import { isAccountFeatureGrantActive } from "./_accountFeatureModel";
+import { ACCOUNT_FEATURES, isAccountFeatureGrantActive } from "./_accountFeatureModel";
 import { components, internal } from "./_generated/api";
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 import { internalMutation } from "./_generated/server";
@@ -474,14 +474,30 @@ export const purgeConvexAuthLeftovers = internalMutation({
     const regranted: string[] = [];
 
     if (regrantTarget !== undefined) {
-      const grants = await ctx.db
-        .query("accountFeatureGrants")
-        .withIndex("by_userId_feature_state", (q) => q.eq("userId", args.regrantGrantsFrom as Id<"users">))
-        .collect();
-
       const now = Date.now();
 
-      for (const grant of grants) {
+      // One read per feature rather than the user's whole grant history. That
+      // history is unbounded: `accountFeatureGrants.grant` inserts a fresh row
+      // once the previous one has expired, and `revoke` patches rather than
+      // deletes, so repeated grant/revoke cycles accumulate rows for the same
+      // feature and user.
+      //
+      // Newest-active-first is exactly right because of `grant`'s own invariant:
+      // it refuses to insert while an unexpired active grant exists, so if a live
+      // grant exists for a feature it is the most recent active row. Anything
+      // older is expired or revoked, and neither transfers.
+      for (const feature of ACCOUNT_FEATURES) {
+        const newest = await ctx.db
+          .query("accountFeatureGrants")
+          .withIndex("by_userId_feature_state", (q) =>
+            q
+              .eq("userId", args.regrantGrantsFrom as Id<"users">)
+              .eq("feature", feature)
+              .eq("state", "active"),
+          )
+          .order("desc")
+          .first();
+
         // The codebase's own definition of a live grant, not a reimplementation
         // of it. `isAccountFeatureGrantActive` requires an unexpired `expiresAt`
         // as well as `state === "active"`, and checking state alone would move an
@@ -491,14 +507,14 @@ export const purgeConvexAuthLeftovers = internalMutation({
         // Anything not live stays put and blocks. Moving one writes a history in
         // which the Clerk account held and lost a feature it never had; deleting
         // one discards the record of a revocation or an expiry.
-        if (!isAccountFeatureGrantActive(grant, now)) {
+        if (newest === null || !isAccountFeatureGrantActive(newest, now)) {
           continue;
         }
 
-        regranted.push(`${grant.feature}:${grant._id}`);
+        regranted.push(`${newest.feature}:${newest._id}`);
 
         if (!dryRun) {
-          await ctx.db.patch(grant._id, { userId: regrantTarget, updatedAt: Date.now() });
+          await ctx.db.patch(newest._id, { userId: regrantTarget, updatedAt: Date.now() });
         }
       }
     }
@@ -532,10 +548,19 @@ export const purgeConvexAuthLeftovers = internalMutation({
         // `accountFeature` has three members: a handful of rows each.
         if (table === "accountFeatureGrants") {
           for (const user of legacy) {
+            // Bounded, and provably enough. At most one grant per feature is
+            // transferred, so `regrantedGrantIds` holds at most
+            // `ACCOUNT_FEATURES.length` ids for this user. Read one more row than
+            // that: if every row read were regranted the count would exceed the
+            // maximum, so any full page contains a blocker, and a short page is
+            // the user's entire grant set.
+            //
+            // The previous version read the whole history, which is unbounded —
+            // `grant` inserts again after expiry and `revoke` keeps the old row.
             const grants = await ctx.db
               .query("accountFeatureGrants")
               .withIndex("by_userId_feature_state", (q) => q.eq("userId", user._id))
-              .collect();
+              .take(ACCOUNT_FEATURES.length + 1);
 
             if (grants.some((grant) => !regrantedGrantIds.has(grant._id))) {
               block(user._id, `${table}.${field}`);
