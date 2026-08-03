@@ -649,7 +649,7 @@ jobs:
           import json, pathlib
           report = pathlib.Path("apps/web/playwright-artifacts/results.json")
           if not report.exists():
-              print("unknown unknown unknown unknown")
+              print("unknown unknown unknown unknown unknown")
               raise SystemExit
           data = json.loads(report.read_text(encoding="utf-8"))
           # `flaky` is Playwright's status for a test that failed an attempt and
@@ -667,13 +667,18 @@ jobs:
                   walk(child)
           for suite in data.get("suites", []):
               walk(suite)
-          print(tally["passed"], tally["failed"], tally["skipped"], tally["flaky"])
+          # A discovery, config, or global-setup failure lands in the report's
+          # top-level `errors` and creates no test status at all, so counting only
+          # `suites` can print `Outcome: failure` beside `0 failed` — the same
+          # untrustworthy pairing this whole summary exists to remove.
+          print(tally["passed"], tally["failed"], tally["skipped"], tally["flaky"], len(data.get("errors", [])))
           PY
           )
           passed=$(echo "$counts" | cut -d' ' -f1)
           failed=$(echo "$counts" | cut -d' ' -f2)
           skipped=$(echo "$counts" | cut -d' ' -f3)
           flaky=$(echo "$counts" | cut -d' ' -f4)
+          fatal=$(echo "$counts" | cut -d' ' -f5)
 
           {
             echo "## Playwright public screenshot preview"
@@ -681,6 +686,12 @@ jobs:
             echo "Outcome: ${VISUAL_OUTCOME}"
             echo ""
             echo "Tests: ${passed} passed, ${failed} failed, ${skipped} skipped, ${flaky} flaky."
+            if [ "$fatal" != "0" ] && [ "$fatal" != "unknown" ]; then
+              echo ""
+              echo "**${fatal} fatal error(s)** before or outside any test — discovery,"
+              echo "configuration, or global setup. These produce no test status, so the"
+              echo "counts above do not reflect them."
+            fi
             if [ "$skipped" != "0" ] && [ "$skipped" != "unknown" ]; then
               echo ""
               echo "Skipped tests produced no screenshots."

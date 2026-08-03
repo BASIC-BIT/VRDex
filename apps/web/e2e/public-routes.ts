@@ -1,4 +1,4 @@
-import { expect, type Page, type TestInfo } from "@playwright/test";
+import { expect, type Locator, type Page, type TestInfo } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 
@@ -167,7 +167,17 @@ export async function waitForVisualReady(page: Page) {
   });
 }
 
-export async function captureRouteScreenshot(page: Page, testInfo: TestInfo, name: string) {
+export async function captureRouteScreenshot(
+  page: Page,
+  testInfo: TestInfo,
+  name: string,
+  // Painted over before the capture. Signed-in surfaces render a per-run
+  // identity — the disposable account's email carries a `Date.now()` suffix — so
+  // without this every screenshot differs from the last even when the UI has not
+  // changed. That is noise in manual review and it makes the capture unusable as
+  // a committed baseline, which is where these are meant to end up.
+  options?: { mask?: Locator[] },
+) {
   await waitForVisualReady(page);
   await page.evaluate(() => window.scrollTo(0, 0));
 
@@ -176,7 +186,7 @@ export async function captureRouteScreenshot(page: Page, testInfo: TestInfo, nam
   const screenshotPath = path.join(screenshotDir, fileName);
 
   mkdirSync(screenshotDir, { recursive: true });
-  await page.screenshot({ path: screenshotPath, fullPage: true });
+  await page.screenshot({ path: screenshotPath, fullPage: true, mask: options?.mask });
   await testInfo.attach(fileName, { path: screenshotPath, contentType: "image/png" });
 }
 

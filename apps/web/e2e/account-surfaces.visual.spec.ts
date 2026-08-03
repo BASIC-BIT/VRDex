@@ -106,7 +106,14 @@ test.describe("account surfaces @visual @flow", () => {
     // signed-out page cannot be filed as evidence the surface looks right.
     await expect(page.getByRole("heading", { name: account?.email ?? "" })).toBeVisible();
     await waitForVisualReady(page);
-    await captureRouteScreenshot(page, testInfo, "account-overview-signed-in");
+    // Asserted above, masked here. The email is the proof the page is signed in
+    // *and* the only thing on it that differs run to run, since the address
+    // carries a `Date.now()` suffix. Checking it and then painting over it keeps
+    // both properties: the capture still proves identity rendered, and it stops
+    // changing when the UI has not.
+    await captureRouteScreenshot(page, testInfo, "account-overview-signed-in", {
+      mask: [page.getByText(account?.email ?? "", { exact: false })],
+    });
   });
 
   test("account privacy", async ({ page }, testInfo) => {
