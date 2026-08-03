@@ -1,13 +1,14 @@
 import { expect, test } from "@playwright/test";
 
 import {
+  cleanupClerkTestAccountData,
   clerkTestAuthAvailability,
   createClerkTestAccount,
   deleteClerkTestAccount,
   signInClerkTestAccount,
   type ClerkTestAccount,
 } from "./clerk-auth";
-import { captureRouteScreenshot, prepareVisualPage, waitForVisualReady } from "./public-routes";
+import { captureRouteScreenshot, waitForVisualReady } from "./public-routes";
 
 /**
  * Signed-in screenshot coverage.
@@ -17,16 +18,33 @@ import { captureRouteScreenshot, prepareVisualPage, waitForVisualReady } from ".
  * had no screenshot coverage at all. The Clerk cutover rewrote how all of them
  * obtain identity, and nothing would have shown a regression in how they look.
  *
- * `@visual` rather than `@snapshot` on purpose. The snapshot lane diffs against
+ * Tagged `@flow` as well as `@visual`, and that is what places it: the PR-time
+ * `Playwright Public Preview` lane runs against local servers, and a local Convex
+ * deployment pins `clerk-issuer.invalid` in `auth.config.ts` precisely so it
+ * trusts no Clerk instance. Sign-in cannot succeed there, so a credentialed spec
+ * in that lane would fail rather than skip. `Playwright Hosted Data Flow` already
+ * supplies `PLAYWRIGHT_BASE_URL`, `PLAYWRIGHT_SKIP_WEBSERVERS`, and the staging
+ * Clerk keys, which is the only place these can run.
+ *
+ * `@visual` rather than `@snapshot` for capture: the snapshot lane diffs against
  * PNGs committed under `apps/web/e2e/__screenshots__`, which are Linux-rendered
- * and cannot be regenerated from a Windows checkout; a new snapshot spec would
- * therefore land red and stay red until someone pulled baselines off a runner.
- * The visual lane uploads its captures as artifacts for review instead, which is
- * the useful half here — these pages are new to screenshot coverage, so there is
- * nothing to diff *against* yet. Promote them to `@snapshot` once a run has
- * produced baselines worth committing.
+ * and cannot be regenerated from a Windows checkout, and there is nothing to diff
+ * against yet. Promote once a run has produced baselines worth committing.
  */
 const clerkTestAuth = clerkTestAuthAvailability();
+
+/** Same resolution the flow specs use: required hosted, defaulted locally. */
+function e2eBrowserToken() {
+  const token =
+    process.env.VRDEX_E2E_BROWSER_TOKEN ??
+    (process.env.PLAYWRIGHT_BASE_URL ? undefined : "local-playwright-token");
+
+  if (!token) {
+    throw new Error("VRDEX_E2E_BROWSER_TOKEN must be set for hosted Playwright runs.");
+  }
+
+  return token;
+}
 
 // Named so the reason travels into the report. `clerk-auth.ts` records why that
 // matters: the `Playwright Auth Session Matrix` lane reported green for months
@@ -37,20 +55,26 @@ test.skip(
   clerkTestAuth.available ? "" : `Skipped, no coverage produced: ${clerkTestAuth.reason}`,
 );
 
-test.describe("account surfaces @visual", () => {
+test.describe("account surfaces @visual @flow", () => {
   let account: ClerkTestAccount | undefined;
 
   test.beforeEach(async ({ page }, testInfo) => {
-    await prepareVisualPage(page);
     account = await createClerkTestAccount(
       `${testInfo.workerIndex}-${testInfo.repeatEachIndex}-${Date.now()}`,
     );
     await signInClerkTestAccount(page, account);
   });
 
-  test.afterEach(async () => {
+  test.afterEach(async ({ request }) => {
+    // Convex rows first, then the Clerk user. Provisioning is on-demand from the
+    // client with no webhook, so Convex never learns about a Clerk deletion —
+    // deleting only the Clerk account would leave an unreachable `users` row per
+    // run accumulating in the shared staging deployment, which is the same
+    // orphaning the production purge existed to clean up.
+    //
     // Never conditional on the test passing: a failed assertion still leaves a
-    // real Clerk user behind on the shared development instance.
+    // real account behind.
+    await cleanupClerkTestAccountData(request, e2eBrowserToken(), account);
     await deleteClerkTestAccount(account);
     account = undefined;
   });
@@ -64,21 +88,29 @@ test.describe("account surfaces @visual", () => {
     await captureRouteScreenshot(page, testInfo, "account-overview-signed-in");
   });
 
-  test("account security", async ({ page }, testInfo) => {
-    await page.goto("/account/security");
-    // Clerk owns the session list now. The heading is VRDex's, which is what
-    // makes it a stable thing to assert on across upstream component changes.
-    await expect(page.getByRole("heading", { name: "Sessions" })).toBeVisible();
+  test("account privacy", async ({ page }, testInfo) => {
+    await page.goto("/account/privacy");
+    // Exact names, and specifically not `/privacy/i` — the signed-out state of
+    // this panel is a heading reading "Sign in to manage privacy", so a loose
+    // matcher passes on the page that proves the opposite of what the screenshot
+    // claims. `waitForVisualReady` waits only for DOM content and fonts, so the
+    // signed-in-only control is what actually gates the capture.
+    await expect(page.getByRole("heading", { name: "Field visibility" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Save privacy" })).toBeVisible();
     await waitForVisualReady(page);
-    await captureRouteScreenshot(page, testInfo, "account-security-signed-in");
+    await captureRouteScreenshot(page, testInfo, "account-privacy-signed-in");
   });
 
   test("developer tokens", async ({ page }, testInfo) => {
     await page.goto("/developers/tokens");
-    // This surface used to sit behind the recent-authentication step-up that the
-    // cutover removed, so how it renders for an ordinary signed-in account is
-    // exactly what changed and what nothing was watching.
-    await expect(page.getByRole("heading", { name: /tokens/i })).toBeVisible();
+    // `DeveloperTokensPanel` renders "Sign in required" until its Convex query
+    // resolves, so the static page heading alone would let the signed-out notice
+    // or a loading frame pass as signed-in evidence. "Personal tokens" only
+    // exists once the panel has data. This surface also sat behind the
+    // recent-authentication step-up the cutover removed, which is exactly what
+    // changed and what nothing was watching.
+    await expect(page.getByRole("heading", { name: "Personal tokens" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Sign in required" })).toHaveCount(0);
     await waitForVisualReady(page);
     await captureRouteScreenshot(page, testInfo, "developer-tokens-signed-in");
   });

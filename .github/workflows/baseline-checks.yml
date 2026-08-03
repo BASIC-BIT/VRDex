@@ -626,16 +626,8 @@ jobs:
         working-directory: apps/web
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Capture route screenshots
+      - name: Capture public route screenshots
         id: visual
-        env:
-          # Signed-in account surfaces have no screenshot coverage without these.
-          # `clerkTestAuthAvailability()` keys off the flag first and then the
-          # keys, so an absent secret skips that lane rather than failing the job —
-          # and the summary below reports the skip rather than papering over it.
-          VRDEX_ENABLE_E2E_CLERK_AUTH: ${{ vars.VRDEX_ENABLE_E2E_CLERK_AUTH }}
-          CLERK_SECRET_KEY: ${{ secrets.VRDEX_STAGING_CLERK_SECRET_KEY }}
-          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.VRDEX_STAGING_CLERK_PUBLISHABLE_KEY }}
         run: pnpm test:e2e:visual
 
       - name: Write visual summary
@@ -646,10 +638,13 @@ jobs:
         run: |
           mkdir -p apps/web/playwright-artifacts
 
-          # Counted from the run, not asserted. The previous version stated "all
-          # public route checks passed" unconditionally — on a failed run, and on a
-          # run where a whole lane skipped. A summary that cannot be wrong is not
-          # evidence, and this job exists to be evidence.
+          # Counted from the run, not asserted. This previously stated "all public
+          # route checks passed" unconditionally — on a failed run, and on a run
+          # where a whole lane skipped. A skipped Playwright file still exits 0,
+          # and `clerk-auth.ts` records where that leads: the auth-session matrix
+          # lane reported green for months over a spec that ran nothing, with a
+          # summary describing coverage that never executed. A summary that cannot
+          # be wrong is not evidence, and this job exists to be evidence.
           counts=$(python3 - <<'PY'
           import json, pathlib
           report = pathlib.Path("apps/web/playwright-artifacts/results.json")
@@ -676,16 +671,14 @@ jobs:
           skipped=$(echo "$counts" | cut -d' ' -f3)
 
           {
-            echo "## Playwright screenshot preview"
+            echo "## Playwright public screenshot preview"
             echo ""
             echo "Outcome: ${VISUAL_OUTCOME}"
             echo ""
             echo "Tests: ${passed} passed, ${failed} failed, ${skipped} skipped."
             if [ "$skipped" != "0" ] && [ "$skipped" != "unknown" ]; then
               echo ""
-              echo "**Skipped tests produced no screenshots.** The signed-in account"
-              echo "surfaces need \`VRDEX_ENABLE_E2E_CLERK_AUTH\` plus the staging Clerk"
-              echo "keys; without them that lane contributes no coverage."
+              echo "Skipped tests produced no screenshots."
             fi
             echo ""
             echo "Run: ${RUN_URL}"
