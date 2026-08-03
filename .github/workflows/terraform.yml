@@ -65,10 +65,6 @@ env:
   TERRAFORM_RATE_LIMIT_STAGING_CUSTOM_ENVIRONMENT_IDS: ${{ vars.TERRAFORM_RATE_LIMIT_STAGING_CUSTOM_ENVIRONMENT_IDS }}
   TERRAFORM_RATE_LIMIT_MANAGE_PREVIEW_ENVIRONMENT: ${{ vars.TERRAFORM_RATE_LIMIT_MANAGE_PREVIEW_ENVIRONMENT }}
   TERRAFORM_PROFILE_ASSETS_VERCEL_TEAM_SLUG: ${{ vars.TERRAFORM_PROFILE_ASSETS_VERCEL_TEAM_SLUG || 'basicbit' }}
-  TERRAFORM_WEB_DOMAINS_MANAGE_CLERK_DNS: ${{ vars.TERRAFORM_WEB_DOMAINS_MANAGE_CLERK_DNS }}
-  TERRAFORM_WEB_DOMAINS_CLERK_MAIL_TARGET: ${{ vars.TERRAFORM_WEB_DOMAINS_CLERK_MAIL_TARGET }}
-  TERRAFORM_WEB_DOMAINS_CLERK_DKIM1_TARGET: ${{ vars.TERRAFORM_WEB_DOMAINS_CLERK_DKIM1_TARGET }}
-  TERRAFORM_WEB_DOMAINS_CLERK_DKIM2_TARGET: ${{ vars.TERRAFORM_WEB_DOMAINS_CLERK_DKIM2_TARGET }}
 
 jobs:
   terraform-fmt:
@@ -337,15 +333,12 @@ jobs:
 
           # Fail closed rather than treating absent configuration as "disable the
           # records". `manage_clerk_dns` defaults to false so forks create
-          # nothing, but this stack auto-applies from main — so a deleted or
-          # renamed variable would plan 5 to destroy against the live Clerk
-          # CNAMEs and apply it unattended, taking production authentication DNS
-          # with it. Skipping the stack is the safe failure.
-          if [ "${{ matrix.stack.requires_clerk_dns }}" = "true" ]; then
-            if [ "$TERRAFORM_WEB_DOMAINS_MANAGE_CLERK_DNS" != "true" ]; then missing+=("TERRAFORM_WEB_DOMAINS_MANAGE_CLERK_DNS=true"); fi
-            if [ -z "$TERRAFORM_WEB_DOMAINS_CLERK_MAIL_TARGET" ]; then missing+=("TERRAFORM_WEB_DOMAINS_CLERK_MAIL_TARGET"); fi
-            if [ -z "$TERRAFORM_WEB_DOMAINS_CLERK_DKIM1_TARGET" ]; then missing+=("TERRAFORM_WEB_DOMAINS_CLERK_DKIM1_TARGET"); fi
-            if [ -z "$TERRAFORM_WEB_DOMAINS_CLERK_DKIM2_TARGET" ]; then missing+=("TERRAFORM_WEB_DOMAINS_CLERK_DKIM2_TARGET"); fi
+          # nothing, but this stack auto-applies from main — so anything that
+          # silently drops the hosted values would plan 5 to destroy against the
+          # live Clerk CNAMEs and apply it unattended, taking production
+          # authentication DNS with it. Skipping the stack is the safe failure.
+          if [ "${{ matrix.stack.requires_clerk_dns }}" = "true" ] && [ "$GITHUB_REPOSITORY" = "BASIC-BIT/VRDex" ]; then
+            if [ ! -f "${{ matrix.stack.path }}/hosted.tfvars" ]; then missing+=("${{ matrix.stack.path }}/hosted.tfvars"); fi
           fi
 
           if [ "${#missing[@]}" -gt 0 ]; then
@@ -438,13 +431,11 @@ jobs:
               ;;
             web-domains)
               if [ -n "$TERRAFORM_ROUTE53_ZONE_ID" ]; then args+=("-var=route53_zone_id=$TERRAFORM_ROUTE53_ZONE_ID"); fi
-              # Clerk records stay off unless this deployment supplies its own
-              # instance targets, so a fork never points authentication-email DNS
-              # at someone else's Clerk tenant.
-              if [ -n "$TERRAFORM_WEB_DOMAINS_MANAGE_CLERK_DNS" ]; then args+=("-var=manage_clerk_dns=$TERRAFORM_WEB_DOMAINS_MANAGE_CLERK_DNS"); fi
-              if [ -n "$TERRAFORM_WEB_DOMAINS_CLERK_MAIL_TARGET" ]; then args+=("-var=clerk_mail_target=$TERRAFORM_WEB_DOMAINS_CLERK_MAIL_TARGET"); fi
-              if [ -n "$TERRAFORM_WEB_DOMAINS_CLERK_DKIM1_TARGET" ]; then args+=("-var=clerk_dkim1_target=$TERRAFORM_WEB_DOMAINS_CLERK_DKIM1_TARGET"); fi
-              if [ -n "$TERRAFORM_WEB_DOMAINS_CLERK_DKIM2_TARGET" ]; then args+=("-var=clerk_dkim2_target=$TERRAFORM_WEB_DOMAINS_CLERK_DKIM2_TARGET"); fi
+              # Canonical repository only. `hosted.tfvars` is checked in so the
+              # hosted DNS is reconstructible from git, and is not auto-loaded, so
+              # a fork plans no Clerk records and never delegates its own
+              # authentication-email DNS to this Clerk tenant.
+              if [ "$GITHUB_REPOSITORY" = "BASIC-BIT/VRDex" ]; then args+=("-var-file=hosted.tfvars"); fi
               ;;
             ses)
               args+=("-var=domain_name=$TERRAFORM_SES_DOMAIN_NAME")

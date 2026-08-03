@@ -32,20 +32,18 @@ authentication-email DNS to BASIC BIT's Clerk tenant, which
 leave them off, or supply their own instance's targets from Clerk's
 Configure > Domains page.
 
-Hosted CI supplies them through repository variables, the same mechanism the SES
-and profile-assets stacks already use:
+Hosted values live in the checked-in `hosted.tfvars`. That file is **not**
+auto-loaded — Terraform reads only `terraform.tfvars` and `*.auto.tfvars`
+automatically — and `terraform.yml` passes it with `-var-file` only when the
+repository is `BASIC-BIT/VRDex`. So the hosted DNS is reconstructible from git
+after a dashboard or repository rebuild, while a fork still plans no Clerk
+records.
 
-- `TERRAFORM_WEB_DOMAINS_MANAGE_CLERK_DNS`
-- `TERRAFORM_WEB_DOMAINS_CLERK_MAIL_TARGET`
-- `TERRAFORM_WEB_DOMAINS_CLERK_DKIM1_TARGET`
-- `TERRAFORM_WEB_DOMAINS_CLERK_DKIM2_TARGET`
-
-**Run this stack through the workflow, not locally.** Without those variables a
-local `terraform plan` reports `5 to destroy`, and applying it would delete
-production authentication DNS. Use
-`gh workflow run terraform.yml -f stack=web-domains -f apply=true`, or export the
-same four values as `TF_VAR_manage_clerk_dns`, `TF_VAR_clerk_mail_target`,
-`TF_VAR_clerk_dkim1_target`, and `TF_VAR_clerk_dkim2_target` first.
+**Run this stack through the workflow, not locally.** Without that file a local
+`terraform plan` against this deployment's state reports `5 to destroy`, and
+applying it would delete production authentication DNS. Use
+`gh workflow run terraform.yml -f stack=web-domains -f apply=true`, or pass
+`-var-file=hosted.tfvars` yourself.
 
 `CLERK_JWT_ISSUER_DOMAIN` on the Convex deployment must be
 `https://<clerk_frontend_api_subdomain>.<hosted_zone_name>`, the same host the

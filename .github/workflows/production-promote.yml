@@ -27,9 +27,11 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # The instance the production publishable key must encode. A key from another
-  # Clerk tenant is still `pk_live_`, so tier alone proves nothing.
+  # The instances a production build must resolve. A key from another Clerk
+  # tenant is still `pk_live_`, and any non-local Convex URL passes the build
+  # check, so neither tier nor presence proves which backend is in play.
   EXPECTED_CLERK_HOST: clerk.vrdex.net
+  EXPECTED_CONVEX_HOST: superb-pig-954.convex.cloud
 
 jobs:
   promote:
@@ -112,15 +114,26 @@ jobs:
             exit 1
           fi
 
-          for label in "Convex URL" "Clerk"; do
-            value=$(python3 -c 'import re,sys; html=open("/tmp/deployment.html",encoding="utf-8").read(); m=re.search(re.escape(sys.argv[1])+r"</dt><dd[^>]*>([^<]*)<", html); print((m.group(1) if m else "MISSING").strip())' "$label")
-            if [ "$value" != "configured" ]; then
-              echo "::error::$DEPLOYMENT_URL reports $label as '$value'. Promoting a build without it leaves production degraded."
-              exit 1
-            fi
-          done
+          # Identity, not presence. "Configured" is equally true for a build
+          # pointed at the staging Convex deployment, and promoting that would put
+          # vrdex.net on the wrong dataset with the wrong auth configuration.
+          attr() {
+            python3 -c 'import re,sys; html=open("/tmp/deployment.html",encoding="utf-8").read(); m=re.search(sys.argv[1]+r"=\"([^\"]*)\"", html); print((m.group(1) if m else "MISSING").strip())' "$1"
+          }
 
-          echo "Deployment reports both Convex and Clerk configured."
+          convex=$(attr data-convex-deployment)
+          if [ "$convex" != "$EXPECTED_CONVEX_HOST" ]; then
+            echo "::error::$DEPLOYMENT_URL points at Convex '$convex', expected '$EXPECTED_CONVEX_HOST'."
+            exit 1
+          fi
+
+          clerk_host=$(attr data-clerk-frontend-api)
+          if [ "$clerk_host" != "$EXPECTED_CLERK_HOST" ]; then
+            echo "::error::$DEPLOYMENT_URL points at Clerk '$clerk_host', expected '$EXPECTED_CLERK_HOST'."
+            exit 1
+          fi
+
+          echo "Deployment resolves Convex $convex and Clerk $clerk_host."
 
       # Independent of the build: a promotion is worthless if the Clerk instance
       # the build points at cannot serve tokens, and actively harmful while
@@ -175,8 +188,20 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Status is required, not just parsed. A Next.js error document
+          # references assets from the deployment that served it, so a 5xx on the
+          # live host still yields a matching `dpl` — reporting a successful
+          # release while production sign-in is broken.
           dpl_of() {
-            curl -s --max-time 20 "$1/sign-in" | grep -oE 'dpl=dpl_[A-Za-z0-9]+' | head -n 1 | cut -d= -f2
+            local body status
+            body=$(mktemp)
+            status=$(curl -s -o "$body" -w '%{http_code}' --max-time 20 "$1/sign-in")
+            if [ "$status" != "200" ]; then
+              rm -f "$body"
+              return 1
+            fi
+            grep -oE 'dpl=dpl_[A-Za-z0-9]+' "$body" | head -n 1 | cut -d= -f2
+            rm -f "$body"
           }
 
           expected=$(dpl_of "$DEPLOYMENT_URL")

@@ -17,6 +17,39 @@ function shortSha(value: string | undefined) {
   return value ? value.slice(0, 7) : "not available";
 }
 
+/** Host of a URL, or `unknown` when unset or unparseable. */
+function hostLabel(value: string | undefined) {
+  if (!value) {
+    return "unknown";
+  }
+
+  try {
+    return new URL(value).host;
+  } catch {
+    return "unknown";
+  }
+}
+
+/**
+ * Frontend API host the publishable key encodes. The key is base64 after its
+ * prefix, so this is the only way to name the Clerk tenant from the client
+ * bundle — the tier prefix alone does not distinguish one instance from another.
+ */
+function clerkFrontendApiHost() {
+  const key = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.trim();
+
+  if (!key) {
+    return undefined;
+  }
+
+  try {
+    const decoded = atob(key.replace(/^pk_(test|live)_/, ""));
+    return `https://${decoded.replace(/\$+$/, "")}`;
+  } catch {
+    return undefined;
+  }
+}
+
 function DeploymentRow({ item }: { item: DeploymentItem }) {
   const toneClass =
     item.tone === "ok"
@@ -41,6 +74,19 @@ export default function DeploymentPage() {
   // protected by `clerkMiddleware`, so the flag described a gate that no longer
   // exists and every correctly configured deployment published a false failure.
   const clerkConfigured = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
+
+  // Which backend, not merely whether one is set. "Configured" is true for a
+  // production build accidentally pointed at staging, and promoting that would
+  // put vrdex.net on the wrong dataset and the wrong auth configuration.
+  // `production-promote.yml` reads these to refuse such a build.
+  //
+  // Rendered hidden rather than as visible rows: both values are already public
+  // (`NEXT_PUBLIC_*` ship in the client bundle), and keeping them out of the
+  // layout means the release gate does not churn this page's visual baselines.
+  const backendIdentity = {
+    convex: hostLabel(process.env.NEXT_PUBLIC_CONVEX_URL),
+    clerk: hostLabel(clerkFrontendApiHost()),
+  };
 
   const deploymentItems: DeploymentItem[] = [
     {
@@ -121,6 +167,15 @@ export default function DeploymentPage() {
             </div>
           </Card>
         </section>
+
+        {/* Machine-readable release gate. `production-promote.yml` requires these
+            to name the production Convex deployment and Clerk tenant before it
+            will move the vrdex.net alias. Hidden, so it adds no layout. */}
+        <div
+          hidden
+          data-convex-deployment={backendIdentity.convex}
+          data-clerk-frontend-api={backendIdentity.clerk}
+        />
       </PageContainer>
     </PageShell>
   );
