@@ -183,7 +183,17 @@ jobs:
           # Captured so a failed run can put it back. The issuer is not a secret
           # — it is encoded in the publishable key every browser downloads — so
           # recording it in a step output leaks nothing.
-          previous=$(pnpm exec convex env get CLERK_JWT_ISSUER_DOMAIN 2>/dev/null || true)
+          #
+          # Filtered to an https origin rather than taken verbatim. A rollback
+          # writes this value back, so CLI chatter or a warning line becoming the
+          # "previous issuer" would corrupt the thing it is meant to restore. An
+          # unset variable, or output that does not look like an origin, yields
+          # empty — and the rollback step requires a non-empty value, so it
+          # declines to act rather than guessing.
+          previous=$(pnpm exec convex env get CLERK_JWT_ISSUER_DOMAIN 2>/dev/null \
+            | tr -d '\r' \
+            | grep -oE '^https://[A-Za-z0-9.-]+$' \
+            | tail -n 1 || true)
           echo "previous_issuer=$previous" >> "$GITHUB_OUTPUT"
 
           if [ "$previous" = "$CLERK_JWT_ISSUER_DOMAIN" ]; then
