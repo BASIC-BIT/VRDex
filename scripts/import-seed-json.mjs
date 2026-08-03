@@ -7,7 +7,8 @@ import {
   CONVEX_TARGET_NAMES,
   convexCliPath,
   convexTargetEnv,
-  legacyTargetFlagError,
+  SEED_SCRIPT_TARGET_HELP,
+  targetSelectorFlagError,
 } from "./convex-target.ts";
 
 const scriptPath = fileURLToPath(import.meta.url);
@@ -33,7 +34,7 @@ function fail(message) {
 let target;
 
 function requireTarget() {
-  const legacy = legacyTargetFlagError(args);
+  const legacy = targetSelectorFlagError(args, SEED_SCRIPT_TARGET_HELP);
 
   if (legacy) {
     fail(legacy);

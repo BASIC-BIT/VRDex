@@ -6,6 +6,7 @@
     "node": ">=24 <25"
   },
   "scripts": {
+    "precx": "node scripts/guard-main-worktree.mjs",
     "cx": "node --import tsx scripts/cx.ts",
     "guard:main-worktree": "node scripts/guard-main-worktree.mjs",
     "prebootstrap:backend:local": "node scripts/guard-main-worktree.mjs",

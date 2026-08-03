@@ -59,27 +59,35 @@ export type ConvexTargetName = keyof typeof CONVEX_TARGETS;
 
 export const CONVEX_TARGET_NAMES = Object.keys(CONVEX_TARGETS);
 
-const LEGACY_TARGET_FLAGS = ["--prod", "--deployment"];
+/** Every Convex CLI flag that can point a command at a different deployment. */
+const TARGET_SELECTOR_FLAGS = ["--prod", "--deployment", "--preview-name", "--url", "--admin-key"];
 
 /**
- * The old flags are rejected rather than ignored. `--target` defaults to
- * `local`, so a leftover `ops:seed-publish -- --apply … --prod` from shell
- * history or an old runbook would otherwise publish to the local backend and
- * report success, which is worse than the failure it replaced.
+ * Selector flags are rejected rather than ignored, in both directions. A
+ * leftover `ops:seed-publish -- --apply … --prod` from shell history would
+ * otherwise publish to the local backend and report success -- worse than the
+ * failure it replaced -- and a selector forwarded through `cx` would be applied
+ * by the child CLI after the banner had already named a different deployment.
  */
-export function legacyTargetFlagError(argv: string[]) {
-  const used = LEGACY_TARGET_FLAGS.filter((flag) => argv.includes(flag));
+export function targetSelectorFlagError(argv: string[], howToTarget: string) {
+  const used = TARGET_SELECTOR_FLAGS.filter((flag) =>
+    argv.some((arg) => arg === flag || arg.startsWith(`${flag}=`)),
+  );
 
   if (used.length === 0) {
     return undefined;
   }
 
-  return (
-    `${used.join(" and ")} ${used.length === 1 ? "is" : "are"} no longer supported. ` +
-    `Use --target <${CONVEX_TARGET_NAMES.join("|")}>. ` +
-    "Without it this command would have run against local."
-  );
+  return `${used.join(" and ")} ${used.length === 1 ? "is" : "are"} not accepted here. ${howToTarget}`;
 }
+
+export const SEED_SCRIPT_TARGET_HELP =
+  `Use --target <${CONVEX_TARGET_NAMES.join("|")}>. ` +
+  "Without it this command would have run against local.";
+
+export const CX_TARGET_HELP =
+  "The deployment is the target argument to cx, which this would override after " +
+  "the banner had already named a different one.";
 
 type ResolvedConvexTarget =
   | {
@@ -125,6 +133,24 @@ export function resolveConvexTarget(
         `Cannot target ${name}: ${target.deploymentVar} is "${deployment}", which does not start with ` +
         `${target.prefixes.map((prefix) => `"${prefix}"`).join(" or ")}. ` +
         "Check that the right deployment is under the right variable name.",
+      ok: false,
+    };
+  }
+
+  // A deploy key carries its own deployment ahead of a "|", and CONVEX_DEPLOY_KEY
+  // alone is enough for the CLI to pick a deployment -- the workflows rely on
+  // exactly that. So a correctly named dev deployment paired with a production
+  // key would authenticate to production while the banner read "development".
+  // Only the deployment portion is compared, never the secret after the "|", and
+  // a key in some other shape is left alone rather than guessed at.
+  const keyDeployment = key?.includes("|") ? key.slice(0, key.indexOf("|")) : undefined;
+
+  if (keyDeployment !== undefined && keyDeployment !== deployment) {
+    return {
+      error:
+        `Cannot target ${name}: ${target.keyVar} is a key for "${keyDeployment}", but ` +
+        `${target.deploymentVar} is "${deployment}". The key decides which deployment the ` +
+        "CLI reaches, so these must name the same one.",
       ok: false,
     };
   }

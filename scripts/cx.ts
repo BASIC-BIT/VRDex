@@ -2,7 +2,13 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { CONVEX_TARGET_NAMES, convexCliPath, convexTargetEnv } from "./convex-target";
+import {
+  CONVEX_TARGET_NAMES,
+  CX_TARGET_HELP,
+  convexCliPath,
+  convexTargetEnv,
+  targetSelectorFlagError,
+} from "./convex-target";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
@@ -21,6 +27,13 @@ const USAGE = [
 ].join("\n");
 
 function run(name: string, convexArgs: string[]) {
+  const forwardedSelector = targetSelectorFlagError(convexArgs, CX_TARGET_HELP);
+
+  if (forwardedSelector !== undefined) {
+    console.error(forwardedSelector);
+    return { status: 1 };
+  }
+
   const target = convexTargetEnv(name);
 
   if (!target.ok) {

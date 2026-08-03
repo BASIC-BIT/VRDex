@@ -7,7 +7,8 @@ import {
   CONVEX_TARGET_NAMES,
   convexCliPath,
   convexTargetEnv,
-  legacyTargetFlagError,
+  SEED_SCRIPT_TARGET_HELP,
+  targetSelectorFlagError,
 } from "./convex-target.ts";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
@@ -47,7 +48,7 @@ if (!Number.isFinite(expiresInHours) || expiresInHours <= 0 || expiresInHours > 
   fail("Handoff expiry must be between 0 and 2160 hours.");
 }
 
-const legacyFlag = legacyTargetFlagError(args);
+const legacyFlag = targetSelectorFlagError(args, SEED_SCRIPT_TARGET_HELP);
 
 if (legacyFlag) {
   fail(legacyFlag);

@@ -1,25 +1,34 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { legacyTargetFlagError, resolveConvexTarget } from "../../scripts/convex-target";
+import { resolveConvexTarget, targetSelectorFlagError } from "../../scripts/convex-target";
 
-describe("legacy target flags", () => {
-  it("rejects the flags that used to select a deployment", () => {
+describe("target selector flags", () => {
+  const help = "Use --target.";
+
+  it("rejects every flag that could point the command elsewhere", () => {
     // --target defaults to local, so ignoring a leftover --prod would publish
-    // locally and report success.
-    assert.match(legacyTargetFlagError(["--apply", "--prod"]) ?? "", /--prod is no longer supported/);
+    // locally and report success; forwarding one through cx would override the
+    // target after the banner had already named it.
+    for (const flag of ["--prod", "--deployment", "--preview-name", "--url", "--admin-key"]) {
+      assert.match(targetSelectorFlagError(["--apply", flag], help) ?? "", /is not accepted here/);
+    }
+
     assert.match(
-      legacyTargetFlagError(["--deployment", "prod:superb-pig-954"]) ?? "",
-      /--deployment is no longer supported/,
+      targetSelectorFlagError(["--prod", "--deployment", "x"], help) ?? "",
+      /--prod and --deployment are not accepted here/,
     );
+  });
+
+  it("catches the --flag=value form too", () => {
     assert.match(
-      legacyTargetFlagError(["--prod", "--deployment", "x"]) ?? "",
-      /--prod and --deployment are no longer supported/,
+      targetSelectorFlagError(["--deployment=prod:superb-pig-954"], help) ?? "",
+      /--deployment is not accepted here/,
     );
   });
 
   it("passes a modern invocation through", () => {
-    assert.equal(legacyTargetFlagError(["--target", "prod", "--apply"]), undefined);
+    assert.equal(targetSelectorFlagError(["--target", "prod", "--apply"], help), undefined);
   });
 });
 
@@ -75,6 +84,34 @@ describe("convex target resolution", () => {
 
     assert.equal(result.ok, false);
     assert.match(error(result), /does not start with "anonymous:" or "local:"/);
+  });
+
+  it("rejects a deploy key issued for a different deployment", () => {
+    // CONVEX_DEPLOY_KEY alone is enough for the CLI to pick a deployment, so a
+    // correctly named dev deployment with a production key would authenticate
+    // to production while the banner read "development".
+    const result = resolveConvexTarget("dev", {
+      ...configured,
+      CONVEX_DEPLOY_KEY_DEV: "prod:superb-pig-954|secret",
+    });
+
+    assert.equal(result.ok, false);
+    assert.match(error(result), /key for "prod:superb-pig-954", but CONVEX_DEPLOYMENT_DEV/);
+    assert.doesNotMatch(error(result), /secret/);
+  });
+
+  it("accepts a deploy key naming the selected deployment", () => {
+    const result = resolveConvexTarget("prod", {
+      ...configured,
+      CONVEX_DEPLOY_KEY_PROD: "prod:superb-pig-954|secret",
+    });
+
+    assert.equal(result.ok, true);
+  });
+
+  it("leaves a key in an unrecognized shape alone", () => {
+    // Older keys carry no deployment, and guessing at one would break them.
+    assert.equal(resolveConvexTarget("prod", configured).ok, true);
   });
 
   it("never falls back to another target's credentials", () => {

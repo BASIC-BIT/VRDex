@@ -99,6 +99,13 @@ A target is only usable when both of its variables are present. `dev` needs
 the other fails naming both, rather than falling back to the other target's
 credentials.
 
+The pair is also checked for agreement. A deploy key carries its own deployment
+ahead of the `|`, and the CLI will follow the key rather than
+`CONVEX_DEPLOYMENT`, so a dev deployment name accidentally paired with a
+production key would reach production while the banner read "development". A
+mismatch fails naming both deployments; the secret after the `|` is never read
+or printed.
+
 ## Pull Request Preview Backends
 
 PR preview backends are created only by the manual `On-Demand Vercel Preview`
