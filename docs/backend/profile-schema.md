@@ -321,13 +321,13 @@ Known limitation: there is currently **no** owner-facing control that changes `p
 Unlike the other migrations it is **not** part of `migrations:runAll`, because publishing profiles publicly is outward-facing and not cleanly reversible. Run it deliberately:
 
 ```powershell
-pnpm exec convex run --prod migrations:runPublishGatedProfiles
+pnpm cx -- prod run migrations:runPublishGatedProfiles
 ```
 
 Follow it with one world search rebuild, which covers every attribution that became visible and records world vocabulary with it:
 
 ```powershell
-pnpm exec convex run --prod search:rebuildWorldSearchDocuments
+pnpm cx -- prod run search:rebuildWorldSearchDocuments
 ```
 
 The migration deliberately does not reindex worlds per row; that would mean one full `worlds` scan per migrated profile. The rebuild is delta-aware — it compares each world's stored `vocabularyKeys` against the rebuilt ones and records only what appeared, releasing what went away — so running it against already-indexed worlds does not re-increment existing counts.

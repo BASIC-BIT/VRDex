@@ -298,11 +298,14 @@ would otherwise parse as CLI options. Use `cmd /c` redirection rather than a
 PowerShell pipe, since `cmd` redirects bytes verbatim:
 
 ```powershell
-$env:CONVEX_DEPLOYMENT="prod:superb-pig-954"
 node -e "require('fs').writeFileSync(process.argv[1], process.env.VRDEX_JWT_PRIVATE_KEY)" $env:TEMP\k.pem
-cmd /c "pnpm exec convex env set --prod JWT_PRIVATE_KEY < $env:TEMP\k.pem"
+cmd /c "pnpm cx -- prod env set JWT_PRIVATE_KEY < $env:TEMP\k.pem"
 Remove-Item $env:TEMP\k.pem, Env:\VRDEX_JWT_PRIVATE_KEY, Env:\VRDEX_JWKS -ErrorAction SilentlyContinue
 ```
+
+Setting `CONVEX_DEPLOYMENT` by hand first is no longer needed, and is now
+actively counterproductive: `cx` clears ambient Convex variables before
+applying the target's own.
 
 Apply the same `CR=0` verification to `JWT_PRIVATE_KEY` and `JWKS`. A trailing
 `\r` on those two is currently harmless, so check the byte count rather than

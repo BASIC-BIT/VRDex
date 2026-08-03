@@ -129,13 +129,14 @@ aws lambda update-function-configuration \
   --description "rotated $(date -u +%Y-%m-%dT%H:%M:%SZ)" >/dev/null
 aws lambda wait function-updated --function-name "$FUNCTION"
 
-# 3. Only then point Convex at the new values. `--prod` is not optional: without
-#    it these write the development deployment, and the script would recycle
-#    production Lambda onto the new pair while production Convex kept the old
-#    one — every command succeeding and every production claim unauthorized.
-pnpm exec convex env set --prod VRCHAT_PROOF_ADAPTER_BEARER_TOKEN \
+# 3. Only then point Convex at the new values. The `prod` target is not
+#    optional: without it these write another deployment, and the script would
+#    recycle production Lambda onto the new pair while production Convex kept
+#    the old one — every command succeeding and every production claim
+#    unauthorized.
+pnpm cx -- prod env set VRCHAT_PROOF_ADAPTER_BEARER_TOKEN \
   "$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).bearerToken)' "$NEW")"
-pnpm exec convex env set --prod VRCLINKING_ADAPTER_CAPABILITY_KEY \
+pnpm cx -- prod env set VRCLINKING_ADAPTER_CAPABILITY_KEY \
   "$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).capabilityKey)' "$NEW")"
 
 unset NEW
@@ -171,7 +172,7 @@ request built from it tests the adapter against itself and passes either way:
 
 ```bash
 FUNCTION_URL=$(terraform -chdir=infra/terraform/vrclinking-adapter output -raw function_url)
-BEARER=$(pnpm exec convex env get --prod VRCHAT_PROOF_ADAPTER_BEARER_TOKEN)
+BEARER=$(pnpm cx -- prod env get VRCHAT_PROOF_ADAPTER_BEARER_TOKEN)
 printf 'header = "authorization: Bearer %s"\n' "$BEARER" |
   curl -K - -s -o /dev/null -w '%{http_code}\n' -X POST "$FUNCTION_URL" \
     -H 'content-type: application/json' -d '{}'
@@ -196,7 +197,7 @@ for pair in "bearerToken:VRCHAT_PROOF_ADAPTER_BEARER_TOKEN" \
   node -e '
     const [field, name, shared, live] = process.argv.slice(1);
     process.stdout.write(`${name}: ${JSON.parse(shared)[field] === live ? "match" : "MISMATCH"}\n`);
-  ' "${pair%%:*}" "${pair#*:}" "$SHARED" "$(pnpm exec convex env get --prod "${pair#*:}")"
+  ' "${pair%%:*}" "${pair#*:}" "$SHARED" "$(pnpm cx -- prod env get "${pair#*:}")"
 done
 unset SHARED
 ```

@@ -11,9 +11,10 @@ export const convexCliPath = path.join(repoRoot, "node_modules", "convex", "bin"
 
 /**
  * Every ambient Convex variable is cleared before a target's own values are
- * applied. `pnpm dev:backend:local` leaves `CONVEX_URL` pointing at
- * 127.0.0.1:3210, and a later production call in the same shell fails against
- * the local backend while the command line still reads `prod`.
+ * applied, including for `local`. A shell that has exported a production
+ * deployment and key -- the manual dance this wrapper replaces -- would
+ * otherwise turn an ostensibly local `--apply` into a production write, since
+ * `local` is what the seed scripts use when `--target` is omitted.
  */
 const AMBIENT_CONVEX_VARS = [
   "CONVEX_DEPLOYMENT",
@@ -23,25 +24,49 @@ const AMBIENT_CONVEX_VARS = [
   "CONVEX_URL",
 ];
 
+/**
+ * `prefixes` is checked against the deployment string, so a production
+ * deployment and key pasted under the `_DEV` names is rejected rather than run
+ * against production while the banner reads "shared development".
+ */
 export const CONVEX_TARGETS = {
+  local: {
+    deploymentVar: "CONVEX_DEPLOYMENT",
+    // The local backend authenticates nothing; a deploy key here would be a
+    // cloud credential handed to 127.0.0.1.
+    keyVar: undefined,
+    label: "local anonymous backend",
+    passthroughVars: ["CONVEX_URL"],
+    prefixes: ["anonymous:", "local:"],
+  },
   dev: {
     deploymentVar: "CONVEX_DEPLOYMENT_DEV",
     keyVar: "CONVEX_DEPLOY_KEY_DEV",
     label: "shared development / staging",
+    passthroughVars: [],
+    prefixes: ["dev:"],
   },
   prod: {
     deploymentVar: "CONVEX_DEPLOYMENT_PROD",
     keyVar: "CONVEX_DEPLOY_KEY_PROD",
     label: "PRODUCTION",
+    passthroughVars: [],
+    prefixes: ["prod:"],
   },
 } as const;
 
 export type ConvexTargetName = keyof typeof CONVEX_TARGETS;
 
-export const CONVEX_TARGET_NAMES = ["local", ...Object.keys(CONVEX_TARGETS)];
+export const CONVEX_TARGET_NAMES = Object.keys(CONVEX_TARGETS);
 
 type ResolvedConvexTarget =
-  | { deployment: string; key: string; label: string; ok: true }
+  | {
+      deployment: string;
+      key: string | undefined;
+      label: string;
+      ok: true;
+      passthrough: Record<string, string>;
+    }
   | { error: string; ok: false };
 
 export function resolveConvexTarget(
@@ -57,12 +82,12 @@ export function resolveConvexTarget(
 
   const target = CONVEX_TARGETS[name as ConvexTargetName];
   const deployment = values[target.deploymentVar]?.trim();
-  const key = values[target.keyVar]?.trim();
+  const key = target.keyVar === undefined ? undefined : values[target.keyVar]?.trim();
   // Both are named, rather than just the first missing one, so a half-configured
   // environment takes one round trip to fix instead of two.
   const missing = [
     deployment ? undefined : target.deploymentVar,
-    key ? undefined : target.keyVar,
+    target.keyVar !== undefined && !key ? target.keyVar : undefined,
   ].filter((entry): entry is string => entry !== undefined);
 
   if (missing.length > 0) {
@@ -72,7 +97,27 @@ export function resolveConvexTarget(
     };
   }
 
-  return { deployment, key, label: target.label, ok: true };
+  if (!target.prefixes.some((prefix) => deployment!.startsWith(prefix))) {
+    return {
+      error:
+        `Cannot target ${name}: ${target.deploymentVar} is "${deployment}", which does not start with ` +
+        `${target.prefixes.map((prefix) => `"${prefix}"`).join(" or ")}. ` +
+        "Check that the right deployment is under the right variable name.",
+      ok: false,
+    };
+  }
+
+  const passthrough: Record<string, string> = {};
+
+  for (const variable of target.passthroughVars) {
+    const value = values[variable]?.trim();
+
+    if (value) {
+      passthrough[variable] = value;
+    }
+  }
+
+  return { deployment: deployment!, key, label: target.label, ok: true, passthrough };
 }
 
 /**
@@ -112,25 +157,11 @@ export type ConvexTargetEnv =
   | { error: string; ok: false };
 
 /**
- * The child environment for one Convex CLI call against `name`. The deploy key
- * travels here rather than on a command line, and is never returned to a caller
- * that might log it.
+ * The child environment for one Convex CLI call against `name`. Every value
+ * comes from the env file rather than the calling shell, and the deploy key
+ * travels here rather than on a command line.
  */
 export function convexTargetEnv(name: string): ConvexTargetEnv {
-  // The ambient environment already points at the local backend: `.env.local`
-  // sets CONVEX_DEPLOYMENT=anonymous:... and CONVEX_URL. Overriding anything
-  // here would only break the case that already works. Starting that backend
-  // stays `pnpm dev:backend:local`, which owns ports and executor cleanup.
-  if (name === "local") {
-    return {
-      deployment: process.env.CONVEX_DEPLOYMENT ?? "local",
-      env: process.env,
-      envPath: "ambient environment",
-      label: "local anonymous backend",
-      ok: true,
-    };
-  }
-
   const values: NodeJS.ProcessEnv = {};
   const roots = envRoots();
   let envPath: string | undefined;
@@ -159,8 +190,9 @@ export function convexTargetEnv(name: string): ConvexTargetEnv {
       ...Object.fromEntries(
         Object.entries(process.env).filter(([key]) => !AMBIENT_CONVEX_VARS.includes(key)),
       ),
+      ...resolved.passthrough,
       CONVEX_DEPLOYMENT: resolved.deployment,
-      CONVEX_DEPLOY_KEY: resolved.key,
+      ...(resolved.key === undefined ? {} : { CONVEX_DEPLOY_KEY: resolved.key }),
     },
     envPath,
     label: resolved.label,
