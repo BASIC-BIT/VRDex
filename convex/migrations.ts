@@ -267,16 +267,19 @@ export const CONVEX_AUTH_TABLES = [
 // that the list is exhaustive — a missed entry is silent corruption, and a
 // table is far easier to check against the schema than a wall of lookups.
 //
-// The third element is an index whose *leading* column is that field, or null.
-// With one, the check is a keyed existence probe per legacy user. Without one it
-// is a full scan, so the eight entries carrying null are exactly the ones that
-// must stay bounded by entity count rather than by request volume: applications,
-// their secrets, community credentials, profile links, handoff invitations,
-// prewarm leases, and who revoked a token. Every table that grows per request —
-// `apiWriteAuditEvents`, `mcpToolEvents`, `apiTokenEvents`, `oauthClientEvents`,
-// `oauthAccessTokens` — has an index here, which is why `oauthAccessTokens`
-// gained `by_userId` in `schema.ts`: it was the one unbounded table with no way
-// to look a user up.
+// The third element is an index whose *leading* column is that field. Every
+// entry has one, so the check is always a keyed existence probe and there is no
+// scanning branch left to reason about.
+//
+// It used to allow null, meaning "scan this table instead", defended by the
+// claim that those tables were bounded by entity count rather than by request
+// volume. The claim was wrong for `apiTokens.revokedByUserId`: token creation
+// has no per-account cap and revocation patches the row rather than deleting it,
+// so the table grows with churn. Rather than re-argue the remaining cases one at
+// a time, `schema.ts` gained the seven missing indexes, alongside the
+// `oauthAccessTokens` one added earlier. Deleting the branch is a smaller change
+// than defending it, and it removes a whole class of "is this table really
+// bounded" reasoning from a destructive migration.
 //
 // `tests/backend/convex-auth-purge.test.ts` checks each named index exists in
 // the schema and leads with that field, because a wrong name is a runtime throw
@@ -285,34 +288,34 @@ export const USER_REFERENCES = [
   ["accountFeatureGrants", "userId", "by_userId_feature_state"],
   ["apiTokenEvents", "ownerUserId", "by_ownerUserId_createdAt"],
   ["apiTokens", "ownerUserId", "by_ownerUserId_createdAt"],
-  ["apiTokens", "revokedByUserId", null],
+  ["apiTokens", "revokedByUserId", "by_revokedByUserId"],
   ["apiWriteAuditEvents", "ownerUserId", "by_ownerUserId_createdAt"],
   ["billingCustomerMappings", "userId", "by_userId_state"],
   ["billingEntitlementSnapshots", "userId", "by_userId_entitlementKey_status"],
   ["billingSubscriptionSnapshots", "userId", "by_userId_status"],
-  ["communityVrclinkingCredentials", "delegatedByUserId", null],
+  ["communityVrclinkingCredentials", "delegatedByUserId", "by_delegatedByUserId"],
   ["discordVerificationStates", "userId", "by_userId_createdAt"],
   ["discordVerificationWatermarks", "userId", "by_userId_discordUserId"],
   ["externalControlProofs", "userId", "by_userId_assetType_assetExternalId"],
   ["mcpEventWriteReceipts", "ownerUserId", "by_owner_client_tool_key"],
   ["mcpToolEvents", "ownerUserId", "by_ownerUserId_createdAt"],
   ["oauthAccessTokens", "userId", "by_userId"],
-  ["oauthApplicationSecrets", "revokedByUserId", null],
+  ["oauthApplicationSecrets", "revokedByUserId", "by_revokedByUserId"],
   ["oauthApplications", "ownerUserId", "by_ownerUserId_createdAt"],
-  ["oauthApplications", "revokedByUserId", null],
+  ["oauthApplications", "revokedByUserId", "by_revokedByUserId"],
   ["oauthAuthorizationCodes", "userId", "by_userId_createdAt"],
   ["oauthClientEvents", "ownerUserId", "by_ownerUserId_createdAt"],
   ["oauthConsentTransactions", "userId", "by_userId_expiresAt"],
   ["oauthRefreshTokens", "userId", "by_userId_expiresAt"],
   ["profileAssetAccessibilityGenerationEvents", "userId", "by_userId_createdAt"],
   ["profileClaimRequests", "userId", "by_userId_state"],
-  ["profileExternalLinks", "linkedByUserId", null],
+  ["profileExternalLinks", "linkedByUserId", "by_linkedByUserId"],
   ["profileOwners", "userId", "by_userId_state"],
   ["profileVerificationAttempts", "userId", "by_userId_state"],
-  ["seedHandoffInvitations", "acceptedByUserId", null],
+  ["seedHandoffInvitations", "acceptedByUserId", "by_acceptedByUserId"],
   ["temporalParseJobs", "ownerUserId", "by_ownerUserId_idempotencyKeyHash"],
   ["temporalParsingPreferences", "userId", "by_userId"],
-  ["temporalPrewarmLeases", "ownerUserId", null],
+  ["temporalPrewarmLeases", "ownerUserId", "by_ownerUserId"],
 ] as const;
 
 // Documents read or deleted per invocation across the eight tables. Well under
@@ -360,6 +363,16 @@ export const purgeConvexAuthLeftovers = internalMutation({
     // someone else's privileges are a reason to stop, not to reassign.
     regrantGrantsFrom: v.optional(v.id("users")),
     regrantGrantsToClerkUserId: v.optional(v.string()),
+    // `_creationTime` to resume legacy discovery after, from a previous run's
+    // `nextLegacyPageAfter`.
+    //
+    // A destructive run advances on its own, because the rows it deletes stop
+    // matching. A dry run deletes nothing, so without this it re-reads the same
+    // first page forever — and the runbook tells an operator to take
+    // `regrantGrantsFrom` out of a dry run's `blockedUsers`. On a deployment with
+    // more legacy rows than one page, the grant-bearing row could sit beyond it
+    // and be undiscoverable without starting to delete first.
+    legacyPageAfter: v.optional(v.number()),
     dryRun: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
@@ -386,7 +399,11 @@ export const purgeConvexAuthLeftovers = internalMutation({
     // that requires `clerkUserId` failing later for no visible reason.
     const legacyPage = await ctx.db
       .query("users")
-      .withIndex("clerkUserId", (q) => q.eq("clerkUserId", undefined))
+      .withIndex("clerkUserId", (q) =>
+        args.legacyPageAfter === undefined
+          ? q.eq("clerkUserId", undefined)
+          : q.eq("clerkUserId", undefined).gt("_creationTime", args.legacyPageAfter),
+      )
       .take(LEGACY_USER_PAGE + 1);
     const moreLegacy = legacyPage.length > LEGACY_USER_PAGE;
     const legacy = moreLegacy ? legacyPage.slice(0, LEGACY_USER_PAGE) : legacyPage;
@@ -512,40 +529,23 @@ export const purgeConvexAuthLeftovers = internalMutation({
           continue;
         }
 
-        if (index !== null) {
-          // Existence, not enumeration: one keyed probe per legacy user, which is
-          // a handful of reads regardless of how large the table has grown. The
-          // report names what blocks a row, not how many times.
-          for (const user of legacy) {
-            // `table` is a union, so TypeScript intersects the index names valid
-            // for every member and is left with `by_id`/`by_creation_time`. It
-            // cannot express "this index belongs to this table" across a loop.
-            // Narrowed here rather than with `any`, and the pairing is checked
-            // for real by `convex-auth-purge.test.ts`, which reads each index out
-            // of the schema and asserts it leads with this field — a stronger
-            // guarantee than the collapsed union would have given.
-            const hit = await (ctx.db.query(table) as unknown as IndexedTableQuery)
-              .withIndex(index, (q) => q.eq(field, user._id))
-              .first();
+        // Existence, not enumeration: one keyed probe per legacy user, which is a
+        // handful of reads regardless of how large the table has grown. The
+        // report names what blocks a row, not how many times.
+        for (const user of legacy) {
+          // `table` is a union, so TypeScript intersects the index names valid
+          // for every member and is left with `by_id`/`by_creation_time`. It
+          // cannot express "this index belongs to this table" across a loop.
+          // Narrowed here rather than with `any`, and the pairing is checked for
+          // real by `convex-auth-purge.test.ts`, which reads each index out of
+          // the schema and asserts it leads with this field — a stronger
+          // guarantee than the collapsed union would have given.
+          const hit = await (ctx.db.query(table) as unknown as IndexedTableQuery)
+            .withIndex(index, (q) => q.eq(field, user._id))
+            .first();
 
-            if (hit !== null) {
-              block(user._id, `${table}.${field}`);
-            }
-          }
-
-          continue;
-        }
-
-        // No index leads with this field. Every such table is bounded by entity
-        // count rather than request volume, so a scan stays small — and `collect`
-        // throws past the transaction limit rather than silently returning a
-        // prefix, so an unforeseen one fails the purge instead of under-reporting
-        // references and deleting a row that still has them.
-        for (const row of await ctx.db.query(table).collect()) {
-          const value = (row as Record<string, unknown>)[field];
-
-          if (typeof value === "string" && legacyIds.has(value)) {
-            block(value, `${table}.${field}`);
+          if (hit !== null) {
+            block(user._id, `${table}.${field}`);
           }
         }
       }
@@ -615,6 +615,10 @@ export const purgeConvexAuthLeftovers = internalMutation({
       // page. Rerun with the same arguments until it is false; the regrant is
       // idempotent because a moved grant no longer sits on a legacy row.
       moreRemaining: usersDeferred || moreLegacy,
+      // Feed back as `legacyPageAfter` to inspect the next page. Only meaningful
+      // for a dry run: a destructive pass deletes the rows it examined, so its
+      // next run advances without one.
+      nextLegacyPageAfter: moreLegacy ? legacy[legacy.length - 1]._creationTime : null,
       legacyUsers: legacy.length,
       deletedUsers: usersDeferred ? [] : deletableUsers.map((user) => user.email ?? user._id),
       regrantedGrants: regranted,

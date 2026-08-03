@@ -107,10 +107,6 @@ describe("Convex Auth purge", () => {
   // not this field, throws mid-purge or silently matches on the wrong column.
   it("names an index that exists and leads with the field it probes", () => {
     for (const [table, field, index] of USER_REFERENCES) {
-      if (index === null) {
-        continue;
-      }
-
       const columns = indexesOf(table).get(index);
 
       assert.ok(columns, `${table} has no index named ${index}, so the purge would throw probing it.`);
@@ -122,19 +118,21 @@ describe("Convex Auth purge", () => {
     }
   });
 
-  // The inverse of the entry above: a field that *does* have a usable index but
-  // is listed as null gets a full table scan it does not need. Harmless on a
-  // bounded table, and a transaction-limit failure on one that grows per request.
-  it("uses an index wherever the schema offers one", () => {
-    const missed = USER_REFERENCES.filter(([table, field, index]) => {
-      if (index !== null) {
-        return false;
-      }
+  // No entry may fall back to scanning. The scanning branch is gone from the
+  // purge, so a null here would be a runtime failure rather than a slow path —
+  // but the reason it is gone is worth keeping enforced: "this table is small
+  // enough to scan" was an assumption that turned out to be false for
+  // `apiTokens`, whose rows accumulate with token churn rather than user count.
+  it("indexes every reference rather than scanning for it", () => {
+    const scanned = USER_REFERENCES.filter(([, , index]) => index === null).map(
+      ([table, field]) => `${table}.${field}`,
+    );
 
-      return [...indexesOf(table).values()].some((columns) => columns[0] === field);
-    }).map(([table, field]) => `${table}.${field}`);
-
-    assert.deepEqual(missed, [], `these could use an index but are scanned: ${missed.join(", ")}`);
+    assert.deepEqual(
+      scanned,
+      [],
+      `these would need a full table scan: ${scanned.join(", ")}. Add a leading index in schema.ts instead.`,
+    );
   });
 
   it("checks every users reference in the schema", () => {

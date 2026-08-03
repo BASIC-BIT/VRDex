@@ -234,6 +234,12 @@ is still referenced by; `clerkUsers` lists the Clerk identities with their
 emails. Take `regrantGrantsFrom` from the first and
 `regrantGrantsToClerkUserId` from the second.
 
+A dry run examines one page of legacy rows and deletes nothing, so it would
+otherwise re-read the same page forever. When `nextLegacyPageAfter` is non-null,
+pass it back as `legacyPageAfter` to inspect the next page, and keep going until
+it is null — that is how you see every `blockedUsers` entry before deleting
+anything. Destructive runs need no cursor: the rows they delete stop matching.
+
 `clerkUsers` is a capped sample, and `clerkUsersTruncated` says when it is one.
 If your account is not in the list, read the id off Clerk's dashboard —
 **Users → the account → User ID** — rather than assuming the list is complete.
