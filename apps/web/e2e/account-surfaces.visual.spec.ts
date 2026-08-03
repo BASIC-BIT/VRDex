@@ -95,7 +95,19 @@ test.describe("account surfaces @visual @flow", () => {
     await signInClerkTestAccount(page, account);
   });
 
-  test.afterEach(async ({ request }) => {
+  test.afterEach(async ({ page, request }) => {
+    // Closed before anything is deleted, because the page is still signed in and
+    // still subscribed. `ProvisionedChildren` in `src/app/ConvexClientProvider.tsx`
+    // watches `accounts.viewer` and calls `ensureCurrentUser` whenever that row is
+    // absent, so deleting the row under a live page makes the page put it straight
+    // back — keyed to a Clerk identity that is about to be deleted, which is the
+    // unreachable row this teardown exists to prevent.
+    //
+    // Safe for evidence: Playwright captures the failure screenshot in
+    // `didFinishTestFunction`, which runs before `afterEach`, and closes the page
+    // itself immediately after.
+    await page.close();
+
     // Convex rows first, then the Clerk user. Provisioning is on-demand from the
     // client with no webhook, so Convex never learns about a Clerk deletion —
     // deleting only the Clerk account would leave an unreachable `users` row per
@@ -141,11 +153,22 @@ test.describe("account surfaces @visual @flow", () => {
 
     account = undefined;
 
+    // No response is not success. `deleteClerkTestAccount` never throws — it runs
+    // from `finally` blocks elsewhere — so a DNS failure, reset connection, or
+    // timeout comes back as `undefined`, indistinguishable from a 200 to anything
+    // that only checks the response it did get. This branch runs only once
+    // `cleaned` is true, so the request was definitely attempted.
+    //
+    // 404 is success: the user being absent is the state this is trying to reach.
+    const clerkDeleted =
+      clerkDeletion !== undefined && (clerkDeletion.ok || clerkDeletion.status === 404);
+
     const failure = !cleaned
       ? `Convex cleanup did not delete a row for ${email} (HTTP ${cleanup?.status()}). The Clerk user was kept so the pair can still be cleaned up by hand.`
-      : // 404 is success — the user being absent is the goal.
-        clerkDeletion && !clerkDeletion.ok && clerkDeletion.status !== 404
-        ? `Clerk refused to delete ${email}: HTTP ${clerkDeletion.status}. A disposable user is left in the staging tenant.`
+      : !clerkDeleted
+        ? `Clerk did not confirm deletion of ${email} (${
+            clerkDeletion ? `HTTP ${clerkDeletion.status}` : "no response"
+          }). A disposable user is left in the staging tenant.`
         : undefined;
 
     expect(failure, failure ?? "").toBeUndefined();
