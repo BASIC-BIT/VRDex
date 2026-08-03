@@ -339,6 +339,23 @@ const CLERK_USER_REPORT_LIMIT = 25;
 // unknown rather than undercounted from a truncated page.
 const STALE_AUTHORITY_SCAN_LIMIT = 1_000;
 
+// Rows repointed per `reassignLegacyUserReferences` invocation. Smaller than the
+// purge's delete budget because each row is a read plus a write and the loop
+// spans 31 tables, and the whole point of bounding it is to stay under the limit
+// rather than near it.
+const REASSIGN_BATCH = 500;
+
+// Ceiling on the per-table collision report. Past it the entry is `-1`, meaning
+// "many, inspect by hand" — a duplicate-ownership warning is useless if the
+// number it shows came from a truncated page.
+const COLLISION_REPORT_LIMIT = 100;
+
+// Ceiling on the authorization-subject re-verification. Past it the result is
+// null: this scan answers "does any authorization-bearing reference to the legacy
+// subject survive", and a zero from a page that did not cover the table would
+// read as "verified none" while meaning "did not look".
+const AUTHORIZATION_SCAN_LIMIT = 1_000;
+
 // Cursors carry the mode that produced them.
 //
 // A destructive walk must begin at the first legacy row: starting it from a
@@ -361,6 +378,7 @@ type IndexedTableQuery = {
   ) => {
     first: () => Promise<{ _id: string } | null>;
     collect: () => Promise<{ _id: string }[]>;
+    take: (count: number) => Promise<{ _id: string }[]>;
   };
 };
 
@@ -863,21 +881,42 @@ export const reassignLegacyUserReferences = internalMutation({
     // before a real run creates it.
     const targetAlreadyHas: Record<string, number> = {};
 
+    // Bounded per invocation, for the reason the purge's table clearing is.
+    // `apiTokenEvents`, `mcpToolEvents` and `temporalParseJobs` grow per request,
+    // so one identity's history in them is unbounded; collecting all 31 references
+    // and patching them in a single transaction would exceed Convex's limits, roll
+    // back, and leave the account permanently unrepairable — the failure this
+    // function exists to fix.
+    //
+    // No cursor: a patched row stops matching `field == fromUserId`, so the next
+    // invocation resumes where this one stopped. Rerun until `moreRemaining` is
+    // false. A dry run has nothing to advance it, so it reports the first page and
+    // stops — that is enough to see the shape before committing.
+    let budget = REASSIGN_BATCH;
+
     for (const [table, field, index] of USER_REFERENCES) {
+      if (budget <= 0) {
+        break;
+      }
+
       const rows = await (ctx.db.query(table) as unknown as IndexedTableQuery)
         .withIndex(index, (q) => q.eq(field, args.fromUserId))
-        .collect();
+        .take(budget);
 
       if (rows.length > 0) {
         moved[`${table}.${field}`] = rows.length;
+        budget -= rows.length;
       }
 
+      // One past the cap, so a truncated count is reported as such rather than as
+      // a small number that reads like the whole picture.
       const existing = await (ctx.db.query(table) as unknown as IndexedTableQuery)
         .withIndex(index, (q) => q.eq(field, target._id))
-        .collect();
+        .take(COLLISION_REPORT_LIMIT + 1);
 
       if (existing.length > 0) {
-        targetAlreadyHas[`${table}.${field}`] = existing.length;
+        targetAlreadyHas[`${table}.${field}`] =
+          existing.length > COLLISION_REPORT_LIMIT ? -1 : existing.length;
       }
 
       if (!dryRun) {
@@ -892,23 +931,37 @@ export const reassignLegacyUserReferences = internalMutation({
       }
     }
 
+    // Null rather than a count when the scan could not see the whole table. This
+    // value is the re-verification that no authorization-bearing subject
+    // reference survives, so a zero from a truncated page is the worst possible
+    // answer: it reads as "verified none" and means "did not look".
+    const countSubjects = async <T>(rows: T[], match: (row: T) => boolean) =>
+      rows.length > AUTHORIZATION_SCAN_LIMIT ? null : rows.filter(match).length;
+
     return {
       dryRun,
       from: source.email ?? source._id,
       to: { clerkUserId: target.clerkUserId, email: target.email },
       moved,
+      // `-1` marks a count that hit `COLLISION_REPORT_LIMIT`; treat it as "many,
+      // inspect by hand" rather than as a number.
       targetAlreadyHas,
+      // True when the row budget ran out. Rerun with the same arguments until it
+      // is false; moved rows no longer match, so each pass resumes automatically.
+      moreRemaining: budget <= 0,
       // Left in place by design. Non-zero here is not a failure, it is the audit
       // trail staying truthful — but it does mean the legacy *subject* is still
       // referenced somewhere, which `purgeConvexAuthLeftovers` does not care about
       // because those are not `v.id("users")` fields.
       authorizationSubjectsLeft: {
-        communityAuthorities: (await ctx.db.query("communityAuthorities").take(50)).filter(
+        communityAuthorities: await countSubjects(
+          await ctx.db.query("communityAuthorities").take(AUTHORIZATION_SCAN_LIMIT + 1),
           (authority) => authority.subject.subject.startsWith(args.fromUserId),
-        ).length,
-        events: (await ctx.db.query("events").take(50)).filter((event) =>
-          (event.submitter?.subject ?? "").startsWith(args.fromUserId),
-        ).length,
+        ),
+        events: await countSubjects(
+          await ctx.db.query("events").take(AUTHORIZATION_SCAN_LIMIT + 1),
+          (event) => (event.submitter?.subject ?? "").startsWith(args.fromUserId),
+        ),
       },
     };
   },
