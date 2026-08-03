@@ -251,8 +251,23 @@ test("staging deploy parses and audits main before provider mutation", () => {
   assert.ok(rollbackIndex > keyCheckIndex);
   assert.ok(rollbackIndex > steps.findIndex((step) => step.name === "Run hosted staging data-flow health"));
   assert.match(steps[rollbackIndex]?.if ?? "", /failure\(\)/);
+  // Not after the post-deploy verification has passed. At that point Vercel
+  // serves a key the new issuer matches, so a later Playwright or health
+  // failure is unrelated — and restoring Convex alone would break a working
+  // pairing rather than repair anything.
+  assert.match(
+    steps[rollbackIndex]?.if ?? "",
+    /steps\.verify_issuer\.outcome != 'success'/,
+  );
   assert.match(steps[rollbackIndex]?.run ?? "", /convex env set CLERK_JWT_ISSUER_DOMAIN/);
   assert.match(steps[rollbackIndex]?.run ?? "", /convex deploy/);
+
+  // A retrieval failure must not read as "no previous value". That conflation
+  // let the mutation proceed with nothing recorded, so a later failure found an
+  // empty rollback value and declined to act — leaving Convex on the new issuer
+  // with no way home.
+  assert.match(steps[authConfigIndex]?.run ?? "", /if ! env_dump=/);
+  assert.match(steps[authConfigIndex]?.run ?? "", /Refusing to change it without a rollback value/);
   assert.equal(auditStep?.env?.VERCEL_TOKEN, "${{ secrets.VERCEL_TOKEN }}");
   assert.match(auditStep?.run ?? "", /env ls staging --format=json/);
   assert.match(auditStep?.run ?? "", /--require-developer-credentials/);

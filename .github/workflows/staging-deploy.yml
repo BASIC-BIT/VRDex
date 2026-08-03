@@ -180,20 +180,36 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Captured so a failed run can put it back. The issuer is not a secret
-          # — it is encoded in the publishable key every browser downloads — so
-          # recording it in a step output leaks nothing.
+          # Captured so a failed run can put it back. A retrieval failure is not
+          # treated as "no previous value": that conflation meant a transient
+          # error let the mutation proceed with nothing recorded, and a later
+          # failure then found an empty previous issuer and declined to roll
+          # back — leaving Convex on the new issuer with no way home. If the
+          # current state cannot be read, this aborts before changing anything.
           #
-          # Filtered to an https origin rather than taken verbatim. A rollback
-          # writes this value back, so CLI chatter or a warning line becoming the
-          # "previous issuer" would corrupt the thing it is meant to restore. An
-          # unset variable, or output that does not look like an origin, yields
-          # empty — and the rollback step requires a non-empty value, so it
-          # declines to act rather than guessing.
-          previous=$(pnpm exec convex env get CLERK_JWT_ISSUER_DOMAIN 2>/dev/null \
-            | tr -d '\r' \
-            | grep -oE '^https://[A-Za-z0-9.-]+$' \
-            | tail -n 1 || true)
+          # Read through `env list` rather than `env get` so a genuinely unset
+          # variable is distinguishable from a command that failed: the listing
+          # succeeding is the signal that retrieval worked. The dump carries
+          # every value on the deployment, so it is captured into a variable and
+          # never echoed.
+          if ! env_dump=$(pnpm exec convex env list 2>&1); then
+            echo "::error::Could not read the current Convex environment, so the issuer this run would replace cannot be recorded. Refusing to change it without a rollback value."
+            exit 1
+          fi
+
+          previous=$(printf '%s\n' "$env_dump" | tr -d '\r' | sed -n 's/^CLERK_JWT_ISSUER_DOMAIN=//p' | tail -n 1)
+
+          # An unset variable is a legitimate empty — the original outage state,
+          # where there is nothing to restore. A value that is not an origin is
+          # also unrestorable, but for the opposite reason: putting it back would
+          # restore something already broken. Both proceed; both say which.
+          if [ -z "$previous" ]; then
+            echo "No CLERK_JWT_ISSUER_DOMAIN is set on this deployment, so there is no previous value to roll back to."
+          elif ! printf '%s' "$previous" | grep -qE '^https://[A-Za-z0-9.-]+$'; then
+            echo "::warning::The current CLERK_JWT_ISSUER_DOMAIN is not an https origin, so it is not a value worth restoring. Rollback will be unavailable for this run."
+            previous=""
+          fi
+
           echo "previous_issuer=$previous" >> "$GITHUB_OUTPUT"
 
           if [ "$previous" = "$CLERK_JWT_ISSUER_DOMAIN" ]; then
@@ -269,6 +285,7 @@ jobs:
       # against the deployment that just went out, so it always has one.
       - name: Verify the staging Clerk key matches the Convex issuer
         if: steps.gate.outputs.enabled == 'true'
+        id: verify_issuer
         env:
           DEPLOYMENT_URL: ${{ steps.vercel.outputs.url }}
           CLERK_JWT_ISSUER_DOMAIN: ${{ vars.VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN }}
@@ -306,18 +323,26 @@ jobs:
         run: pnpm test:e2e:hosted
 
 
-      # Anything between the `env set` and the check above failing leaves Convex
-      # trusting an instance the deployed web app does not authenticate against,
-      # which rejects every signed-in staging request. The rotation path makes
-      # that reachable in practice: it skips the pre-deploy comparison by design,
-      # so a mistyped or unpublished Vercel key is not caught until after Convex
-      # has already been told to trust the new issuer.
+      # Anything between the `env set` and the post-deploy verification failing
+      # leaves Convex trusting an instance the deployed web app does not
+      # authenticate against, which rejects every signed-in staging request. The
+      # rotation path makes that reachable in practice: it skips the pre-deploy
+      # comparison by design, so a mistyped or unpublished Vercel key is not
+      # caught until after Convex has already been told to trust the new issuer.
+      #
+      # Gated on that verification *not* having succeeded, which is the boundary
+      # that matters. Once it passes, Vercel is serving a key the new issuer
+      # matches and the two providers agree — so a later Playwright or hosted
+      # health failure is unrelated, and rolling Convex back alone would break
+      # the working pairing rather than repair anything. This still runs last so
+      # a failure in the Vercel deploy or the verification itself reaches it,
+      # where a skipped verification also counts as not-succeeded.
       #
       # Re-pushes as well as restoring the variable, because `auth.config.ts` is
       # evaluated at push time — putting the value back without a deploy would
       # leave the running provider config on the value being rolled back.
       - name: Restore the previous Convex issuer
-        if: failure() && steps.provision.outputs.changed == 'true' && steps.provision.outputs.previous_issuer != ''
+        if: failure() && steps.provision.outputs.changed == 'true' && steps.provision.outputs.previous_issuer != '' && steps.verify_issuer.outcome != 'success'
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_DEV }}
           PREVIOUS_ISSUER: ${{ steps.provision.outputs.previous_issuer }}
