@@ -306,9 +306,14 @@ Four things about it are deliberate:
   list does not name. A non-empty `blockedUsers` in the report means those rows
   survived on purpose — resolve each reference and rerun.
 
-Then sign in through Clerk if you have not, confirm `blockedUsers` is empty on
-every deployment, and tighten `clerkUserId` to `v.string()` in the same change
+Then sign in through Clerk if you have not, confirm **`purgeComplete` is true on
+every deployment**, and tighten `clerkUserId` to `v.string()` in the same change
 that drops the eight declarations.
+
+An empty `blockedUsers` is not the gate. It reports what the *current page*
+retained, so a walk whose blockers appeared on an earlier page ends with an empty
+one while those rows survive. `purgeComplete` is the only value that means no
+legacy row is left.
 
 `staleCommunityAuthorities` in the report is informational: those rows key on
 token identifier rather than `users._id`, so they never block the purge, but the
