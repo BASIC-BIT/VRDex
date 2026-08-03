@@ -213,15 +213,17 @@ These must be the **development** instance backing the hosted target, not produc
 2. `gh secret set VRDEX_HOSTED_E2E_CLERK_SECRET_KEY`.
 3. Re-run `Deploy Staging`, then confirm with `pnpm test:e2e:hosted:auth-session`.
 
-**Moving staging to a different Clerk instance** — a recreated instance, or a deliberate migration. The publishable key's host changes, so the Convex issuer has to change with it, and the two live in different places:
+**Moving staging to a different Clerk instance** — a recreated instance, or a deliberate migration. This is a manual sequence, not a workflow input. It is done rarely and by hand, and automating it inside `Staging Deploy` would mean rolling back two providers and rewriting a repository variable from CI to be correct.
 
-1. On the new instance, create the JWT template named exactly `convex` from Clerk's Convex preset. **Templates do not carry across instances**, and neither issuer check can see this — both compare hosts, so a deployment with no template passes every comparison while Clerk cannot mint the token Convex expects and every authenticated backend call fails. Take the preset as-is; `docs/backend/auth-sessions.md` records why `aud: "convex"` and `email_verified` in particular are load-bearing.
-2. Set the Vercel staging `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY` to the new instance's pair. Setting the variables is enough; no deploy is needed first.
+The order matters because the pre-deploy check compares the configured issuer against the key the deployment currently serves, and that check never skips:
+
+1. On the new instance, create the JWT template named exactly `convex` from Clerk's Convex preset. **Templates do not carry across instances**, and no issuer check can see this — they compare hosts — so a move without it passes every comparison while Clerk cannot mint the token Convex expects.
+2. Set the Vercel staging `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY` to the new instance's pair, and deploy Vercel so staging serves them. **Staging authentication is down from here until step 4**, because Convex still trusts the old issuer. That window is inherent to changing two providers that must agree; it is short and expected, not a fault.
 3. `gh variable set VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN --body https://<new-frontend-api-host>`, then `gh secret set` for both `VRDEX_HOSTED_E2E_CLERK_PUBLISHABLE_KEY` and `VRDEX_HOSTED_E2E_CLERK_SECRET_KEY`.
-4. Re-run `Deploy Staging`. No special input: the pre-deploy check reads the key Vercel is *about to* serve, so a rotation where both sides have been updated simply agrees, and both providers move together in one run.
-5. Confirm with `pnpm test:e2e:hosted:auth-session`. This is what actually proves the template — it asserts that a Clerk session resolves to a *verified Convex identity*, which is exactly what a missing or misconfigured `convex` template breaks.
+4. Run `Deploy Staging`. The pre-deploy check now compares the new issuer against the new key staging already serves, so it agrees and the deploy proceeds.
+5. Confirm with `pnpm test:e2e:hosted:auth-session`. This is what actually proves the JWT template, since it asserts a Clerk session resolves to a *verified Convex identity*.
 
-Updating only one side fails that check before anything is written, which is the point. If the run then fails *before the Vercel deploy succeeds*, the workflow restores the previous issuer rather than leaving Convex ahead of the deployed app. After a successful Vercel deploy it deliberately does not: both providers are on the new instance by then, and restoring Convex alone would create the mismatch.
+Doing step 3 before step 2 makes step 4 abort at the pre-deploy check, which is the guard working: the issuer would not match what staging serves.
 
 Hosted developer-credential E2E additionally requires repository variable `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true`. Keep it unset until the hosted target has deployed the developer token routes, OAuth app registration routes, and OAuth token endpoints under test.
 

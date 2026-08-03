@@ -239,35 +239,46 @@ request, because Convex validates the issuer it was *told* about rather than the
 one the browser authenticated against. The `Audit Vercel staging runtime
 variable names` step cannot catch it: it reads names, never values.
 
-So the comparison runs twice, both through
-`scripts/check-clerk-issuer-match.mjs`. Before the `convex env set`, against the
-key Vercel is *about to* serve — pulled from its configuration, not read off the
-deployed page. And again after the Vercel deploy, against what actually shipped.
-Both decode the key's base64-encoded host and fail on a mismatch, both reject a
-`pk_live_` key outright so the staging and production tenants cannot be crossed,
-and the first is also the only caller of the origin-format validation — so a bare
-host or a trailing slash cannot reach Convex, where `auth.config.ts` would pass
-it through verbatim and match no token issuer. `production-promote.yml` does the
-same for the live tenant.
+So the issuer is checked twice, both through
+`scripts/check-clerk-issuer-match.mjs`, plus a format check that runs on every
+path. Before the `convex env set`, the issuer is compared against the key the
+current deployment serves; after the Vercel deploy, against what actually
+shipped. Both decode the key's base64-encoded host and fail on a mismatch, and
+both reject a `pk_live_` key outright so the staging and production tenants
+cannot be crossed. `production-promote.yml` does the same for the live tenant.
 
-Comparing against the pending configuration rather than the live site is what
-keeps this simple, and it was not the first attempt. Comparing against the
-deployed page made an instance rotation impossible — the old key is what is
-deployed, by definition — which needed an escape hatch, which needed a rollback,
-which needed a boundary on that rollback. Reading what Vercel will serve makes a
-rotation an ordinary run: update the Vercel pair and the issuer variable, deploy,
-and both providers move together with no special input.
+The format check is separate and unconditional, because `auth.config.ts` takes
+the value verbatim: a bare host or a trailing slash matches no token issuer, and
+no path that can write the variable may skip that.
 
-If a run changes the issuer and then fails **before the Vercel deploy succeeds**,
-the previous value is restored. Not afterwards: once Vercel has published, it is
-serving a key the pre-deploy check already validated against this issuer, so the
-two agree — and restoring Convex alone would create the mismatch the rollback
-exists to prevent, including when the post-deploy verifier failed only on
-transport.
+**Rotating staging to a different Clerk instance** is a manual sequence rather
+than a workflow input, documented in
+[`playwright-visual-preview.md`](../testing/playwright-visual-preview.md). Vercel
+is updated and deployed first, then the issuer variable, then a normal staging
+deploy — so the pre-deploy comparison agrees by the time it runs and never has
+to be skipped. There is a short window between those steps where staging auth is
+down, which is inherent to changing two providers that must agree.
 
-Read that as the incident boundary. A failure after a successful Vercel deploy
-leaves both providers on the new instance and needs no repair; a failure before
-it leaves Convex ahead, and that is the case the rollback covers.
+A dispatch input that skipped the comparison existed briefly and was removed.
+Three rounds of review found a fresh hole in it each time: it bypassed the
+format validation, then left the rollback unreachable on the path it created,
+and would finally have needed Vercel deployment rollback and repository-variable
+writes from CI to be correct. That is a two-provider migration system inside a
+deploy workflow, for an operation performed by hand about once a year.
+
+If a run changes the issuer and then fails, the previous value is restored in
+two cases, and both mean Convex is ahead of what staging serves: the Vercel
+deploy did not succeed, or the post-deploy comparison reported a **confirmed
+mismatch** — the deployed key naming a different Clerk instance than the issuer
+just written.
+
+Keyed on that confirmation rather than on the step failing, because a transient
+fetch error fails the step too and proves nothing about the pairing; rolling back
+on one would break a pairing that is very likely correct. The script exits 2 for
+a mismatch and 1 for everything else so the two can be told apart. The
+pre-deploy comparison can also be inconclusive — a target serving no key at
+all — so a mismatch reaching the post-deploy check is not unreachable merely
+because the earlier one passed.
 
 The restore re-pushes functions only when the Convex deploy had itself
 succeeded. If it had not, nothing carrying the new issuer was ever published, so

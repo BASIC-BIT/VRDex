@@ -29,6 +29,9 @@ const CLERK_KEY_SEARCH_PATTERN = /pk_(test|live)_[A-Za-z0-9+/=_-]+/;
 // Node's decoder ignores the suffix, so the host and the `$` terminator both
 // came out right and every comparison passed on a key Clerk cannot use.
 const CLERK_KEY_STRICT_PATTERN = /^pk_(test|live)_[A-Za-z0-9+/]+={0,2}$/;
+/** A confirmed key/issuer mismatch, as opposed to any other failure. */
+export const MISMATCH_EXIT_CODE = 2;
+
 const ISSUER_PATTERN = /^https:\/\/[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i;
 
 /**
@@ -131,10 +134,16 @@ export async function servedClerkKey(baseUrl, fetchImpl = fetchText) {
 }
 
 function parseArgs(argv) {
-  const options = { baseUrl: "", issuer: "", publishableKey: "" };
+  const options = { baseUrl: "", issuer: "", publishableKey: "", validateIssuerOnly: false };
 
   for (let index = 0; index < argv.length; index += 1) {
     switch (argv[index]) {
+      case "--validate-issuer-only":
+        options.validateIssuerOnly = true;
+        break;
+      case "--allow-missing-key":
+        options.allowMissingKey = true;
+        break;
       case "--publishable-key":
         options.publishableKey = argv[index + 1] ?? "";
         index += 1;
@@ -154,8 +163,8 @@ function parseArgs(argv) {
 
   assert.ok(options.issuer, "--issuer is required.");
   assert.ok(
-    options.baseUrl || options.publishableKey,
-    "One of --base-url or --publishable-key is required.",
+    options.validateIssuerOnly || options.baseUrl || options.publishableKey,
+    "One of --base-url, --publishable-key, or --validate-issuer-only is required.",
   );
 
   return options;
@@ -167,13 +176,28 @@ async function main() {
   // host, and Convex passes the value to `auth.config.ts` verbatim, so it has to
   // run on every path that can write the issuer.
   const expectedHost = issuerHost(options.issuer);
+
+  // Format only. Split out so it can run on every path that writes the issuer,
+  // including a rotation that legitimately skips the comparison below.
+  if (options.validateIssuerOnly) {
+    console.log(`CLERK_JWT_ISSUER_DOMAIN is a well-formed origin for ${expectedHost}.`);
+    return;
+  }
+
   const source = options.publishableKey ? "The configured publishable key" : options.baseUrl;
   const key = options.publishableKey || (await servedClerkKey(options.baseUrl.replace(/\/+$/, "")));
 
   if (!key) {
-    console.error(
-      `::error::${source} carries no Clerk publishable key, so its instance cannot be compared with the configured issuer. Check NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY on that environment.`,
-    );
+    const message = `${source} carries no Clerk publishable key, so its instance cannot be compared with the configured issuer.`;
+
+    // A target stuck on a build from before Clerk existed serves no key at all,
+    // and that is the outage this workflow has to remain able to fix.
+    if (options.allowMissingKey) {
+      console.log(`${message} Continuing: expected while recovering a pre-Clerk build.`);
+      return;
+    }
+
+    console.error(`::error::${message} Check NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY on that environment.`);
     process.exit(1);
   }
 
@@ -188,9 +212,13 @@ async function main() {
 
   if (servedHost !== expectedHost) {
     console.error(
-      `::error::${source} names Clerk instance '${servedHost}' but Convex is configured to trust '${expectedHost}'. Convex would reject every signed-in request. Fix VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN or the Vercel publishable key so both name one instance.`,
+      `::error::${source} names Clerk instance '${servedHost}' but Convex is configured to trust '${expectedHost}'. Convex rejects every signed-in request while they disagree. Repair by making them name one instance: either set VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN to https://${servedHost} and re-run this workflow, or restore the Vercel staging NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY to the ${expectedHost} instance and redeploy. Staging authentication stays broken until one of those happens.`,
     );
-    process.exit(1);
+    // Exit 2, not 1. A caller has to tell a *confirmed* mismatch from a failure
+    // to reach the deployment at all: the first means the pairing is genuinely
+    // wrong and a rollback repairs it, the second means we learned nothing and
+    // rolling back would break a pairing that may well be correct.
+    process.exit(MISMATCH_EXIT_CODE);
   }
 
   console.log(`Clerk key and Convex issuer both resolve to ${servedHost}.`);

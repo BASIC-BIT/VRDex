@@ -240,19 +240,30 @@ test("staging deploy parses and audits main before provider mutation", () => {
   assert.ok(preCheckIndex >= 0);
   assert.ok(preCheckIndex < authConfigIndex);
   assert.match(steps[preCheckIndex]?.run ?? "", /check-clerk-issuer-match\.mjs/);
-  // Unconditional. It is the only caller of the origin-format validation, so a
-  // path that skipped it could write a bare host to Convex — and it compares
-  // against the *pending* Vercel key rather than the deployed one, which is what
-  // lets an instance rotation happen in a single ordinary run.
+  // Format validation is its own step and is never skipped, so a rotation that
+  // legitimately bypasses the comparison cannot bypass it too.
+  const formatIndex = steps.findIndex(
+    (step) => step.name === "Validate the staging Clerk issuer format",
+  );
+
+  assert.ok(formatIndex >= 0);
+  assert.ok(formatIndex < authConfigIndex);
+  assert.match(steps[formatIndex]?.run ?? "", /--validate-issuer-only/);
+  assert.doesNotMatch(steps[formatIndex]?.if ?? "", /rotation/);
+
+  // The comparison reads the key the deployment serves, not Vercel's pending
+  // configuration. Reading the pending config would have made a rotation an
+  // ordinary run, but `vercel env pull` does not write the publishable key back
+  // for this environment even though the audit confirms it is set — two staging
+  // deploys failed before that premise was shown to be wrong.
+  assert.match(steps[preCheckIndex]?.run ?? "", /--base-url/);
+  assert.doesNotMatch(steps[preCheckIndex]?.run ?? "", /env pull/);
+  assert.match(steps[preCheckIndex]?.run ?? "", /--allow-missing-key/);
+  // No rotation escape at all: instance moves are a manual sequence, so this
+  // comparison and the format check above cover every path that writes the
+  // issuer.
   assert.doesNotMatch(steps[preCheckIndex]?.if ?? "", /rotation/);
-  assert.match(steps[preCheckIndex]?.run ?? "", /--publishable-key/);
-  assert.match(steps[preCheckIndex]?.run ?? "", /vercel@[0-9.]+ env pull/);
-  // Never with `--git-branch`. Vercel rejects a branch unless the target is
-  // `preview`, and `staging` is a custom environment — passing one failed the
-  // step outright, which took staging deploys down until it was removed. The
-  // audit step's `--git-branch main` is an argument to the node script, not to
-  // the Vercel CLI, so only this step's invocation is constrained.
-  assert.doesNotMatch(steps[preCheckIndex]?.run ?? "", /env pull[\s\S]*?--git-branch/);
+  assert.doesNotMatch(workflow, /clerk_instance_rotation/);
 
   // The authoritative pass, against what actually shipped, with no such escape.
   assert.ok(keyCheckIndex > vercelDeployIndex);
@@ -271,15 +282,18 @@ test("staging deploy parses and audits main before provider mutation", () => {
   assert.ok(rollbackIndex > keyCheckIndex);
   assert.ok(rollbackIndex > steps.findIndex((step) => step.name === "Run hosted staging data-flow health"));
   assert.match(steps[rollbackIndex]?.if ?? "", /failure\(\)/);
-  // Not once Vercel has published. At that point it serves a key the pre-deploy
-  // check already validated against this issuer, so the providers agree and a
-  // later failure — including a transient fetch error in the post-deploy
-  // verifier — is not evidence the pairing is wrong. Restoring Convex there
-  // would create the mismatch this step exists to prevent.
-  assert.match(
-    steps[rollbackIndex]?.if ?? "",
-    /steps\.vercel\.outcome != 'success'/,
-  );
+  assert.match(steps[rollbackIndex]?.if ?? "", /steps\.vercel\.outcome != 'success'/);
+
+  // Keyed on a *confirmed* mismatch, not on the verifier step failing. A
+  // transient fetch error fails the step too and proves nothing about the
+  // pairing, so rolling back on one would break a pairing very likely correct.
+  assert.match(steps[rollbackIndex]?.if ?? "", /steps\.verify_issuer\.outputs\.mismatch == 'true'/);
+  assert.doesNotMatch(steps[rollbackIndex]?.if ?? "", /verify_issuer\.outcome/);
+
+  // ...which requires the verifier to record it, distinguishing exit 2 from any
+  // other non-zero status.
+  assert.match(steps[keyCheckIndex]?.run ?? "", /status" -eq 2/);
+  assert.match(steps[keyCheckIndex]?.run ?? "", /mismatch=true/);
   assert.match(steps[rollbackIndex]?.run ?? "", /convex env set CLERK_JWT_ISSUER_DOMAIN/);
   // Re-pushes only when the Convex deploy that would have published the new
   // issuer actually succeeded. Otherwise nothing carrying it was published, so
