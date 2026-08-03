@@ -133,15 +133,14 @@ jobs:
       # Convex identity on this deployment, which is what a drifted `convex` JWT
       # template or `CLERK_JWT_ISSUER_DOMAIN` breaks.
       #
-      # Still fails closed on configuration: with
-      # `VRDEX_HOSTED_E2E_CLERK_AUTH=true` and no Clerk keys the run errors
-      # rather than skipping, so this cannot go back to reporting a green
-      # contract over nothing.
-      # Also gated on the Clerk-auth flag, not just the hosted-data gate. Without
-      # it the step runs with no Clerk credentials, the authenticated test skips,
-      # the signed-out redirect test passes, Playwright exits 0 — and the summary
-      # reports the session contract as successful while the identity, reload,
-      # sibling-tab, and sign-out assertions never ran.
+      # Gated on the Clerk-auth flag as well as the hosted-data gate. Without
+      # that, the step ran with no Clerk credentials: the authenticated test
+      # skipped, the signed-out redirect test passed, Playwright exited 0, and
+      # the summary reported the session contract as successful while the
+      # identity, reload, sibling-tab, and sign-out assertions never ran.
+      #
+      # With the flag on and the keys missing it errors rather than skipping, so
+      # it cannot go back to reporting green over nothing either way.
       - name: Run recurring staging auth session contract
         if: steps.gate.outputs.enabled == 'true' && vars.VRDEX_HOSTED_E2E_CLERK_AUTH == 'true'
         id: auth_session
@@ -149,7 +148,12 @@ jobs:
           PLAYWRIGHT_BASE_URL: ${{ steps.gate.outputs.base_url }}
           PLAYWRIGHT_RECORD_VIDEO: "true"
           PLAYWRIGHT_SKIP_WEBSERVERS: "true"
-          VRDEX_ENABLE_E2E_AUTH_HELPERS: "true"
+          # Not hard-coded "true". The spec's own skip reads this, so forcing it
+          # on against a deployment whose auth helper is disabled let the
+          # identity assertions run — they do not touch `/api/e2e/auth` — while
+          # the cleanup DELETE silently took a 403, leaving the provisioned
+          # Convex user behind and the contract reported as successful.
+          VRDEX_ENABLE_E2E_AUTH_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_AUTH_HELPERS }}
           VRDEX_ENABLE_E2E_CLERK_AUTH: ${{ vars.VRDEX_HOSTED_E2E_CLERK_AUTH }}
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.VRDEX_HOSTED_E2E_CLERK_PUBLISHABLE_KEY }}
           CLERK_SECRET_KEY: ${{ secrets.VRDEX_HOSTED_E2E_CLERK_SECRET_KEY }}
@@ -500,6 +504,11 @@ jobs:
           {
             echo "VRDEX_MCP_OAUTH_CLIENT_ID=$VRDEX_MCP_OAUTH_CLIENT_ID"
             echo "VRDEX_MCP_OAUTH_CLIENT_SECRET=$VRDEX_MCP_OAUTH_CLIENT_SECRET"
+            # Carried so the teardown at the end of this job can delete the
+            # Convex user and its OAuth application. The generator deletes only
+            # the Clerk user; everything on the VRDex side has to outlive it,
+            # because the smokes below still need the client.
+            echo "VRDEX_MCP_OAUTH_SMOKE_ACCOUNT_EMAIL=$VRDEX_MCP_OAUTH_SMOKE_ACCOUNT_EMAIL"
           } >> "$GITHUB_ENV"
 
           {
@@ -606,3 +615,27 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
           pnpm smoke:mcp-openai -- --hosted-url "$SMOKE_URL" --hosted-data
+
+      # Always, so a failed or cancelled smoke does not strand the account.
+      # The generator deletes the Clerk user at its own exit, but the Convex
+      # user, its confidential OAuth application, that application's client
+      # secret, and any issued access tokens have to outlive it — the smokes
+      # above need the client. Without this every dispatch left the whole set
+      # behind in staging permanently.
+      - name: Tear down generated MCP OAuth smoke credentials
+        if: always() && steps.gate.outputs.generate_oauth_credentials == 'true' && env.VRDEX_MCP_OAUTH_SMOKE_ACCOUNT_EMAIL != ''
+        env:
+          SMOKE_URL: ${{ steps.gate.outputs.mcp_url }}
+          E2E_BROWSER_TOKEN: ${{ secrets.VRDEX_HOSTED_E2E_BROWSER_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          origin=$(printf '%s' "$SMOKE_URL" | sed -E 's#(https?://[^/]+).*##')
+          status=$(curl -sS -o /tmp/mcp-oauth-teardown.json -w '%{http_code}'             -X DELETE "$origin/api/e2e/auth"             -H "x-vrdex-e2e-token: $E2E_BROWSER_TOKEN"             -H 'content-type: application/json'             --data "{\"email\":\"$VRDEX_MCP_OAUTH_SMOKE_ACCOUNT_EMAIL\"}")
+
+          if [ "$status" != "200" ]; then
+            echo "::warning::Teardown of the generated MCP OAuth account returned HTTP $status. The Convex user and its OAuth application may still exist in staging."
+            exit 0
+          fi
+
+          echo "Deleted the generated MCP OAuth smoke account and its OAuth application."

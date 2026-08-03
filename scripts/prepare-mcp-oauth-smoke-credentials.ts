@@ -307,16 +307,28 @@ async function createSignedInClerkAccount(args: {
 
   assert.ok(typeof user.id === "string" && user.id, "Clerk test user creation returned no user id.");
 
-  await setupClerkTestingToken({ page: args.page });
-  await gotoFlowPage(args.page, "/");
-  await clerk.signIn({ page: args.page, emailAddress: args.email });
+  const clerkUserId = user.id;
 
-  // `users:ensureCurrentUser` provisions the Convex row on the first
-  // authenticated page load, and OAuth app registration needs it to exist.
-  await gotoFlowPage(args.page, "/account");
-  await args.page.getByRole("heading", { name: args.email }).waitFor({ timeout: 30_000 });
+  // Deleted here on failure rather than left to the caller's `finally`. The
+  // caller learns the id from the *return* value, so a throw in any of the
+  // browser steps below left it undefined and skipped teardown — and auth drift
+  // is exactly what this hosted path exists to detect, so failing runs and their
+  // retries would steadily accumulate users in the staging Clerk tenant.
+  try {
+    await setupClerkTestingToken({ page: args.page });
+    await gotoFlowPage(args.page, "/");
+    await clerk.signIn({ page: args.page, emailAddress: args.email });
 
-  return { clerkUserId: user.id };
+    // `users:ensureCurrentUser` provisions the Convex row on the first
+    // authenticated page load, and OAuth app registration needs it to exist.
+    await gotoFlowPage(args.page, "/account");
+    await args.page.getByRole("heading", { name: args.email }).waitFor({ timeout: 30_000 });
+  } catch (error) {
+    await deleteClerkAccount(clerkUserId);
+    throw error;
+  }
+
+  return { clerkUserId };
 }
 
 async function deleteClerkAccount(clerkUserId: string | undefined) {
@@ -500,6 +512,7 @@ async function verifyClientCredentialsToken(args: {
 }
 
 async function writeCredentialFiles(args: {
+  accountEmail: string;
   clientId: string;
   clientName: string;
   clientSecret: string;
@@ -524,6 +537,10 @@ async function writeCredentialFiles(args: {
       `$env:VRDEX_MCP_OAUTH_CLIENT_SECRET = ${psSingleQuote(args.clientSecret)}`,
       `$env:VRDEX_CLAUDE_CODE_HOSTED_URL = ${psSingleQuote(hostedUrl)}`,
       `$env:VRDEX_MCP_INSPECTOR_HOSTED_URL = ${psSingleQuote(hostedUrl)}`,
+      // The Convex user and its OAuth application outlive this script, because
+      // the smokes that follow need the client. Emitting the address is what
+      // lets the caller delete them once those smokes are done.
+      `$env:VRDEX_MCP_OAUTH_SMOKE_ACCOUNT_EMAIL = ${psSingleQuote(args.accountEmail)}`,
       "",
     ].join("\n"),
   );
@@ -536,6 +553,7 @@ async function writeCredentialFiles(args: {
       `export VRDEX_MCP_OAUTH_CLIENT_SECRET=${shSingleQuote(args.clientSecret)}`,
       `export VRDEX_CLAUDE_CODE_HOSTED_URL=${shSingleQuote(hostedUrl)}`,
       `export VRDEX_MCP_INSPECTOR_HOSTED_URL=${shSingleQuote(hostedUrl)}`,
+      `export VRDEX_MCP_OAUTH_SMOKE_ACCOUNT_EMAIL=${shSingleQuote(args.accountEmail)}`,
       "",
     ].join("\n"),
   );
@@ -624,6 +642,7 @@ async function main() {
 
     const files = await writeCredentialFiles({
       ...credentials,
+      accountEmail: email,
       clientName: options.clientName,
       origin,
       outputDir: options.outputDir,

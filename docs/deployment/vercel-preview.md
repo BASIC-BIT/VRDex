@@ -74,12 +74,14 @@ work on its own.** Clerk is an external prerequisite: a preview needs an
 instance, its keys on the Vercel preview, and `CLERK_JWT_ISSUER_DOMAIN`
 inherited from the Convex project's preview environment-variable defaults.
 Since #226 the authenticated flows use Clerk testing tokens rather than a
-sign-in form, so a preview that wants them additionally needs the
-`VRDEX_HOSTED_E2E_CLERK_PUBLISHABLE_KEY` and
-`VRDEX_HOSTED_E2E_CLERK_SECRET_KEY` repository secrets to name the same
-development instance the preview itself is configured with. Without them the
-auth specs skip and the generated-credential path for the MCP OAuth smoke stays
-disabled with a summary explaining why. Separate per-preview runtime material supplies the API token pepper,
+sign-in form, and **this workflow does not wire them up.** `vercel-preview-deploy.yml`
+passes no Clerk E2E secrets, runs no auth spec, and invokes no
+credential generator, so installing those secrets changes nothing here.
+Authenticated E2E and generated MCP OAuth credentials run from
+`baseline-checks.yml` and `deployed-health.yml` against the shared staging
+target — see [`docs/testing/playwright-visual-preview.md`](../testing/playwright-visual-preview.md).
+A preview still needs its own Clerk instance and keys for a human to sign in to
+it by hand. Separate per-preview runtime material supplies the API token pepper,
 OAuth client-secret and refresh-token peppers, and OAuth access-token signing
 key needed by developer credential and client-credentials flows. The token route
 uses the dedicated preview capability described above instead of an admin key.

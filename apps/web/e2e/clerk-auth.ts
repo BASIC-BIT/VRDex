@@ -65,6 +65,19 @@ function publishableKey() {
  * summary described three browsers of coverage that never executed.
  */
 export function clerkTestAuthAvailability(): { available: true } | { available: false; reason: string } {
+  // The flag is examined *first*, so it is genuinely the rollout switch the docs
+  // describe. Both hosted workflows inject the Clerk secrets independently of
+  // it, so keying off the keys alone meant an operator who had installed the
+  // secrets but deliberately left the flag off could not stop these specs — they
+  // would create accounts against a target nobody had declared ready.
+  if (process.env.VRDEX_ENABLE_E2E_CLERK_AUTH !== "true") {
+    return {
+      available: false,
+      reason:
+        'Clerk test auth is not enabled here (VRDEX_ENABLE_E2E_CLERK_AUTH is not "true"). Local Convex deployments pin an unresolvable issuer and cannot validate Clerk tokens, so these specs run against a hosted target only.',
+    };
+  }
+
   if (secretKey() && publishableKey()) {
     return { available: true };
   }
@@ -76,16 +89,10 @@ export function clerkTestAuthAvailability(): { available: true } | { available: 
     .filter((name): name is string => name !== null)
     .join(" and ");
 
-  if (process.env.VRDEX_ENABLE_E2E_CLERK_AUTH === "true") {
-    throw new Error(
-      `Hosted auth E2E is enabled for this target but ${missing} is not set. Configure the staging Clerk development instance keys, or unset VRDEX_ENABLE_E2E_CLERK_AUTH.`,
-    );
-  }
-
-  return {
-    available: false,
-    reason: `Clerk test auth is not configured (${missing}). Local Convex deployments pin an unresolvable issuer and cannot validate Clerk tokens, so run this against a hosted target with VRDEX_ENABLE_E2E_CLERK_AUTH=true.`,
-  };
+  // Enabled but unusable, so fail rather than skip.
+  throw new Error(
+    `Hosted auth E2E is enabled for this target but ${missing} is not set. Configure the staging Clerk development instance keys, or unset VRDEX_ENABLE_E2E_CLERK_AUTH.`,
+  );
 }
 
 // `clerkSetup` fetches one testing token and caches it on `process.env`, so it
