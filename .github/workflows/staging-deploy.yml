@@ -149,9 +149,17 @@ jobs:
           pending_env="$RUNNER_TEMP/vrdex-vercel-staging-pending.env"
           trap 'rm -f "$pending_env"' EXIT
 
+          # No `--git-branch`. Vercel rejects a git branch unless the target is
+          # `preview` — it answers `Invalid request: target must be "preview"
+          # when specifying a gitBranch` — and `staging` is a custom
+          # environment, so a branch is not a selector here at all.
+          #
+          # The audit step above looks like it contradicts this, and does not:
+          # its `--git-branch main` is an argument to
+          # `check-staging-runtime-env.mjs`, which uses it to ignore variables
+          # scoped to another branch. It never reaches the Vercel CLI.
           pnpm dlx vercel@54.4.1 env pull "$pending_env" \
             --environment=staging \
-            --git-branch main \
             --yes \
             --token "$VERCEL_TOKEN" > /dev/null
 
