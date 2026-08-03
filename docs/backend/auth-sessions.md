@@ -271,21 +271,40 @@ For a **standalone** event that is unrecoverable through the app.
 `false` outright when `communityProfileId` is undefined, and `events.ts` exposes
 no re-grant. Nobody can edit or cancel it again.
 
+A delegated `communityAuthorities` row fails the same way, for the same reason:
+an unblocked legacy user's active authority survives the purge keyed to a subject
+nothing can present any more, and whoever was delegated that capability quietly
+loses it.
+
 **Run the audit before step 3, not after.** It matches on the legacy
 `users._id`, and once the purge deletes those rows there is nothing left to match
 against — you would be looking at an orphaned subject with no way to learn whose
 it was. Take the ids from step 1's `blockedUsers` *and* from a listing of rows
-with no `clerkUserId`, since the unblocked ones are exactly the ones at risk, and
-for each check `events` for a `submitter.subject` starting with that id.
-`reassignLegacyUserReferences` reports the same count as
-`authorizationSubjectsLeft.events` for one user, which is convenient when you are
-running it anyway — but it is per-user and only for users you chose to reassign,
-so it is not the audit.
+with no `clerkUserId`, since the unblocked ones are exactly the ones at risk. For
+each id, check **both** tables for a subject starting with it:
 
-Remediation is a deliberate intervention either way, because no function does it:
-patch `submitter` onto the Clerk subject, or attach a `communityProfileId` so
-community authorization applies instead. Decide before the purge; afterwards you
-are choosing without knowing whose event it was.
+- `events`, on `submitter.subject`
+- `communityAuthorities`, on `subject.subject`, `state: "active"` only —
+  re-granting a revoked one would restore a capability somebody deliberately
+  removed
+
+**Neither aggregate is a substitute, and they fail differently.**
+`authorizationSubjectsLeft` is per-user and only for users you already chose to
+reassign — which excludes the unblocked ones entirely, the exact set at risk.
+`staleCommunityAuthorities` does run on every purge, but it is a *count*: it
+tells you how many authorities stopped matching their owners, never which legacy
+identity each belonged to, and it is `null` whenever the issuer is unset or the
+table exceeded one bounded read. Neither can be acted on per row, which is what
+remediation needs.
+
+Remediation is a deliberate intervention in every case, because no function does
+it. For an event: patch `submitter` onto the Clerk subject, or attach a
+`communityProfileId` so community authorization applies instead. For an
+authority: write the row again against the Clerk subject — `convex/` has no
+`insert("communityAuthorities")` at all, only reads through
+`subjectHasCommunityCapability`, so "re-grant" means a direct row write and not a
+mutation you can call. Decide before the purge; afterwards you are choosing
+without knowing whose it was.
 
 Then deploy this revision.
 
@@ -425,9 +444,13 @@ counts active authorities whose `subject.issuer` differs from the deployment's
 `CLERK_JWT_ISSUER_DOMAIN` — capabilities the issuer change already stopped
 matching their owners. They key on token identifier rather than `users._id`, so
 they never block the purge and are easy to finish an upgrade without noticing.
-They have to be re-granted by hand. It is `null` rather than a number whenever
-the answer would be a guess: an unset issuer, or a table longer than one bounded
-read. Read `null` as "count these yourself".
+It is `null` rather than a number whenever the answer would be a guess: an unset
+issuer, or a table longer than one bounded read. Read `null` as "count these
+yourself".
+
+It is a smoke alarm, not the audit. A count cannot tell you which legacy identity
+each authority belonged to, and that is what re-granting one needs — so use it to
+find out whether you have a problem, and the per-user pass above to fix it.
 
 `clerkUsers` in the step 1 report is a *sample*, capped at 25, and
 `clerkUsersTruncated` says when the account you need may not be in it. When it
