@@ -18,21 +18,27 @@ function shortSha(value: string | undefined) {
 }
 
 /**
- * Canonical origin of a URL, or `unknown` when unset or unparseable.
+ * A backend URL reported whole, or `unknown` when unset or unparseable.
  *
- * Scheme included deliberately. Reducing to a host would let
- * `http://superb-pig-954.convex.cloud` compare equal to the production target,
- * and `check-vercel-env.mjs` accepts both schemes — but `ConvexReactClient` gets
- * the URL verbatim, so an http backend on an https origin has its WebSocket
- * blocked and every data and account action fails after a successful promotion.
+ * Deliberately not reduced to a host or an origin. Both clients receive this
+ * value verbatim, so every part of it matters and each reduction hides a real
+ * failure: a host comparison accepts `http://`, whose WebSocket an https origin
+ * blocks, and an origin comparison accepts a stray path like `/wrong`, which
+ * `ConvexHttpClient` would then target for every server-side call. Only trailing
+ * slashes are normalised, being the one difference with no effect.
  */
-function originLabel(value: string | undefined) {
-  if (!value) {
+function backendUrlLabel(value: string | undefined) {
+  const trimmed = value?.trim();
+
+  if (!trimmed) {
     return "unknown";
   }
 
   try {
-    return new URL(value).origin;
+    // Parsed rather than string-matched, so a malformed value reports `unknown`
+    // instead of being compared as-is.
+    new URL(trimmed);
+    return trimmed.replace(/\/+$/, "");
   } catch {
     return "unknown";
   }
@@ -97,9 +103,9 @@ export default function DeploymentPage() {
   // route handlers can be reading a different deployment than the browser while
   // the public URL looks correct.
   const backendIdentity = {
-    convexBrowser: originLabel(process.env.NEXT_PUBLIC_CONVEX_URL),
-    convexServer: originLabel(process.env.CONVEX_URL ?? process.env.NEXT_PUBLIC_CONVEX_URL),
-    clerk: originLabel(clerkFrontendApiHost()),
+    convexBrowser: backendUrlLabel(process.env.NEXT_PUBLIC_CONVEX_URL),
+    convexServer: backendUrlLabel(process.env.CONVEX_URL ?? process.env.NEXT_PUBLIC_CONVEX_URL),
+    clerk: backendUrlLabel(clerkFrontendApiHost()),
   };
 
   const deploymentItems: DeploymentItem[] = [

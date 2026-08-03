@@ -31,10 +31,11 @@ env:
   # tenant is still `pk_live_`, and any non-local Convex URL passes the build
   # check, so neither tier nor presence proves which backend is in play.
   EXPECTED_CLERK_HOST: clerk.vrdex.net
-  # Full origin, not host. `check-vercel-env.mjs` accepts http as well as https,
-  # and `ConvexReactClient` receives the URL verbatim, so an http backend on an
-  # https origin has its WebSocket blocked after an otherwise clean promotion.
-  EXPECTED_CONVEX_ORIGIN: https://superb-pig-954.convex.cloud
+  # The complete URL, not a host or an origin. Both clients receive this value
+  # verbatim, so every reduction hides a real failure: a host accepts `http://`,
+  # whose WebSocket an https origin blocks, and an origin accepts a stray path,
+  # which `ConvexHttpClient` would target for every server-side call.
+  EXPECTED_CONVEX_URL: https://superb-pig-954.convex.cloud
 
 jobs:
   promote:
@@ -130,8 +131,8 @@ jobs:
           # browser while the public URL looks correct.
           for attr_name in data-convex-browser data-convex-server; do
             value=$(attr "$attr_name")
-            if [ "$value" != "$EXPECTED_CONVEX_ORIGIN" ]; then
-              echo "::error::$DEPLOYMENT_URL reports $attr_name as '$value', expected '$EXPECTED_CONVEX_ORIGIN'."
+            if [ "$value" != "$EXPECTED_CONVEX_URL" ]; then
+              echo "::error::$DEPLOYMENT_URL reports $attr_name as '$value', expected '$EXPECTED_CONVEX_URL'."
               exit 1
             fi
           done
@@ -142,7 +143,7 @@ jobs:
             exit 1
           fi
 
-          echo "Deployment resolves both Convex targets to $EXPECTED_CONVEX_ORIGIN and Clerk to $clerk_origin."
+          echo "Deployment resolves both Convex targets to $EXPECTED_CONVEX_URL and Clerk to $clerk_origin."
 
       # Independent of the build: a promotion is worthless if the Clerk instance
       # the build points at cannot serve tokens, and actively harmful while

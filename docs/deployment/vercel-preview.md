@@ -331,7 +331,12 @@ way production has broken or nearly broken before:
 - `/sign-in` returns 200 before its body is inspected — an error document still renders the shared auth layout, so its body would otherwise satisfy the content checks
 - the page does not render the auth-unavailable notice — that build was made without Clerk credentials
 - the publishable key decodes to `clerk.vrdex.net` — tier alone does not prove tenant, and another tenant's `pk_live_` key would have Convex reject every token
-- `/deployment` reports both Convex and Clerk as configured — a missing Convex URL is only a build warning, and leaves the site serving auth pages with no backend
+- `/deployment` reports the backend identities the running build actually resolved, and each must match production exactly:
+  - `data-convex-browser` — `NEXT_PUBLIC_CONVEX_URL`, what the browser client uses
+  - `data-convex-server` — `CONVEX_URL ?? NEXT_PUBLIC_CONVEX_URL`, the precedence `convexHttpClient()` applies for the API, OAuth, MCP, and account route handlers. It is a separate value, so a build can serve the right data to the browser and the wrong data from its route handlers
+  - `data-clerk-frontend-api` — decoded from the publishable key, naming the Clerk tenant
+
+  Compared as complete URLs, not hosts or origins. Both clients receive the value verbatim, so `http://` (whose WebSocket an https origin blocks) and a stray path (which `ConvexHttpClient` would target) must both fail. A missing Convex URL is only a build warning, so without this a build with no backend is promotable
 - `clerk.vrdex.net/v1/environment` returns 200 — the instance must be able to issue tokens
 - that response has `user_settings.actions.delete_self` false — the promoted build exposes Clerk's profile surface, and VRDex cannot reconcile a deleted identity until [#227](https://github.com/BASIC-BIT/VRDex/issues/227)
 

@@ -67,9 +67,10 @@ variable "tags" {
 # The mail records are Clerk's own sender identity, unrelated to the SES stack:
 # SES is retired for authentication, and Clerk sends its verification mail.
 #
-# These default to off with no targets, and hosted CI supplies both through
-# `TERRAFORM_WEB_DOMAINS_*` repository variables — the same mechanism the SES and
-# profile-assets stacks already use for BASIC BIT specifics.
+# These default to off with no targets. Hosted values live in the checked-in
+# `hosted.tfvars`, which Terraform does not auto-load — it reads only
+# `terraform.tfvars` and `*.auto.tfvars` — and which `terraform.yml` passes with
+# `-var-file` only when the repository is `BASIC-BIT/VRDex`.
 #
 # Two failure modes shaped that. Defaulting them off with the targets in a
 # gitignored `terraform.tfvars` meant CI could never create the records, so only
