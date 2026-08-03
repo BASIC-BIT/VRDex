@@ -1,7 +1,27 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { resolveConvexTarget } from "../../scripts/convex-target";
+import { legacyTargetFlagError, resolveConvexTarget } from "../../scripts/convex-target";
+
+describe("legacy target flags", () => {
+  it("rejects the flags that used to select a deployment", () => {
+    // --target defaults to local, so ignoring a leftover --prod would publish
+    // locally and report success.
+    assert.match(legacyTargetFlagError(["--apply", "--prod"]) ?? "", /--prod is no longer supported/);
+    assert.match(
+      legacyTargetFlagError(["--deployment", "prod:superb-pig-954"]) ?? "",
+      /--deployment is no longer supported/,
+    );
+    assert.match(
+      legacyTargetFlagError(["--prod", "--deployment", "x"]) ?? "",
+      /--prod and --deployment are no longer supported/,
+    );
+  });
+
+  it("passes a modern invocation through", () => {
+    assert.equal(legacyTargetFlagError(["--target", "prod", "--apply"]), undefined);
+  });
+});
 
 describe("convex target resolution", () => {
   const configured = {

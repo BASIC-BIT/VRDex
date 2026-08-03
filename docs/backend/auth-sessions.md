@@ -242,8 +242,10 @@ cutover** — staging in particular may hold rows — and re-grant rather than
 attempt a rewrite:
 
 ```bash
-pnpm exec convex data communityAuthorities --limit 5
-pnpm exec convex data events --limit 5
+pnpm cx -- dev data communityAuthorities --limit 5
+pnpm cx -- dev data events --limit 5
+pnpm cx -- prod data communityAuthorities --limit 5
+pnpm cx -- prod data events --limit 5
 ```
 
 Doing step 3 before step 2 is not fatal — it leaves a duplicate legacy row and an

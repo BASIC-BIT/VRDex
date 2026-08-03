@@ -3,7 +3,12 @@ import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { CONVEX_TARGET_NAMES, convexCliPath, convexTargetEnv } from "./convex-target.ts";
+import {
+  CONVEX_TARGET_NAMES,
+  convexCliPath,
+  convexTargetEnv,
+  legacyTargetFlagError,
+} from "./convex-target.ts";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
@@ -40,6 +45,12 @@ if (!candidateId || !actorToken || !actorIssuer || !actorSubject) {
 
 if (!Number.isFinite(expiresInHours) || expiresInHours <= 0 || expiresInHours > 2160) {
   fail("Handoff expiry must be between 0 and 2160 hours.");
+}
+
+const legacyFlag = legacyTargetFlagError(args);
+
+if (legacyFlag) {
+  fail(legacyFlag);
 }
 
 const target = convexTargetEnv(option("--target") ?? "local");

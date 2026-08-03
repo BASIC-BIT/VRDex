@@ -59,6 +59,28 @@ export type ConvexTargetName = keyof typeof CONVEX_TARGETS;
 
 export const CONVEX_TARGET_NAMES = Object.keys(CONVEX_TARGETS);
 
+const LEGACY_TARGET_FLAGS = ["--prod", "--deployment"];
+
+/**
+ * The old flags are rejected rather than ignored. `--target` defaults to
+ * `local`, so a leftover `ops:seed-publish -- --apply … --prod` from shell
+ * history or an old runbook would otherwise publish to the local backend and
+ * report success, which is worse than the failure it replaced.
+ */
+export function legacyTargetFlagError(argv: string[]) {
+  const used = LEGACY_TARGET_FLAGS.filter((flag) => argv.includes(flag));
+
+  if (used.length === 0) {
+    return undefined;
+  }
+
+  return (
+    `${used.join(" and ")} ${used.length === 1 ? "is" : "are"} no longer supported. ` +
+    `Use --target <${CONVEX_TARGET_NAMES.join("|")}>. ` +
+    "Without it this command would have run against local."
+  );
+}
+
 type ResolvedConvexTarget =
   | {
       deployment: string;
@@ -142,9 +164,11 @@ export function mainCheckoutRoot() {
 }
 
 /**
- * Ordered so the main checkout wins outright. `loadRepoEnvLocal` keeps the first
- * value it sees for a key, so a worktree that has acquired its own `.env.local`
- * would otherwise shadow centrally rotated credentials with stale ones.
+ * Ordered so the main checkout is consulted first. Only one file is ever read:
+ * merging them per key would let a stale worktree `.env.local` supply a pair
+ * that central rotation has just removed from the main file, and the command
+ * would run on withdrawn credentials while reporting the main file as its
+ * source.
  */
 function envRoots() {
   const main = mainCheckoutRoot();
@@ -169,8 +193,9 @@ export function convexTargetEnv(name: string): ConvexTargetEnv {
   for (const root of roots) {
     const attempt = loadRepoEnvLocal({ cwd: root, env: values });
 
-    if (attempt.loaded && envPath === undefined) {
+    if (attempt.loaded) {
       envPath = attempt.path;
+      break;
     }
   }
 

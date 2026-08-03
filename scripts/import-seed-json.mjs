@@ -3,7 +3,12 @@ import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { CONVEX_TARGET_NAMES, convexCliPath, convexTargetEnv } from "./convex-target.ts";
+import {
+  CONVEX_TARGET_NAMES,
+  convexCliPath,
+  convexTargetEnv,
+  legacyTargetFlagError,
+} from "./convex-target.ts";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const scriptDir = path.dirname(scriptPath);
@@ -28,6 +33,12 @@ function fail(message) {
 let target;
 
 function requireTarget() {
+  const legacy = legacyTargetFlagError(args);
+
+  if (legacy) {
+    fail(legacy);
+  }
+
   const resolved = convexTargetEnv(option("--target") ?? "local");
 
   if (!resolved.ok) {

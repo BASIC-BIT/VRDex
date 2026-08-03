@@ -34,11 +34,12 @@ that reads `prod`.
 
 Credentials are read from `.env.local` in the main checkout — worktrees do not
 carry it, and the wrapper locates the main checkout through
-`git rev-parse --git-common-dir` rather than requiring a variable. The main
-checkout takes precedence, so a worktree that later acquires its own env file
-cannot shadow centrally rotated credentials with stale ones. Values are passed
-to the Convex CLI through its environment and never printed; the banner names
-the deployment and the env file only.
+`git rev-parse --git-common-dir` rather than requiring a variable. Exactly one
+file is read: when the main checkout has one, a worktree copy is ignored
+entirely rather than merged per key, so a credential removed by rotation stays
+removed instead of being refilled from a stale worktree. Values are passed to
+the Convex CLI through its environment and never printed; the banner names the
+deployment and the env file only.
 
 A target that is missing either of its two variables fails and names both,
 rather than falling back to whichever credentials are present.
@@ -52,8 +53,16 @@ pnpm ops:seed-import:json -- --file <path> --target prod ...
 pnpm ops:seed-handoff:create -- --candidate-id <id> --target prod ...
 ```
 
-`--target` defaults to `local`, which uses the ambient environment and so needs
-a running local backend from `pnpm dev:backend:local`.
+`--target` defaults to `local`. The old `--prod` and `--deployment` flags are
+rejected with an error rather than ignored, since silently falling back to
+`local` would let a leftover `--prod` invocation report a successful local
+publication.
+
+`local` is pinned to the env file exactly like the cloud targets: it takes
+`CONVEX_DEPLOYMENT` and `CONVEX_URL` from the main checkout's `.env.local`, and
+the ambient values are cleared first. Exporting a worktree-specific
+`CONVEX_URL` therefore has no effect — change the file, or start the backend
+with `pnpm dev:backend:local`, which `local` still expects to be running.
 
 ## Current Deployments
 
@@ -280,14 +289,14 @@ Pass single-line secrets as a positional argument instead, from Git Bash so that
 
 ```bash
 SECRET=$(python -c "import json,sys;print(json.load(open(sys.argv[1]))['web']['client_secret'],end='')" ./client_secret.json)
-pnpm exec convex env set AUTH_GOOGLE_SECRET "$SECRET"
+pnpm cx -- prod env set AUTH_GOOGLE_SECRET "$SECRET"
 ```
 
 Always verify after writing a secret. `len` must equal the provider's documented
 length and `CR` must be `0`:
 
 ```bash
-pnpm exec convex env get AUTH_GOOGLE_SECRET | python -c "
+pnpm cx -- prod env get AUTH_GOOGLE_SECRET | python -c "
 import sys
 b = sys.stdin.buffer.read().rstrip(b'\n')
 print('CR=%d len=%d' % (b.count(b'\r'), len(b)))"
