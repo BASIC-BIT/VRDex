@@ -73,6 +73,17 @@ test.skip(
 // accounts at all.
 const authHelpersEnabled = process.env.VRDEX_ENABLE_E2E_AUTH_HELPERS === "true";
 
+/**
+ * Cleanup passes before the teardown gives up and keeps the Clerk identity.
+ *
+ * Three, not two: two proves only that one extra round trip found nothing, and a
+ * single late `ensureCurrentUser` would then be caught by the second pass with no
+ * pass left to confirm it. Three is one confirmation beyond one caught racer,
+ * which is as far as a bounded loop is worth taking — past that, provisioning
+ * outrunning teardown is a real defect and should fail rather than be absorbed.
+ */
+const CLEANUP_DRAIN_PASSES = 3;
+
 test.skip(
   clerkTestAuth.available && !authHelpersEnabled,
   "Skipped, no coverage produced: VRDEX_ENABLE_E2E_AUTH_HELPERS is not \"true\", so the Convex rows these accounts provision could not be cleaned up.",
@@ -122,42 +133,76 @@ test.describe("account surfaces @visual @flow", () => {
     //
     // Never conditional on the test passing: a failed assertion still leaves a
     // real account behind.
-    const cleanup = await cleanupClerkTestAccountData(request, e2eBrowserToken(), account);
+    //
+    // Repeated until a pass finds nothing, because one pass cannot prove the row
+    // stayed gone. Closing the page stops the client issuing *new* work, but a
+    // mutation Convex has already accepted is not cancellable from here, and
+    // `ProvisionedChildren` issues one per navigation rather than only when the
+    // row is missing: `syncedIdentity` is a ref, so every `page.goto` remounts
+    // the component and resets it to `null`, which fails the
+    // `identitySignature === syncedIdentity.current` guard and re-fires
+    // `ensureCurrentUser`. Nothing in the test body awaits that mutation, so each
+    // test ends with one plausibly still in flight.
+    //
+    // Deleting the Clerk identity does not settle it either — Convex validates
+    // the token's signature and issuer, not whether the user still exists, so an
+    // accepted mutation succeeds after the identity is gone.
+    //
+    // So the loop drains instead: a pass that deletes something means a mutation
+    // landed after the previous one, and only a pass that finds nothing ends it.
+    // That bounds the hole at "still unresolved after a full extra round trip to
+    // the same deployment" rather than closing it, which no client-side action
+    // can do. Still deleting at the cap is a failure, not a shrug — something is
+    // actively recreating the row and the Clerk identity must be kept.
+    const target = account;
 
-    // The Clerk identity is deleted only once the Convex row is gone, and that
-    // ordering is the whole point. Deleting it first makes a failed cleanup
-    // permanent: the row survives keyed to an identity that no longer exists, so
-    // the thing you would use to find and re-clean it is what was just removed.
+    account = undefined;
+
+    let lastCleanup: Awaited<ReturnType<typeof cleanupClerkTestAccountData>>;
+    let cleaned = false;
+    let drained = false;
+
+    for (let pass = 0; pass < CLEANUP_DRAIN_PASSES; pass += 1) {
+      lastCleanup = await cleanupClerkTestAccountData(request, e2eBrowserToken(), target);
+
+      // The gate above checks the *runner's* `VRDEX_ENABLE_E2E_AUTH_HELPERS`, a
+      // different variable on a different machine from the four the route requires
+      // (`VRDEX_ENABLE_E2E_HELPERS`, `VRDEX_ENABLE_E2E_AUTH_HELPERS`,
+      // `VRDEX_E2E_BROWSER_TOKEN`, `VRDEX_E2E_CONVEX_SECRET`). It can answer 403 or
+      // 400 with the runner flag set, and `request.delete` resolves either way, so
+      // the gate alone cannot tell a completed cleanup from a rejected one.
+      // `ok()` is not the same claim as "the row is gone".
+      const body =
+        lastCleanup !== undefined && lastCleanup.ok()
+          ? ((await lastCleanup.json()) as { deleted?: boolean })
+          : undefined;
+
+      if (body?.deleted === true) {
+        cleaned = true;
+        continue;
+      }
+
+      // 200 with `{ deleted: false }` means no row is there. On the first pass
+      // that is a failure — sign-in got far enough to make an account, so a row
+      // should exist — and on a later pass it is the drain completing. `cleaned`
+      // is what tells them apart. Anything else (a 403 from the route's own gate,
+      // a 400, a transport error) leaves both false and fails below.
+      drained = body?.deleted === false;
+      break;
+    }
+
+    // The Clerk identity is deleted only once the Convex row is confirmed gone
+    // and confirmed to have stayed gone, and that ordering is the whole point.
+    // Deleting it first makes a failed cleanup permanent: the row survives keyed
+    // to an identity that no longer exists, so the thing you would use to find
+    // and re-clean it is what was just removed.
     //
     // Keeping both on failure looks like a leak and is the opposite — a
     // recoverable pair, visible in the Clerk dashboard, re-cleanable through the
     // ordinary path. The test still fails loudly below.
-    //
-    // The gate above checks the *runner's* `VRDEX_ENABLE_E2E_AUTH_HELPERS`, a
-    // different variable on a different machine from the four the route requires
-    // (`VRDEX_ENABLE_E2E_HELPERS`, `VRDEX_ENABLE_E2E_AUTH_HELPERS`,
-    // `VRDEX_E2E_BROWSER_TOKEN`, `VRDEX_E2E_CONVEX_SECRET`). It can answer 403 or
-    // 400 with the runner flag set, and `request.delete` resolves either way, so
-    // the gate alone cannot tell a completed cleanup from a rejected one.
-    // `ok()` is not the same claim as "the row is gone". `cleanupE2eUserByEmail`
-    // answers 200 with `{ deleted: false }` when it finds no row, which happens
-    // when sign-in failed partway: `ensureCurrentUser` may still be in flight and
-    // can create the row *after* this ran. Deleting the Clerk identity on a 200
-    // alone would orphan exactly that row.
-    const cleanupBody =
-      cleanup !== undefined && cleanup.ok()
-        ? ((await cleanup.json()) as { deleted?: boolean })
-        : undefined;
-    const cleaned = cleanupBody?.deleted === true;
+    const clerkDeletion = cleaned && drained ? await deleteClerkTestAccount(target) : undefined;
 
-    // Only once the row is confirmed gone. Otherwise both are kept: a recoverable
-    // pair, visible in the Clerk dashboard, re-cleanable by email — where
-    // deleting the identity first would strand the row permanently.
-    const clerkDeletion = cleaned ? await deleteClerkTestAccount(account) : undefined;
-
-    const email = account?.email;
-
-    account = undefined;
+    const email = target?.email;
 
     // No response is not success. `deleteClerkTestAccount` never throws — it runs
     // from `finally` blocks elsewhere — so a DNS failure, reset connection, or
@@ -170,12 +215,14 @@ test.describe("account surfaces @visual @flow", () => {
       clerkDeletion !== undefined && (clerkDeletion.ok || clerkDeletion.status === 404);
 
     const failure = !cleaned
-      ? `Convex cleanup did not delete a row for ${email} (HTTP ${cleanup?.status()}). The Clerk user was kept so the pair can still be cleaned up by hand.`
-      : !clerkDeleted
-        ? `Clerk did not confirm deletion of ${email} (${
-            clerkDeletion ? `HTTP ${clerkDeletion.status}` : "no response"
-          }). A disposable user is left in the staging tenant.`
-        : undefined;
+      ? `Convex cleanup did not delete a row for ${email} (HTTP ${lastCleanup?.status()}). The Clerk user was kept so the pair can still be cleaned up by hand.`
+      : !drained
+        ? `Convex cleanup for ${email} was still deleting rows after ${CLEANUP_DRAIN_PASSES} passes (HTTP ${lastCleanup?.status()}), so provisioning is outrunning it. The Clerk user was kept rather than orphaning whatever lands next.`
+        : !clerkDeleted
+          ? `Clerk did not confirm deletion of ${email} (${
+              clerkDeletion ? `HTTP ${clerkDeletion.status}` : "no response"
+            }). A disposable user is left in the staging tenant.`
+          : undefined;
 
     expect(failure, failure ?? "").toBeUndefined();
   });
