@@ -335,6 +335,35 @@ jobs:
         run: pnpm test:e2e:hosted
 
 
+      # After the deployment it is testing, not before it. On a merge this used
+      # to run from `deployed-health.yml` on the `push` event, which fires while
+      # the matching Convex and Vercel deployments are still going out — so it
+      # asserted against the *previous* deployment and reported that as the
+      # health of this one.
+      #
+      # Gated on the Clerk flag for the same reason the deployed-health copy is:
+      # without credentials the authenticated test skips, the signed-out one
+      # passes, and Playwright exits 0 over a contract that never ran.
+      - name: Run recurring staging auth session contract
+        if: steps.gate.outputs.enabled == 'true' && vars.VRDEX_HOSTED_E2E_CLERK_AUTH == 'true'
+        env:
+          PLAYWRIGHT_BASE_URL: ${{ steps.gate.outputs.hosted_base_url }}
+          PLAYWRIGHT_RECORD_VIDEO: "true"
+          PLAYWRIGHT_SKIP_WEBSERVERS: "true"
+          # Distinct output locations. Playwright clears its report and results
+          # directories when a run starts, so a second invocation sharing them
+          # discarded the first run's report, traces, and videos before the
+          # upload step could collect them.
+          PLAYWRIGHT_OUTPUT_DIR: test-results-auth-session
+          PLAYWRIGHT_HTML_REPORT_DIR: playwright-report-auth-session
+          VRDEX_ENABLE_E2E_AUTH_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_AUTH_HELPERS }}
+          VRDEX_ENABLE_E2E_CLERK_AUTH: ${{ vars.VRDEX_HOSTED_E2E_CLERK_AUTH }}
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.VRDEX_HOSTED_E2E_CLERK_PUBLISHABLE_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.VRDEX_HOSTED_E2E_CLERK_SECRET_KEY }}
+          VRDEX_E2E_BROWSER_TOKEN: ${{ secrets.VRDEX_HOSTED_E2E_BROWSER_TOKEN }}
+          VRDEX_E2E_RUN_ID: staging-auth-session-${{ github.run_id }}-${{ github.run_attempt }}
+        run: pnpm test:e2e:hosted:auth-session
+
       # Anything between the `env set` and the post-deploy verification failing
       # leaves Convex trusting an instance the deployed web app does not
       # authenticate against, which rejects every signed-in staging request. The
@@ -397,4 +426,6 @@ jobs:
           path: |
             apps/web/playwright-report
             apps/web/test-results
+            apps/web/playwright-report-auth-session
+            apps/web/test-results-auth-session
             apps/web/playwright-artifacts

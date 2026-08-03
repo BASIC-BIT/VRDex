@@ -179,6 +179,9 @@ test("staging deploy parses and audits main before provider mutation", () => {
   const vercelDeployIndex = steps.findIndex(
     (step) => step.name === "Deploy Vercel staging",
   );
+  const authSessionIndex = steps.findIndex(
+    (step) => step.name === "Run recurring staging auth session contract",
+  );
   const authConfigIndex = steps.findIndex(
     (step) => step.name === "Provision Convex auth configuration",
   );
@@ -188,6 +191,18 @@ test("staging deploy parses and audits main before provider mutation", () => {
   assert.ok(convexDeployIndex > auditIndex);
   assert.ok(fixtureIndex > convexDeployIndex);
   assert.ok(vercelDeployIndex > fixtureIndex);
+  // After the deployment it tests, not before it.
+  assert.ok(authSessionIndex > vercelDeployIndex);
+  assert.equal(steps[authSessionIndex]?.run, "pnpm test:e2e:hosted:auth-session");
+  // Gated, or it reports a passing contract over assertions that never ran.
+  assert.match(steps[authSessionIndex]?.if ?? "", /VRDEX_HOSTED_E2E_CLERK_AUTH == 'true'/);
+  // Distinct output locations, or it deletes the first run's evidence.
+  assert.equal(steps[authSessionIndex]?.env?.PLAYWRIGHT_OUTPUT_DIR, "test-results-auth-session");
+  assert.equal(
+    steps[authSessionIndex]?.env?.PLAYWRIGHT_HTML_REPORT_DIR,
+    "playwright-report-auth-session",
+  );
+
 
   // Strictly before the deploy, not merely present. `auth.config.ts` reads
   // CLERK_JWT_ISSUER_DOMAIN at push time and the CLI refuses to push while it is

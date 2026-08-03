@@ -86,7 +86,21 @@ export default defineConfig({
   timeout: 30_000,
   retries: process.env.CI ? 1 : 0,
   fullyParallel: true,
-  reporter: [["list"], ["html", { open: "never", outputFolder: "playwright-report" }]],
+  // Overridable so two Playwright runs in one job do not share these. Playwright
+  // clears both when a run starts, so the staging deploy's second invocation was
+  // deleting the first run's report, traces, and always-recorded videos before
+  // the upload step collected them — the artifact showed only the later run.
+  outputDir: process.env.PLAYWRIGHT_OUTPUT_DIR ?? "test-results",
+  reporter: [
+    ["list"],
+    [
+      "html",
+      {
+        open: "never",
+        outputFolder: process.env.PLAYWRIGHT_HTML_REPORT_DIR ?? "playwright-report",
+      },
+    ],
+  ],
   expect: {
     toHaveScreenshot: {
       pathTemplate: "{testDir}/__screenshots__{/projectName}/{arg}{ext}",

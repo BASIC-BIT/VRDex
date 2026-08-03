@@ -266,17 +266,27 @@ The final `PR Verification Report` job runs after the Playwright and Storybook j
 
 The `Deployed Health Checks` workflow runs after merges to `main`, after successful GitHub deployment status events for production deployments, on a daily schedule, and through manual dispatch. It has two independent checks:
 
-- `Hosted Data Flow Health` uses `VRDEX_HOSTED_E2E_BASE_URL` and `VRDEX_HOSTED_E2E_BROWSER_TOKEN` to run the mutation-backed hosted flow against a dev/staging target.
+- `Hosted Data Flow Health` uses `VRDEX_HOSTED_E2E_BASE_URL` and `VRDEX_HOSTED_E2E_BROWSER_TOKEN` to run scheduled or manually dispatched mutation-backed hosted flow checks against a dev/staging target.
 - `Production Smoke Health` uses the production deployment status URL when the workflow was triggered by a successful production deployment, otherwise `VRDEX_PRODUCTION_SMOKE_BASE_URL`, to run read-only public route smoke against production.
 
 Manual dispatch can run `all`, `staging-mutation`, or `production-smoke`. The optional `base_url` override applies only when dispatching a single selected target. The deployed health workflow uploads artifacts and fails the workflow on test failure, but it does not create GitHub issues automatically.
 
-The recurring staging lane also runs the auth-session contract, which asserts
-that a Clerk session resolves to a verified Convex identity on that deployment.
-It uses only disposable `@e2e.vrdex.net` accounts created on the staging Clerk
-development instance and deleted in the same run, and the staging helper
-boundary. With `VRDEX_HOSTED_E2E_CLERK_AUTH` unset it skips; with it set and the
-Clerk keys absent it fails.
+The merge-triggered `Staging Deploy` workflow runs the auth-session contract
+after the matching Convex and Vercel deployment is live, which is the point of
+running it there: on a `push` it fired while those deployments were still going
+out, so it asserted against the *previous* deployment and reported that as the
+health of this one. Scheduled and manually dispatched staging health repeat the
+same contract.
+
+The contract asserts that a Clerk session resolves to a verified Convex identity
+on that deployment. It uses only disposable `@e2e.vrdex.net` accounts created on
+the staging Clerk development instance and deleted in the same run, and the
+staging helper boundary. With `VRDEX_HOSTED_E2E_CLERK_AUTH` unset it skips; with
+it set and the Clerk keys absent it fails.
+
+Both staging Playwright runs write to distinct report and results directories,
+because Playwright clears those when a run starts and the second invocation would
+otherwise discard the first run's evidence before it was uploaded.
 
 Production authenticated smoke is a separate manual one-shot option. Supply a
 fresh base64-encoded Playwright storage state for the disposable production

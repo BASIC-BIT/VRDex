@@ -7,9 +7,11 @@ node_modules/
 .convex-tmp/
 .tmp-gh-artifacts/
 apps/web/playwright-report/
+apps/web/playwright-report-auth-session/
 apps/web/playwright-report-storybook/
 apps/web/playwright-artifacts/
 apps/web/test-results/
+apps/web/test-results-auth-session/
 apps/web/storybook-static/
 apps/docs/.docusaurus/
 apps/docs/build/

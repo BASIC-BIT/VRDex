@@ -78,6 +78,25 @@ export function clerkTestAuthAvailability(): { available: true } | { available: 
     };
   }
 
+  // The two switches are set in different places and can disagree. When Clerk
+  // auth is on but the deployment does not expose `/api/e2e/auth`, every spec
+  // here skips its authenticated test on its own guard — and in
+  // `auth-session.flow.spec.ts` the signed-out redirect test then passes alone,
+  // so Playwright exits 0 and the workflow reports a healthy contract over
+  // identity resolution, reload, sibling-tab, and sign-out never running.
+  //
+  // Rejected rather than skipped, for the same reason missing keys are: this
+  // combination is someone asking for auth coverage against a target that
+  // cannot provide it, which is a misconfiguration to surface.
+  if (
+    process.env.PLAYWRIGHT_BASE_URL &&
+    process.env.VRDEX_ENABLE_E2E_AUTH_HELPERS !== "true"
+  ) {
+    throw new Error(
+      "Clerk test auth is enabled but this target does not expose /api/e2e/auth (VRDEX_ENABLE_E2E_AUTH_HELPERS is not \"true\"). The authenticated specs would skip while the signed-out ones passed, reporting a contract that never ran. Enable the helper on the deployment, or unset VRDEX_ENABLE_E2E_CLERK_AUTH.",
+    );
+  }
+
   if (secretKey() && publishableKey()) {
     return { available: true };
   }
