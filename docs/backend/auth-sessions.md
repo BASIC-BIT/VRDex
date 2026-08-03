@@ -225,10 +225,12 @@ pnpm cx -- <target> run migrations:purgeConvexAuthLeftovers `
 #    — see "Deciding whether a blocked row should be reassigned" below. Do not
 #    run this against a row just because step 1 listed it.
 #
-#    Read the preview, then run it again with "dryRun": false, and keep rerunning
-#    with the same arguments while moreRemaining is true (the row budget ran out;
-#    repointed rows stop matching, so each pass resumes on its own). A dry run
-#    patches nothing, so blockedUsers does not clear until this runs for real.
+#    Read the preview — see "Reading the reassignment preview" below, and resolve
+#    every targetAlreadyHas collision before the destructive run. Then run it
+#    again with "dryRun": false, and keep rerunning with the same arguments while
+#    moreRemaining is true (the row budget ran out; repointed rows stop matching,
+#    so each pass resumes on its own). A dry run patches nothing, so blockedUsers
+#    does not clear until this runs for real.
 pnpm cx -- <target> run migrations:reassignLegacyUserReferences `
   '{"fromUserId": "<legacy users._id>", "toClerkUserId": "user_...", "dryRun": true}'
 pnpm cx -- <target> run migrations:reassignLegacyUserReferences `
@@ -282,6 +284,37 @@ and the third is not a workaround:
   runbook can make.
 - **Never** reassign to "some Clerk account" to clear the blocker. A purge that
   completes by moving data onto the wrong person is worse than one that refuses.
+
+#### Reading the reassignment preview
+
+Four fields, and only one of them is the good news:
+
+- **`moved`** — what this pass will repoint, per `table.field`.
+- **`targetAlreadyHas`** — what the destination *already* holds in those same
+  places, counted across all 31 fields even when the move budget runs out. **This
+  is the one to act on.** Convex enforces no uniqueness, so nothing rejects two
+  active `profileOwners` rows for one profile, or two
+  `billingCustomerMappings` for one user, and the app will resolve whichever it
+  happens to read first. `-1` means the count hit 100 — read it as "many,
+  inspect by hand", not as a number.
+- **`authorizationSubjectsLeft`** — `communityAuthorities` and `events` authorize
+  by auth subject rather than by `v.id("users")`, so the purge cannot see them
+  and this cannot move them. Non-zero is not a failure; it is the audit trail
+  staying truthful. It does mean those capabilities have to be re-granted by
+  hand, because nothing can derive which Clerk subject a Convex Auth one was.
+  **`null` means the scan exceeded 1,000 rows and did not look** — that is the
+  worst answer, not zero, so count it yourself.
+- **`moreRemaining`** — the row budget ran out; rerun with the same arguments.
+
+**Resolve every `targetAlreadyHas` entry before running destructively, not
+after.** Decide which row survives and delete the other. Afterwards both rows
+point at the same user, so the field that told them apart is gone and you are
+left inferring from `_creationTime`. For a one-per-user table this is not
+cosmetic: a duplicate `billingCustomerMappings` means a subscription lookup can
+resolve to either Stripe customer.
+
+A dry run moves nothing, so rerunning it reports the same tables forever. It is
+there to be read once and acted on, not iterated.
 
 `clerkUsers` in the step 1 report is a *sample*, capped at 25, and
 `clerkUsersTruncated` says when the account you need may not be in it. When it
