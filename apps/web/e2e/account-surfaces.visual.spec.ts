@@ -90,13 +90,22 @@ test.describe("account surfaces @visual @flow", () => {
 
   test("account privacy", async ({ page }, testInfo) => {
     await page.goto("/account/privacy");
-    // Exact names, and specifically not `/privacy/i` — the signed-out state of
-    // this panel is a heading reading "Sign in to manage privacy", so a loose
-    // matcher passes on the page that proves the opposite of what the screenshot
-    // claims. `waitForVisualReady` waits only for DOM content and fonts, so the
-    // signed-in-only control is what actually gates the capture.
-    await expect(page.getByRole("heading", { name: "Field visibility" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Save privacy" })).toBeVisible();
+    // A freshly created account owns no profile, so this panel renders its
+    // empty state rather than the field-visibility editor. That is the surface
+    // this lane can actually produce, and it is worth capturing: it is a
+    // signed-in state, distinct from the signed-out one.
+    //
+    // Exact names, and specifically not `/privacy/i` — the signed-out heading
+    // reads "Sign in to manage privacy", so a loose matcher passes on the page
+    // that proves the opposite of what the screenshot claims. The negative
+    // assertion is what makes the distinction hold rather than being assumed.
+    //
+    // ponytail: the populated editor has richer visual surface than this empty
+    // state. Capturing it needs the account to own a profile, which is what
+    // `auth-claim.flow.spec.ts` builds; fold this in there if the editor's
+    // rendering ever needs watching.
+    await expect(page.getByRole("heading", { name: "No owned profiles yet" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Sign in to manage privacy" })).toHaveCount(0);
     await waitForVisualReady(page);
     await captureRouteScreenshot(page, testInfo, "account-privacy-signed-in");
   });
