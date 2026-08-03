@@ -239,24 +239,31 @@ request, because Convex validates the issuer it was *told* about rather than the
 one the browser authenticated against. The `Audit Vercel staging runtime
 variable names` step cannot catch it: it reads names, never values.
 
-So the comparison runs twice, both through
-`scripts/check-clerk-issuer-match.mjs`. Before the `convex env set`, against the
-key Vercel is *about to* serve — pulled from its configuration, not read off the
-deployed page. And again after the Vercel deploy, against what actually shipped.
-Both decode the key's base64-encoded host and fail on a mismatch, both reject a
-`pk_live_` key outright so the staging and production tenants cannot be crossed,
-and the first is also the only caller of the origin-format validation — so a bare
-host or a trailing slash cannot reach Convex, where `auth.config.ts` would pass
-it through verbatim and match no token issuer. `production-promote.yml` does the
-same for the live tenant.
+So the issuer is checked twice, both through
+`scripts/check-clerk-issuer-match.mjs`, plus a format check that runs on every
+path. Before the `convex env set`, the issuer is compared against the key the
+current deployment serves; after the Vercel deploy, against what actually
+shipped. Both decode the key's base64-encoded host and fail on a mismatch, and
+both reject a `pk_live_` key outright so the staging and production tenants
+cannot be crossed. `production-promote.yml` does the same for the live tenant.
 
-Comparing against the pending configuration rather than the live site is what
-keeps this simple, and it was not the first attempt. Comparing against the
-deployed page made an instance rotation impossible — the old key is what is
-deployed, by definition — which needed an escape hatch, which needed a rollback,
-which needed a boundary on that rollback. Reading what Vercel will serve makes a
-rotation an ordinary run: update the Vercel pair and the issuer variable, deploy,
-and both providers move together with no special input.
+The format check is separate and unconditional, because `auth.config.ts` takes
+the value verbatim: a bare host or a trailing slash matches no token issuer, and
+no path that can write the variable may skip that.
+
+**Rotating staging to a different Clerk instance** is the one case where
+disagreeing with the current deployment is intended, since the pre-deploy
+comparison necessarily measures the new issuer against the old deployed key.
+Dispatch `Staging Deploy` with `clerk_instance_rotation` to skip that comparison
+only. It is default-off and dispatch-only, so no merge reaches it, and both the
+format check and the post-deploy comparison still run.
+
+An earlier attempt read Vercel's *pending* configuration instead, which would
+have made a rotation an ordinary run with no input at all. It does not work:
+`vercel env pull` does not write `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` back for
+this environment, even though the audit step confirms by name that it is set.
+Two staging deploys failed before that was clear. Do not reintroduce it without
+first confirming the pull actually returns that value.
 
 If a run changes the issuer and then fails **before the Vercel deploy succeeds**,
 the previous value is restored. Not afterwards: once Vercel has published, it is

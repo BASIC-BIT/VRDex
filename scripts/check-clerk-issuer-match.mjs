@@ -131,10 +131,16 @@ export async function servedClerkKey(baseUrl, fetchImpl = fetchText) {
 }
 
 function parseArgs(argv) {
-  const options = { baseUrl: "", issuer: "", publishableKey: "" };
+  const options = { baseUrl: "", issuer: "", publishableKey: "", validateIssuerOnly: false };
 
   for (let index = 0; index < argv.length; index += 1) {
     switch (argv[index]) {
+      case "--validate-issuer-only":
+        options.validateIssuerOnly = true;
+        break;
+      case "--allow-missing-key":
+        options.allowMissingKey = true;
+        break;
       case "--publishable-key":
         options.publishableKey = argv[index + 1] ?? "";
         index += 1;
@@ -154,8 +160,8 @@ function parseArgs(argv) {
 
   assert.ok(options.issuer, "--issuer is required.");
   assert.ok(
-    options.baseUrl || options.publishableKey,
-    "One of --base-url or --publishable-key is required.",
+    options.validateIssuerOnly || options.baseUrl || options.publishableKey,
+    "One of --base-url, --publishable-key, or --validate-issuer-only is required.",
   );
 
   return options;
@@ -167,13 +173,28 @@ async function main() {
   // host, and Convex passes the value to `auth.config.ts` verbatim, so it has to
   // run on every path that can write the issuer.
   const expectedHost = issuerHost(options.issuer);
+
+  // Format only. Split out so it can run on every path that writes the issuer,
+  // including a rotation that legitimately skips the comparison below.
+  if (options.validateIssuerOnly) {
+    console.log(`CLERK_JWT_ISSUER_DOMAIN is a well-formed origin for ${expectedHost}.`);
+    return;
+  }
+
   const source = options.publishableKey ? "The configured publishable key" : options.baseUrl;
   const key = options.publishableKey || (await servedClerkKey(options.baseUrl.replace(/\/+$/, "")));
 
   if (!key) {
-    console.error(
-      `::error::${source} carries no Clerk publishable key, so its instance cannot be compared with the configured issuer. Check NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY on that environment.`,
-    );
+    const message = `${source} carries no Clerk publishable key, so its instance cannot be compared with the configured issuer.`;
+
+    // A target stuck on a build from before Clerk existed serves no key at all,
+    // and that is the outage this workflow has to remain able to fix.
+    if (options.allowMissingKey) {
+      console.log(`${message} Continuing: expected while recovering a pre-Clerk build.`);
+      return;
+    }
+
+    console.error(`::error::${message} Check NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY on that environment.`);
     process.exit(1);
   }
 
