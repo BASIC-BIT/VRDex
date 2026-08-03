@@ -24,8 +24,6 @@
     "lint": "eslint",
     "pretest:e2e": "node ../../scripts/guard-main-worktree.mjs",
     "test:e2e": "playwright test --grep-invert \"@visual|@snapshot|@storybook\"",
-    "pretest:e2e:auth-session-matrix": "node ../../scripts/guard-main-worktree.mjs",
-    "test:e2e:auth-session-matrix": "playwright test --config playwright.auth.config.mjs",
     "pretest:e2e:hosted": "node ../../scripts/guard-main-worktree.mjs",
     "test:e2e:hosted": "playwright test --grep @flow --grep-invert @fixture --project=desktop-chromium",
     "pretest:e2e:hosted:auth-session": "node ../../scripts/guard-main-worktree.mjs",
@@ -70,6 +68,7 @@
     "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {
+    "@clerk/testing": "^2.2.16",
     "@playwright/test": "^1.60.0",
     "@storybook/addon-a11y": "10.4.2",
     "@storybook/nextjs-vite": "10.4.2",

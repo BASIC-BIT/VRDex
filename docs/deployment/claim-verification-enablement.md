@@ -21,7 +21,7 @@ then hit a generic error forever.
 Confirm the current state with:
 
 ```bash
-npx convex env list --prod
+pnpm cx -- prod env list
 ```
 
 ## Path 1: Discord via OAuth (recommended, no new secrets)
@@ -167,7 +167,7 @@ credentials, so they are deliberately not automated:
    claimant:
 
    ```bash
-   npx convex run --prod profileConnections:recordOperatorAssociation '{"profileSlug":"example-community","assetType":"discord_guild","assetExternalId":"123456789012345678"}'
+   pnpm cx -- prod run profileConnections:recordOperatorAssociation '{"profileSlug":"example-community","assetType":"discord_guild","assetExternalId":"123456789012345678"}'
    ```
 
    `assetType` is `discord_guild`, `vrchat_group`, or `vrchat_user`. Claims

@@ -257,13 +257,14 @@ from this foundation and are not implied by a green PR.
   client session. Use comma-separated selectors or repeated flags to narrow
   the run; for example, `--client vscode,cursor` and
   `--client vscode --client cursor` are equivalent.
-- `pnpm ops:mcp-oauth-smoke-credentials` is **unavailable** and exits non-zero.
-  It minted credentials by creating a temporary account through the
-  email/password sign-up form and `/api/e2e/auth`, both removed by the Clerk
-  cutover. Until it is ported to Clerk testing credentials (#226), register an
-  OAuth app by hand and supply `VRDEX_MCP_OAUTH_CLIENT_ID` with
-  `VRDEX_MCP_OAUTH_CLIENT_SECRET`, or `VRDEX_MCP_INSPECTOR_OAUTH_TOKEN`, for the
-  Claude Code and MCP Inspector hosted OAuth smokes.
+- `pnpm ops:mcp-oauth-smoke-credentials` mints a temporary confidential OAuth
+  app. It creates its account through the Clerk Backend API and signs in with a
+  one-time ticket, so alongside `VRDEX_E2E_BROWSER_TOKEN` it needs
+  `CLERK_SECRET_KEY` and `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` for the
+  **development** instance backing the target — a production secret key is
+  rejected. Registering an OAuth app by hand and supplying
+  `VRDEX_MCP_OAUTH_CLIENT_ID` with `VRDEX_MCP_OAUTH_CLIENT_SECRET`, or
+  `VRDEX_MCP_INSPECTOR_OAUTH_TOKEN`, remains the alternative.
 - `pnpm ops:mcp-hosted-oauth-prereqs` reads GitHub Actions variable values and
   secret names through `gh` and reports whether hosted MCP OAuth evidence can use
   reviewed OAuth smoke secrets or the deployed-health temporary

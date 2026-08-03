@@ -206,53 +206,54 @@ test("fixture-backed handoff coverage runs in the flow lane and stays out of pro
   assert.doesNotMatch(productionSmokeScript, /media-kit\.visual\.spec\.ts/);
 });
 
-test("auth session browser coverage is bounded to its positive matrix", async () => {
-  const baseConfig = await readFile(
-    "apps/web/playwright.config.mjs",
-    "utf8",
-  );
-  const authConfig = await readFile(
-    "apps/web/playwright.auth.config.mjs",
-    "utf8",
-  );
-  const authFlow = await readFile(
+/**
+ * Replaces the old three-browser auth-session matrix assertions. That lane
+ * tested Convex Auth's refresh-token machinery through persistent browser
+ * profiles; Clerk owns sessions now, so the config, its teardown, and the
+ * `if: false` CI job it fed were removed with #226 rather than rewired.
+ *
+ * What is worth pinning instead is that the auth specs are actually wired to
+ * Clerk and cannot silently go back to reporting a pass over nothing.
+ */
+test("hosted auth E2E is wired to Clerk testing tokens rather than skipped", async () => {
+  const baseConfig = await readFile("apps/web/playwright.config.mjs", "utf8");
+  const harness = await readFile("apps/web/e2e/clerk-auth.ts", "utf8");
+  const authSession = await readFile(
     "apps/web/e2e/auth-session.flow.spec.ts",
     "utf8",
   );
-  const workflow = await readFile(
-    ".github/workflows/baseline-checks.yml",
+  const authClaim = await readFile("apps/web/e2e/auth-claim.flow.spec.ts", "utf8");
+  const developerCredentials = await readFile(
+    "apps/web/e2e/developer-credentials.flow.spec.ts",
     "utf8",
   );
   const webPackage = JSON.parse(
     await readFile("apps/web/package.json", "utf8"),
-  ) as { scripts?: Record<string, string> };
+  ) as { devDependencies?: Record<string, string>; scripts?: Record<string, string> };
 
-  assert.match(authConfig, /auth-chromium/);
-  assert.match(authConfig, /auth-firefox/);
-  assert.match(authConfig, /auth-webkit/);
-  assert.match(authConfig, /testMatch: "auth-session\.flow\.spec\.ts"/);
-  assert.match(authConfig, /grep: \/@auth-session-matrix\//);
-  assert.match(authConfig, /serviceWorkers: "block"/);
-  assert.match(
-    authConfig,
-    /globalTeardown: "\.\/e2e\/auth-session-matrix\.global-teardown\.ts"/,
-  );
-  assert.match(authConfig, /failOnFlakyTests: true/);
-  assert.match(authConfig, /retries: 1/);
-  assert.match(authConfig, /workers: 1/);
-  assert.match(authConfig, /dependencies/);
+  assert.ok(webPackage.devDependencies?.["@clerk/testing"]);
+  assert.match(harness, /from "@clerk\/testing\/playwright"/);
+  assert.match(harness, /setupClerkTestingToken/);
+  assert.match(harness, /clerk\.signIn/);
   assert.match(baseConfig, /trace: "on-first-retry"/);
-  assert.match(authFlow, /launchPersistentContext\(userDataDir/);
-  assert.match(authFlow, /@auth-session-matrix/);
+
+  // The blanket file-level skip the Clerk cutover left behind. A skipped
+  // Playwright file exits 0, so its return would be invisible in CI.
+  for (const spec of [authSession, authClaim, developerCredentials]) {
+    assert.doesNotMatch(spec, /test\.skip\(\s*true\s*,/);
+    assert.match(spec, /clerkTestAuthAvailability\(\)/);
+  }
+
+  // Fail-closed rather than skip when a hosted target asked for auth coverage
+  // and has no keys to run it with.
+  assert.match(harness, /Hosted auth E2E is enabled for this target but/);
+  assert.match(harness, /throw new Error\(/);
+
+  assert.match(authSession, /@auth-session-staging/);
   assert.match(
-    webPackage.scripts?.["test:e2e:auth-session-matrix"] ?? "",
-    /playwright test --config playwright\.auth\.config\.mjs/,
+    webPackage.scripts?.["test:e2e:hosted:auth-session"] ?? "",
+    /auth-session\.flow\.spec\.ts --grep @auth-session-staging/,
   );
-  assert.match(
-    workflow,
-    /playwright install --with-deps chromium firefox webkit/,
-  );
-  assert.match(workflow, /pnpm test:e2e:auth-session-matrix/);
 });
 
 test("deployed auth checks separate recurring staging from manual production", async () => {
