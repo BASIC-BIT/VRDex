@@ -44,9 +44,34 @@ test("rejects a publishable key with no terminator", () => {
 test("rejects a publishable key with data beyond its encoded host", () => {
   const valid = `pk_test_${Buffer.from("a.clerk.accounts.dev$").toString("base64")}`;
 
-  assert.throws(() => decodeClerkKeyHost(`${valid}junk`), /beyond its encoded host/);
+  assert.throws(() => decodeClerkKeyHost(`${valid}junk`), /not canonically encoded/);
   assert.throws(() => decodeClerkKeyHost(`${valid.replace(/=*$/, "")}==junk`), /not a well-formed key/);
   assert.throws(() => decodeClerkKeyHost("pk_test_not base64"), /not a well-formed key/);
+});
+
+/**
+ * Stripping padding from both sides of the round-trip accepted a valid unpadded
+ * key with a stray `=` appended. Browsers decode the key with `atob`, which
+ * rejects that encoding, so this approved a key Clerk's own parser refuses.
+ */
+test("rejects a publishable key with noncanonical padding", () => {
+  // This host's payload length forces one `=`, so the padded and unpadded forms
+  // actually differ — the earlier case encoded to a length needing none, which
+  // is why it could not exercise this.
+  const host = "abc.clerk.accounts.dev";
+  const canonical = Buffer.from(`${host}$`).toString("base64");
+  const unpadded = canonical.replace(/=+$/, "");
+
+  assert.notEqual(canonical, unpadded);
+
+  // Clerk emits the padded form; the unpadded form decodes identically and is
+  // accepted, because both are canonical for this payload.
+  assert.equal(decodeClerkKeyHost(`pk_test_${canonical}`), host);
+  assert.equal(decodeClerkKeyHost(`pk_test_${unpadded}`), host);
+
+  // Anything else is padding `atob` would refuse.
+  assert.throws(() => decodeClerkKeyHost(`pk_test_${unpadded}==`), /not canonically encoded/);
+  assert.throws(() => decodeClerkKeyHost(`pk_test_${canonical}=`), /not canonically encoded/);
 });
 
 test("rejects an issuer that is not an https origin", () => {

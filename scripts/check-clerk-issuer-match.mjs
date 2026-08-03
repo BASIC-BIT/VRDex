@@ -51,11 +51,15 @@ export function decodeClerkKeyHost(key) {
   const padded = encoded + "=".repeat((4 - (encoded.length % 4)) % 4);
   const decoded = Buffer.from(padded, "base64").toString("utf8");
 
-  // Round-trips, so trailing bytes the decoder silently ignores cannot pass.
-  assert.equal(
-    Buffer.from(decoded, "utf8").toString("base64").replace(/=+$/, ""),
-    encoded.replace(/=+$/, ""),
-    "That Clerk publishable key carries data beyond its encoded host, so Clerk cannot use it.",
+  // Round-trips exactly, so neither trailing bytes nor noncanonical padding can
+  // pass. Comparing with padding stripped from both sides accepted a valid
+  // unpadded key with a stray `=` appended — which `atob` in the browser
+  // rejects, so Clerk's own parser would refuse a key this approved.
+  const canonical = Buffer.from(decoded, "utf8").toString("base64");
+
+  assert.ok(
+    encoded === canonical || encoded === canonical.replace(/=+$/, ""),
+    "That Clerk publishable key is not canonically encoded — it carries extra data or invalid padding — so Clerk cannot use it.",
   );
 
   assert.ok(
