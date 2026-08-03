@@ -247,6 +247,12 @@ test("staging deploy parses and audits main before provider mutation", () => {
   assert.doesNotMatch(steps[preCheckIndex]?.if ?? "", /rotation/);
   assert.match(steps[preCheckIndex]?.run ?? "", /--publishable-key/);
   assert.match(steps[preCheckIndex]?.run ?? "", /vercel@[0-9.]+ env pull/);
+  // Never with `--git-branch`. Vercel rejects a branch unless the target is
+  // `preview`, and `staging` is a custom environment — passing one failed the
+  // step outright, which took staging deploys down until it was removed. The
+  // audit step's `--git-branch main` is an argument to the node script, not to
+  // the Vercel CLI, so only this step's invocation is constrained.
+  assert.doesNotMatch(steps[preCheckIndex]?.run ?? "", /env pull[\s\S]*?--git-branch/);
 
   // The authoritative pass, against what actually shipped, with no such escape.
   assert.ok(keyCheckIndex > vercelDeployIndex);

@@ -20,12 +20,6 @@ test("decodes the frontend API host a publishable key encodes", () => {
 });
 
 /**
- * A bare host normalises to the same string as the decoded key host, so
- * comparing hosts alone reports success — while `convex/auth.config.ts` passes
- * the bare value through verbatim and matches no token issuer. The variable is
- * named `..._DOMAIN`, which makes that an easy value to enter.
- */
-/**
  * Clerk keys encode `host$`. One encoding only `host` — truncated, or re-entered
  * by hand — decodes to the same string, so both comparisons passed while
  * `ClerkProvider` and the middleware could not use the key at all.
@@ -74,6 +68,12 @@ test("rejects a publishable key with noncanonical padding", () => {
   assert.throws(() => decodeClerkKeyHost(`pk_test_${canonical}=`), /not canonically encoded/);
 });
 
+/**
+ * A bare host normalises to the same string as the decoded key host, so
+ * comparing hosts alone reports success — while `convex/auth.config.ts` passes
+ * the bare value through verbatim and matches no token issuer. The variable is
+ * named `..._DOMAIN`, which makes that an easy value to enter.
+ */
 test("rejects an issuer that is not an https origin", () => {
   assert.throws(() => issuerHost("example.clerk.accounts.dev"), /must be an https origin/);
   assert.throws(() => issuerHost("http://example.clerk.accounts.dev"), /must be an https origin/);
@@ -112,11 +112,10 @@ test("reports no key when the target serves none", async () => {
 });
 
 /**
- * The missing-key result is what `--allow-missing-key` forgives, so an
- * unreachable target must not produce it. A transient 500 or a
- * deployment-protection 401 folded into the same answer would let a stale or
- * cross-instance issuer be written and deployed before the post-deploy check
- * could report the outage.
+ * A missing key and an unreachable page are different answers, and callers act
+ * on that difference. Folding a transient 500 or a deployment-protection 401
+ * into the same `null` would let an unreachable target read as "this page
+ * carried no key".
  */
 test("throws rather than reporting no key when a fetch fails", async () => {
   await assert.rejects(
