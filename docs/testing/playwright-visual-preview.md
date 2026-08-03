@@ -221,7 +221,7 @@ These must be the **development** instance backing the hosted target, not produc
 4. Re-run `Deploy Staging`. No special input: the pre-deploy check reads the key Vercel is *about to* serve, so a rotation where both sides have been updated simply agrees, and both providers move together in one run.
 5. Confirm with `pnpm test:e2e:hosted:auth-session`. This is what actually proves the template — it asserts that a Clerk session resolves to a *verified Convex identity*, which is exactly what a missing or misconfigured `convex` template breaks.
 
-Updating only one side fails that check before anything is written, which is the point. If a later step fails after the issuer has been changed, the workflow restores the previous value and re-pushes rather than leaving Convex trusting an instance the deployed app does not authenticate against.
+Updating only one side fails that check before anything is written, which is the point. If the run then fails *before the Vercel deploy succeeds*, the workflow restores the previous issuer rather than leaving Convex ahead of the deployed app. After a successful Vercel deploy it deliberately does not: both providers are on the new instance by then, and restoring Convex alone would create the mismatch.
 
 Hosted developer-credential E2E additionally requires repository variable `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true`. Keep it unset until the hosted target has deployed the developer token routes, OAuth app registration routes, and OAuth token endpoints under test.
 

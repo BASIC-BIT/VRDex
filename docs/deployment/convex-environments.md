@@ -258,11 +258,21 @@ which needed a boundary on that rollback. Reading what Vercel will serve makes a
 rotation an ordinary run: update the Vercel pair and the issuer variable, deploy,
 and both providers move together with no special input.
 
-If a run changes the issuer and then fails before the post-deploy verification
-passes, the previous value is restored and functions re-pushed. Not afterwards:
-once it passes, Vercel serves a key the new issuer matches and the two agree, so
-a later failure is unrelated and rolling Convex back alone would break a working
-pairing rather than repair anything.
+If a run changes the issuer and then fails **before the Vercel deploy succeeds**,
+the previous value is restored. Not afterwards: once Vercel has published, it is
+serving a key the pre-deploy check already validated against this issuer, so the
+two agree — and restoring Convex alone would create the mismatch the rollback
+exists to prevent, including when the post-deploy verifier failed only on
+transport.
+
+Read that as the incident boundary. A failure after a successful Vercel deploy
+leaves both providers on the new instance and needs no repair; a failure before
+it leaves Convex ahead, and that is the case the rollback covers.
+
+The restore re-pushes functions only when the Convex deploy had itself
+succeeded. If it had not, nothing carrying the new issuer was ever published, so
+putting the variable back is the whole repair — and re-pushing there would
+publish the functions that just failed their typecheck.
 
 The value is not a secret. A Clerk Frontend API origin is public — it is encoded
 in the publishable key every browser downloads — so it lives in a repository

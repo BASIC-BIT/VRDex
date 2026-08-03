@@ -234,6 +234,7 @@ jobs:
 
       - name: Deploy Convex development functions
         if: steps.gate.outputs.enabled == 'true'
+        id: convex_deploy
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_DEV }}
         run: pnpm exec convex deploy --yes --typecheck=enable
@@ -360,17 +361,30 @@ jobs:
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_DEV }}
           PREVIOUS_ISSUER: ${{ steps.provision.outputs.previous_issuer }}
+          CONVEX_DEPLOY_OUTCOME: ${{ steps.convex_deploy.outcome }}
         run: |
           set -euo pipefail
 
           printf '%s' "$PREVIOUS_ISSUER" | pnpm exec convex env set CLERK_JWT_ISSUER_DOMAIN
-          pnpm exec convex deploy --yes --typecheck=disable
+
+          # Only re-push when the deploy that would have published the new issuer
+          # actually succeeded. If it did not, nothing was pushed carrying the new
+          # value — the running provider config is still the old one — so
+          # restoring the variable is the whole repair. Re-pushing there would
+          # publish the very functions that just failed their typecheck, with
+          # typechecking turned off to get them through.
+          if [ "$CONVEX_DEPLOY_OUTCOME" = "success" ]; then
+            pnpm exec convex deploy --yes --typecheck=enable
+            note="and functions re-pushed"
+          else
+            note="without re-pushing, because the Convex deploy that would have published it never succeeded"
+          fi
 
           {
             echo ""
             echo "## Staging issuer rolled back"
             echo ""
-            echo "This run changed the Convex issuer and then failed, so it was restored to \`$PREVIOUS_ISSUER\` and functions re-pushed. Staging is back on the instance it was serving before this run."
+            echo "This run changed the Convex issuer and then failed, so it was restored to \`$PREVIOUS_ISSUER\` $note. Staging is back on the instance it was serving before this run."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload staging deploy artifacts

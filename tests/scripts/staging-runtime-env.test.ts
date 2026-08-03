@@ -260,7 +260,13 @@ test("staging deploy parses and audits main before provider mutation", () => {
     /steps\.vercel\.outcome != 'success'/,
   );
   assert.match(steps[rollbackIndex]?.run ?? "", /convex env set CLERK_JWT_ISSUER_DOMAIN/);
-  assert.match(steps[rollbackIndex]?.run ?? "", /convex deploy/);
+  // Re-pushes only when the Convex deploy that would have published the new
+  // issuer actually succeeded. Otherwise nothing carrying it was published, so
+  // restoring the variable is the whole repair — and re-pushing would publish
+  // functions that just failed their typecheck.
+  assert.match(steps[rollbackIndex]?.run ?? "", /CONVEX_DEPLOY_OUTCOME" = "success"/);
+  assert.match(steps[rollbackIndex]?.run ?? "", /convex deploy --yes --typecheck=enable/);
+  assert.doesNotMatch(steps[rollbackIndex]?.run ?? "", /--typecheck=disable/);
 
   // A retrieval failure must not read as "no previous value". That conflation
   // let the mutation proceed with nothing recorded, so a later failure found an

@@ -36,6 +36,19 @@ test("rejects a publishable key with no terminator", () => {
   assert.throws(() => decodeClerkKeyHost(withoutTerminator), /truncated or otherwise malformed/);
 });
 
+/**
+ * Node's base64 decoder ignores trailing bytes, so an unanchored match let
+ * `pk_test_<base64>==junk` decode to the right host with the right terminator
+ * and pass every comparison on a key Clerk cannot use.
+ */
+test("rejects a publishable key with data beyond its encoded host", () => {
+  const valid = `pk_test_${Buffer.from("a.clerk.accounts.dev$").toString("base64")}`;
+
+  assert.throws(() => decodeClerkKeyHost(`${valid}junk`), /beyond its encoded host/);
+  assert.throws(() => decodeClerkKeyHost(`${valid.replace(/=*$/, "")}==junk`), /not a well-formed key/);
+  assert.throws(() => decodeClerkKeyHost("pk_test_not base64"), /not a well-formed key/);
+});
+
 test("rejects an issuer that is not an https origin", () => {
   assert.throws(() => issuerHost("example.clerk.accounts.dev"), /must be an https origin/);
   assert.throws(() => issuerHost("http://example.clerk.accounts.dev"), /must be an https origin/);

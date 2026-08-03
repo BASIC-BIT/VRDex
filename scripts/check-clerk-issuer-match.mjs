@@ -22,7 +22,13 @@
  */
 import assert from "node:assert/strict";
 
-const CLERK_KEY_PATTERN = /pk_(test|live)_[A-Za-z0-9+/=_-]+/;
+// Unanchored: used to *find* a key inside a page or a JS chunk.
+const CLERK_KEY_SEARCH_PATTERN = /pk_(test|live)_[A-Za-z0-9+/=_-]+/;
+// Anchored, and the whole value must be canonical base64. A configured key with
+// trailing data — `pk_test_<base64>==junk` — matched the unanchored pattern, and
+// Node's decoder ignores the suffix, so the host and the `$` terminator both
+// came out right and every comparison passed on a key Clerk cannot use.
+const CLERK_KEY_STRICT_PATTERN = /^pk_(test|live)_[A-Za-z0-9+/]+={0,2}$/;
 const ISSUER_PATTERN = /^https:\/\/[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i;
 
 /**
@@ -36,9 +42,21 @@ const ISSUER_PATTERN = /^https:\/\/[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z
  * nobody.
  */
 export function decodeClerkKeyHost(key) {
+  assert.ok(
+    CLERK_KEY_STRICT_PATTERN.test(key),
+    `That Clerk publishable key is not a well-formed key: it must be pk_test_ or pk_live_ followed by base64 and nothing else, got '${key.slice(0, 12)}…'.`,
+  );
+
   const encoded = key.replace(/^pk_(test|live)_/, "");
   const padded = encoded + "=".repeat((4 - (encoded.length % 4)) % 4);
   const decoded = Buffer.from(padded, "base64").toString("utf8");
+
+  // Round-trips, so trailing bytes the decoder silently ignores cannot pass.
+  assert.equal(
+    Buffer.from(decoded, "utf8").toString("base64").replace(/=+$/, ""),
+    encoded.replace(/=+$/, ""),
+    "That Clerk publishable key carries data beyond its encoded host, so Clerk cannot use it.",
+  );
 
   assert.ok(
     decoded.endsWith("$"),
@@ -87,7 +105,7 @@ async function fetchText(url) {
 
 export async function servedClerkKey(baseUrl, fetchImpl = fetchText) {
   const html = await fetchImpl(`${baseUrl}/sign-in`);
-  const inline = html.match(CLERK_KEY_PATTERN);
+  const inline = html.match(CLERK_KEY_SEARCH_PATTERN);
 
   if (inline) {
     return inline[0];
@@ -98,7 +116,7 @@ export async function servedClerkKey(baseUrl, fetchImpl = fetchText) {
 
   for (const script of scripts) {
     const body = await fetchImpl(`${baseUrl}${script}`);
-    const match = body.match(CLERK_KEY_PATTERN);
+    const match = body.match(CLERK_KEY_SEARCH_PATTERN);
 
     if (match) {
       return match[0];
@@ -152,11 +170,6 @@ async function main() {
     console.error(
       `::error::${source} carries no Clerk publishable key, so its instance cannot be compared with the configured issuer. Check NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY on that environment.`,
     );
-    process.exit(1);
-  }
-
-  if (!CLERK_KEY_PATTERN.test(key)) {
-    console.error(`::error::${source} is not a Clerk publishable key.`);
     process.exit(1);
   }
 
