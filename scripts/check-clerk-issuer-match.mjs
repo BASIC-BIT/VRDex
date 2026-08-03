@@ -212,7 +212,7 @@ async function main() {
 
   if (servedHost !== expectedHost) {
     console.error(
-      `::error::${source} names Clerk instance '${servedHost}' but Convex is configured to trust '${expectedHost}'. Convex would reject every signed-in request. Fix VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN or the Vercel publishable key so both name one instance.`,
+      `::error::${source} names Clerk instance '${servedHost}' but Convex is configured to trust '${expectedHost}'. Convex rejects every signed-in request while they disagree. Repair by making them name one instance: either set VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN to https://${servedHost} and re-run this workflow, or restore the Vercel staging NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY to the ${expectedHost} instance and redeploy. Staging authentication stays broken until one of those happens.`,
     );
     // Exit 2, not 1. A caller has to tell a *confirmed* mismatch from a failure
     // to reach the deployment at all: the first means the pairing is genuinely
