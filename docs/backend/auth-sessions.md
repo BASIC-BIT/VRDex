@@ -250,7 +250,44 @@ pnpm cx -- <target> run migrations:purgeConvexAuthLeftovers '{"dryRun": false}'
 only the current page, so a walk whose blockers appeared earlier ends with an
 empty one while those rows survive. When it is false, resolve what `blockedUsers`
 named and start a **new** walk from no cursor; the affected rows are behind the
-old one. Confirm it on every deployment, then deploy this revision.
+old one. Confirm it on every deployment.
+
+**It is necessary and not sufficient.** It is computed from one thing — whether
+any `users` row still lacks a `clerkUserId` — so it is silent about everything
+keyed on auth *subject* rather than on `v.id("users")`. Do the audit below
+before deploying.
+
+#### Audit the subject-keyed authorities first — the purge cannot see them
+
+`events.submitter` and `communityAuthorities.subject` hold an `authSubject`, not
+a user id. Nothing in `USER_REFERENCES` covers them, so they never block a legacy
+row and never move it out of `purgeComplete`'s way. A legacy user with no
+`v.id("users")` reference at all is not blocked, is never a candidate for step 2,
+and is deleted by step 3 — with their events left pointing at a subject that no
+longer resolves to anyone.
+
+For a **standalone** event that is unrecoverable through the app.
+`canUpdateEvent` returns true on an exact submitter match and otherwise returns
+`false` outright when `communityProfileId` is undefined, and `events.ts` exposes
+no re-grant. Nobody can edit or cancel it again.
+
+**Run the audit before step 3, not after.** It matches on the legacy
+`users._id`, and once the purge deletes those rows there is nothing left to match
+against — you would be looking at an orphaned subject with no way to learn whose
+it was. Take the ids from step 1's `blockedUsers` *and* from a listing of rows
+with no `clerkUserId`, since the unblocked ones are exactly the ones at risk, and
+for each check `events` for a `submitter.subject` starting with that id.
+`reassignLegacyUserReferences` reports the same count as
+`authorizationSubjectsLeft.events` for one user, which is convenient when you are
+running it anyway — but it is per-user and only for users you chose to reassign,
+so it is not the audit.
+
+Remediation is a deliberate intervention either way, because no function does it:
+patch `submitter` onto the Clerk subject, or attach a `communityProfileId` so
+community authorization applies instead. Decide before the purge; afterwards you
+are choosing without knowing whose event it was.
+
+Then deploy this revision.
 
 #### Deciding whether a blocked row should be reassigned
 
