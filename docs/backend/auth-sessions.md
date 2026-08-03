@@ -235,8 +235,8 @@ emails. Take `regrantGrantsFrom` from the first and
 `regrantGrantsToClerkUserId` from the second.
 
 A dry run examines one page of legacy rows and deletes nothing, so it would
-otherwise re-read the same page forever. When `nextLegacyPageAfter` is non-null,
-pass it back as `legacyPageAfter` to inspect the next page, and keep going until
+otherwise re-read the same page forever. When `nextLegacyCursor` is non-null,
+pass it back as `legacyCursor` to inspect the next page, and keep going until
 it is null — that is how you see every `blockedUsers` entry before deleting
 anything.
 

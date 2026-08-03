@@ -363,8 +363,7 @@ export const purgeConvexAuthLeftovers = internalMutation({
     // someone else's privileges are a reason to stop, not to reassign.
     regrantGrantsFrom: v.optional(v.id("users")),
     regrantGrantsToClerkUserId: v.optional(v.string()),
-    // `_creationTime` to resume legacy discovery after, from a previous run's
-    // `nextLegacyPageAfter`.
+    // Convex's own pagination cursor, from a previous run's `nextLegacyCursor`.
     //
     // A destructive run advances on its own, because the rows it deletes stop
     // matching. A dry run deletes nothing, so without this it re-reads the same
@@ -372,7 +371,14 @@ export const purgeConvexAuthLeftovers = internalMutation({
     // `regrantGrantsFrom` out of a dry run's `blockedUsers`. On a deployment with
     // more legacy rows than one page, the grant-bearing row could sit beyond it
     // and be undiscoverable without starting to delete first.
-    legacyPageAfter: v.optional(v.number()),
+    //
+    // An opaque cursor rather than a `_creationTime` to resume after. Convex
+    // guarantees `_creationTime` is strictly increasing within a transaction, so
+    // the obvious tie case — rows written by one mutation — cannot collide, but
+    // that guarantee is per-transaction and a hand-rolled `gt` bound is not the
+    // index's full position. The purpose-built cursor is the same amount of code
+    // and carries no assumption at all.
+    legacyCursor: v.optional(v.string()),
     dryRun: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
@@ -384,7 +390,7 @@ export const purgeConvexAuthLeftovers = internalMutation({
       );
     }
 
-    // `legacyPageAfter` is a discovery aid, and combining it with a destructive
+    // `legacyCursor` is a discovery aid, and combining it with a destructive
     // run is the natural mistake: page through with dry runs, then flip `dryRun`
     // to false on the last command with the cursor still in it. That would skip
     // every legacy row before the cursor, and if the remaining suffix fits one
@@ -394,9 +400,9 @@ export const purgeConvexAuthLeftovers = internalMutation({
     //
     // Rejected rather than ignored. Silently dropping it would be safe but would
     // leave the operator believing they resumed from where they were reading.
-    if (!dryRun && args.legacyPageAfter !== undefined) {
+    if (!dryRun && args.legacyCursor !== undefined) {
       throw new Error(
-        "legacyPageAfter is for dry-run discovery only. A destructive run must start from the first remaining legacy row; drop the cursor and rerun until moreRemaining is false.",
+        "legacyCursor is for dry-run discovery only. A destructive run must start from the first remaining legacy row; drop the cursor and rerun until moreRemaining is false.",
       );
     }
 
@@ -415,14 +421,10 @@ export const purgeConvexAuthLeftovers = internalMutation({
     // that requires `clerkUserId` failing later for no visible reason.
     const legacyPage = await ctx.db
       .query("users")
-      .withIndex("clerkUserId", (q) =>
-        args.legacyPageAfter === undefined
-          ? q.eq("clerkUserId", undefined)
-          : q.eq("clerkUserId", undefined).gt("_creationTime", args.legacyPageAfter),
-      )
-      .take(LEGACY_USER_PAGE + 1);
-    const moreLegacy = legacyPage.length > LEGACY_USER_PAGE;
-    const legacy = moreLegacy ? legacyPage.slice(0, LEGACY_USER_PAGE) : legacyPage;
+      .withIndex("clerkUserId", (q) => q.eq("clerkUserId", undefined))
+      .paginate({ numItems: LEGACY_USER_PAGE, cursor: args.legacyCursor ?? null });
+    const legacy = legacyPage.page;
+    const moreLegacy = !legacyPage.isDone;
     const legacyIds = new Set<string>(legacy.map((user) => user._id));
 
     // What `auth.config.ts` trusts today. An authority whose subject carries this
@@ -656,10 +658,10 @@ export const purgeConvexAuthLeftovers = internalMutation({
       // page. Rerun with the same arguments until it is false; the regrant is
       // idempotent because a moved grant no longer sits on a legacy row.
       moreRemaining: usersDeferred || moreLegacy,
-      // Feed back as `legacyPageAfter` to inspect the next page. Only meaningful
-      // for a dry run: a destructive pass deletes the rows it examined, so its
-      // next run advances without one.
-      nextLegacyPageAfter: moreLegacy ? legacy[legacy.length - 1]._creationTime : null,
+      // Feed back as `legacyCursor` to inspect the next page. Only meaningful for
+      // a dry run: a destructive pass deletes the rows it examined, so its next
+      // run advances without one.
+      nextLegacyCursor: moreLegacy ? legacyPage.continueCursor : null,
       legacyUsers: legacy.length,
       deletedUsers: usersDeferred ? [] : deletableUsers.map((user) => user.email ?? user._id),
       regrantedGrants: regranted,
