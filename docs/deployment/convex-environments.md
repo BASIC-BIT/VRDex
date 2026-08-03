@@ -385,22 +385,25 @@ print('CR=%d len=%d' % (b.count(b'\r'), len(b)))"
 ```
 
 PEM values are the one case that needs stdin, because they begin with dashes and
-would otherwise parse as CLI options. Use `cmd /c` redirection rather than a
-PowerShell pipe, since `cmd` redirects bytes verbatim:
+would otherwise parse as CLI options. No Convex variable currently holds a PEM —
+`JWT_PRIVATE_KEY` and `JWKS` were the only ones, and Clerk signs tokens now — so
+this is recorded as technique rather than as a step to run. Use `cmd /c`
+redirection rather than a PowerShell pipe, since `cmd` redirects bytes verbatim,
+and substitute the real variable name:
 
 ```powershell
-node -e "require('fs').writeFileSync(process.argv[1], process.env.VRDEX_JWT_PRIVATE_KEY)" $env:TEMP\k.pem
-cmd /c "pnpm cx -- prod env set JWT_PRIVATE_KEY < $env:TEMP\k.pem"
-Remove-Item $env:TEMP\k.pem, Env:\VRDEX_JWT_PRIVATE_KEY, Env:\VRDEX_JWKS -ErrorAction SilentlyContinue
+node -e "require('fs').writeFileSync(process.argv[1], process.env.VRDEX_PEM_VALUE)" $env:TEMP\k.pem
+cmd /c "pnpm cx -- prod env set SOME_PEM_VARIABLE < $env:TEMP\k.pem"
+Remove-Item $env:TEMP\k.pem, Env:\VRDEX_PEM_VALUE -ErrorAction SilentlyContinue
 ```
 
 Setting `CONVEX_DEPLOYMENT` by hand first is no longer needed, and is now
 actively counterproductive: `cx` clears ambient Convex variables before
 applying the target's own.
 
-Apply the same `CR=0` verification to `JWT_PRIVATE_KEY` and `JWKS`. A trailing
-`\r` on those two is currently harmless, so check the byte count rather than
-assuming a working deployment proves a clean value.
+Apply the same `CR=0` verification afterwards. A trailing `\r` is harmless for
+some consumers, so check the byte count rather than assuming a working
+deployment proves a clean value.
 
 Manual fallback if the workflow is unavailable:
 

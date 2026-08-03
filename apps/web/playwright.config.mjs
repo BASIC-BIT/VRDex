@@ -17,18 +17,6 @@ const skipWebServers = process.env.PLAYWRIGHT_SKIP_WEBSERVERS === "true" || Bool
 const skipConvexServer = skipWebServers || process.env.PLAYWRIGHT_SKIP_CONVEX_DEV === "true";
 const recordVideo = process.env.PLAYWRIGHT_RECORD_VIDEO === "true";
 const e2eHelpersEnabled = process.env.VRDEX_ENABLE_E2E_HELPERS ?? (hostedBaseURL ? undefined : "true");
-const localJwtKeys = hostedBaseURL
-  ? {}
-  : (() => {
-      const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
-      const jwtPrivateKey = privateKey.export({ format: "pem", type: "pkcs8" }).toString().trimEnd().replace(/\n/g, " ");
-      const jwk = publicKey.export({ format: "jwk" });
-
-      return {
-        JWT_PRIVATE_KEY: process.env.JWT_PRIVATE_KEY ?? jwtPrivateKey,
-        JWKS: process.env.JWKS ?? JSON.stringify({ keys: [{ use: "sig", ...jwk }] }),
-      };
-    })();
 const localApiCredentialEnv = hostedBaseURL
   ? {}
   : (() => {
@@ -85,7 +73,6 @@ const sharedEnv = {
   CONVEX_URL: convexUrl,
   NEXT_PUBLIC_CONVEX_URL: convexUrl,
   SITE_URL: process.env.SITE_URL ?? baseURL,
-  ...localJwtKeys,
   ...localApiCredentialEnv,
   VRDEX_ENABLE_PLAYWRIGHT_FIXTURES: "true",
   ...localE2eHelperEnv,

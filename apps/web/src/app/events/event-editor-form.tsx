@@ -438,9 +438,6 @@ function SignInRequiredEventEditorPanel() {
     <Card surface="dashed">
       <Eyebrow>Event editor</Eyebrow>
       <SectionTitle className="mt-4 text-2xl tracking-[-0.03em]">Sign-in required</SectionTitle>
-      <p className="mt-3 text-sm leading-7 text-muted">
-        The event mutations and form are wired, but the public editor stays locked until Convex auth is enabled for the web app.
-      </p>
     </Card>
   );
 }
