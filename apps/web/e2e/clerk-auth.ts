@@ -310,11 +310,28 @@ export async function deleteClerkTestAccount(account: ClerkTestAccount | undefin
   }
 
   try {
-    await clerkBackendRequest(`/v1/users/${encodeURIComponent(account.clerkUserId)}`, {
+    // Returned, not discarded. `clerkBackendRequest` hands back the response
+    // whatever the status, so a 429 or 5xx from Clerk left the user in the tenant
+    // while this reported nothing at all. Callers that care can assert; the
+    // existing ones ignore it and behave as before.
+    //
+    // 404 counts as success: the user being absent is the state this is trying to
+    // reach, and a retry should not fail because the first attempt worked.
+    const response = await clerkBackendRequest(`/v1/users/${encodeURIComponent(account.clerkUserId)}`, {
       method: "DELETE",
     });
+
+    if (!response.ok && response.status !== 404) {
+      console.warn(`Clerk refused to delete test user ${account.clerkUserId}: ${response.status}`);
+    }
+
+    return response;
   } catch (error) {
+    // Still never throws: this runs from `finally` blocks, where masking the
+    // assertion failure that got us here would be worse than leaking one
+    // disposable account.
     console.warn(`Failed to delete Clerk test user ${account.clerkUserId}:`, error);
+    return undefined;
   }
 }
 

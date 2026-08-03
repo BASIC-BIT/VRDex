@@ -121,15 +121,32 @@ test.describe("account surfaces @visual @flow", () => {
     // `VRDEX_E2E_BROWSER_TOKEN`, `VRDEX_E2E_CONVEX_SECRET`). It can answer 403 or
     // 400 with the runner flag set, and `request.delete` resolves either way, so
     // the gate alone cannot tell a completed cleanup from a rejected one.
-    if (cleanup?.ok()) {
-      await deleteClerkTestAccount(account);
-    }
+    // `ok()` is not the same claim as "the row is gone". `cleanupE2eUserByEmail`
+    // answers 200 with `{ deleted: false }` when it finds no row, which happens
+    // when sign-in failed partway: `ensureCurrentUser` may still be in flight and
+    // can create the row *after* this ran. Deleting the Clerk identity on a 200
+    // alone would orphan exactly that row.
+    const cleanupBody =
+      cleanup !== undefined && cleanup.ok()
+        ? ((await cleanup.json()) as { deleted?: boolean })
+        : undefined;
+    const cleaned = cleanupBody?.deleted === true;
 
-    const failure = cleanup?.ok()
-      ? undefined
-      : `Convex cleanup returned ${cleanup?.status()} for ${account?.email}. Its users row survives, and the Clerk user was kept so the pair can still be cleaned up by hand.`;
+    // Only once the row is confirmed gone. Otherwise both are kept: a recoverable
+    // pair, visible in the Clerk dashboard, re-cleanable by email — where
+    // deleting the identity first would strand the row permanently.
+    const clerkDeletion = cleaned ? await deleteClerkTestAccount(account) : undefined;
+
+    const email = account?.email;
 
     account = undefined;
+
+    const failure = !cleaned
+      ? `Convex cleanup did not delete a row for ${email} (HTTP ${cleanup?.status()}). The Clerk user was kept so the pair can still be cleaned up by hand.`
+      : // 404 is success — the user being absent is the goal.
+        clerkDeletion && !clerkDeletion.ok && clerkDeletion.status !== 404
+        ? `Clerk refused to delete ${email}: HTTP ${clerkDeletion.status}. A disposable user is left in the staging tenant.`
+        : undefined;
 
     expect(failure, failure ?? "").toBeUndefined();
   });
