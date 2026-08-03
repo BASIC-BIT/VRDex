@@ -185,7 +185,24 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-        run: pnpm dlx vercel@54.4.1 promote "$DEPLOYMENT_URL" --token "$VERCEL_TOKEN" --scope "$VERCEL_ORG_ID"
+        run: |
+          set -uo pipefail
+
+          output=$(pnpm dlx vercel@54.4.1 promote "$DEPLOYMENT_URL" --token "$VERCEL_TOKEN" --scope "$VERCEL_ORG_ID" 2>&1) || status=$?
+          echo "$output"
+
+          # Vercel answers 409 when the requested deployment is already live,
+          # which is the desired end state, not a failure. Vercel's Git
+          # integration can alias a build on its own, so an operator promoting to
+          # be sure would otherwise get a red run over a healthy release — and the
+          # verification below still has to pass either way.
+          if [ "${status:-0}" -ne 0 ]; then
+            if printf '%s' "$output" | grep -q 'already the current production deployment'; then
+              echo "Requested deployment is already live; continuing to verification."
+            else
+              exit "$status"
+            fi
+          fi
 
       # Compares deployment identity, not route health. Vercel stamps every asset
       # URL with `?dpl=<deployment id>`, so this distinguishes "the alias moved to
