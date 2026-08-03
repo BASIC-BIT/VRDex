@@ -156,6 +156,7 @@ test("staging deploy parses and audits main before provider mutation", () => {
     jobs?: {
       "deploy-staging"?: {
         steps?: Array<{
+          if?: string;
           name?: string;
           env?: Record<string, string>;
           run?: string;
@@ -228,10 +229,30 @@ test("staging deploy parses and audits main before provider mutation", () => {
   // the pre-Clerk-build outage this workflow has to remain able to fix.
   assert.match(steps[preCheckIndex]?.run ?? "", /--allow-missing-key/);
 
+  // Skippable only for a deliberate instance rotation, where disagreeing with
+  // the currently deployed key is the intended state. Dispatch-only, so a
+  // `workflow_run` merge cannot reach it.
+  assert.match(steps[preCheckIndex]?.if ?? "", /clerk_instance_rotation/);
+
   // The authoritative pass, against what actually shipped, with no such escape.
   assert.ok(keyCheckIndex > vercelDeployIndex);
   assert.match(steps[keyCheckIndex]?.run ?? "", /check-clerk-issuer-match\.mjs/);
   assert.doesNotMatch(steps[keyCheckIndex]?.run ?? "", /--allow-missing-key/);
+
+  // A run that changed the issuer and then failed must put it back, or Convex is
+  // left trusting an instance the deployed app does not authenticate against and
+  // every signed-in staging request is rejected. Last in the job so any later
+  // failure still reaches it, and it re-pushes because `auth.config.ts` is read
+  // at push time.
+  const rollbackIndex = steps.findIndex(
+    (step) => step.name === "Restore the previous Convex issuer",
+  );
+
+  assert.ok(rollbackIndex > keyCheckIndex);
+  assert.ok(rollbackIndex > steps.findIndex((step) => step.name === "Run hosted staging data-flow health"));
+  assert.match(steps[rollbackIndex]?.if ?? "", /failure\(\)/);
+  assert.match(steps[rollbackIndex]?.run ?? "", /convex env set CLERK_JWT_ISSUER_DOMAIN/);
+  assert.match(steps[rollbackIndex]?.run ?? "", /convex deploy/);
   assert.equal(auditStep?.env?.VERCEL_TOKEN, "${{ secrets.VERCEL_TOKEN }}");
   assert.match(auditStep?.run ?? "", /env ls staging --format=json/);
   assert.match(auditStep?.run ?? "", /--require-developer-credentials/);

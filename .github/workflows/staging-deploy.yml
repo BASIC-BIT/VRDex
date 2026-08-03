@@ -173,11 +173,26 @@ jobs:
       # lives in a repository variable where it can be read and audited.
       - name: Provision Convex auth configuration
         if: steps.gate.outputs.enabled == 'true'
+        id: provision
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_DEV }}
           CLERK_JWT_ISSUER_DOMAIN: ${{ vars.VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN }}
         run: |
           set -euo pipefail
+
+          # Captured so a failed run can put it back. The issuer is not a secret
+          # — it is encoded in the publishable key every browser downloads — so
+          # recording it in a step output leaks nothing.
+          previous=$(pnpm exec convex env get CLERK_JWT_ISSUER_DOMAIN 2>/dev/null || true)
+          echo "previous_issuer=$previous" >> "$GITHUB_OUTPUT"
+
+          if [ "$previous" = "$CLERK_JWT_ISSUER_DOMAIN" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Convex already trusts $CLERK_JWT_ISSUER_DOMAIN."
+            exit 0
+          fi
+
+          echo "changed=true" >> "$GITHUB_OUTPUT"
           printf '%s' "$CLERK_JWT_ISSUER_DOMAIN" | pnpm exec convex env set CLERK_JWT_ISSUER_DOMAIN
 
       - name: Deploy Convex development functions
@@ -249,8 +264,9 @@ jobs:
           CLERK_JWT_ISSUER_DOMAIN: ${{ vars.VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN }}
         run: |
           set -euo pipefail
-          node scripts/check-clerk-issuer-match.mjs             --base-url "$DEPLOYMENT_URL"             --issuer "$CLERK_JWT_ISSUER_DOMAIN"
-
+          node scripts/check-clerk-issuer-match.mjs \
+            --base-url "$DEPLOYMENT_URL" \
+            --issuer "$CLERK_JWT_ISSUER_DOMAIN"
       - name: Install Playwright Chromium
         if: steps.gate.outputs.enabled == 'true'
         working-directory: apps/web
@@ -278,6 +294,35 @@ jobs:
           VRDEX_E2E_BROWSER_TOKEN: ${{ secrets.VRDEX_HOSTED_E2E_BROWSER_TOKEN }}
           VRDEX_E2E_RUN_ID: staging-deploy-${{ github.run_id }}-${{ github.run_attempt }}
         run: pnpm test:e2e:hosted
+
+
+      # Anything between the `env set` and the check above failing leaves Convex
+      # trusting an instance the deployed web app does not authenticate against,
+      # which rejects every signed-in staging request. The rotation path makes
+      # that reachable in practice: it skips the pre-deploy comparison by design,
+      # so a mistyped or unpublished Vercel key is not caught until after Convex
+      # has already been told to trust the new issuer.
+      #
+      # Re-pushes as well as restoring the variable, because `auth.config.ts` is
+      # evaluated at push time — putting the value back without a deploy would
+      # leave the running provider config on the value being rolled back.
+      - name: Restore the previous Convex issuer
+        if: failure() && steps.provision.outputs.changed == 'true' && steps.provision.outputs.previous_issuer != ''
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_DEV }}
+          PREVIOUS_ISSUER: ${{ steps.provision.outputs.previous_issuer }}
+        run: |
+          set -euo pipefail
+
+          printf '%s' "$PREVIOUS_ISSUER" | pnpm exec convex env set CLERK_JWT_ISSUER_DOMAIN
+          pnpm exec convex deploy --yes --typecheck=disable
+
+          {
+            echo ""
+            echo "## Staging issuer rolled back"
+            echo ""
+            echo "This run changed the Convex issuer and then failed, so it was restored to \`$PREVIOUS_ISSUER\` and functions re-pushed. Staging is back on the instance it was serving before this run."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload staging deploy artifacts
         if: always() && steps.gate.outputs.enabled == 'true'

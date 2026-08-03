@@ -207,12 +207,20 @@ These must be the **development** instance backing the hosted target, not produc
 
 **What the secret key can do:** create, read, and delete users on the staging Clerk development instance, and mint sign-in tickets for them. It cannot touch the production tenant — a separate instance with separate keys — and it is never placed on a deployment, only in the Actions runner.
 
-**Rotation and recovery**, for compromise, maintainer turnover, or routine rotation:
+**Rotating the secret key only** — the common case, and what compromise or maintainer turnover calls for. The instance, its publishable key, and the issuer are unchanged:
 
-1. In the Clerk dashboard, on the **development** instance for the VRDex application, open **API keys** and rotate the secret key. The publishable key changes only if the instance itself is recreated.
-2. `gh secret set VRDEX_HOSTED_E2E_CLERK_SECRET_KEY` (and `..._PUBLISHABLE_KEY` if it changed).
-3. If the publishable key changed, its host changed too: update the Vercel staging `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY`, and the `VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN` repository variable. `staging-deploy.yml` fails the deploy when the served key and the Convex issuer disagree, so a partial rotation is caught rather than silently breaking every signed-in request.
-4. Re-run `Deploy Staging`, then confirm with `pnpm test:e2e:hosted:auth-session`.
+1. In the Clerk dashboard, on the **development** instance for the VRDex application, open **API keys** and rotate the secret key.
+2. `gh secret set VRDEX_HOSTED_E2E_CLERK_SECRET_KEY`.
+3. Re-run `Deploy Staging`, then confirm with `pnpm test:e2e:hosted:auth-session`.
+
+**Moving staging to a different Clerk instance** — a recreated instance, or a deliberate migration. The publishable key's host changes, so the Convex issuer has to change with it, and the two live in different places:
+
+1. Set the Vercel staging `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY` to the new instance's pair.
+2. `gh variable set VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN --body https://<new-frontend-api-host>`, then `gh secret set` for both `VRDEX_HOSTED_E2E_CLERK_PUBLISHABLE_KEY` and `VRDEX_HOSTED_E2E_CLERK_SECRET_KEY`.
+3. **Dispatch `Staging Deploy` manually with `clerk_instance_rotation` enabled.** A plain re-run aborts by design: the pre-deploy check compares the new issuer against the key the *currently deployed* app serves, which is the old instance until Vercel publishes — and that check is what stops an accidental mismatch the rest of the time.
+4. Confirm with `pnpm test:e2e:hosted:auth-session`.
+
+The rotation input skips only the pre-deploy comparison. The post-deploy one still runs against what shipped, so the new issuer and the newly published key must agree by the end of the run. If anything in between fails, the workflow restores the previous issuer and re-pushes rather than leaving Convex trusting an instance the deployed app does not authenticate against.
 
 Revoking the old key immediately is safe: it is used only by CI, so the blast radius of rotating without warning is a failed workflow run, not a user-facing outage.
 
