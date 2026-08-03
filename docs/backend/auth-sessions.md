@@ -274,10 +274,21 @@ address would produce.
 For a blocker that should *not* be reassigned, there are two honest outcomes,
 and the third is not a workaround:
 
-- **The referencing row is disposable** — an E2E fixture, or a grant that is
-  already revoked and so authorizes nothing. Delete that row, then rerun step 1.
-  Untried on either first-party deployment: both blocked rows turned out to be
-  real people, so both cleared by reassignment.
+- **The referencing row is disposable** — an E2E fixture, say. Delete it, then
+  rerun step 1. Untried on either first-party deployment: both blocked rows
+  turned out to be real people, so both cleared by reassignment.
+
+  **A revoked grant is not disposable.** It authorizes nothing, which is a
+  different claim from recording nothing: `accountFeatureGrants` keeps
+  `grantedBy`, `grantedAt`, `reason`, `revokedBy`, `revokedAt` and
+  `revokeReason`, so the row *is* the authorization audit record for a
+  capability someone held and someone else took away. Deleting it erases who
+  did both, irreversibly. Treat it as an explicit retention decision — export
+  the row first if anything depends on that history — rather than as cleanup.
+
+  There is no third option that both preserves it and unblocks the legacy row.
+  Moving it with step 2 rewrites its holder; deleting it destroys it; leaving it
+  keeps `purgeComplete` false. Pick deliberately.
 - **It belongs to someone real with no Clerk row.** Then that legacy row cannot
   be purged, `purgeComplete` stays false, and this revision cannot be deployed
   until a human decides what happens to that person's data. That is a stop, not
@@ -365,8 +376,12 @@ one more reason step 2 requires confirmed identity rather than a blocked row.
 
 To keep those rows exactly as they are, do not use step 2 for that user: pass
 `regrantGrantsFrom` / `regrantGrantsToClerkUserId` to the purge instead, which
-moves only what `isAccountFeatureGrantActive` accepts. The trade is that it
-handles grants alone, so any *other* reference still blocks the row.
+moves only what `isAccountFeatureGrantActive` accepts. Two trades, both real: it
+handles grants alone, so any *other* reference still blocks the row — and the
+revoked grants it so carefully left behind go on blocking it too, since they are
+still `accountFeatureGrants.userId` references. Preserving them and completing
+the purge are mutually exclusive; the only way to have both is to export the
+rows before deleting them.
 
 The purge's own report carries one more of these. **`staleCommunityAuthorities`**
 counts active authorities whose `subject.issuer` differs from the deployment's
