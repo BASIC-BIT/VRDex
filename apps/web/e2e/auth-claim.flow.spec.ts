@@ -575,7 +575,7 @@ test("verified email account can complete VRChat adapter claims @flow", async ({
   }
 });
 
-test("E2E auth helper stays gated without the browser token @flow", async ({ request }) => {
+test("E2E auth helper stays gated without the browser token @flow", async ({ request }, testInfo) => {
   test.skip(
     Boolean(process.env.PLAYWRIGHT_BASE_URL) && process.env.VRDEX_ENABLE_E2E_AUTH_HELPERS !== "true",
     "Hosted auth E2E helpers are not enabled for this target.",
@@ -593,6 +593,23 @@ test("E2E auth helper stays gated without the browser token @flow", async ({ req
   const missingTokenResponse = await request.post("/api/e2e/auth", {
     data: payload,
   });
+
+  // There is no gate to assert on a route the target does not serve. Checked
+  // here rather than skipped up front so a deployed-but-ungated route still
+  // fails loudly: only the specific not-deployed shape is excused.
+  const lagReason = hostedHelperLagReason(
+    missingTokenResponse.status(),
+    await missingTokenResponse.text(),
+  );
+
+  if (lagReason !== null) {
+    testInfo.annotations.push({
+      type: "hosted-staging-lag",
+      description: `${lagReason} Its token gate cannot be exercised there until this branch merges and staging redeploys.`,
+    });
+    return;
+  }
+
   expect(missingTokenResponse.status()).toBe(403);
 
   const wrongTokenResponse = await request.post("/api/e2e/auth", {
