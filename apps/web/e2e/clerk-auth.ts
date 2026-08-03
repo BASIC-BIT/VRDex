@@ -178,6 +178,33 @@ export async function createClerkTestAccount(runSuffix: string): Promise<ClerkTe
 }
 
 /**
+ * Fails fast when the target does not load Clerk at all.
+ *
+ * Without this the symptom is a 90-second test timeout whose only stack frame
+ * is the `finally` block's cleanup failing against a torn-down context — an
+ * error that names neither the cause nor the fix. `clerk.signIn` waits on
+ * `window.Clerk` indefinitely, so a target serving a pre-Clerk build just hangs.
+ *
+ * That is not hypothetical: the first hosted run of this suite hit exactly it.
+ * Staging had been stuck on a pre-cutover commit for days because every deploy
+ * failed on an unset `CLERK_JWT_ISSUER_DOMAIN`, and the E2E timeout said nothing
+ * about any of that.
+ */
+async function requireClerkOnTarget(page: Page) {
+  const loaded = await page
+    .waitForFunction(() => Boolean((window as unknown as { Clerk?: unknown }).Clerk), undefined, {
+      timeout: 15_000,
+    })
+    .catch(() => null);
+
+  if (loaded === null) {
+    throw new Error(
+      `${page.url()} never loaded Clerk. The target is missing NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY, or is running a build from before the Clerk cutover — check its /deployment commit and whether its last deploy succeeded.`,
+    );
+  }
+}
+
+/**
  * Signs in and waits for the Convex side to catch up.
  *
  * `users:ensureCurrentUser` runs from `ConvexClientProvider` on the first
@@ -193,6 +220,7 @@ export async function signInClerkTestAccount(page: Page, account: ClerkTestAccou
   // Clerk has to be loaded on a page it is allowed to run on before the helper
   // can drive it, and `/` is public.
   await gotoFlowPage(page, "/");
+  await requireClerkOnTarget(page);
   await clerk.signIn({ page, emailAddress: account.email });
 
   await gotoFlowPage(page, "/account");
