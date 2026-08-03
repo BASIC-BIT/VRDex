@@ -67,6 +67,31 @@ test("reports no key when the target serves none", async () => {
   );
 });
 
-test("reports no key when the sign-in page cannot be fetched", async () => {
-  assert.equal(await servedClerkKey("https://staging.example.test", async () => null), null);
+/**
+ * The missing-key result is what `--allow-missing-key` forgives, so an
+ * unreachable target must not produce it. A transient 500 or a
+ * deployment-protection 401 folded into the same answer would let a stale or
+ * cross-instance issuer be written and deployed before the post-deploy check
+ * could report the outage.
+ */
+test("throws rather than reporting no key when a fetch fails", async () => {
+  await assert.rejects(
+    servedClerkKey("https://staging.example.test", async () => {
+      throw new Error("GET https://staging.example.test/sign-in returned HTTP 500.");
+    }),
+    /HTTP 500/,
+  );
+});
+
+test("throws when a client chunk fails even though the shell loaded", async () => {
+  await assert.rejects(
+    servedClerkKey("https://staging.example.test", async (url) => {
+      if (url.endsWith("/sign-in")) {
+        return '<script src="/_next/static/chunks/abc.js"></script>';
+      }
+
+      throw new Error(`GET ${url} returned HTTP 401.`);
+    }),
+    /HTTP 401/,
+  );
 });

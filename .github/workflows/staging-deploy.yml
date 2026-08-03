@@ -15,6 +15,16 @@ on:
         required: false
         type: boolean
         default: false
+      clerk_instance_rotation:
+        description: >-
+          Moving staging to a different Clerk instance. Skips the pre-deploy
+          issuer check, which would otherwise compare the new issuer against the
+          key the *previous* deployment still serves and abort before Vercel can
+          publish the matching one. The post-deploy check still runs, so the new
+          pair must agree by the end of the run.
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -129,8 +139,15 @@ jobs:
       # workflow has to be able to fix. The post-deploy check is the
       # authoritative one for that case; this is the guard for the far more
       # likely one, where staging is healthy and the variable is wrong.
+      #
+      # Skipped for a deliberate instance rotation, which is the one case where
+      # disagreeing with the current deployment is the intended state: the new
+      # issuer and the new Vercel key have to change together, and this step runs
+      # before Vercel can publish the matching one. Dispatch-only and default
+      # off, so it cannot be reached by a routine merge — and the post-deploy
+      # check still has to pass, so the new pair must agree by the end of the run.
       - name: Verify the staging Clerk issuer before mutating Convex
-        if: steps.gate.outputs.enabled == 'true'
+        if: steps.gate.outputs.enabled == 'true' && !inputs.clerk_instance_rotation
         env:
           HOSTED_BASE_URL: ${{ steps.gate.outputs.hosted_base_url }}
           CLERK_JWT_ISSUER_DOMAIN: ${{ vars.VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN }}

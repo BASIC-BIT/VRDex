@@ -239,12 +239,29 @@ request, because Convex validates the issuer it was *told* about rather than the
 one the browser authenticated against. The `Audit Vercel staging runtime
 variable names` step cannot catch it: it reads names, never values.
 
-So after the Vercel deploy, `Verify the staging Clerk key matches the Convex
-issuer` fetches the deployed sign-in page, decodes the `pk_test_` key's
-base64-encoded host, and fails when it differs from the issuer. It also rejects a
-`pk_live_` key outright, so the staging and production tenants cannot be crossed
-even if someone edited the issuer to match. `production-promote.yml` does the
-same for the live tenant.
+So the comparison runs twice, both through
+`scripts/check-clerk-issuer-match.mjs`. Before the `convex env set`, against the
+currently deployed staging site — writing a wrong issuer breaks every signed-in
+request the moment functions push, so a check that ran only afterwards would
+report damage rather than prevent it. And again after the Vercel deploy, against
+what actually shipped. Both decode the `pk_test_` key's base64-encoded host and
+fail on a mismatch, and both reject a `pk_live_` key outright so the staging and
+production tenants cannot be crossed even if someone edited the issuer to match.
+`production-promote.yml` does the same for the live tenant.
+
+The pre-deploy pass takes `--allow-missing-key`, which forgives a target serving
+no Clerk key at all — the pre-cutover recovery case, where refusing to proceed
+would make the outage unfixable by the workflow meant to fix it. It forgives
+nothing else: an HTTP error throws rather than being read as "no key", or an
+unreachable target would look identical to a recoverable one.
+
+**Rotating staging to a different Clerk instance** is the one case where
+disagreeing with the current deployment is intended, since the issuer and the
+Vercel key must change together and the pre-deploy check runs before Vercel can
+publish the new one. Dispatch `Staging Deploy` with `clerk_instance_rotation`
+enabled to skip that pass. It is default-off and dispatch-only, so no routine
+merge reaches it, and the post-deploy check still runs — the new pair has to
+agree by the end of the run.
 
 The value is not a secret. A Clerk Frontend API origin is public — it is encoded
 in the publishable key every browser downloads — so it lives in a repository

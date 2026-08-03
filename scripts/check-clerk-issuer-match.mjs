@@ -50,11 +50,20 @@ export function issuerHost(issuer) {
   return issuer.slice("https://".length);
 }
 
+/**
+ * Throws on an HTTP error rather than returning null.
+ *
+ * `--allow-missing-key` must mean "this page loaded and carried no Clerk key",
+ * and nothing else. Folding a transient 500 or a deployment-protection 401 into
+ * the same `null` let an unreachable target look like the pre-Clerk recovery
+ * case, so a stale or cross-instance issuer could be written and deployed
+ * before the post-deploy check reported the outage it caused.
+ */
 async function fetchText(url) {
   const response = await fetch(url, { redirect: "follow" });
 
   if (!response.ok) {
-    return null;
+    throw new Error(`GET ${url} returned HTTP ${response.status}.`);
   }
 
   return await response.text();
@@ -62,11 +71,6 @@ async function fetchText(url) {
 
 export async function servedClerkKey(baseUrl, fetchImpl = fetchText) {
   const html = await fetchImpl(`${baseUrl}/sign-in`);
-
-  if (html === null) {
-    return null;
-  }
-
   const inline = html.match(CLERK_KEY_PATTERN);
 
   if (inline) {
@@ -78,7 +82,7 @@ export async function servedClerkKey(baseUrl, fetchImpl = fetchText) {
 
   for (const script of scripts) {
     const body = await fetchImpl(`${baseUrl}${script}`);
-    const match = body?.match(CLERK_KEY_PATTERN);
+    const match = body.match(CLERK_KEY_PATTERN);
 
     if (match) {
       return match[0];
