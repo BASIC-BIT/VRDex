@@ -427,7 +427,19 @@ export const purgeConvexAuthLeftovers = internalMutation({
       regrantedGrants: regranted,
       // Non-empty means those rows survive on purpose. Resolve each reference
       // before rerunning; the schema drop stays blocked until this is empty.
+      //
+      // Keys are full `users._id` values, which is where `regrantGrantsFrom`
+      // comes from: run once with no regrant arguments, read the blocked row out
+      // of this, run again naming it. That is deliberately the only supported
+      // way to find it — an operator who has not seen what a row is referenced by
+      // should not be reassigning its privileges.
       blockedUsers: Object.fromEntries(blocked),
+      // The other half of that round trip. Reported so the two ids the real run
+      // needs both come out of the dry run, rather than sending someone to read
+      // truncated cells in the dashboard and retype them.
+      clerkUsers: users
+        .filter((user) => user.clerkUserId !== undefined)
+        .map((user) => ({ clerkUserId: user.clerkUserId, email: user.email })),
       // Keyed by token identifier, not by `users._id`, so these do not block the
       // purge — but the issuer change already stopped them matching their owners
       // and they have to be re-granted by hand. Reported so that is not a

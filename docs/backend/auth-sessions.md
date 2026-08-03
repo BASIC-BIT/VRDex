@@ -226,6 +226,12 @@ It moves the named legacy row's active `accountFeatureGrants` onto the `users`
 row carrying `regrantGrantsToClerkUserId`, deletes the legacy rows, and clears
 all eight tables in the phase-one block of `convex/schema.ts`.
 
+Both ids in the production invocation come out of the dry run, so run it bare
+first. `blockedUsers` is keyed by full `users._id` and names what each legacy row
+is still referenced by; `clerkUsers` lists the Clerk identities with their
+emails. Take `regrantGrantsFrom` from the first and
+`regrantGrantsToClerkUserId` from the second.
+
 Staging needs no regrant arguments today — its legacy rows are E2E fixtures with
 no grants — but check `blockedUsers` rather than assuming that.
 
