@@ -106,22 +106,32 @@ test.describe("account surfaces @visual @flow", () => {
     // real account behind.
     const cleanup = await cleanupClerkTestAccountData(request, e2eBrowserToken(), account);
 
-    await deleteClerkTestAccount(account);
+    // The Clerk identity is deleted only once the Convex row is gone, and that
+    // ordering is the whole point. Deleting it first makes a failed cleanup
+    // permanent: the row survives keyed to an identity that no longer exists, so
+    // the thing you would use to find and re-clean it is what was just removed.
+    //
+    // Keeping both on failure looks like a leak and is the opposite — a
+    // recoverable pair, visible in the Clerk dashboard, re-cleanable through the
+    // ordinary path. The test still fails loudly below.
+    //
+    // The gate above checks the *runner's* `VRDEX_ENABLE_E2E_AUTH_HELPERS`, a
+    // different variable on a different machine from the four the route requires
+    // (`VRDEX_ENABLE_E2E_HELPERS`, `VRDEX_ENABLE_E2E_AUTH_HELPERS`,
+    // `VRDEX_E2E_BROWSER_TOKEN`, `VRDEX_E2E_CONVEX_SECRET`). It can answer 403 or
+    // 400 with the runner flag set, and `request.delete` resolves either way, so
+    // the gate alone cannot tell a completed cleanup from a rejected one.
+    if (cleanup?.ok()) {
+      await deleteClerkTestAccount(account);
+    }
+
+    const failure = cleanup?.ok()
+      ? undefined
+      : `Convex cleanup returned ${cleanup?.status()} for ${account?.email}. Its users row survives, and the Clerk user was kept so the pair can still be cleaned up by hand.`;
+
     account = undefined;
 
-    // Asserted after the Clerk deletion, not before it. Failing first would skip
-    // that deletion and leak the Clerk user as well as the Convex row; this way
-    // both teardown steps always run and the failure is still reported.
-    //
-    // The gate above checks the *runner's* `VRDEX_ENABLE_E2E_AUTH_HELPERS`, which
-    // is a different variable on a different machine from the four the route
-    // requires. It can still answer 403 or 400 with that flag set, and
-    // `request.delete` resolves either way — so the gate alone cannot tell a
-    // completed cleanup from a rejected one.
-    expect(
-      cleanup?.ok(),
-      `Convex cleanup for ${cleanup?.url()} returned ${cleanup?.status()}; its users row is now unreachable.`,
-    ).toBe(true);
+    expect(failure, failure ?? "").toBeUndefined();
   });
 
   test("account overview", async ({ page }, testInfo) => {
