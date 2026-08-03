@@ -353,12 +353,15 @@ function tagCursor(dryRun: boolean, cursor: string | null): string | null {
   return cursor === null ? null : `${dryRun ? CURSOR_MODES.dry : CURSOR_MODES.live}${cursor}`;
 }
 
-/** Just enough of a Convex query to probe one index for one value. */
+/** Just enough of a Convex query to read one index for one value. */
 type IndexedTableQuery = {
   withIndex: (
     index: string,
     build: (q: { eq: (field: string, value: string) => unknown }) => unknown,
-  ) => { first: () => Promise<{ _id: string } | null> };
+  ) => {
+    first: () => Promise<{ _id: string } | null>;
+    collect: () => Promise<{ _id: string }[]>;
+  };
 };
 
 export const purgeConvexAuthLeftovers = internalMutation({
@@ -780,6 +783,133 @@ export const purgeConvexAuthLeftovers = internalMutation({
       // read here fails the whole mutation, so a deployment with enough authority
       // history could never delete a single row on account of a diagnostic.
       staleCommunityAuthorities: staleAuthorities,
+    };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// One-off identity reassignment, for the case the purge deliberately refuses.
+//
+// `ensureUser` binds a Clerk identity by inserting a *new* `users` row rather
+// than adopting a legacy one, because nothing can derive which pre-cutover row a
+// Clerk subject corresponds to. When the same person signed in before and after
+// the cutover, their footprint therefore sits on a row nobody can authenticate
+// as: on production that is `basicbit`, owned by the legacy row with an active
+// `profileOwners` record, so the owner cannot edit their own profile.
+//
+// `purgeConvexAuthLeftovers` correctly refuses to delete such a row — deleting it
+// would leave a dangling `v.id("users")` that reads as valid and resolves to
+// nothing. This moves the footprint instead, which is what makes the row
+// deletable and the purge completable.
+//
+// Deliberately a separate function from the purge's regrant. That one moves live
+// `accountFeatureGrants` and nothing else, because "move every grant on every
+// legacy row" is a privilege-escalation primitive. This is the opposite
+// operation: an operator asserting that two rows are one person and merging
+// them, with both ends named. Keeping them apart keeps the purge's narrow rule
+// narrow.
+//
+// What it does NOT touch, on purpose:
+//
+// - `authSubject`-keyed rows. Nineteen tables carry them, and they are not
+//   `v.id("users")` references. The two that govern authorization —
+//   `communityAuthorities.subjectTokenIdentifier` and `events.submitter` via
+//   `isSameAuthSubject` — were verified empty on production before this was
+//   written; re-verify rather than assume. The rest are audit trails
+//   (`profileAuditEvents` and friends) recording what a subject actually did, and
+//   rewriting them would falsify history rather than repair ownership.
+// - Any field other than the user reference. No `updatedAt` bump: these rows did
+//   not change state, their owner was corrected.
+export const reassignLegacyUserReferences = internalMutation({
+  args: {
+    // Both ends named, neither inferred — the same rule the regrant follows, for
+    // the same reason. Matching by email would make this "whoever holds the
+    // address inherits the profile".
+    fromUserId: v.id("users"),
+    toClerkUserId: v.string(),
+    dryRun: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const dryRun = args.dryRun ?? true;
+
+    const source = await ctx.db.get(args.fromUserId);
+
+    if (source === null) {
+      throw new Error(`fromUserId ${args.fromUserId} does not exist.`);
+    }
+
+    if (source.clerkUserId !== undefined) {
+      throw new Error(
+        `fromUserId ${args.fromUserId} carries a clerkUserId, so it is reachable by signing in. This moves a footprint off an unreachable row; it is not a way to merge two live accounts.`,
+      );
+    }
+
+    const target = await ctx.db
+      .query("users")
+      .withIndex("clerkUserId", (q) => q.eq("clerkUserId", args.toClerkUserId))
+      .unique();
+
+    if (target === null) {
+      throw new Error(
+        `No users row carries clerkUserId ${args.toClerkUserId}. Sign in through Clerk first so ensureUser provisions one.`,
+      );
+    }
+
+    const moved: Record<string, number> = {};
+    // What the destination already holds, per table. A reassignment can create a
+    // logical duplicate — two `profileOwners` rows for one profile, two billing
+    // mappings for one user — and Convex enforces no uniqueness, so nothing would
+    // reject it. Reported rather than guessed at, so a dry run shows the collision
+    // before a real run creates it.
+    const targetAlreadyHas: Record<string, number> = {};
+
+    for (const [table, field, index] of USER_REFERENCES) {
+      const rows = await (ctx.db.query(table) as unknown as IndexedTableQuery)
+        .withIndex(index, (q) => q.eq(field, args.fromUserId))
+        .collect();
+
+      if (rows.length > 0) {
+        moved[`${table}.${field}`] = rows.length;
+      }
+
+      const existing = await (ctx.db.query(table) as unknown as IndexedTableQuery)
+        .withIndex(index, (q) => q.eq(field, target._id))
+        .collect();
+
+      if (existing.length > 0) {
+        targetAlreadyHas[`${table}.${field}`] = existing.length;
+      }
+
+      if (!dryRun) {
+        // Same narrowing as the probe above: the row ids come back as strings
+        // because `IndexedTableQuery` erases the table, and `patch` wants the
+        // branded `Id`. The pairing is what `convex-auth-purge.test.ts` checks.
+        await Promise.all(
+          rows.map((row) =>
+            ctx.db.patch(row._id as Id<"users">, { [field]: target._id } as never),
+          ),
+        );
+      }
+    }
+
+    return {
+      dryRun,
+      from: source.email ?? source._id,
+      to: { clerkUserId: target.clerkUserId, email: target.email },
+      moved,
+      targetAlreadyHas,
+      // Left in place by design. Non-zero here is not a failure, it is the audit
+      // trail staying truthful — but it does mean the legacy *subject* is still
+      // referenced somewhere, which `purgeConvexAuthLeftovers` does not care about
+      // because those are not `v.id("users")` fields.
+      authorizationSubjectsLeft: {
+        communityAuthorities: (await ctx.db.query("communityAuthorities").take(50)).filter(
+          (authority) => authority.subject.subject.startsWith(args.fromUserId),
+        ).length,
+        events: (await ctx.db.query("events").take(50)).filter((event) =>
+          (event.submitter?.subject ?? "").startsWith(args.fromUserId),
+        ).length,
+      },
     };
   },
 });
