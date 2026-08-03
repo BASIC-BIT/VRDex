@@ -209,23 +209,36 @@ That ordering was not achieved. Both deployments were signed into through Clerk
 before anything was deleted, which the note below always allowed for, so the
 purge runs against a `users` table holding legacy rows *and* Clerk rows.
 
-`migrations:purgeConvexAuthLeftovers` does the whole thing, per deployment:
+`migrations:purgeConvexAuthLeftovers` does the whole thing. Run it per
+deployment, staging first — `--prod` selects production, so it is exactly the
+wrong flag for the staging pass:
 
-```bash
-pnpm exec convex run --prod migrations:purgeConvexAuthLeftovers \
-  '{"superAdminClerkUserId": "user_...", "dryRun": true}'
+```powershell
+# staging (scrupulous-corgi-247)
+$env:CONVEX_DEPLOYMENT="dev:scrupulous-corgi-247"; $env:CONVEX_SELF_HOSTED_URL=""
+pnpm exec convex run migrations:purgeConvexAuthLeftovers '{\"dryRun\": true}'
+
+# production (superb-pig-954)
+pnpm exec convex run --prod migrations:purgeConvexAuthLeftovers '{\"regrantGrantsFrom\": \"<legacy users._id>\", \"regrantGrantsToClerkUserId\": \"user_...\", \"dryRun\": true}'
 ```
 
-It re-points `accountFeatureGrants` off legacy rows onto the `users` row
-carrying `superAdminClerkUserId`, deletes the legacy rows, and clears all eight
-tables in the phase-one block of `convex/schema.ts`.
+It moves the named legacy row's active `accountFeatureGrants` onto the `users`
+row carrying `regrantGrantsToClerkUserId`, deletes the legacy rows, and clears
+all eight tables in the phase-one block of `convex/schema.ts`.
+
+Staging needs no regrant arguments today — its legacy rows are E2E fixtures with
+no grants — but check `blockedUsers` rather than assuming that.
 
 Three things about it are deliberate:
 
 - **`dryRun` defaults to true.** The first run reports; pass `false` to act.
-- **The super-admin target is an argument, not inferred.** Matching a legacy row
-  to a Clerk one by email would be a rule that hands privileges to whoever holds
-  a matching address. The operator names their own account instead.
+- **Both ends of the regrant are named, and only that row's active grants move.**
+  Matching a legacy row to a Clerk one by email would hand privileges to whoever
+  holds a matching address. Moving *every* legacy row's grants would be worse:
+  `view_private_seed_lookup` and `use_temporal_parsing_beta` are issued per beta
+  user, so a deployment holding several would collapse them onto one account.
+  Grants on any other legacy row block that row instead — someone else's
+  privileges are a reason to stop, not to reassign.
 - **It refuses to delete a legacy row anything still references.** Convex does
   not enforce referential integrity, so removing a referenced row leaves an id
   that still reads as a valid `v.id("users")` and resolves to nothing. Every

@@ -438,9 +438,6 @@ function SignInRequiredEventEditorPanel() {
     <Card surface="dashed">
       <Eyebrow>Event editor</Eyebrow>
       <SectionTitle className="mt-4 text-2xl tracking-[-0.03em]">Sign-in required</SectionTitle>
-      <p className="mt-3 text-sm leading-7 text-muted">
-        Sign in to create or edit an event.
-      </p>
     </Card>
   );
 }

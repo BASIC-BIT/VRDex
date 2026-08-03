@@ -301,17 +301,30 @@ export const USER_REFERENCES = [
 
 export const purgeConvexAuthLeftovers = internalMutation({
   args: {
-    // Re-points `accountFeatureGrants` from legacy rows to this Clerk identity's
-    // `users` row. Taken as an argument rather than inferred by matching email:
-    // a rule that moves privileges to whoever holds a matching address is a
-    // privilege-escalation primitive, and the operator knows which account is
-    // theirs. Omit it to leave every grant alone, which then blocks deletion of
-    // the rows those grants point at.
-    superAdminClerkUserId: v.optional(v.string()),
+    // Both ends of the grant transfer, named explicitly. Neither is inferred.
+    //
+    // Not by email: a rule that moves privileges to whoever holds a matching
+    // address is a privilege-escalation primitive. Not "every grant on every
+    // legacy row" either, which was the first version of this and was worse —
+    // `view_private_seed_lookup` and `use_temporal_parsing_beta` are issued to
+    // individual beta users, so a deployment holding grants for several of them
+    // would have had all of those collapse onto one account.
+    //
+    // Only `from`'s active grants move. Grants on any other legacy row are left
+    // alone and block that row's deletion, which is the outcome worth having:
+    // someone else's privileges are a reason to stop, not to reassign.
+    regrantGrantsFrom: v.optional(v.id("users")),
+    regrantGrantsToClerkUserId: v.optional(v.string()),
     dryRun: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const dryRun = args.dryRun ?? true;
+
+    if ((args.regrantGrantsFrom === undefined) !== (args.regrantGrantsToClerkUserId === undefined)) {
+      throw new Error(
+        "regrantGrantsFrom and regrantGrantsToClerkUserId go together. Pass both to move grants, or neither to leave every grant alone.",
+      );
+    }
 
     const users = await ctx.db.query("users").collect();
     const legacy = users.filter((user) => user.clerkUserId === undefined);
@@ -319,15 +332,23 @@ export const purgeConvexAuthLeftovers = internalMutation({
 
     let regrantTarget: Id<"users"> | undefined;
 
-    if (args.superAdminClerkUserId !== undefined) {
+    if (args.regrantGrantsToClerkUserId !== undefined) {
       const target = await ctx.db
         .query("users")
-        .withIndex("clerkUserId", (q) => q.eq("clerkUserId", args.superAdminClerkUserId))
+        .withIndex("clerkUserId", (q) => q.eq("clerkUserId", args.regrantGrantsToClerkUserId))
         .unique();
 
       if (target === null) {
         throw new Error(
-          `No users row carries clerkUserId ${args.superAdminClerkUserId}. Sign in through Clerk first so ensureUser provisions one.`,
+          `No users row carries clerkUserId ${args.regrantGrantsToClerkUserId}. Sign in through Clerk first so ensureUser provisions one.`,
+        );
+      }
+
+      // A Clerk row is the only valid destination. Naming a legacy row would
+      // move the grants onto something this same run then deletes.
+      if (!legacyIds.has(args.regrantGrantsFrom as string)) {
+        throw new Error(
+          `regrantGrantsFrom ${args.regrantGrantsFrom} is not a legacy users row. Only rows without a clerkUserId are purged, so only their grants need moving.`,
         );
       }
 
@@ -339,8 +360,16 @@ export const purgeConvexAuthLeftovers = internalMutation({
     const regranted: string[] = [];
 
     if (regrantTarget !== undefined) {
-      for (const grant of await ctx.db.query("accountFeatureGrants").collect()) {
-        if (!legacyIds.has(grant.userId)) {
+      const grants = await ctx.db
+        .query("accountFeatureGrants")
+        .withIndex("by_userId_feature_state", (q) => q.eq("userId", args.regrantGrantsFrom as Id<"users">))
+        .collect();
+
+      for (const grant of grants) {
+        // Revoked grants stay put and block. Moving one would write a history
+        // in which the Clerk account held and lost a feature it never had, and
+        // deleting one would discard the record of a revocation.
+        if (grant.state !== "active") {
           continue;
         }
 
