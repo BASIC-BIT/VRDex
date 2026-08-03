@@ -390,21 +390,6 @@ export const purgeConvexAuthLeftovers = internalMutation({
       );
     }
 
-    // `legacyCursor` is a discovery aid, and combining it with a destructive
-    // run is the natural mistake: page through with dry runs, then flip `dryRun`
-    // to false on the last command with the cursor still in it. That would skip
-    // every legacy row before the cursor, and if the remaining suffix fits one
-    // page it would report `moreRemaining: false` with the skipped rows intact —
-    // a purge that claims to be finished and is not, discovered later as the
-    // schema change failing on `clerkUserId`.
-    //
-    // Rejected rather than ignored. Silently dropping it would be safe but would
-    // leave the operator believing they resumed from where they were reading.
-    if (!dryRun && args.legacyCursor !== undefined) {
-      throw new Error(
-        "legacyCursor is for dry-run discovery only. A destructive run must start from the first remaining legacy row; drop the cursor and rerun until moreRemaining is false.",
-      );
-    }
 
     // Indexed, not scanned. `undefined` is a queryable index value in Convex —
     // it matches documents lacking the field — so the legacy rows come straight
@@ -654,14 +639,33 @@ export const purgeConvexAuthLeftovers = internalMutation({
     return {
       dryRun,
       clearedTables,
-      // True when the batch budget ran out *or* legacy rows remain beyond this
-      // page. Rerun with the same arguments until it is false; the regrant is
-      // idempotent because a moved grant no longer sits on a legacy row.
+      // True when the batch budget ran out *or* pages remain. Rerun passing
+      // `nextLegacyCursor` back as `legacyCursor` until this is false; the
+      // regrant is idempotent because a moved grant no longer sits on a legacy
+      // row.
       moreRemaining: usersDeferred || moreLegacy,
-      // Feed back as `legacyCursor` to inspect the next page. Only meaningful for
-      // a dry run: a destructive pass deletes the rows it examined, so its next
-      // run advances without one.
-      nextLegacyCursor: moreLegacy ? legacyPage.continueCursor : null,
+      // Where to resume, for destructive runs as much as dry ones.
+      //
+      // Destructive runs used to be told to rerun from the beginning, on the
+      // reasoning that deleting rows advances the page by itself. That is only
+      // true when rows are actually deleted: a page where every legacy row is
+      // blocked deletes nothing, so the same page comes back forever while
+      // `moreLegacy` stays true, and later deletable rows are never reached.
+      // Fifty blocked rows were enough to wedge the documented loop permanently.
+      //
+      // A cursor-driven walk advances regardless of what any page contains, and
+      // it also removes the earlier hazard it was guarding against: skipping rows
+      // now requires inventing a cursor rather than carrying a real one, because
+      // every walk starts at null and moves forward.
+      //
+      // Held in place when the delete budget ran out. Those rows were examined
+      // but not deleted, so advancing past them would leave them behind while
+      // the walk reported itself finished.
+      nextLegacyCursor: usersDeferred
+        ? (args.legacyCursor ?? null)
+        : moreLegacy
+          ? legacyPage.continueCursor
+          : null,
       legacyUsers: legacy.length,
       deletedUsers: usersDeferred ? [] : deletableUsers.map((user) => user.email ?? user._id),
       regrantedGrants: regranted,

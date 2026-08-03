@@ -240,12 +240,10 @@ pass it back as `legacyCursor` to inspect the next page, and keep going until
 it is null — that is how you see every `blockedUsers` entry before deleting
 anything.
 
-**Drop the cursor before setting `dryRun` to false.** Destructive runs need none:
-the rows they delete stop matching, so each pass resumes at the first remaining
-row on its own. Carrying the cursor over would skip every row before it, and a
-short enough remainder would report `moreRemaining: false` with those rows still
-present. The migration rejects the combination rather than ignoring it, so the
-mistake is a clear error instead of a purge that claims to be finished.
+Starting the destructive pass from a cursor you paged to is fine, and is in fact
+how it is meant to run — see the rerun note below. What is never safe is
+inventing a cursor: every walk must begin at null and move forward, or rows
+before the starting point are neither examined nor reported.
 
 `clerkUsers` is a capped sample, and `clerkUsersTruncated` says when it is one.
 If your account is not in the list, read the id off Clerk's dashboard —
@@ -256,14 +254,22 @@ convenience, not the source of truth.
 Staging needs no regrant arguments today — its legacy rows are E2E fixtures with
 no grants — but check `blockedUsers` rather than assuming that.
 
-**Rerun with the same arguments until `moreRemaining` is false.** The eight
-tables are cleared up to a fixed batch per invocation, and legacy `users` rows a
-page at a time, because a deployment that ran Convex Auth for a year holds a
-session and refresh-token row per sign-in — reading all of them in one
-transaction exceeds Convex's limits, which would strand the tables permanently
-since every retry fails the same way. Legacy rows are deleted only on the pass
-that finishes the tables, so a row is never removed while `authAccounts` still
-references it. Both current deployments clear in one pass.
+**Rerun until `moreRemaining` is false, passing `nextLegacyCursor` back as
+`legacyCursor` each time.** The eight tables are cleared up to a fixed batch per
+invocation, and legacy `users` rows a page at a time, because a deployment that
+ran Convex Auth for a year holds a session and refresh-token row per sign-in —
+reading all of them in one transaction exceeds Convex's limits, which would
+strand the tables permanently since every retry fails the same way. Legacy rows
+are deleted only on the pass that finishes the tables, so a row is never removed
+while `authAccounts` still references it. Both current deployments clear in one
+pass.
+
+Carry the cursor on destructive runs, not just dry ones. Deleting rows does not
+reliably advance the page on its own: a page where every legacy row is blocked
+deletes nothing, so without a cursor the same page returns forever while
+`moreRemaining` stays true, and later deletable rows are never reached. Fifty
+blocked rows are enough to wedge the loop permanently. The cursor is held in
+place, rather than advanced, on any pass where the delete budget ran out.
 
 Keeping the regrant arguments on every rerun is correct: once the source row is
 gone its grants have already moved, and the migration treats a missing source as
