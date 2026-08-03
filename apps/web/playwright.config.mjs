@@ -86,7 +86,15 @@ export default defineConfig({
   timeout: 30_000,
   retries: process.env.CI ? 1 : 0,
   fullyParallel: true,
-  reporter: [["list"], ["html", { open: "never", outputFolder: "playwright-report" }]],
+  // The JSON report exists so CI can state what actually ran instead of asserting
+  // it. A skipped Playwright file still exits 0, so an outcome of `success` alone
+  // cannot distinguish "everything passed" from "nothing executed" — which is how
+  // the auth-session matrix lane reported coverage it never produced.
+  reporter: [
+    ["list"],
+    ["html", { open: "never", outputFolder: "playwright-report" }],
+    ["json", { outputFile: "playwright-artifacts/results.json" }],
+  ],
   expect: {
     toHaveScreenshot: {
       pathTemplate: "{testDir}/__screenshots__{/projectName}/{arg}{ext}",

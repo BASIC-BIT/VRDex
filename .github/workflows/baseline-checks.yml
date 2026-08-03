@@ -626,8 +626,16 @@ jobs:
         working-directory: apps/web
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Capture public route screenshots
+      - name: Capture route screenshots
         id: visual
+        env:
+          # Signed-in account surfaces have no screenshot coverage without these.
+          # `clerkTestAuthAvailability()` keys off the flag first and then the
+          # keys, so an absent secret skips that lane rather than failing the job —
+          # and the summary below reports the skip rather than papering over it.
+          VRDEX_ENABLE_E2E_CLERK_AUTH: ${{ vars.VRDEX_ENABLE_E2E_CLERK_AUTH }}
+          CLERK_SECRET_KEY: ${{ secrets.VRDEX_STAGING_CLERK_SECRET_KEY }}
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.VRDEX_STAGING_CLERK_PUBLISHABLE_KEY }}
         run: pnpm test:e2e:visual
 
       - name: Write visual summary
@@ -637,15 +645,51 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           mkdir -p apps/web/playwright-artifacts
-          cat > apps/web/playwright-artifacts/visual-summary.md <<EOF
-          ## Playwright public screenshot preview
 
-          Outcome: ${VISUAL_OUTCOME}
+          # Counted from the run, not asserted. The previous version stated "all
+          # public route checks passed" unconditionally — on a failed run, and on a
+          # run where a whole lane skipped. A summary that cannot be wrong is not
+          # evidence, and this job exists to be evidence.
+          counts=$(python3 - <<'PY'
+          import json, pathlib
+          report = pathlib.Path("apps/web/playwright-artifacts/results.json")
+          if not report.exists():
+              print("unknown unknown unknown")
+              raise SystemExit
+          data = json.loads(report.read_text(encoding="utf-8"))
+          tally = {"passed": 0, "failed": 0, "skipped": 0}
+          def walk(suite):
+              for spec in suite.get("specs", []):
+                  for test in spec.get("tests", []):
+                      status = test.get("status", "")
+                      key = "passed" if status == "expected" else "skipped" if status == "skipped" else "failed"
+                      tally[key] += 1
+              for child in suite.get("suites", []):
+                  walk(child)
+          for suite in data.get("suites", []):
+              walk(suite)
+          print(tally["passed"], tally["failed"], tally["skipped"])
+          PY
+          )
+          passed=$(echo "$counts" | cut -d' ' -f1)
+          failed=$(echo "$counts" | cut -d' ' -f2)
+          skipped=$(echo "$counts" | cut -d' ' -f3)
 
-          Screenshots: all public route checks passed on desktop and mobile.
-
-          Run: ${RUN_URL}
-          EOF
+          {
+            echo "## Playwright screenshot preview"
+            echo ""
+            echo "Outcome: ${VISUAL_OUTCOME}"
+            echo ""
+            echo "Tests: ${passed} passed, ${failed} failed, ${skipped} skipped."
+            if [ "$skipped" != "0" ] && [ "$skipped" != "unknown" ]; then
+              echo ""
+              echo "**Skipped tests produced no screenshots.** The signed-in account"
+              echo "surfaces need \`VRDEX_ENABLE_E2E_CLERK_AUTH\` plus the staging Clerk"
+              echo "keys; without them that lane contributes no coverage."
+            fi
+            echo ""
+            echo "Run: ${RUN_URL}"
+          } > apps/web/playwright-artifacts/visual-summary.md
 
       - name: Upload Playwright artifacts
         id: upload
