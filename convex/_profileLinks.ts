@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 
 import {
   assertOnlyKeys,
@@ -90,6 +90,44 @@ export const profileLinkInputValidator = v.object({
 export const PROFILE_LINK_MAX_COUNT = 20;
 export const PROFILE_LINK_LABEL_MAX_LENGTH = 120;
 export const PROFILE_LINK_HANDLE_MAX_LENGTH = 160;
+export const PROFILE_LINK_URL_MAX_LENGTH = 2_048;
+
+/**
+ * Hosts a branded link type is allowed to point at.
+ *
+ * The public profile renders the type as a branded affordance, and
+ * `submitCommunityProfile` is an authenticated public mutation that publishes
+ * immediately for a profile the submitter does not own. Without this, a
+ * submitter could put a "Discord" button on somebody else's profile pointing
+ * at an unrelated host.
+ *
+ * Only providers with a stable, universally used domain are listed. The
+ * commerce types are deliberately absent because Bandcamp, Gumroad, Payhip and
+ * WooCommerce stores routinely live on the seller's own domain, so a host check
+ * would reject real links; `website`, `other`, `commissions` and
+ * `generic_store` are arbitrary destinations by definition. `vrcdn` is not
+ * here because `parseVrcdnStreamLinks` already constrains it far more tightly.
+ */
+const PROFILE_LINK_TYPE_HOSTS: Partial<Record<ProfileLinkType, readonly string[]>> = {
+  vrchat_profile: ["vrchat.com"],
+  discord: ["discord.com", "discord.gg", "discordapp.com"],
+  soundcloud: ["soundcloud.com"],
+  mixcloud: ["mixcloud.com"],
+  twitch: ["twitch.tv"],
+  youtube: ["youtube.com", "youtu.be"],
+  spotify: ["spotify.com", "spotify.link"],
+  instagram: ["instagram.com"],
+  linktree: ["linktr.ee", "linktree.com"],
+  kofi: ["ko-fi.com"],
+  patreon: ["patreon.com"],
+  jinxxy: ["jinxxy.com"],
+};
+
+function hostMatchesProvider(hostname: string, allowedDomains: readonly string[]): boolean {
+  const host = hostname.replace(/^www\./i, "").toLowerCase();
+
+  return allowedDomains.some((domain) => host === domain || host.endsWith(`.${domain}`));
+}
 
 export type ProfileLinkSource =
   | "owner_authored"
@@ -194,6 +232,13 @@ function prepareProfileLink(entry: unknown, index: number): Record<string, unkno
   }
 
   const rawUrl = requireStringValue(link.url, "Outbound link URL").trim();
+
+  // Rejected rather than truncated: the shared HTTPS helper slices at this
+  // length, which would silently store a different destination than the one
+  // submitted once a path, query or signed token pushed it over.
+  if (rawUrl.length > PROFILE_LINK_URL_MAX_LENGTH) {
+    throw new Error(`Outbound link URL must be ${PROFILE_LINK_URL_MAX_LENGTH} characters or fewer.`);
+  }
   // A blank label counts as absent: the submit form sends only a type and a
   // URL, and an API caller passing "" means the same thing.
   const label =
@@ -233,13 +278,38 @@ export function sanitizeProfileLinks(
   value: unknown,
   source: ProfileLinkSource,
 ): Array<NormalizedProfileLink & { source: ProfileLinkSource }> {
-  const links = requireArrayValue(value, "Outbound links");
+  try {
+    const links = requireArrayValue(value, "Outbound links");
 
-  // Checked before the per-entry pass so an oversized array is rejected without
-  // parsing every entry in it first.
-  if (links.length > PROFILE_LINK_MAX_COUNT) {
-    throw new Error(`Outbound links can include at most ${PROFILE_LINK_MAX_COUNT} values.`);
+    // Checked before the per-entry pass so an oversized array is rejected
+    // without parsing every entry in it first.
+    if (links.length > PROFILE_LINK_MAX_COUNT) {
+      throw new Error(`Outbound links can include at most ${PROFILE_LINK_MAX_COUNT} values.`);
+    }
+
+    return normalizeOutboundLinks(links.map(prepareProfileLink)).map((link) => {
+      const allowedDomains = PROFILE_LINK_TYPE_HOSTS[link.type];
+
+      if (allowedDomains !== undefined && !hostMatchesProvider(new URL(link.url).hostname, allowedDomains)) {
+        throw new Error(
+          `A ${PROFILE_LINK_TYPE_LABELS[link.type]} link must point at ${allowedDomains[0]}.`,
+        );
+      }
+
+      return { ...link, source };
+    });
+  } catch (error) {
+    // Convex redacts plain `Error` messages on production deployments, so a
+    // link problem would otherwise reach the submit form as the generic
+    // "backend unreachable" fallback even though it is entirely fixable in the
+    // form. The structured payload survives, same as claim errors.
+    if (error instanceof ConvexError) {
+      throw error;
+    }
+
+    throw new ConvexError({
+      code: "INVALID_PROFILE_LINK",
+      message: error instanceof Error ? error.message : "Outbound links are invalid.",
+    });
   }
-
-  return normalizeOutboundLinks(links.map(prepareProfileLink)).map((link) => ({ ...link, source }));
 }

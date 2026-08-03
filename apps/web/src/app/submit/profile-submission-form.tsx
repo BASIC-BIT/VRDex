@@ -66,13 +66,6 @@ const userSafeErrorPatterns = [
   /Community subtype must be \d+ characters or fewer\./,
   /Community fields cannot be submitted for a person profile\./,
   /Person fields cannot be submitted for a community profile\./,
-  // Link problems are always something the submitter can fix in the form, so
-  // the generic "backend unreachable" fallback would send them nowhere.
-  /Outbound link URL must be an HTTPS URL\./,
-  /Outbound link URL must be a VRCDN stream URL\./,
-  /Outbound links must not contain embedded credentials\./,
-  /Outbound links can include at most \d+ values\./,
-  /Unsupported outbound link type "[^"]*"\./,
   // Retrying cannot succeed while the suppression stands, so the generic
   // "backend unreachable, try again" fallback would be actively misleading.
   /This profile cannot be submitted\./,
@@ -85,6 +78,12 @@ function submissionErrorMessage(error: unknown): string {
 
   if (data?.code === "IDENTITY_SUPPRESSED") {
     return data.message ?? "This profile cannot be submitted.";
+  }
+
+  // Link problems are always fixable in the form, and the structured payload is
+  // what survives production redaction.
+  if (data?.code === "INVALID_PROFILE_LINK" && data.message) {
+    return data.message;
   }
 
   const message = error instanceof Error ? error.message : String(error);
@@ -312,7 +311,7 @@ function SubmissionFormFields({ submitProfile }: {
 
             <Field className="flex-1">
               <FieldText>URL</FieldText>
-              <Input name="linkUrl" placeholder="https://soundcloud.com/name" type="url" />
+              <Input maxLength={2048} name="linkUrl" placeholder="https://soundcloud.com/name" type="url" />
             </Field>
 
             <Button

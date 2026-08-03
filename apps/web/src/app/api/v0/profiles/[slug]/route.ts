@@ -40,6 +40,10 @@ function profileUpdateErrorResponse(error: unknown) {
   // generic Convex text instead of the intended reason.
   const data = (error as { data?: { code?: string; message?: string } } | null)?.data;
 
+  if (data?.code === "INVALID_PROFILE_LINK") {
+    return problem(400, "Invalid profile update request", data.message ?? "The outbound links are invalid.");
+  }
+
   if (data?.code === "IDENTITY_SUPPRESSED") {
     // Reuses the existing 400 title rather than introducing a 409 with a new one:
     // that would mean unapproved public copy, a wider status union in `problem`,
