@@ -230,38 +230,39 @@ missing a setting its own auth config requires — so skipping would report a gr
 workflow while staging silently stopped updating, which is a quieter version of
 the same outage.
 
-### The issuer is checked against the key staging actually serves
+### The issuer is checked against the key Vercel will serve
 
 Convex's issuer and the web publishable key are configured in different places —
-a repository variable and the Vercel project — and nothing compared them. A
-stale or cross-instance issuer deploys cleanly and then rejects every signed-in
+a repository variable and the Vercel project — and nothing compared them. A stale
+or cross-instance issuer deploys cleanly and then rejects every signed-in
 request, because Convex validates the issuer it was *told* about rather than the
 one the browser authenticated against. The `Audit Vercel staging runtime
 variable names` step cannot catch it: it reads names, never values.
 
 So the comparison runs twice, both through
 `scripts/check-clerk-issuer-match.mjs`. Before the `convex env set`, against the
-currently deployed staging site — writing a wrong issuer breaks every signed-in
-request the moment functions push, so a check that ran only afterwards would
-report damage rather than prevent it. And again after the Vercel deploy, against
-what actually shipped. Both decode the `pk_test_` key's base64-encoded host and
-fail on a mismatch, and both reject a `pk_live_` key outright so the staging and
-production tenants cannot be crossed even if someone edited the issuer to match.
-`production-promote.yml` does the same for the live tenant.
+key Vercel is *about to* serve — pulled from its configuration, not read off the
+deployed page. And again after the Vercel deploy, against what actually shipped.
+Both decode the key's base64-encoded host and fail on a mismatch, both reject a
+`pk_live_` key outright so the staging and production tenants cannot be crossed,
+and the first is also the only caller of the origin-format validation — so a bare
+host or a trailing slash cannot reach Convex, where `auth.config.ts` would pass
+it through verbatim and match no token issuer. `production-promote.yml` does the
+same for the live tenant.
 
-The pre-deploy pass takes `--allow-missing-key`, which forgives a target serving
-no Clerk key at all — the pre-cutover recovery case, where refusing to proceed
-would make the outage unfixable by the workflow meant to fix it. It forgives
-nothing else: an HTTP error throws rather than being read as "no key", or an
-unreachable target would look identical to a recoverable one.
+Comparing against the pending configuration rather than the live site is what
+keeps this simple, and it was not the first attempt. Comparing against the
+deployed page made an instance rotation impossible — the old key is what is
+deployed, by definition — which needed an escape hatch, which needed a rollback,
+which needed a boundary on that rollback. Reading what Vercel will serve makes a
+rotation an ordinary run: update the Vercel pair and the issuer variable, deploy,
+and both providers move together with no special input.
 
-**Rotating staging to a different Clerk instance** is the one case where
-disagreeing with the current deployment is intended, since the issuer and the
-Vercel key must change together and the pre-deploy check runs before Vercel can
-publish the new one. Dispatch `Staging Deploy` with `clerk_instance_rotation`
-enabled to skip that pass. It is default-off and dispatch-only, so no routine
-merge reaches it, and the post-deploy check still runs — the new pair has to
-agree by the end of the run.
+If a run changes the issuer and then fails before the post-deploy verification
+passes, the previous value is restored and functions re-pushed. Not afterwards:
+once it passes, Vercel serves a key the new issuer matches and the two agree, so
+a later failure is unrelated and rolling Convex back alone would break a working
+pairing rather than repair anything.
 
 The value is not a secret. A Clerk Frontend API origin is public — it is encoded
 in the publishable key every browser downloads — so it lives in a repository

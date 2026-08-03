@@ -215,14 +215,12 @@ These must be the **development** instance backing the hosted target, not produc
 
 **Moving staging to a different Clerk instance** — a recreated instance, or a deliberate migration. The publishable key's host changes, so the Convex issuer has to change with it, and the two live in different places:
 
-1. Set the Vercel staging `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY` to the new instance's pair.
+1. Set the Vercel staging `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY` to the new instance's pair. Setting the variables is enough; no deploy is needed first.
 2. `gh variable set VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN --body https://<new-frontend-api-host>`, then `gh secret set` for both `VRDEX_HOSTED_E2E_CLERK_PUBLISHABLE_KEY` and `VRDEX_HOSTED_E2E_CLERK_SECRET_KEY`.
-3. **Dispatch `Staging Deploy` manually with `clerk_instance_rotation` enabled.** A plain re-run aborts by design: the pre-deploy check compares the new issuer against the key the *currently deployed* app serves, which is the old instance until Vercel publishes — and that check is what stops an accidental mismatch the rest of the time.
+3. Re-run `Deploy Staging`. No special input: the pre-deploy check reads the key Vercel is *about to* serve, so a rotation where both sides have been updated simply agrees, and both providers move together in one run.
 4. Confirm with `pnpm test:e2e:hosted:auth-session`.
 
-The rotation input skips only the pre-deploy comparison. The post-deploy one still runs against what shipped, so the new issuer and the newly published key must agree by the end of the run. If anything in between fails, the workflow restores the previous issuer and re-pushes rather than leaving Convex trusting an instance the deployed app does not authenticate against.
-
-Revoking the old key immediately is safe: it is used only by CI, so the blast radius of rotating without warning is a failed workflow run, not a user-facing outage.
+Updating only one side fails that check before anything is written, which is the point. If a later step fails after the issuer has been changed, the workflow restores the previous value and re-pushes rather than leaving Convex trusting an instance the deployed app does not authenticate against.
 
 Hosted developer-credential E2E additionally requires repository variable `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true`. Keep it unset until the hosted target has deployed the developer token routes, OAuth app registration routes, and OAuth token endpoints under test.
 

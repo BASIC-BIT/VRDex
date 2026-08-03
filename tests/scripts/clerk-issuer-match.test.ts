@@ -53,11 +53,6 @@ test("finds a publishable key inlined in a client chunk rather than the shell", 
   );
 });
 
-/**
- * The recovery case. A target stuck on a build from before Clerk existed serves
- * no key at all, and the caller has to be able to tell that apart from a
- * mismatch so the deploy that fixes it is not blocked by it.
- */
 test("reports no key when the target serves none", async () => {
   const pages = new Map([["https://staging.example.test/sign-in", "<html>no clerk here</html>"]]);
 

@@ -225,19 +225,18 @@ test("staging deploy parses and audits main before provider mutation", () => {
   assert.ok(preCheckIndex >= 0);
   assert.ok(preCheckIndex < authConfigIndex);
   assert.match(steps[preCheckIndex]?.run ?? "", /check-clerk-issuer-match\.mjs/);
-  // Inconclusive rather than fatal when the target serves no key at all: that is
-  // the pre-Clerk-build outage this workflow has to remain able to fix.
-  assert.match(steps[preCheckIndex]?.run ?? "", /--allow-missing-key/);
-
-  // Skippable only for a deliberate instance rotation, where disagreeing with
-  // the currently deployed key is the intended state. Dispatch-only, so a
-  // `workflow_run` merge cannot reach it.
-  assert.match(steps[preCheckIndex]?.if ?? "", /clerk_instance_rotation/);
+  // Unconditional. It is the only caller of the origin-format validation, so a
+  // path that skipped it could write a bare host to Convex — and it compares
+  // against the *pending* Vercel key rather than the deployed one, which is what
+  // lets an instance rotation happen in a single ordinary run.
+  assert.doesNotMatch(steps[preCheckIndex]?.if ?? "", /rotation/);
+  assert.match(steps[preCheckIndex]?.run ?? "", /--publishable-key/);
+  assert.match(steps[preCheckIndex]?.run ?? "", /vercel@[0-9.]+ env pull/);
 
   // The authoritative pass, against what actually shipped, with no such escape.
   assert.ok(keyCheckIndex > vercelDeployIndex);
   assert.match(steps[keyCheckIndex]?.run ?? "", /check-clerk-issuer-match\.mjs/);
-  assert.doesNotMatch(steps[keyCheckIndex]?.run ?? "", /--allow-missing-key/);
+  assert.match(steps[keyCheckIndex]?.run ?? "", /--base-url/);
 
   // A run that changed the issuer and then failed must put it back, or Convex is
   // left trusting an instance the deployed app does not authenticate against and

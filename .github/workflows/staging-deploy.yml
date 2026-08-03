@@ -15,16 +15,6 @@ on:
         required: false
         type: boolean
         default: false
-      clerk_instance_rotation:
-        description: >-
-          Moving staging to a different Clerk instance. Skips the pre-deploy
-          issuer check, which would otherwise compare the new issuer against the
-          key the *previous* deployment still serves and abort before Vercel can
-          publish the matching one. The post-deploy check still runs, so the new
-          pair must agree by the end of the run.
-        required: false
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -129,34 +119,55 @@ jobs:
 
           node scripts/check-staging-runtime-env.mjs "${args[@]}"
 
-      # Before the `env set` below, not after the deploys. Writing a stale or
-      # cross-instance issuer to the shared Convex deployment breaks every
-      # signed-in staging request the moment the next step pushes functions, so
-      # a check that runs afterwards only reports damage already done.
+      # Compared against the key Vercel is *about to* serve, not the one the
+      # current deployment already serves, and before either provider changes.
       #
-      # `--allow-missing-key` because a target stuck on a build from before
-      # Clerk existed serves no key to compare against — exactly the outage this
-      # workflow has to be able to fix. The post-deploy check is the
-      # authoritative one for that case; this is the guard for the far more
-      # likely one, where staging is healthy and the variable is wrong.
+      # That distinction removes a whole class of problem rather than guarding
+      # it. Comparing against the live site made a deliberate instance rotation
+      # impossible — the old key is what is deployed, by definition — which
+      # needed an escape hatch, which then needed its own rollback, which then
+      # needed a boundary. Reading the pending configuration makes a rotation
+      # ordinary: set the Vercel pair, run this, and both providers move
+      # together within one run.
       #
-      # Skipped for a deliberate instance rotation, which is the one case where
-      # disagreeing with the current deployment is the intended state: the new
-      # issuer and the new Vercel key have to change together, and this step runs
-      # before Vercel can publish the matching one. Dispatch-only and default
-      # off, so it cannot be reached by a routine merge — and the post-deploy
-      # check still has to pass, so the new pair must agree by the end of the run.
+      # Unconditional, so the origin-format validation inside the script runs on
+      # every path that can write the issuer, and fail-closed, because a pending
+      # key that cannot be read is a reason to stop rather than to guess.
+      #
+      # The pulled file holds every staging value, so it is deleted on exit and
+      # only the decoded Clerk host — public, encoded in the key itself — is ever
+      # printed.
       - name: Verify the staging Clerk issuer before mutating Convex
-        if: steps.gate.outputs.enabled == 'true' && !inputs.clerk_instance_rotation
+        if: steps.gate.outputs.enabled == 'true'
         env:
-          HOSTED_BASE_URL: ${{ steps.gate.outputs.hosted_base_url }}
           CLERK_JWT_ISSUER_DOMAIN: ${{ vars.VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
+          pending_env="$RUNNER_TEMP/vrdex-vercel-staging-pending.env"
+          trap 'rm -f "$pending_env"' EXIT
+
+          pnpm dlx vercel@54.4.1 env pull "$pending_env" \
+            --environment=staging \
+            --git-branch main \
+            --yes \
+            --token "$VERCEL_TOKEN" > /dev/null
+
+          pending_key=$(tr -d '\r' < "$pending_env" \
+            | sed -n 's/^NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=//p' \
+            | tr -d '"' \
+            | tail -n 1)
+
+          if [ -z "$pending_key" ]; then
+            echo "::error::The Vercel staging environment has no NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY, so the instance it will serve cannot be compared with the Convex issuer."
+            exit 1
+          fi
+
           node scripts/check-clerk-issuer-match.mjs \
-            --base-url "$HOSTED_BASE_URL" \
-            --issuer "$CLERK_JWT_ISSUER_DOMAIN" \
-            --allow-missing-key
+            --publishable-key "$pending_key" \
+            --issuer "$CLERK_JWT_ISSUER_DOMAIN"
 
       # Must run before the deploy below, not with the other `convex env set`
       # calls after it. `convex/auth.config.ts` reads CLERK_JWT_ISSUER_DOMAIN at

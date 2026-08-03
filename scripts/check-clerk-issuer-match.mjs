@@ -10,14 +10,15 @@
  * the one the browser authenticated against. The staging runtime audit cannot
  * catch it: it reads variable names, never values.
  *
- * Usage:
- *   node scripts/check-clerk-issuer-match.mjs --base-url <origin> --issuer <origin>
- *                                             [--allow-missing-key]
+ * Two sources, for the two moments worth checking:
  *
- * `--allow-missing-key` reports rather than fails when the target serves no
- * Clerk key at all. That is the recovery case: a target stuck on a build from
- * before Clerk existed has nothing to compare against, and refusing to proceed
- * would make the outage unfixable by the very workflow meant to fix it.
+ *   --publishable-key <pk>   what Vercel is *about* to serve, read from its
+ *                            configuration before either provider is changed
+ *   --base-url <origin>      what a deployment *is* serving, read from the page
+ *
+ * Usage:
+ *   node scripts/check-clerk-issuer-match.mjs --issuer <origin> --publishable-key <pk>
+ *   node scripts/check-clerk-issuer-match.mjs --issuer <origin> --base-url <origin>
  */
 import assert from "node:assert/strict";
 
@@ -53,11 +54,10 @@ export function issuerHost(issuer) {
 /**
  * Throws on an HTTP error rather than returning null.
  *
- * `--allow-missing-key` must mean "this page loaded and carried no Clerk key",
- * and nothing else. Folding a transient 500 or a deployment-protection 401 into
- * the same `null` let an unreachable target look like the pre-Clerk recovery
- * case, so a stale or cross-instance issuer could be written and deployed
- * before the post-deploy check reported the outage it caused.
+ * A missing key and an unreachable page are different answers, and only the
+ * first is ever benign. Folding a transient 500 or a deployment-protection 401
+ * into the same `null` would let an unreachable target read as "nothing to
+ * compare".
  */
 async function fetchText(url) {
   const response = await fetch(url, { redirect: "follow" });
@@ -93,12 +93,13 @@ export async function servedClerkKey(baseUrl, fetchImpl = fetchText) {
 }
 
 function parseArgs(argv) {
-  const options = { allowMissingKey: false, baseUrl: "", issuer: "" };
+  const options = { baseUrl: "", issuer: "", publishableKey: "" };
 
   for (let index = 0; index < argv.length; index += 1) {
     switch (argv[index]) {
-      case "--allow-missing-key":
-        options.allowMissingKey = true;
+      case "--publishable-key":
+        options.publishableKey = argv[index + 1] ?? "";
+        index += 1;
         break;
       case "--base-url":
         options.baseUrl = argv[index + 1] ?? "";
@@ -113,27 +114,34 @@ function parseArgs(argv) {
     }
   }
 
-  assert.ok(options.baseUrl, "--base-url is required.");
   assert.ok(options.issuer, "--issuer is required.");
+  assert.ok(
+    options.baseUrl || options.publishableKey,
+    "One of --base-url or --publishable-key is required.",
+  );
 
   return options;
 }
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
+  // Validated first, and unconditionally. This is the check that rejects a bare
+  // host, and Convex passes the value to `auth.config.ts` verbatim, so it has to
+  // run on every path that can write the issuer.
   const expectedHost = issuerHost(options.issuer);
-  const key = await servedClerkKey(options.baseUrl.replace(/\/+$/, ""));
+  const source = options.publishableKey ? "The configured publishable key" : options.baseUrl;
+  const key = options.publishableKey || (await servedClerkKey(options.baseUrl.replace(/\/+$/, "")));
 
-  if (key === null) {
-    const message = `${options.baseUrl} serves no Clerk publishable key, so its instance cannot be compared with the configured issuer.`;
+  if (!key) {
+    console.error(
+      `::error::${source} carries no Clerk publishable key, so its instance cannot be compared with the configured issuer. Check NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY on that environment.`,
+    );
+    process.exit(1);
+  }
 
-    if (!options.allowMissingKey) {
-      console.error(`::error::${message} Check NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY on that environment.`);
-      process.exit(1);
-    }
-
-    console.log(`${message} Continuing: this is expected while recovering a target stuck on a pre-Clerk build.`);
-    return;
+  if (!CLERK_KEY_PATTERN.test(key)) {
+    console.error(`::error::${source} is not a Clerk publishable key.`);
+    process.exit(1);
   }
 
   if (key.startsWith("pk_live_")) {
@@ -147,7 +155,7 @@ async function main() {
 
   if (servedHost !== expectedHost) {
     console.error(
-      `::error::${options.baseUrl} serves a Clerk key for '${servedHost}' but Convex is configured to trust '${expectedHost}'. Convex would reject every signed-in request. Fix VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN or the Vercel publishable key so both name one instance.`,
+      `::error::${source} names Clerk instance '${servedHost}' but Convex is configured to trust '${expectedHost}'. Convex would reject every signed-in request. Fix VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN or the Vercel publishable key so both name one instance.`,
     );
     process.exit(1);
   }
