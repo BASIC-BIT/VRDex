@@ -895,19 +895,14 @@ export const reassignLegacyUserReferences = internalMutation({
     let budget = REASSIGN_BATCH;
 
     for (const [table, field, index] of USER_REFERENCES) {
-      if (budget <= 0) {
-        break;
-      }
-
-      const rows = await (ctx.db.query(table) as unknown as IndexedTableQuery)
-        .withIndex(index, (q) => q.eq(field, args.fromUserId))
-        .take(budget);
-
-      if (rows.length > 0) {
-        moved[`${table}.${field}`] = rows.length;
-        budget -= rows.length;
-      }
-
+      // The collision scan is deliberately outside the move budget. It is bounded
+      // per table by its own cap, so it costs a fixed amount however large the
+      // source history is — and tying it to the budget meant a source with a full
+      // batch in an early table stopped the loop before it ever looked at
+      // `profileOwners` or billing. A dry run moves nothing, so rerunning would
+      // report the same first tables forever while the runbook tells the operator
+      // to review this report *before* any rows move.
+      //
       // One past the cap, so a truncated count is reported as such rather than as
       // a small number that reads like the whole picture.
       const existing = await (ctx.db.query(table) as unknown as IndexedTableQuery)
@@ -917,6 +912,19 @@ export const reassignLegacyUserReferences = internalMutation({
       if (existing.length > 0) {
         targetAlreadyHas[`${table}.${field}`] =
           existing.length > COLLISION_REPORT_LIMIT ? -1 : existing.length;
+      }
+
+      if (budget <= 0) {
+        continue;
+      }
+
+      const rows = await (ctx.db.query(table) as unknown as IndexedTableQuery)
+        .withIndex(index, (q) => q.eq(field, args.fromUserId))
+        .take(budget);
+
+      if (rows.length > 0) {
+        moved[`${table}.${field}`] = rows.length;
+        budget -= rows.length;
       }
 
       if (!dryRun) {
@@ -954,9 +962,15 @@ export const reassignLegacyUserReferences = internalMutation({
       // referenced somewhere, which `purgeConvexAuthLeftovers` does not care about
       // because those are not `v.id("users")` fields.
       authorizationSubjectsLeft: {
+        // Active only. The runbook says anything counted here has to be re-granted
+        // by hand, so including a revoked authority would have an operator restore
+        // a capability somebody deliberately removed. `staleCommunityAuthorities`
+        // was corrected for exactly this and I reintroduced it here.
         communityAuthorities: await countSubjects(
           await ctx.db.query("communityAuthorities").take(AUTHORIZATION_SCAN_LIMIT + 1),
-          (authority) => authority.subject.subject.startsWith(args.fromUserId),
+          (authority) =>
+            authority.state === "active" &&
+            authority.subject.subject.startsWith(args.fromUserId),
         ),
         events: await countSubjects(
           await ctx.db.query("events").take(AUTHORIZATION_SCAN_LIMIT + 1),
