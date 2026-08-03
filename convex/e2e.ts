@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, mutation, type MutationCtx } from "./_generated/server";
 import { recordExternalControlProof } from "./_externalControl";
+import { profileLinkInputValidator } from "./_profileLinks";
 import { findAvailableProfileSlug, getProfileBySlug } from "./_profileSlugs";
 import { sanitizeCommunitySubmissionProfileInput } from "./_profileSubmissions";
 import { createProfileSearchDocument, upsertSearchDocument } from "./_searchDocuments";
@@ -338,11 +339,14 @@ export const submitProfile = mutation({
         categoryTags: v.optional(v.array(v.string())),
       }),
     ),
+    outboundLinks: v.optional(v.array(profileLinkInputValidator)),
   },
   handler: async (ctx, args) => {
     requireE2eHelper(args.secret);
 
-    const input = sanitizeCommunitySubmissionProfileInput(args);
+    const input = sanitizeCommunitySubmissionProfileInput(args, {
+      linkSource: "community_submitted",
+    });
     const now = Date.now();
     const slug = await findAvailableProfileSlug(ctx.db, input.displayName);
     const sourceAttribution = {
@@ -372,7 +376,7 @@ export const submitProfile = mutation({
       ...(region !== undefined ? { region } : {}),
       ...(timezone !== undefined ? { timezone } : {}),
       ...(args.fieldVisibility !== undefined ? { fieldVisibility: args.fieldVisibility } : {}),
-      outboundLinks: [],
+      outboundLinks: input.outboundLinks,
       claimState: "unclaimed" as const,
       publicationState: "published" as const,
       publicSurfacingState: "public" as const,

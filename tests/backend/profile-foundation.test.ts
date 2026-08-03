@@ -810,21 +810,25 @@ describe("profile submission helpers", () => {
 
   it("sanitizes person submissions to the narrow public field set", () => {
     assert.deepEqual(
-      sanitizeCommunitySubmissionProfileInput({
-        profileType: "person",
-        displayName: "  DJ Celine  ",
-        aliases: ["Celine", "celine"],
-        tags: ["House"],
-        person: {
-          roleTags: ["DJ", "VJ"],
+      sanitizeCommunitySubmissionProfileInput(
+        {
+          profileType: "person",
+          displayName: "  DJ Celine  ",
+          aliases: ["Celine", "celine"],
+          tags: ["House"],
+          person: {
+            roleTags: ["DJ", "VJ"],
+          },
         },
-      }),
+        { linkSource: "community_submitted" },
+      ),
       {
         profileType: "person",
         displayName: "DJ Celine",
         sortName: "dj celine",
         aliases: ["Celine"],
         tags: ["House"],
+        outboundLinks: [],
         person: {
           roleTags: ["DJ", "VJ"],
         },
@@ -834,21 +838,25 @@ describe("profile submission helpers", () => {
 
   it("sanitizes community submissions and rejects mismatched type-specific fields", () => {
     assert.deepEqual(
-      sanitizeCommunitySubmissionProfileInput({
-        profileType: "community",
-        displayName: "Nocturne VR",
-        tags: ["Events"],
-        community: {
-          subtype: " Club ",
-          categoryTags: ["Music", "music"],
+      sanitizeCommunitySubmissionProfileInput(
+        {
+          profileType: "community",
+          displayName: "Nocturne VR",
+          tags: ["Events"],
+          community: {
+            subtype: " Club ",
+            categoryTags: ["Music", "music"],
+          },
         },
-      }),
+        { linkSource: "community_submitted" },
+      ),
       {
         profileType: "community",
         displayName: "Nocturne VR",
         sortName: "nocturne vr",
         aliases: [],
         tags: ["Events"],
+        outboundLinks: [],
         community: {
           subtype: "Club",
           categoryTags: ["Music"],
@@ -858,13 +866,16 @@ describe("profile submission helpers", () => {
 
     assert.throws(
       () =>
-        sanitizeCommunitySubmissionProfileInput({
-          profileType: "person",
-          displayName: "DJ Celine",
-          community: {
-            subtype: "x".repeat(50),
+        sanitizeCommunitySubmissionProfileInput(
+          {
+            profileType: "person",
+            displayName: "DJ Celine",
+            community: {
+              subtype: "x".repeat(50),
+            },
           },
-        }),
+          { linkSource: "community_submitted" },
+        ),
       /Community fields cannot be submitted for a person profile/,
     );
   });

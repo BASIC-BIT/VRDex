@@ -17,6 +17,7 @@ import {
   getPublicProfileMediaKit,
 } from "./_profileAssets";
 import { canReadProfile } from "./_profilePermissions";
+import { profileLinkInputValidator } from "./_profileLinks";
 import { toPublicProfile } from "./_profilePublic";
 import {
   createProfileSlugBase,
@@ -65,6 +66,7 @@ const apiProfileUpdateArgs = {
       categoryTags: v.optional(v.array(v.string())),
     }),
   ),
+  outboundLinks: v.optional(v.array(profileLinkInputValidator)),
 };
 
 function boundedLimit(value: number | undefined, fallback: number, max: number): number {
@@ -360,11 +362,16 @@ export const submitCommunityProfile = mutation({
         categoryTags: v.optional(v.array(v.string())),
       }),
     ),
+    outboundLinks: v.optional(v.array(profileLinkInputValidator)),
     assets: v.optional(v.array(profileAssetUploadInput)),
   },
   handler: async (ctx, args) => {
     const { subject } = await requireActiveBrowserSessionSubject(ctx);
-    const input = sanitizeCommunitySubmissionProfileInput(args);
+    // Community-submitted: the signed-in submitter is adding a profile for
+    // someone else, so these links are not owner-authored.
+    const input = sanitizeCommunitySubmissionProfileInput(args, {
+      linkSource: "community_submitted",
+    });
     const now = Date.now();
 
     const slug = await findAvailableProfileSlug(ctx.db, input.displayName);
@@ -393,7 +400,7 @@ export const submitCommunityProfile = mutation({
       sortName: input.sortName,
       aliases: input.aliases,
       tags: input.tags,
-      outboundLinks: [],
+      outboundLinks: input.outboundLinks,
       claimState: "unclaimed" as const,
       publicationState: "published" as const,
       publicSurfacingState: "public" as const,

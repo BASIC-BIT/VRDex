@@ -6,9 +6,15 @@ import { FormEvent, MouseEvent, useEffect, useRef, useState, useTransition } fro
 import { useConvexAuth, useMutation } from "convex/react";
 import { api } from "@convex-generated-api";
 import { buttonVariants, Button } from "@/components/ui/button";
-import { Field, Input, Select } from "@/components/ui/field";
+import { Field, FieldText, Input, Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { cn } from "@/lib/cn";
+import {
+  PROFILE_LINK_MAX_COUNT,
+  PROFILE_LINK_TYPE_LABELS,
+  PROFILE_LINK_TYPES,
+  type ProfileLinkType,
+} from "../../../../../convex/_profileLinks";
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 
@@ -28,12 +34,18 @@ type ProfileSubmissionResult = {
   slug: string;
 };
 
+type ProfileLinkInput = {
+  type: ProfileLinkType;
+  url: string;
+};
+
 type ProfileSubmissionPayload =
   | {
       profileType: "person";
       displayName: string;
       aliases: string[];
       tags: string[];
+      outboundLinks: ProfileLinkInput[];
       person: { roleTags: string[] };
     }
   | {
@@ -41,6 +53,7 @@ type ProfileSubmissionPayload =
       displayName: string;
       aliases: string[];
       tags: string[];
+      outboundLinks: ProfileLinkInput[];
       community: { subtype: string; categoryTags: string[] };
     };
 
@@ -65,6 +78,12 @@ function submissionErrorMessage(error: unknown): string {
 
   if (data?.code === "IDENTITY_SUPPRESSED") {
     return data.message ?? "This profile cannot be submitted.";
+  }
+
+  // Link problems are always fixable in the form, and the structured payload is
+  // what survives production redaction.
+  if (data?.code === "INVALID_PROFILE_LINK" && data.message) {
+    return data.message;
   }
 
   const message = error instanceof Error ? error.message : String(error);
@@ -95,12 +114,28 @@ function stringField(value: FormDataEntryValue | null): string {
   return typeof value === "string" ? value : "";
 }
 
+/**
+ * Rows are uncontrolled, so both lists come back in DOM order and pair by
+ * index. Rows left blank are dropped rather than rejected.
+ */
+function linksFromFormData(formData: FormData): ProfileLinkInput[] {
+  const types = formData.getAll("linkType");
+  const urls = formData.getAll("linkUrl");
+
+  return types.flatMap((type, index) => {
+    const url = stringField(urls[index] ?? null).trim();
+
+    return url ? [{ type: stringField(type) as ProfileLinkType, url }] : [];
+  });
+}
+
 function payloadFromFormData(formData: FormData): ProfileSubmissionPayload {
   const selectedType = stringField(formData.get("profileType")) as ProfileType;
   const sharedPayload = {
     displayName: stringField(formData.get("displayName")),
     aliases: splitList(formData.get("aliases")),
     tags: splitList(formData.get("tags")),
+    outboundLinks: linksFromFormData(formData),
   };
 
   if (selectedType === "community") {
@@ -148,6 +183,10 @@ function SubmissionFormFields({ submitProfile }: {
 }) {
   const [profileType, setProfileType] = useState<ProfileType>("person");
   const [status, setStatus] = useState<SubmissionStatus>({ kind: "idle" });
+  // Stable ids rather than indices: the inputs are uncontrolled, so keying by
+  // index would shift the surviving rows' DOM values when one is removed.
+  const [linkRows, setLinkRows] = useState<number[]>([]);
+  const linkRowSeq = useRef(0);
   const successDialogRef = useRef<HTMLDialogElement>(null);
   const [, startTransition] = useTransition();
   const successResult = status.kind === "success" ? status.result : null;
@@ -159,6 +198,15 @@ function SubmissionFormFields({ submitProfile }: {
       dialog.showModal();
     }
   }, [successResult]);
+
+  function addLinkRow() {
+    linkRowSeq.current += 1;
+    setLinkRows((rows) => [...rows, linkRowSeq.current]);
+  }
+
+  function removeLinkRow(rowId: number) {
+    setLinkRows((rows) => rows.filter((row) => row !== rowId));
+  }
 
   function closeSuccessDialog() {
     successDialogRef.current?.close();
@@ -184,6 +232,7 @@ function SubmissionFormFields({ submitProfile }: {
 
       form.reset();
       setProfileType("person");
+      setLinkRows([]);
       startTransition(() => setStatus({ kind: "success", result }));
     } catch (error) {
       startTransition(() => setStatus({ kind: "error", message: submissionErrorMessage(error) }));
@@ -243,6 +292,48 @@ function SubmissionFormFields({ submitProfile }: {
           </Field>
         </div>
       )}
+
+      <div className="grid gap-3">
+        <span className="text-sm font-medium">Links</span>
+
+        {linkRows.map((rowId) => (
+          <div className="flex items-end gap-3" key={rowId}>
+            <Field className="w-44 shrink-0">
+              <FieldText>Type</FieldText>
+              <Select defaultValue="website" name="linkType">
+                {PROFILE_LINK_TYPES.map((linkType) => (
+                  <option key={linkType} value={linkType}>
+                    {PROFILE_LINK_TYPE_LABELS[linkType]}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+
+            <Field className="flex-1">
+              <FieldText>URL</FieldText>
+              <Input maxLength={2048} name="linkUrl" placeholder="https://soundcloud.com/name" type="url" />
+            </Field>
+
+            <Button
+              aria-label="Remove link"
+              className="size-11 shrink-0 p-0"
+              type="button"
+              variant="ghost"
+              onClick={() => removeLinkRow(rowId)}
+            >
+              <X aria-hidden="true" className="size-4" />
+            </Button>
+          </div>
+        ))}
+
+        {linkRows.length < PROFILE_LINK_MAX_COUNT ? (
+          <div>
+            <Button size="sm" type="button" variant="secondary" onClick={addLinkRow}>
+              Add link
+            </Button>
+          </div>
+        ) : null}
+      </div>
 
       <div className="flex flex-col gap-3 border-t border-border pt-6 sm:flex-row sm:items-center">
         <Button className="sm:min-w-40" disabled={isSubmitting} size="lg" type="submit" variant="primary">
@@ -333,6 +424,7 @@ function E2eSubmissionForm() {
             displayName: payload.displayName,
             aliases: payload.aliases,
             tags: payload.tags,
+            outboundLinks: payload.outboundLinks,
             ...(payload.profileType === "person"
               ? { roleTags: payload.person.roleTags }
               : {

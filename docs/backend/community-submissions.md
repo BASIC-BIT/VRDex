@@ -33,6 +33,7 @@ Shared fields:
 - `displayName`
 - `aliases`
 - `tags`
+- `outboundLinks`, stamped `source: "community_submitted"` rather than owner-authored, because the submitter is adding somebody else's profile
 
 Person-specific fields:
 

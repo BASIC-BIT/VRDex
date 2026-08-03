@@ -14,6 +14,8 @@ This directory holds the initial Convex backend slice for `VRDex`.
 - `_profileOwnership.ts` contains profile owner singleton and claim approval helpers
 - `_profilePublic.ts` contains public profile projection helpers
 - `_profileSubmissions.ts` contains community submission sanitization helpers
+- `_profileLinks.ts` contains the outbound profile link type list, normalization, and the provenance-stamping sanitizer every link writer goes through
+- `_inputValidation.ts` contains the shared untrusted-input primitives used by seed imports and profile link normalization
 - `profileClaims.ts` exposes claim request, Discord, and VRChat proof-code flows
 - `profiles.ts` exposes public profile reads and authenticated community submission mutations
 - `_worldIds.ts` contains VRChat world id and canonical URL helpers

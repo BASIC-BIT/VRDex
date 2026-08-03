@@ -217,6 +217,11 @@ const linkSource = v.union(
   v.literal("owner_authored"),
   v.literal("reviewed"),
   v.literal("partner_provided"),
+  // Matches `profileAssetSource` and `profileGenreSource`, which already carry
+  // this variant. A community submission is one signed-in person adding
+  // somebody else's profile, so its links are neither owner-authored nor
+  // reviewed, and this union was the only one of the three missing the value.
+  v.literal("community_submitted"),
 );
 
 const profileLinkPresentation = v.union(v.literal("icon"), v.literal("copy"));

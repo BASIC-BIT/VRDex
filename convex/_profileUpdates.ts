@@ -1,6 +1,7 @@
 import type { Doc } from "./_generated/dataModel";
 import type { DatabaseWriter } from "./_generated/server";
 import { canEditProfileField, type ProfileEditableField } from "./_profilePermissions";
+import { sanitizeProfileLinks } from "./_profileLinks";
 import {
   createProfileSortName,
   normalizeProfileInlineText,
@@ -44,6 +45,7 @@ export type ApiProfileUpdateInput = {
     subtype?: NullableString;
     categoryTags?: string[];
   };
+  outboundLinks?: unknown;
 };
 
 export type SanitizedApiProfileUpdate = {
@@ -155,6 +157,13 @@ export function sanitizeApiProfileUpdateInput(
   if (hasOwn(input, "timezone")) {
     patch.timezone = optionalBoundedText(input.timezone, "Timezone", PROFILE_TIMEZONE_MAX_LENGTH);
     addChangedField(changedFields, "timezone");
+  }
+
+  if (hasOwn(input, "outboundLinks")) {
+    // `requireEditableFields` below restricts this to a claimed owner, which is
+    // what makes the owner-authored stamp true.
+    patch.outboundLinks = sanitizeProfileLinks(input.outboundLinks ?? [], "owner_authored");
+    addChangedField(changedFields, "outboundLinks");
   }
 
   if (input.person !== undefined) {
