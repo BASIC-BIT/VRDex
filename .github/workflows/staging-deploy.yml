@@ -369,13 +369,20 @@ jobs:
       # comparison by design, so a mistyped or unpublished Vercel key is not
       # caught until after Convex has already been told to trust the new issuer.
       #
-      # Gated on the *Vercel deploy* not having succeeded, which is the real
-      # boundary. Once Vercel has published, it is serving a key the pre-deploy
-      # check already validated against this issuer, so the two providers agree
-      # — and a later failure, including a transient fetch error in the
-      # post-deploy verifier, is not evidence the pairing is wrong. Rolling
-      # Convex back there would turn a correct rotation into the mismatch this
-      # step exists to prevent.
+      # Two ways to reach it, because "did Vercel publish?" is only half the
+      # question.
+      #
+      # Vercel not succeeding leaves Convex ahead of the deployment outright.
+      #
+      # Vercel succeeding is normally proof the pair agrees, since the
+      # pre-deploy comparison already measured this issuer against the key that
+      # deployment serves — so a later failure, including a transient fetch
+      # error in the post-deploy verifier, is not evidence of a mismatch, and
+      # rolling back there would create one. That reasoning depends entirely on
+      # the pre-deploy comparison having run. A rotation skips it by design, so
+      # on that path a failed post-deploy verification is the *first* evidence
+      # about the pairing, and it is evidence against — most often a Vercel key
+      # that was never updated, which restoring the previous issuer repairs.
       #
       # Still runs last so a failure anywhere after the mutation reaches it, and
       # a skipped Vercel deploy also counts as not-succeeded.
@@ -384,7 +391,14 @@ jobs:
       # evaluated at push time — putting the value back without a deploy would
       # leave the running provider config on the value being rolled back.
       - name: Restore the previous Convex issuer
-        if: failure() && steps.provision.outputs.changed == 'true' && steps.provision.outputs.previous_issuer != '' && steps.vercel.outcome != 'success'
+        if: >-
+          failure()
+          && steps.provision.outputs.changed == 'true'
+          && steps.provision.outputs.previous_issuer != ''
+          && (
+            steps.vercel.outcome != 'success'
+            || (inputs.clerk_instance_rotation && steps.verify_issuer.outcome != 'success')
+          )
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_DEV }}
           PREVIOUS_ISSUER: ${{ steps.provision.outputs.previous_issuer }}

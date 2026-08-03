@@ -266,15 +266,22 @@ Two staging deploys failed before that was clear. Do not reintroduce it without
 first confirming the pull actually returns that value.
 
 If a run changes the issuer and then fails **before the Vercel deploy succeeds**,
-the previous value is restored. Not afterwards: once Vercel has published, it is
-serving a key the pre-deploy check already validated against this issuer, so the
-two agree — and restoring Convex alone would create the mismatch the rollback
-exists to prevent, including when the post-deploy verifier failed only on
-transport.
+the previous value is restored. Not afterwards on an ordinary run: once Vercel
+has published, it is serving a key the pre-deploy comparison already validated
+against this issuer, so the two agree — and restoring Convex alone would create
+the mismatch the rollback exists to prevent, including when the post-deploy
+verifier failed only on transport.
 
-Read that as the incident boundary. A failure after a successful Vercel deploy
-leaves both providers on the new instance and needs no repair; a failure before
-it leaves Convex ahead, and that is the case the rollback covers.
+**A rotation is the exception**, because it skips that pre-deploy comparison. On
+that path a failed post-deploy verification is the first evidence about the
+pairing and it is evidence against — most often a Vercel key that was never
+updated — so the rollback runs there too. Without that, the recovery would be
+unreachable in exactly the situation it exists for.
+
+Read it as the incident boundary. On an ordinary run, a failure after a
+successful Vercel deploy leaves both providers on the new instance and needs no
+repair. Before it, or on a rotation whose verification failed, Convex is ahead
+of the deployment, and that is what the rollback covers.
 
 The restore re-pushes functions only when the Convex deploy had itself
 succeeded. If it had not, nothing carrying the new issuer was ever published, so
