@@ -199,9 +199,39 @@ rows in the eight tables the two-phase removal existed to drop, so
 The migrations that did it — `purgeConvexAuthLeftovers` and
 `reassignLegacyUserReferences` — went with them. They queried tables the schema
 no longer declares and searched for rows it can no longer represent, so keeping
-them would have meant keeping the declarations they existed to remove. Their
-history is in the commits, if a self-hosted deployment ever needs the same
-sequence.
+them would have meant keeping the declarations they existed to remove.
+
+### Upgrading a deployment that still holds Convex Auth rows
+
+**This revision cannot be deployed onto one.** It undeclares those populated
+tables and requires `clerkUserId` in the same change, so schema validation fails
+before any function could run — and the functions that would fix it are the ones
+this revision deletes. Deploy the staged revision first.
+
+`b8cc4eeca` ("Reassign a legacy user's footprint to their Clerk row", #239) is
+the last revision with both migrations and the permissive schema. From a checkout
+of it:
+
+```powershell
+# 1. What is actually there. Read blockedUsers before anything else.
+pnpm cx -- <target> run migrations:purgeConvexAuthLeftovers '{"dryRun": true}'
+
+# 2. Only if a legacy row is blocked because it is still someone — a person who
+#    signed in both before and after the cutover. Both ids come out of step 1:
+#    blockedUsers is keyed by users._id, clerkUsers lists the Clerk identities.
+pnpm cx -- <target> run migrations:reassignLegacyUserReferences `
+  '{"fromUserId": "<legacy users._id>", "toClerkUserId": "user_...", "dryRun": true}'
+
+# 3. Rerun 1 until blockedUsers is empty, then purge for real, carrying
+#    nextLegacyCursor back as legacyCursor until moreRemaining is false.
+pnpm cx -- <target> run migrations:purgeConvexAuthLeftovers '{"dryRun": false}'
+```
+
+**`purgeComplete: true` is the gate**, not an empty `blockedUsers` — that reports
+only the current page. Confirm it on every deployment, then deploy this revision.
+
+Both first-party deployments cleared in a single pass, and neither matched what
+this page predicted beforehand; see below.
 
 Two things from that work are worth carrying forward, because neither was
 obvious and both cost real time:
