@@ -33,6 +33,15 @@ import { captureRouteScreenshot, waitForVisualReady } from "./public-routes";
  */
 const clerkTestAuth = clerkTestAuthAvailability();
 
+/**
+ * Every assertion below waits on a Convex-backed render, and `test.setTimeout`
+ * does not change `expect` timeouts — the config sets no `expect.timeout`, so
+ * they default to 5s. `signInClerkTestAccount` allows 30s for the same hosted
+ * identity seam, which is the tolerance these should share; a 5s budget makes
+ * the strengthened signed-in assertions the flakiest part of the suite.
+ */
+const hostedExpectOptions = { timeout: process.env.PLAYWRIGHT_BASE_URL ? 30_000 : 10_000 };
+
 /** Same resolution the flow specs use: required hosted, defaulted locally. */
 function e2eBrowserToken() {
   const token =
@@ -95,16 +104,33 @@ test.describe("account surfaces @visual @flow", () => {
     //
     // Never conditional on the test passing: a failed assertion still leaves a
     // real account behind.
-    await cleanupClerkTestAccountData(request, e2eBrowserToken(), account);
+    const cleanup = await cleanupClerkTestAccountData(request, e2eBrowserToken(), account);
+
     await deleteClerkTestAccount(account);
     account = undefined;
+
+    // Asserted after the Clerk deletion, not before it. Failing first would skip
+    // that deletion and leak the Clerk user as well as the Convex row; this way
+    // both teardown steps always run and the failure is still reported.
+    //
+    // The gate above checks the *runner's* `VRDEX_ENABLE_E2E_AUTH_HELPERS`, which
+    // is a different variable on a different machine from the four the route
+    // requires. It can still answer 403 or 400 with that flag set, and
+    // `request.delete` resolves either way — so the gate alone cannot tell a
+    // completed cleanup from a rejected one.
+    expect(
+      cleanup?.ok(),
+      `Convex cleanup for ${cleanup?.url()} returned ${cleanup?.status()}; its users row is now unreachable.`,
+    ).toBe(true);
   });
 
   test("account overview", async ({ page }, testInfo) => {
     await page.goto("/account");
     // Asserted before capturing, so a screenshot of a half-rendered or
     // signed-out page cannot be filed as evidence the surface looks right.
-    await expect(page.getByRole("heading", { name: account?.email ?? "" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: account?.email ?? "" })).toBeVisible(
+      hostedExpectOptions,
+    );
     await waitForVisualReady(page);
     // Asserted above, masked here. The email is the proof the page is signed in
     // *and* the only thing on it that differs run to run, since the address
@@ -132,8 +158,13 @@ test.describe("account surfaces @visual @flow", () => {
     // state. Capturing it needs the account to own a profile, which is what
     // `auth-claim.flow.spec.ts` builds; fold this in there if the editor's
     // rendering ever needs watching.
-    await expect(page.getByRole("heading", { name: "No owned profiles yet" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Sign in to manage privacy" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "No owned profiles yet" })).toBeVisible(
+      hostedExpectOptions,
+    );
+    await expect(page.getByRole("heading", { name: "Sign in to manage privacy" })).toHaveCount(
+      0,
+      hostedExpectOptions,
+    );
     await waitForVisualReady(page);
     await captureRouteScreenshot(page, testInfo, "account-privacy-signed-in");
   });
@@ -146,8 +177,13 @@ test.describe("account surfaces @visual @flow", () => {
     // exists once the panel has data. This surface also sat behind the
     // recent-authentication step-up the cutover removed, which is exactly what
     // changed and what nothing was watching.
-    await expect(page.getByRole("heading", { name: "Personal tokens" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Sign in required" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Personal tokens" })).toBeVisible(
+      hostedExpectOptions,
+    );
+    await expect(page.getByRole("heading", { name: "Sign in required" })).toHaveCount(
+      0,
+      hostedExpectOptions,
+    );
     await waitForVisualReady(page);
     await captureRouteScreenshot(page, testInfo, "developer-tokens-signed-in");
   });

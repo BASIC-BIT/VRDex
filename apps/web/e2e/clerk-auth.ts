@@ -328,7 +328,17 @@ export async function cleanupClerkTestAccountData(
     return;
   }
 
-  await request.delete("/api/e2e/auth", {
+  // Returned rather than discarded. `request.delete` resolves for any status, so
+  // a 403 or 400 looks identical to success at the call site — and the route
+  // requires four deployment-side settings (`VRDEX_ENABLE_E2E_HELPERS`,
+  // `VRDEX_ENABLE_E2E_AUTH_HELPERS`, `VRDEX_E2E_BROWSER_TOKEN`,
+  // `VRDEX_E2E_CONVEX_SECRET`) that no runner-side flag can vouch for. A caller
+  // that goes on to delete the Clerk identity after a failed cleanup leaves a
+  // `users` row nothing can reach.
+  //
+  // Existing callers ignore the return value, which keeps their behaviour
+  // unchanged; callers that care can assert on it.
+  return await request.delete("/api/e2e/auth", {
     headers: { "x-vrdex-e2e-token": e2eToken },
     data: { email: account.email },
   });
