@@ -275,9 +275,14 @@ It counts only **active** authorities whose `subject.issuer` differs from the
 deployment's `CLERK_JWT_ISSUER_DOMAIN`, which is the set that actually needs
 re-granting. Revoked authorities are excluded — re-granting one would restore a
 capability somebody deliberately removed — and so are authorities granted since
-the cutover, which already match their owners and would be duplicated. The value
-is `null` rather than a number when the issuer is unset, so a misconfigured
-deployment cannot report a plausible-looking count that is wrong.
+the cutover, which already match their owners and would be duplicated.
+
+It is `null` rather than a number whenever the answer would be a guess: when the
+issuer is unset, and when the table is longer than one bounded read. Read `null`
+as "count these yourself", never as zero. The scan is bounded because the purge
+is not informational and this is: an unbounded read fails the whole mutation, so
+a deployment with enough authority history would never delete a row on account
+of a diagnostic.
 
 ### Run the Discord watermark backfill after deploying
 

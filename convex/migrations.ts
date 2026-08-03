@@ -320,9 +320,20 @@ export const USER_REFERENCES = [
 // single pass.
 const PURGE_BATCH = 2_000;
 
+// Legacy `users` rows examined per invocation. Much smaller than `PURGE_BATCH`
+// because these cost differently: clearing an auth table is one read and one
+// delete per row, while each legacy row is probed against all 31 references. At
+// the delete budget that is tens of thousands of reads in one transaction — over
+// the limit, and a limit this exists to stay under.
+const LEGACY_USER_PAGE = 50;
+
 // Clerk identities echoed back so an operator can find their own without reading
 // the dashboard. Capped because it is a convenience, not an inventory.
 const CLERK_USER_REPORT_LIMIT = 25;
+
+// Ceiling on the informational authority scan. Past it the count is reported as
+// unknown rather than undercounted from a truncated page.
+const STALE_AUTHORITY_SCAN_LIMIT = 1_000;
 
 /** Just enough of a Convex query to probe one index for one value. */
 type IndexedTableQuery = {
@@ -367,11 +378,17 @@ export const purgeConvexAuthLeftovers = internalMutation({
     // purge back over the transaction limit on the deployments that still need it.
     //
     // Bounded as well, so a deployment with more legacy rows than one pass can
-    // hold makes progress instead of failing identically forever.
-    const legacy = await ctx.db
+    // hold makes progress instead of failing identically forever. One extra row
+    // is fetched purely to answer "is there another page" — without it,
+    // `moreRemaining` would be false whenever the auth tables happened to fit,
+    // ending the rerun loop with legacy rows still present and the schema change
+    // that requires `clerkUserId` failing later for no visible reason.
+    const legacyPage = await ctx.db
       .query("users")
       .withIndex("clerkUserId", (q) => q.eq("clerkUserId", undefined))
-      .take(PURGE_BATCH);
+      .take(LEGACY_USER_PAGE + 1);
+    const moreLegacy = legacyPage.length > LEGACY_USER_PAGE;
+    const legacy = moreLegacy ? legacyPage.slice(0, LEGACY_USER_PAGE) : legacyPage;
     const legacyIds = new Set<string>(legacy.map((user) => user._id));
 
     // What `auth.config.ts` trusts today. An authority whose subject carries this
@@ -548,13 +565,23 @@ export const purgeConvexAuthLeftovers = internalMutation({
       await Promise.all(deletableUsers.map((user) => ctx.db.delete(user._id)));
     }
 
+    const authorityPage = await ctx.db
+      .query("communityAuthorities")
+      .take(STALE_AUTHORITY_SCAN_LIMIT + 1);
+    const staleAuthorities =
+      currentIssuer === "" || authorityPage.length > STALE_AUTHORITY_SCAN_LIMIT
+        ? null
+        : authorityPage.filter(
+            (authority) => authority.state === "active" && authority.subject.issuer !== currentIssuer,
+          ).length;
+
     return {
       dryRun,
       clearedTables,
-      // True when the batch budget ran out. Rerun with the same arguments until
-      // it is false; the regrant is idempotent because a moved grant no longer
-      // sits on a legacy row.
-      moreRemaining: usersDeferred,
+      // True when the batch budget ran out *or* legacy rows remain beyond this
+      // page. Rerun with the same arguments until it is false; the regrant is
+      // idempotent because a moved grant no longer sits on a legacy row.
+      moreRemaining: usersDeferred || moreLegacy,
       legacyUsers: legacy.length,
       deletedUsers: usersDeferred ? [] : deletableUsers.map((user) => user.email ?? user._id),
       regrantedGrants: regranted,
@@ -595,16 +622,17 @@ export const purgeConvexAuthLeftovers = internalMutation({
       // raw count would have someone restoring capabilities that were
       // deliberately revoked, or duplicating a grant that already works.
       //
-      // Null rather than a number when the issuer is unset, which happens only on
-      // a misconfigured deployment. Comparing against "" would mark every active
-      // authority stale and produce a plausible-looking count that is wrong in
-      // the direction this finding was about.
-      staleCommunityAuthorities:
-        currentIssuer === ""
-          ? null
-          : (await ctx.db.query("communityAuthorities").collect()).filter(
-              (authority) => authority.state === "active" && authority.subject.issuer !== currentIssuer,
-            ).length,
+      // Null rather than a number whenever the answer would be a guess: when the
+      // issuer is unset, and when the table is longer than one bounded read.
+      // Comparing against "" would mark every active authority stale, and
+      // reporting the count from a truncated page would undercount — both are
+      // plausible-looking numbers that are wrong, which is the failure this field
+      // was already corrected for once.
+      //
+      // Bounded because it is informational and the purge is not. An unbounded
+      // read here fails the whole mutation, so a deployment with enough authority
+      // history could never delete a single row on account of a diagnostic.
+      staleCommunityAuthorities: staleAuthorities,
     };
   },
 });
