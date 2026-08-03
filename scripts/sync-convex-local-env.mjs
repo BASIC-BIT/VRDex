@@ -11,8 +11,6 @@ const convexHome = path.join(repoRoot, ".convex-home");
 const convexTmp = path.join(repoRoot, ".convex-tmp");
 const localConvexEnvNames = [
   "SITE_URL",
-  "JWT_PRIVATE_KEY",
-  "JWKS",
   "VRDEX_ENABLE_E2E_HELPERS",
   "VRDEX_ENABLE_E2E_AUTH_HELPERS",
   "VRDEX_ENABLE_E2E_ADAPTER_HELPERS",

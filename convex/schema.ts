@@ -1577,7 +1577,8 @@ export default defineSchema({
       "status",
       "createdAt",
     ])
-    .index("by_status_expiresAt", ["status", "expiresAt"]),
+    .index("by_status_expiresAt", ["status", "expiresAt"])
+    .index("by_revokedByUserId", ["revokedByUserId"]),
   apiTokenEvents: defineTable({
     tokenId: v.optional(v.id("apiTokens")),
     tokenPrefix: v.optional(v.string()),
@@ -1688,7 +1689,8 @@ export default defineSchema({
       "status",
       "createdAt",
     ])
-    .index("by_status_createdAt", ["status", "createdAt"]),
+    .index("by_status_createdAt", ["status", "createdAt"])
+    .index("by_revokedByUserId", ["revokedByUserId"]),
   oauthApplicationSecrets: defineTable({
     applicationId: v.id("oauthApplications"),
     clientId: v.string(),
@@ -1705,7 +1707,8 @@ export default defineSchema({
   })
     .index("by_applicationId_status_createdAt", ["applicationId", "status", "createdAt"])
     .index("by_clientId_status_createdAt", ["clientId", "status", "createdAt"])
-    .index("by_secretPrefix", ["secretPrefix"]),
+    .index("by_secretPrefix", ["secretPrefix"])
+    .index("by_revokedByUserId", ["revokedByUserId"]),
   oauthDynamicClients: defineTable({
     clientId: v.string(),
     clientName: v.string(),
@@ -1843,13 +1846,18 @@ export default defineSchema({
     .index("by_clientId_expiresAt", ["clientId", "expiresAt"])
     .index("by_applicationId_issuedAt", ["applicationId", "issuedAt"])
     .index("by_dynamicClientId_issuedAt", ["dynamicClientId", "issuedAt"])
-    .index("by_status_expiresAt", ["status", "expiresAt"]),
+    .index("by_status_expiresAt", ["status", "expiresAt"])
+    // The only `v.id("users")` reference on an unbounded table with no way to
+    // look it up. One row per issued access token, so checking whether a user is
+    // still referenced would otherwise mean reading the whole table.
+    .index("by_userId", ["userId"]),
   temporalPrewarmLeases: defineTable({
     key: v.string(),
     ownerUserId: v.id("users"),
     requestedAt: v.number(),
     expiresAt: v.number(),
-  }).index("by_key", ["key"]),
+  }).index("by_key", ["key"])
+    .index("by_ownerUserId", ["ownerUserId"]),
   temporalParsingPreferences: defineTable({
     userId: v.id("users"),
     retainInputs: v.boolean(),
@@ -2128,7 +2136,8 @@ export default defineSchema({
   })
     .index("by_communityProfileId_state", ["communityProfileId", "state"])
     .index("by_guildId_state", ["guildId", "state"])
-    .index("by_state_lastRotatedAt", ["state", "lastRotatedAt"]),
+    .index("by_state_lastRotatedAt", ["state", "lastRotatedAt"])
+    .index("by_delegatedByUserId", ["delegatedByUserId"]),
   // Short-lived CSRF state for the purpose-scoped Discord guild-verification
   // OAuth round-trip. Stored server-side rather than in a cookie so the flow
   // survives browser restarts and stays bound to the signed-in user.
@@ -2197,7 +2206,8 @@ export default defineSchema({
       "profileId",
       "assetType",
       "assetExternalId",
-    ]),
+    ])
+    .index("by_linkedByUserId", ["linkedByUserId"]),
   profileSuppressionRequests: defineTable({
     profileId: v.optional(v.id("profiles")),
     profileSlug: v.optional(v.string()),
@@ -2334,7 +2344,8 @@ export default defineSchema({
   })
     .index("by_tokenHash", ["tokenHash"])
     .index("by_candidateId_state", ["candidateId", "state"])
-    .index("by_profileId_state", ["profileId", "state"]),
+    .index("by_profileId_state", ["profileId", "state"])
+    .index("by_acceptedByUserId", ["acceptedByUserId"]),
   vocabularyTerms: defineTable({
     scope: vocabularyScope,
     key: v.string(),
