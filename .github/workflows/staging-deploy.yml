@@ -341,19 +341,22 @@ jobs:
       # comparison by design, so a mistyped or unpublished Vercel key is not
       # caught until after Convex has already been told to trust the new issuer.
       #
-      # Gated on that verification *not* having succeeded, which is the boundary
-      # that matters. Once it passes, Vercel is serving a key the new issuer
-      # matches and the two providers agree — so a later Playwright or hosted
-      # health failure is unrelated, and rolling Convex back alone would break
-      # the working pairing rather than repair anything. This still runs last so
-      # a failure in the Vercel deploy or the verification itself reaches it,
-      # where a skipped verification also counts as not-succeeded.
+      # Gated on the *Vercel deploy* not having succeeded, which is the real
+      # boundary. Once Vercel has published, it is serving a key the pre-deploy
+      # check already validated against this issuer, so the two providers agree
+      # — and a later failure, including a transient fetch error in the
+      # post-deploy verifier, is not evidence the pairing is wrong. Rolling
+      # Convex back there would turn a correct rotation into the mismatch this
+      # step exists to prevent.
+      #
+      # Still runs last so a failure anywhere after the mutation reaches it, and
+      # a skipped Vercel deploy also counts as not-succeeded.
       #
       # Re-pushes as well as restoring the variable, because `auth.config.ts` is
       # evaluated at push time — putting the value back without a deploy would
       # leave the running provider config on the value being rolled back.
       - name: Restore the previous Convex issuer
-        if: failure() && steps.provision.outputs.changed == 'true' && steps.provision.outputs.previous_issuer != '' && steps.verify_issuer.outcome != 'success'
+        if: failure() && steps.provision.outputs.changed == 'true' && steps.provision.outputs.previous_issuer != '' && steps.vercel.outcome != 'success'
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_DEV }}
           PREVIOUS_ISSUER: ${{ steps.provision.outputs.previous_issuer }}

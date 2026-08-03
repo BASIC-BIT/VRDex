@@ -25,6 +25,17 @@ test("decodes the frontend API host a publishable key encodes", () => {
  * the bare value through verbatim and matches no token issuer. The variable is
  * named `..._DOMAIN`, which makes that an easy value to enter.
  */
+/**
+ * Clerk keys encode `host$`. One encoding only `host` — truncated, or re-entered
+ * by hand — decodes to the same string, so both comparisons passed while
+ * `ClerkProvider` and the middleware could not use the key at all.
+ */
+test("rejects a publishable key with no terminator", () => {
+  const withoutTerminator = `pk_test_${Buffer.from("oriented-anemone-94.clerk.accounts.dev").toString("base64")}`;
+
+  assert.throws(() => decodeClerkKeyHost(withoutTerminator), /truncated or otherwise malformed/);
+});
+
 test("rejects an issuer that is not an https origin", () => {
   assert.throws(() => issuerHost("example.clerk.accounts.dev"), /must be an https origin/);
   assert.throws(() => issuerHost("http://example.clerk.accounts.dev"), /must be an https origin/);

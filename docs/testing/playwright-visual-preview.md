@@ -215,10 +215,11 @@ These must be the **development** instance backing the hosted target, not produc
 
 **Moving staging to a different Clerk instance** — a recreated instance, or a deliberate migration. The publishable key's host changes, so the Convex issuer has to change with it, and the two live in different places:
 
-1. Set the Vercel staging `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY` to the new instance's pair. Setting the variables is enough; no deploy is needed first.
-2. `gh variable set VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN --body https://<new-frontend-api-host>`, then `gh secret set` for both `VRDEX_HOSTED_E2E_CLERK_PUBLISHABLE_KEY` and `VRDEX_HOSTED_E2E_CLERK_SECRET_KEY`.
-3. Re-run `Deploy Staging`. No special input: the pre-deploy check reads the key Vercel is *about to* serve, so a rotation where both sides have been updated simply agrees, and both providers move together in one run.
-4. Confirm with `pnpm test:e2e:hosted:auth-session`.
+1. On the new instance, create the JWT template named exactly `convex` from Clerk's Convex preset. **Templates do not carry across instances**, and neither issuer check can see this — both compare hosts, so a deployment with no template passes every comparison while Clerk cannot mint the token Convex expects and every authenticated backend call fails. Take the preset as-is; `docs/backend/auth-sessions.md` records why `aud: "convex"` and `email_verified` in particular are load-bearing.
+2. Set the Vercel staging `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY` to the new instance's pair. Setting the variables is enough; no deploy is needed first.
+3. `gh variable set VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN --body https://<new-frontend-api-host>`, then `gh secret set` for both `VRDEX_HOSTED_E2E_CLERK_PUBLISHABLE_KEY` and `VRDEX_HOSTED_E2E_CLERK_SECRET_KEY`.
+4. Re-run `Deploy Staging`. No special input: the pre-deploy check reads the key Vercel is *about to* serve, so a rotation where both sides have been updated simply agrees, and both providers move together in one run.
+5. Confirm with `pnpm test:e2e:hosted:auth-session`. This is what actually proves the template — it asserts that a Clerk session resolves to a *verified Convex identity*, which is exactly what a missing or misconfigured `convex` template breaks.
 
 Updating only one side fails that check before anything is written, which is the point. If a later step fails after the issuer has been changed, the workflow restores the previous value and re-pushes rather than leaving Convex trusting an instance the deployed app does not authenticate against.
 

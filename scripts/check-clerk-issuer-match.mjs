@@ -25,11 +25,27 @@ import assert from "node:assert/strict";
 const CLERK_KEY_PATTERN = /pk_(test|live)_[A-Za-z0-9+/=_-]+/;
 const ISSUER_PATTERN = /^https:\/\/[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i;
 
+/**
+ * Requires the decoded payload to end in Clerk's `$` terminator rather than
+ * stripping one when it happens to be there.
+ *
+ * A key holding base64 of `host` instead of `host$` — truncated, or re-entered
+ * by hand — decodes to the same string, so both comparisons passed while
+ * `ClerkProvider` and the middleware could not use the key at all. That reported
+ * a deployment as correctly paired at exactly the moment it could authenticate
+ * nobody.
+ */
 export function decodeClerkKeyHost(key) {
   const encoded = key.replace(/^pk_(test|live)_/, "");
   const padded = encoded + "=".repeat((4 - (encoded.length % 4)) % 4);
+  const decoded = Buffer.from(padded, "base64").toString("utf8");
 
-  return Buffer.from(padded, "base64").toString("utf8").replace(/\$+$/, "");
+  assert.ok(
+    decoded.endsWith("$"),
+    "That Clerk publishable key does not decode to a frontend API host followed by '$', so Clerk cannot use it. It is truncated or otherwise malformed.",
+  );
+
+  return decoded.slice(0, -1);
 }
 
 /**

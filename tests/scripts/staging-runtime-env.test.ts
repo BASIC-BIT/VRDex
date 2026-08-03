@@ -250,13 +250,14 @@ test("staging deploy parses and audits main before provider mutation", () => {
   assert.ok(rollbackIndex > keyCheckIndex);
   assert.ok(rollbackIndex > steps.findIndex((step) => step.name === "Run hosted staging data-flow health"));
   assert.match(steps[rollbackIndex]?.if ?? "", /failure\(\)/);
-  // Not after the post-deploy verification has passed. At that point Vercel
-  // serves a key the new issuer matches, so a later Playwright or health
-  // failure is unrelated — and restoring Convex alone would break a working
-  // pairing rather than repair anything.
+  // Not once Vercel has published. At that point it serves a key the pre-deploy
+  // check already validated against this issuer, so the providers agree and a
+  // later failure — including a transient fetch error in the post-deploy
+  // verifier — is not evidence the pairing is wrong. Restoring Convex there
+  // would create the mismatch this step exists to prevent.
   assert.match(
     steps[rollbackIndex]?.if ?? "",
-    /steps\.verify_issuer\.outcome != 'success'/,
+    /steps\.vercel\.outcome != 'success'/,
   );
   assert.match(steps[rollbackIndex]?.run ?? "", /convex env set CLERK_JWT_ISSUER_DOMAIN/);
   assert.match(steps[rollbackIndex]?.run ?? "", /convex deploy/);
