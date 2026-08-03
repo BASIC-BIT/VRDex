@@ -285,6 +285,16 @@ and the third is not a workaround:
 - **Never** reassign to "some Clerk account" to clear the blocker. A purge that
   completes by moving data onto the wrong person is worse than one that refuses.
 
+`purgeConvexAuthLeftovers` also accepts `regrantGrantsFrom` and
+`regrantGrantsToClerkUserId`, which move one legacy row's **live**
+`accountFeatureGrants` — `isAccountFeatureGrantActive`, the same definition the
+rest of the codebase authorizes against — onto a named Clerk row as part of the
+purge. This runbook does not use them, because a row blocked only by grants is
+blocked by `accountFeatureGrants.userId` like any other reference and step 2
+handles it along with the other 30 fields. They predate the reassignment and
+remain for a deployment where grants are the only thing in the way. Passing them
+on every rerun is safe: a missing source is a no-op, not an error.
+
 #### Reading the reassignment preview
 
 Four fields, and only one of them is the good news:
@@ -315,6 +325,20 @@ resolve to either Stripe customer.
 
 A dry run moves nothing, so rerunning it reports the same tables forever. It is
 there to be read once and acted on, not iterated.
+
+Deliberately never moved, and so absent from both reports: the nineteen
+`authSubject`-keyed audit tables — `profileAuditEvents` and its siblings. Those
+record what a subject *did*. Repointing them would falsify history rather than
+repair ownership, the same reason a revoked grant stays where it is.
+
+The purge's own report carries one more of these. **`staleCommunityAuthorities`**
+counts active authorities whose `subject.issuer` differs from the deployment's
+`CLERK_JWT_ISSUER_DOMAIN` — capabilities the issuer change already stopped
+matching their owners. They key on token identifier rather than `users._id`, so
+they never block the purge and are easy to finish an upgrade without noticing.
+They have to be re-granted by hand. It is `null` rather than a number whenever
+the answer would be a guess: an unset issuer, or a table longer than one bounded
+read. Read `null` as "count these yourself".
 
 `clerkUsers` in the step 1 report is a *sample*, capped at 25, and
 `clerkUsersTruncated` says when the account you need may not be in it. When it
