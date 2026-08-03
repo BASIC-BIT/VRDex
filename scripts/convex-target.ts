@@ -60,19 +60,47 @@ export type ConvexTargetName = keyof typeof CONVEX_TARGETS;
 export const CONVEX_TARGET_NAMES = Object.keys(CONVEX_TARGETS);
 
 /**
- * Every Convex CLI flag that can point a command at a different deployment.
- * `--local` belongs here too: it is how `dev:backend:local` selects the
- * anonymous backend, so forwarding it would pair production credentials with a
- * local deployment.
+ * Every Convex CLI flag that can point a command at a different deployment, or
+ * supply different credentials. Four rounds of review each found one more entry
+ * for this list, so it is no longer written from memory: `--prod`,
+ * `--preview-name`, `--deployment-name`, and `--env-file` are what
+ * `convex <command> --help` documents, and CONVEX_CLI_KNOWN_SAFE_FLAGS below
+ * pins the rest so a flag added by a future Convex release fails a test rather
+ * than quietly becoming a way through.
+ *
+ * `--local` and the self-hosted pair are not in that help output but belong
+ * here anyway: `--local` is how `dev:backend:local` selects the anonymous
+ * backend, and `--url`/`--admin-key` address a backend directly.
  */
 const TARGET_SELECTOR_FLAGS = [
   "--prod",
-  "--deployment",
   "--preview-name",
+  "--deployment-name",
+  "--deployment",
+  "--env-file",
   "--url",
   "--admin-key",
   "--local",
 ];
+
+/**
+ * Flags on `convex run` that cannot change which deployment is reached. The
+ * test asserts this plus TARGET_SELECTOR_FLAGS covers everything the installed
+ * CLI advertises, so a new flag has to be classified deliberately.
+ */
+export const CONVEX_CLI_KNOWN_SAFE_FLAGS = [
+  "--codegen",
+  "--component",
+  "--help",
+  "--identity",
+  "--no",
+  "--push",
+  "--typecheck",
+  "--typecheck-components",
+  "--watch",
+];
+
+export const CONVEX_TARGET_SELECTOR_FLAGS: readonly string[] = TARGET_SELECTOR_FLAGS;
 
 /**
  * `--target x` and `--target=x` both count. The bare `option()` helpers in the
