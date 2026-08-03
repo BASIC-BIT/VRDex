@@ -1,16 +1,21 @@
 import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 
+import {
+  clerkTestAuthAvailability,
+  createClerkTestAccount,
+  deleteClerkTestAccount,
+  signInClerkTestAccount,
+  type ClerkTestAccount,
+} from "./clerk-auth";
 import { gotoFlowPage } from "./flow-navigation";
 import { captureRouteScreenshot } from "./public-routes";
 import { E2E_DISCORD_GUILD_ID } from "../src/lib/e2e-discord-fixture";
 
+// Throws rather than returns on a hosted target that asked for auth coverage
+// and cannot have it, so a misconfigured deployment fails the file instead of
+// reporting a pass over skipped tests.
+const clerkTestAuth = clerkTestAuthAvailability();
 
-// Skipped, not deleted: the coverage is still wanted once these run against
-// Clerk testing tokens rather than a sign-in form.
-test.skip(
-  true,
-  "Hosted E2E auth is not wired to Clerk yet: these specs signed in by driving the removed email/password form, and CI has no Clerk credentials. Tracked in #226.",
-);
 test.describe.configure({ mode: "serial" });
 
 const hostedActionExpectOptions = { timeout: process.env.PLAYWRIGHT_BASE_URL ? 20_000 : 5_000 };
@@ -89,50 +94,19 @@ async function createE2eProfile({
   return profile.slug!;
 }
 
-async function createVerifiedE2eAccount({
-  page,
-  request,
-  e2eToken,
-  email,
-  password,
-}: {
-  page: Page;
-  request: APIRequestContext;
-  e2eToken: string;
-  email: string;
-  password: string;
-}) {
-  await gotoFlowPage(page, "/sign-in");
-  const revealPasswordForm = page.getByRole("button", { name: "Use email and password" });
-  const emailInput = page.getByLabel("Email");
+/**
+ * Clerk creates the account already verified and signs it in with a one-time
+ * ticket, so there is no form to drive and no verification code to intercept.
+ * `signInClerkTestAccount` does not return until `/account` renders the
+ * identity, which is also when the Convex `users` row exists for the helpers
+ * below to find by email.
+ */
+async function createSignedInClerkAccount(page: Page, runSuffix: string) {
+  const account = await createClerkTestAccount(runSuffix);
 
-  await expect(revealPasswordForm.or(emailInput).first()).toBeVisible(hostedActionExpectOptions);
+  await signInClerkTestAccount(page, account);
 
-  if (await revealPasswordForm.isVisible()) {
-    await revealPasswordForm.click();
-  }
-
-  await page.getByRole("button", { name: "Create account" }).click();
-  await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(password);
-  await page.getByRole("button", { name: "Create account" }).click();
-  await expect(page.getByText(new RegExp(`Check ${email} for a verification code`, "i"))).toBeVisible();
-
-  const codeResponse = await request.post("/api/e2e/auth", {
-    headers: { "x-vrdex-e2e-token": e2eToken },
-    data: { action: "consume-code", email },
-  });
-  await expect(codeResponse).toBeOK();
-  const authCode = (await codeResponse.json()) as { code?: string };
-  expect(authCode.code).toBeTruthy();
-
-  await page.getByLabel("Verification code").fill(authCode.code!);
-  await Promise.all([
-    page.waitForURL(/\/account$/),
-    page.getByRole("button", { name: "Verify email" }).click(),
-  ]);
-  await expect(page.getByRole("heading", { name: email })).toBeVisible(hostedActionExpectOptions);
-  await expect(page.getByText("Verified", { exact: true })).toBeVisible(hostedActionExpectOptions);
+  return account;
 }
 
 async function linkDiscordAccount(request: APIRequestContext, e2eToken: string, email: string, providerAccountId: string) {
@@ -291,7 +265,13 @@ async function deleteE2eResourceWithRetry(request: APIRequestContext, url: strin
   throw lastError;
 }
 
-async function cleanupAuthAndProfiles(request: APIRequestContext, e2eToken: string, email: string, slugs: Array<string | undefined>, runId: string) {
+async function cleanupAuthAndProfiles(
+  request: APIRequestContext,
+  e2eToken: string,
+  account: ClerkTestAccount | undefined,
+  slugs: Array<string | undefined>,
+  runId: string,
+) {
   for (const slug of slugs) {
     if (slug !== undefined) {
       await deleteE2eResourceWithRetry(request, "/api/e2e/profile-submissions", {
@@ -308,14 +288,24 @@ async function cleanupAuthAndProfiles(request: APIRequestContext, e2eToken: stri
     });
   }
 
+  if (account === undefined) {
+    return;
+  }
+
+  // Convex rows first, then the Clerk user: `cleanupAuthUserByEmail` resolves
+  // the account through the `users` row, which is keyed to the Clerk id. Both
+  // sides are needed — Convex never hears about a Clerk deletion, because
+  // provisioning is on-demand from the client rather than webhook-driven.
   await deleteE2eResourceWithRetry(request, "/api/e2e/auth", {
     headers: { "x-vrdex-e2e-token": e2eToken },
-    data: { email },
+    data: { email: account.email },
   });
+  await deleteClerkTestAccount(account);
 }
 
 test("verified email account with linked Discord can claim person and community profiles @flow", async ({ page, request }, testInfo) => {
-  test.setTimeout(60_000);
+  test.setTimeout(90_000);
+  test.skip(clerkTestAuth.available === false, clerkTestAuth.available === false ? clerkTestAuth.reason : "");
   test.skip(
     Boolean(process.env.PLAYWRIGHT_BASE_URL) && process.env.VRDEX_ENABLE_E2E_AUTH_HELPERS !== "true",
     "Hosted auth E2E helpers are not enabled for this target.",
@@ -329,8 +319,7 @@ test("verified email account with linked Discord can claim person and community 
   const runId = e2eRunId(testInfo);
   const runSuffix = runId.replace(/^playwright-auth-?/, "").slice(0, 48);
   const displayName = `Playwright Claim ${runSuffix}`;
-  const email = `${runSuffix}@e2e.vrdex.local`;
-  const password = `VRDex-${runSuffix}-password-12345`;
+  let account: ClerkTestAccount | undefined;
   let createdSlug: string | undefined;
   let communitySlug: string | undefined;
 
@@ -355,8 +344,8 @@ test("verified email account with linked Discord can claim person and community 
       subtype: "Club",
       categoryTags: ["Claim test community"],
     });
-    await createVerifiedE2eAccount({ page, request, e2eToken, email, password });
-    await linkDiscordAccount(request, e2eToken, email, `discord-${runSuffix}`);
+    account = await createSignedInClerkAccount(page, runSuffix);
+    await linkDiscordAccount(request, e2eToken, account.email, `discord-${runSuffix}`);
 
     await gotoFlowPage(page, `/claim/${encodeURIComponent(createdSlug!)}`);
     if (!(await hostedTargetHasClaimJourney(page, `Claim ${displayName}`))) {
@@ -403,7 +392,7 @@ test("verified email account with linked Discord can claim person and community 
       await captureRouteScreenshot(page, testInfo, "account-owned-profile");
     }
 
-    if (!(await recordGuildControlProof(request, e2eToken, email, E2E_DISCORD_GUILD_ID))) {
+    if (!(await recordGuildControlProof(request, e2eToken, account.email, E2E_DISCORD_GUILD_ID))) {
       testInfo.annotations.push({
         type: "hosted-staging-lag",
         description:
@@ -456,11 +445,13 @@ test("verified email account with linked Discord can claim person and community 
       await expect(page.getByLabel("Verified profile")).toHaveCount(0);
     }
   } finally {
-    await cleanupAuthAndProfiles(request, e2eToken, email, [createdSlug, communitySlug], runId);
+    await cleanupAuthAndProfiles(request, e2eToken, account, [createdSlug, communitySlug], runId);
   }
 });
 
 test("verified email account can complete VRChat adapter claims @flow", async ({ page, request }, testInfo) => {
+  test.setTimeout(90_000);
+  test.skip(clerkTestAuth.available === false, clerkTestAuth.available === false ? clerkTestAuth.reason : "");
   test.skip(
     Boolean(process.env.PLAYWRIGHT_BASE_URL) && process.env.VRDEX_ENABLE_E2E_AUTH_HELPERS !== "true",
     "Hosted auth E2E helpers are not enabled for this target.",
@@ -473,8 +464,7 @@ test("verified email account can complete VRChat adapter claims @flow", async ({
   const e2eToken = e2eBrowserToken();
   const runId = e2eRunId(testInfo);
   const runSuffix = runId.replace(/^playwright-auth-?/, "").slice(0, 48);
-  const email = `adapter-${runSuffix}@e2e.vrdex.local`;
-  const password = `VRDex-${runSuffix}-adapter-password-12345`;
+  let account: ClerkTestAccount | undefined;
   let vrchatPersonSlug: string | undefined;
   let vrchatCommunitySlug: string | undefined;
 
@@ -498,7 +488,7 @@ test("verified email account can complete VRChat adapter claims @flow", async ({
       subtype: "Club",
       categoryTags: ["Proof test community"],
     });
-    await createVerifiedE2eAccount({ page, request, e2eToken, email, password });
+    account = await createSignedInClerkAccount(page, `adapter-${runSuffix}`);
     await gotoFlowPage(page, `/claim/${encodeURIComponent(vrchatCommunitySlug!)}`);
     if (!(await hostedTargetHasClaimJourney(page, `Claim Playwright VRChat Group ${runSuffix}`))) {
       testInfo.annotations.push({
@@ -555,7 +545,7 @@ test("verified email account can complete VRChat adapter claims @flow", async ({
     await cleanupAuthAndProfiles(
       request,
       e2eToken,
-      email,
+      account,
       [vrchatPersonSlug, vrchatCommunitySlug],
       runId,
     );
@@ -569,7 +559,13 @@ test("E2E auth helper stays gated without the browser token @flow", async ({ req
   );
 
   const e2eToken = e2eBrowserToken();
-  const payload = { action: "consume-code", email: "negative-gate@e2e.vrdex.local" };
+  // A *supported* action, so a 403 below proves the token gate rejected the
+  // request rather than the action dispatcher not recognising it.
+  const payload = {
+    action: "link-discord",
+    email: "negative-gate@e2e.vrdex.local",
+    providerAccountId: "negative-gate",
+  };
 
   const missingTokenResponse = await request.post("/api/e2e/auth", {
     data: payload,

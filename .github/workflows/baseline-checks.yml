@@ -462,80 +462,6 @@ jobs:
             apps/web/test-results
             apps/web/playwright-artifacts
 
-  playwright-auth-session-matrix:
-    name: Playwright Auth Session Matrix
-    # Disabled, not merely failing: this lane runs only `auth-session.flow.spec.ts`
-    # under `@auth-session-matrix`, and that spec is skipped in full until hosted
-    # E2E auth is wired to Clerk (#226). A skipped Playwright run exits 0, so the
-    # lane reported pass — and the summary below claimed three browsers and
-    # restart/invalid-refresh coverage that never executed. Re-enable with #226.
-    if: false
-    needs: [build-web]
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    permissions:
-      contents: read
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Install auth matrix browsers
-        working-directory: apps/web
-        run: pnpm exec playwright install --with-deps chromium firefox webkit
-
-      - name: Run persistent auth session matrix
-        id: matrix
-        env:
-          PLAYWRIGHT_RECORD_VIDEO: "true"
-          VRDEX_ENABLE_E2E_HELPERS: "true"
-          VRDEX_E2E_BROWSER_TOKEN: local-playwright-token
-          VRDEX_E2E_CONVEX_SECRET: local-convex-e2e-secret
-        run: pnpm test:e2e:auth-session-matrix
-
-      - name: Write auth session matrix summary
-        if: always()
-        env:
-          MATRIX_OUTCOME: ${{ steps.matrix.outcome }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          mkdir -p apps/web/playwright-artifacts
-          cat > apps/web/playwright-artifacts/auth-session-matrix-summary.md <<EOF
-          ## Playwright auth session matrix
-
-          Outcome: ${MATRIX_OUTCOME}
-
-          Coverage: none. The specs this lane runs are skipped until hosted E2E
-          auth is wired to Clerk (#226). Nothing about session restart, refresh
-          failure, or cross-browser behaviour is verified here.
-
-          Run: ${RUN_URL}
-          EOF
-
-      - name: Upload auth session matrix artifacts
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: playwright-auth-session-matrix
-          if-no-files-found: warn
-          retention-days: 7
-          path: |
-            apps/web/playwright-report
-            apps/web/test-results
-            apps/web/playwright-artifacts
-
   playwright-hosted-data-flow:
     name: Playwright Hosted Data Flow
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
@@ -598,6 +524,17 @@ jobs:
           VRDEX_ENABLE_E2E_ADAPTER_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_ADAPTER_HELPERS }}
           VRDEX_ENABLE_E2E_DEVELOPER_CREDENTIALS: ${{ vars.VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS }}
           VRDEX_E2E_BROWSER_TOKEN: ${{ secrets.VRDEX_HOSTED_E2E_BROWSER_TOKEN }}
+          # Staging Clerk *development* instance. `clerkSetup()` refuses a
+          # production secret key outright, and `check-vercel-env.mjs` already
+          # requires the test tier on every non-production Vercel build, so these
+          # are the same instance the target itself runs on.
+          #
+          # The switch is separate from the keys on purpose: with it unset the
+          # auth specs skip, so merging this cannot turn the lane red before the
+          # secrets exist. With it set to true, missing keys fail the run.
+          VRDEX_ENABLE_E2E_CLERK_AUTH: ${{ vars.VRDEX_HOSTED_E2E_CLERK_AUTH }}
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.VRDEX_HOSTED_E2E_CLERK_PUBLISHABLE_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.VRDEX_HOSTED_E2E_CLERK_SECRET_KEY }}
           VRDEX_E2E_RUN_ID: pr-${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}
         run: pnpm test:e2e:hosted
 
@@ -610,6 +547,7 @@ jobs:
           HOSTED_AUTH_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_AUTH_HELPERS }}
           HOSTED_ADAPTER_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_ADAPTER_HELPERS }}
           HOSTED_DEVELOPER_CREDENTIALS: ${{ vars.VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS }}
+          HOSTED_CLERK_AUTH: ${{ vars.VRDEX_HOSTED_E2E_CLERK_AUTH }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           mkdir -p apps/web/playwright-artifacts
@@ -628,11 +566,13 @@ jobs:
 
           Hosted developer credentials: ${HOSTED_DEVELOPER_CREDENTIALS:-skipped}
 
-          The auth-helper and developer-credential flags above report
-          configuration, not coverage. `auth-claim.flow` and
-          `developer-credentials.flow` are skipped in full until hosted auth is
-          rewired to Clerk (#226), so enabling either flag exercises nothing.
-          Only the captured flow below actually ran.
+          Clerk test auth: ${HOSTED_CLERK_AUTH:-skipped}
+
+          The flags above report configuration, not coverage. The auth-backed
+          specs need every one of their flags *and* Clerk test auth: with
+          \`VRDEX_HOSTED_E2E_CLERK_AUTH\` unset they skip, and only the captured
+          flow below ran. With it set, they fail rather than skip when the Clerk
+          keys are missing.
 
           Captured flow:
           - hosted test-gated profile submission form

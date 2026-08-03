@@ -153,6 +153,8 @@ function printHelp() {
     "",
     "Required environment:",
     "  VRDEX_E2E_BROWSER_TOKEN    Browser token matching the hosted E2E auth helper target.",
+    "  CLERK_SECRET_KEY           Secret key for the Clerk development instance backing the target.",
+    "  NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY  Matching publishable key. A production key is rejected.",
     "",
     "Options:",
     "  --base-url <url>           Hosted app origin or /mcp URL. Also reads VRDEX_MCP_OAUTH_SMOKE_BASE_URL or PLAYWRIGHT_BASE_URL.",
@@ -229,49 +231,97 @@ async function gotoFlowPage(page: import("@playwright/test").Page, pathName: str
   }
 }
 
-async function createVerifiedE2eAccount(args: {
-  browserToken: string;
+const CLERK_API_BASE = process.env.CLERK_API_URL?.trim().replace(/\/+$/, "") || "https://api.clerk.com";
+
+/**
+ * Resolved through `apps/web` for the same reason Playwright is: this script
+ * lives at the repository root, where neither package is a dependency.
+ */
+async function loadClerkTesting() {
+  const webRequire = createRequire(path.join(repoRoot, "apps", "web", "package.json"));
+
+  return await import(webRequire.resolve("@clerk/testing/playwright")) as unknown as
+    typeof import("@clerk/testing/playwright");
+}
+
+export function clerkKeysFromEnv() {
+  const secretKey = process.env.CLERK_SECRET_KEY?.trim() ?? "";
+  const publishableKey =
+    process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.trim() ??
+    process.env.CLERK_PUBLISHABLE_KEY?.trim() ??
+    "";
+
+  assert.ok(
+    secretKey && publishableKey,
+    "CLERK_SECRET_KEY and NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY are required. Use the development instance backing the target; clerkSetup() rejects a production secret key.",
+  );
+
+  return { publishableKey, secretKey };
+}
+
+async function clerkBackendRequest(pathName: string, init: RequestInit) {
+  const { secretKey } = clerkKeysFromEnv();
+
+  return await fetch(`${CLERK_API_BASE}${pathName}`, {
+    ...init,
+    headers: { ...init.headers, authorization: `Bearer ${secretKey}`, "content-type": "application/json" },
+  });
+}
+
+/**
+ * Creates the temporary account through the Clerk Backend API and signs in with
+ * a one-time ticket. Replaces the email/password sign-up form and the
+ * `/api/e2e/auth` verification-code lookup, both removed by the Clerk cutover.
+ *
+ * Backend-API addresses arrive already verified, so the account satisfies the
+ * verified-email guard on OAuth app registration without a code round-trip.
+ */
+async function createSignedInClerkAccount(args: {
   email: string;
   page: import("@playwright/test").Page;
-  password: string;
-  request: import("@playwright/test").APIRequestContext;
 }) {
-  await gotoFlowPage(args.page, "/sign-in");
-  await args.page.getByRole("button", { name: "Create account" }).click();
-  await args.page.getByLabel("Email").fill(args.email);
-  await args.page.getByLabel("Password").fill(args.password);
-  await args.page.getByRole("button", { name: "Create account" }).click();
-  const verificationCodeInput = args.page.getByLabel("Verification code");
+  const { clerk, clerkSetup, setupClerkTestingToken } = await loadClerkTesting();
+  const { publishableKey } = clerkKeysFromEnv();
 
-  try {
-    await verificationCodeInput.waitFor({ timeout: 15_000 });
-  } catch (error) {
-    const pageText = await args.page.locator("body").innerText().catch(() => "unavailable");
-    const cause = error instanceof Error ? error.message.split("\n", 1)[0] : String(error);
+  await clerkSetup({ publishableKey });
 
-    throw new Error(`Account signup did not enter email verification mode (${cause}). Page text: ${pageText}`);
-  }
-
-  const codeResponse = await args.request.post("/api/e2e/auth", {
-    data: { action: "consume-code", email: args.email },
-    headers: { "x-vrdex-e2e-token": args.browserToken },
+  const response = await clerkBackendRequest("/v1/users", {
+    method: "POST",
+    body: JSON.stringify({ email_address: [args.email], skip_password_requirement: true }),
   });
 
   assert.equal(
-    codeResponse.ok(),
+    response.ok,
     true,
-    `E2E auth helper did not return a verification code. HTTP ${codeResponse.status()}: ${await codeResponse.text()}`,
+    `Clerk test user creation failed. HTTP ${response.status}: ${await response.text()}`,
   );
 
-  const authCode = (await codeResponse.json()) as { code?: string };
+  const user = (await response.json()) as { id?: unknown };
 
-  assert.ok(authCode.code, "E2E auth helper returned no verification code.");
+  assert.ok(typeof user.id === "string" && user.id, "Clerk test user creation returned no user id.");
 
-  await verificationCodeInput.fill(authCode.code);
-  await Promise.all([
-    args.page.waitForURL(/\/account$/),
-    args.page.getByRole("button", { name: "Verify email" }).click(),
-  ]);
+  await setupClerkTestingToken({ page: args.page });
+  await gotoFlowPage(args.page, "/");
+  await clerk.signIn({ page: args.page, emailAddress: args.email });
+
+  // `users:ensureCurrentUser` provisions the Convex row on the first
+  // authenticated page load, and OAuth app registration needs it to exist.
+  await gotoFlowPage(args.page, "/account");
+  await args.page.getByRole("heading", { name: args.email }).waitFor({ timeout: 30_000 });
+
+  return { clerkUserId: user.id };
+}
+
+async function deleteClerkAccount(clerkUserId: string | undefined) {
+  if (clerkUserId === undefined) {
+    return;
+  }
+
+  try {
+    await clerkBackendRequest(`/v1/users/${encodeURIComponent(clerkUserId)}`, { method: "DELETE" });
+  } catch (error) {
+    console.warn(`Failed to delete Clerk test user ${clerkUserId}:`, error);
+  }
 }
 
 async function postSessionJson(
@@ -521,31 +571,10 @@ async function writeCredentialFiles(args: {
   return { envPs1, envSh, outputDir, summary };
 }
 
-/**
- * This generator signs in by driving the email/password sign-up form and the
- * `/api/e2e/auth` route, both of which the Clerk cutover removed. Left in place
- * rather than deleted because #226 ports it to Clerk testing credentials, and
- * `check-api-mcp-rollout-readiness` asserts the `package.json` entry exists.
- *
- * Fails immediately instead of part-way through: without this it still runs,
- * launches a browser, and dies on a missing selector after creating nothing —
- * an error that reads like a flake rather than a retired code path.
- *
- * The guard is a condition rather than an unconditional throw so the body stays
- * reachable code for whoever does that port; flip
- * `VRDEX_MCP_SMOKE_GENERATOR_PORTED` once the flow works against Clerk.
- */
-const RETIRED_UNTIL_CLERK =
-  "pnpm ops:mcp-oauth-smoke-credentials is unavailable: it creates its temporary account through the email/password sign-up form and /api/e2e/auth, both removed by the Clerk cutover. Supply VRDEX_MCP_OAUTH_CLIENT_ID and VRDEX_MCP_OAUTH_CLIENT_SECRET, or VRDEX_MCP_INSPECTOR_OAUTH_TOKEN, from an OAuth app registered by hand. Tracked in #226.";
-
 async function main() {
   if (process.argv.slice(2).includes("--help")) {
     printHelp();
     return;
-  }
-
-  if (process.env.VRDEX_MCP_SMOKE_GENERATOR_PORTED !== "true") {
-    throw new Error(RETIRED_UNTIL_CLERK);
   }
 
   const options = parseArgs(process.argv.slice(2));
@@ -560,17 +589,13 @@ async function main() {
   const context = await browser.newContext({ baseURL: origin });
   const page = await context.newPage();
   const runSuffix = safeRunId(options.runId);
-  const email = `mcp-oauth-${runSuffix}@e2e.vrdex.local`;
-  const password = `VRDex-${runSuffix}-${randomBytes(12).toString("base64url")}-12345`;
+  // `+clerk_test` suppresses every Clerk delivery attempt; `@e2e.vrdex.local` is
+  // the only domain `normalizeE2eEmail` in `convex/e2e.ts` accepts.
+  const email = `mcp-oauth-${runSuffix}+clerk_test@e2e.vrdex.local`;
+  let clerkUserId: string | undefined;
 
   try {
-    await createVerifiedE2eAccount({
-      browserToken: options.browserToken,
-      email,
-      page,
-      password,
-      request: context.request,
-    });
+    ({ clerkUserId } = await createSignedInClerkAccount({ email, page }));
     const credentials = await createConfidentialMcpOAuthApp({
       clientName: options.clientName,
       origin,
@@ -603,6 +628,7 @@ async function main() {
     console.log(`| Bash env | ${files.envSh} |`);
     console.log(`| Next steps | ${files.summary} |`);
   } finally {
+    await deleteClerkAccount(clerkUserId);
     await context.close();
     await browser.close();
   }
