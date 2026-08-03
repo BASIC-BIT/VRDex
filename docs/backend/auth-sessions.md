@@ -212,6 +212,29 @@ this revision deletes. Deploy the staged revision first.
 the last revision with both migrations and the permissive schema. From a checkout
 of it:
 
+**`pnpm cx` cannot reach a self-hosted deployment**, which is most of this
+section's audience. `scripts/convex-target.ts` defines exactly three targets —
+`local` (loopback-only), `dev`, and `prod` (both requiring a Convex Cloud
+deployment name and deploy key) — and it deliberately clears
+`CONVEX_SELF_HOSTED_URL` and `CONVEX_SELF_HOSTED_ADMIN_KEY` from the environment
+and rejects `--url` / `--admin-key`. That wrapper exists to stop a command aimed
+at one of VRDex's own three deployments landing on another; it is not a way to
+address a fourth.
+
+Substitute the Convex CLI directly, with the self-hosted pair exported:
+
+```sh
+export CONVEX_SELF_HOSTED_URL='https://convex.example.internal'
+export CONVEX_SELF_HOSTED_ADMIN_KEY='...'
+npx convex deploy          # installs the staged revision's functions
+npx convex run migrations:purgeConvexAuthLeftovers '{"dryRun": true}'
+```
+
+Everything below is written as `pnpm cx -- <target> run …` because that is what
+the first-party deployments use. For a self-hosted one, read each as
+`npx convex run …` with those two variables set; the arguments and the reports
+are identical.
+
 ```powershell
 # 1. Inventory, one page of legacy users at a time. Carry nextLegacyCursor back
 #    as legacyCursor until it returns null: a dry run deletes nothing, so
@@ -279,11 +302,32 @@ loses it.
 **Run the audit before step 3, not after.** It matches on the legacy
 `users._id`, and once the purge deletes those rows there is nothing left to match
 against — you would be looking at an orphaned subject with no way to learn whose
-it was. Take the ids from step 1's `blockedUsers` *and* from a listing of rows
-with no `clerkUserId`, since the unblocked ones are exactly the ones at risk. For
-each id, check **both** tables for a subject starting with it:
+it was.
 
-- `events`, on `submitter.subject`
+**The purge report cannot give you the ids.** `blockedUsers` is keyed by
+`users._id` but by definition omits the unblocked rows, which are the ones at
+risk; `deletedUsers` is `user.email ?? user._id`, so it hands back an email
+whenever one exists, and it is `[]` whenever `usersDeferred` is true. Get them
+from the table instead — the same index the migration uses, since `undefined` is
+a queryable index value in Convex:
+
+```sh
+# Every legacy row, blocked or not. Convex's dashboard data browser does the
+# same thing: users → filter clerkUserId → unset.
+npx convex export --path ./legacy-audit.zip
+# then, from the extracted users/documents.jsonl:
+jq -r 'select(.clerkUserId == null) | ._id' users/documents.jsonl
+```
+
+Keep that list. For each id, check **both** tables for a subject starting with
+it:
+
+- `events`, on `submitter.subject`, **and only those with no
+  `communityProfileId`**. `canUpdateEvent` returns `false` outright on a
+  submitter mismatch when the event is standalone, but a community event falls
+  through to the profile owner and `manage_events` authority, so it stays
+  manageable and needs nothing. Repointing its submitter would rewrite valid
+  historical attribution to fix a problem it does not have.
 - `communityAuthorities`, on `subject.subject`, `state: "active"` only —
   re-granting a revoked one would restore a capability somebody deliberately
   removed
@@ -297,14 +341,27 @@ identity each belonged to, and it is `null` whenever the issuer is unset or the
 table exceeded one bounded read. Neither can be acted on per row, which is what
 remediation needs.
 
-Remediation is a deliberate intervention in every case, because no function does
-it. For an event: patch `submitter` onto the Clerk subject, or attach a
-`communityProfileId` so community authorization applies instead. For an
-authority: write the row again against the Clerk subject — `convex/` has no
-`insert("communityAuthorities")` at all, only reads through
-`subjectHasCommunityCapability`, so "re-grant" means a direct row write and not a
-mutation you can call. Decide before the purge; afterwards you are choosing
-without knowing whose it was.
+Remediation is a deliberate intervention on whatever the audit actually
+returned, because no function does it.
+
+For a standalone event: patch `submitter` onto the Clerk subject, or attach a
+`communityProfileId` so community authorization applies instead.
+
+For an authority: rewrite the row against the Clerk subject, and **write
+`subjectTokenIdentifier` as well as the nested `subject`.** They are separate
+columns, and the lookup uses the flat one —
+`subjectHasAnyCommunityCapability` queries
+`by_subjectTokenIdentifier_state_communityProfileId` on `subject.tokenIdentifier`
+and never reads the nested object until a row has already matched. Updating only
+`subject` leaves the row keyed to the Convex Auth identity, so the re-grant
+returns no capability at all and does it silently, which is the worst way for a
+remediation to fail. `convex/` has no `insert("communityAuthorities")` anywhere —
+only reads through `subjectHasCommunityCapability` — so this is a direct row
+write, not a mutation you can call, and nothing will validate that the two fields
+agree.
+
+Decide before the purge; afterwards you are choosing without knowing whose it
+was.
 
 Then deploy this revision.
 
