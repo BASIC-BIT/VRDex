@@ -119,6 +119,28 @@ jobs:
 
           node scripts/check-staging-runtime-env.mjs "${args[@]}"
 
+      # Before the `env set` below, not after the deploys. Writing a stale or
+      # cross-instance issuer to the shared Convex deployment breaks every
+      # signed-in staging request the moment the next step pushes functions, so
+      # a check that runs afterwards only reports damage already done.
+      #
+      # `--allow-missing-key` because a target stuck on a build from before
+      # Clerk existed serves no key to compare against — exactly the outage this
+      # workflow has to be able to fix. The post-deploy check is the
+      # authoritative one for that case; this is the guard for the far more
+      # likely one, where staging is healthy and the variable is wrong.
+      - name: Verify the staging Clerk issuer before mutating Convex
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          HOSTED_BASE_URL: ${{ steps.gate.outputs.hosted_base_url }}
+          CLERK_JWT_ISSUER_DOMAIN: ${{ vars.VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN }}
+        run: |
+          set -euo pipefail
+          node scripts/check-clerk-issuer-match.mjs \
+            --base-url "$HOSTED_BASE_URL" \
+            --issuer "$CLERK_JWT_ISSUER_DOMAIN" \
+            --allow-missing-key
+
       # Must run before the deploy below, not with the other `convex env set`
       # calls after it. `convex/auth.config.ts` reads CLERK_JWT_ISSUER_DOMAIN at
       # push time, and the CLI refuses to push at all while it is unset — so a
@@ -200,6 +222,9 @@ jobs:
       # Decoded rather than prefix-matched, and compared against the deployment
       # that just went out. `production-promote.yml` does the same for the live
       # tenant; this is the staging counterpart with a `pk_test_` key.
+      # Authoritative check on what actually shipped. The pre-mutation guard
+      # above can be inconclusive when the target served no key; this one runs
+      # against the deployment that just went out, so it always has one.
       - name: Verify the staging Clerk key matches the Convex issuer
         if: steps.gate.outputs.enabled == 'true'
         env:
@@ -207,38 +232,7 @@ jobs:
           CLERK_JWT_ISSUER_DOMAIN: ${{ vars.VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN }}
         run: |
           set -euo pipefail
-
-          curl -sSL --max-time 30 "$DEPLOYMENT_URL/sign-in" -o /tmp/staging-sign-in.html
-
-          scripts=$(grep -oE '/_next/static/[^"'"'"']+\.js' /tmp/staging-sign-in.html | sort -u)
-          key=""
-          for script in $scripts; do
-            key=$(curl -sSL --max-time 30 "$DEPLOYMENT_URL$script" | grep -oE 'pk_(test|live)_[A-Za-z0-9+/=_-]+' | head -n 1 || true)
-            if [ -n "$key" ]; then break; fi
-          done
-
-          if [ -z "$key" ]; then
-            echo "::error::$DEPLOYMENT_URL serves no Clerk publishable key. Staging cannot authenticate anyone; check NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY on the Vercel staging environment."
-            exit 1
-          fi
-
-          case "$key" in
-            pk_live_*)
-              echo "::error::Staging is serving a *production* Clerk key. Production and staging tenants must stay isolated; every session it mints would be a real one."
-              exit 1
-              ;;
-          esac
-
-          decoded_host=$(printf '%s' "${key#pk_test_}" | python3 -c 'import base64,sys; s=sys.stdin.read().strip(); print(base64.b64decode(s + "=" * (-len(s) % 4)).decode("utf-8", "replace").rstrip("$"))')
-          expected_host=${CLERK_JWT_ISSUER_DOMAIN#https://}
-          expected_host=${expected_host%/}
-
-          if [ "$decoded_host" != "$expected_host" ]; then
-            echo "::error::Staging serves a Clerk key for '$decoded_host' but Convex was told to trust '$expected_host'. Convex would reject every signed-in request. Fix VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN or the Vercel publishable key so both name one instance."
-            exit 1
-          fi
-
-          echo "Staging Clerk key and Convex issuer both resolve to $decoded_host."
+          node scripts/check-clerk-issuer-match.mjs             --base-url "$DEPLOYMENT_URL"             --issuer "$CLERK_JWT_ISSUER_DOMAIN"
 
       - name: Install Playwright Chromium
         if: steps.gate.outputs.enabled == 'true'

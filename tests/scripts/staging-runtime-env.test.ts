@@ -211,16 +211,27 @@ test("staging deploy parses and audits main before provider mutation", () => {
 
   // Convex's issuer and Vercel's publishable key are configured independently,
   // so a mismatch deploys cleanly and then rejects every signed-in request.
+  const preCheckIndex = steps.findIndex(
+    (step) => step.name === "Verify the staging Clerk issuer before mutating Convex",
+  );
   const keyCheckIndex = steps.findIndex(
     (step) => step.name === "Verify the staging Clerk key matches the Convex issuer",
   );
 
+  // Before the `env set`, not merely present. A check that runs after the
+  // deploys reports the mismatch only once staging is already broken, because
+  // the issuer has been written to the shared Convex deployment by then.
+  assert.ok(preCheckIndex >= 0);
+  assert.ok(preCheckIndex < authConfigIndex);
+  assert.match(steps[preCheckIndex]?.run ?? "", /check-clerk-issuer-match\.mjs/);
+  // Inconclusive rather than fatal when the target serves no key at all: that is
+  // the pre-Clerk-build outage this workflow has to remain able to fix.
+  assert.match(steps[preCheckIndex]?.run ?? "", /--allow-missing-key/);
+
+  // The authoritative pass, against what actually shipped, with no such escape.
   assert.ok(keyCheckIndex > vercelDeployIndex);
-  assert.match(steps[keyCheckIndex]?.run ?? "", /pk_\(test\|live\)_/);
-  assert.match(steps[keyCheckIndex]?.run ?? "", /b64decode/);
-  // Rejects a production key outright rather than only comparing hosts, so the
-  // tenants cannot be crossed even if the issuer were edited to match.
-  assert.match(steps[keyCheckIndex]?.run ?? "", /pk_live_\*\)/);
+  assert.match(steps[keyCheckIndex]?.run ?? "", /check-clerk-issuer-match\.mjs/);
+  assert.doesNotMatch(steps[keyCheckIndex]?.run ?? "", /--allow-missing-key/);
   assert.equal(auditStep?.env?.VERCEL_TOKEN, "${{ secrets.VERCEL_TOKEN }}");
   assert.match(auditStep?.run ?? "", /env ls staging --format=json/);
   assert.match(auditStep?.run ?? "", /--require-developer-credentials/);
