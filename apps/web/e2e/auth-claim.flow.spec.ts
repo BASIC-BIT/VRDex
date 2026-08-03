@@ -4,7 +4,7 @@ import {
   clerkTestAuthAvailability,
   createClerkTestAccount,
   deleteClerkTestAccount,
-  isHostedEmailDomainLag,
+  hostedHelperLagReason,
   signInClerkTestAccount,
   type ClerkTestAccount,
 } from "./clerk-auth";
@@ -110,32 +110,34 @@ async function createSignedInClerkAccount(page: Page, runSuffix: string) {
   return account;
 }
 
+/**
+ * Returns the staging-lag reason when the shared hosted target cannot serve this
+ * helper yet, or `null` once it ran. Throws on a genuine failure.
+ */
 async function linkDiscordAccount(
   request: APIRequestContext,
   e2eToken: string,
   email: string,
   providerAccountId: string,
-): Promise<boolean> {
+): Promise<string | null> {
   const linkResponse = await request.post("/api/e2e/auth", {
     headers: { "x-vrdex-e2e-token": e2eToken },
     data: { action: "link-discord", email, providerAccountId },
   });
 
   if (linkResponse.ok()) {
-    return true;
+    return null;
   }
 
-  // Staging deploys from main, so until this branch lands there the deployed
-  // `normalizeE2eEmail` still rejects the disposable domain Clerk will actually
-  // accept. That is a deployment lag, not a product failure — the local run and
-  // every post-merge run cover this path.
-  if (isHostedEmailDomainLag(linkResponse.status(), await linkResponse.text())) {
-    return false;
+  const lagReason = hostedHelperLagReason(linkResponse.status(), await linkResponse.text());
+
+  if (lagReason !== null) {
+    return lagReason;
   }
 
   await expect(linkResponse).toBeOK();
 
-  return true;
+  return null;
 }
 
 /**
@@ -147,34 +149,25 @@ async function recordGuildControlProof(
   e2eToken: string,
   email: string,
   guildId: string,
-): Promise<boolean> {
+): Promise<string | null> {
   const response = await request.post("/api/e2e/auth", {
     headers: { "x-vrdex-e2e-token": e2eToken },
     data: { action: "record-guild-proof", email, guildId, guildName: "E2E Verified Server" },
   });
 
   if (response.ok()) {
-    return true;
+    return null;
   }
 
-  // The shared hosted target runs whatever is on main. Until this branch is
-  // deployed there, the helper action does not exist, which is a staging lag
-  // rather than a product failure — the local run still covers this path.
-  //
-  // Matched on the specific unsupported-action response, not any 400: once the
-  // helper is deployed, a malformed request or a regressed route must fail this
-  // test rather than be excused indefinitely as an old deployment.
-  if (process.env.PLAYWRIGHT_BASE_URL && response.status() === 400) {
-    const body = (await response.json().catch(() => null)) as { error?: string } | null;
+  const lagReason = hostedHelperLagReason(response.status(), await response.text());
 
-    if (body?.error === "Unsupported E2E auth helper action.") {
-      return false;
-    }
+  if (lagReason !== null) {
+    return lagReason;
   }
 
   await expect(response).toBeOK();
 
-  return true;
+  return null;
 }
 
 /**
@@ -366,11 +359,12 @@ test("verified email account with linked Discord can claim person and community 
     });
     account = await createSignedInClerkAccount(page, runSuffix);
 
-    if (!(await linkDiscordAccount(request, e2eToken, account.email, `discord-${runSuffix}`))) {
+    const linkLagReason = await linkDiscordAccount(request, e2eToken, account.email, `discord-${runSuffix}`);
+
+    if (linkLagReason !== null) {
       testInfo.annotations.push({
         type: "hosted-staging-lag",
-        description:
-          "The shared hosted target still rejects the disposable E2E email domain this branch moves to, so the Discord claim path cannot be exercised there yet.",
+        description: `${linkLagReason} The Discord claim path cannot be exercised there until this branch merges and staging redeploys.`,
       });
       return;
     }
@@ -420,11 +414,12 @@ test("verified email account with linked Discord can claim person and community 
       await captureRouteScreenshot(page, testInfo, "account-owned-profile");
     }
 
-    if (!(await recordGuildControlProof(request, e2eToken, account.email, E2E_DISCORD_GUILD_ID))) {
+    const proofLagReason = await recordGuildControlProof(request, e2eToken, account.email, E2E_DISCORD_GUILD_ID);
+
+    if (proofLagReason !== null) {
       testInfo.annotations.push({
         type: "hosted-staging-lag",
-        description:
-          "The shared hosted target does not yet expose the record-guild-proof helper this branch adds for single-step guild claiming.",
+        description: `${proofLagReason} Single-step guild claiming cannot be exercised there until this branch merges and staging redeploys.`,
       });
       return;
     }

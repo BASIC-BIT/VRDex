@@ -130,20 +130,43 @@ export function clerkTestEmail(runSuffix: string) {
 }
 
 /**
- * Whether a helper response is the shared hosted target refusing the current
- * disposable domain because it predates that change.
+ * Why a `/api/e2e/auth` failure is the shared hosted target lagging this branch,
+ * or `null` when it is a real failure.
  *
- * Deliberately narrow: it matches the allowlist message alone, so once staging
- * carries this revision a genuine helper failure fails the test instead of being
- * excused indefinitely. Hosted-only for the same reason — a local run is always
- * this branch, where a domain mismatch is a real bug.
+ * Staging only ever runs `main`, so a branch that adds or changes a helper is
+ * ahead of it until it merges. Three distinct shapes mean the same thing, and
+ * each one cost a hosted run to discover:
+ *
+ * - `404` — the route itself is not deployed. `/api/e2e/auth` was deleted with
+ *   Convex Auth and only this branch restores it.
+ * - `400` naming the disposable-email allowlist — the route is deployed but
+ *   still on the domain this branch replaces.
+ * - `400 Unsupported E2E auth helper action.` — the route is deployed but
+ *   predates the action being called.
+ *
+ * Hosted-only, and each shape is matched specifically rather than "any 4xx": a
+ * local run is always this branch, where every one of these is a real bug, and
+ * once staging catches up a genuine failure has to fail rather than be excused
+ * indefinitely as an old deployment.
  */
-export function isHostedEmailDomainLag(status: number, body: string) {
-  return (
-    Boolean(process.env.PLAYWRIGHT_BASE_URL) &&
-    status === 400 &&
-    /E2E auth helpers only accept .* emails\./.test(body)
-  );
+export function hostedHelperLagReason(status: number, body: string): string | null {
+  if (!process.env.PLAYWRIGHT_BASE_URL) {
+    return null;
+  }
+
+  if (status === 404) {
+    return "The shared hosted target does not serve /api/e2e/auth yet; this branch restores the route the Clerk cutover removed.";
+  }
+
+  if (status === 400 && /E2E auth helpers only accept .* emails\./.test(body)) {
+    return "The shared hosted target still rejects the disposable E2E email domain this branch moves to.";
+  }
+
+  if (status === 400 && body.includes("Unsupported E2E auth helper action.")) {
+    return "The shared hosted target does not expose the E2E auth helper action this branch adds.";
+  }
+
+  return null;
 }
 
 /**
