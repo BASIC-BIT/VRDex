@@ -4,7 +4,8 @@ name: Promote Production Web
 # to vrdex.net, so the live site can sit on an older build indefinitely. That is
 # how the Clerk cutover ended up half-applied: Convex production had already
 # deployed the Clerk backend while vrdex.net still served the pre-Clerk bundle,
-# whose sign-in called Convex Auth functions that no longer existed.
+# whose sign-in called Convex Auth functions that no longer existed. Every read
+# path returned 200 the whole time.
 #
 # Manual on purpose. Promotion is the moment real users move to a new build, and
 # the checks below cannot prove a release is *wanted* — only that it is not
@@ -25,6 +26,11 @@ concurrency:
   group: production-promote
   cancel-in-progress: false
 
+env:
+  # The instance the production publishable key must encode. A key from another
+  # Clerk tenant is still `pk_live_`, so tier alone proves nothing.
+  EXPECTED_CLERK_HOST: clerk.vrdex.net
+
 jobs:
   promote:
     name: Promote Production Web
@@ -36,8 +42,10 @@ jobs:
         uses: actions/checkout@v6
 
       # Fails closed on the states that produced a broken production sign-in
-      # before: a build that predates the auth routes, or one built without Clerk
-      # credentials so every protected route lands on the unavailable notice.
+      # before: a build predating the auth routes, one built without Clerk
+      # credentials, one pointed at another Clerk tenant, and one with no Convex
+      # backend. Each is individually survivable in preview and fatal in
+      # production.
       - name: Verify the deployment is promotable
         env:
           DEPLOYMENT_URL: ${{ inputs.deployment_url }}
@@ -51,37 +59,94 @@ jobs:
 
           sign_up=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$DEPLOYMENT_URL/sign-up")
           if [ "$sign_up" != "200" ]; then
-            echo "::error::$DEPLOYMENT_URL/sign-up returned $sign_up. A build without the auth routes would leave production unable to sign anyone in."
+            echo "::error::$DEPLOYMENT_URL/sign-up returned $sign_up. A build without the auth routes leaves production unable to sign anyone in."
             exit 1
           fi
 
-          body=$(curl -s --max-time 20 "$DEPLOYMENT_URL/sign-in")
+          # Status captured explicitly. An error document still renders the shared
+          # auth layout, so its body carries the public key and would satisfy the
+          # content checks below while the route is actually broken. `/sign-up`
+          # can be healthy while `/sign-in` alone regresses.
+          sign_in_status=$(curl -s -o /tmp/sign-in.html -w '%{http_code}' --max-time 20 "$DEPLOYMENT_URL/sign-in")
+          if [ "$sign_in_status" != "200" ]; then
+            echo "::error::$DEPLOYMENT_URL/sign-in returned $sign_in_status."
+            exit 1
+          fi
 
-          if printf '%s' "$body" | grep -q 'Accounts are temporarily unavailable'; then
+          if grep -q 'Accounts are temporarily unavailable' /tmp/sign-in.html; then
             echo "::error::$DEPLOYMENT_URL renders the auth-unavailable notice, so it was built without Clerk credentials."
             exit 1
           fi
 
-          if ! printf '%s' "$body" | grep -q 'pk_live_'; then
+          # Decoded, not just prefix-matched. The publishable key base64-encodes
+          # its own Frontend API host, so this is what proves the build talks to
+          # *this* Clerk tenant rather than any live one.
+          key=$(grep -oE 'pk_live_[A-Za-z0-9+/=_-]+' /tmp/sign-in.html | head -n 1 || true)
+          if [ -z "$key" ]; then
             echo "::error::$DEPLOYMENT_URL does not carry a live Clerk publishable key."
             exit 1
           fi
 
-          echo "Deployment looks promotable: /sign-up is 200 and a live Clerk key is present."
-
-      # Independent of the build: a promotion is worthless if the Clerk instance
-      # the build points at cannot serve tokens.
-      - name: Verify Clerk production is serving
-        run: |
-          set -euo pipefail
-
-          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 https://clerk.vrdex.net/v1/environment)
-          if [ "$code" != "200" ]; then
-            echo "::error::https://clerk.vrdex.net/v1/environment returned $code. Promoting now would point every user at a Clerk frontend API that cannot serve TLS."
+          decoded_host=$(printf '%s' "${key#pk_live_}" | python3 -c 'import base64,sys; s=sys.stdin.read().strip(); print(base64.b64decode(s + "=" * (-len(s) % 4)).decode("utf-8", "replace").rstrip("$"))')
+          if [ "$decoded_host" != "$EXPECTED_CLERK_HOST" ]; then
+            echo "::error::Publishable key encodes '$decoded_host', expected '$EXPECTED_CLERK_HOST'. Convex would reject tokens from that issuer."
             exit 1
           fi
 
-          echo "Clerk production frontend API is serving."
+          echo "clerk_host=$decoded_host" >> "$GITHUB_ENV"
+          echo "Auth routes serve 200 and the key targets $decoded_host."
+
+      # `check-vercel-env.mjs` only warns when the Convex URL is absent, so a
+      # build with no backend still serves auth pages while every data and
+      # account action is unavailable. `/deployment` reports what the running
+      # build actually resolved.
+      - name: Verify the deployment has a backend
+        env:
+          DEPLOYMENT_URL: ${{ inputs.deployment_url }}
+        run: |
+          set -euo pipefail
+
+          status=$(curl -s -o /tmp/deployment.html -w '%{http_code}' --max-time 20 "$DEPLOYMENT_URL/deployment")
+          if [ "$status" != "200" ]; then
+            echo "::error::$DEPLOYMENT_URL/deployment returned $status."
+            exit 1
+          fi
+
+          for label in "Convex URL" "Clerk"; do
+            value=$(python3 -c 'import re,sys; html=open("/tmp/deployment.html",encoding="utf-8").read(); m=re.search(re.escape(sys.argv[1])+r"</dt><dd[^>]*>([^<]*)<", html); print((m.group(1) if m else "MISSING").strip())' "$label")
+            if [ "$value" != "configured" ]; then
+              echo "::error::$DEPLOYMENT_URL reports $label as '$value'. Promoting a build without it leaves production degraded."
+              exit 1
+            fi
+          done
+
+          echo "Deployment reports both Convex and Clerk configured."
+
+      # Independent of the build: a promotion is worthless if the Clerk instance
+      # the build points at cannot serve tokens, and actively harmful while
+      # self-serve deletion is on.
+      - name: Verify the Clerk instance is safe to promote into
+        run: |
+          set -euo pipefail
+
+          status=$(curl -s -o /tmp/clerk-env.json -w '%{http_code}' --max-time 20 "https://$EXPECTED_CLERK_HOST/v1/environment")
+          if [ "$status" != "200" ]; then
+            echo "::error::https://$EXPECTED_CLERK_HOST/v1/environment returned $status. Promoting would point every user at a frontend API that cannot serve tokens."
+            exit 1
+          fi
+
+          # VRDex cannot reconcile a deleted Clerk identity (#227): `users` and
+          # `profileOwners` rows survive under a `clerkUserId` nobody can
+          # authenticate as, and previously issued developer tokens keep working.
+          # The promoted build exposes Clerk's profile surface, so this has to be
+          # off before that surface reaches users.
+          delete_self=$(python3 -c 'import json; print(json.load(open("/tmp/clerk-env.json"))["user_settings"]["actions"]["delete_self"])')
+          if [ "$delete_self" != "False" ]; then
+            echo "::error::Clerk self-serve account deletion is enabled. Turn it off until #227 lands; see docs/backend/auth-sessions.md."
+            exit 1
+          fi
+
+          echo "Clerk is serving and self-serve deletion is disabled."
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
@@ -99,31 +164,46 @@ jobs:
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: pnpm dlx vercel@54.4.1 promote "$DEPLOYMENT_URL" --token "$VERCEL_TOKEN" --scope "$VERCEL_ORG_ID"
 
-      # Asserts against the live domain rather than the deployment URL, so an
-      # alias that did not actually move is reported as a failure.
-      - name: Verify vrdex.net serves the promoted build
+      # Compares deployment identity, not route health. Vercel stamps every asset
+      # URL with `?dpl=<deployment id>`, so this distinguishes "the alias moved to
+      # the build I asked for" from "some build with a working /sign-up is live",
+      # which a status check alone cannot tell apart once the previous release
+      # also serves that route.
+      - name: Verify vrdex.net serves the promoted deployment
         env:
           DEPLOYMENT_URL: ${{ inputs.deployment_url }}
         run: |
           set -euo pipefail
 
-          sign_up=""
+          dpl_of() {
+            curl -s --max-time 20 "$1/sign-in" | grep -oE 'dpl=dpl_[A-Za-z0-9]+' | head -n 1 | cut -d= -f2
+          }
+
+          expected=$(dpl_of "$DEPLOYMENT_URL")
+          if [ -z "$expected" ]; then
+            echo "::error::Could not read a deployment id from $DEPLOYMENT_URL."
+            exit 1
+          fi
+
+          live=""
           for _ in $(seq 1 12); do
             sleep 10
-            sign_up=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 https://vrdex.net/sign-up || echo 000)
-            [ "$sign_up" = "200" ] && break
+            live=$(dpl_of "https://vrdex.net" || true)
+            [ "$live" = "$expected" ] && break
           done
 
           {
             echo "## Production promote"
             echo ""
-            echo "Promoted: $DEPLOYMENT_URL"
+            echo "Requested: $DEPLOYMENT_URL (\`$expected\`)"
+            echo "Live on vrdex.net: \`${live:-unknown}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-          if [ "$sign_up" != "200" ]; then
-            echo "::error::https://vrdex.net/sign-up returned $sign_up after promotion. The alias may not have moved."
-            echo "Result: FAILED - vrdex.net/sign-up returned $sign_up" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$live" != "$expected" ]; then
+            echo "::error::vrdex.net serves deployment '${live:-unknown}', expected '$expected'. The alias did not move."
+            echo ""
+            echo "Result: FAILED" >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
 
-          echo "Result: vrdex.net is serving the promoted build." >> "$GITHUB_STEP_SUMMARY"
+          echo "Result: vrdex.net is serving the requested deployment." >> "$GITHUB_STEP_SUMMARY"

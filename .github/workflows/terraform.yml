@@ -135,6 +135,7 @@ jobs:
             manual_apply: "true"
             requires_aws: "true"
             requires_vercel: "true"
+            requires_clerk_dns: "true"
             requires_posthog: "false"
             requires_posthog_public_key: "false"
             requires_ses_domain: "false"
@@ -333,6 +334,19 @@ jobs:
           if [ "${{ matrix.stack.requires_profile_assets_enabled }}" = "true" ] && [ "$TERRAFORM_PROFILE_ASSETS_ENABLED" != "true" ]; then missing+=("TERRAFORM_PROFILE_ASSETS_ENABLED=true"); fi
           if [ "${{ matrix.stack.requires_upstash }}" = "true" ] && [ -z "$TERRAFORM_UPSTASH_EMAIL" ]; then missing+=("TERRAFORM_UPSTASH_EMAIL"); fi
           if [ "${{ matrix.stack.requires_upstash }}" = "true" ] && [ -z "$TERRAFORM_UPSTASH_API_KEY" ]; then missing+=("TERRAFORM_UPSTASH_API_KEY or UPSTASH_API_KEY"); fi
+
+          # Fail closed rather than treating absent configuration as "disable the
+          # records". `manage_clerk_dns` defaults to false so forks create
+          # nothing, but this stack auto-applies from main — so a deleted or
+          # renamed variable would plan 5 to destroy against the live Clerk
+          # CNAMEs and apply it unattended, taking production authentication DNS
+          # with it. Skipping the stack is the safe failure.
+          if [ "${{ matrix.stack.requires_clerk_dns }}" = "true" ]; then
+            if [ "$TERRAFORM_WEB_DOMAINS_MANAGE_CLERK_DNS" != "true" ]; then missing+=("TERRAFORM_WEB_DOMAINS_MANAGE_CLERK_DNS=true"); fi
+            if [ -z "$TERRAFORM_WEB_DOMAINS_CLERK_MAIL_TARGET" ]; then missing+=("TERRAFORM_WEB_DOMAINS_CLERK_MAIL_TARGET"); fi
+            if [ -z "$TERRAFORM_WEB_DOMAINS_CLERK_DKIM1_TARGET" ]; then missing+=("TERRAFORM_WEB_DOMAINS_CLERK_DKIM1_TARGET"); fi
+            if [ -z "$TERRAFORM_WEB_DOMAINS_CLERK_DKIM2_TARGET" ]; then missing+=("TERRAFORM_WEB_DOMAINS_CLERK_DKIM2_TARGET"); fi
+          fi
 
           if [ "${#missing[@]}" -gt 0 ]; then
             echo "plan_enabled=false" >> "$GITHUB_OUTPUT"

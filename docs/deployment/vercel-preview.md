@@ -300,6 +300,45 @@ brittle. Do not cite this lane as evidence that provider linking works. It is
 also not a full automated provider-login robot; credential entry and fresh
 consent remain manual or use a provider-approved non-interactive mechanism.
 
+## Promoting Production
+
+Vercel's Git integration builds production deployments but does not alias them
+to `vrdex.net`. The live site therefore stays on whatever build was last
+promoted, and a merged change can sit unreleased indefinitely with nothing
+reporting it.
+
+That is not hypothetical: during the Clerk cutover, Convex production deployed
+the Clerk backend while `vrdex.net` kept serving the pre-Clerk bundle, whose
+sign-in called Convex Auth functions the deploy had just deleted. Production
+sign-in was broken for hours while every read path returned 200.
+
+Promote with the `Promote Production Web` workflow:
+
+```sh
+gh workflow run production-promote.yml -f deployment_url=https://vr-dex-<id>-basicbit.vercel.app
+```
+
+Find the candidate with `vercel ls`, taking the newest `Ready` deployment whose
+environment is `Production`.
+
+Dispatch is manual on purpose. The preflight can show a build is not obviously
+broken; it cannot show that releasing it is wanted.
+
+It refuses to promote unless all of the following hold, each corresponding to a
+way production has broken or nearly broken before:
+
+- `/sign-up` returns 200 — a build predating the auth routes cannot sign anyone in
+- `/sign-in` returns 200 before its body is inspected — an error document still renders the shared auth layout, so its body would otherwise satisfy the content checks
+- the page does not render the auth-unavailable notice — that build was made without Clerk credentials
+- the publishable key decodes to `clerk.vrdex.net` — tier alone does not prove tenant, and another tenant's `pk_live_` key would have Convex reject every token
+- `/deployment` reports both Convex and Clerk as configured — a missing Convex URL is only a build warning, and leaves the site serving auth pages with no backend
+- `clerk.vrdex.net/v1/environment` returns 200 — the instance must be able to issue tokens
+- that response has `user_settings.actions.delete_self` false — the promoted build exposes Clerk's profile surface, and VRDex cannot reconcile a deleted identity until [#227](https://github.com/BASIC-BIT/VRDex/issues/227)
+
+Afterwards it compares the `?dpl=` deployment id on `vrdex.net` against the
+requested deployment, so an alias that did not move fails rather than passing on
+a route check the previous release would also satisfy.
+
 ## Validation
 
 The Vercel build runs `pnpm build:vercel`, which executes `apps/web/scripts/check-vercel-env.mjs` before `next build`.
