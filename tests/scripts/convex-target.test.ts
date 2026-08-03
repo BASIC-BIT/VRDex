@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { resolveConvexTarget } from "../../scripts/cx";
+import { resolveConvexTarget } from "../../scripts/convex-target";
 
 describe("convex target resolution", () => {
   const configured = {

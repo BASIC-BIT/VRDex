@@ -34,12 +34,26 @@ that reads `prod`.
 
 Credentials are read from `.env.local` in the main checkout — worktrees do not
 carry it, and the wrapper locates the main checkout through
-`git rev-parse --git-common-dir` rather than requiring a variable. They are
-passed to the Convex CLI through its environment and never printed; the banner
-names the deployment and the env file only.
+`git rev-parse --git-common-dir` rather than requiring a variable. The main
+checkout takes precedence, so a worktree that later acquires its own env file
+cannot shadow centrally rotated credentials with stale ones. Values are passed
+to the Convex CLI through its environment and never printed; the banner names
+the deployment and the env file only.
 
 A target that is missing either of its two variables fails and names both,
 rather than falling back to whichever credentials are present.
+
+The same targeting applies to the seed operations scripts, which take
+`--target` instead of the `--prod` flag they used to accept:
+
+```bash
+pnpm ops:seed-publish -- --batch-id <id> --target prod ...
+pnpm ops:seed-import:json -- --file <path> --target prod ...
+pnpm ops:seed-handoff:create -- --candidate-id <id> --target prod ...
+```
+
+`--target` defaults to `local`, which uses the ambient environment and so needs
+a running local backend from `pnpm dev:backend:local`.
 
 ## Current Deployments
 
@@ -63,6 +77,18 @@ Local ignored env names:
 - `CONVEX_DEPLOY_KEY_PROD`
 - `CONVEX_URL_DEV`
 - `CONVEX_URL_PROD`
+
+`pnpm cx` and the `ops:seed-*` scripts additionally need the deployment name for
+each target they can reach. Both are the deployment's own identifier, not a URL:
+
+- `CONVEX_DEPLOYMENT_DEV=dev:scrupulous-corgi-247`
+- `CONVEX_DEPLOYMENT_PROD=prod:superb-pig-954`
+
+A target is only usable when both of its variables are present. `dev` needs
+`CONVEX_DEPLOYMENT_DEV` and `CONVEX_DEPLOY_KEY_DEV`; `prod` needs
+`CONVEX_DEPLOYMENT_PROD` and `CONVEX_DEPLOY_KEY_PROD`. Supplying one without
+the other fails naming both, rather than falling back to the other target's
+credentials.
 
 ## Pull Request Preview Backends
 

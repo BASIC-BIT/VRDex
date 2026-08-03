@@ -3,10 +3,11 @@ import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { CONVEX_TARGET_NAMES, convexCliPath, convexTargetEnv } from "./convex-target.ts";
+
 const scriptPath = fileURLToPath(import.meta.url);
 const scriptDir = path.dirname(scriptPath);
 const repoRoot = path.resolve(scriptDir, "..");
-const convexCliPath = path.join(repoRoot, "node_modules", "convex", "bin", "main.js");
 const args = process.argv.slice(2);
 
 export const MAX_CONVEX_IMPORT_ARGS_BYTES = 20_000;
@@ -20,6 +21,16 @@ function fail(message) {
   console.error(message);
   process.exit(1);
 }
+
+// Resolved before any file reading, so a mistyped target fails before the
+// script touches the seed source at all.
+const target = convexTargetEnv(option("--target") ?? "local");
+
+if (!target.ok) {
+  fail(target.error);
+}
+
+console.error(`→ convex ${target.label} (${target.deployment})`);
 
 function serializedByteLength(value) {
   return Buffer.byteLength(JSON.stringify(value), "utf8");
@@ -98,25 +109,23 @@ export function chunkPermissionedSeedImport(
   return chunks;
 }
 
-function runConvexMutation(mutationArgs, deployment) {
-  const convexArgs = ["run"];
-  if (args.includes("--prod")) {
-    convexArgs.push("--prod");
-  }
-  if (deployment) {
-    convexArgs.push("--deployment", deployment);
-  }
-  convexArgs.push(
-    "seedImports:importPermissionedJsonBatch",
-    JSON.stringify(mutationArgs),
+function runConvexMutation(mutationArgs) {
+  return spawnSync(
+    process.execPath,
+    [
+      convexCliPath,
+      "run",
+      "seedImports:importPermissionedJsonBatch",
+      JSON.stringify(mutationArgs),
+    ],
+    {
+      cwd: repoRoot,
+      encoding: "utf8",
+      env: target.env,
+      maxBuffer: 2 * 1024 * 1024,
+      windowsHide: true,
+    },
   );
-
-  return spawnSync(process.execPath, [convexCliPath, ...convexArgs], {
-    cwd: repoRoot,
-    encoding: "utf8",
-    maxBuffer: 2 * 1024 * 1024,
-    windowsHide: true,
-  });
 }
 
 function main() {
@@ -128,7 +137,7 @@ function main() {
 
   if (!file || !actorToken || !actorIssuer || !actorSubject) {
     fail(
-      "Usage: pnpm ops:seed-import:json -- --file <outside-repo.json> --actor-token <id> --actor-issuer <issuer> --actor-subject <subject> [--actor-name <name>] [--prod|--deployment <name>]",
+      `Usage: pnpm ops:seed-import:json -- --file <outside-repo.json> --actor-token <id> --actor-issuer <issuer> --actor-subject <subject> [--actor-name <name>] [--target <${CONVEX_TARGET_NAMES.join("|")}>]`,
     );
   }
 
@@ -167,13 +176,12 @@ function main() {
     fail(error instanceof Error ? error.message : "Seed import JSON is invalid.");
   }
 
-  const deployment = option("--deployment");
   let insertedCandidates = 0;
   let skippedCandidates = 0;
   let insertedFields = 0;
 
   for (const [index, mutationArgs] of chunks.entries()) {
-    const result = runConvexMutation(mutationArgs, deployment);
+    const result = runConvexMutation(mutationArgs);
     if (result.status !== 0) {
       fail(
         `Seed import failed in chunk ${index + 1} of ${chunks.length}. Inspect Convex deployment logs; source contents were not printed.`,
