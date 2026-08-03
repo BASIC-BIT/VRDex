@@ -170,9 +170,15 @@ Locked decision:
 - Real partner spreadsheets, raw exports, and private list files must not be
   committed to the repo.
 - Private seed candidates must not enter public search documents, public API
-  responses, or anonymous lookup results.
-- NWinn seed candidates must remain private operator or beta lookup data. Do not
-  publish NWinn records directly as public unclaimed profiles.
+  responses, or anonymous lookup results while their batch's
+  `publicationPolicy` is `private_only`.
+- Superseded on 2026-07-30: the earlier rule that NWinn seed candidates must
+  never be published directly as public unclaimed profiles no longer holds. The
+  owner confirmed the source is not license-restricted. Publication is allowed,
+  but only after an operator explicitly relaxes the batch's `publicationPolicy`
+  with a recorded reason. See
+  [Publication](../backend/private-seed-operations.md#publication) for the
+  authoritative workflow.
 - Server-side authorization, not a client-side feature flag or PostHog cohort,
   is the source of truth for private seed access.
 - Operator review, source confidence, link reachability, and owner verification

@@ -1,6 +1,22 @@
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseWriter } from "./_generated/server";
 import type { AuthSubject } from "./_communityAuthority";
+import {
+  PROFILE_ALIAS_MAX_COUNT,
+  PROFILE_ALIAS_MAX_LENGTH,
+  PROFILE_DISPLAY_NAME_MAX_LENGTH,
+  PROFILE_DISPLAY_NAME_MIN_LENGTH,
+  PROFILE_SUBTYPE_MAX_LENGTH,
+  PROFILE_TAG_MAX_COUNT,
+  PROFILE_TAG_MAX_LENGTH,
+} from "./_profileSubmissions";
+import {
+  PROFILE_BIO_MAX_LENGTH,
+  PROFILE_HEADLINE_MAX_LENGTH,
+  PROFILE_PERSON_PRONOUNS_MAX_LENGTH,
+  PROFILE_REGION_MAX_LENGTH,
+  PROFILE_TIMEZONE_MAX_LENGTH,
+} from "./_profileUpdates";
 
 export type SeedImportFixture = {
   batchId: string;
@@ -133,12 +149,22 @@ export type SeedImportPublicationBlocker =
   | "field_unreviewed"
   | "field_needs_correction"
   | "owner_confirmed_field_without_claim"
-  | "unsafe_public_field";
+  | "unsafe_public_field"
+  | "candidate_not_queued_for_publication"
+  | "candidate_profile_type_unsupported"
+  | "matched_profile_type_mismatch"
+  | "publication_not_authorized"
+  | "field_exceeds_public_profile_limits"
+  | "display_name_outside_public_limits"
+  | "live_handoff_invitation_blocks_publication";
 
 type SeedImportPublicationCandidate = Pick<
   Doc<"seedImportCandidateProfiles">,
   "reviewState" | "publicationState" | "claimState" | "matchedProfileId" | "proposedSlug"
->;
+> & {
+  proposedDisplayName?: string;
+  profileType?: Doc<"seedImportCandidateProfiles">["profileType"];
+};
 
 type SeedImportPublicationField = Pick<
   Doc<"seedImportCandidateFields">,
@@ -983,19 +1009,335 @@ export function isSafePublicSeedImportField(field: SeedImportPublicationField): 
   return true;
 }
 
-export function getSeedImportPublicationBlockers(args: {
-  batch: Pick<Doc<"seedImportBatches">, "publicationPolicy" | "reviewState">;
-  candidate: SeedImportPublicationCandidate;
-  fields: SeedImportPublicationField[];
-  matchedProfile?: SeedImportPublicationProfile | null;
+/**
+ * Whether a bulk publish run may accept this field on the operator's behalf.
+ *
+ * Only `unreviewed` qualifies. `rejected` and `needs_correction` record a real
+ * review decision and must survive a bulk run, so trusting a source is never
+ * the same as undoing a rejection.
+ */
+export function canBulkAcceptSeedImportField(
+  reviewState: SeedImportFieldReviewState,
+): boolean {
+  return reviewState === "unreviewed";
+}
+
+/**
+ * Whether a bulk publish run may accept this candidate on the operator's behalf.
+ *
+ * Mirrors `canBulkAcceptSeedImportField`: only `unreviewed` qualifies, so an
+ * explicit `rejected` or `needs_correction` decision survives a bulk run.
+ */
+export function canBulkAcceptSeedImportCandidate(
+  reviewState: SeedImportCandidateReviewState,
+): boolean {
+  return reviewState === "unreviewed";
+}
+
+/**
+ * Whether a bulk publish run may approve this batch on the operator's behalf.
+ *
+ * `rejected` and `superseded` are review decisions, not initial workflow states,
+ * so reversing them requires a deliberate `setBatchReviewState` call rather than
+ * a side effect of bulk publishing.
+ */
+export function canBulkApproveSeedImportBatch(
+  reviewState: SeedImportBatchReviewState,
+): boolean {
+  return reviewState === "draft" || reviewState === "ready_for_review" || reviewState === "approved";
+}
+
+const PUBLIC_LIST_FIELD_LIMITS: Record<string, { maxItems: number; maxLength: number }> = {
+  aliases: { maxItems: PROFILE_ALIAS_MAX_COUNT, maxLength: PROFILE_ALIAS_MAX_LENGTH },
+  tags: { maxItems: PROFILE_TAG_MAX_COUNT, maxLength: PROFILE_TAG_MAX_LENGTH },
+  "person.roleTags": { maxItems: PROFILE_TAG_MAX_COUNT, maxLength: PROFILE_TAG_MAX_LENGTH },
+  "community.categoryTags": { maxItems: PROFILE_TAG_MAX_COUNT, maxLength: PROFILE_TAG_MAX_LENGTH },
+};
+
+const PUBLIC_TEXT_FIELD_LIMITS: Record<string, number> = {
+  headline: PROFILE_HEADLINE_MAX_LENGTH,
+  bio: PROFILE_BIO_MAX_LENGTH,
+  region: PROFILE_REGION_MAX_LENGTH,
+  timezone: PROFILE_TIMEZONE_MAX_LENGTH,
+  "person.pronouns": PROFILE_PERSON_PRONOUNS_MAX_LENGTH,
+  "community.subtype": PROFILE_SUBTYPE_MAX_LENGTH,
+};
+
+/**
+ * Whether an accepted field would exceed the bounds the rest of the app enforces
+ * on public profiles.
+ *
+ * Private seed staging is deliberately more permissive than a public profile: it
+ * accepts far longer text and longer lists so a source can be captured verbatim.
+ * Writing those values straight onto a public profile would store data no public
+ * editing path could ever produce.
+ */
+export function exceedsPublicProfileLimits(
+  field: Pick<Doc<"seedImportCandidateFields">, "fieldKey" | "value">,
+): boolean {
+  const listLimits = PUBLIC_LIST_FIELD_LIMITS[field.fieldKey];
+
+  if (listLimits !== undefined) {
+    const values = Array.isArray(field.value) ? field.value : [];
+
+    return (
+      values.length > listLimits.maxItems ||
+      values.some((value) => typeof value === "string" && value.trim().length > listLimits.maxLength)
+    );
+  }
+
+  const textLimit = PUBLIC_TEXT_FIELD_LIMITS[field.fieldKey];
+
+  if (textLimit !== undefined) {
+    return typeof field.value === "string" && field.value.trim().length > textLimit;
+  }
+
+  return false;
+}
+
+/**
+ * Whether the publication mapper can actually convert this field.
+ *
+ * `normalizeSafePrivateSeedFieldValue` is the same function the mapper calls, and
+ * it throws on unsupported keys and malformed values — an `aliases` string instead
+ * of an array, a link with an HTTPS URL but no label. Running it here turns those
+ * into a blocker instead of an exception mid-page.
+ */
+export function isMappableSeedImportField(
+  field: Pick<Doc<"seedImportCandidateFields">, "fieldKey" | "value">,
+): boolean {
+  try {
+    normalizeSafePrivateSeedFieldValue(field.fieldKey, field.value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether a proposed display name is outside the bounds the public profile paths
+ * enforce. Seed normalization allows up to 160 characters and no minimum, so a
+ * name valid in staging can be invalid as a public profile.
+ */
+export function displayNameOutsidePublicLimits(displayName: string): boolean {
+  const normalized = displayName.trim();
+
+  return (
+    normalized.length < PROFILE_DISPLAY_NAME_MIN_LENGTH ||
+    normalized.length > PROFILE_DISPLAY_NAME_MAX_LENGTH
+  );
+}
+
+/**
+ * Field-level review and safety gates.
+ *
+ * Shared by the queue-time and publish-time gates: field review states can change
+ * between queueing and publishing, so consuming the queue has to re-run these or
+ * a field moved back to `needs_correction` would simply be dropped and the
+ * profile published anyway.
+ */
+export function getSeedImportFieldBlockers(
+  fields: SeedImportPublicationField[],
+): SeedImportPublicationBlocker[] {
+  const blockers = new Set<SeedImportPublicationBlocker>();
+
+  for (const field of fields) {
+    if (field.reviewState === "unreviewed") {
+      blockers.add("field_unreviewed");
+    }
+
+    if (field.reviewState === "needs_correction") {
+      blockers.add("field_needs_correction");
+    }
+
+    if (field.reviewState === "accepted" && field.confidence === "owner_confirmed") {
+      blockers.add("owner_confirmed_field_without_claim");
+    }
+
+    // Visibility is deliberately not part of this condition, and the mapper's own
+    // normalization is run here rather than only checking key/URL shape. The mapper
+    // throws for unsupported keys *and* malformed values at any visibility, and a
+    // throw inside a bulk page rolls back every candidate in it instead of
+    // reporting one blocker and continuing.
+    if (
+      field.reviewState === "accepted" &&
+      (!isSafePublicSeedImportField(field) || !isMappableSeedImportField(field))
+    ) {
+      blockers.add("unsafe_public_field");
+    }
+
+    if (field.reviewState === "accepted" && exceedsPublicProfileLimits(field)) {
+      blockers.add("field_exceeds_public_profile_limits");
+    }
+  }
+
+  return [...blockers];
+}
+
+/**
+ * Publish-time gates for a candidate that was already queued for publication.
+ *
+ * Distinct from `getSeedImportPublicationBlockers`, which gates the *queue*
+ * step: that one rejects a candidate already in `published_unclaimed`, while
+ * this one requires it. Policy, review state, and suppression requests are all
+ * re-checked here because any of them can change between queue and publish.
+ */
+export function getSeedImportPublishBlockers(args: {
+  batch: Pick<
+    Doc<"seedImportBatches">,
+    "publicationPolicy" | "reviewState" | "publicationAuthorizations"
+  >;
+  candidate: SeedImportPublicationCandidate & Pick<Doc<"seedImportCandidateProfiles">, "profileType">;
+  fields?: SeedImportPublicationField[];
+  matchedProfile?: (SeedImportPublicationProfile & { profileType?: Doc<"profiles">["profileType"] }) | null;
   hasInvalidProposedSlug?: boolean;
   hasAcceptedSuppressionRequest?: boolean;
+  hasLiveHandoffInvitation?: boolean;
   slugCollisionProfile?: SeedImportPublicationProfile | null;
 }): SeedImportPublicationBlocker[] {
   const blockers = new Set<SeedImportPublicationBlocker>();
 
-  if (args.batch.publicationPolicy === "private_only") {
+  if ((args.batch.publicationPolicy ?? "private_only") !== "reviewed_publication_allowed") {
     blockers.add("source_private_only");
+  }
+
+  // A relaxed policy alone is not authorization. Legacy and fixture batches can
+  // carry reviewed_publication_allowed with no recorded reason, and publishing
+  // those would create public profiles with nothing establishing that the source
+  // permitted it. setBatchPublicationPolicy is what records that.
+  // An authorization entry specifically: the list also records revocations, so a
+  // batch that was authorized and later revoked must not read as authorized here.
+  if (
+    !(args.batch.publicationAuthorizations ?? []).some(
+      (record) => (record.policy ?? "reviewed_publication_allowed") === "reviewed_publication_allowed",
+    )
+  ) {
+    blockers.add("publication_not_authorized");
+  }
+
+  if (args.batch.reviewState !== "approved") {
+    blockers.add("batch_not_approved");
+  }
+
+  if (args.candidate.reviewState !== "accepted") {
+    blockers.add("candidate_not_accepted");
+  }
+
+  if (args.candidate.publicationState !== "published_unclaimed") {
+    blockers.add("candidate_not_queued_for_publication");
+  }
+
+  if (args.candidate.claimState !== "unclaimed") {
+    blockers.add("candidate_claim_not_unclaimed");
+  }
+
+  // ponytail: person-only for this slice. Community candidates need a community
+  // field mapper; they are skipped rather than half-published.
+  if (args.candidate.profileType !== "person") {
+    blockers.add("candidate_profile_type_unsupported");
+  }
+
+  // Create-only, like the slug-collision and display-name checks: a merge keeps the
+  // matched profile's slug and never allocates from the proposal, and there is no
+  // mutation for correcting a proposed slug, so blocking would strand the match.
+  if (
+    args.hasInvalidProposedSlug === true &&
+    (args.matchedProfile === null || args.matchedProfile === undefined)
+  ) {
+    blockers.add("invalid_proposed_slug");
+  }
+
+  if (args.matchedProfile !== null && args.matchedProfile !== undefined) {
+    if (args.matchedProfile.claimState !== "unclaimed") {
+      blockers.add("matched_profile_claimed");
+    }
+
+    // A person candidate matched to a community profile would feed a community
+    // document to the person-only mapper and fail schema validation on write.
+    if (
+      args.matchedProfile.profileType !== undefined &&
+      args.matchedProfile.profileType !== args.candidate.profileType
+    ) {
+      blockers.add("matched_profile_type_mismatch");
+    }
+
+    // Re-checked at publish time, not just at queue time: a merge resets
+    // publicSurfacingState to public, so a profile opted out or suppressed after
+    // queueing would have its explicit surfacing decision erased.
+    if (args.matchedProfile.publicSurfacingState !== "public") {
+      blockers.add("matched_profile_not_publicly_surfaceable");
+    }
+  }
+
+  // Only when creating a new profile. A deliberate match merges into the matched
+  // profile and keeps its existing slug, so the colliding slug is never written --
+  // blocking there would strand the exact same-name case that
+  // matchCandidateToProfile exists to resolve.
+  if (
+    (args.matchedProfile === null || args.matchedProfile === undefined) &&
+    args.slugCollisionProfile !== null &&
+    args.slugCollisionProfile !== undefined
+  ) {
+    blockers.add("slug_collision_blocks_publication");
+  }
+
+  if (args.hasAcceptedSuppressionRequest === true) {
+    blockers.add("suppression_request_blocks_publication");
+  }
+
+  if (args.hasLiveHandoffInvitation === true) {
+    blockers.add("live_handoff_invitation_blocks_publication");
+  }
+
+  // Create-only: a merge preserves the matched profile's existing displayName and
+  // never writes the candidate's, so the public bound does not apply there.
+  if (
+    (args.matchedProfile === null || args.matchedProfile === undefined) &&
+    args.candidate.proposedDisplayName !== undefined &&
+    displayNameOutsidePublicLimits(args.candidate.proposedDisplayName)
+  ) {
+    blockers.add("display_name_outside_public_limits");
+  }
+
+  for (const blocker of getSeedImportFieldBlockers(args.fields ?? [])) {
+    blockers.add(blocker);
+  }
+
+  return [...blockers];
+}
+
+export function getSeedImportPublicationBlockers(args: {
+  batch: Pick<
+    Doc<"seedImportBatches">,
+    "publicationPolicy" | "reviewState" | "publicationAuthorizations"
+  >;
+  candidate: SeedImportPublicationCandidate;
+  fields: SeedImportPublicationField[];
+  matchedProfile?: (SeedImportPublicationProfile & { profileType?: Doc<"profiles">["profileType"] }) | null;
+  hasInvalidProposedSlug?: boolean;
+  hasAcceptedSuppressionRequest?: boolean;
+  hasLiveHandoffInvitation?: boolean;
+  slugCollisionProfile?: SeedImportPublicationProfile | null;
+}): SeedImportPublicationBlocker[] {
+  const blockers = new Set<SeedImportPublicationBlocker>();
+
+  // Fail closed on a missing policy, matching the publish gate. Rejecting only the
+  // literal private_only would queue a legacy candidate — mutating it out of the
+  // private review lookup — and then skip it at publish.
+  if ((args.batch.publicationPolicy ?? "private_only") !== "reviewed_publication_allowed") {
+    blockers.add("source_private_only");
+  }
+
+  // Same as the publish gate: a relaxed policy with no recorded authorization is
+  // not a decision anyone made.
+  // An authorization entry specifically: the list also records revocations, so a
+  // batch that was authorized and later revoked must not read as authorized here.
+  if (
+    !(args.batch.publicationAuthorizations ?? []).some(
+      (record) => (record.policy ?? "reviewed_publication_allowed") === "reviewed_publication_allowed",
+    )
+  ) {
+    blockers.add("publication_not_authorized");
   }
 
   if (args.batch.reviewState !== "approved") {
@@ -1021,7 +1363,13 @@ export function getSeedImportPublicationBlockers(args: {
     blockers.add("candidate_claim_not_unclaimed");
   }
 
-  if (args.hasInvalidProposedSlug === true) {
+  // Create-only, like the slug-collision and display-name checks: a merge keeps the
+  // matched profile's slug and never allocates from the proposal, and there is no
+  // mutation for correcting a proposed slug, so blocking would strand the match.
+  if (
+    args.hasInvalidProposedSlug === true &&
+    (args.matchedProfile === null || args.matchedProfile === undefined)
+  ) {
     blockers.add("invalid_proposed_slug");
   }
 
@@ -1036,38 +1384,58 @@ export function getSeedImportPublicationBlockers(args: {
     }
   }
 
+  // Rejected before queueing, not only at publish: queueing mutates the candidate
+  // out of the private review lookup, so a cross-type match would strand it there.
+  if (
+    args.matchedProfile !== null &&
+    args.matchedProfile !== undefined &&
+    args.matchedProfile.profileType !== undefined &&
+    args.candidate.profileType !== undefined &&
+    args.matchedProfile.profileType !== args.candidate.profileType
+  ) {
+    blockers.add("matched_profile_type_mismatch");
+  }
+
   if (args.hasAcceptedSuppressionRequest === true) {
     blockers.add("suppression_request_blocks_publication");
   }
 
+  if (args.hasLiveHandoffInvitation === true) {
+    blockers.add("live_handoff_invitation_blocks_publication");
+  }
+
+  // Also checked here, not only at publish: queueing mutates the candidate's
+  // publication state, so a community candidate would be moved out of the private
+  // draft/review lookup and then merely skipped at publish.
   if (
+    args.candidate.profileType !== undefined &&
+    args.candidate.profileType !== "person"
+  ) {
+    blockers.add("candidate_profile_type_unsupported");
+  }
+
+  // Create-only: a merge preserves the matched profile's existing displayName and
+  // never writes the candidate's, so the public bound does not apply there.
+  if (
+    (args.matchedProfile === null || args.matchedProfile === undefined) &&
+    args.candidate.proposedDisplayName !== undefined &&
+    displayNameOutsidePublicLimits(args.candidate.proposedDisplayName)
+  ) {
+    blockers.add("display_name_outside_public_limits");
+  }
+
+  // Create-only, matching the publish gate: a deliberate match merges into the
+  // matched profile and keeps its slug, so the colliding slug is never written.
+  if (
+    (args.matchedProfile === null || args.matchedProfile === undefined) &&
     args.slugCollisionProfile !== null &&
-    args.slugCollisionProfile !== undefined &&
-    args.slugCollisionProfile._id !== args.candidate.matchedProfileId
+    args.slugCollisionProfile !== undefined
   ) {
     blockers.add("slug_collision_blocks_publication");
   }
 
-  for (const field of args.fields) {
-    if (field.reviewState === "unreviewed") {
-      blockers.add("field_unreviewed");
-    }
-
-    if (field.reviewState === "needs_correction") {
-      blockers.add("field_needs_correction");
-    }
-
-    if (field.reviewState === "accepted" && field.confidence === "owner_confirmed") {
-      blockers.add("owner_confirmed_field_without_claim");
-    }
-
-    if (
-      field.reviewState === "accepted" &&
-      field.visibility === "public" &&
-      !isSafePublicSeedImportField(field)
-    ) {
-      blockers.add("unsafe_public_field");
-    }
+  for (const blocker of getSeedImportFieldBlockers(args.fields)) {
+    blockers.add(blocker);
   }
 
   return [...blockers];
