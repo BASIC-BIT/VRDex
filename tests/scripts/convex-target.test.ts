@@ -201,6 +201,17 @@ describe("convex target resolution", () => {
     assert.match(error(result), /CONVEX_DEPLOYMENT_DEV and CONVEX_DEPLOY_KEY_DEV/);
   });
 
+  it("names the whole required pair when only one half is configured", () => {
+    // Otherwise a half-configured target reports one variable, gets it added,
+    // then reports the next -- two round trips for one mistake.
+    const { CONVEX_DEPLOY_KEY_DEV, ...withoutKey } = configured;
+    const result = resolveConvexTarget("dev", withoutKey);
+
+    assert.equal(result.ok, false);
+    assert.match(error(result), /missing CONVEX_DEPLOY_KEY_DEV/);
+    assert.match(error(result), /needs CONVEX_DEPLOYMENT_DEV and CONVEX_DEPLOY_KEY_DEV/);
+  });
+
   it("rejects an unknown target instead of guessing one", () => {
     const result = resolveConvexTarget("production", configured);
 

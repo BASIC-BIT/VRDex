@@ -64,11 +64,13 @@ rejected with an error rather than ignored, since silently falling back to
 `local` would let a leftover `--prod` invocation report a successful local
 publication.
 
-`local` is pinned to the env file exactly like the cloud targets: it takes
-`CONVEX_DEPLOYMENT` and `CONVEX_URL` from the main checkout's `.env.local`, and
-the ambient values are cleared first. Exporting a worktree-specific
-`CONVEX_URL` therefore has no effect — change the file, or start the backend
-with `pnpm dev:backend:local`, which `local` still expects to be running.
+`local` is pinned to an env file rather than the ambient environment, like the
+cloud targets, but to the **active worktree's** `.env.local` when it has one,
+falling back to the main checkout. It takes `CONVEX_DEPLOYMENT` and
+`CONVEX_URL` from there, and ambient values are cleared first, so exporting a
+worktree-specific `CONVEX_URL` has no effect. Change whichever file the banner
+names, or start the backend with `pnpm dev:backend:local` — which writes that
+worktree's file itself, and which `local` still expects to be running.
 
 ## Current Deployments
 

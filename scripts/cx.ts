@@ -21,9 +21,10 @@ const USAGE = [
   "  pnpm cx -- dev  env list",
   "  pnpm cx -- local run health:status",
   "",
-  "The target is required and never inferred. Credentials come from the main",
-  "checkout's .env.local, are passed to the Convex CLI through its environment,",
-  "and are never printed.",
+  "The target is required and never inferred. Cloud credentials come from the",
+  "main checkout's .env.local; local resolves from the active worktree first.",
+  "The banner names the file used. Values reach the Convex CLI through its",
+  "environment and are never printed.",
 ].join("\n");
 
 function run(name: string, convexArgs: string[]) {

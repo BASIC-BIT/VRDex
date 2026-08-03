@@ -238,16 +238,25 @@ export function resolveConvexTarget(
   const target = CONVEX_TARGETS[name as ConvexTargetName];
   const deployment = values[target.deploymentVar]?.trim();
   const key = target.keyVar === undefined ? undefined : values[target.keyVar]?.trim();
-  // Both are named, rather than just the first missing one, so a half-configured
-  // environment takes one round trip to fix instead of two.
   const missing = [
     deployment ? undefined : target.deploymentVar,
     target.keyVar !== undefined && !key ? target.keyVar : undefined,
   ].filter((entry): entry is string => entry !== undefined);
 
   if (missing.length > 0) {
+    // The whole required set is named alongside what is missing. A
+    // half-configured target otherwise reports one variable, gets that one
+    // added, and then reports the next -- two round trips for one mistake.
+    const required = [
+      target.deploymentVar,
+      target.keyVar,
+      ...(target.requiredPassthrough ? target.passthroughVars : []),
+    ].filter((entry): entry is string => entry !== undefined);
+
     return {
-      error: `Cannot target ${name}: .env.local is missing ${missing.join(" and ")}.`,
+      error:
+        `Cannot target ${name}: .env.local is missing ${missing.join(" and ")}. ` +
+        `${name} needs ${required.join(" and ")}.`,
       ok: false,
     };
   }
