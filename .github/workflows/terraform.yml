@@ -131,6 +131,7 @@ jobs:
             manual_apply: "true"
             requires_aws: "true"
             requires_vercel: "true"
+            requires_clerk_dns: "true"
             requires_posthog: "false"
             requires_posthog_public_key: "false"
             requires_ses_domain: "false"
@@ -330,6 +331,16 @@ jobs:
           if [ "${{ matrix.stack.requires_upstash }}" = "true" ] && [ -z "$TERRAFORM_UPSTASH_EMAIL" ]; then missing+=("TERRAFORM_UPSTASH_EMAIL"); fi
           if [ "${{ matrix.stack.requires_upstash }}" = "true" ] && [ -z "$TERRAFORM_UPSTASH_API_KEY" ]; then missing+=("TERRAFORM_UPSTASH_API_KEY or UPSTASH_API_KEY"); fi
 
+          # Fail closed rather than treating absent configuration as "disable the
+          # records". `manage_clerk_dns` defaults to false so forks create
+          # nothing, but this stack auto-applies from main — so anything that
+          # silently drops the hosted values would plan 5 to destroy against the
+          # live Clerk CNAMEs and apply it unattended, taking production
+          # authentication DNS with it. Skipping the stack is the safe failure.
+          if [ "${{ matrix.stack.requires_clerk_dns }}" = "true" ] && [ "$GITHUB_REPOSITORY" = "BASIC-BIT/VRDex" ]; then
+            if [ ! -f "${{ matrix.stack.path }}/hosted.tfvars" ]; then missing+=("${{ matrix.stack.path }}/hosted.tfvars"); fi
+          fi
+
           if [ "${#missing[@]}" -gt 0 ]; then
             echo "plan_enabled=false" >> "$GITHUB_OUTPUT"
             echo "apply_enabled=false" >> "$GITHUB_OUTPUT"
@@ -420,6 +431,11 @@ jobs:
               ;;
             web-domains)
               if [ -n "$TERRAFORM_ROUTE53_ZONE_ID" ]; then args+=("-var=route53_zone_id=$TERRAFORM_ROUTE53_ZONE_ID"); fi
+              # Canonical repository only. `hosted.tfvars` is checked in so the
+              # hosted DNS is reconstructible from git, and is not auto-loaded, so
+              # a fork plans no Clerk records and never delegates its own
+              # authentication-email DNS to this Clerk tenant.
+              if [ "$GITHUB_REPOSITORY" = "BASIC-BIT/VRDex" ]; then args+=("-var-file=hosted.tfvars"); fi
               ;;
             ses)
               args+=("-var=domain_name=$TERRAFORM_SES_DOMAIN_NAME")

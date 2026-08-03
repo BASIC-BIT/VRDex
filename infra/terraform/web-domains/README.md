@@ -17,6 +17,38 @@ This stack manages production custom domains for the hosted VRDex web app.
 5. Run `terraform plan` and review Vercel project-domain and Route 53 changes.
 6. Apply only after confirming the target project, domains, and DNS zone.
 
+## Clerk Production DNS
+
+This stack also creates the five CNAMEs the Clerk production instance needs, so
+`clerk.vrdex.net` can serve the Frontend API and Account Portal. Clerk issues no
+certificate until all five resolve, so a partial set is worse than none — a
+`precondition` fails the plan rather than creating some of them.
+
+**These are off by default.** `manage_clerk_dns` defaults to false and the mail
+and DKIM targets default to null, because those targets carry a Clerk instance
+id. A fork that enabled them with BASIC BIT's values would delegate its own
+authentication-email DNS to BASIC BIT's Clerk tenant, which
+`docs/developers/self-hosting-and-iac.md` forbids. Self-hosted deployments should
+leave them off, or supply their own instance's targets from Clerk's
+Configure > Domains page.
+
+Hosted values live in the checked-in `hosted.tfvars`. That file is **not**
+auto-loaded — Terraform reads only `terraform.tfvars` and `*.auto.tfvars`
+automatically — and `terraform.yml` passes it with `-var-file` only when the
+repository is `BASIC-BIT/VRDex`. So the hosted DNS is reconstructible from git
+after a dashboard or repository rebuild, while a fork still plans no Clerk
+records.
+
+**Run this stack through the workflow, not locally.** Without that file a local
+`terraform plan` against this deployment's state reports `5 to destroy`, and
+applying it would delete production authentication DNS. Use
+`gh workflow run terraform.yml -f stack=web-domains -f apply=true`, or pass
+`-var-file=hosted.tfvars` yourself.
+
+`CLERK_JWT_ISSUER_DOMAIN` on the Convex deployment must be
+`https://<clerk_frontend_api_subdomain>.<hosted_zone_name>`, the same host the
+production publishable key encodes. Decode it rather than assuming the subdomain.
+
 ## State Backend
 
 Terraform state for this stack is stored in the S3 backend declared in `versions.tf`:

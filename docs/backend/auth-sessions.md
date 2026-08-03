@@ -175,9 +175,20 @@ keep working, and re-registering produces a different Clerk subject that cannot
 manage the original profiles.
 
 **Turn off "Allow users to delete their accounts" on every Clerk instance**
-— development, staging, and production — until #227 lands. Clerk's Backend API
-does not expose this setting, so it cannot be asserted by a check script; it has
-to be verified by hand per instance.
+— development, staging, and production — until #227 lands.
+
+This *is* assertable, contrary to what this doc said before. Clerk's Backend API
+`/v1/instance` does not expose it, which is what the earlier claim was based on,
+but the public Frontend API does — `user_settings.actions.delete_self`. No
+credentials needed, because the Frontend API is what the browser already reads:
+
+```sh
+curl -s https://clerk.vrdex.net/v1/environment | jq '.user_settings.actions.delete_self'
+```
+
+`false` is the required state. Both instances read `true` as of 2026-07-31, so
+this is still outstanding. Substitute the instance's own Frontend API host for
+development or staging.
 
 ## Cutover: retire the Convex Auth rows before the first sign-in
 
