@@ -17,7 +17,7 @@ positional and is never inferred:
 ```bash
 pnpm cx -- prod run seedImports:listBatchesForReview
 pnpm cx -- dev env list
-pnpm cx -- local dev --once --run health:status
+pnpm cx -- local run health:status
 ```
 
 `convex --prod` does not work in this repository. The repo `.env.local` sets
@@ -330,7 +330,7 @@ assuming a working deployment proves a clean value.
 Manual fallback if the workflow is unavailable:
 
 ```powershell
-$env:CONVEX_DEPLOYMENT="dev:scrupulous-corgi-247"; $env:CONVEX_SELF_HOSTED_URL=""; pnpm exec convex dev --once --typecheck=try --tail-logs=disable
+pnpm cx -- dev dev --once --typecheck=try --tail-logs=disable
 ```
 
 ## Custom Domains

@@ -19,7 +19,7 @@ const USAGE = [
   "  pnpm cx -- prod run seedImports:listBatchesForReview",
   "  pnpm cx -- prod run migrations:publishGatedProfiles '{\"dryRun\": true}'",
   "  pnpm cx -- dev  env list",
-  "  pnpm cx -- local dev --once --run health:status",
+  "  pnpm cx -- local run health:status",
   "",
   "The target is required and never inferred. Credentials come from the main",
   "checkout's .env.local, are passed to the Convex CLI through its environment,",

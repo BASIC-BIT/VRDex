@@ -1,7 +1,35 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { resolveConvexTarget, targetSelectorFlagError } from "../../scripts/convex-target";
+import {
+  resolveConvexTarget,
+  resolveTargetName,
+  targetSelectorFlagError,
+} from "../../scripts/convex-target";
+
+describe("target name parsing", () => {
+  it("accepts both the separate and equals forms", () => {
+    // The equals form used to fall through to the local default, so an
+    // explicit-looking --target=prod publication completed against local.
+    assert.deepEqual(resolveTargetName(["--target", "prod"]), { name: "prod" });
+    assert.deepEqual(resolveTargetName(["--apply", "--target=prod"]), { name: "prod" });
+  });
+
+  it("defaults to local only when no target is given at all", () => {
+    assert.deepEqual(resolveTargetName(["--apply"]), { name: "local" });
+  });
+
+  it("treats an empty target as an error rather than a default", () => {
+    assert.match(
+      (resolveTargetName(["--target", "--apply"]) as { error: string }).error,
+      /--target needs a value/,
+    );
+    assert.match(
+      (resolveTargetName(["--target="]) as { error: string }).error,
+      /--target needs a value/,
+    );
+  });
+});
 
 describe("target selector flags", () => {
   const help = "Use --target.";
@@ -10,7 +38,16 @@ describe("target selector flags", () => {
     // --target defaults to local, so ignoring a leftover --prod would publish
     // locally and report success; forwarding one through cx would override the
     // target after the banner had already named it.
-    for (const flag of ["--prod", "--deployment", "--preview-name", "--url", "--admin-key"]) {
+    for (const flag of [
+      "--prod",
+      "--deployment",
+      "--preview-name",
+      "--url",
+      "--admin-key",
+      // How dev:backend:local selects the anonymous backend, so forwarding it
+      // would pair production credentials with a local deployment.
+      "--local",
+    ]) {
       assert.match(targetSelectorFlagError(["--apply", flag], help) ?? "", /is not accepted here/);
     }
 

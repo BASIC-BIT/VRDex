@@ -59,8 +59,45 @@ export type ConvexTargetName = keyof typeof CONVEX_TARGETS;
 
 export const CONVEX_TARGET_NAMES = Object.keys(CONVEX_TARGETS);
 
-/** Every Convex CLI flag that can point a command at a different deployment. */
-const TARGET_SELECTOR_FLAGS = ["--prod", "--deployment", "--preview-name", "--url", "--admin-key"];
+/**
+ * Every Convex CLI flag that can point a command at a different deployment.
+ * `--local` belongs here too: it is how `dev:backend:local` selects the
+ * anonymous backend, so forwarding it would pair production credentials with a
+ * local deployment.
+ */
+const TARGET_SELECTOR_FLAGS = [
+  "--prod",
+  "--deployment",
+  "--preview-name",
+  "--url",
+  "--admin-key",
+  "--local",
+];
+
+/**
+ * `--target x` and `--target=x` both count. The bare `option()` helpers in the
+ * launchers only match the first form, so the conventional equals form fell
+ * through to the `local` default -- an explicit-looking production publication
+ * completing against the local backend and reporting success.
+ */
+export function resolveTargetName(argv: string[]): { name: string } | { error: string } {
+  const separate = argv.indexOf("--target");
+  const equals = argv.find((arg) => arg.startsWith("--target="));
+
+  if (separate === -1 && equals === undefined) {
+    return { name: "local" };
+  }
+
+  const value =
+    equals === undefined ? argv[separate + 1] : equals.slice("--target=".length);
+
+  // Present but empty is an operator error, not a request for the default.
+  if (value === undefined || value === "" || value.startsWith("--")) {
+    return { error: `--target needs a value: one of ${CONVEX_TARGET_NAMES.join(", ")}.` };
+  }
+
+  return { name: value };
+}
 
 /**
  * Selector flags are rejected rather than ignored, in both directions. A

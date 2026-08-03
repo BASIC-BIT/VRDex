@@ -8,6 +8,7 @@ import {
   convexCliPath,
   convexTargetEnv,
   SEED_SCRIPT_TARGET_HELP,
+  resolveTargetName,
   targetSelectorFlagError,
 } from "./convex-target.ts";
 
@@ -54,7 +55,13 @@ if (legacyFlag) {
   fail(legacyFlag);
 }
 
-const target = convexTargetEnv(option("--target") ?? "local");
+const requestedTarget = resolveTargetName(args);
+
+if (requestedTarget.error) {
+  fail(requestedTarget.error);
+}
+
+const target = convexTargetEnv(requestedTarget.name);
 
 if (!target.ok) {
   fail(target.error);
