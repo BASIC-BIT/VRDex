@@ -103,9 +103,15 @@ test.describe("account surfaces @visual @flow", () => {
     // back — keyed to a Clerk identity that is about to be deleted, which is the
     // unreachable row this teardown exists to prevent.
     //
-    // Safe for evidence: Playwright captures the failure screenshot in
-    // `didFinishTestFunction`, which runs before `afterEach`, and closes the page
-    // itself immediately after.
+    // The failure screenshot survives: Playwright captures it in
+    // `didFinishTestFunction`, which the worker runs *before* the `afterEach`
+    // hooks. So does the retry trace. What does not is the aria snapshot in
+    // `error-context.md`, taken during fixture teardown from `context.pages()[0]`
+    // — a closed page means it is skipped. Accepted: for a visual spec the PNG is
+    // the evidence, and every alternative here is worse. Signing out instead
+    // would keep the page but flips `isAuthenticated` asynchronously, so the
+    // subscription outlives the call by an unbounded amount; navigating to
+    // `about:blank` would snapshot `about:blank`.
     await page.close();
 
     // Convex rows first, then the Clerk user. Provisioning is on-demand from the
