@@ -320,6 +320,10 @@ export const USER_REFERENCES = [
 // single pass.
 const PURGE_BATCH = 2_000;
 
+// Clerk identities echoed back so an operator can find their own without reading
+// the dashboard. Capped because it is a convenience, not an inventory.
+const CLERK_USER_REPORT_LIMIT = 25;
+
 /** Just enough of a Convex query to probe one index for one value. */
 type IndexedTableQuery = {
   withIndex: (
@@ -355,8 +359,19 @@ export const purgeConvexAuthLeftovers = internalMutation({
       );
     }
 
-    const users = await ctx.db.query("users").collect();
-    const legacy = users.filter((user) => user.clerkUserId === undefined);
+    // Indexed, not scanned. `undefined` is a queryable index value in Convex —
+    // it matches documents lacking the field — so the legacy rows come straight
+    // off `clerkUserId` rather than out of a full `users` read. That matters for
+    // the same reason the reference probes did: `users` grows with the product,
+    // and reading all of it to derive a handful of pre-cutover rows would put the
+    // purge back over the transaction limit on the deployments that still need it.
+    //
+    // Bounded as well, so a deployment with more legacy rows than one pass can
+    // hold makes progress instead of failing identically forever.
+    const legacy = await ctx.db
+      .query("users")
+      .withIndex("clerkUserId", (q) => q.eq("clerkUserId", undefined))
+      .take(PURGE_BATCH);
     const legacyIds = new Set<string>(legacy.map((user) => user._id));
 
     // What `auth.config.ts` trusts today. An authority whose subject carries this
@@ -555,9 +570,20 @@ export const purgeConvexAuthLeftovers = internalMutation({
       // The other half of that round trip. Reported so the two ids the real run
       // needs both come out of the dry run, rather than sending someone to read
       // truncated cells in the dashboard and retype them.
-      clerkUsers: users
-        .filter((user) => user.clerkUserId !== undefined)
-        .map((user) => ({ clerkUserId: user.clerkUserId, email: user.email })),
+      //
+      // Only when there is something to regrant, and capped: this is a
+      // convenience for finding your own account on a deployment with a few, not
+      // a directory. `clerkUserId` sorts after `undefined` on the index, so this
+      // reads Clerk rows only and never walks the legacy ones.
+      clerkUsers:
+        legacy.length === 0
+          ? []
+          : (
+              await ctx.db
+                .query("users")
+                .withIndex("clerkUserId", (q) => q.gt("clerkUserId", undefined))
+                .take(CLERK_USER_REPORT_LIMIT)
+            ).map((user) => ({ clerkUserId: user.clerkUserId, email: user.email })),
       // Keyed by token identifier rather than `users._id`, so these never block
       // the purge — but the issuer change stopped them matching their owners, and
       // nothing can derive which Clerk subject a Convex Auth one was. They have
