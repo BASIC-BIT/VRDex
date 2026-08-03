@@ -249,6 +249,13 @@ test("hosted auth E2E is wired to Clerk testing tokens rather than skipped", asy
   assert.match(harness, /Hosted auth E2E is enabled for this target but/);
   assert.match(harness, /throw new Error\(/);
 
+  // ...and when the two switches disagree. Clerk auth on with the deployment's
+  // helper off makes every authenticated spec skip its own guard, leaving the
+  // signed-out redirect test to pass alone and Playwright to exit 0 over a
+  // contract that never ran.
+  assert.match(harness, /VRDEX_ENABLE_E2E_AUTH_HELPERS is not/);
+  assert.match(harness, /reporting a contract that never ran/);
+
   assert.match(authSession, /@auth-session-staging/);
   assert.match(
     webPackage.scripts?.["test:e2e:hosted:auth-session"] ?? "",
