@@ -1,7 +1,8 @@
 import { Migrations } from "@convex-dev/migrations";
+import { v } from "convex/values";
 
 import { components, internal } from "./_generated/api";
-import type { DataModel, Doc } from "./_generated/dataModel";
+import type { DataModel, Doc, Id } from "./_generated/dataModel";
 import { internalMutation } from "./_generated/server";
 import {
   createProfileSearchDocument,
@@ -229,3 +230,180 @@ export const runAll = migrations.runner([
   internal.migrations.backfillHandoffInvitationProfileIds,
   internal.migrations.backfillDiscordWatermarkAppliedAt,
 ]);
+
+// ---------------------------------------------------------------------------
+// Convex Auth purge, phase two.
+//
+// Clerk owns authentication. What is left behind is the Convex Auth component's
+// six tables, VRDex's own `recentAuthChallenges` and `e2eAuthCodes`, and the
+// `users` rows created before the cutover — inert, because a row without a
+// `clerkUserId` matches the index for nobody, but still blocking the schema
+// change that drops those declarations. Convex rejects a push that leaves a
+// populated table undeclared.
+//
+// Deliberately not in `runAll`. This deletes rows and cannot be undone, so it
+// runs when an operator means it, not as a side effect of a function deploy.
+// `dryRun` defaults to true for the same reason: the first run reports, the
+// second acts.
+
+export const CONVEX_AUTH_TABLES = [
+  "authRefreshTokens",
+  "authVerificationCodes",
+  "authVerifiers",
+  "authSessions",
+  "authAccounts",
+  "authRateLimits",
+  "recentAuthChallenges",
+  "e2eAuthCodes",
+] as const;
+
+// Every `v.id("users")` field outside the tables above, derived from
+// `convex/schema.ts`. A legacy row referenced by any of them is NOT deleted:
+// Convex does not enforce referential integrity, so removing it would leave a
+// dangling id that reads as a valid reference and resolves to nothing.
+//
+// Kept as data rather than 38 hand-written queries because the whole point is
+// that the list is exhaustive — a missed entry is silent corruption, and a
+// table is far easier to check against the schema than a wall of lookups.
+export const USER_REFERENCES = [
+  ["accountFeatureGrants", "userId"],
+  ["apiTokenEvents", "ownerUserId"],
+  ["apiTokens", "ownerUserId"],
+  ["apiTokens", "revokedByUserId"],
+  ["apiWriteAuditEvents", "ownerUserId"],
+  ["billingCustomerMappings", "userId"],
+  ["billingEntitlementSnapshots", "userId"],
+  ["billingSubscriptionSnapshots", "userId"],
+  ["communityVrclinkingCredentials", "delegatedByUserId"],
+  ["discordVerificationStates", "userId"],
+  ["discordVerificationWatermarks", "userId"],
+  ["externalControlProofs", "userId"],
+  ["mcpEventWriteReceipts", "ownerUserId"],
+  ["mcpToolEvents", "ownerUserId"],
+  ["oauthAccessTokens", "userId"],
+  ["oauthApplicationSecrets", "revokedByUserId"],
+  ["oauthApplications", "ownerUserId"],
+  ["oauthApplications", "revokedByUserId"],
+  ["oauthAuthorizationCodes", "userId"],
+  ["oauthClientEvents", "ownerUserId"],
+  ["oauthConsentTransactions", "userId"],
+  ["oauthRefreshTokens", "userId"],
+  ["profileAssetAccessibilityGenerationEvents", "userId"],
+  ["profileClaimRequests", "userId"],
+  ["profileExternalLinks", "linkedByUserId"],
+  ["profileOwners", "userId"],
+  ["profileVerificationAttempts", "userId"],
+  ["seedHandoffInvitations", "acceptedByUserId"],
+  ["temporalParseJobs", "ownerUserId"],
+  ["temporalParsingPreferences", "userId"],
+  ["temporalPrewarmLeases", "ownerUserId"],
+] as const;
+
+export const purgeConvexAuthLeftovers = internalMutation({
+  args: {
+    // Re-points `accountFeatureGrants` from legacy rows to this Clerk identity's
+    // `users` row. Taken as an argument rather than inferred by matching email:
+    // a rule that moves privileges to whoever holds a matching address is a
+    // privilege-escalation primitive, and the operator knows which account is
+    // theirs. Omit it to leave every grant alone, which then blocks deletion of
+    // the rows those grants point at.
+    superAdminClerkUserId: v.optional(v.string()),
+    dryRun: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const dryRun = args.dryRun ?? true;
+
+    const users = await ctx.db.query("users").collect();
+    const legacy = users.filter((user) => user.clerkUserId === undefined);
+    const legacyIds = new Set<string>(legacy.map((user) => user._id));
+
+    let regrantTarget: Id<"users"> | undefined;
+
+    if (args.superAdminClerkUserId !== undefined) {
+      const target = await ctx.db
+        .query("users")
+        .withIndex("clerkUserId", (q) => q.eq("clerkUserId", args.superAdminClerkUserId))
+        .unique();
+
+      if (target === null) {
+        throw new Error(
+          `No users row carries clerkUserId ${args.superAdminClerkUserId}. Sign in through Clerk first so ensureUser provisions one.`,
+        );
+      }
+
+      regrantTarget = target._id;
+    }
+
+    // Re-point before scanning, so a grant that moved off a legacy row stops
+    // counting as a reason to keep it.
+    const regranted: string[] = [];
+
+    if (regrantTarget !== undefined) {
+      for (const grant of await ctx.db.query("accountFeatureGrants").collect()) {
+        if (!legacyIds.has(grant.userId)) {
+          continue;
+        }
+
+        regranted.push(`${grant.feature}:${grant._id}`);
+
+        if (!dryRun) {
+          await ctx.db.patch(grant._id, { userId: regrantTarget, updatedAt: Date.now() });
+        }
+      }
+    }
+
+    // A dry run reports what a real run would refuse to delete. Because the
+    // patches above have not been applied yet, grants still sit on legacy rows,
+    // so exclude the ones already accounted for rather than reporting them twice.
+    const regrantedGrantIds = new Set(regranted.map((entry) => entry.split(":")[1]));
+    const blocked = new Map<string, string[]>();
+
+    for (const [table, field] of USER_REFERENCES) {
+      for (const row of await ctx.db.query(table).collect()) {
+        const value = (row as Record<string, unknown>)[field];
+
+        if (typeof value !== "string" || !legacyIds.has(value)) {
+          continue;
+        }
+
+        if (table === "accountFeatureGrants" && regrantedGrantIds.has(row._id)) {
+          continue;
+        }
+
+        blocked.set(value, [...(blocked.get(value) ?? []), `${table}.${field}`]);
+      }
+    }
+
+    const deletableUsers = legacy.filter((user) => !blocked.has(user._id));
+    const clearedTables: Record<string, number> = {};
+
+    for (const table of CONVEX_AUTH_TABLES) {
+      const rows = await ctx.db.query(table).collect();
+      clearedTables[table] = rows.length;
+
+      if (!dryRun) {
+        await Promise.all(rows.map((row) => ctx.db.delete(row._id)));
+      }
+    }
+
+    if (!dryRun) {
+      await Promise.all(deletableUsers.map((user) => ctx.db.delete(user._id)));
+    }
+
+    return {
+      dryRun,
+      clearedTables,
+      legacyUsers: legacy.length,
+      deletedUsers: deletableUsers.map((user) => user.email ?? user._id),
+      regrantedGrants: regranted,
+      // Non-empty means those rows survive on purpose. Resolve each reference
+      // before rerunning; the schema drop stays blocked until this is empty.
+      blockedUsers: Object.fromEntries(blocked),
+      // Keyed by token identifier, not by `users._id`, so these do not block the
+      // purge — but the issuer change already stopped them matching their owners
+      // and they have to be re-granted by hand. Reported so that is not a
+      // surprise later.
+      staleCommunityAuthorities: (await ctx.db.query("communityAuthorities").collect()).length,
+    };
+  },
+});

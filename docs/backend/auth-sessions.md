@@ -205,20 +205,43 @@ Production on 2026-07-30 held two `users` rows and exactly one row referencing
 either of them — a single `accountFeatureGrants` row. Nothing else: 0 owned
 profiles, 0 claims, 0 events, 0 API tokens, 0 OAuth applications.
 
-Per deployment, before anyone signs in:
+That ordering was not achieved. Both deployments were signed into through Clerk
+before anything was deleted, which the note below always allowed for, so the
+purge runs against a `users` table holding legacy rows *and* Clerk rows.
 
-1. Re-check the counts. If a profile has been claimed since, this section is out
-   of date and the orphaning is no longer trivial.
-2. Delete the legacy `users` rows and every table in the phase-one block of
-   `convex/schema.ts`. Six belong to the Convex Auth component — `authSessions`,
-   `authAccounts`, `authRefreshTokens`, `authVerificationCodes`, `authVerifiers`,
-   `authRateLimits` — and two are VRDex's own: `recentAuthChallenges`, which
-   backed step-up re-authentication, and `e2eAuthCodes`, which held E2E
-   verification codes and had no expiry sweep, so a cancelled staging run can
-   have left rows behind. All eight must be empty before the declarations can go.
-3. Sign in through Clerk, which provisions a fresh row.
-4. Recreate the `accountFeatureGrants` row against the new user id.
-5. Once no legacy rows remain anywhere, tighten `clerkUserId` to `v.string()`.
+`migrations:purgeConvexAuthLeftovers` does the whole thing, per deployment:
+
+```bash
+pnpm exec convex run --prod migrations:purgeConvexAuthLeftovers \
+  '{"superAdminClerkUserId": "user_...", "dryRun": true}'
+```
+
+It re-points `accountFeatureGrants` off legacy rows onto the `users` row
+carrying `superAdminClerkUserId`, deletes the legacy rows, and clears all eight
+tables in the phase-one block of `convex/schema.ts`.
+
+Three things about it are deliberate:
+
+- **`dryRun` defaults to true.** The first run reports; pass `false` to act.
+- **The super-admin target is an argument, not inferred.** Matching a legacy row
+  to a Clerk one by email would be a rule that hands privileges to whoever holds
+  a matching address. The operator names their own account instead.
+- **It refuses to delete a legacy row anything still references.** Convex does
+  not enforce referential integrity, so removing a referenced row leaves an id
+  that still reads as a valid `v.id("users")` and resolves to nothing. Every
+  such field is listed in `USER_REFERENCES`, and
+  `tests/backend/convex-auth-purge.test.ts` fails if the schema grows one the
+  list does not name. A non-empty `blockedUsers` in the report means those rows
+  survived on purpose — resolve each reference and rerun.
+
+Then sign in through Clerk if you have not, confirm `blockedUsers` is empty on
+every deployment, and tighten `clerkUserId` to `v.string()` in the same change
+that drops the eight declarations.
+
+`staleCommunityAuthorities` in the report is informational: those rows key on
+token identifier rather than `users._id`, so they never block the purge, but the
+issuer change already stopped them matching their owners and they have to be
+re-granted by hand.
 
 ### Run the Discord watermark backfill after deploying
 
