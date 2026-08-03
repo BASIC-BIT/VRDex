@@ -48,7 +48,7 @@ Run read-only membership inspection first with `pnpm proof:group-telemetry`. On 
 4. Register the account with the digest printed by step 3 — never the key itself:
 
    ```bash
-   npx convex run --prod communityTelemetry:registerCollectorAccount '{"vrchatUserId":"usr_...","accountAlias":"VRDex_Oak","secretRef":"arn:aws:secretsmanager:...","workerKeyHash":"<digest from step 3>","capacity":100,"reservedHeadroom":15,"requestsPerMinute":30}'
+   pnpm cx -- prod run communityTelemetry:registerCollectorAccount '{"vrchatUserId":"usr_...","accountAlias":"VRDex_Oak","secretRef":"arn:aws:secretsmanager:...","workerKeyHash":"<digest from step 3>","capacity":100,"reservedHeadroom":15,"requestsPerMinute":30}'
    ```
 
    The mutation rejects a `secretRef` that is not an ARN or `secret://` reference

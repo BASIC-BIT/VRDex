@@ -92,22 +92,9 @@ describe("MCP OAuth smoke credential helper", () => {
     assert.match(result.stdout, /VRDEX_E2E_BROWSER_TOKEN/);
   });
 
-  it("refuses to run at all until it is ported to Clerk", () => {
-    const result = runCredentialHelper(
-      ["--base-url", "https://staging.vrdex.net"],
-      { VRDEX_E2E_BROWSER_TOKEN: "test-token" },
-    );
-
-    assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /is unavailable/);
-    assert.match(result.stderr, /#226/);
-  });
-
-  // The two guards below are the reason the retirement is a condition rather
-  // than a bare throw: they are real safety behaviour that has to survive the
-  // port, so they stay exercised against the original code path instead of
-  // being deleted and rewritten later from memory.
-  const ported = { VRDEX_MCP_SMOKE_GENERATOR_PORTED: "true" };
+  // These guards were kept exercised while the generator was retired pending
+  // #226 precisely so the port would not have to rewrite them from memory.
+  const ported = {};
 
   it("fails closed when the E2E browser token is absent", () => {
     const result = runCredentialHelper(["--base-url", "https://staging.vrdex.net"], ported);

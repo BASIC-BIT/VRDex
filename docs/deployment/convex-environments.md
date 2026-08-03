@@ -9,6 +9,69 @@ VRDex keeps four Convex execution targets separate:
 - deployed smoke testing: the shared development Convex deployment
 - production release: the production Convex deployment
 
+## Targeting a deployment from the CLI
+
+Use `pnpm cx -- <local|dev|prod> <convex args>`. The target is a required
+positional and is never inferred:
+
+```bash
+pnpm cx -- prod run seedImports:listBatchesForReview
+pnpm cx -- dev env list
+pnpm cx -- local run health:status
+```
+
+`convex --prod` does not work in this repository. The repo `.env.local` sets
+`CONVEX_DEPLOYMENT=anonymous:anonymous-agent` so that local development needs no
+cloud project, which leaves `--prod` with no project to resolve against. The
+wrapper supplies `CONVEX_DEPLOYMENT` and `CONVEX_DEPLOY_KEY` for the named
+target instead.
+
+It also clears `CONVEX_URL`, `CONVEX_DEPLOYMENT`, `CONVEX_DEPLOY_KEY`, and the
+self-hosted pair from the child environment before setting the target's own
+values. A shell that has run `pnpm dev:backend:local` keeps `CONVEX_URL`
+pointing at `127.0.0.1:3210`, which otherwise silently wins over a command line
+that reads `prod`.
+
+Cloud credentials are read from `.env.local` in the main checkout — worktrees do
+not carry it, and the wrapper locates the main checkout through
+`git rev-parse --git-common-dir` rather than requiring a variable. Exactly one
+file is read: when the main checkout has one, a worktree copy is ignored
+entirely rather than merged per key, so a credential removed by rotation stays
+removed instead of being refilled from a stale worktree. Values are passed to
+the Convex CLI through its environment and never printed; the banner names the
+deployment and the env file only.
+
+`local` reverses that order and reads the active worktree first, because
+`pnpm dev:backend:local` writes the running backend's deployment name and port
+into that worktree's own `.env.local`. Reading the main checkout first would
+point `local` at a different instance, or at one that is not running. The banner
+names the file it used, so the source is never a guess.
+
+A target that is missing either of its two variables fails and names both,
+rather than falling back to whichever credentials are present.
+
+The same targeting applies to the seed operations scripts, which take
+`--target` instead of the `--prod` flag they used to accept:
+
+```bash
+pnpm ops:seed-publish -- --batch-id <id> --target prod ...
+pnpm ops:seed-import:json -- --file <path> --target prod ...
+pnpm ops:seed-handoff:create -- --candidate-id <id> --target prod ...
+```
+
+`--target` defaults to `local`. The old `--prod` and `--deployment` flags are
+rejected with an error rather than ignored, since silently falling back to
+`local` would let a leftover `--prod` invocation report a successful local
+publication.
+
+`local` is pinned to an env file rather than the ambient environment, like the
+cloud targets, but to the **active worktree's** `.env.local` when it has one,
+falling back to the main checkout. It takes `CONVEX_DEPLOYMENT` and
+`CONVEX_URL` from there, and ambient values are cleared first, so exporting a
+worktree-specific `CONVEX_URL` has no effect. Change whichever file the banner
+names, or start the backend with `pnpm dev:backend:local` — which writes that
+worktree's file itself, and which `local` still expects to be running.
+
 ## Current Deployments
 
 Do not commit deploy keys. Store them in GitHub/hosting secret stores and local ignored env files only.
@@ -31,6 +94,25 @@ Local ignored env names:
 - `CONVEX_DEPLOY_KEY_PROD`
 - `CONVEX_URL_DEV`
 - `CONVEX_URL_PROD`
+
+`pnpm cx` and the `ops:seed-*` scripts additionally need the deployment name for
+each target they can reach. Both are the deployment's own identifier, not a URL:
+
+- `CONVEX_DEPLOYMENT_DEV=dev:scrupulous-corgi-247`
+- `CONVEX_DEPLOYMENT_PROD=prod:superb-pig-954`
+
+A target is only usable when both of its variables are present. `dev` needs
+`CONVEX_DEPLOYMENT_DEV` and `CONVEX_DEPLOY_KEY_DEV`; `prod` needs
+`CONVEX_DEPLOYMENT_PROD` and `CONVEX_DEPLOY_KEY_PROD`. Supplying one without
+the other fails naming both, rather than falling back to the other target's
+credentials.
+
+The pair is also checked for agreement. A deploy key carries its own deployment
+ahead of the `|`, and the CLI will follow the key rather than
+`CONVEX_DEPLOYMENT`, so a dev deployment name accidentally paired with a
+production key would reach production while the banner read "development". A
+mismatch fails naming both deployments; the secret after the `|` is never read
+or printed.
 
 ## Pull Request Preview Backends
 
@@ -222,14 +304,14 @@ Pass single-line secrets as a positional argument instead, from Git Bash so that
 
 ```bash
 SECRET=$(python -c "import json,sys;print(json.load(open(sys.argv[1]))['web']['client_secret'],end='')" ./client_secret.json)
-pnpm exec convex env set AUTH_GOOGLE_SECRET "$SECRET"
+pnpm cx -- prod env set AUTH_GOOGLE_SECRET "$SECRET"
 ```
 
 Always verify after writing a secret. `len` must equal the provider's documented
 length and `CR` must be `0`:
 
 ```bash
-pnpm exec convex env get AUTH_GOOGLE_SECRET | python -c "
+pnpm --silent cx -- prod env get AUTH_GOOGLE_SECRET | python -c "
 import sys
 b = sys.stdin.buffer.read().rstrip(b'\n')
 print('CR=%d len=%d' % (b.count(b'\r'), len(b)))"
@@ -243,11 +325,14 @@ redirection rather than a PowerShell pipe, since `cmd` redirects bytes verbatim,
 and substitute the real variable name:
 
 ```powershell
-$env:CONVEX_DEPLOYMENT="prod:superb-pig-954"
 node -e "require('fs').writeFileSync(process.argv[1], process.env.VRDEX_PEM_VALUE)" $env:TEMP\k.pem
-cmd /c "pnpm exec convex env set --prod SOME_PEM_VARIABLE < $env:TEMP\k.pem"
+cmd /c "pnpm cx -- prod env set SOME_PEM_VARIABLE < $env:TEMP\k.pem"
 Remove-Item $env:TEMP\k.pem, Env:\VRDEX_PEM_VALUE -ErrorAction SilentlyContinue
 ```
+
+Setting `CONVEX_DEPLOYMENT` by hand first is no longer needed, and is now
+actively counterproductive: `cx` clears ambient Convex variables before
+applying the target's own.
 
 Apply the same `CR=0` verification afterwards. A trailing `\r` is harmless for
 some consumers, so check the byte count rather than assuming a working
@@ -256,7 +341,7 @@ deployment proves a clean value.
 Manual fallback if the workflow is unavailable:
 
 ```powershell
-$env:CONVEX_DEPLOYMENT="dev:scrupulous-corgi-247"; $env:CONVEX_SELF_HOSTED_URL=""; pnpm exec convex dev --once --typecheck=try --tail-logs=disable
+pnpm cx -- dev dev --once --typecheck=try --tail-logs=disable
 ```
 
 ## Custom Domains

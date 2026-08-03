@@ -607,16 +607,16 @@ temporary reviewed smoke client through the same helper below when
 anonymous/data/DCR/CIMD evidence runnable even when reviewed OAuth smoke
 credentials and helper prerequisites are absent.
 
-When those repository secrets have not yet been installed, an operator used to
-mint a temporary reviewed smoke client with
-`pnpm ops:mcp-oauth-smoke-credentials`. **That command is unavailable and exits
-non-zero.** It created its temporary account through the email/password sign-up
-form and `/api/e2e/auth`, both removed by the Clerk cutover.
+When those repository secrets have not yet been installed, mint a temporary
+reviewed smoke client with `pnpm ops:mcp-oauth-smoke-credentials`. It creates
+its account through the Clerk Backend API and signs in with a one-time ticket,
+so it needs `CLERK_SECRET_KEY` and `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` for the
+**development** instance backing the target, alongside
+`VRDEX_E2E_BROWSER_TOKEN`. A production secret key is rejected outright.
 
-Until it is ported to Clerk testing credentials (#226), register a confidential
-OAuth app by hand with `client_credentials` and `mcp:read`, then export its
-credentials as `VRDEX_MCP_OAUTH_CLIENT_ID` and `VRDEX_MCP_OAUTH_CLIENT_SECRET`
-— or supply an already-issued bearer token as
+Otherwise register a confidential OAuth app by hand with `client_credentials`
+and `mcp:read`, then export its credentials as `VRDEX_MCP_OAUTH_CLIENT_ID` and
+`VRDEX_MCP_OAUTH_CLIENT_SECRET` — or supply an already-issued bearer token as
 `VRDEX_MCP_INSPECTOR_OAUTH_TOKEN` — before running the Claude Code and
 Inspector hosted OAuth smokes and recording the two matrix rows.
 

@@ -1,15 +1,17 @@
 import { expect, test, type APIRequestContext, type APIResponse, type Page } from "@playwright/test";
 import { createHash, randomBytes } from "node:crypto";
 
+import {
+  clerkTestAuthAvailability,
+  createClerkTestAccount,
+  deleteClerkTestAccount,
+  signInClerkTestAccount,
+  type ClerkTestAccount,
+} from "./clerk-auth";
 import { gotoFlowPage } from "./flow-navigation";
 
+const clerkTestAuth = clerkTestAuthAvailability();
 
-// Skipped, not deleted: the coverage is still wanted once these run against
-// Clerk testing tokens rather than a sign-in form.
-test.skip(
-  true,
-  "Hosted E2E auth is not wired to Clerk yet: these specs signed in by driving the removed email/password form, and CI has no Clerk credentials. Tracked in #226.",
-);
 test.describe.configure({ mode: "serial" });
 
 type JsonResponse = {
@@ -68,70 +70,16 @@ function e2eRunId(testInfo: { project: { name: string }; workerIndex: number; re
     .slice(0, 120);
 }
 
-async function createVerifiedE2eAccount({
-  page,
-  request,
-  e2eToken,
-  email,
-  password,
-}: {
-  page: Page;
-  request: APIRequestContext;
-  e2eToken: string;
-  email: string;
-  password: string;
-}) {
-  await gotoFlowPage(page, "/sign-in");
-  await page.getByRole("button", { name: "Use email and password" }).click();
-  await page.getByRole("button", { name: "Create account" }).click();
-  await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(password);
-  await page.getByRole("button", { name: "Create account" }).click();
-  await expect(page.getByText(new RegExp(`Check ${email} for a verification code`, "i"))).toBeVisible();
-
-  const codeResponse = await request.post("/api/e2e/auth", {
-    headers: { "x-vrdex-e2e-token": e2eToken },
-    data: { action: "consume-code", email },
-  });
-  await expectApiResponseOk(codeResponse, "E2E verification-code lookup");
-  const authCode = (await codeResponse.json()) as { code?: string };
-
-  expect(authCode.code).toBeTruthy();
-
-  await page.getByLabel("Verification code").fill(authCode.code!);
-  await Promise.all([
-    page.waitForURL(/\/account$/),
-    page.getByRole("button", { name: "Verify email" }).click(),
-  ]);
-}
-
-async function completePasswordStepUp({
-  page,
-  email,
-  password,
-  reauthUrl,
-}: {
-  page: Page;
-  email: string;
-  password: string;
-  reauthUrl: string;
-}) {
-  await gotoFlowPage(page, reauthUrl);
-  await expect(
-    page.getByRole("heading", { name: "Sign in again" }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "Use email and password" }).click();
-  await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(password);
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL(/\/developers\/tokens$/);
-}
-
-async function cleanupE2eAccount(request: APIRequestContext, e2eToken: string, email: string) {
+async function cleanupE2eAccount(
+  request: APIRequestContext,
+  e2eToken: string,
+  account: ClerkTestAccount,
+) {
   await request.delete("/api/e2e/auth", {
     headers: { "x-vrdex-e2e-token": e2eToken },
-    data: { email },
+    data: { email: account.email },
   });
+  await deleteClerkTestAccount(account);
 }
 
 async function postSessionJson(page: Page, path: string, payload: Record<string, unknown>): Promise<JsonResponse> {
@@ -163,7 +111,8 @@ function deriveS256CodeChallenge(verifier: string) {
 }
 
 test("developer credentials work with v0 bearer APIs and OAuth PKCE @flow", async ({ page, request }, testInfo) => {
-  test.setTimeout(120_000);
+  test.setTimeout(150_000);
+  test.skip(clerkTestAuth.available === false, clerkTestAuth.available === false ? clerkTestAuth.reason : "");
   test.skip(
     Boolean(process.env.PLAYWRIGHT_BASE_URL) && process.env.VRDEX_ENABLE_E2E_AUTH_HELPERS !== "true",
     "Hosted auth E2E helpers are not enabled for this target.",
@@ -176,41 +125,23 @@ test("developer credentials work with v0 bearer APIs and OAuth PKCE @flow", asyn
   const e2eToken = e2eBrowserToken();
   const runId = e2eRunId(testInfo);
   const runSuffix = runId.replace(/^playwright-developer-?/, "").slice(0, 48);
-  const email = `developer-${runSuffix}@e2e.vrdex.local`;
-  const password = `VRDex-${runSuffix}-developer-password-12345`;
+  let account: ClerkTestAccount | undefined;
   let apiTokenValue: string | undefined;
-  let accountCreated = false;
 
   try {
-    await createVerifiedE2eAccount({ page, request, e2eToken, email, password });
-    accountCreated = true;
+    account = await createClerkTestAccount(`developer-${runSuffix}`);
+    await signInClerkTestAccount(page, account);
+
     const tokenPayload = {
       label: `Playwright developer token ${runSuffix}`,
       scopes: ["public:read", "developer:read", "developer:write"],
     };
-    const initialTokenResult = await postSessionJson(
-      page,
-      "/api/developer/tokens",
-      tokenPayload,
-    );
-    const initialTokenBody = initialTokenResult.body as {
-      code?: string;
-      reauthUrl?: string;
-    };
 
-    expect(initialTokenResult.status).toBe(401);
-    expect(initialTokenBody.code).toBe("RECENT_AUTH_REQUIRED");
-    expect(initialTokenBody.reauthUrl).toMatch(
-      /^\/auth\/reauth\/start\?returnTo=/,
-    );
-
-    await completePasswordStepUp({
-      page,
-      email,
-      password,
-      reauthUrl: initialTokenBody.reauthUrl!,
-    });
-
+    // The `RECENT_AUTH_REQUIRED` step-up this used to complete first is gone.
+    // `docs/backend/auth-sessions.md` records why: Discord- and Google-only
+    // accounts could never satisfy a password re-prompt, so the step-up was
+    // replaced by an in-page confirmation, and token creation now authorizes on
+    // the session alone.
     const tokenResult = await postSessionJson(
       page,
       "/api/developer/tokens",
@@ -397,8 +328,8 @@ test("developer credentials work with v0 bearer APIs and OAuth PKCE @flow", asyn
     expect(refreshedToken.scope).toBe("public:read");
     expect(refreshedToken.token_type).toBe("Bearer");
   } finally {
-    if (accountCreated) {
-      await cleanupE2eAccount(request, e2eToken, email);
+    if (account !== undefined) {
+      await cleanupE2eAccount(request, e2eToken, account);
     }
   }
 });

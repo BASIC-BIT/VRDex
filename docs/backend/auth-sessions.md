@@ -210,16 +210,16 @@ before anything was deleted, which the note below always allowed for, so the
 purge runs against a `users` table holding legacy rows *and* Clerk rows.
 
 `migrations:purgeConvexAuthLeftovers` does the whole thing. Run it per
-deployment, staging first — `--prod` selects production, so it is exactly the
-wrong flag for the staging pass:
+deployment, staging first, naming the target with `pnpm cx` — `convex --prod`
+cannot resolve a project in this repository at all, and would run against the
+local backend:
 
 ```powershell
 # staging (scrupulous-corgi-247)
-$env:CONVEX_DEPLOYMENT="dev:scrupulous-corgi-247"; $env:CONVEX_SELF_HOSTED_URL=""
-pnpm exec convex run migrations:purgeConvexAuthLeftovers '{\"dryRun\": true}'
+pnpm cx -- dev run migrations:purgeConvexAuthLeftovers '{\"dryRun\": true}'
 
 # production (superb-pig-954)
-pnpm exec convex run --prod migrations:purgeConvexAuthLeftovers '{\"regrantGrantsFrom\": \"<legacy users._id>\", \"regrantGrantsToClerkUserId\": \"user_...\", \"dryRun\": true}'
+pnpm cx -- prod run migrations:purgeConvexAuthLeftovers '{\"regrantGrantsFrom\": \"<legacy users._id>\", \"regrantGrantsToClerkUserId\": \"user_...\", \"dryRun\": true}'
 ```
 
 It moves the named legacy row's active `accountFeatureGrants` onto the `users`
@@ -295,8 +295,10 @@ cutover** — staging in particular may hold rows — and re-grant rather than
 attempt a rewrite:
 
 ```bash
-pnpm exec convex data communityAuthorities --limit 5
-pnpm exec convex data events --limit 5
+pnpm cx -- dev data communityAuthorities --limit 5
+pnpm cx -- dev data events --limit 5
+pnpm cx -- prod data communityAuthorities --limit 5
+pnpm cx -- prod data events --limit 5
 ```
 
 Doing step 3 before step 2 is not fatal — it leaves a duplicate legacy row and an
