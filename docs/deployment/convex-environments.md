@@ -118,13 +118,41 @@ the Convex project, from the dashboard's project settings. New previews then
 inherit it at creation. Without it, `Deploy Convex preview functions` fails
 before any Vercel step runs.
 
+### Staging provisions it in the workflow
+
+The shared development/staging deployment already exists, so `convex env set`
+does work there — and `staging-deploy.yml` runs it from
+`vars.VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN` in a `Provision Convex auth
+configuration` step placed **before** `convex deploy`. Ordering is the point:
+`auth.config.ts` is evaluated at push time and the CLI refuses to push while the
+variable is unset, so setting it after the deploy never runs at all.
+
+This used to be a hand-set dashboard value, and that is what failed. Nobody set
+it when Clerk replaced Convex Auth in #224. Every staging deploy failed from that
+merge onward with:
+
+```text
+✖ Environment variable CLERK_JWT_ISSUER_DOMAIN is used in auth config file
+  but its value was not set.
+```
+
+Staging kept serving a pre-cutover build — with the removed email/password
+sign-in form — for three days while `main` moved on, and nothing surfaced it
+because the failure was inside a workflow nobody was watching. The gate step now
+names the variable as a missing setting, and
+`tests/scripts/staging-runtime-env.test.ts` pins the ordering.
+
+The value is not a secret. A Clerk Frontend API origin is public — it is encoded
+in the publishable key every browser downloads — so it lives in a repository
+variable rather than a repository secret, where it can be read and audited.
+
 Development/staging Convex env names:
 
 - `VRDEX_ENABLE_E2E_HELPERS=true`
 - `VRDEX_E2E_CONVEX_SECRET`: non-empty sentinel also configured in the hosted app environment
 - `VRDEX_ENABLE_E2E_AUTH_HELPERS=true`: optional, only when hosted auth/claim E2E is intentionally enabled
 - `VRDEX_ENABLE_E2E_ADAPTER_HELPERS=true`: optional, only when hosted adapter E2E is intentionally enabled
-- `CLERK_JWT_ISSUER_DOMAIN`: staging Clerk Frontend API origin, read by `convex/auth.config.ts`
+- `CLERK_JWT_ISSUER_DOMAIN`: staging Clerk Frontend API origin, read by `convex/auth.config.ts`. **Provisioned by `staging-deploy.yml`, not by hand** — see below
 - `SITE_URL=https://staging.vrdex.net`: builds the Discord verification callback URL
 - `AUTH_DISCORD_ID` and `AUTH_DISCORD_SECRET`: staging Discord credentials for the purpose-scoped community-verification round-trip. These are **not** sign-in credentials — Clerk holds those — but `convex/discordVerification.ts` still requires them
 - `DISCORD_API_BASE_URL`: optional hosted adapter stub base URL, usually `https://staging.vrdex.net/api/e2e/adapters/discord`

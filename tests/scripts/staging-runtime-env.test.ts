@@ -178,12 +178,31 @@ test("staging deploy parses and audits main before provider mutation", () => {
   const vercelDeployIndex = steps.findIndex(
     (step) => step.name === "Deploy Vercel staging",
   );
+  const authConfigIndex = steps.findIndex(
+    (step) => step.name === "Provision Convex auth configuration",
+  );
   const auditStep = steps[auditIndex];
 
   assert.ok(auditIndex >= 0);
   assert.ok(convexDeployIndex > auditIndex);
   assert.ok(fixtureIndex > convexDeployIndex);
   assert.ok(vercelDeployIndex > fixtureIndex);
+
+  // Strictly before the deploy, not merely present. `auth.config.ts` reads
+  // CLERK_JWT_ISSUER_DOMAIN at push time and the CLI refuses to push while it is
+  // unset, so provisioning it alongside the post-deploy fixture variables would
+  // never get the chance to run. That ordering is the whole fix, so assert it
+  // rather than trust it.
+  assert.ok(authConfigIndex >= 0);
+  assert.ok(authConfigIndex < convexDeployIndex);
+  assert.match(steps[authConfigIndex]?.run ?? "", /convex env set CLERK_JWT_ISSUER_DOMAIN/);
+  assert.equal(
+    steps[authConfigIndex]?.env?.CLERK_JWT_ISSUER_DOMAIN,
+    "${{ vars.VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN }}",
+  );
+  // Gated too, so a missing value is one named setting in the skip summary
+  // rather than a deploy that dies part way with a Convex dashboard link.
+  assert.match(workflow, /missing\+=\("VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN"\)/);
   assert.equal(auditStep?.env?.VERCEL_TOKEN, "${{ secrets.VERCEL_TOKEN }}");
   assert.match(auditStep?.run ?? "", /env ls staging --format=json/);
   assert.match(auditStep?.run ?? "", /--require-developer-credentials/);

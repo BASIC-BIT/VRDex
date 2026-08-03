@@ -45,6 +45,7 @@ jobs:
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
           HOSTED_BASE_URL: ${{ vars.VRDEX_HOSTED_E2E_BASE_URL }}
           HOSTED_BROWSER_TOKEN: ${{ secrets.VRDEX_HOSTED_E2E_BROWSER_TOKEN }}
+          CLERK_JWT_ISSUER_DOMAIN: ${{ vars.VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN }}
         run: |
           set -euo pipefail
 
@@ -55,6 +56,11 @@ jobs:
           if [ -z "$VERCEL_PROJECT_ID" ]; then missing+=("VERCEL_PROJECT_ID"); fi
           if [ -z "$HOSTED_BASE_URL" ]; then missing+=("VRDEX_HOSTED_E2E_BASE_URL"); fi
           if [ -z "$HOSTED_BROWSER_TOKEN" ]; then missing+=("VRDEX_HOSTED_E2E_BROWSER_TOKEN"); fi
+          # `convex/auth.config.ts` reads this on every hosted deployment, and
+          # the Convex CLI refuses to push when it is unset. Gating on it here
+          # turns that into one named missing setting instead of a deploy that
+          # dies half way with a dashboard link.
+          if [ -z "$CLERK_JWT_ISSUER_DOMAIN" ]; then missing+=("VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN"); fi
 
           if [ "${#missing[@]}" -gt 0 ]; then
             echo "enabled=false" >> "$GITHUB_OUTPUT"
@@ -104,6 +110,28 @@ jobs:
           fi
 
           node scripts/check-staging-runtime-env.mjs "${args[@]}"
+
+      # Must run before the deploy below, not with the other `convex env set`
+      # calls after it. `convex/auth.config.ts` reads CLERK_JWT_ISSUER_DOMAIN at
+      # push time, and the CLI refuses to push at all while it is unset — so a
+      # variable set afterwards never gets the chance to be set.
+      #
+      # Provisioned here rather than by hand because a hand-set value is exactly
+      # what failed: nobody set it when Clerk replaced Convex Auth in #224, every
+      # staging deploy failed from that merge onward, and staging served a
+      # pre-cutover build for three days while main moved on without it.
+      #
+      # The value is not a secret. A Clerk Frontend API origin is public — it is
+      # encoded in the publishable key the browser already downloads — so it
+      # lives in a repository variable where it can be read and audited.
+      - name: Provision Convex auth configuration
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_DEV }}
+          CLERK_JWT_ISSUER_DOMAIN: ${{ vars.VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$CLERK_JWT_ISSUER_DOMAIN" | pnpm exec convex env set CLERK_JWT_ISSUER_DOMAIN
 
       - name: Deploy Convex development functions
         if: steps.gate.outputs.enabled == 'true'
