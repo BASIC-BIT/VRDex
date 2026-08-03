@@ -580,6 +580,15 @@ export const purgeConvexAuthLeftovers = internalMutation({
       await Promise.all(deletableUsers.map((user) => ctx.db.delete(user._id)));
     }
 
+    // One extra beyond the cap, purely to know whether the list is the whole set.
+    const clerkUserPage =
+      legacy.length === 0
+        ? []
+        : await ctx.db
+            .query("users")
+            .withIndex("clerkUserId", (q) => q.gt("clerkUserId", undefined))
+            .take(CLERK_USER_REPORT_LIMIT + 1);
+
     const authorityPage = await ctx.db
       .query("communityAuthorities")
       .take(STALE_AUTHORITY_SCAN_LIMIT + 1);
@@ -617,15 +626,16 @@ export const purgeConvexAuthLeftovers = internalMutation({
       // convenience for finding your own account on a deployment with a few, not
       // a directory. `clerkUserId` sorts after `undefined` on the index, so this
       // reads Clerk rows only and never walks the legacy ones.
-      clerkUsers:
-        legacy.length === 0
-          ? []
-          : (
-              await ctx.db
-                .query("users")
-                .withIndex("clerkUserId", (q) => q.gt("clerkUserId", undefined))
-                .take(CLERK_USER_REPORT_LIMIT)
-            ).map((user) => ({ clerkUserId: user.clerkUserId, email: user.email })),
+      clerkUsers: clerkUserPage
+        .slice(0, CLERK_USER_REPORT_LIMIT)
+        .map((user) => ({ clerkUserId: user.clerkUserId, email: user.email })),
+      // Says so when the list is a sample rather than the set. Without this an
+      // operator whose account fell outside the cap sees a list that does not
+      // contain them and no indication that one exists — for the field the
+      // runbook tells them to pick `regrantGrantsToClerkUserId` out of. When
+      // true, read the id off Clerk's dashboard instead; it does not have to come
+      // from here, it only usually can.
+      clerkUsersTruncated: clerkUserPage.length > CLERK_USER_REPORT_LIMIT,
       // Keyed by token identifier rather than `users._id`, so these never block
       // the purge — but the issuer change stopped them matching their owners, and
       // nothing can derive which Clerk subject a Convex Auth one was. They have

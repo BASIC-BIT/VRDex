@@ -234,6 +234,12 @@ is still referenced by; `clerkUsers` lists the Clerk identities with their
 emails. Take `regrantGrantsFrom` from the first and
 `regrantGrantsToClerkUserId` from the second.
 
+`clerkUsers` is a capped sample, and `clerkUsersTruncated` says when it is one.
+If your account is not in the list, read the id off Clerk's dashboard —
+**Users → the account → User ID** — rather than assuming the list is complete.
+The migration validates whatever id you pass, so this is a discovery
+convenience, not the source of truth.
+
 Staging needs no regrant arguments today — its legacy rows are E2E fixtures with
 no grants — but check `blockedUsers` rather than assuming that.
 

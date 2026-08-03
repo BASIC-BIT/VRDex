@@ -9,23 +9,35 @@ import { CONVEX_AUTH_TABLES, USER_REFERENCES } from "../../convex/migrations";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const schema = readFileSync(path.join(repoRoot, "convex", "schema.ts"), "utf8");
 
+// Whitespace-tolerant on purpose. The tight version matched only the one-line
+// form, so a `v.optional(` wrapped across lines — which prettier will produce as
+// soon as a field name is long enough — would vanish from the derived set and
+// let the exhaustiveness check below pass while `USER_REFERENCES` was missing a
+// field. A guard whose whole job is to make a hand-maintained list safe must not
+// silently narrow what it looks at.
+const USER_REFERENCE_PATTERN = /(\w+)\s*:\s*v\.(?:optional\(\s*v\.)?id\(\s*"users"\s*\)/g;
+
 /** Every `<field>: v.id("users")` and `v.optional(v.id("users"))`, by table. */
-function userReferencesInSchema(): string[] {
-  const tableStarts = [...schema.matchAll(/^ {2}(\w+): defineTable\(/gm)];
+export function userReferencesIn(source: string): string[] {
+  const tableStarts = [...source.matchAll(/^ {2}(\w+): defineTable\(/gm)];
   const references: string[] = [];
 
   for (const [index, start] of tableStarts.entries()) {
     const table = start[1];
     const from = start.index ?? 0;
-    const to = tableStarts[index + 1]?.index ?? schema.length;
-    const body = schema.slice(from, to);
+    const to = tableStarts[index + 1]?.index ?? source.length;
+    const body = source.slice(from, to);
 
-    for (const field of body.matchAll(/(\w+): v\.(?:optional\(v\.)?id\("users"\)/g)) {
+    for (const field of body.matchAll(USER_REFERENCE_PATTERN)) {
       references.push(`${table}.${field[1]}`);
     }
   }
 
   return references.sort();
+}
+
+function userReferencesInSchema(): string[] {
+  return userReferencesIn(schema);
 }
 
 /** `.index("name", ["col", ...])` declarations for one table. */
@@ -52,6 +64,35 @@ function indexesOf(table: string): Map<string, string[]> {
 }
 
 describe("Convex Auth purge", () => {
+  // The guard's own guard. Every other test here derives its expectations from
+  // this parser, so a form it fails to see is invisible to all of them at once —
+  // the schema grows a reference, nothing reports it, and the purge deletes a
+  // row that still has one. Each shape below is a real thing prettier emits.
+  it("sees every shape a users reference is written in", () => {
+    const sample = [
+      '  someTable: defineTable({',
+      '    plain: v.id("users"),',
+      '    inlineOptional: v.optional(v.id("users")),',
+      '    wrappedOptional: v.optional(',
+      '      v.id("users"),',
+      '    ),',
+      '    spacedCall: v.id( "users" ),',
+      '    notAUser: v.id("profiles"),',
+      '  }),',
+      '  nextTable: defineTable({',
+      '    alsoMine: v.id("users"),',
+      '  }),',
+    ].join("\n");
+
+    assert.deepEqual(userReferencesIn(sample), [
+      "nextTable.alsoMine",
+      "someTable.inlineOptional",
+      "someTable.plain",
+      "someTable.spacedCall",
+      "someTable.wrappedOptional",
+    ]);
+  });
+
   // The purge deletes legacy `users` rows. Convex does not enforce referential
   // integrity, so a reference this list misses becomes a dangling id that still
   // reads as a valid `v.id("users")` and resolves to nothing — silent corruption
