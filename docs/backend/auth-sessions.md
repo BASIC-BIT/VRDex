@@ -213,22 +213,42 @@ the last revision with both migrations and the permissive schema. From a checkou
 of it:
 
 ```powershell
-# 1. What is actually there. Read blockedUsers before anything else.
+# 1. Inventory, one page of legacy users at a time. Carry nextLegacyCursor back
+#    as legacyCursor until it returns null: a dry run deletes nothing, so
+#    without the cursor this re-reads the first page forever and never sees the
+#    blockers behind it.
 pnpm cx -- <target> run migrations:purgeConvexAuthLeftovers '{"dryRun": true}'
+pnpm cx -- <target> run migrations:purgeConvexAuthLeftovers `
+  '{"dryRun": true, "legacyCursor": "<nextLegacyCursor>"}'
 
-# 2. Only if a legacy row is blocked because it is still someone — a person who
-#    signed in both before and after the cutover. Both ids come out of step 1:
-#    blockedUsers is keyed by users._id, clerkUsers lists the Clerk identities.
+# 2. Once per legacy row blockedUsers reported — a row is blocked because it is
+#    still someone, a person who signed in both before and after the cutover.
+#    Both ids come out of step 1: blockedUsers is keyed by users._id, clerkUsers
+#    lists the Clerk identities.
+#
+#    Read the preview, then run it again with "dryRun": false, and keep rerunning
+#    with the same arguments while moreRemaining is true (the row budget ran out;
+#    repointed rows stop matching, so each pass resumes on its own). A dry run
+#    patches nothing, so blockedUsers does not clear until this runs for real.
 pnpm cx -- <target> run migrations:reassignLegacyUserReferences `
   '{"fromUserId": "<legacy users._id>", "toClerkUserId": "user_...", "dryRun": true}'
+pnpm cx -- <target> run migrations:reassignLegacyUserReferences `
+  '{"fromUserId": "<legacy users._id>", "toClerkUserId": "user_...", "dryRun": false}'
 
-# 3. Rerun 1 until blockedUsers is empty, then purge for real, carrying
-#    nextLegacyCursor back as legacyCursor until moreRemaining is false.
+# 3. Purge for real. Start with no cursor — resuming from one you paged to during
+#    discovery would skip every legacy row before it, and a short enough
+#    remainder would report itself finished with those rows still present. Then
+#    carry nextLegacyCursor back as legacyCursor until moreRemaining is false.
+#    Cursors are tagged with the mode that produced them, so passing a step-1
+#    cursor here is rejected rather than silently skipping rows.
 pnpm cx -- <target> run migrations:purgeConvexAuthLeftovers '{"dryRun": false}'
 ```
 
 **`purgeComplete: true` is the gate**, not an empty `blockedUsers` — that reports
-only the current page. Confirm it on every deployment, then deploy this revision.
+only the current page, so a walk whose blockers appeared earlier ends with an
+empty one while those rows survive. When it is false, resolve what `blockedUsers`
+named and start a **new** walk from no cursor; the affected rows are behind the
+old one. Confirm it on every deployment, then deploy this revision.
 
 Both first-party deployments cleared in a single pass, and neither matched what
 this page predicted beforehand; see below.
