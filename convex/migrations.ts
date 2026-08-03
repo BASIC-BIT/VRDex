@@ -409,15 +409,30 @@ export const purgeConvexAuthLeftovers = internalMutation({
         );
       }
 
-      // A Clerk row is the only valid destination. Naming a legacy row would
-      // move the grants onto something this same run then deletes.
-      if (!legacyIds.has(args.regrantGrantsFrom as string)) {
-        throw new Error(
-          `regrantGrantsFrom ${args.regrantGrantsFrom} is not a legacy users row. Only rows without a clerkUserId are purged, so only their grants need moving.`,
-        );
-      }
+      // Validated against the row, not against `legacyIds`. That set is one page
+      // of legacy users, so checking membership conflated three different
+      // situations and rejected two of them wrongly.
+      const source = await ctx.db.get(args.regrantGrantsFrom as Id<"users">);
 
-      regrantTarget = target._id;
+      if (source === null) {
+        // Already deleted by an earlier pass. The documented workflow is to rerun
+        // with the same arguments until `moreRemaining` is false, and pagination
+        // means the source can be purged on pass one while later pages remain —
+        // so throwing here would make the advertised loop impossible to complete.
+        // Its grants moved when it was deleted, which makes this a no-op.
+        regrantTarget = undefined;
+      } else if (source.clerkUserId !== undefined) {
+        // A Clerk row is never a valid source: moving its grants onto another
+        // Clerk row is a privilege transfer between live accounts, which is not
+        // what this function is for.
+        throw new Error(
+          `regrantGrantsFrom ${args.regrantGrantsFrom} carries a clerkUserId, so it is not a legacy row. Only pre-cutover rows are purged, so only their grants need moving.`,
+        );
+      } else {
+        // A legacy row, whether or not it landed on this page. The regrant reads
+        // grants by user id rather than off the page, so it is correct either way.
+        regrantTarget = target._id;
+      }
     }
 
     // Re-point before scanning, so a grant that moved off a legacy row stops

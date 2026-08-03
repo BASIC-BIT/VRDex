@@ -237,13 +237,18 @@ emails. Take `regrantGrantsFrom` from the first and
 Staging needs no regrant arguments today — its legacy rows are E2E fixtures with
 no grants — but check `blockedUsers` rather than assuming that.
 
-**Rerun until `moreRemaining` is false.** The eight tables are cleared up to a
-fixed batch per invocation, because a deployment that ran Convex Auth for a year
-holds a session and refresh-token row per sign-in and reading all of them in one
-transaction exceeds Convex's limits — which would strand the tables permanently,
-since every retry would fail the same way. Legacy `users` rows are deleted only
-on the pass that finishes the tables, so a row is never removed while
-`authAccounts` still references it. Both current deployments clear in one pass.
+**Rerun with the same arguments until `moreRemaining` is false.** The eight
+tables are cleared up to a fixed batch per invocation, and legacy `users` rows a
+page at a time, because a deployment that ran Convex Auth for a year holds a
+session and refresh-token row per sign-in — reading all of them in one
+transaction exceeds Convex's limits, which would strand the tables permanently
+since every retry fails the same way. Legacy rows are deleted only on the pass
+that finishes the tables, so a row is never removed while `authAccounts` still
+references it. Both current deployments clear in one pass.
+
+Keeping the regrant arguments on every rerun is correct: once the source row is
+gone its grants have already moved, and the migration treats a missing source as
+a no-op rather than an error.
 
 Four things about it are deliberate:
 
