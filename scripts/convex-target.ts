@@ -221,7 +221,22 @@ export const CX_TARGET_HELP =
   "The deployment is the target argument to cx, which this would override after " +
   "the banner had already named a different one.";
 
-const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "[::1]", "localhost"]);
+const NAMED_LOOPBACK_HOSTS = new Set(["localhost", "::1", "[::1]"]);
+const IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+
+function isLoopbackHost(hostname: string) {
+  if (NAMED_LOOPBACK_HOSTS.has(hostname)) {
+    return true;
+  }
+
+  // The whole of 127.0.0.0/8 is loopback, not just 127.0.0.1, and
+  // run-convex-local.mjs takes a configurable local URL. Matched as an address
+  // rather than by prefix, so a hostname like "127.0.0.1.example.com" -- which
+  // resolves wherever its owner points it -- is not mistaken for one.
+  const octets = IPV4.exec(hostname)?.slice(1).map(Number);
+
+  return octets !== undefined && octets.every((octet) => octet <= 255) && octets[0] === 127;
+}
 
 /**
  * The hostname when `value` is a loopback URL, otherwise null. An unparseable
@@ -236,7 +251,7 @@ export function loopbackHostOrNull(value: string) {
     return null;
   }
 
-  return LOOPBACK_HOSTS.has(parsed.hostname) ? parsed.hostname : null;
+  return isLoopbackHost(parsed.hostname) ? parsed.hostname : null;
 }
 
 type ResolvedConvexTarget =

@@ -165,9 +165,31 @@ describe("convex target resolution", () => {
     assert.match(error(result), /not a loopback address/);
   });
 
-  it("accepts the loopback spellings", () => {
-    for (const url of ["http://127.0.0.1:3210", "http://localhost:3210", "http://[::1]:3210"]) {
+  it("accepts the loopback spellings, including the rest of 127.0.0.0/8", () => {
+    for (const url of [
+      "http://127.0.0.1:3210",
+      // run-convex-local.mjs takes a configurable local URL, and the whole /8
+      // is loopback.
+      "http://127.0.0.2:3210",
+      "http://127.255.255.254:3210",
+      "http://localhost:3210",
+      "http://[::1]:3210",
+    ]) {
       assert.equal(resolveConvexTarget("local", { ...configured, CONVEX_URL: url }).ok, true, url);
+    }
+  });
+
+  it("does not mistake a hostname that merely starts with a loopback address", () => {
+    // "127.0.0.1.example.com" resolves wherever its owner points it.
+    for (const url of [
+      "http://127.0.0.1.example.com:3210",
+      "http://127.0.0.256:3210",
+      "http://128.0.0.1:3210",
+    ]) {
+      const result = resolveConvexTarget("local", { ...configured, CONVEX_URL: url });
+
+      assert.equal(result.ok, false, url);
+      assert.match(error(result), /not a loopback address/);
     }
   });
 
