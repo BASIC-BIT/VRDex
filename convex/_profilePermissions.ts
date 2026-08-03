@@ -15,6 +15,7 @@ export type ProfileEditableField =
   | "region"
   | "timezone"
   | "slug"
+  | "outboundLinks"
   | "person"
   | "community";
 

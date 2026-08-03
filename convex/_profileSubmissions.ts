@@ -1,3 +1,9 @@
+import {
+  type NormalizedProfileLink,
+  type ProfileLinkSource,
+  sanitizeProfileLinks,
+} from "./_profileLinks";
+
 export const PROFILE_DISPLAY_NAME_MIN_LENGTH = 2;
 export const PROFILE_DISPLAY_NAME_MAX_LENGTH = 80;
 export const PROFILE_ALIAS_MAX_COUNT = 8;
@@ -13,6 +19,7 @@ export type CommunitySubmissionProfileInput = {
   displayName: string;
   aliases?: string[];
   tags?: string[];
+  outboundLinks?: unknown;
   person?: {
     roleTags?: string[];
   };
@@ -22,6 +29,8 @@ export type CommunitySubmissionProfileInput = {
   };
 };
 
+type SanitizedProfileLink = NormalizedProfileLink & { source: ProfileLinkSource };
+
 export type SanitizedCommunitySubmissionProfileInput =
   | {
       profileType: "person";
@@ -29,6 +38,7 @@ export type SanitizedCommunitySubmissionProfileInput =
       sortName: string;
       aliases: string[];
       tags: string[];
+      outboundLinks: SanitizedProfileLink[];
       person: {
         roleTags: string[];
       };
@@ -39,6 +49,7 @@ export type SanitizedCommunitySubmissionProfileInput =
       sortName: string;
       aliases: string[];
       tags: string[];
+      outboundLinks: SanitizedProfileLink[];
       community: {
         subtype?: string;
         categoryTags: string[];
@@ -152,8 +163,16 @@ function hasCommunitySubmissionFields(
   );
 }
 
+/**
+ * `linkSource` is explicit at every call site rather than defaulted: the same
+ * sanitizer serves the community submit form, where the writer is adding
+ * somebody else's profile, and Discord claim creation, where the writer ends up
+ * owning the profile. Those are different provenance claims and the value is
+ * rendered as a trust signal, so a default here would quietly mislabel one.
+ */
 export function sanitizeCommunitySubmissionProfileInput(
   input: CommunitySubmissionProfileInput,
+  options: { linkSource: ProfileLinkSource },
 ): SanitizedCommunitySubmissionProfileInput {
   const displayName = requireBoundedText(
     input.displayName,
@@ -173,6 +192,7 @@ export function sanitizeCommunitySubmissionProfileInput(
       maxItems: PROFILE_TAG_MAX_COUNT,
       maxLength: PROFILE_TAG_MAX_LENGTH,
     }),
+    outboundLinks: sanitizeProfileLinks(input.outboundLinks ?? [], options.linkSource),
   };
 
   if (input.profileType === "person") {

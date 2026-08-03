@@ -50,7 +50,8 @@ Core presentation fields:
 - `bannerImageUrl`: optional banner image URL for controlled future owner or concierge inputs
 - `region`: optional location or scene region text
 - `timezone`: optional time zone text
-- `outboundLinks`: optional inline typed external links for owner-authored, reviewed, or partner-provided profile storefront/contact links
+- `outboundLinks`: optional inline typed external links for owner-authored, community-submitted, reviewed, or partner-provided profile storefront/contact links
+- every writer goes through `sanitizeProfileLinks` in `convex/_profileLinks.ts`, which rejects unknown link types and non-HTTPS URLs, resolves `vrcdn` input through `parseVrcdnStreamLinks` to the canonical page URL plus stream id, and stamps `source` from the caller rather than trusting the payload: `owner_authored` for the profile PATCH API and Discord claim creation, `community_submitted` for the community submit form
 - first-class profile link types include DJ/operator lookup needs such as `vrchat_profile`, `discord`, `soundcloud`, `mixcloud`, `twitch`, `youtube`, `spotify`, `bandcamp`, `instagram`, and `linktree`, plus existing website/store/commission link types
 - profile links may optionally set `presentation: "icon" | "copy"`; lookup treats Twitch as icon-only unless a link explicitly requests copy presentation, while VRCDN stream rows remain the preferred elevated stream controls
 - first-slice profile genre facts include a stable `slug`, canonical `displayName`, optional short `displayLabel`, optional featured display intent, optional aliases, optional parent genre slugs, source, confidence, explicit/inferred state, and optional external IDs such as MusicBrainz genre UUID or Wikidata QID

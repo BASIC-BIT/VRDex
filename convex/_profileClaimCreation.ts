@@ -25,7 +25,11 @@ export async function createClaimedDiscordProfileForUser(
   db: DatabaseWriter,
   options: CreateClaimedDiscordProfileOptions,
 ) {
-  const input = sanitizeCommunitySubmissionProfileInput(options.input);
+  // Owner-authored: this path only runs for a verified user who confirmed no
+  // existing profile matches, and it hands them ownership in the same call.
+  const input = sanitizeCommunitySubmissionProfileInput(options.input, {
+    linkSource: "owner_authored",
+  });
   const now = options.now;
   const slug = await findAvailableProfileSlug(db, input.displayName);
 
@@ -51,7 +55,7 @@ export async function createClaimedDiscordProfileForUser(
     sortName: input.sortName,
     aliases: input.aliases,
     tags: input.tags,
-    outboundLinks: [],
+    outboundLinks: input.outboundLinks,
     claimState: "unclaimed" as const,
     publicationState: "published" as const,
     publicSurfacingState: "public" as const,

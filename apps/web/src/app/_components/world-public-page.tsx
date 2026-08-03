@@ -29,7 +29,7 @@ type WorldLinkType =
   | "commissions"
   | "generic_store"
   | "other";
-type WorldLinkSource = "owner_authored" | "reviewed" | "partner_provided";
+type WorldLinkSource = "owner_authored" | "reviewed" | "partner_provided" | "community_submitted";
 type EventSourceType = "manual" | "community" | "partner" | "import" | "ai_suggested";
 
 type PublicWorldEventPreview = {
@@ -158,6 +158,13 @@ function linkSourceLabel(source: WorldLinkSource): string {
 
   if (source === "partner_provided") {
     return "Partner-provided";
+  }
+
+  // No writer produces community-submitted world links today; the variant is
+  // shared with profile links. Named explicitly so it cannot fall through to
+  // "Reviewed", which would overstate how the link got here.
+  if (source === "community_submitted") {
+    return "Community-submitted";
   }
 
   return "Reviewed";

@@ -2874,7 +2874,63 @@ components:
               items:
                 type: string
                 maxLength: 32
+        outboundLinks:
+          maxItems: 20
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiProfileLinkInput"
       description: Update owner-editable metadata for a claimed profile owned by the current authenticated API user.
+    ApiProfileLinkInput:
+      type: object
+      properties:
+        type:
+          $ref: "#/components/schemas/ProfileLinkType"
+        url:
+          type: string
+          minLength: 1
+          maxLength: 2048
+        label:
+          type: string
+          minLength: 1
+          maxLength: 120
+        handle:
+          type: string
+          minLength: 1
+          maxLength: 160
+        presentation:
+          type: string
+          enum:
+            - icon
+            - copy
+      required:
+        - type
+        - url
+      description: Outbound profile link supplied by a profile owner.
+    ProfileLinkType:
+      type: string
+      enum:
+        - vrchat_profile
+        - vrcdn
+        - discord
+        - soundcloud
+        - mixcloud
+        - twitch
+        - youtube
+        - spotify
+        - bandcamp
+        - instagram
+        - linktree
+        - website
+        - gumroad
+        - jinxxy
+        - payhip
+        - woocommerce
+        - kofi
+        - patreon
+        - commissions
+        - generic_store
+        - other
+      description: Outbound profile link provider.
     ApiProfileAssetUploadIntentCreateRequest:
       type: object
       properties:

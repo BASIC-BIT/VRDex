@@ -519,6 +519,46 @@ export const ApiEventWriteResponseSchema = z
     id: "ApiEventWriteResponse",
   });
 
+export const ProfileLinkTypeSchema = z
+  .enum([
+    "vrchat_profile",
+    "vrcdn",
+    "discord",
+    "soundcloud",
+    "mixcloud",
+    "twitch",
+    "youtube",
+    "spotify",
+    "bandcamp",
+    "instagram",
+    "linktree",
+    "website",
+    "gumroad",
+    "jinxxy",
+    "payhip",
+    "woocommerce",
+    "kofi",
+    "patreon",
+    "commissions",
+    "generic_store",
+    "other",
+  ])
+  .meta({ description: "Outbound profile link provider.", id: "ProfileLinkType" });
+
+export const ApiProfileLinkInputSchema = z
+  .object({
+    type: ProfileLinkTypeSchema,
+    // Deliberately not `safeHttpUrl`: a `vrcdn` link is normally pasted from the
+    // player URLs VRCDN hands out, which use `rtspt://` and stream endpoints.
+    // Those are resolved to the canonical HTTPS page URL server-side, and every
+    // other type is rejected there unless it is already HTTPS.
+    url: z.string().min(1).max(2_048),
+    label: z.string().min(1).max(120).optional(),
+    handle: z.string().min(1).max(160).optional(),
+    presentation: z.enum(["icon", "copy"]).optional(),
+  })
+  .meta({ description: "Outbound profile link supplied by a profile owner.", id: "ApiProfileLinkInput" });
+
 export const ApiProfileUpdateRequestSchema = z
   .object({
     displayName: z.string().min(2).max(80).optional(),
@@ -540,6 +580,7 @@ export const ApiProfileUpdateRequestSchema = z
         categoryTags: z.array(z.string().max(32)).max(12).optional(),
       })
       .optional(),
+    outboundLinks: z.array(ApiProfileLinkInputSchema).max(20).optional(),
   })
   .meta({
     description:

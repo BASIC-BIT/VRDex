@@ -45,7 +45,7 @@ type ProfileLinkType =
   | "commissions"
   | "generic_store"
   | "other";
-type LinkSource = "owner_authored" | "reviewed" | "partner_provided";
+type LinkSource = "owner_authored" | "reviewed" | "partner_provided" | "community_submitted";
 type LinkPresentation = "icon" | "copy";
 type WorldCreatorRole =
   | "world_author"

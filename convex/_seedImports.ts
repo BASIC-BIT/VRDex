@@ -17,6 +17,18 @@ import {
   PROFILE_REGION_MAX_LENGTH,
   PROFILE_TIMEZONE_MAX_LENGTH,
 } from "./_profileUpdates";
+import {
+  assertOnlyKeys,
+  isHttpsUrl,
+  normalizeInlineText,
+  optionalInlineText,
+  optionalStringValue,
+  requireArrayValue,
+  requireHttpsUrl,
+  requireRecord,
+  requireStringValue,
+} from "./_inputValidation";
+import { normalizeOutboundLinks } from "./_profileLinks";
 
 export type SeedImportFixture = {
   batchId: string;
@@ -278,30 +290,6 @@ function optionalRecord<T>(key: string, value: T | undefined): Record<string, T>
   return value === undefined ? {} : { [key]: value };
 }
 
-function normalizeInlineText(value: string, fieldName: string, maxLength: number): string {
-  const normalized = value.trim().replace(/\s+/g, " ");
-
-  if (!normalized) {
-    throw new Error(`${fieldName} is required.`);
-  }
-
-  return normalized.slice(0, maxLength);
-}
-
-function optionalInlineText(value: string | undefined, fieldName: string, maxLength: number): string | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-
-  const normalized = value.trim().replace(/\s+/g, " ");
-
-  if (!normalized) {
-    return undefined;
-  }
-
-  return normalizeInlineText(normalized, fieldName, maxLength);
-}
-
 function parseIsoTimestamp(value: string, fieldName: string): number {
   const timestamp = Date.parse(value);
 
@@ -324,28 +312,6 @@ function parseNonFutureIsoTimestamp(
   }
 
   return timestamp;
-}
-
-function isHttpsUrl(value: string): boolean {
-  try {
-    return new URL(value).protocol === "https:";
-  } catch {
-    return false;
-  }
-}
-
-function requireHttpsUrl(value: string | undefined, fieldName: string): string | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-
-  const normalized = value.trim();
-
-  if (!isHttpsUrl(normalized)) {
-    throw new Error(`${fieldName} must be an HTTPS URL.`);
-  }
-
-  return normalized.slice(0, 2_048);
 }
 
 function isFakeFixtureUrl(value: string): boolean {
@@ -390,71 +356,6 @@ const SAFE_PERMISSIONED_FIELD_KEYS = new Set([
   "person.roleTags",
 ]);
 
-const PROFILE_LINK_TYPES = new Set([
-  "vrchat_profile",
-  "vrcdn",
-  "discord",
-  "soundcloud",
-  "mixcloud",
-  "twitch",
-  "youtube",
-  "spotify",
-  "bandcamp",
-  "instagram",
-  "linktree",
-  "website",
-  "gumroad",
-  "jinxxy",
-  "payhip",
-  "woocommerce",
-  "kofi",
-  "patreon",
-  "commissions",
-  "generic_store",
-  "other",
-]);
-
-function requireRecord(value: unknown, fieldName: string): Record<string, unknown> {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(`${fieldName} must be an object.`);
-  }
-
-  return value as Record<string, unknown>;
-}
-
-function assertOnlyKeys(
-  value: Record<string, unknown>,
-  allowedKeys: string[],
-  fieldName: string,
-): void {
-  const allowed = new Set(allowedKeys);
-  const unexpected = Object.keys(value).find((key) => !allowed.has(key));
-
-  if (unexpected !== undefined) {
-    throw new Error(`${fieldName} contains unsupported key "${unexpected}".`);
-  }
-}
-
-function requireStringValue(value: unknown, fieldName: string): string {
-  if (typeof value !== "string") {
-    throw new Error(`${fieldName} must be a string.`);
-  }
-
-  return value;
-}
-
-function optionalStringValue(value: unknown, fieldName: string): string | undefined {
-  return value === undefined ? undefined : requireStringValue(value, fieldName);
-}
-
-function requireArrayValue(value: unknown, fieldName: string): unknown[] {
-  if (!Array.isArray(value)) {
-    throw new Error(`${fieldName} must be an array.`);
-  }
-
-  return value;
-}
-
 function normalizeSeedTextList(
   value: unknown,
   fieldName: string,
@@ -474,63 +375,6 @@ function normalizeSeedTextList(
   return [...new Map(normalized.map((item) => [item.toLowerCase(), item])).values()];
 }
 
-function normalizeSeedOutboundLinks(value: unknown): Array<Record<string, unknown>> {
-  const links = requireArrayValue(value, "Outbound links");
-
-  if (links.length > 20) {
-    throw new Error("Outbound links can include at most 20 values.");
-  }
-
-  return links.map((entry, index) => {
-    const link = requireRecord(entry, `Outbound link ${index + 1}`);
-    assertOnlyKeys(
-      link,
-      ["type", "label", "url", "handle", "presentation"],
-      `Outbound link ${index + 1}`,
-    );
-    const type = requireStringValue(link.type, "Outbound link type");
-    const url = requireHttpsUrl(
-      requireStringValue(link.url, "Outbound link URL"),
-      "Outbound link URL",
-    );
-
-    if (!PROFILE_LINK_TYPES.has(type)) {
-      throw new Error(`Unsupported outbound link type "${type}".`);
-    }
-
-    const parsedUrl = new URL(url!);
-    if (parsedUrl.username || parsedUrl.password) {
-      throw new Error("Outbound links must not contain embedded credentials.");
-    }
-
-    const handle = optionalInlineText(
-      optionalStringValue(link.handle, "Outbound link handle"),
-      "Outbound link handle",
-      160,
-    );
-    const presentation = optionalStringValue(
-      link.presentation,
-      "Outbound link presentation",
-    );
-
-    if (presentation !== undefined && presentation !== "icon" && presentation !== "copy") {
-      throw new Error("Outbound link presentation must be icon or copy.");
-    }
-
-    return {
-      type,
-      label: normalizeInlineText(
-        requireStringValue(link.label, "Outbound link label"),
-        "Outbound link label",
-        120,
-      ),
-      url,
-      ...optionalRecord("handle", handle),
-      ...optionalRecord("presentation", presentation),
-    };
-  });
-}
-
 export function normalizeSafePrivateSeedFieldValue(
   fieldKey: string,
   value: unknown,
@@ -544,7 +388,7 @@ export function normalizeSafePrivateSeedFieldValue(
   }
 
   if (fieldKey === "outboundLinks") {
-    return normalizeSeedOutboundLinks(value);
+    return normalizeOutboundLinks(value);
   }
 
   return normalizeInlineText(

@@ -40,6 +40,26 @@ function optionalString(value: unknown) {
   return typeof value === "string" ? value : undefined;
 }
 
+function outboundLinks(value: unknown) {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const links = value.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") {
+      return [];
+    }
+
+    const link = entry as Record<string, unknown>;
+
+    return typeof link.type === "string" && typeof link.url === "string"
+      ? [{ type: link.type, url: link.url }]
+      : [];
+  });
+
+  return links.length > 0 ? links : undefined;
+}
+
 function fieldVisibility(value: unknown) {
   if (!value || typeof value !== "object") {
     return undefined;
@@ -77,6 +97,7 @@ export async function POST(request: NextRequest) {
     region: optionalString(body.region),
     timezone: optionalString(body.timezone),
     fieldVisibility: fieldVisibility(body.fieldVisibility),
+    outboundLinks: outboundLinks(body.outboundLinks),
     person: body.profileType === "community" ? undefined : { pronouns: optionalString(body.pronouns), roleTags: stringArray(body.roleTags) },
     community:
       body.profileType === "community"

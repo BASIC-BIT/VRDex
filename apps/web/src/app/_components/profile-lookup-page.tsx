@@ -49,7 +49,7 @@ export type ProfileLookupLinkType =
   | "commissions"
   | "generic_store"
   | "other";
-type LinkSource = "owner_authored" | "reviewed" | "partner_provided";
+type LinkSource = "owner_authored" | "reviewed" | "partner_provided" | "community_submitted";
 type LinkPresentation = "icon" | "copy";
 type LookupStatus = "live" | "missing-url" | "error";
 type OptionalPublicText = string | null | undefined;
