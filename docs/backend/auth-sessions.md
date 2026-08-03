@@ -206,8 +206,9 @@ either of them — a single `accountFeatureGrants` row. Nothing else: 0 owned
 profiles, 0 claims, 0 events, 0 API tokens, 0 OAuth applications.
 
 That ordering was not achieved. Both deployments were signed into through Clerk
-before anything was deleted, which the note below always allowed for, so the
-purge runs against a `users` table holding legacy rows *and* Clerk rows.
+before anything was deleted, so the purge runs against a `users` table holding
+legacy rows *and* Clerk rows, with the production `super_admin` grant left on a
+legacy one. Recoverable, and the reason the purge takes regrant arguments.
 
 `migrations:purgeConvexAuthLeftovers` does the whole thing. Run it per
 deployment, staging first, naming the target with `pnpm cx` — `convex --prod`
@@ -312,9 +313,9 @@ not on `users._id`, and nothing can derive which Clerk subject corresponds to a
 Convex Auth one. They have to be re-granted after the first Clerk sign-in.
 
 Production held 0 `events` and 0 `communityAuthorities` rows on 2026-07-30, so
-there is nothing to migrate there. **Check both counts per deployment before
-cutover** — staging in particular may hold rows — and re-grant rather than
-attempt a rewrite:
+there is nothing to migrate there. The cutover has since happened, so **check
+both counts per deployment before purging** — staging in particular may hold
+rows — and re-grant rather than attempt a rewrite:
 
 ```bash
 pnpm cx -- dev data communityAuthorities --limit 5
@@ -323,9 +324,12 @@ pnpm cx -- prod data communityAuthorities --limit 5
 pnpm cx -- prod data events --limit 5
 ```
 
-Doing step 3 before step 2 is not fatal — it leaves a duplicate legacy row and an
-orphaned grant, both fixable by hand — but it costs a manual reconciliation that
-the ordering above avoids.
+Signing in through Clerk before purging is not fatal — it leaves a duplicate
+legacy row and an orphaned grant — but it is what happened on both deployments,
+and it is why the purge takes `regrantGrantsFrom` at all. `ensureUser` binds a
+Clerk identity by inserting a *new* row rather than adopting a legacy one, so the
+grant stays behind on a row nobody can authenticate as. Purging first would have
+avoided the reconciliation entirely.
 
 Verify every secret after writing it, per
 [`convex-environments.md`](../deployment/convex-environments.md). A trailing
