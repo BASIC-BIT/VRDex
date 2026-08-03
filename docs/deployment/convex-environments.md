@@ -303,7 +303,7 @@ Always verify after writing a secret. `len` must equal the provider's documented
 length and `CR` must be `0`:
 
 ```bash
-pnpm cx -- prod env get AUTH_GOOGLE_SECRET | python -c "
+pnpm --silent cx -- prod env get AUTH_GOOGLE_SECRET | python -c "
 import sys
 b = sys.stdin.buffer.read().rstrip(b'\n')
 print('CR=%d len=%d' % (b.count(b'\r'), len(b)))"

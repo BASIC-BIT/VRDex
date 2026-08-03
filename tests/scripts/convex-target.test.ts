@@ -19,6 +19,15 @@ describe("target name parsing", () => {
     assert.deepEqual(resolveTargetName(["--apply"]), { name: "local" });
   });
 
+  it("fails on two targets rather than picking one", () => {
+    // The equals form used to win regardless of order, so a wrapper supplying
+    // --target=local ahead of an operator's --target prod wrote locally.
+    assert.match(
+      (resolveTargetName(["--target=local", "--target", "prod"]) as { error: string }).error,
+      /given more than once/,
+    );
+  });
+
   it("treats an empty target as an error rather than a default", () => {
     assert.match(
       (resolveTargetName(["--target", "--apply"]) as { error: string }).error,
@@ -111,6 +120,14 @@ describe("convex target resolution", () => {
 
     assert.equal(result.ok, false);
     assert.match(error(result), /does not start with "dev:"/);
+  });
+
+  it("requires the local url rather than launching without an endpoint", () => {
+    const { CONVEX_URL, ...withoutUrl } = configured;
+    const result = resolveConvexTarget("local", withoutUrl);
+
+    assert.equal(result.ok, false);
+    assert.match(error(result), /missing CONVEX_URL/);
   });
 
   it("rejects a cloud deployment under the local variable", () => {

@@ -36,7 +36,11 @@ export const CONVEX_TARGETS = {
     // cloud credential handed to 127.0.0.1.
     keyVar: undefined,
     label: "local anonymous backend",
+    // Required, not optional: the ambient URL is cleared, so without this in the
+    // env file the CLI is launched with no endpoint and fails to reach a running
+    // backend instead of saying which variable is missing.
     passthroughVars: ["CONVEX_URL"],
+    requiredPassthrough: true,
     prefixes: ["anonymous:", "local:"],
   },
   dev: {
@@ -44,6 +48,7 @@ export const CONVEX_TARGETS = {
     keyVar: "CONVEX_DEPLOY_KEY_DEV",
     label: "shared development / staging",
     passthroughVars: [],
+    requiredPassthrough: false,
     prefixes: ["dev:"],
   },
   prod: {
@@ -51,6 +56,7 @@ export const CONVEX_TARGETS = {
     keyVar: "CONVEX_DEPLOY_KEY_PROD",
     label: "PRODUCTION",
     passthroughVars: [],
+    requiredPassthrough: false,
     prefixes: ["prod:"],
   },
 } as const;
@@ -75,12 +81,18 @@ export const CONVEX_TARGET_NAMES = Object.keys(CONVEX_TARGETS);
 const TARGET_SELECTOR_FLAGS = [
   "--prod",
   "--preview-name",
+  "--preview-create",
+  "--preview-run",
   "--deployment-name",
   "--deployment",
+  "--dev-deployment",
   "--env-file",
   "--url",
   "--admin-key",
   "--local",
+  "--configure",
+  "--project",
+  "--team",
 ];
 
 /**
@@ -89,15 +101,54 @@ const TARGET_SELECTOR_FLAGS = [
  * CLI advertises, so a new flag has to be classified deliberately.
  */
 export const CONVEX_CLI_KNOWN_SAFE_FLAGS = [
+  "--append",
+  "--cmd",
+  "--cmd-url-env-var-name",
   "--codegen",
   "--component",
+  "--dry-run",
+  "--format",
   "--help",
+  "--history",
   "--identity",
+  "--include-file-storage",
+  "--ip-family",
+  "--jsonl",
+  "--limit",
   "--no",
+  "--no-open",
+  "--once",
+  "--order",
+  "--path",
   "--push",
+  "--replace",
+  "--replace-all",
+  "--run",
+  "--run-component",
+  "--run-sh",
+  "--speed-test",
+  "--success",
+  "--table",
+  "--tail-logs",
+  "--timeout",
   "--typecheck",
   "--typecheck-components",
+  "--until-success",
+  "--verbose",
   "--watch",
+  "--yes",
+];
+
+/** The subcommands `cx` realistically forwards, and so must classify flags for. */
+export const CONVEX_CLI_COMMANDS = [
+  "run",
+  "deploy",
+  "env",
+  "data",
+  "dev",
+  "import",
+  "export",
+  "logs",
 ];
 
 export const CONVEX_TARGET_SELECTOR_FLAGS: readonly string[] = TARGET_SELECTOR_FLAGS;
@@ -111,9 +162,18 @@ export const CONVEX_TARGET_SELECTOR_FLAGS: readonly string[] = TARGET_SELECTOR_F
 export function resolveTargetName(argv: string[]): { name: string } | { error: string } {
   const separate = argv.indexOf("--target");
   const equals = argv.find((arg) => arg.startsWith("--target="));
+  const occurrences =
+    argv.filter((arg) => arg === "--target" || arg.startsWith("--target=")).length;
 
   if (separate === -1 && equals === undefined) {
     return { name: "local" };
+  }
+
+  // Order used to decide nothing -- the equals form won regardless -- so a
+  // wrapper supplying `--target=local` ahead of an operator's `--target prod`
+  // wrote locally and reported success. Ambiguity is an error instead.
+  if (occurrences > 1) {
+    return { error: "--target was given more than once. Supply exactly one." };
   }
 
   const value =
@@ -227,6 +287,14 @@ export function resolveConvexTarget(
 
     if (value) {
       passthrough[variable] = value;
+      continue;
+    }
+
+    if (target.requiredPassthrough) {
+      return {
+        error: `Cannot target ${name}: .env.local is missing ${variable}.`,
+        ok: false,
+      };
     }
   }
 
@@ -300,12 +368,27 @@ export function convexTargetEnv(name: string): ConvexTargetEnv {
     return { error: resolved.error, ok: false };
   }
 
+  // Windows environment names are case-insensitive, so an ambient `Convex_URL`
+  // would survive an exact-name filter and still be read as CONVEX_URL by the
+  // child.
+  const inherited = Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([key]) => !AMBIENT_CONVEX_VARS.includes(key.toUpperCase()),
+    ),
+  );
+
+  // Pinned to "" rather than deleted. The child runs in this checkout and the
+  // Convex CLI loads its own .env.local from there -- one that
+  // run-convex-local.mjs writes -- so a deleted CONVEX_URL would be refilled
+  // with a localhost endpoint after a hosted target had been chosen and
+  // announced. A variable that is already set is not overridden by that load.
+  const cleared = Object.fromEntries(AMBIENT_CONVEX_VARS.map((name) => [name, ""]));
+
   return {
     deployment: resolved.deployment,
     env: {
-      ...Object.fromEntries(
-        Object.entries(process.env).filter(([key]) => !AMBIENT_CONVEX_VARS.includes(key)),
-      ),
+      ...inherited,
+      ...cleared,
       ...resolved.passthrough,
       CONVEX_DEPLOYMENT: resolved.deployment,
       ...(resolved.key === undefined ? {} : { CONVEX_DEPLOY_KEY: resolved.key }),

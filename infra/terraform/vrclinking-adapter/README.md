@@ -172,7 +172,7 @@ request built from it tests the adapter against itself and passes either way:
 
 ```bash
 FUNCTION_URL=$(terraform -chdir=infra/terraform/vrclinking-adapter output -raw function_url)
-BEARER=$(pnpm cx -- prod env get VRCHAT_PROOF_ADAPTER_BEARER_TOKEN)
+BEARER=$(pnpm --silent cx -- prod env get VRCHAT_PROOF_ADAPTER_BEARER_TOKEN)
 printf 'header = "authorization: Bearer %s"\n' "$BEARER" |
   curl -K - -s -o /dev/null -w '%{http_code}\n' -X POST "$FUNCTION_URL" \
     -H 'content-type: application/json' -d '{}'
@@ -197,7 +197,7 @@ for pair in "bearerToken:VRCHAT_PROOF_ADAPTER_BEARER_TOKEN" \
   node -e '
     const [field, name, shared, live] = process.argv.slice(1);
     process.stdout.write(`${name}: ${JSON.parse(shared)[field] === live ? "match" : "MISMATCH"}\n`);
-  ' "${pair%%:*}" "${pair#*:}" "$SHARED" "$(pnpm cx -- prod env get "${pair#*:}")"
+  ' "${pair%%:*}" "${pair#*:}" "$SHARED" "$(pnpm --silent cx -- prod env get "${pair#*:}")"
 done
 unset SHARED
 ```
