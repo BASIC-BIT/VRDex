@@ -138,9 +138,31 @@ merge onward with:
 
 Staging kept serving a pre-cutover build — with the removed email/password
 sign-in form — for three days while `main` moved on, and nothing surfaced it
-because the failure was inside a workflow nobody was watching. The gate step now
-names the variable as a missing setting, and
+because the failure was inside a workflow nobody was watching.
 `tests/scripts/staging-runtime-env.test.ts` pins the ordering.
+
+**An unset variable fails the job; it does not skip it.** The other entries in
+the gate's `missing` list mean "this repository is not set up to deploy staging
+at all", which is a legitimate skip. This one means staging *is* set up and is
+missing a setting its own auth config requires — so skipping would report a green
+workflow while staging silently stopped updating, which is a quieter version of
+the same outage.
+
+### The issuer is checked against the key staging actually serves
+
+Convex's issuer and the web publishable key are configured in different places —
+a repository variable and the Vercel project — and nothing compared them. A
+stale or cross-instance issuer deploys cleanly and then rejects every signed-in
+request, because Convex validates the issuer it was *told* about rather than the
+one the browser authenticated against. The `Audit Vercel staging runtime
+variable names` step cannot catch it: it reads names, never values.
+
+So after the Vercel deploy, `Verify the staging Clerk key matches the Convex
+issuer` fetches the deployed sign-in page, decodes the `pk_test_` key's
+base64-encoded host, and fails when it differs from the issuer. It also rejects a
+`pk_live_` key outright, so the staging and production tenants cannot be crossed
+even if someone edited the issuer to match. `production-promote.yml` does the
+same for the live tenant.
 
 The value is not a secret. A Clerk Frontend API origin is public — it is encoded
 in the publishable key every browser downloads — so it lives in a repository

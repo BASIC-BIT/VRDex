@@ -56,11 +56,6 @@ jobs:
           if [ -z "$VERCEL_PROJECT_ID" ]; then missing+=("VERCEL_PROJECT_ID"); fi
           if [ -z "$HOSTED_BASE_URL" ]; then missing+=("VRDEX_HOSTED_E2E_BASE_URL"); fi
           if [ -z "$HOSTED_BROWSER_TOKEN" ]; then missing+=("VRDEX_HOSTED_E2E_BROWSER_TOKEN"); fi
-          # `convex/auth.config.ts` reads this on every hosted deployment, and
-          # the Convex CLI refuses to push when it is unset. Gating on it here
-          # turns that into one named missing setting instead of a deploy that
-          # dies half way with a dashboard link.
-          if [ -z "$CLERK_JWT_ISSUER_DOMAIN" ]; then missing+=("VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN"); fi
 
           if [ "${#missing[@]}" -gt 0 ]; then
             echo "enabled=false" >> "$GITHUB_OUTPUT"
@@ -70,6 +65,19 @@ jobs:
               printf -- '- %s\n' "${missing[@]}"
             } >> "$GITHUB_STEP_SUMMARY"
             exit 0
+          fi
+
+          # Fails the job rather than joining `missing` above, and the
+          # difference matters. Everything in that list means "this repository
+          # is not set up to deploy staging at all", which is a legitimate skip.
+          # This one means staging *is* set up and is missing a setting its own
+          # auth config requires — the exact state that froze staging on a
+          # pre-Clerk build for three days. Skipping on it would report a green
+          # workflow while staging silently stopped updating, which is a worse
+          # version of the failure this check exists to remove.
+          if [ -z "$CLERK_JWT_ISSUER_DOMAIN" ]; then
+            echo "::error::VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN is not set. convex/auth.config.ts reads CLERK_JWT_ISSUER_DOMAIN on every hosted deployment and the Convex CLI refuses to push without it, so staging cannot deploy. Set the repository variable to the Clerk Frontend API origin of the development instance backing staging."
+            exit 1
           fi
 
           echo "enabled=true" >> "$GITHUB_OUTPUT"
@@ -179,6 +187,58 @@ jobs:
             echo "Vercel staging deployment: $deployment_url"
             echo "Hosted health target: ${{ steps.gate.outputs.hosted_base_url }}"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # The two halves of staging auth are configured independently: Convex gets
+      # its issuer from a repository variable, and Vercel gets its publishable
+      # key from the Vercel project. Nothing previously compared them. A stale or
+      # cross-instance issuer would deploy cleanly and then reject every
+      # signed-in request, because Convex validates a token issuer it was told
+      # about rather than the one the browser actually authenticated against —
+      # and the preceding audit checks variable *names* only, so it cannot see
+      # this.
+      #
+      # Decoded rather than prefix-matched, and compared against the deployment
+      # that just went out. `production-promote.yml` does the same for the live
+      # tenant; this is the staging counterpart with a `pk_test_` key.
+      - name: Verify the staging Clerk key matches the Convex issuer
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          DEPLOYMENT_URL: ${{ steps.vercel.outputs.url }}
+          CLERK_JWT_ISSUER_DOMAIN: ${{ vars.VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN }}
+        run: |
+          set -euo pipefail
+
+          curl -sSL --max-time 30 "$DEPLOYMENT_URL/sign-in" -o /tmp/staging-sign-in.html
+
+          scripts=$(grep -oE '/_next/static/[^"'"'"']+\.js' /tmp/staging-sign-in.html | sort -u)
+          key=""
+          for script in $scripts; do
+            key=$(curl -sSL --max-time 30 "$DEPLOYMENT_URL$script" | grep -oE 'pk_(test|live)_[A-Za-z0-9+/=_-]+' | head -n 1 || true)
+            if [ -n "$key" ]; then break; fi
+          done
+
+          if [ -z "$key" ]; then
+            echo "::error::$DEPLOYMENT_URL serves no Clerk publishable key. Staging cannot authenticate anyone; check NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY on the Vercel staging environment."
+            exit 1
+          fi
+
+          case "$key" in
+            pk_live_*)
+              echo "::error::Staging is serving a *production* Clerk key. Production and staging tenants must stay isolated; every session it mints would be a real one."
+              exit 1
+              ;;
+          esac
+
+          decoded_host=$(printf '%s' "${key#pk_test_}" | python3 -c 'import base64,sys; s=sys.stdin.read().strip(); print(base64.b64decode(s + "=" * (-len(s) % 4)).decode("utf-8", "replace").rstrip("$"))')
+          expected_host=${CLERK_JWT_ISSUER_DOMAIN#https://}
+          expected_host=${expected_host%/}
+
+          if [ "$decoded_host" != "$expected_host" ]; then
+            echo "::error::Staging serves a Clerk key for '$decoded_host' but Convex was told to trust '$expected_host'. Convex would reject every signed-in request. Fix VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN or the Vercel publishable key so both name one instance."
+            exit 1
+          fi
+
+          echo "Staging Clerk key and Convex issuer both resolve to $decoded_host."
 
       - name: Install Playwright Chromium
         if: steps.gate.outputs.enabled == 'true'

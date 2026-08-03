@@ -200,9 +200,27 @@ test("staging deploy parses and audits main before provider mutation", () => {
     steps[authConfigIndex]?.env?.CLERK_JWT_ISSUER_DOMAIN,
     "${{ vars.VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN }}",
   );
-  // Gated too, so a missing value is one named setting in the skip summary
-  // rather than a deploy that dies part way with a Convex dashboard link.
-  assert.match(workflow, /missing\+=\("VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN"\)/);
+  // Absence fails the job. Adding it to `missing` instead would write
+  // `enabled=false` and exit 0, turning a frozen staging environment into a
+  // green workflow — a quieter version of the outage this check exists to stop.
+  assert.doesNotMatch(workflow, /missing\+=\("VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN"\)/);
+  assert.match(
+    workflow,
+    /VRDEX_STAGING_CLERK_JWT_ISSUER_DOMAIN is not set[\s\S]*?exit 1/,
+  );
+
+  // Convex's issuer and Vercel's publishable key are configured independently,
+  // so a mismatch deploys cleanly and then rejects every signed-in request.
+  const keyCheckIndex = steps.findIndex(
+    (step) => step.name === "Verify the staging Clerk key matches the Convex issuer",
+  );
+
+  assert.ok(keyCheckIndex > vercelDeployIndex);
+  assert.match(steps[keyCheckIndex]?.run ?? "", /pk_\(test\|live\)_/);
+  assert.match(steps[keyCheckIndex]?.run ?? "", /b64decode/);
+  // Rejects a production key outright rather than only comparing hosts, so the
+  // tenants cannot be crossed even if the issuer were edited to match.
+  assert.match(steps[keyCheckIndex]?.run ?? "", /pk_live_\*\)/);
   assert.equal(auditStep?.env?.VERCEL_TOKEN, "${{ secrets.VERCEL_TOKEN }}");
   assert.match(auditStep?.run ?? "", /env ls staging --format=json/);
   assert.match(auditStep?.run ?? "", /--require-developer-credentials/);
