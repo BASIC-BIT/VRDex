@@ -221,10 +221,9 @@ pnpm cx -- <target> run migrations:purgeConvexAuthLeftovers '{"dryRun": true}'
 pnpm cx -- <target> run migrations:purgeConvexAuthLeftovers `
   '{"dryRun": true, "legacyCursor": "<nextLegacyCursor>"}'
 
-# 2. Once per legacy row blockedUsers reported — a row is blocked because it is
-#    still someone, a person who signed in both before and after the cutover.
-#    Both ids come out of step 1: blockedUsers is keyed by users._id, clerkUsers
-#    lists the Clerk identities.
+# 2. Only for legacy rows you have confirmed are the same person as a Clerk row
+#    — see "Deciding whether a blocked row should be reassigned" below. Do not
+#    run this against a row just because step 1 listed it.
 #
 #    Read the preview, then run it again with "dryRun": false, and keep rerunning
 #    with the same arguments while moreRemaining is true (the row budget ran out;
@@ -249,6 +248,46 @@ only the current page, so a walk whose blockers appeared earlier ends with an
 empty one while those rows survive. When it is false, resolve what `blockedUsers`
 named and start a **new** walk from no cursor; the affected rows are behind the
 old one. Confirm it on every deployment, then deploy this revision.
+
+#### Deciding whether a blocked row should be reassigned
+
+**`blockedUsers` says what references a row, never who the row is.** It reports
+any of the 31 fields in `USER_REFERENCES`, and several of those are records of
+something that happened rather than something someone owns —
+`apiTokens.revokedByUserId`, `oauthApplications.revokedByUserId`,
+`apiTokenEvents`, `apiWriteAuditEvents`, `mcpToolEvents`. The reassignment
+repoints every matching row in all 31, with no identity check of its own, so
+running it on a guess either rewrites who did those things or hands one person's
+footprint to an unrelated account. Reassign only what you can show is the same
+person; there is no report that can show it for you.
+
+The evidence that is actually available is the legacy row's `email` and
+`emailVerificationTime` against the Clerk account's verified address, plus
+whatever the reference itself tells you — a `profileOwners` row names a profile
+whose owner you can ask. Treat a matching address as a prompt to confirm
+out-of-band, not as proof: it is exactly what an attacker registering a known
+address would produce.
+
+For a blocker that should *not* be reassigned, there are two honest outcomes,
+and the third is not a workaround:
+
+- **The referencing row is disposable** — an E2E fixture, or a grant that is
+  already revoked and so authorizes nothing. Delete that row, then rerun step 1.
+  Untried on either first-party deployment: both blocked rows turned out to be
+  real people, so both cleared by reassignment.
+- **It belongs to someone real with no Clerk row.** Then that legacy row cannot
+  be purged, `purgeComplete` stays false, and this revision cannot be deployed
+  until a human decides what happens to that person's data. That is a stop, not
+  a step — the upgrade is genuinely blocked, and the decision is not one a
+  runbook can make.
+- **Never** reassign to "some Clerk account" to clear the blocker. A purge that
+  completes by moving data onto the wrong person is worse than one that refuses.
+
+`clerkUsers` in the step 1 report is a *sample*, capped at 25, and
+`clerkUsersTruncated` says when the account you need may not be in it. When it
+is true, read the id from Clerk's dashboard instead — **Users → the account →
+User ID**. The migration validates whatever id you pass, so the report is a
+convenience, never the source of truth.
 
 Both first-party deployments cleared in a single pass, and neither matched what
 this page predicted beforehand; see below.
