@@ -81,12 +81,11 @@ pnpm ops:seed-import:json -- `
   --actor-issuer vrdex `
   --actor-subject seed-import `
   --actor-name "VRDex operator" `
-  --prod
+  --target prod
 ```
 
 The command prints counts only. It does not print source rows or field values.
-For a named development or preview deployment, replace `--prod` with
-`--deployment <deployment-name>`.
+For the shared development deployment, use `--target dev`.
 
 ## Review And Freshness
 
@@ -222,7 +221,7 @@ Preview first. Without `--apply` it writes nothing and prints counts only, so it
 is safe to run against production:
 
 ```powershell
-pnpm ops:seed-publish -- --batch-id nwinn_2026_07_10_001 --prod
+pnpm ops:seed-publish -- --batch-id nwinn_2026_07_10_001 --target prod
 ```
 
 Then publish:
@@ -238,7 +237,7 @@ pnpm ops:seed-publish -- `
   --accept-fields `
   --limit 25 `
   --apply `
-  --prod
+  --target prod
 ```
 
 - `--reason` is required and is recorded on the batch in
@@ -307,7 +306,7 @@ already-public profile and what makes the accepted-suppression publication guard
 reachable.
 
 ```powershell
-pnpm exec convex run --prod suppressions:resolveProfileSuppression `
+pnpm cx -- prod run suppressions:resolveProfileSuppression `
   '{"requestId":"<request-id>","state":"accepted","resolutionNote":"Handled over DM.","actor":{"tokenIdentifier":"operator:vrdex","issuer":"vrdex","subject":"suppression-review","displayName":"VRDex operator"}}'
 ```
 
@@ -399,7 +398,7 @@ superseded, while a super-admin can inspect unreviewed private staging records
 across import policies.
 
 ```powershell
-pnpm exec convex run --prod accountFeatureGrants:grant `
+pnpm cx -- prod run accountFeatureGrants:grant `
   '{"userId":"<convex-user-id>","feature":"view_private_seed_lookup","grantedBy":{"tokenIdentifier":"operator:vrdex","issuer":"vrdex","subject":"seed-access"}}'
 ```
 
@@ -422,11 +421,10 @@ pnpm ops:seed-handoff:create -- `
   --actor-subject concierge-handoff `
   --actor-name "VRDex operator" `
   --base-url https://vrdex.gg `
-  --prod
+  --target prod
 ```
 
-For a named development or preview deployment, replace `--prod` with
-`--deployment <deployment-name>`.
+For the shared development deployment, use `--target dev`.
 
 The script generates a 256-bit token and prints the link once. Convex stores
 only its SHA-256 hash. Invitations expire within 90 days, are revocable through

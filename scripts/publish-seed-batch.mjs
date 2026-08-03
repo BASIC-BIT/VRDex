@@ -2,17 +2,25 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  CONVEX_TARGET_NAMES,
+  convexCliPath,
+  convexTargetEnv,
+  SEED_SCRIPT_TARGET_HELP,
+  resolveTargetName,
+  targetSelectorFlagError,
+} from "./convex-target.ts";
+
 const scriptPath = fileURLToPath(import.meta.url);
 const scriptDir = path.dirname(scriptPath);
 const repoRoot = path.resolve(scriptDir, "..");
-const convexCliPath = path.join(repoRoot, "node_modules", "convex", "bin", "main.js");
 const args = process.argv.slice(2);
 
 const USAGE = [
   "Usage: pnpm ops:seed-publish -- --batch-id <external-batch-id> \\",
   "  --actor-token <id> --actor-issuer <issuer> --actor-subject <subject> [--actor-name <name>] \\",
   "  [--reason <why the source permits publication>] [--accept-fields] [--limit <n>] [--apply] \\",
-  "  [--prod|--deployment <name>]",
+  `  [--target <${CONVEX_TARGET_NAMES.join("|")}>]`,
   "",
   "Without --apply this prints a read-only preview and writes nothing.",
   "--accept-fields accepts fields still marked unreviewed. Rejected and",
@@ -47,26 +55,47 @@ function fail(message) {
   process.exit(1);
 }
 
+// Assigned at the start of main(), never at module scope: tests import
+// readOption from this file, and resolving a target on import fails wherever
+// there is no .env.local -- CI, for one.
+let target;
+
+function requireTarget() {
+  const legacy = targetSelectorFlagError(args, SEED_SCRIPT_TARGET_HELP);
+
+  if (legacy) {
+    fail(legacy);
+  }
+
+  const requested = resolveTargetName(args);
+
+  if (requested.error) {
+    fail(requested.error);
+  }
+
+  const resolved = convexTargetEnv(requested.name);
+
+  if (!resolved.ok) {
+    fail(resolved.error);
+  }
+
+  console.error(`→ convex ${resolved.label} (${resolved.deployment})`);
+
+  return resolved;
+}
+
 function runConvex(functionName, functionArgs) {
-  const convexArgs = ["run"];
-
-  if (flag("--prod")) {
-    convexArgs.push("--prod");
-  }
-
-  const deployment = option("--deployment");
-  if (deployment) {
-    convexArgs.push("--deployment", deployment);
-  }
-
-  convexArgs.push(functionName, JSON.stringify(functionArgs));
-
-  const result = spawnSync(process.execPath, [convexCliPath, ...convexArgs], {
-    cwd: repoRoot,
-    encoding: "utf8",
-    maxBuffer: 2 * 1024 * 1024,
-    windowsHide: true,
-  });
+  const result = spawnSync(
+    process.execPath,
+    [convexCliPath, "run", functionName, JSON.stringify(functionArgs)],
+    {
+      cwd: repoRoot,
+      encoding: "utf8",
+      env: target.env,
+      maxBuffer: 2 * 1024 * 1024,
+      windowsHide: true,
+    },
+  );
 
   if (result.status !== 0) {
     fail(
@@ -127,6 +156,8 @@ function reportSkipped(skipped) {
 }
 
 function main() {
+  target = requireTarget();
+
   const batchId = option("--batch-id");
 
   if (!batchId) {

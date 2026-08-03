@@ -3,9 +3,17 @@ import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  CONVEX_TARGET_NAMES,
+  convexCliPath,
+  convexTargetEnv,
+  SEED_SCRIPT_TARGET_HELP,
+  resolveTargetName,
+  targetSelectorFlagError,
+} from "./convex-target.ts";
+
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
-const convexCliPath = path.join(repoRoot, "node_modules", "convex", "bin", "main.js");
 const args = process.argv.slice(2);
 
 function option(name) {
@@ -33,7 +41,7 @@ const expiresInHours = Number(option("--expires-in-hours") ?? "72");
 
 if (!candidateId || !actorToken || !actorIssuer || !actorSubject) {
   fail(
-    "Usage: pnpm ops:seed-handoff:create -- --candidate-id <id> --actor-token <id> --actor-issuer <issuer> --actor-subject <subject> [--field-ids <id,id>] [--profile-id <id>] [--expires-in-hours <hours>] [--base-url <url>] [--prod|--deployment <name>]",
+    `Usage: pnpm ops:seed-handoff:create -- --candidate-id <id> --actor-token <id> --actor-issuer <issuer> --actor-subject <subject> [--field-ids <id,id>] [--profile-id <id>] [--expires-in-hours <hours>] [--base-url <url>] [--target <${CONVEX_TARGET_NAMES.join("|")}>]`,
   );
 }
 
@@ -41,16 +49,29 @@ if (!Number.isFinite(expiresInHours) || expiresInHours <= 0 || expiresInHours > 
   fail("Handoff expiry must be between 0 and 2160 hours.");
 }
 
+const legacyFlag = targetSelectorFlagError(args, SEED_SCRIPT_TARGET_HELP);
+
+if (legacyFlag) {
+  fail(legacyFlag);
+}
+
+const requestedTarget = resolveTargetName(args);
+
+if (requestedTarget.error) {
+  fail(requestedTarget.error);
+}
+
+const target = convexTargetEnv(requestedTarget.name);
+
+if (!target.ok) {
+  fail(target.error);
+}
+
+console.error(`→ convex ${target.label} (${target.deployment})`);
+
 const token = randomBytes(32).toString("base64url");
-const convexArgs = ["run"];
-if (args.includes("--prod")) {
-  convexArgs.push("--prod");
-}
-const deployment = option("--deployment");
-if (deployment) {
-  convexArgs.push("--deployment", deployment);
-}
-convexArgs.push(
+const convexArgs = [
+  "run",
   "seedHandoffs:createInvitation",
   JSON.stringify({
     token,
@@ -65,11 +86,12 @@ convexArgs.push(
       ...(actorName ? { displayName: actorName } : {}),
     },
   }),
-);
+];
 
 const result = spawnSync(process.execPath, [convexCliPath, ...convexArgs], {
   cwd: repoRoot,
   encoding: "utf8",
+  env: target.env,
   maxBuffer: 1024 * 1024,
   windowsHide: true,
 });
