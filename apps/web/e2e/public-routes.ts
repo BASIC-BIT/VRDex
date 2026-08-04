@@ -275,6 +275,7 @@ export async function expectAccountPage(page: Page) {
 
 export async function expectAppearancePage(page: Page) {
   await expect(page.getByRole("heading", { name: "Personalization", exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Privacy", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Profile picture shape and border" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Supporting section order" })).toBeVisible();
   await expect(page.getByLabel("Avatar roundedness")).toBeVisible();
@@ -282,7 +283,8 @@ export async function expectAppearancePage(page: Page) {
 }
 
 export async function expectPrivacyPage(page: Page) {
-  await expect(page.getByRole("heading", { name: "Privacy Controls", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Privacy", exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Personalization", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Field visibility" })).toBeVisible();
   await expect(page.getByLabel("Bio visibility")).toBeVisible();
   await expect(page.getByText("Current settings", { exact: true })).toBeVisible();

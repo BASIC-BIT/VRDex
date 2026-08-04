@@ -29,7 +29,10 @@ export default async function AppearancePage({
           tab="personalization"
         >
           <Card className="shadow-hero" padding="lg">
-            <AppearancePanel demoMode={demoMode} initialProfileId={initialProfileId} />
+            {/* The active tab already names this surface, but the panel
+                still needs its own landmark heading. */}
+            <h2 className="text-xl font-semibold">Personalization</h2>
+            <div className="mt-6"><AppearancePanel demoMode={demoMode} initialProfileId={initialProfileId} /></div>
           </Card>
         </ProfileWorkspace>
       </PageContainer>

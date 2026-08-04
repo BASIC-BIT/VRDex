@@ -29,7 +29,10 @@ export default async function PrivacyPage({
           tab="privacy"
         >
           <Card className="shadow-hero" padding="lg">
-            <PrivacyPanel demoMode={demoMode} initialProfileId={initialProfileId} />
+            {/* The active tab already names this surface, but the panel
+                still needs its own landmark heading. */}
+            <h2 className="text-xl font-semibold">Privacy</h2>
+            <div className="mt-6"><PrivacyPanel demoMode={demoMode} initialProfileId={initialProfileId} /></div>
           </Card>
         </ProfileWorkspace>
       </PageContainer>
