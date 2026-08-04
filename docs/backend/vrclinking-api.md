@@ -164,10 +164,23 @@ by ARN in the same policy. The trust policy pins named subjects
 (`…:project:vr-dex-web:environment:{production,staging}`) rather than a
 wildcard, so no other project in the team can assume it.
 
-The adapter still accepts the older guild-only reference. Convex deploys
-automatically on merge while the adapter Lambda is deployed by hand, so the two
-are never upgraded in one step and the shapes have to overlap for the length of
-a rollout. Remove that branch once the Lambda is deployed everywhere.
+**Deploy the Lambda first.** Convex emits the row-qualified reference as soon as
+it deploys, and the *previously* deployed Lambda accepts only the guild-only
+shape — the compatibility branch lives in the new adapter, so it does nothing
+for requests still reaching the old one. Convex deploys automatically on merge
+while the Lambda is deployed by hand, which makes Lambda-first the only ordering
+that is continuously correct:
+
+```bash
+pnpm ops:package-vrclinking-adapter
+cd infra/terraform/vrclinking-adapter && terraform apply
+```
+
+Nothing is at risk today either way — `communityVrclinkingCredentials` is empty
+on every deployment, and the first delegation cannot exist until the form that
+creates it ships — but the ordering is a standing requirement for any future
+change to the reference shape, not a one-off. Remove the guild-only branch from
+the adapter once it is deployed everywhere and no row can still emit that shape.
 
 The region is explicit rather than inherited from the ambient `AWS_REGION`,
 which Vercel sets to wherever a function runs. Falling back to it would report

@@ -87,7 +87,7 @@ export async function POST(request: Request) {
 
   convex.setAuth(authToken);
 
-  let reservation: { credentialId: string; secretName: string };
+  let reservation: { credentialId: string; secretName: string; abandonedSecretNames: string[] };
 
   try {
     reservation = await convex.mutation(api.vrclinkingCredentials.reserveCredential, {
@@ -117,6 +117,16 @@ export async function POST(request: Request) {
       "You need a current proof that you control that Discord server before delegating its key.",
     );
   }
+
+  // Keys belonging to reservations that died before activating — a request that
+  // was killed between the write and the mutation leaves one, and its row is
+  // swept here rather than remembered. Convex cannot reach Secrets Manager, so
+  // it hands the names over and this is where they are actually retired.
+  await Promise.allSettled(
+    reservation.abandonedSecretNames.map((name) =>
+      scheduleVrclinkingDelegationKeyDeletion(name),
+    ),
+  );
 
   /**
    * Retire the key just written, but only once its row is known not to be live.

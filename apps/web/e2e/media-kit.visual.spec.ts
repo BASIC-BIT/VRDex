@@ -159,7 +159,7 @@ test("owner upload generation locks target-changing controls @fixture", async ({
   await uploadForm.getByRole("button", {
     name: "Generate accessibility description for upload",
   }).click();
-  await expect(page.getByLabel("Profile", { exact: true })).toBeDisabled();
+  await expect(page.getByLabel("Profile to edit", { exact: true })).toBeDisabled();
   await expect(page.getByLabel("Add image")).toBeDisabled();
   await expect(uploadForm.getByLabel("Accessibility description", { exact: true })).toBeDisabled();
   await expect(publish).toBeDisabled();
@@ -221,10 +221,10 @@ test("owner profile switch stays locked during replacement @fixture", async ({ p
     buffer: await smallSyntheticPng(),
   });
 
-  await expect(page.getByLabel("Profile", { exact: true })).toBeDisabled();
+  await expect(page.getByLabel("Profile to edit", { exact: true })).toBeDisabled();
   await expect(page.getByText("Replaced.", { exact: true })).toBeVisible();
-  await expect(page.getByLabel("Profile", { exact: true })).toBeEnabled();
-  await expect(page.getByLabel("Profile", { exact: true })).toHaveValue("demo-profile");
+  await expect(page.getByLabel("Profile to edit", { exact: true })).toBeEnabled();
+  await expect(page.getByLabel("Profile to edit", { exact: true })).toHaveValue("demo-profile");
 });
 
 test("removed profile replacement cannot report success on the fallback profile @fixture", async ({ page }) => {
@@ -246,12 +246,17 @@ test("removed profile replacement cannot report success on the fallback profile 
     }));
   });
 
-  await expect(page.getByLabel("Profile", { exact: true })).toHaveValue("demo-community");
+  // Observed from the panel, not the workspace switcher: these tests remove a
+  // profile from the panel's own list, and the panel is what falls back.
+  await expect(page.getByRole("link", { name: "View profile" })).toHaveAttribute(
+    "href",
+    "/c/playwright-night-shift",
+  );
   await expect.poll(() => page.evaluate(
     () => (window as typeof window & { mediaReplacementSettled?: boolean }).mediaReplacementSettled,
   )).toBe(true);
   await expect(page.getByText("Replaced.", { exact: true })).toHaveCount(0);
-  await expect(page.getByLabel("Profile", { exact: true })).toBeEnabled();
+  await expect(page.getByLabel("Profile to edit", { exact: true })).toBeEnabled();
 });
 
 test("owner oversized raster stays in its original format before direct upload @fixture", async ({ page }) => {
@@ -515,7 +520,7 @@ test("owner profile switch clears an unsubmitted upload @fixture", async ({ page
   });
   await expect(page.getByRole("button", { name: "Publish" })).toBeVisible();
 
-  await page.getByLabel("Profile", { exact: true }).selectOption("demo-community");
+  await page.getByLabel("Profile to edit", { exact: true }).selectOption("demo-community");
 
   await expect(page.getByRole("button", { name: "Publish" })).toHaveCount(0);
   await expect(page.getByText("synthetic.png", { exact: true })).toHaveCount(0);
@@ -538,8 +543,13 @@ test("removed profile cannot inherit a staged upload @fixture", async ({ page })
     }));
   });
 
-  await expect(page.getByLabel("Profile", { exact: true })).toHaveValue("demo-community");
-  await expect(page.getByLabel("Profile", { exact: true })).toBeFocused();
+  // Observed from the panel, not the workspace switcher: these tests remove a
+  // profile from the panel's own list, and the panel is what falls back.
+  await expect(page.getByRole("link", { name: "View profile" })).toHaveAttribute(
+    "href",
+    "/c/playwright-night-shift",
+  );
+  await expect(page.getByLabel("Profile to edit", { exact: true })).toBeFocused();
   await expect(page.getByText("No profiles", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Publish" })).toHaveCount(0);
   await expect(page.getByText("transfer.png", { exact: true })).toHaveCount(0);
@@ -560,7 +570,12 @@ test("removed profile cannot inherit a staged upload @fixture", async ({ page })
       detail: { profileId: "demo-community", present: true },
     }));
   });
-  await expect(page.getByLabel("Profile", { exact: true })).toHaveValue("demo-community");
+  // Observed from the panel, not the workspace switcher: these tests remove a
+  // profile from the panel's own list, and the panel is what falls back.
+  await expect(page.getByRole("link", { name: "View profile" })).toHaveAttribute(
+    "href",
+    "/c/playwright-night-shift",
+  );
   await expect(page.getByRole("button", { name: "Publish" })).toHaveCount(0);
   await expect(page.getByText("last-profile.png", { exact: true })).toHaveCount(0);
 });
@@ -588,7 +603,12 @@ test("removed profile cannot inherit an upload still being prepared @fixture", a
   await expect.poll(() => page.evaluate(
     () => (window as typeof window & { mediaPreparationSettled?: boolean }).mediaPreparationSettled,
   )).toBe(true);
-  await expect(page.getByLabel("Profile", { exact: true })).toHaveValue("demo-community");
+  // Observed from the panel, not the workspace switcher: these tests remove a
+  // profile from the panel's own list, and the panel is what falls back.
+  await expect(page.getByRole("link", { name: "View profile" })).toHaveAttribute(
+    "href",
+    "/c/playwright-night-shift",
+  );
   await expect(page.getByRole("button", { name: "Publish" })).toHaveCount(0);
   await expect(page.getByText("preparing-transfer.png", { exact: true })).toHaveCount(0);
 });
@@ -602,12 +622,12 @@ test("owner profile switch stays locked during upload @fixture", async ({ page }
   });
   await page.getByRole("button", { name: "Publish" }).click();
 
-  await expect(page.getByLabel("Profile", { exact: true })).toBeDisabled();
+  await expect(page.getByLabel("Profile to edit", { exact: true })).toBeDisabled();
   await expect(page.getByRole("alert")).toHaveText(
     "Synthetic preview storage does not accept new files.",
   );
-  await expect(page.getByLabel("Profile", { exact: true })).toBeEnabled();
-  await expect(page.getByLabel("Profile", { exact: true })).toHaveValue("demo-profile");
+  await expect(page.getByLabel("Profile to edit", { exact: true })).toBeEnabled();
+  await expect(page.getByLabel("Profile to edit", { exact: true })).toHaveValue("demo-profile");
 });
 
 test("removed profile upload cannot overwrite a new staged upload @fixture", async ({ page }) => {
@@ -629,7 +649,12 @@ test("removed profile upload cannot overwrite a new staged upload @fixture", asy
       detail: { profileId: "demo-profile", present: false },
     }));
   });
-  await expect(page.getByLabel("Profile", { exact: true })).toHaveValue("demo-community");
+  // Observed from the panel, not the workspace switcher: these tests remove a
+  // profile from the panel's own list, and the panel is what falls back.
+  await expect(page.getByRole("link", { name: "View profile" })).toHaveAttribute(
+    "href",
+    "/c/playwright-night-shift",
+  );
   await page.getByLabel("Add image").setInputFiles({
     name: "replacement.png",
     mimeType: "image/png",

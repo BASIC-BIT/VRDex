@@ -13,7 +13,7 @@ import { Notice } from "@/components/ui/notice";
 import { MediaPreviewImage } from "@/app/_components/media-preview-image";
 import { cn } from "@/lib/cn";
 import { profileMediaMimeType } from "@/lib/profile-media-kit";
-import { useReportWorkspaceBusy } from "@/app/account/profile-workspace";
+import { useWorkspaceControls } from "@/app/account/profile-workspace";
 
 import {
   createProfileMediaAccessibilityPreview,
@@ -467,6 +467,7 @@ function MediaKitEditor({
   const [uploadProgress, setUploadProgress] = useState(0);
   const [operationBusy, setOperationBusy] = useState(false);
   const [replacingProfileId, setReplacingProfileId] = useState<string | null>(null);
+  const workspaceControls = useWorkspaceControls();
   const [galleryStatus, setGalleryStatus] = useState<ActionStatus | null>(null);
   const [removedStatus, setRemovedStatus] = useState<ActionStatus | null>(null);
   const [focusRestoreAssetId, setFocusRestoreAssetId] = useState<string | null>(null);
@@ -506,8 +507,15 @@ function MediaKitEditor({
     setUploadStatus(null);
     setGalleryStatus(null);
     setRemovedStatus(null);
+    // The subject changed without the user asking, and focus was on a control
+    // belonging to the profile that vanished. Send it to the switcher, which is
+    // where the change is visible.
+    if (initialProfiles[0] !== undefined && selectedId) {
+      workspaceControls?.focusSwitcher();
+    }
+
     setSelectedId(initialProfiles[0]?.profileId ?? "");
-  }, [initialProfiles, selectedProfile]);
+  }, [initialProfiles, selectedId, selectedProfile, workspaceControls]);
 
   useEffect(() => {
     if (!focusRestoreAssetId) return;
@@ -532,13 +540,12 @@ function MediaKitEditor({
   // in-flight request sees the mismatch and skips its own `setUploading(false)`,
   // and the profile it lands on shows an upload that never finishes. Same busy
   // set the in-panel picker used to be disabled by.
-  const reportWorkspaceBusy = useReportWorkspaceBusy();
   const workspaceBusy =
     uploading || generatingUpload || operationBusy || replacingProfileId !== null;
 
   useEffect(() => {
-    reportWorkspaceBusy?.(workspaceBusy);
-  }, [reportWorkspaceBusy, workspaceBusy]);
+    workspaceControls?.setBusy(workspaceBusy);
+  }, [workspaceControls, workspaceBusy]);
 
   const selectedIdRef = useRef(selectedId);
   selectedIdRef.current = selectedId;

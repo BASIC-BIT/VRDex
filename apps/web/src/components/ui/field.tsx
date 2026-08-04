@@ -1,4 +1,4 @@
-import type { ComponentPropsWithoutRef, ReactNode } from "react";
+import type { ComponentPropsWithoutRef, ReactNode, Ref } from "react";
 
 import { cn } from "@/lib/cn";
 
@@ -17,7 +17,14 @@ export function Input({ className, ...props }: ComponentPropsWithoutRef<"input">
   return <input className={cn(fieldControlClassName, className)} {...props} />;
 }
 
-export function Select({ className, ...props }: ComponentPropsWithoutRef<"select">) {
+// `ref` added explicitly rather than by switching to `ComponentProps`, which
+// resolves `onChange` differently and loses event inference at every other call
+// site. React 19 passes `ref` as an ordinary prop; the profile switcher needs
+// one so focus can be moved to it when the profile it names disappears.
+export function Select({
+  className,
+  ...props
+}: ComponentPropsWithoutRef<"select"> & { ref?: Ref<HTMLSelectElement> }) {
   return <select className={cn(fieldControlClassName, className)} {...props} />;
 }
 

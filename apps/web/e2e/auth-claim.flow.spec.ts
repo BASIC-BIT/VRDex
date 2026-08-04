@@ -385,7 +385,10 @@ test("verified email account with linked Discord can claim person and community 
     await expect(page.getByRole("heading", { name: `Claim ${displayName}` })).toBeVisible();
     await page.getByRole("button", { name: /Use linked Discord/ }).click();
     await page.getByRole("button", { name: "Claim with Discord" }).click();
-    await expect(page.getByText(/Profile claimed/i)).toBeVisible(hostedActionExpectOptions);
+    // Current copy or the copy staging still serves, like the VRChat branch.
+    await expect(
+      page.getByText(/This profile is yours to manage|Profile claimed/i),
+    ).toBeVisible(hostedActionExpectOptions);
 
     await gotoFlowPage(page, `/p/${createdSlug}`);
     await expect(page.getByRole("heading", { name: displayName })).toBeVisible(hostedActionExpectOptions);
@@ -440,7 +443,9 @@ test("verified email account with linked Discord can claim person and community 
     // Server control is proved either way; whether the listing is *marked*
     // verified depends on the guild already being on record for it, which a
     // fresh E2E fixture profile has no reason to be.
-    const communityClaimed = page.getByText(/Server control verified.{0,4} (and )?[Tt]his community is now yours/);
+    const communityClaimed = page.getByText(
+      /This community is yours|Server control verified.{0,4} (and )?[Tt]his community is now yours/,
+    );
     const communityClaimFailed = page.getByText(
       "We could not complete that check. Nothing changed; try again or choose another method.",
     );

@@ -1265,7 +1265,9 @@ describe("VRCLinking credential delegation", () => {
     });
 
     assert.equal(replay.credentialId, second.credentialId);
-    assert.deepEqual(replay.supersededSecretNames, []);
+    // The same cleanup obligation, not an empty one: a lost response must not
+    // also lose the names of the keys the first call retired.
+    assert.deepEqual(replay.supersededSecretNames, second.supersededSecretNames);
     assert.notEqual(second.credentialId, first.credentialId);
 
     // The superseded row is revoked rather than deleted, so a response carrying
@@ -1289,7 +1291,7 @@ describe("VRCLinking credential delegation", () => {
   // community's quota once per row and, at five rows, filling the entire
   // fan-out with a single server while a guild that could actually attest the
   // claimant waited for a cooldown-limited retry.
-  it("sends one delegation per guild even when several profiles delegate it", async () => {
+  it("tries a second distinct key for a guild several profiles delegate", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
     const guildId = "42345678901234567";
@@ -1337,9 +1339,20 @@ describe("VRCLinking credential delegation", () => {
       userId: claimantId,
     });
 
+    // Two, not one. These rows used to derive a single shared reference, so
+    // sending both was a duplicate lookup; per-credential names made them
+    // different keys, and dropping all but the first let a stale key
+    // deterministically suppress a working one. Capped so one guild still
+    // cannot crowd out every other community in the fan-out.
+    const delegations = reserved?.delegations ?? [];
+
     assert.deepEqual(
-      reserved?.delegations.map((delegation: { guildId: string }) => delegation.guildId),
-      [guildId],
+      delegations.map((delegation: { guildId: string }) => delegation.guildId),
+      [guildId, guildId],
+    );
+    assert.equal(
+      new Set(delegations.map((delegation: { secretRef: string }) => delegation.secretRef)).size,
+      2,
     );
   });
 

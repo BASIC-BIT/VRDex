@@ -120,6 +120,16 @@ async function requireDelegationAuthority(
 const PENDING_DELEGATION_TTL_MS = 10 * 60 * 1000;
 
 /**
+ * Replacements one owner may make for one guild inside that same window.
+ *
+ * Every reservation creates a Secrets Manager object, and a deleted one holds
+ * its name for a seven-day recovery window, so an unbounded loop costs both
+ * money and the account's secret quota. High enough that correcting a mistyped
+ * key is never refused.
+ */
+const MAX_RECENT_DELEGATION_WRITES = 10;
+
+/**
  * Reserve the row a pasted key will be written against.
  *
  * The row exists, with its own id and therefore its own secret name, before
@@ -146,21 +156,42 @@ export const reserveCredential = mutation({
     const now = Date.now();
 
     // Swept here rather than on a cron: this is the only thing that creates
-    // them, so it is the only place that can accumulate them. Pending rows are
-    // inert — no selection query matches a non-`active` state — so the sweep is
-    // tidiness, not correctness.
-    const stale = await ctx.db
-      .query("communityVrclinkingCredentials")
-      .withIndex("by_communityProfileId_state", (q) =>
-        q.eq("communityProfileId", profile._id).eq("state", "pending"),
-      )
-      .collect();
+    // them, so it is the only place that can accumulate them.
+    //
+    // The names go back to the caller rather than being dropped. A request that
+    // dies between writing the key and activating leaves a pending row whose
+    // secret *does* exist, and deleting the row silently is what would strand
+    // that key forever — the name is the only handle on it, and it is derived
+    // from a row that no longer exists. Convex cannot reach Secrets Manager, so
+    // it hands the names to the one caller that can.
+    const stale = (
+      await ctx.db
+        .query("communityVrclinkingCredentials")
+        .withIndex("by_communityProfileId_state", (q) =>
+          q.eq("communityProfileId", profile._id).eq("state", "pending"),
+        )
+        .collect()
+    ).filter((row) => row.guildId === guildId && row.createdAt + PENDING_DELEGATION_TTL_MS <= now);
+    const abandonedSecretNames = stale.map((row) => secretNameFor(row.guildId, row._id));
 
-    await Promise.all(
-      stale
-        .filter((row) => row.guildId === guildId && row.createdAt + PENDING_DELEGATION_TTL_MS <= now)
-        .map((row) => ctx.db.delete(row._id)),
-    );
+    await Promise.all(stale.map((row) => ctx.db.delete(row._id)));
+
+    // A cap, because every reservation creates a Secrets Manager object and
+    // nothing else bounds how many an owner can ask for. Counted over the same
+    // window the sweep uses, so an owner correcting a typo is never blocked
+    // while a loop is.
+    const recent = (
+      await ctx.db
+        .query("communityVrclinkingCredentials")
+        .withIndex("by_communityProfileId_state", (q) =>
+          q.eq("communityProfileId", profile._id).eq("state", "revoked"),
+        )
+        .collect()
+    ).filter((row) => row.guildId === guildId && row.createdAt + PENDING_DELEGATION_TTL_MS > now);
+
+    if (recent.length >= MAX_RECENT_DELEGATION_WRITES) {
+      throw claimError("TOO_MANY_OPEN_PROOFS");
+    }
 
     const credentialId = await ctx.db.insert("communityVrclinkingCredentials", {
       communityProfileId: profile._id,
@@ -178,7 +209,11 @@ export const reserveCredential = mutation({
 
     await ctx.db.patch(credentialId, { secretRef: secretRefFor(guildId, credentialId) });
 
-    return { credentialId, secretName: secretNameFor(guildId, credentialId) };
+    return {
+      credentialId,
+      secretName: secretNameFor(guildId, credentialId),
+      abandonedSecretNames,
+    };
   },
 });
 
@@ -205,7 +240,15 @@ export const activateCredential = mutation({
     // an activation reported as failed after it committed would destroy the key
     // it had just installed.
     if (pending.state === "active" && pending.communityProfileId === profile._id) {
-      return { credentialId: pending._id, replaced: false, supersededSecretNames: [] };
+      // The same obligation the first call returned. Reporting an empty list on
+      // a replay meant a lost response also lost the names of the keys that
+      // activation had just retired, leaving them in the store with nothing
+      // pointing at them.
+      return {
+        credentialId: pending._id,
+        replaced: (pending.supersededSecretNames ?? []).length > 0,
+        supersededSecretNames: pending.supersededSecretNames ?? [],
+      };
     }
 
     if (pending.state !== "pending") {
@@ -245,7 +288,12 @@ export const activateCredential = mutation({
       ),
     );
 
-    await ctx.db.patch(pending._id, { state: "active", updatedAt: now });
+    const supersededSecretNames = superseded.map((row) => secretNameFor(row.guildId, row._id));
+
+    // Recorded on the row, not just returned: a retry after a lost response has
+    // to be able to hand back the same names, and by then the revoked rows are
+    // indistinguishable from ones retired by an earlier replacement.
+    await ctx.db.patch(pending._id, { state: "active", supersededSecretNames, updatedAt: now });
 
     return {
       credentialId: pending._id,
@@ -254,7 +302,7 @@ export const activateCredential = mutation({
       // names are never reused — so a replaced key would otherwise sit in the
       // store forever: unreachable, but still a community's live provider
       // credential, still readable by the adapter role. The caller retires them.
-      supersededSecretNames: superseded.map((row) => secretNameFor(row.guildId, row._id)),
+      supersededSecretNames,
     };
   },
 });
@@ -274,15 +322,25 @@ export const abandonCredential = mutation({
       return { abandoned: false };
     }
 
-    const { profile } = await requireDelegationAuthority(ctx, args.profileSlug, pending.guildId);
+    // Deliberately not `requireDelegationAuthority`: this runs on the path where
+    // activation *failed*, and the most common reason is that the guild control
+    // proof lapsed between reserving and activating. Repeating that check here
+    // meant cleanup failed for exactly the reason cleanup was needed, and the
+    // owner's key stayed in the store with nothing pointing at it.
+    //
+    // Still authorized, just not on the lapsed condition: the caller has to be
+    // the signed-in user who created this reservation, and the row has to be
+    // `pending`. Neither grants anything — a pending row is inert and deleting
+    // it only discards a name nothing has used.
+    const { user } = await requireVerifiedActiveBrowserSession(ctx);
 
-    if (pending.communityProfileId !== profile._id) {
+    if (pending.delegatedByUserId !== user._id) {
       return { abandoned: false };
     }
 
     await ctx.db.delete(pending._id);
 
-    return { abandoned: true };
+    return { abandoned: true, secretName: secretNameFor(pending.guildId, pending._id) };
   },
 });
 
@@ -350,6 +408,13 @@ export const listCredentials = query({
 
 /** Bounds how many delegated guilds one claim may consult. */
 const MAX_ADAPTER_DELEGATIONS = 5;
+/**
+ * How many distinct keys for one guild a single fan-out may try.
+ *
+ * More than one so a stale key cannot permanently suppress a working one; well
+ * under the fan-out so one guild still cannot crowd out every other community.
+ */
+const MAX_DELEGATIONS_PER_GUILD = 2;
 
 /**
  * Reserve the delegations for one VRC Linking proof attempt: the claimant's
@@ -397,13 +462,19 @@ export const reserveAdapterDelegations = internalMutation({
     const now = Date.now();
     const usable = [];
     const skipped = [];
-    // One guild may back several community profiles, and every row for it
-    // derives the same guild-scoped reference — so sending each one made the
-    // adapter repeat an identical `/members/<guildId>` lookup, spending that
-    // community's quota once per row and, with five rows, filling the whole
-    // fan-out with a single server while a guild that could actually attest the
-    // claimant waited for a cooldown-limited retry.
-    const seenGuilds = new Set<string>();
+    // One guild may back several community profiles. Those rows used to derive
+    // one shared reference, so sending each was a repeat of an identical
+    // `/members/<guildId>` lookup — spending that community's quota once per row
+    // and, with five rows, filling the whole fan-out with a single server while
+    // a guild that could actually attest the claimant waited for a
+    // cooldown-limited retry.
+    //
+    // Per-credential names ended that equivalence: those rows now hold
+    // *different* keys. Dropping all but the first meant a stale or rejected key
+    // permanently suppressed a working one, deterministically, because tied
+    // rotation stamps preserve index order. A small per-guild allowance gives
+    // the second key a turn without letting one guild crowd the fan-out.
+    const perGuild = new Map<string, number>();
 
     for (const row of candidates) {
       if (usable.length >= MAX_ADAPTER_DELEGATIONS) {
@@ -413,7 +484,7 @@ export const reserveAdapterDelegations = internalMutation({
       // Stamped, not skipped: `lastRotatedAt` is the selection cursor, and a
       // duplicate left unstamped pins the head of the index exactly like an
       // ineligible row does.
-      if (seenGuilds.has(row.guildId)) {
+      if ((perGuild.get(row.guildId) ?? 0) >= MAX_DELEGATIONS_PER_GUILD) {
         skipped.push(row._id);
         continue;
       }
@@ -430,7 +501,7 @@ export const reserveAdapterDelegations = internalMutation({
         continue;
       }
 
-      seenGuilds.add(row.guildId);
+      perGuild.set(row.guildId, (perGuild.get(row.guildId) ?? 0) + 1);
       usable.push(row);
     }
 

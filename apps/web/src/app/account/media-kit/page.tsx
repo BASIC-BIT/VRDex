@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 
 import { MediaKitPanel } from "./media-kit-panel";
-import { DEMO_WORKSPACE_PROFILES, ProfileWorkspace } from "../profile-workspace";
+import { DEMO_MEDIA_KIT_WORKSPACE_PROFILES, ProfileWorkspace } from "../profile-workspace";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 import { profileClaimSlugFromInput } from "@/lib/profile-claim";
 
@@ -29,7 +29,7 @@ export default async function MediaKitPage({
         <ProfileWorkspace
           activeSlug={initialProfileSlug}
           mediaKitEnabled
-          previewProfiles={demoMode ? DEMO_WORKSPACE_PROFILES : undefined}
+          previewProfiles={demoMode ? DEMO_MEDIA_KIT_WORKSPACE_PROFILES : undefined}
           tab="media-kit"
         >
           {/* The active tab already names this surface, but the panel still

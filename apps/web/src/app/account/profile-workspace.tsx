@@ -3,7 +3,7 @@
 import { useQuery } from "convex/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { api } from "@convex-generated-api";
 import { Select } from "@/components/ui/field";
@@ -41,10 +41,24 @@ const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
  * A context rather than a prop because the panel is `children` here, so the
  * state has to travel up.
  */
-const WorkspaceBusyContext = createContext<((busy: boolean) => void) | null>(null);
+type WorkspaceControls = {
+  setBusy: (busy: boolean) => void;
+  /**
+   * Move focus to the switcher.
+   *
+   * The media-kit panel calls this when the profile it was editing disappears
+   * underneath it. Focus was sitting on a control that no longer exists, and the
+   * subject changed without the user asking — leaving focus on the body would
+   * strand a keyboard user with no announcement that anything moved. The panel
+   * used to focus its own picker for this; the picker moved, the reason did not.
+   */
+  focusSwitcher: () => void;
+};
 
-export function useReportWorkspaceBusy() {
-  return useContext(WorkspaceBusyContext);
+const WorkspaceControlsContext = createContext<WorkspaceControls | null>(null);
+
+export function useWorkspaceControls() {
+  return useContext(WorkspaceControlsContext);
 }
 
 /**
@@ -57,6 +71,26 @@ export const DEMO_WORKSPACE_PROFILES: WorkspaceProfile[] = [
     slug: "playwright-dj-aurora",
     displayName: "DJ Aurora",
     profileType: "person",
+  },
+];
+
+/**
+ * The media-kit fixture has two profiles, and its tests switch between them.
+ * One entry would hide the switcher entirely, since it only renders above a
+ * single profile.
+ */
+export const DEMO_MEDIA_KIT_WORKSPACE_PROFILES: WorkspaceProfile[] = [
+  {
+    profileId: "demo-profile",
+    slug: "playwright-dj-aurora",
+    displayName: "DJ Aurora",
+    profileType: "person",
+  },
+  {
+    profileId: "demo-community",
+    slug: "playwright-night-shift",
+    displayName: "Night Shift",
+    profileType: "community",
   },
 ];
 
@@ -138,7 +172,14 @@ function ConnectedProfileWorkspace({
 }: ProfileWorkspaceProps) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
-  const reportBusy = useMemo(() => (next: boolean) => setBusy(next), []);
+  const switcherRef = useRef<HTMLSelectElement>(null);
+  const controls = useMemo<WorkspaceControls>(
+    () => ({
+      setBusy,
+      focusSwitcher: () => switcherRef.current?.focus(),
+    }),
+    [],
+  );
   const owned = useQuery(
     api.profilePrivacy.listOwnedPrivacyProfilesForAccount,
     previewProfiles ? "skip" : {},
@@ -211,6 +252,7 @@ function ConnectedProfileWorkspace({
                 // cancelled, and the profile it lands on shows an upload that
                 // never completes.
                 disabled={busy}
+                ref={switcherRef}
                 value={active.profileId}
                 onChange={(event) => {
                   const next = profiles.find(
@@ -256,7 +298,7 @@ function ConnectedProfileWorkspace({
         </ul>
       </nav>
 
-      <WorkspaceBusyContext.Provider value={reportBusy}>{children}</WorkspaceBusyContext.Provider>
+      <WorkspaceControlsContext.Provider value={controls}>{children}</WorkspaceControlsContext.Provider>
     </div>
   );
 }

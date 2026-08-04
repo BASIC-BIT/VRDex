@@ -82,6 +82,10 @@ locals {
     ["production", "preview", "development"],
   )) : []
 
+  delegation_writer_trusts_staging = local.delegation_writer_enabled ? contains(
+    tolist(var.vercel_delegation_writer.runtime_environments), "staging"
+  ) : false
+
   delegation_writer_env_comment = "VRCLinking delegated-key storage managed by infra/terraform/vrclinking-adapter."
 
   # The region travels with the role. Vercel sets its own `AWS_REGION` to
@@ -255,11 +259,17 @@ resource "vercel_project_environment_variable" "delegation_writer_standard" {
   comment    = local.delegation_writer_env_comment
 }
 
+# Gated on `staging` actually being trusted, not just on ids being supplied.
+# The standard targets are already intersected with `runtime_environments`; this
+# one was not, so an operator narrowing the role to exclude `staging` while
+# keeping its environment ids still injected both variables there — leaving
+# staging advertising the delegation form while every role assumption it makes
+# is denied.
 resource "vercel_project_environment_variable" "delegation_writer_staging_custom" {
-  for_each = {
+  for_each = local.delegation_writer_trusts_staging ? {
     for pair in setproduct(keys(local.delegation_writer_env_values), tolist(var.staging_custom_environment_ids)) :
     "${pair[0]}_${pair[1]}" => { key = pair[0], custom_environment_id = pair[1] }
-  }
+  } : {}
 
   project_id             = data.vercel_project.web[0].id
   team_id                = var.vercel_delegation_writer.team_id

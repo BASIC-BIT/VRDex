@@ -2050,6 +2050,10 @@ export default defineSchema({
     lastConsultedAt: v.optional(v.number()),
     lastUsedAt: v.optional(v.number()),
     lastResultSummary: v.optional(v.string()),
+    // Secret names this row's activation retired, so a retry after a lost
+    // response can hand back the same cleanup obligation. By then the revoked
+    // rows are indistinguishable from ones an earlier replacement retired.
+    supersededSecretNames: v.optional(v.array(v.string())),
     revokedAt: v.optional(v.number()),
     revokedReason: v.optional(v.string()),
     createdAt: v.number(),
