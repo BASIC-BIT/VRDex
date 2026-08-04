@@ -145,6 +145,15 @@ jobs:
         if: steps.gate.outputs.enabled == 'true' && vars.VRDEX_HOSTED_E2E_CLERK_AUTH == 'true'
         id: auth_session
         env:
+          # Second Playwright run in this job. Playwright clears its output and
+          # report directories on start and the JSON reporter overwrites its
+          # file, so without these three this run discards the hosted flow's
+          # traces, videos, HTML report and results before the upload step
+          # collects them — the artifact would show only this suite, under a name
+          # that says hosted data flow. Same fix #213 applied to `staging-deploy`.
+          PLAYWRIGHT_OUTPUT_DIR: test-results-auth-session
+          PLAYWRIGHT_HTML_REPORT_DIR: playwright-report-auth-session
+          PLAYWRIGHT_JSON_REPORT_FILE: playwright-artifacts/results-auth-session.json
           PLAYWRIGHT_BASE_URL: ${{ steps.gate.outputs.base_url }}
           PLAYWRIGHT_RECORD_VIDEO: "true"
           PLAYWRIGHT_SKIP_WEBSERVERS: "true"
@@ -224,6 +233,8 @@ jobs:
           path: |
             apps/web/playwright-report
             apps/web/test-results
+            apps/web/playwright-report-auth-session
+            apps/web/test-results-auth-session
             apps/web/playwright-artifacts
 
   production-smoke:
@@ -333,6 +344,11 @@ jobs:
         if: steps.auth_gate.outputs.enabled == 'true'
         id: auth_smoke
         env:
+          # Second Playwright run in this job, same collision as the auth-session
+          # step above — this one against the production read-only smoke.
+          PLAYWRIGHT_OUTPUT_DIR: test-results-auth-smoke
+          PLAYWRIGHT_HTML_REPORT_DIR: playwright-report-auth-smoke
+          PLAYWRIGHT_JSON_REPORT_FILE: playwright-artifacts/results-auth-smoke.json
           PLAYWRIGHT_BASE_URL: ${{ steps.gate.outputs.canonical_base_url }}
           PLAYWRIGHT_SKIP_WEBSERVERS: "true"
           VRDEX_PRODUCTION_AUTH_SMOKE_MODE: manual-one-shot
@@ -379,6 +395,8 @@ jobs:
           path: |
             apps/web/playwright-report
             apps/web/test-results
+            apps/web/playwright-report-auth-smoke
+            apps/web/test-results-auth-smoke
             apps/web/playwright-artifacts
 
   hosted-mcp-smoke:

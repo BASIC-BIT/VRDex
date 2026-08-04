@@ -538,10 +538,56 @@ jobs:
           VRDEX_E2E_RUN_ID: pr-${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}
         run: pnpm test:e2e:hosted
 
+      # Separate from the step above because it is the only suite that needs both
+      # projects. The account surfaces have a distinct mobile layout, and
+      # `test:e2e:hosted` pins desktop, so folding these in there would capture
+      # desktop only. `always()` so a failure above still produces the signed-in
+      # screenshots — they are most useful on the run that broke something.
+      #
+      # The three PLAYWRIGHT_* overrides are not optional. Playwright clears the
+      # output directory and both reports when a run starts, so without them this
+      # second run in the job would delete the first one's traces, videos, HTML
+      # report and results.json before the upload step collects them — the exact
+      # failure #213 fixed for the staging deploy, arriving here by the same route.
+      # The uploaded artifact would show only this step, under a name that says
+      # hosted data-flow.
+      # Gated on the Clerk flag like the auth-session contract step, and for the
+      # same reason. With the flag unset — the documented rollout default — every
+      # test in the suite skips, Playwright exits 0, and the step outcome is
+      # `success`: a summary line reading "Signed-in account captures: success"
+      # over zero screenshots, which is the green-over-no-coverage ambiguity this
+      # summary exists to remove. Gated, the outcome is `skipped` and says so.
+      #
+      # Only the flag needs this. Enabled-but-unusable already fails loudly —
+      # `clerkTestAuthAvailability` throws on missing keys and on auth helpers
+      # being off for a hosted target, rather than skipping.
+      - name: Capture signed-in account screenshots
+        if: always() && steps.gate.outputs.enabled == 'true' && vars.VRDEX_HOSTED_E2E_CLERK_AUTH == 'true'
+        id: account-visual
+        env:
+          PLAYWRIGHT_OUTPUT_DIR: test-results-account-visual
+          PLAYWRIGHT_HTML_REPORT_DIR: playwright-report-account-visual
+          PLAYWRIGHT_JSON_REPORT_FILE: playwright-artifacts/results-account-visual.json
+          PLAYWRIGHT_BASE_URL: ${{ vars.VRDEX_HOSTED_E2E_BASE_URL }}
+          PLAYWRIGHT_SKIP_WEBSERVERS: "true"
+          VRDEX_ENABLE_E2E_AUTH_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_AUTH_HELPERS }}
+          VRDEX_E2E_BROWSER_TOKEN: ${{ secrets.VRDEX_HOSTED_E2E_BROWSER_TOKEN }}
+          VRDEX_ENABLE_E2E_CLERK_AUTH: ${{ vars.VRDEX_HOSTED_E2E_CLERK_AUTH }}
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.VRDEX_HOSTED_E2E_CLERK_PUBLISHABLE_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.VRDEX_HOSTED_E2E_CLERK_SECRET_KEY }}
+          VRDEX_E2E_RUN_ID: pr-${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}
+        run: pnpm test:e2e:hosted:account-visual
+
       - name: Write hosted data-flow summary
         if: always() && steps.gate.outputs.enabled == 'true'
         env:
           HOSTED_OUTCOME: ${{ steps.hosted.outcome }}
+          # Reported separately rather than folded into HOSTED_OUTCOME. They are
+          # two Playwright runs against two different suites, and a summary that
+          # said `success` while the account captures failed would contradict the
+          # job it is attached to — which is the failure mode this whole summary
+          # was added to prevent.
+          ACCOUNT_VISUAL_OUTCOME: ${{ steps.account-visual.outcome }}
           HOSTED_BASE_URL: ${{ vars.VRDEX_HOSTED_E2E_BASE_URL }}
           HOSTED_EXTENDED_PROFILE_FLOW: ${{ vars.VRDEX_HOSTED_E2E_EXTENDED_PROFILE_FLOW }}
           HOSTED_AUTH_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_AUTH_HELPERS }}
@@ -555,6 +601,8 @@ jobs:
           ## Playwright hosted data-flow
 
           Outcome: ${HOSTED_OUTCOME}
+
+          Signed-in account captures: ${ACCOUNT_VISUAL_OUTCOME:-not run}
 
           Target: ${HOSTED_BASE_URL}
 
@@ -595,6 +643,8 @@ jobs:
           path: |
             apps/web/playwright-report
             apps/web/test-results
+            apps/web/playwright-report-account-visual
+            apps/web/test-results-account-visual
             apps/web/playwright-artifacts
 
   playwright-public-preview:
@@ -637,15 +687,68 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           mkdir -p apps/web/playwright-artifacts
-          cat > apps/web/playwright-artifacts/visual-summary.md <<EOF
-          ## Playwright public screenshot preview
 
-          Outcome: ${VISUAL_OUTCOME}
+          # Counted from the run, not asserted. This previously stated "all public
+          # route checks passed" unconditionally — on a failed run, and on a run
+          # where a whole lane skipped. A skipped Playwright file still exits 0,
+          # and `clerk-auth.ts` records where that leads: the auth-session matrix
+          # lane reported green for months over a spec that ran nothing, with a
+          # summary describing coverage that never executed. A summary that cannot
+          # be wrong is not evidence, and this job exists to be evidence.
+          counts=$(python3 - <<'PY'
+          import json, pathlib
+          report = pathlib.Path("apps/web/playwright-artifacts/results.json")
+          if not report.exists():
+              print("unknown unknown unknown unknown unknown")
+              raise SystemExit
+          data = json.loads(report.read_text(encoding="utf-8"))
+          # `flaky` is Playwright's status for a test that failed an attempt and
+          # then passed; the run exits successfully. Folding it into `failed`
+          # would print failures next to `Outcome: success`, which is its own kind
+          # of summary nobody can trust. Counted on its own instead, because a
+          # retry that passed is worth seeing without being alarming.
+          tally = {"passed": 0, "failed": 0, "skipped": 0, "flaky": 0}
+          buckets = {"expected": "passed", "skipped": "skipped", "flaky": "flaky"}
+          def walk(suite):
+              for spec in suite.get("specs", []):
+                  for test in spec.get("tests", []):
+                      tally[buckets.get(test.get("status", ""), "failed")] += 1
+              for child in suite.get("suites", []):
+                  walk(child)
+          for suite in data.get("suites", []):
+              walk(suite)
+          # A discovery, config, or global-setup failure lands in the report's
+          # top-level `errors` and creates no test status at all, so counting only
+          # `suites` can print `Outcome: failure` beside `0 failed` — the same
+          # untrustworthy pairing this whole summary exists to remove.
+          print(tally["passed"], tally["failed"], tally["skipped"], tally["flaky"], len(data.get("errors", [])))
+          PY
+          )
+          passed=$(echo "$counts" | cut -d' ' -f1)
+          failed=$(echo "$counts" | cut -d' ' -f2)
+          skipped=$(echo "$counts" | cut -d' ' -f3)
+          flaky=$(echo "$counts" | cut -d' ' -f4)
+          fatal=$(echo "$counts" | cut -d' ' -f5)
 
-          Screenshots: all public route checks passed on desktop and mobile.
-
-          Run: ${RUN_URL}
-          EOF
+          {
+            echo "## Playwright public screenshot preview"
+            echo ""
+            echo "Outcome: ${VISUAL_OUTCOME}"
+            echo ""
+            echo "Tests: ${passed} passed, ${failed} failed, ${skipped} skipped, ${flaky} flaky."
+            if [ "$fatal" != "0" ] && [ "$fatal" != "unknown" ]; then
+              echo ""
+              echo "**${fatal} fatal error(s)** before or outside any test — discovery,"
+              echo "configuration, or global setup. These produce no test status, so the"
+              echo "counts above do not reflect them."
+            fi
+            if [ "$skipped" != "0" ] && [ "$skipped" != "unknown" ]; then
+              echo ""
+              echo "Skipped tests produced no screenshots."
+            fi
+            echo ""
+            echo "Run: ${RUN_URL}"
+          } > apps/web/playwright-artifacts/visual-summary.md
 
       - name: Upload Playwright artifacts
         id: upload

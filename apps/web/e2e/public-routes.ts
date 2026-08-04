@@ -1,4 +1,4 @@
-import { expect, type Page, type TestInfo } from "@playwright/test";
+import { expect, type Locator, type Page, type TestInfo } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 
@@ -20,8 +20,19 @@ export type CapturedRoute = {
   expectPage: (page: Page) => Promise<void>;
 };
 
-export async function prepareVisualPage(page: Page) {
-  await page.addInitScript(() => {
+/**
+ * Normalizes a page for screenshot capture: pinned theme, frozen clock, no
+ * animations, transitions, caret, or Next.js dev overlay.
+ *
+ * `freezeClock` is separable because a signed-in Clerk page cannot take it.
+ * Clerk's client SDK decides token freshness from `Date.now()`, so a page that
+ * reports 2025-01-01 while holding a token minted today is making refresh
+ * decisions against a clock nearly two years out. Convex validates `exp` server
+ * side against real time regardless, so the two disagree — leave it on for
+ * anonymous captures, off for authenticated ones.
+ */
+export async function prepareVisualPage(page: Page, options?: { freezeClock?: boolean }) {
+  await page.addInitScript(({ freezeClock }: { freezeClock: boolean }) => {
     const storedTheme = window.localStorage.getItem("vrdex-theme");
     if (storedTheme !== "light" && storedTheme !== "dark") {
       window.localStorage.setItem("vrdex-theme", "light");
@@ -63,7 +74,10 @@ export async function prepareVisualPage(page: Page) {
 
     FixedDate.UTC = NativeDate.UTC;
     FixedDate.parse = NativeDate.parse;
-    globalThis.Date = FixedDate as DateConstructor;
+
+    if (freezeClock) {
+      globalThis.Date = FixedDate as DateConstructor;
+    }
 
     const style = document.createElement("style");
     style.setAttribute("data-visual-test", "true");
@@ -153,7 +167,7 @@ export async function prepareVisualPage(page: Page) {
       subtree: true,
     });
     window.setInterval(removeDevIndicators, 250);
-  });
+  }, { freezeClock: options?.freezeClock ?? true });
 
   await page.emulateMedia({ colorScheme: "light", reducedMotion: "reduce" });
 }
@@ -167,7 +181,17 @@ export async function waitForVisualReady(page: Page) {
   });
 }
 
-export async function captureRouteScreenshot(page: Page, testInfo: TestInfo, name: string) {
+export async function captureRouteScreenshot(
+  page: Page,
+  testInfo: TestInfo,
+  name: string,
+  // Painted over before the capture. Signed-in surfaces render a per-run
+  // identity — the disposable account's email carries a `Date.now()` suffix — so
+  // without this every screenshot differs from the last even when the UI has not
+  // changed. That is noise in manual review and it makes the capture unusable as
+  // a committed baseline, which is where these are meant to end up.
+  options?: { mask?: Locator[] },
+) {
   await waitForVisualReady(page);
   await page.evaluate(() => window.scrollTo(0, 0));
 
@@ -176,7 +200,7 @@ export async function captureRouteScreenshot(page: Page, testInfo: TestInfo, nam
   const screenshotPath = path.join(screenshotDir, fileName);
 
   mkdirSync(screenshotDir, { recursive: true });
-  await page.screenshot({ path: screenshotPath, fullPage: true });
+  await page.screenshot({ path: screenshotPath, fullPage: true, mask: options?.mask });
   await testInfo.attach(fileName, { path: screenshotPath, contentType: "image/png" });
 }
 

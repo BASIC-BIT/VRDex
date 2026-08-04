@@ -7,7 +7,9 @@ See `docs/testing/playwright-image-diffing.md` for the committed-baseline image 
 ## Local commands
 
 - Smoke public routes and run the local mutation-backed data flow: `pnpm test:e2e`
-- Capture public route screenshots: `pnpm test:e2e:visual`
+- Capture public route screenshots: `pnpm test:e2e:visual` (the signed-in
+  `account-surfaces` suite shares the `@visual` tag but skips here — it needs a
+  hosted target, see [Signed-in screenshots](#signed-in-screenshots))
 - Compare public route screenshots against baselines: `pnpm test:e2e:snapshots`
 - Update public route screenshot baselines: `pnpm test:e2e:snapshots:update`
 - Reuse already-running local services: set `PLAYWRIGHT_REUSE_SERVER=true` and `PLAYWRIGHT_REUSE_CONVEX=true`
@@ -141,6 +143,72 @@ What runs now:
   what a `convex` JWT template missing `aud` or `email_verified`, or a
   `CLERK_JWT_ISSUER_DOMAIN` naming a different instance than the publishable
   key, actually breaks — none of which a build catches.
+- `account-surfaces.visual.spec.ts` — signed-in screenshot coverage, described
+  below.
+
+### Signed-in screenshots
+
+Every other visual spec renders a public route or a Playwright fixture route, so
+the account surfaces — the ones that exist *because* somebody is signed in — had
+no screenshot coverage. `account-surfaces.visual.spec.ts` captures `/account`,
+`/account/privacy`, and `/developers/tokens` after signing in with a disposable
+Clerk account.
+
+It is tagged `@visual`, `@flow` **and** `@account-visual`, which is what places
+it. `pnpm test:e2e:visual` runs against local servers, and a local Convex
+deployment pins `clerk-issuer.invalid` so it trusts no Clerk instance — sign-in
+cannot succeed there, and the suite skips.
+
+**`pnpm test:e2e:hosted` does not run it.** That command excludes
+`@account-visual`, because this is the one suite that needs both projects — the
+account surfaces have a distinct mobile layout, and the hosted command pins
+`--project=desktop-chromium`. Its own command runs both:
+
+```sh
+pnpm test:e2e:hosted:account-visual
+```
+
+It needs `PLAYWRIGHT_BASE_URL`, `PLAYWRIGHT_SKIP_WEBSERVERS=true`,
+`VRDEX_E2E_BROWSER_TOKEN`, `VRDEX_ENABLE_E2E_AUTH_HELPERS`,
+`VRDEX_ENABLE_E2E_CLERK_AUTH`, and the staging Clerk pair
+(`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`) — a development
+instance, since `clerkSetup()` refuses a production secret key. It needs no new
+repository settings; CI already holds all of them.
+
+CI runs it twice, for different reasons. `Playwright Hosted Data Flow` runs it
+per PR, against staging, which serves `main` — so it catches a spec that cannot
+sign in or tears down badly, but cannot vouch for how the PR's own UI renders.
+`Staging Deploy` runs it after deployment, where staging holds the merged commit,
+which is the run that actually photographs the revision under test.
+
+Two switches gate it, and **they do not behave the same way**:
+
+- `VRDEX_HOSTED_E2E_CLERK_AUTH` skips. It is the rollout switch: unset, the suite
+  produces no coverage and says so. Both CI steps are additionally gated on it,
+  so the step reports `skipped` rather than a `success` that photographed
+  nothing.
+- `VRDEX_HOSTED_E2E_AUTH_HELPERS` **fails** on a hosted target. Deliberately:
+  `clerkTestAuthAvailability()` throws when Clerk auth is on and the helpers are
+  off, because that combination is a request for auth coverage against a target
+  that cannot provide it. With the helpers off, `DELETE /api/e2e/auth` answers
+  403, so the teardown would look successful while every run left a `users` row
+  keyed to a deleted Clerk identity. That is a misconfiguration to surface, not
+  a state to skip over — and the throw happens at module load, before any
+  `test.skip` could run.
+
+Assertions name signed-in-only elements exactly — "Personal tokens", "No owned
+profiles yet" — and assert the signed-out headings are *absent*. Loose matchers
+like `/tokens/i` match "Sign in required", so they pass precisely when the
+screenshot is worthless.
+
+A fresh account owns no profile, so `/account/privacy` captures the empty state
+rather than the field-visibility editor. Capturing the populated editor needs an
+account that owns a profile, which is what `auth-claim.flow.spec.ts` builds.
+
+Captures land in `apps/web/playwright-artifacts/screenshots` and upload with the
+hosted data-flow artifact. They are not committed baselines: the `@snapshot` lane
+diffs Linux-rendered PNGs under `apps/web/e2e/__screenshots__`, and there is
+nothing to diff against until a run has produced some worth committing.
 
 Accounts come from `apps/web/e2e/clerk-auth.ts`: the Clerk Backend API creates
 the user (which arrives with its email already verified, and so with
