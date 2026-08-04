@@ -87,7 +87,11 @@ export async function POST(request: Request) {
 
   convex.setAuth(authToken);
 
-  let reservation: { credentialId: string; secretName: string; abandonedSecretNames: string[] };
+  let reservation: {
+    credentialId: string;
+    secretName: string;
+    abandoned: { credentialId: string; secretName: string }[];
+  };
 
   try {
     reservation = await convex.mutation(api.vrclinkingCredentials.reserveCredential, {
@@ -118,15 +122,32 @@ export async function POST(request: Request) {
     );
   }
 
-  // Keys belonging to reservations that died before activating — a request that
-  // was killed between the write and the mutation leaves one, and its row is
-  // swept here rather than remembered. Convex cannot reach Secrets Manager, so
-  // it hands the names over and this is where they are actually retired.
-  await Promise.allSettled(
-    reservation.abandonedSecretNames.map((name) =>
-      scheduleVrclinkingDelegationKeyDeletion(name),
-    ),
+  // Keys belonging to reservations that died before activating — a request
+  // killed between the write and the mutation leaves one. Convex reports them
+  // but does not delete their rows, because the row id is the only thing the
+  // name can be derived from: dropping it on a transient failure here would
+  // lose the key permanently. Only the confirmed deletions are forgotten, so an
+  // unconfirmed one is reported again by the next reservation, which is the
+  // retry.
+  const retired = await Promise.allSettled(
+    reservation.abandoned.map(async (row) => {
+      await scheduleVrclinkingDelegationKeyDeletion(row.secretName);
+
+      return row.credentialId as Id<"communityVrclinkingCredentials">;
+    }),
   );
+  const forgettable = retired.flatMap((outcome) =>
+    outcome.status === "fulfilled" ? [outcome.value] : [],
+  );
+
+  if (forgettable.length > 0) {
+    await convex
+      .mutation(api.vrclinkingCredentials.forgetAbandonedCredentials, {
+        profileSlug,
+        credentialIds: forgettable,
+      })
+      .catch(() => undefined);
+  }
 
   /**
    * Retire the key just written, but only once its row is known not to be live.

@@ -158,12 +158,16 @@ export const reserveCredential = mutation({
     // Swept here rather than on a cron: this is the only thing that creates
     // them, so it is the only place that can accumulate them.
     //
-    // The names go back to the caller rather than being dropped. A request that
-    // dies between writing the key and activating leaves a pending row whose
-    // secret *does* exist, and deleting the row silently is what would strand
-    // that key forever — the name is the only handle on it, and it is derived
-    // from a row that no longer exists. Convex cannot reach Secrets Manager, so
-    // it hands the names to the one caller that can.
+    // Reported, not deleted. A request that dies between writing the key and
+    // activating leaves a pending row whose secret *does* exist, and the row is
+    // the only handle on it — the name is derived from the row id. Deleting here
+    // and handing the name over in the same breath meant a transient Secrets
+    // Manager failure lost the name for good, with no way to reconstruct it and
+    // nothing left to retry from.
+    //
+    // The row survives until the caller confirms the key is gone. It stays
+    // inert meanwhile: no selection query matches a non-`active` state, so a
+    // tombstone costs a row and nothing else.
     const stale = (
       await ctx.db
         .query("communityVrclinkingCredentials")
@@ -172,9 +176,10 @@ export const reserveCredential = mutation({
         )
         .collect()
     ).filter((row) => row.guildId === guildId && row.createdAt + PENDING_DELEGATION_TTL_MS <= now);
-    const abandonedSecretNames = stale.map((row) => secretNameFor(row.guildId, row._id));
-
-    await Promise.all(stale.map((row) => ctx.db.delete(row._id)));
+    const abandoned = stale.map((row) => ({
+      credentialId: row._id,
+      secretName: secretNameFor(row.guildId, row._id),
+    }));
 
     // A cap, because every reservation creates a Secrets Manager object and
     // nothing else bounds how many an owner can ask for. Counted over the same
@@ -185,19 +190,16 @@ export const reserveCredential = mutation({
     // `pending` — none has reached activation, so none has revoked anything —
     // and counting settled rows alone let an unbounded burst through with each
     // one creating its own secret before the first finished.
-    const recentByState = await Promise.all(
-      (["pending", "active", "revoked"] as const).map((state) =>
-        ctx.db
-          .query("communityVrclinkingCredentials")
-          .withIndex("by_communityProfileId_state", (q) =>
-            q.eq("communityProfileId", profile._id).eq("state", state),
-          )
-          .collect(),
-      ),
-    );
-    const recent = recentByState
-      .flat()
-      .filter((row) => row.guildId === guildId && row.createdAt + PENDING_DELEGATION_TTL_MS > now);
+    // By delegating user, not by profile. Scoping to one profile gave an owner a
+    // fresh allowance for every profile they control, and one guild can be
+    // delegated through as many of them as they like — so the bound multiplied
+    // by exactly the thing it was meant to bound.
+    const recent = (
+      await ctx.db
+        .query("communityVrclinkingCredentials")
+        .withIndex("by_delegatedByUserId", (q) => q.eq("delegatedByUserId", user._id))
+        .collect()
+    ).filter((row) => row.guildId === guildId && row.createdAt + PENDING_DELEGATION_TTL_MS > now);
 
     if (recent.length >= MAX_RECENT_DELEGATION_WRITES) {
       throw claimError("TOO_MANY_OPEN_PROOFS");
@@ -219,11 +221,7 @@ export const reserveCredential = mutation({
 
     await ctx.db.patch(credentialId, { secretRef: secretRefFor(guildId, credentialId) });
 
-    return {
-      credentialId,
-      secretName: secretNameFor(guildId, credentialId),
-      abandonedSecretNames,
-    };
+    return { credentialId, secretName: secretNameFor(guildId, credentialId), abandoned };
   },
 });
 
@@ -314,6 +312,36 @@ export const activateCredential = mutation({
       // credential, still readable by the adapter role. The caller retires them.
       supersededSecretNames,
     };
+  },
+});
+
+/**
+ * Forget tombstones whose keys the caller has actually deleted.
+ *
+ * Separate from the sweep that reports them, because only the caller knows
+ * whether Secrets Manager accepted the deletion. A row that is not confirmed
+ * stays, and the next reservation reports it again — which is the retry.
+ */
+export const forgetAbandonedCredentials = mutation({
+  args: {
+    profileSlug: v.string(),
+    credentialIds: v.array(v.id("communityVrclinkingCredentials")),
+  },
+  handler: async (ctx, args) => {
+    const { user } = await requireVerifiedActiveBrowserSession(ctx);
+    const profile = await requireOwnedCommunityProfile(ctx.db, args.profileSlug, user._id);
+    const rows = await Promise.all(args.credentialIds.map((id) => ctx.db.get(id)));
+
+    await Promise.all(
+      rows
+        .filter(
+          (row) =>
+            row !== null && row.state === "pending" && row.communityProfileId === profile._id,
+        )
+        .map((row) => ctx.db.delete(row!._id)),
+    );
+
+    return { forgotten: true };
   },
 });
 
@@ -488,10 +516,20 @@ export const reserveAdapterDelegations = internalMutation({
     // *different* keys. Dropping all but the first meant a stale or rejected key
     // permanently suppressed a working one, deterministically, because tied
     // rotation stamps preserve index order. A small per-guild allowance gives
-    // the second key a turn without letting one guild crowd the fan-out.
+    // other keys a turn without letting one guild crowd the fan-out.
+    //
+    // The allowance alone is not enough past two profiles on one guild: the
+    // stamp below gives selected and skipped rows the same `lastRotatedAt`, so
+    // the tie order would hand the same two rows every slot forever. Ordering by
+    // last consultation inside the tie rotates them — a row that was just asked
+    // yields to one that has not been, and a never-consulted row goes first.
     const perGuild = new Map<string, number>();
 
-    for (const row of candidates) {
+    const rotated = [...candidates].sort(
+      (first, second) => (first.lastConsultedAt ?? 0) - (second.lastConsultedAt ?? 0),
+    );
+
+    for (const row of rotated) {
       if (usable.length >= MAX_ADAPTER_DELEGATIONS) {
         break;
       }

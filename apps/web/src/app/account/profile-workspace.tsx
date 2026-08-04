@@ -51,6 +51,11 @@ type WorkspaceControls = {
    * subject changed without the user asking — leaving focus on the body would
    * strand a keyboard user with no announcement that anything moved. The panel
    * used to focus its own picker for this; the picker moved, the reason did not.
+   *
+   * Falls back to the heading, because the switcher only renders above more than
+   * one profile — and a list shrinking to one is exactly a case where this is
+   * called. The heading names the profile that was switched to, which is the
+   * thing a keyboard user needs to hear.
    */
   focusSwitcher: () => void;
 };
@@ -173,10 +178,11 @@ function ConnectedProfileWorkspace({
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const switcherRef = useRef<HTMLSelectElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
   const controls = useMemo<WorkspaceControls>(
     () => ({
       setBusy,
-      focusSwitcher: () => switcherRef.current?.focus(),
+      focusSwitcher: () => (switcherRef.current ?? headingRef.current)?.focus(),
     }),
     [],
   );
@@ -236,7 +242,13 @@ function ConnectedProfileWorkspace({
             </p>
             {/* Owned profiles include drafts, opted-out and suppressed ones, so
                 the name here is not necessarily publicly readable. */}
-            <h1 className="mt-1 text-3xl leading-none font-semibold sm:text-4xl" data-ph-no-capture>
+            <h1
+              className="mt-1 text-3xl leading-none font-semibold outline-none sm:text-4xl"
+              data-ph-no-capture
+              ref={headingRef}
+              // Programmatic focus only — it never enters the tab order.
+              tabIndex={-1}
+            >
               {active.displayName}
             </h1>
           </div>
