@@ -482,13 +482,21 @@ export const abandonCredentialAsServer = internalMutation({
   args: { credentialId: v.id("communityVrclinkingCredentials") },
   handler: async (ctx, args) => {
     const pending = await ctx.db.get(args.credentialId);
+
+    // Gone entirely, which a revoke racing this request can do: it cancels the
+    // reservation, the DELETE route retires the name — successfully, because the
+    // write had not landed yet — and confirmation deletes the row. The caller
+    // still holds the name and has to finish the job.
+    if (pending === null) {
+      return { abandoned: false, missing: true, secretName: null };
+    }
+
     const discardable =
-      pending !== null &&
-      (pending.state === "pending" ||
-        (pending.state === "revoked" && pending.revokedReason === ABANDONED_RESERVATION_REASON));
+      pending.state === "pending" ||
+      (pending.state === "revoked" && pending.revokedReason === ABANDONED_RESERVATION_REASON);
 
     if (!discardable) {
-      return { abandoned: false, secretName: null };
+      return { abandoned: false, missing: false, secretName: null };
     }
 
     const now = Date.now();
@@ -504,7 +512,7 @@ export const abandonCredentialAsServer = internalMutation({
 
     const [retirable] = await retirableSecretNames(ctx, pending.guildId, [pending]);
 
-    return { abandoned: true, secretName: retirable ?? null };
+    return { abandoned: true, missing: false, secretName: retirable ?? null };
   },
 });
 
@@ -560,13 +568,21 @@ export const abandonCredential = mutation({
     // The reason marker is what makes this safe: it is set only where VRDex
     // itself cancelled a reservation, never on a delegation an owner actually
     // had.
+    // Gone entirely, which a revoke racing this request can do: it cancels the
+    // reservation, the DELETE route retires the name — successfully, because the
+    // write had not landed yet — and confirmation deletes the row. The caller
+    // still holds the name and has to finish the job, so this is reported apart
+    // from a name deliberately withheld.
+    if (pending === null) {
+      return { abandoned: false, missing: true, secretName: null };
+    }
+
     const discardable =
-      pending !== null &&
-      (pending.state === "pending" ||
-        (pending.state === "revoked" && pending.revokedReason === ABANDONED_RESERVATION_REASON));
+      pending.state === "pending" ||
+      (pending.state === "revoked" && pending.revokedReason === ABANDONED_RESERVATION_REASON);
 
     if (!discardable) {
-      return { abandoned: false };
+      return { abandoned: false, missing: false, secretName: null };
     }
 
     // Deliberately not `requireDelegationAuthority`: this runs on the path where
@@ -582,7 +598,7 @@ export const abandonCredential = mutation({
     const { user } = await requireVerifiedActiveBrowserSession(ctx);
 
     if (pending.delegatedByUserId !== user._id) {
-      return { abandoned: false };
+      return { abandoned: false, missing: false, secretName: null };
     }
 
     const now = Date.now();
@@ -604,7 +620,7 @@ export const abandonCredential = mutation({
 
     const [retirable] = await retirableSecretNames(ctx, pending.guildId, [pending]);
 
-    return { abandoned: true, secretName: retirable ?? null };
+    return { abandoned: true, missing: false, secretName: retirable ?? null };
   },
 });
 

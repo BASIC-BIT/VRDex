@@ -290,7 +290,7 @@ jobs:
             echo "- Ref: \`$HEAD_REF\`"
             echo "- Commit: \`$HEAD_SHA\`"
             echo "- Deployment: $deployment_url"
-            echo "- Deployment check page: $deployment_url/deployment"
+            echo "- Deployment identity: $deployment_url/api/deployment"
           } >> "$GITHUB_STEP_SUMMARY"
 
       # Non-fatal: a live preview must not be reported as a failed deploy just
@@ -318,7 +318,7 @@ jobs:
               "## On-demand Vercel preview",
               `Branch \`${process.env.HEAD_REF}\`.`,
               `Preview URL: ${deploymentUrl}`,
-              `Deployment check page: ${deploymentUrl}/deployment`,
+              `Deployment identity: ${deploymentUrl}/api/deployment`,
               "",
               `Hosted MCP preview smoke runs after this deploy in the same run: ${runUrl}`,
               "This workflow is dispatched, so its jobs do not appear as pull request status checks. Open the run to read the smoke result.",

@@ -184,13 +184,25 @@ export async function POST(request: Request) {
     // session-authorized path fail — so the fallback is authorized by the
     // deployment rather than by the browser that has just lost its session. It
     // can only ever act on the reservation this request made.
-    const abandoned: { abandoned: boolean; secretName?: string | null } = await convex
-      .mutation(api.vrclinkingCredentials.abandonCredential, { profileSlug, credentialId })
-      .catch(() =>
-        convexAdminHttpClient()
-          .mutation(internal.vrclinkingCredentials.abandonCredentialAsServer, { credentialId })
-          .catch(() => ({ abandoned: false })),
-      );
+    const abandoned: { abandoned: boolean; missing?: boolean; secretName?: string | null } =
+      await convex
+        .mutation(api.vrclinkingCredentials.abandonCredential, { profileSlug, credentialId })
+        .catch(() =>
+          convexAdminHttpClient()
+            .mutation(internal.vrclinkingCredentials.abandonCredentialAsServer, { credentialId })
+            .catch(() => ({ abandoned: false, missing: false })),
+        );
+
+    // A revoke can race this request: it cancels the reservation, retires the
+    // name — reporting success, because the write had not landed yet — and
+    // deletes the row. This request then finishes writing a key that nothing
+    // points at. Its own name is per-credential and therefore unshared, so it is
+    // always safe to retire, and this request is the only thing left holding it.
+    if (abandoned.missing) {
+      await scheduleVrclinkingDelegationKeyDeletion(reservation.secretName).catch(() => undefined);
+
+      return;
+    }
 
     // A null name means another profile's live delegation still resolves through
     // it, so there is nothing here to delete — the row is already claimed.
