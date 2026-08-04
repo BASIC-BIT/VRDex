@@ -2,7 +2,7 @@ import { internal } from "../../../../../../../../convex/_generated/api";
 import type { Id } from "../../../../../../../../convex/_generated/dataModel";
 
 import { apiProblemResponse } from "@/lib/server/api-v0";
-import { convexAdminHttpClient } from "@/lib/server/convex-http";
+import { optionalConvexAdminHttpClient } from "@/lib/server/convex-http";
 import {
   isVrclinkingSecretStoreConfigured,
   scheduleVrclinkingDelegationKeyDeletion,
@@ -48,6 +48,22 @@ export async function POST(request: Request) {
     });
   }
 
+  // Checked before anything is deleted, not after. There is no session in this
+  // flow, so the admin credential is the only way to record what was retired —
+  // and deleting first would leave the rows unretired, so the same already-gone
+  // obligations would fill every daily batch and later live keys would never be
+  // reached. Refusing up front leaves them queued instead.
+  const admin = optionalConvexAdminHttpClient();
+
+  if (admin === null) {
+    return apiProblemResponse({
+      type: "about:blank",
+      title: "Cleanup is unavailable",
+      status: 503,
+      detail: "This deployment cannot record retirements, so it will not delete keys it cannot confirm.",
+    });
+  }
+
   let obligations: { credentialId: string; secretName: string }[];
 
   try {
@@ -80,10 +96,9 @@ export async function POST(request: Request) {
   );
 
   if (retired.length > 0) {
-    await convexAdminHttpClient().mutation(
-      internal.vrclinkingCredentials.confirmSecretsRetiredAsServer,
-      { credentialIds: retired },
-    );
+    await admin.mutation(internal.vrclinkingCredentials.confirmSecretsRetiredAsServer, {
+      credentialIds: retired,
+    });
   }
 
   return Response.json(

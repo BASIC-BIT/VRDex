@@ -249,8 +249,14 @@ that is continuously correct:
 
 ```bash
 pnpm ops:package-vrclinking-adapter
-cd infra/terraform/vrclinking-adapter && terraform apply
+cd infra/terraform/vrclinking-adapter && terraform apply -var-file=environments/production.tfvars
 ```
+
+The var-file is not optional. `enable_service` defaults to false so a new
+environment is inert, and `environments/production.tfvars` is the only thing
+setting it true — a plain `terraform apply` plans the live adapter away, which
+is a startling thing to do while following a runbook written to make a rollout
+safe.
 
 Nothing is at risk today either way — `communityVrclinkingCredentials` is empty
 on every deployment, and the first delegation cannot exist until the form that
