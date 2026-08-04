@@ -2068,9 +2068,16 @@ export default defineSchema({
     .index("by_guildId_state", ["guildId", "state"])
     .index("by_state_lastRotatedAt", ["state", "lastRotatedAt"])
     // Selects the cleanup predicate rather than filtering after a scan cap.
-    // Capping first meant retired history at the head of another index could
-    // starve the sweep forever while unretired rows behind it kept their keys.
-    .index("by_secretRetiredAt_createdAt", ["secretRetiredAt", "createdAt"])
+    // Capping first meant rows that are not obligations — retired history, and
+    // *active* delegations, which also carry no `secretRetiredAt` — could sit at
+    // the head and starve the sweep forever while unretired rows behind them
+    // kept their keys. State leads, so each scan is obligations only.
+    .index("by_state_secretRetiredAt_createdAt", ["state", "secretRetiredAt", "createdAt"])
+    // The write bound reads one owner's rows for one guild inside a window.
+    // Collecting every row a long-lived operator ever delegated, then filtering,
+    // would eventually put that read past Convex's limits and block them from
+    // reserving at all.
+    .index("by_delegatedByUserId_guildId_createdAt", ["delegatedByUserId", "guildId", "createdAt"])
     .index("by_delegatedByUserId", ["delegatedByUserId"]),
   // Short-lived CSRF state for the purpose-scoped Discord guild-verification
   // OAuth round-trip. Stored server-side rather than in a cookie so the flow

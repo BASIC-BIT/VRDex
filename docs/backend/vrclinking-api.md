@@ -188,11 +188,15 @@ It needs two Convex variables and one Vercel variable, and is inert without
 them — which is where every deployment that has never delegated a key sits:
 
 ```bash
-pnpm ops:bootstrap-vrclinking-cleanup -- --target prod --site-url https://vrdex.net
+pnpm ops:bootstrap-vrclinking-cleanup -- --target prod --site-url https://vrdex.net --deployment-url <vercel-deployment-url>
 ```
 
 That generates the shared bearer, sets both Convex variables and the matching
-Vercel one, and prints none of them. Rerunning rotates the token, and rotating is
+Vercel one, and prints none of them — neither provider receives it as a process
+argument, since argv is readable by any other process on the box. It then
+redeploys, because a Vercel environment change reaches future deployments only:
+without that, Convex starts posting a bearer the running function has never seen
+and the sweep answers 401 daily with nothing surfacing it. Rerunning rotates the token, and rotating is
 safe in either order: a mismatched pair fails closed, costing one sweep. The
 route also fails closed on an unset token rather than reading "none configured"
 as "none required".

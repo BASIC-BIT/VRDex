@@ -316,12 +316,19 @@ export const reserveCredential = mutation({
     // fresh allowance for every profile they control, and one guild can be
     // delegated through as many of them as they like — so the bound multiplied
     // by exactly the thing it was meant to bound.
-    const recent = (
-      await ctx.db
-        .query("communityVrclinkingCredentials")
-        .withIndex("by_delegatedByUserId", (q) => q.eq("delegatedByUserId", user._id))
-        .collect()
-    ).filter((row) => row.guildId === guildId && row.createdAt + PENDING_DELEGATION_TTL_MS > now);
+    // Ranged on the index rather than collected and filtered. Genuine
+    // revocations are kept as audit history, so a long-lived operator
+    // accumulates rows indefinitely — reading all of them to count ten would
+    // eventually exceed Convex's read limits and stop them reserving at all.
+    const recent = await ctx.db
+      .query("communityVrclinkingCredentials")
+      .withIndex("by_delegatedByUserId_guildId_createdAt", (q) =>
+        q
+          .eq("delegatedByUserId", user._id)
+          .eq("guildId", guildId)
+          .gt("createdAt", now - PENDING_DELEGATION_TTL_MS),
+      )
+      .collect();
 
     if (recent.length >= MAX_RECENT_DELEGATION_WRITES) {
       throw claimError("TOO_MANY_OPEN_PROOFS");
@@ -691,16 +698,26 @@ export const claimOverdueSecretCleanups = internalMutation({
   args: {},
   handler: async (ctx) => {
     const now = Date.now();
-    const unretired = await ctx.db
-      .query("communityVrclinkingCredentials")
-      .withIndex("by_secretRetiredAt_createdAt", (q) => q.eq("secretRetiredAt", undefined))
-      .take(OVERDUE_CLEANUP_SCAN_LIMIT);
-    const overdue = unretired.filter(
-      (row) =>
-        row.state !== "active" &&
-        row.createdAt + PENDING_DELEGATION_TTL_MS <= now &&
-        !writerMayStillBeRunning(row, now),
+    // Per non-active state, because `secretRetiredAt` is also unset on every
+    // *active* delegation — a deployment with fifty live keys would otherwise
+    // fill the batch with rows that are not obligations and hand the sweep
+    // nothing, forever.
+    const scanned = await Promise.all(
+      (["pending", "revoked"] as const).map((state) =>
+        ctx.db
+          .query("communityVrclinkingCredentials")
+          .withIndex("by_state_secretRetiredAt_createdAt", (q) =>
+            q.eq("state", state).eq("secretRetiredAt", undefined),
+          )
+          .take(OVERDUE_CLEANUP_SCAN_LIMIT),
+      ),
     );
+    const overdue = scanned
+      .flat()
+      .filter(
+        (row) =>
+          row.createdAt + PENDING_DELEGATION_TTL_MS <= now && !writerMayStillBeRunning(row, now),
+      );
 
     // Claimed before their names go anywhere.
     await Promise.all(

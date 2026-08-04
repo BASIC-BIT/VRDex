@@ -26,10 +26,25 @@ test("derives the sweep URL from the deployment origin", () => {
 
 test("refuses a target that is not a known deployment", () => {
   assert.throws(
-    () => parseArgs(["--target", "production", "--site-url", "https://vrdex.net"]),
+    () =>
+      parseArgs([
+        "--target",
+        "production",
+        "--site-url",
+        "https://vrdex.net",
+        "--deployment-url",
+        "https://x.vercel.app",
+      ]),
     /--target must be/,
   );
   assert.throws(() => parseArgs(["--target", "prod"]), /--site-url is required/);
+  // A Vercel environment change does not reach existing deployments, so a
+  // rotation without a redeploy leaves Convex posting a bearer the live function
+  // has never seen.
+  assert.throws(
+    () => parseArgs(["--target", "prod", "--site-url", "https://vrdex.net"]),
+    /--deployment-url is required/,
+  );
 });
 
 /**

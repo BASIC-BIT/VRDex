@@ -18,8 +18,13 @@
  * from `randomBytes` into both providers. Rerunning rotates it, and rotating is
  * safe in either order — a mismatched pair fails closed, costing one sweep.
  *
+ * The token never becomes a process argument on either side: `convex env set`
+ * and `vercel env add` both read it from stdin, and argv is readable by any
+ * other process on the box for as long as the command runs.
+ *
  * Usage:
- *   node scripts/bootstrap-vrclinking-cleanup.mjs --target prod --site-url https://vrdex.net
+ *   node scripts/bootstrap-vrclinking-cleanup.mjs --target prod
+ *     --site-url https://vrdex.net --deployment-url <vercel-deployment-url>
  */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -39,7 +44,7 @@ export function cleanupUrlFor(siteUrl) {
 }
 
 export function parseArgs(argv) {
-  const options = { target: "", siteUrl: "", vercelEnvironment: "production" };
+  const options = { target: "", siteUrl: "", deploymentUrl: "", vercelEnvironment: "production" };
 
   for (let index = 0; index < argv.length; index += 1) {
     switch (argv[index]) {
@@ -49,6 +54,10 @@ export function parseArgs(argv) {
         break;
       case "--site-url":
         options.siteUrl = argv[index + 1] ?? "";
+        index += 1;
+        break;
+      case "--deployment-url":
+        options.deploymentUrl = argv[index + 1] ?? "";
         index += 1;
         break;
       case "--vercel-environment":
@@ -65,15 +74,20 @@ export function parseArgs(argv) {
     "--target must be one of local, dev, prod.",
   );
   assert.ok(options.siteUrl, "--site-url is required, and must be the deployment's public origin.");
+  // Required, not optional. A Vercel environment change does not reach
+  // deployments that already exist, so without a redeploy Convex starts posting
+  // a bearer the live function has never seen — the sweep 401s and keys pile up
+  // with nothing reporting it.
+  assert.ok(
+    options.deploymentUrl,
+    "--deployment-url is required: the running deployment must be redeployed to pick up the new token.",
+  );
 
   return options;
 }
 
-function run(command, args, label) {
-  // `stdio: "inherit"` deliberately excluded for the value-bearing calls: these
-  // arguments carry the shared secret, and inheriting stdout is how it would end
-  // up in a CI log.
-  const result = spawnSync(command, args, { encoding: "utf8", shell: false });
+function run(command, args, label, input) {
+  const result = spawnSync(command, args, { encoding: "utf8", shell: false, ...(input === undefined ? {} : { input }) });
 
   assert.equal(result.status, 0, `${label} failed: ${result.stderr?.trim() || result.stdout?.trim()}`);
 }
@@ -88,10 +102,13 @@ function main() {
     ["cx", options.target, "env", "set", "VRCLINKING_CLEANUP_URL", cleanupUrl],
     "Setting VRCLINKING_CLEANUP_URL in Convex",
   );
+  // No value argument: `convex env set NAME` reads it from stdin, which keeps the
+  // bearer out of argv where any other local process could read it.
   run(
     "pnpm",
-    ["cx", options.target, "env", "set", "VRCLINKING_CLEANUP_TOKEN", token],
+    ["cx", options.target, "env", "set", "VRCLINKING_CLEANUP_TOKEN"],
     "Setting VRCLINKING_CLEANUP_TOKEN in Convex",
+    token,
   );
 
   // Vercel reads the value from stdin so it never becomes a process argument,
@@ -114,6 +131,16 @@ function main() {
     vercel.status,
     0,
     `Setting VRCLINKING_CLEANUP_TOKEN in Vercel failed: ${vercel.stderr?.trim()}`,
+  );
+
+  // Vercel applies an environment change to future deployments only, so the
+  // running function still holds the old token — or none — until it is rebuilt.
+  // Convex is already posting the new one, so skipping this leaves the sweep
+  // answering 401 daily with nothing surfacing it.
+  run(
+    "npx",
+    ["--yes", "vercel@latest", "redeploy", options.deploymentUrl, "--yes"],
+    "Redeploying so the new token reaches the running function",
   );
 
   console.log(
