@@ -299,15 +299,15 @@ test.describe("account surfaces @visual @flow @account-visual", () => {
     //
     // 404 is success: the user being absent is the state this is trying to reach.
     //
-    // On the recovery path `checked` is the equivalent claim — the lookup
-    // succeeded and every user it returned was deleted. `deleted: 0` alongside it
-    // is the ordinary answer when the creation request never landed at all, and
-    // is not a failure; `checked: false` means the lookup itself did not
-    // complete, so nothing can be concluded.
+    // On the recovery path it takes both fields. `checked` alone only says the
+    // lookup ran — a user it found and could not delete (429, 5xx) still leaves a
+    // disposable account in the tenant, so `failed` has to be zero as well.
+    // `deleted: 0` with `checked` and no failures is the ordinary answer when the
+    // creation request never landed, and is not a failure.
     const clerkDeleted =
       created !== undefined
         ? clerkDeletion !== undefined && (clerkDeletion.ok || clerkDeletion.status === 404)
-        : clerkRecovery?.checked === true;
+        : clerkRecovery?.checked === true && clerkRecovery.failed === 0;
 
     // `!cleaned` is only a failure when the account reached an authenticated
     // page, since that is the only case where a row should exist. A sign-in that
@@ -320,7 +320,9 @@ test.describe("account surfaces @visual @flow @account-visual", () => {
         : !clerkDeleted
           ? `Clerk did not confirm deletion of ${email} (${
               created === undefined
-                ? "creation returned no id and the recovery lookup did not complete"
+                ? clerkRecovery?.checked === true
+                  ? `creation returned no id; the recovery lookup found ${clerkRecovery.failed} user(s) it could not delete`
+                  : "creation returned no id and the recovery lookup did not complete"
                 : clerkDeletion
                   ? `HTTP ${clerkDeletion.status}`
                   : "no response"

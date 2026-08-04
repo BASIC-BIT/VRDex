@@ -419,8 +419,14 @@ export async function cleanupClerkTestAccountData(
  * disposable account behind per attempt, with nothing holding its id. The email
  * is reserved before the request precisely so this can find it.
  *
- * Returns how many users it deleted. `0` is the ordinary answer when the request
- * genuinely never landed, and is not a failure.
+ * Three fields, because "the lookup ran" and "nothing is left" are different
+ * claims and only the second is what a teardown needs:
+ *
+ * - `checked` — the lookup itself completed, so the other two mean something.
+ * - `deleted` — users removed. `0` alongside `checked` is the ordinary answer
+ *   when the creation request never landed, and is not a failure.
+ * - `failed` — users found and *not* removed, because Clerk answered 429 or 5xx.
+ *   Non-zero means a disposable account survives, whatever the other two say.
  *
  * Never throws, for the same reason `deleteClerkTestAccount` does not: this runs
  * from teardown, where masking the failure that got us there would be worse than
@@ -428,7 +434,7 @@ export async function cleanupClerkTestAccountData(
  */
 export async function deleteClerkTestAccountByEmail(email: string | undefined) {
   if (!email || !secretKey()) {
-    return { deleted: 0, checked: false };
+    return { deleted: 0, failed: 0, checked: false };
   }
 
   try {
@@ -439,15 +445,20 @@ export async function deleteClerkTestAccountByEmail(email: string | undefined) {
 
     if (!found.ok) {
       console.warn(`Clerk lookup for ${email} failed: ${found.status}`);
-      return { deleted: 0, checked: false };
+      return { deleted: 0, failed: 0, checked: false };
     }
 
     // Clerk returns a bare array here, not a paginated envelope.
     const users = (await found.json()) as Array<{ id?: unknown }>;
     let deleted = 0;
+    let failed = 0;
 
     for (const user of Array.isArray(users) ? users : []) {
+      // Counted as a failure rather than skipped. A row with no usable id is a
+      // user this found and cannot remove, which is the same outcome for the
+      // tenant as a refused delete.
       if (typeof user.id !== "string" || user.id === "") {
+        failed += 1;
         continue;
       }
 
@@ -455,17 +466,21 @@ export async function deleteClerkTestAccountByEmail(email: string | undefined) {
         method: "DELETE",
       });
 
-      // 404 counts: the goal is the user being absent.
+      // 404 counts as deleted: the goal is the user being absent.
       if (response.ok || response.status === 404) {
         deleted += 1;
       } else {
+        // A 429 or 5xx here leaves a real disposable account behind. Warning and
+        // reporting success would let the teardown pass over exactly the leak it
+        // exists to prevent.
+        failed += 1;
         console.warn(`Clerk refused to delete recovered user ${user.id}: ${response.status}`);
       }
     }
 
-    return { deleted, checked: true };
+    return { deleted, failed, checked: true };
   } catch (error) {
     console.warn(`Failed to recover Clerk test user for ${email}:`, error);
-    return { deleted: 0, checked: false };
+    return { deleted: 0, failed: 0, checked: false };
   }
 }
