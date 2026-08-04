@@ -149,8 +149,9 @@ export function ConnectionsPanel({
    * Posted to a route rather than straight to Convex.
    *
    * The key has to reach the operator secret store and must not reach Convex's
-   * database, so the route is the only party that sees it: it authorizes, writes
-   * the key, and then registers the delegation Convex does record.
+   * database, so the route is the only party that sees it: it reserves a row to
+   * name the key, writes the key, and only then activates the delegation Convex
+   * records.
    */
   async function submitDelegation(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

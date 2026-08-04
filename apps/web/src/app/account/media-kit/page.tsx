@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 
 import { MediaKitPanel } from "./media-kit-panel";
-import { ProfileWorkspace } from "../profile-workspace";
+import { DEMO_WORKSPACE_PROFILES, ProfileWorkspace } from "../profile-workspace";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 import { profileClaimSlugFromInput } from "@/lib/profile-claim";
 
@@ -26,7 +26,16 @@ export default async function MediaKitPage({
           <BrandLink />
         </PageNav>
 
-        <ProfileWorkspace activeSlug={initialProfileSlug} mediaKitEnabled tab="media-kit">
+        <ProfileWorkspace
+          activeSlug={initialProfileSlug}
+          mediaKitEnabled
+          previewProfiles={demoMode ? DEMO_WORKSPACE_PROFILES : undefined}
+          tab="media-kit"
+        >
+          {/* The active tab already names this surface, but the panel still
+              needs its own landmark heading — matching Privacy, Connections and
+              Personalization. */}
+          <h2 className="text-xl font-semibold">Media kit</h2>
           <MediaKitPanel
             demoMode={demoMode}
             generationEnabled={

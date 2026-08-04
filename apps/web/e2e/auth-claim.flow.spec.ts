@@ -181,6 +181,26 @@ async function recordGuildControlProof(
   return null;
 }
 
+/**
+ * Copy this branch changed, as either the new string or the one staging still
+ * serves.
+ *
+ * The hosted lane drives the shared staging deployment, which tracks `main` —
+ * so a branch that rewrites user-facing copy asserts against a target that does
+ * not have the rewrite yet. Accepting only the new string makes the lane
+ * unpassable until merge, which is the wrong order: the lane exists to catch
+ * regressions before merge, not to require one.
+ *
+ * The pairs collapse to a single string once staging carries this branch, and
+ * the old half should be deleted then. Same tolerance as
+ * `expectCurrentOrHostedLagTrustState` below, for the same reason.
+ */
+function currentOrLaggingCopy(page: Page, current: string, lagging: string) {
+  return page
+    .getByRole("heading", { name: current })
+    .or(page.getByRole("heading", { name: lagging }));
+}
+
 async function expectCurrentOrHostedLagTrustState(
   page: Page,
   request: APIRequestContext,
@@ -528,12 +548,15 @@ test("verified email account can complete VRChat adapter claims @flow", async ({
       "https://vrchat.com/home/user/usr_e2e00000-0000-4000-8000-000000000001",
     );
     await page.getByRole("button", { name: "Create proof code" }).click();
-    await expect(page.getByRole("heading", { name: "Add this code to your VRChat profile" })).toBeVisible(hostedActionExpectOptions);
+    await expect(currentOrLaggingCopy(page, "Add this code to your VRChat profile", "Finish your VRChat proof")).toBeVisible(hostedActionExpectOptions);
     await expect(page.getByText(/VRDEX-/)).toBeVisible(hostedActionExpectOptions);
     await page.reload();
-    await expect(page.getByRole("heading", { name: "Add this code to your VRChat profile" })).toBeVisible(hostedActionExpectOptions);
-    await page.getByRole("button", { name: "I've added it — check now" }).click();
-    await expect(page.getByText(/This profile is yours/i)).toBeVisible(hostedActionExpectOptions);
+    await expect(currentOrLaggingCopy(page, "Add this code to your VRChat profile", "Finish your VRChat proof")).toBeVisible(hostedActionExpectOptions);
+    await page
+      .getByRole("button", { name: "I've added it — check now" })
+      .or(page.getByRole("button", { name: "Check proof now" }))
+      .click();
+    await expect(page.getByText(/This profile is yours|Ownership (verified|confirmed)/i)).toBeVisible(hostedActionExpectOptions);
 
     await gotoFlowPage(page, `/p/${vrchatPersonSlug}`);
     await expect(page.getByRole("heading", { name: `Playwright VRChat Proof ${runSuffix}` })).toBeVisible(hostedActionExpectOptions);
