@@ -9,7 +9,7 @@ import {
   vrclinkingSecretRef,
   vrclinkingSecretRefForRow,
 } from "./_vrclinkingSecretRef";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import {
   internalMutation,
   internalQuery,
@@ -116,6 +116,39 @@ async function requireDelegationAuthority(
 }
 
 /**
+ * The names among `retiring` that no other live delegation still resolves
+ * through.
+ *
+ * Only legacy rows raise the question: their name is guild-scoped, so it is
+ * shared by every pre-naming row for that guild — across profiles. A
+ * per-credential name cannot be shared, because nothing else can derive it.
+ *
+ * This lives in one place because it was needed in four: activation's
+ * supersession, the abandoned-reservation sweep, the revoke path, and the retry
+ * that reports unretired rows. Fixing them one at a time is how three separate
+ * rounds each retired a name another profile was still using.
+ */
+async function retirableSecretNames(
+  ctx: QueryCtx,
+  guildId: string,
+  retiring: Doc<"communityVrclinkingCredentials">[],
+): Promise<string[]> {
+  const names = retiring.map((row) => vrclinkingSecretNameForRow(row));
+
+  const live = await ctx.db
+    .query("communityVrclinkingCredentials")
+    .withIndex("by_guildId_state", (q) => q.eq("guildId", guildId).eq("state", "active"))
+    .collect();
+  const stillLive = new Set(
+    live
+      .filter((row) => !retiring.some((retired) => retired._id === row._id))
+      .map((row) => vrclinkingSecretNameForRow(row)),
+  );
+
+  return [...new Set(names.filter((name) => !stillLive.has(name)))];
+}
+
+/**
  * A pending row that has plainly been abandoned.
  *
  * Long enough that a slow Secrets Manager write is never swept out from under
@@ -218,10 +251,15 @@ export const reserveCredential = mutation({
       ),
     );
 
-    const abandoned = [...stale, ...unretired].map((row) => ({
-      credentialId: row._id,
-      secretName: vrclinkingSecretNameForRow(row),
-    }));
+    const retiring = [...stale, ...unretired];
+    const retirable = new Set(await retirableSecretNames(ctx, guildId, retiring));
+    const abandoned = retiring
+      .map((row) => ({ credentialId: row._id, secretName: vrclinkingSecretNameForRow(row) }))
+      // A revoked legacy row can outlive the check that withheld its name at
+      // activation: another profile still delegates that guild, so the shared
+      // name is not retirable yet. Reporting it anyway put the retry itself in
+      // the business of breaking the delegation the original check protected.
+      .filter((row) => retirable.has(row.secretName));
 
     // A cap, because every reservation creates a Secrets Manager object and
     // nothing else bounds how many an owner can ask for. Counted over the same
@@ -298,6 +336,9 @@ export const activateCredential = mutation({
         credentialId: pending._id,
         replaced: (pending.supersededSecretNames ?? []).length > 0,
         supersededSecretNames: pending.supersededSecretNames ?? [],
+        // A replay cannot re-derive which rows those names came from, and the
+        // caller only needs them to confirm deletions it is performing now.
+        supersededCredentials: [],
       };
     }
 
@@ -343,26 +384,12 @@ export const activateCredential = mutation({
     // would schedule deletion of an object that does not exist while leaving the
     // real provider key in the store.
     //
-    // A legacy name is shared by every pre-naming row for that *guild*, across
-    // profiles — so the liveness check has to span the guild too. Scoping it to
-    // this profile could not see another profile's legacy row, and retiring the
-    // shared name would have broken that profile's working delegation: at once
-    // with the file backend, or when the AWS recovery window closed.
-    //
-    // The per-credential names carry no such question; nothing else can name
-    // them.
-    const guildActive = await ctx.db
-      .query("communityVrclinkingCredentials")
-      .withIndex("by_guildId_state", (q) => q.eq("guildId", pending.guildId).eq("state", "active"))
-      .collect();
-    const stillLive = new Set(
-      guildActive
-        .filter((row) => !superseded.some((retired) => retired._id === row._id))
-        .map((row) => vrclinkingSecretNameForRow(row)),
-    );
-    const supersededSecretNames = superseded
-      .map((row) => vrclinkingSecretNameForRow(row))
-      .filter((name) => !stillLive.has(name));
+    const supersededSecretNames = await retirableSecretNames(ctx, pending.guildId, superseded);
+    // Paired with their rows, so the caller can confirm exactly the ones whose
+    // deletion succeeded rather than confirming a batch or nothing.
+    const supersededCredentials = superseded
+      .map((row) => ({ credentialId: row._id, secretName: vrclinkingSecretNameForRow(row) }))
+      .filter((row) => supersededSecretNames.includes(row.secretName));
 
     // Recorded on the row, not just returned: a retry after a lost response has
     // to be able to hand back the same names, and by then the revoked rows are
@@ -377,6 +404,7 @@ export const activateCredential = mutation({
       // store forever: unreachable, but still a community's live provider
       // credential, still readable by the adapter role. The caller retires them.
       supersededSecretNames,
+      supersededCredentials,
     };
   },
 });
@@ -479,7 +507,26 @@ export const abandonCredential = mutation({
       return { abandoned: false };
     }
 
-    return { abandoned: true, secretName: vrclinkingSecretNameForRow(pending) };
+    const now = Date.now();
+
+    // Claimed, not merely reported. A response lost before the mutation
+    // committed leaves the row readable as `pending`, so answering read-only let
+    // the route schedule its key for deletion while the delayed activation could
+    // still promote that same row and revoke its predecessor. Moving it out of
+    // `pending` — the only state activation accepts — closes that, exactly as
+    // the stale sweep does.
+    if (pending.state === "pending") {
+      await ctx.db.patch(pending._id, {
+        state: "revoked",
+        revokedAt: now,
+        revokedReason: ABANDONED_RESERVATION_REASON,
+        updatedAt: now,
+      });
+    }
+
+    const [retirable] = await retirableSecretNames(ctx, pending.guildId, [pending]);
+
+    return { abandoned: true, secretName: retirable ?? null };
   },
 });
 
@@ -541,10 +588,15 @@ export const revokeCredential = mutation({
     // owner who revokes would otherwise leave their live provider key in the
     // store indefinitely, still readable by the adapter role, which is close to
     // the opposite of what pressing Revoke means.
+    const [retirable] = await retirableSecretNames(ctx, target.guildId, [target]);
+
     return {
       revoked: true,
       credentialId: target._id,
-      secretName: vrclinkingSecretNameForRow(target),
+      // Null where another profile's active delegation still resolves through
+      // this row's legacy guild-scoped name. The row is revoked either way; the
+      // key behind it is not this profile's alone to delete.
+      secretName: retirable ?? null,
     };
   },
 });

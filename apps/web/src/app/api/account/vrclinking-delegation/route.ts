@@ -177,14 +177,16 @@ export async function POST(request: Request) {
    * the secret alone.
    */
   async function discardStoredKey() {
-    const abandoned = await convex
+    const abandoned: { abandoned: boolean; secretName?: string | null } = await convex
       .mutation(api.vrclinkingCredentials.abandonCredential, {
         profileSlug,
         credentialId: reservation.credentialId as Id<"communityVrclinkingCredentials">,
       })
       .catch(() => ({ abandoned: false }));
 
-    if (!abandoned.abandoned) {
+    // A null name means another profile's live delegation still resolves through
+    // it, so there is nothing here to delete — the row is already claimed.
+    if (!abandoned.abandoned || !abandoned.secretName) {
       return;
     }
 
@@ -193,7 +195,7 @@ export async function POST(request: Request) {
     // reservation for this guild reports it again — the same retry the swept and
     // revoked paths get. Deleting the row first would destroy the only thing the
     // name can be derived from.
-    const retired = await scheduleVrclinkingDelegationKeyDeletion(reservation.secretName).then(
+    const retired = await scheduleVrclinkingDelegationKeyDeletion(abandoned.secretName).then(
       () => true,
       () => false,
     );
@@ -229,9 +231,35 @@ export async function POST(request: Request) {
     // The keys this replaced. Their rows are revoked and their names are never
     // reused, so nothing can reach them again — retaining a community's live
     // provider credential after it has been replaced is the thing to avoid.
-    await Promise.allSettled(
-      result.supersededSecretNames.map((name) => scheduleVrclinkingDelegationKeyDeletion(name)),
+    //
+    // Confirmed, not fire-and-forget: without it every replaced row stayed an
+    // outstanding obligation, so each later reservation for the guild reported
+    // and rescheduled keys that were already gone, and the recorded retirement
+    // state never caught up.
+    const supersededOutcomes = await Promise.allSettled(
+      result.supersededSecretNames.map(async (name: string) => {
+        await scheduleVrclinkingDelegationKeyDeletion(name);
+
+        return name;
+      }),
     );
+    const retiredNames = new Set(
+      supersededOutcomes.flatMap((outcome) =>
+        outcome.status === "fulfilled" ? [outcome.value] : [],
+      ),
+    );
+    const retiredIds = result.supersededCredentials
+      .filter((row: { secretName: string }) => retiredNames.has(row.secretName))
+      .map((row: { credentialId: string }) => row.credentialId as Id<"communityVrclinkingCredentials">);
+
+    if (retiredIds.length > 0) {
+      await convex
+        .mutation(api.vrclinkingCredentials.confirmSecretsRetired, {
+          profileSlug,
+          credentialIds: retiredIds,
+        })
+        .catch(() => undefined);
+    }
 
     return Response.json(result, { headers: { "cache-control": "private, no-store" } });
   } catch (error) {

@@ -1006,6 +1006,57 @@ describe("VRCLinking credential delegation", () => {
   // otherwise activate afterwards, find no active predecessor, and promote
   // itself — resurrecting the delegation the owner had just revoked from another
   // tab, another session, or a co-owner.
+  // A guild-scoped name is shared by every pre-naming row for that guild, across
+  // profiles — so retiring one profile's legacy delegation must not hand back a
+  // name another profile is still resolving through. Three separate rounds each
+  // retired that name from a different path, which is why the check now lives in
+  // one helper every path goes through.
+  it("withholds a legacy name another profile still resolves through", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const guildId = "92345678901234567";
+    const first = await seedOwnedCommunity(t, "legacy-shared-a", now);
+    const second = await seedOwnedCommunity(t, "legacy-shared-b", now);
+
+    for (const seeded of [first, second]) {
+      await t.run(async (ctx) => {
+        await recordExternalControlProof(ctx.db, {
+          userId: seeded.userId,
+          assetType: "discord_guild",
+          assetExternalId: guildId,
+          controlLevel: "owner",
+          evidenceSource: "discord_oauth",
+          now,
+        });
+      });
+    }
+
+    await delegateCredential(t, first.identity, "legacy-shared-a", guildId);
+    await delegateCredential(t, second.identity, "legacy-shared-b", guildId);
+
+    // Both predate per-credential naming, so both resolve to the shared name.
+    await t.run(async (ctx) => {
+      const rows = await ctx.db.query("communityVrclinkingCredentials").collect();
+
+      await Promise.all(
+        rows.map((row) =>
+          ctx.db.patch(row._id, { secretRef: `secret://vrdex/vrclinking/${guildId}` }),
+        ),
+      );
+    });
+
+    const revoked = await t
+      .withIdentity(first.identity)
+      .mutation(api.vrclinkingCredentials.revokeCredential, {
+        profileSlug: "legacy-shared-a",
+        guildId,
+      });
+
+    assert.equal(revoked.revoked, true);
+    // Revoked, but the key is not this profile's alone to delete.
+    assert.equal(revoked.secretName, null);
+  });
+
   it("cancels reservations for a guild the owner revokes", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
