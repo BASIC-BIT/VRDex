@@ -180,14 +180,24 @@ export const reserveCredential = mutation({
     // nothing else bounds how many an owner can ask for. Counted over the same
     // window the sweep uses, so an owner correcting a typo is never blocked
     // while a loop is.
-    const recent = (
-      await ctx.db
-        .query("communityVrclinkingCredentials")
-        .withIndex("by_communityProfileId_state", (q) =>
-          q.eq("communityProfileId", profile._id).eq("state", "revoked"),
-        )
-        .collect()
-    ).filter((row) => row.guildId === guildId && row.createdAt + PENDING_DELEGATION_TTL_MS > now);
+    //
+    // Every state, not just `revoked`. Concurrent requests are all still
+    // `pending` — none has reached activation, so none has revoked anything —
+    // and counting settled rows alone let an unbounded burst through with each
+    // one creating its own secret before the first finished.
+    const recentByState = await Promise.all(
+      (["pending", "active", "revoked"] as const).map((state) =>
+        ctx.db
+          .query("communityVrclinkingCredentials")
+          .withIndex("by_communityProfileId_state", (q) =>
+            q.eq("communityProfileId", profile._id).eq("state", state),
+          )
+          .collect(),
+      ),
+    );
+    const recent = recentByState
+      .flat()
+      .filter((row) => row.guildId === guildId && row.createdAt + PENDING_DELEGATION_TTL_MS > now);
 
     if (recent.length >= MAX_RECENT_DELEGATION_WRITES) {
       throw claimError("TOO_MANY_OPEN_PROOFS");
@@ -359,7 +369,7 @@ export const revokeCredential = mutation({
     const target = active.find((row) => row.guildId === args.guildId.trim());
 
     if (target === undefined) {
-      return { revoked: false };
+      return { revoked: false, secretName: null };
     }
 
     const now = Date.now();
@@ -370,7 +380,12 @@ export const revokeCredential = mutation({
       updatedAt: now,
     });
 
-    return { revoked: true };
+    // The name goes back so the caller can retire the key itself. Revoking the
+    // row does not remove it, and per-credential names are never reused — so an
+    // owner who revokes would otherwise leave their live provider key in the
+    // store indefinitely, still readable by the adapter role, which is close to
+    // the opposite of what pressing Revoke means.
+    return { revoked: true, secretName: secretNameFor(target.guildId, target._id) };
   },
 });
 

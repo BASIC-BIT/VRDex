@@ -99,7 +99,6 @@ export function ConnectionsPanel({
       : "skip",
   );
   const vrclinkingCredentials = preview?.credentials ?? queriedCredentials;
-  const revokeCredential = useMutation(api.vrclinkingCredentials.revokeCredential);
   const addConnection = useMutation(api.profileConnections.addVerifiedConnection);
   const setPrimary = useMutation(api.profileConnections.setPrimaryConnection);
   const removeConnection = useMutation(api.profileConnections.removeConnection);
@@ -181,6 +180,28 @@ export function ConnectionsPanel({
 
       form.reset();
     });
+  }
+
+  /**
+   * Through the route, like saving one: revoking the row does not remove the
+   * key, and only the route can reach the store that holds it.
+   */
+  async function revokeDelegation(guildId: string) {
+    const response = await fetch("/api/account/vrclinking-delegation", {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ profileSlug: activeSlug, guildId }),
+    });
+
+    if (!response.ok) {
+      const problem: unknown = await response.json().catch(() => null);
+      const detail =
+        problem !== null && typeof problem === "object" && "detail" in problem
+          ? String((problem as { detail?: unknown }).detail ?? "")
+          : "";
+
+      throw new Error(detail || "That key could not be revoked. Try again.");
+    }
   }
 
   if (ownedProfiles === undefined) {
@@ -402,12 +423,7 @@ export function ConnectionsPanel({
                             return;
                           }
 
-                          void run(() =>
-                            revokeCredential({
-                              profileSlug: activeSlug,
-                              guildId: credential.guildId,
-                            }),
-                          );
+                          void run(() => revokeDelegation(credential.guildId));
                         }}
                       >
                         Revoke

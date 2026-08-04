@@ -993,6 +993,40 @@ describe("VRCLinking credential delegation", () => {
     return reserved;
   }
 
+  // Every reservation creates a Secrets Manager object, so the bound has to hold
+  // against a burst — and a burst is entirely `pending`, because no request in
+  // it has reached activation. Counting only settled rows let every concurrent
+  // reservation through, each creating its own secret.
+  it("counts reservations still in flight toward the write bound", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const seeded = await seedOwnedCommunity(t, "delegation-burst", now);
+    const guildId = "62345678901234567";
+    await t.run(async (ctx) => {
+      await recordExternalControlProof(ctx.db, {
+        userId: seeded.userId,
+        assetType: "discord_guild",
+        assetExternalId: guildId,
+        controlLevel: "owner",
+        evidenceSource: "discord_oauth",
+        now,
+      });
+    });
+
+    const reserve = () =>
+      t.withIdentity(seeded.identity).mutation(api.vrclinkingCredentials.reserveCredential, {
+        profileSlug: "delegation-burst",
+        guildId,
+      });
+
+    // None of these activate, so every row stays `pending`.
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      await reserve();
+    }
+
+    await assert.rejects(reserve, /TOO_MANY_OPEN_PROOFS/);
+  });
+
   it("refuses a delegation for a guild the owner has not proved they manage", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();

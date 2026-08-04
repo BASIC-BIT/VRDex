@@ -201,3 +201,76 @@ export async function POST(request: Request) {
     );
   }
 }
+
+/**
+ * Revoke a delegation and retire the key behind it.
+ *
+ * Routed through here rather than straight to Convex for the same reason the
+ * write is: revoking the row does not remove the key, and per-credential names
+ * are never reused — so an owner pressing Revoke would otherwise leave their
+ * live provider credential in the store indefinitely, still readable by the
+ * adapter role. Convex cannot reach Secrets Manager; this can.
+ */
+export async function DELETE(request: Request) {
+  const authToken = await convexAuthToken();
+
+  if (authToken === undefined) {
+    return problem(
+      401,
+      "Sign in required",
+      "A signed-in VRDex account is required to revoke a VRCLinking key.",
+    );
+  }
+
+  let body: Record<string, unknown>;
+
+  try {
+    const parsed: unknown = await request.json();
+    body = parsed !== null && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return problem(400, "Invalid JSON", "Send a JSON object when revoking a VRCLinking key.");
+  }
+
+  const profileSlug = String(body.profileSlug ?? "").trim();
+  const guildId = String(body.guildId ?? "").trim();
+
+  if (!profileSlug || !guildId) {
+    return problem(400, "Invalid request", "A profile and a Discord server are both required.");
+  }
+
+  const convex = convexHttpClient();
+
+  convex.setAuth(authToken);
+
+  let result: { revoked: boolean; secretName: string | null };
+
+  try {
+    result = await convex.mutation(api.vrclinkingCredentials.revokeCredential, {
+      profileSlug,
+      guildId,
+    });
+  } catch (error) {
+    if (isUnauthenticatedError(error)) {
+      return unauthenticatedResponse("/account/connections");
+    }
+
+    if (claimErrorCode(error) === null) {
+      return problem(
+        503,
+        "Revoke is unavailable",
+        "VRDex could not reach its backend. Nothing changed; try again shortly.",
+      );
+    }
+
+    return problem(403, "Revoke not allowed", "You do not manage that profile.");
+  }
+
+  // The row is revoked either way; failing to retire the key is worth neither
+  // reversing that nor reporting over it, since the delegation is already
+  // inert. A deployment with no store configured simply has no key to retire.
+  if (result.secretName !== null && isVrclinkingSecretStoreConfigured()) {
+    await scheduleVrclinkingDelegationKeyDeletion(result.secretName).catch(() => undefined);
+  }
+
+  return Response.json(result, { headers: { "cache-control": "private, no-store" } });
+}
