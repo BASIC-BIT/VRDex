@@ -341,6 +341,33 @@ jobs:
           VRDEX_E2E_RUN_ID: staging-deploy-${{ github.run_id }}-${{ github.run_attempt }}
         run: pnpm test:e2e:hosted
 
+      # This is where the signed-in captures get their only run against a
+      # deployment of the revision under test. `test:e2e:hosted` excludes
+      # `@account-visual` because it has its own both-projects command, and the
+      # PR-time lane shoots the staging target, which serves `main` — so before
+      # this step the suite only ever photographed the revision it was not
+      # reviewing. Here staging already holds the merged commit.
+      #
+      # Own output paths for the same reason as the baseline lane: Playwright
+      # clears its output and report directories on start, and the step above
+      # records video unconditionally.
+      - name: Capture signed-in account screenshots
+        if: always() && steps.gate.outputs.enabled == 'true'
+        id: account-visual
+        env:
+          PLAYWRIGHT_OUTPUT_DIR: test-results-account-visual
+          PLAYWRIGHT_HTML_REPORT_DIR: playwright-report-account-visual
+          PLAYWRIGHT_JSON_REPORT_FILE: playwright-artifacts/results-account-visual.json
+          PLAYWRIGHT_BASE_URL: ${{ steps.gate.outputs.hosted_base_url }}
+          PLAYWRIGHT_SKIP_WEBSERVERS: "true"
+          VRDEX_ENABLE_E2E_AUTH_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_AUTH_HELPERS }}
+          VRDEX_ENABLE_E2E_CLERK_AUTH: ${{ vars.VRDEX_HOSTED_E2E_CLERK_AUTH }}
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.VRDEX_HOSTED_E2E_CLERK_PUBLISHABLE_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.VRDEX_HOSTED_E2E_CLERK_SECRET_KEY }}
+          VRDEX_E2E_BROWSER_TOKEN: ${{ secrets.VRDEX_HOSTED_E2E_BROWSER_TOKEN }}
+          VRDEX_E2E_RUN_ID: staging-deploy-${{ github.run_id }}-${{ github.run_attempt }}
+        run: pnpm test:e2e:hosted:account-visual
+
 
       # After the deployment it is testing, not before it. On a merge this used
       # to run from `deployed-health.yml` on the `push` event, which fires while
@@ -447,4 +474,6 @@ jobs:
             apps/web/test-results
             apps/web/playwright-report-auth-session
             apps/web/test-results-auth-session
+            apps/web/playwright-report-account-visual
+            apps/web/test-results-account-visual
             apps/web/playwright-artifacts

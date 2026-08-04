@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import {
   cleanupClerkTestAccountData,
@@ -83,6 +83,27 @@ const authHelpersEnabled = process.env.VRDEX_ENABLE_E2E_AUTH_HELPERS === "true";
  * outrunning teardown is a real defect and should fail rather than be absorbed.
  */
 const CLEANUP_DRAIN_PASSES = 3;
+
+/**
+ * Everything on a signed-in capture that varies between identical runs.
+ *
+ * Both entries trace to the same fact: the account email carries a
+ * `${workerIndex}-${repeatEachIndex}-${Date.now()}` prefix, so it differs on
+ * every run *and* between parallel workers and retries of the same run.
+ *
+ * The second one is not obvious. `NavUtilities` builds its avatar label as
+ * `viewer?.user.name ?? viewer?.user.email ?? "Account"`, and a fresh Clerk
+ * account has no name — so with no profile image `EntityImage` renders the first
+ * character of that email. On worker 0 the nav shows "0"; on worker 2 it shows
+ * "2", with the page otherwise identical. Masking the email text does not cover
+ * it, because it is a different element deriving from the same value.
+ */
+function unstableSignedInRegions(page: Page, email: string | undefined) {
+  return [
+    page.getByText(email ?? "", { exact: false }),
+    page.getByRole("link", { name: "Account" }),
+  ];
+}
 
 test.skip(
   clerkTestAuth.available && !authHelpersEnabled,
@@ -275,13 +296,12 @@ test.describe("account surfaces @visual @flow @account-visual", () => {
       hostedExpectOptions,
     );
     await waitForVisualReady(page);
-    // Asserted above, masked here. The email is the proof the page is signed in
-    // *and* the only thing on it that differs run to run, since the address
-    // carries a `Date.now()` suffix. Checking it and then painting over it keeps
-    // both properties: the capture still proves identity rendered, and it stops
-    // changing when the UI has not.
+    // Asserted above, masked here. The email is the proof the page is signed in,
+    // and it is also the thing that differs run to run. Checking it and then
+    // painting over it keeps both properties: the capture still proves identity
+    // rendered, and it stops changing when the UI has not.
     await captureRouteScreenshot(page, testInfo, "account-overview-signed-in", {
-      mask: [page.getByText(account?.email ?? "", { exact: false })],
+      mask: unstableSignedInRegions(page, account?.email),
     });
   });
 
@@ -309,7 +329,9 @@ test.describe("account surfaces @visual @flow @account-visual", () => {
       hostedExpectOptions,
     );
     await waitForVisualReady(page);
-    await captureRouteScreenshot(page, testInfo, "account-privacy-signed-in");
+    await captureRouteScreenshot(page, testInfo, "account-privacy-signed-in", {
+      mask: unstableSignedInRegions(page, account?.email),
+    });
   });
 
   test("developer tokens", async ({ page }, testInfo) => {
@@ -328,6 +350,8 @@ test.describe("account surfaces @visual @flow @account-visual", () => {
       hostedExpectOptions,
     );
     await waitForVisualReady(page);
-    await captureRouteScreenshot(page, testInfo, "developer-tokens-signed-in");
+    await captureRouteScreenshot(page, testInfo, "developer-tokens-signed-in", {
+      mask: unstableSignedInRegions(page, account?.email),
+    });
   });
 });

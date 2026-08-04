@@ -572,6 +572,12 @@ jobs:
         if: always() && steps.gate.outputs.enabled == 'true'
         env:
           HOSTED_OUTCOME: ${{ steps.hosted.outcome }}
+          # Reported separately rather than folded into HOSTED_OUTCOME. They are
+          # two Playwright runs against two different suites, and a summary that
+          # said `success` while the account captures failed would contradict the
+          # job it is attached to — which is the failure mode this whole summary
+          # was added to prevent.
+          ACCOUNT_VISUAL_OUTCOME: ${{ steps.account-visual.outcome }}
           HOSTED_BASE_URL: ${{ vars.VRDEX_HOSTED_E2E_BASE_URL }}
           HOSTED_EXTENDED_PROFILE_FLOW: ${{ vars.VRDEX_HOSTED_E2E_EXTENDED_PROFILE_FLOW }}
           HOSTED_AUTH_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_AUTH_HELPERS }}
@@ -585,6 +591,8 @@ jobs:
           ## Playwright hosted data-flow
 
           Outcome: ${HOSTED_OUTCOME}
+
+          Signed-in account captures: ${ACCOUNT_VISUAL_OUTCOME:-not run}
 
           Target: ${HOSTED_BASE_URL}
 
