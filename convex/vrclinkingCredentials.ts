@@ -1,5 +1,9 @@
 import { v } from "convex/values";
 
+import { boundedFetch } from "./_boundedFetch";
+import { requireSecureOutboundUrl } from "./_secureUrl";
+import { internal } from "./_generated/api";
+
 import { getLinkedProviderAccount } from "./accounts";
 import { requireVerifiedActiveBrowserSession } from "./_claimSession";
 import { claimError } from "./_claimErrors";
@@ -11,6 +15,7 @@ import {
 } from "./_vrclinkingSecretRef";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
+  internalAction,
   internalMutation,
   internalQuery,
   mutation,
@@ -29,6 +34,12 @@ import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 // Mirrors the collector account rule: credentials live in the operator secret
 // store and Convex only ever holds a reference to them.
 const DISCORD_GUILD_ID_PATTERN = /^\d{17,20}$/;
+
+function optionalEnv(name: string): string | undefined {
+  const value = process.env[name]?.trim();
+
+  return value ? value : undefined;
+}
 
 /**
  * The one secret name a delegation for `guildId` may point at.
@@ -196,6 +207,9 @@ const ABANDONED_RESERVATION_REASON = "Reservation abandoned before activation.";
  * key is never refused.
  */
 const MAX_RECENT_DELEGATION_WRITES = 10;
+
+/** One sweep's worth. A backlog drains over runs rather than in one action. */
+const OVERDUE_CLEANUP_SCAN_LIMIT = 50;
 
 /**
  * Reserve the row a pasted key will be written against.
@@ -499,9 +513,27 @@ export const confirmSecretsRetired = mutation({
     // which is what the TTL means, and the unretired sweep keeps offering it
     // until then.
     await Promise.all(
-      rows.map((row) =>
-        ctx.db.patch(row!._id, {
-          ...(writerMayStillBeRunning(row!, now) ? {} : { secretRetiredAt: now }),
+      rows.map((row) => {
+        const pendingWriter = writerMayStillBeRunning(row!, now);
+
+        // Settled and never a delegation: delete rather than stamp. Keeping
+        // every aborted write forever is not audit history — nobody delegated
+        // anything — and `reserveCredential` reads all of a profile's revoked
+        // rows before filtering, so enough of them would eventually put that
+        // query past Convex's read limits and block delegation changes outright.
+        //
+        // A genuine revocation is history and stays. The window where a writer
+        // might still be running is the one time an abandoned row must survive,
+        // because it is the only handle on a key that may be arriving.
+        if (
+          !pendingWriter &&
+          (row!.state === "pending" || row!.revokedReason === ABANDONED_RESERVATION_REASON)
+        ) {
+          return ctx.db.delete(row!._id);
+        }
+
+        return ctx.db.patch(row!._id, {
+          ...(pendingWriter ? {} : { secretRetiredAt: now }),
           updatedAt: now,
           ...(row!.state === "pending"
             ? {
@@ -510,8 +542,8 @@ export const confirmSecretsRetired = mutation({
                 revokedReason: ABANDONED_RESERVATION_REASON,
               }
             : {}),
-        }),
-      ),
+        });
+      }),
     );
 
     return { confirmed: rows.length };
@@ -598,9 +630,27 @@ export const confirmSecretsRetiredAsServer = internalMutation({
     // which is what the TTL means, and the unretired sweep keeps offering it
     // until then.
     await Promise.all(
-      rows.map((row) =>
-        ctx.db.patch(row!._id, {
-          ...(writerMayStillBeRunning(row!, now) ? {} : { secretRetiredAt: now }),
+      rows.map((row) => {
+        const pendingWriter = writerMayStillBeRunning(row!, now);
+
+        // Settled and never a delegation: delete rather than stamp. Keeping
+        // every aborted write forever is not audit history — nobody delegated
+        // anything — and `reserveCredential` reads all of a profile's revoked
+        // rows before filtering, so enough of them would eventually put that
+        // query past Convex's read limits and block delegation changes outright.
+        //
+        // A genuine revocation is history and stays. The window where a writer
+        // might still be running is the one time an abandoned row must survive,
+        // because it is the only handle on a key that may be arriving.
+        if (
+          !pendingWriter &&
+          (row!.state === "pending" || row!.revokedReason === ABANDONED_RESERVATION_REASON)
+        ) {
+          return ctx.db.delete(row!._id);
+        }
+
+        return ctx.db.patch(row!._id, {
+          ...(pendingWriter ? {} : { secretRetiredAt: now }),
           updatedAt: now,
           ...(row!.state === "pending"
             ? {
@@ -609,11 +659,86 @@ export const confirmSecretsRetiredAsServer = internalMutation({
                 revokedReason: ABANDONED_RESERVATION_REASON,
               }
             : {}),
-        }),
-      ),
+        });
+      }),
     );
 
     return { confirmed: rows.length };
+  },
+});
+
+
+/**
+ * Cleanup obligations nobody is coming back for.
+ *
+ * Every other path is driven by a request: a reservation sweeps its own guild, a
+ * revoke settles what it cancels. None of that runs for an owner who revoked and
+ * never touched delegations again — and the one case that matters is exactly
+ * that shape, a key written by a POST that died after a revoke had already
+ * cancelled its reservation. Left alone it stays in the store indefinitely.
+ *
+ * Bounded, because this is a sweep and not a migration: a backlog drains over
+ * several runs rather than in one long action.
+ */
+export const listOverdueSecretCleanups = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const rows = await ctx.db
+      .query("communityVrclinkingCredentials")
+      .withIndex("by_state_lastRotatedAt", (q) => q.eq("state", "revoked"))
+      .take(OVERDUE_CLEANUP_SCAN_LIMIT);
+
+    return rows
+      .filter(
+        (row) =>
+          row.secretRetiredAt === undefined &&
+          row.revokedReason === ABANDONED_RESERVATION_REASON &&
+          !writerMayStillBeRunning(row, now),
+      )
+      .map((row) => ({
+        credentialId: row._id,
+        secretName: vrclinkingSecretNameForRow(row),
+      }));
+  },
+});
+
+/**
+ * Hand those obligations to the one party that can act on them.
+ *
+ * Convex cannot reach the secret store, so the web app does the deleting and the
+ * confirming. Inert without both variables, which is the state every deployment
+ * that has never delegated a key is in — including, today, all of them.
+ */
+export const sweepAbandonedDelegationKeys = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const url = optionalEnv("VRCLINKING_CLEANUP_URL");
+    const token = optionalEnv("VRCLINKING_CLEANUP_TOKEN");
+
+    if (url === undefined || token === undefined) {
+      return { swept: 0, configured: false };
+    }
+
+    const overdue = (await ctx.runQuery(
+      internal.vrclinkingCredentials.listOverdueSecretCleanups,
+      {},
+    )) as { credentialId: string; secretName: string }[];
+
+    if (overdue.length === 0) {
+      return { swept: 0, configured: true };
+    }
+
+    const response = await boundedFetch(requireSecureOutboundUrl(url, "cleanup_url"), {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      body: JSON.stringify({ obligations: overdue }),
+    });
+
+    // Left for the next run rather than reported: a sweep has no caller waiting
+    // on it, and the rows are exactly the durable retry handle this exists to
+    // preserve.
+    return { swept: response.ok ? overdue.length : 0, configured: true };
   },
 });
 

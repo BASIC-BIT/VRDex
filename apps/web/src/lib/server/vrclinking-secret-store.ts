@@ -233,7 +233,16 @@ export async function scheduleVrclinkingDelegationKeyDeletion(secretName: string
     // deletion, which is exactly the retry after a confirmation that failed: the
     // delete had worked, and refusing it here left the row unconfirmed until the
     // seven-day recovery window closed.
-    if (!(error instanceof ResourceNotFoundException) && !(error instanceof InvalidRequestException)) {
+    // `InvalidRequest` covers more than the idempotent case — Secrets Manager
+    // also refuses to delete a primary secret while replicas exist, and the
+    // secret survives. Treating the class as success would confirm the row
+    // retired and suppress every future retry for a key that is still there, so
+    // only the scheduled-for-deletion reason counts.
+    const alreadyScheduled =
+      error instanceof InvalidRequestException &&
+      /scheduled for deletion/i.test(error.message ?? "");
+
+    if (!(error instanceof ResourceNotFoundException) && !alreadyScheduled) {
       throw error;
     }
   }

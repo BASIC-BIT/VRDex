@@ -175,6 +175,28 @@ can name them. The delete grant is correspondingly one segment wider than the
 write grant; the shared secret is kept out of reach by the explicit Deny on its
 ARN rather than by the pattern.
 
+A daily Convex cron retires keys nobody is coming back for. Every other cleanup
+path is driven by a request — a reservation sweeps its own guild, a revoke
+settles what it cancels — and none of them run for an owner who revoked and then
+never touched delegations again, which is the shape of the one leak that
+persists: a key written by a POST that died after a revoke had already cancelled
+its reservation. The cron holds the obligations and
+`POST /api/account/vrclinking-delegation/sweep` acts on them, because Convex
+cannot reach the secret store.
+
+It needs two Convex variables and one Vercel variable, and is inert without
+them — which is where every deployment that has never delegated a key sits:
+
+- `VRCLINKING_CLEANUP_URL` and `VRCLINKING_CLEANUP_TOKEN` in Convex.
+- `VRCLINKING_CLEANUP_TOKEN` on the web project, the same value. The route fails
+  closed on an unset token rather than reading "none configured" as "none
+  required".
+
+A cancelled reservation is deliberately *not* retirable while it is younger than
+the reservation TTL. Deleting a key that does not exist yet succeeds, so a revoke
+racing a reservation would otherwise record the retirement moments before the
+POST creates the key, and the stamp would suppress the only durable handle to it.
+
 Revoking also cancels reservations for the same guild. A replacement that has
 reserved a row and is still writing its key would otherwise activate afterwards,
 find no active predecessor, and promote itself — resurrecting the delegation the

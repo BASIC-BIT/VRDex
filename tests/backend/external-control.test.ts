@@ -1111,9 +1111,12 @@ describe("VRCLinking credential delegation", () => {
       credentialIds: [reserved.credentialId],
     });
 
+    // Gone, not stamped: an aborted write is not audit history — nobody
+    // delegated anything — and keeping every one of them would eventually put
+    // the profile's revoked-row query past Convex's read limits.
     const settled = await t.run(async (ctx) => ctx.db.get(reserved.credentialId));
 
-    assert.notEqual(settled?.secretRetiredAt, undefined);
+    assert.equal(settled, null);
   });
 
   it("cancels reservations for a guild the owner revokes", async () => {

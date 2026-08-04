@@ -48,7 +48,7 @@ Community-submitted public profiles now start at `/submit`. Person profile pages
 
 Playwright screenshot preview captures desktop and mobile screenshots for public routes and deterministic fixture pages. See `docs/testing/playwright-visual-preview.md`.
 
-The initial hosted preview path targets Vercel with `apps/web` as the project root. See `docs/deployment/vercel-preview.md`; the live deployment check page is `/deployment`.
+The initial hosted preview path targets Vercel with `apps/web` as the project root. See `docs/deployment/vercel-preview.md`; the live deployment identity endpoint is `/api/deployment`.
 
 The docs site scaffold lives in `apps/docs` and reads the existing `docs/` tree directly. Canonical markdown stays under `docs/`; the Docusaurus app is the browsable shell.
 

@@ -29,5 +29,5 @@ pnpm build:web:vercel
 - language baseline: `TypeScript`
 - styling baseline: `Tailwind CSS`
 - the app mounts a Convex provider baseline and the homepage performs a live `health:status` query when `apps/web/.env.local` contains `NEXT_PUBLIC_CONVEX_URL`; the local Convex bootstrap now mirrors that value automatically from the repo-root Convex bootstrap output
-- the hosted deployment baseline lives at `/deployment` and reports Vercel metadata, backend URL readiness, and the current submission auth gate
+- the hosted deployment identity lives at `/api/deployment` and reports, as JSON, the commit and branch plus the Convex and Clerk targets the running build actually resolved
 - auth and billing wiring still belong to follow-on issues
