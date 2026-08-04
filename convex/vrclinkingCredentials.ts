@@ -3,7 +3,11 @@ import { v } from "convex/values";
 import { getLinkedProviderAccount } from "./accounts";
 import { requireVerifiedActiveBrowserSession } from "./_claimSession";
 import { claimError } from "./_claimErrors";
-import { vrclinkingSecretName, vrclinkingSecretRef } from "./_vrclinkingSecretRef";
+import {
+  vrclinkingSecretName,
+  vrclinkingSecretRef,
+  vrclinkingSecretRefForRow,
+} from "./_vrclinkingSecretRef";
 import type { Id } from "./_generated/dataModel";
 import {
   internalMutation,
@@ -348,8 +352,15 @@ export const confirmSecretsRetired = mutation({
   handler: async (ctx, args) => {
     const { user } = await requireVerifiedActiveBrowserSession(ctx);
     const profile = await requireOwnedCommunityProfile(ctx.db, args.profileSlug, user._id);
+    // `active` is excluded deliberately. A stale reservation can be swept and
+    // its deletion scheduled by a later request while the original one is still
+    // in flight; if that original wins the race and activates, confirming here
+    // would mark the *live* delegation's key retired — and it is already
+    // scheduled for deletion, so the community would lose its only working
+    // credential when the recovery window closed.
     const rows = (await Promise.all(args.credentialIds.map((id) => ctx.db.get(id)))).filter(
-      (row) => row !== null && row.communityProfileId === profile._id,
+      (row) =>
+        row !== null && row.communityProfileId === profile._id && row.state !== "active",
     );
     const now = Date.now();
 
@@ -366,10 +377,18 @@ export const confirmSecretsRetired = mutation({
 });
 
 /**
- * Drop a reservation whose key never made it into the store.
+ * Report whether a reservation is still safe to discard, without discarding it.
  *
- * Deletes rather than revokes: nothing was ever delegated, so an operator's
- * audit list should not fill with rows recording that a form failed.
+ * Deliberately does not delete. The row is the only thing its secret name can be
+ * derived from, so deleting here and deleting the key afterwards meant a
+ * transient Secrets Manager failure stranded that key with nothing left to
+ * retry from. The caller deletes the key first and calls
+ * `confirmSecretsRetired`, which removes the row — the same order the swept and
+ * revoked paths use.
+ *
+ * The answer is still the useful predicate: `pending` means the activation never
+ * committed, which is the only state where the key is provably unreachable and
+ * safe to remove.
  */
 export const abandonCredential = mutation({
   args: { profileSlug: v.string(), credentialId: v.id("communityVrclinkingCredentials") },
@@ -395,8 +414,6 @@ export const abandonCredential = mutation({
     if (pending.delegatedByUserId !== user._id) {
       return { abandoned: false };
     }
-
-    await ctx.db.delete(pending._id);
 
     return { abandoned: true, secretName: secretNameFor(pending.guildId, pending._id) };
   },
@@ -542,18 +559,20 @@ export const reserveAdapterDelegations = internalMutation({
     // rotation stamps preserve index order. A small per-guild allowance gives
     // other keys a turn without letting one guild crowd the fan-out.
     //
-    // The allowance alone is not enough past two profiles on one guild: the
-    // stamp below gives selected and skipped rows the same `lastRotatedAt`, so
-    // the tie order would hand the same two rows every slot forever. Ordering by
-    // last consultation inside the tie rotates them — a row that was just asked
-    // yields to one that has not been, and a never-consulted row goes first.
+    // The allowance alone is not enough past two profiles on one guild: giving
+    // selected and skipped rows the same `lastRotatedAt` leaves the tie order
+    // handing the same two rows every slot forever. The stamp below puts
+    // *selected* rows strictly behind skipped ones, so selection itself is the
+    // rotation cursor.
+    //
+    // Ordering by last consultation was the earlier attempt and it does not
+    // hold: a credential whose secret fails to resolve is deliberately not
+    // recorded as consulted, so two broken keys would keep their undefined
+    // `lastConsultedAt` and stay ahead of a working third forever. Advancing on
+    // the attempt is what makes rotation independent of the outcome.
     const perGuild = new Map<string, number>();
 
-    const rotated = [...candidates].sort(
-      (first, second) => (first.lastConsultedAt ?? 0) - (second.lastConsultedAt ?? 0),
-    );
-
-    for (const row of rotated) {
+    for (const row of candidates) {
       if (usable.length >= MAX_ADAPTER_DELEGATIONS) {
         break;
       }
@@ -591,11 +610,13 @@ export const reserveAdapterDelegations = internalMutation({
     // everything else, so leaving them unstamped pins them permanently at the
     // head of the index and, once there are more of them than the scan window,
     // no usable delegation is ever reached again.
-    await Promise.all(
-      [...usable.map((row) => row._id), ...skipped].map((credentialId) =>
-        ctx.db.patch(credentialId, { lastRotatedAt: now }),
-      ),
-    );
+    // Both advance, so neither pins the head of the index — but selected rows
+    // land strictly later, which sends them to the back of the queue and lets a
+    // credential that was skipped for the per-guild cap take the next slot.
+    await Promise.all([
+      ...skipped.map((credentialId) => ctx.db.patch(credentialId, { lastRotatedAt: now })),
+      ...usable.map((row) => ctx.db.patch(row._id, { lastRotatedAt: now + 1 })),
+    ]);
 
     return {
       discordUserId: discordAccount.providerAccountId,
@@ -609,7 +630,7 @@ export const reserveAdapterDelegations = internalMutation({
         // leaving those communities listed as delegated while silently
         // answering nothing. Deriving here retires the old rows without a
         // migration, and `recordCredentialUse` re-checks the same value.
-        secretRef: secretRefFor(row.guildId, row._id),
+        secretRef: vrclinkingSecretRefForRow(row),
         // Which version of this delegation the adapter is being asked about.
         // Every version derives the same reference, and the adapter caches a
         // resolved token for five minutes keyed on it — so without this a warm
@@ -659,7 +680,7 @@ export const recordCredentialConsultations = internalMutation({
         if (
           credential === null ||
           credential.state !== "active" ||
-          secretRefFor(credential.guildId, credential._id) !== secretRef
+          vrclinkingSecretRefForRow(credential) !== secretRef
         ) {
           return;
         }
@@ -691,7 +712,7 @@ export const recordCredentialUse = internalMutation({
     if (
       credential === null ||
       credential.state !== "active" ||
-      secretRefFor(credential.guildId, credential._id) !== args.secretRef
+      vrclinkingSecretRefForRow(credential) !== args.secretRef
     ) {
       return { accepted: false };
     }

@@ -182,6 +182,13 @@ creates it ships — but the ordering is a standing requirement for any future
 change to the reference shape, not a one-off. Remove the guild-only branch from
 the adapter once it is deployed everywhere and no row can still emit that shape.
 
+A self-hosted deployment can set `VRDEX_VRCLINKING_SECRET_DIR` on the web app
+instead — the same file backend the adapter documents. Writes then land in that
+directory rather than Secrets Manager, and neither AWS variable is needed. That
+path exists because resolving was supported and writing was not, so a
+file-backed deployment could read delegated keys while having no way to create
+one.
+
 The region is explicit rather than inherited from the ambient `AWS_REGION`,
 which Vercel sets to wherever a function runs. Falling back to it would report
 every deployment as configured and then write keys into whichever region served

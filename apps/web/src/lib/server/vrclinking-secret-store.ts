@@ -6,6 +6,8 @@ import {
   SecretsManagerClient,
 } from "@aws-sdk/client-secrets-manager";
 import { awsCredentialsProvider } from "@vercel/oidc-aws-credentials-provider";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
 
 /**
  * Writes a community's delegated VRCLinking API key into the operator secret
@@ -50,6 +52,32 @@ function roleArn(): string | undefined {
 }
 
 /**
+ * The file backend the adapter already documents for self-hosting.
+ *
+ * `VRDEX_VRCLINKING_SECRET_DIR` is the adapter's supported alternative to
+ * Secrets Manager, and writing was the half that did not exist — so a
+ * file-backed deployment could resolve delegated keys but had no way to create
+ * one once the reference-registration form was removed. Same directory, same
+ * layout the resolver reads.
+ */
+function secretDir(): string | undefined {
+  return process.env.VRDEX_VRCLINKING_SECRET_DIR?.trim() || undefined;
+}
+
+function secretFilePath(directory: string, secretName: string): string {
+  const resolved = path.resolve(directory, secretName);
+
+  // The name is already validated against `SECRET_NAME_PATTERN`, which admits no
+  // traversal — this refuses anything that escapes anyway, because a path join
+  // is the wrong place to rely on a caller's validation holding forever.
+  if (!resolved.startsWith(path.resolve(directory) + path.sep)) {
+    throw new Error("Refusing to store a delegated key outside the secret directory.");
+  }
+
+  return resolved;
+}
+
+/**
  * Whether this deployment can accept a pasted key at all.
  *
  * Checked before the form offers the field rather than after a submit: an
@@ -61,7 +89,7 @@ function roleArn(): string | undefined {
  * nowhere to put the key.
  */
 export function isVrclinkingSecretStoreConfigured(): boolean {
-  return storeRegion() !== undefined && roleArn() !== undefined;
+  return secretDir() !== undefined || (storeRegion() !== undefined && roleArn() !== undefined);
 }
 
 function secretsClient(): SecretsManagerClient {
@@ -107,6 +135,17 @@ export async function putVrclinkingDelegationKey(
     throw new Error("Refusing to store a delegated key under an unexpected secret name.");
   }
 
+  const directory = secretDir();
+
+  if (directory !== undefined) {
+    const file = secretFilePath(directory, secretName);
+
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, apiKey, { encoding: "utf8", mode: 0o600 });
+
+    return;
+  }
+
   const client = secretsClient();
   const name = secretName;
 
@@ -144,6 +183,16 @@ export async function putVrclinkingDelegationKey(
 export async function scheduleVrclinkingDelegationKeyDeletion(secretName: string): Promise<void> {
   if (!SECRET_NAME_PATTERN.test(secretName)) {
     throw new Error("Refusing to delete a secret outside the delegated-credential shape.");
+  }
+
+  const directory = secretDir();
+
+  if (directory !== undefined) {
+    // No recovery window to schedule against a file, so this is immediate. The
+    // caller only reaches here once the key is provably unreachable.
+    await rm(secretFilePath(directory, secretName), { force: true });
+
+    return;
   }
 
   await secretsClient().send(

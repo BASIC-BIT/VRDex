@@ -1150,7 +1150,9 @@ describe("VRCLinking credential delegation", () => {
 
   // Every surface that compares a reference against a credential derives it
   // from the row rather than reading the stored string, so a row written before
-  // the ARN form was retired still works end to end. Four sites had to
+  // the ARN form was retired still works end to end — now including the choice
+  // between the per-credential name and the guild-only one an upgraded
+  // installation's existing rows still use. Four sites had to
   // learn this one at a time; the audit path was the last and the quietest —
   // it reported "Not used yet" for a key being queried on every claim, which is
   // the opposite of what an operator needs to tell a dead delegation from a
@@ -1218,7 +1220,11 @@ describe("VRCLinking credential delegation", () => {
     );
 
     assert.notEqual(delegation, undefined);
-    assert.equal(delegation?.secretRef, `secret://vrdex/vrclinking/${guildId}/${credentialId}`);
+    // The guild-only name, because that is where this row's key actually is.
+    // Its secret was written before per-credential naming and nothing copies it,
+    // so emitting the per-credential reference would point every adapter at an
+    // object that does not exist and take a working delegation offline.
+    assert.equal(delegation?.secretRef, `secret://vrdex/vrclinking/${guildId}`);
 
     await t.run(async (ctx) =>
       ctx.runMutation(internal.vrclinkingCredentials.recordCredentialConsultations, {

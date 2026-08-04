@@ -85,7 +85,7 @@ outcome: the user's claim did not fail, we could not ask.
 | `VRDEX_VRCLINKING_CAPABILITY_KEY` | Required. Signing key for per-delegation capabilities; must match Convex's `VRCLINKING_ADAPTER_CAPABILITY_KEY`. Keep it distinct from the bearer token — the point is that a leaked bearer token cannot mint one. |
 | `PORT` | Listen port, default `8080`. |
 | `VRDEX_VRCLINKING_ENABLE_AWS_SECRETS` | Set `true` to resolve `arn:aws:secretsmanager:…` references through the task role. |
-| `VRDEX_VRCLINKING_SECRET_DIR` | Directory backing `secret://<name>` references. Used for local runs and as a file-mounted alternative to Secrets Manager. |
+| `VRDEX_VRCLINKING_SECRET_DIR` | Directory backing `secret://<name>` references. Used for local runs and as a file-mounted alternative to Secrets Manager. Set the same variable on the web app and delegation writes land here instead of Secrets Manager, which is what makes a self-hosted deployment able to *create* a delegation rather than only resolve one. |
 | `VRDEX_VRCLINKING_BASE_URL` | Provider base URL, default `https://vrclinking.com/api`. Override to point at a stub. |
 
 At least one secret backend must be configured or every request resolves to

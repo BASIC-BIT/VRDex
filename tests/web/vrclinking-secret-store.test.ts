@@ -9,6 +9,7 @@ import {
 const KEYS = [
   "VRDEX_VRCLINKING_SECRET_REGION",
   "VRDEX_VRCLINKING_DELEGATION_ROLE_ARN",
+  "VRDEX_VRCLINKING_SECRET_DIR",
   "AWS_REGION",
   "AWS_DEFAULT_REGION",
 ] as const;
@@ -116,4 +117,17 @@ test("refuses to write outside the delegated-credential shape", async () => {
       name,
     );
   }
+});
+
+/**
+ * The adapter documents `VRDEX_VRCLINKING_SECRET_DIR` as its self-hosting
+ * backend, and resolving was the only half that existed. Without writing, a
+ * file-backed deployment had no way to create a delegation at all once the
+ * reference-registration form was removed — the form would hide itself and the
+ * route would answer 503.
+ */
+test("counts a file backend as configured", () => {
+  withEnv({ VRDEX_VRCLINKING_SECRET_DIR: "/tmp/vrdex-secrets" }, () => {
+    assert.equal(isVrclinkingSecretStoreConfigured(), true);
+  });
 });

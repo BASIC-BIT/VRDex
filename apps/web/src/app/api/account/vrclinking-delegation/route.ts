@@ -184,8 +184,27 @@ export async function POST(request: Request) {
       })
       .catch(() => ({ abandoned: false }));
 
-    if (abandoned.abandoned) {
-      await scheduleVrclinkingDelegationKeyDeletion(reservation.secretName).catch(() => undefined);
+    if (!abandoned.abandoned) {
+      return;
+    }
+
+    // Key first, row second. `abandonCredential` reports without deleting, so a
+    // Secrets Manager failure here leaves the reservation in place and the next
+    // reservation for this guild reports it again — the same retry the swept and
+    // revoked paths get. Deleting the row first would destroy the only thing the
+    // name can be derived from.
+    const retired = await scheduleVrclinkingDelegationKeyDeletion(reservation.secretName).then(
+      () => true,
+      () => false,
+    );
+
+    if (retired) {
+      await convex
+        .mutation(api.vrclinkingCredentials.confirmSecretsRetired, {
+          profileSlug,
+          credentialIds: [reservation.credentialId as Id<"communityVrclinkingCredentials">],
+        })
+        .catch(() => undefined);
     }
   }
 

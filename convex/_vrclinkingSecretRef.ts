@@ -41,3 +41,36 @@ export function vrclinkingSecretName(guildId: string, credentialId: string): str
 export function vrclinkingSecretRef(guildId: string, credentialId: string): string {
   return `secret://${vrclinkingSecretName(guildId, credentialId)}`;
 }
+
+/**
+ * The name a delegation registered before per-credential naming still uses.
+ *
+ * Its key sits under the guild-only name and nothing copies it, so emitting the
+ * per-credential reference for such a row points every adapter — old or new — at
+ * an object that does not exist, taking a working delegation offline.
+ */
+export function vrclinkingLegacySecretRef(guildId: string): string {
+  return `secret://vrdex/vrclinking/${guildId}`;
+}
+
+/**
+ * The reference a row's key actually lives under.
+ *
+ * Derived and *compared*, never read through. A row whose stored reference
+ * matches its own per-credential derivation was written by `reserveCredential`
+ * and is current; anything else predates it and keeps the guild-only name.
+ *
+ * This is not the pattern the table above warns against. That bug was emitting
+ * the stored string verbatim, which silently dropped rows written in the retired
+ * ARN shape. Here the stored value only chooses between two derivations, and
+ * neither is ever the string itself.
+ */
+export function vrclinkingSecretRefForRow(row: {
+  _id: string;
+  guildId: string;
+  secretRef: string;
+}): string {
+  const current = vrclinkingSecretRef(row.guildId, row._id);
+
+  return row.secretRef === current ? current : vrclinkingLegacySecretRef(row.guildId);
+}
