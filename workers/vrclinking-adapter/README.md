@@ -25,7 +25,7 @@ provider contract and the delegation model.
   "delegations": [
     {
       "guildId": "…",
-      "secretRef": "secret://vrdex/vrclinking/<guildId>",
+      "secretRef": "secret://vrdex/vrclinking/<guildId>/<credentialId>",
       "expiresAt": 1767225600000,           // ms epoch; short-lived
       "capability": "<64 hex chars>"        // HMAC-SHA256 over
                                             // `guildId\nsecretRef\nexpiresAt`
@@ -91,12 +91,21 @@ outcome: the user's claim did not fail, we could not ask.
 At least one secret backend must be configured or every request resolves to
 `503`.
 
-Secrets are named `vrdex/vrclinking/<guildId>` — Convex only accepts a delegation
-whose reference names the guild it is for, so provision the secret under that
-name before the operator registers it. The reference itself is always
-`secret://vrdex/vrclinking/<guildId>`; the ARN form is rejected at both ends,
-because its pattern admitted any region and account while the execution role
-reads only its own.
+Secrets are named `vrdex/vrclinking/<guildId>/<credentialId>`, one per delegation
+row. VRDex writes them itself when a community owner pastes a key, so there is
+nothing to provision by hand outside local runs. The trailing segment is what
+lets a replacement write a new object instead of overwriting the key its
+predecessor is still answering with, and what keeps two profiles delegating the
+same guild from sharing one secret.
+
+The guild-only form, `secret://vrdex/vrclinking/<guildId>`, is still accepted
+here. That is a deliberate rollout overlap: Convex deploys automatically on
+merge while this Lambda is deployed by hand, so the two are never upgraded in
+one step, and accepting only one shape breaks whichever side moves first. Drop
+it once this Lambda is deployed everywhere.
+
+The ARN form is rejected at both ends, because its pattern admitted any region
+and account while the execution role reads only its own.
 
 That naming rule is a shape check on both sides, not authorization: the names
 are derived from the guild id, so anyone who reaches this endpoint can construct
@@ -112,11 +121,14 @@ than through a workspace filter. Install its one optional dependency first only
 if you need AWS-backed secrets; the file backend below needs nothing.
 
 ```bash
-# The file has to sit at the reference Convex accepts for that guild:
-# secret://vrdex/vrclinking/<guildId>. A flat name resolves to nothing and
-# every request comes back unavailable.
-mkdir -p /tmp/vrclinking-secrets/vrdex/vrclinking
-printf 'my-token' > /tmp/vrclinking-secrets/vrdex/vrclinking/100000000000000001
+# The file has to sit at the reference the delegation actually carries:
+# secret://vrdex/vrclinking/<guildId>/<credentialId>. A flat name resolves to
+# nothing and every request comes back unavailable.
+#
+# The credential id is the Convex row id — read it from the delegation you are
+# testing with, or use any value while hand-signing a capability.
+mkdir -p /tmp/vrclinking-secrets/vrdex/vrclinking/100000000000000001
+printf 'my-token' > /tmp/vrclinking-secrets/vrdex/vrclinking/100000000000000001/k17localdevcredential000000000
 VRCHAT_PROOF_ADAPTER_BEARER_TOKEN=dev-token \
 VRDEX_VRCLINKING_CAPABILITY_KEY=dev-capability-key \
 VRDEX_VRCLINKING_SECRET_DIR=/tmp/vrclinking-secrets \

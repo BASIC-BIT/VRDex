@@ -13,6 +13,7 @@ import { Notice } from "@/components/ui/notice";
 import { MediaPreviewImage } from "@/app/_components/media-preview-image";
 import { cn } from "@/lib/cn";
 import { profileMediaMimeType } from "@/lib/profile-media-kit";
+import { useReportWorkspaceBusy } from "@/app/account/profile-workspace";
 
 import {
   createProfileMediaAccessibilityPreview,
@@ -525,6 +526,19 @@ function MediaKitEditor({
       setFocusActiveAssetId(null);
     }
   }, [activeAssetIds, focusActiveAssetId]);
+
+  // The workspace above owns the profile switcher now, and switching mid-flight
+  // does not cancel anything — `selectProfile` bumps the request refs, the
+  // in-flight request sees the mismatch and skips its own `setUploading(false)`,
+  // and the profile it lands on shows an upload that never finishes. Same busy
+  // set the in-panel picker used to be disabled by.
+  const reportWorkspaceBusy = useReportWorkspaceBusy();
+  const workspaceBusy =
+    uploading || generatingUpload || operationBusy || replacingProfileId !== null;
+
+  useEffect(() => {
+    reportWorkspaceBusy?.(workspaceBusy);
+  }, [reportWorkspaceBusy, workspaceBusy]);
 
   const selectedIdRef = useRef(selectedId);
   selectedIdRef.current = selectedId;

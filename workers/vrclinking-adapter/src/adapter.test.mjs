@@ -178,6 +178,16 @@ describe("adapter request validation", () => {
   // credential: a caller holding it posts straight here and never passes that
   // check. Since the deployment role can read every delegated tenant secret, an
   // unbound reference would spend another community's key.
+  // Convex deploys on merge and this Lambda is deployed by hand, so the two
+  // shapes have to overlap for the length of a rollout. Removing this before
+  // the Lambda is everywhere makes a Convex-first deploy discard every
+  // reference.
+  it("accepts the guild-only reference through the rollout overlap", () => {
+    const legacy = signDelegation(GUILD_ID, `secret://vrdex/vrclinking/${GUILD_ID}`, FAR_FUTURE);
+
+    assert.equal(validateRequest(baseBody({ delegations: [legacy] })).error, undefined);
+  });
+
   it("rejects a secret reference that does not name its own guild", () => {
     const foreign = signDelegation(
       GUILD_ID,
@@ -187,10 +197,6 @@ describe("adapter request validation", () => {
     const traversal = signDelegation(
       GUILD_ID,
       `secret://vrdex/vrclinking/${GUILD_ID}/../other`,
-      // Guild-scoped, with no credential segment: the shape a delegation had
-      // before per-credential names, and the shape `vrdex/vrclinking/shared`
-      // has. Neither may resolve through a delegation.
-      `secret://vrdex/vrclinking/${GUILD_ID}`,
       FAR_FUTURE,
     );
     const arn = signDelegation(

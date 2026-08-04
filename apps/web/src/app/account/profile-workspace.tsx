@@ -3,7 +3,7 @@
 import { useQuery } from "convex/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { ReactNode } from "react";
+import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
 
 import { api } from "@convex-generated-api";
 import { Select } from "@/components/ui/field";
@@ -25,6 +25,27 @@ import { cn } from "@/lib/cn";
  */
 
 export type ProfileWorkspaceTab = "privacy" | "connections" | "personalization" | "media-kit";
+
+const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+
+/**
+ * Lets a panel say "not now" to a profile switch.
+ *
+ * The media-kit picker this replaced was disabled while an upload, a generation,
+ * a replacement, or another operation was running. Switching mid-upload does not
+ * cancel the in-flight request — `selectProfile` bumps the request refs, and the
+ * request then sees the mismatch and deliberately skips its own
+ * `setUploading(false)` — so the newly selected profile arrives showing an
+ * upload that will never finish and controls that never re-enable.
+ *
+ * A context rather than a prop because the panel is `children` here, so the
+ * state has to travel up.
+ */
+const WorkspaceBusyContext = createContext<((busy: boolean) => void) | null>(null);
+
+export function useReportWorkspaceBusy() {
+  return useContext(WorkspaceBusyContext);
+}
 
 /**
  * The subject the fixture panels render, so the workspace above them names the
@@ -73,14 +94,7 @@ const TABS: {
   },
 ];
 
-export function ProfileWorkspace({
-  activeProfileId,
-  activeSlug,
-  children,
-  mediaKitEnabled = false,
-  previewProfiles,
-  tab,
-}: {
+type ProfileWorkspaceProps = {
   activeProfileId?: string;
   activeSlug?: string;
   children: ReactNode;
@@ -96,8 +110,35 @@ export function ProfileWorkspace({
    */
   previewProfiles?: WorkspaceProfile[];
   tab: ProfileWorkspaceTab;
-}) {
+};
+
+/**
+ * `ConvexClientProvider` deliberately renders no provider where
+ * `NEXT_PUBLIC_CONVEX_URL` is unset, and `useQuery` throws without one. The
+ * privacy and appearance panels already handle that environment with their own
+ * "unavailable here" notice, so this must not crash on the way to letting them
+ * render it — and `"skip"` does not help, because the hook still needs a
+ * provider.
+ */
+export function ProfileWorkspace(props: ProfileWorkspaceProps) {
+  if (!convexUrl && props.previewProfiles === undefined) {
+    return <div className="grid gap-6">{props.children}</div>;
+  }
+
+  return <ConnectedProfileWorkspace {...props} />;
+}
+
+function ConnectedProfileWorkspace({
+  activeProfileId,
+  activeSlug,
+  children,
+  mediaKitEnabled = false,
+  previewProfiles,
+  tab,
+}: ProfileWorkspaceProps) {
   const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const reportBusy = useMemo(() => (next: boolean) => setBusy(next), []);
   const owned = useQuery(
     api.profilePrivacy.listOwnedPrivacyProfilesForAccount,
     previewProfiles ? "skip" : {},
@@ -166,6 +207,10 @@ export function ProfileWorkspace({
               <Select
                 aria-label="Profile to edit"
                 data-ph-no-capture
+                // Navigating away mid-upload strands the operation: it is not
+                // cancelled, and the profile it lands on shows an upload that
+                // never completes.
+                disabled={busy}
                 value={active.profileId}
                 onChange={(event) => {
                   const next = profiles.find(
@@ -211,7 +256,7 @@ export function ProfileWorkspace({
         </ul>
       </nav>
 
-      {children}
+      <WorkspaceBusyContext.Provider value={reportBusy}>{children}</WorkspaceBusyContext.Provider>
     </div>
   );
 }

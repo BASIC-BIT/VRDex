@@ -159,6 +159,18 @@ data "aws_iam_policy_document" "delegation_writer" {
     resources = [local.delegated_credential_arn_pattern]
   }
 
+  # Names are per credential and never reused, so a key whose activation failed
+  # is unreachable forever — nothing points at it and no later reservation can
+  # land on the same name. Without this it stays in Secrets Manager
+  # indefinitely: a community's live VRCLinking credential, retained by VRDex
+  # for nothing. Scoped to the same delegated-credential shape as the writes, so
+  # it can no more reach the shared secret than they can.
+  statement {
+    sid       = "RetireOrphanedDelegatedCredentials"
+    actions   = ["secretsmanager:DeleteSecret"]
+    resources = [local.delegated_credential_arn_pattern]
+  }
+
   # `CreateSecret` takes no resource ARN — the secret does not exist yet — so it
   # is constrained by name instead. Without the condition this would be a grant
   # to create any secret in the account.

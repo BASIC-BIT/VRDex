@@ -11,6 +11,7 @@ import { convexHttpClient } from "@/lib/server/convex-http";
 import {
   isVrclinkingSecretStoreConfigured,
   putVrclinkingDelegationKey,
+  scheduleVrclinkingDelegationKeyDeletion,
 } from "@/lib/server/vrclinking-secret-store";
 
 export const dynamic = "force-dynamic";
@@ -135,6 +136,18 @@ export async function POST(request: Request) {
     if (isUnauthenticatedError(error)) {
       return unauthenticatedResponse("/account/connections");
     }
+
+    // The key that was just written is now unreachable: its name belongs to a
+    // reservation that will be swept, and names are never reused. Retire it
+    // rather than retaining a community's live credential for nothing. Both
+    // calls are best effort — the owner's error is the one worth reporting.
+    await Promise.allSettled([
+      scheduleVrclinkingDelegationKeyDeletion(reservation.secretName),
+      convex.mutation(api.vrclinkingCredentials.abandonCredential, {
+        profileSlug,
+        credentialId: reservation.credentialId as Id<"communityVrclinkingCredentials">,
+      }),
+    ]);
 
     // The previous delegation is still active and still points at its own
     // secret, which this never touched — so the owner is where they started

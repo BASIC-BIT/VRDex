@@ -1,5 +1,6 @@
 import {
   CreateSecretCommand,
+  DeleteSecretCommand,
   PutSecretValueCommand,
   ResourceExistsException,
   SecretsManagerClient,
@@ -124,4 +125,28 @@ export async function putVrclinkingDelegationKey(
 
     await client.send(new PutSecretValueCommand({ SecretId: name, SecretString: apiKey }));
   }
+}
+
+/**
+ * Retire a key whose delegation was never activated.
+ *
+ * Names are per credential and never reused, so a key left behind by a failed
+ * activation is unreachable forever: no row points at it and no later
+ * reservation can land on the same name. Without this it would sit in Secrets
+ * Manager indefinitely — a community's live VRCLinking credential, retained by
+ * VRDex for nothing.
+ *
+ * Scheduled rather than forced. The seven-day recovery window is what makes
+ * this safe to call from an error path: if the activation actually succeeded
+ * and only its response was lost, the secret can be restored rather than being
+ * gone the moment a retry misreads the situation.
+ */
+export async function scheduleVrclinkingDelegationKeyDeletion(secretName: string): Promise<void> {
+  if (!SECRET_NAME_PATTERN.test(secretName)) {
+    throw new Error("Refusing to delete a secret outside the delegated-credential shape.");
+  }
+
+  await secretsClient().send(
+    new DeleteSecretCommand({ SecretId: secretName, RecoveryWindowInDays: 7 }),
+  );
 }
