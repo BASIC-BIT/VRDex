@@ -198,8 +198,13 @@ export async function POST(request: Request) {
     // deletes the row. This request then finishes writing a key that nothing
     // points at. Its own name is per-credential and therefore unshared, so it is
     // always safe to retire, and this request is the only thing left holding it.
+    // Should now be unreachable on the revoke race, since confirmation stamps
+    // rows rather than deleting them — a cancelled reservation survives as a
+    // tombstone and is found above. Kept for a row that is genuinely gone, and
+    // the failure is not swallowed: without a row there is nothing to retry
+    // from, so it is the owner's error to see.
     if (abandoned.missing) {
-      await scheduleVrclinkingDelegationKeyDeletion(reservation.secretName).catch(() => undefined);
+      await scheduleVrclinkingDelegationKeyDeletion(reservation.secretName);
 
       return;
     }

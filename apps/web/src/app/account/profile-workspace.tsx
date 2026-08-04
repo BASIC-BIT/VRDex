@@ -266,10 +266,16 @@ function ConnectedProfileWorkspace({
   // then named one subject and saved to another. Writing the resolution into the
   // URL gives both the same answer and gives history something to return to.
   useEffect(() => {
-    if (!identified && activeHref !== null) {
+    // Never against a preview list. In fixture mode the panels synthesise a
+    // profile from the URL — `AppearancePanel` builds one for
+    // `profileId=playwright-profile` — so the workspace's stub list cannot
+    // contain every profile that is legitimately addressable, and rewriting to
+    // its first entry threw away a selector the caller meant. Canonicalising is
+    // only sound where the owned list is authoritative.
+    if (previewProfiles === undefined && !identified && activeHref !== null) {
       router.replace(activeHref);
     }
-  }, [activeHref, identified, router]);
+  }, [activeHref, identified, previewProfiles, router]);
 
   // A header that names no profile is worse than no header: it sits above a
   // panel that *has* resolved one and contradicts it, and its tabs all lead

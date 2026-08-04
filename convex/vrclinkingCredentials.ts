@@ -220,7 +220,12 @@ export const reserveCredential = mutation({
           q.eq("communityProfileId", profile._id).eq("state", "pending"),
         )
         .collect()
-    ).filter((row) => row.guildId === guildId && row.createdAt + PENDING_DELEGATION_TTL_MS <= now);
+    ).filter(
+      (row) =>
+        row.guildId === guildId &&
+        row.secretRetiredAt === undefined &&
+        row.createdAt + PENDING_DELEGATION_TTL_MS <= now,
+    );
     // Revoked rows whose key was never confirmed gone belong here too. Revoking
     // makes the row unfindable by the revoke path — it looks for an *active*
     // row — so a `DeleteSecret` that failed transiently had no retry at all, and
@@ -453,11 +458,28 @@ export const confirmSecretsRetired = mutation({
     );
     const now = Date.now();
 
+    // Stamped, never deleted. The row is the only thing its key's name can be
+    // derived from, so deleting it on confirmation destroyed the retry handle at
+    // exactly the moment a concurrent write might still be creating that key —
+    // and a later reservation could then neither find nor reconstruct it.
+    //
+    // A reservation that never delegated anything is moved out of `pending` at
+    // the same time, so the stale sweep stops offering it. Both end up inert:
+    // `listCredentials` shows active rows only, and the unretired sweep skips
+    // anything already stamped.
     await Promise.all(
       rows.map((row) =>
-        row!.state === "pending" || row!.revokedReason === ABANDONED_RESERVATION_REASON
-          ? ctx.db.delete(row!._id)
-          : ctx.db.patch(row!._id, { secretRetiredAt: now, updatedAt: now }),
+        ctx.db.patch(row!._id, {
+          secretRetiredAt: now,
+          updatedAt: now,
+          ...(row!.state === "pending"
+            ? {
+                state: "revoked" as const,
+                revokedAt: now,
+                revokedReason: ABANDONED_RESERVATION_REASON,
+              }
+            : {}),
+        }),
       ),
     );
 
@@ -527,11 +549,28 @@ export const confirmSecretsRetiredAsServer = internalMutation({
     );
     const now = Date.now();
 
+    // Stamped, never deleted. The row is the only thing its key's name can be
+    // derived from, so deleting it on confirmation destroyed the retry handle at
+    // exactly the moment a concurrent write might still be creating that key —
+    // and a later reservation could then neither find nor reconstruct it.
+    //
+    // A reservation that never delegated anything is moved out of `pending` at
+    // the same time, so the stale sweep stops offering it. Both end up inert:
+    // `listCredentials` shows active rows only, and the unretired sweep skips
+    // anything already stamped.
     await Promise.all(
       rows.map((row) =>
-        row!.state === "pending" || row!.revokedReason === ABANDONED_RESERVATION_REASON
-          ? ctx.db.delete(row!._id)
-          : ctx.db.patch(row!._id, { secretRetiredAt: now, updatedAt: now }),
+        ctx.db.patch(row!._id, {
+          secretRetiredAt: now,
+          updatedAt: now,
+          ...(row!.state === "pending"
+            ? {
+                state: "revoked" as const,
+                revokedAt: now,
+                revokedReason: ABANDONED_RESERVATION_REASON,
+              }
+            : {}),
+        }),
       ),
     );
 
