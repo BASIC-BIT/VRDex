@@ -3,7 +3,7 @@ import test from "node:test";
 
 import {
   isVrclinkingSecretStoreConfigured,
-  vrclinkingSecretName,
+  putVrclinkingDelegationKey,
 } from "../../apps/web/src/lib/server/vrclinking-secret-store";
 
 const KEYS = [
@@ -92,12 +92,28 @@ test("ignores the ambient AWS region", () => {
 });
 
 /**
- * The name the adapter resolves. `vrclinkingSecretName` here, `secretNameForGuild`
- * in `convex/vrclinkingCredentials.ts`, and `isSecretRefForGuild` in the adapter
- * all have to agree, and the IAM grant in
- * `infra/terraform/vrclinking-adapter/delegation-writer.tf` is scoped to the
- * same prefix — a drift in any one of them denies every delegation.
+ * The name comes from Convex's reservation, so this only refuses one that is not
+ * the shape everything else agreed on. Two segments matter: `vrdex/vrclinking/
+ * <guild>` alone is where `shared` lives — the adapter's own bearer token and
+ * capability key — and it is outside both the IAM grant and the adapter's
+ * delegation shape. A bug that wrote there would be replacing VRDex's
+ * authorization to its own adapter.
  */
-test("writes under the prefix the adapter reads and the grant allows", () => {
-  assert.equal(vrclinkingSecretName("100000000000000001"), "vrdex/vrclinking/100000000000000001");
+test("refuses to write outside the delegated-credential shape", async () => {
+  const refused = [
+    "vrdex/vrclinking/shared",
+    "vrdex/vrclinking/100000000000000001",
+    "vrdex/vrclinking/../shared/x",
+    "vrdex/collector/100000000000000001/abc",
+    "vrdex/vrclinking/not-a-guild/abc",
+    "vrdex/vrclinking/100000000000000001/abc/def",
+  ];
+
+  for (const name of refused) {
+    await assert.rejects(
+      () => putVrclinkingDelegationKey(name, "key"),
+      /unexpected secret name/,
+      name,
+    );
+  }
 });

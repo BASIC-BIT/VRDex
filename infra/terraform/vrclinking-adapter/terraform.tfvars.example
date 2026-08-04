@@ -25,3 +25,17 @@ shared_secret_arn = "arn:aws:secretsmanager:us-east-1:000000000000:secret:vrdex/
 # environment is safe by default, and production supplies it through
 # `-var-file=environments/production.tfvars`, which Terraform does NOT auto-load.
 # Setting it here instead would apply to every workspace using this file.
+
+# The delegated-key write path is enable state rather than an account-specific
+# identifier, so it lives in `environments/production.tfvars` with
+# `enable_service` rather than here. An empty object takes every default:
+#
+#   vercel_delegation_writer = {}
+#
+# The one account-specific half is the Vercel custom environment id list, which
+# is supplied through the environment because ids are per-account:
+#
+#   export TF_VAR_staging_custom_environment_ids='["env_..."]'
+#
+# Applying without it destroys the staging copies of the two variables the web
+# app needs, and the delegation form then reports itself unavailable there.

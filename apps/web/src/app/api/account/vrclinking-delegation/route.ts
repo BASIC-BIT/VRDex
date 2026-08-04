@@ -1,4 +1,5 @@
 import { api } from "@convex-generated-api";
+import type { Id } from "../../../../../../../convex/_generated/dataModel";
 
 import { apiProblemResponse } from "@/lib/server/api-v0";
 import {
@@ -23,14 +24,15 @@ function problem(status: 400 | 401 | 403 | 500 | 503, title: string, detail: str
 }
 
 /**
- * Accepts a community's VRCLinking API key and puts it in the operator secret
- * store, then records the delegation in Convex.
+ * Accepts a community's VRCLinking API key, puts it in the operator secret
+ * store, and activates the delegation that points at it.
  *
- * The order matters and is not the obvious one. Convex authorizes first through
- * `canDelegateForGuild`, the key is written second, and the delegation is
- * registered last — because registering revokes whatever delegation the
- * community had before it. Registering first would mean a failed secret write
- * left them with no working delegation where they started with one.
+ * Three steps, and the middle one is the reason: `reserveCredential` creates
+ * the row first so the key has a name of its own to be written under, the key
+ * is written to that name, and only then does `activateCredential` retire the
+ * delegation this one replaces. Nothing existing is touched until the new key
+ * is provably in the store, so a Secrets Manager failure costs an unused
+ * reservation rather than the community's working delegation.
  *
  * The key is in this process's memory and nowhere else it can be read back: not
  * in Convex, not in the response, not in a log line.
@@ -83,8 +85,13 @@ export async function POST(request: Request) {
 
   convex.setAuth(authToken);
 
+  let reservation: { credentialId: string; secretName: string };
+
   try {
-    await convex.query(api.vrclinkingCredentials.canDelegateForGuild, { profileSlug, guildId });
+    reservation = await convex.mutation(api.vrclinkingCredentials.reserveCredential, {
+      profileSlug,
+      guildId,
+    });
   } catch (error) {
     if (isUnauthenticatedError(error)) {
       return unauthenticatedResponse("/account/connections");
@@ -98,8 +105,18 @@ export async function POST(request: Request) {
   }
 
   try {
-    await putVrclinkingDelegationKey(guildId, apiKey);
+    await putVrclinkingDelegationKey(reservation.secretName, apiKey);
   } catch {
+    // Best effort: the reservation is inert either way — nothing selects a
+    // pending row, and `reserveCredential` sweeps abandoned ones — so a failure
+    // here is not worth reporting over the one the owner actually hit.
+    await convex
+      .mutation(api.vrclinkingCredentials.abandonCredential, {
+        profileSlug,
+        credentialId: reservation.credentialId as Id<"communityVrclinkingCredentials">,
+      })
+      .catch(() => undefined);
+
     return problem(
       500,
       "Delegation failed",
@@ -108,9 +125,9 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await convex.mutation(api.vrclinkingCredentials.registerCredential, {
+    const result = await convex.mutation(api.vrclinkingCredentials.activateCredential, {
       profileSlug,
-      guildId,
+      credentialId: reservation.credentialId as Id<"communityVrclinkingCredentials">,
     });
 
     return Response.json(result, { headers: { "cache-control": "private, no-store" } });
@@ -119,10 +136,13 @@ export async function POST(request: Request) {
       return unauthenticatedResponse("/account/connections");
     }
 
+    // The previous delegation is still active and still points at its own
+    // secret, which this never touched — so the owner is where they started
+    // rather than worse off.
     return problem(
       500,
       "Delegation failed",
-      "The key was stored but the delegation could not be recorded. Try again.",
+      "The key was stored but the delegation could not be activated. Try again.",
     );
   }
 }

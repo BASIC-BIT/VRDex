@@ -21,13 +21,14 @@ import { awsCredentialsProvider } from "@vercel/oidc-aws-credentials-provider";
  * adapter resolves through its own role.
  */
 
-const SECRET_NAME_PREFIX = "vrdex/vrclinking/";
+// Two segments after the prefix — guild, then credential row — because a
+// per-credential name is what makes replacing a key non-destructive, and what
+// keeps `vrdex/vrclinking/shared` (the adapter's own bearer token) outside the
+// shape this role is granted. Convex derives the same name in
+// `convex/_vrclinkingSecretRef.ts`; this only validates what it was handed.
+const SECRET_NAME_PATTERN = /^vrdex\/vrclinking\/\d{17,20}\/[A-Za-z0-9]{1,64}$/;
 
 let cachedClient: { key: string; client: SecretsManagerClient } | null = null;
-
-export function vrclinkingSecretName(guildId: string): string {
-  return `${SECRET_NAME_PREFIX}${guildId}`;
-}
 
 /**
  * Explicit, with no fall back to the ambient `AWS_REGION`.
@@ -92,16 +93,28 @@ function secretsClient(): SecretsManagerClient {
  * name throws rather than overwriting, so the exception is the signal to put a
  * new version rather than an error worth surfacing.
  */
-export async function putVrclinkingDelegationKey(guildId: string, apiKey: string): Promise<void> {
+export async function putVrclinkingDelegationKey(
+  secretName: string,
+  apiKey: string,
+): Promise<void> {
+  // Checked here rather than trusted, because this is the last place before an
+  // AWS write that a name decides which object is replaced. The reservation is
+  // authorized and server-derived, so a mismatch means a bug rather than an
+  // attack — but a bug that writes to the wrong secret name is exactly the one
+  // worth refusing.
+  if (!SECRET_NAME_PATTERN.test(secretName)) {
+    throw new Error("Refusing to store a delegated key under an unexpected secret name.");
+  }
+
   const client = secretsClient();
-  const name = vrclinkingSecretName(guildId);
+  const name = secretName;
 
   try {
     await client.send(
       new CreateSecretCommand({
         Name: name,
         SecretString: apiKey,
-        Description: `VRCLinking API key delegated to VRDex for Discord guild ${guildId}.`,
+        Description: "VRCLinking API key delegated to VRDex by a community owner.",
       }),
     );
   } catch (error) {

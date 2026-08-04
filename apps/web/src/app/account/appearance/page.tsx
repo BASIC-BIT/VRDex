@@ -1,5 +1,5 @@
 import { AppearancePanel } from "./appearance-panel";
-import { ProfileWorkspace } from "../profile-workspace";
+import { DEMO_WORKSPACE_PROFILES, ProfileWorkspace } from "../profile-workspace";
 import { Card } from "@/components/ui/card";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 
@@ -26,6 +26,7 @@ export default async function AppearancePage({
         <ProfileWorkspace
           activeProfileId={initialProfileId}
           mediaKitEnabled={mediaKitEnabled}
+          previewProfiles={demoMode ? DEMO_WORKSPACE_PROFILES : undefined}
           tab="personalization"
         >
           <Card className="shadow-hero" padding="lg">

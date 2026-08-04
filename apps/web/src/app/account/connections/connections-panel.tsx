@@ -201,7 +201,7 @@ export function ConnectionsPanel({
   const activeProfile = ownedProfiles.find((profile) => profile.slug === activeSlug);
   // A delegation only makes sense for a Discord server already connected here,
   // and only one whose control proof is still live: links deliberately outlive
-  // their proofs, and `registerCredential` rejects an unproved server outright.
+  // their proofs, and `reserveCredential` rejects an unproved server outright.
   // Offering it in the picker only produces an error on submit.
   const connectedGuilds = (connections?.connections ?? []).filter(
     (connection) => connection.assetType === "discord_guild" && connection.verified,

@@ -967,6 +967,32 @@ describe("VRCLinking credential delegation", () => {
     });
   }
 
+
+  /**
+   * The route's sequence, as the backend sees it: reserve a row, then activate
+   * it once the key is in the store. Tests that only need a live delegation use
+   * this rather than repeating both calls.
+   */
+  async function delegateCredential(
+    t: ReturnType<typeof convexTest>,
+    identity: Parameters<ReturnType<typeof convexTest>["withIdentity"]>[0],
+    profileSlug: string,
+    guildId: string,
+  ) {
+    const reserved = await t
+      .withIdentity(identity)
+      .mutation(api.vrclinkingCredentials.reserveCredential, { profileSlug, guildId });
+
+    await t
+      .withIdentity(identity)
+      .mutation(api.vrclinkingCredentials.activateCredential, {
+        profileSlug,
+        credentialId: reserved.credentialId,
+      });
+
+    return reserved;
+  }
+
   it("refuses a delegation for a guild the owner has not proved they manage", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
@@ -974,7 +1000,7 @@ describe("VRCLinking credential delegation", () => {
 
     await assert.rejects(
       () =>
-        t.withIdentity(seeded.identity).mutation(api.vrclinkingCredentials.registerCredential, {
+        t.withIdentity(seeded.identity).mutation(api.vrclinkingCredentials.reserveCredential, {
           profileSlug: "delegation-unproved",
           guildId: "12345678901234567",
         }),
@@ -1002,16 +1028,34 @@ describe("VRCLinking credential delegation", () => {
       });
     });
 
-    await t.withIdentity(seeded.identity).mutation(api.vrclinkingCredentials.registerCredential, {
-      profileSlug: "delegation-derived",
-      guildId,
-    });
+    const reserved = await t
+      .withIdentity(seeded.identity)
+      .mutation(api.vrclinkingCredentials.reserveCredential, {
+        profileSlug: "delegation-derived",
+        guildId,
+      });
 
-    const stored = await t.run(async (ctx) =>
-      ctx.db.query("communityVrclinkingCredentials").first(),
+    // Reserved, not delegated: the name exists so the key has somewhere to go,
+    // and nothing selects the row until the write has landed.
+    const pending = await t.run(async (ctx) => ctx.db.get(reserved.credentialId));
+
+    assert.equal(pending?.state, "pending");
+    assert.equal(reserved.secretName, `vrdex/vrclinking/${guildId}/${reserved.credentialId}`);
+
+    await t
+      .withIdentity(seeded.identity)
+      .mutation(api.vrclinkingCredentials.activateCredential, {
+        profileSlug: "delegation-derived",
+        credentialId: reserved.credentialId,
+      });
+
+    const stored = await t.run(async (ctx) => ctx.db.get(reserved.credentialId));
+
+    assert.equal(stored?.state, "active");
+    assert.equal(
+      stored?.secretRef,
+      `secret://vrdex/vrclinking/${guildId}/${reserved.credentialId}`,
     );
-
-    assert.equal(stored?.secretRef, `secret://vrdex/vrclinking/${guildId}`);
 
     // A pasted VRCLinking token must never reach the database, and now it
     // cannot: there is no argument that would carry one, so Convex's validator
@@ -1019,7 +1063,7 @@ describe("VRCLinking credential delegation", () => {
     await assert.rejects(
       () =>
         t.withIdentity(seeded.identity).mutation(
-          api.vrclinkingCredentials.registerCredential,
+          api.vrclinkingCredentials.reserveCredential,
           {
             profileSlug: "delegation-derived",
             guildId,
@@ -1047,10 +1091,7 @@ describe("VRCLinking credential delegation", () => {
     });
     const asOwner = t.withIdentity(seeded.identity);
 
-    await asOwner.mutation(api.vrclinkingCredentials.registerCredential, {
-      profileSlug: "delegation-ok",
-      guildId,
-    });
+    await delegateCredential(t, seeded.identity, "delegation-ok", guildId);
 
     const listed = await asOwner.query(api.vrclinkingCredentials.listCredentials, {
       profileSlug: "delegation-ok",
@@ -1074,8 +1115,8 @@ describe("VRCLinking credential delegation", () => {
   });
 
   // Every surface that compares a reference against a credential derives it
-  // from the guild id rather than reading the stored string, so a row written
-  // before the ARN form was retired still works end to end. Four sites had to
+  // from the row rather than reading the stored string, so a row written before
+  // the ARN form was retired still works end to end. Four sites had to
   // learn this one at a time; the audit path was the last and the quietest —
   // it reported "Not used yet" for a key being queried on every claim, which is
   // the opposite of what an operator needs to tell a dead delegation from a
@@ -1098,10 +1139,7 @@ describe("VRCLinking credential delegation", () => {
       });
     });
 
-    await t.withIdentity(seeded.identity).mutation(api.vrclinkingCredentials.registerCredential, {
-      profileSlug: "delegation-legacy",
-      guildId,
-    });
+    await delegateCredential(t, seeded.identity, "delegation-legacy", guildId);
 
     // Registered through the mutation, then rewritten to the retired form:
     // registration rejects that form now, and the row an upgraded deployment
@@ -1146,7 +1184,7 @@ describe("VRCLinking credential delegation", () => {
     );
 
     assert.notEqual(delegation, undefined);
-    assert.equal(delegation?.secretRef, `secret://vrdex/vrclinking/${guildId}`);
+    assert.equal(delegation?.secretRef, `secret://vrdex/vrclinking/${guildId}/${credentialId}`);
 
     await t.run(async (ctx) =>
       ctx.runMutation(internal.vrclinkingCredentials.recordCredentialConsultations, {
@@ -1192,11 +1230,17 @@ describe("VRCLinking credential delegation", () => {
     });
 
     const asOwner = t.withIdentity(seeded.identity);
-    const register = () =>
-      asOwner.mutation(api.vrclinkingCredentials.registerCredential, {
+    const register = async () => {
+      const reserved = await asOwner.mutation(api.vrclinkingCredentials.reserveCredential, {
         profileSlug: "delegation-replace",
         guildId,
       });
+
+      return await asOwner.mutation(api.vrclinkingCredentials.activateCredential, {
+        profileSlug: "delegation-replace",
+        credentialId: reserved.credentialId,
+      });
+    };
 
     const first = await register();
     const second = await register();
@@ -1247,10 +1291,7 @@ describe("VRCLinking credential delegation", () => {
         });
       });
 
-      await t.withIdentity(seeded.identity).mutation(api.vrclinkingCredentials.registerCredential, {
-        profileSlug: slug,
-        guildId,
-      });
+      await delegateCredential(t, seeded.identity, slug, guildId);
     }
 
     const claimantId = await t.run(async (ctx) => {
@@ -1309,14 +1350,8 @@ describe("VRCLinking credential delegation", () => {
       });
     }
 
-    await t.withIdentity(lapsed.identity).mutation(api.vrclinkingCredentials.registerCredential, {
-      profileSlug: "delegation-lapsed",
-      guildId: lapsedGuild,
-    });
-    await t.withIdentity(live.identity).mutation(api.vrclinkingCredentials.registerCredential, {
-      profileSlug: "delegation-live",
-      guildId: liveGuild,
-    });
+    await delegateCredential(t, lapsed.identity, "delegation-lapsed", lapsedGuild);
+    await delegateCredential(t, live.identity, "delegation-live", liveGuild);
 
     const claimantId = await t.run(async (ctx) => {
       // The lapsed delegator's proof is past its revalidation window, which is

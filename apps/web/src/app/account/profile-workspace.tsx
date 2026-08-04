@@ -26,7 +26,20 @@ import { cn } from "@/lib/cn";
 
 export type ProfileWorkspaceTab = "privacy" | "connections" | "personalization" | "media-kit";
 
-type WorkspaceProfile = {
+/**
+ * The subject the fixture panels render, so the workspace above them names the
+ * same one. Mirrors `demoProfiles` in the privacy and appearance panels.
+ */
+export const DEMO_WORKSPACE_PROFILES: WorkspaceProfile[] = [
+  {
+    profileId: "demo",
+    slug: "playwright-dj-aurora",
+    displayName: "DJ Aurora",
+    profileType: "person",
+  },
+];
+
+export type WorkspaceProfile = {
   profileId: string;
   slug: string;
   displayName: string;
@@ -65,22 +78,38 @@ export function ProfileWorkspace({
   activeSlug,
   children,
   mediaKitEnabled = false,
+  previewProfiles,
   tab,
 }: {
   activeProfileId?: string;
   activeSlug?: string;
   children: ReactNode;
   mediaKitEnabled?: boolean;
+  /**
+   * Fixture-mode profiles, mirroring how each panel already takes its own.
+   *
+   * The demo routes render a panel from injected data with no account behind
+   * it, so the query answers `null` forever there. Without the same data the
+   * workspace showed "Your profile" above an editor for DJ Aurora, with every
+   * tab pointing back at `/account` — a header describing a different subject
+   * from the panel underneath it.
+   */
+  previewProfiles?: WorkspaceProfile[];
   tab: ProfileWorkspaceTab;
 }) {
   const router = useRouter();
-  const owned = useQuery(api.profilePrivacy.listOwnedPrivacyProfilesForAccount, {});
-  const profiles: WorkspaceProfile[] = (owned ?? []).map((profile) => ({
-    profileId: profile.profileId,
-    slug: profile.slug,
-    displayName: profile.displayName,
-    profileType: profile.profileType,
-  }));
+  const owned = useQuery(
+    api.profilePrivacy.listOwnedPrivacyProfilesForAccount,
+    previewProfiles ? "skip" : {},
+  );
+  const profiles: WorkspaceProfile[] =
+    previewProfiles ??
+    (owned ?? []).map((profile) => ({
+      profileId: profile.profileId,
+      slug: profile.slug,
+      displayName: profile.displayName,
+      profileType: profile.profileType,
+    }));
   // The three identifiers are all resolved against the same list, so a link
   // from any surface lands on the profile it named regardless of which key it
   // used. Falling back to the first owned profile keeps a bare `/account/privacy`
@@ -91,6 +120,27 @@ export function ProfileWorkspace({
     profiles[0];
   const visibleTabs = TABS.filter((entry) => entry.key !== "media-kit" || mediaKitEnabled);
 
+  // A header that names no profile is worse than no header: it sits above a
+  // panel that *has* resolved one and contradicts it, and its tabs all lead
+  // back to `/account` rather than to the surface they name. Wait for the list
+  // instead of rendering a workspace bound to nothing.
+  if (active === undefined) {
+    return (
+      <div className="grid gap-6">
+        <Link className="text-sm text-muted underline underline-offset-4" href="/account">
+          All profiles
+        </Link>
+        {owned === undefined ? (
+          <p className="text-sm text-muted">Loading your profiles…</p>
+        ) : (
+          <p className="text-sm text-muted">
+            You do not manage any profiles yet. Claim one to edit it here.
+          </p>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="grid gap-6">
       <div>
@@ -100,15 +150,15 @@ export function ProfileWorkspace({
         <div className="mt-4 flex flex-wrap items-end justify-between gap-4">
           <div className="min-w-0">
             <p className="text-xs font-medium tracking-wide text-muted uppercase">
-              {active?.profileType ?? "profile"}
+              {active.profileType}
             </p>
             {/* Owned profiles include drafts, opted-out and suppressed ones, so
                 the name here is not necessarily publicly readable. */}
             <h1 className="mt-1 text-3xl leading-none font-semibold sm:text-4xl" data-ph-no-capture>
-              {active?.displayName ?? "Your profile"}
+              {active.displayName}
             </h1>
           </div>
-          {profiles.length > 1 && active ? (
+          {profiles.length > 1 ? (
             <label className="grid gap-1 text-sm">
               <span className="text-muted">Editing</span>
               {/* Option text is not an input value, so `maskAllInputs` does not
@@ -152,10 +202,7 @@ export function ProfileWorkspace({
                     ? "border-accent text-foreground"
                     : "border-transparent text-muted hover:border-border-strong hover:text-foreground",
                 )}
-                // Without a resolved profile there is nothing to key the link
-                // on, so the tabs stay visible but inert rather than sending
-                // someone to a surface that would pick a different profile.
-                href={active === undefined ? "/account" : entry.href(active)}
+                href={entry.href(active)}
               >
                 {entry.label}
               </Link>

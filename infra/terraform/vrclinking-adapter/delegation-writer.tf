@@ -71,6 +71,17 @@ locals {
     "owner:${var.vercel_delegation_writer.team_slug}:project:${var.vercel_delegation_writer.project_name}:environment:${environment}"
   ] : []
 
+  # Deliberately narrower than `local.secret_arn_pattern`, which the adapter
+  # reads with and which covers the shared secret too.
+  delegated_credential_arn_pattern = "${local.secret_arn_pattern}/*"
+
+  # Vercel's standard targets, in whatever order the set yields; a custom
+  # environment like `staging` is not one of these and is handled by id.
+  delegation_writer_standard_targets = local.delegation_writer_enabled ? tolist(setintersection(
+    var.vercel_delegation_writer.runtime_environments,
+    ["production", "preview", "development"],
+  )) : []
+
   delegation_writer_env_comment = "VRCLinking delegated-key storage managed by infra/terraform/vrclinking-adapter."
 
   # The region travels with the role. Vercel sets its own `AWS_REGION` to
@@ -133,13 +144,19 @@ resource "aws_iam_role" "delegation_writer" {
   assume_role_policy = data.aws_iam_policy_document.delegation_writer_assume[0].json
 }
 
+# Two path segments deep, which is what excludes the adapter's own shared
+# secret. `vrdex/vrclinking/shared` holds the bearer token and the capability
+# key; a grant over the whole `vrdex/vrclinking/` prefix would have let a
+# compromised web runtime replace both with attacker-known values that take
+# effect on the next Lambda cold start. Delegations live at
+# `vrdex/vrclinking/<guild>/<credential>`, so the shape alone separates them.
 data "aws_iam_policy_document" "delegation_writer" {
   count = local.delegation_writer_enabled ? 1 : 0
 
   statement {
     sid       = "ReplaceDelegatedCredentials"
     actions   = ["secretsmanager:PutSecretValue"]
-    resources = [local.secret_arn_pattern]
+    resources = [local.delegated_credential_arn_pattern]
   }
 
   # `CreateSecret` takes no resource ARN — the secret does not exist yet — so it
@@ -153,7 +170,42 @@ data "aws_iam_policy_document" "delegation_writer" {
     condition {
       test     = "StringLike"
       variable = "secretsmanager:Name"
-      values   = ["${local.secret_name_prefix}*"]
+      values   = ["${local.secret_name_prefix}*/*"]
+    }
+  }
+
+  # Belt and braces over the shape rule above. The shared secret is the one
+  # object in this prefix whose compromise would forge VRDex's own authorization
+  # to the adapter, so it is denied by name rather than left to depend on a
+  # wildcard staying narrow through future edits.
+  statement {
+    sid       = "NeverTouchTheSharedAdapterSecret"
+    effect    = "Deny"
+    actions   = ["secretsmanager:*"]
+    resources = [var.shared_secret_arn]
+  }
+
+  # `PutSecretValue` on a secret encrypted with a customer-managed key also
+  # needs the KMS grant, exactly as the adapter runtime does for reading one.
+  # Without it, replacing a key through the form returns a 500 on precisely the
+  # secrets an operator took the most care over. `GenerateDataKey` is the write
+  # half; `Decrypt` is required alongside it to put a new version.
+  dynamic "statement" {
+    for_each = length(var.kms_key_arns) > 0 ? [1] : []
+
+    content {
+      sid = "EncryptCustomerManagedDelegatedCredentials"
+      actions = [
+        "kms:Decrypt",
+        "kms:GenerateDataKey",
+      ]
+      resources = var.kms_key_arns
+
+      condition {
+        test     = "StringEquals"
+        variable = "kms:ViaService"
+        values   = ["secretsmanager.${data.aws_region.current.region}.amazonaws.com"]
+      }
     }
   }
 }
@@ -166,14 +218,27 @@ resource "aws_iam_role_policy" "delegation_writer" {
   policy = data.aws_iam_policy_document.delegation_writer[0].json
 }
 
-resource "vercel_project_environment_variable" "delegation_writer_production" {
-  for_each = local.delegation_writer_env_values
+# Derived from the same `runtime_environments` the trust policy is built from,
+# rather than pinned to production. Hard-coding the target let the two diverge:
+# an operator narrowing the role to `preview` would still have production
+# rendering the delegation form as enabled — with an OIDC subject the role
+# denies — while the environment actually trusted received no role ARN at all.
+#
+# Only Vercel's three standard targets can be named here. `staging` is a custom
+# environment, so it is trusted by the role through `runtime_environments` and
+# receives its variables through `staging_custom_environment_ids` below; that
+# split is Vercel's, not ours.
+resource "vercel_project_environment_variable" "delegation_writer_standard" {
+  for_each = {
+    for pair in setproduct(keys(local.delegation_writer_env_values), local.delegation_writer_standard_targets) :
+    "${pair[0]}_${pair[1]}" => { key = pair[0], target = pair[1] }
+  }
 
   project_id = data.vercel_project.web[0].id
   team_id    = var.vercel_delegation_writer.team_id
-  key        = each.key
-  value      = each.value
-  target     = ["production"]
+  key        = each.value.key
+  value      = local.delegation_writer_env_values[each.value.key]
+  target     = [each.value.target]
   sensitive  = true
   comment    = local.delegation_writer_env_comment
 }

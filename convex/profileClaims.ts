@@ -1292,7 +1292,7 @@ export const recordVrchatProofVerification = internalMutation({
       if (
         credential === null ||
         credential.state !== "active" ||
-        vrclinkingSecretRef(credential.guildId) !== args.vrclinkingDelegation.secretRef
+        vrclinkingSecretRef(credential.guildId, credential._id) !== args.vrclinkingDelegation.secretRef
       ) {
         return { state: "unavailable" as const };
       }

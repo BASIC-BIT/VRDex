@@ -528,12 +528,12 @@ test("verified email account can complete VRChat adapter claims @flow", async ({
       "https://vrchat.com/home/user/usr_e2e00000-0000-4000-8000-000000000001",
     );
     await page.getByRole("button", { name: "Create proof code" }).click();
-    await expect(page.getByRole("heading", { name: "Finish your VRChat proof" })).toBeVisible(hostedActionExpectOptions);
+    await expect(page.getByRole("heading", { name: "Add this code to your VRChat profile" })).toBeVisible(hostedActionExpectOptions);
     await expect(page.getByText(/VRDEX-/)).toBeVisible(hostedActionExpectOptions);
     await page.reload();
-    await expect(page.getByRole("heading", { name: "Finish your VRChat proof" })).toBeVisible(hostedActionExpectOptions);
-    await page.getByRole("button", { name: "Check proof now" }).click();
-    await expect(page.getByText(/Ownership (verified|confirmed)/i)).toBeVisible(hostedActionExpectOptions);
+    await expect(page.getByRole("heading", { name: "Add this code to your VRChat profile" })).toBeVisible(hostedActionExpectOptions);
+    await page.getByRole("button", { name: "I've added it — check now" }).click();
+    await expect(page.getByText(/This profile is yours/i)).toBeVisible(hostedActionExpectOptions);
 
     await gotoFlowPage(page, `/p/${vrchatPersonSlug}`);
     await expect(page.getByRole("heading", { name: `Playwright VRChat Proof ${runSuffix}` })).toBeVisible(hostedActionExpectOptions);

@@ -2033,7 +2033,11 @@ export default defineSchema({
     communityProfileId: v.id("profiles"),
     guildId: v.string(),
     secretRef: v.string(),
-    state: v.union(v.literal("active"), v.literal("revoked")),
+    // `pending` is a reservation: the row exists so the key has a name to be
+    // written under, and nothing selects it until the write has landed. Every
+    // selection query matches `active` only, so a reservation that is never
+    // activated is inert rather than a half-live delegation.
+    state: v.union(v.literal("pending"), v.literal("active"), v.literal("revoked")),
     delegatedByUserId: v.id("users"),
     // Three separate facts, because conflating them makes one of them wrong.
     // `lastRotatedAt` is a selection cursor only: every row a selection pass

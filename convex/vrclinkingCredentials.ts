@@ -37,8 +37,8 @@ const DISCORD_GUILD_ID_PATTERN = /^\d{17,20}$/;
  * control of removes the choice: the only reference they can register is the one
  * an operator provisioned for their own server.
  */
-const secretNameForGuild = vrclinkingSecretName;
-const secretRefForGuild = vrclinkingSecretRef;
+const secretNameFor = vrclinkingSecretName;
+const secretRefFor = vrclinkingSecretRef;
 
 /**
  * Resolve a community profile the caller owns.
@@ -111,90 +111,158 @@ async function requireDelegationAuthority(
 }
 
 /**
- * Authorize a delegation before its key is written anywhere.
+ * A pending row that has plainly been abandoned.
  *
- * `/api/account/vrclinking-delegation` puts the pasted key into the operator
- * secret store and only then registers it, so the ownership and control checks
- * have to be answerable *before* the write. Registering first and writing after
- * would revoke a community's working delegation on the way to a write that
- * might fail, leaving them worse off than before they tried.
+ * Long enough that a slow Secrets Manager write is never swept out from under
+ * the route holding it; short enough that a crashed request does not leave a
+ * name reserved for the rest of the day.
  */
-export const canDelegateForGuild = query({
-  args: { profileSlug: v.string(), guildId: v.string() },
-  handler: async (ctx, args) => {
-    const { guildId } = await requireDelegationAuthority(ctx, args.profileSlug, args.guildId);
-
-    return { guildId, secretName: secretNameForGuild(guildId) };
-  },
-});
+const PENDING_DELEGATION_TTL_MS = 10 * 60 * 1000;
 
 /**
- * Delegate a VRCLinking API key for one guild to VRDex.
+ * Reserve the row a pasted key will be written against.
  *
- * The reference is derived from the guild rather than supplied. It only ever
- * had one legal value — `isSecretRefForGuild` rejected every other one — so
- * asking for it made the form unanswerable by the community owner filling it
- * in, who has no access to the operator secret store the reference names. The
- * key itself still never reaches Convex; the route writes it to that store and
- * this records the pointer.
+ * The row exists, with its own id and therefore its own secret name, before
+ * anything is written — which is what makes the write non-destructive. The
+ * community's working delegation stays active and untouched until
+ * `activateCredential` succeeds, so a Secrets Manager failure, an expiring
+ * authorization, or a crashed request costs an unused pending row and nothing
+ * else.
+ *
+ * Registering first and writing after would revoke the working delegation on
+ * the way to a write that might fail. Writing first and registering after was
+ * no better while names were guild-scoped: the new key landed under the *old*
+ * row's identical reference, so a failed registration left the previous
+ * delegation quietly answering with a key nobody had registered.
  */
-export const registerCredential = mutation({
-  args: {
-    profileSlug: v.string(),
-    guildId: v.string(),
-  },
+export const reserveCredential = mutation({
+  args: { profileSlug: v.string(), guildId: v.string() },
   handler: async (ctx, args) => {
     const { guildId, profile, user } = await requireDelegationAuthority(
       ctx,
       args.profileSlug,
       args.guildId,
     );
-    const secretRef = secretRefForGuild(guildId);
     const now = Date.now();
-    const existing = await ctx.db
+
+    // Swept here rather than on a cron: this is the only thing that creates
+    // them, so it is the only place that can accumulate them. Pending rows are
+    // inert — no selection query matches a non-`active` state — so the sweep is
+    // tidiness, not correctness.
+    const stale = await ctx.db
       .query("communityVrclinkingCredentials")
       .withIndex("by_communityProfileId_state", (q) =>
-        q.eq("communityProfileId", profile._id).eq("state", "active"),
+        q.eq("communityProfileId", profile._id).eq("state", "pending"),
       )
       .collect();
-    const sameGuild = existing.find((row) => row.guildId === guildId);
 
-    if (sameGuild !== undefined) {
-      // A replacement is a different key, and it gets a different row.
-      //
-      // Patching in place kept the id, and every version of a delegation
-      // derives the same guild-scoped reference — so the id-and-reference
-      // recheck at the grant could not tell a response obtained with the
-      // superseded key from one obtained with its replacement. The resolver
-      // caches a token for five minutes, which is exactly long enough for a
-      // claim in flight across a replacement to be granted on the old key and
-      // stamped against the new row. A fresh id makes that recheck fail, which
-      // is what it is for.
-      //
-      // Revoking rather than deleting also stops the replacement inheriting an
-      // audit history it did not earn: the Connections page would otherwise
-      // attribute the old key's queries and matches to a credential that has
-      // answered nothing, which is the operator's only way to tell a working
-      // delegation from an untested one.
-      await ctx.db.patch(sameGuild._id, {
-        state: "revoked",
-        revokedAt: now,
-        revokedReason: "Replaced by a new delegated credential.",
-        updatedAt: now,
-      });
-    }
+    await Promise.all(
+      stale
+        .filter((row) => row.guildId === guildId && row.createdAt + PENDING_DELEGATION_TTL_MS <= now)
+        .map((row) => ctx.db.delete(row._id)),
+    );
 
     const credentialId = await ctx.db.insert("communityVrclinkingCredentials", {
       communityProfileId: profile._id,
       guildId,
-      secretRef,
-      state: "active",
+      // Placeholder. Every reader derives the reference from the row, so this
+      // is never the value anything compares against — but the field is
+      // required, and writing the derived value needs the id this insert is
+      // producing.
+      secretRef: "",
+      state: "pending",
       delegatedByUserId: user._id,
       createdAt: now,
       updatedAt: now,
     });
 
-    return { credentialId, replaced: sameGuild !== undefined };
+    await ctx.db.patch(credentialId, { secretRef: secretRefFor(guildId, credentialId) });
+
+    return { credentialId, secretName: secretNameFor(guildId, credentialId) };
+  },
+});
+
+/**
+ * Activate a reserved delegation once its key is actually in the store.
+ *
+ * Re-authorizes rather than trusting the reservation: control of the guild can
+ * lapse in the window, and this is the call that starts sending the key to a
+ * third party.
+ */
+export const activateCredential = mutation({
+  args: { profileSlug: v.string(), credentialId: v.id("communityVrclinkingCredentials") },
+  handler: async (ctx, args) => {
+    const pending = await ctx.db.get(args.credentialId);
+
+    if (pending === null || pending.state !== "pending") {
+      throw claimError("LINK_NOT_FOUND");
+    }
+
+    const { profile } = await requireDelegationAuthority(ctx, args.profileSlug, pending.guildId);
+
+    // The reservation belongs to this profile or it belongs to nobody here.
+    // Without this, an owner of profile A could activate a row reserved under
+    // profile B and adopt its secret name.
+    if (pending.communityProfileId !== profile._id) {
+      throw claimError("LINK_NOT_FOUND");
+    }
+
+    const now = Date.now();
+    const active = await ctx.db
+      .query("communityVrclinkingCredentials")
+      .withIndex("by_communityProfileId_state", (q) =>
+        q.eq("communityProfileId", profile._id).eq("state", "active"),
+      )
+      .collect();
+    const superseded = active.filter((row) => row.guildId === pending.guildId);
+
+    // Revoked rather than patched in place, so the replacement does not inherit
+    // an audit history it did not earn: the Connections page would otherwise
+    // attribute the old key's queries and matches to a credential that has
+    // answered nothing, which is the operator's only way to tell a working
+    // delegation from an untested one. Each row keeps its own secret, so
+    // revoking one never disturbs the other's key.
+    await Promise.all(
+      superseded.map((row) =>
+        ctx.db.patch(row._id, {
+          state: "revoked",
+          revokedAt: now,
+          revokedReason: "Replaced by a new delegated credential.",
+          updatedAt: now,
+        }),
+      ),
+    );
+
+    await ctx.db.patch(pending._id, { state: "active", updatedAt: now });
+
+    return { credentialId: pending._id, replaced: superseded.length > 0 };
+  },
+});
+
+/**
+ * Drop a reservation whose key never made it into the store.
+ *
+ * Deletes rather than revokes: nothing was ever delegated, so an operator's
+ * audit list should not fill with rows recording that a form failed.
+ */
+export const abandonCredential = mutation({
+  args: { profileSlug: v.string(), credentialId: v.id("communityVrclinkingCredentials") },
+  handler: async (ctx, args) => {
+    const pending = await ctx.db.get(args.credentialId);
+
+    if (pending === null || pending.state !== "pending") {
+      return { abandoned: false };
+    }
+
+    const { profile } = await requireDelegationAuthority(ctx, args.profileSlug, pending.guildId);
+
+    if (pending.communityProfileId !== profile._id) {
+      return { abandoned: false };
+    }
+
+    await ctx.db.delete(pending._id);
+
+    return { abandoned: true };
   },
 });
 
@@ -373,7 +441,7 @@ export const reserveAdapterDelegations = internalMutation({
         // leaving those communities listed as delegated while silently
         // answering nothing. Deriving here retires the old rows without a
         // migration, and `recordCredentialUse` re-checks the same value.
-        secretRef: secretRefForGuild(row.guildId),
+        secretRef: secretRefFor(row.guildId, row._id),
         // Which version of this delegation the adapter is being asked about.
         // Every version derives the same reference, and the adapter caches a
         // resolved token for five minutes keyed on it — so without this a warm
@@ -423,7 +491,7 @@ export const recordCredentialConsultations = internalMutation({
         if (
           credential === null ||
           credential.state !== "active" ||
-          secretRefForGuild(credential.guildId) !== secretRef
+          secretRefFor(credential.guildId, credential._id) !== secretRef
         ) {
           return;
         }
@@ -455,7 +523,7 @@ export const recordCredentialUse = internalMutation({
     if (
       credential === null ||
       credential.state !== "active" ||
-      secretRefForGuild(credential.guildId) !== args.secretRef
+      secretRefFor(credential.guildId, credential._id) !== args.secretRef
     ) {
       return { accepted: false };
     }
