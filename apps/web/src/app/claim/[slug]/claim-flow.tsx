@@ -618,7 +618,7 @@ export function ClaimFlow({
       {profile.profileType === "person" ? <UserRound aria-hidden="true" className="mb-2 size-5 text-accent" /> : <Building2 aria-hidden="true" className="mb-2 size-5 text-accent" />}
       {profile.profileType === "person"
         ? "Quick access with your linked Discord. Claims the profile, but does not prove it is you."
-        : "Confirm you own or admin the community’s Discord server. Gives you ownership."}
+        : "Confirm you own, administer, or manage the community’s Discord server. Gives you ownership."}
       {discordMethodBlocked ? " Verify your Discord account first." : ""}
     </MethodCard>
   );

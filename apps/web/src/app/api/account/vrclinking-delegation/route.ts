@@ -2,6 +2,7 @@ import { api } from "@convex-generated-api";
 import type { Id } from "../../../../../../../convex/_generated/dataModel";
 
 import { apiProblemResponse } from "@/lib/server/api-v0";
+import { claimErrorCode } from "@/lib/claim-errors";
 import {
   convexAuthToken,
   isUnauthenticatedError,
@@ -98,6 +99,18 @@ export async function POST(request: Request) {
       return unauthenticatedResponse("/account/connections");
     }
 
+    // Only a refusal is a 403. Mapping every failure to one told an authorized
+    // owner that they lack a control proof whenever Convex was merely
+    // unreachable, and sent them off to re-verify Discord for a problem
+    // re-verifying cannot fix.
+    if (claimErrorCode(error) === null) {
+      return problem(
+        503,
+        "Delegation is unavailable",
+        "VRDex could not reach its backend. Nothing changed; try again shortly.",
+      );
+    }
+
     return problem(
       403,
       "Delegation not allowed",
@@ -105,18 +118,37 @@ export async function POST(request: Request) {
     );
   }
 
-  try {
-    await putVrclinkingDelegationKey(reservation.secretName, apiKey);
-  } catch {
-    // Best effort: the reservation is inert either way — nothing selects a
-    // pending row, and `reserveCredential` sweeps abandoned ones — so a failure
-    // here is not worth reporting over the one the owner actually hit.
-    await convex
+  /**
+   * Retire the key just written, but only once its row is known not to be live.
+   *
+   * `abandonCredential` deletes a `pending` row and refuses anything else, so
+   * its answer *is* the question worth asking: a confirmed delete proves the
+   * activation never committed, which is the only state where this key is
+   * unreachable and safe to remove.
+   *
+   * Without that check, an activation that committed and lost its response
+   * would look identical to one that failed — and deleting there would revoke
+   * the previous delegation and then destroy the key that replaced it. Leaving
+   * an orphan is the safe end of that trade, so an unreadable backend leaves
+   * the secret alone.
+   */
+  async function discardStoredKey() {
+    const abandoned = await convex
       .mutation(api.vrclinkingCredentials.abandonCredential, {
         profileSlug,
         credentialId: reservation.credentialId as Id<"communityVrclinkingCredentials">,
       })
-      .catch(() => undefined);
+      .catch(() => ({ abandoned: false }));
+
+    if (abandoned.abandoned) {
+      await scheduleVrclinkingDelegationKeyDeletion(reservation.secretName).catch(() => undefined);
+    }
+  }
+
+  try {
+    await putVrclinkingDelegationKey(reservation.secretName, apiKey);
+  } catch {
+    await discardStoredKey();
 
     return problem(
       500,
@@ -131,23 +163,23 @@ export async function POST(request: Request) {
       credentialId: reservation.credentialId as Id<"communityVrclinkingCredentials">,
     });
 
+    // The keys this replaced. Their rows are revoked and their names are never
+    // reused, so nothing can reach them again — retaining a community's live
+    // provider credential after it has been replaced is the thing to avoid.
+    await Promise.allSettled(
+      result.supersededSecretNames.map((name) => scheduleVrclinkingDelegationKeyDeletion(name)),
+    );
+
     return Response.json(result, { headers: { "cache-control": "private, no-store" } });
   } catch (error) {
+    // Cleanup first: an expired session is exactly the case where this used to
+    // return without it, leaving the community's live key stored under a name
+    // nothing points at.
+    await discardStoredKey();
+
     if (isUnauthenticatedError(error)) {
       return unauthenticatedResponse("/account/connections");
     }
-
-    // The key that was just written is now unreachable: its name belongs to a
-    // reservation that will be swept, and names are never reused. Retire it
-    // rather than retaining a community's live credential for nothing. Both
-    // calls are best effort — the owner's error is the one worth reporting.
-    await Promise.allSettled([
-      scheduleVrclinkingDelegationKeyDeletion(reservation.secretName),
-      convex.mutation(api.vrclinkingCredentials.abandonCredential, {
-        profileSlug,
-        credentialId: reservation.credentialId as Id<"communityVrclinkingCredentials">,
-      }),
-    ]);
 
     // The previous delegation is still active and still points at its own
     // secret, which this never touched — so the owner is where they started

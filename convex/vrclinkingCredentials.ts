@@ -194,11 +194,23 @@ export const activateCredential = mutation({
   handler: async (ctx, args) => {
     const pending = await ctx.db.get(args.credentialId);
 
-    if (pending === null || pending.state !== "pending") {
+    if (pending === null) {
       throw claimError("LINK_NOT_FOUND");
     }
 
     const { profile } = await requireDelegationAuthority(ctx, args.profileSlug, pending.guildId);
+
+    // Already done. A retry after a lost response must not read as a failure —
+    // the caller decides whether to retire the stored key from this answer, and
+    // an activation reported as failed after it committed would destroy the key
+    // it had just installed.
+    if (pending.state === "active" && pending.communityProfileId === profile._id) {
+      return { credentialId: pending._id, replaced: false, supersededSecretNames: [] };
+    }
+
+    if (pending.state !== "pending") {
+      throw claimError("LINK_NOT_FOUND");
+    }
 
     // The reservation belongs to this profile or it belongs to nobody here.
     // Without this, an owner of profile A could activate a row reserved under
@@ -235,7 +247,15 @@ export const activateCredential = mutation({
 
     await ctx.db.patch(pending._id, { state: "active", updatedAt: now });
 
-    return { credentialId: pending._id, replaced: superseded.length > 0 };
+    return {
+      credentialId: pending._id,
+      replaced: superseded.length > 0,
+      // Revoking the row does not remove the key it points at, and per-credential
+      // names are never reused — so a replaced key would otherwise sit in the
+      // store forever: unreachable, but still a community's live provider
+      // credential, still readable by the adapter role. The caller retires them.
+      supersededSecretNames: superseded.map((row) => secretNameFor(row.guildId, row._id)),
+    };
   },
 });
 

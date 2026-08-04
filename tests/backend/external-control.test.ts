@@ -1246,6 +1246,26 @@ describe("VRCLinking credential delegation", () => {
     const second = await register();
 
     assert.equal(second.replaced, true);
+
+    // The replaced key is unreachable the moment its row is revoked — names are
+    // per credential and never reused — so activation has to hand the caller
+    // the names to retire, or a community's live provider credential stays in
+    // the store forever.
+    assert.deepEqual(second.supersededSecretNames, [
+      `vrdex/vrclinking/${guildId}/${first.credentialId}`,
+    ]);
+
+    // Idempotent: a retry after a lost response must report success rather than
+    // looking like a failure. The route decides whether to delete the stored key
+    // from this answer, so an activation reported as failed after it committed
+    // would destroy the key it had just installed.
+    const replay = await asOwner.mutation(api.vrclinkingCredentials.activateCredential, {
+      profileSlug: "delegation-replace",
+      credentialId: second.credentialId,
+    });
+
+    assert.equal(replay.credentialId, second.credentialId);
+    assert.deepEqual(replay.supersededSecretNames, []);
     assert.notEqual(second.credentialId, first.credentialId);
 
     // The superseded row is revoked rather than deleted, so a response carrying

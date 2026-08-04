@@ -131,21 +131,43 @@ the reference through its own IAM role. This is why the token is not encrypted
 in Convex: it is never there.
 
 The owner pastes the key into `/account/connections` and
-`POST /api/account/vrclinking-delegation` is the only thing that handles it: it
-asks Convex whether the caller controls that guild, writes the key to
-`vrdex/vrclinking/<guildId>` in Secrets Manager, and only then registers the
-delegation. The order is deliberate — registering revokes whatever key the
-community had before it, so a failed write after a register would leave them
-worse off than before they tried. The write needs
-`VRDEX_VRCLINKING_DELEGATION_ROLE_ARN` and `VRDEX_VRCLINKING_SECRET_REGION`,
-both managed by `infra/terraform/vrclinking-adapter/delegation-writer.tf` and
-applied to production and staging on 2026-08-04. The role is Vercel-OIDC,
-scoped to `PutSecretValue` and `CreateSecret` on `vrdex/vrclinking/*`, with **no
-`GetSecretValue`** — Vercel never reads a delegated key back, and a role that
-could both write and read every tenant's key is a far larger blast radius than
-one that can only replace them. The trust policy pins named subjects
+`POST /api/account/vrclinking-delegation` is the only thing that handles it, in
+three steps:
+
+1. `reserveCredential` authorizes and inserts a `pending` row, which gives the
+   key a name of its own: `vrdex/vrclinking/<guildId>/<credentialId>`.
+2. The key is written to that name in Secrets Manager.
+3. `activateCredential` flips the row to `active` and revokes the delegation it
+   replaces, returning the superseded secret names so the route can retire them.
+
+The order is the point. Nothing existing is touched until the new key is
+provably stored, so a Secrets Manager failure costs an unused reservation rather
+than the community's working delegation — and because names are per credential,
+the write cannot land on top of the key its predecessor is still answering with.
+`activateCredential` is idempotent: a retry after a lost response reports
+success rather than looking like a failure, which is what stops the route from
+retiring a key that had in fact just been installed. The route only deletes a
+stored key when `abandonCredential` confirms it deleted a `pending` row, since
+that is the one state where the key is provably unreachable.
+
+The write needs `VRDEX_VRCLINKING_DELEGATION_ROLE_ARN` and
+`VRDEX_VRCLINKING_SECRET_REGION`, both managed by
+`infra/terraform/vrclinking-adapter/delegation-writer.tf` and applied to
+production and staging on 2026-08-04. The role is Vercel-OIDC, scoped to
+`PutSecretValue`, `CreateSecret` and `DeleteSecret` on the two-segment
+`vrdex/vrclinking/*/*` shape, with **no `GetSecretValue`** — Vercel never reads a
+delegated key back, and a role that could both write and read every tenant's key
+is a far larger blast radius than one that can only replace them. The shape
+excludes `vrdex/vrclinking/shared`, which holds the adapter's own bearer token
+and capability key and sits one segment deep; that secret is additionally denied
+by ARN in the same policy. The trust policy pins named subjects
 (`…:project:vr-dex-web:environment:{production,staging}`) rather than a
 wildcard, so no other project in the team can assume it.
+
+The adapter still accepts the older guild-only reference. Convex deploys
+automatically on merge while the adapter Lambda is deployed by hand, so the two
+are never upgraded in one step and the shapes have to overlap for the length of
+a rollout. Remove that branch once the Lambda is deployed everywhere.
 
 The region is explicit rather than inherited from the ambient `AWS_REGION`,
 which Vercel sets to wherever a function runs. Falling back to it would report
@@ -156,22 +178,22 @@ reports the feature unavailable unless both variables are set.
 
 Constraints enforced in `vrclinkingCredentials.ts`:
 
-- registering requires **both** profile ownership and a current
+- reserving and activating each require **both** profile ownership and a current
   `externalControlProofs` row proving the caller manages that guild, so nobody
   can delegate a key for a server they do not control;
 - each delegation records the single `guildId` it is authorized for, so a key
   that could technically read other guilds is never used to;
-- the reference is **derived** from that guild, never supplied:
-  `registerCredential` takes no `secretRef` argument and computes
-  `secret://vrdex/vrclinking/<guildId>` itself. It was an argument, validated to
-  that single legal value, which made the delegation form ask a community owner
-  for a pointer into a secret store only operators can write — the one value
-  they could enter was the one the system already knew, and every delegation
-  registered that way resolved to nothing. Deriving it also settles the
-  authorization question the validation was standing in for: the adapter
-  resolves whatever it is handed through its own IAM role, so an argument at all
-  meant the owner of one guild could name another tenant's reference and have
-  VRDex spend that tenant's key;
+- the reference is **derived** from the row, never supplied: `reserveCredential`
+  takes no `secretRef` argument and computes
+  `secret://vrdex/vrclinking/<guildId>/<credentialId>` itself. It was an
+  argument, validated to a single legal value, which made the delegation form
+  ask a community owner for a pointer into a secret store only operators can
+  write — the one value they could enter was the one the system already knew,
+  and every delegation registered that way resolved to nothing. Deriving it also
+  settles the authorization question the validation was standing in for: the
+  adapter resolves whatever it is handed through its own IAM role, so an
+  argument at all meant the owner of one guild could name another tenant's
+  reference and have VRDex spend that tenant's key;
 - `secretRef` leaves the table through exactly one internal function,
   the mutation `reserveAdapterDelegations`, consumed by the action that calls
   the adapter and never by a client-facing query. A mutation rather than a query
