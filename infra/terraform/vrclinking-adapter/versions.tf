@@ -18,6 +18,14 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 6.28"
     }
+
+    # Only for the delegated-key write path: the role ARN has to reach the web
+    # project as an environment variable, and hand-setting it there would leave
+    # the one value that decides whether the delegation form works outside IaC.
+    vercel = {
+      source  = "vercel/vercel"
+      version = "~> 4.0"
+    }
   }
 }
 
@@ -28,3 +36,5 @@ provider "aws" {
     tags = local.tags
   }
 }
+
+provider "vercel" {}

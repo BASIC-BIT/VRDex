@@ -137,10 +137,22 @@ asks Convex whether the caller controls that guild, writes the key to
 delegation. The order is deliberate — registering revokes whatever key the
 community had before it, so a failed write after a register would leave them
 worse off than before they tried. The write needs
-`VRDEX_VRCLINKING_DELEGATION_ROLE_ARN`, a Vercel-OIDC role scoped to
-`PutSecretValue`/`CreateSecret` on that prefix and given no read access at all;
-`infra/terraform/vrclinking-adapter/delegation-writer.tf` declares it, and the
-form reports the feature unavailable wherever it is unset.
+`VRDEX_VRCLINKING_DELEGATION_ROLE_ARN` and `VRDEX_VRCLINKING_SECRET_REGION`,
+both managed by `infra/terraform/vrclinking-adapter/delegation-writer.tf` and
+applied to production and staging on 2026-08-04. The role is Vercel-OIDC,
+scoped to `PutSecretValue` and `CreateSecret` on `vrdex/vrclinking/*`, with **no
+`GetSecretValue`** — Vercel never reads a delegated key back, and a role that
+could both write and read every tenant's key is a far larger blast radius than
+one that can only replace them. The trust policy pins named subjects
+(`…:project:vr-dex-web:environment:{production,staging}`) rather than a
+wildcard, so no other project in the team can assume it.
+
+The region is explicit rather than inherited from the ambient `AWS_REGION`,
+which Vercel sets to wherever a function runs. Falling back to it would report
+every deployment as configured and then write keys into whichever region served
+the request — a different store from the one the adapter reads, so the
+delegation would register, report success, and resolve to nothing. The form
+reports the feature unavailable unless both variables are set.
 
 Constraints enforced in `vrclinkingCredentials.ts`:
 

@@ -29,13 +29,18 @@ export function vrclinkingSecretName(guildId: string): string {
   return `${SECRET_NAME_PREFIX}${guildId}`;
 }
 
+/**
+ * Explicit, with no fall back to the ambient `AWS_REGION`.
+ *
+ * Vercel's runtime sets `AWS_REGION` to wherever the function happens to run,
+ * which has nothing to do with where the delegated secrets live. Reading it
+ * would make the store look configured on every deployment and then write each
+ * community's key into whichever region served the request — a different store
+ * from the one the adapter reads, so the delegation would register, report
+ * success, and resolve to nothing.
+ */
 function storeRegion(): string | undefined {
-  const region =
-    process.env.VRDEX_VRCLINKING_SECRET_REGION ??
-    process.env.AWS_REGION ??
-    process.env.AWS_DEFAULT_REGION;
-
-  return region?.trim() || undefined;
+  return process.env.VRDEX_VRCLINKING_SECRET_REGION?.trim() || undefined;
 }
 
 function roleArn(): string | undefined {
@@ -48,9 +53,13 @@ function roleArn(): string | undefined {
  * Checked before the form offers the field rather than after a submit: an
  * environment without the grant can still register a delegation, and an owner
  * who pasted a key into one would be told it was saved while nothing had it.
+ *
+ * Both halves, because either alone is a deployment that fails at the write: a
+ * region with no role cannot assume anything, and a role with no region has
+ * nowhere to put the key.
  */
 export function isVrclinkingSecretStoreConfigured(): boolean {
-  return storeRegion() !== undefined;
+  return storeRegion() !== undefined && roleArn() !== undefined;
 }
 
 function secretsClient(): SecretsManagerClient {
