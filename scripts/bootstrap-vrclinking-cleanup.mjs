@@ -1,0 +1,126 @@
+#!/usr/bin/env node
+/**
+ * Provisions the paired variables the delegated-key cleanup sweep needs.
+ *
+ * The sweep is the only cleanup path that is not driven by a request, so it is
+ * what retires a key written by a POST that died after a revoke had already
+ * cancelled its reservation. Its variables were dashboard-only, which meant a
+ * deployment could enable the delegation form, run the cron daily, and have it
+ * report `configured: false` forever while keys accumulated — visible nowhere.
+ *
+ * Three values, one secret shared across two providers:
+ *
+ *   Convex  VRCLINKING_CLEANUP_URL     where to post obligations
+ *   Convex  VRCLINKING_CLEANUP_TOKEN   the shared bearer
+ *   Vercel  VRCLINKING_CLEANUP_TOKEN   the same bearer, to check against
+ *
+ * Generated rather than chosen, and printed nowhere: the token goes straight
+ * from `randomBytes` into both providers. Rerunning rotates it, and rotating is
+ * safe in either order — a mismatched pair fails closed, costing one sweep.
+ *
+ * Usage:
+ *   node scripts/bootstrap-vrclinking-cleanup.mjs --target prod --site-url https://vrdex.net
+ */
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { pathToFileURL } from "node:url";
+
+export const VRCLINKING_CLEANUP_VARIABLE_NAMES = Object.freeze([
+  "VRCLINKING_CLEANUP_URL",
+  "VRCLINKING_CLEANUP_TOKEN",
+]);
+
+/** The route the cron posts to. Derived, so the two halves cannot disagree. */
+export function cleanupUrlFor(siteUrl) {
+  const origin = new URL(siteUrl).origin;
+
+  return `${origin}/api/account/vrclinking-delegation/sweep`;
+}
+
+export function parseArgs(argv) {
+  const options = { target: "", siteUrl: "", vercelEnvironment: "production" };
+
+  for (let index = 0; index < argv.length; index += 1) {
+    switch (argv[index]) {
+      case "--target":
+        options.target = argv[index + 1] ?? "";
+        index += 1;
+        break;
+      case "--site-url":
+        options.siteUrl = argv[index + 1] ?? "";
+        index += 1;
+        break;
+      case "--vercel-environment":
+        options.vercelEnvironment = argv[index + 1] ?? "";
+        index += 1;
+        break;
+      default:
+        throw new Error(`Unknown option: ${argv[index]}`);
+    }
+  }
+
+  assert.ok(
+    ["local", "dev", "prod"].includes(options.target),
+    "--target must be one of local, dev, prod.",
+  );
+  assert.ok(options.siteUrl, "--site-url is required, and must be the deployment's public origin.");
+
+  return options;
+}
+
+function run(command, args, label) {
+  // `stdio: "inherit"` deliberately excluded for the value-bearing calls: these
+  // arguments carry the shared secret, and inheriting stdout is how it would end
+  // up in a CI log.
+  const result = spawnSync(command, args, { encoding: "utf8", shell: false });
+
+  assert.equal(result.status, 0, `${label} failed: ${result.stderr?.trim() || result.stdout?.trim()}`);
+}
+
+function main() {
+  const options = parseArgs(process.argv.slice(2));
+  const token = randomBytes(32).toString("hex");
+  const cleanupUrl = cleanupUrlFor(options.siteUrl);
+
+  run(
+    "pnpm",
+    ["cx", options.target, "env", "set", "VRCLINKING_CLEANUP_URL", cleanupUrl],
+    "Setting VRCLINKING_CLEANUP_URL in Convex",
+  );
+  run(
+    "pnpm",
+    ["cx", options.target, "env", "set", "VRCLINKING_CLEANUP_TOKEN", token],
+    "Setting VRCLINKING_CLEANUP_TOKEN in Convex",
+  );
+
+  // Vercel reads the value from stdin so it never becomes a process argument,
+  // which `ps` and shell history both expose.
+  const vercel = spawnSync(
+    "npx",
+    [
+      "--yes",
+      "vercel@latest",
+      "env",
+      "add",
+      "VRCLINKING_CLEANUP_TOKEN",
+      options.vercelEnvironment,
+      "--force",
+    ],
+    { input: token, encoding: "utf8", shell: false },
+  );
+
+  assert.equal(
+    vercel.status,
+    0,
+    `Setting VRCLINKING_CLEANUP_TOKEN in Vercel failed: ${vercel.stderr?.trim()}`,
+  );
+
+  console.log(
+    `Cleanup sweep configured for ${options.target}. Convex posts obligations to ${cleanupUrl}.`,
+  );
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+  main();
+}

@@ -2067,6 +2067,10 @@ export default defineSchema({
     .index("by_communityProfileId_state", ["communityProfileId", "state"])
     .index("by_guildId_state", ["guildId", "state"])
     .index("by_state_lastRotatedAt", ["state", "lastRotatedAt"])
+    // Selects the cleanup predicate rather than filtering after a scan cap.
+    // Capping first meant retired history at the head of another index could
+    // starve the sweep forever while unretired rows behind it kept their keys.
+    .index("by_secretRetiredAt_createdAt", ["secretRetiredAt", "createdAt"])
     .index("by_delegatedByUserId", ["delegatedByUserId"]),
   // Short-lived CSRF state for the purpose-scoped Discord guild-verification
   // OAuth round-trip. Stored server-side rather than in a cookie so the flow

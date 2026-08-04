@@ -187,10 +187,19 @@ cannot reach the secret store.
 It needs two Convex variables and one Vercel variable, and is inert without
 them — which is where every deployment that has never delegated a key sits:
 
-- `VRCLINKING_CLEANUP_URL` and `VRCLINKING_CLEANUP_TOKEN` in Convex.
-- `VRCLINKING_CLEANUP_TOKEN` on the web project, the same value. The route fails
-  closed on an unset token rather than reading "none configured" as "none
-  required".
+```bash
+pnpm ops:bootstrap-vrclinking-cleanup -- --target prod --site-url https://vrdex.net
+```
+
+That generates the shared bearer, sets both Convex variables and the matching
+Vercel one, and prints none of them. Rerunning rotates the token, and rotating is
+safe in either order: a mismatched pair fails closed, costing one sweep. The
+route also fails closed on an unset token rather than reading "none configured"
+as "none required".
+
+Provisioned by script rather than by hand because the failure is invisible: a
+deployment can enable the delegation form, run the cron daily, and have it report
+`configured: false` forever while keys accumulate.
 
 A cancelled reservation is deliberately *not* retirable while it is younger than
 the reservation TTL. Deleting a key that does not exist yet succeeds, so a revoke

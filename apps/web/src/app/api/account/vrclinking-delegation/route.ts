@@ -9,7 +9,7 @@ import {
   isUnauthenticatedError,
   unauthenticatedResponse,
 } from "@/lib/server/auth";
-import { convexAdminHttpClient, convexHttpClient } from "@/lib/server/convex-http";
+import { convexHttpClient, optionalConvexAdminHttpClient } from "@/lib/server/convex-http";
 import {
   isVrclinkingSecretStoreConfigured,
   putVrclinkingDelegationKey,
@@ -187,10 +187,11 @@ export async function POST(request: Request) {
     const abandoned: { abandoned: boolean; missing?: boolean; secretName?: string | null } =
       await convex
         .mutation(api.vrclinkingCredentials.abandonCredential, { profileSlug, credentialId })
-        .catch(() =>
-          convexAdminHttpClient()
-            .mutation(internal.vrclinkingCredentials.abandonCredentialAsServer, { credentialId })
-            .catch(() => ({ abandoned: false, missing: false })),
+        .catch(
+          async () =>
+            (await optionalConvexAdminHttpClient()
+              ?.mutation(internal.vrclinkingCredentials.abandonCredentialAsServer, { credentialId })
+              .catch(() => undefined)) ?? { abandoned: false, missing: false },
         );
 
     // A revoke can race this request: it cancels the reservation, retires the
@@ -232,8 +233,8 @@ export async function POST(request: Request) {
           credentialIds: [credentialId],
         })
         .catch(() =>
-          convexAdminHttpClient()
-            .mutation(internal.vrclinkingCredentials.confirmSecretsRetiredAsServer, {
+          optionalConvexAdminHttpClient()
+            ?.mutation(internal.vrclinkingCredentials.confirmSecretsRetiredAsServer, {
               credentialIds: [credentialId],
             })
             .catch(() => undefined),

@@ -46,6 +46,23 @@ function convexAdminToken() {
   return token;
 }
 
+/**
+ * The admin client, or null where no server credential is configured.
+ *
+ * `convexAdminHttpClient` throws on construction, which is right for a caller
+ * that cannot proceed without it — but wrong for a fallback: the throw escapes
+ * before any `.catch()` attached to the call, so a deployment missing the
+ * credential lost the cleanup entirely instead of degrading. Callers that have
+ * something else to try should ask for it this way.
+ */
+export function optionalConvexAdminHttpClient() {
+  try {
+    return convexAdminHttpClient();
+  } catch {
+    return null;
+  }
+}
+
 export function convexAdminHttpClient() {
   const client = convexHttpClient() as ConvexHttpClientWithAdminAuth;
 

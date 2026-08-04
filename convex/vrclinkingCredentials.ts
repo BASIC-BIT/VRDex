@@ -669,37 +669,77 @@ export const confirmSecretsRetiredAsServer = internalMutation({
 
 
 /**
- * Cleanup obligations nobody is coming back for.
+ * Claim and report every cleanup obligation nobody is coming back for.
  *
- * Every other path is driven by a request: a reservation sweeps its own guild, a
- * revoke settles what it cancels. None of that runs for an owner who revoked and
- * never touched delegations again — and the one case that matters is exactly
- * that shape, a key written by a POST that died after a revoke had already
- * cancelled its reservation. Left alone it stays in the store indefinitely.
+ * A mutation, not a query, because claiming and selecting have to be one
+ * transaction: an expired reservation is moved out of `pending` before its name
+ * is handed out, exactly as `reserveCredential` does, so a writer that surfaces
+ * afterwards cannot activate the row whose key is being deleted.
  *
- * Bounded, because this is a sweep and not a migration: a backlog drains over
- * several runs rather than in one long action.
+ * Covers three populations, which earlier versions each missed one of:
+ *
+ * - expired reservations whose POST died after writing the key;
+ * - cancelled reservations past their writer window;
+ * - genuine revocations and replacements whose `DeleteSecret` failed transiently,
+ *   which are otherwise retried only if the owner touches that guild again.
+ *
+ * Selected through `by_secretRetiredAt_createdAt`, so the scan cap applies to
+ * rows that are actually obligations. Capping a broader scan first let retired
+ * history at the head of the index starve the sweep indefinitely.
  */
-export const listOverdueSecretCleanups = internalQuery({
+export const claimOverdueSecretCleanups = internalMutation({
   args: {},
   handler: async (ctx) => {
     const now = Date.now();
-    const rows = await ctx.db
+    const unretired = await ctx.db
       .query("communityVrclinkingCredentials")
-      .withIndex("by_state_lastRotatedAt", (q) => q.eq("state", "revoked"))
+      .withIndex("by_secretRetiredAt_createdAt", (q) => q.eq("secretRetiredAt", undefined))
       .take(OVERDUE_CLEANUP_SCAN_LIMIT);
+    const overdue = unretired.filter(
+      (row) =>
+        row.state !== "active" &&
+        row.createdAt + PENDING_DELEGATION_TTL_MS <= now &&
+        !writerMayStillBeRunning(row, now),
+    );
 
-    return rows
-      .filter(
-        (row) =>
-          row.secretRetiredAt === undefined &&
-          row.revokedReason === ABANDONED_RESERVATION_REASON &&
-          !writerMayStillBeRunning(row, now),
-      )
-      .map((row) => ({
-        credentialId: row._id,
-        secretName: vrclinkingSecretNameForRow(row),
-      }));
+    // Claimed before their names go anywhere.
+    await Promise.all(
+      overdue
+        .filter((row) => row.state === "pending")
+        .map((row) =>
+          ctx.db.patch(row._id, {
+            state: "revoked",
+            revokedAt: now,
+            revokedReason: ABANDONED_RESERVATION_REASON,
+            updatedAt: now,
+          }),
+        ),
+    );
+
+    // Grouped by guild so the legacy-name liveness guard sees every row that
+    // could still be resolving through a shared guild-scoped name.
+    const byGuild = new Map<string, Doc<"communityVrclinkingCredentials">[]>();
+
+    for (const row of overdue) {
+      byGuild.set(row.guildId, [...(byGuild.get(row.guildId) ?? []), row]);
+    }
+
+    const obligations: { credentialId: Id<"communityVrclinkingCredentials">; secretName: string }[] =
+      [];
+
+    for (const [guildId, rows] of byGuild) {
+      const retirable = new Set(await retirableSecretNames(ctx, guildId, rows));
+
+      for (const row of rows) {
+        const secretName = vrclinkingSecretNameForRow(row);
+
+        if (retirable.has(secretName)) {
+          obligations.push({ credentialId: row._id, secretName });
+        }
+      }
+    }
+
+    return obligations;
   },
 });
 
@@ -720,25 +760,25 @@ export const sweepAbandonedDelegationKeys = internalAction({
       return { swept: 0, configured: false };
     }
 
-    const overdue = (await ctx.runQuery(
-      internal.vrclinkingCredentials.listOverdueSecretCleanups,
+    const obligations = (await ctx.runMutation(
+      internal.vrclinkingCredentials.claimOverdueSecretCleanups,
       {},
     )) as { credentialId: string; secretName: string }[];
 
-    if (overdue.length === 0) {
+    if (obligations.length === 0) {
       return { swept: 0, configured: true };
     }
 
     const response = await boundedFetch(requireSecureOutboundUrl(url, "cleanup_url"), {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-      body: JSON.stringify({ obligations: overdue }),
+      body: JSON.stringify({ obligations }),
     });
 
     // Left for the next run rather than reported: a sweep has no caller waiting
-    // on it, and the rows are exactly the durable retry handle this exists to
-    // preserve.
-    return { swept: response.ok ? overdue.length : 0, configured: true };
+    // on it, and the rows stay unretired, which is the durable retry handle this
+    // exists to preserve.
+    return { swept: response.ok ? obligations.length : 0, configured: true };
   },
 });
 
