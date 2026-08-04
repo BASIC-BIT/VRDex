@@ -154,21 +154,47 @@ no screenshot coverage. `account-surfaces.visual.spec.ts` captures `/account`,
 `/account/privacy`, and `/developers/tokens` after signing in with a disposable
 Clerk account.
 
-It is tagged `@visual` **and** `@flow`, which is what places it. `pnpm
-test:e2e:visual` runs against local servers, and a local Convex deployment pins
-`clerk-issuer.invalid` so it trusts no Clerk instance — sign-in cannot succeed
-there. The suite therefore skips locally and runs only in `Playwright Hosted Data
-Flow`, which supplies `PLAYWRIGHT_BASE_URL`, `PLAYWRIGHT_SKIP_WEBSERVERS`, and
-the staging Clerk keys. It needs no new repository settings.
+It is tagged `@visual`, `@flow` **and** `@account-visual`, which is what places
+it. `pnpm test:e2e:visual` runs against local servers, and a local Convex
+deployment pins `clerk-issuer.invalid` so it trusts no Clerk instance — sign-in
+cannot succeed there, and the suite skips.
 
-Two switches gate it, and both skip rather than fail:
+**`pnpm test:e2e:hosted` does not run it.** That command excludes
+`@account-visual`, because this is the one suite that needs both projects — the
+account surfaces have a distinct mobile layout, and the hosted command pins
+`--project=desktop-chromium`. Its own command runs both:
 
-- `VRDEX_HOSTED_E2E_CLERK_AUTH`, the same flag the other auth-backed specs use.
-- `VRDEX_HOSTED_E2E_AUTH_HELPERS`. With the helpers off, `DELETE /api/e2e/auth`
-  answers 403 and `cleanupClerkTestAccountData` does not inspect the response, so
-  the teardown would look successful while every run left a `users` row keyed to
-  a deleted Clerk identity. Without a working teardown these tests should not
-  create accounts at all.
+```sh
+pnpm test:e2e:hosted:account-visual
+```
+
+It needs `PLAYWRIGHT_BASE_URL`, `PLAYWRIGHT_SKIP_WEBSERVERS=true`,
+`VRDEX_E2E_BROWSER_TOKEN`, `VRDEX_ENABLE_E2E_AUTH_HELPERS`,
+`VRDEX_ENABLE_E2E_CLERK_AUTH`, and the staging Clerk pair
+(`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`) — a development
+instance, since `clerkSetup()` refuses a production secret key. It needs no new
+repository settings; CI already holds all of them.
+
+CI runs it twice, for different reasons. `Playwright Hosted Data Flow` runs it
+per PR, against staging, which serves `main` — so it catches a spec that cannot
+sign in or tears down badly, but cannot vouch for how the PR's own UI renders.
+`Staging Deploy` runs it after deployment, where staging holds the merged commit,
+which is the run that actually photographs the revision under test.
+
+Two switches gate it, and **they do not behave the same way**:
+
+- `VRDEX_HOSTED_E2E_CLERK_AUTH` skips. It is the rollout switch: unset, the suite
+  produces no coverage and says so. Both CI steps are additionally gated on it,
+  so the step reports `skipped` rather than a `success` that photographed
+  nothing.
+- `VRDEX_HOSTED_E2E_AUTH_HELPERS` **fails** on a hosted target. Deliberately:
+  `clerkTestAuthAvailability()` throws when Clerk auth is on and the helpers are
+  off, because that combination is a request for auth coverage against a target
+  that cannot provide it. With the helpers off, `DELETE /api/e2e/auth` answers
+  403, so the teardown would look successful while every run left a `users` row
+  keyed to a deleted Clerk identity. That is a misconfiguration to surface, not
+  a state to skip over — and the throw happens at module load, before any
+  `test.skip` could run.
 
 Assertions name signed-in-only elements exactly — "Personal tokens", "No owned
 profiles yet" — and assert the signed-out headings are *absent*. Loose matchers

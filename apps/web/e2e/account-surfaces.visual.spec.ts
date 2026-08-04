@@ -5,6 +5,7 @@ import {
   clerkTestAuthAvailability,
   createClerkTestAccount,
   deleteClerkTestAccount,
+  deleteClerkTestAccountByEmail,
   signInClerkTestAccount,
   type ClerkTestAccount,
 } from "./clerk-auth";
@@ -118,6 +119,11 @@ test.skip(
 test.describe("account surfaces @visual @flow @account-visual", () => {
   let account: ClerkTestAccount | undefined;
 
+  // Set before the creation request, so it survives the case `account` cannot:
+  // Clerk committing the POST and the response never arriving. `account` stays
+  // undefined there while a real user exists, and this is the only handle on it.
+  let reservedEmail: string | undefined;
+
   let authenticated = false;
 
   test.beforeEach(async ({ page }, testInfo) => {
@@ -137,6 +143,7 @@ test.describe("account surfaces @visual @flow @account-visual", () => {
     await prepareVisualPage(page, { freezeClock: false });
 
     authenticated = false;
+    reservedEmail = undefined;
 
     // Matches the hosted flow specs. The default 30s covers this hook *and* the
     // test body, while `signInClerkTestAccount` alone allows a 15s Clerk load
@@ -147,6 +154,11 @@ test.describe("account surfaces @visual @flow @account-visual", () => {
 
     account = await createClerkTestAccount(
       `${testInfo.workerIndex}-${testInfo.repeatEachIndex}-${Date.now()}`,
+      {
+        onEmailReserved: (email) => {
+          reservedEmail = email;
+        },
+      },
     );
     await signInClerkTestAccount(page, account, {
       onAuthenticated: () => {
@@ -203,9 +215,17 @@ test.describe("account surfaces @visual @flow @account-visual", () => {
     // the same deployment" rather than closing it, which no client-side action
     // can do. Still deleting at the cap is a failure, not a shrug — something is
     // actively recreating the row and the Clerk identity must be kept.
-    const target = account;
+    // Falls back to the reserved email when creation never returned an id.
+    // `createClerkTestAccount` throws if the response is lost, but Clerk may have
+    // committed the user anyway — so without this the teardown has nothing to
+    // work with and every retry strands another disposable account. The email is
+    // all the Convex route resolves by, and `deleteClerkTestAccountByEmail`
+    // covers the Clerk side by lookup.
+    const created = account;
+    const target = created ?? (reservedEmail ? { email: reservedEmail } : undefined);
 
     account = undefined;
+    reservedEmail = undefined;
 
     let lastCleanup: Awaited<ReturnType<typeof cleanupClerkTestAccountData>>;
     let cleaned = false;
@@ -257,7 +277,17 @@ test.describe("account surfaces @visual @flow @account-visual", () => {
     // `cleaned` there kept the Clerk user on every attempt, which is a plain leak
     // rather than a recoverable pair: absence is confirmed, not raced.
     const rowSettled = authenticated ? cleaned && drained : drained;
-    const clerkDeletion = rowSettled ? await deleteClerkTestAccount(target) : undefined;
+
+    // Two deletion paths, because a lost creation response leaves no user id.
+    // With one, delete by id — cheapest and exact. Without one, look the email up
+    // and delete whatever Clerk actually holds for it, which is the only way to
+    // reach a user this run created but never learned the id of.
+    const clerkDeletion =
+      rowSettled && created !== undefined ? await deleteClerkTestAccount(created) : undefined;
+    const clerkRecovery =
+      rowSettled && created === undefined && target !== undefined
+        ? await deleteClerkTestAccountByEmail(target.email)
+        : undefined;
 
     const email = target?.email;
 
@@ -268,8 +298,16 @@ test.describe("account surfaces @visual @flow @account-visual", () => {
     // `cleaned` is true, so the request was definitely attempted.
     //
     // 404 is success: the user being absent is the state this is trying to reach.
+    //
+    // On the recovery path `checked` is the equivalent claim — the lookup
+    // succeeded and every user it returned was deleted. `deleted: 0` alongside it
+    // is the ordinary answer when the creation request never landed at all, and
+    // is not a failure; `checked: false` means the lookup itself did not
+    // complete, so nothing can be concluded.
     const clerkDeleted =
-      clerkDeletion !== undefined && (clerkDeletion.ok || clerkDeletion.status === 404);
+      created !== undefined
+        ? clerkDeletion !== undefined && (clerkDeletion.ok || clerkDeletion.status === 404)
+        : clerkRecovery?.checked === true;
 
     // `!cleaned` is only a failure when the account reached an authenticated
     // page, since that is the only case where a row should exist. A sign-in that
@@ -281,7 +319,11 @@ test.describe("account surfaces @visual @flow @account-visual", () => {
         ? `Convex cleanup did not delete a row for ${email} (HTTP ${lastCleanup?.status()}) even though sign-in completed. The Clerk user was kept rather than orphaning a row that may still land.`
         : !clerkDeleted
           ? `Clerk did not confirm deletion of ${email} (${
-              clerkDeletion ? `HTTP ${clerkDeletion.status}` : "no response"
+              created === undefined
+                ? "creation returned no id and the recovery lookup did not complete"
+                : clerkDeletion
+                  ? `HTTP ${clerkDeletion.status}`
+                  : "no response"
             }). A disposable user is left in the staging tenant.`
           : undefined;
 

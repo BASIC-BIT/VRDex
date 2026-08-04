@@ -239,10 +239,22 @@ export async function hostedHelperLagReason(
  * guard reads that claim, so a user created any other way fails claiming with
  * `EMAIL_NOT_VERIFIED` rather than anything that names the real cause.
  */
-export async function createClerkTestAccount(runSuffix: string): Promise<ClerkTestAccount> {
+export async function createClerkTestAccount(
+  runSuffix: string,
+  options?: { onEmailReserved?: (email: string) => void },
+): Promise<ClerkTestAccount> {
   await ensureClerkSetup();
 
   const email = clerkTestEmail(runSuffix);
+
+  // Handed to the caller *before* the request, because the failure this covers
+  // is one where the account exists and this function still throws: Clerk can
+  // commit the POST and the connection reset or time out before the response
+  // arrives. There is then a real user with no id here to delete it by. The
+  // email is deterministic and known already, so it is the one recovery handle
+  // that survives — see `deleteClerkTestAccountByEmail`.
+  options?.onEmailReserved?.(email);
+
   const response = await clerkBackendRequest("/v1/users", {
     method: "POST",
     body: JSON.stringify({
@@ -373,7 +385,10 @@ export async function deleteClerkTestAccount(account: ClerkTestAccount | undefin
 export async function cleanupClerkTestAccountData(
   request: APIRequestContext,
   e2eToken: string,
-  account: ClerkTestAccount | undefined,
+  // Only the email, because that is all the route resolves by — and it lets a
+  // teardown recovering from a lost creation response call this with the
+  // reserved email alone, having never received a `clerkUserId`.
+  account: Pick<ClerkTestAccount, "email"> | undefined,
 ) {
   if (!account) {
     return;
@@ -393,4 +408,64 @@ export async function cleanupClerkTestAccountData(
     headers: { "x-vrdex-e2e-token": e2eToken },
     data: { email: account.email },
   });
+}
+
+/**
+ * Deletes any Clerk user holding this email, for when no user id was ever
+ * returned.
+ *
+ * `createClerkTestAccount` throws if the creation response never arrives, but
+ * Clerk may well have committed the user — so a plain retry leaves one
+ * disposable account behind per attempt, with nothing holding its id. The email
+ * is reserved before the request precisely so this can find it.
+ *
+ * Returns how many users it deleted. `0` is the ordinary answer when the request
+ * genuinely never landed, and is not a failure.
+ *
+ * Never throws, for the same reason `deleteClerkTestAccount` does not: this runs
+ * from teardown, where masking the failure that got us there would be worse than
+ * leaking one account.
+ */
+export async function deleteClerkTestAccountByEmail(email: string | undefined) {
+  if (!email || !secretKey()) {
+    return { deleted: 0, checked: false };
+  }
+
+  try {
+    const found = await clerkBackendRequest(
+      `/v1/users?email_address=${encodeURIComponent(email)}`,
+      { method: "GET" },
+    );
+
+    if (!found.ok) {
+      console.warn(`Clerk lookup for ${email} failed: ${found.status}`);
+      return { deleted: 0, checked: false };
+    }
+
+    // Clerk returns a bare array here, not a paginated envelope.
+    const users = (await found.json()) as Array<{ id?: unknown }>;
+    let deleted = 0;
+
+    for (const user of Array.isArray(users) ? users : []) {
+      if (typeof user.id !== "string" || user.id === "") {
+        continue;
+      }
+
+      const response = await clerkBackendRequest(`/v1/users/${encodeURIComponent(user.id)}`, {
+        method: "DELETE",
+      });
+
+      // 404 counts: the goal is the user being absent.
+      if (response.ok || response.status === 404) {
+        deleted += 1;
+      } else {
+        console.warn(`Clerk refused to delete recovered user ${user.id}: ${response.status}`);
+      }
+    }
+
+    return { deleted, checked: true };
+  } catch (error) {
+    console.warn(`Failed to recover Clerk test user for ${email}:`, error);
+    return { deleted: 0, checked: false };
+  }
 }

@@ -551,8 +551,18 @@ jobs:
       # failure #213 fixed for the staging deploy, arriving here by the same route.
       # The uploaded artifact would show only this step, under a name that says
       # hosted data-flow.
+      # Gated on the Clerk flag like the auth-session contract step, and for the
+      # same reason. With the flag unset — the documented rollout default — every
+      # test in the suite skips, Playwright exits 0, and the step outcome is
+      # `success`: a summary line reading "Signed-in account captures: success"
+      # over zero screenshots, which is the green-over-no-coverage ambiguity this
+      # summary exists to remove. Gated, the outcome is `skipped` and says so.
+      #
+      # Only the flag needs this. Enabled-but-unusable already fails loudly —
+      # `clerkTestAuthAvailability` throws on missing keys and on auth helpers
+      # being off for a hosted target, rather than skipping.
       - name: Capture signed-in account screenshots
-        if: always() && steps.gate.outputs.enabled == 'true'
+        if: always() && steps.gate.outputs.enabled == 'true' && vars.VRDEX_HOSTED_E2E_CLERK_AUTH == 'true'
         id: account-visual
         env:
           PLAYWRIGHT_OUTPUT_DIR: test-results-account-visual
