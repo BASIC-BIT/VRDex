@@ -250,7 +250,14 @@ function ConnectedProfileWorkspace({
     profiles[0];
   const visibleTabs = TABS.filter((entry) => entry.key !== "media-kit" || mediaKitEnabled);
   const activeHref = active === undefined ? null : TABS.find((entry) => entry.key === tab)!.href(active);
-  const identified = activeProfileId !== undefined || activeSlug !== undefined;
+  // Whether the URL names the profile actually being edited — not merely whether
+  // it names *something*. A selector for a profile that is no longer owned falls
+  // back here while each panel ignores it and keeps its own selection, so the
+  // header said one profile and Save would have hit another. Canonicalizing on
+  // resolution rather than on presence covers both that and the bare URL.
+  const identified =
+    active !== undefined &&
+    (activeProfileId === active.profileId || activeSlug === active.slug);
 
   // A bare `/account/privacy` resolves to the first owned profile, and that
   // resolution lived only in this component. Switching to another profile and

@@ -343,11 +343,20 @@ export const activateCredential = mutation({
     // would schedule deletion of an object that does not exist while leaving the
     // real provider key in the store.
     //
-    // A legacy name is shared by every pre-naming row for that guild, so it is
-    // only safe to retire once no live row still resolves through it. The
-    // per-credential names have no such question — nothing else can name them.
+    // A legacy name is shared by every pre-naming row for that *guild*, across
+    // profiles — so the liveness check has to span the guild too. Scoping it to
+    // this profile could not see another profile's legacy row, and retiring the
+    // shared name would have broken that profile's working delegation: at once
+    // with the file backend, or when the AWS recovery window closed.
+    //
+    // The per-credential names carry no such question; nothing else can name
+    // them.
+    const guildActive = await ctx.db
+      .query("communityVrclinkingCredentials")
+      .withIndex("by_guildId_state", (q) => q.eq("guildId", pending.guildId).eq("state", "active"))
+      .collect();
     const stillLive = new Set(
-      active
+      guildActive
         .filter((row) => !superseded.some((retired) => retired._id === row._id))
         .map((row) => vrclinkingSecretNameForRow(row)),
     );
