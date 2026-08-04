@@ -3,7 +3,15 @@
 import { useQuery } from "convex/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { createContext, useContext, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import { api } from "@convex-generated-api";
 import { Select } from "@/components/ui/field";
@@ -207,6 +215,20 @@ function ConnectedProfileWorkspace({
     profiles.find((profile) => profile.slug === activeSlug) ??
     profiles[0];
   const visibleTabs = TABS.filter((entry) => entry.key !== "media-kit" || mediaKitEnabled);
+  const activeHref = active === undefined ? null : TABS.find((entry) => entry.key === tab)!.href(active);
+  const identified = activeProfileId !== undefined || activeSlug !== undefined;
+
+  // A bare `/account/privacy` resolves to the first owned profile, and that
+  // resolution lived only in this component. Switching to another profile and
+  // pressing Back returned to the bare URL, where the header fell back to the
+  // first profile again while the panel below kept the one it had — the page
+  // then named one subject and saved to another. Writing the resolution into the
+  // URL gives both the same answer and gives history something to return to.
+  useEffect(() => {
+    if (!identified && activeHref !== null) {
+      router.replace(activeHref);
+    }
+  }, [activeHref, identified, router]);
 
   // A header that names no profile is worse than no header: it sits above a
   // panel that *has* resolved one and contradicts it, and its tabs all lead

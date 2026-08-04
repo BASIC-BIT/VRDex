@@ -21,7 +21,7 @@ export const dynamic = "force-dynamic";
 // place to post a payload. The value is never echoed back.
 const MAX_API_KEY_LENGTH = 4096;
 
-function problem(status: 400 | 401 | 403 | 500 | 503, title: string, detail: string) {
+function problem(status: 400 | 401 | 403 | 429 | 500 | 503, title: string, detail: string) {
   return apiProblemResponse({ type: "about:blank", title, status, detail });
 }
 
@@ -107,11 +107,24 @@ export async function POST(request: Request) {
     // owner that they lack a control proof whenever Convex was merely
     // unreachable, and sent them off to re-verify Discord for a problem
     // re-verifying cannot fix.
-    if (claimErrorCode(error) === null) {
+    const code = claimErrorCode(error);
+
+    if (code === null) {
       return problem(
         503,
         "Delegation is unavailable",
         "VRDex could not reach its backend. Nothing changed; try again shortly.",
+      );
+    }
+
+    // A time-based limit, not an authorization refusal. Re-verifying Discord
+    // cannot clear it, so sending the owner off to do that is the one piece of
+    // advice guaranteed not to work.
+    if (code === "TOO_MANY_OPEN_PROOFS") {
+      return problem(
+        429,
+        "Too many key changes",
+        "That server's key has been replaced several times just now. Wait a few minutes and try again.",
       );
     }
 
@@ -142,7 +155,7 @@ export async function POST(request: Request) {
 
   if (forgettable.length > 0) {
     await convex
-      .mutation(api.vrclinkingCredentials.forgetAbandonedCredentials, {
+      .mutation(api.vrclinkingCredentials.confirmSecretsRetired, {
         profileSlug,
         credentialIds: forgettable,
       })
@@ -263,7 +276,7 @@ export async function DELETE(request: Request) {
 
   convex.setAuth(authToken);
 
-  let result: { revoked: boolean; secretName: string | null };
+  let result: { revoked: boolean; secretName: string | null; credentialId: string | null };
 
   try {
     result = await convex.mutation(api.vrclinkingCredentials.revokeCredential, {
@@ -286,11 +299,27 @@ export async function DELETE(request: Request) {
     return problem(403, "Revoke not allowed", "You do not manage that profile.");
   }
 
-  // The row is revoked either way; failing to retire the key is worth neither
-  // reversing that nor reporting over it, since the delegation is already
-  // inert. A deployment with no store configured simply has no key to retire.
-  if (result.secretName !== null && isVrclinkingSecretStoreConfigured()) {
-    await scheduleVrclinkingDelegationKeyDeletion(result.secretName).catch(() => undefined);
+  // The row is revoked either way — the delegation is inert the moment it is,
+  // and reversing an intended revocation because cleanup failed would be worse.
+  // But the obligation is *kept*: Convex marks the row retired only on
+  // confirmation, and an unconfirmed one is reported again by the next
+  // reservation for that guild. Revoking makes the row invisible to this path,
+  // which looks for an active row, so without that the owner's live key would
+  // stay in the store with no retry anywhere.
+  if (result.credentialId !== null && result.secretName !== null && isVrclinkingSecretStoreConfigured()) {
+    const retired = await scheduleVrclinkingDelegationKeyDeletion(result.secretName).then(
+      () => true,
+      () => false,
+    );
+
+    if (retired) {
+      await convex
+        .mutation(api.vrclinkingCredentials.confirmSecretsRetired, {
+          profileSlug,
+          credentialIds: [result.credentialId as Id<"communityVrclinkingCredentials">],
+        })
+        .catch(() => undefined);
+    }
   }
 
   return Response.json(result, { headers: { "cache-control": "private, no-store" } });

@@ -555,6 +555,14 @@ function MediaKitEditor({
     uploadRequestRef.current += 1;
     generationRequestRef.current += 1;
     setGeneratingUpload(false);
+    // Cleared here, not left to the in-flight request. Bumping the refs is what
+    // abandons that request, and its `finally` deliberately skips
+    // `setUploading(false)` once the refs no longer match — so whoever switches
+    // owns resetting the flag. The switcher is disabled while busy, but the Back
+    // button is not: history navigation reaches the URL-sync effect directly and
+    // would otherwise leave the profile it lands on showing an upload that can
+    // never finish.
+    setUploading(false);
     setSelectedId(profileId);
     setPendingFile(null);
     setPreparedUpload(null);

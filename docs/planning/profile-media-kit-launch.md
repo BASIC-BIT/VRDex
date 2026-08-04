@@ -69,7 +69,7 @@ Current recommendation:
 | Journey or control | Verified current capability | Launch gap or disposition |
 | --- | --- | --- |
 | Eligibility | `profileOwners` and claimed-profile checks exist for API uploads | Add browser mutations that use the same owner check |
-| Entry points | Account lists owned profiles; public profiles render media-kit logos | Add Account and owned-profile media-kit links |
+| Entry points | Account lists owned profiles; each row has an **Edit** action into the profile workspace, whose tabs include Media kit; public profiles render media-kit logos | Done. The workspace is the entry point — there is deliberately no standalone Media kit link, because picking the surface before the profile is the inversion it removed |
 | Upload | One-time Convex intents, token-gated web upload, private S3 writes, and HTTPS import exist | Use direct-to-quarantine upload with progress for source files that must not cross hosted request-body limits |
 | File safety | Request byte bounds, MIME allowlist, SSRF-resistant imports, private bucket, and `nosniff` reads exist | Verify magic/content, re-encode rasters, strip EXIF, bound dimensions, restrict SVG |
 | Metadata | Title, caption, accessibility description, and credit name exist | Add optional safe HTTP(S) credit link and upload/edit parity |
@@ -91,8 +91,11 @@ Current recommendation:
 
 ## Complete Journey Map
 
-1. The owner opens **Media kit** from Account or an owned profile row.
-2. They choose a claimed person or community profile.
+1. The owner picks a profile on Account and presses **Edit**, landing in the
+   profile workspace for that profile.
+2. They open the **Media kit** tab. The subject was chosen in step 1 and is
+   carried across the workspace tabs, so the editor never asks again — the
+   switcher in the workspace header changes it for every tab at once.
 3. The editor lists gallery assets in public order, other quota-consuming
    public assets in a compact management section, and recoverable removed
    assets separately.

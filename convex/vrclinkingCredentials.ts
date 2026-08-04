@@ -176,7 +176,20 @@ export const reserveCredential = mutation({
         )
         .collect()
     ).filter((row) => row.guildId === guildId && row.createdAt + PENDING_DELEGATION_TTL_MS <= now);
-    const abandoned = stale.map((row) => ({
+    // Revoked rows whose key was never confirmed gone belong here too. Revoking
+    // makes the row unfindable by the revoke path — it looks for an *active*
+    // row — so a `DeleteSecret` that failed transiently had no retry at all, and
+    // the owner's live key stayed in the store after they asked for it to go.
+    const unretired = (
+      await ctx.db
+        .query("communityVrclinkingCredentials")
+        .withIndex("by_communityProfileId_state", (q) =>
+          q.eq("communityProfileId", profile._id).eq("state", "revoked"),
+        )
+        .collect()
+    ).filter((row) => row.guildId === guildId && row.secretRetiredAt === undefined);
+
+    const abandoned = [...stale, ...unretired].map((row) => ({
       credentialId: row._id,
       secretName: secretNameFor(row.guildId, row._id),
     }));
@@ -316,13 +329,18 @@ export const activateCredential = mutation({
 });
 
 /**
- * Forget tombstones whose keys the caller has actually deleted.
+ * Record that the caller actually deleted these rows' keys.
  *
  * Separate from the sweep that reports them, because only the caller knows
  * whether Secrets Manager accepted the deletion. A row that is not confirmed
- * stays, and the next reservation reports it again — which is the retry.
+ * stays reportable, and the next reservation offers it again — which is the
+ * retry, and the only one either path has.
+ *
+ * A reservation that never delegated anything is deleted outright; a revoked row
+ * is stamped, because an operator's audit list should keep the delegation that
+ * existed while losing the key that backed it.
  */
-export const forgetAbandonedCredentials = mutation({
+export const confirmSecretsRetired = mutation({
   args: {
     profileSlug: v.string(),
     credentialIds: v.array(v.id("communityVrclinkingCredentials")),
@@ -330,18 +348,20 @@ export const forgetAbandonedCredentials = mutation({
   handler: async (ctx, args) => {
     const { user } = await requireVerifiedActiveBrowserSession(ctx);
     const profile = await requireOwnedCommunityProfile(ctx.db, args.profileSlug, user._id);
-    const rows = await Promise.all(args.credentialIds.map((id) => ctx.db.get(id)));
+    const rows = (await Promise.all(args.credentialIds.map((id) => ctx.db.get(id)))).filter(
+      (row) => row !== null && row.communityProfileId === profile._id,
+    );
+    const now = Date.now();
 
     await Promise.all(
-      rows
-        .filter(
-          (row) =>
-            row !== null && row.state === "pending" && row.communityProfileId === profile._id,
-        )
-        .map((row) => ctx.db.delete(row!._id)),
+      rows.map((row) =>
+        row!.state === "pending"
+          ? ctx.db.delete(row!._id)
+          : ctx.db.patch(row!._id, { secretRetiredAt: now, updatedAt: now }),
+      ),
     );
 
-    return { forgotten: true };
+    return { confirmed: rows.length };
   },
 });
 
@@ -397,7 +417,7 @@ export const revokeCredential = mutation({
     const target = active.find((row) => row.guildId === args.guildId.trim());
 
     if (target === undefined) {
-      return { revoked: false, secretName: null };
+      return { revoked: false, secretName: null, credentialId: null };
     }
 
     const now = Date.now();
@@ -413,7 +433,11 @@ export const revokeCredential = mutation({
     // owner who revokes would otherwise leave their live provider key in the
     // store indefinitely, still readable by the adapter role, which is close to
     // the opposite of what pressing Revoke means.
-    return { revoked: true, secretName: secretNameFor(target.guildId, target._id) };
+    return {
+      revoked: true,
+      credentialId: target._id,
+      secretName: secretNameFor(target.guildId, target._id),
+    };
   },
 });
 
