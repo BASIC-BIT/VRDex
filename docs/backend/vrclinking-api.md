@@ -168,7 +168,23 @@ that can never be cleared.
 
 Names for cleanup are derived per row rather than per scheme, so a delegation
 created before per-credential naming is retired under the guild-only name its
-key actually occupies.
+key actually occupies. That name is shared by every pre-naming row for the same
+guild, so it is only offered for retirement once no live row still resolves
+through it — the per-credential names carry no such question, since nothing else
+can name them. The delete grant is correspondingly one segment wider than the
+write grant; the shared secret is kept out of reach by the explicit Deny on its
+ARN rather than by the pattern.
+
+Revoking also cancels reservations for the same guild. A replacement that has
+reserved a row and is still writing its key would otherwise activate afterwards,
+find no active predecessor, and promote itself — resurrecting the delegation the
+owner had just revoked from another tab or session.
+
+Where an installation requires a customer-managed KMS key, set
+`delegation_writer_kms_key_id` alongside the same key in `kms_key_arns`:
+`CreateSecret` without an explicit key silently uses the AWS-managed one, and
+because every reservation creates a new name there is no later `PutSecretValue`
+to correct it.
 
 The write needs `VRDEX_VRCLINKING_DELEGATION_ROLE_ARN` and
 `VRDEX_VRCLINKING_SECRET_REGION`, both managed by

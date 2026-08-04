@@ -1002,6 +1002,56 @@ describe("VRCLinking credential delegation", () => {
   // that deletion is immediate, so the winning activation would come up backed
   // by nothing. The sweep takes the row out of `pending` first, which is the
   // only state `activateCredential` accepts.
+  // A replacement that has reserved a row and is still writing its key would
+  // otherwise activate afterwards, find no active predecessor, and promote
+  // itself — resurrecting the delegation the owner had just revoked from another
+  // tab, another session, or a co-owner.
+  it("cancels reservations for a guild the owner revokes", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const seeded = await seedOwnedCommunity(t, "delegation-revoke-race", now);
+    const guildId = "82345678901234567";
+    await t.run(async (ctx) => {
+      await recordExternalControlProof(ctx.db, {
+        userId: seeded.userId,
+        assetType: "discord_guild",
+        assetExternalId: guildId,
+        controlLevel: "owner",
+        evidenceSource: "discord_oauth",
+        now,
+      });
+    });
+
+    const asOwner = t.withIdentity(seeded.identity);
+    await delegateCredential(t, seeded.identity, "delegation-revoke-race", guildId);
+
+    // A replacement in flight: reserved, key not yet written.
+    const inFlight = await asOwner.mutation(api.vrclinkingCredentials.reserveCredential, {
+      profileSlug: "delegation-revoke-race",
+      guildId,
+    });
+
+    await asOwner.mutation(api.vrclinkingCredentials.revokeCredential, {
+      profileSlug: "delegation-revoke-race",
+      guildId,
+    });
+
+    await assert.rejects(
+      () =>
+        asOwner.mutation(api.vrclinkingCredentials.activateCredential, {
+          profileSlug: "delegation-revoke-race",
+          credentialId: inFlight.credentialId,
+        }),
+      /LINK_NOT_FOUND/,
+    );
+
+    const stillActive = await asOwner.query(api.vrclinkingCredentials.listCredentials, {
+      profileSlug: "delegation-revoke-race",
+    });
+
+    assert.deepEqual(stillActive, []);
+  });
+
   it("claims a stale reservation before its key can be deleted", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();

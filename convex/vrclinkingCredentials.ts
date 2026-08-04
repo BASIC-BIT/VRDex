@@ -342,7 +342,18 @@ export const activateCredential = mutation({
     // keeps its key under the guild-only name, and deriving the current shape
     // would schedule deletion of an object that does not exist while leaving the
     // real provider key in the store.
-    const supersededSecretNames = superseded.map((row) => vrclinkingSecretNameForRow(row));
+    //
+    // A legacy name is shared by every pre-naming row for that guild, so it is
+    // only safe to retire once no live row still resolves through it. The
+    // per-credential names have no such question — nothing else can name them.
+    const stillLive = new Set(
+      active
+        .filter((row) => !superseded.some((retired) => retired._id === row._id))
+        .map((row) => vrclinkingSecretNameForRow(row)),
+    );
+    const supersededSecretNames = superseded
+      .map((row) => vrclinkingSecretNameForRow(row))
+      .filter((name) => !stillLive.has(name));
 
     // Recorded on the row, not just returned: a retry after a lost response has
     // to be able to hand back the same names, and by then the revoked rows are
@@ -467,6 +478,33 @@ export const revokeCredential = mutation({
     }
 
     const now = Date.now();
+
+    // Reservations for the same guild go too. A replacement that reserved a row
+    // and is still writing its key would otherwise activate afterwards, find no
+    // active predecessor, and promote itself — resurrecting the delegation the
+    // owner had just revoked, from another tab, another session, or a co-owner.
+    // `activateCredential` accepts only `pending`, so retiring that state is the
+    // guard.
+    const reserved = await ctx.db
+      .query("communityVrclinkingCredentials")
+      .withIndex("by_communityProfileId_state", (q) =>
+        q.eq("communityProfileId", profile._id).eq("state", "pending"),
+      )
+      .collect();
+
+    await Promise.all(
+      reserved
+        .filter((row) => row.guildId === target.guildId)
+        .map((row) =>
+          ctx.db.patch(row._id, {
+            state: "revoked",
+            revokedAt: now,
+            revokedReason: ABANDONED_RESERVATION_REASON,
+            updatedAt: now,
+          }),
+        ),
+    );
+
     await ctx.db.patch(target._id, {
       state: "revoked",
       revokedAt: now,

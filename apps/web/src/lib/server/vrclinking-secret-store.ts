@@ -31,6 +31,12 @@ import path from "node:path";
 // shape this role is granted. Convex derives the same name in
 // `convex/_vrclinkingSecretRef.ts`; this only validates what it was handed.
 const SECRET_NAME_PATTERN = /^vrdex\/vrclinking\/\d{17,20}\/[A-Za-z0-9]{1,64}$/;
+// Deletion only. A delegation created before per-credential naming keeps its key
+// under the guild-only name, so retiring it has to accept that shape — but
+// nothing may ever *write* there: `vrdex/vrclinking/shared` is one segment deep
+// too, and the guild segment is the only thing separating them. Writes stay on
+// the two-segment pattern above; this admits a numeric guild and nothing else.
+const LEGACY_SECRET_NAME_PATTERN = /^vrdex\/vrclinking\/\d{17,20}$/;
 
 let cachedClient: { key: string; client: SecretsManagerClient } | null = null;
 
@@ -61,6 +67,20 @@ function roleArn(): string | undefined {
  * one once the reference-registration form was removed. Same directory, same
  * layout the resolver reads.
  */
+/**
+ * The customer-managed key delegated credentials must be created under.
+ *
+ * `CreateSecret` without it silently uses the AWS-managed Secrets Manager key,
+ * and because every reservation creates a *new* name there is no later
+ * `PutSecretValue` to correct it — so an installation that requires a CMK would
+ * have had every delegated credential created outside it while the stack
+ * advertised support. Unset means the AWS-managed key, which is the default this
+ * stack has always assumed.
+ */
+function secretKmsKeyId(): string | undefined {
+  return process.env.VRDEX_VRCLINKING_SECRET_KMS_KEY_ID?.trim() || undefined;
+}
+
 function secretDir(): string | undefined {
   return process.env.VRDEX_VRCLINKING_SECRET_DIR?.trim() || undefined;
 }
@@ -148,6 +168,7 @@ export async function putVrclinkingDelegationKey(
   }
 
   const client = secretsClient();
+  const kmsKeyId = secretKmsKeyId();
   const name = secretName;
 
   try {
@@ -156,6 +177,7 @@ export async function putVrclinkingDelegationKey(
         Name: name,
         SecretString: apiKey,
         Description: "VRCLinking API key delegated to VRDex by a community owner.",
+        ...(kmsKeyId === undefined ? {} : { KmsKeyId: kmsKeyId }),
       }),
     );
   } catch (error) {
@@ -182,7 +204,7 @@ export async function putVrclinkingDelegationKey(
  * gone the moment a retry misreads the situation.
  */
 export async function scheduleVrclinkingDelegationKeyDeletion(secretName: string): Promise<void> {
-  if (!SECRET_NAME_PATTERN.test(secretName)) {
+  if (!SECRET_NAME_PATTERN.test(secretName) && !LEGACY_SECRET_NAME_PATTERN.test(secretName)) {
     throw new Error("Refusing to delete a secret outside the delegated-credential shape.");
   }
 

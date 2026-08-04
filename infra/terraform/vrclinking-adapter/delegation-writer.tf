@@ -60,6 +60,19 @@ variable "staging_custom_environment_ids" {
   default = []
 }
 
+variable "delegation_writer_kms_key_id" {
+  description = <<-EOT
+    Customer-managed KMS key delegated credentials are created under.
+
+    Null means the AWS-managed Secrets Manager key, which needs no grant and is
+    what this stack has always assumed. Set it only alongside the same key in
+    `kms_key_arns`, which is what lets the adapter read what the writer created.
+  EOT
+
+  type    = string
+  default = null
+}
+
 locals {
   delegation_writer_enabled = var.vercel_delegation_writer != null
 
@@ -93,10 +106,20 @@ locals {
   # explicit value it would look configured everywhere and write each key into
   # whichever region served the request — a different store from the one the
   # adapter reads.
-  delegation_writer_env_values = local.delegation_writer_enabled ? {
-    VRDEX_VRCLINKING_DELEGATION_ROLE_ARN = aws_iam_role.delegation_writer[0].arn
-    VRDEX_VRCLINKING_SECRET_REGION       = data.aws_region.current.region
-  } : {}
+  delegation_writer_env_values = local.delegation_writer_enabled ? merge(
+    {
+      VRDEX_VRCLINKING_DELEGATION_ROLE_ARN = aws_iam_role.delegation_writer[0].arn
+      VRDEX_VRCLINKING_SECRET_REGION       = data.aws_region.current.region
+    },
+    # `CreateSecret` without an explicit key silently uses the AWS-managed one,
+    # and every reservation creates a *new* name — so there is no later
+    # `PutSecretValue` to correct it. An installation that lists a customer-
+    # managed key would otherwise have had every delegated credential created
+    # outside it while this stack advertised support.
+    var.delegation_writer_kms_key_id == null ? {} : {
+      VRDEX_VRCLINKING_SECRET_KMS_KEY_ID = var.delegation_writer_kms_key_id
+    },
+  ) : {}
 }
 
 # Created by the profile-assets stack. There is one per issuer URL per account,
@@ -167,12 +190,18 @@ data "aws_iam_policy_document" "delegation_writer" {
   # is unreachable forever — nothing points at it and no later reservation can
   # land on the same name. Without this it stays in Secrets Manager
   # indefinitely: a community's live VRCLinking credential, retained by VRDex
-  # for nothing. Scoped to the same delegated-credential shape as the writes, so
-  # it can no more reach the shared secret than they can.
+  # for nothing.
+  #
+  # Wider than the write grant on purpose. A delegation created before
+  # per-credential naming keeps its key one segment deep, at
+  # `vrdex/vrclinking/<guildId>`, and retiring it is exactly what replacing or
+  # revoking such a row has to do — the two-segment pattern would refuse. The
+  # shared secret sits at that depth too, which is why it is denied by ARN
+  # below; that Deny, not the pattern, is what protects it here.
   statement {
     sid       = "RetireOrphanedDelegatedCredentials"
     actions   = ["secretsmanager:DeleteSecret"]
-    resources = [local.delegated_credential_arn_pattern]
+    resources = [local.secret_arn_pattern]
   }
 
   # `CreateSecret` takes no resource ARN — the secret does not exist yet — so it
