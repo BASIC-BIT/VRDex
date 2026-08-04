@@ -74,3 +74,19 @@ export function vrclinkingSecretRefForRow(row: {
 
   return row.secretRef === current ? current : vrclinkingLegacySecretRef(row.guildId);
 }
+
+/**
+ * The store name a row's key actually occupies, for cleanup.
+ *
+ * The same legacy/current discriminator `vrclinkingSecretRefForRow` uses, minus
+ * the `secret://` scheme. Deriving the per-credential name unconditionally meant
+ * replacing or revoking a delegation from an upgraded installation deleted a
+ * name that does not exist and left the real provider key in the store.
+ */
+export function vrclinkingSecretNameForRow(row: {
+  _id: string;
+  guildId: string;
+  secretRef: string;
+}): string {
+  return vrclinkingSecretRefForRow(row).slice("secret://".length);
+}

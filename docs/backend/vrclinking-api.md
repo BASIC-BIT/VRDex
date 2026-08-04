@@ -146,9 +146,29 @@ than the community's working delegation — and because names are per credential
 the write cannot land on top of the key its predecessor is still answering with.
 `activateCredential` is idempotent: a retry after a lost response reports
 success rather than looking like a failure, which is what stops the route from
-retiring a key that had in fact just been installed. The route only deletes a
-stored key when `abandonCredential` confirms it deleted a `pending` row, since
-that is the one state where the key is provably unreachable.
+retiring a key that had in fact just been installed.
+
+Cleanup is key-first everywhere, and it is the same three steps on all three
+paths — a reservation whose activation failed, a stale reservation swept by a
+later one, and an owner revoking:
+
+1. Convex **reports** the row and the name its key actually occupies, without
+   deleting anything. `abandonCredential` answers whether a reservation is still
+   `pending`, which is the only state where its key is provably unreachable.
+2. The route **deletes** the key.
+3. `confirmSecretsRetired` **removes or stamps** the row.
+
+The order matters because the row is the only thing its name can be derived
+from: deleting the row first meant a transient Secrets Manager failure stranded
+the key with nothing left to retry from. A row that is never confirmed stays
+reportable, and the next reservation for that guild offers it again — which is
+the retry, and the only one any of these paths has. A secret that is already
+absent counts as retired, so a key whose creation failed does not leave a row
+that can never be cleared.
+
+Names for cleanup are derived per row rather than per scheme, so a delegation
+created before per-credential naming is retired under the guild-only name its
+key actually occupies.
 
 The write needs `VRDEX_VRCLINKING_DELEGATION_ROLE_ARN` and
 `VRDEX_VRCLINKING_SECRET_REGION`, both managed by

@@ -5,6 +5,7 @@ import { requireVerifiedActiveBrowserSession } from "./_claimSession";
 import { claimError } from "./_claimErrors";
 import {
   vrclinkingSecretName,
+  vrclinkingSecretNameForRow,
   vrclinkingSecretRef,
   vrclinkingSecretRefForRow,
 } from "./_vrclinkingSecretRef";
@@ -124,6 +125,13 @@ async function requireDelegationAuthority(
 const PENDING_DELEGATION_TTL_MS = 10 * 60 * 1000;
 
 /**
+ * Marks a row that was reserved and never activated, as against one an owner
+ * actually delegated and later revoked. The first is noise in an audit list and
+ * is deleted once its key is gone; the second is history and is kept.
+ */
+const ABANDONED_RESERVATION_REASON = "Reservation abandoned before activation.";
+
+/**
  * Replacements one owner may make for one guild inside that same window.
  *
  * Every reservation creates a Secrets Manager object, and a deleted one holds
@@ -193,9 +201,26 @@ export const reserveCredential = mutation({
         .collect()
     ).filter((row) => row.guildId === guildId && row.secretRetiredAt === undefined);
 
+    // Claimed before anyone deletes its key. A request still in flight past the
+    // TTL could otherwise activate the very row a later request has just
+    // scheduled for deletion — and with the file backend that deletion is
+    // immediate, so the winning activation would come up backed by nothing.
+    // `activateCredential` only accepts a `pending` row, so moving it out of
+    // that state is the whole guard.
+    await Promise.all(
+      stale.map((row) =>
+        ctx.db.patch(row._id, {
+          state: "revoked",
+          revokedAt: now,
+          revokedReason: ABANDONED_RESERVATION_REASON,
+          updatedAt: now,
+        }),
+      ),
+    );
+
     const abandoned = [...stale, ...unretired].map((row) => ({
       credentialId: row._id,
-      secretName: secretNameFor(row.guildId, row._id),
+      secretName: vrclinkingSecretNameForRow(row),
     }));
 
     // A cap, because every reservation creates a Secrets Manager object and
@@ -313,7 +338,11 @@ export const activateCredential = mutation({
       ),
     );
 
-    const supersededSecretNames = superseded.map((row) => secretNameFor(row.guildId, row._id));
+    // Per row, not per scheme: a delegation created before per-credential naming
+    // keeps its key under the guild-only name, and deriving the current shape
+    // would schedule deletion of an object that does not exist while leaving the
+    // real provider key in the store.
+    const supersededSecretNames = superseded.map((row) => vrclinkingSecretNameForRow(row));
 
     // Recorded on the row, not just returned: a retry after a lost response has
     // to be able to hand back the same names, and by then the revoked rows are
@@ -366,7 +395,7 @@ export const confirmSecretsRetired = mutation({
 
     await Promise.all(
       rows.map((row) =>
-        row!.state === "pending"
+        row!.state === "pending" || row!.revokedReason === ABANDONED_RESERVATION_REASON
           ? ctx.db.delete(row!._id)
           : ctx.db.patch(row!._id, { secretRetiredAt: now, updatedAt: now }),
       ),
@@ -415,7 +444,7 @@ export const abandonCredential = mutation({
       return { abandoned: false };
     }
 
-    return { abandoned: true, secretName: secretNameFor(pending.guildId, pending._id) };
+    return { abandoned: true, secretName: vrclinkingSecretNameForRow(pending) };
   },
 });
 
@@ -453,7 +482,7 @@ export const revokeCredential = mutation({
     return {
       revoked: true,
       credentialId: target._id,
-      secretName: secretNameFor(target.guildId, target._id),
+      secretName: vrclinkingSecretNameForRow(target),
     };
   },
 });

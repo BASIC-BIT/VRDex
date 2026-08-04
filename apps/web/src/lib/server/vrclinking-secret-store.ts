@@ -3,6 +3,7 @@ import {
   DeleteSecretCommand,
   PutSecretValueCommand,
   ResourceExistsException,
+  ResourceNotFoundException,
   SecretsManagerClient,
 } from "@aws-sdk/client-secrets-manager";
 import { awsCredentialsProvider } from "@vercel/oidc-aws-credentials-provider";
@@ -195,7 +196,18 @@ export async function scheduleVrclinkingDelegationKeyDeletion(secretName: string
     return;
   }
 
-  await secretsClient().send(
-    new DeleteSecretCommand({ SecretId: secretName, RecoveryWindowInDays: 7 }),
-  );
+  try {
+    await secretsClient().send(
+      new DeleteSecretCommand({ SecretId: secretName, RecoveryWindowInDays: 7 }),
+    );
+  } catch (error) {
+    // Already gone is the outcome this asks for. Treating it as a failure meant
+    // a key whose *creation* failed could never be confirmed retired, so its
+    // reservation stayed forever and every later reservation retried deleting
+    // the same object that was never there — tombstones and cleanup fan-out
+    // growing with each failed write.
+    if (!(error instanceof ResourceNotFoundException)) {
+      throw error;
+    }
+  }
 }

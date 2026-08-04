@@ -997,6 +997,59 @@ describe("VRCLinking credential delegation", () => {
   // against a burst — and a burst is entirely `pending`, because no request in
   // it has reached activation. Counting only settled rows let every concurrent
   // reservation through, each creating its own secret.
+  // A request still in flight past the TTL could otherwise activate the very row
+  // a later request has just scheduled for deletion — and with the file backend
+  // that deletion is immediate, so the winning activation would come up backed
+  // by nothing. The sweep takes the row out of `pending` first, which is the
+  // only state `activateCredential` accepts.
+  it("claims a stale reservation before its key can be deleted", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const seeded = await seedOwnedCommunity(t, "delegation-stale", now);
+    const guildId = "72345678901234567";
+    await t.run(async (ctx) => {
+      await recordExternalControlProof(ctx.db, {
+        userId: seeded.userId,
+        assetType: "discord_guild",
+        assetExternalId: guildId,
+        controlLevel: "owner",
+        evidenceSource: "discord_oauth",
+        now,
+      });
+    });
+
+    const asOwner = t.withIdentity(seeded.identity);
+    const stranded = await asOwner.mutation(api.vrclinkingCredentials.reserveCredential, {
+      profileSlug: "delegation-stale",
+      guildId,
+    });
+
+    // Age it past the reservation TTL without activating.
+    await t.run(async (ctx) => {
+      await ctx.db.patch(stranded.credentialId, { createdAt: now - 60 * 60 * 1000 });
+    });
+
+    const next = await asOwner.mutation(api.vrclinkingCredentials.reserveCredential, {
+      profileSlug: "delegation-stale",
+      guildId,
+    });
+
+    assert.deepEqual(
+      next.abandoned.map((row: { credentialId: string }) => row.credentialId),
+      [stranded.credentialId],
+    );
+
+    // The original request losing the race must not be able to bring it back.
+    await assert.rejects(
+      () =>
+        asOwner.mutation(api.vrclinkingCredentials.activateCredential, {
+          profileSlug: "delegation-stale",
+          credentialId: stranded.credentialId,
+        }),
+      /LINK_NOT_FOUND/,
+    );
+  });
+
   it("counts reservations still in flight toward the write bound", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
