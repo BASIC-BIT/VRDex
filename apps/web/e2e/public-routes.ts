@@ -306,11 +306,6 @@ export async function expectEditEventPage(page: Page) {
   await expectProtectedRouteRedirect(page, "/events/playwright-afterglow-harbor-sessions/edit");
 }
 
-export async function expectDeploymentPage(page: Page) {
-  await expect(page.getByRole("heading", { name: /Initial Vercel deployment baseline/i })).toBeVisible();
-  await expect(page.getByText(/Deployment facts/i)).toBeVisible();
-}
-
 export async function expectDeveloperApiPage(page: Page) {
   await expect(page.getByRole("heading", { name: /VRDex Public API/i })).toBeVisible();
   await expect(page.getByRole("link", { name: "OpenAPI JSON" })).toBeVisible();
@@ -575,11 +570,6 @@ export const capturedRoutes: CapturedRoute[] = [
     expectPage: expectEditEventPage,
   },
   {
-    name: "deployment",
-    path: "/deployment",
-    expectPage: expectDeploymentPage,
-  },
-  {
     name: "developer-api",
     path: "/developers/api",
     expectPage: expectDeveloperApiPage,
@@ -642,7 +632,7 @@ export const capturedRoutes: CapturedRoute[] = [
 ];
 
 export const productionSmokeRoutes: CapturedRoute[] = capturedRoutes.filter((route) =>
-  ["submit", "sign-in", "privacy-suppression", "event-new-signed-out", "deployment"].includes(
+  ["submit", "sign-in", "privacy-suppression", "event-new-signed-out"].includes(
     route.name,
   ),
 );

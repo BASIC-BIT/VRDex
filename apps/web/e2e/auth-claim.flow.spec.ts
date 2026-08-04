@@ -47,10 +47,24 @@ async function hostedTargetIsKnownPreNumericDiscordFixture(request: APIRequestCo
     return false;
   }
 
-  const response = await request.get("/deployment");
-  await expect(response).toBeOK();
-  const deploymentPage = await response.text();
-  return PRE_NUMERIC_DISCORD_FIXTURE_STAGING_COMMITS.some((commit) => deploymentPage.includes(commit));
+  // Not asserted OK: `/api/deployment` replaces the `/deployment` page and
+  // staging serves the page until this merges, so both are read for the length
+  // of that overlap. A target that answers neither cannot be a known
+  // pre-numeric commit, which is the stricter reading.
+  //
+  // ponytail: transitional. Drop the `/deployment` fallback once staging carries
+  // this branch.
+  for (const path of ["/api/deployment", "/deployment"]) {
+    const response = await request.get(path);
+
+    if (response.ok()) {
+      const body = await response.text();
+
+      return PRE_NUMERIC_DISCORD_FIXTURE_STAGING_COMMITS.some((commit) => body.includes(commit));
+    }
+  }
+
+  return false;
 }
 
 async function createE2eProfile({

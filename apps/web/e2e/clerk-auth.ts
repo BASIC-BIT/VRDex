@@ -175,9 +175,31 @@ export async function hostedTargetRunsCurrentRevision(request: APIRequestContext
     return false;
   }
 
-  const response = await request.get("/deployment");
+  return (await deploymentRevisionText(request)).includes(revision);
+}
 
-  return response.ok() && (await response.text()).includes(revision);
+/**
+ * Whatever this target will say about the revision it runs.
+ *
+ * `/deployment` was the original Vercel bring-up page and is now
+ * `/api/deployment`, which answers as data. Shared staging tracks `main`, so it
+ * serves the page until this merges and the route afterwards — both are read
+ * here for the length of that overlap, exactly as the adapter accepts both
+ * reference shapes for the length of its own.
+ *
+ * ponytail: transitional. Drop the `/deployment` fallback once staging carries
+ * this branch.
+ */
+async function deploymentRevisionText(request: APIRequestContext) {
+  for (const path of ["/api/deployment", "/deployment"]) {
+    const response = await request.get(path);
+
+    if (response.ok()) {
+      return await response.text();
+    }
+  }
+
+  return "";
 }
 
 /**
@@ -286,7 +308,7 @@ async function requireClerkOnTarget(page: Page) {
 
   if (loaded === null) {
     throw new Error(
-      `${page.url()} never loaded Clerk. The target is missing NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY, or is running a build from before the Clerk cutover — check its /deployment commit and whether its last deploy succeeded.`,
+      `${page.url()} never loaded Clerk. The target is missing NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY, or is running a build from before the Clerk cutover — check its /api/deployment commit and whether its last deploy succeeded.`,
     );
   }
 }
