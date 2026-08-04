@@ -482,8 +482,6 @@ function MediaKitEditor({
   const prepareRequestRef = useRef(0);
   const uploadRequestRef = useRef(0);
   const generationRequestRef = useRef(0);
-  const profileSelectRef = useRef<HTMLSelectElement>(null);
-  const shouldFocusProfileRef = useRef(false);
   const selectedProfile = initialProfiles.find((item) => item.profileId === selectedId);
   const selectedProfileIdRef = useRef<string | null>(selectedProfile?.profileId ?? null);
   selectedProfileIdRef.current = selectedProfile?.profileId ?? null;
@@ -507,16 +505,8 @@ function MediaKitEditor({
     setUploadStatus(null);
     setGalleryStatus(null);
     setRemovedStatus(null);
-    const fallbackId = initialProfiles[0]?.profileId ?? "";
-    shouldFocusProfileRef.current = Boolean(fallbackId && selectedId);
-    setSelectedId(fallbackId);
-  }, [initialProfiles, selectedId, selectedProfile]);
-
-  useEffect(() => {
-    if (!selectedProfile || !shouldFocusProfileRef.current) return;
-    shouldFocusProfileRef.current = false;
-    profileSelectRef.current?.focus();
-  }, [selectedProfile]);
+    setSelectedId(initialProfiles[0]?.profileId ?? "");
+  }, [initialProfiles, selectedProfile]);
 
   useEffect(() => {
     if (!focusRestoreAssetId) return;
@@ -536,6 +526,9 @@ function MediaKitEditor({
     }
   }, [activeAssetIds, focusActiveAssetId]);
 
+  const selectedIdRef = useRef(selectedId);
+  selectedIdRef.current = selectedId;
+  const selectProfileRef = useRef<(profileId: string) => void>(() => {});
   const selectProfile = (profileId: string) => {
     prepareRequestRef.current += 1;
     uploadRequestRef.current += 1;
@@ -549,6 +542,25 @@ function MediaKitEditor({
     setGalleryStatus(null);
     setRemovedStatus(null);
   };
+
+  selectProfileRef.current = selectProfile;
+
+  // The workspace tabs change the subject by navigating, so the incoming slug
+  // is the source of truth. Everything `selectProfile` tears down — a prepared
+  // upload, a half-filled metadata form, an in-flight generation — belongs to
+  // the profile being left, so the same teardown has to run on that route
+  // change as on the picker this replaced.
+  const requestedProfileId = initialProfiles.find(
+    (item) => item.slug === initialProfileSlug,
+  )?.profileId;
+
+  useEffect(() => {
+    if (requestedProfileId === undefined || requestedProfileId === selectedIdRef.current) {
+      return;
+    }
+
+    selectProfileRef.current(requestedProfileId);
+  }, [requestedProfileId]);
 
   const restoreAsset = async (assetId: string) => {
     if (!profile) return;
@@ -705,11 +717,8 @@ function MediaKitEditor({
       <Card padding="lg">
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
           <div>
-            <label className="text-sm font-medium" htmlFor="media-profile">Profile</label>
-            <select className={cn(inputClass, "max-w-md")} disabled={uploading || generatingUpload || operationBusy || replacingProfileId !== null} id="media-profile" onChange={(event) => selectProfile(event.target.value)} ref={profileSelectRef} value={profile.profileId}>
-              {initialProfiles.map((item) => <option key={item.profileId} value={item.profileId}>{item.displayName}</option>)}
-            </select>
-            <p className="mt-3 text-sm text-muted">{profile.activePublicAssetCount} / 12</p>
+            <p className="text-sm font-medium">Public assets</p>
+            <p className="mt-1 text-sm text-muted">{profile.activePublicAssetCount} / 12</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Link className={buttonVariants({ variant: "secondary" })} href={`/${profile.profileType === "community" ? "c" : "p"}/${profile.slug}`}>

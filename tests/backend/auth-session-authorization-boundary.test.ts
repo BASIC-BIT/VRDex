@@ -144,6 +144,13 @@ describe("browser auth-session authorization boundary", () => {
         "api.profileAssets.getOwnedAssetForStorage",
       ],
       [
+        // The guarded call is the authorization query, not the register: the
+        // route has to know the caller controls the guild *before* it writes
+        // their pasted key to the operator secret store.
+        "apps/web/src/app/api/account/vrclinking-delegation/route.ts",
+        "api.vrclinkingCredentials.canDelegateForGuild",
+      ],
+      [
         "apps/web/src/app/api/developer/oauth-apps/route.ts",
         "api.oauthApps.createPersonalApplication",
       ],

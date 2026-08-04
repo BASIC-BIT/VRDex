@@ -130,6 +130,18 @@ the containment is in how it is stored and used, not in the token itself.
 the reference through its own IAM role. This is why the token is not encrypted
 in Convex: it is never there.
 
+The owner pastes the key into `/account/connections` and
+`POST /api/account/vrclinking-delegation` is the only thing that handles it: it
+asks Convex whether the caller controls that guild, writes the key to
+`vrdex/vrclinking/<guildId>` in Secrets Manager, and only then registers the
+delegation. The order is deliberate — registering revokes whatever key the
+community had before it, so a failed write after a register would leave them
+worse off than before they tried. The write needs
+`VRDEX_VRCLINKING_DELEGATION_ROLE_ARN`, a Vercel-OIDC role scoped to
+`PutSecretValue`/`CreateSecret` on that prefix and given no read access at all;
+`infra/terraform/vrclinking-adapter/delegation-writer.tf` declares it, and the
+form reports the feature unavailable wherever it is unset.
+
 Constraints enforced in `vrclinkingCredentials.ts`:
 
 - registering requires **both** profile ownership and a current
@@ -137,16 +149,17 @@ Constraints enforced in `vrclinkingCredentials.ts`:
   can delegate a key for a server they do not control;
 - each delegation records the single `guildId` it is authorized for, so a key
   that could technically read other guilds is never used to;
-- the reference itself is bound to that guild: the only accepted value is
-  `secret://vrdex/vrclinking/<guildId>`. An ARN form was accepted until its
-  pattern was found to permit any region and any 12-digit account, while the
-  adapter's execution role can read only its own — a cross-account ARN
-  registered cleanly, was selected for claims, and then failed every resolution
-  as `unavailable` with nothing pointing back at the reference. The name has no
-  region or account to get wrong. Syntax is not authorization either: the
-  adapter resolves whatever it is given through its own IAM role, so accepting
-  arbitrary well-formed names would let the owner of one guild register another
-  tenant's reference and have VRDex spend that tenant's key;
+- the reference is **derived** from that guild, never supplied:
+  `registerCredential` takes no `secretRef` argument and computes
+  `secret://vrdex/vrclinking/<guildId>` itself. It was an argument, validated to
+  that single legal value, which made the delegation form ask a community owner
+  for a pointer into a secret store only operators can write — the one value
+  they could enter was the one the system already knew, and every delegation
+  registered that way resolved to nothing. Deriving it also settles the
+  authorization question the validation was standing in for: the adapter
+  resolves whatever it is handed through its own IAM role, so an argument at all
+  meant the owner of one guild could name another tenant's reference and have
+  VRDex spend that tenant's key;
 - `secretRef` leaves the table through exactly one internal function,
   the mutation `reserveAdapterDelegations`, consumed by the action that calls
   the adapter and never by a client-facing query. A mutation rather than a query
@@ -219,8 +232,9 @@ both sides refuse to start or call without them:
 
 What is left needs something outside the codebase:
 
-1. **Putting a real key in the secret store** and recording its reference
-   against a community. Until one community has done this, the method is offered
+1. **A community actually delegating a key**, which now means an owner pasting
+   one into `/account/connections` on a deployment where
+   `VRDEX_VRCLINKING_DELEGATION_ROLE_ARN` is set. Until one has, the method is offered
    wherever the adapter is configured and every attempt short-circuits to
    `unavailable` — `verifyVrchatProofViaAdapter` has nothing to ask, so it never
    posts the claimant's Discord id. A genuine no-match is a different state and

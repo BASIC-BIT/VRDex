@@ -977,20 +977,19 @@ describe("VRCLinking credential delegation", () => {
         t.withIdentity(seeded.identity).mutation(api.vrclinkingCredentials.registerCredential, {
           profileSlug: "delegation-unproved",
           guildId: "12345678901234567",
-          secretRef: "secret://vrdex/vrclinking/12345678901234567",
         }),
       /CONTROL_NOT_VERIFIED/,
     );
   });
 
-  // Every one of these would register cleanly and then fail resolution forever,
-  // with no operator-visible signal beyond a permanently unavailable claim: the
-  // adapter classifies references with case-sensitive startsWith, allows only
-  // [A-Za-z0-9._/-] after `secret://`, and receives whatever is stored verbatim.
-  it("refuses references the adapter could never resolve", async () => {
+  // The reference is derived from the guild now, so the whole class of
+  // unresolvable references these used to enumerate is unreachable: there is no
+  // argument to carry one. What is worth pinning is that the derived value is
+  // the one the adapter resolves, and that a caller cannot smuggle its own.
+  it("derives the guild-scoped reference and accepts no other", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
-    const seeded = await seedOwnedCommunity(t, "delegation-casing", now);
+    const seeded = await seedOwnedCommunity(t, "delegation-derived", now);
     const guildId = "12345678901234567";
     await t.run(async (ctx) => {
       await recordExternalControlProof(ctx.db, {
@@ -1003,68 +1002,31 @@ describe("VRCLinking credential delegation", () => {
       });
     });
 
-    for (const secretRef of [
-      // Reference syntax is not authorization. The adapter resolves whatever it
-      // is handed through its own IAM role, so a name that is well-formed but
-      // belongs to another guild would have VRDex spend another tenant's key.
-      "secret://vrdex/vrclinking/99999999999999999",
-      "arn:aws:secretsmanager:us-east-1:123456789012:secret:vrdex/vrclinking/99999999999999999",
-      // The ARN form is rejected outright now, even naming the right guild: the
-      // pattern permitted any region and account while the adapter's execution
-      // role reads only its own, so a cross-account reference registered
-      // cleanly and then failed every resolution as `unavailable`.
-      `arn:aws:secretsmanager:us-east-1:123456789012:secret:vrdex/vrclinking/${guildId}`,
-      `arn:aws:secretsmanager:eu-west-1:999988887777:secret:vrdex/vrclinking/${guildId}-AbC123`,
-      "secret://vrdex/group-telemetry/oak",
-      // An overlong ARN used to pass validation and then be truncated on write,
-      // so the adapter resolved a different reference and every verification
-      // through the delegation was permanently unavailable.
-      `arn:aws:secretsmanager:us-east-1:123456789012:secret:vrdex/vrclinking/${guildId}${"o".repeat(600)}`,
-      "SECRET://vrdex/group-telemetry/oak",
-      "ARN:aws:secretsmanager:us-east-1:1234:secret:oak",
-      // The adapter's local-name grammar allows only [A-Za-z0-9._/-] and
-      // rejects traversal; anything looser registers then never resolves.
-      "secret://team:key",
-      "secret://../../etc/passwd",
-      "secret://name with spaces",
-    ]) {
-      await assert.rejects(
-        () =>
-          t.withIdentity(seeded.identity).mutation(api.vrclinkingCredentials.registerCredential, {
-            profileSlug: "delegation-casing",
-            guildId,
-            secretRef,
-          }),
-        /ADAPTER_NOT_CONFIGURED/,
-        secretRef,
-      );
-    }
-  });
-
-  it("refuses a raw token and requires a secret store reference", async () => {
-    const t = convexTest({ schema, modules });
-    const now = Date.now();
-    const seeded = await seedOwnedCommunity(t, "delegation-rawtoken", now);
-    await t.run(async (ctx) => {
-      await recordExternalControlProof(ctx.db, {
-        userId: seeded.userId,
-        assetType: "discord_guild",
-        assetExternalId: "12345678901234567",
-        controlLevel: "owner",
-        evidenceSource: "discord_oauth",
-        now,
-      });
+    await t.withIdentity(seeded.identity).mutation(api.vrclinkingCredentials.registerCredential, {
+      profileSlug: "delegation-derived",
+      guildId,
     });
 
+    const stored = await t.run(async (ctx) =>
+      ctx.db.query("communityVrclinkingCredentials").first(),
+    );
+
+    assert.equal(stored?.secretRef, `secret://vrdex/vrclinking/${guildId}`);
+
+    // A pasted VRCLinking token must never reach the database, and now it
+    // cannot: there is no argument that would carry one, so Convex's validator
+    // refuses the call before the handler runs.
     await assert.rejects(
       () =>
-        t.withIdentity(seeded.identity).mutation(api.vrclinkingCredentials.registerCredential, {
-          profileSlug: "delegation-rawtoken",
-          guildId: "12345678901234567",
-          // A pasted VRCLinking token must never be accepted into the database.
-          secretRef: "eyJhbGciOiJIUzI1NiJ9.fake.token",
-        }),
-      /ADAPTER_NOT_CONFIGURED/,
+        t.withIdentity(seeded.identity).mutation(
+          api.vrclinkingCredentials.registerCredential,
+          {
+            profileSlug: "delegation-derived",
+            guildId,
+            secretRef: "eyJhbGciOiJIUzI1NiJ9.fake.token",
+          } as never,
+        ),
+      /secretRef/,
     );
   });
 
@@ -1088,7 +1050,6 @@ describe("VRCLinking credential delegation", () => {
     await asOwner.mutation(api.vrclinkingCredentials.registerCredential, {
       profileSlug: "delegation-ok",
       guildId,
-      secretRef: "secret://vrdex/vrclinking/12345678901234567",
     });
 
     const listed = await asOwner.query(api.vrclinkingCredentials.listCredentials, {
@@ -1140,7 +1101,6 @@ describe("VRCLinking credential delegation", () => {
     await t.withIdentity(seeded.identity).mutation(api.vrclinkingCredentials.registerCredential, {
       profileSlug: "delegation-legacy",
       guildId,
-      secretRef: `secret://vrdex/vrclinking/${guildId}`,
     });
 
     // Registered through the mutation, then rewritten to the retired form:
@@ -1236,7 +1196,6 @@ describe("VRCLinking credential delegation", () => {
       asOwner.mutation(api.vrclinkingCredentials.registerCredential, {
         profileSlug: "delegation-replace",
         guildId,
-        secretRef: `secret://vrdex/vrclinking/${guildId}`,
       });
 
     const first = await register();
@@ -1291,7 +1250,6 @@ describe("VRCLinking credential delegation", () => {
       await t.withIdentity(seeded.identity).mutation(api.vrclinkingCredentials.registerCredential, {
         profileSlug: slug,
         guildId,
-        secretRef: `secret://vrdex/vrclinking/${guildId}`,
       });
     }
 
@@ -1354,12 +1312,10 @@ describe("VRCLinking credential delegation", () => {
     await t.withIdentity(lapsed.identity).mutation(api.vrclinkingCredentials.registerCredential, {
       profileSlug: "delegation-lapsed",
       guildId: lapsedGuild,
-      secretRef: "secret://vrdex/vrclinking/12345678901234567",
     });
     await t.withIdentity(live.identity).mutation(api.vrclinkingCredentials.registerCredential, {
       profileSlug: "delegation-live",
       guildId: liveGuild,
-      secretRef: "secret://vrdex/vrclinking/22345678901234567",
     });
 
     const claimantId = await t.run(async (ctx) => {

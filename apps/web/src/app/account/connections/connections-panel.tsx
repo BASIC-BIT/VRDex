@@ -49,9 +49,12 @@ export type ConnectionsPreview = {
 };
 
 export function ConnectionsPanel({
+  delegationEnabled = false,
   initialProfileSlug,
   preview,
 }: {
+  /** Whether this deployment can store a pasted VRCLinking key at all. */
+  delegationEnabled?: boolean;
   initialProfileSlug?: string;
   preview?: ConnectionsPreview;
 }) {
@@ -60,13 +63,18 @@ export function ConnectionsPanel({
     preview ? "skip" : {},
   );
   const ownedProfiles = preview?.ownedProfiles ?? queriedOwnedProfiles;
-  const [selectedSlug, setSelectedSlug] = useState(initialProfileSlug ?? "");
+  // Derived, not held: the workspace above this panel owns the choice and puts
+  // it in the URL, so local state would only be a second copy to fall out of
+  // sync with the tab links.
+  //
   // `initialProfileSlug` comes from a query parameter, so it may name a profile
   // the viewer does not own or one that does not exist. Constrain it to the
   // owned list before it reaches queries that throw on an unknown slug, rather
   // than failing the whole account page on a mistyped URL.
   const activeSlug =
-    (ownedProfiles?.some((profile) => profile.slug === selectedSlug) ? selectedSlug : "") ||
+    (ownedProfiles?.some((profile) => profile.slug === initialProfileSlug)
+      ? initialProfileSlug
+      : "") ||
     ownedProfiles?.[0]?.slug ||
     "";
   const queriedConnections = useQuery(
@@ -91,7 +99,6 @@ export function ConnectionsPanel({
       : "skip",
   );
   const vrclinkingCredentials = preview?.credentials ?? queriedCredentials;
-  const registerCredential = useMutation(api.vrclinkingCredentials.registerCredential);
   const revokeCredential = useMutation(api.vrclinkingCredentials.revokeCredential);
   const addConnection = useMutation(api.profileConnections.addVerifiedConnection);
   const setPrimary = useMutation(api.profileConnections.setPrimaryConnection);
@@ -105,7 +112,15 @@ export function ConnectionsPanel({
     try {
       await action();
     } catch (caught) {
-      setError(claimErrorMessage(caught));
+      // A plain `Error` here was thrown by this component against a route
+      // response, so its message is already the thing to show. Only Convex
+      // failures need the structured-code mapping, and running them all through
+      // it replaced the route's reason with the generic fallback.
+      setError(
+        caught instanceof Error && caught.name === "Error"
+          ? caught.message
+          : claimErrorMessage(caught),
+      );
     } finally {
       setBusy(false);
     }
@@ -130,17 +145,39 @@ export function ConnectionsPanel({
     );
   }
 
+  /**
+   * Posted to a route rather than straight to Convex.
+   *
+   * The key has to reach the operator secret store and must not reach Convex's
+   * database, so the route is the only party that sees it: it authorizes, writes
+   * the key, and then registers the delegation Convex does record.
+   */
   async function submitDelegation(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
     const data = new FormData(form);
 
     await run(async () => {
-      await registerCredential({
-        profileSlug: activeSlug,
-        guildId: String(data.get("delegationGuildId") ?? ""),
-        secretRef: String(data.get("secretRef") ?? ""),
+      const response = await fetch("/api/account/vrclinking-delegation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          profileSlug: activeSlug,
+          guildId: String(data.get("delegationGuildId") ?? ""),
+          apiKey: String(data.get("apiKey") ?? ""),
+        }),
       });
+
+      if (!response.ok) {
+        const problem: unknown = await response.json().catch(() => null);
+        const detail =
+          problem !== null && typeof problem === "object" && "detail" in problem
+            ? String((problem as { detail?: unknown }).detail ?? "")
+            : "";
+
+        throw new Error(detail || "That delegation could not be saved. Try again.");
+      }
+
       form.reset();
     });
   }
@@ -175,28 +212,10 @@ export function ConnectionsPanel({
 
   return (
     <div className="grid gap-8">
-      <Field>
-        Profile
-        {/* Option text is not an input value, so `maskAllInputs` does not
-            cover it, and this list includes profiles that are not publicly
-            readable — draft, suppressed, or opted out. */}
-        <Select
-          data-ph-no-capture
-          name="profileSlug"
-          value={activeSlug}
-          onChange={(event) => setSelectedSlug(event.target.value)}
-        >
-          {ownedProfiles.map((profile) => (
-            <option key={profile.slug} value={profile.slug}>
-              {profile.displayName} ({profile.profileType})
-            </option>
-          ))}
-        </Select>
-        <FieldText>
-          A community can hold several Discord servers and VRChat groups. One of each kind is the
-          primary.
-        </FieldText>
-      </Field>
+      <p className="text-sm leading-6 text-muted">
+        A community can hold several Discord servers and VRChat groups. One of each kind is the
+        primary.
+      </p>
 
       <section>
         <h2 className="text-xl font-semibold">Connected</h2>
@@ -239,20 +258,32 @@ export function ConnectionsPanel({
                       Make primary
                     </Button>
                   )}
+                  {/* Confirmed, like the developer-token and OAuth-app
+                      revokes: this drops a link that took an OAuth round-trip
+                      or a VRChat proof to earn, and re-creating it means doing
+                      that again. It was a single unguarded click. */}
                   <Button
                     disabled={busy}
-                    variant="ghost"
-                    onClick={() =>
+                    variant="dangerGhost"
+                    onClick={() => {
+                      if (
+                        !window.confirm(
+                          `Disconnect ${connection.assetDisplayName ?? connection.assetExternalId} from this profile? You will have to prove you control it again to reconnect.`,
+                        )
+                      ) {
+                        return;
+                      }
+
                       void run(() =>
                         removeConnection({
                           profileSlug: activeSlug,
                           assetType: connection.assetType as AssetType,
                           assetExternalId: connection.assetExternalId,
                         }),
-                      )
-                    }
+                      );
+                    }}
                   >
-                    Remove
+                    Disconnect
                   </Button>
                 </div>
               </li>
@@ -318,22 +349,24 @@ export function ConnectionsPanel({
 
       {activeProfile?.profileType === "community" ? (
         <section className="border-t border-border pt-6">
-          <h2 className="text-xl font-semibold">VRCLinking delegation</h2>
+          <h2 className="text-xl font-semibold">VRCLinking</h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">
-            If your community uses VRCLinking, you can let VRDex read its Discord-to-VRChat links.
-            VRDex only ever asks whether a given member is linked and verified.
+            If your server uses VRCLinking, share its API key and your members can claim their own
+            VRDex profile without posting a proof code — VRDex asks your server whether they are
+            linked and verified, and gets back only yes or no.
           </p>
-          <Notice className="mt-3">
-            Optional, and it now does something: members claiming a person profile can choose
-            VRCLinking instead of posting a proof code, and that check only reaches servers whose
-            operators have delegated a credential. Without one from your community, your members
-            see the method and it finds nothing.
-          </Notice>
 
-          {connectedGuilds.length === 0 && (vrclinkingCredentials?.length ?? 0) === 0 ? (
+          {!delegationEnabled && (vrclinkingCredentials?.length ?? 0) === 0 ? (
+            // Said before the form, not after a submit. Without the grant this
+            // deployment cannot store a key, and the previous shape let an owner
+            // register a delegation that would never resolve — the feature read
+            // as working right up until a member's claim silently found nothing.
             <Notice className="mt-4">
-              Connect a verified Discord server to this profile first. A delegation applies to one
-              server.
+              VRCLinking is not available on this deployment yet.
+            </Notice>
+          ) : connectedGuilds.length === 0 && (vrclinkingCredentials?.length ?? 0) === 0 ? (
+            <Notice className="mt-4">
+              Connect a verified Discord server to this profile first. A key applies to one server.
             </Notice>
           ) : (
             <>
@@ -358,15 +391,23 @@ export function ConnectionsPanel({
                       </div>
                       <Button
                         disabled={busy}
-                        variant="ghost"
-                        onClick={() =>
+                        variant="dangerGhost"
+                        onClick={() => {
+                          if (
+                            !window.confirm(
+                              `Revoke the VRCLinking key for ${guildLabel(credential.guildId)}? VRDex will stop asking that server about member links.`,
+                            )
+                          ) {
+                            return;
+                          }
+
                           void run(() =>
                             revokeCredential({
                               profileSlug: activeSlug,
                               guildId: credential.guildId,
                             }),
-                          )
-                        }
+                          );
+                        }}
                       >
                         Revoke
                       </Button>
@@ -375,13 +416,14 @@ export function ConnectionsPanel({
                 </ul>
               ) : null}
 
-              {connectedGuilds.length === 0 ? (
-                // The delegation above outlived the connection it was created
-                // for. Revoking it must stay reachable, but there is no server
-                // left to attach a new one to.
+              {connectedGuilds.length === 0 || !delegationEnabled ? (
+                // The key above outlived the connection it was created for, or
+                // this deployment can no longer store one. Revoking has to stay
+                // reachable either way; adding a new one does not.
                 <Notice className="mt-4">
-                  This profile has no connected Discord server. Reconnect one to add a delegation;
-                  existing delegations stay revocable above.
+                  {delegationEnabled
+                    ? "This profile has no connected Discord server. Reconnect one to add a key; existing keys stay revocable above."
+                    : "VRCLinking is not available on this deployment yet. Existing keys stay revocable above."}
                 </Notice>
               ) : (
               <form className="mt-4" onSubmit={submitDelegation}>
@@ -396,26 +438,23 @@ export function ConnectionsPanel({
                   </Select>
                 </Field>
                 <Field className="mt-4">
-                  Secret store reference
+                  VRCLinking API key
                   <Input
                     autoComplete="off"
-                    name="secretRef"
-                    placeholder="secret://vrdex/vrclinking/<server id>"
+                    name="apiKey"
+                    placeholder="Paste the key from your VRCLinking dashboard"
                     required
                     spellCheck={false}
+                    type="password"
                   />
                   <FieldText>
-                    <strong>Do not paste your VRCLinking API key here.</strong> Store the key in the
-                    operator secret store under the name{" "}
-                    <code>vrdex/vrclinking/&lt;server id&gt;</code> and enter its reference:{" "}
-                    <code>secret://vrdex/vrclinking/&lt;server id&gt;</code>. The reference has to
-                    name the server selected above; any other name is rejected, so that one
-                    community cannot register another&apos;s key. VRDex records the reference only;
-                    the key itself is never sent to or stored by VRDex&apos;s database.
+                    The key is stored in VRDex&apos;s secret store, never in its database, and is
+                    only ever used to ask whether one of your members is linked and verified.
+                    Replace it here any time, or revoke it above.
                   </FieldText>
                 </Field>
                 <Button className="mt-4" disabled={busy} type="submit" variant="secondary">
-                  Save delegation
+                  Save key
                 </Button>
               </form>
               )}

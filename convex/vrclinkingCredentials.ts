@@ -5,7 +5,13 @@ import { requireVerifiedActiveBrowserSession } from "./_claimSession";
 import { claimError } from "./_claimErrors";
 import { vrclinkingSecretName, vrclinkingSecretRef } from "./_vrclinkingSecretRef";
 import type { Id } from "./_generated/dataModel";
-import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import {
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+  type QueryCtx,
+} from "./_generated/server";
 import {
   MINIMUM_COMMUNITY_CONTROL_LEVEL,
   getActiveControlProof,
@@ -17,17 +23,6 @@ import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 
 // Mirrors the collector account rule: credentials live in the operator secret
 // store and Convex only ever holds a reference to them.
-//
-// Mirrors the adapter's own grammar, not a looser superset. Anything this
-// accepts that `classifySecretRef` rejects registers cleanly and then fails
-// every resolution forever, with no operator-visible signal beyond a
-// permanently "unavailable" claim — so the two must agree on case, on the
-// allowed characters after `secret://`, and on rejecting traversal.
-// Storage bound, enforced at validation rather than by truncating on write. A
-// silently shortened ARN still resolves — to something else, or to nothing — so
-// registration would succeed and every verification through that delegation
-// would then be permanently unavailable with no operator-visible cause.
-const SECRET_REF_MAX_LENGTH = 500;
 const DISCORD_GUILD_ID_PATTERN = /^\d{17,20}$/;
 
 /**
@@ -44,23 +39,6 @@ const DISCORD_GUILD_ID_PATTERN = /^\d{17,20}$/;
  */
 const secretNameForGuild = vrclinkingSecretName;
 const secretRefForGuild = vrclinkingSecretRef;
-
-/**
- * One accepted form: the name.
- *
- * The ARN form was accepted too, and it was a trap. Its pattern allowed any
- * region and any 12-digit account, while the adapter's execution role can read
- * only its own — so a community registering a cross-account ARN registered
- * successfully, was selected for claims, and then failed every resolution with
- * an AWS denial that surfaces as `unavailable` indefinitely, with nothing
- * pointing back at the reference. The name has no region or account to get
- * wrong and resolves through Secrets Manager wherever the adapter runs.
- */
-function isSecretRefForGuild(value: string, guildId: string): boolean {
-  return (
-    value.length <= SECRET_REF_MAX_LENGTH && value === `secret://${secretNameForGuild(guildId)}`
-  );
-}
 
 /**
  * Resolve a community profile the caller owns.
@@ -102,48 +80,76 @@ async function requireOwnedCommunityProfile(
 }
 
 /**
+ * Both checks a delegation needs, in one place.
+ *
+ * Profile ownership is not enough on its own: the delegation is only as
+ * trustworthy as the delegator's control of the guild whose member links it
+ * opens up.
+ */
+async function requireDelegationAuthority(
+  ctx: QueryCtx,
+  profileSlug: string,
+  rawGuildId: string,
+) {
+  const { user } = await requireVerifiedActiveBrowserSession(ctx);
+  const profile = await requireOwnedCommunityProfile(ctx.db, profileSlug, user._id);
+  const guildId = rawGuildId.trim();
+
+  if (!DISCORD_GUILD_ID_PATTERN.test(guildId)) {
+    throw claimError("INVALID_DISCORD_GUILD_ID");
+  }
+
+  await requireControlProof(
+    ctx.db,
+    user._id,
+    "discord_guild",
+    guildId,
+    MINIMUM_COMMUNITY_CONTROL_LEVEL,
+  );
+
+  return { guildId, profile, user };
+}
+
+/**
+ * Authorize a delegation before its key is written anywhere.
+ *
+ * `/api/account/vrclinking-delegation` puts the pasted key into the operator
+ * secret store and only then registers it, so the ownership and control checks
+ * have to be answerable *before* the write. Registering first and writing after
+ * would revoke a community's working delegation on the way to a write that
+ * might fail, leaving them worse off than before they tried.
+ */
+export const canDelegateForGuild = query({
+  args: { profileSlug: v.string(), guildId: v.string() },
+  handler: async (ctx, args) => {
+    const { guildId } = await requireDelegationAuthority(ctx, args.profileSlug, args.guildId);
+
+    return { guildId, secretName: secretNameForGuild(guildId) };
+  },
+});
+
+/**
  * Delegate a VRCLinking API key for one guild to VRDex.
  *
- * Requires both profile ownership and a current proof that the caller manages
- * the guild, so an operator cannot delegate a key for a server they do not
- * control. The token never reaches Convex: callers pass a secret-store
- * reference that the adapter resolves.
+ * The reference is derived from the guild rather than supplied. It only ever
+ * had one legal value — `isSecretRefForGuild` rejected every other one — so
+ * asking for it made the form unanswerable by the community owner filling it
+ * in, who has no access to the operator secret store the reference names. The
+ * key itself still never reaches Convex; the route writes it to that store and
+ * this records the pointer.
  */
 export const registerCredential = mutation({
   args: {
     profileSlug: v.string(),
     guildId: v.string(),
-    secretRef: v.string(),
   },
   handler: async (ctx, args) => {
-    const { user } = await requireVerifiedActiveBrowserSession(ctx);
-    const profile = await requireOwnedCommunityProfile(ctx.db, args.profileSlug, user._id);
-
-    const guildId = args.guildId.trim();
-
-    if (!DISCORD_GUILD_ID_PATTERN.test(guildId)) {
-      throw claimError("INVALID_DISCORD_GUILD_ID");
-    }
-
-    // The delegation is only as trustworthy as the delegator's control of the
-    // guild, so re-check it here rather than trusting profile ownership alone.
-    await requireControlProof(
-      ctx.db,
-      user._id,
-      "discord_guild",
-      guildId,
-      MINIMUM_COMMUNITY_CONTROL_LEVEL,
+    const { guildId, profile, user } = await requireDelegationAuthority(
+      ctx,
+      args.profileSlug,
+      args.guildId,
     );
-
-    const secretRef = args.secretRef.trim();
-
-    if (!isSecretRefForGuild(secretRef, guildId)) {
-      throw claimError(
-        "ADAPTER_NOT_CONFIGURED",
-        `vrclinking_credentials_require_secret_reference:${secretNameForGuild(guildId)}`,
-      );
-    }
-
+    const secretRef = secretRefForGuild(guildId);
     const now = Date.now();
     const existing = await ctx.db
       .query("communityVrclinkingCredentials")

@@ -8,7 +8,7 @@ import { Component, FormEvent, useDeferredValue, useEffect, useState, useTransit
 import { api } from "@convex-generated-api";
 import { buttonVariants, Button } from "@/components/ui/button";
 import { Card, cardVariants, Eyebrow } from "@/components/ui/card";
-import { Field, FieldText, Input, Select } from "@/components/ui/field";
+import { Field, FieldText, Input } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { avatarFrameStyle, defaultAvatarAppearance, type AvatarAppearance } from "@/lib/avatar-appearance";
 import { cn } from "@/lib/cn";
@@ -224,6 +224,16 @@ function AppearanceEditor({
   const [status, setStatus] = useState<SaveStatus>({ kind: "idle" });
   const [, startTransition] = useTransition();
 
+  // The subject now changes by navigation rather than by a picker inside this
+  // panel, so the requested id arrives again on every switch. Seeding state only
+  // on first render left the editor pointed at whichever profile happened to be
+  // selected when the page first mounted.
+  useEffect(() => {
+    if (requestedProfile !== undefined) {
+      setSelectedProfileId(requestedProfile.profileId);
+    }
+  }, [requestedProfile]);
+
   useEffect(() => {
     if (selectedProfile) {
       setDraft(selectedProfile.avatarAppearance);
@@ -292,19 +302,6 @@ function AppearanceEditor({
             Keep the uploaded image reusable. These controls only change how the public avatar frame presents it.
           </p>
         </div>
-
-        {profiles.length > 1 ? (
-          <Field>
-            Profile
-            <Select value={selectedProfileId} onChange={(event) => setSelectedProfileId(event.target.value)}>
-              {profiles.map((profile) => (
-                <option key={profile.profileId} value={profile.profileId}>
-                  {profile.displayName}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        ) : null}
 
         <label className="flex items-center justify-between gap-4 rounded-control border border-border bg-surface-strong px-4 py-3 text-sm font-medium">
           <span>

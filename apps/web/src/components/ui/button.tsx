@@ -4,7 +4,11 @@ import type { ComponentPropsWithoutRef } from "react";
 import { cn } from "@/lib/cn";
 
 export const buttonVariants = cva(
-  "inline-flex items-center justify-center rounded-control text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus disabled:cursor-not-allowed disabled:opacity-60",
+  // `cursor-pointer` is explicit because Tailwind v4's preflight sets
+  // `button { cursor: default }`, which v3 did not. Every `Button` in the app
+  // lost its pointer on the v4 upgrade without rendering any differently — the
+  // affordance simply stopped reading as clickable.
+  "inline-flex cursor-pointer items-center justify-center rounded-control text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus disabled:cursor-not-allowed disabled:opacity-60",
   {
     variants: {
       variant: {

@@ -55,7 +55,14 @@ export function PageNav({
   return (
     <nav
       className={cn(
-        "sticky top-0 z-40 -mx-3 flex flex-wrap items-center gap-3 border-b border-border bg-background/90 px-3 py-3 text-sm backdrop-blur",
+        // `min-h-16` rather than padding around whatever the page put here.
+        // The bar's height was the tallest child plus `py-3`, so it changed
+        // between routes: a page with no nav buttons sat shorter than one with
+        // them, and the account control growing 40px → 42px when auth resolved
+        // shifted the whole page down. A floor taller than any control makes
+        // the bar the same height everywhere, and `flex-wrap` still lets a
+        // crowded nav grow onto a second row on narrow viewports.
+        "sticky top-0 z-40 -mx-3 flex min-h-16 flex-wrap items-center gap-3 border-b border-border bg-background/90 px-3 py-2 text-sm backdrop-blur",
         className,
       )}
       {...props}

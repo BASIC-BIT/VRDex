@@ -7,7 +7,7 @@ import { Component, FormEvent, ReactNode, useEffect, useMemo, useRef, useState, 
 import { api } from "@convex-generated-api";
 import { buttonVariants, Button } from "@/components/ui/button";
 import { Card, cardVariants } from "@/components/ui/card";
-import { Field, Select } from "@/components/ui/field";
+import { Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { cn } from "@/lib/cn";
 import type { Id } from "../../../../../../convex/_generated/dataModel";
@@ -241,19 +241,6 @@ function PrivacyEditor({
           <h2 className="text-2xl font-semibold">Field visibility</h2>
           <p className="mt-2 text-sm leading-6 text-muted">{selectedProfile.displayName}</p>
         </div>
-
-        {profiles.length > 1 ? (
-          <Field>
-            Profile
-            <Select value={selectedProfileId} onChange={(event) => setSelectedProfileId(event.target.value)}>
-              {profiles.map((profile) => (
-                <option key={profile.profileId} value={profile.profileId}>
-                  {profile.displayName}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        ) : null}
 
         <div className="grid gap-4">
           {groupsForProfile(selectedProfile).map((group) => (
