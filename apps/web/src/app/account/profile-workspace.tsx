@@ -4,6 +4,7 @@ import { useQuery } from "convex/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  Component,
   createContext,
   useContext,
   useEffect,
@@ -172,7 +173,40 @@ export function ProfileWorkspace(props: ProfileWorkspaceProps) {
     return <div className="grid gap-6">{props.children}</div>;
   }
 
-  return <ConnectedProfileWorkspace {...props} />;
+  return (
+    <WorkspaceChromeBoundary fallback={props.children}>
+      <ConnectedProfileWorkspace {...props} />
+    </WorkspaceChromeBoundary>
+  );
+}
+
+/**
+ * Drops the workspace chrome rather than the page when its query fails.
+ *
+ * The privacy and appearance panels each carry their own boundary and their own
+ * "temporarily unavailable" notice. Adding a query *above* them meant a failing
+ * backend — a schema deploy, say — took the whole settings route to the
+ * app-level error surface instead, so the header quietly disabled failure
+ * handling those panels already had. Falling back to the children restores it:
+ * the header is chrome, and chrome is the part worth losing.
+ */
+class WorkspaceChromeBoundary extends Component<
+  { children: ReactNode; fallback: ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return <div className="grid gap-6">{this.props.fallback}</div>;
+    }
+
+    return this.props.children;
+  }
 }
 
 function ConnectedProfileWorkspace({
@@ -234,6 +268,13 @@ function ConnectedProfileWorkspace({
   // panel that *has* resolved one and contradicts it, and its tabs all lead
   // back to `/account` rather than to the surface they name. Wait for the list
   // instead of rendering a workspace bound to nothing.
+  // `null` is a signed-out visitor, not an account with nothing in it. Treating
+  // them the same told someone who had not signed in to go and claim a profile,
+  // while suppressing the sign-in prompt the panel below was ready to show.
+  if (owned === null && previewProfiles === undefined) {
+    return <div className="grid gap-6">{children}</div>;
+  }
+
   if (active === undefined) {
     return (
       <div className="grid gap-6">

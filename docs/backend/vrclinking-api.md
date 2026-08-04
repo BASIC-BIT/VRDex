@@ -189,14 +189,19 @@ to correct it.
 The write needs `VRDEX_VRCLINKING_DELEGATION_ROLE_ARN` and
 `VRDEX_VRCLINKING_SECRET_REGION`, both managed by
 `infra/terraform/vrclinking-adapter/delegation-writer.tf` and applied to
-production and staging on 2026-08-04. The role is Vercel-OIDC, scoped to
-`PutSecretValue`, `CreateSecret` and `DeleteSecret` on the two-segment
-`vrdex/vrclinking/*/*` shape, with **no `GetSecretValue`** — Vercel never reads a
+production and staging on 2026-08-04. The role is Vercel-OIDC and holds **no `GetSecretValue`** — Vercel never reads a
 delegated key back, and a role that could both write and read every tenant's key
-is a far larger blast radius than one that can only replace them. The shape
-excludes `vrdex/vrclinking/shared`, which holds the adapter's own bearer token
-and capability key and sits one segment deep; that secret is additionally denied
-by ARN in the same policy. The trust policy pins named subjects
+is a far larger blast radius than one that can only replace them.
+
+Write and delete are scoped differently, on purpose:
+
+| Action | Scope | Why |
+| --- | --- | --- |
+| `CreateSecret`, `PutSecretValue` | `vrdex/vrclinking/*/*` | Two segments. `vrdex/vrclinking/shared` holds the adapter's own bearer token and capability key and sits one segment deep, so nothing may ever create or overwrite at that depth |
+| `DeleteSecret` | `vrdex/vrclinking/*` | One segment wider, because a delegation created before per-credential naming keeps its key at `vrdex/vrclinking/<guildId>` and retiring it is exactly what replacing or revoking such a row does |
+
+The shared secret is kept out of the wider delete grant by an explicit Deny on
+its ARN in the same policy, not by the resource pattern. The trust policy pins named subjects
 (`…:project:vr-dex-web:environment:{production,staging}`) rather than a
 wildcard, so no other project in the team can assume it.
 

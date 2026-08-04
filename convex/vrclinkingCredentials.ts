@@ -435,7 +435,22 @@ export const abandonCredential = mutation({
   handler: async (ctx, args) => {
     const pending = await ctx.db.get(args.credentialId);
 
-    if (pending === null || pending.state !== "pending") {
+    // A reservation that a revoke cancelled counts too. Revoking retires
+    // in-flight rows for that guild, so the replacement whose key was already
+    // written arrives here finding its row `revoked` rather than `pending` — and
+    // refusing on that alone left the freshly pasted provider key in the store
+    // with nothing to retire it, possibly forever, since nothing else for that
+    // guild may ever be reserved again after a revocation.
+    //
+    // The reason marker is what makes this safe: it is set only where VRDex
+    // itself cancelled a reservation, never on a delegation an owner actually
+    // had.
+    const discardable =
+      pending !== null &&
+      (pending.state === "pending" ||
+        (pending.state === "revoked" && pending.revokedReason === ABANDONED_RESERVATION_REASON));
+
+    if (!discardable) {
       return { abandoned: false };
     }
 
