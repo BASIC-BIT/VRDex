@@ -212,6 +212,15 @@ const MAX_RECENT_DELEGATION_WRITES = 10;
 const OVERDUE_CLEANUP_SCAN_LIMIT = 50;
 
 /**
+ * How far past unretirable rows one sweep will look.
+ *
+ * Rows withheld by the legacy-name liveness guard never settle while another
+ * profile still resolves through the shared name, so without paging they would
+ * fill every batch forever and rows behind them would never be reached.
+ */
+const OVERDUE_CLEANUP_MAX_PAGES = 10;
+
+/**
  * Reserve the row a pasted key will be written against.
  *
  * The row exists, with its own id and therefore its own secret name, before
@@ -270,11 +279,11 @@ export const reserveCredential = mutation({
     const unretired = (
       await ctx.db
         .query("communityVrclinkingCredentials")
-        .withIndex("by_communityProfileId_state", (q) =>
-          q.eq("communityProfileId", profile._id).eq("state", "revoked"),
+        .withIndex("by_guildId_state_secretRetiredAt", (q) =>
+          q.eq("guildId", guildId).eq("state", "revoked").eq("secretRetiredAt", undefined),
         )
         .collect()
-    ).filter((row) => row.guildId === guildId && row.secretRetiredAt === undefined);
+    ).filter((row) => row.communityProfileId === profile._id);
 
     // Claimed before anyone deletes its key. A request still in flight past the
     // TTL could otherwise activate the very row a later request has just
@@ -702,22 +711,43 @@ export const claimOverdueSecretCleanups = internalMutation({
     // *active* delegation — a deployment with fifty live keys would otherwise
     // fill the batch with rows that are not obligations and hand the sweep
     // nothing, forever.
-    const scanned = await Promise.all(
-      (["pending", "revoked"] as const).map((state) =>
-        ctx.db
+    //
+    // Paged, because a row can be an obligation by state and still be withheld
+    // by the legacy-name liveness guard: another profile is still resolving
+    // through the shared guild-scoped name. Those rows never settle, so a single
+    // capped scan would return them every day and never reach a guild whose keys
+    // could actually be deleted. Paging past them is bounded — the sweep is
+    // daily, and a backlog is allowed to take several days.
+    const overdue: Doc<"communityVrclinkingCredentials">[] = [];
+
+    for (const state of ["pending", "revoked"] as const) {
+      let cursor = 0;
+
+      for (let page = 0; page < OVERDUE_CLEANUP_MAX_PAGES; page += 1) {
+        const rows = await ctx.db
           .query("communityVrclinkingCredentials")
           .withIndex("by_state_secretRetiredAt_createdAt", (q) =>
-            q.eq("state", state).eq("secretRetiredAt", undefined),
+            q.eq("state", state).eq("secretRetiredAt", undefined).gt("createdAt", cursor),
           )
-          .take(OVERDUE_CLEANUP_SCAN_LIMIT),
-      ),
-    );
-    const overdue = scanned
-      .flat()
-      .filter(
-        (row) =>
-          row.createdAt + PENDING_DELEGATION_TTL_MS <= now && !writerMayStillBeRunning(row, now),
-      );
+          .take(OVERDUE_CLEANUP_SCAN_LIMIT);
+
+        if (rows.length === 0) {
+          break;
+        }
+
+        cursor = rows[rows.length - 1]!.createdAt;
+        overdue.push(
+          ...rows.filter(
+            (row) =>
+              row.createdAt + PENDING_DELEGATION_TTL_MS <= now && !writerMayStillBeRunning(row, now),
+          ),
+        );
+
+        if (overdue.length >= OVERDUE_CLEANUP_SCAN_LIMIT) {
+          break;
+        }
+      }
+    }
 
     // Claimed before their names go anywhere.
     await Promise.all(

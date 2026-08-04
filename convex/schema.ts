@@ -2066,6 +2066,11 @@ export default defineSchema({
   })
     .index("by_communityProfileId_state", ["communityProfileId", "state"])
     .index("by_guildId_state", ["guildId", "state"])
+    // The per-guild cleanup lookup. Collecting a profile's whole revoked history
+    // to find this guild's outstanding obligations would eventually exceed
+    // Convex's read limits on a busy profile — genuine revocations are kept as
+    // audit history, so that history only grows.
+    .index("by_guildId_state_secretRetiredAt", ["guildId", "state", "secretRetiredAt"])
     .index("by_state_lastRotatedAt", ["state", "lastRotatedAt"])
     // Selects the cleanup predicate rather than filtering after a scan cap.
     // Capping first meant rows that are not obligations — retired history, and

@@ -65,12 +65,23 @@ variable "delegation_writer_kms_key_id" {
     Customer-managed KMS key delegated credentials are created under.
 
     Null means the AWS-managed Secrets Manager key, which needs no grant and is
-    what this stack has always assumed. Set it only alongside the same key in
-    `kms_key_arns`, which is what lets the adapter read what the writer created.
+    what this stack has always assumed.
+
+    Must also appear in `kms_key_arns`: that list is what grants the adapter's
+    read and the writer's encrypt. Setting one without the other applied a
+    half-enabled configuration — the form enabled, `CreateSecret` passing a key
+    the writer may not use, and the adapter unable to read what did get written.
+    The validation below refuses that rather than letting it reach an operator as
+    a 500 on every save.
   EOT
 
   type    = string
   default = null
+
+  validation {
+    condition     = var.delegation_writer_kms_key_id == null || contains(var.kms_key_arns, coalesce(var.delegation_writer_kms_key_id, ""))
+    error_message = "delegation_writer_kms_key_id must also be listed in kms_key_arns, which is what grants the adapter's read and the writer's encrypt."
+  }
 }
 
 locals {

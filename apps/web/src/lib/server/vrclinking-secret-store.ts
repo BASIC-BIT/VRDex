@@ -8,7 +8,7 @@ import {
   SecretsManagerClient,
 } from "@aws-sdk/client-secrets-manager";
 import { awsCredentialsProvider } from "@vercel/oidc-aws-credentials-provider";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 /**
@@ -161,8 +161,28 @@ export async function putVrclinkingDelegationKey(
 
   if (directory !== undefined) {
     const file = secretFilePath(directory, secretName);
+    const parent = path.dirname(file);
 
-    await mkdir(path.dirname(file), { recursive: true });
+    // A legacy delegation's key is a *file* at exactly this path — the
+    // guild-scoped name is one segment shorter than the per-credential one, so
+    // the new key's directory is the old key's file. `mkdir` would fail with a
+    // bare ENOTDIR, and the two schemes genuinely cannot share a filesystem:
+    // moving the legacy file aside would break the delegation still resolving
+    // through it.
+    //
+    // Refused with the reason instead. The legacy key has to be revoked, or the
+    // installation migrated, before the same guild can take a per-credential
+    // one — which is a decision for whoever owns that delegation, not something
+    // to do underneath them.
+    const blocking = await stat(parent).catch(() => null);
+
+    if (blocking?.isFile()) {
+      throw new Error(
+        `A guild-scoped key already occupies ${parent}. Revoke that delegation before storing a per-credential key for the same server, or migrate the file-backed store.`,
+      );
+    }
+
+    await mkdir(parent, { recursive: true });
     await writeFile(file, apiKey, { encoding: "utf8", mode: 0o600 });
 
     return;

@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 import {
@@ -14,22 +17,12 @@ const KEYS = [
   "AWS_DEFAULT_REGION",
 ] as const;
 
-function withEnv(values: Partial<Record<(typeof KEYS)[number], string>>, run: () => void) {
+function withEnv(
+  values: Partial<Record<(typeof KEYS)[number], string>>,
+  run: () => void | Promise<void>,
+) {
   const saved = Object.fromEntries(KEYS.map((key) => [key, process.env[key]]));
-
-  try {
-    for (const key of KEYS) {
-      const value = values[key];
-
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
-    }
-
-    run();
-  } finally {
+  const restore = () => {
     for (const key of KEYS) {
       const value = saved[key];
 
@@ -39,6 +32,34 @@ function withEnv(values: Partial<Record<(typeof KEYS)[number], string>>, run: ()
         process.env[key] = value;
       }
     }
+  };
+
+  for (const key of KEYS) {
+    const value = values[key];
+
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+
+  // Restored after the promise settles when `run` is async, so an awaited
+  // assertion still sees the environment it was given.
+  try {
+    const outcome = run();
+
+    if (outcome instanceof Promise) {
+      return outcome.finally(restore);
+    }
+
+    restore();
+
+    return undefined;
+  } catch (error) {
+    restore();
+
+    throw error;
   }
 }
 
@@ -129,5 +150,27 @@ test("refuses to write outside the delegated-credential shape", async () => {
 test("counts a file backend as configured", () => {
   withEnv({ VRDEX_VRCLINKING_SECRET_DIR: "/tmp/vrdex-secrets" }, () => {
     assert.equal(isVrclinkingSecretStoreConfigured(), true);
+  });
+});
+
+/**
+ * A legacy delegation's key is a *file* at exactly the path a per-credential key
+ * needs as its directory — the guild-scoped name is one segment shorter. The two
+ * schemes cannot share a filesystem, and moving the legacy file aside would
+ * break the delegation still resolving through it, so this refuses with the
+ * reason rather than failing on a bare ENOTDIR.
+ */
+test("refuses to bury a legacy file-backed key under a new one", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "vrdex-secrets-"));
+  const guildId = "100000000000000001";
+
+  mkdirSync(path.join(root, "vrdex", "vrclinking"), { recursive: true });
+  writeFileSync(path.join(root, "vrdex", "vrclinking", guildId), "legacy-key");
+
+  await withEnv({ VRDEX_VRCLINKING_SECRET_DIR: root }, async () => {
+    await assert.rejects(
+      () => putVrclinkingDelegationKey(`vrdex/vrclinking/${guildId}/abc123`, "new-key"),
+      /guild-scoped key already occupies/,
+    );
   });
 });
