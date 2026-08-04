@@ -1058,6 +1058,64 @@ describe("VRCLinking credential delegation", () => {
     assert.deepEqual(revoked.retired, []);
   });
 
+  // Deleting a key that does not exist yet succeeds, so a revoke racing a
+  // reservation can retire a name moments before the POST creates it. Stamping
+  // there would suppress the only durable handle to a key that then comes into
+  // existence, so a cancelled reservation stays unretired until its writer is
+  // presumed gone.
+  it("holds retirement of a cancelled reservation while its writer may run", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const seeded = await seedOwnedCommunity(t, "delegation-late-write", now);
+    const guildId = "13345678901234567";
+    await t.run(async (ctx) => {
+      await recordExternalControlProof(ctx.db, {
+        userId: seeded.userId,
+        assetType: "discord_guild",
+        assetExternalId: guildId,
+        controlLevel: "owner",
+        evidenceSource: "discord_oauth",
+        now,
+      });
+    });
+
+    const asOwner = t.withIdentity(seeded.identity);
+    const reserved = await asOwner.mutation(api.vrclinkingCredentials.reserveCredential, {
+      profileSlug: "delegation-late-write",
+      guildId,
+    });
+
+    // The revoke path cancels it, and the route confirms the deletion of a key
+    // that has not been written yet.
+    await asOwner.mutation(api.vrclinkingCredentials.abandonCredential, {
+      profileSlug: "delegation-late-write",
+      credentialId: reserved.credentialId,
+    });
+    await asOwner.mutation(api.vrclinkingCredentials.confirmSecretsRetired, {
+      profileSlug: "delegation-late-write",
+      credentialIds: [reserved.credentialId],
+    });
+
+    const fresh = await t.run(async (ctx) => ctx.db.get(reserved.credentialId));
+
+    // Not retired: a late write would otherwise leave a live key with nothing
+    // able to find it.
+    assert.equal(fresh?.secretRetiredAt, undefined);
+
+    // Once the writer is presumed gone, the same confirmation settles it.
+    await t.run(async (ctx) => {
+      await ctx.db.patch(reserved.credentialId, { createdAt: now - 60 * 60 * 1000 });
+    });
+    await asOwner.mutation(api.vrclinkingCredentials.confirmSecretsRetired, {
+      profileSlug: "delegation-late-write",
+      credentialIds: [reserved.credentialId],
+    });
+
+    const settled = await t.run(async (ctx) => ctx.db.get(reserved.credentialId));
+
+    assert.notEqual(settled?.secretRetiredAt, undefined);
+  });
+
   it("cancels reservations for a guild the owner revokes", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();

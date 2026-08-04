@@ -116,6 +116,29 @@ async function requireDelegationAuthority(
 }
 
 /**
+ * Whether a row's key might still be arriving.
+ *
+ * Only ever true of a cancelled reservation: a revoke can retire a name moments
+ * before the POST that reserved it finishes writing, and deleting a
+ * not-yet-created secret succeeds, so the retirement would be recorded against
+ * a key that then comes into existence. Until the writer is presumed gone —
+ * which is what the reservation TTL means — that row stays unretired and the
+ * sweep keeps offering it.
+ *
+ * A genuine revocation is settled the moment it happens: its key was written
+ * long before, so there is no writer to wait for.
+ */
+function writerMayStillBeRunning(
+  row: Doc<"communityVrclinkingCredentials">,
+  now: number,
+): boolean {
+  return (
+    row.revokedReason === ABANDONED_RESERVATION_REASON &&
+    row.createdAt + PENDING_DELEGATION_TTL_MS > now
+  );
+}
+
+/**
  * The names among `retiring` that no other live delegation still resolves
  * through.
  *
@@ -467,10 +490,18 @@ export const confirmSecretsRetired = mutation({
     // the same time, so the stale sweep stops offering it. Both end up inert:
     // `listCredentials` shows active rows only, and the unretired sweep skips
     // anything already stamped.
+    //
+    // Except while its writer might still be running. Deleting a key that does
+    // not exist yet succeeds — idempotently, and correctly — so a revoke racing
+    // a reservation can retire a name moments before the POST creates it. The
+    // stamp would then suppress the only durable handle to a live provider key.
+    // A cancelled reservation stays unretired until its writer is presumed gone,
+    // which is what the TTL means, and the unretired sweep keeps offering it
+    // until then.
     await Promise.all(
       rows.map((row) =>
         ctx.db.patch(row!._id, {
-          secretRetiredAt: now,
+          ...(writerMayStillBeRunning(row!, now) ? {} : { secretRetiredAt: now }),
           updatedAt: now,
           ...(row!.state === "pending"
             ? {
@@ -558,10 +589,18 @@ export const confirmSecretsRetiredAsServer = internalMutation({
     // the same time, so the stale sweep stops offering it. Both end up inert:
     // `listCredentials` shows active rows only, and the unretired sweep skips
     // anything already stamped.
+    //
+    // Except while its writer might still be running. Deleting a key that does
+    // not exist yet succeeds — idempotently, and correctly — so a revoke racing
+    // a reservation can retire a name moments before the POST creates it. The
+    // stamp would then suppress the only durable handle to a live provider key.
+    // A cancelled reservation stays unretired until its writer is presumed gone,
+    // which is what the TTL means, and the unretired sweep keeps offering it
+    // until then.
     await Promise.all(
       rows.map((row) =>
         ctx.db.patch(row!._id, {
-          secretRetiredAt: now,
+          ...(writerMayStillBeRunning(row!, now) ? {} : { secretRetiredAt: now }),
           updatedAt: now,
           ...(row!.state === "pending"
             ? {
