@@ -205,6 +205,7 @@ describe("collector proof check queue", () => {
     await t.run(async (ctx) => {
       const attempt = await ctx.db.get(attemptId);
       const rivalId = await ctx.db.insert("users", {
+        clerkUserId: `user_test_${globalThis.crypto.randomUUID()}`,
         email: `rival-${Math.random()}@example.test`,
         emailVerificationTime: now,
       });

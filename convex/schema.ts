@@ -648,106 +648,18 @@ export default defineSchema({
   // spine that every other table's `v.id("users")` points at; `clerkUserId` is
   // the only link back to the auth provider.
   //
-  // Optional deliberately, as the first half of a two-phase change. Rows created
-  // under Convex Auth have no `clerkUserId`, and a required field would make
-  // schema validation reject them on the very first deploy — before the
-  // functions that could clean them up are even installed. `ensureUser` always
-  // sets it, and a row without one simply never matches the index, so it can
-  // authenticate nobody. Tighten to `v.string()` once the legacy rows are gone.
-  // ---------------------------------------------------------------------------
-  // Convex Auth leftovers, phase one of a two-phase removal.
+  // Required, as the second half of a two-phase change that is now complete:
+  // both first-party deployments hold zero rows created under Convex Auth. It
+  // was `v.optional(v.string())` until then, because a required field would have
+  // made schema validation reject those rows on the very first deploy — before
+  // the functions that could clean them up were installed.
   //
-  // These are declared but unused. Nothing reads or writes them — the modules
-  // that did are deleted — and they exist only so a deployment that still holds
-  // Convex Auth documents can accept this schema. Convex rejects a push that
-  // leaves a populated table undeclared, and both `baseline-checks.yml` and
-  // `staging-deploy.yml` deploy on merge, before the cutover purge in
-  // `docs/backend/auth-sessions.md` could possibly run. Dropping them here would
-  // make the deploy fail before the cleanup that would have made dropping them
-  // safe.
-  //
-  // Delete this block once every deployment's purge is done, in the same change
-  // that tightens `users.clerkUserId` to `v.string()`.
-  authSessions: defineTable({
-    userId: v.id("users"),
-    expirationTime: v.number(),
-  }).index("userId", ["userId"]),
-  authAccounts: defineTable({
-    userId: v.id("users"),
-    provider: v.string(),
-    providerAccountId: v.string(),
-    secret: v.optional(v.string()),
-    emailVerified: v.optional(v.string()),
-    phoneVerified: v.optional(v.string()),
-  })
-    .index("userIdAndProvider", ["userId", "provider"])
-    .index("providerAndAccountId", ["provider", "providerAccountId"]),
-  authRefreshTokens: defineTable({
-    sessionId: v.id("authSessions"),
-    expirationTime: v.number(),
-    firstUsedTime: v.optional(v.number()),
-    parentRefreshTokenId: v.optional(v.id("authRefreshTokens")),
-  })
-    .index("sessionId", ["sessionId"])
-    .index("sessionIdAndParentRefreshTokenId", ["sessionId", "parentRefreshTokenId"]),
-  authVerificationCodes: defineTable({
-    accountId: v.id("authAccounts"),
-    provider: v.string(),
-    code: v.string(),
-    expirationTime: v.number(),
-    verifier: v.optional(v.string()),
-    emailVerified: v.optional(v.string()),
-    phoneVerified: v.optional(v.string()),
-  })
-    .index("accountId", ["accountId"])
-    .index("code", ["code"]),
-  authVerifiers: defineTable({
-    sessionId: v.optional(v.id("authSessions")),
-    signature: v.optional(v.string()),
-  }).index("signature", ["signature"]),
-  authRateLimits: defineTable({
-    identifier: v.string(),
-    lastAttemptTime: v.number(),
-    attemptsLeft: v.number(),
-  }).index("identifier", ["identifier"]),
-  // These two are VRDex's own, not the component's, which is why they were
-  // missed when the block above was written — but the deploy does not care who
-  // owned them, only whether a populated table is declared.
-  //
-  // `e2eAuthCodes` is the likelier of the two to hold rows: nothing expired
-  // them, so a staging run cancelled between `recordAuthCode` and teardown left
-  // a document behind indefinitely.
-  recentAuthChallenges: defineTable({
-    actionClass: v.union(
-      v.literal("developer_oauth_application"),
-      v.literal("developer_token"),
-      v.literal("session_revocation"),
-    ),
-    challengeId: v.string(),
-    completedAt: v.optional(v.number()),
-    completedSessionId: v.optional(v.id("authSessions")),
-    expiresAt: v.number(),
-    originalSessionId: v.id("authSessions"),
-    authenticatedSessionId: v.optional(v.id("authSessions")),
-    proofMethod: v.optional(v.literal("password")),
-    proofClaimedAt: v.optional(v.number()),
-    proofHash: v.optional(v.string()),
-    proofObservedAt: v.optional(v.number()),
-    userId: v.id("users"),
-  })
-    .index("by_challengeId", ["challengeId"])
-    .index("by_completedSessionId", ["completedSessionId"])
-    .index("by_expiresAt", ["expiresAt"])
-    .index("by_originalSessionId", ["originalSessionId"]),
-  e2eAuthCodes: defineTable({
-    email: v.string(),
-    code: v.string(),
-    createdAt: v.number(),
-    expiresAt: v.number(),
-  }).index("by_email", ["email"]),
-  // ---------------------------------------------------------------------------
+  // That cuts both ways now. **This revision cannot be deployed onto a database
+  // that still holds legacy rows**, and the migrations that would fix one are
+  // deleted here too. `docs/backend/auth-sessions.md` pins the staged revision
+  // to deploy first and gives the sequence.
   users: defineTable({
-    clerkUserId: v.optional(v.string()),
+    clerkUserId: v.string(),
     name: v.optional(v.string()),
     image: v.optional(v.string()),
     email: v.optional(v.string()),
