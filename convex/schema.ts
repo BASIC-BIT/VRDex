@@ -2014,11 +2014,6 @@ export default defineSchema({
     lastRevalidatedAt: v.optional(v.number()),
     revokedAt: v.optional(v.number()),
     revokedReason: v.optional(v.string()),
-    // Set once the key behind this row is confirmed gone from the secret store.
-    // A revoked row without it still has a live provider key, and the row is the
-    // only thing its name can be derived from — so it is the retry handle, not
-    // bookkeeping.
-    secretRetiredAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })

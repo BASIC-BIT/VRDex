@@ -332,13 +332,25 @@ export const activateCredential = mutation({
       // a replay meant a lost response also lost the names of the keys that
       // activation had just retired, leaving them in the store with nothing
       // pointing at them.
+      const savedNames = pending.supersededSecretNames ?? [];
+      // Re-derived rather than left empty. A replay schedules the same deletions,
+      // so it owes the same confirmations — returning names with no rows meant
+      // the retry deleted the keys and confirmed nothing, leaving every replaced
+      // row an outstanding obligation that later reservations kept re-reporting.
+      const revokedRows = await ctx.db
+        .query("communityVrclinkingCredentials")
+        .withIndex("by_communityProfileId_state", (q) =>
+          q.eq("communityProfileId", profile._id).eq("state", "revoked"),
+        )
+        .collect();
+
       return {
         credentialId: pending._id,
-        replaced: (pending.supersededSecretNames ?? []).length > 0,
-        supersededSecretNames: pending.supersededSecretNames ?? [],
-        // A replay cannot re-derive which rows those names came from, and the
-        // caller only needs them to confirm deletions it is performing now.
-        supersededCredentials: [],
+        replaced: savedNames.length > 0,
+        supersededSecretNames: savedNames,
+        supersededCredentials: revokedRows
+          .map((row) => ({ credentialId: row._id, secretName: vrclinkingSecretNameForRow(row) }))
+          .filter((row) => savedNames.includes(row.secretName)),
       };
     }
 
@@ -454,6 +466,72 @@ export const confirmSecretsRetired = mutation({
 });
 
 /**
+ * The same discard, authorized by the server rather than the browser session.
+ *
+ * `abandonCredential` needs a live session, and the case it most needs to cover
+ * is the one where that session has just died: an expiry between storing the key
+ * and activating it makes activation fail, and then makes cleanup fail for the
+ * same reason. The key stays with nothing pointing at it, and after a revocation
+ * there may never be another reservation for that guild to sweep it.
+ *
+ * Internal, so only the route can call it, and it takes the credential id the
+ * route already holds from its own reservation — it cannot be pointed at a row
+ * the caller did not create in this request.
+ */
+export const abandonCredentialAsServer = internalMutation({
+  args: { credentialId: v.id("communityVrclinkingCredentials") },
+  handler: async (ctx, args) => {
+    const pending = await ctx.db.get(args.credentialId);
+    const discardable =
+      pending !== null &&
+      (pending.state === "pending" ||
+        (pending.state === "revoked" && pending.revokedReason === ABANDONED_RESERVATION_REASON));
+
+    if (!discardable) {
+      return { abandoned: false, secretName: null };
+    }
+
+    const now = Date.now();
+
+    if (pending.state === "pending") {
+      await ctx.db.patch(pending._id, {
+        state: "revoked",
+        revokedAt: now,
+        revokedReason: ABANDONED_RESERVATION_REASON,
+        updatedAt: now,
+      });
+    }
+
+    const [retirable] = await retirableSecretNames(ctx, pending.guildId, [pending]);
+
+    return { abandoned: true, secretName: retirable ?? null };
+  },
+});
+
+/**
+ * Confirm retirement without a browser session, for the same reason.
+ */
+export const confirmSecretsRetiredAsServer = internalMutation({
+  args: { credentialIds: v.array(v.id("communityVrclinkingCredentials")) },
+  handler: async (ctx, args) => {
+    const rows = (await Promise.all(args.credentialIds.map((id) => ctx.db.get(id)))).filter(
+      (row) => row !== null && row.state !== "active",
+    );
+    const now = Date.now();
+
+    await Promise.all(
+      rows.map((row) =>
+        row!.state === "pending" || row!.revokedReason === ABANDONED_RESERVATION_REASON
+          ? ctx.db.delete(row!._id)
+          : ctx.db.patch(row!._id, { secretRetiredAt: now, updatedAt: now }),
+      ),
+    );
+
+    return { confirmed: rows.length };
+  },
+});
+
+/**
  * Report whether a reservation is still safe to discard, without discarding it.
  *
  * Deliberately does not delete. The row is the only thing its secret name can be
@@ -545,7 +623,7 @@ export const revokeCredential = mutation({
     const target = active.find((row) => row.guildId === args.guildId.trim());
 
     if (target === undefined) {
-      return { revoked: false, secretName: null, credentialId: null };
+      return { revoked: false, credentialId: null, retired: [] };
     }
 
     const now = Date.now();
@@ -563,17 +641,17 @@ export const revokeCredential = mutation({
       )
       .collect();
 
+    const cancelled = reserved.filter((row) => row.guildId === target.guildId);
+
     await Promise.all(
-      reserved
-        .filter((row) => row.guildId === target.guildId)
-        .map((row) =>
-          ctx.db.patch(row._id, {
-            state: "revoked",
-            revokedAt: now,
-            revokedReason: ABANDONED_RESERVATION_REASON,
-            updatedAt: now,
-          }),
-        ),
+      cancelled.map((row) =>
+        ctx.db.patch(row._id, {
+          state: "revoked",
+          revokedAt: now,
+          revokedReason: ABANDONED_RESERVATION_REASON,
+          updatedAt: now,
+        }),
+      ),
     );
 
     await ctx.db.patch(target._id, {
@@ -588,15 +666,22 @@ export const revokeCredential = mutation({
     // owner who revokes would otherwise leave their live provider key in the
     // store indefinitely, still readable by the adapter role, which is close to
     // the opposite of what pressing Revoke means.
-    const [retirable] = await retirableSecretNames(ctx, target.guildId, [target]);
+    const retiring = [target, ...cancelled];
+    const retirable = new Set(await retirableSecretNames(ctx, target.guildId, retiring));
 
     return {
       revoked: true,
       credentialId: target._id,
-      // Null where another profile's active delegation still resolves through
-      // this row's legacy guild-scoped name. The row is revoked either way; the
-      // key behind it is not this profile's alone to delete.
-      secretName: retirable ?? null,
+      // Every row this call retired, not just the delegation itself. A
+      // replacement that wrote its key and then crashed leaves a reservation
+      // with a live provider key and no request left to clean it up — and after
+      // a revocation there may never be another reservation for this guild to
+      // sweep it. Names absent here are ones another profile's live delegation
+      // still resolves through: revoked either way, but not this profile's alone
+      // to delete.
+      retired: retiring
+        .map((row) => ({ credentialId: row._id, secretName: vrclinkingSecretNameForRow(row) }))
+        .filter((row) => retirable.has(row.secretName)),
     };
   },
 });
@@ -714,6 +799,7 @@ export const reserveAdapterDelegations = internalMutation({
     // `lastConsultedAt` and stay ahead of a working third forever. Advancing on
     // the attempt is what makes rotation independent of the outcome.
     const perGuild = new Map<string, number>();
+    const sentReferences = new Set<string>();
 
     for (const row of candidates) {
       if (usable.length >= MAX_ADAPTER_DELEGATIONS) {
@@ -723,7 +809,14 @@ export const reserveAdapterDelegations = internalMutation({
       // Stamped, not skipped: `lastRotatedAt` is the selection cursor, and a
       // duplicate left unstamped pins the head of the index exactly like an
       // ineligible row does.
-      if ((perGuild.get(row.guildId) ?? 0) >= MAX_DELEGATIONS_PER_GUILD) {
+      // Per-guild allowance *and* per-reference: several legacy rows for one
+      // guild resolve to the identical guild-scoped secret, so sending each one
+      // spends a provider request and a fan-out slot to ask the same question of
+      // the same key twice.
+      if (
+        (perGuild.get(row.guildId) ?? 0) >= MAX_DELEGATIONS_PER_GUILD ||
+        sentReferences.has(vrclinkingSecretRefForRow(row))
+      ) {
         skipped.push(row._id);
         continue;
       }
@@ -741,6 +834,7 @@ export const reserveAdapterDelegations = internalMutation({
       }
 
       perGuild.set(row.guildId, (perGuild.get(row.guildId) ?? 0) + 1);
+      sentReferences.add(vrclinkingSecretRefForRow(row));
       usable.push(row);
     }
 

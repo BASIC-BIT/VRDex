@@ -2,6 +2,7 @@ import {
   CreateSecretCommand,
   DeleteSecretCommand,
   PutSecretValueCommand,
+  InvalidRequestException,
   ResourceExistsException,
   ResourceNotFoundException,
   SecretsManagerClient,
@@ -223,12 +224,16 @@ export async function scheduleVrclinkingDelegationKeyDeletion(secretName: string
       new DeleteSecretCommand({ SecretId: secretName, RecoveryWindowInDays: 7 }),
     );
   } catch (error) {
-    // Already gone is the outcome this asks for. Treating it as a failure meant
-    // a key whose *creation* failed could never be confirmed retired, so its
-    // reservation stayed forever and every later reservation retried deleting
-    // the same object that was never there — tombstones and cleanup fan-out
-    // growing with each failed write.
-    if (!(error instanceof ResourceNotFoundException)) {
+    // Already gone, or already on its way. Both are the outcome this asks for.
+    //
+    // `ResourceNotFound` covers a key whose *creation* failed — treating that as
+    // an error meant its reservation could never be confirmed, so every later
+    // reservation retried deleting an object that was never there.
+    // `InvalidRequest` is what AWS answers for a secret already scheduled for
+    // deletion, which is exactly the retry after a confirmation that failed: the
+    // delete had worked, and refusing it here left the row unconfirmed until the
+    // seven-day recovery window closed.
+    if (!(error instanceof ResourceNotFoundException) && !(error instanceof InvalidRequestException)) {
       throw error;
     }
   }

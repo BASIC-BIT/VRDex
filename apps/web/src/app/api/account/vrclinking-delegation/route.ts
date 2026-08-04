@@ -1,4 +1,5 @@
 import { api } from "@convex-generated-api";
+import { internal } from "../../../../../../../convex/_generated/api";
 import type { Id } from "../../../../../../../convex/_generated/dataModel";
 
 import { apiProblemResponse } from "@/lib/server/api-v0";
@@ -8,7 +9,7 @@ import {
   isUnauthenticatedError,
   unauthenticatedResponse,
 } from "@/lib/server/auth";
-import { convexHttpClient } from "@/lib/server/convex-http";
+import { convexAdminHttpClient, convexHttpClient } from "@/lib/server/convex-http";
 import {
   isVrclinkingSecretStoreConfigured,
   putVrclinkingDelegationKey,
@@ -177,12 +178,19 @@ export async function POST(request: Request) {
    * the secret alone.
    */
   async function discardStoredKey() {
+    const credentialId = reservation.credentialId as Id<"communityVrclinkingCredentials">;
+    // The session first, then the server. An expiry between storing the key and
+    // activating it is the very case cleanup exists for, and it also makes the
+    // session-authorized path fail — so the fallback is authorized by the
+    // deployment rather than by the browser that has just lost its session. It
+    // can only ever act on the reservation this request made.
     const abandoned: { abandoned: boolean; secretName?: string | null } = await convex
-      .mutation(api.vrclinkingCredentials.abandonCredential, {
-        profileSlug,
-        credentialId: reservation.credentialId as Id<"communityVrclinkingCredentials">,
-      })
-      .catch(() => ({ abandoned: false }));
+      .mutation(api.vrclinkingCredentials.abandonCredential, { profileSlug, credentialId })
+      .catch(() =>
+        convexAdminHttpClient()
+          .mutation(internal.vrclinkingCredentials.abandonCredentialAsServer, { credentialId })
+          .catch(() => ({ abandoned: false })),
+      );
 
     // A null name means another profile's live delegation still resolves through
     // it, so there is nothing here to delete — the row is already claimed.
@@ -204,9 +212,15 @@ export async function POST(request: Request) {
       await convex
         .mutation(api.vrclinkingCredentials.confirmSecretsRetired, {
           profileSlug,
-          credentialIds: [reservation.credentialId as Id<"communityVrclinkingCredentials">],
+          credentialIds: [credentialId],
         })
-        .catch(() => undefined);
+        .catch(() =>
+          convexAdminHttpClient()
+            .mutation(internal.vrclinkingCredentials.confirmSecretsRetiredAsServer, {
+              credentialIds: [credentialId],
+            })
+            .catch(() => undefined),
+        );
     }
   }
 
@@ -323,7 +337,11 @@ export async function DELETE(request: Request) {
 
   convex.setAuth(authToken);
 
-  let result: { revoked: boolean; secretName: string | null; credentialId: string | null };
+  let result: {
+    revoked: boolean;
+    credentialId: string | null;
+    retired: { credentialId: string; secretName: string }[];
+  };
 
   try {
     result = await convex.mutation(api.vrclinkingCredentials.revokeCredential, {
@@ -353,17 +371,27 @@ export async function DELETE(request: Request) {
   // reservation for that guild. Revoking makes the row invisible to this path,
   // which looks for an active row, so without that the owner's live key would
   // stay in the store with no retry anywhere.
-  if (result.credentialId !== null && result.secretName !== null && isVrclinkingSecretStoreConfigured()) {
-    const retired = await scheduleVrclinkingDelegationKeyDeletion(result.secretName).then(
-      () => true,
-      () => false,
+  if (result.retired.length > 0 && isVrclinkingSecretStoreConfigured()) {
+    // Every row this revoke retired, which includes reservations it cancelled: a
+    // replacement that wrote its key and then crashed has no request left to
+    // clean itself up, and after a revocation there may never be another
+    // reservation for this guild to sweep it.
+    const outcomes = await Promise.allSettled(
+      result.retired.map(async (row) => {
+        await scheduleVrclinkingDelegationKeyDeletion(row.secretName);
+
+        return row.credentialId as Id<"communityVrclinkingCredentials">;
+      }),
+    );
+    const confirmed = outcomes.flatMap((outcome) =>
+      outcome.status === "fulfilled" ? [outcome.value] : [],
     );
 
-    if (retired) {
+    if (confirmed.length > 0) {
       await convex
         .mutation(api.vrclinkingCredentials.confirmSecretsRetired, {
           profileSlug,
-          credentialIds: [result.credentialId as Id<"communityVrclinkingCredentials">],
+          credentialIds: confirmed,
         })
         .catch(() => undefined);
     }

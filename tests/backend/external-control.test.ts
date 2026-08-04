@@ -1053,8 +1053,9 @@ describe("VRCLinking credential delegation", () => {
       });
 
     assert.equal(revoked.revoked, true);
-    // Revoked, but the key is not this profile's alone to delete.
-    assert.equal(revoked.secretName, null);
+    // Revoked, but nothing to retire: the key is not this profile's alone to
+    // delete while the other profile still resolves through the same name.
+    assert.deepEqual(revoked.retired, []);
   });
 
   it("cancels reservations for a guild the owner revokes", async () => {
