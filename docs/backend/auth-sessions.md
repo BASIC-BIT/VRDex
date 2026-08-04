@@ -260,7 +260,15 @@ pnpm cx -- <target> run migrations:reassignLegacyUserReferences `
 pnpm cx -- <target> run migrations:reassignLegacyUserReferences `
   '{"fromUserId": "<legacy users._id>", "toClerkUserId": "user_...", "dryRun": false}'
 
-# 3. Purge for real. Start with no cursor — resuming from one you paged to during
+# 3. Export the legacy user ids and audit the subject-keyed authorities — see
+#    "Audit the subject-keyed authorities first" below, and do not skip to
+#    step 4. Step 4 deletes the rows this export is the only record of, and
+#    events.submitter / communityAuthorities.subject are matched by that id.
+#    Once it has run there is nothing left to match against and the mapping is
+#    unrecoverable. Remediate what the audit finds before continuing.
+pnpm cx -- <target> export --path ./legacy-audit.zip
+
+# 4. Purge for real. Start with no cursor — resuming from one you paged to during
 #    discovery would skip every legacy row before it, and a short enough
 #    remainder would report itself finished with those rows still present. Then
 #    carry nextLegacyCursor back as legacyCursor until moreRemaining is false.
@@ -286,7 +294,7 @@ before deploying.
 a user id. Nothing in `USER_REFERENCES` covers them, so they never block a legacy
 row and never move it out of `purgeComplete`'s way. A legacy user with no
 `v.id("users")` reference at all is not blocked, is never a candidate for step 2,
-and is deleted by step 3 — with their events left pointing at a subject that no
+and is deleted by step 4 — with their events left pointing at a subject that no
 longer resolves to anyone.
 
 For a **standalone** event that is unrecoverable through the app.
@@ -299,7 +307,7 @@ an unblocked legacy user's active authority survives the purge keyed to a subjec
 nothing can present any more, and whoever was delegated that capability quietly
 loses it.
 
-**Run the audit before step 3, not after.** It matches on the legacy
+**Run the audit before step 4, not after.** It matches on the legacy
 `users._id`, and once the purge deletes those rows there is nothing left to match
 against — you would be looking at an orphaned subject with no way to learn whose
 it was.
@@ -311,13 +319,24 @@ whenever one exists, and it is `[]` whenever `usersDeferred` is true. Get them
 from the table instead — the same index the migration uses, since `undefined` is
 a queryable index value in Convex:
 
-```sh
-# Every legacy row, blocked or not. Convex's dashboard data browser does the
-# same thing: users → filter clerkUserId → unset.
-npx convex export --path ./legacy-audit.zip
+```powershell
+# Every legacy row, blocked or not. Through the same target selector as every
+# other command here — a bare `npx convex export` reads whatever deployment the
+# ambient environment names, and `.env.local` sets
+# CONVEX_DEPLOYMENT=anonymous:anonymous-agent, so it would quietly export the
+# local backend while the purge below runs against <target>. Auditing one
+# database and purging another is the failure this wrapper exists to prevent.
+pnpm cx -- <target> export --path ./legacy-audit.zip
+
 # then, from the extracted users/documents.jsonl:
 jq -r 'select(.clerkUserId == null) | ._id' users/documents.jsonl
 ```
+
+Self-hosted: `npx convex export --path ./legacy-audit.zip` is correct there, but
+only with `CONVEX_SELF_HOSTED_URL` and `CONVEX_SELF_HOSTED_ADMIN_KEY` exported as
+above — those name the deployment explicitly, which is what the wrapper is
+otherwise doing for you. Convex's dashboard data browser answers the same
+question by hand: users → filter `clerkUserId` → unset.
 
 Keep that list. For each id, check **both** tables for a subject starting with
 it:
