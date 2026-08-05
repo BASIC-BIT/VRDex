@@ -1,0 +1,127 @@
+"use client";
+
+import Link from "next/link";
+import { useQuery } from "convex/react";
+import { api } from "@convex-generated-api";
+
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/cn";
+
+/**
+ * What this profile holds that its page does not show, for the two viewers
+ * entitled to it: the profile's owner, and an operator holding the grant that
+ * already governs the private seed lookup.
+ *
+ * Rendered as its own section rather than merged into the page, so an operator
+ * can tell at a glance what the public actually sees. Read-only: editing goes
+ * through the editor, which enforces the same field policy the mutation does.
+ *
+ * Renders nothing for everyone else. The query returns null rather than
+ * throwing because this sits on a public page, and a refusal would put an error
+ * in front of ordinary readers.
+ */
+
+const FIELD_LABELS: Record<string, string> = {
+  aliases: "Aliases",
+  tags: "Tags",
+  genres: "Genres",
+  headline: "Headline",
+  bio: "Bio",
+  about: "About",
+  avatarImageUrl: "Profile image",
+  bannerImageUrl: "Banner",
+  outboundLinks: "Links",
+  region: "Region",
+  timezone: "Timezone",
+  personPronouns: "Pronouns",
+  personRoleTags: "Roles",
+  communitySubtype: "Subtype",
+  communityCategoryTags: "Categories",
+};
+
+function formatDate(value: number) {
+  return new Date(value).toLocaleDateString(undefined, { dateStyle: "medium" });
+}
+
+/**
+ * Audit actions are internal identifiers, so they are humanized rather than
+ * mapped. A map would need an entry for every action any other surface adds,
+ * and a missing one would render as a raw snake_case string to the person least
+ * able to interpret it.
+ */
+function actionLabel(action: string) {
+  return action.replace(/_/g, " ");
+}
+
+export function ProfilePrivateRecord({
+  profilePath,
+  profileType,
+  slug,
+}: {
+  profilePath: string;
+  profileType: "person" | "community";
+  slug: string;
+}) {
+  const record = useQuery(api.seedAccess.withheldProfileRecord, { profileType, slug });
+
+  if (record === undefined || record === null) {
+    return null;
+  }
+
+  const isOwner = record.viewerRole === "owner";
+
+  return (
+    <section aria-label="Profile record" className="border-t border-border py-8">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold">
+          {isOwner ? "Your profile record" : "Operator view"}
+        </h2>
+        {isOwner ? (
+          <Link
+            className={cn(buttonVariants({ size: "sm", variant: "secondary" }), "shrink-0")}
+            href={`${profilePath}/edit`}
+          >
+            Edit profile
+          </Link>
+        ) : null}
+      </div>
+
+      <p className="mt-2 text-sm text-muted">
+        {record.claimState} / {record.publicationState} / {record.publicSurfacingState}
+      </p>
+
+      {record.withheldFields.length > 0 ? (
+        <div className="mt-5">
+          <h3 className="text-sm font-semibold">Not shown publicly</h3>
+          <dl className="mt-3 grid gap-3">
+            {record.withheldFields.map((field) => (
+              <div className="grid gap-1 sm:grid-cols-[10rem_minmax(0,1fr)] sm:gap-4" key={field.key}>
+                <dt className="text-sm text-muted">
+                  {FIELD_LABELS[field.key] ?? field.key}
+                  <span className="ml-2 text-xs">{field.visibility}</span>
+                </dt>
+                <dd className="text-sm break-words">{field.values.join(", ")}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      ) : null}
+
+      {record.history.length > 0 ? (
+        <div className="mt-6">
+          <h3 className="text-sm font-semibold">History</h3>
+          <ul className="mt-3 grid gap-2">
+            {record.history.map((event) => (
+              <li className="text-sm" key={event.id}>
+                <span>{actionLabel(event.action)}</span>
+                {event.actor ? <span className="text-muted"> by {event.actor}</span> : null}
+                <span className="text-muted"> on {formatDate(event.createdAt)}</span>
+                {event.note ? <span className="block text-xs text-muted">{event.note}</span> : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </section>
+  );
+}

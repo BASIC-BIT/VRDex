@@ -6,18 +6,21 @@ export type ProfilePermissionSubject =
   | "claimed_owner"
   | "moderator";
 
-export type ProfileEditableField =
-  | "displayName"
-  | "aliases"
-  | "tags"
-  | "headline"
-  | "bio"
-  | "region"
-  | "timezone"
-  | "slug"
-  | "outboundLinks"
-  | "person"
-  | "community";
+export const PROFILE_EDITABLE_FIELDS = [
+  "displayName",
+  "aliases",
+  "tags",
+  "headline",
+  "bio",
+  "region",
+  "timezone",
+  "slug",
+  "outboundLinks",
+  "person",
+  "community",
+] as const;
+
+export type ProfileEditableField = (typeof PROFILE_EDITABLE_FIELDS)[number];
 
 /**
  * Fields the community may never write on someone else's profile.

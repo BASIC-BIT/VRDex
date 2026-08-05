@@ -31,3 +31,31 @@ export function Select({
 export function Textarea({ className, ...props }: ComponentPropsWithoutRef<"textarea">) {
   return <textarea className={cn(fieldControlClassName, className)} {...props} />;
 }
+
+/**
+ * A checkbox and its label as one control.
+ *
+ * Not `Field`: that stacks its children in a grid, which puts a checkbox above
+ * its own text. These read across.
+ */
+export function CheckboxField({
+  children,
+  className,
+  ...props
+}: ComponentPropsWithoutRef<"input"> & { children: ReactNode }) {
+  return (
+    <label
+      className={cn(
+        "flex cursor-pointer items-center gap-2 rounded-control border border-border bg-surface-strong px-3 py-2 text-sm font-normal transition hover:border-border-strong has-checked:border-accent",
+        className,
+      )}
+    >
+      <input
+        className="size-4 accent-accent focus-visible:ring-2 focus-visible:ring-focus"
+        type="checkbox"
+        {...props}
+      />
+      {children}
+    </label>
+  );
+}

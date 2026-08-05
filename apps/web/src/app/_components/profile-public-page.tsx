@@ -4,6 +4,7 @@ import { Fragment, type CSSProperties, type ReactNode } from "react";
 
 import { EventPreviewCard, type PublicEventPreview } from "./event-public-page";
 import { MediaPreviewImage } from "./media-preview-image";
+import { ProfilePrivateRecord } from "./profile-private-record";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, Eyebrow, SectionHeading } from "@/components/ui/card";
 import { CopyValueRow } from "@/components/ui/copy-value-row";
@@ -17,6 +18,21 @@ import { safeImageBackground } from "@/lib/safe-image";
 import type { TwitchLiveState } from "@/lib/server/twitch-live";
 import { twitchLoginFromUrl } from "@/lib/twitch-url";
 import { parseVrcdnStreamLinks } from "../../../../../convex/_vrcdnLinks";
+
+/**
+ * Rendered on the server, so the viewer's locale is unavailable and a
+ * locale-dependent format would differ between the server pass and hydration.
+ * UTC for the same reason: a submission timestamp is a fact about the record,
+ * not something to shift into whichever timezone happens to be reading it.
+ */
+function formatSubmittedDate(value: number) {
+  return new Date(value).toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "long",
+    timeZone: "UTC",
+    year: "numeric",
+  });
+}
 
 type ProfileTrustLabel =
   | "community_submitted"
@@ -425,6 +441,7 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
     logoCount: mediaKit.logos.length,
   });
   const canClaim = profile.trustLabel === "community_submitted" || profile.trustLabel === "unclaimed";
+  const profileBasePath = isPerson ? `/p/${profile.slug}` : `/c/${profile.slug}`;
   const secondaryOrder = normalizeProfileSectionOrder(profile.appearance?.sectionOrder).filter((section) =>
     ["events", "media_kit", "worlds"].includes(section),
   );
@@ -565,20 +582,43 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
           </div>
         </section>
 
-        {canClaim ? (
-          <aside
-            aria-label="Profile ownership"
-            className="flex flex-wrap items-center justify-end gap-x-3 gap-y-2 py-4"
-          >
-            <p className="text-sm text-muted">
-              {profile.profileType === "person" ? "Is this your profile?" : "Manage this community?"}
-            </p>
-            <Link
-              className={cn(buttonVariants({ size: "sm", variant: "secondary" }), "shrink-0 whitespace-nowrap")}
-              href={profileClaimPath(profile.slug, "profile")}
-            >
-              Claim profile
-            </Link>
+        {canClaim || profile.source ? (
+          <aside aria-label="Profile ownership" className="grid justify-items-end gap-2 py-4">
+            {/* Provenance describes the record, not the person. Sitting above
+                the display name it read as a label on them; here it is one of
+                the facts about how this listing came to exist, as plain text
+                with the date on its own line. */}
+            {profile.source ? (
+              <p className="text-right text-sm text-muted">
+                {profile.source.label}
+                {profile.source.submittedAt !== undefined ? (
+                  <span className="block">{formatSubmittedDate(profile.source.submittedAt)}</span>
+                ) : null}
+              </p>
+            ) : null}
+
+            {canClaim ? (
+              <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-2">
+                <p className="text-sm text-muted">
+                  {profile.profileType === "person" ? "Is this your profile?" : "Manage this community?"}
+                </p>
+                <Link
+                  className={cn(buttonVariants({ size: "sm", variant: "secondary" }), "shrink-0 whitespace-nowrap")}
+                  href={profileClaimPath(profile.slug, "profile")}
+                >
+                  Claim profile
+                </Link>
+                {/* Offered to every reader of an unclaimed profile rather than
+                    only to those who could act on it: this page is server
+                    rendered with no viewer, and the editor handles sign-in. */}
+                <Link
+                  className={cn(buttonVariants({ size: "sm", variant: "ghost" }), "shrink-0 whitespace-nowrap")}
+                  href={`${profileBasePath}/edit`}
+                >
+                  Suggest an edit
+                </Link>
+              </div>
+            ) : null}
           </aside>
         ) : null}
 
@@ -656,6 +696,12 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
           const content = secondarySections[section];
           return content ? <Fragment key={section}>{content}</Fragment> : null;
         })}
+
+        <ProfilePrivateRecord
+          profilePath={profileBasePath}
+          profileType={profile.profileType}
+          slug={profile.slug}
+        />
       </PageContainer>
     </PageShell>
   );

@@ -4,7 +4,10 @@ import type { Doc } from "./_generated/dataModel";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { getPublicCommunityHostedEvents, getPublicPersonUpcomingEvents } from "./_eventPublic";
 import type { AuthSubject } from "./_communityAuthority";
-import { requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
+import {
+  activeBrowserSessionOrNull,
+  requireActiveBrowserSessionSubject,
+} from "./_browserSessionAuthority";
 import { getPublicCommunityTelemetry } from "./_communityTelemetryPublic";
 import {
   apiWriteAuditActorKindValidator,
@@ -16,7 +19,11 @@ import {
   getProfileAssetDisplayPreference,
   getPublicProfileMediaKit,
 } from "./_profileAssets";
-import { canReadProfile } from "./_profilePermissions";
+import {
+  canEditProfileField,
+  canReadProfile,
+  PROFILE_EDITABLE_FIELDS,
+} from "./_profilePermissions";
 import { profileLinkInputValidator } from "./_profileLinks";
 import { toPublicProfile } from "./_profilePublic";
 import {
@@ -456,6 +463,84 @@ export const submitCommunityProfile = mutation({
       profilePath: `/c/${slug}`,
       shortLinkCode: shortLink.code,
       shortLinkPath: shortLink.shortLinkPath,
+    };
+  },
+});
+
+/**
+ * The record an editor is about to change, as stored rather than as published.
+ *
+ * The public projection is the wrong source for a form: it omits private fields,
+ * so an editor would see an empty link list, add one, and save an array that
+ * silently dropped everything already there. That is exactly the state 405
+ * seeded profiles are in.
+ *
+ * Reading stored values is safe here because a community editor only ever sees
+ * an unclaimed profile, and everything the seed lane can put on a profile is
+ * already restricted to public-safe field keys -- `unsafe_public_field` blocks
+ * the rest at publish. A private field on an unclaimed profile records a
+ * publication decision nobody has made yet, not a confidence someone placed.
+ * Claimed profiles are owner-only, so no third party reads a claimed person's
+ * hidden fields through this.
+ */
+export const editableProfile = query({
+  args: { slug: v.string() },
+  handler: async (ctx, args) => {
+    const activeSession = await activeBrowserSessionOrNull(ctx);
+
+    if (activeSession === null) {
+      return null;
+    }
+
+    const validation = validateProfileSlug(args.slug);
+
+    if (!validation.ok) {
+      return null;
+    }
+
+    const profile = await getProfileBySlug(ctx.db, validation.slug);
+
+    if (profile === null) {
+      return null;
+    }
+
+    const owns = await userOwnsProfile(ctx.db, profile._id, activeSession.user._id);
+    const subject = owns ? ("claimed_owner" as const) : ("community_submitter" as const);
+    const editableFields = PROFILE_EDITABLE_FIELDS.filter((field) =>
+      canEditProfileField(subject, profile, field),
+    );
+
+    if (editableFields.length === 0) {
+      return null;
+    }
+
+    return {
+      slug: profile.slug,
+      profileType: profile.profileType,
+      displayName: profile.displayName,
+      aliases: profile.aliases,
+      tags: profile.tags,
+      headline: profile.headline,
+      bio: profile.bio,
+      region: profile.region,
+      timezone: profile.timezone,
+      outboundLinks: (profile.outboundLinks ?? []).map((link) => ({
+        type: link.type,
+        url: link.url,
+      })),
+      person:
+        profile.profileType === "person"
+          ? { pronouns: profile.person.pronouns, roleTags: profile.person.roleTags }
+          : undefined,
+      community:
+        profile.profileType === "community"
+          ? {
+              subtype: profile.community.subtype,
+              categoryTags: profile.community.categoryTags,
+            }
+          : undefined,
+      subject,
+      editableFields,
     };
   },
 });
