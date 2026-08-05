@@ -157,8 +157,10 @@ function dedupe(values: string[]): string[] {
  */
 export function partitionLinks(links: ProfileLinkInput[], featureStreamLinks: boolean) {
   // The whole link, not just its URL: the dedicated inputs carry its label,
-  // handle and presentation through as hidden fields, same as the rows.
-  const featured: Partial<Record<ProfileLinkType, ProfileLinkInput>> = {};
+  // handle and presentation through as hidden fields, same as the rows. The
+  // index goes with it so an untouched link can be put back where it was rather
+  // than surfacing at the front because the form chose to show it there.
+  const featured: Partial<Record<ProfileLinkType, ProfileLinkInput & { originalIndex: number }>> = {};
   const rows: ProfileLinkInput[] = [];
 
   for (const link of links) {
@@ -167,7 +169,9 @@ export function partitionLinks(links: ProfileLinkInput[], featureStreamLinks: bo
       (link.type === "vrcdn" || link.type === "twitch") &&
       featured[link.type] === undefined
     ) {
-      featured[link.type] = link;
+      // Its index among the rows it is being lifted out of, which is where it
+      // has to be reinserted for the list to come back unchanged.
+      featured[link.type] = { ...link, originalIndex: rows.length };
       continue;
     }
 
@@ -191,6 +195,7 @@ function linksFromFormData(formData: FormData): ProfileLinkInput[] {
   const types = formData.getAll("linkType");
   const urls = formData.getAll("linkUrl");
   const originals = formData.getAll("linkOriginalUrl");
+  const originalTypes = formData.getAll("linkOriginalType");
   const labels = formData.getAll("linkLabel");
   const handles = formData.getAll("linkHandle");
   const presentations = formData.getAll("linkPresentation");
@@ -205,9 +210,13 @@ function linksFromFormData(formData: FormData): ProfileLinkInput[] {
     }
 
     const link = { type: stringField(type) as ProfileLinkType, url };
-    // Metadata describes the destination it came with, so a row whose URL was
-    // edited starts clean rather than inheriting the old link's handle.
-    const unchanged = stringField(originals[index] ?? null).trim() === url;
+    // Metadata describes the link it came with, so a row that was edited starts
+    // clean rather than inheriting the old one's handle. Type counts as much as
+    // the URL: switching a twitch.tv row from Website to Twitch keeps the same
+    // destination while changing what the label and presentation mean.
+    const unchanged =
+      stringField(originals[index] ?? null).trim() === url &&
+      stringField(originalTypes[index] ?? null) === link.type;
 
     return [
       withLinkMetadata(link, unchanged
@@ -229,19 +238,43 @@ function linksFromFormData(formData: FormData): ProfileLinkInput[] {
     // Only when the URL is unchanged. Pasting a different stream is a new link,
     // and keeping the old handle or label on it would describe the wrong one.
     const unchanged = stringField(formData.get(`${type}OriginalUrl`)).trim() === url;
+    const originalIndex = Number.parseInt(stringField(formData.get(`${type}OriginalIndex`)), 10);
 
     return [
-      withLinkMetadata({ type, url }, unchanged
-        ? {
-            label: stringField(formData.get(`${type}Label`)),
-            handle: stringField(formData.get(`${type}Handle`)),
-            presentation: stringField(formData.get(`${type}Presentation`)),
-          }
-        : {}),
+      {
+        // Where it sat before the form pulled it out into its own input. A
+        // stream link stored after the generic ones would otherwise come back
+        // at the front, rewriting `outboundLinks` on a save that changed
+        // nothing and recording "outboundLinks updated" for a reordering the
+        // editor did to itself.
+        originalIndex: unchanged && Number.isInteger(originalIndex) ? originalIndex : -1,
+        link: withLinkMetadata({ type, url }, unchanged
+          ? {
+              label: stringField(formData.get(`${type}Label`)),
+              handle: stringField(formData.get(`${type}Handle`)),
+              presentation: stringField(formData.get(`${type}Presentation`)),
+            }
+          : {}),
+      },
     ];
   });
 
-  return [...featured, ...rows];
+  // A newly entered stream link has no original position, so it goes to the
+  // front in the order the form shows it. Ones that were already stored are
+  // spliced back where they came from, ascending so each insertion lands before
+  // the next index is used and the positions stay meaningful.
+  const ordered = [
+    ...featured.filter((entry) => entry.originalIndex < 0).map((entry) => entry.link),
+    ...rows,
+  ];
+
+  for (const { originalIndex, link } of featured
+    .filter((entry) => entry.originalIndex >= 0)
+    .sort((a, b) => a.originalIndex - b.originalIndex)) {
+    ordered.splice(Math.min(originalIndex, ordered.length), 0, link);
+  }
+
+  return ordered;
 }
 
 export function profileFieldsPayload(

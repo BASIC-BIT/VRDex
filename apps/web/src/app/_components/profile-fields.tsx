@@ -59,7 +59,13 @@ function FieldGroup({ children, field }: { children: ReactNode; field: string })
  * unchanged link from a newly pasted one, because the metadata describes the old
  * destination and would be wrong on a new one.
  */
-function LinkMetadata({ link, name }: { link?: ProfileLinkInput; name: string }) {
+function LinkMetadata({
+  link,
+  name,
+}: {
+  link?: ProfileLinkInput & { originalIndex: number };
+  name: string;
+}) {
   if (link === undefined) {
     return null;
   }
@@ -67,6 +73,7 @@ function LinkMetadata({ link, name }: { link?: ProfileLinkInput; name: string })
   return (
     <>
       <input name={`${name}OriginalUrl`} type="hidden" value={link.url} />
+      <input name={`${name}OriginalIndex`} type="hidden" value={link.originalIndex} />
       <input name={`${name}Label`} type="hidden" value={link.label ?? ""} />
       <input name={`${name}Handle`} type="hidden" value={link.handle ?? ""} />
       <input name={`${name}Presentation`} type="hidden" value={link.presentation ?? ""} />
@@ -76,22 +83,26 @@ function LinkMetadata({ link, name }: { link?: ProfileLinkInput; name: string })
 
 function PersonRoleFields({
   defaults,
+  atLinkCap,
   featured,
   selectedRoles,
   showPronouns,
   showStreamFields,
-  streamSlotsAvailable,
+  streamValues,
+  setStreamValues,
   onToggleRole,
 }: {
   defaults: ProfileFieldsDefaults;
-  featured: Partial<Record<string, ProfileLinkInput>>;
+  /** Rows plus filled stream fields already reach `PROFILE_LINK_MAX_COUNT`. */
+  atLinkCap: boolean;
+  featured: Partial<Record<string, ProfileLinkInput & { originalIndex: number }>>;
   selectedRoles: string[];
+  streamValues: { vrcdn: string; twitch: string };
+  setStreamValues: (update: (values: { vrcdn: string; twitch: string }) => { vrcdn: string; twitch: string }) => void;
   /** Off on the submit form: creating a profile for someone else does not
    *  extend to declaring their pronouns. Correcting an existing one does. */
   showPronouns: boolean;
   showStreamFields: boolean;
-  /** How many *new* links the stream inputs may still add before the cap. */
-  streamSlotsAvailable: number;
   onToggleRole: (role: string, checked: boolean) => void;
 }) {
   const initialRoles = defaults.roleTags ?? [];
@@ -136,20 +147,25 @@ function PersonRoleFields({
 
       {showStreamFields ? (
         <div className="grid gap-4 sm:grid-cols-2">
-          {/* An empty stream input is disabled once the rows already fill the
-              cap: it can only add a link the backend would refuse, and a
-              disabled input submits nothing, so it cannot drop one either. A
-              filled one stays editable regardless -- it is already counted. */}
+          {/* Controlled, so the cap can count what is actually in them rather
+              than reserving a slot per field. Reserving meant one free slot
+              enabled Stream and disabled Twitch, with no way to spend that slot
+              on Twitch and the Add-link button hidden by the same reservation.
+              An input that already holds a link is never disabled -- a disabled
+              input submits nothing, which would delete it. */}
           <Field>
             Stream
             <LinkMetadata link={featured.vrcdn} name="vrcdn" />
             <Input
-              defaultValue={featured.vrcdn?.url ?? ""}
-              disabled={featured.vrcdn === undefined && streamSlotsAvailable < 1}
+              disabled={streamValues.vrcdn === "" && atLinkCap}
               maxLength={2048}
               name="vrcdnUrl"
               placeholder="https://vrcdn.live/name"
               type="url"
+              value={streamValues.vrcdn}
+              onChange={(event) =>
+                setStreamValues((values) => ({ ...values, vrcdn: event.target.value }))
+              }
             />
           </Field>
 
@@ -157,15 +173,15 @@ function PersonRoleFields({
             Twitch
             <LinkMetadata link={featured.twitch} name="twitch" />
             <Input
-              defaultValue={featured.twitch?.url ?? ""}
-              disabled={
-                featured.twitch === undefined &&
-                streamSlotsAvailable < (featured.vrcdn === undefined ? 2 : 1)
-              }
+              disabled={streamValues.twitch === "" && atLinkCap}
               maxLength={2048}
               name="twitchUrl"
               placeholder="https://twitch.tv/name"
               type="url"
+              value={streamValues.twitch}
+              onChange={(event) =>
+                setStreamValues((values) => ({ ...values, twitch: event.target.value }))
+              }
             />
           </Field>
         </div>
@@ -232,21 +248,23 @@ export function ProfileFields({
   // is typed in them is not React state. It can go negative when a hydrated
   // profile already holds more rows than the cap allows -- both consumers read
   // it as "no room", which is the honest answer.
-  const emptyStreamFields = showStreamFields
-    ? (featured.vrcdn === undefined ? 1 : 0) + (featured.twitch === undefined ? 1 : 0)
-    : 0;
-  const filledStreamFields = showStreamFields
-    ? (featured.vrcdn === undefined ? 0 : 1) + (featured.twitch === undefined ? 0 : 1)
-    : 0;
-  const rowCapacity = PROFILE_LINK_MAX_COUNT - emptyStreamFields;
-  // Stable ids rather than indices: the inputs are uncontrolled, so keying by
-  // index would shift the surviving rows' DOM values when one is removed.
+  // Controlled, unlike the rows, because the link cap has to count them: the
+  // stream fields and the rows serialize into one array, and reserving a slot
+  // per rendered field made one free slot usable by Stream and by nothing else.
+  const [streamValues, setStreamValues] = useState(() => ({
+    vrcdn: featured.vrcdn?.url ?? "",
+    twitch: featured.twitch?.url ?? "",
+  }));
+  // Stable ids rather than indices: the row inputs are uncontrolled, so keying
+  // by index would shift the surviving rows' DOM values when one is removed.
   const linkRowSeq = useRef(rows.length);
   const [linkRows, setLinkRows] = useState<Array<{ id: number; link?: ProfileLinkInput }>>(() =>
     rows.map((link, index) => ({ id: index, link })),
   );
-  const streamSlotsAvailable =
-    PROFILE_LINK_MAX_COUNT - linkRows.length - filledStreamFields;
+  const filledStreamFields = showStreamFields
+    ? (streamValues.vrcdn.trim() === "" ? 0 : 1) + (streamValues.twitch.trim() === "" ? 0 : 1)
+    : 0;
+  const atLinkCap = linkRows.length + filledStreamFields >= PROFILE_LINK_MAX_COUNT;
 
   function addLinkRow() {
     linkRowSeq.current += 1;
@@ -338,10 +356,12 @@ export function ProfileFields({
               <PersonRoleFields
                 defaults={defaults}
                 featured={featured}
+                atLinkCap={atLinkCap}
                 selectedRoles={selectedRoles}
                 showPronouns={showNarrativeFields}
                 showStreamFields={showStreamFields}
-                streamSlotsAvailable={streamSlotsAvailable}
+                streamValues={streamValues}
+                setStreamValues={setStreamValues}
                 onToggleRole={(role, checked) =>
                   setSelectedRoles((roles) =>
                     checked ? [...roles, role] : roles.filter((item) => item !== role),
@@ -393,6 +413,7 @@ export function ProfileFields({
                   {/* Always emitted, blank for a new row, so every list stays
                       index-aligned with the URLs it describes. */}
                   <input name="linkOriginalUrl" type="hidden" value={row.link?.url ?? ""} />
+                  <input name="linkOriginalType" type="hidden" value={row.link?.type ?? ""} />
                   <input name="linkLabel" type="hidden" value={row.link?.label ?? ""} />
                   <input name="linkHandle" type="hidden" value={row.link?.handle ?? ""} />
                   <input name="linkPresentation" type="hidden" value={row.link?.presentation ?? ""} />
@@ -417,7 +438,7 @@ export function ProfileFields({
               </div>
             ))}
 
-            {linkRows.length < rowCapacity ? (
+            {!atLinkCap ? (
               <div>
                 <Button size="sm" type="button" variant="secondary" onClick={addLinkRow}>
                   Add link

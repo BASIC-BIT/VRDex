@@ -70,10 +70,18 @@ contributor's links are stored `community_submitted` rather than
 `owner_authored`.
 
 Edits apply directly rather than queueing for review, matching community
-submissions, which publish immediately. Every edit writes a `profileAuditEvents`
-row naming the actor and the fields changed, readable by the profile's owner and
-by an operator holding `view_private_seed_lookup` through
-`seedAccess:withheldProfileRecord`.
+submissions, which publish immediately. An edit that changes a value writes a
+`profileAuditEvents` row naming the actor and the fields that actually changed,
+readable by the profile's owner and by an operator holding
+`view_private_seed_lookup` through `seedAccess:withheldProfileRecord`.
+
+"Actually changed" is the contract, not "was submitted". The editor posts every
+field group it rendered on every save, so recording the payload's keys would
+report aliases, tags, links and roles as updated because somebody fixed a typo in
+the display name — and a save that changed nothing would still write a row. A
+no-op save writes no patch, no reindex and no history. The public API's own write
+ledger (`apiWriteAuditEvents`) is separate and records the request regardless: a
+write that changed nothing is still a write that was made.
 
 `profiles:submitCommunityProfile` creates a profile from the same field set,
 requires an authenticated identity, and stores source attribution. Creation

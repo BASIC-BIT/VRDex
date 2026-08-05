@@ -39,9 +39,12 @@ describe("stream link partitioning", () => {
 
     // The whole link, not just its URL: the dedicated inputs carry the label,
     // handle and presentation through as hidden fields, same as the rows.
+    // `originalIndex` is where each link sat among the rows it was lifted out
+    // of, so an untouched one can be put back rather than surfacing at the front
+    // and rewriting the array on a save that changed nothing.
     assert.deepEqual(featured, {
-      vrcdn: { type: "vrcdn", url: "https://vrcdn.live/snekwtf" },
-      twitch: { type: "twitch", url: "https://twitch.tv/snekwtf" },
+      vrcdn: { type: "vrcdn", url: "https://vrcdn.live/snekwtf", originalIndex: 0 },
+      twitch: { type: "twitch", url: "https://twitch.tv/snekwtf", originalIndex: 0 },
     });
     // The second Twitch link stays a row rather than being dropped for having
     // nowhere to go.
@@ -72,6 +75,11 @@ describe("profile fields payload", () => {
         ["twitchUrl", "https://twitch.tv/snekwtf"],
         ["linkType", "soundcloud"],
         ["linkUrl", "https://soundcloud.com/snekwtf"],
+        ["linkOriginalUrl", ""],
+        ["linkOriginalType", ""],
+        ["linkLabel", ""],
+        ["linkHandle", ""],
+        ["linkPresentation", ""],
       ], ["outboundLinks"]),
       "person",
     );
@@ -159,12 +167,14 @@ describe("profile fields payload", () => {
           ["linkType", "twitch"],
           ["linkUrl", "https://twitch.tv/snekwtf"],
           ["linkOriginalUrl", "https://twitch.tv/snekwtf"],
+          ["linkOriginalType", "twitch"],
           ["linkLabel", "Restream"],
           ["linkHandle", "snekwtf"],
           ["linkPresentation", "copy"],
           ["linkType", "soundcloud"],
           ["linkUrl", "https://soundcloud.com/moved"],
           ["linkOriginalUrl", "https://soundcloud.com/original"],
+          ["linkOriginalType", "soundcloud"],
           ["linkLabel", "Old set archive"],
           ["linkHandle", "original"],
           ["linkPresentation", "copy"],
@@ -186,6 +196,47 @@ describe("profile fields payload", () => {
     ]);
   });
 
+  it("puts an untouched stream link back where it was stored", () => {
+    // The form lifts a stream link into its own input regardless of where it sat
+    // in the list. Without its original position it comes back at the front, so
+    // opening the editor and saving nothing rewrites `outboundLinks` and records
+    // "outboundLinks updated" for a reordering the form did to itself.
+    const stored = [
+      { type: "soundcloud", url: "https://soundcloud.com/snekwtf" },
+      { type: "twitch", url: "https://twitch.tv/snekwtf" },
+    ] as const;
+    const { featured, rows } = partitionLinks([...stored], true);
+
+    assert.equal(featured.twitch?.originalIndex, 1);
+
+    const payload = profileFieldsPayload(
+      formData(
+        [
+          ["displayName", "Snek"],
+          ["twitchUrl", featured.twitch?.url ?? ""],
+          ["twitchOriginalUrl", featured.twitch?.url ?? ""],
+          ["twitchOriginalIndex", String(featured.twitch?.originalIndex)],
+          ...rows.flatMap((link) => [
+            ["linkType", link.type],
+            ["linkUrl", link.url],
+            ["linkOriginalUrl", link.url],
+            ["linkOriginalType", link.type],
+            ["linkLabel", ""],
+            ["linkHandle", ""],
+            ["linkPresentation", ""],
+          ] as Array<[string, string]>),
+        ],
+        ["outboundLinks"],
+      ),
+      "person",
+    );
+
+    assert.deepEqual(
+      payload.outboundLinks?.map((link) => link.url),
+      stored.map((link) => link.url),
+    );
+  });
+
   it("keeps a new row aligned with its own blank metadata", () => {
     // Every row emits all five hidden fields, so a blank one added above a
     // populated one cannot shift the pairing and hand its label to a neighbour.
@@ -196,12 +247,14 @@ describe("profile fields payload", () => {
           ["linkType", "website"],
           ["linkUrl", ""],
           ["linkOriginalUrl", ""],
+          ["linkOriginalType", ""],
           ["linkLabel", ""],
           ["linkHandle", ""],
           ["linkPresentation", ""],
           ["linkType", "twitch"],
           ["linkUrl", "https://twitch.tv/snekwtf"],
           ["linkOriginalUrl", "https://twitch.tv/snekwtf"],
+          ["linkOriginalType", "twitch"],
           ["linkLabel", "Restream"],
           ["linkHandle", "snekwtf"],
           ["linkPresentation", ""],
