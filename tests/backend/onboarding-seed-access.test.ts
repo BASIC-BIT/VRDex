@@ -617,6 +617,40 @@ describe("seed handoff helpers", () => {
     assert.equal(publishPatch.fieldVisibility?.tags, "unlisted");
   });
 
+  it("canonicalizes seed links and reports what it collapsed", () => {
+    // The exact pair the NWinn export carried, and the reason 249 profiles went
+    // live holding a link into VRCDN's operator console: the seed lane validated
+    // links as plain URLs and copied them across as stored, while every other
+    // writer went through the normalizer that knows what a VRCDN link is.
+    const linkStats = { droppedCount: 0, deduplicatedCount: 0 };
+    const patch = buildConciergeProfileFieldPatch(
+      [
+        seedField({
+          fieldKey: "outboundLinks",
+          reviewState: "accepted",
+          visibility: "public",
+          value: [
+            { type: "vrcdn", label: "VRCDN stream", url: "https://stream.vrcdn.live/live/snekwtf.live.ts" },
+            { type: "vrcdn", label: "VRCDN preview", url: "https://panel.vrcdn.live/preview/snekwtf" },
+            { type: "twitch", label: "Twitch", url: "https://twitch.tv/snekwtf" },
+          ],
+        }),
+      ],
+      undefined,
+      { fieldVisibilitySource: "reviewed", clearUnselectedFields: false, linkStats },
+    );
+
+    assert.deepEqual(
+      patch.outboundLinks?.map((link) => link.url),
+      ["https://vrcdn.live/snekwtf", "https://twitch.tv/snekwtf"],
+    );
+    // Both VRCDN entries name one stream, so the profile carries one link and
+    // the operator is told one collapsed rather than being left to notice.
+    assert.equal(linkStats.deduplicatedCount, 1);
+    assert.equal(linkStats.droppedCount, 0);
+    assert.equal(patch.fieldVisibility?.outboundLinks, "public");
+  });
+
   it("rejects handoff fields withdrawn during review", () => {
     for (const reviewState of ["rejected", "needs_correction"] as const) {
       const field = seedField({ reviewState });
