@@ -248,21 +248,30 @@ const PROFILE_HISTORY_LIMIT = 20;
  * returns a row per candidate, so a profile two batches contributed to still
  * appears there on the strength of the live one. Judging only the first row this
  * index happens to return would hide such a profile whenever the withdrawn batch
- * sorted first, which is arbitrary rather than a decision. `MAX` bounds the read;
- * more than a couple of candidates per profile does not happen outside a merge.
+ * sorted first, which is arbitrary rather than a decision.
+ *
+ * Read as a stream, stopping at the first eligible row. A fixed `take` was the
+ * same mistake in miniature: eight withdrawn candidates ahead of the live one and
+ * the profile went missing from this surface while the lookup went on listing it,
+ * because the bound was sized to what seemed likely rather than to the question.
+ * `LOOKUP_SCAN_LIMIT` still caps the work, and it is the ceiling the name lookup
+ * already uses.
  */
-const MAX_PUBLISHING_CANDIDATES = 8;
-
 async function publishedSeedCandidateIsVisible(
   ctx: { db: GenericDatabaseReader<DataModel> },
   profile: Doc<"profiles">,
 ): Promise<boolean> {
-  const candidates = await ctx.db
-    .query("seedImportCandidateProfiles")
-    .withIndex("by_publishedProfileId", (query) => query.eq("publishedProfileId", profile._id))
-    .take(MAX_PUBLISHING_CANDIDATES);
+  let scanned = 0;
 
-  for (const candidate of candidates) {
+  for await (const candidate of ctx.db
+    .query("seedImportCandidateProfiles")
+    .withIndex("by_publishedProfileId", (query) => query.eq("publishedProfileId", profile._id))) {
+    if (scanned >= LOOKUP_SCAN_LIMIT) {
+      break;
+    }
+
+    scanned += 1;
+
     const batch = await ctx.db.get(candidate.batchId);
 
     if (

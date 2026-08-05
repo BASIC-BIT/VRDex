@@ -9,6 +9,7 @@ import { api } from "@convex-generated-api";
 import { buttonVariants, Button } from "@/components/ui/button";
 import { Notice } from "@/components/ui/notice";
 import { cn } from "@/lib/cn";
+import { protectedRouteSignInPath } from "@/lib/protected-route-redirect";
 import { ProfileFields } from "./profile-fields";
 import { profileFieldsPayload } from "./profile-fields-model";
 
@@ -225,7 +226,16 @@ function AuthenticatedProfileEditForm({
   if (!isAuthenticated) {
     return (
       <EditPanel title="Sign-in required">
-        <Link className={buttonVariants({ size: "lg", variant: "primary" })} href="/sign-in">
+        {/* With the return path, or signing in lands them somewhere else and the
+            edit they came to make is gone. These routes are not in
+            `isProtectedRoute`, so no server redirect builds this for them --
+            this branch is the whole of the signed-out handling, and the sign-in
+            page only comes back when `returnTo` is present. Built with the same
+            helper the protected routes use, so it stays one format. */}
+        <Link
+          className={buttonVariants({ size: "lg", variant: "primary" })}
+          href={protectedRouteSignInPath(`${profilePath}/edit`)}
+        >
           Sign in
         </Link>
       </EditPanel>

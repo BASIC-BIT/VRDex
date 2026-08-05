@@ -601,6 +601,98 @@ describe("private seed Convex handlers", () => {
     );
   });
 
+  // A fixed `take` here was the same asymmetry in miniature: enough withdrawn
+  // candidates ahead of the live one and the profile went missing from the record
+  // read while the name lookup went on listing it, because the bound was sized to
+  // what seemed likely rather than to the question.
+  it("finds the live candidate behind a crowd of withdrawn ones", async () => {
+    const t = convexTest({ schema, modules });
+    const candidate = await importCandidate(t);
+    const identity = await t.run(async (ctx) => {
+      const profileId = await ctx.db.insert("profiles", {
+        ...privateProfile("unclaimed"),
+        slug: "handler-crowded-import",
+        publicationState: "published" as const,
+        publicSurfacingState: "public" as const,
+        creationSource: "import" as const,
+        fieldVisibility: { bio: "private" as const },
+        bio: "Withheld biography",
+      });
+
+      // Twelve rejected batches ahead of the live one, comfortably past the eight
+      // the old bound would have read.
+      for (let index = 0; index < 12; index += 1) {
+        const withdrawnBatchId = await ctx.db.insert("seedImportBatches", {
+          externalBatchId: `handler_test_batch_withdrawn_${index}`,
+          sourceName: "NWinn",
+          sourceType: "partner",
+          receivedAt: NOW,
+          publicationPolicy: "reviewed_publication_allowed",
+          reviewState: "rejected",
+          createdAt: NOW,
+          updatedAt: NOW,
+        });
+        await ctx.db.insert("seedImportCandidateProfiles", {
+          batchId: withdrawnBatchId,
+          externalCandidateId: `handler-test-withdrawn-${index}`,
+          profileType: "person",
+          proposedDisplayName: "DJ Example",
+          reviewState: "accepted",
+          publicationState: "published_unclaimed",
+          claimState: "unclaimed",
+          publishedProfileId: profileId,
+          publishedAt: NOW,
+          createdAt: NOW,
+          updatedAt: NOW,
+        });
+      }
+
+      // The live one is inserted *after* the withdrawn crowd, so it sorts behind
+      // all of them on `by_publishedProfileId`. Reusing the imported candidate
+      // would not test anything: `importCandidate` created it first, so a bounded
+      // read finds it immediately whatever the bound is.
+      await ctx.db.patch(candidate.batchId, {
+        publicationPolicy: "reviewed_publication_allowed",
+        reviewState: "approved",
+        updatedAt: NOW,
+      });
+      await ctx.db.insert("seedImportCandidateProfiles", {
+        batchId: candidate.batchId,
+        externalCandidateId: "handler-test-live-behind-the-crowd",
+        profileType: "person",
+        proposedDisplayName: "DJ Example",
+        reviewState: "accepted",
+        publicationState: "published_unclaimed",
+        claimState: "unclaimed",
+        publishedProfileId: profileId,
+        publishedAt: NOW,
+        createdAt: NOW,
+        updatedAt: NOW,
+      });
+
+      const clerkUserId = newClerkUserId();
+      const userId = await ctx.db.insert("users", { clerkUserId, name: "Crowd lookup operator" });
+      await ctx.db.insert("accountFeatureGrants", {
+        userId,
+        feature: "view_private_seed_lookup",
+        state: "active",
+        grantedBy: actor,
+        grantedAt: NOW,
+        updatedAt: NOW,
+      });
+      return { subject: clerkUserId, emailVerified: true };
+    });
+
+    assert.deepEqual(
+      (
+        await t.withIdentity(identity).query(api.seedAccess.withheldProfileRecord, {
+          slug: "handler-crowded-import",
+        })
+      )?.withheldFields.map((field) => field.key),
+      ["bio"],
+    );
+  });
+
   // Both operator surfaces answer to one rule. `lookupPeople` reached the batch
   // through the candidate and stopped returning a withdrawn record; the by-slug
   // record read judged the live profile alone, which a batch rejection does not
