@@ -1582,12 +1582,17 @@ export const bulkSetFieldVisibility = internalMutation({
     }
 
     // Re-deriving a live profile republishes seed data onto it, so it answers to
-    // the same kill switch publishing does. Revoking a batch to `private_only`
-    // has to stop that, not just stop new publications. Candidate rows are still
-    // updated -- setting visibility before authorizing a batch is preparation,
-    // and publication is gated separately.
+    // the same kill switch publishing does -- and that switch has two levers,
+    // not one. `bulkPublishBatch` refuses a batch revoked to `private_only` and
+    // a batch moved out of `approved`, so honouring only the policy would leave
+    // a rejected or superseded batch able to replay seed values onto live
+    // profiles after review had been withdrawn.
+    //
+    // Candidate rows are still updated either way: setting visibility before a
+    // batch is authorized is preparation, and publication is gated separately.
     const canRederive =
-      (batch.publicationPolicy ?? "private_only") === "reviewed_publication_allowed";
+      (batch.publicationPolicy ?? "private_only") === "reviewed_publication_allowed" &&
+      batch.reviewState === "approved";
     const note = `Field visibility set to ${args.visibility} by ${reviewer.displayName ?? reviewer.subject}: ${reason}`;
 
     // Skipped when the note is already the last line. A cursor-less retry after a

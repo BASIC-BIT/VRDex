@@ -353,9 +353,11 @@ pnpm ops:seed-publish -- `
 - Claimed profiles are left alone and reported as `profile_claimed`.
   Re-deriving one would overwrite whatever its owner has edited since with the
   seed snapshot.
-- A batch revoked to `private_only` re-derives nothing and reports
-  `batch_not_authorized`. Re-derivation republishes seed data onto a live
-  profile, so the kill switch has to stop it and not just stop new publications.
+- A batch revoked to `private_only`, or moved out of `approved`, re-derives
+  nothing and reports `batch_not_authorized`. Re-derivation republishes seed data
+  onto a live profile, so it answers to the same kill switch publishing does --
+  and that switch has two levers, so honouring only the policy would let a
+  rejected or superseded batch replay values after review had been withdrawn.
   Candidate rows are still updated: setting visibility before authorizing a
   batch is preparation.
 
@@ -480,11 +482,13 @@ scoped read-only and can therefore also deploy code.
 
 It answers by slug, so who may call it is scoped deliberately: the profile's own
 owner, any super-admin, and a `view_private_seed_lookup` holder only for
-unclaimed profiles whose `creationSource` is `import` — the same records the seed
-lookup already shows them. Without that last condition the beta grant could read
-hidden fields and edit history for any profile whose slug someone guessed,
-including claimed ones, because a direct Convex call is not bounded by the public
-page this renders on.
+unclaimed, publicly surfaced profiles whose `creationSource` is `import` — the
+same records the seed lookup already shows them. Without those conditions the
+beta grant could read hidden fields and edit history for any profile whose slug
+someone guessed, because a direct Convex call is not bounded by the public page
+this renders on. The surfacing check is the profile-level equivalent of the
+lookup keeping `rejected` and `suppressed` candidates to super-admins: a profile
+withdrawn by moderation or opted out was withdrawn on purpose.
 
 ```powershell
 pnpm cx -- prod run accountFeatureGrants:grant `

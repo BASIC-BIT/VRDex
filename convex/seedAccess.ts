@@ -7,6 +7,7 @@ import {
 import { activeBrowserSessionOrNull } from "./_browserSessionAuthority";
 import { query } from "./_generated/server";
 import { userOwnsProfile } from "./_profileOwnership";
+import { canReadProfile } from "./_profilePermissions";
 import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 import {
   canIncludePrivateSeedCandidate,
@@ -184,10 +185,19 @@ export const withheldProfileRecord = query({
     // bounded by the public page this renders on.
     //
     // The narrower grant sees what the seed lookup already shows it: unclaimed
-    // records that came from an import. Super-admins and the profile's own owner
-    // are unrestricted.
+    // records that came from an import and are still publicly listed.
+    //
+    // The surfacing check is the profile-level equivalent of the lookup keeping
+    // `rejected` and `suppressed` candidates to super-admins. Without it, an
+    // opted-out or moderation-suppressed imported profile -- withdrawn from
+    // public view precisely because someone decided it should not be seen --
+    // would still hand its withheld fields and edit history to a beta grant.
+    //
+    // Super-admins and the profile's own owner are unrestricted.
     const withinSeedGrant =
-      profile.claimState === "unclaimed" && profile.creationSource === "import";
+      profile.claimState === "unclaimed" &&
+      profile.creationSource === "import" &&
+      canReadProfile("public", profile);
 
     if (!owns && !access.superAdmin && !(access.canViewPrivateSeedLookup && withinSeedGrant)) {
       return null;
