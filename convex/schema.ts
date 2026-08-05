@@ -2061,6 +2061,14 @@ export default defineSchema({
     // only thing its name can be derived from — so it is the retry handle, not
     // bookkeeping.
     secretRetiredAt: v.optional(v.number()),
+    // The cleanup sweep's selection cursor, and the same idea as
+    // `lastRotatedAt` one field up: every row a pass *considers* is stamped,
+    // whether or not it produced work. Without it the rows the legacy-name
+    // liveness guard permanently withholds — a guild-scoped key another
+    // profile is still active on is due forever, because nothing ever retires
+    // it — sit at the head of the cleanup index and are rescanned every day,
+    // and enough of them means later obligations are never reached at all.
+    lastCleanupScanAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -2077,7 +2085,16 @@ export default defineSchema({
     // *active* delegations, which also carry no `secretRetiredAt` — could sit at
     // the head and starve the sweep forever while unretired rows behind them
     // kept their keys. State leads, so each scan is obligations only.
-    .index("by_state_secretRetiredAt_createdAt", ["state", "secretRetiredAt", "createdAt"])
+    //
+    // Ordered by the scan stamp rather than by `createdAt`, so a sweep resumes
+    // where the last one stopped instead of restarting into the same head every
+    // day. Unstamped sorts first, which is the right order anyway: a row nothing
+    // has looked at yet outranks one already passed over.
+    .index("by_state_secretRetiredAt_lastCleanupScanAt", [
+      "state",
+      "secretRetiredAt",
+      "lastCleanupScanAt",
+    ])
     // The write bound reads one owner's rows for one guild inside a window.
     // Collecting every row a long-lived operator ever delegated, then filtering,
     // would eventually put that read past Convex's limits and block them from

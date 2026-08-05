@@ -3,7 +3,7 @@ import { internal } from "../../../../../../../convex/_generated/api";
 import type { Id } from "../../../../../../../convex/_generated/dataModel";
 
 import { apiProblemResponse } from "@/lib/server/api-v0";
-import { claimErrorCode } from "@/lib/claim-errors";
+import { claimErrorCode, claimErrorMessage } from "@/lib/claim-errors";
 import {
   convexAuthToken,
   isUnauthenticatedError,
@@ -129,11 +129,18 @@ export async function POST(request: Request) {
       );
     }
 
-    return problem(
-      403,
-      "Delegation not allowed",
-      "You need a current proof that you control that Discord server before delegating its key.",
-    );
+    // The same reason, generalised. `reserveCredential` refuses for its session
+    // and profile checks before it ever reaches the proof: an unverified email,
+    // a slug this owner does not own, a guild id that is not one. Every one of
+    // those arrived here as "go re-verify that Discord server", which unlocks
+    // none of them — and the copy map every other claim surface reads already
+    // holds the right sentence for each code, including the proof ones this
+    // used to hardcode.
+    if (code === "SIGN_IN_REQUIRED") {
+      return problem(401, "Sign in to continue", claimErrorMessage(error));
+    }
+
+    return problem(403, "Delegation not allowed", claimErrorMessage(error));
   }
 
   // Keys belonging to reservations that died before activating — a request
@@ -371,7 +378,9 @@ export async function DELETE(request: Request) {
       return unauthenticatedResponse("/account/connections");
     }
 
-    if (claimErrorCode(error) === null) {
+    const code = claimErrorCode(error);
+
+    if (code === null) {
       return problem(
         503,
         "Revoke is unavailable",
@@ -379,7 +388,14 @@ export async function DELETE(request: Request) {
       );
     }
 
-    return problem(403, "Revoke not allowed", "You do not manage that profile.");
+    // Same collapse as the reserve path above, and the same fix: revoking runs
+    // the same session and profile checks, so "you do not manage that profile"
+    // was the answer to an unverified email and an unknown slug alike.
+    if (code === "SIGN_IN_REQUIRED") {
+      return problem(401, "Sign in to continue", claimErrorMessage(error));
+    }
+
+    return problem(403, "Revoke not allowed", claimErrorMessage(error));
   }
 
   // The row is revoked either way — the delegation is inert the moment it is,

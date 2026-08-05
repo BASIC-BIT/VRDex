@@ -212,13 +212,14 @@ const MAX_RECENT_DELEGATION_WRITES = 10;
 const OVERDUE_CLEANUP_SCAN_LIMIT = 50;
 
 /**
- * How far past unretirable rows one sweep will look.
+ * How many rows one sweep will look at.
  *
- * Rows withheld by the legacy-name liveness guard never settle while another
- * profile still resolves through the shared name, so without scanning past them
- * they would fill every batch forever and rows behind them would never be
- * reached. Bounds the read, not the result: the batch is still
- * `OVERDUE_CLEANUP_SCAN_LIMIT`.
+ * Bounds the read, not the result: the batch is still
+ * `OVERDUE_CLEANUP_SCAN_LIMIT`. A cap alone was never enough, because rows the
+ * legacy-name liveness guard withholds never settle — so an age-ordered scan
+ * restarted into the same ones daily and this number was just where the wall
+ * sat. Every row a pass looks at is stamped and the next scan resumes behind it,
+ * which is what makes a bounded read still make progress.
  */
 const OVERDUE_CLEANUP_MAX_EXAMINED = 500;
 
@@ -708,8 +709,10 @@ export const confirmSecretsRetiredAsServer = internalMutation({
  * Two caps, not one, and they count different things.
  * `OVERDUE_CLEANUP_SCAN_LIMIT` bounds the batch and is applied to obligations —
  * rows that survived the liveness guard and will actually have a key deleted.
- * `OVERDUE_CLEANUP_MAX_EXAMINED` bounds the read, so reaching past rows that are
- * not yet due, or that are due and permanently withheld, still ends.
+ * `OVERDUE_CLEANUP_MAX_EXAMINED` bounds the read. Neither is a wall, because
+ * every row a pass looks at and does not hand out is stamped and sorts behind
+ * the rows it has not reached, so consecutive sweeps advance instead of
+ * restarting into the same head.
  */
 export const claimOverdueSecretCleanups = internalMutation({
   args: {},
@@ -722,33 +725,41 @@ export const claimOverdueSecretCleanups = internalMutation({
     //
     // Scanned past, because a row can be an obligation by state and still be
     // withheld by the legacy-name liveness guard: another profile is still
-    // resolving through the shared guild-scoped name. Those rows never settle,
-    // so stopping at the first batch would return them every day and never reach
-    // a guild whose keys could actually be deleted. The reach is bounded — the
-    // sweep is daily, and a backlog is allowed to take several days.
+    // resolving through the shared guild-scoped name. Those rows never settle —
+    // nothing retires them, so nothing stamps `secretRetiredAt` and they stay in
+    // this index forever.
     //
-    // Streamed rather than paged on `createdAt`. That cursor was not unique, and
-    // a `.gt()` past the last row of a page skipped every row sharing its
-    // timestamp — so a bulk import that stamped more than one batch of rows with
-    // the same millisecond hid the remainder from every future sweep, forever.
-    // Iterating the index has no cursor to collide.
+    // Which is why the scan orders by its own stamp and not by `createdAt`.
+    // Ordered by age, every sweep restarted into the same head: a scan cap moved
+    // the wall from one batch to `OVERDUE_CLEANUP_MAX_EXAMINED`, but that many
+    // permanently withheld rows still meant every daily run examined the same
+    // ones and reached nothing behind them. Stamping every row a pass considers
+    // — eligible or not — is what `lastRotatedAt` already does one field over,
+    // and for exactly this reason.
+    //
+    // Streaming rather than paging is the other half. A `.gt()` cursor on
+    // `createdAt` was not unique, so advancing past the last row of a page
+    // skipped every row sharing its millisecond; iterating the index has no
+    // cursor to collide.
     const overdue: Doc<"communityVrclinkingCredentials">[] = [];
+    const examined: Doc<"communityVrclinkingCredentials">[] = [];
 
     for (const state of ["pending", "revoked"] as const) {
-      let examined = 0;
+      let seen = 0;
 
       for await (const row of ctx.db
         .query("communityVrclinkingCredentials")
-        .withIndex("by_state_secretRetiredAt_createdAt", (q) =>
+        .withIndex("by_state_secretRetiredAt_lastCleanupScanAt", (q) =>
           q.eq("state", state).eq("secretRetiredAt", undefined),
         )) {
-        examined += 1;
+        seen += 1;
+        examined.push(row);
 
         if (row.createdAt + PENDING_DELEGATION_TTL_MS <= now && !writerMayStillBeRunning(row, now)) {
           overdue.push(row);
         }
 
-        if (examined >= OVERDUE_CLEANUP_MAX_EXAMINED) {
+        if (seen >= OVERDUE_CLEANUP_MAX_EXAMINED) {
           break;
         }
       }
@@ -786,9 +797,9 @@ export const claimOverdueSecretCleanups = internalMutation({
     // above — and it never settles, so it is due again tomorrow. Counting those
     // against the batch let fifty of them at the head of the index fill every
     // sweep with rows that produce no work, while per-credential obligations
-    // behind them kept their keys forever. The scan's own bound is
-    // `OVERDUE_CLEANUP_MAX_EXAMINED`, so reaching past them stays bounded.
+    // behind them kept their keys forever.
     const batch = obligations.slice(0, OVERDUE_CLEANUP_SCAN_LIMIT);
+    const handedOut = new Set(batch.map(({ credentialId }) => credentialId));
 
     // Claimed before their names go anywhere — and only the names actually going
     // anywhere. A candidate that was withheld is not being handed out, so there
@@ -805,6 +816,20 @@ export const claimOverdueSecretCleanups = internalMutation({
             updatedAt: now,
           }),
         ),
+    );
+
+    // Everything this pass looked at and did not hand out moves behind the rows
+    // it has not reached yet. That is the whole reason the scan orders by this
+    // stamp: a row the guard withholds is due forever, and without being moved
+    // it would lead the index again tomorrow and every day after.
+    //
+    // The batch is deliberately not stamped. Those rows leave the index when the
+    // route confirms their retirement, and if that confirmation never lands they
+    // *should* lead the next scan — that is the retry, and the only one they get.
+    await Promise.all(
+      examined
+        .filter((row) => !handedOut.has(row._id))
+        .map((row) => ctx.db.patch(row._id, { lastCleanupScanAt: now })),
     );
 
     return batch.map(({ credentialId, secretName }) => ({ credentialId, secretName }));
