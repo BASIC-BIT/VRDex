@@ -23,7 +23,7 @@ export default async function CommunityProfileEditPage({ params }: ProfileEditPa
           <h1 className="text-3xl leading-tight font-semibold sm:text-4xl">Edit profile</h1>
 
           <div className="mt-8">
-            <ProfileEditForm profilePath={`/c/${slug}`} slug={slug} />
+            <ProfileEditForm profilePath={`/c/${slug}`} profileType="community" slug={slug} />
           </div>
         </section>
       </PageContainer>

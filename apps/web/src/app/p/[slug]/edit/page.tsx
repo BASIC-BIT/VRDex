@@ -23,7 +23,7 @@ export default async function PersonProfileEditPage({ params }: ProfileEditPageP
           <h1 className="text-3xl leading-tight font-semibold sm:text-4xl">Edit profile</h1>
 
           <div className="mt-8">
-            <ProfileEditForm profilePath={`/p/${slug}`} slug={slug} />
+            <ProfileEditForm profilePath={`/p/${slug}`} profileType="person" slug={slug} />
           </div>
         </section>
       </PageContainer>

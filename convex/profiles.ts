@@ -492,7 +492,19 @@ export const submitCommunityProfile = mutation({
  * become a way to read a withheld value by opening it.
  */
 export const editableProfile = query({
-  args: { slug: v.string() },
+  args: {
+    slug: v.string(),
+    /**
+     * The type the route claims this profile is.
+     *
+     * Slugs are global, so `/p/<community-slug>/edit` resolves to the community
+     * profile and would have edited it happily -- then sent the writer back to a
+     * `/p/` path that 404s, because `profilePath` came from the route rather than
+     * the record. Refused here, the same way `seedAccess:withheldProfileRecord`
+     * refuses a mismatched type, rather than checked in the component.
+     */
+    profileType: v.optional(v.union(v.literal("person"), v.literal("community"))),
+  },
   handler: async (ctx, args) => {
     const activeSession = await activeBrowserSessionOrNull(ctx);
 
@@ -509,6 +521,10 @@ export const editableProfile = query({
     const profile = await getProfileBySlug(ctx.db, validation.slug);
 
     if (profile === null) {
+      return null;
+    }
+
+    if (args.profileType !== undefined && profile.profileType !== args.profileType) {
       return null;
     }
 

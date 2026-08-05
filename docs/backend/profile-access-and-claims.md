@@ -22,10 +22,10 @@ not a list of field names:
 
 - **Information about the person** is community-editable on an unclaimed
   profile. Display name, aliases, tags, outbound links, headline, bio, region,
-  role tags and pronouns. Facts a third party can know and correct, and the
-  reason an unclaimed profile is worth visiting at all. `timezone` belongs to
-  this category and is still excluded, for a reason that is not about what it
-  describes -- see below.
+  timezone, role tags and pronouns. Facts a third party can know and correct,
+  and the reason an unclaimed profile is worth visiting at all. A few of these
+  carry one extra condition, described below, and it is about whether the value
+  is on screen rather than about what it describes.
 - **The record itself** is not. `slug` is the profile's address, so changing it
   on someone else's behalf breaks every link already shared. Appearance --
   avatar shape, border colour, section order -- is a presentation choice

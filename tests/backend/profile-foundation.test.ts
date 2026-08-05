@@ -1250,6 +1250,40 @@ describe("API profile update helpers", () => {
     assert.equal(sourceFor("https://EXAMPLE.invalid/Mix"), "owner_authored");
   });
 
+  // The submitted side is canonicalized before provenance is matched, so keying
+  // the stored side on its raw URL missed every legacy row: a profile still
+  // holding a `stream.vrcdn.live/live/<id>.m3u8` was compared against the
+  // `vrcdn.live/<id>` it becomes, the claim never matched, and editing an
+  // unrelated field restamped a reviewed link as community-submitted.
+  it("matches provenance across VRCDN canonicalization", () => {
+    const withLegacyLink = {
+      ...claimedPerson,
+      claimState: "unclaimed",
+      outboundLinks: [
+        {
+          type: "vrcdn",
+          label: "VRCDN",
+          url: "https://stream.vrcdn.live/live/snekwtf.m3u8",
+          source: "reviewed",
+        },
+      ],
+    } as unknown as Doc<"profiles">;
+
+    const links = sanitizeApiProfileUpdateInput(
+      withLegacyLink,
+      {
+        // What the editor posts back for an untouched row: the canonical URL it
+        // was shown, and the provenance it arrived with.
+        outboundLinks: [
+          { type: "vrcdn", url: "https://vrcdn.live/snekwtf", source: "reviewed" },
+        ],
+      },
+      "community_submitter",
+    ).patch.outboundLinks as Array<{ source: string }>;
+
+    assert.equal(links[0]?.source, "reviewed");
+  });
+
   it("stamps a duplicate link from the writer rather than the one it matches", () => {
     // One stored link, one inherited source. Keying on identity alone handed the
     // same owner-authored provenance to every submitted link that matched it, so

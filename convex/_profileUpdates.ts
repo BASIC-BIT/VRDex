@@ -10,6 +10,7 @@ import {
 import {
   profileLinkDestinationKey,
   sanitizeProfileLinks,
+  sanitizeProfileLinksLeniently,
   type ProfileLinkSource,
 } from "./_profileLinks";
 import { assertIdentityNotSuppressed } from "./_suppressions";
@@ -257,10 +258,19 @@ export function sanitizeApiProfileUpdateInput(
     // each stored link is claimed once -- so a writer cannot mint
     // `owner_authored` by asking for it, and anything unmatched falls back to
     // their own stamp.
+    // Keyed on what each stored link canonicalizes to, not on how it is stored.
+    // The submitted side is sanitized before it gets here, so a legacy row still
+    // holding a `stream.vrcdn.live/live/<id>.m3u8` or a panel preview URL was
+    // being compared against the `vrcdn.live/<id>` it becomes -- the claim missed
+    // every time, and an edit to an unrelated field restamped a reviewed or
+    // partner link as community-submitted. Same normalizer on both sides, one
+    // link at a time so each keeps the source it was stored with rather than the
+    // stamp the sanitizer would apply.
     const unclaimed = new Map<string, number>();
 
     for (const link of profile.outboundLinks ?? []) {
-      const key = `${linkIdentity(link)}|${link.source}`;
+      const [canonical] = sanitizeProfileLinksLeniently([link], link.source).links;
+      const key = `${linkIdentity(canonical ?? link)}|${link.source}`;
 
       unclaimed.set(key, (unclaimed.get(key) ?? 0) + 1);
     }
