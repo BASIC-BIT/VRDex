@@ -49,24 +49,27 @@ private: it renders on the profile page, so a contributor looking at that page
 has already seen it. `profiles:editableProfile` returns values only for fields
 the subject has cleared, so the form shows exactly what it may change.
 
-Visibility does not settle that on its own. `timezone` sits at `public` by
-default and no public surface renders it -- only the operator lookup does, behind
-`view_private_seed_lookup` -- so a contributor offered it would be reading a value
-the page withheld, at a field the visibility check calls readable. Being allowed
-to show something is not the same as showing it. It is in
-`COMMUNITY_UNEDITABLE_FIELDS` until some surface renders it; owners keep it,
+Visibility does not settle that on its own, because "may be shown" is not
+"is shown". Two fields are readable in the lookup and never on the profile page,
+and for those `unlisted` -- the state discovery excludes -- puts the value on no
+surface at all:
+
+- **Focus items** (`tags`, role tags, category tags). The page builds a single
+  metadata line from pronouns or subtype, region, and then the focus items, and
+  drops the focus items when the profile has a headline, because the headline
+  carries that row instead. There is no second place they render, so an unlisted
+  focus field on a profile *with a headline* is nowhere.
+- **`timezone`**, always. No part of the profile page renders it; `LookupIdentity`
+  renders it beside the region in search results.
+
+`public` is unaffected in both cases: the lookup carries it whatever the page
+does. So these are withheld from community editing exactly when they are
+`unlisted`, and editable when they are `public`. Owners keep them either way,
 because it is their own record.
 
-`unlisted` has one case of the same shape. The public page builds a single
-metadata line from pronouns or subtype, region, and then the focus items -- role
-tags, category tags and free tags -- and drops the focus items when the profile
-has a headline, because the headline carries that row instead. There is no second
-place they render. So an unlisted focus field on a profile with a headline is on
-the page nowhere and, being unlisted, in discovery nowhere either, which is
-exactly the justification for calling `unlisted` readable, failing. Those fields
-are withheld from community editing on such a profile and editable on one without
-a headline. A `public` focus field is unaffected: discovery carries it whatever
-the header does.
+`timezone` was briefly excluded outright, on the claim that no public surface
+renders it. That was wrong about the lookup. The true claim is the narrower one:
+the *profile page* does not render it.
 
 An existing link keeps the provenance it already had, and each row says which
 one it arrived with. The form posts the whole array back, so restamping on every

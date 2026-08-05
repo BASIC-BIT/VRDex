@@ -376,7 +376,16 @@ export function buildConciergeProfileFieldPatch(
 
   for (const field of fields) {
     const value = normalizeSafePrivateSeedFieldValue(field.fieldKey, field.value);
-    fieldVisibility[visibilityKeyForSeedField(field.fieldKey)] =
+    // Written before the switch, and taken back below if the value turns out not
+    // to be written at all. A visibility describes the value it arrived with, so
+    // carrying it across on its own reclassifies whatever the profile already
+    // had: a private seed link field whose every entry was unusable would leave
+    // the live links in place and mark them private, hiding real links to
+    // describe links that never landed.
+    const visibilityKey = visibilityKeyForSeedField(field.fieldKey);
+    const previousVisibility = fieldVisibility[visibilityKey];
+
+    fieldVisibility[visibilityKey] =
       fieldVisibilitySource === "private" ? "private" : field.visibility;
 
     switch (field.fieldKey) {
@@ -434,6 +443,10 @@ export function buildConciergeProfileFieldPatch(
         // the profile would get anyway.
         if (sanitized.links.length > 0 || (profile?.outboundLinks?.length ?? 0) === 0) {
           patch.outboundLinks = sanitized.links;
+        } else if (previousVisibility === undefined) {
+          delete fieldVisibility[visibilityKey];
+        } else {
+          fieldVisibility[visibilityKey] = previousVisibility;
         }
 
         break;

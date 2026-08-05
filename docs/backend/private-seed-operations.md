@@ -570,14 +570,26 @@ Sharing the predicate makes the grant person-only here too, because
 community profile is outside what this grant was issued for; its owner and any
 super-admin still read the record.
 
-What counts as withheld is "the page does not render it", not "it is not
-public". `about`, `genres` and `timezone` reach the profile row and no public
-surface shows them — the same three the publication gate refuses to count as
-visible content — so they appear in the panel whatever their visibility says.
-Reading `public` as though it meant *shown* made those values invisible from
-both directions at once: held back from this panel for being public, and absent
-from the page for never having been rendered, which left a deploy key as the
-only way to read them. That is precisely what this panel exists to replace.
+What counts as withheld is "no surface shows it", not "it is not public". Only
+`about` is in that state whatever its visibility says: it reaches the profile row
+and the public projection, and no component reads it — the page's About section
+renders `bio`. Reading `public` as though it meant *shown* left that value
+invisible from both directions at once, held back from the panel for being public
+and absent from the page for never having been rendered, which made a deploy key
+the only way to read it. That is what this panel replaced.
+
+`genres` and `timezone` were treated the same way and should not have been. The
+profile page does not render them, but the public lookup does at `public`
+visibility, through `LookupGenres` and `LookupIdentity`. The publication gate
+still declines to count them, and that is a different and narrower claim: the
+gate exists to stop publishing a *profile page* that shows a name and a slug, and
+a genre in a search result does not fill that page.
+
+The panel groups by where a value is missing from rather than by its visibility,
+because the two part company for exactly the cases worth telling apart. Each
+field carries `onProfilePage`, so an `unlisted` alias — on the page, out of
+search — is filed apart from an `unlisted` timezone or an `unlisted` tag whose
+row a headline has taken, which are on no surface at all.
 
 ```powershell
 pnpm cx -- prod run accountFeatureGrants:grant `

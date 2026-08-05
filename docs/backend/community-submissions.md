@@ -64,12 +64,12 @@ Ordinary community submissions do not set those fields in this slice. Owner, con
 Editing an existing unclaimed profile is a wider set than creating one, and the
 rule there is information about the person versus the record itself — see
 [Profile Access And Claims](./profile-access-and-claims.md#edit-baseline).
-Headline, bio and region are information about the person and are editable
-there; appearance choices and the slug are not. `timezone` is information about
-the person too, and is still not community-editable: no public surface renders
-it, and editing a field means being shown its current value first. Media is not
-editable by the community either, for want of an upload path rather than by the
-rule — the same section says why for both.
+Headline, bio, region and timezone are information about the person and are
+editable there; appearance choices and the slug are not. `timezone` and the
+focus items carry one extra condition, because the profile page does not render
+them in every state and editing a field means being shown its current value
+first — the same section says which. Media is not editable by the community
+either, for want of an upload path rather than by the rule.
 
 ## Implementation Boundaries
 

@@ -346,15 +346,40 @@ describe("profile permission helpers", () => {
     assert.equal(canEditProfileField("community_submitter", withHeadline, "bio"), true);
   });
 
-  it("keeps the community out of a field no public surface renders", () => {
+  // The *profile page* never renders `timezone`; the public lookup does, at
+  // `public` visibility, beside the region. So it is readable while public and
+  // unreadable once unlisted, unlisted being exactly the state discovery excludes
+  // with the page never covering it either.
+  //
+  // It was briefly excluded outright, on the claim that no public surface showed
+  // it. That claim was wrong about the lookup.
+  it("ties timezone editing to the surface that actually shows it", () => {
     assert.equal(
       canEditProfileField("community_submitter", publishedUnclaimedPerson, "timezone"),
-      false,
+      true,
     );
+
+    for (const visibility of ["unlisted", "private"] as const) {
+      assert.equal(
+        canEditProfileField(
+          "community_submitter",
+          { ...publishedUnclaimedPerson, fieldVisibility: { timezone: visibility } },
+          "timezone",
+        ),
+        false,
+        visibility,
+      );
+    }
+
+    // The owner keeps it either way; it is their own record.
     assert.equal(
       canEditProfileField(
         "claimed_owner",
-        { ...publishedUnclaimedPerson, claimState: "claimed_unverified" } as const,
+        {
+          ...publishedUnclaimedPerson,
+          claimState: "claimed_unverified",
+          fieldVisibility: { timezone: "unlisted" },
+        } as const,
         "timezone",
       ),
       true,
@@ -1062,8 +1087,8 @@ describe("API profile update helpers", () => {
     const invalid: Array<[string, ApiProfileUpdateInput]> = [
       ["display name too short", { displayName: "a" }],
       ["too many aliases", { aliases: Array.from({ length: 40 }, (_u, i) => `alias-${i}`) }],
-      // Community-uneditable, because no public surface renders it.
-      ["field not editable", { timezone: "Europe/Berlin" }],
+      // The community may not edit a field the profile marks private.
+      ["field not editable", { headline: "Updated" }],
       ["wrong profile type", { community: { subtype: "Club" } }],
     ];
 
@@ -1071,7 +1096,13 @@ describe("API profile update helpers", () => {
       assert.throws(
         () =>
           sanitizeApiProfileUpdateInput(
-            { ...claimedPerson, claimState: "unclaimed" } as Doc<"profiles">,
+            {
+              ...claimedPerson,
+              claimState: "unclaimed",
+              // So the "field not editable" case has something to refuse: the
+              // community may not edit a field the profile marks private.
+              fieldVisibility: { headline: "private" },
+            } as Doc<"profiles">,
             input,
             "community_submitter",
           ),

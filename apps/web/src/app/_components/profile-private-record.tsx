@@ -120,13 +120,24 @@ function WithheldProfileRecord({
       )}
 
       {/* Three groups, because they are three different facts. A private field is
-          nowhere; an unlisted one is on this page for anyone holding the URL and
-          only absent from search; a public one in this list is allowed anywhere
-          and rendered nowhere, because no surface was ever built for it. Filing
-          them together would tell an owner their unlisted alias is hidden when it
-          is not, and say nothing about the third case at all. */}
+          nowhere by instruction; an unlisted one that the page renders is here
+          for anyone holding the URL and only absent from search; anything else is
+          on no surface at all -- a value nothing was ever built to show, or an
+          unlisted one whose row the page gave to something else. Filing them
+          together would tell an owner their unlisted alias is hidden when it is
+          not, and send them looking for a value that is not on the page.
+
+          Grouped on where the value is missing from, not on its visibility. The
+          two agree for most fields and part company for exactly the cases worth
+          telling apart. */}
       {(["private", "unlisted", "public"] as const).map((visibility) => {
-        const fields = record.withheldFields.filter((field) => field.visibility === visibility);
+        const fields = record.withheldFields.filter((field) =>
+          visibility === "private"
+            ? field.visibility === "private"
+            : visibility === "unlisted"
+              ? field.visibility === "unlisted" && field.onProfilePage
+              : field.visibility !== "private" && !field.onProfilePage,
+        );
 
         if (fields.length === 0) {
           return null;

@@ -155,6 +155,15 @@ export type OperatorProfileField = {
   key: ProfileFieldVisibilityKey;
   visibility: ProfileFieldVisibilityState;
   values: string[];
+  /**
+   * Whether the public profile page renders this field at all on this profile.
+   *
+   * The stored visibility cannot answer it: a field can be `unlisted` and on the
+   * page, or `unlisted` and on no page because a headline took its row or because
+   * nothing ever rendered it. The panel groups by where the value is missing
+   * from, so it needs the answer rather than the permission.
+   */
+  onProfilePage: boolean;
 };
 
 function compact(values: Array<string | undefined>): string[] {
@@ -215,44 +224,77 @@ function profileFieldValues(
 }
 
 /**
- * Field keys the record holds and no public surface renders, whatever their
- * visibility says.
+ * Field keys no public surface renders at all, whatever their visibility says.
  *
- * The same three the publication gate refuses to count as visible content, for
- * the same reason: they reach the profile row and nothing on the page shows
- * them. `public` is a permission, not a rendering — reading it as one made these
- * invisible from both directions at once, withheld from the panel for being
- * public and absent from the page for never having been rendered.
+ * `about` alone. It reaches the profile row and the public projection, and no
+ * component reads it -- the page's "About" section renders `bio`. `public` is a
+ * permission, not a rendering, and reading it as one left this invisible from
+ * both directions at once: withheld from the panel for being public, and absent
+ * from the page for never having been rendered.
+ *
+ * `genres` and `timezone` were in here and should not have been. The profile
+ * page does not render them, but the public lookup does at `public` visibility,
+ * through `LookupGenres` and `LookupIdentity`. The narrower claim is the true
+ * one, and it is `PAGE_INVISIBLE_KEYS` below.
  */
-const UNRENDERED_PROFILE_FIELD_KEYS = new Set<ProfileFieldVisibilityKey>([
-  "about",
-  "genres",
-  "timezone",
+const UNRENDERED_PROFILE_FIELD_KEYS = new Set<ProfileFieldVisibilityKey>(["about"]);
+
+/**
+ * Field keys the profile page never renders, though discovery may.
+ *
+ * At `public` they are readable in the lookup, so they are not withheld. At
+ * `unlisted` they are in neither place, which is what the panel has to say --
+ * "on this page, not in search" would be false for a value that is on no page.
+ */
+const PAGE_INVISIBLE_KEYS = new Set<ProfileFieldVisibilityKey>(["genres", "timezone"]);
+
+/**
+ * Focus items, which the page renders only when no headline takes their row.
+ *
+ * Same shape as `PAGE_INVISIBLE_KEYS`, decided per profile rather than per key.
+ */
+const HEADER_ONLY_KEYS = new Set<ProfileFieldVisibilityKey>([
+  "tags",
+  "personRoleTags",
+  "communityCategoryTags",
 ]);
 
 /**
- * The fields a profile holds that the public page does not render.
+ * The fields a profile holds that its public surfaces do not show.
  *
  * Only fields that both carry a value and are held back, so the result is the
  * gap itself rather than the whole record with the visible parts repeated.
- * `unlisted` is included: it renders on the profile page but not in discovery,
- * and an operator asking why someone is unsearchable needs to see that.
  *
- * "Does not render" is the question, not "is not public". A field can be public
- * and still be shown nowhere, and those are exactly the values an owner or
- * operator had no way to read short of a deploy key -- which is the thing this
- * panel exists to replace.
+ * "Does not show" is the question, not "is not public". A field can be public and
+ * shown nowhere, and those are exactly the values an owner or operator had no way
+ * to read short of a deploy key -- which is the thing this panel replaced.
+ *
+ * `onProfilePage` travels with each field because the panel groups by *where* a
+ * value is missing from, and visibility alone cannot say. An `unlisted` alias is
+ * on the page and out of search; an `unlisted` tag on a profile with a headline,
+ * or an `unlisted` timezone anywhere, is in neither -- and filing those under "on
+ * this page, not in search" would tell an owner to go look at something that is
+ * not there.
  */
 export function withheldProfileFields(profile: Doc<"profiles">): OperatorProfileField[] {
+  const headlineTakesFocusRow = (profile.headline ?? "").trim().length > 0;
+
   return PROFILE_FIELD_VISIBILITY_KEYS.flatMap((key) => {
     const visibility = getProfileFieldVisibility(profile, key);
+    const onProfilePage =
+      !UNRENDERED_PROFILE_FIELD_KEYS.has(key) &&
+      !PAGE_INVISIBLE_KEYS.has(key) &&
+      !(headlineTakesFocusRow && HEADER_ONLY_KEYS.has(key));
 
+    // Public and shown somewhere, so it is not part of the gap. A public field
+    // the page skips is still carried by the lookup, except for the ones no
+    // surface reads at all.
     if (visibility === "public" && !UNRENDERED_PROFILE_FIELD_KEYS.has(key)) {
       return [];
     }
 
     const values = profileFieldValues(profile, key);
 
-    return values.length === 0 ? [] : [{ key, visibility, values }];
+    return values.length === 0 ? [] : [{ key, visibility, values, onProfilePage }];
   });
 }

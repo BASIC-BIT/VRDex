@@ -642,40 +642,62 @@ describe("withheld profile fields", () => {
     assert.deepEqual(withheldProfileFields({ ...profile, fieldVisibility: {} } as never), []);
   });
 
-  // "Does not render" is the question, not "is not public". These three reach the
-  // profile row and no public surface shows them -- the same three the publication
-  // gate refuses to count as visible content. Filtering on visibility alone made
-  // them invisible from both directions at once: withheld from this panel for
-  // being public, absent from the page for never having been rendered, and
-  // unreadable without a deploy key, which is what this panel replaced.
-  it("reports fields nothing renders even when they are public", () => {
-    const withheld = withheldProfileFields({
+  // "Is it shown" is the question, not "is it public". `about` reaches the
+  // profile row and the public projection and no component reads it -- the page's
+  // About section renders `bio`. Filtering on visibility alone left it invisible
+  // from both directions at once: withheld from this panel for being public, and
+  // absent from the page for never having been rendered.
+  //
+  // `genres` and `timezone` were treated the same way and should not have been.
+  // The profile page skips them, but the public lookup renders them at `public`
+  // visibility, so at `public` they are shown and are not part of the gap.
+  it("reports a public field only when no surface shows it", () => {
+    const stored = {
       ...profile,
       about: "Long-form profile text",
       timezone: "Europe/Berlin",
       genres: [{ slug: "house", displayName: "House", source: "import", explicit: false }],
-      fieldVisibility: {},
-    } as never);
+    };
+    const withheld = withheldProfileFields({ ...stored, fieldVisibility: {} } as never);
 
-    // Ordered by PROFILE_FIELD_VISIBILITY_KEYS, which is the record's order
-    // rather than an alphabetical one.
     assert.deepEqual(
-      withheld.map((field) => [field.key, field.visibility, field.values]),
+      withheld.map((field) => [field.key, field.visibility, field.onProfilePage]),
+      [["about", "public", false]],
+    );
+
+    // Unlisted, and the lookup excludes unlisted, so now they are on no surface
+    // and the panel has to say so rather than "on this page, not in search".
+    assert.deepEqual(
+      withheldProfileFields({
+        ...stored,
+        fieldVisibility: { genres: "unlisted", timezone: "unlisted" },
+      } as never)
+        .filter((field) => field.key !== "about")
+        .map((field) => [field.key, field.onProfilePage]),
       [
-        ["genres", "public", ["House"]],
-        ["about", "public", ["Long-form profile text"]],
-        ["timezone", "public", ["Europe/Berlin"]],
+        ["genres", false],
+        ["timezone", false],
       ],
     );
 
-    // A public field the page does render stays out of the panel.
+    // An unlisted alias *is* on the page, which is the case the middle group is
+    // for.
+    assert.deepEqual(
+      withheldProfileFields({ ...profile, fieldVisibility: { aliases: "unlisted" } } as never)
+        .map((field) => [field.key, field.onProfilePage]),
+      [["aliases", true]],
+    );
+
+    // A focus item loses its row to a headline, so an unlisted one is nowhere.
     assert.deepEqual(
       withheldProfileFields({
         ...profile,
-        region: "Berlin",
-        fieldVisibility: {},
-      } as never),
-      [],
+        headline: "Resident DJ at Afterglow",
+        fieldVisibility: { tags: "unlisted" },
+        tags: ["house"],
+      } as never)
+        .map((field) => [field.key, field.onProfilePage]),
+      [["tags", false]],
     );
   });
 });

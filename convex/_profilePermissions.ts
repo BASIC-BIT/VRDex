@@ -41,24 +41,18 @@ export type ProfileEditableField = (typeof PROFILE_EDITABLE_FIELDS)[number];
  *   -- border radius, colours, section order -- is a presentation choice
  *   belonging to whoever owns the profile, and it is governed by
  *   `profileAppearance` rather than reaching this union at all.
- * - **What the page does not show** is not either. `timezone` reaches the
- *   profile record and nothing on the public page renders it -- only the
- *   operator lookup does, behind `view_private_seed_lookup`. Editing a field
- *   means being shown its current value first, so a contributor offered this one
- *   would be reading a value the page withheld, and a blind save would overwrite
- *   it. That is the same rule `private` visibility enforces, and visibility
- *   alone does not catch it: the field can sit at `public` and still be invisible
- *   because no surface renders it. Rendering it is a product decision nobody has
- *   made; until somebody does, it is not the community's to edit. Owners keep it,
- *   since it is their own record.
- *
  * An allowlist made the default for a new field "not editable", which is how
  * `outboundLinks` -- a DJ's stream links, the single highest-value field on the
  * record -- ended up excluded by omission rather than by decision.
+ *
+ * `timezone` was briefly in here on the grounds that no public surface renders
+ * it. That was wrong: the public lookup projects it at `public` visibility and
+ * `LookupIdentity` renders it beside the region. It is the *profile page* that
+ * never shows it, which is a narrower claim and the one `PAGE_INVISIBLE_FIELDS`
+ * below carries.
  */
 export const COMMUNITY_UNEDITABLE_FIELDS = [
   "slug",
-  "timezone",
 ] as const satisfies readonly ProfileEditableField[];
 
 /**
@@ -94,6 +88,16 @@ const VISIBILITY_KEYS_BY_FIELD: Record<ProfileEditableField, ProfileFieldVisibil
 const HEADER_ONLY_FIELDS: readonly ProfileEditableField[] = ["tags", "person", "community"];
 
 /**
+ * Fields the profile page never renders, whatever else is on it.
+ *
+ * `timezone` reaches the record and no part of the page shows it. The public
+ * lookup does, so it is readable while it is `public` -- and unreadable the
+ * moment it is `unlisted`, because that is precisely the state discovery
+ * excludes and the page was never going to cover.
+ */
+const PAGE_INVISIBLE_FIELDS: readonly ProfileEditableField[] = ["timezone"];
+
+/**
  * Whether a field is held back from the contributor on this profile.
  *
  * `private` is an explicit instruction that a value is not for public surfaces,
@@ -104,11 +108,15 @@ const HEADER_ONLY_FIELDS: readonly ProfileEditableField[] = ["tags", "person", "
  *
  * `unlisted` is normally not private: it renders on the profile page, so a
  * contributor looking at that page has already seen it. That reasoning is the
- * whole justification, and it fails in one case -- a profile with a headline
- * renders no focus items, so an unlisted tag or role tag on one is on the page
- * nowhere and, being unlisted, in discovery nowhere either. A `public` focus
- * field is still readable there whatever the header does, which is why this turns
- * on `unlisted` rather than on the headline alone.
+ * whole justification, and it fails wherever the page does not in fact render the
+ * field -- for a focus item on a profile with a headline, because the headline
+ * takes that row, and for `timezone` always. `unlisted` is exactly the state
+ * discovery excludes, so with the page not covering it either the value is
+ * nowhere a contributor can reach.
+ *
+ * `public` is unaffected in both cases: the lookup carries it whatever the page
+ * does. That is why this turns on `unlisted` rather than on the headline, or on
+ * the field, alone.
  */
 function isFieldWithheldFromCommunity(
   profile: Pick<Doc<"profiles">, "fieldVisibility"> & Partial<Pick<Doc<"profiles">, "headline">>,
@@ -118,11 +126,15 @@ function isFieldWithheldFromCommunity(
     typeof profile.headline === "string" &&
     profile.headline.trim().length > 0 &&
     HEADER_ONLY_FIELDS.includes(field);
+  const pageNeverRenders = PAGE_INVISIBLE_FIELDS.includes(field);
 
   return VISIBILITY_KEYS_BY_FIELD[field].some((key) => {
     const visibility = getProfileFieldVisibility(profile, key);
 
-    return visibility === "private" || (hidesFocusItems && visibility === "unlisted");
+    return (
+      visibility === "private" ||
+      ((hidesFocusItems || pageNeverRenders) && visibility === "unlisted")
+    );
   });
 }
 
