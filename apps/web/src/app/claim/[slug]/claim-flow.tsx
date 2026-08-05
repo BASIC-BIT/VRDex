@@ -724,7 +724,7 @@ export function ClaimFlow({
             <p className="mt-1">
               {profile.profileType === "community"
                 ? "Verifying takes one more step: show us you run its Discord server or VRChat group."
-                : "Verifying takes one more step: show us you own its VRChat account."}
+                : "Verifying takes one more step: show us you own this VRChat account."}
             </p>
           </Notice>
         ) : null}
