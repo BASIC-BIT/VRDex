@@ -522,6 +522,11 @@ longer accepted — and none of those touch the published profile, so a check
 reading only the profile kept answering long after the lookup had stopped. A
 profile with no candidate behind it has nothing to check against and is refused.
 
+Sharing the predicate makes the grant person-only here too, because
+`lookupPeople` is person-only and the shared rule carries that. An imported
+community profile is outside what this grant was issued for; its owner and any
+super-admin still read the record.
+
 ```powershell
 pnpm cx -- prod run accountFeatureGrants:grant `
   '{"userId":"<convex-user-id>","feature":"view_private_seed_lookup","grantedBy":{"tokenIdentifier":"operator:vrdex","issuer":"vrdex","subject":"seed-access"}}'
