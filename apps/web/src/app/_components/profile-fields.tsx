@@ -49,13 +49,19 @@ function FieldGroup({ children, field }: { children: ReactNode; field: string })
   );
 }
 
-function PersonRoleFields({ defaults }: { defaults: ProfileFieldsDefaults }) {
+function PersonRoleFields({
+  defaults,
+  showStreamInputs,
+}: {
+  defaults: ProfileFieldsDefaults;
+  showStreamInputs: boolean;
+}) {
   const initialRoles = defaults.roleTags ?? [];
   const [selectedRoles, setSelectedRoles] = useState<string[]>(() =>
     initialRoles.filter((role) => PRESET_ROLES.has(role)),
   );
   const otherRoles = initialRoles.filter((role) => !PRESET_ROLES.has(role));
-  const { featured } = partitionLinks(defaults.links ?? [], true);
+  const { featured } = partitionLinks(defaults.links ?? [], showStreamInputs);
   // Revealed by a streaming role, and kept open whenever the profile already
   // holds one of these links. Otherwise a DJ whose role tags never made it into
   // the record would open the editor to a hidden field and save away the stream
@@ -90,7 +96,7 @@ function PersonRoleFields({ defaults }: { defaults: ProfileFieldsDefaults }) {
         </Field>
       </div>
 
-      {isStreamingRole(selectedRoles) || hasFeaturedLink ? (
+      {showStreamInputs && (isStreamingRole(selectedRoles) || hasFeaturedLink) ? (
         <div className="grid gap-4 sm:grid-cols-2">
           <Field>
             Stream
@@ -145,7 +151,13 @@ export function ProfileFields({
   showNarrativeFields?: boolean;
 }) {
   const canEdit = (field: string) => editableFields === undefined || editableFields.includes(field);
-  const { rows } = partitionLinks(defaults.links ?? [], profileType === "person");
+  // The stream inputs live inside the roles group and write into the link list,
+  // so they only exist when both are editable. The partition has to agree with
+  // that: a link promoted out of the rows and into a field that never renders is
+  // a link deleted on the next save.
+  const showStreamInputs =
+    profileType === "person" && canEdit("person") && canEdit("outboundLinks");
+  const { rows } = partitionLinks(defaults.links ?? [], showStreamInputs);
   // Stable ids rather than indices: the inputs are uncontrolled, so keying by
   // index would shift the surviving rows' DOM values when one is removed.
   const linkRowSeq = useRef(rows.length);
@@ -240,7 +252,7 @@ export function ProfileFields({
       {profileType === "person"
         ? canEdit("person") && (
             <FieldGroup field="person">
-              <PersonRoleFields defaults={defaults} />
+              <PersonRoleFields defaults={defaults} showStreamInputs={showStreamInputs} />
             </FieldGroup>
           )
         : canEdit("community") && (

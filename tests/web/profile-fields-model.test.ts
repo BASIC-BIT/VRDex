@@ -50,9 +50,10 @@ describe("stream link partitioning", () => {
   });
 
   it("leaves every link in rows when the dedicated inputs are not rendered", () => {
-    // A community profile has no roles, so it never shows the stream inputs.
-    // Promoting a link into a field that is not on the page would drop it on the
-    // next save, silently, with no error anywhere.
+    // Three ways those inputs are absent: a community profile, which has no
+    // roles; an editor whose subject may not touch `person`; and one who may not
+    // touch `outboundLinks`. Promoting a link into a field that is not on the
+    // page drops it on the next save, silently, with no error anywhere.
     const { featured, rows } = partitionLinks([...links], false);
 
     assert.deepEqual(featured, {});
