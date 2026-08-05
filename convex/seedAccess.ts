@@ -11,6 +11,8 @@ import { canReadProfile } from "./_profilePermissions";
 import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 import {
   canIncludePrivateSeedCandidate,
+  isOperatorVisiblePublishedProfile,
+  OPERATOR_LOOKUP_PUBLICATION_STATES,
   projectSafePrivateSeedField,
   withheldProfileFields,
 } from "./_seedAccess";
@@ -54,18 +56,36 @@ export const lookupPeople = query({
     }
 
     const limit = Math.max(1, Math.min(Math.floor(args.limit ?? 20), 50));
-    // One search with no publication-state filter, rather than one query per
-    // state. The two-query version covered draft_private and review_pending
-    // only, so a candidate left this lookup at the moment it published: the
-    // surface stopped covering a record precisely because it had shipped.
-    // Which states a given viewer may see is decided by
-    // canIncludePrivateSeedCandidate below, where the grant is known.
-    const matches = await ctx.db
-      .query("seedImportCandidateProfiles")
-      .withSearchIndex("search_proposedDisplayName", (query) =>
-        query.search("proposedDisplayName", searchTerm).eq("profileType", "person"),
-      )
-      .take(limit * 3);
+    // One search per state a viewer may see, rather than one broad search that
+    // is then filtered. Filtering afterwards lets states the viewer cannot see
+    // consume the whole window: a common name whose first matches are all
+    // rejected or suppressed would return nothing, and the surface would look
+    // empty rather than filtered.
+    //
+    // A super-admin sees every state, so a single unfiltered search cannot
+    // starve them.
+    const matches = access.superAdmin
+      ? await ctx.db
+          .query("seedImportCandidateProfiles")
+          .withSearchIndex("search_proposedDisplayName", (query) =>
+            query.search("proposedDisplayName", searchTerm).eq("profileType", "person"),
+          )
+          .take(limit * 3)
+      : (
+          await Promise.all(
+            OPERATOR_LOOKUP_PUBLICATION_STATES.map(async (publicationState) =>
+              ctx.db
+                .query("seedImportCandidateProfiles")
+                .withSearchIndex("search_proposedDisplayName", (query) =>
+                  query
+                    .search("proposedDisplayName", searchTerm)
+                    .eq("profileType", "person")
+                    .eq("publicationState", publicationState),
+                )
+                .take(limit * 2),
+            ),
+          )
+        ).flat();
     // The published profile is loaded here, not just for its slug below: the
     // candidate's own `claimState` goes stale, because claim flows patch the
     // profile and never revisit the candidate row.
@@ -86,7 +106,7 @@ export const lookupPeople = query({
           batch?.publicationPolicy,
           batch?.reviewState,
           access.superAdmin,
-          publishedProfile?.claimState,
+          publishedProfile,
         ),
       )
       .slice(0, limit);
@@ -189,20 +209,14 @@ export const withheldProfileRecord = query({
     // someone guessed, claimed ones included. A direct Convex call is not
     // bounded by the public page this renders on.
     //
-    // The narrower grant sees what the seed lookup already shows it: unclaimed
-    // records that came from an import and are still publicly listed.
-    //
-    // The surfacing check is the profile-level equivalent of the lookup keeping
-    // `rejected` and `suppressed` candidates to super-admins. Without it, an
-    // opted-out or moderation-suppressed imported profile -- withdrawn from
-    // public view precisely because someone decided it should not be seen --
-    // would still hand its withheld fields and edit history to a beta grant.
+    // The narrower grant sees what the seed lookup already shows it: import
+    // records that are still the directory's to show. One shared predicate with
+    // `lookupPeople`, because narrowing it in one surface and not the other is
+    // how this repeatedly came apart.
     //
     // Super-admins and the profile's own owner are unrestricted.
     const withinSeedGrant =
-      profile.claimState === "unclaimed" &&
-      profile.creationSource === "import" &&
-      canReadProfile("public", profile);
+      profile.creationSource === "import" && isOperatorVisiblePublishedProfile(profile);
 
     if (!owns && !access.superAdmin && !(access.canViewPrivateSeedLookup && withinSeedGrant)) {
       return null;

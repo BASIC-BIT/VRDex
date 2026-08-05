@@ -464,49 +464,67 @@ describe("private seed projection", () => {
         "reviewed_publication_allowed",
         "approved",
         false,
-        "unclaimed",
+        {
+          claimState: "unclaimed",
+          publicationState: "published",
+          publicSurfacingState: "public",
+        } as never,
       ),
       true,
     );
   });
 
-  it("stops covering a published candidate once its profile is claimed", () => {
-    // The candidate's own claimState goes stale: claim flows patch the profile
-    // and never revisit the candidate row, so reading it alone would keep
-    // handing someone's imported private fields to a beta grant after they took
-    // ownership -- the moment those fields stop being the directory's to show.
+  it("reads the live profile, because the candidate row goes stale both ways", () => {
+    // Claim flows patch `profiles.claimState` and suppression patches
+    // `publicSurfacingState`; neither revisits the candidate. Reading the
+    // candidate alone kept handing someone's imported private fields to a beta
+    // grant after they claimed their profile, or after it was withdrawn.
     const published = {
       claimState: "unclaimed" as const,
       profileType: "person" as const,
       publicationState: "published_unclaimed" as const,
       reviewState: "accepted" as const,
     };
+    const live = {
+      claimState: "unclaimed" as const,
+      publicationState: "published" as const,
+      publicSurfacingState: "public" as const,
+    };
 
-    for (const liveClaimState of ["claimed_unverified", "claimed_verified"] as const) {
+    for (const withdrawn of [
+      { ...live, claimState: "claimed_unverified" as const },
+      { ...live, claimState: "claimed_verified" as const },
+      { ...live, publicSurfacingState: "opted_out" as const },
+      { ...live, publicSurfacingState: "suppressed" as const },
+      { ...live, publicationState: "draft_private" as const },
+    ]) {
       assert.equal(
         canIncludePrivateSeedCandidate(
           published as never,
           "reviewed_publication_allowed",
           "approved",
           false,
-          liveClaimState,
+          withdrawn as never,
         ),
         false,
-        liveClaimState,
+        JSON.stringify(withdrawn),
       );
     }
 
-    // Unknown counts as claimed: a profile that could not be loaded is not
+    // A profile that could not be loaded fails too: failing to load is not
     // evidence that nobody owns it.
-    assert.equal(
-      canIncludePrivateSeedCandidate(
-        published as never,
-        "reviewed_publication_allowed",
-        "approved",
+    for (const missing of [undefined, null]) {
+      assert.equal(
+        canIncludePrivateSeedCandidate(
+          published as never,
+          "reviewed_publication_allowed",
+          "approved",
+          false,
+          missing,
+        ),
         false,
-      ),
-      false,
-    );
+      );
+    }
   });
 
   it("keeps a narrower grant away from decisions to stop handling someone", () => {

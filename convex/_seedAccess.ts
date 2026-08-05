@@ -5,6 +5,7 @@ import {
   type ProfileFieldVisibilityKey,
   type ProfileFieldVisibilityState,
 } from "./_profileFieldVisibility";
+import { canReadProfile } from "./_profilePermissions";
 import { normalizeSafePrivateSeedFieldValue } from "./_seedImports";
 
 export function projectSafePrivateSeedField(
@@ -36,11 +37,43 @@ export function projectSafePrivateSeedField(
  * back up. Super-admins still see them, because "why is this person not here?"
  * is exactly the question an operator needs answered.
  */
-const OPERATOR_LOOKUP_PUBLICATION_STATES = new Set([
+export const OPERATOR_LOOKUP_PUBLICATION_STATES = [
   "draft_private",
   "review_pending",
   "published_unclaimed",
-]);
+] as const;
+
+const OPERATOR_LOOKUP_PUBLICATION_STATE_SET = new Set<string>(
+  OPERATOR_LOOKUP_PUBLICATION_STATES,
+);
+
+type SeedProfileEligibility = Pick<
+  Doc<"profiles">,
+  "claimState" | "publicationState" | "publicSurfacingState"
+>;
+
+/**
+ * Whether a published seed record is still the directory's to show.
+ *
+ * One rule, used by both operator surfaces, because narrowing it in one place
+ * and not the other is how this kept coming apart: unclaimed, and still
+ * publicly readable. Claimed means its subject took ownership and their
+ * imported fields stopped being ours to hand out; not publicly readable means
+ * somebody withdrew the listing on purpose.
+ *
+ * `null` -- a profile that could not be loaded -- fails. Failing to load is not
+ * evidence that nobody owns it.
+ */
+export function isOperatorVisiblePublishedProfile(
+  profile: SeedProfileEligibility | null | undefined,
+): boolean {
+  return (
+    profile !== null &&
+    profile !== undefined &&
+    profile.claimState === "unclaimed" &&
+    canReadProfile("public", profile)
+  );
+}
 
 export function canIncludePrivateSeedCandidate(
   candidate: Pick<
@@ -51,16 +84,15 @@ export function canIncludePrivateSeedCandidate(
   batchReviewState: Doc<"seedImportBatches">["reviewState"] | undefined,
   superAdmin: boolean,
   /**
-   * The live claim state of the profile this candidate published to, when it
-   * published to one.
+   * The live profile this candidate published to, when it published to one.
    *
-   * The candidate's own `claimState` goes stale: claim flows patch
-   * `profiles.claimState` and never revisit the candidate row, so a person who
-   * claimed their profile is still `unclaimed` here. Reading that alone would
-   * keep handing their imported private fields to a beta grant after they took
-   * ownership -- the moment those fields stop being the directory's to show.
+   * The candidate row goes stale in both directions: claim flows patch
+   * `profiles.claimState` and suppression patches `publicSurfacingState`, and
+   * neither revisits the candidate. Reading the candidate alone kept handing a
+   * person's imported private fields to a beta grant after they claimed their
+   * profile, or after it was withdrawn from public view.
    */
-  publishedProfileClaimState?: Doc<"profiles">["claimState"],
+  publishedProfile?: SeedProfileEligibility | null,
 ): boolean {
   if (candidate.profileType !== "person") {
     return false;
@@ -70,15 +102,13 @@ export function canIncludePrivateSeedCandidate(
     return true;
   }
 
-  if (!OPERATOR_LOOKUP_PUBLICATION_STATES.has(candidate.publicationState)) {
+  if (!OPERATOR_LOOKUP_PUBLICATION_STATE_SET.has(candidate.publicationState)) {
     return false;
   }
 
-  // Unknown counts as claimed. A published candidate whose profile could not be
-  // loaded is not evidence that nobody owns it.
   if (
     candidate.publicationState === "published_unclaimed" &&
-    publishedProfileClaimState !== "unclaimed"
+    !isOperatorVisiblePublishedProfile(publishedProfile)
   ) {
     return false;
   }

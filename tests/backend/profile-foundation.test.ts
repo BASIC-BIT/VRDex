@@ -976,7 +976,10 @@ describe("API profile update helpers", () => {
       },
     });
 
-    assert.deepEqual(result.changedFields, ["displayName", "aliases", "bio", "person"]);
+    // displayName and bio are absent: both normalize to exactly what the profile
+    // already holds, and `changedFields` is the audit record, so it reports what
+    // changed rather than what was submitted. The patch still carries them.
+    assert.deepEqual(result.changedFields, ["aliases", "person"]);
     assert.deepEqual(result.patch, {
       displayName: "DJ Celine",
       sortName: "dj celine",
@@ -1032,6 +1035,21 @@ describe("API profile update helpers", () => {
     );
   });
 
+  it("reports nothing changed when a save re-sends what is already stored", () => {
+    // The editor posts every field group it rendered on every save, so without
+    // the diff a typo fix records "aliases, tags, links, roles updated" and a
+    // no-op save records a broad update anyway. That history is what a claiming
+    // owner inherits.
+    const result = sanitizeApiProfileUpdateInput(claimedPerson, {
+      displayName: "DJ Celine",
+      aliases: [],
+      tags: [],
+      person: { roleTags: ["DJ"] },
+    });
+
+    assert.deepEqual(result.changedFields, []);
+  });
+
   it("keeps the provenance a link already had", () => {
     // The form posts the whole array back, so without this, saving an unrelated
     // field restamps every owner-authored link as community-submitted --
@@ -1073,9 +1091,11 @@ describe("API profile update helpers", () => {
     const unclaimedPerson = { ...claimedPerson, claimState: "unclaimed" } as Doc<"profiles">;
     const edit = { displayName: "Snek", person: { roleTags: ["DJ"] } };
 
+    // `person` is absent: the fixture already carries roleTags ["DJ"], so only
+    // the display name actually changed.
     assert.deepEqual(
       sanitizeApiProfileUpdateInput(unclaimedPerson, edit, "community_submitter").changedFields,
-      ["displayName", "person"],
+      ["displayName"],
     );
     assert.throws(
       () => sanitizeApiProfileUpdateInput(claimedPerson, edit, "community_submitter"),

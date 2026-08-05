@@ -300,9 +300,39 @@ export function sanitizeApiProfileUpdateInput(
     throw new Error("At least one editable profile field is required.");
   }
 
+  // Permission is checked on everything submitted, before the diff. A writer
+  // sending a field they may not touch is refused whether or not the value
+  // happens to match.
   requireEditableFields(profile, changedFields, subject);
 
-  return { changedFields, patch };
+  return { changedFields: changedFields.filter((field) => fieldChanged(profile, field, patch)), patch };
+}
+
+/**
+ * Whether a submitted field differs from what the profile already holds.
+ *
+ * The editor posts every field group it rendered on every save, so without this
+ * a display-name typo fix records "aliases, tags, links, headline, bio, roles
+ * updated" -- and a save that changed nothing records a broad update anyway.
+ * That history is the record a claiming owner inherits and the operator surface
+ * reads back, so it has to say what actually happened.
+ *
+ * Structural comparison by serialization: these are arrays of strings and small
+ * plain objects, and a deep-equality helper for that is more machinery than the
+ * job needs.
+ */
+function fieldChanged(
+  profile: Doc<"profiles">,
+  field: ProfileEditableField,
+  patch: Record<string, unknown>,
+): boolean {
+  if (!Object.prototype.hasOwnProperty.call(patch, field)) {
+    return false;
+  }
+
+  return JSON.stringify(patch[field] ?? null) !== JSON.stringify(
+    (profile as unknown as Record<string, unknown>)[field] ?? null,
+  );
 }
 
 /**
@@ -369,6 +399,12 @@ export async function applyApiProfileUpdate(
     options.input,
     options.subject ?? "claimed_owner",
   );
+
+  // Nothing to write, so nothing to reindex either. A save that changed no
+  // value should not bump `updatedAt` or touch the search document.
+  if (sanitized.changedFields.length === 0) {
+    return { changedFields: [], profile: options.profile };
+  }
 
   await db.patch(options.profile._id, {
     ...sanitized.patch,

@@ -633,15 +633,19 @@ export const updateProfileFromBrowser = mutation({
 
     // The durable record of who changed what, and when. A claiming owner
     // inherits a history rather than a mystery, and it is what the operator
-    // surface reads back.
-    await ctx.db.insert("profileAuditEvents", {
-      profileId: profile._id,
-      action: owns ? "owner_profile_updated" : "community_profile_updated",
-      actor: subject,
-      sourceType: owns ? "owner" : "community",
-      note: `${changedFields.join(", ")} updated.`,
-      createdAt: now,
-    });
+    // surface reads back -- so a save that changed nothing writes nothing, and
+    // one that changed a display name says so rather than naming every field
+    // the form happened to post.
+    if (changedFields.length > 0) {
+      await ctx.db.insert("profileAuditEvents", {
+        profileId: profile._id,
+        action: owns ? "owner_profile_updated" : "community_profile_updated",
+        actor: subject,
+        sourceType: owns ? "owner" : "community",
+        note: `${changedFields.join(", ")} updated.`,
+        createdAt: now,
+      });
+    }
 
     return {
       ...toApiProfileWriteResponse(updatedProfile),
