@@ -19,9 +19,11 @@ export const dynamic = "force-dynamic";
  * leak that persists: a key written by a POST that died after a revoke had
  * already cancelled its reservation.
  *
- * Called by the Convex cron, which holds the obligations but cannot reach the
- * secret store. Not a browser surface: it takes a shared bearer token and no
- * session, because there is no user in this flow.
+ * Triggered by the Convex cron, which can hold the obligations but cannot reach
+ * the secret store. The cron sends nothing but its bearer — the names are
+ * claimed from Convex here — so the request body cannot decide what gets
+ * deleted. Not a browser surface: no session, because there is no user in this
+ * flow.
  */
 export async function POST(request: Request) {
   const token = process.env.VRCLINKING_CLEANUP_TOKEN?.trim();
@@ -64,39 +66,30 @@ export async function POST(request: Request) {
     });
   }
 
-  // Exercised, not merely loaded. A token can be present and still be stale or
-  // scoped to another deployment, and the first call that would find out is the
-  // confirmation *after* the keys are gone. An empty list is that same call with
-  // nothing to do — it stamps no rows and returns `{ confirmed: 0 }` — so it
-  // proves this credential can reach this mutation on this deployment while the
-  // obligations are still queued and retryable.
+  // Asked for, not accepted. The names used to arrive in the request body, on
+  // the reasoning that only the cron holds the bearer — which makes the bearer
+  // the only thing standing between a caller and `DeleteSecret` on any
+  // well-formed delegated-credential name they can spell, backed by no row at
+  // all. Deriving them here means the worst a leaked bearer buys is running the
+  // sweep that was going to run anyway.
+  //
+  // It also settles the credential up front: this is an authenticated admin call
+  // and it happens before any deletion, so a token that is present but stale or
+  // scoped to another deployment fails here, with the obligations still queued
+  // and retryable, rather than after the keys are already gone.
+  let obligations: { credentialId: string; secretName: string }[];
+
   try {
-    await admin.mutation(internal.vrclinkingCredentials.confirmSecretsRetiredAsServer, {
-      credentialIds: [],
-    });
+    obligations = await admin.mutation(
+      internal.vrclinkingCredentials.claimOverdueSecretCleanups,
+      {},
+    );
   } catch {
     return apiProblemResponse({
       type: "about:blank",
       title: "Cleanup is unavailable",
       status: 503,
-      detail: "This deployment cannot record retirements, so it will not delete keys it cannot confirm.",
-    });
-  }
-
-  let obligations: { credentialId: string; secretName: string }[];
-
-  try {
-    const body: unknown = await request.json();
-    const listed =
-      body !== null && typeof body === "object" ? (body as { obligations?: unknown }).obligations : null;
-
-    obligations = Array.isArray(listed) ? (listed as { credentialId: string; secretName: string }[]) : [];
-  } catch {
-    return apiProblemResponse({
-      type: "about:blank",
-      title: "Invalid JSON",
-      status: 400,
-      detail: "Send a JSON object listing cleanup obligations.",
+      detail: "This deployment cannot reach its backend to claim cleanup obligations.",
     });
   }
 

@@ -69,10 +69,16 @@ variable "staging_custom_environment_ids" {
   # Refused here for the same reason `delegation_writer_kms_key_id` refuses its
   # own half: the requirement was documented and unenforced, and the failure is
   # silent.
+  #
+  # `try` rather than a null guard ahead of the attribute access, because HCL's
+  # `||` is not documented to short-circuit and the disabled writer is the
+  # default: a version that evaluates both operands would fault on reading an
+  # attribute of null, and take every apply of an unconfigured stack with it.
+  # `terraform validate` does not evaluate variable validations at all, so CI
+  # would not have caught that.
   validation {
     condition = (
-      var.vercel_delegation_writer == null ||
-      !contains(tolist(var.vercel_delegation_writer.runtime_environments), "staging") ||
+      !contains(try(tolist(var.vercel_delegation_writer.runtime_environments), []), "staging") ||
       length(var.staging_custom_environment_ids) > 0
     )
     error_message = "staging is in vercel_delegation_writer.runtime_environments, so staging_custom_environment_ids must name the custom environment that receives the role ARN and region: export TF_VAR_staging_custom_environment_ids, or drop \"staging\" from runtime_environments."

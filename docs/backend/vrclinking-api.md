@@ -180,9 +180,12 @@ path is driven by a request — a reservation sweeps its own guild, a revoke
 settles what it cancels — and none of them run for an owner who revoked and then
 never touched delegations again, which is the shape of the one leak that
 persists: a key written by a POST that died after a revoke had already cancelled
-its reservation. The cron holds the obligations and
-`POST /api/account/vrclinking-delegation/sweep` acts on them, because Convex
-cannot reach the secret store.
+its reservation. The cron triggers
+`POST /api/account/vrclinking-delegation/sweep`, which claims the obligations
+from Convex itself and acts on them, because Convex cannot reach the secret
+store. The cron sends nothing but its bearer: passing the names in the request
+body made that token sufficient to schedule `DeleteSecret` on any
+delegated-credential name a caller could spell, backed by no row at all.
 
 It needs two Convex variables and one Vercel variable, and is inert without
 them — which is where every deployment that has never delegated a key sits:

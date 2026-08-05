@@ -294,7 +294,16 @@ function AppearanceEditor({
 
   return (
     <div className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
-      <form className={cn(cardVariants({ surface: "glass" }), "grid gap-5")} onSubmit={submitAppearance}>
+      <form
+        className={cn(
+          cardVariants({ surface: "glass" }),
+          // Same as the privacy panel: flat on phones, because the page card
+          // around it already names the surface.
+          "max-sm:rounded-none max-sm:border-0 max-sm:bg-transparent max-sm:p-0",
+          "grid gap-5",
+        )}
+        onSubmit={submitAppearance}
+      >
         <div>
           <Eyebrow>Avatar frame</Eyebrow>
           <h2 className="mt-3 text-2xl font-semibold tracking-[-0.03em]">Profile picture shape and border</h2>
@@ -443,12 +452,8 @@ function AppearanceEditor({
               </div>
             ))}
           </div>
-          <FieldText>Profile identity, about, and links stay together above these supporting sections.</FieldText>
         </div>
 
-        {demo ? (
-          <Notice variant="dashed">Demo mode is live-only. Sign in and claim a profile to save appearance settings.</Notice>
-        ) : null}
         {status.kind === "saving" ? <p className="text-sm text-muted">Saving appearance...</p> : null}
         {status.kind === "success" ? <Notice>Appearance saved.</Notice> : null}
         {status.kind === "error" ? <Notice variant="error">{status.message}</Notice> : null}

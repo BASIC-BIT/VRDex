@@ -1837,6 +1837,27 @@ describe("VRCLinking credential delegation", () => {
     // the guard drops all fifty — so they must cost the scan, not the batch.
     assert.equal(obligations.length, 1);
     assert.match(obligations[0]!.secretName, new RegExp(`^vrdex/vrclinking/${ownGuild}/`));
+
+    // And they move. Withholding is permanent — no path stamps `secretRetiredAt`
+    // on a name another profile still resolves through — so if the scan kept
+    // returning to them by age, a wide enough head of them would outrun any read
+    // cap and every later obligation would sit behind it forever. Stamped, they
+    // sort behind everything the scan has not reached yet.
+    const scanned = await t.run(async (ctx) =>
+      (await ctx.db.query("communityVrclinkingCredentials").collect()).filter(
+        (row) => row.state === "revoked" && row.guildId === sharedGuild,
+      ),
+    );
+
+    assert.equal(scanned.length, 50);
+    assert.ok(scanned.every((row) => row.lastCleanupScanAt !== undefined));
+
+    // The one handed out is deliberately not stamped: it leaves the index when
+    // its retirement is confirmed, and if that never lands it has to lead the
+    // next scan, because that retry is the only one it gets.
+    const handedOut = await t.run(async (ctx) => ctx.db.get(obligations[0]!.credentialId));
+
+    assert.equal(handedOut?.lastCleanupScanAt, undefined);
   });
 });
 

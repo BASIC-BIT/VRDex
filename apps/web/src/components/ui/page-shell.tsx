@@ -5,7 +5,10 @@ import type { ComponentPropsWithoutRef } from "react";
 import { cn } from "@/lib/cn";
 import { NavUtilities } from "@/components/ui/nav-utilities";
 
-const pageShellVariants = cva("min-h-screen px-6 py-8 text-foreground sm:px-10 lg:px-16", {
+// `px-4` below `sm`, because this gutter is the outermost of three: the shell,
+// then a card, then the padding on each row inside it. Each is defensible alone,
+// and together they left a phone-width panel about two thirds of the screen.
+const pageShellVariants = cva("min-h-screen px-4 py-8 text-foreground sm:px-10 lg:px-16", {
   variants: {
     tone: {
       default: "bg-background",

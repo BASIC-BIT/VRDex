@@ -117,6 +117,8 @@
     "test:e2e": "pnpm --filter web test:e2e",
     "pretest:e2e:hosted": "node scripts/guard-main-worktree.mjs",
     "test:e2e:hosted": "pnpm --filter web test:e2e:hosted",
+    "pretest:e2e:hosted:account-visual": "node scripts/guard-main-worktree.mjs",
+    "test:e2e:hosted:account-visual": "pnpm --filter web test:e2e:hosted:account-visual",
     "pretest:e2e:hosted:auth-session": "node scripts/guard-main-worktree.mjs",
     "test:e2e:hosted:auth-session": "pnpm --filter web test:e2e:hosted:auth-session",
     "pretest:e2e:hosted:auth-smoke": "node scripts/guard-main-worktree.mjs",

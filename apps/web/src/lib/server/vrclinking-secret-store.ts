@@ -234,7 +234,20 @@ export async function scheduleVrclinkingDelegationKeyDeletion(secretName: string
   if (directory !== undefined) {
     // No recovery window to schedule against a file, so this is immediate. The
     // caller only reaches here once the key is provably unreachable.
-    await rm(secretFilePath(directory, secretName), { force: true });
+    await rm(secretFilePath(directory, secretName), { force: true }).catch(
+      (error: NodeJS.ErrnoException) => {
+        // A legacy guild-scoped key is a *file* at exactly this key's parent
+        // path, so a per-credential key for that guild cannot exist — which is
+        // why the write above refuses to create one. The cleanup that follows
+        // that refusal then asks to delete it, and POSIX answers `ENOTDIR` for a
+        // path that walks through a file. `force` absorbs `ENOENT` and not that,
+        // so the error escaped and left the row unretired: an obligation no
+        // sweep could settle, offered again every day for a file never written.
+        if (error.code !== "ENOTDIR") {
+          throw error;
+        }
+      },
+    );
 
     return;
   }

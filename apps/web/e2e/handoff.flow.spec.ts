@@ -70,7 +70,7 @@ test("handoff accepts individually selected fields and routes to the owner profi
 
   await page.getByLabel("Include About").uncheck();
   await expect(page.getByText("3 of 4 selected")).toBeVisible();
-  await page.getByRole("button", { name: "Accept handoff" }).click();
+  await page.getByRole("button", { name: "Take ownership" }).click();
 
   await expect(page).toHaveURL(/\/account\/privacy\?profileId=playwright-profile$/);
   await expect
