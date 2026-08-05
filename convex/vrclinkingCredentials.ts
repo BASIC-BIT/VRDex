@@ -215,10 +215,12 @@ const OVERDUE_CLEANUP_SCAN_LIMIT = 50;
  * How far past unretirable rows one sweep will look.
  *
  * Rows withheld by the legacy-name liveness guard never settle while another
- * profile still resolves through the shared name, so without paging they would
- * fill every batch forever and rows behind them would never be reached.
+ * profile still resolves through the shared name, so without scanning past them
+ * they would fill every batch forever and rows behind them would never be
+ * reached. Bounds the read, not the result: the batch is still
+ * `OVERDUE_CLEANUP_SCAN_LIMIT`.
  */
-const OVERDUE_CLEANUP_MAX_PAGES = 10;
+const OVERDUE_CLEANUP_MAX_EXAMINED = 500;
 
 /**
  * Reserve the row a pasted key will be written against.
@@ -702,6 +704,10 @@ export const confirmSecretsRetiredAsServer = internalMutation({
  * Selected through `by_secretRetiredAt_createdAt`, so the scan cap applies to
  * rows that are actually obligations. Capping a broader scan first let retired
  * history at the head of the index starve the sweep indefinitely.
+ *
+ * Two caps, not one: `OVERDUE_CLEANUP_SCAN_LIMIT` is a batch's worth of work,
+ * and `OVERDUE_CLEANUP_MAX_EXAMINED` is how far the scan reaches past rows that
+ * are not yet due before leaving the rest for tomorrow.
  */
 export const claimOverdueSecretCleanups = internalMutation({
   args: {},
@@ -712,38 +718,35 @@ export const claimOverdueSecretCleanups = internalMutation({
     // fill the batch with rows that are not obligations and hand the sweep
     // nothing, forever.
     //
-    // Paged, because a row can be an obligation by state and still be withheld
-    // by the legacy-name liveness guard: another profile is still resolving
-    // through the shared guild-scoped name. Those rows never settle, so a single
-    // capped scan would return them every day and never reach a guild whose keys
-    // could actually be deleted. Paging past them is bounded — the sweep is
-    // daily, and a backlog is allowed to take several days.
+    // Scanned past, because a row can be an obligation by state and still be
+    // withheld by the legacy-name liveness guard: another profile is still
+    // resolving through the shared guild-scoped name. Those rows never settle,
+    // so stopping at the first batch would return them every day and never reach
+    // a guild whose keys could actually be deleted. The reach is bounded — the
+    // sweep is daily, and a backlog is allowed to take several days.
+    //
+    // Streamed rather than paged on `createdAt`. That cursor was not unique, and
+    // a `.gt()` past the last row of a page skipped every row sharing its
+    // timestamp — so a bulk import that stamped more than one batch of rows with
+    // the same millisecond hid the remainder from every future sweep, forever.
+    // Iterating the index has no cursor to collide.
     const overdue: Doc<"communityVrclinkingCredentials">[] = [];
 
     for (const state of ["pending", "revoked"] as const) {
-      let cursor = 0;
+      let examined = 0;
 
-      for (let page = 0; page < OVERDUE_CLEANUP_MAX_PAGES; page += 1) {
-        const rows = await ctx.db
-          .query("communityVrclinkingCredentials")
-          .withIndex("by_state_secretRetiredAt_createdAt", (q) =>
-            q.eq("state", state).eq("secretRetiredAt", undefined).gt("createdAt", cursor),
-          )
-          .take(OVERDUE_CLEANUP_SCAN_LIMIT);
+      for await (const row of ctx.db
+        .query("communityVrclinkingCredentials")
+        .withIndex("by_state_secretRetiredAt_createdAt", (q) =>
+          q.eq("state", state).eq("secretRetiredAt", undefined),
+        )) {
+        examined += 1;
 
-        if (rows.length === 0) {
-          break;
+        if (row.createdAt + PENDING_DELEGATION_TTL_MS <= now && !writerMayStillBeRunning(row, now)) {
+          overdue.push(row);
         }
 
-        cursor = rows[rows.length - 1]!.createdAt;
-        overdue.push(
-          ...rows.filter(
-            (row) =>
-              row.createdAt + PENDING_DELEGATION_TTL_MS <= now && !writerMayStillBeRunning(row, now),
-          ),
-        );
-
-        if (overdue.length >= OVERDUE_CLEANUP_SCAN_LIMIT) {
+        if (overdue.length >= OVERDUE_CLEANUP_SCAN_LIMIT || examined >= OVERDUE_CLEANUP_MAX_EXAMINED) {
           break;
         }
       }

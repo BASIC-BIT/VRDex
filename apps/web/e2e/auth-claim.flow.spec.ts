@@ -420,7 +420,7 @@ test("verified email account with linked Discord can claim person and community 
     }
 
     await gotoFlowPage(page, `/claim/${encodeURIComponent(createdSlug!)}`);
-    await expect(page.getByText("You manage this profile, but it is not verified yet.")).toBeVisible();
+    await expect(page.getByText("You manage this profile. It is not verified yet.")).toBeVisible();
     await expect(page.getByLabel("VRChat profile URL or user ID")).toBeVisible();
 
     if (!process.env.PLAYWRIGHT_BASE_URL) {

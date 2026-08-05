@@ -16,6 +16,7 @@ import {
   removeProfileLink,
   requireControlProof,
 } from "../../convex/_externalControl";
+import { vrclinkingSecretRef } from "../../convex/_vrclinkingSecretRef";
 
 import { newClerkUserId } from "./_clerkTestIdentity";
 
@@ -1692,6 +1693,72 @@ describe("VRCLinking credential delegation", () => {
       ),
     );
     assert.equal(rotated.length, 2);
+  });
+
+  /**
+   * A backlog whose rows all carry the same `createdAt` — a bulk import, or a
+   * migration that stamped one timestamp across a batch — has to drain, not
+   * stall.
+   *
+   * The sweep used to page with `.gt("createdAt", cursor)`, and that cursor is
+   * not unique: advancing past the last row of a batch stepped over every row
+   * sharing its millisecond. Nothing due was actually lost, because both filters
+   * are functions of `createdAt` and so rows sharing one share their verdict —
+   * but the safety of the skip rested on that coincidence rather than on
+   * anything the loop said. This pins the outcome instead.
+   */
+  it("drains a backlog whose rows all share one timestamp", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const seeded = await seedOwnedCommunity(t, "delegation-backlog", now);
+    const guildId = "82345678901234567";
+    // One millisecond for all sixty, and old enough that every row is due.
+    const createdAt = now - 60 * 60 * 1000;
+
+    await t.run(async (ctx) => {
+      const profile = await ctx.db
+        .query("profiles")
+        .withIndex("by_slug", (q) => q.eq("slug", "delegation-backlog"))
+        .unique();
+
+      for (let index = 0; index < 60; index += 1) {
+        const credentialId = await ctx.db.insert("communityVrclinkingCredentials", {
+          communityProfileId: profile!._id,
+          guildId,
+          secretRef: "",
+          state: "revoked",
+          delegatedByUserId: seeded.userId,
+          revokedAt: createdAt,
+          createdAt,
+          updatedAt: createdAt,
+        });
+
+        // Per-credential, so the legacy-name liveness guard has no shared name
+        // to withhold and every row is a genuine obligation.
+        await ctx.db.patch(credentialId, {
+          secretRef: vrclinkingSecretRef(guildId, credentialId),
+        });
+      }
+    });
+
+    const first = await t.mutation(internal.vrclinkingCredentials.claimOverdueSecretCleanups, {});
+
+    assert.equal(first.length, 50);
+
+    // Retired, as the sweep route confirms them, which is what takes them out of
+    // the index and lets the next run reach what is behind them.
+    await t.run(async (ctx) => {
+      for (const obligation of first) {
+        await ctx.db.patch(obligation.credentialId, { secretRetiredAt: Date.now() });
+      }
+    });
+
+    const second = await t.mutation(internal.vrclinkingCredentials.claimOverdueSecretCleanups, {});
+
+    // The remaining ten, not zero: sharing a timestamp with a full batch must not
+    // put a row permanently out of the sweep's reach.
+    assert.equal(second.length, 10);
+    assert.equal(new Set(second.map((row) => row.credentialId)).size, 10);
   });
 });
 
