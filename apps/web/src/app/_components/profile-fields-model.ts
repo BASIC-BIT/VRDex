@@ -81,7 +81,7 @@ type SharedFields = {
 export type ProfileFieldsPayload =
   | (SharedFields & {
       profileType: "person";
-      person?: { roleTags: string[]; pronouns: string };
+      person?: { roleTags: string[]; pronouns?: string };
     })
   | (SharedFields & {
       profileType: "community";
@@ -286,7 +286,13 @@ export function profileFieldsPayload(
         ...formData.getAll("roleTag").map((value) => stringField(value)),
         ...splitList(formData.get("roleTagsOther")),
       ]),
-      pronouns: stringField(formData.get("pronouns")),
+      // Only when the control was rendered, which is the editor and not the
+      // submit form. `submitCommunityProfile` validates `person` as role tags
+      // alone, so an always-present `pronouns: ""` is not a harmless empty
+      // string there -- Convex rejects the whole argument as an unknown field.
+      ...(formData.has("pronouns")
+        ? { pronouns: stringField(formData.get("pronouns")) }
+        : {}),
     }),
   } as ProfileFieldsPayload;
 }

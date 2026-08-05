@@ -216,6 +216,72 @@ describe("profile fields payload", () => {
     ]);
   });
 
+  it("keeps the submit payload inside what the submission mutation accepts", () => {
+    // Convex rejects an unknown argument outright, so a key the form gained and
+    // the mutation did not is not a no-op -- it fails every submission. Nothing
+    // caught the last one: the web tests exercise this builder, and the e2e flow
+    // posts through the helper route's own explicit field mapping rather than
+    // `profiles:submitCommunityProfile`.
+    const accepted = new Set([
+      "profileType",
+      "displayName",
+      "aliases",
+      "tags",
+      "person",
+      "community",
+      "outboundLinks",
+      "assets",
+    ]);
+    const acceptedPersonKeys = new Set(["roleTags"]);
+
+    for (const profileType of ["person", "community"] as const) {
+      // The submit form renders every group and no narrative fields.
+      const payload = profileFieldsPayload(
+        formData(
+          [["displayName", "Snek"], ["roleTag", "DJ"], ["subtype", "Club"]],
+          ["aliases", "tags", "person", "community", "outboundLinks"],
+        ),
+        profileType,
+      );
+
+      for (const key of Object.keys(payload)) {
+        assert.ok(accepted.has(key), `submitCommunityProfile does not accept "${key}"`);
+      }
+
+      if (payload.profileType === "person" && payload.person !== undefined) {
+        for (const key of Object.keys(payload.person)) {
+          assert.ok(acceptedPersonKeys.has(key), `submitCommunityProfile person does not accept "${key}"`);
+        }
+      }
+    }
+  });
+
+  it("sends pronouns only when the editor rendered the control", () => {
+    // `submitCommunityProfile` validates `person` as role tags alone, so an
+    // always-present `pronouns: ""` is not a harmless empty string on the submit
+    // path — Convex rejects the whole argument as an unknown field, and every
+    // person submission fails.
+    const submitted = profileFieldsPayload(
+      formData([["displayName", "Snek"], ["roleTag", "DJ"]], ["person"]),
+      "person",
+    );
+
+    assert.deepEqual(
+      submitted.profileType === "person" ? submitted.person : null,
+      { roleTags: ["DJ"] },
+    );
+
+    const edited = profileFieldsPayload(
+      formData([["displayName", "Snek"], ["roleTag", "DJ"], ["pronouns", "they/them"]], ["person"]),
+      "person",
+    );
+
+    assert.deepEqual(
+      edited.profileType === "person" ? edited.person : null,
+      { roleTags: ["DJ"], pronouns: "they/them" },
+    );
+  });
+
   it("omits a field group the form did not render", () => {
     // The editor hides fields this writer may not edit, and the update path
     // reads every key it receives as an instruction. Without the marker, "no
