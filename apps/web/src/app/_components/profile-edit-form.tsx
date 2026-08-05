@@ -145,7 +145,12 @@ function ConnectedProfileEditForm({ slug, profilePath }: { slug: string; profile
   const isSaving = status.kind === "saving";
 
   return (
-    <form className="grid gap-5" onSubmit={onSubmit}>
+    // Masked for the same reason the record panel is, and the finding that named
+    // that one applies here too: the editor hydrates stored values, so an owner
+    // correcting a bio the public cannot see would put it in a replay. Nobody
+    // reviewing a session recording needs the field contents to see that
+    // somebody used the form.
+    <form className="grid gap-5 ph-no-capture" data-ph-no-capture onSubmit={onSubmit}>
       {profile.subject === "community_submitter" ? (
         <Notice variant="info">
           Nobody has claimed this profile. Your edit is recorded against your account.

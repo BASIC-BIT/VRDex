@@ -73,7 +73,16 @@ function WithheldProfileRecord({
   const isOwner = record.viewerRole === "owner";
 
   return (
-    <section aria-label="Profile record" className="border-t border-border py-8">
+    // `data-ph-no-capture` is what `SESSION_REPLAY_MASKED_SELECTOR` blocks on.
+    // This section renders withheld field values and the names of everyone who
+    // edited the profile, on a route that is otherwise public and therefore
+    // recorded -- so viewing your own profile, or an operator opening one, would
+    // put exactly the data this surface exists to protect into a replay.
+    <section
+      aria-label="Profile record"
+      className="border-t border-border py-8 ph-no-capture"
+      data-ph-no-capture
+    >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-lg font-semibold">
           {isOwner ? "Your profile record" : "Operator view"}
