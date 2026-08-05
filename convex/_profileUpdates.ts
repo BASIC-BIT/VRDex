@@ -65,6 +65,45 @@ function hasOwn<T extends object>(input: T, key: PropertyKey): boolean {
   return Object.prototype.hasOwnProperty.call(input, key);
 }
 
+/**
+ * Whether a submitted list is exactly what the profile already holds.
+ *
+ * The editor posts every group it rendered, so a group nobody touched arrives on
+ * every save and gets validated again. That is fine until the stored value is
+ * outside a limit the writer cannot fix -- a profile published before a cap
+ * existed, or seeded past one -- at which point the resubmitted array fails
+ * validation and refuses an unrelated bio or display-name correction, naming a
+ * field the writer never opened.
+ *
+ * An untouched group is left out of the patch entirely: nothing to validate,
+ * nothing to write, nothing in the history. Changing it still has to satisfy the
+ * limits, so this grandfathers what is there without letting anything new past.
+ */
+function matchesStoredList(submitted: unknown, stored: unknown): boolean {
+  return JSON.stringify(submitted ?? null) === JSON.stringify(stored ?? null);
+}
+
+/**
+ * The same question for outbound links, which carry rendering metadata.
+ *
+ * Compared on type and destination rather than whole objects: the editor echoes
+ * a row's label, handle and provenance back, but only the fields it was given,
+ * so a strict comparison would call an untouched row changed and put the whole
+ * list back through a cap it may already exceed.
+ */
+function matchesStoredLinks(submitted: unknown, stored: Doc<"profiles">["outboundLinks"]): boolean {
+  if (!Array.isArray(submitted) || submitted.length !== (stored ?? []).length) {
+    return false;
+  }
+
+  return submitted.every((entry, index) => {
+    const link = (stored ?? [])[index];
+    const proposed = entry as { type?: unknown; url?: unknown } | null;
+
+    return link !== undefined && proposed?.type === link.type && proposed?.url === link.url;
+  });
+}
+
 function requireBoundedText(input: string, fieldName: string, minLength: number, maxLength: number): string {
   const value = normalizeProfileInlineText(input);
 
@@ -185,6 +224,10 @@ export function sanitizeApiProfileUpdateInput(
 ): SanitizedApiProfileUpdate {
   const patch: Record<string, unknown> = {};
   const changedFields: ProfileEditableField[] = [];
+  // Groups the writer sent that turned out to match what is stored. Counted so
+  // the "send at least one field" guard stays a question about the request shape:
+  // a form that posts only untouched groups is a no-op save, not an empty one.
+  let unchangedGroups = 0;
 
   if (hasOwn(input, "displayName")) {
     const displayName = requireBoundedText(
@@ -199,7 +242,9 @@ export function sanitizeApiProfileUpdateInput(
     addChangedField(changedFields, "displayName");
   }
 
-  if (hasOwn(input, "aliases")) {
+  if (hasOwn(input, "aliases") && matchesStoredList(input.aliases, profile.aliases)) {
+    unchangedGroups += 1;
+  } else if (hasOwn(input, "aliases")) {
     patch.aliases = sanitizeProfileTextList(input.aliases, "Aliases", {
       maxItems: PROFILE_ALIAS_MAX_COUNT,
       maxLength: PROFILE_ALIAS_MAX_LENGTH,
@@ -207,7 +252,9 @@ export function sanitizeApiProfileUpdateInput(
     addChangedField(changedFields, "aliases");
   }
 
-  if (hasOwn(input, "tags")) {
+  if (hasOwn(input, "tags") && matchesStoredList(input.tags, profile.tags)) {
+    unchangedGroups += 1;
+  } else if (hasOwn(input, "tags")) {
     patch.tags = sanitizeProfileTextList(input.tags, "Tags", {
       maxItems: PROFILE_TAG_MAX_COUNT,
       maxLength: PROFILE_TAG_MAX_LENGTH,
@@ -235,7 +282,9 @@ export function sanitizeApiProfileUpdateInput(
     addChangedField(changedFields, "timezone");
   }
 
-  if (hasOwn(input, "outboundLinks")) {
+  if (hasOwn(input, "outboundLinks") && matchesStoredLinks(input.outboundLinks, profile.outboundLinks)) {
+    unchangedGroups += 1;
+  } else if (hasOwn(input, "outboundLinks")) {
     // Stamped from the subject rather than assumed: `requireEditableFields`
     // below decides whether this writer may touch the field at all, and calling
     // a community contributor's links owner-authored would be a plain lie on a
@@ -372,7 +421,7 @@ export function sanitizeApiProfileUpdateInput(
     }
   }
 
-  if (changedFields.length === 0) {
+  if (changedFields.length === 0 && unchangedGroups === 0) {
     throw profileInputError("At least one editable profile field is required.");
   }
 
@@ -431,8 +480,18 @@ export async function assertProfileEditNotSuppressed(
   const renamesProfile =
     input.displayName !== undefined &&
     createProfileSortName(input.displayName) !== createProfileSortName(profile.displayName);
+  // Changed, not merely submitted. The editor posts the alias list it rendered on
+  // every save, so treating any defined `aliases` as a proposed identity would
+  // re-ask the suppression question about names already on the profile -- and a
+  // profile carrying a legacy alias that a later name-only request covers would
+  // refuse every edit, including a bio typo, with no way for the writer to see
+  // why or to act on it. Adding such a name is refused; leaving it where it
+  // already is has to stay editable.
+  const changesAliases =
+    input.aliases !== undefined &&
+    JSON.stringify(input.aliases) !== JSON.stringify(profile.aliases);
 
-  if ((!renamesProfile && input.aliases === undefined) || !canReadProfile("public", profile)) {
+  if ((!renamesProfile && !changesAliases) || !canReadProfile("public", profile)) {
     return;
   }
 

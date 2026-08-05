@@ -43,10 +43,12 @@ import { canEditProfileField, canReadProfile } from "../../convex/_profilePermis
 import { toPublicProfile } from "../../convex/_profilePublic";
 import {
   createProfileSortName,
+  PROFILE_ALIAS_MAX_COUNT,
   sanitizeCommunitySubmissionProfileInput,
   sanitizeProfileTextList,
 } from "../../convex/_profileSubmissions";
 import {
+  assertProfileEditNotSuppressed,
   sanitizeApiProfileUpdateInput,
   type ApiProfileUpdateInput,
 } from "../../convex/_profileUpdates";
@@ -1245,10 +1247,100 @@ describe("API profile update helpers", () => {
         ).patch.outboundLinks as Array<{ source: string }>
       )[0]?.source;
 
-    assert.equal(sourceFor("https://example.invalid/Mix"), "owner_authored");
+    // Resubmitting the list exactly is not an edit: the group is left out of the
+    // patch entirely, so the stored provenance is untouched rather than
+    // re-derived and matched.
+    assert.equal(
+      sanitizeApiProfileUpdateInput(
+        withLinks,
+        {
+          outboundLinks: [
+            { type: "website", url: "https://example.invalid/Mix", source: "owner_authored" },
+          ],
+        },
+        "community_submitter",
+      ).patch.outboundLinks,
+      undefined,
+    );
+
+    // A different page on a case-sensitive host is a different destination, so
+    // the claim is refused and the writer gets their own stamp.
     assert.equal(sourceFor("https://example.invalid/mix"), "community_submitted");
-    // Host case still folds, because it genuinely is case-insensitive.
+    // Host case genuinely is case-insensitive, so this reaches the patch as a
+    // changed URL and the claim still matches the link it names.
     assert.equal(sourceFor("https://EXAMPLE.invalid/Mix"), "owner_authored");
+  });
+
+  // The editor posts the alias list it rendered on every save, so treating any
+  // defined `aliases` as a proposed identity re-asks the suppression question
+  // about names already on the profile. A profile carrying a legacy alias that a
+  // later name-only request covers would then refuse every edit, including a bio
+  // typo, naming nothing the writer could act on.
+  it("asks the suppression question only when the identity changes", async () => {
+    let asked = false;
+    const db = {
+      query() {
+        asked = true;
+
+        return {
+          withIndex() {
+            return { collect: async () => [] };
+          },
+        };
+      },
+    };
+    const publicProfile = {
+      ...claimedPerson,
+      publicationState: "published",
+      publicSurfacingState: "public",
+      aliases: ["Legacy Name"],
+    } as unknown as Doc<"profiles">;
+
+    await assertProfileEditNotSuppressed(db as never, publicProfile, {
+      aliases: ["Legacy Name"],
+    });
+    assert.equal(asked, false);
+
+    await assertProfileEditNotSuppressed(db as never, publicProfile, {
+      aliases: ["Legacy Name", "A New Name"],
+    });
+    assert.equal(asked, true);
+  });
+
+  // The editor posts every group it rendered, so an untouched group is validated
+  // again on every save. That is fine until the stored value is outside a limit
+  // the writer cannot fix -- published before the cap existed, or seeded past it
+  // -- at which point resubmitting it refuses an unrelated correction and names a
+  // field they never opened.
+  it("lets an unrelated edit through a legacy over-limit list", () => {
+    const overLimit = Array.from({ length: PROFILE_ALIAS_MAX_COUNT + 4 }, (_u, i) => `alias-${i}`);
+    const withLegacyAliases = {
+      ...claimedPerson,
+      claimState: "unclaimed",
+      aliases: overLimit,
+    } as unknown as Doc<"profiles">;
+
+    const result = sanitizeApiProfileUpdateInput(
+      withLegacyAliases,
+      { aliases: overLimit, bio: "Corrected biography" },
+      "community_submitter",
+    );
+
+    assert.deepEqual(result.changedFields, ["bio"]);
+    // Left out of the patch entirely rather than rewritten or truncated.
+    assert.equal("aliases" in result.patch, false);
+
+    // Changing the group still has to satisfy the limit: this grandfathers what
+    // is stored without letting anything new past.
+    assert.throws(
+      () =>
+        sanitizeApiProfileUpdateInput(
+          withLegacyAliases,
+          { aliases: [...overLimit, "one-more"] },
+          "community_submitter",
+        ),
+      /Aliases can include at most/,
+    );
   });
 
   // The submitted side is canonicalized before provenance is matched, so keying
