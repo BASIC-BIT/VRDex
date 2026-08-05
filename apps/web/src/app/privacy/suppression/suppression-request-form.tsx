@@ -105,9 +105,9 @@ export function SuppressionRequestForm() {
         <Textarea className="min-h-32" name="requesterNote" placeholder="Briefly explain the request. Do not include sensitive proof in this first form." />
       </Field>
 
-      <Notice>
-        Submitted requests do not automatically hide a listing. Accepted opt-out or suppression states are enforced across profile pages, search, and event/person references.
-      </Notice>
+      <p className="text-sm text-muted italic">
+        Submitted requests do not automatically hide a listing.
+      </p>
 
       <Button className="w-fit" disabled={status.kind === "submitting"} size="lg" type="submit" variant="primary">
         {status.kind === "submitting" ? "Submitting..." : "Submit request"}
