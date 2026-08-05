@@ -21,12 +21,7 @@ import {
   PROFILE_TAG_MAX_LENGTH,
   sanitizeProfileTextList,
 } from "./_profileSubmissions";
-import {
-  createProfileSearchDocument,
-  upsertSearchDocument,
-  vocabularyForProfile,
-} from "./_searchDocuments";
-import { recordVocabularyTerms } from "./_vocabulary";
+import { reindexProfileSearchDocument } from "./_searchDocuments";
 
 export const PROFILE_HEADLINE_MAX_LENGTH = 160;
 export const PROFILE_BIO_MAX_LENGTH = 600;
@@ -382,10 +377,13 @@ export async function applyApiProfileUpdate(
 
   const updatedProfile = await db.get(options.profile._id);
   if (updatedProfile !== null) {
-    await Promise.all([
-      upsertSearchDocument(db, createProfileSearchDocument(updatedProfile)),
-      recordVocabularyTerms(db, vocabularyForProfile(updatedProfile), options.now),
-    ]);
+    // A delta, not a replay. This path used to record the whole vocabulary on
+    // every write and never release anything, so removing a tag left discovery
+    // correct and its `usageCount` permanently holding a reference that no
+    // longer existed -- and every unchanged term was incremented again on each
+    // save. Barely visible while only the API could reach it; the profile editor
+    // makes this the ordinary way a tag changes.
+    await reindexProfileSearchDocument(db, updatedProfile, options.now);
   }
 
   return {

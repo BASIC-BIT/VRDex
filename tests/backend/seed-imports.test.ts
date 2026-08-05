@@ -176,6 +176,8 @@ describe("seed import review and publication guards", () => {
     });
 
     // source_private_only too: a batch with no explicit policy fails closed.
+    // no_publicly_visible_field as well: neither field is accepted, so nothing
+    // here would reach the profile even once the review states were resolved.
     assert.deepEqual(new Set(blockers), new Set([
       "source_private_only",
       "publication_not_authorized",
@@ -184,6 +186,7 @@ describe("seed import review and publication guards", () => {
       "candidate_not_pending_publication",
       "field_unreviewed",
       "field_needs_correction",
+      "no_publicly_visible_field",
     ]));
   });
 
@@ -439,10 +442,26 @@ describe("seed import publish guards", () => {
     profileType: "person" as const,
     proposedSlug: "dj-example",
   };
+  // A candidate with nothing publishable is refused by `no_publicly_visible_field`
+  // regardless of every other gate, so the fixture for "this one can publish"
+  // has to carry a field somebody could actually see.
+  const publishableFields = [
+    {
+      fieldKey: "person.roleTags",
+      value: ["DJ"],
+      confidence: "medium" as const,
+      reviewState: "accepted" as const,
+      visibility: "public" as const,
+    },
+  ];
 
   it("allows publishing an approved, accepted, queued person candidate", () => {
     assert.deepEqual(
-      getSeedImportPublishBlockers({ batch: publishableBatch, candidate: queuedCandidate }),
+      getSeedImportPublishBlockers({
+        batch: publishableBatch,
+        candidate: queuedCandidate,
+        fields: publishableFields,
+      }),
       [],
     );
   });
@@ -604,6 +623,7 @@ describe("seed import publish guards", () => {
       getSeedImportPublishBlockers({
         batch: publishableBatch,
         candidate: { ...queuedCandidate, proposedDisplayName: "DJ Example" },
+        fields: publishableFields,
       }),
       [],
     );

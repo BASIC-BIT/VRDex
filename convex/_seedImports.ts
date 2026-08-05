@@ -1053,18 +1053,19 @@ export function getSeedImportFieldBlockers(
   //
   // `unlisted` counts as visible -- it renders on the profile page and is only
   // held back from discovery, which is a deliberate choice rather than an
-  // accident. Candidates with no accepted fields at all are left to the review
-  // gates above; this fires only when there was content and none of it survives.
+  // accident.
   //
   // Emptiness is checked, not just visibility: a public `tags: []` beside a
   // private set of links satisfies "has a non-private field" while publishing
   // exactly the display-name-only profile this gate exists to stop.
+  //
+  // Zero accepted fields fails too. An accepted candidate whose every field was
+  // rejected reaches no other gate -- `field_unreviewed` and the rest only fire
+  // on fields that exist -- and publishes a name and a slug, which is the
+  // outcome this refuses by definition rather than a case to exempt.
   const acceptedFields = fields.filter((field) => field.reviewState === "accepted");
 
-  if (
-    acceptedFields.length > 0 &&
-    !acceptedFields.some((field) => field.visibility !== "private" && hasSeedFieldContent(field))
-  ) {
+  if (!acceptedFields.some((field) => field.visibility !== "private" && hasSeedFieldContent(field))) {
     blockers.add("no_publicly_visible_field");
   }
 

@@ -522,6 +522,57 @@ export async function upsertSearchDocument(db: DatabaseWriter, input: SearchDocu
 }
 
 /**
+ * Rebuild one profile's search document and reconcile its vocabulary as a delta.
+ *
+ * The profile counterpart of `reindexWorldSearchDocument`, for the same reason:
+ * `recordVocabularyTerms` only increments, so a path that replays a profile's
+ * whole vocabulary on every write inflates counts for terms nothing touched, and
+ * never releases the ones an edit removed. Editing tags through the profile
+ * editor did exactly that -- discovery dropped the old value while its
+ * `usageCount` kept the reference for good.
+ *
+ * The stored document's `vocabularyKeys` are the "before" set rather than a
+ * snapshot the caller takes, so no caller can forget to take one and a profile
+ * that has never been indexed starts from empty on its own.
+ */
+export async function reindexProfileSearchDocument(
+  db: DatabaseWriter,
+  profile: Doc<"profiles">,
+  now: number,
+) {
+  const existingDocument = await db
+    .query("searchDocuments")
+    .withIndex("by_profileId", (query) => query.eq("profileId", profile._id))
+    .unique();
+  const nextDocument = createProfileSearchDocument(profile);
+  const beforeKeys = new Set(existingDocument?.vocabularyKeys ?? []);
+  const afterKeys = new Set(nextDocument.vocabularyKeys ?? []);
+
+  await upsertSearchDocument(db, nextDocument);
+
+  // Deduplicated by scoped key before recording, same as the world path: two
+  // candidates can share one key, the document stores it once, and recording
+  // both would increment twice against a single later release.
+  const addedCandidates = new Map<string, VocabularyCandidate>();
+
+  for (const candidate of vocabularyForProfile(profile)) {
+    const scopedKey = `${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`;
+
+    if (!beforeKeys.has(scopedKey) && !addedCandidates.has(scopedKey)) {
+      addedCandidates.set(scopedKey, candidate);
+    }
+  }
+
+  await recordVocabularyTerms(db, [...addedCandidates.values()], now);
+
+  const removedKeys = [...beforeKeys].filter((key) => !afterKeys.has(key));
+
+  if (removedKeys.length > 0) {
+    await releaseVocabularyKeys(db, removedKeys, now);
+  }
+}
+
+/**
  * Rebuild one world's search document and reconcile its vocabulary as a delta.
  *
  * `recordVocabularyTerms` increments unconditionally, so replaying a world's whole

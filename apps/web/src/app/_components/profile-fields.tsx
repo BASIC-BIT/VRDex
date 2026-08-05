@@ -76,26 +76,22 @@ function LinkMetadata({ link, name }: { link?: ProfileLinkInput; name: string })
 
 function PersonRoleFields({
   defaults,
-  showStreamInputs,
+  featured,
+  selectedRoles,
+  showStreamFields,
+  onToggleRole,
 }: {
   defaults: ProfileFieldsDefaults;
-  showStreamInputs: boolean;
+  featured: Partial<Record<string, ProfileLinkInput>>;
+  selectedRoles: string[];
+  showStreamFields: boolean;
+  onToggleRole: (role: string, checked: boolean) => void;
 }) {
   const initialRoles = defaults.roleTags ?? [];
-  const [selectedRoles, setSelectedRoles] = useState<string[]>(() =>
-    initialRoles.filter((role) => PRESET_ROLES.has(role)),
-  );
   const otherRoles = initialRoles.filter((role) => !PRESET_ROLES.has(role));
-  const { featured } = partitionLinks(defaults.links ?? [], showStreamInputs);
-  // Revealed by a streaming role, and kept open whenever the profile already
-  // holds one of these links. Otherwise a DJ whose role tags never made it into
-  // the record would open the editor to a hidden field and save away the stream
-  // link it was holding -- which is exactly the shape of the 405 seeded
-  // profiles, where the links are present and the roles are not visible.
-  const hasFeaturedLink = featured.vrcdn !== undefined || featured.twitch !== undefined;
 
   function toggleRole(role: string, checked: boolean) {
-    setSelectedRoles((roles) => (checked ? [...roles, role] : roles.filter((item) => item !== role)));
+    onToggleRole(role, checked);
   }
 
   return (
@@ -121,7 +117,7 @@ function PersonRoleFields({
         </Field>
       </div>
 
-      {showStreamInputs && (isStreamingRole(selectedRoles) || hasFeaturedLink) ? (
+      {showStreamFields ? (
         <div className="grid gap-4 sm:grid-cols-2">
           <Field>
             Stream
@@ -184,7 +180,29 @@ export function ProfileFields({
   // a link deleted on the next save.
   const showStreamInputs =
     profileType === "person" && canEdit("person") && canEdit("outboundLinks");
-  const { rows } = partitionLinks(defaults.links ?? [], showStreamInputs);
+  const { featured, rows } = partitionLinks(defaults.links ?? [], showStreamInputs);
+  // Role selection lives here rather than in the roles group, because the link
+  // cap below depends on it: the stream fields serialize into the same array the
+  // rows do, and counting only rows let a person fill both and add 20 more, then
+  // have the whole save rejected for exceeding the cap.
+  const [selectedRoles, setSelectedRoles] = useState<string[]>(() =>
+    (defaults.roleTags ?? []).filter((role) => PRESET_ROLES.has(role)),
+  );
+  // Revealed by a streaming role, and kept open whenever the profile already
+  // holds one of these links. Otherwise a DJ whose role tags never made it into
+  // the record would open the editor to a hidden field and save away the stream
+  // link it was holding -- exactly the shape of the 405 seeded profiles, where
+  // the links are present and the roles are not visible.
+  const showStreamFields =
+    showStreamInputs &&
+    (isStreamingRole(selectedRoles) ||
+      featured.vrcdn !== undefined ||
+      featured.twitch !== undefined);
+  // Reserved rather than measured: the inputs are uncontrolled, so what is
+  // actually typed in them is not React state. Two slots held back while they
+  // are on the page is the conservative read, and the backend rejects at the
+  // same number either way.
+  const rowCapacity = PROFILE_LINK_MAX_COUNT - (showStreamFields ? 2 : 0);
   // Stable ids rather than indices: the inputs are uncontrolled, so keying by
   // index would shift the surviving rows' DOM values when one is removed.
   const linkRowSeq = useRef(rows.length);
@@ -279,7 +297,17 @@ export function ProfileFields({
       {profileType === "person"
         ? canEdit("person") && (
             <FieldGroup field="person">
-              <PersonRoleFields defaults={defaults} showStreamInputs={showStreamInputs} />
+              <PersonRoleFields
+                defaults={defaults}
+                featured={featured}
+                selectedRoles={selectedRoles}
+                showStreamFields={showStreamFields}
+                onToggleRole={(role, checked) =>
+                  setSelectedRoles((roles) =>
+                    checked ? [...roles, role] : roles.filter((item) => item !== role),
+                  )
+                }
+              />
             </FieldGroup>
           )
         : canEdit("community") && (
@@ -349,7 +377,7 @@ export function ProfileFields({
               </div>
             ))}
 
-            {linkRows.length < PROFILE_LINK_MAX_COUNT ? (
+            {linkRows.length < rowCapacity ? (
               <div>
                 <Button size="sm" type="button" variant="secondary" onClick={addLinkRow}>
                   Add link
