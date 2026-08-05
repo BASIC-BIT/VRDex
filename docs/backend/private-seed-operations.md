@@ -134,6 +134,18 @@ Publish behavior worth knowing:
   seed field mapper in `reviewed` mode; the concierge handoff path uses the same
   mapper in `private` mode, which forces every field private. Publishing with the
   concierge default would produce a profile with nothing visible on it.
+- A candidate whose accepted fields would **all** be private is blocked with
+  `no_publicly_visible_field`. `unlisted` counts as visible: it renders on the
+  profile page and is only held back from discovery, which is a decision rather
+  than an accident. Batch `nwinn_2026_07_16_ad79dca17a` is why the gate exists --
+  it published 405 people whose every field was stored private, so each live
+  profile showed a display name and a slug and nothing else.
+- Outbound links are normalized through `sanitizeProfileLinksLeniently`, the same
+  path every other writer uses, rather than carried across as stored. VRCDN
+  entries canonicalize to the public `vrcdn.live/<streamId>` page, so an operator
+  panel preview URL in an export becomes the public link and dedupes against the
+  stream link for the same person. Entries that cannot be normalized are dropped
+  and counted rather than failing the batch, and the driver reports the counts.
 - Merging into an existing profile only applies accepted seed fields. Fields the
   candidate never proposed are left untouched, and the profile's original
   `publishedAt` is preserved.
@@ -293,6 +305,41 @@ pnpm ops:seed-publish -- `
 for a source whose data quality is trusted, and it is the operator's call, not a
 default.
 
+### Setting Field Visibility On A Batch
+
+Publication copies each field's stored `visibility` onto the profile, so a batch
+imported private publishes profiles that show nothing. The preview reports
+`acceptedFieldVisibilities` and `publiclyVisibleFieldCount`, and warns when the
+latter is zero; publication itself refuses with `no_publicly_visible_field`.
+
+`--set-visibility` fixes both halves — the candidate rows, so the record is
+right, and the profiles already derived from them, so people can see it:
+
+```powershell
+pnpm ops:seed-publish -- `
+  --batch-id nwinn_2026_07_16_ad79dca17a `
+  --set-visibility public `
+  --field-keys "outboundLinks,person.roleTags" `
+  --actor-token operator:vrdex `
+  --actor-issuer vrdex `
+  --actor-subject seed-publish `
+  --actor-name "VRDex operator" `
+  --reason "Source permits listing these fields publicly." `
+  --apply `
+  --target prod
+```
+
+- Without `--apply` it is a dry run: the same counts, nothing written. This
+  changes what the public sees on live profiles, so the dry run is the default.
+- `--field-keys` is optional; omitting it targets every accepted field.
+- Re-derivation runs the accepted fields back through the same builder
+  publication uses, so a batch published before the link canonicalization existed
+  picks it up here rather than needing a second pass. The report always prints
+  how many links were dropped and how many collapsed onto an existing link.
+- Claimed profiles are left alone and reported as `profile_claimed`.
+  Re-deriving one would overwrite whatever its owner has edited since with the
+  seed snapshot.
+
 ## Suppression Requests
 
 `suppressions:requestProfileSuppression` is public and records a `submitted`
@@ -396,6 +443,22 @@ The first grant for the operator is `super_admin`. Beta users receive only
 fields only from `private_only` import batches that are not rejected or
 superseded, while a super-admin can inspect unreviewed private staging records
 across import policies.
+
+`seedAccess:lookupPeople` covers every publication state for a super-admin, and
+`draft_private`, `review_pending` and `published_unclaimed` for the narrower
+grant. Publishing used to move a candidate out of the lookup entirely, so the
+operator surface covered exactly the records that had not shipped yet — a
+published candidate's batch is necessarily relaxed past `private_only`, so the
+policy check does not apply to it either. `rejected` and `suppressed` stay
+super-admin-only: both record a decision to stop handling that person.
+
+`seedAccess:withheldProfileRecord` answers the profile-level question — what a
+profile holds that its public page does not show, plus its edit history — for
+the same grant and for the profile's own owner. It is read-only, and it returns
+`null` rather than throwing for everyone else, because it renders on public
+profile pages. It exists so that "what does production hold for this person?"
+stops being a question that needs a deploy key, which cannot be scoped read-only
+and can therefore also deploy code.
 
 ```powershell
 pnpm cx -- prod run accountFeatureGrants:grant `

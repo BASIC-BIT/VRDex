@@ -34,6 +34,7 @@ test("profile submission writes through to public profile and discovery @flow", 
   const runId = e2eRunId(testInfo);
   const runSuffix = runId.replace(/^playwright-?/, "").slice(0, 48);
   const displayName = `Playwright Flow ${runSuffix}`;
+  const streamId = `flow${runSuffix.replace(/[^a-z0-9]+/gi, "")}`.slice(0, 60);
   let createdSlug: string | undefined;
 
   await page.context().addCookies([
@@ -61,7 +62,24 @@ test("profile submission writes through to public profile and discovery @flow", 
     await page.getByLabel("Display name").fill(displayName);
     await page.getByLabel("Aliases").fill(`Flow ${runSuffix}`);
     await page.getByLabel("Tags", { exact: true }).or(page.getByLabel("Shared tags", { exact: true })).first().fill("playwright, data-flow");
-    await page.getByLabel("Person roles").fill("Test profile");
+
+    // Roles are checkboxes over a fixed vocabulary with a freeform field beside
+    // it. Checking DJ is also what reveals the stream inputs, which is why roles
+    // are asked for before links.
+    const streamUrl = page.getByLabel("Stream");
+    await expect(streamUrl).toHaveCount(0);
+    await page.getByRole("checkbox", { name: "DJ", exact: true }).check();
+    await expect(streamUrl).toBeVisible();
+    await page.getByLabel("Other roles").fill("Test profile");
+
+    // The URL VRCDN hands someone looking for their own stream, so it is what
+    // they paste. It has to reach the profile as the public page URL: the seed
+    // lane stored this shape verbatim and put VRCDN's operator console on
+    // hundreds of public profiles.
+    // Run-scoped like every other value here: two projects submit concurrently
+    // against one backend, and a shared stream id would have them writing the
+    // same derived values at the same time.
+    await streamUrl.fill(`https://panel.vrcdn.live/preview/${streamId}`);
     await page.getByRole("button", { name: "Submit profile" }).click();
 
     const dialogProfileLink = page.getByRole("dialog", { name: "Profile added" }).getByRole("link", {
@@ -79,9 +97,21 @@ test("profile submission writes through to public profile and discovery @flow", 
     await profileLink.click();
     await expect(page.getByRole("heading", { name: displayName })).toBeVisible();
     if (!process.env.PLAYWRIGHT_BASE_URL) {
-      await expect(page.getByText(/Community submitted/)).toHaveCount(0);
+      // Provenance is rendered now, in the ownership aside rather than above the
+      // display name where it read as a label on the person. This asserted its
+      // absence while nothing rendered it at all.
+      await expect(
+        page.getByRole("complementary", { name: "Profile ownership" }).getByText("Community submitted"),
+      ).toBeVisible();
     }
     await expect(page.getByLabel("Verified profile")).toHaveCount(0);
+
+    // Canonicalized on the way in: the panel preview URL that was typed is read
+    // for its stream id and stored as the VRCDN page URL, which is what the
+    // watch surface then derives every playback address from.
+    await expect(
+      page.getByText(`https://stream.vrcdn.live/live/${streamId}.live.ts`),
+    ).toBeVisible();
     await captureRouteScreenshot(page, testInfo, "profile-submission-flow-profile");
 
     await gotoFlowPage(page, `/search?q=${encodeURIComponent(displayName)}`);

@@ -15,19 +15,47 @@ It intentionally does not add moderation UI, role delegation, ownership transfer
 
 ## Edit Baseline
 
-Ordinary public users cannot edit profiles.
+Signed-out users cannot edit profiles.
 
-Community submitters may populate only a narrow safe field set for unclaimed profiles through `profiles:submitCommunityProfile`:
+What separates a community contributor from an owner is what a field describes,
+not a list of field names:
 
-- `displayName`
-- `aliases`
-- `tags`
-- `person` type-specific fields
-- `community` type-specific fields
+- **Information about the person** is community-editable on an unclaimed
+  profile. Display name, aliases, tags, outbound links, headline, bio, region,
+  timezone, role tags, pronouns, and a profile picture or logo. Facts a third
+  party can know and correct, and the reason an unclaimed profile is worth
+  visiting at all.
+- **The record itself** is not. `slug` is the profile's address, so changing it
+  on someone else's behalf breaks every link already shared. Appearance --
+  avatar shape, border colour, section order -- is a presentation choice
+  belonging to whoever owns the profile, and is governed by `profileAppearance`
+  rather than the editable-field union.
 
-Community submitters must not set fields that imply verified authority, private contact details, billing state, ownership, custom slugs, or sensitive visibility choices. Profile creation can still generate an initial slug from submitted display text.
+`COMMUNITY_UNEDITABLE_FIELDS` in `convex/_profilePermissions.ts` states that as
+an exclusion. It replaced an allowlist, under which the default for any field
+added later was "not editable" -- which is how `outboundLinks` came to be
+excluded by omission rather than by decision.
 
-The current public mutation requires a Convex authenticated identity and stores source attribution. Freeform bios, about text, avatar URLs, banner URLs, private contact details, and custom slugs are intentionally outside the ordinary community-submission field set.
+Community contributors must not set fields implying verified authority, private
+contact details, billing state, ownership, custom slugs, or field-visibility
+choices.
+
+`profiles:updateProfileFromBrowser` serves both subjects and resolves which one
+applies from ownership: the profile's owner edits as `claimed_owner`, anyone
+else editing an unclaimed profile edits as `community_submitter`, and a non-owner
+editing a claimed profile is refused. Links carry the subject's provenance, so a
+contributor's links are stored `community_submitted` rather than
+`owner_authored`.
+
+Edits apply directly rather than queueing for review, matching community
+submissions, which publish immediately. Every edit writes a `profileAuditEvents`
+row naming the actor and the fields changed, readable by the profile's owner and
+by an operator holding `view_private_seed_lookup` through
+`seedAccess:withheldProfileRecord`.
+
+`profiles:submitCommunityProfile` creates a profile from the same field set,
+requires an authenticated identity, and stores source attribution. Creation
+generates an initial slug from submitted display text.
 
 Claimed owners may edit normal profile fields after a claim attaches authority to the existing profile record. This baseline assumes claimed owners can edit identity, presentation, slug, tags, and type-specific profile fields, subject to future field-level visibility and abuse controls.
 
