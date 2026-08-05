@@ -543,6 +543,64 @@ describe("private seed Convex handlers", () => {
     );
   });
 
+  // Publishing by merging into an existing profile keeps that profile's original
+  // `creationSource`, so a merged seed profile is not `import`. Checking that
+  // beside the candidate meant the name lookup listed the person -- it asks the
+  // candidate -- while the record refused to open from the link right beside it.
+  // Reaching a candidate whose `publishedProfileId` is this profile is already
+  // proof it came from the seed lane, so the extra check was wrong and redundant
+  // at once.
+  it("opens the record for a seed profile published by merge", async () => {
+    const t = convexTest({ schema, modules });
+    const candidate = await importCandidate(t);
+    const identity = await t.run(async (ctx) => {
+      const profileId = await ctx.db.insert("profiles", {
+        ...privateProfile("unclaimed"),
+        slug: "handler-merged-import",
+        publicationState: "published" as const,
+        publicSurfacingState: "public" as const,
+        // The matched profile was created by a community submission and keeps
+        // saying so after the merge.
+        creationSource: "community" as const,
+        fieldVisibility: { bio: "private" as const },
+        bio: "Withheld biography",
+      });
+      await ctx.db.patch(candidate._id, {
+        publicationState: "published_unclaimed",
+        publishedProfileId: profileId,
+        publishedAt: NOW,
+        reviewState: "accepted",
+        updatedAt: NOW,
+      });
+      await ctx.db.patch(candidate.batchId, {
+        publicationPolicy: "reviewed_publication_allowed",
+        reviewState: "approved",
+        updatedAt: NOW,
+      });
+
+      const clerkUserId = newClerkUserId();
+      const userId = await ctx.db.insert("users", { clerkUserId, name: "Merge lookup operator" });
+      await ctx.db.insert("accountFeatureGrants", {
+        userId,
+        feature: "view_private_seed_lookup",
+        state: "active",
+        grantedBy: actor,
+        grantedAt: NOW,
+        updatedAt: NOW,
+      });
+      return { subject: clerkUserId, emailVerified: true };
+    });
+
+    assert.deepEqual(
+      (
+        await t.withIdentity(identity).query(api.seedAccess.withheldProfileRecord, {
+          slug: "handler-merged-import",
+        })
+      )?.withheldFields.map((field) => field.key),
+      ["bio"],
+    );
+  });
+
   // Both operator surfaces answer to one rule. `lookupPeople` reached the batch
   // through the candidate and stopped returning a withdrawn record; the by-slug
   // record read judged the live profile alone, which a batch rejection does not

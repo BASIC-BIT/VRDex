@@ -530,12 +530,19 @@ for this person?" stops being a question that needs a deploy key, which cannot b
 scoped read-only and can therefore also deploy code.
 
 It answers by slug, so who may call it is scoped deliberately: the profile's own
-owner, any super-admin, and a `view_private_seed_lookup` holder only for profiles
-whose `creationSource` is `import` — and then only when the import record behind
-the profile is one the name lookup would still return. Without that the beta
-grant could read hidden fields and edit history for any profile whose slug
-someone guessed, because a direct Convex call is not bounded by the public page
-this renders on.
+owner, any super-admin, and a `view_private_seed_lookup` holder only when the
+import record behind the profile is one the name lookup would still return.
+Without that the beta grant could read hidden fields and edit history for any
+profile whose slug someone guessed, because a direct Convex call is not bounded
+by the public page this renders on.
+
+The candidate is the whole test. `creationSource` was checked alongside it and
+was wrong and redundant at once: reaching a candidate whose `publishedProfileId`
+is this profile already proves it came from the seed lane, and publishing a
+candidate by *merging* into an existing profile keeps that profile's original
+`creationSource` — so a merged seed profile appeared in the name lookup, which
+asks the candidate, and then refused to open from the link beside it, which asked
+the profile.
 
 The two surfaces run the same predicate over the same rows rather than each
 judging what it happens to hold. This query is handed a slug, so it walks

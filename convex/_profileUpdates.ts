@@ -7,7 +7,11 @@ import {
   type ProfileEditableField,
   type ProfilePermissionSubject,
 } from "./_profilePermissions";
-import { sanitizeProfileLinks, type ProfileLinkSource } from "./_profileLinks";
+import {
+  profileLinkDestinationKey,
+  sanitizeProfileLinks,
+  type ProfileLinkSource,
+} from "./_profileLinks";
 import { assertIdentityNotSuppressed } from "./_suppressions";
 import {
   createProfileSortName,
@@ -92,34 +96,18 @@ function optionalBoundedText(input: NullableString, fieldName: string, maxLength
 }
 
 /**
- * What makes two outbound links the same link.
+ * What makes two outbound links the same link, for provenance.
  *
  * Type and destination, not label: renaming a link is editing it, and it keeps
- * the provenance it already had.
- *
- * Only the parts of a URL that are genuinely case-insensitive get folded --
- * scheme and host. Lowercasing the whole string made `/Mix` and `/mix` one
- * destination, so a writer could move an owner-authored link to a different page
- * on a case-sensitive host and keep the public `owner_authored` stamp on it. The
- * form drops the claim for a case-only edit, but `updateProfileFromBrowser`
- * accepts `source` from any caller, so the form is not where this can be decided.
+ * the provenance it already had. `profileLinkDestinationKey` decides what
+ * "same destination" means, shared with the seed lane's deduplication so the two
+ * cannot fold URLs differently -- which is how `/Mix` and `/mix` came to be one
+ * link in both of them, letting a writer move an owner-authored link to another
+ * page on a case-sensitive host and keep the stamp. The form drops the claim for
+ * a case-only edit, but `updateProfileFromBrowser` accepts `source` from any
+ * caller, so the form is not where this can be decided.
  */
-function linkIdentity(link: { type: string; url: string }): string {
-  let destination = link.url;
-
-  try {
-    const url = new URL(link.url);
-
-    // `URL` lowercases protocol and host itself; the rest is rebuilt exactly as
-    // given rather than folded along with them.
-    destination = `${url.protocol}//${url.host}${url.pathname}${url.search}${url.hash}`;
-  } catch {
-    // Unparseable, so no part of it is known to be case-insensitive. Compared
-    // verbatim, which can only ever refuse a claim rather than grant one.
-  }
-
-  return `${link.type}:${destination}`;
-}
+const linkIdentity = profileLinkDestinationKey;
 
 /**
  * The provenance each submitted row says it arrived with, by position.

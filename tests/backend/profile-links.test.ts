@@ -159,6 +159,38 @@ describe("lenient profile link sanitization", () => {
     assert.equal(result.droppedCount, 0);
   });
 
+  // Same folding as the browser provenance check, out of the same function.
+  // Lowercasing the whole URL made these one link, so the seed lane dropped the
+  // second as a duplicate while the browser lane handed the first's provenance
+  // to it -- two lanes, one defect, because each had written the key itself.
+  it("treats a case-different path as a different destination", () => {
+    const result = sanitizeProfileLinksLeniently(
+      [
+        { type: "website", url: "https://example.invalid/Mix" },
+        { type: "website", url: "https://example.invalid/mix" },
+      ],
+      "reviewed",
+    );
+
+    assert.deepEqual(result.links.map((link) => link.url), [
+      "https://example.invalid/Mix",
+      "https://example.invalid/mix",
+    ]);
+    assert.equal(result.deduplicatedCount, 0);
+
+    // Host case still folds, because it genuinely is case-insensitive.
+    const sameHost = sanitizeProfileLinksLeniently(
+      [
+        { type: "website", url: "https://example.invalid/Mix" },
+        { type: "website", url: "https://EXAMPLE.INVALID/Mix" },
+      ],
+      "reviewed",
+    );
+
+    assert.equal(sameHost.links.length, 1);
+    assert.equal(sameHost.deduplicatedCount, 1);
+  });
+
   it("keeps the good links when one entry is unusable", () => {
     // The whole reason this exists beside sanitizeProfileLinks: a publication
     // has no writer looking at a form, so one bad row must not fail the batch.

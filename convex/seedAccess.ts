@@ -346,13 +346,20 @@ export const withheldProfileRecord = query({
     // public, and by-slug reads went on answering. No candidate means nothing to
     // check it against, which fails closed.
     //
+    // The candidate is the whole test. `creationSource` used to be checked
+    // alongside it and was both redundant and wrong: reaching a candidate whose
+    // `publishedProfileId` is this profile already proves it came from the seed
+    // lane, and publishing a candidate by *merging* into an existing profile
+    // keeps that profile's original `creationSource` -- so a merged seed profile
+    // showed up in the name lookup, which asks the candidate, and then refused to
+    // open from the link beside it, which asked the profile.
+    //
     // Super-admins and the profile's own owner are unrestricted, so this whole
     // lookup is skipped for them.
     const withinSeedGrant =
       !owns &&
       !access.superAdmin &&
       access.canViewPrivateSeedLookup &&
-      profile.creationSource === "import" &&
       (await publishedSeedCandidateIsVisible(ctx, profile));
 
     if (!owns && !access.superAdmin && !withinSeedGrant) {

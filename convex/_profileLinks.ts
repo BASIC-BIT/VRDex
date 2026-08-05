@@ -327,6 +327,34 @@ export function sanitizeProfileLinks(
   }
 }
 
+/**
+ * What makes two links the same link, as a comparable key.
+ *
+ * Type plus destination, and only the genuinely case-insensitive parts of the
+ * destination are folded -- scheme and host. Lowercasing the whole URL made
+ * `https://example.invalid/Mix` and `/mix` one link on hosts where they are two
+ * pages: the seed lane dropped the second as a duplicate, and the browser lane
+ * handed the first's provenance to the second.
+ *
+ * One function because both lanes ask the same question. They were written
+ * separately and folded differently, which is how the same defect had to be
+ * found twice.
+ */
+export function profileLinkDestinationKey(link: { type: string; url: string }): string {
+  try {
+    const url = new URL(link.url);
+
+    // `URL` lowercases protocol and host itself; the rest is used exactly as
+    // given rather than folded along with them.
+    return `${link.type}:${url.protocol}//${url.host}${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    // Unparseable, so no part of it is known to be case-insensitive. Compared
+    // verbatim, which can only ever treat two links as distinct rather than
+    // merge them.
+    return `${link.type}:${link.url}`;
+  }
+}
+
 export type LenientProfileLinkResult = {
   links: Array<NormalizedProfileLink & { source: ProfileLinkSource }>;
   /** Entries that could not be normalized into a publishable link. */
@@ -371,7 +399,7 @@ export function sanitizeProfileLinksLeniently(
     }
 
     for (const link of normalized) {
-      const key = `${link.type}:${link.url.toLowerCase()}`;
+      const key = profileLinkDestinationKey(link);
 
       if (seen.has(key)) {
         deduplicatedCount += 1;
