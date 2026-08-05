@@ -79,4 +79,32 @@ describe("lookup suggestion merging", () => {
 
     assert.equal(result.length, 2);
   });
+
+  // A published candidate is expected to have a public row: it made one. This
+  // deduplication was written when every private row was one that had not
+  // shipped, where matching a public profile meant the same person was already
+  // listed. Once published candidates joined the lookup, the same rule deleted
+  // the row carrying the accepted seed fields -- what the operator is on this
+  // surface to read -- because the profile it had itself created matched it.
+  it("keeps a published candidate beside the profile it published", () => {
+    const bySlug = mergeLookupSuggestions(
+      [publicProfile()],
+      [privateCandidate({
+        fields: [],
+        proposedSlug: "basicbit",
+        publicationState: "published_unclaimed",
+      })],
+    );
+
+    assert.equal(bySlug.length, 2);
+
+    // And by the name-plus-link route, which is the same collision reached by a
+    // different test.
+    const byIdentity = mergeLookupSuggestions(
+      [publicProfile()],
+      [privateCandidate({ publicationState: "published_unclaimed" })],
+    );
+
+    assert.equal(byIdentity.length, 2);
+  });
 });

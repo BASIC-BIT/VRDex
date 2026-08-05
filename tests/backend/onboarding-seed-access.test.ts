@@ -846,6 +846,51 @@ describe("seed handoff helpers", () => {
     assert.equal(isHandoffBatchAvailable(null), false);
   });
 
+  // Normalization discarding everything is not an instruction to delete. A merge
+  // or a re-derivation writes onto a profile that already exists, so a seed field
+  // whose every entry failed the provider-host checks patched `outboundLinks: []`
+  // over that profile's real links -- destroying live data to carry across
+  // nothing, while the run reported only that some seed rows had dropped.
+  it("keeps a merge target's links when every seed link is unusable", () => {
+    const existing = {
+      outboundLinks: [
+        { type: "twitch", label: "Twitch", url: "https://twitch.tv/snekwtf", source: "owner_authored" },
+      ],
+    };
+    const unusable = [
+      seedField({
+        fieldKey: "outboundLinks",
+        value: [{ type: "twitch", label: "Twitch", url: "https://not-twitch.invalid/snekwtf" }],
+      }),
+    ];
+    const linkStats = { droppedCount: 0, deduplicatedCount: 0 };
+    const patch = buildConciergeProfileFieldPatch(unusable, existing as never, { linkStats });
+
+    // Left alone rather than emptied, and the drop is still counted so the run
+    // says what happened.
+    assert.equal("outboundLinks" in patch, false);
+    assert.equal(linkStats.droppedCount, 1);
+
+    // A create has nothing to lose, so the empty array is what it would get
+    // anyway and is written.
+    assert.deepEqual(buildConciergeProfileFieldPatch(unusable).outboundLinks, []);
+
+    // One usable link still replaces the existing list, which is the ordinary
+    // case and must not be caught by this.
+    assert.deepEqual(
+      buildConciergeProfileFieldPatch(
+        [
+          seedField({
+            fieldKey: "outboundLinks",
+            value: [{ type: "twitch", label: "Twitch", url: "https://twitch.tv/moved" }],
+          }),
+        ],
+        existing as never,
+      ).outboundLinks?.map((link) => link.url),
+      ["https://twitch.tv/moved"],
+    );
+  });
+
   it("clears stale search aliases when replacing aliases on a reused profile", () => {
     const patch = buildConciergeProfileFieldPatch(
       [seedField({ value: ["DJ Current"] })],

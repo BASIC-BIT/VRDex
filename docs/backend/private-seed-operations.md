@@ -146,12 +146,15 @@ Publish behavior worth knowing:
   the profile page renders them, so a candidate whose only public content is one
   of those publishes the same blank-looking page. Rendering them instead is a
   product decision nobody has made; until then the gate declines. The gate is
-  create-only, like the slug and display-name bounds beside it: a candidate
-  matched to an existing profile merges into a record that already exists, and
-  both gates refuse a match that is not publicly surfaced, so the merge cannot
-  produce the display-name-only page this refuses. Private-only seed data merging
-  into a live profile is an ordinary operator decision, and blocking it stranded
-  the case `matchCandidateToProfile` exists to record. `previewBatchPublication`
+  exempted only for a merge into a profile the public can already read, which
+  `isPubliclyReadableProfile` defines as `published` *and*
+  `publicSurfacingState: "public"`. Surfacing alone is not enough and the
+  distinction matters: a legacy `draft_private` row can carry
+  `publicSurfacingState: "public"` and still 404 for every reader, so exempting
+  on surfacing would have published exactly the display-name-only page this
+  refuses. Where the exemption does apply, private-only seed data merging into a
+  live profile is an ordinary operator decision, and blocking it stranded the
+  case `matchCandidateToProfile` exists to record. `previewBatchPublication`
   uses the same predicate, so a dry run cannot say the opposite of what the
   publish gate does. Batch
   `nwinn_2026_07_16_ad79dca17a` is why it exists: it published 405 people whose

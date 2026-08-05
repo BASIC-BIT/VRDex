@@ -422,7 +422,20 @@ export function buildConciergeProfileFieldPatch(
           options.linkStats.deduplicatedCount += sanitized.deduplicatedCount;
         }
 
-        patch.outboundLinks = sanitized.links;
+        // Normalization discarding everything is not an instruction to delete.
+        // A merge or a re-derivation writes onto a profile that already exists,
+        // and a seed field whose every entry failed the provider-host checks
+        // would have patched `outboundLinks: []` over that profile's real links
+        // -- destroying live data to carry across nothing, while the run reported
+        // only that some seed rows had dropped. The counts still say it happened;
+        // the profile keeps what it had.
+        //
+        // A create is unaffected: there is nothing to preserve, and `[]` is what
+        // the profile would get anyway.
+        if (sanitized.links.length > 0 || (profile?.outboundLinks?.length ?? 0) === 0) {
+          patch.outboundLinks = sanitized.links;
+        }
+
         break;
       }
       case "person.pronouns":
