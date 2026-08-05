@@ -191,14 +191,23 @@ export const updateProfileForApiOwner = internalMutation({
       now,
     });
 
-    await ctx.db.insert("profileAuditEvents", {
-      profileId: profile._id,
-      action: "api_profile_updated",
-      actor: apiOwnerAuthSubject(args.ownerUserId),
-      sourceType: "owner",
-      note: `Public API profile update: ${changedFields.join(", ")}.`,
-      createdAt: now,
-    });
+    // Same rule as the browser path, and it needs stating here too now that
+    // `changedFields` is a diff: a PATCH that re-sent what the profile already
+    // held used to be impossible to distinguish and now reads as
+    // "Public API profile update: ." -- a history row saying nothing happened.
+    if (changedFields.length > 0) {
+      await ctx.db.insert("profileAuditEvents", {
+        profileId: profile._id,
+        action: "api_profile_updated",
+        actor: apiOwnerAuthSubject(args.ownerUserId),
+        sourceType: "owner",
+        note: `Public API profile update: ${changedFields.join(", ")}.`,
+        createdAt: now,
+      });
+    }
+
+    // Recorded regardless: this is the API rate-and-abuse ledger, and a write
+    // request that changed nothing is still a write request that was made.
     await recordApiWriteAuditEvent(ctx.db, {
       action: "profile_updated",
       actorKind: args.actorKind,
