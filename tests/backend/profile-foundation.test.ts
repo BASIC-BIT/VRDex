@@ -46,7 +46,10 @@ import {
   sanitizeCommunitySubmissionProfileInput,
   sanitizeProfileTextList,
 } from "../../convex/_profileSubmissions";
-import { sanitizeApiProfileUpdateInput } from "../../convex/_profileUpdates";
+import {
+  sanitizeApiProfileUpdateInput,
+  type ApiProfileUpdateInput,
+} from "../../convex/_profileUpdates";
 import { createClaimedDiscordProfileForUser } from "../../convex/_profileClaimCreation";
 import { createPublicProfileWorldCredits } from "../../convex/_profileWorldCredits";
 import {
@@ -1009,6 +1012,40 @@ describe("API profile update helpers", () => {
         roleTags: ["DJ", "VJ"],
       },
     });
+  });
+
+  // Convex redacts plain `Error` messages on production deployments, so every
+  // one of these reached the form as "try again once the backend is reachable"
+  // for a name the person could simply have lengthened. The structured payload
+  // survives, which is how link errors already answered.
+  it("rejects invalid input in a shape that survives production", () => {
+    const invalid: Array<[string, ApiProfileUpdateInput]> = [
+      ["display name too short", { displayName: "a" }],
+      ["too many aliases", { aliases: Array.from({ length: 40 }, (_u, i) => `alias-${i}`) }],
+      // Community-uneditable, because no public surface renders it.
+      ["field not editable", { timezone: "Europe/Berlin" }],
+      ["wrong profile type", { community: { subtype: "Club" } }],
+    ];
+
+    for (const [label, input] of invalid) {
+      assert.throws(
+        () =>
+          sanitizeApiProfileUpdateInput(
+            { ...claimedPerson, claimState: "unclaimed" } as Doc<"profiles">,
+            input,
+            "community_submitter",
+          ),
+        (error: unknown) => {
+          const data = (error as { data?: { code?: string; message?: string } }).data;
+
+          assert.equal(data?.code, "PROFILE_INPUT_INVALID", label);
+          assert.ok((data?.message ?? "").length > 0, label);
+
+          return true;
+        },
+        label,
+      );
+    }
   });
 
   it("requires claimed-owner edit permission and compatible type fields", () => {

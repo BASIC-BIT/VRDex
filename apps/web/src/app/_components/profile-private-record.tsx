@@ -39,6 +39,19 @@ const FIELD_LABELS: Record<string, string> = {
   communityCategoryTags: "Categories",
 };
 
+/**
+ * One heading per reason a value is missing from the page.
+ *
+ * `public` is in here because visibility is a permission, not a rendering:
+ * `about`, `genres` and `timezone` reach the profile record and no surface shows
+ * them, so they are allowed everywhere and appear nowhere.
+ */
+const WITHHELD_GROUP_LABELS = {
+  private: "Not shown publicly",
+  unlisted: "On this page, not in search",
+  public: "Not shown anywhere",
+} as const;
+
 function formatDate(value: number) {
   return new Date(value).toLocaleDateString(undefined, { dateStyle: "medium" });
 }
@@ -106,11 +119,13 @@ function WithheldProfileRecord({
         </p>
       )}
 
-      {/* Two groups, because they are two different facts. A private field is
+      {/* Three groups, because they are three different facts. A private field is
           nowhere; an unlisted one is on this page for anyone holding the URL and
-          only absent from search. Filing both under "not shown publicly" would
-          tell an owner their unlisted alias is hidden when it is not. */}
-      {(["private", "unlisted"] as const).map((visibility) => {
+          only absent from search; a public one in this list is allowed anywhere
+          and rendered nowhere, because no surface was ever built for it. Filing
+          them together would tell an owner their unlisted alias is hidden when it
+          is not, and say nothing about the third case at all. */}
+      {(["private", "unlisted", "public"] as const).map((visibility) => {
         const fields = record.withheldFields.filter((field) => field.visibility === visibility);
 
         if (fields.length === 0) {
@@ -119,9 +134,7 @@ function WithheldProfileRecord({
 
         return (
           <div className="mt-5" key={visibility}>
-            <h3 className="text-sm font-semibold">
-              {visibility === "private" ? "Not shown publicly" : "On this page, not in search"}
-            </h3>
+            <h3 className="text-sm font-semibold">{WITHHELD_GROUP_LABELS[visibility]}</h3>
             <dl className="mt-3 grid gap-3">
               {fields.map((field) => (
                 <div className="grid gap-1 sm:grid-cols-[10rem_minmax(0,1fr)] sm:gap-4" key={field.key}>

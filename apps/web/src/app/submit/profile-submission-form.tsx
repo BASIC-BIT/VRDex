@@ -64,6 +64,15 @@ function submissionErrorMessage(error: unknown): string {
     return data.message;
   }
 
+  // Field validation now arrives structured too, for the same reason. The
+  // pattern list below still catches anything that does not, but it only ever
+  // worked on a development deployment -- production redacts the message it
+  // matches against, so every one of those was reaching the person as "try again
+  // once the backend is reachable" for a name they could have simply lengthened.
+  if (data?.code === "PROFILE_INPUT_INVALID" && data.message) {
+    return data.message;
+  }
+
   const message = error instanceof Error ? error.message : String(error);
 
   for (const pattern of userSafeErrorPatterns) {

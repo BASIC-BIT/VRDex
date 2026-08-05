@@ -574,10 +574,29 @@ describe("seed import publish guards", () => {
         matchedProfile: {
           _id: "profile-merge-target" as never,
           claimState: "unclaimed" as const,
+          publicationState: "published" as const,
           publicSurfacingState: "public" as const,
         },
       }),
       [],
+    );
+
+    // Surfacing is not publication, and the exemption rests on the merge target
+    // already being a page a reader can open. A legacy draft_private row carrying
+    // publicSurfacingState: "public" is not one, so the candidate still has to
+    // bring something visible of its own.
+    assert.ok(
+      getSeedImportPublishBlockers({
+        batch: publishableBatch,
+        candidate: queuedCandidate,
+        fields: privateOnlyFields,
+        matchedProfile: {
+          _id: "profile-merge-target" as never,
+          claimState: "unclaimed" as const,
+          publicationState: "draft_private" as const,
+          publicSurfacingState: "public" as const,
+        },
+      }).includes("no_publicly_visible_field"),
     );
   });
 

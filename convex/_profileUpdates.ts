@@ -23,6 +23,7 @@ import {
   PROFILE_SUBTYPE_MAX_LENGTH,
   PROFILE_TAG_MAX_COUNT,
   PROFILE_TAG_MAX_LENGTH,
+  profileInputError,
   sanitizeProfileTextList,
 } from "./_profileSubmissions";
 import { reindexProfileSearchDocument } from "./_searchDocuments";
@@ -67,11 +68,11 @@ function requireBoundedText(input: string, fieldName: string, minLength: number,
   const value = normalizeProfileInlineText(input);
 
   if (value.length < minLength) {
-    throw new Error(`${fieldName} must be at least ${minLength} characters.`);
+    throw profileInputError(`${fieldName} must be at least ${minLength} characters.`);
   }
 
   if (value.length > maxLength) {
-    throw new Error(`${fieldName} must be ${maxLength} characters or fewer.`);
+    throw profileInputError(`${fieldName} must be ${maxLength} characters or fewer.`);
   }
 
   return value;
@@ -89,7 +90,7 @@ function optionalBoundedText(input: NullableString, fieldName: string, maxLength
   }
 
   if (value.length > maxLength) {
-    throw new Error(`${fieldName} must be ${maxLength} characters or fewer.`);
+    throw profileInputError(`${fieldName} must be ${maxLength} characters or fewer.`);
   }
 
   return value;
@@ -149,7 +150,7 @@ function requireEditableFields(
 ) {
   for (const field of changedFields) {
     if (!canEditProfileField(subject, profile, field)) {
-      throw new Error(
+      throw profileInputError(
         subject === "claimed_owner"
           ? `Only a claimed profile owner can update the ${field} field.`
           : `The ${field} field cannot be edited on a profile you do not own.`,
@@ -287,7 +288,7 @@ export function sanitizeApiProfileUpdateInput(
 
   if (input.person !== undefined) {
     if (profile.profileType !== "person") {
-      throw new Error("Person fields cannot be updated for a community profile.");
+      throw profileInputError("Person fields cannot be updated for a community profile.");
     }
 
     const person = { ...profile.person };
@@ -325,7 +326,7 @@ export function sanitizeApiProfileUpdateInput(
 
   if (input.community !== undefined) {
     if (profile.profileType !== "community") {
-      throw new Error("Community fields cannot be updated for a person profile.");
+      throw profileInputError("Community fields cannot be updated for a person profile.");
     }
 
     const community = { ...profile.community };
@@ -362,7 +363,7 @@ export function sanitizeApiProfileUpdateInput(
   }
 
   if (changedFields.length === 0) {
-    throw new Error("At least one editable profile field is required.");
+    throw profileInputError("At least one editable profile field is required.");
   }
 
   // Permission is checked on everything submitted, before the diff. A writer

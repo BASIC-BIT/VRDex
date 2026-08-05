@@ -1717,6 +1717,17 @@ export const bulkSetFieldVisibility = internalMutation({
             ? { ...field, visibility: args.visibility }
             : field,
         );
+      // Nothing selected for this candidate, so there is nothing to carry. A
+      // `--field-keys outboundLinks` run over a batch reaches plenty of profiles
+      // with no link field at all, and the builder would hand back the profile's
+      // own `fieldVisibility` unchanged -- a patch whose only effect is a fresh
+      // `updatedAt` and a reindex, counted and reported as a re-derivation. The
+      // run would say it had touched every published profile in the batch and
+      // mean nothing by it.
+      if (acceptedFields.length === 0) {
+        continue;
+      }
+
       const rebuilt = buildConciergeProfileFieldPatch(acceptedFields, profile, {
         fieldVisibilitySource: "reviewed",
         clearUnselectedFields: false,

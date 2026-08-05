@@ -187,7 +187,30 @@ type SeedImportPublicationField = Pick<
 type SeedImportPublicationProfile = Pick<
   Doc<"profiles">,
   "_id" | "claimState" | "publicSurfacingState"
->;
+> &
+  // Optional because the queue gate's callers do not all load it, and its absence
+  // must read as "not known to be published" rather than as published.
+  Partial<Pick<Doc<"profiles">, "publicationState">>;
+
+/**
+ * Whether a merge target is a page the public can already read.
+ *
+ * Surfacing is not publication. `publicSurfacingState: "public"` only says
+ * nobody opted this profile out; a legacy `draft_private` row can carry it and
+ * still 404 for everyone. The gates check surfacing because that is the decision
+ * an operator makes, so anything reasoning about what a *reader* sees has to ask
+ * for both.
+ */
+function isPubliclyReadableProfile(
+  profile: SeedImportPublicationProfile | null | undefined,
+): boolean {
+  return (
+    profile !== null &&
+    profile !== undefined &&
+    profile.publicationState === "published" &&
+    profile.publicSurfacingState === "public"
+  );
+}
 
 type SeedImportFixtureWriter = Pick<DatabaseWriter, "insert">;
 
@@ -1258,8 +1281,13 @@ export function getSeedImportPublishBlockers(args: {
   }
 
   for (const blocker of getSeedImportFieldBlockers(args.fields ?? [], {
-    mergesIntoExistingProfile:
-      args.matchedProfile !== null && args.matchedProfile !== undefined,
+    // Publicly readable, not merely matched. The exemption rests on the merge
+    // target already being a page a reader can open, and the match gates check
+    // surfacing rather than publication -- so a legacy `draft_private` row
+    // carrying `publicSurfacingState: "public"` would have skipped the
+    // visible-field gate and published exactly the display-name-only page it
+    // exists to refuse.
+    mergesIntoExistingProfile: isPubliclyReadableProfile(args.matchedProfile),
   })) {
     blockers.add(blocker);
   }
@@ -1388,8 +1416,9 @@ export function getSeedImportPublicationBlockers(args: {
   }
 
   for (const blocker of getSeedImportFieldBlockers(args.fields, {
-    mergesIntoExistingProfile:
-      args.matchedProfile !== null && args.matchedProfile !== undefined,
+    // Same rule as the publish gate: only a merge target the public can already
+    // read exempts the candidate from needing visible content of its own.
+    mergesIntoExistingProfile: isPubliclyReadableProfile(args.matchedProfile),
   })) {
     blockers.add(blocker);
   }
