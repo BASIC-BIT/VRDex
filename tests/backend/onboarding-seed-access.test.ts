@@ -472,6 +472,31 @@ describe("private seed projection", () => {
       ),
       true,
     );
+
+    // But "was relaxed once" is not "is still permitted". Written as one
+    // disjunction, a published row satisfied the policy clause on its state
+    // alone, so revoking a batch back to private_only after it published changed
+    // nothing -- the narrower grant went on reading its accepted private fields
+    // after the source withdrew permission.
+    assert.equal(
+      canIncludePrivateSeedCandidate(published as never, "private_only", "approved", false, {
+        claimState: "unclaimed",
+        publicationState: "published",
+        publicSurfacingState: "public",
+      } as never),
+      false,
+    );
+
+    // Super-admins still see it. "Why is this person gone?" is exactly the
+    // question they are there to answer.
+    assert.equal(
+      canIncludePrivateSeedCandidate(published as never, "private_only", "approved", true, {
+        claimState: "unclaimed",
+        publicationState: "published",
+        publicSurfacingState: "public",
+      } as never),
+      true,
+    );
   });
 
   it("reads the live profile, because the candidate row goes stale both ways", () => {

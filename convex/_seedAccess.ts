@@ -113,15 +113,31 @@ export function canIncludePrivateSeedCandidate(
     return false;
   }
 
+  // Each publication state answers to the policy that permits it, rather than to
+  // one condition covering both.
+  //
+  // `private_only` is the promise this grant is scoped to for a record that has
+  // not shipped. A published candidate cannot be held to it -- publishing
+  // required the batch to be relaxed past `private_only` in the first place, so
+  // demanding it there hid exactly the records whose data is already public,
+  // which is how publishing dropped 405 people out of this lookup the moment
+  // they went live.
+  //
+  // But "was relaxed once" is not "is still permitted". Written as a single
+  // disjunction, a published row satisfied the policy clause on its state alone,
+  // so a batch revoked back to `private_only` after publishing went on serving
+  // its accepted private fields to the narrower grant -- a withdrawal of source
+  // permission that changed nothing. A published row now requires the batch to
+  // still allow publication; revocation withdraws it here the same way it
+  // withdraws the right to publish more. Super-admins still see it, because
+  // "why is this person gone?" is exactly what they are there to answer.
+  const policyAllows =
+    candidate.publicationState === "published_unclaimed"
+      ? (publicationPolicy ?? "private_only") === "reviewed_publication_allowed"
+      : publicationPolicy === "private_only";
+
   return (
-    // `private_only` is the promise this grant is scoped to. A published
-    // candidate necessarily came from a batch relaxed to
-    // reviewed_publication_allowed, so requiring private_only there would hide
-    // exactly the records whose data is already public -- which is how
-    // publishing dropped 405 people out of this lookup the moment they went
-    // live, leaving it covering only what had not shipped yet.
-    (publicationPolicy === "private_only" ||
-      candidate.publicationState === "published_unclaimed") &&
+    policyAllows &&
     batchReviewState !== "rejected" &&
     batchReviewState !== "superseded" &&
     candidate.claimState === "unclaimed" &&

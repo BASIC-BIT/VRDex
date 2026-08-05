@@ -470,6 +470,22 @@ describe("private seed Convex handlers", () => {
 
     const identity = await t.run(async (ctx) => {
       const candidates = await ctx.db.query("seedImportCandidateProfiles").collect();
+      // The published row goes in its own batch, because one batch cannot hold
+      // both: a draft row is visible to this grant only while its batch is still
+      // `private_only`, and publishing required the batch to be relaxed past
+      // that. A `private_only` batch containing a published candidate is a state
+      // publication cannot produce.
+      const publishedBatchId = await ctx.db.insert("seedImportBatches", {
+        externalBatchId: "handler_test_batch_published",
+        sourceName: "NWinn",
+        sourceType: "partner",
+        receivedAt: NOW,
+        publicationPolicy: "reviewed_publication_allowed",
+        reviewState: "approved",
+        createdAt: NOW,
+        updatedAt: NOW,
+      });
+
       // Five drafts and one published, so concatenation would spend a limit of
       // four entirely on drafts and never reach the published row.
       for (const [index, candidate] of candidates.entries()) {
@@ -487,6 +503,7 @@ describe("private seed Convex handlers", () => {
           reviewState: "accepted",
           ...(published
             ? {
+                batchId: publishedBatchId,
                 publicationState: "published_unclaimed" as const,
                 publishedProfileId: profileId,
                 publishedAt: NOW,

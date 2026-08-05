@@ -47,6 +47,14 @@ private: it renders on the profile page, so a contributor looking at that page
 has already seen it. `profiles:editableProfile` returns values only for fields
 the subject has cleared, so the form shows exactly what it may change.
 
+Visibility does not settle that on its own. `timezone` sits at `public` by
+default and no public surface renders it -- only the operator lookup does, behind
+`view_private_seed_lookup` -- so a contributor offered it would be reading a value
+the page withheld, at a field the visibility check calls readable. Being allowed
+to show something is not the same as showing it. It is in
+`COMMUNITY_UNEDITABLE_FIELDS` until some surface renders it; owners keep it,
+because it is their own record.
+
 An existing link keeps the provenance it already had, and each row says which
 one it arrived with. The form posts the whole array back, so restamping on every
 save would downgrade an owner-authored link to community-submitted because
@@ -73,6 +81,12 @@ Sending the live number would pass the check with a payload built from what the
 other editor just replaced — the overwrite the check exists to refuse, arriving
 through the check. The editor pins the version its inputs were filled from for
 the life of the form, so that save is refused and the message says to reload.
+
+The argument is required rather than optional. A check a caller can decline by
+omitting it is not a check: a cached page still running the previous
+deployment's bundle, or anything calling the mutation directly, would post the
+same whole-form payload and skip straight past it. Every browser save knows the
+version it loaded, because it had to read the profile to fill the form.
 
 **Media is out of scope for community editing.** A profile picture or logo is
 information about the person by the rule above, and it is the most visible thing

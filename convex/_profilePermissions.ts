@@ -41,6 +41,16 @@ export type ProfileEditableField = (typeof PROFILE_EDITABLE_FIELDS)[number];
  *   -- border radius, colours, section order -- is a presentation choice
  *   belonging to whoever owns the profile, and it is governed by
  *   `profileAppearance` rather than reaching this union at all.
+ * - **What the page does not show** is not either. `timezone` reaches the
+ *   profile record and nothing on the public page renders it -- only the
+ *   operator lookup does, behind `view_private_seed_lookup`. Editing a field
+ *   means being shown its current value first, so a contributor offered this one
+ *   would be reading a value the page withheld, and a blind save would overwrite
+ *   it. That is the same rule `private` visibility enforces, and visibility
+ *   alone does not catch it: the field can sit at `public` and still be invisible
+ *   because no surface renders it. Rendering it is a product decision nobody has
+ *   made; until somebody does, it is not the community's to edit. Owners keep it,
+ *   since it is their own record.
  *
  * An allowlist made the default for a new field "not editable", which is how
  * `outboundLinks` -- a DJ's stream links, the single highest-value field on the
@@ -48,6 +58,7 @@ export type ProfileEditableField = (typeof PROFILE_EDITABLE_FIELDS)[number];
  */
 export const COMMUNITY_UNEDITABLE_FIELDS = [
   "slug",
+  "timezone",
 ] as const satisfies readonly ProfileEditableField[];
 
 /**

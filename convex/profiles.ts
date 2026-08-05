@@ -600,8 +600,15 @@ export const updateProfileFromBrowser = mutation({
      * somebody else changed in the meantime -- and the diff would read those as
      * deliberate, because it compares against the profile as it is now. This
      * refuses the save instead of silently winning it.
+     *
+     * Required, not optional. A check a caller can decline by omitting the
+     * argument is not a check: a cached page still running the previous
+     * deployment's bundle, or anything calling the mutation directly, would post
+     * the same whole-form payload and skip straight past it -- landing exactly
+     * the overwrite this exists to refuse. Every browser save knows the version
+     * it loaded, because it had to read the profile to fill the form.
      */
-    expectedUpdatedAt: v.optional(v.number()),
+    expectedUpdatedAt: v.number(),
     ...apiProfileUpdateArgs,
   },
   handler: async (ctx, args) => {
@@ -638,7 +645,7 @@ export const updateProfileFromBrowser = mutation({
       });
     }
 
-    if (args.expectedUpdatedAt !== undefined && args.expectedUpdatedAt !== profile.updatedAt) {
+    if (args.expectedUpdatedAt !== profile.updatedAt) {
       throw new ConvexError({
         code: "PROFILE_CHANGED",
         message: "This profile changed while you were editing it. Reload to see the current version.",

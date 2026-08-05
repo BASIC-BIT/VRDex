@@ -489,10 +489,20 @@ grant — and for a published candidate it reads the *live profile's* claim stat
 rather than the candidate's own. Claim flows patch `profiles.claimState` and
 never revisit the candidate row, so the candidate still reads `unclaimed` long
 after someone took ownership; a profile that cannot be loaded counts as claimed. Publishing used to move a candidate out of the lookup entirely, so the
-operator surface covered exactly the records that had not shipped yet — a
-published candidate's batch is necessarily relaxed past `private_only`, so the
-policy check does not apply to it either. `rejected` and `suppressed` stay
-super-admin-only: both record a decision to stop handling that person.
+operator surface covered exactly the records that had not shipped yet.
+`rejected` and `suppressed` stay super-admin-only: both record a decision to stop
+handling that person.
+
+Each publication state answers to the policy that permits it. A row that has not
+shipped is visible only while its batch is still `private_only`, which is the
+promise this grant is scoped to. A published row cannot be held to that —
+publishing required the batch to be relaxed past `private_only` in the first
+place, and demanding it there is what hid the 405 the moment they went live — so
+it requires the batch to still allow publication instead. "Was relaxed once" is
+not "is still permitted": revoking a batch back to `private_only` after it has
+published withdraws these rows from the narrower grant, the same way it withdraws
+the right to publish more. Super-admins keep seeing them, because "why is this
+person gone?" is the question they are there to answer.
 
 Each search reads until it has collected `limit` rows the viewer may see, rather
 than taking a window sized to the answer and filtering it afterwards. Eligibility

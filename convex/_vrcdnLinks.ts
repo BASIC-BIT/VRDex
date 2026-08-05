@@ -57,15 +57,10 @@ function getVrcdnPreviewStreamId(url: URL): string | null {
     return null;
   }
 
-  const streamId = toVrcdnStreamId(segments[1]);
-
-  // The same reserved names the root host rejects. Without this,
-  // `/preview/dashboard` canonicalizes to `vrcdn.live/dashboard` and a product
-  // page ships as somebody's stream link -- through the very check that keeps
-  // `vrcdn.live/dashboard` from being one when typed directly.
-  return streamId !== null && !vrcdnReservedPagePaths.has(streamId.toLowerCase())
-    ? streamId
-    : null;
+  // Reserved names are refused by `toVrcdnStreamId` for every route into it, so
+  // `/preview/dashboard` cannot canonicalize to `vrcdn.live/dashboard` here
+  // either.
+  return toVrcdnStreamId(segments[1]);
 }
 
 function cleanPathSegments(pathname: string): string[] {
@@ -89,7 +84,18 @@ function toVrcdnStreamId(segment: string | undefined): string | null {
 
   const streamId = decoded.replace(vrcdnStreamExtension, "").replace(/\.live$/i, "");
 
-  return vrcdnStreamIdPattern.test(streamId) ? streamId : null;
+  // Reserved names are refused here rather than at each parse site, because
+  // every one of them ends up building the same canonical `vrcdn.live/<id>`
+  // page link. Checking only the paths where a reserved name looks likely left
+  // `stream.vrcdn.live/live/dashboard.m3u8` and `rtspt://stream.vrcdn.live/live/login`
+  // rebuilt as links to VRCDN's own product pages -- the same publishable
+  // not-a-stream the root-host check already refused, arriving by another route.
+  //
+  // Nothing legitimate is lost: VRCDN reserves these paths, so no stream can
+  // carry one as its id.
+  return vrcdnStreamIdPattern.test(streamId) && !vrcdnReservedPagePaths.has(streamId.toLowerCase())
+    ? streamId
+    : null;
 }
 
 function getVrcdnStreamId(url: URL): string | null {
@@ -109,10 +115,8 @@ function getVrcdnStreamId(url: URL): string | null {
       return toVrcdnStreamId(second);
     }
 
-    if (!first || vrcdnReservedPagePaths.has(firstLower ?? "")) {
-      return null;
-    }
-
+    // Reserved names fall out in `toVrcdnStreamId`, which every route into a
+    // stream id passes through.
     return toVrcdnStreamId(first);
   }
 

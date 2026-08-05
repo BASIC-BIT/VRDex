@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { parseVrcdnStreamLinks } from "../../convex/_vrcdnLinks";
+import { createVrcdnStreamLinks, parseVrcdnStreamLinks } from "../../convex/_vrcdnLinks";
 
 describe("VRCDN stream links", () => {
   it("derives canonical stream URLs from common VRCDN variants", () => {
@@ -59,5 +59,36 @@ describe("VRCDN stream links", () => {
         reserved,
       );
     }
+  });
+
+  // Every route into a stream id now runs the reserved check, because every one
+  // of them ends up building the same canonical vrcdn.live/<id> page link.
+  // Guarding the paths where a reserved name looked likely left the stream
+  // endpoints rebuilding VRCDN's own product pages as somebody's stream.
+  it("refuses reserved names arriving as stream endpoints", () => {
+    for (const reserved of ["dashboard", "login", "panel", "status", "wiki", "api"]) {
+      for (const url of [
+        `https://stream.vrcdn.live/live/${reserved}.m3u8`,
+        `https://stream.vrcdn.live/live/${reserved}.live.ts`,
+        `rtspt://stream.vrcdn.live/live/${reserved}`,
+        `https://vrcdn.live/watch/${reserved}`,
+        `https://vrcdn.live/embed/${reserved}`,
+      ]) {
+        assert.equal(parseVrcdnStreamLinks(url), null, url);
+      }
+    }
+
+    // Still a stream when the name is not reserved, on the same paths.
+    assert.equal(
+      parseVrcdnStreamLinks("https://stream.vrcdn.live/live/snekwtf.m3u8")?.pageUrl,
+      "https://vrcdn.live/snekwtf",
+    );
+  });
+
+  it("refuses to build canonical links for a reserved id", () => {
+    // createVrcdnStreamLinks is called with ids from outside the parser too, so
+    // the shared normalizer is where this has to hold.
+    assert.equal(createVrcdnStreamLinks("dashboard"), null);
+    assert.equal(createVrcdnStreamLinks("snekwtf")?.pageUrl, "https://vrcdn.live/snekwtf");
   });
 });

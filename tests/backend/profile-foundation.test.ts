@@ -286,7 +286,6 @@ describe("profile permission helpers", () => {
       "headline",
       "bio",
       "region",
-      "timezone",
       "outboundLinks",
       "person",
     ] as const) {
@@ -296,6 +295,27 @@ describe("profile permission helpers", () => {
         field,
       );
     }
+  });
+
+  // Editing a field means being shown its current value first, and no public
+  // surface renders `timezone` -- only the operator lookup does, behind
+  // `view_private_seed_lookup`. Visibility does not catch this on its own: the
+  // field sits at `public` by default and is invisible anyway, because being
+  // allowed to show something is not the same as showing it. The owner keeps it,
+  // since it is their own record.
+  it("keeps the community out of a field no public surface renders", () => {
+    assert.equal(
+      canEditProfileField("community_submitter", publishedUnclaimedPerson, "timezone"),
+      false,
+    );
+    assert.equal(
+      canEditProfileField(
+        "claimed_owner",
+        { ...publishedUnclaimedPerson, claimState: "claimed_unverified" } as const,
+        "timezone",
+      ),
+      true,
+    );
   });
 
   it("stops the community editing a profile once someone owns it", () => {
