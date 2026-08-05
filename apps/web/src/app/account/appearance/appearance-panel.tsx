@@ -443,12 +443,8 @@ function AppearanceEditor({
               </div>
             ))}
           </div>
-          <FieldText>Profile identity, about, and links stay together above these supporting sections.</FieldText>
         </div>
 
-        {demo ? (
-          <Notice variant="dashed">Demo mode is live-only. Sign in and claim a profile to save appearance settings.</Notice>
-        ) : null}
         {status.kind === "saving" ? <p className="text-sm text-muted">Saving appearance...</p> : null}
         {status.kind === "success" ? <Notice>Appearance saved.</Notice> : null}
         {status.kind === "error" ? <Notice variant="error">{status.message}</Notice> : null}

@@ -249,7 +249,7 @@ function PrivacyEditor({
               <div className="grid gap-2">
                 {group.fields.map((field) => (
                   <label
-                    className="grid gap-3 rounded-control border border-border bg-surface-strong px-4 py-3 text-sm sm:grid-cols-[minmax(0,1fr)_10rem] sm:items-center"
+                    className="grid gap-3 rounded-control border border-border bg-surface-strong px-3 py-3 text-sm sm:grid-cols-[minmax(0,1fr)_10rem] sm:items-center sm:px-4"
                     key={field.key}
                   >
                     <span className="font-medium">{field.label}</span>
@@ -275,7 +275,6 @@ function PrivacyEditor({
           ))}
         </div>
 
-        {demo ? <Notice variant="dashed">Demo mode is live-only. Sign in and claim a profile to save privacy settings.</Notice> : null}
         {status.kind === "saving" ? <p className="text-sm text-muted">Saving privacy...</p> : null}
         {status.kind === "success" ? <Notice>Privacy saved.</Notice> : null}
         {status.kind === "error" ? <Notice variant="error">{status.message}</Notice> : null}

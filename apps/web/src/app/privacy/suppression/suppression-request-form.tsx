@@ -105,10 +105,6 @@ export function SuppressionRequestForm() {
         <Textarea className="min-h-32" name="requesterNote" placeholder="Briefly explain the request. Do not include sensitive proof in this first form." />
       </Field>
 
-      <p className="text-sm text-muted italic">
-        Submitted requests do not automatically hide a listing.
-      </p>
-
       <Button className="w-fit" disabled={status.kind === "submitting"} size="lg" type="submit" variant="primary">
         {status.kind === "submitting" ? "Submitting..." : "Submit request"}
       </Button>
