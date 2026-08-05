@@ -106,6 +106,33 @@ describe("profile fields payload", () => {
     );
   });
 
+  it("omits narrative fields the form never rendered", () => {
+    // The update path treats a key it receives as an instruction, so sending an
+    // empty string for a control nobody rendered would clear a headline the
+    // editor never showed. The submit form does not carry these at all.
+    const submitted = profileFieldsPayload(formData([["displayName", "Snek"]]), "person");
+
+    assert.equal("headline" in submitted, false);
+    assert.equal("bio" in submitted, false);
+
+    const edited = profileFieldsPayload(
+      formData([
+        ["displayName", "Snek"],
+        ["headline", "Bass in VRChat"],
+        ["bio", ""],
+        ["region", "EU"],
+        ["timezone", ""],
+      ]),
+      "person",
+    );
+
+    // Present-but-empty is a clear, and has to survive as a key to mean one.
+    assert.equal(edited.headline, "Bass in VRChat");
+    assert.equal(edited.bio, "");
+    assert.equal(edited.region, "EU");
+    assert.equal(edited.timezone, "");
+  });
+
   it("ignores person fields on a community profile", () => {
     const payload = profileFieldsPayload(
       formData([

@@ -4,7 +4,7 @@ import { X } from "lucide-react";
 import { useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { CheckboxField, Field, FieldText, Input, Select } from "@/components/ui/field";
+import { CheckboxField, Field, FieldText, Input, Select, Textarea } from "@/components/ui/field";
 import {
   PROFILE_LINK_MAX_COUNT,
   PROFILE_LINK_TYPE_LABELS,
@@ -106,9 +106,17 @@ function PersonRoleFields({ defaults }: { defaults: ProfileFieldsDefaults }) {
 export function ProfileFields({
   defaults = {},
   profileType,
+  showNarrativeFields = false,
 }: {
   defaults?: ProfileFieldsDefaults;
   profileType: ProfileFieldsType;
+  /**
+   * Headline, bio, region and timezone. On for the editor and off for the submit
+   * form: creating somebody else's profile is a factual act, and writing their
+   * headline for them on the way in is not. Correcting one that already exists
+   * is ordinary directory work.
+   */
+  showNarrativeFields?: boolean;
 }) {
   const { rows } = partitionLinks(defaults.links ?? [], profileType === "person");
   // Stable ids rather than indices: the inputs are uncontrolled, so keying by
@@ -153,6 +161,32 @@ export function ProfileFields({
           />
         </Field>
       </div>
+
+      {showNarrativeFields ? (
+        <>
+          <Field>
+            Headline
+            <Input defaultValue={defaults.headline ?? ""} maxLength={160} name="headline" />
+          </Field>
+
+          <Field>
+            Bio
+            <Textarea defaultValue={defaults.bio ?? ""} maxLength={600} name="bio" rows={4} />
+          </Field>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field>
+              Region
+              <Input defaultValue={defaults.region ?? ""} maxLength={80} name="region" />
+            </Field>
+
+            <Field>
+              Timezone
+              <Input defaultValue={defaults.timezone ?? ""} maxLength={80} name="timezone" />
+            </Field>
+          </div>
+        </>
+      ) : null}
 
       {profileType === "person" ? (
         <PersonRoleFields defaults={defaults} />

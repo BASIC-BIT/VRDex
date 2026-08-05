@@ -19,29 +19,43 @@ export type ProfileFieldsDefaults = {
   displayName?: string;
   aliases?: string[];
   tags?: string[];
+  headline?: string;
+  bio?: string;
+  region?: string;
+  timezone?: string;
   roleTags?: string[];
   subtype?: string;
   categoryTags?: string[];
   links?: ProfileLinkInput[];
 };
 
+/**
+ * Fields describing the person in prose rather than as a list.
+ *
+ * Rendered by the editor and not by the submit form: creating somebody else's
+ * profile is a factual act, and writing their headline and bio for them on the
+ * way in is not. Correcting one that already exists is ordinary directory work.
+ */
+const NARRATIVE_FIELDS = ["headline", "bio", "region", "timezone"] as const;
+
+type NarrativeFields = Partial<Record<(typeof NARRATIVE_FIELDS)[number], string>>;
+
+type SharedFields = {
+  displayName: string;
+  aliases: string[];
+  tags: string[];
+  outboundLinks: ProfileLinkInput[];
+} & NarrativeFields;
+
 export type ProfileFieldsPayload =
-  | {
+  | (SharedFields & {
       profileType: "person";
-      displayName: string;
-      aliases: string[];
-      tags: string[];
-      outboundLinks: ProfileLinkInput[];
       person: { roleTags: string[] };
-    }
-  | {
+    })
+  | (SharedFields & {
       profileType: "community";
-      displayName: string;
-      aliases: string[];
-      tags: string[];
-      outboundLinks: ProfileLinkInput[];
       community: { subtype: string; categoryTags: string[] };
-    };
+    });
 
 /**
  * Roles offered as checkboxes.
@@ -158,6 +172,15 @@ export function profileFieldsPayload(
     aliases: splitList(formData.get("aliases")),
     tags: splitList(formData.get("tags")),
     outboundLinks: linksFromFormData(formData),
+    // Present only when the field was on the page. The update path treats a key
+    // it receives as an instruction, so sending an empty string for a control
+    // nobody rendered would clear a headline the editor never showed.
+    ...Object.fromEntries(
+      NARRATIVE_FIELDS.filter((name) => formData.has(name)).map((name) => [
+        name,
+        stringField(formData.get(name)),
+      ]),
+    ),
   };
 
   if (profileType === "community") {

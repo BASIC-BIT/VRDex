@@ -114,6 +114,12 @@ function ConnectedProfileEditForm({ slug, profilePath }: { slug: string; profile
         aliases: payload.aliases,
         tags: payload.tags,
         outboundLinks: payload.outboundLinks,
+        // Nullable rather than omitted: clearing a headline is an edit, and an
+        // absent key means "leave it alone" on the update path.
+        headline: payload.headline ?? null,
+        bio: payload.bio ?? null,
+        region: payload.region ?? null,
+        timezone: payload.timezone ?? null,
         ...(payload.profileType === "person"
           ? { person: { roleTags: payload.person.roleTags } }
           : {
@@ -149,12 +155,17 @@ function ConnectedProfileEditForm({ slug, profilePath }: { slug: string; profile
           displayName: profile.displayName,
           aliases: profile.aliases,
           tags: profile.tags,
+          headline: profile.headline ?? "",
+          bio: profile.bio ?? "",
+          region: profile.region ?? "",
+          timezone: profile.timezone ?? "",
           roleTags: profile.person?.roleTags ?? [],
           subtype: profile.community?.subtype ?? "",
           categoryTags: profile.community?.categoryTags ?? [],
           links: profile.outboundLinks,
         }}
         profileType={profile.profileType}
+        showNarrativeFields
       />
 
       <div className="flex flex-col gap-3 border-t border-border pt-6 sm:flex-row sm:items-center">
