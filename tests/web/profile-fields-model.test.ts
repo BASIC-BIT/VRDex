@@ -37,9 +37,11 @@ describe("stream link partitioning", () => {
   it("promotes the first of each type and leaves the rest in rows", () => {
     const { featured, rows } = partitionLinks([...links], true);
 
+    // The whole link, not just its URL: the dedicated inputs carry the label,
+    // handle and presentation through as hidden fields, same as the rows.
     assert.deepEqual(featured, {
-      vrcdn: "https://vrcdn.live/snekwtf",
-      twitch: "https://twitch.tv/snekwtf",
+      vrcdn: { type: "vrcdn", url: "https://vrcdn.live/snekwtf" },
+      twitch: { type: "twitch", url: "https://twitch.tv/snekwtf" },
     });
     // The second Twitch link stays a row rather than being dropped for having
     // nowhere to go.
@@ -142,6 +144,76 @@ describe("profile fields payload", () => {
     assert.equal(edited.bio, "");
     assert.equal(edited.region, "EU");
     assert.equal(edited.timezone, "");
+  });
+
+  it("carries the metadata of an untouched link, and drops it from an edited one", () => {
+    // The form has no control for a label, handle or presentation, and posts the
+    // whole array back — so without this an untouched row returns with its
+    // custom label replaced by the provider default and its VRCDN handle gone.
+    // A row whose URL was edited starts clean: the metadata described the old
+    // destination and would be wrong on the new one.
+    const payload = profileFieldsPayload(
+      formData(
+        [
+          ["displayName", "Snek"],
+          ["linkType", "twitch"],
+          ["linkUrl", "https://twitch.tv/snekwtf"],
+          ["linkOriginalUrl", "https://twitch.tv/snekwtf"],
+          ["linkLabel", "Restream"],
+          ["linkHandle", "snekwtf"],
+          ["linkPresentation", "copy"],
+          ["linkType", "soundcloud"],
+          ["linkUrl", "https://soundcloud.com/moved"],
+          ["linkOriginalUrl", "https://soundcloud.com/original"],
+          ["linkLabel", "Old set archive"],
+          ["linkHandle", "original"],
+          ["linkPresentation", "copy"],
+        ],
+        ["outboundLinks"],
+      ),
+      "person",
+    );
+
+    assert.deepEqual(payload.outboundLinks, [
+      {
+        type: "twitch",
+        url: "https://twitch.tv/snekwtf",
+        label: "Restream",
+        handle: "snekwtf",
+        presentation: "copy",
+      },
+      { type: "soundcloud", url: "https://soundcloud.com/moved" },
+    ]);
+  });
+
+  it("keeps a new row aligned with its own blank metadata", () => {
+    // Every row emits all five hidden fields, so a blank one added above a
+    // populated one cannot shift the pairing and hand its label to a neighbour.
+    const payload = profileFieldsPayload(
+      formData(
+        [
+          ["displayName", "Snek"],
+          ["linkType", "website"],
+          ["linkUrl", ""],
+          ["linkOriginalUrl", ""],
+          ["linkLabel", ""],
+          ["linkHandle", ""],
+          ["linkPresentation", ""],
+          ["linkType", "twitch"],
+          ["linkUrl", "https://twitch.tv/snekwtf"],
+          ["linkOriginalUrl", "https://twitch.tv/snekwtf"],
+          ["linkLabel", "Restream"],
+          ["linkHandle", "snekwtf"],
+          ["linkPresentation", ""],
+        ],
+        ["outboundLinks"],
+      ),
+      "person",
+    );
+
+    assert.deepEqual(payload.outboundLinks, [
+      { type: "twitch", url: "https://twitch.tv/snekwtf", label: "Restream", handle: "snekwtf" },
+    ]);
   });
 
   it("omits a field group the form did not render", () => {

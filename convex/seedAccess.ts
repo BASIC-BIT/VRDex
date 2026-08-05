@@ -177,7 +177,19 @@ export const withheldProfileRecord = query({
       userOwnsProfile(ctx.db, profile._id, activeSession.user._id),
     ]);
 
-    if (!owns && !access.canViewPrivateSeedLookup) {
+    // `view_private_seed_lookup` is scoped to the private seed lane, and this
+    // query answers by slug -- so without the second condition the beta grant
+    // would read hidden fields and edit history for any profile whose slug
+    // someone guessed, claimed ones included. A direct Convex call is not
+    // bounded by the public page this renders on.
+    //
+    // The narrower grant sees what the seed lookup already shows it: unclaimed
+    // records that came from an import. Super-admins and the profile's own owner
+    // are unrestricted.
+    const withinSeedGrant =
+      profile.claimState === "unclaimed" && profile.creationSource === "import";
+
+    if (!owns && !access.superAdmin && !(access.canViewPrivateSeedLookup && withinSeedGrant)) {
       return null;
     }
 

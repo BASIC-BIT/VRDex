@@ -97,22 +97,33 @@ function WithheldProfileRecord({
         </p>
       )}
 
-      {record.withheldFields.length > 0 ? (
-        <div className="mt-5">
-          <h3 className="text-sm font-semibold">Not shown publicly</h3>
-          <dl className="mt-3 grid gap-3">
-            {record.withheldFields.map((field) => (
-              <div className="grid gap-1 sm:grid-cols-[10rem_minmax(0,1fr)] sm:gap-4" key={field.key}>
-                <dt className="text-sm text-muted">
-                  {FIELD_LABELS[field.key] ?? field.key}
-                  <span className="ml-2 text-xs">{field.visibility}</span>
-                </dt>
-                <dd className="text-sm break-words">{field.values.join(", ")}</dd>
-              </div>
-            ))}
-          </dl>
-        </div>
-      ) : null}
+      {/* Two groups, because they are two different facts. A private field is
+          nowhere; an unlisted one is on this page for anyone holding the URL and
+          only absent from search. Filing both under "not shown publicly" would
+          tell an owner their unlisted alias is hidden when it is not. */}
+      {(["private", "unlisted"] as const).map((visibility) => {
+        const fields = record.withheldFields.filter((field) => field.visibility === visibility);
+
+        if (fields.length === 0) {
+          return null;
+        }
+
+        return (
+          <div className="mt-5" key={visibility}>
+            <h3 className="text-sm font-semibold">
+              {visibility === "private" ? "Not shown publicly" : "On this page, not in search"}
+            </h3>
+            <dl className="mt-3 grid gap-3">
+              {fields.map((field) => (
+                <div className="grid gap-1 sm:grid-cols-[10rem_minmax(0,1fr)] sm:gap-4" key={field.key}>
+                  <dt className="text-sm text-muted">{FIELD_LABELS[field.key] ?? field.key}</dt>
+                  <dd className="text-sm break-words">{field.values.join(", ")}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        );
+      })}
 
       {record.history.length > 0 ? (
         <div className="mt-6">

@@ -183,16 +183,14 @@ function ConnectedProfileEditForm({ slug, profilePath }: { slug: string; profile
   );
 }
 
-export function ProfileEditForm({ profilePath, slug }: { profilePath: string; slug: string }) {
+function AuthenticatedProfileEditForm({
+  profilePath,
+  slug,
+}: {
+  profilePath: string;
+  slug: string;
+}) {
   const { isAuthenticated, isLoading } = useConvexAuth();
-
-  if (!convexUrl) {
-    return (
-      <EditPanel title="Profile editing is unavailable">
-        <p className="text-sm text-muted">Try again later.</p>
-      </EditPanel>
-    );
-  }
 
   if (isLoading) {
     return <p className="text-sm text-muted">Loading sign-in state...</p>;
@@ -209,4 +207,21 @@ export function ProfileEditForm({ profilePath, slug }: { profilePath: string; sl
   }
 
   return <ConnectedProfileEditForm profilePath={profilePath} slug={slug} />;
+}
+
+export function ProfileEditForm({ profilePath, slug }: { profilePath: string; slug: string }) {
+  // Ahead of every Convex hook, not beside them. `ConvexClientProvider` renders
+  // no provider when the URL is unset, so `useConvexAuth` throws on mount there
+  // and the fallback below is never reached -- the same shape as the fixture
+  // crash on the public profile page, and the reason the submit form splits its
+  // connected half into its own component.
+  if (!convexUrl) {
+    return (
+      <EditPanel title="Profile editing is unavailable">
+        <p className="text-sm text-muted">Try again later.</p>
+      </EditPanel>
+    );
+  }
+
+  return <AuthenticatedProfileEditForm profilePath={profilePath} slug={slug} />;
 }

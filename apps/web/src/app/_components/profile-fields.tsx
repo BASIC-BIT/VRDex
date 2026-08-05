@@ -49,6 +49,31 @@ function FieldGroup({ children, field }: { children: ReactNode; field: string })
   );
 }
 
+/**
+ * The parts of a link the form has no control for.
+ *
+ * A custom label, a VRCDN handle, a copy-styled presentation: none of them are
+ * editable here, and the editor posts the whole link array back, so without
+ * these an untouched row returns with its label replaced by the provider default
+ * and its handle gone. `<originalUrl>` lets the payload builder tell an
+ * unchanged link from a newly pasted one, because the metadata describes the old
+ * destination and would be wrong on a new one.
+ */
+function LinkMetadata({ link, name }: { link?: ProfileLinkInput; name: string }) {
+  if (link === undefined) {
+    return null;
+  }
+
+  return (
+    <>
+      <input name={`${name}OriginalUrl`} type="hidden" value={link.url} />
+      <input name={`${name}Label`} type="hidden" value={link.label ?? ""} />
+      <input name={`${name}Handle`} type="hidden" value={link.handle ?? ""} />
+      <input name={`${name}Presentation`} type="hidden" value={link.presentation ?? ""} />
+    </>
+  );
+}
+
 function PersonRoleFields({
   defaults,
   showStreamInputs,
@@ -100,8 +125,9 @@ function PersonRoleFields({
         <div className="grid gap-4 sm:grid-cols-2">
           <Field>
             Stream
+            <LinkMetadata link={featured.vrcdn} name="vrcdn" />
             <Input
-              defaultValue={featured.vrcdn ?? ""}
+              defaultValue={featured.vrcdn?.url ?? ""}
               maxLength={2048}
               name="vrcdnUrl"
               placeholder="https://vrcdn.live/name"
@@ -111,8 +137,9 @@ function PersonRoleFields({
 
           <Field>
             Twitch
+            <LinkMetadata link={featured.twitch} name="twitch" />
             <Input
-              defaultValue={featured.twitch ?? ""}
+              defaultValue={featured.twitch?.url ?? ""}
               maxLength={2048}
               name="twitchUrl"
               placeholder="https://twitch.tv/name"
@@ -295,6 +322,12 @@ export function ProfileFields({
 
                 <Field className="flex-1">
                   <FieldText>URL</FieldText>
+                  {/* Always emitted, blank for a new row, so every list stays
+                      index-aligned with the URLs it describes. */}
+                  <input name="linkOriginalUrl" type="hidden" value={row.link?.url ?? ""} />
+                  <input name="linkLabel" type="hidden" value={row.link?.label ?? ""} />
+                  <input name="linkHandle" type="hidden" value={row.link?.handle ?? ""} />
+                  <input name="linkPresentation" type="hidden" value={row.link?.presentation ?? ""} />
                   <Input
                     defaultValue={row.link?.url ?? ""}
                     maxLength={2048}

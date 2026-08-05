@@ -139,7 +139,11 @@ Publish behavior worth knowing:
   renders on the profile page and is only held back from discovery, which is a
   decision rather than an accident. Emptiness counts too -- a public `tags: []`
   beside a private set of links would otherwise satisfy the gate while
-  publishing exactly the profile it exists to stop. Batch
+  publishing exactly the profile it exists to stop. Links are counted after
+  normalization, so a field holding only an operator console URL counts as
+  nothing, which is what publication will make of it. `previewBatchPublication`
+  uses the same predicate, so a dry run cannot say the opposite of what the
+  publish gate does. Batch
   `nwinn_2026_07_16_ad79dca17a` is why it exists: it published 405 people whose
   every field was stored private, so each live profile showed a display name and
   a slug and nothing else.
@@ -468,12 +472,19 @@ policy check does not apply to it either. `rejected` and `suppressed` stay
 super-admin-only: both record a decision to stop handling that person.
 
 `seedAccess:withheldProfileRecord` answers the profile-level question — what a
-profile holds that its public page does not show, plus its edit history — for
-the same grant and for the profile's own owner. It is read-only, and it returns
-`null` rather than throwing for everyone else, because it renders on public
-profile pages. It exists so that "what does production hold for this person?"
-stops being a question that needs a deploy key, which cannot be scoped read-only
-and can therefore also deploy code.
+profile holds that its public page does not show, plus its edit history. It is
+read-only, and it returns `null` rather than throwing for everyone else, because
+it renders on public profile pages. It exists so that "what does production hold
+for this person?" stops being a question that needs a deploy key, which cannot be
+scoped read-only and can therefore also deploy code.
+
+It answers by slug, so who may call it is scoped deliberately: the profile's own
+owner, any super-admin, and a `view_private_seed_lookup` holder only for
+unclaimed profiles whose `creationSource` is `import` — the same records the seed
+lookup already shows them. Without that last condition the beta grant could read
+hidden fields and edit history for any profile whose slug someone guessed,
+including claimed ones, because a direct Convex call is not bounded by the public
+page this renders on.
 
 ```powershell
 pnpm cx -- prod run accountFeatureGrants:grant `

@@ -13,6 +13,18 @@ export type ProfileFieldsType = "person" | "community";
 export type ProfileLinkInput = {
   type: ProfileLinkType;
   url: string;
+  /**
+   * Carried through the form rather than rebuilt.
+   *
+   * The editor posts the whole link array back, and `sanitizeProfileLinks` fills
+   * a provider default for whatever is absent — so a row the user never touched
+   * would come back with its custom label replaced, its VRCDN handle dropped,
+   * and a copy-styled link turned into a button. There are no controls for these
+   * yet; they travel as hidden inputs so an unchanged row survives a save.
+   */
+  label?: string;
+  handle?: string;
+  presentation?: string;
 };
 
 export type ProfileFieldsDefaults = {
@@ -143,7 +155,9 @@ function dedupe(values: string[]): string[] {
  * the page would drop it on the next save.
  */
 export function partitionLinks(links: ProfileLinkInput[], featureStreamLinks: boolean) {
-  const featured: Partial<Record<ProfileLinkType, string>> = {};
+  // The whole link, not just its URL: the dedicated inputs carry its label,
+  // handle and presentation through as hidden fields, same as the rows.
+  const featured: Partial<Record<ProfileLinkType, ProfileLinkInput>> = {};
   const rows: ProfileLinkInput[] = [];
 
   for (const link of links) {
@@ -152,7 +166,7 @@ export function partitionLinks(links: ProfileLinkInput[], featureStreamLinks: bo
       (link.type === "vrcdn" || link.type === "twitch") &&
       featured[link.type] === undefined
     ) {
-      featured[link.type] = link.url;
+      featured[link.type] = link;
       continue;
     }
 
@@ -162,20 +176,68 @@ export function partitionLinks(links: ProfileLinkInput[], featureStreamLinks: bo
   return { featured, rows };
 }
 
+/** Drops the keys the form left blank, so absent stays absent. */
+function withLinkMetadata(link: ProfileLinkInput, meta: Partial<ProfileLinkInput>): ProfileLinkInput {
+  return {
+    ...link,
+    ...(meta.label ? { label: meta.label } : {}),
+    ...(meta.handle ? { handle: meta.handle } : {}),
+    ...(meta.presentation ? { presentation: meta.presentation } : {}),
+  };
+}
+
 function linksFromFormData(formData: FormData): ProfileLinkInput[] {
   const types = formData.getAll("linkType");
   const urls = formData.getAll("linkUrl");
-  // Rows are uncontrolled, so both lists come back in DOM order and pair by
-  // index. Rows left blank are dropped rather than rejected.
+  const originals = formData.getAll("linkOriginalUrl");
+  const labels = formData.getAll("linkLabel");
+  const handles = formData.getAll("linkHandle");
+  const presentations = formData.getAll("linkPresentation");
+  // Rows are uncontrolled, so the lists come back in DOM order and pair by
+  // index. Every row emits all five, so they stay aligned even when one is
+  // blank. Rows with no URL are dropped rather than rejected.
   const rows = types.flatMap((type, index) => {
     const url = stringField(urls[index] ?? null).trim();
 
-    return url ? [{ type: stringField(type) as ProfileLinkType, url }] : [];
+    if (!url) {
+      return [];
+    }
+
+    const link = { type: stringField(type) as ProfileLinkType, url };
+    // Metadata describes the destination it came with, so a row whose URL was
+    // edited starts clean rather than inheriting the old link's handle.
+    const unchanged = stringField(originals[index] ?? null).trim() === url;
+
+    return [
+      withLinkMetadata(link, unchanged
+        ? {
+            label: stringField(labels[index] ?? null),
+            handle: stringField(handles[index] ?? null),
+            presentation: stringField(presentations[index] ?? null),
+          }
+        : {}),
+    ];
   });
   const featured = (["vrcdn", "twitch"] as const).flatMap((type) => {
     const url = stringField(formData.get(`${type}Url`)).trim();
 
-    return url ? [{ type, url }] : [];
+    if (!url) {
+      return [];
+    }
+
+    // Only when the URL is unchanged. Pasting a different stream is a new link,
+    // and keeping the old handle or label on it would describe the wrong one.
+    const unchanged = stringField(formData.get(`${type}OriginalUrl`)).trim() === url;
+
+    return [
+      withLinkMetadata({ type, url }, unchanged
+        ? {
+            label: stringField(formData.get(`${type}Label`)),
+            handle: stringField(formData.get(`${type}Handle`)),
+            presentation: stringField(formData.get(`${type}Presentation`)),
+          }
+        : {}),
+    ];
   });
 
   return [...featured, ...rows];

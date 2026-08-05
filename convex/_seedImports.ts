@@ -28,7 +28,7 @@ import {
   requireRecord,
   requireStringValue,
 } from "./_inputValidation";
-import { normalizeOutboundLinks } from "./_profileLinks";
+import { normalizeOutboundLinks, sanitizeProfileLinksLeniently } from "./_profileLinks";
 
 export type SeedImportFixture = {
   batchId: string;
@@ -986,8 +986,19 @@ export function displayNameOutsidePublicLimits(displayName: string): boolean {
  *
  * An empty list and a blank string are both accepted values that render as
  * nothing, so neither is evidence that a publication will show something.
+ *
+ * Links are counted after normalization, not before. Publication runs them
+ * through `sanitizeProfileLinksLeniently`, which drops what it cannot turn into
+ * a publishable link -- so a field holding only `panel.vrcdn.live/dashboard`
+ * has a non-zero array length and still publishes nothing.
  */
-function hasSeedFieldContent(field: Pick<SeedImportPublicationField, "value">): boolean {
+export function hasSeedFieldContent(
+  field: Pick<SeedImportPublicationField, "fieldKey" | "value">,
+): boolean {
+  if (field.fieldKey === "outboundLinks") {
+    return sanitizeProfileLinksLeniently(field.value, "reviewed").links.length > 0;
+  }
+
   if (Array.isArray(field.value)) {
     return field.value.length > 0;
   }

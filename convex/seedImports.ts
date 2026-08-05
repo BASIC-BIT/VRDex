@@ -25,6 +25,7 @@ import {
   createSeedImportDocumentsFromFixture,
   getSeedImportPublicationBlockers,
   getSeedImportPublishBlockers,
+  hasSeedFieldContent,
   normalizePermissionedSeedImport,
   normalizeSeedImportFixture,
   seedImportCandidateFingerprint,
@@ -1206,13 +1207,21 @@ export const previewBatchPublication = internalQuery({
     const fieldReviewStates: string[] = [];
 
     const acceptedFieldVisibilities: string[] = [];
+    let publiclyVisibleFieldCount = 0;
 
     for (const candidate of candidates.slice(0, fieldStatsSampleSize)) {
       const fields = await getCandidateFields(ctx, candidate._id);
+      const accepted = fields.filter((field) => field.reviewState === "accepted");
+
       fieldReviewStates.push(...fields.map((field) => field.reviewState));
-      acceptedFieldVisibilities.push(
-        ...fields.filter((field) => field.reviewState === "accepted").map((field) => field.visibility),
-      );
+      acceptedFieldVisibilities.push(...accepted.map((field) => field.visibility));
+      // The same predicate `no_publicly_visible_field` uses, so the preview and
+      // the gate cannot disagree. Counting by visibility alone reported content
+      // for a public `tags: []` and then refused the batch anyway, which is a
+      // dry run that says the opposite of what happens.
+      publiclyVisibleFieldCount += accepted.filter(
+        (field) => field.visibility !== "private" && hasSeedFieldContent(field),
+      ).length;
     }
 
     return {
@@ -1237,9 +1246,7 @@ export const previewBatchPublication = internalQuery({
       // Publication carries the reviewed visibility through, so this is the
       // number that predicts whether anyone will see anything.
       acceptedFieldVisibilities: tally(acceptedFieldVisibilities),
-      publiclyVisibleFieldCount: acceptedFieldVisibilities.filter(
-        (visibility) => visibility !== "private",
-      ).length,
+      publiclyVisibleFieldCount,
     };
   },
 });

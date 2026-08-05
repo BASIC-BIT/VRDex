@@ -320,6 +320,42 @@ describe("permissioned seed import", () => {
     assert.deepEqual(new Set(blockers), new Set(["no_publicly_visible_field"]));
   });
 
+  it("does not count links that publication will drop", () => {
+    // Raw array length is not content: publication normalizes links and discards
+    // what it cannot publish, so a field holding only an operator console URL
+    // has a non-zero length and still produces a display-name-only profile.
+    const blockers = getSeedImportPublicationBlockers({
+      batch: {
+        publicationPolicy: "reviewed_publication_allowed",
+        reviewState: "approved",
+        publicationAuthorizations: [
+          {
+            policy: "reviewed_publication_allowed",
+            reason: "Source permitted publication.",
+            recordedAt: Date.UTC(2026, 6, 16),
+          },
+        ],
+      },
+      candidate: {
+        reviewState: "accepted",
+        publicationState: "review_pending",
+        claimState: "unclaimed",
+        proposedSlug: "example-dj",
+      },
+      fields: [
+        {
+          fieldKey: "outboundLinks",
+          value: [{ type: "vrcdn", label: "VRCDN", url: "https://panel.vrcdn.live/dashboard" }],
+          confidence: "medium",
+          reviewState: "accepted",
+          visibility: "public",
+        },
+      ],
+    });
+
+    assert.equal(new Set(blockers).has("no_publicly_visible_field"), true);
+  });
+
   it("rejects future freshness timestamps", () => {
     const futurePayload = structuredClone(payload);
     futurePayload.candidates[0]!.fields[0]!.lastCheckedAt = "2026-07-11T00:00:00.000Z";
