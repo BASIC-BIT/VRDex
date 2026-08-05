@@ -121,6 +121,11 @@ function ConnectedProfileEditForm({ slug, profilePath }: { slug: string; profile
       await updateProfile({
         slug,
         ...fields,
+        // Emptied means cleared, same as the narrative fields, and `person` is
+        // only present when the form rendered that group at all.
+        ...(payload.profileType !== "person" || payload.person === undefined
+          ? {}
+          : { person: { ...payload.person, pronouns: payload.person.pronouns || null } }),
         ...(fields.headline === undefined ? {} : { headline: fields.headline || null }),
         ...(fields.bio === undefined ? {} : { bio: fields.bio || null }),
         ...(fields.region === undefined ? {} : { region: fields.region || null }),
@@ -157,6 +162,7 @@ function ConnectedProfileEditForm({ slug, profilePath }: { slug: string; profile
           region: profile.region ?? "",
           timezone: profile.timezone ?? "",
           roleTags: profile.person?.roleTags ?? [],
+          pronouns: profile.person?.pronouns ?? "",
           subtype: profile.community?.subtype ?? "",
           categoryTags: profile.community?.categoryTags ?? [],
           links: profile.outboundLinks,

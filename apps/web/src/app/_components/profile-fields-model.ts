@@ -36,6 +36,7 @@ export type ProfileFieldsDefaults = {
   region?: string;
   timezone?: string;
   roleTags?: string[];
+  pronouns?: string;
   subtype?: string;
   categoryTags?: string[];
   links?: ProfileLinkInput[];
@@ -80,7 +81,7 @@ type SharedFields = {
 export type ProfileFieldsPayload =
   | (SharedFields & {
       profileType: "person";
-      person?: { roleTags: string[] };
+      person?: { roleTags: string[]; pronouns: string };
     })
   | (SharedFields & {
       profileType: "community";
@@ -285,6 +286,7 @@ export function profileFieldsPayload(
         ...formData.getAll("roleTag").map((value) => stringField(value)),
         ...splitList(formData.get("roleTagsOther")),
       ]),
+      pronouns: stringField(formData.get("pronouns")),
     }),
   } as ProfileFieldsPayload;
 }

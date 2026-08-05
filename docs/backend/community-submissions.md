@@ -64,8 +64,10 @@ Ordinary community submissions do not set those fields in this slice. Owner, con
 Editing an existing unclaimed profile is a wider set than creating one, and the
 rule there is information about the person versus the record itself — see
 [Profile Access And Claims](./profile-access-and-claims.md#edit-baseline).
-Presentation fields are information about the person and are editable there;
-appearance choices and the slug are not.
+Headline, bio, region and timezone are information about the person and are
+editable there; appearance choices and the slug are not. Media is not editable
+by the community either, for want of an upload path rather than by the rule —
+the same section says why.
 
 ## Implementation Boundaries
 

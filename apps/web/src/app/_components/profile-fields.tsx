@@ -78,13 +78,20 @@ function PersonRoleFields({
   defaults,
   featured,
   selectedRoles,
+  showPronouns,
   showStreamFields,
+  streamSlotsAvailable,
   onToggleRole,
 }: {
   defaults: ProfileFieldsDefaults;
   featured: Partial<Record<string, ProfileLinkInput>>;
   selectedRoles: string[];
+  /** Off on the submit form: creating a profile for someone else does not
+   *  extend to declaring their pronouns. Correcting an existing one does. */
+  showPronouns: boolean;
   showStreamFields: boolean;
+  /** How many *new* links the stream inputs may still add before the cap. */
+  streamSlotsAvailable: number;
   onToggleRole: (role: string, checked: boolean) => void;
 }) {
   const initialRoles = defaults.roleTags ?? [];
@@ -117,13 +124,28 @@ function PersonRoleFields({
         </Field>
       </div>
 
+      {/* In the same group as roles because `person` is one editable field, and
+          a policy that says pronouns are editable while the form offers no way
+          to change them is a promise the UI does not keep. */}
+      {showPronouns ? (
+        <Field className="sm:max-w-xs">
+          Pronouns
+          <Input defaultValue={defaults.pronouns ?? ""} maxLength={80} name="pronouns" />
+        </Field>
+      ) : null}
+
       {showStreamFields ? (
         <div className="grid gap-4 sm:grid-cols-2">
+          {/* An empty stream input is disabled once the rows already fill the
+              cap: it can only add a link the backend would refuse, and a
+              disabled input submits nothing, so it cannot drop one either. A
+              filled one stays editable regardless -- it is already counted. */}
           <Field>
             Stream
             <LinkMetadata link={featured.vrcdn} name="vrcdn" />
             <Input
               defaultValue={featured.vrcdn?.url ?? ""}
+              disabled={featured.vrcdn === undefined && streamSlotsAvailable < 1}
               maxLength={2048}
               name="vrcdnUrl"
               placeholder="https://vrcdn.live/name"
@@ -136,6 +158,10 @@ function PersonRoleFields({
             <LinkMetadata link={featured.twitch} name="twitch" />
             <Input
               defaultValue={featured.twitch?.url ?? ""}
+              disabled={
+                featured.twitch === undefined &&
+                streamSlotsAvailable < (featured.vrcdn === undefined ? 2 : 1)
+              }
               maxLength={2048}
               name="twitchUrl"
               placeholder="https://twitch.tv/name"
@@ -198,17 +224,29 @@ export function ProfileFields({
     (isStreamingRole(selectedRoles) ||
       featured.vrcdn !== undefined ||
       featured.twitch !== undefined);
-  // Reserved rather than measured: the inputs are uncontrolled, so what is
-  // actually typed in them is not React state. Two slots held back while they
-  // are on the page is the conservative read, and the backend rejects at the
-  // same number either way.
-  const rowCapacity = PROFILE_LINK_MAX_COUNT - (showStreamFields ? 2 : 0);
+  // Stream fields and rows feed one array, so the cap is shared. Existing
+  // stream links are already counted; the reserve is for the empty ones, which
+  // can still gain a link.
+  //
+  // Reserved rather than measured, because the inputs are uncontrolled and what
+  // is typed in them is not React state. It can go negative when a hydrated
+  // profile already holds more rows than the cap allows -- both consumers read
+  // it as "no room", which is the honest answer.
+  const emptyStreamFields = showStreamFields
+    ? (featured.vrcdn === undefined ? 1 : 0) + (featured.twitch === undefined ? 1 : 0)
+    : 0;
+  const filledStreamFields = showStreamFields
+    ? (featured.vrcdn === undefined ? 0 : 1) + (featured.twitch === undefined ? 0 : 1)
+    : 0;
+  const rowCapacity = PROFILE_LINK_MAX_COUNT - emptyStreamFields;
   // Stable ids rather than indices: the inputs are uncontrolled, so keying by
   // index would shift the surviving rows' DOM values when one is removed.
   const linkRowSeq = useRef(rows.length);
   const [linkRows, setLinkRows] = useState<Array<{ id: number; link?: ProfileLinkInput }>>(() =>
     rows.map((link, index) => ({ id: index, link })),
   );
+  const streamSlotsAvailable =
+    PROFILE_LINK_MAX_COUNT - linkRows.length - filledStreamFields;
 
   function addLinkRow() {
     linkRowSeq.current += 1;
@@ -301,7 +339,9 @@ export function ProfileFields({
                 defaults={defaults}
                 featured={featured}
                 selectedRoles={selectedRoles}
+                showPronouns={showNarrativeFields}
                 showStreamFields={showStreamFields}
+                streamSlotsAvailable={streamSlotsAvailable}
                 onToggleRole={(role, checked) =>
                   setSelectedRoles((roles) =>
                     checked ? [...roles, role] : roles.filter((item) => item !== role),

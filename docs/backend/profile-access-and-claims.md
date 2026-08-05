@@ -22,9 +22,8 @@ not a list of field names:
 
 - **Information about the person** is community-editable on an unclaimed
   profile. Display name, aliases, tags, outbound links, headline, bio, region,
-  timezone, role tags, pronouns, and a profile picture or logo. Facts a third
-  party can know and correct, and the reason an unclaimed profile is worth
-  visiting at all.
+  timezone, role tags and pronouns. Facts a third party can know and correct,
+  and the reason an unclaimed profile is worth visiting at all.
 - **The record itself** is not. `slug` is the profile's address, so changing it
   on someone else's behalf breaks every link already shared. Appearance --
   avatar shape, border colour, section order -- is a presentation choice
@@ -52,6 +51,16 @@ An existing link keeps the provenance it already had. The form posts the whole
 array back, so restamping on every save would downgrade an owner-authored link
 to community-submitted because somebody fixed a typo elsewhere. Only genuinely
 new links carry the writer's own stamp.
+
+**Media is out of scope for community editing.** A profile picture or logo is
+information about the person by the rule above, and it is the most visible thing
+missing from a seeded profile — but no path exists to supply one.
+`profileAssets:createUploadIntentForOwnedProfile` is the only browser route to an
+upload intent, and it requires ownership and refuses unclaimed profiles, so
+`updateProfileFromBrowser` deliberately takes no `assets` argument rather than
+declaring one no caller could satisfy. Letting any signed-in account attach
+images to somebody else's profile needs a moderation answer that does not exist
+yet; the field policy is the part that is ready.
 
 `profiles:updateProfileFromBrowser` serves both subjects and resolves which one
 applies from ownership: the profile's owner edits as `claimed_owner`, anyone
