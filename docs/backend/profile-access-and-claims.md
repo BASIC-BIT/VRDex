@@ -66,6 +66,14 @@ values over links and tags somebody else changed meanwhile, and the diff would
 read those as deliberate. A mismatched version is refused rather than silently
 won.
 
+"It loaded" is the contract, not "the query currently holds". The fields are
+uncontrolled, so when somebody else saves while the page is open, Convex pushes a
+newer `updatedAt` while every `defaultValue` keeps the values it mounted with.
+Sending the live number would pass the check with a payload built from what the
+other editor just replaced — the overwrite the check exists to refuse, arriving
+through the check. The editor pins the version its inputs were filled from for
+the life of the form, so that save is refused and the message says to reload.
+
 **Media is out of scope for community editing.** A profile picture or logo is
 information about the person by the rule above, and it is the most visible thing
 missing from a seeded profile — but no path exists to supply one.

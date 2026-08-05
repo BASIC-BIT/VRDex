@@ -117,6 +117,47 @@ async function takeEligibleCandidates(
   return eligible;
 }
 
+/**
+ * Take from each state's results in turn, so no state is starved by the limit.
+ *
+ * Concatenating and slicing spends the whole limit on the first list that can
+ * fill it. Each state now collects up to `limit` on its own, so a common name
+ * with enough `draft_private` matches dropped every reviewed and published row —
+ * hiding the published imports this surface was widened to recover, which is the
+ * failure it exists to answer rather than a ranking preference.
+ *
+ * Round-robin rather than a relevance merge: a search index score is not
+ * comparable across separate searches, so there is no honest way to rank them
+ * against each other. Taking one from each in turn at least says the same thing
+ * about every state.
+ */
+function interleave<T>(lists: T[][], limit: number): T[] {
+  const merged: T[] = [];
+
+  for (let index = 0; merged.length < limit; index += 1) {
+    let found = false;
+
+    for (const list of lists) {
+      if (index >= list.length) {
+        continue;
+      }
+
+      merged.push(list[index]);
+      found = true;
+
+      if (merged.length >= limit) {
+        break;
+      }
+    }
+
+    if (!found) {
+      break;
+    }
+  }
+
+  return merged;
+}
+
 export const lookupPeople = query({
   args: {
     query: v.string(),
@@ -139,17 +180,16 @@ export const lookupPeople = query({
     //
     // A super-admin sees every state, so a single unfiltered search cannot
     // starve them.
-    const candidates = (
-      access.superAdmin
-        ? await takeEligibleCandidates(ctx, searchTerm, undefined, limit, true)
-        : (
-            await Promise.all(
-              OPERATOR_LOOKUP_PUBLICATION_STATES.map((publicationState) =>
-                takeEligibleCandidates(ctx, searchTerm, publicationState, limit, false),
-              ),
-            )
-          ).flat()
-    ).slice(0, limit);
+    const candidates = access.superAdmin
+      ? await takeEligibleCandidates(ctx, searchTerm, undefined, limit, true)
+      : interleave(
+          await Promise.all(
+            OPERATOR_LOOKUP_PUBLICATION_STATES.map((publicationState) =>
+              takeEligibleCandidates(ctx, searchTerm, publicationState, limit, false),
+            ),
+          ),
+          limit,
+        );
 
     return await Promise.all(
       candidates.map(async ({ batch, candidate, publishedProfile }) => {

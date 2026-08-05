@@ -506,6 +506,46 @@ describe("seed import publish guards", () => {
     );
   });
 
+  // Create-only, like the slug and display-name bounds beside it. A merge writes
+  // into a profile that already exists and — because both gates refuse a match
+  // that is not publicly surfaced — one that is already public with its own
+  // content, so it cannot produce the display-name-only page this refuses.
+  // Blocking it stranded the private-only merge `matchCandidateToProfile` exists
+  // to record.
+  it("lets private-only fields merge into an existing profile", () => {
+    const privateOnlyFields = [
+      {
+        fieldKey: "person.roleTags",
+        value: ["DJ"],
+        confidence: "medium" as const,
+        reviewState: "accepted" as const,
+        visibility: "private" as const,
+      },
+    ];
+
+    assert.ok(
+      getSeedImportPublishBlockers({
+        batch: publishableBatch,
+        candidate: queuedCandidate,
+        fields: privateOnlyFields,
+      }).includes("no_publicly_visible_field"),
+    );
+
+    assert.deepEqual(
+      getSeedImportPublishBlockers({
+        batch: publishableBatch,
+        candidate: queuedCandidate,
+        fields: privateOnlyFields,
+        matchedProfile: {
+          _id: "profile-merge-target" as never,
+          claimState: "unclaimed" as const,
+          publicSurfacingState: "public" as const,
+        },
+      }),
+      [],
+    );
+  });
+
   it("fails closed when the batch has no explicit publication policy", () => {
     const blockers = getSeedImportPublishBlockers({
       batch: { reviewState: "approved" as const },

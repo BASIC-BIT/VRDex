@@ -448,6 +448,84 @@ describe("private seed Convex handlers", () => {
     assert.equal(results[0]?.displayName, "Crowded Name");
   });
 
+  // Each state collects up to `limit` on its own, so concatenating and slicing
+  // spends the whole limit on whichever state fills first. A common name with
+  // enough draft rows dropped every published one -- hiding exactly the
+  // published imports this surface was widened to recover.
+  it("gives each publication state a share of the lookup limit", async () => {
+    const t = convexTest({ schema, modules });
+    const payload = permissionedPayload();
+    await t.mutation(internal.seedImports.importPermissionedJsonBatch, {
+      payload: {
+        ...payload,
+        candidates: Array.from({ length: 6 }, (_unused, index) => ({
+          ...payload.candidates[0],
+          candidateId: `shared-${index}`,
+          proposedDisplayName: "Shared Name",
+        })),
+      },
+      importedBy: actor,
+      now: NOW,
+    });
+
+    const identity = await t.run(async (ctx) => {
+      const candidates = await ctx.db.query("seedImportCandidateProfiles").collect();
+      // Five drafts and one published, so concatenation would spend a limit of
+      // four entirely on drafts and never reach the published row.
+      for (const [index, candidate] of candidates.entries()) {
+        const published = index === candidates.length - 1;
+        const profileId = published
+          ? await ctx.db.insert("profiles", {
+              ...privateProfile("unclaimed"),
+              slug: "shared-name-published",
+              publicationState: "published" as const,
+              publicSurfacingState: "public" as const,
+              creationSource: "import" as const,
+            })
+          : undefined;
+        await ctx.db.patch(candidate._id, {
+          reviewState: "accepted",
+          ...(published
+            ? {
+                publicationState: "published_unclaimed" as const,
+                publishedProfileId: profileId,
+                publishedAt: NOW,
+              }
+            : {}),
+          updatedAt: NOW,
+        });
+      }
+      await ctx.db.patch(candidates[0].batchId, {
+        publicationPolicy: "private_only",
+        reviewState: "approved",
+        updatedAt: NOW,
+      });
+
+      const clerkUserId = newClerkUserId();
+      const userId = await ctx.db.insert("users", { clerkUserId, name: "Share lookup operator" });
+      await ctx.db.insert("accountFeatureGrants", {
+        userId,
+        feature: "view_private_seed_lookup",
+        state: "active",
+        grantedBy: actor,
+        grantedAt: NOW,
+        updatedAt: NOW,
+      });
+      return { subject: clerkUserId, emailVerified: true };
+    });
+
+    const results = await t.withIdentity(identity).query(api.seedAccess.lookupPeople, {
+      query: "Shared",
+      limit: 4,
+    });
+
+    assert.equal(results.length, 4);
+    assert.equal(
+      results.filter((result) => result.publicationState === "published_unclaimed").length,
+      1,
+    );
+  });
+
   // Both operator surfaces answer to one rule. `lookupPeople` reached the batch
   // through the candidate and stopped returning a withdrawn record; the by-slug
   // record read judged the live profile alone, which a batch rejection does not

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useState, useTransition, type ReactNode } from "react";
+import { FormEvent, useRef, useState, useTransition, type ReactNode } from "react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { api } from "@convex-generated-api";
 
@@ -80,6 +80,19 @@ function ConnectedProfileEditForm({ slug, profilePath }: { slug: string; profile
   const updateProfile = useMutation(api.profiles.updateProfileFromBrowser);
   const [status, setStatus] = useState<EditStatus>({ kind: "idle" });
   const [, startTransition] = useTransition();
+  // The version the inputs on screen were filled from, pinned for the life of
+  // this form. `profile` is live, and the fields are uncontrolled: when somebody
+  // else saves while this page is open, Convex pushes a newer `updatedAt` while
+  // every `defaultValue` keeps the values it mounted with. Sending the live
+  // number would pass the backend's check with a payload built from what the
+  // other editor just replaced -- the form posts every group it rendered, so a
+  // display-name fix would carry stale tags and links over their edit. That is
+  // the exact overwrite the check exists to refuse, arriving through the check.
+  const loadedUpdatedAt = useRef<number | null>(null);
+
+  if (profile !== undefined && profile !== null && loadedUpdatedAt.current === null) {
+    loadedUpdatedAt.current = profile.updatedAt;
+  }
 
   if (profile === undefined) {
     return <p className="text-sm text-muted">Loading...</p>;
@@ -120,7 +133,7 @@ function ConnectedProfileEditForm({ slug, profilePath }: { slug: string; profile
       // that path spells "clear this" rather than "leave it alone".
       await updateProfile({
         slug,
-        expectedUpdatedAt: profile.updatedAt,
+        expectedUpdatedAt: loadedUpdatedAt.current ?? profile.updatedAt,
         ...fields,
         // Emptied means cleared, same as the narrative fields, and `person` is
         // only present when the form rendered that group at all.

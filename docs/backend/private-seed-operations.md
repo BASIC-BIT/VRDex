@@ -145,7 +145,13 @@ Publish behavior worth knowing:
   `timezone` do not count at all: they reach the profile record and no part of
   the profile page renders them, so a candidate whose only public content is one
   of those publishes the same blank-looking page. Rendering them instead is a
-  product decision nobody has made; until then the gate declines. `previewBatchPublication`
+  product decision nobody has made; until then the gate declines. The gate is
+  create-only, like the slug and display-name bounds beside it: a candidate
+  matched to an existing profile merges into a record that already exists, and
+  both gates refuse a match that is not publicly surfaced, so the merge cannot
+  produce the display-name-only page this refuses. Private-only seed data merging
+  into a live profile is an ordinary operator decision, and blocking it stranded
+  the case `matchCandidateToProfile` exists to record. `previewBatchPublication`
   uses the same predicate, so a dry run cannot say the opposite of what the
   publish gate does. Batch
   `nwinn_2026_07_16_ad79dca17a` is why it exists: it published 405 people whose
@@ -497,6 +503,14 @@ matches all belonged to a rejected batch, none, and the surface reported "no
 records" for somebody the lane holds one for. `LOOKUP_SCAN_LIMIT` caps the walk
 at 300 rows per state so a three-character query against a large withdrawn batch
 does not read the whole batch.
+
+The per-state results are then interleaved rather than concatenated. Each state
+collects up to the full limit on its own, so appending them and slicing would
+spend the whole limit on whichever state filled first — a common name with
+enough `draft_private` matches would drop every published row, hiding the
+published imports this surface was widened to recover. Round-robin rather than a
+relevance merge, because a search score is not comparable across separate
+searches and there is no honest way to rank them against each other.
 
 `seedAccess:withheldProfileRecord` answers the profile-level question — what a
 profile holds that its public page does not show, plus its edit history. It is

@@ -1032,6 +1032,13 @@ export function hasSeedFieldContent(
 
 export function getSeedImportFieldBlockers(
   fields: SeedImportPublicationField[],
+  options?: {
+    /**
+     * True when publication merges into an existing profile instead of creating
+     * one, which exempts the display-name-only gate below.
+     */
+    mergesIntoExistingProfile?: boolean;
+  },
 ): SeedImportPublicationBlocker[] {
   const blockers = new Set<SeedImportPublicationBlocker>();
 
@@ -1083,9 +1090,21 @@ export function getSeedImportFieldBlockers(
   // rejected reaches no other gate -- `field_unreviewed` and the rest only fire
   // on fields that exist -- and publishes a name and a slug, which is the
   // outcome this refuses by definition rather than a case to exempt.
+  //
+  // Create-only, like `invalid_proposed_slug`, `slug_collision_blocks_publication`
+  // and `display_name_outside_public_limits` above it. A merge writes into a
+  // profile that already exists and, because both gates refuse a match that is
+  // not publicly surfaced, one that is already public with its own content --
+  // so it cannot produce the display-name-only page this refuses. Private-only
+  // seed data merging into a live profile is an ordinary thing to want, and
+  // blocking it stranded exactly the operator decision `matchCandidateToProfile`
+  // exists to record.
   const acceptedFields = fields.filter((field) => field.reviewState === "accepted");
 
-  if (!acceptedFields.some((field) => field.visibility !== "private" && hasSeedFieldContent(field))) {
+  if (
+    options?.mergesIntoExistingProfile !== true &&
+    !acceptedFields.some((field) => field.visibility !== "private" && hasSeedFieldContent(field))
+  ) {
     blockers.add("no_publicly_visible_field");
   }
 
@@ -1231,7 +1250,10 @@ export function getSeedImportPublishBlockers(args: {
     blockers.add("display_name_outside_public_limits");
   }
 
-  for (const blocker of getSeedImportFieldBlockers(args.fields ?? [])) {
+  for (const blocker of getSeedImportFieldBlockers(args.fields ?? [], {
+    mergesIntoExistingProfile:
+      args.matchedProfile !== null && args.matchedProfile !== undefined,
+  })) {
     blockers.add(blocker);
   }
 
@@ -1358,7 +1380,10 @@ export function getSeedImportPublicationBlockers(args: {
     blockers.add("slug_collision_blocks_publication");
   }
 
-  for (const blocker of getSeedImportFieldBlockers(args.fields)) {
+  for (const blocker of getSeedImportFieldBlockers(args.fields, {
+    mergesIntoExistingProfile:
+      args.matchedProfile !== null && args.matchedProfile !== undefined,
+  })) {
     blockers.add(blocker);
   }
 
