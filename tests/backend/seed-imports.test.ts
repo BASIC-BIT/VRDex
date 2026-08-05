@@ -13,6 +13,7 @@ import {
   getSeedImportPublicationBlockers,
   getSeedImportPublishBlockers,
   hasPublicationAuthorization,
+  hasSeedFieldContent,
   normalizeSeedImportFixture,
   type SeedImportFixture,
 } from "../../convex/_seedImports";
@@ -512,6 +513,40 @@ describe("seed import publish guards", () => {
   // content, so it cannot produce the display-name-only page this refuses.
   // Blocking it stranded the private-only merge `matchCandidateToProfile` exists
   // to record.
+  // The import normalizers do not drop blank strings, so `tags: [""]` reached
+  // this as a list of length one and counted as content, while the page filters
+  // falsy metadata out and shows nothing. A list of nothing is nothing, the same
+  // way an empty list already was.
+  //
+  // Publication was never actually open to it -- `unsafe_public_field` refuses
+  // any public list carrying a blank entry, independently. What was wrong is the
+  // answer, which `previewBatchPublication` reports as `publiclyVisibleFieldCount`
+  // and which should not depend on a neighbouring gate to come out right.
+  it("does not count a list of blank entries as visible content", () => {
+    const field = (value: unknown) =>
+      ({
+        fieldKey: "tags",
+        value,
+        confidence: "medium" as const,
+        reviewState: "accepted" as const,
+        visibility: "public" as const,
+      }) as never;
+
+    assert.equal(hasSeedFieldContent(field([""])), false);
+    assert.equal(hasSeedFieldContent(field(["", "   "])), false);
+    assert.equal(hasSeedFieldContent(field([])), false);
+    assert.equal(hasSeedFieldContent(field(["", "house"])), true);
+    assert.equal(hasSeedFieldContent(field(["house"])), true);
+
+    assert.ok(
+      getSeedImportPublishBlockers({
+        batch: publishableBatch,
+        candidate: queuedCandidate,
+        fields: [field(["", "   "])],
+      }).includes("no_publicly_visible_field"),
+    );
+  });
+
   it("lets private-only fields merge into an existing profile", () => {
     const privateOnlyFields = [
       {

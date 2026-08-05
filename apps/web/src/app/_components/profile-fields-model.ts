@@ -33,6 +33,9 @@ export type ProfileLinkInput = {
   source?: string;
 };
 
+/** A stored link plus where it sat in `outboundLinks` before the form split it up. */
+export type PositionedProfileLink = ProfileLinkInput & { originalIndex: number };
+
 export type ProfileFieldsDefaults = {
   displayName?: string;
   aliases?: string[];
@@ -166,8 +169,8 @@ export function partitionLinks(links: ProfileLinkInput[], featureStreamLinks: bo
   // handle and presentation through as hidden fields, same as the rows. The
   // index goes with it so an untouched link can be put back where it was rather
   // than surfacing at the front because the form chose to show it there.
-  const featured: Partial<Record<ProfileLinkType, ProfileLinkInput & { originalIndex: number }>> = {};
-  const rows: ProfileLinkInput[] = [];
+  const featured: Partial<Record<ProfileLinkType, PositionedProfileLink>> = {};
+  const rows: PositionedProfileLink[] = [];
 
   for (const [index, link] of links.entries()) {
     if (
@@ -183,7 +186,12 @@ export function partitionLinks(links: ProfileLinkInput[], featureStreamLinks: bo
       continue;
     }
 
-    rows.push(link);
+    // Rows carry it too, so the two can be merged back by original position.
+    // Placing a stream link at its absolute index inside a row array that had
+    // shrunk put it after rows it used to precede: deleting the first of
+    // [SoundCloud, Twitch, Bandcamp] moved Twitch behind Bandcamp, turning one
+    // removal into a reorder of links nobody touched.
+    rows.push({ ...link, originalIndex: index });
   }
 
   return { featured, rows };
@@ -209,8 +217,9 @@ function linksFromFormData(formData: FormData): ProfileLinkInput[] {
   const handles = formData.getAll("linkHandle");
   const presentations = formData.getAll("linkPresentation");
   const sources = formData.getAll("linkSource");
+  const rowIndexes = formData.getAll("linkOriginalIndex");
   // Rows are uncontrolled, so the lists come back in DOM order and pair by
-  // index. Every row emits all five, so they stay aligned even when one is
+  // index. Every row emits all of them, so they stay aligned even when one is
   // blank. Rows with no URL are dropped rather than rejected.
   const rows = types.flatMap((type, index) => {
     const url = stringField(urls[index] ?? null).trim();
@@ -228,15 +237,20 @@ function linksFromFormData(formData: FormData): ProfileLinkInput[] {
       stringField(originals[index] ?? null).trim() === url &&
       stringField(originalTypes[index] ?? null) === link.type;
 
+    const rowIndex = Number.parseInt(stringField(rowIndexes[index] ?? null), 10);
+
     return [
-      withLinkMetadata(link, unchanged
-        ? {
-            label: stringField(labels[index] ?? null),
-            handle: stringField(handles[index] ?? null),
-            presentation: stringField(presentations[index] ?? null),
-            source: stringField(sources[index] ?? null),
-          }
-        : {}),
+      {
+        originalIndex: unchanged && Number.isInteger(rowIndex) ? rowIndex : -1,
+        link: withLinkMetadata(link, unchanged
+          ? {
+              label: stringField(labels[index] ?? null),
+              handle: stringField(handles[index] ?? null),
+              presentation: stringField(presentations[index] ?? null),
+              source: stringField(sources[index] ?? null),
+            }
+          : {}),
+      },
     ];
   });
   const featured = (["vrcdn", "twitch"] as const).flatMap((type) => {
@@ -271,23 +285,27 @@ function linksFromFormData(formData: FormData): ProfileLinkInput[] {
     ];
   });
 
-  // A newly entered stream link has no original position, so it goes to the
-  // front in the order the form shows it. Ones that were already stored are
-  // spliced back at their index in the original list, ascending -- so by the
-  // time each is placed, everything that preceded it is already there and the
-  // index is the position it wants.
-  const ordered = [
-    ...featured.filter((entry) => entry.originalIndex < 0).map((entry) => entry.link),
-    ...rows,
-  ];
-
-  for (const { originalIndex, link } of featured
+  // Everything that was already stored goes back in the order it was stored in,
+  // rows and stream links together, ranked by where each one sat in the original
+  // array. Splicing stream links into the row array by absolute index only held
+  // while no row had been removed: deleting the first of
+  // [SoundCloud, Twitch, Bandcamp] left Twitch claiming index 1 of a
+  // single-element array, which put it behind Bandcamp -- so removing one link
+  // silently reordered another and reported `outboundLinks` changed for it.
+  //
+  // A newly entered stream link has no original position and goes to the front,
+  // where the form shows it. New rows have none either and stay at the end,
+  // which is where the form appends them.
+  const stored = [...featured, ...rows]
     .filter((entry) => entry.originalIndex >= 0)
-    .sort((a, b) => a.originalIndex - b.originalIndex)) {
-    ordered.splice(Math.min(originalIndex, ordered.length), 0, link);
-  }
+    .sort((a, b) => a.originalIndex - b.originalIndex)
+    .map((entry) => entry.link);
 
-  return ordered;
+  return [
+    ...featured.filter((entry) => entry.originalIndex < 0).map((entry) => entry.link),
+    ...stored,
+    ...rows.filter((entry) => entry.originalIndex < 0).map((entry) => entry.link),
+  ];
 }
 
 export function profileFieldsPayload(

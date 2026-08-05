@@ -1109,6 +1109,39 @@ describe("API profile update helpers", () => {
     );
   });
 
+  // Scheme and host are case-insensitive; a path is not. Folding the whole URL
+  // made `/Mix` and `/mix` one destination, so a writer could move an
+  // owner-authored link to a different page on a case-sensitive host and keep the
+  // stamp. The form drops the claim for a case-only edit, but the mutation takes
+  // `source` from any caller, so the form cannot be where this is decided.
+  it("honours a provenance claim only for the exact destination", () => {
+    const withLinks = {
+      ...claimedPerson,
+      claimState: "unclaimed",
+      outboundLinks: [
+        {
+          type: "website",
+          label: "Website",
+          url: "https://example.invalid/Mix",
+          source: "owner_authored",
+        },
+      ],
+    } as unknown as Doc<"profiles">;
+    const sourceFor = (url: string) =>
+      (
+        sanitizeApiProfileUpdateInput(
+          withLinks,
+          { outboundLinks: [{ type: "website", url, source: "owner_authored" }] },
+          "community_submitter",
+        ).patch.outboundLinks as Array<{ source: string }>
+      )[0]?.source;
+
+    assert.equal(sourceFor("https://example.invalid/Mix"), "owner_authored");
+    assert.equal(sourceFor("https://example.invalid/mix"), "community_submitted");
+    // Host case still folds, because it genuinely is case-insensitive.
+    assert.equal(sourceFor("https://EXAMPLE.invalid/Mix"), "owner_authored");
+  });
+
   it("stamps a duplicate link from the writer rather than the one it matches", () => {
     // One stored link, one inherited source. Keying on identity alone handed the
     // same owner-authored provenance to every submitted link that matched it, so

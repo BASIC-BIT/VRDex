@@ -96,9 +96,29 @@ function optionalBoundedText(input: NullableString, fieldName: string, maxLength
  *
  * Type and destination, not label: renaming a link is editing it, and it keeps
  * the provenance it already had.
+ *
+ * Only the parts of a URL that are genuinely case-insensitive get folded --
+ * scheme and host. Lowercasing the whole string made `/Mix` and `/mix` one
+ * destination, so a writer could move an owner-authored link to a different page
+ * on a case-sensitive host and keep the public `owner_authored` stamp on it. The
+ * form drops the claim for a case-only edit, but `updateProfileFromBrowser`
+ * accepts `source` from any caller, so the form is not where this can be decided.
  */
 function linkIdentity(link: { type: string; url: string }): string {
-  return `${link.type}:${link.url.toLowerCase()}`;
+  let destination = link.url;
+
+  try {
+    const url = new URL(link.url);
+
+    // `URL` lowercases protocol and host itself; the rest is rebuilt exactly as
+    // given rather than folded along with them.
+    destination = `${url.protocol}//${url.host}${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    // Unparseable, so no part of it is known to be case-insensitive. Compared
+    // verbatim, which can only ever refuse a claim rather than grant one.
+  }
+
+  return `${link.type}:${destination}`;
 }
 
 /**

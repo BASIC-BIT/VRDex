@@ -222,6 +222,7 @@ describe("profile fields payload", () => {
             ["linkUrl", link.url],
             ["linkOriginalUrl", link.url],
             ["linkOriginalType", link.type],
+            ["linkOriginalIndex", String(link.originalIndex)],
             ["linkLabel", ""],
             ["linkHandle", ""],
             ["linkPresentation", ""],
@@ -264,6 +265,7 @@ describe("profile fields payload", () => {
             ["linkUrl", link.url],
             ["linkOriginalUrl", link.url],
             ["linkOriginalType", link.type],
+            ["linkOriginalIndex", String(link.originalIndex)],
             ["linkLabel", ""],
             ["linkHandle", ""],
             ["linkPresentation", ""],
@@ -280,8 +282,56 @@ describe("profile fields payload", () => {
     );
   });
 
+  it("keeps a stream link in place when a row above it is removed", () => {
+    // Splicing the stream link back at its absolute index only held while every
+    // row survived. Removing the first of these left Twitch claiming index 1 of
+    // a one-element row array, which put it behind Bandcamp -- so deleting one
+    // link silently reordered another and reported `outboundLinks` changed for a
+    // link nobody had touched.
+    const stored = [
+      { type: "soundcloud", url: "https://soundcloud.com/snekwtf" },
+      { type: "twitch", url: "https://twitch.tv/snekwtf" },
+      { type: "bandcamp", url: "https://snekwtf.bandcamp.com" },
+    ] as const;
+    const { featured, rows } = partitionLinks([...stored], true);
+
+    assert.equal(featured.twitch?.originalIndex, 1);
+
+    const payload = profileFieldsPayload(
+      formData(
+        [
+          ["displayName", "Snek"],
+          ["twitchUrl", featured.twitch?.url ?? ""],
+          ["twitchOriginalUrl", featured.twitch?.url ?? ""],
+          ["twitchOriginalIndex", String(featured.twitch?.originalIndex)],
+          // The SoundCloud row is gone. Bandcamp is untouched and still reports
+          // that it was stored third.
+          ...rows
+            .filter((link) => link.type !== "soundcloud")
+            .flatMap((link) => [
+              ["linkType", link.type],
+              ["linkUrl", link.url],
+              ["linkOriginalUrl", link.url],
+              ["linkOriginalType", link.type],
+              ["linkOriginalIndex", String(link.originalIndex)],
+              ["linkLabel", ""],
+              ["linkHandle", ""],
+              ["linkPresentation", ""],
+            ] as Array<[string, string]>),
+        ],
+        ["outboundLinks"],
+      ),
+      "person",
+    );
+
+    assert.deepEqual(payload.outboundLinks?.map((link) => link.url), [
+      "https://twitch.tv/snekwtf",
+      "https://snekwtf.bandcamp.com",
+    ]);
+  });
+
   it("keeps a new row aligned with its own blank metadata", () => {
-    // Every row emits all five hidden fields, so a blank one added above a
+    // Every row emits all its hidden fields, so a blank one added above a
     // populated one cannot shift the pairing and hand its label to a neighbour.
     const payload = profileFieldsPayload(
       formData(

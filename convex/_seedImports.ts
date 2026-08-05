@@ -1020,7 +1020,14 @@ export function hasSeedFieldContent(
   }
 
   if (Array.isArray(field.value)) {
-    return field.value.length > 0;
+    // Entries, not length. The import normalizers do not drop blank strings, so
+    // an accepted public `tags: [""]` arrived here as content -- while the page
+    // filters falsy metadata out and renders the same display-name-only profile
+    // this gate exists to refuse. A list of nothing is nothing, the same way an
+    // empty list already was.
+    return field.value.some(
+      (entry) => typeof entry !== "string" ? entry !== null && entry !== undefined : entry.trim().length > 0,
+    );
   }
 
   if (typeof field.value === "string") {

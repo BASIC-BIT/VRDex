@@ -18,7 +18,7 @@ import {
   PRESET_ROLES,
   type ProfileFieldsDefaults,
   type ProfileFieldsType,
-  type ProfileLinkInput,
+  type PositionedProfileLink,
 } from "./profile-fields-model";
 
 /**
@@ -63,7 +63,7 @@ function LinkMetadata({
   link,
   name,
 }: {
-  link?: ProfileLinkInput & { originalIndex: number };
+  link?: PositionedProfileLink;
   name: string;
 }) {
   if (link === undefined) {
@@ -96,7 +96,7 @@ function PersonRoleFields({
   defaults: ProfileFieldsDefaults;
   /** Rows plus filled stream fields already reach `PROFILE_LINK_MAX_COUNT`. */
   atLinkCap: boolean;
-  featured: Partial<Record<string, ProfileLinkInput & { originalIndex: number }>>;
+  featured: Partial<Record<string, PositionedProfileLink>>;
   selectedRoles: string[];
   streamValues: { vrcdn: string; twitch: string };
   setStreamValues: (update: (values: { vrcdn: string; twitch: string }) => { vrcdn: string; twitch: string }) => void;
@@ -259,7 +259,7 @@ export function ProfileFields({
   // Stable ids rather than indices: the row inputs are uncontrolled, so keying
   // by index would shift the surviving rows' DOM values when one is removed.
   const linkRowSeq = useRef(rows.length);
-  const [linkRows, setLinkRows] = useState<Array<{ id: number; link?: ProfileLinkInput }>>(() =>
+  const [linkRows, setLinkRows] = useState<Array<{ id: number; link?: PositionedProfileLink }>>(() =>
     rows.map((link, index) => ({ id: index, link })),
   );
   const filledStreamFields = showStreamFields
@@ -415,6 +415,11 @@ export function ProfileFields({
                       index-aligned with the URLs it describes. */}
                   <input name="linkOriginalUrl" type="hidden" value={row.link?.url ?? ""} />
                   <input name="linkOriginalType" type="hidden" value={row.link?.type ?? ""} />
+                  {/* Where this row sat in the stored array, so a stream link
+                      pulled into its own input goes back among the rows by
+                      position rather than by an index into a list that may have
+                      lost entries since. -1 for a row the editor added. */}
+                  <input name="linkOriginalIndex" type="hidden" value={row.link?.originalIndex ?? -1} />
                   <input name="linkLabel" type="hidden" value={row.link?.label ?? ""} />
                   <input name="linkHandle" type="hidden" value={row.link?.handle ?? ""} />
                   <input name="linkPresentation" type="hidden" value={row.link?.presentation ?? ""} />
