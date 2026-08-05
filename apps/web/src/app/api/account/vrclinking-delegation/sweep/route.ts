@@ -64,6 +64,25 @@ export async function POST(request: Request) {
     });
   }
 
+  // Exercised, not merely loaded. A token can be present and still be stale or
+  // scoped to another deployment, and the first call that would find out is the
+  // confirmation *after* the keys are gone. An empty list is that same call with
+  // nothing to do — it stamps no rows and returns `{ confirmed: 0 }` — so it
+  // proves this credential can reach this mutation on this deployment while the
+  // obligations are still queued and retryable.
+  try {
+    await admin.mutation(internal.vrclinkingCredentials.confirmSecretsRetiredAsServer, {
+      credentialIds: [],
+    });
+  } catch {
+    return apiProblemResponse({
+      type: "about:blank",
+      title: "Cleanup is unavailable",
+      status: 503,
+      detail: "This deployment cannot record retirements, so it will not delete keys it cannot confirm.",
+    });
+  }
+
   let obligations: { credentialId: string; secretName: string }[];
 
   try {
