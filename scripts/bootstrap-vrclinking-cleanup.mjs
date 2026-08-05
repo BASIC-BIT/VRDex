@@ -97,6 +97,25 @@ function main() {
   const token = randomBytes(32).toString("hex");
   const cleanupUrl = cleanupUrlFor(options.siteUrl);
 
+  // Read-only, and first, because the rotation cannot be half-applied and left.
+  // Convex's token is set below; if the Vercel write or the redeploy then fails
+  // — no login, no project link, a mistyped deployment URL — Convex is already
+  // posting a bearer the live function has never seen, and every sweep answers
+  // 401 daily while revoked keys accumulate with nothing surfacing it. No
+  // ordering closes that window, because whichever provider moves first is the
+  // one left disagreeing. These two calls fail on exactly the causes that would
+  // strand the rotation, and change nothing when they pass.
+  run(
+    "npx",
+    ["--yes", "vercel@latest", "env", "ls", options.vercelEnvironment],
+    "Checking Vercel access before rotating the token",
+  );
+  run(
+    "npx",
+    ["--yes", "vercel@latest", "inspect", options.deploymentUrl],
+    "Checking the deployment URL before rotating the token",
+  );
+
   run(
     "pnpm",
     ["cx", options.target, "env", "set", "VRCLINKING_CLEANUP_URL", cleanupUrl],

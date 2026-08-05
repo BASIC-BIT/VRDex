@@ -705,9 +705,11 @@ export const confirmSecretsRetiredAsServer = internalMutation({
  * rows that are actually obligations. Capping a broader scan first let retired
  * history at the head of the index starve the sweep indefinitely.
  *
- * Two caps, not one: `OVERDUE_CLEANUP_SCAN_LIMIT` is a batch's worth of work,
- * and `OVERDUE_CLEANUP_MAX_EXAMINED` is how far the scan reaches past rows that
- * are not yet due before leaving the rest for tomorrow.
+ * Two caps, not one, and they count different things.
+ * `OVERDUE_CLEANUP_SCAN_LIMIT` bounds the batch and is applied to obligations —
+ * rows that survived the liveness guard and will actually have a key deleted.
+ * `OVERDUE_CLEANUP_MAX_EXAMINED` bounds the read, so reaching past rows that are
+ * not yet due, or that are due and permanently withheld, still ends.
  */
 export const claimOverdueSecretCleanups = internalMutation({
   args: {},
@@ -746,25 +748,11 @@ export const claimOverdueSecretCleanups = internalMutation({
           overdue.push(row);
         }
 
-        if (overdue.length >= OVERDUE_CLEANUP_SCAN_LIMIT || examined >= OVERDUE_CLEANUP_MAX_EXAMINED) {
+        if (examined >= OVERDUE_CLEANUP_MAX_EXAMINED) {
           break;
         }
       }
     }
-
-    // Claimed before their names go anywhere.
-    await Promise.all(
-      overdue
-        .filter((row) => row.state === "pending")
-        .map((row) =>
-          ctx.db.patch(row._id, {
-            state: "revoked",
-            revokedAt: now,
-            revokedReason: ABANDONED_RESERVATION_REASON,
-            updatedAt: now,
-          }),
-        ),
-    );
 
     // Grouped by guild so the legacy-name liveness guard sees every row that
     // could still be resolving through a shared guild-scoped name.
@@ -774,8 +762,11 @@ export const claimOverdueSecretCleanups = internalMutation({
       byGuild.set(row.guildId, [...(byGuild.get(row.guildId) ?? []), row]);
     }
 
-    const obligations: { credentialId: Id<"communityVrclinkingCredentials">; secretName: string }[] =
-      [];
+    const obligations: {
+      row: Doc<"communityVrclinkingCredentials">;
+      credentialId: Id<"communityVrclinkingCredentials">;
+      secretName: string;
+    }[] = [];
 
     for (const [guildId, rows] of byGuild) {
       const retirable = new Set(await retirableSecretNames(ctx, guildId, rows));
@@ -784,12 +775,39 @@ export const claimOverdueSecretCleanups = internalMutation({
         const secretName = vrclinkingSecretNameForRow(row);
 
         if (retirable.has(secretName)) {
-          obligations.push({ credentialId: row._id, secretName });
+          obligations.push({ row, credentialId: row._id, secretName });
         }
       }
     }
 
-    return obligations;
+    // Capped here rather than on the scan, because the two populations are not
+    // the same one. A legacy row whose guild-scoped name another profile still
+    // resolves through is due, is selected, and is then withheld by the guard
+    // above — and it never settles, so it is due again tomorrow. Counting those
+    // against the batch let fifty of them at the head of the index fill every
+    // sweep with rows that produce no work, while per-credential obligations
+    // behind them kept their keys forever. The scan's own bound is
+    // `OVERDUE_CLEANUP_MAX_EXAMINED`, so reaching past them stays bounded.
+    const batch = obligations.slice(0, OVERDUE_CLEANUP_SCAN_LIMIT);
+
+    // Claimed before their names go anywhere — and only the names actually going
+    // anywhere. A candidate that was withheld is not being handed out, so there
+    // is nothing to claim it against, and leaving it pending keeps the write
+    // bounded by the batch rather than by how far the scan had to reach.
+    await Promise.all(
+      batch
+        .filter(({ row }) => row.state === "pending")
+        .map(({ credentialId }) =>
+          ctx.db.patch(credentialId, {
+            state: "revoked",
+            revokedAt: now,
+            revokedReason: ABANDONED_RESERVATION_REASON,
+            updatedAt: now,
+          }),
+        ),
+    );
+
+    return batch.map(({ credentialId, secretName }) => ({ credentialId, secretName }));
   },
 });
 

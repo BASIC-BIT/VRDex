@@ -1760,6 +1760,84 @@ describe("VRCLinking credential delegation", () => {
     assert.equal(second.length, 10);
     assert.equal(new Set(second.map((row) => row.credentialId)).size, 10);
   });
+
+  /**
+   * Withheld legacy rows must not pin the head of every sweep.
+   *
+   * A revoked row whose guild-scoped name another profile is still active on is
+   * due forever: the liveness guard refuses to retire it, so nothing stamps it
+   * and it leads the index again tomorrow. Counting those against the batch let
+   * a batch's worth of them fill every sweep with rows that produce no work,
+   * while a per-credential obligation behind them kept its key indefinitely.
+   */
+  it("reaches obligations behind a batch of permanently withheld rows", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const sharedGuild = "92345678901234500";
+    const ownGuild = "92345678901234501";
+    const seeded = await seedOwnedCommunity(t, "delegation-withheld", now);
+    const createdAt = now - 60 * 60 * 1000;
+
+    await t.run(async (ctx) => {
+      const profile = await ctx.db
+        .query("profiles")
+        .withIndex("by_slug", (q) => q.eq("slug", "delegation-withheld"))
+        .unique();
+
+      // The live delegation whose shared name keeps every legacy row below
+      // unretirable, for as long as it stays active.
+      await ctx.db.insert("communityVrclinkingCredentials", {
+        communityProfileId: profile!._id,
+        guildId: sharedGuild,
+        secretRef: `secret://vrdex/vrclinking/${sharedGuild}`,
+        state: "active",
+        delegatedByUserId: seeded.userId,
+        createdAt,
+        updatedAt: createdAt,
+      });
+
+      // A full batch of them, all older than the obligation behind them so they
+      // lead the index.
+      for (let index = 0; index < 50; index += 1) {
+        await ctx.db.insert("communityVrclinkingCredentials", {
+          communityProfileId: profile!._id,
+          guildId: sharedGuild,
+          secretRef: `secret://vrdex/vrclinking/${sharedGuild}`,
+          state: "revoked",
+          delegatedByUserId: seeded.userId,
+          revokedAt: createdAt,
+          createdAt,
+          updatedAt: createdAt,
+        });
+      }
+
+      // Behind them, and genuinely retirable: its own guild, its own name.
+      const reachable = await ctx.db.insert("communityVrclinkingCredentials", {
+        communityProfileId: profile!._id,
+        guildId: ownGuild,
+        secretRef: "",
+        state: "revoked",
+        delegatedByUserId: seeded.userId,
+        revokedAt: createdAt + 1,
+        createdAt: createdAt + 1,
+        updatedAt: createdAt + 1,
+      });
+
+      await ctx.db.patch(reachable, {
+        secretRef: vrclinkingSecretRef(ownGuild, reachable),
+      });
+    });
+
+    const obligations = await t.mutation(
+      internal.vrclinkingCredentials.claimOverdueSecretCleanups,
+      {},
+    );
+
+    // Exactly the reachable one. The fifty ahead of it are due and selected, and
+    // the guard drops all fifty — so they must cost the scan, not the batch.
+    assert.equal(obligations.length, 1);
+    assert.match(obligations[0]!.secretName, new RegExp(`^vrdex/vrclinking/${ownGuild}/`));
+  });
 });
 
 describe("claiming a community with a verified guild", () => {
