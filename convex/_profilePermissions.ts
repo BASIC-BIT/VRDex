@@ -84,24 +84,46 @@ const VISIBILITY_KEYS_BY_FIELD: Record<ProfileEditableField, ProfileFieldVisibil
 };
 
 /**
- * Whether a field is held back from the public on this profile.
+ * Fields the public page renders only in the header's metadata line.
+ *
+ * `ProfilePublicPage` builds that line from pronouns or subtype, region, and
+ * then the "focus items" -- role tags, category tags and free tags -- but it
+ * drops the focus items when the profile has a headline, because the headline is
+ * already carrying that row. There is no second place they render.
+ */
+const HEADER_ONLY_FIELDS: readonly ProfileEditableField[] = ["tags", "person", "community"];
+
+/**
+ * Whether a field is held back from the contributor on this profile.
  *
  * `private` is an explicit instruction that a value is not for public surfaces,
  * and a community contributor is a member of that public. Editing a field means
  * being shown its current value first, so the community may not edit what it may
- * not read -- otherwise the editor becomes a way to read private values by
+ * not read -- otherwise the editor becomes a way to read withheld values by
  * opening a form, and a blind save would overwrite one.
  *
- * `unlisted` is not private: it renders on the profile page, so a contributor
- * looking at that page has already seen it.
+ * `unlisted` is normally not private: it renders on the profile page, so a
+ * contributor looking at that page has already seen it. That reasoning is the
+ * whole justification, and it fails in one case -- a profile with a headline
+ * renders no focus items, so an unlisted tag or role tag on one is on the page
+ * nowhere and, being unlisted, in discovery nowhere either. A `public` focus
+ * field is still readable there whatever the header does, which is why this turns
+ * on `unlisted` rather than on the headline alone.
  */
-function isFieldPrivate(
-  profile: Pick<Doc<"profiles">, "fieldVisibility">,
+function isFieldWithheldFromCommunity(
+  profile: Pick<Doc<"profiles">, "fieldVisibility"> & Partial<Pick<Doc<"profiles">, "headline">>,
   field: ProfileEditableField,
 ): boolean {
-  return VISIBILITY_KEYS_BY_FIELD[field].some(
-    (key) => getProfileFieldVisibility(profile, key) === "private",
-  );
+  const hidesFocusItems =
+    typeof profile.headline === "string" &&
+    profile.headline.trim().length > 0 &&
+    HEADER_ONLY_FIELDS.includes(field);
+
+  return VISIBILITY_KEYS_BY_FIELD[field].some((key) => {
+    const visibility = getProfileFieldVisibility(profile, key);
+
+    return visibility === "private" || (hidesFocusItems && visibility === "unlisted");
+  });
 }
 
 function isFieldCompatibleWithProfileType(
@@ -136,7 +158,10 @@ export function canEditProfileField(
     Doc<"profiles">,
     "claimState" | "profileType" | "publicationState" | "publicSurfacingState"
   > &
-    Partial<Pick<Doc<"profiles">, "fieldVisibility">>,
+    // `headline` decides whether the header renders focus items at all, which is
+    // the only place they render. Optional so a caller that does not load it
+    // reads as "no headline", the case where those fields *are* on the page.
+    Partial<Pick<Doc<"profiles">, "fieldVisibility" | "headline">>,
   field: ProfileEditableField,
 ): boolean {
   if (!isFieldCompatibleWithProfileType(profile.profileType, field)) {
@@ -161,7 +186,7 @@ export function canEditProfileField(
       // answerable for it, and their edits are not the community's to make.
       profile.claimState === "unclaimed" &&
       !(COMMUNITY_UNEDITABLE_FIELDS as readonly ProfileEditableField[]).includes(field) &&
-      !isFieldPrivate(profile, field)
+      !isFieldWithheldFromCommunity(profile, field)
     );
   }
 

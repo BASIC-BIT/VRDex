@@ -306,6 +306,46 @@ describe("profile permission helpers", () => {
   // field sits at `public` by default and is invisible anyway, because being
   // allowed to show something is not the same as showing it. The owner keeps it,
   // since it is their own record.
+  // The page builds one metadata line from pronouns, region and the focus items,
+  // and drops the focus items when a headline is carrying that row instead. So an
+  // unlisted tag on a profile with a headline is on the page nowhere and, being
+  // unlisted, in discovery nowhere either -- which is the exact justification for
+  // treating unlisted as readable, failing.
+  it("keeps the community out of focus fields a headline has displaced", () => {
+    const withHeadline = {
+      ...publishedUnclaimedPerson,
+      headline: "Resident DJ at Afterglow",
+      fieldVisibility: { tags: "unlisted", personRoleTags: "unlisted" },
+    } as const;
+
+    for (const field of ["tags", "person"] as const) {
+      assert.equal(canEditProfileField("community_submitter", withHeadline, field), false, field);
+      // No headline, so the page renders them and a contributor has seen them.
+      assert.equal(
+        canEditProfileField(
+          "community_submitter",
+          { ...withHeadline, headline: undefined },
+          field,
+        ),
+        true,
+        field,
+      );
+      // Public survives the headline either way: discovery still carries it.
+      assert.equal(
+        canEditProfileField(
+          "community_submitter",
+          { ...withHeadline, fieldVisibility: {} },
+          field,
+        ),
+        true,
+        field,
+      );
+    }
+
+    // Nothing else moves. `bio` is not a focus item.
+    assert.equal(canEditProfileField("community_submitter", withHeadline, "bio"), true);
+  });
+
   it("keeps the community out of a field no public surface renders", () => {
     assert.equal(
       canEditProfileField("community_submitter", publishedUnclaimedPerson, "timezone"),

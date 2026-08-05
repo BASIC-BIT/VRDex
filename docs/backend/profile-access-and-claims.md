@@ -57,6 +57,17 @@ to show something is not the same as showing it. It is in
 `COMMUNITY_UNEDITABLE_FIELDS` until some surface renders it; owners keep it,
 because it is their own record.
 
+`unlisted` has one case of the same shape. The public page builds a single
+metadata line from pronouns or subtype, region, and then the focus items -- role
+tags, category tags and free tags -- and drops the focus items when the profile
+has a headline, because the headline carries that row instead. There is no second
+place they render. So an unlisted focus field on a profile with a headline is on
+the page nowhere and, being unlisted, in discovery nowhere either, which is
+exactly the justification for calling `unlisted` readable, failing. Those fields
+are withheld from community editing on such a profile and editable on one without
+a headline. A `public` focus field is unaffected: discovery carries it whatever
+the header does.
+
 An existing link keeps the provenance it already had, and each row says which
 one it arrived with. The form posts the whole array back, so restamping on every
 save would downgrade an owner-authored link to community-submitted because
