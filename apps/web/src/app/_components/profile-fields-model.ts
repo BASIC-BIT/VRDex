@@ -40,21 +40,39 @@ const NARRATIVE_FIELDS = ["headline", "bio", "region", "timezone"] as const;
 
 type NarrativeFields = Partial<Record<(typeof NARRATIVE_FIELDS)[number], string>>;
 
+/**
+ * The hidden marker each rendered field group emits.
+ *
+ * The update path reads every key it receives as an instruction, so a field the
+ * form did not render must be absent from the payload rather than present and
+ * empty -- otherwise opening the editor on a profile whose links you may not
+ * edit, and saving a typo fix, deletes them.
+ *
+ * Emptiness cannot stand in for absence: no link rows means "I removed the last
+ * link" just as often as it means "the section was not shown". A marker is the
+ * only thing that tells those apart.
+ */
+export const FIELD_PRESENT_INPUT = "fieldPresent";
+
+function presentFields(formData: FormData): Set<string> {
+  return new Set(formData.getAll(FIELD_PRESENT_INPUT).map((value) => String(value)));
+}
+
 type SharedFields = {
   displayName: string;
-  aliases: string[];
-  tags: string[];
-  outboundLinks: ProfileLinkInput[];
+  aliases?: string[];
+  tags?: string[];
+  outboundLinks?: ProfileLinkInput[];
 } & NarrativeFields;
 
 export type ProfileFieldsPayload =
   | (SharedFields & {
       profileType: "person";
-      person: { roleTags: string[] };
+      person?: { roleTags: string[] };
     })
   | (SharedFields & {
       profileType: "community";
-      community: { subtype: string; categoryTags: string[] };
+      community?: { subtype: string; categoryTags: string[] };
     });
 
 /**
@@ -167,37 +185,37 @@ export function profileFieldsPayload(
   formData: FormData,
   profileType: ProfileFieldsType,
 ): ProfileFieldsPayload {
+  const present = presentFields(formData);
+  const when = <T>(field: string, value: T) => (present.has(field) ? { [field]: value } : {});
   const shared = {
+    // Always rendered, and a profile cannot be nameless.
     displayName: stringField(formData.get("displayName")),
-    aliases: splitList(formData.get("aliases")),
-    tags: splitList(formData.get("tags")),
-    outboundLinks: linksFromFormData(formData),
-    // Present only when the field was on the page. The update path treats a key
-    // it receives as an instruction, so sending an empty string for a control
-    // nobody rendered would clear a headline the editor never showed.
+    ...when("aliases", splitList(formData.get("aliases"))),
+    ...when("tags", splitList(formData.get("tags"))),
+    ...when("outboundLinks", linksFromFormData(formData)),
     ...Object.fromEntries(
-      NARRATIVE_FIELDS.filter((name) => formData.has(name)).map((name) => [
+      NARRATIVE_FIELDS.filter((name) => present.has(name)).map((name) => [
         name,
         stringField(formData.get(name)),
       ]),
     ),
-  };
+  } as SharedFields;
 
   if (profileType === "community") {
     return {
       ...shared,
       profileType: "community",
-      community: {
+      ...when("community", {
         subtype: stringField(formData.get("subtype")),
         categoryTags: splitList(formData.get("categoryTags")),
-      },
-    };
+      }),
+    } as ProfileFieldsPayload;
   }
 
   return {
     ...shared,
     profileType: "person",
-    person: {
+    ...when("person", {
       // Checked boxes first so the common roles keep a stable order, then
       // whatever the freeform field adds. Deduplicated because someone will type
       // "DJ" next to the box they already ticked.
@@ -205,6 +223,6 @@ export function profileFieldsPayload(
         ...formData.getAll("roleTag").map((value) => stringField(value)),
         ...splitList(formData.get("roleTagsOther")),
       ]),
-    },
-  };
+    }),
+  } as ProfileFieldsPayload;
 }

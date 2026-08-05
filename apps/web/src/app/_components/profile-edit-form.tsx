@@ -108,26 +108,23 @@ function ConnectedProfileEditForm({ slug, profilePath }: { slug: string; profile
     setStatus({ kind: "saving" });
 
     try {
+      // `profileType` is the form's own discriminator, not an updatable field.
+      const fields = Object.fromEntries(
+        Object.entries(payload).filter(([key]) => key !== "profileType"),
+      ) as Omit<typeof payload, "profileType">;
+
+      // Spread as-is. The payload already carries only the fields the form
+      // rendered, and the update path reads every key it receives as an
+      // instruction -- so naming the rest here would clear fields this writer
+      // was never shown. An emptied narrative field becomes `null`, which is how
+      // that path spells "clear this" rather than "leave it alone".
       await updateProfile({
         slug,
-        displayName: payload.displayName,
-        aliases: payload.aliases,
-        tags: payload.tags,
-        outboundLinks: payload.outboundLinks,
-        // Nullable rather than omitted: clearing a headline is an edit, and an
-        // absent key means "leave it alone" on the update path.
-        headline: payload.headline ?? null,
-        bio: payload.bio ?? null,
-        region: payload.region ?? null,
-        timezone: payload.timezone ?? null,
-        ...(payload.profileType === "person"
-          ? { person: { roleTags: payload.person.roleTags } }
-          : {
-              community: {
-                subtype: payload.community.subtype,
-                categoryTags: payload.community.categoryTags,
-              },
-            }),
+        ...fields,
+        ...(fields.headline === undefined ? {} : { headline: fields.headline || null }),
+        ...(fields.bio === undefined ? {} : { bio: fields.bio || null }),
+        ...(fields.region === undefined ? {} : { region: fields.region || null }),
+        ...(fields.timezone === undefined ? {} : { timezone: fields.timezone || null }),
       });
 
       startTransition(() => {
@@ -164,6 +161,7 @@ function ConnectedProfileEditForm({ slug, profilePath }: { slug: string; profile
           categoryTags: profile.community?.categoryTags ?? [],
           links: profile.outboundLinks,
         }}
+        editableFields={profile.editableFields}
         profileType={profile.profileType}
         showNarrativeFields
       />

@@ -981,6 +981,24 @@ export function displayNameOutsidePublicLimits(displayName: string): boolean {
  * a field moved back to `needs_correction` would simply be dropped and the
  * profile published anyway.
  */
+/**
+ * Whether a field would put anything on a profile.
+ *
+ * An empty list and a blank string are both accepted values that render as
+ * nothing, so neither is evidence that a publication will show something.
+ */
+function hasSeedFieldContent(field: Pick<SeedImportPublicationField, "value">): boolean {
+  if (Array.isArray(field.value)) {
+    return field.value.length > 0;
+  }
+
+  if (typeof field.value === "string") {
+    return field.value.trim().length > 0;
+  }
+
+  return field.value !== null && field.value !== undefined;
+}
+
 export function getSeedImportFieldBlockers(
   fields: SeedImportPublicationField[],
 ): SeedImportPublicationBlocker[] {
@@ -1026,11 +1044,15 @@ export function getSeedImportFieldBlockers(
   // held back from discovery, which is a deliberate choice rather than an
   // accident. Candidates with no accepted fields at all are left to the review
   // gates above; this fires only when there was content and none of it survives.
+  //
+  // Emptiness is checked, not just visibility: a public `tags: []` beside a
+  // private set of links satisfies "has a non-private field" while publishing
+  // exactly the display-name-only profile this gate exists to stop.
   const acceptedFields = fields.filter((field) => field.reviewState === "accepted");
 
   if (
     acceptedFields.length > 0 &&
-    acceptedFields.every((field) => field.visibility === "private")
+    !acceptedFields.some((field) => field.visibility !== "private" && hasSeedFieldContent(field))
   ) {
     blockers.add("no_publicly_visible_field");
   }

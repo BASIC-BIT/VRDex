@@ -1,4 +1,8 @@
 import type { Doc } from "./_generated/dataModel";
+import {
+  getProfileFieldVisibility,
+  type ProfileFieldVisibilityKey,
+} from "./_profileFieldVisibility";
 
 export type ProfilePermissionSubject =
   | "public"
@@ -46,6 +50,49 @@ export const COMMUNITY_UNEDITABLE_FIELDS = [
   "slug",
 ] as const satisfies readonly ProfileEditableField[];
 
+/**
+ * The visibility keys an editable field writes.
+ *
+ * `displayName` has none -- a profile's name is what its page is titled with and
+ * is always shown. `person` and `community` each cover two, so a private
+ * pronoun or category holds the whole grouped field back rather than being
+ * revealed by an edit to the part beside it.
+ */
+const VISIBILITY_KEYS_BY_FIELD: Record<ProfileEditableField, ProfileFieldVisibilityKey[]> = {
+  displayName: [],
+  slug: [],
+  aliases: ["aliases"],
+  tags: ["tags"],
+  headline: ["headline"],
+  bio: ["bio"],
+  region: ["region"],
+  timezone: ["timezone"],
+  outboundLinks: ["outboundLinks"],
+  person: ["personPronouns", "personRoleTags"],
+  community: ["communitySubtype", "communityCategoryTags"],
+};
+
+/**
+ * Whether a field is held back from the public on this profile.
+ *
+ * `private` is an explicit instruction that a value is not for public surfaces,
+ * and a community contributor is a member of that public. Editing a field means
+ * being shown its current value first, so the community may not edit what it may
+ * not read -- otherwise the editor becomes a way to read private values by
+ * opening a form, and a blind save would overwrite one.
+ *
+ * `unlisted` is not private: it renders on the profile page, so a contributor
+ * looking at that page has already seen it.
+ */
+function isFieldPrivate(
+  profile: Pick<Doc<"profiles">, "fieldVisibility">,
+  field: ProfileEditableField,
+): boolean {
+  return VISIBILITY_KEYS_BY_FIELD[field].some(
+    (key) => getProfileFieldVisibility(profile, key) === "private",
+  );
+}
+
 function isFieldCompatibleWithProfileType(
   profileType: Doc<"profiles">["profileType"],
   field: ProfileEditableField,
@@ -77,7 +124,8 @@ export function canEditProfileField(
   profile: Pick<
     Doc<"profiles">,
     "claimState" | "profileType" | "publicationState" | "publicSurfacingState"
-  >,
+  > &
+    Partial<Pick<Doc<"profiles">, "fieldVisibility">>,
   field: ProfileEditableField,
 ): boolean {
   if (!isFieldCompatibleWithProfileType(profile.profileType, field)) {
@@ -101,7 +149,8 @@ export function canEditProfileField(
       // Only while nobody has claimed it. A claimed profile has someone
       // answerable for it, and their edits are not the community's to make.
       profile.claimState === "unclaimed" &&
-      !(COMMUNITY_UNEDITABLE_FIELDS as readonly ProfileEditableField[]).includes(field)
+      !(COMMUNITY_UNEDITABLE_FIELDS as readonly ProfileEditableField[]).includes(field) &&
+      !isFieldPrivate(profile, field)
     );
   }
 

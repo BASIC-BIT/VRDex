@@ -40,6 +40,19 @@ Community contributors must not set fields implying verified authority, private
 contact details, billing state, ownership, custom slugs, or field-visibility
 choices.
 
+A field the profile marks `private` is not community-editable either. Editing a
+field means being shown its current value first, so the community may not edit
+what it may not read -- otherwise the editor becomes a way to read a withheld
+value by opening a form, and a blind save would overwrite one. `unlisted` is not
+private: it renders on the profile page, so a contributor looking at that page
+has already seen it. `profiles:editableProfile` returns values only for fields
+the subject has cleared, so the form shows exactly what it may change.
+
+An existing link keeps the provenance it already had. The form posts the whole
+array back, so restamping on every save would downgrade an owner-authored link
+to community-submitted because somebody fixed a typo elsewhere. Only genuinely
+new links carry the writer's own stamp.
+
 `profiles:updateProfileFromBrowser` serves both subjects and resolves which one
 applies from ownership: the profile's owner edits as `claimed_owner`, anyone
 else editing an unclaimed profile edits as `community_submitter`, and a non-owner

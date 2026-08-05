@@ -96,6 +96,16 @@ function optionalBoundedText(input: NullableString, fieldName: string, maxLength
   return value;
 }
 
+/**
+ * What makes two outbound links the same link.
+ *
+ * Type and destination, not label: renaming a link is editing it, and it keeps
+ * the provenance it already had.
+ */
+function linkIdentity(link: { type: string; url: string }): string {
+  return `${link.type}:${link.url.toLowerCase()}`;
+}
+
 function addChangedField(fields: ProfileEditableField[], field: ProfileEditableField) {
   if (!fields.includes(field)) {
     fields.push(field);
@@ -198,10 +208,20 @@ export function sanitizeApiProfileUpdateInput(
     // below decides whether this writer may touch the field at all, and calling
     // a community contributor's links owner-authored would be a plain lie on a
     // surface that renders provenance.
+    //
+    // A link that was already on the profile keeps the provenance it had. The
+    // form posts the whole array back, so without this, saving an unrelated
+    // field would restamp every owner-authored link as community-submitted --
+    // downgrading a trust signal nobody touched. Only genuinely new links carry
+    // the writer's own stamp.
+    const existingSources = new Map(
+      (profile.outboundLinks ?? []).map((link) => [linkIdentity(link), link.source]),
+    );
+
     patch.outboundLinks = sanitizeProfileLinks(
       input.outboundLinks ?? [],
       LINK_SOURCE_BY_SUBJECT[subject],
-    );
+    ).map((link) => ({ ...link, source: existingSources.get(linkIdentity(link)) ?? link.source }));
     addChangedField(changedFields, "outboundLinks");
   }
 

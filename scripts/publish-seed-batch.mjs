@@ -28,11 +28,17 @@ const USAGE = [
   "",
   "Field visibility mode:",
   "  --set-visibility <public|unlisted|private> [--field-keys <a,b,c>]",
+  "    [--rederive-values]",
   "",
-  "Sets the stored visibility of a batch's accepted fields and re-derives every",
+  "Sets the stored visibility of a batch's accepted fields and carries it to any",
   "profile already published from them. Publication copies each field's",
   "visibility onto the profile, so a batch imported private publishes profiles",
   "that show nothing. Without --apply this runs as a dry run and writes nothing.",
+  "",
+  "--rederive-values also replays the accepted field values onto those profiles.",
+  "They are community-editable, so that overwrites every correction made since",
+  "publication with the import snapshot. Use it for a batch published before a",
+  "normalization fix, not as a matter of course.",
 ].join("\n");
 
 const FIELD_VISIBILITIES = ["public", "unlisted", "private"];
@@ -206,6 +212,7 @@ function setFieldVisibility({ batchId, visibility, reason, reviewer, limit }) {
       reviewer,
       dryRun,
       limit,
+      rederiveValues: flag("--rederive-values"),
       ...(fieldKeys === undefined ? {} : { fieldKeys }),
       ...(cursor === undefined || cursor === null ? {} : { cursor }),
     });
@@ -226,15 +233,19 @@ function setFieldVisibility({ batchId, visibility, reason, reviewer, limit }) {
     cursor = page.nextCursor;
   }
 
+  const rederiveValues = flag("--rederive-values");
+
   console.log(
     `\n${dryRun ? "Would set" : "Set"} ${fieldsChangedTotal} accepted fields to ${visibility} across ${processedTotal} candidates, ` +
-      `re-deriving ${profilesRederivedTotal} published profiles.`,
+      `updating ${profilesRederivedTotal} published profiles ` +
+      `(${rederiveValues ? "visibility and values" : "visibility only"}).`,
   );
 
-  // Reported every run, including zero. A re-derivation that silently discarded
-  // a stream link would otherwise be indistinguishable from one that carried it.
+  // Reported every run, including zero, and on a visibility-only run too: it is
+  // what a value re-derivation *would* do to the links, which is the number an
+  // operator needs before deciding to ask for one.
   console.log(
-    `Links: ${linksDeduplicatedTotal} collapsed onto an existing link, ${linksDroppedTotal} could not be normalized.`,
+    `Links: ${linksDeduplicatedTotal} would collapse onto an existing link, ${linksDroppedTotal} could not be normalized.`,
   );
 
   if (skipped.length > 0) {

@@ -257,11 +257,14 @@ function E2eSubmissionForm() {
             aliases: payload.aliases,
             tags: payload.tags,
             outboundLinks: payload.outboundLinks,
+            // Optional in the payload because the editor renders only the fields
+            // its writer may change. This form renders all of them, so the
+            // fallbacks are for the type rather than for a case that happens.
             ...(payload.profileType === "person"
-              ? { roleTags: payload.person.roleTags }
+              ? { roleTags: payload.person?.roleTags ?? [] }
               : {
-                  subtype: payload.community.subtype,
-                  categoryTags: payload.community.categoryTags,
+                  subtype: payload.community?.subtype ?? "",
+                  categoryTags: payload.community?.categoryTags ?? [],
                 }),
           }),
         });

@@ -53,7 +53,9 @@ function actionLabel(action: string) {
   return action.replace(/_/g, " ");
 }
 
-export function ProfilePrivateRecord({
+const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+
+function WithheldProfileRecord({
   profilePath,
   profileType,
   slug,
@@ -129,4 +131,20 @@ export function ProfilePrivateRecord({
       ) : null}
     </section>
   );
+}
+
+export function ProfilePrivateRecord(props: {
+  profilePath: string;
+  profileType: "person" | "community";
+  slug: string;
+}) {
+  // `ConvexClientProvider` deliberately renders no provider when the URL is
+  // unset, and the public profile page still renders there from fixtures. A
+  // `useQuery` under no provider throws on mount, which would take the whole
+  // profile page down rather than hiding one operator-only section.
+  if (!convexUrl) {
+    return null;
+  }
+
+  return <WithheldProfileRecord {...props} />;
 }

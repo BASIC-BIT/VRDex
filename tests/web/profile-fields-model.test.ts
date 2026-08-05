@@ -2,12 +2,22 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  FIELD_PRESENT_INPUT,
   partitionLinks,
   profileFieldsPayload,
 } from "../../apps/web/src/app/_components/profile-fields-model";
 
-function formData(entries: Array<[string, string]>): FormData {
+/**
+ * `present` names the field groups the form rendered, which is what the real
+ * form emits as hidden markers. Anything not listed is absent from the payload
+ * rather than present and empty.
+ */
+function formData(entries: Array<[string, string]>, present: string[] = []): FormData {
   const data = new FormData();
+
+  for (const field of present) {
+    data.append(FIELD_PRESENT_INPUT, field);
+  }
 
   for (const [name, value] of entries) {
     data.append(name, value);
@@ -59,7 +69,7 @@ describe("profile fields payload", () => {
         ["twitchUrl", "https://twitch.tv/snekwtf"],
         ["linkType", "soundcloud"],
         ["linkUrl", "https://soundcloud.com/snekwtf"],
-      ]),
+      ], ["outboundLinks"]),
       "person",
     );
 
@@ -79,7 +89,7 @@ describe("profile fields payload", () => {
         ["linkUrl", ""],
         ["linkType", "website"],
         ["linkUrl", "https://example.com/snek"],
-      ]),
+      ], ["outboundLinks"]),
       "person",
     );
 
@@ -96,7 +106,7 @@ describe("profile fields payload", () => {
         ["roleTag", "VJ"],
         // Someone will type a role next to the box they already ticked.
         ["roleTagsOther", "dj, Lighting design"],
-      ]),
+      ], ["person"]),
       "person",
     );
 
@@ -122,7 +132,7 @@ describe("profile fields payload", () => {
         ["bio", ""],
         ["region", "EU"],
         ["timezone", ""],
-      ]),
+      ], ["headline", "bio", "region", "timezone"]),
       "person",
     );
 
@@ -133,6 +143,34 @@ describe("profile fields payload", () => {
     assert.equal(edited.timezone, "");
   });
 
+  it("omits a field group the form did not render", () => {
+    // The editor hides fields this writer may not edit, and the update path
+    // reads every key it receives as an instruction. Without the marker, "no
+    // link rows" is indistinguishable from "the links section was not shown",
+    // so saving a typo fix would delete links the editor never displayed.
+    const payload = profileFieldsPayload(
+      formData([["displayName", "Snek"]], ["tags"]),
+      "person",
+    );
+
+    assert.deepEqual(payload.tags, []);
+    assert.equal("aliases" in payload, false);
+    assert.equal("outboundLinks" in payload, false);
+    assert.equal("person" in payload, false);
+  });
+
+  it("keeps an emptied group as an explicit clear", () => {
+    // The other half: rendered and emptied has to reach the backend, or removing
+    // your last link would silently do nothing.
+    const payload = profileFieldsPayload(
+      formData([["displayName", "Snek"]], ["outboundLinks", "aliases"]),
+      "person",
+    );
+
+    assert.deepEqual(payload.outboundLinks, []);
+    assert.deepEqual(payload.aliases, []);
+  });
+
   it("ignores person fields on a community profile", () => {
     const payload = profileFieldsPayload(
       formData([
@@ -140,7 +178,7 @@ describe("profile fields payload", () => {
         ["roleTag", "DJ"],
         ["subtype", "Club"],
         ["categoryTags", "events, music"],
-      ]),
+      ], ["person", "community"]),
       "community",
     );
 

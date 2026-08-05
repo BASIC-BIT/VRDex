@@ -1530,6 +1530,11 @@ export const bulkSetFieldVisibility = internalMutation({
     // Absent means every accepted field. Named keys are the common case: role
     // tags and links go public while a bio stays back.
     fieldKeys: v.optional(v.array(v.string())),
+    // Also replay the accepted field *values* onto already-published profiles,
+    // not just their visibility. Off by default: these profiles are
+    // community-editable, so replaying the import snapshot undoes every
+    // correction made since publication.
+    rederiveValues: v.optional(v.boolean()),
     reason: v.string(),
     dryRun: v.optional(v.boolean()),
     limit: v.optional(v.number()),
@@ -1660,12 +1665,27 @@ export const bulkSetFieldVisibility = internalMutation({
             ? { ...field, visibility: args.visibility }
             : field,
         );
-      const patch = buildConciergeProfileFieldPatch(acceptedFields, profile, {
+      const rebuilt = buildConciergeProfileFieldPatch(acceptedFields, profile, {
         fieldVisibilitySource: "reviewed",
         clearUnselectedFields: false,
         sourceType: batch.sourceType,
         linkStats,
       });
+      // Visibility only, unless the operator asks for the values too.
+      //
+      // These profiles are community-editable now, so replaying the whole seed
+      // patch would silently undo every correction made since publication --
+      // links fixed, tags added, a name spelled right -- and the operator would
+      // see only a count of profiles "re-derived". Changing what is visible does
+      // not require changing what is there.
+      //
+      // `rederiveValues` is the one-time pass for a batch published before link
+      // canonicalization existed. It overwrites live values with the import
+      // snapshot, which is the point and also the risk.
+      const patch =
+        args.rederiveValues === true
+          ? rebuilt
+          : { fieldVisibility: rebuilt.fieldVisibility };
 
       profilesRederived += 1;
 
@@ -1693,10 +1713,13 @@ export const bulkSetFieldVisibility = internalMutation({
       processed: pageResult.page.length,
       fieldsChanged,
       profilesRederived,
+      rederivedValues: args.rederiveValues === true,
       skipped,
       // Links the canonicalizer could not carry, and links that collapsed onto
       // one already present. Reported rather than swallowed: a re-derivation that
       // quietly drops a stream link looks identical to one that carried it.
+      // Counted from the rebuilt patch either way, so a visibility-only run still
+      // says what a value re-derivation would do.
       linksDropped: linkStats.droppedCount,
       linksDeduplicated: linkStats.deduplicatedCount,
       nextCursor: pageResult.isDone ? null : pageResult.continueCursor,

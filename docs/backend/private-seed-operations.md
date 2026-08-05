@@ -134,12 +134,15 @@ Publish behavior worth knowing:
   seed field mapper in `reviewed` mode; the concierge handoff path uses the same
   mapper in `private` mode, which forces every field private. Publishing with the
   concierge default would produce a profile with nothing visible on it.
-- A candidate whose accepted fields would **all** be private is blocked with
-  `no_publicly_visible_field`. `unlisted` counts as visible: it renders on the
-  profile page and is only held back from discovery, which is a decision rather
-  than an accident. Batch `nwinn_2026_07_16_ad79dca17a` is why the gate exists --
-  it published 405 people whose every field was stored private, so each live
-  profile showed a display name and a slug and nothing else.
+- A candidate with no accepted field that is both non-private and non-empty is
+  blocked with `no_publicly_visible_field`. `unlisted` counts as visible: it
+  renders on the profile page and is only held back from discovery, which is a
+  decision rather than an accident. Emptiness counts too -- a public `tags: []`
+  beside a private set of links would otherwise satisfy the gate while
+  publishing exactly the profile it exists to stop. Batch
+  `nwinn_2026_07_16_ad79dca17a` is why it exists: it published 405 people whose
+  every field was stored private, so each live profile showed a display name and
+  a slug and nothing else.
 - Outbound links are normalized through `sanitizeProfileLinksLeniently`, the same
   path every other writer uses, rather than carried across as stored. VRCDN
   entries canonicalize to the public `vrcdn.live/<streamId>` page, so an operator
@@ -332,13 +335,25 @@ pnpm ops:seed-publish -- `
 - Without `--apply` it is a dry run: the same counts, nothing written. This
   changes what the public sees on live profiles, so the dry run is the default.
 - `--field-keys` is optional; omitting it targets every accepted field.
-- Re-derivation runs the accepted fields back through the same builder
-  publication uses, so a batch published before the link canonicalization existed
-  picks it up here rather than needing a second pass. The report always prints
-  how many links were dropped and how many collapsed onto an existing link.
+- **Visibility only by default.** Published profiles are community-editable, so
+  replaying the seed values would silently undo every correction made since
+  publication -- links fixed, tags added, a name spelled right -- while reporting
+  only a count of profiles updated. Changing what is visible does not require
+  changing what is there.
+- `--rederive-values` opts into replaying the values as well, through the same
+  builder publication uses. That is the one-time pass for a batch published
+  before a normalization fix; it overwrites live values with the import
+  snapshot, which is both the point and the risk. The link counts are reported
+  either way, so a visibility-only run still says what a value re-derivation
+  would do.
 - Claimed profiles are left alone and reported as `profile_claimed`.
   Re-deriving one would overwrite whatever its owner has edited since with the
   seed snapshot.
+- A batch revoked to `private_only` re-derives nothing and reports
+  `batch_not_authorized`. Re-derivation republishes seed data onto a live
+  profile, so the kill switch has to stop it and not just stop new publications.
+  Candidate rows are still updated: setting visibility before authorizing a
+  batch is preparation.
 
 ## Suppression Requests
 

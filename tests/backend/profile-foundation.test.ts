@@ -304,6 +304,34 @@ describe("profile permission helpers", () => {
     assert.equal(canEditProfileField("community_submitter", claimedPerson, "outboundLinks"), false);
     assert.equal(canEditProfileField("claimed_owner", claimedPerson, "outboundLinks"), true);
   });
+
+  it("keeps the community out of fields the profile withholds", () => {
+    // Editing a field means being shown its current value first, so the
+    // community may not edit what it may not read -- otherwise the editor is a
+    // way to read a private value by opening a form.
+    const withPrivateBio = {
+      ...publishedUnclaimedPerson,
+      fieldVisibility: { bio: "private", personRoleTags: "private", aliases: "unlisted" },
+    } as const;
+
+    assert.equal(canEditProfileField("community_submitter", withPrivateBio, "bio"), false);
+    // `person` covers pronouns and role tags, so a private half holds the whole
+    // grouped field back rather than being revealed by an edit to the other.
+    assert.equal(canEditProfileField("community_submitter", withPrivateBio, "person"), false);
+    // unlisted is not private: it renders on the profile page, so a contributor
+    // looking at that page has already seen it.
+    assert.equal(canEditProfileField("community_submitter", withPrivateBio, "aliases"), true);
+    assert.equal(canEditProfileField("community_submitter", withPrivateBio, "tags"), true);
+    // The owner's own hidden fields stay theirs to edit.
+    assert.equal(
+      canEditProfileField(
+        "claimed_owner",
+        { ...withPrivateBio, claimState: "claimed_unverified" },
+        "bio",
+      ),
+      true,
+    );
+  });
 });
 
 describe("profile claim-state helpers", () => {
@@ -1001,6 +1029,43 @@ describe("API profile update helpers", () => {
           .patch.outboundLinks as Array<{ source: string }>
       )[0]?.source,
       "owner_authored",
+    );
+  });
+
+  it("keeps the provenance a link already had", () => {
+    // The form posts the whole array back, so without this, saving an unrelated
+    // field restamps every owner-authored link as community-submitted --
+    // downgrading a trust signal nobody touched.
+    const withLinks = {
+      ...claimedPerson,
+      claimState: "unclaimed",
+      outboundLinks: [
+        {
+          type: "twitch",
+          label: "Twitch",
+          url: "https://twitch.tv/snekwtf",
+          source: "owner_authored",
+        },
+      ],
+    } as unknown as Doc<"profiles">;
+
+    const links = sanitizeApiProfileUpdateInput(
+      withLinks,
+      {
+        outboundLinks: [
+          { type: "twitch", url: "https://twitch.tv/snekwtf" },
+          { type: "soundcloud", url: "https://soundcloud.com/snekwtf" },
+        ],
+      },
+      "community_submitter",
+    ).patch.outboundLinks as Array<{ source: string; type: string }>;
+
+    assert.deepEqual(
+      links.map((link) => [link.type, link.source]),
+      [
+        ["twitch", "owner_authored"],
+        ["soundcloud", "community_submitted"],
+      ],
     );
   });
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { X } from "lucide-react";
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import { CheckboxField, Field, FieldText, Input, Select, Textarea } from "@/components/ui/field";
@@ -11,6 +11,7 @@ import {
   PROFILE_LINK_TYPES,
 } from "../../../../../convex/_profileLinks";
 import {
+  FIELD_PRESENT_INPUT,
   isStreamingRole,
   partitionLinks,
   PERSON_ROLE_OPTIONS,
@@ -32,6 +33,21 @@ import {
  * The form-to-payload half lives in `profile-fields-model.ts` so it is reachable
  * from a plain test.
  */
+
+/**
+ * A field group, with the marker that tells the payload builder it was rendered.
+ *
+ * Without the marker, a field the form left out is indistinguishable from one
+ * the user emptied, and the update path clears it.
+ */
+function FieldGroup({ children, field }: { children: ReactNode; field: string }) {
+  return (
+    <>
+      <input name={FIELD_PRESENT_INPUT} type="hidden" value={field} />
+      {children}
+    </>
+  );
+}
 
 function PersonRoleFields({ defaults }: { defaults: ProfileFieldsDefaults }) {
   const initialRoles = defaults.roleTags ?? [];
@@ -105,10 +121,20 @@ function PersonRoleFields({ defaults }: { defaults: ProfileFieldsDefaults }) {
 
 export function ProfileFields({
   defaults = {},
+  editableFields,
   profileType,
   showNarrativeFields = false,
 }: {
   defaults?: ProfileFieldsDefaults;
+  /**
+   * The fields this writer may change, from `profiles:editableProfile`. Absent
+   * means all of them, which is the submit form creating a new profile.
+   *
+   * Asked of the backend rather than decided here: `canEditProfileField` is what
+   * the mutation enforces, and a second copy of that rule in the form would
+   * drift from it.
+   */
+  editableFields?: readonly string[];
   profileType: ProfileFieldsType;
   /**
    * Headline, bio, region and timezone. On for the editor and off for the submit
@@ -118,6 +144,7 @@ export function ProfileFields({
    */
   showNarrativeFields?: boolean;
 }) {
+  const canEdit = (field: string) => editableFields === undefined || editableFields.includes(field);
   const { rows } = partitionLinks(defaults.links ?? [], profileType === "person");
   // Stable ids rather than indices: the inputs are uncontrolled, so keying by
   // index would shift the surviving rows' DOM values when one is removed.
@@ -143,118 +170,150 @@ export function ProfileFields({
       </Field>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field>
-          Aliases
-          <Input
-            defaultValue={(defaults.aliases ?? []).join(", ")}
-            name="aliases"
-            placeholder="Comma-separated names"
-          />
-        </Field>
+        {canEdit("aliases") ? (
+          <FieldGroup field="aliases">
+            <Field>
+              Aliases
+              <Input
+                defaultValue={(defaults.aliases ?? []).join(", ")}
+                name="aliases"
+                placeholder="Comma-separated names"
+              />
+            </Field>
+          </FieldGroup>
+        ) : null}
 
-        <Field>
-          Tags
-          <Input
-            defaultValue={(defaults.tags ?? []).join(", ")}
-            name="tags"
-            placeholder="house, trance, vrchat"
-          />
-        </Field>
+        {canEdit("tags") ? (
+          <FieldGroup field="tags">
+            <Field>
+              Tags
+              <Input
+                defaultValue={(defaults.tags ?? []).join(", ")}
+                name="tags"
+                placeholder="house, trance, vrchat"
+              />
+            </Field>
+          </FieldGroup>
+        ) : null}
       </div>
 
-      {showNarrativeFields ? (
-        <>
+      {showNarrativeFields && canEdit("headline") ? (
+        <FieldGroup field="headline">
           <Field>
             Headline
             <Input defaultValue={defaults.headline ?? ""} maxLength={160} name="headline" />
           </Field>
+        </FieldGroup>
+      ) : null}
 
+      {showNarrativeFields && canEdit("bio") ? (
+        <FieldGroup field="bio">
           <Field>
             Bio
             <Textarea defaultValue={defaults.bio ?? ""} maxLength={600} name="bio" rows={4} />
           </Field>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field>
-              Region
-              <Input defaultValue={defaults.region ?? ""} maxLength={80} name="region" />
-            </Field>
-
-            <Field>
-              Timezone
-              <Input defaultValue={defaults.timezone ?? ""} maxLength={80} name="timezone" />
-            </Field>
-          </div>
-        </>
+        </FieldGroup>
       ) : null}
 
-      {profileType === "person" ? (
-        <PersonRoleFields defaults={defaults} />
-      ) : (
+      {showNarrativeFields ? (
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field>
-            Community subtype
-            <Input defaultValue={defaults.subtype ?? ""} name="subtype" placeholder="Club, collective, venue" />
-          </Field>
+          {canEdit("region") ? (
+            <FieldGroup field="region">
+              <Field>
+                Region
+                <Input defaultValue={defaults.region ?? ""} maxLength={80} name="region" />
+              </Field>
+            </FieldGroup>
+          ) : null}
 
-          <Field>
-            Community categories
-            <Input
-              defaultValue={(defaults.categoryTags ?? []).join(", ")}
-              name="categoryTags"
-              placeholder="events, music, hangout"
-            />
-          </Field>
+          {canEdit("timezone") ? (
+            <FieldGroup field="timezone">
+              <Field>
+                Timezone
+                <Input defaultValue={defaults.timezone ?? ""} maxLength={80} name="timezone" />
+              </Field>
+            </FieldGroup>
+          ) : null}
         </div>
-      )}
+      ) : null}
 
-      <div className="grid gap-3">
-        <span className="text-sm font-medium">Links</span>
+      {profileType === "person"
+        ? canEdit("person") && (
+            <FieldGroup field="person">
+              <PersonRoleFields defaults={defaults} />
+            </FieldGroup>
+          )
+        : canEdit("community") && (
+            <FieldGroup field="community">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field>
+                  Community subtype
+                  <Input defaultValue={defaults.subtype ?? ""} name="subtype" placeholder="Club, collective, venue" />
+                </Field>
 
-        {linkRows.map((row) => (
-          <div className="flex items-end gap-3" key={row.id}>
-            <Field className="w-44 shrink-0">
-              <FieldText>Type</FieldText>
-              <Select defaultValue={row.link?.type ?? "website"} name="linkType">
-                {PROFILE_LINK_TYPES.map((linkType) => (
-                  <option key={linkType} value={linkType}>
-                    {PROFILE_LINK_TYPE_LABELS[linkType]}
-                  </option>
-                ))}
-              </Select>
-            </Field>
+                <Field>
+                  Community categories
+                  <Input
+                    defaultValue={(defaults.categoryTags ?? []).join(", ")}
+                    name="categoryTags"
+                    placeholder="events, music, hangout"
+                  />
+                </Field>
+              </div>
+            </FieldGroup>
+          )}
 
-            <Field className="flex-1">
-              <FieldText>URL</FieldText>
-              <Input
-                defaultValue={row.link?.url ?? ""}
-                maxLength={2048}
-                name="linkUrl"
-                placeholder="https://soundcloud.com/name"
-                type="url"
-              />
-            </Field>
+      {canEdit("outboundLinks") ? (
+        <FieldGroup field="outboundLinks">
+          <div className="grid gap-3">
+            <span className="text-sm font-medium">Links</span>
 
-            <Button
-              aria-label="Remove link"
-              className="size-11 shrink-0 p-0"
-              type="button"
-              variant="ghost"
-              onClick={() => removeLinkRow(row.id)}
-            >
-              <X aria-hidden="true" className="size-4" />
-            </Button>
+            {linkRows.map((row) => (
+              <div className="flex items-end gap-3" key={row.id}>
+                <Field className="w-44 shrink-0">
+                  <FieldText>Type</FieldText>
+                  <Select defaultValue={row.link?.type ?? "website"} name="linkType">
+                    {PROFILE_LINK_TYPES.map((linkType) => (
+                      <option key={linkType} value={linkType}>
+                        {PROFILE_LINK_TYPE_LABELS[linkType]}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+
+                <Field className="flex-1">
+                  <FieldText>URL</FieldText>
+                  <Input
+                    defaultValue={row.link?.url ?? ""}
+                    maxLength={2048}
+                    name="linkUrl"
+                    placeholder="https://soundcloud.com/name"
+                    type="url"
+                  />
+                </Field>
+
+                <Button
+                  aria-label="Remove link"
+                  className="size-11 shrink-0 p-0"
+                  type="button"
+                  variant="ghost"
+                  onClick={() => removeLinkRow(row.id)}
+                >
+                  <X aria-hidden="true" className="size-4" />
+                </Button>
+              </div>
+            ))}
+
+            {linkRows.length < PROFILE_LINK_MAX_COUNT ? (
+              <div>
+                <Button size="sm" type="button" variant="secondary" onClick={addLinkRow}>
+                  Add link
+                </Button>
+              </div>
+            ) : null}
           </div>
-        ))}
-
-        {linkRows.length < PROFILE_LINK_MAX_COUNT ? (
-          <div>
-            <Button size="sm" type="button" variant="secondary" onClick={addLinkRow}>
-              Add link
-            </Button>
-          </div>
-        ) : null}
-      </div>
+        </FieldGroup>
+      ) : null}
     </>
   );
 }

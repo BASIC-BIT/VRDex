@@ -283,6 +283,43 @@ describe("permissioned seed import", () => {
     assert.deepEqual(blockers, []);
   });
 
+  it("does not count an empty public field as something to see", () => {
+    // A public `tags: []` beside a private set of links satisfies "has a
+    // non-private field" while publishing the display-name-only profile the
+    // gate exists to stop.
+    const blockers = getSeedImportPublicationBlockers({
+      batch: {
+        publicationPolicy: "reviewed_publication_allowed",
+        reviewState: "approved",
+        publicationAuthorizations: [
+          {
+            policy: "reviewed_publication_allowed",
+            reason: "Source permitted publication.",
+            recordedAt: Date.UTC(2026, 6, 16),
+          },
+        ],
+      },
+      candidate: {
+        reviewState: "accepted",
+        publicationState: "review_pending",
+        claimState: "unclaimed",
+        proposedSlug: "example-dj",
+      },
+      fields: [
+        { fieldKey: "tags", value: [], confidence: "medium", reviewState: "accepted", visibility: "public" },
+        {
+          fieldKey: "outboundLinks",
+          value: [{ type: "twitch", label: "Twitch", url: "https://twitch.tv/example" }],
+          confidence: "medium",
+          reviewState: "accepted",
+          visibility: "private",
+        },
+      ],
+    });
+
+    assert.deepEqual(new Set(blockers), new Set(["no_publicly_visible_field"]));
+  });
+
   it("rejects future freshness timestamps", () => {
     const futurePayload = structuredClone(payload);
     futurePayload.candidates[0]!.fields[0]!.lastCheckedAt = "2026-07-11T00:00:00.000Z";

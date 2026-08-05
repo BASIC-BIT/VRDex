@@ -23,6 +23,7 @@ import {
   canEditProfileField,
   canReadProfile,
   PROFILE_EDITABLE_FIELDS,
+  type ProfileEditableField,
 } from "./_profilePermissions";
 import { profileLinkInputValidator } from "./_profileLinks";
 import { toPublicProfile } from "./_profilePublic";
@@ -475,13 +476,11 @@ export const submitCommunityProfile = mutation({
  * silently dropped everything already there. That is exactly the state 405
  * seeded profiles are in.
  *
- * Reading stored values is safe here because a community editor only ever sees
- * an unclaimed profile, and everything the seed lane can put on a profile is
- * already restricted to public-safe field keys -- `unsafe_public_field` blocks
- * the rest at publish. A private field on an unclaimed profile records a
- * publication decision nobody has made yet, not a confidence someone placed.
- * Claimed profiles are owner-only, so no third party reads a claimed person's
- * hidden fields through this.
+ * Reading stored values is not a licence to read *private* ones. Every value
+ * here belongs to a field `canEditProfileField` has already cleared for this
+ * subject, and that check refuses a private field to the community -- so a
+ * contributor is shown what they may edit and nothing else, and the form cannot
+ * become a way to read a withheld value by opening it.
  */
 export const editableProfile = query({
   args: { slug: v.string() },
@@ -509,35 +508,52 @@ export const editableProfile = query({
     const editableFields = PROFILE_EDITABLE_FIELDS.filter((field) =>
       canEditProfileField(subject, profile, field),
     );
+    const editable = new Set<string>(editableFields);
 
     if (editableFields.length === 0) {
       return null;
     }
 
+    const whenEditable = <T>(field: ProfileEditableField, value: T) =>
+      editable.has(field) ? value : undefined;
+
     return {
       slug: profile.slug,
       profileType: profile.profileType,
       displayName: profile.displayName,
-      aliases: profile.aliases,
-      tags: profile.tags,
-      headline: profile.headline,
-      bio: profile.bio,
-      region: profile.region,
-      timezone: profile.timezone,
-      outboundLinks: (profile.outboundLinks ?? []).map((link) => ({
-        type: link.type,
-        url: link.url,
-      })),
+      aliases: whenEditable("aliases", profile.aliases),
+      tags: whenEditable("tags", profile.tags),
+      headline: whenEditable("headline", profile.headline),
+      bio: whenEditable("bio", profile.bio),
+      region: whenEditable("region", profile.region),
+      timezone: whenEditable("timezone", profile.timezone),
+      // The whole link, not just type and url. The form posts this array back,
+      // so anything omitted here is dropped on the next save: a custom label
+      // becomes the provider's default name, a VRCDN handle has to be re-derived,
+      // and a copy-styled link turns into a button.
+      outboundLinks: whenEditable(
+        "outboundLinks",
+        (profile.outboundLinks ?? []).map((link) => ({
+          type: link.type,
+          url: link.url,
+          label: link.label,
+          handle: link.handle,
+          presentation: link.presentation,
+        })),
+      ),
       person:
         profile.profileType === "person"
-          ? { pronouns: profile.person.pronouns, roleTags: profile.person.roleTags }
+          ? whenEditable("person", {
+              pronouns: profile.person.pronouns,
+              roleTags: profile.person.roleTags,
+            })
           : undefined,
       community:
         profile.profileType === "community"
-          ? {
+          ? whenEditable("community", {
               subtype: profile.community.subtype,
               categoryTags: profile.community.categoryTags,
-            }
+            })
           : undefined,
       subject,
       editableFields,
@@ -580,17 +596,21 @@ export const updateProfileFromBrowser = mutation({
     const owns = await userOwnsProfile(ctx.db, profile._id, user._id);
     const editSubject = owns ? ("claimed_owner" as const) : ("community_submitter" as const);
 
-    // Reported before the per-field checks so a claimed profile gives the reason
+    // Readability first, and only then the claimed-profile message. The other
+    // order tells anyone who guesses the slug of a draft or opted-out claimed
+    // profile that it exists and is claimed -- a distinction the generic
+    // not-found is there to withhold from someone who cannot read it at all.
+    if (!canReadProfile(editSubject, profile)) {
+      throw new Error("Profile was not found.");
+    }
+
+    // Ahead of the per-field checks, so a claimed profile gives the reason
     // rather than a field name the editor cannot act on.
     if (!owns && profile.claimState !== "unclaimed") {
       throw new ConvexError({
         code: "PROFILE_CLAIMED",
         message: "This profile has been claimed, so only its owner can edit it.",
       });
-    }
-
-    if (!canReadProfile(editSubject, profile)) {
-      throw new Error("Profile was not found.");
     }
 
     await assertProfileEditNotSuppressed(ctx.db, profile, args);
