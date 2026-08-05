@@ -236,7 +236,17 @@ function PrivacyEditor({
 
   return (
     <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
-      <form className={cn(cardVariants({ surface: "glass" }), "grid gap-5")} onSubmit={submitPrivacy}>
+      <form
+        className={cn(
+          cardVariants({ surface: "glass" }),
+          // Flat on phones. This card sits inside the page card that already
+          // names the surface, so below `sm` its border and gutter buy nothing
+          // and cost every field inside it 32px of width.
+          "max-sm:rounded-none max-sm:border-0 max-sm:bg-transparent max-sm:p-0",
+          "grid gap-5",
+        )}
+        onSubmit={submitPrivacy}
+      >
         <div>
           <h2 className="text-2xl font-semibold">Field visibility</h2>
           <p className="mt-2 text-sm leading-6 text-muted">{selectedProfile.displayName}</p>
