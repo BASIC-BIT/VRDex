@@ -162,7 +162,13 @@ Publish behavior worth knowing:
   entries canonicalize to the public `vrcdn.live/<streamId>` page, so an operator
   panel preview URL in an export becomes the public link and dedupes against the
   stream link for the same person. Entries that cannot be normalized are dropped
-  and counted rather than failing the batch, and the driver reports the counts.
+  and counted rather than failing the batch, and the driver reports the counts on
+  both runs — the publish run and the `--set-visibility --rederive-values` one.
+  Publication reported nothing at first: a dropped link does not block a candidate
+  that has other visible content, so a run said it had published fifty profiles
+  while nothing said a reviewed link had been discarded on the way to one of them.
+  The counts print even at zero, because "no links were dropped" is the sentence
+  worth being able to read.
 - Merging into an existing profile only applies accepted seed fields. Fields the
   candidate never proposed are left untouched, and the profile's original
   `publishedAt` is preserved.

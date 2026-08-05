@@ -317,6 +317,8 @@ function main() {
 
   let publishedTotal = 0;
   let processedTotal = 0;
+  let linksDroppedTotal = 0;
+  let linksDeduplicatedTotal = 0;
   let cursor;
   const skipped = [];
 
@@ -334,6 +336,8 @@ function main() {
 
     publishedTotal += page.published;
     processedTotal += page.processed;
+    linksDroppedTotal += page.linksDropped ?? 0;
+    linksDeduplicatedTotal += page.linksDeduplicated ?? 0;
     skipped.push(...page.skipped);
 
     console.log(`  published ${publishedTotal}, skipped ${skipped.length}`);
@@ -360,6 +364,13 @@ function main() {
 
   console.log(
     `\nProcessed ${processedTotal} candidates: published ${publishedTotal}, skipped ${skipped.length}.`,
+  );
+  // Said out loud even at zero. An accepted link that normalization discards does
+  // not block publication when the candidate has other visible content, so the
+  // run would otherwise report a clean publish over data it had thrown away --
+  // which is the failure this whole slice exists to stop repeating.
+  console.log(
+    `Links: ${linksDeduplicatedTotal} collapsed onto an existing link, ${linksDroppedTotal} could not be normalized.`,
   );
 
   if (skipped.length > 0) {

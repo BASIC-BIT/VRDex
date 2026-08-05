@@ -167,7 +167,8 @@ function ConnectedProfileEditForm({ slug, profilePath }: { slug: string; profile
     <form className="grid gap-5 ph-no-capture" data-ph-no-capture onSubmit={onSubmit}>
       {profile.subject === "community_submitter" ? (
         <Notice variant="info">
-          Nobody has claimed this profile. Your edit is recorded against your account.
+          Nobody has claimed this profile. Your edits go live right away, and may be reviewed
+          later by platform staff.
         </Notice>
       ) : null}
 

@@ -1038,10 +1038,19 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
     // Publication keeps each field's reviewed visibility and never clears fields
     // the candidate did not propose. The concierge defaults do the opposite:
     // everything private, and the accepted selection replaces the whole profile.
+    //
+    // `linkStats` is threaded here for the same reason the migration threads it:
+    // an accepted link whose host no longer matches its provider is dropped by
+    // normalization, and a candidate with another visible field publishes anyway.
+    // Without this the result said "published" and nothing said a reviewed link
+    // had not made it -- a publication path that silently discards data, which is
+    // the thing this whole slice exists to stop doing.
+    const linkStats = { droppedCount: 0, deduplicatedCount: 0 };
     const publishFieldPatchOptions = {
       fieldVisibilitySource: "reviewed" as const,
       clearUnselectedFields: false,
       sourceType: batch.sourceType,
+      linkStats,
     };
 
     const publicSurfacing = {
@@ -1130,6 +1139,8 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
       // published profile into a single worlds scan. A world crediting this slug
       // hid the attribution while the profile was not publicly readable.
       reindexKey: { profileType: profile.profileType, profileSlug: profile.slug },
+      linksDropped: linkStats.droppedCount,
+      linksDeduplicated: linkStats.deduplicatedCount,
     };
   }
 }
@@ -1421,6 +1432,12 @@ export const bulkPublishBatch = internalMutation({
       .collect();
 
     let published = 0;
+    // Accumulated across the page for the same reason the migration reports them:
+    // a link dropped by normalization does not block publication when the
+    // candidate has other visible content, so without a count the run says
+    // "published 50" and nothing says a reviewed link was discarded on the way.
+    let linksDropped = 0;
+    let linksDeduplicated = 0;
     const skipped: Array<{ externalCandidateId: string; blockers: string[] }> = [];
     const reindexKeys: Array<{
       profileType: Doc<"profiles">["profileType"];
@@ -1488,6 +1505,8 @@ export const bulkPublishBatch = internalMutation({
 
       if (publishResult.published) {
         published += 1;
+        linksDropped += publishResult.linksDropped ?? 0;
+        linksDeduplicated += publishResult.linksDeduplicated ?? 0;
 
         if (publishResult.reindexKey !== undefined) {
           reindexKeys.push(publishResult.reindexKey);
@@ -1511,6 +1530,8 @@ export const bulkPublishBatch = internalMutation({
       externalBatchId: batch.externalBatchId,
       processed: page.length,
       published,
+      linksDropped,
+      linksDeduplicated,
       skipped,
       nextCursor: pageResult.isDone ? null : pageResult.continueCursor,
       isDone: pageResult.isDone,
