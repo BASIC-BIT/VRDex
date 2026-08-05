@@ -7,6 +7,7 @@ import test from "node:test";
 import {
   isVrclinkingSecretStoreConfigured,
   putVrclinkingDelegationKey,
+  scheduleVrclinkingDelegationKeyDeletion,
 } from "../../apps/web/src/lib/server/vrclinking-secret-store";
 
 const KEYS = [
@@ -172,5 +173,30 @@ test("refuses to bury a legacy file-backed key under a new one", async () => {
       () => putVrclinkingDelegationKey(`vrdex/vrclinking/${guildId}/abc123`, "new-key"),
       /guild-scoped key already occupies/,
     );
+  });
+});
+
+/**
+ * The cleanup that follows that refusal.
+ *
+ * Every failed write is discarded by scheduling its key for deletion, and this
+ * key's parent path is the legacy file — so POSIX answers `ENOTDIR` for a walk
+ * through it, which `force` does not absorb the way it absorbs `ENOENT`. The
+ * throw escaped into the route, and the row it could not confirm stayed
+ * unretired: an obligation no sweep could settle, offered again every day for a
+ * file that was never written.
+ *
+ * The key provably cannot exist, which is the same thing "already gone" means
+ * everywhere else here.
+ */
+test("counts a key the legacy file blocks as already gone", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "vrdex-secrets-"));
+  const guildId = "100000000000000002";
+
+  mkdirSync(path.join(root, "vrdex", "vrclinking"), { recursive: true });
+  writeFileSync(path.join(root, "vrdex", "vrclinking", guildId), "legacy-key");
+
+  await withEnv({ VRDEX_VRCLINKING_SECRET_DIR: root }, async () => {
+    await scheduleVrclinkingDelegationKeyDeletion(`vrdex/vrclinking/${guildId}/abc123`);
   });
 });
