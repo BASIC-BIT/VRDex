@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 
 import type { Doc } from "./_generated/dataModel";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
@@ -41,7 +41,7 @@ import { ensureShortLinkForTarget } from "./_shortLinks";
 import { assertIdentityNotSuppressed } from "./_suppressions";
 import { recordVocabularyTerms } from "./_vocabulary";
 import { userOwnsProfile } from "./_profileOwnership";
-import { applyApiProfileUpdate } from "./_profileUpdates";
+import { applyApiProfileUpdate, assertProfileEditNotSuppressed } from "./_profileUpdates";
 
 const profileType = v.union(v.literal("person"), v.literal("community"));
 const PROFILE_LOOKUP_RESULT_LIMIT = 12;
@@ -173,51 +173,8 @@ export const updateProfileForApiOwner = internalMutation({
     // Renaming is another way to reintroduce a retracted identity: an owner of some
     // other public profile could rename it to a name an accepted suppression
     // request covers, putting that identity straight back on public pages and in
-    // search. Only checked when the name actually changes, so an unrelated update
-    // to a profile that already holds the name is unaffected.
-    // Aliases count as names here, so an alias-only update needs the same guard: a
-    // caller can leave displayName untouched and put the suppressed name in
-    // aliases, which the public projection exposes and search indexes.
-    const renamesProfile =
-      args.displayName !== undefined &&
-      createProfileSortName(args.displayName) !== createProfileSortName(profile.displayName);
-    const changesAliases = args.aliases !== undefined;
-
-    // Only when the profile is actually publicly readable. A hidden profile --
-    // opted_out or suppressed -- surfaces nothing through this mutation, which never
-    // changes publicSurfacingState, so guarding it would block an owner from editing
-    // a profile that is already retracted. Republication re-checks the identity.
-    if ((renamesProfile || changesAliases) && canReadProfile("public", profile)) {
-      // No profileId: an accepted request against *this* profile would otherwise
-      // match every proposed name, so an already-opted-out profile could never be
-      // renamed even though renaming never restores public surfacing. Only the
-      // proposed identity is evaluated.
-      const proposedDisplayName = args.displayName ?? profile.displayName;
-
-      await assertIdentityNotSuppressed(
-        ctx.db,
-        {
-          // No slug: applyApiProfileUpdate patches displayName and sortName only, so
-          // this path never occupies a slug derived from the new name. Checking one
-          // would reject an unrelated /p/bob owner renaming to a name whose base
-          // slug happens to be suppressed.
-          slugs: [],
-          // Aliases only when they would actually be visible. A private alias is
-          // absent from public pages and search, so submitting it here would reject
-          // an edit that surfaces nothing.
-          displayNames: [
-            proposedDisplayName,
-            ...(getProfileFieldVisibility(profile, "aliases") === "private"
-              ? []
-              : (args.aliases ?? profile.aliases)),
-          ],
-          profileType: profile.profileType,
-        },
-        // Uses the approved default rather than a rename-specific sentence: only
-        // "This profile cannot be submitted." and "This profile cannot be created."
-        // carry BASIC's sign-off, and unapproved public copy must not ship.
-      );
-    }
+    // search.
+    await assertProfileEditNotSuppressed(ctx.db, profile, args);
 
     const now = Date.now();
     const { changedFields, profile: updatedProfile } = await applyApiProfileUpdate(ctx.db, {
@@ -499,6 +456,98 @@ export const submitCommunityProfile = mutation({
       profilePath: `/c/${slug}`,
       shortLinkCode: shortLink.code,
       shortLinkPath: shortLink.shortLinkPath,
+    };
+  },
+});
+
+/**
+ * Edit a profile from the browser, as its owner or as the community.
+ *
+ * One mutation for both, because they are the same operation with a different
+ * writer: `canEditProfileField` decides which fields the subject may touch and
+ * the link stamp follows from it. Splitting them would mean two sanitizers and
+ * two field policies drifting apart, and the community half is the one that
+ * exists to correct an unclaimed profile nobody else can.
+ *
+ * Applies directly rather than queueing for review, matching community
+ * submissions, which publish immediately. A queue is a real option later; it is
+ * not a prerequisite for a profile being correctable at all.
+ */
+export const updateProfileFromBrowser = mutation({
+  args: {
+    slug: v.string(),
+    ...apiProfileUpdateArgs,
+    assets: v.optional(v.array(profileAssetUploadInput)),
+  },
+  handler: async (ctx, args) => {
+    const { subject, user } = await requireActiveBrowserSessionSubject(ctx);
+    const validation = validateProfileSlug(args.slug);
+
+    if (!validation.ok) {
+      throw new Error("Profile was not found.");
+    }
+
+    const profile = await getProfileBySlug(ctx.db, validation.slug);
+
+    if (profile === null) {
+      throw new Error("Profile was not found.");
+    }
+
+    const owns = await userOwnsProfile(ctx.db, profile._id, user._id);
+    const editSubject = owns ? ("claimed_owner" as const) : ("community_submitter" as const);
+
+    // Reported before the per-field checks so a claimed profile gives the reason
+    // rather than a field name the editor cannot act on.
+    if (!owns && profile.claimState !== "unclaimed") {
+      throw new ConvexError({
+        code: "PROFILE_CLAIMED",
+        message: "This profile has been claimed, so only its owner can edit it.",
+      });
+    }
+
+    if (!canReadProfile(editSubject, profile)) {
+      throw new Error("Profile was not found.");
+    }
+
+    await assertProfileEditNotSuppressed(ctx.db, profile, args);
+
+    const now = Date.now();
+    const { changedFields, profile: updatedProfile } = await applyApiProfileUpdate(ctx.db, {
+      profile,
+      input: args,
+      subject: editSubject,
+      now,
+    });
+
+    if ((args.assets ?? []).length > 0) {
+      await consumeProfileAssetUploads(ctx.db, {
+        profileId: profile._id,
+        requestedBy: subject,
+        uploads: args.assets ?? [],
+        // A profile picture or logo is information about the person, which is
+        // exactly what a third party is positioned to supply, and the most
+        // visible thing missing from a seeded profile. The provenance stamp is
+        // what keeps it honest.
+        source: owns ? "owner_authored" : "community_submitted",
+        now,
+      });
+    }
+
+    // The durable record of who changed what, and when. A claiming owner
+    // inherits a history rather than a mystery, and it is what the operator
+    // surface reads back.
+    await ctx.db.insert("profileAuditEvents", {
+      profileId: profile._id,
+      action: owns ? "owner_profile_updated" : "community_profile_updated",
+      actor: subject,
+      sourceType: owns ? "owner" : "community",
+      note: `${changedFields.join(", ")} updated.`,
+      createdAt: now,
+    });
+
+    return {
+      ...toApiProfileWriteResponse(updatedProfile),
+      changedFields,
     };
   },
 });

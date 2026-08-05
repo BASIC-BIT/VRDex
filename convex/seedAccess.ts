@@ -6,6 +6,7 @@ import {
 } from "./_accountFeatures";
 import { activeBrowserSessionOrNull } from "./_browserSessionAuthority";
 import { query } from "./_generated/server";
+import { userOwnsProfile } from "./_profileOwnership";
 import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 import {
   canIncludePrivateSeedCandidate,
@@ -128,16 +129,20 @@ export const lookupPeople = query({
 const PROFILE_HISTORY_LIMIT = 20;
 
 /**
- * What a profile holds that its public page does not show.
+ * What a profile holds that its public page does not show, plus its history.
  *
  * The only way to answer that used to be the Convex CLI with a production
  * deploy key -- a credential that can also deploy arbitrary code, spent on a
- * read. This is the same question asked through the same grant that already
- * governs the private seed lookup.
+ * read. This asks the same question through the grant that already governs the
+ * private seed lookup.
  *
- * Read-only and null for everyone else, including signed-out visitors: it
- * renders on every public profile page, so refusing loudly would put an error
- * in front of ordinary readers.
+ * The profile's own owner gets the same view. It is their record, and the edit
+ * history is the half of community editing that makes it safe: a claiming owner
+ * inherits an attributed history rather than a mystery.
+ *
+ * Read-only, and null for everyone else including signed-out visitors. It
+ * renders on every public profile page, so refusing loudly would put an error in
+ * front of ordinary readers.
  */
 export const withheldProfileRecord = query({
   args: {
@@ -148,12 +153,6 @@ export const withheldProfileRecord = query({
     const activeSession = await activeBrowserSessionOrNull(ctx);
 
     if (activeSession === null) {
-      return null;
-    }
-
-    const access = await getAccountFeatureAccess(ctx.db, activeSession.user._id);
-
-    if (!access.canViewPrivateSeedLookup) {
       return null;
     }
 
@@ -173,6 +172,15 @@ export const withheldProfileRecord = query({
       return null;
     }
 
+    const [access, owns] = await Promise.all([
+      getAccountFeatureAccess(ctx.db, activeSession.user._id),
+      userOwnsProfile(ctx.db, profile._id, activeSession.user._id),
+    ]);
+
+    if (!owns && !access.canViewPrivateSeedLookup) {
+      return null;
+    }
+
     const history = await ctx.db
       .query("profileAuditEvents")
       .withIndex("by_profileId_createdAt", (query) => query.eq("profileId", profile._id))
@@ -181,6 +189,7 @@ export const withheldProfileRecord = query({
 
     return {
       slug: profile.slug,
+      viewerRole: owns ? ("owner" as const) : ("operator" as const),
       claimState: profile.claimState,
       publicationState: profile.publicationState,
       publicSurfacingState: profile.publicSurfacingState,
@@ -191,8 +200,9 @@ export const withheldProfileRecord = query({
         sourceType: event.sourceType,
         note: event.note,
         createdAt: event.createdAt,
-        // Operator-only, and the whole point of the record: an edit with no
-        // attributable actor is a mystery a claiming owner inherits.
+        // The whole point of the record: an edit with no attributable actor is
+        // exactly the mystery a claiming owner should not inherit. Not in the
+        // public projection -- an editor's identity is not the public's.
         actor: event.actor?.displayName ?? event.actor?.subject,
       })),
     };

@@ -273,6 +273,37 @@ describe("profile permission helpers", () => {
     );
     assert.equal(canEditProfileField("community_submitter", publishedUnclaimedPerson, "slug"), false);
   });
+
+  it("lets the community correct information about an unclaimed person", () => {
+    // The rule is information about the person versus the record itself, not a
+    // growing allowlist. outboundLinks is the case that proves it: a DJ's stream
+    // links are why anyone visits the profile, and the old allowlist left them
+    // out by omission rather than by any decision.
+    for (const field of [
+      "displayName",
+      "aliases",
+      "tags",
+      "headline",
+      "bio",
+      "region",
+      "timezone",
+      "outboundLinks",
+      "person",
+    ] as const) {
+      assert.equal(
+        canEditProfileField("community_submitter", publishedUnclaimedPerson, field),
+        true,
+        field,
+      );
+    }
+  });
+
+  it("stops the community editing a profile once someone owns it", () => {
+    const claimedPerson = { ...publishedUnclaimedPerson, claimState: "claimed_unverified" } as const;
+
+    assert.equal(canEditProfileField("community_submitter", claimedPerson, "outboundLinks"), false);
+    assert.equal(canEditProfileField("claimed_owner", claimedPerson, "outboundLinks"), true);
+  });
 });
 
 describe("profile claim-state helpers", () => {
@@ -947,6 +978,43 @@ describe("API profile update helpers", () => {
           },
         }),
       /Community fields cannot be updated for a person profile/,
+    );
+  });
+
+  it("stamps link provenance from the writer, not from the code path", () => {
+    // One sanitizer serves the owner and the community, so the stamp has to
+    // follow the subject. Calling a third party's links owner-authored would be
+    // a plain lie on a surface that renders provenance as a trust signal.
+    const unclaimedPerson = { ...claimedPerson, claimState: "unclaimed" } as Doc<"profiles">;
+    const links = [{ type: "twitch", url: "https://twitch.tv/snekwtf" }];
+
+    assert.equal(
+      (
+        sanitizeApiProfileUpdateInput(unclaimedPerson, { outboundLinks: links }, "community_submitter")
+          .patch.outboundLinks as Array<{ source: string }>
+      )[0]?.source,
+      "community_submitted",
+    );
+    assert.equal(
+      (
+        sanitizeApiProfileUpdateInput(claimedPerson, { outboundLinks: links }, "claimed_owner")
+          .patch.outboundLinks as Array<{ source: string }>
+      )[0]?.source,
+      "owner_authored",
+    );
+  });
+
+  it("lets the community correct an unclaimed profile, and stops at a claimed one", () => {
+    const unclaimedPerson = { ...claimedPerson, claimState: "unclaimed" } as Doc<"profiles">;
+    const edit = { displayName: "Snek", person: { roleTags: ["DJ"] } };
+
+    assert.deepEqual(
+      sanitizeApiProfileUpdateInput(unclaimedPerson, edit, "community_submitter").changedFields,
+      ["displayName", "person"],
+    );
+    assert.throws(
+      () => sanitizeApiProfileUpdateInput(claimedPerson, edit, "community_submitter"),
+      /cannot be edited on a profile you do not own/,
     );
   });
 });

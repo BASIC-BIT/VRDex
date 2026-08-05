@@ -1,7 +1,14 @@
 import type { Doc } from "./_generated/dataModel";
 import type { DatabaseWriter } from "./_generated/server";
-import { canEditProfileField, type ProfileEditableField } from "./_profilePermissions";
-import { sanitizeProfileLinks } from "./_profileLinks";
+import { getProfileFieldVisibility } from "./_profileFieldVisibility";
+import {
+  canEditProfileField,
+  canReadProfile,
+  type ProfileEditableField,
+  type ProfilePermissionSubject,
+} from "./_profilePermissions";
+import { sanitizeProfileLinks, type ProfileLinkSource } from "./_profileLinks";
+import { assertIdentityNotSuppressed } from "./_suppressions";
 import {
   createProfileSortName,
   normalizeProfileInlineText,
@@ -95,17 +102,44 @@ function addChangedField(fields: ProfileEditableField[], field: ProfileEditableF
   }
 }
 
-function requireEditableFields(profile: Doc<"profiles">, changedFields: ProfileEditableField[]) {
+function requireEditableFields(
+  profile: Doc<"profiles">,
+  changedFields: ProfileEditableField[],
+  subject: ProfileEditSubject,
+) {
   for (const field of changedFields) {
-    if (!canEditProfileField("claimed_owner", profile, field)) {
-      throw new Error(`Only a claimed profile owner can update the ${field} field.`);
+    if (!canEditProfileField(subject, profile, field)) {
+      throw new Error(
+        subject === "claimed_owner"
+          ? `Only a claimed profile owner can update the ${field} field.`
+          : `The ${field} field cannot be edited on a profile you do not own.`,
+      );
     }
   }
 }
 
+/**
+ * Who is writing. Everything else about the edit is identical, which is the
+ * point: the owner path and the community path share one sanitizer and one
+ * field policy, and differ only in which fields each subject may touch and what
+ * provenance the links carry.
+ */
+export type ProfileEditSubject = Extract<
+  ProfilePermissionSubject,
+  "claimed_owner" | "community_submitter"
+>;
+
+const LINK_SOURCE_BY_SUBJECT: Record<ProfileEditSubject, ProfileLinkSource> = {
+  // A signed-in person editing somebody else's profile did not author these
+  // links, and the public page renders the distinction as a trust signal.
+  claimed_owner: "owner_authored",
+  community_submitter: "community_submitted",
+};
+
 export function sanitizeApiProfileUpdateInput(
   profile: Doc<"profiles">,
   input: ApiProfileUpdateInput,
+  subject: ProfileEditSubject = "claimed_owner",
 ): SanitizedApiProfileUpdate {
   const patch: Record<string, unknown> = {};
   const changedFields: ProfileEditableField[] = [];
@@ -160,9 +194,14 @@ export function sanitizeApiProfileUpdateInput(
   }
 
   if (hasOwn(input, "outboundLinks")) {
-    // `requireEditableFields` below restricts this to a claimed owner, which is
-    // what makes the owner-authored stamp true.
-    patch.outboundLinks = sanitizeProfileLinks(input.outboundLinks ?? [], "owner_authored");
+    // Stamped from the subject rather than assumed: `requireEditableFields`
+    // below decides whether this writer may touch the field at all, and calling
+    // a community contributor's links owner-authored would be a plain lie on a
+    // surface that renders provenance.
+    patch.outboundLinks = sanitizeProfileLinks(
+      input.outboundLinks ?? [],
+      LINK_SOURCE_BY_SUBJECT[subject],
+    );
     addChangedField(changedFields, "outboundLinks");
   }
 
@@ -246,9 +285,59 @@ export function sanitizeApiProfileUpdateInput(
     throw new Error("At least one editable profile field is required.");
   }
 
-  requireEditableFields(profile, changedFields);
+  requireEditableFields(profile, changedFields, subject);
 
   return { changedFields, patch };
+}
+
+/**
+ * Refuse an edit that would put a retracted identity back on public surfaces.
+ *
+ * Renaming is a second way in: an editor can leave the display name alone and
+ * put the suppressed name in aliases, which the public projection exposes and
+ * search indexes. Both count as names here.
+ *
+ * Only when the profile is actually publicly readable. An opted-out or
+ * suppressed profile surfaces nothing through an edit, which never changes
+ * `publicSurfacingState`, so guarding it would block editing a profile that is
+ * already retracted. Republication re-checks the identity.
+ */
+export async function assertProfileEditNotSuppressed(
+  db: DatabaseWriter,
+  profile: Doc<"profiles">,
+  input: Pick<ApiProfileUpdateInput, "aliases" | "displayName">,
+): Promise<void> {
+  const renamesProfile =
+    input.displayName !== undefined &&
+    createProfileSortName(input.displayName) !== createProfileSortName(profile.displayName);
+
+  if ((!renamesProfile && input.aliases === undefined) || !canReadProfile("public", profile)) {
+    return;
+  }
+
+  await assertIdentityNotSuppressed(db, {
+    // No profileId: an accepted request against *this* profile would otherwise
+    // match every proposed name, so an already-opted-out profile could never be
+    // renamed even though renaming never restores public surfacing.
+    // No slug either: this path patches displayName and sortName only, so it
+    // never occupies a slug derived from the new name, and checking one would
+    // reject an unrelated /p/bob owner renaming to a name whose base slug
+    // happens to be suppressed.
+    slugs: [],
+    // Aliases only when they would actually be visible. A private alias is
+    // absent from public pages and search, so submitting it here would reject an
+    // edit that surfaces nothing.
+    displayNames: [
+      input.displayName ?? profile.displayName,
+      ...(getProfileFieldVisibility(profile, "aliases") === "private"
+        ? []
+        : (input.aliases ?? profile.aliases)),
+    ],
+    profileType: profile.profileType,
+    // Uses the approved default rather than an edit-specific sentence: only
+    // "This profile cannot be submitted." and "This profile cannot be created."
+    // carry BASIC's sign-off, and unapproved public copy must not ship.
+  });
 }
 
 export async function applyApiProfileUpdate(
@@ -256,10 +345,15 @@ export async function applyApiProfileUpdate(
   options: {
     profile: Doc<"profiles">;
     input: ApiProfileUpdateInput;
+    subject?: ProfileEditSubject;
     now: number;
   },
 ) {
-  const sanitized = sanitizeApiProfileUpdateInput(options.profile, options.input);
+  const sanitized = sanitizeApiProfileUpdateInput(
+    options.profile,
+    options.input,
+    options.subject ?? "claimed_owner",
+  );
 
   await db.patch(options.profile._id, {
     ...sanitized.patch,
