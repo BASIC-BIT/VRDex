@@ -44,28 +44,33 @@ choices.
 A field the profile marks `private` is not community-editable either. Editing a
 field means being shown its current value first, so the community may not edit
 what it may not read -- otherwise the editor becomes a way to read a withheld
-value by opening a form, and a blind save would overwrite one. `unlisted` is not
-private: it renders on the profile page, so a contributor looking at that page
-has already seen it. `profiles:editableProfile` returns values only for fields
-the subject has cleared, so the form shows exactly what it may change.
+value by opening a form, and a blind save would overwrite one. `unlisted` is
+usually not private: for most fields it renders on the profile page, so a
+contributor looking at that page has already seen it — with the exceptions below.
+`profiles:editableProfile` returns values only for fields the subject has
+cleared, so the form shows exactly what it may change.
 
 Visibility does not settle that on its own, because "may be shown" is not
-"is shown". Two fields are readable in the lookup and never on the profile page,
-and for those `unlisted` -- the state discovery excludes -- puts the value on no
-surface at all:
+"is shown". The public page puts role tags, category tags and free tags in a
+single metadata line, and whether a given value reaches it depends on the
+profile: a headline takes that row entirely, and without one the line renders
+four values after deduplication. `timezone` has no place on the page at all;
+only the lookup shows it, beside the region.
 
-- **Focus items** (`tags`, role tags, category tags). The page builds a single
-  metadata line from pronouns or subtype, region, and then the focus items, and
-  drops the focus items when the profile has a headline, because the headline
-  carries that row instead. There is no second place they render, so an unlisted
-  focus field on a profile *with a headline* is nowhere.
-- **`timezone`**, always. No part of the profile page renders it; `LookupIdentity`
-  renders it beside the region in search results.
+So those keys are treated as *not reliably shown*, and for them `unlisted` — the
+state discovery excludes — means the value may be nowhere a contributor can
+reach. They are withheld from community editing while `unlisted`, and editable
+while `public`, because the lookup carries public values whatever the page does.
+Owners keep them either way; it is their own record.
 
-`public` is unaffected in both cases: the lookup carries it whatever the page
-does. So these are withheld from community editing exactly when they are
-`unlisted`, and editable when they are `public`. Owners keep them either way,
-because it is their own record.
+This is deliberately conservative rather than exact. Three review rounds each
+found another way that re-deriving the page's layout in the permission check was
+inexact — the headline, then grouped keys whose two halves render differently,
+then the four-item limit — and a rule that has to mirror a component's rendering
+will keep being wrong in a new way. The conservative version can cost a
+contributor an edit to an unlisted value that happened to be on screen. The exact
+one, whenever it drifts, lets them read a value the page never showed them, which
+is the thing the rule exists to prevent.
 
 `timezone` was briefly excluded outright, on the claim that no public surface
 renders it. That was wrong about the lookup. The true claim is the narrower one:

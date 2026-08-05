@@ -17,7 +17,7 @@ import {
   normalizeSeedImportFixture,
   type SeedImportFixture,
 } from "../../convex/_seedImports";
-import { readOption } from "../../scripts/publish-seed-batch.mjs";
+import { misplacedMigrationFlag, readOption } from "../../scripts/publish-seed-batch.mjs";
 
 function cloneFixture(fixture: SeedImportFixture): SeedImportFixture {
   return structuredClone(fixture);
@@ -827,5 +827,30 @@ describe("seed publish CLI option parsing", () => {
     assert.equal(readOption(["--reason", "--accept-fields", "--apply"], "--reason"), undefined);
     assert.equal(readOption(["--apply", "--reason"], "--reason"), undefined);
     assert.equal(readOption(["--apply"], "--reason"), undefined);
+  });
+
+  // Without `--set-visibility` the run is a bulk publication, so
+  // `--rederive-values --apply` -- meant to replay values onto profiles that are
+  // already live -- would publish every pending candidate in the batch instead.
+  // A typo that changes which operation runs is not a typo to absorb.
+  it("refuses migration-only flags outside visibility mode", () => {
+    assert.equal(
+      misplacedMigrationFlag(undefined, { "--rederive-values": true, "--field-keys": false }),
+      "--rederive-values",
+    );
+    assert.equal(
+      misplacedMigrationFlag(undefined, { "--rederive-values": false, "--field-keys": true }),
+      "--field-keys",
+    );
+
+    // In visibility mode both belong, and neither is required.
+    assert.equal(
+      misplacedMigrationFlag("public", { "--rederive-values": true, "--field-keys": true }),
+      undefined,
+    );
+    assert.equal(
+      misplacedMigrationFlag(undefined, { "--rederive-values": false, "--field-keys": false }),
+      undefined,
+    );
   });
 });

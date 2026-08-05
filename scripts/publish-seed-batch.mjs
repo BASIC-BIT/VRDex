@@ -43,6 +43,23 @@ const USAGE = [
 
 const FIELD_VISIBILITIES = ["public", "unlisted", "private"];
 
+/**
+ * The first migration-only flag supplied without `--set-visibility`, if any.
+ *
+ * Refused rather than ignored. These two belong to the visibility migration, and
+ * without `--set-visibility` the run silently becomes a bulk publication
+ * instead -- so `--rederive-values --apply`, meant to replay values onto profiles
+ * that are already live, would publish every pending candidate in the batch. A
+ * typo that changes which operation runs is not a typo to absorb.
+ */
+export function misplacedMigrationFlag(visibility, supplied) {
+  if (visibility !== undefined) {
+    return undefined;
+  }
+
+  return Object.keys(supplied).find((name) => supplied[name]);
+}
+
 export function readOption(argv, name) {
   const index = argv.indexOf(name);
 
@@ -273,6 +290,15 @@ function main() {
 
   if (visibility !== undefined && !FIELD_VISIBILITIES.includes(visibility)) {
     fail(`--set-visibility must be one of ${FIELD_VISIBILITIES.join(", ")}.`);
+  }
+
+  const misplacedFlag = misplacedMigrationFlag(visibility, {
+    "--rederive-values": flag("--rederive-values"),
+    "--field-keys": option("--field-keys") !== undefined,
+  });
+
+  if (misplacedFlag) {
+    fail(`${misplacedFlag} only applies with --set-visibility.\n\n${USAGE}`);
   }
 
   printPreview(runConvex("seedImports:previewBatchPublication", { externalBatchId: batchId }));

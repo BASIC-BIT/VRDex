@@ -688,17 +688,24 @@ describe("withheld profile fields", () => {
       [["aliases", true]],
     );
 
-    // A focus item loses its row to a headline, so an unlisted one is nowhere.
-    assert.deepEqual(
-      withheldProfileFields({
-        ...profile,
-        headline: "Resident DJ at Afterglow",
-        fieldVisibility: { tags: "unlisted" },
-        tags: ["house"],
-      } as never)
-        .map((field) => [field.key, field.onProfilePage]),
-      [["tags", false]],
-    );
+    // A focus item is not reliably on the page: a headline takes that row
+    // entirely, and without one the line shows four values after deduplication.
+    // Reported as not-on-page either way, rather than re-deriving the layout --
+    // which errs toward showing an operator a value they may also find on the
+    // page, the safe direction for this surface.
+    for (const headline of ["Resident DJ at Afterglow", undefined]) {
+      assert.deepEqual(
+        withheldProfileFields({
+          ...profile,
+          ...(headline === undefined ? {} : { headline }),
+          fieldVisibility: { tags: "unlisted" },
+          tags: ["house"],
+        } as never)
+          .map((field) => [field.key, field.onProfilePage]),
+        [["tags", false]],
+        String(headline),
+      );
+    }
   });
 });
 

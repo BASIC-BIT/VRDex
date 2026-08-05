@@ -240,20 +240,25 @@ function profileFieldValues(
 const UNRENDERED_PROFILE_FIELD_KEYS = new Set<ProfileFieldVisibilityKey>(["about"]);
 
 /**
- * Field keys the profile page never renders, though discovery may.
+ * Field keys the profile page does not reliably render.
  *
- * At `public` they are readable in the lookup, so they are not withheld. At
- * `unlisted` they are in neither place, which is what the panel has to say --
- * "on this page, not in search" would be false for a value that is on no page.
- */
-const PAGE_INVISIBLE_KEYS = new Set<ProfileFieldVisibilityKey>(["genres", "timezone"]);
-
-/**
- * Focus items, which the page renders only when no headline takes their row.
+ * `genres` and `timezone` it never renders; the public lookup does, so at
+ * `public` they are readable there and not part of the gap. The focus items --
+ * role tags, category tags, free tags -- it renders in one metadata line that a
+ * headline takes over entirely, and that otherwise shows four values after
+ * deduplication, so whether a given one appears depends on what else the profile
+ * holds.
  *
- * Same shape as `PAGE_INVISIBLE_KEYS`, decided per profile rather than per key.
+ * One set rather than a per-profile calculation, matching
+ * `_profilePermissions`. Re-deriving the component's layout was inexact in a new
+ * way each review round, and the two errors point opposite ways: the permission
+ * errs toward withholding an edit, this errs toward showing an operator a value
+ * they might also find on the page. Both are the safe direction for their
+ * surface.
  */
-const HEADER_ONLY_KEYS = new Set<ProfileFieldVisibilityKey>([
+const UNRELIABLY_SHOWN_KEYS = new Set<ProfileFieldVisibilityKey>([
+  "genres",
+  "timezone",
   "tags",
   "personRoleTags",
   "communityCategoryTags",
@@ -271,20 +276,16 @@ const HEADER_ONLY_KEYS = new Set<ProfileFieldVisibilityKey>([
  *
  * `onProfilePage` travels with each field because the panel groups by *where* a
  * value is missing from, and visibility alone cannot say. An `unlisted` alias is
- * on the page and out of search; an `unlisted` tag on a profile with a headline,
- * or an `unlisted` timezone anywhere, is in neither -- and filing those under "on
- * this page, not in search" would tell an owner to go look at something that is
- * not there.
+ * on the page and out of search; an `unlisted` timezone, or an `unlisted` tag the
+ * metadata line may not have room for, is in neither -- and filing those under
+ * "on this page, not in search" would send an owner looking for something that
+ * may not be there.
  */
 export function withheldProfileFields(profile: Doc<"profiles">): OperatorProfileField[] {
-  const headlineTakesFocusRow = (profile.headline ?? "").trim().length > 0;
-
   return PROFILE_FIELD_VISIBILITY_KEYS.flatMap((key) => {
     const visibility = getProfileFieldVisibility(profile, key);
     const onProfilePage =
-      !UNRENDERED_PROFILE_FIELD_KEYS.has(key) &&
-      !PAGE_INVISIBLE_KEYS.has(key) &&
-      !(headlineTakesFocusRow && HEADER_ONLY_KEYS.has(key));
+      !UNRENDERED_PROFILE_FIELD_KEYS.has(key) && !UNRELIABLY_SHOWN_KEYS.has(key);
 
     // Public and shown somewhere, so it is not part of the gap. A public field
     // the page skips is still carried by the lookup, except for the ones no

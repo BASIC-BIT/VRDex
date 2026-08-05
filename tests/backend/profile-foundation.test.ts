@@ -306,57 +306,64 @@ describe("profile permission helpers", () => {
   // field sits at `public` by default and is invisible anyway, because being
   // allowed to show something is not the same as showing it. The owner keeps it,
   // since it is their own record.
-  // The page builds one metadata line from pronouns, region and the focus items,
-  // and drops the focus items when a headline is carrying that row instead. So an
-  // unlisted tag on a profile with a headline is on the page nowhere and, being
-  // unlisted, in discovery nowhere either -- which is the exact justification for
-  // treating unlisted as readable, failing.
-  it("keeps the community out of focus fields a headline has displaced", () => {
-    const withHeadline = {
-      ...publishedUnclaimedPerson,
-      headline: "Resident DJ at Afterglow",
-      fieldVisibility: { tags: "unlisted", personRoleTags: "unlisted" },
-    } as const;
-
-    for (const field of ["tags", "person"] as const) {
-      assert.equal(canEditProfileField("community_submitter", withHeadline, field), false, field);
-      // No headline, so the page renders them and a contributor has seen them.
+  // The page shows focus items -- role tags, category tags, free tags -- in one
+  // metadata line, and whether a given value reaches it depends on the profile: a
+  // headline takes the row, and without one the line renders four values after
+  // deduplication. `timezone` has no place on the page at all; only the lookup
+  // shows it.
+  //
+  // So the rule is "the page does not reliably show it" rather than a copy of the
+  // component's layout. Three review rounds each found another way that copy was
+  // inexact, and the conservative version cannot be wrong in the direction that
+  // matters: it can cost a contributor an edit to an unlisted value that happened
+  // to be on screen, never let them read one that was not.
+  it("keeps the community out of focus fields the page may not show", () => {
+    for (const [field, key] of [
+      ["tags", "tags"],
+      ["person", "personRoleTags"],
+      ["timezone", "timezone"],
+    ] as const) {
       assert.equal(
         canEditProfileField(
           "community_submitter",
-          { ...withHeadline, headline: undefined },
+          { ...publishedUnclaimedPerson, fieldVisibility: { [key]: "unlisted" } },
           field,
         ),
-        true,
-        field,
+        false,
+        key,
       );
-      // Public survives the headline either way: discovery still carries it.
+      // Public is unaffected: discovery carries it whatever the page does.
       assert.equal(
         canEditProfileField(
           "community_submitter",
-          { ...withHeadline, fieldVisibility: {} },
+          { ...publishedUnclaimedPerson, fieldVisibility: {} },
           field,
         ),
         true,
-        field,
+        key,
       );
     }
 
-    // Nothing else moves. `bio` is not a focus item.
-    assert.equal(canEditProfileField("community_submitter", withHeadline, "bio"), true);
-  });
-
-  // `person` groups pronouns with role tags and only the role tags are focus
-  // content: the page keeps rendering pronouns in the metadata row whatever the
-  // headline does. Asking the question of the whole group withheld the entire
-  // form group over an unlisted pronoun that is on the page.
-  it("hides a grouped field only for the keys a headline displaces", () => {
-    const withHeadline = { ...publishedUnclaimedPerson, headline: "Resident DJ at Afterglow" };
-
+    // Nothing else moves. `bio` has its own section on the page.
     assert.equal(
       canEditProfileField(
         "community_submitter",
-        { ...withHeadline, fieldVisibility: { personPronouns: "unlisted" } },
+        { ...publishedUnclaimedPerson, fieldVisibility: { bio: "unlisted" } },
+        "bio",
+      ),
+      true,
+    );
+  });
+
+  // `person` groups pronouns with role tags and only the role tags are focus
+  // content: the page renders pronouns in that metadata row either way. Asking
+  // the question of the whole group withheld the entire form group over an
+  // unlisted pronoun that is on the page.
+  it("hides a grouped field only for the keys the page may not show", () => {
+    assert.equal(
+      canEditProfileField(
+        "community_submitter",
+        { ...publishedUnclaimedPerson, fieldVisibility: { personPronouns: "unlisted" } },
         "person",
       ),
       true,
@@ -364,7 +371,7 @@ describe("profile permission helpers", () => {
     assert.equal(
       canEditProfileField(
         "community_submitter",
-        { ...withHeadline, fieldVisibility: { personRoleTags: "unlisted" } },
+        { ...publishedUnclaimedPerson, fieldVisibility: { personRoleTags: "unlisted" } },
         "person",
       ),
       false,
@@ -373,50 +380,10 @@ describe("profile permission helpers", () => {
     assert.equal(
       canEditProfileField(
         "community_submitter",
-        { ...withHeadline, fieldVisibility: { personPronouns: "private" } },
+        { ...publishedUnclaimedPerson, fieldVisibility: { personPronouns: "private" } },
         "person",
       ),
       false,
-    );
-  });
-
-  // The *profile page* never renders `timezone`; the public lookup does, at
-  // `public` visibility, beside the region. So it is readable while public and
-  // unreadable once unlisted, unlisted being exactly the state discovery excludes
-  // with the page never covering it either.
-  //
-  // It was briefly excluded outright, on the claim that no public surface showed
-  // it. That claim was wrong about the lookup.
-  it("ties timezone editing to the surface that actually shows it", () => {
-    assert.equal(
-      canEditProfileField("community_submitter", publishedUnclaimedPerson, "timezone"),
-      true,
-    );
-
-    for (const visibility of ["unlisted", "private"] as const) {
-      assert.equal(
-        canEditProfileField(
-          "community_submitter",
-          { ...publishedUnclaimedPerson, fieldVisibility: { timezone: visibility } },
-          "timezone",
-        ),
-        false,
-        visibility,
-      );
-    }
-
-    // The owner keeps it either way; it is their own record.
-    assert.equal(
-      canEditProfileField(
-        "claimed_owner",
-        {
-          ...publishedUnclaimedPerson,
-          claimState: "claimed_unverified",
-          fieldVisibility: { timezone: "unlisted" },
-        } as const,
-        "timezone",
-      ),
-      true,
     );
   });
 

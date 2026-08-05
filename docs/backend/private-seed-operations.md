@@ -588,8 +588,17 @@ a genre in a search result does not fill that page.
 The panel groups by where a value is missing from rather than by its visibility,
 because the two part company for exactly the cases worth telling apart. Each
 field carries `onProfilePage`, so an `unlisted` alias — on the page, out of
-search — is filed apart from an `unlisted` timezone or an `unlisted` tag whose
-row a headline has taken, which are on no surface at all.
+search — is filed apart from an `unlisted` timezone or an `unlisted` tag, which
+may be on no surface at all.
+
+"May be" is the honest word. The page shows role tags, category tags and free
+tags in one metadata line that a headline takes over, and that otherwise renders
+four values after deduplication, so whether a particular one appears depends on
+what else the profile holds. `onProfilePage` reports those as not-on-page rather
+than re-deriving the layout — the same conservative call
+`_profilePermissions.ts` makes, erring the other way round because the surfaces
+differ: the permission errs toward withholding an edit, this errs toward showing
+an operator a value they may also be able to find on the page.
 
 ```powershell
 pnpm cx -- prod run accountFeatureGrants:grant `

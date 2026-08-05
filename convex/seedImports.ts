@@ -81,6 +81,26 @@ function vocabularyKeys(candidates: VocabularyCandidates): Set<string> {
  * filtered out of the introduced set and the now-public profile ends up
  * searchable while its facets never reach `vocabularyTerms`.
  */
+/**
+ * Whether two `fieldVisibility` maps say the same thing.
+ *
+ * Compared by entry rather than by serialization, because key order is an
+ * artefact of how each map was built and would report a difference where there
+ * is none -- which is the whole failure this guards against, one level down.
+ */
+function sameFieldVisibility(
+  left: Doc<"profiles">["fieldVisibility"],
+  right: Doc<"profiles">["fieldVisibility"],
+): boolean {
+  const a = Object.entries(left ?? {});
+  const b = Object.entries(right ?? {});
+
+  return (
+    a.length === b.length &&
+    a.every(([key, value]) => (right ?? {})[key as keyof typeof right] === value)
+  );
+}
+
 async function reindexProfileVocabularyDelta(
   ctx: Pick<MutationCtx, "db">,
   before: VocabularyCandidates,
@@ -1749,6 +1769,22 @@ export const bulkSetFieldVisibility = internalMutation({
         args.rederiveValues === true
           ? rebuilt
           : { fieldVisibility: rebuilt.fieldVisibility };
+
+      // A visibility-only run that would write the visibility the profile already
+      // has is not a re-derivation, and patching it anyway is not free: it bumps
+      // `updatedAt`, which is the version every open edit form is holding, so
+      // re-running a finished migration would refuse everybody's in-progress save
+      // -- while reporting a count of profiles it had updated and had not.
+      //
+      // Only for the visibility-only path. `--rederive-values` replays values
+      // that this cannot compare cheaply, and running it twice is a deliberate
+      // act rather than an accident.
+      if (
+        args.rederiveValues !== true &&
+        sameFieldVisibility(rebuilt.fieldVisibility, profile.fieldVisibility)
+      ) {
+        continue;
+      }
 
       profilesRederived += 1;
 

@@ -78,32 +78,35 @@ const VISIBILITY_KEYS_BY_FIELD: Record<ProfileEditableField, ProfileFieldVisibil
 };
 
 /**
- * Visibility keys the page shows only while no headline takes their row.
+ * Visibility keys the profile page shows only sometimes, or not at all.
  *
- * `ProfilePublicPage` builds one metadata line from pronouns or subtype, region,
- * and then the "focus items" -- role tags, category tags and free tags -- and
- * drops the focus items when the profile has a headline, because the headline is
- * already carrying that row. There is no second place they render.
+ * The page builds one metadata line from pronouns or subtype, region, and then
+ * the "focus items" -- role tags, category tags and free tags. Whether any given
+ * focus value reaches that line depends on the profile: a headline takes the row
+ * entirely, and even without one the line renders `focusItems.slice(0, 4)` after
+ * deduplication, so a fifth value is dropped and which values survive depends on
+ * what else the profile holds. There is no second place they render, and
+ * `timezone` has no first place -- only the public lookup shows it.
+ *
+ * So this set is "the page does not reliably show it", not a rendering rule
+ * mirrored from the component. Three rounds of review each found another way the
+ * mirror was inexact -- the headline, then grouped keys, then the slice -- and a
+ * permission that has to re-derive a layout decision is going to keep being
+ * wrong in a new way. Being conservative here costs a contributor the ability to
+ * edit an unlisted tag that happens to be on screen; being exact costs a
+ * contributor reading a value the page never showed them, which is the thing the
+ * rule exists to prevent.
  *
  * Keys rather than fields, because `person` and `community` each group one focus
  * key with one that is not: pronouns and subtype keep their place in that row
- * whatever the headline does.
+ * whatever else happens.
  */
-const HEADER_ONLY_KEYS = new Set<ProfileFieldVisibilityKey>([
+const UNRELIABLY_SHOWN_KEYS = new Set<ProfileFieldVisibilityKey>([
   "tags",
   "personRoleTags",
   "communityCategoryTags",
+  "timezone",
 ]);
-
-/**
- * Visibility keys the profile page never renders, whatever else is on it.
- *
- * `timezone` reaches the record and no part of the page shows it. The public
- * lookup does, so it is readable while it is `public` -- and unreadable the
- * moment it is `unlisted`, because that is precisely the state discovery
- * excludes and the page was never going to cover.
- */
-const PAGE_INVISIBLE_KEYS = new Set<ProfileFieldVisibilityKey>(["timezone"]);
 
 /**
  * Whether a field is held back from the contributor on this profile.
@@ -116,34 +119,23 @@ const PAGE_INVISIBLE_KEYS = new Set<ProfileFieldVisibilityKey>(["timezone"]);
  *
  * `unlisted` is normally not private: it renders on the profile page, so a
  * contributor looking at that page has already seen it. That reasoning is the
- * whole justification, and it fails wherever the page does not in fact render the
- * field -- for a focus item on a profile with a headline, because the headline
- * takes that row, and for `timezone` always. `unlisted` is exactly the state
- * discovery excludes, so with the page not covering it either the value is
- * nowhere a contributor can reach.
+ * whole justification, and it only holds for a field the page reliably renders.
+ * `unlisted` is exactly the state discovery excludes, so where the page is not
+ * certain to cover it either, the value may be nowhere the contributor can reach.
  *
- * `public` is unaffected in both cases: the lookup carries it whatever the page
- * does. That is why this turns on `unlisted` rather than on the headline, or on
- * the field, alone.
+ * `public` is unaffected: the lookup carries it whatever the page does. That is
+ * why this turns on `unlisted` rather than on the field alone.
  */
 function isFieldWithheldFromCommunity(
-  profile: Pick<Doc<"profiles">, "fieldVisibility"> & Partial<Pick<Doc<"profiles">, "headline">>,
+  profile: Pick<Doc<"profiles">, "fieldVisibility">,
   field: ProfileEditableField,
 ): boolean {
-  const headlineTakesFocusRow = (profile.headline ?? "").trim().length > 0;
-
   return VISIBILITY_KEYS_BY_FIELD[field].some((key) => {
     const visibility = getProfileFieldVisibility(profile, key);
 
-    // Per key, not per field. `person` covers pronouns *and* role tags, and only
-    // the role tags are focus content -- the page keeps rendering pronouns in the
-    // metadata row when a headline is there. Asking the question of the whole
-    // group withheld the entire form group over an unlisted pronoun that is on
-    // the page, which is the opposite of what this rule is for.
-    const pageShowsKey =
-      !PAGE_INVISIBLE_KEYS.has(key) && !(headlineTakesFocusRow && HEADER_ONLY_KEYS.has(key));
-
-    return visibility === "private" || (!pageShowsKey && visibility === "unlisted");
+    return (
+      visibility === "private" || (visibility === "unlisted" && UNRELIABLY_SHOWN_KEYS.has(key))
+    );
   });
 }
 
@@ -179,10 +171,7 @@ export function canEditProfileField(
     Doc<"profiles">,
     "claimState" | "profileType" | "publicationState" | "publicSurfacingState"
   > &
-    // `headline` decides whether the header renders focus items at all, which is
-    // the only place they render. Optional so a caller that does not load it
-    // reads as "no headline", the case where those fields *are* on the page.
-    Partial<Pick<Doc<"profiles">, "fieldVisibility" | "headline">>,
+    Partial<Pick<Doc<"profiles">, "fieldVisibility">>,
   field: ProfileEditableField,
 ): boolean {
   if (!isFieldCompatibleWithProfileType(profile.profileType, field)) {
