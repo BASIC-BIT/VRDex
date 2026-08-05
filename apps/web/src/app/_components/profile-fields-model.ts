@@ -163,15 +163,17 @@ export function partitionLinks(links: ProfileLinkInput[], featureStreamLinks: bo
   const featured: Partial<Record<ProfileLinkType, ProfileLinkInput & { originalIndex: number }>> = {};
   const rows: ProfileLinkInput[] = [];
 
-  for (const link of links) {
+  for (const [index, link] of links.entries()) {
     if (
       featureStreamLinks &&
       (link.type === "vrcdn" || link.type === "twitch") &&
       featured[link.type] === undefined
     ) {
-      // Its index among the rows it is being lifted out of, which is where it
-      // has to be reinserted for the list to come back unchanged.
-      featured[link.type] = { ...link, originalIndex: rows.length };
+      // Its index in the whole list, not among the rows it is leaving. Two
+      // adjacent stream links both saw the same row count, so reinserting them
+      // at that shared position swapped their order and rewrote the array on a
+      // save that changed nothing.
+      featured[link.type] = { ...link, originalIndex: index };
       continue;
     }
 
@@ -261,8 +263,9 @@ function linksFromFormData(formData: FormData): ProfileLinkInput[] {
 
   // A newly entered stream link has no original position, so it goes to the
   // front in the order the form shows it. Ones that were already stored are
-  // spliced back where they came from, ascending so each insertion lands before
-  // the next index is used and the positions stay meaningful.
+  // spliced back at their index in the original list, ascending -- so by the
+  // time each is placed, everything that preceded it is already there and the
+  // index is the position it wants.
   const ordered = [
     ...featured.filter((entry) => entry.originalIndex < 0).map((entry) => entry.link),
     ...rows,

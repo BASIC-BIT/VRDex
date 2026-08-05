@@ -141,7 +141,11 @@ Publish behavior worth knowing:
   beside a private set of links would otherwise satisfy the gate while
   publishing exactly the profile it exists to stop. Links are counted after
   normalization, so a field holding only an operator console URL counts as
-  nothing, which is what publication will make of it. `previewBatchPublication`
+  nothing, which is what publication will make of it. `about`, `genres` and
+  `timezone` do not count at all: they reach the profile record and no part of
+  the profile page renders them, so a candidate whose only public content is one
+  of those publishes the same blank-looking page. Rendering them instead is a
+  product decision nobody has made; until then the gate declines. `previewBatchPublication`
   uses the same predicate, so a dry run cannot say the opposite of what the
   publish gate does. Batch
   `nwinn_2026_07_16_ad79dca17a` is why it exists: it published 405 people whose

@@ -39,12 +39,13 @@ describe("stream link partitioning", () => {
 
     // The whole link, not just its URL: the dedicated inputs carry the label,
     // handle and presentation through as hidden fields, same as the rows.
-    // `originalIndex` is where each link sat among the rows it was lifted out
-    // of, so an untouched one can be put back rather than surfacing at the front
-    // and rewriting the array on a save that changed nothing.
+    // `originalIndex` is the position in the whole list, so an untouched link
+    // goes back where it was instead of surfacing at the front and rewriting the
+    // array on a save that changed nothing. Counting rows instead gave two
+    // adjacent stream links the same index, which swapped them.
     assert.deepEqual(featured, {
       vrcdn: { type: "vrcdn", url: "https://vrcdn.live/snekwtf", originalIndex: 0 },
-      twitch: { type: "twitch", url: "https://twitch.tv/snekwtf", originalIndex: 0 },
+      twitch: { type: "twitch", url: "https://twitch.tv/snekwtf", originalIndex: 1 },
     });
     // The second Twitch link stays a row rather than being dropped for having
     // nowhere to go.
@@ -213,6 +214,48 @@ describe("profile fields payload", () => {
       formData(
         [
           ["displayName", "Snek"],
+          ["twitchUrl", featured.twitch?.url ?? ""],
+          ["twitchOriginalUrl", featured.twitch?.url ?? ""],
+          ["twitchOriginalIndex", String(featured.twitch?.originalIndex)],
+          ...rows.flatMap((link) => [
+            ["linkType", link.type],
+            ["linkUrl", link.url],
+            ["linkOriginalUrl", link.url],
+            ["linkOriginalType", link.type],
+            ["linkLabel", ""],
+            ["linkHandle", ""],
+            ["linkPresentation", ""],
+          ] as Array<[string, string]>),
+        ],
+        ["outboundLinks"],
+      ),
+      "person",
+    );
+
+    assert.deepEqual(
+      payload.outboundLinks?.map((link) => link.url),
+      stored.map((link) => link.url),
+    );
+  });
+
+  it("keeps two adjacent stream links in their stored order", () => {
+    // Both saw the same generic-row count when indices were relative, so both
+    // were reinserted at the same position and came back swapped -- rewriting
+    // `outboundLinks` on a save that changed nothing.
+    const stored = [
+      { type: "vrcdn", url: "https://vrcdn.live/snekwtf" },
+      { type: "twitch", url: "https://twitch.tv/snekwtf" },
+      { type: "soundcloud", url: "https://soundcloud.com/snekwtf" },
+    ] as const;
+    const { featured, rows } = partitionLinks([...stored], true);
+
+    const payload = profileFieldsPayload(
+      formData(
+        [
+          ["displayName", "Snek"],
+          ["vrcdnUrl", featured.vrcdn?.url ?? ""],
+          ["vrcdnOriginalUrl", featured.vrcdn?.url ?? ""],
+          ["vrcdnOriginalIndex", String(featured.vrcdn?.originalIndex)],
           ["twitchUrl", featured.twitch?.url ?? ""],
           ["twitchOriginalUrl", featured.twitch?.url ?? ""],
           ["twitchOriginalIndex", String(featured.twitch?.originalIndex)],

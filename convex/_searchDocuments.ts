@@ -545,8 +545,14 @@ export async function reindexProfileSearchDocument(
     .withIndex("by_profileId", (query) => query.eq("profileId", profile._id))
     .unique();
   const nextDocument = createProfileSearchDocument(profile);
-  const beforeKeys = new Set(existingDocument?.vocabularyKeys ?? []);
-  const afterKeys = new Set(nextDocument.vocabularyKeys ?? []);
+  // A hidden profile contributes nothing in either direction. Its document
+  // keeps `vocabularyKeys` after suppression has already released those terms,
+  // so treating them as live would release them a second time -- decrementing
+  // counts for terms other, still-public profiles are using. Republishing
+  // records the whole set again, which is where they come back.
+  const isPublic = canReadProfile("public", profile);
+  const beforeKeys = new Set(isPublic ? (existingDocument?.vocabularyKeys ?? []) : []);
+  const afterKeys = new Set(isPublic ? (nextDocument.vocabularyKeys ?? []) : []);
 
   await upsertSearchDocument(db, nextDocument);
 
@@ -561,7 +567,7 @@ export async function reindexProfileSearchDocument(
   // offered to everyone, sourced from a record withdrawn from everyone.
   const addedCandidates = new Map<string, VocabularyCandidate>();
 
-  if (canReadProfile("public", profile)) {
+  if (isPublic) {
     for (const candidate of vocabularyForProfile(profile)) {
       const scopedKey = `${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`;
 

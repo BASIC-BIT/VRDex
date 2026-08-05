@@ -1087,6 +1087,42 @@ describe("API profile update helpers", () => {
     );
   });
 
+  it("stamps a duplicate link from the writer rather than the one it matches", () => {
+    // One stored link, one inherited source. Keying on identity alone handed the
+    // same owner-authored provenance to every submitted link that matched it, so
+    // a contributor adding a second row for the same destination would have it
+    // recorded as owner-authored -- inventing provenance rather than preserving
+    // it, which is the opposite of what the inheritance is for.
+    const withLinks = {
+      ...claimedPerson,
+      claimState: "unclaimed",
+      outboundLinks: [
+        {
+          type: "twitch",
+          label: "Twitch",
+          url: "https://twitch.tv/snekwtf",
+          source: "owner_authored",
+        },
+      ],
+    } as unknown as Doc<"profiles">;
+
+    const links = sanitizeApiProfileUpdateInput(
+      withLinks,
+      {
+        outboundLinks: [
+          { type: "twitch", url: "https://twitch.tv/snekwtf" },
+          { type: "twitch", url: "https://twitch.tv/snekwtf" },
+        ],
+      },
+      "community_submitter",
+    ).patch.outboundLinks as Array<{ source: string }>;
+
+    assert.deepEqual(links.map((link) => link.source), [
+      "owner_authored",
+      "community_submitted",
+    ]);
+  });
+
   it("lets the community correct an unclaimed profile, and stops at a claimed one", () => {
     const unclaimedPerson = { ...claimedPerson, claimState: "unclaimed" } as Doc<"profiles">;
     const edit = { displayName: "Snek", person: { roleTags: ["DJ"] } };

@@ -992,9 +992,29 @@ export function displayNameOutsidePublicLimits(displayName: string): boolean {
  * a publishable link -- so a field holding only `panel.vrcdn.live/dashboard`
  * has a non-zero array length and still publishes nothing.
  */
+/**
+ * Seed fields that reach a profile but never reach its page.
+ *
+ * `about` is projected by `toPublicProfile` and rendered by nothing --
+ * `ProfilePublicPage`'s About block shows `bio`. Genres and timezone reach the
+ * search corpus but have no place on the page either. A candidate whose only
+ * public content is one of these publishes exactly the display-name-only
+ * profile `no_publicly_visible_field` exists to refuse, so they do not count as
+ * something to see.
+ *
+ * The other resolution is to render them, which is a product decision rather
+ * than a gate fix; until someone makes it, the gate declines to publish a page
+ * that would look empty.
+ */
+const UNRENDERED_SEED_FIELD_KEYS = new Set(["about", "genres", "timezone"]);
+
 export function hasSeedFieldContent(
   field: Pick<SeedImportPublicationField, "fieldKey" | "value">,
 ): boolean {
+  if (UNRENDERED_SEED_FIELD_KEYS.has(field.fieldKey)) {
+    return false;
+  }
+
   if (field.fieldKey === "outboundLinks") {
     return sanitizeProfileLinksLeniently(field.value, "reviewed").links.length > 0;
   }

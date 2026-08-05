@@ -209,14 +209,23 @@ export function sanitizeApiProfileUpdateInput(
     // field would restamp every owner-authored link as community-submitted --
     // downgrading a trust signal nobody touched. Only genuinely new links carry
     // the writer's own stamp.
-    const existingSources = new Map(
-      (profile.outboundLinks ?? []).map((link) => [linkIdentity(link), link.source]),
-    );
+    // Each stored link's provenance is claimed once. A map keyed on identity
+    // alone hands the same owner-authored source to every submitted link that
+    // matches it, so a contributor adding a second row for the same destination
+    // would have it recorded as owner-authored. One existing link, one
+    // inherited source; the surplus is the writer's own.
+    const existingSources = new Map<string, ProfileLinkSource[]>();
+
+    for (const link of profile.outboundLinks ?? []) {
+      const identity = linkIdentity(link);
+
+      existingSources.set(identity, [...(existingSources.get(identity) ?? []), link.source]);
+    }
 
     patch.outboundLinks = sanitizeProfileLinks(
       input.outboundLinks ?? [],
       LINK_SOURCE_BY_SUBJECT[subject],
-    ).map((link) => ({ ...link, source: existingSources.get(linkIdentity(link)) ?? link.source }));
+    ).map((link) => ({ ...link, source: existingSources.get(linkIdentity(link))?.shift() ?? link.source }));
     addChangedField(changedFields, "outboundLinks");
   }
 
