@@ -120,6 +120,7 @@ function ConnectedProfileEditForm({ slug, profilePath }: { slug: string; profile
       // that path spells "clear this" rather than "leave it alone".
       await updateProfile({
         slug,
+        expectedUpdatedAt: profile.updatedAt,
         ...fields,
         // Emptied means cleared, same as the narrative fields, and `person` is
         // only present when the form rendered that group at all.

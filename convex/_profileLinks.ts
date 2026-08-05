@@ -85,6 +85,16 @@ export const profileLinkInputValidator = v.object({
   label: v.optional(v.string()),
   handle: v.optional(v.string()),
   presentation: v.optional(v.string()),
+  /**
+   * The provenance an editor's row says it arrived with.
+   *
+   * Accepted here and stripped before normalization, so it can never be stored
+   * from writer input. `sanitizeApiProfileUpdateInput` reads it off the raw
+   * argument as a claim and honours it only against a stored link that actually
+   * carries it -- which is what lets a form post the whole array back without
+   * an owner-authored link losing its stamp, or a writer inventing one.
+   */
+  source: v.optional(v.string()),
 });
 
 export const PROFILE_LINK_MAX_COUNT = 20;
@@ -224,7 +234,10 @@ export function normalizeOutboundLinks(value: unknown): NormalizedProfileLink[] 
  * stream id in `handle` means every reader gets the same thing.
  */
 function prepareProfileLink(entry: unknown, index: number): Record<string, unknown> {
-  const link = requireRecord(entry, `Outbound link ${index + 1}`);
+  // `source` never reaches the normalizer: provenance is stamped by the caller
+  // from the writer's own subject, and `assertOnlyKeys` is left strict so any
+  // other stray key is still an error rather than a silent pass.
+  const { source: _claimedSource, ...link } = requireRecord(entry, `Outbound link ${index + 1}`);
   const type = requireStringValue(link.type, "Outbound link type");
 
   if (!isProfileLinkType(type)) {

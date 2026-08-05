@@ -1071,7 +1071,9 @@ describe("API profile update helpers", () => {
       withLinks,
       {
         outboundLinks: [
-          { type: "twitch", url: "https://twitch.tv/snekwtf" },
+          // Echoes the provenance it arrived with, which is what the editor
+          // sends for a row nobody touched.
+          { type: "twitch", url: "https://twitch.tv/snekwtf", source: "owner_authored" },
           { type: "soundcloud", url: "https://soundcloud.com/snekwtf" },
         ],
       },
@@ -1110,7 +1112,7 @@ describe("API profile update helpers", () => {
       withLinks,
       {
         outboundLinks: [
-          { type: "twitch", url: "https://twitch.tv/snekwtf" },
+          { type: "twitch", url: "https://twitch.tv/snekwtf", source: "owner_authored" },
           { type: "twitch", url: "https://twitch.tv/snekwtf" },
         ],
       },
@@ -1121,6 +1123,46 @@ describe("API profile update helpers", () => {
       "owner_authored",
       "community_submitted",
     ]);
+  });
+
+  it("does not let a claim invent provenance the stored link never had", () => {
+    // The claim is honoured against a stored link that actually carries it, and
+    // each stored link is claimed once. So deleting the owner-authored row and
+    // keeping the community duplicate leaves the survivor community-submitted --
+    // matching by position in stored order promoted it instead -- and a writer
+    // asking for a source nothing has simply gets their own.
+    const withDuplicates = {
+      ...claimedPerson,
+      claimState: "unclaimed",
+      outboundLinks: [
+        { type: "twitch", label: "Twitch", url: "https://twitch.tv/snekwtf", source: "owner_authored" },
+        { type: "twitch", label: "Twitch", url: "https://twitch.tv/snekwtf", source: "community_submitted" },
+      ],
+    } as unknown as Doc<"profiles">;
+
+    const survivors = sanitizeApiProfileUpdateInput(
+      withDuplicates,
+      {
+        outboundLinks: [
+          { type: "twitch", url: "https://twitch.tv/snekwtf", source: "community_submitted" },
+        ],
+      },
+      "community_submitter",
+    ).patch.outboundLinks as Array<{ source: string }>;
+
+    assert.deepEqual(survivors.map((link) => link.source), ["community_submitted"]);
+
+    const invented = sanitizeApiProfileUpdateInput(
+      { ...claimedPerson, claimState: "unclaimed", outboundLinks: [] } as unknown as Doc<"profiles">,
+      {
+        outboundLinks: [
+          { type: "twitch", url: "https://twitch.tv/snekwtf", source: "owner_authored" },
+        ],
+      },
+      "community_submitter",
+    ).patch.outboundLinks as Array<{ source: string }>;
+
+    assert.deepEqual(invented.map((link) => link.source), ["community_submitted"]);
   });
 
   it("lets the community correct an unclaimed profile, and stops at a claimed one", () => {

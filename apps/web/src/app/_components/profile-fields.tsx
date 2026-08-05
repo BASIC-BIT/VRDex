@@ -77,6 +77,7 @@ function LinkMetadata({
       <input name={`${name}Label`} type="hidden" value={link.label ?? ""} />
       <input name={`${name}Handle`} type="hidden" value={link.handle ?? ""} />
       <input name={`${name}Presentation`} type="hidden" value={link.presentation ?? ""} />
+      <input name={`${name}Source`} type="hidden" value={link.source ?? ""} />
     </>
   );
 }
@@ -417,6 +418,7 @@ export function ProfileFields({
                   <input name="linkLabel" type="hidden" value={row.link?.label ?? ""} />
                   <input name="linkHandle" type="hidden" value={row.link?.handle ?? ""} />
                   <input name="linkPresentation" type="hidden" value={row.link?.presentation ?? ""} />
+                  <input name="linkSource" type="hidden" value={row.link?.source ?? ""} />
                   <Input
                     defaultValue={row.link?.url ?? ""}
                     maxLength={2048}

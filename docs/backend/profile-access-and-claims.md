@@ -47,10 +47,24 @@ private: it renders on the profile page, so a contributor looking at that page
 has already seen it. `profiles:editableProfile` returns values only for fields
 the subject has cleared, so the form shows exactly what it may change.
 
-An existing link keeps the provenance it already had. The form posts the whole
-array back, so restamping on every save would downgrade an owner-authored link
-to community-submitted because somebody fixed a typo elsewhere. Only genuinely
-new links carry the writer's own stamp.
+An existing link keeps the provenance it already had, and each row says which
+one it arrived with. The form posts the whole array back, so restamping on every
+save would downgrade an owner-authored link to community-submitted because
+somebody fixed a typo elsewhere — while matching by destination alone gets
+duplicates wrong in both directions, either handing one link's source to every
+row that shares its URL or promoting a community row when the owner row above it
+is deleted.
+
+The claim is not authority. `source` is accepted on the input, stripped before
+normalization so it can never be stored from writer input, and honoured only
+against a stored link that genuinely carries it — each stored link claimed once.
+A writer asking for `owner_authored` on a link nothing has gets their own stamp.
+
+The editor sends the `updatedAt` it loaded. Because the form posts every group it
+rendered, a second person saving a display-name fix would otherwise spread stale
+values over links and tags somebody else changed meanwhile, and the diff would
+read those as deliberate. A mismatched version is refused rather than silently
+won.
 
 **Media is out of scope for community editing.** A profile picture or logo is
 information about the person by the rule above, and it is the most visible thing

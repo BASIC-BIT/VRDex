@@ -25,6 +25,12 @@ export type ProfileLinkInput = {
   label?: string;
   handle?: string;
   presentation?: string;
+  /**
+   * The provenance this row arrived with, echoed back so the backend can tell an
+   * untouched link from a new one. It is a claim, not an assertion: the mutation
+   * honours it only against a stored link that actually carries it.
+   */
+  source?: string;
 };
 
 export type ProfileFieldsDefaults = {
@@ -190,6 +196,7 @@ function withLinkMetadata(link: ProfileLinkInput, meta: Partial<ProfileLinkInput
     ...(meta.label ? { label: meta.label } : {}),
     ...(meta.handle ? { handle: meta.handle } : {}),
     ...(meta.presentation ? { presentation: meta.presentation } : {}),
+    ...(meta.source ? { source: meta.source } : {}),
   };
 }
 
@@ -201,6 +208,7 @@ function linksFromFormData(formData: FormData): ProfileLinkInput[] {
   const labels = formData.getAll("linkLabel");
   const handles = formData.getAll("linkHandle");
   const presentations = formData.getAll("linkPresentation");
+  const sources = formData.getAll("linkSource");
   // Rows are uncontrolled, so the lists come back in DOM order and pair by
   // index. Every row emits all five, so they stay aligned even when one is
   // blank. Rows with no URL are dropped rather than rejected.
@@ -226,6 +234,7 @@ function linksFromFormData(formData: FormData): ProfileLinkInput[] {
             label: stringField(labels[index] ?? null),
             handle: stringField(handles[index] ?? null),
             presentation: stringField(presentations[index] ?? null),
+            source: stringField(sources[index] ?? null),
           }
         : {}),
     ];
@@ -255,6 +264,7 @@ function linksFromFormData(formData: FormData): ProfileLinkInput[] {
               label: stringField(formData.get(`${type}Label`)),
               handle: stringField(formData.get(`${type}Handle`)),
               presentation: stringField(formData.get(`${type}Presentation`)),
+              source: stringField(formData.get(`${type}Source`)),
             }
           : {}),
       },

@@ -101,6 +101,33 @@ function linkIdentity(link: { type: string; url: string }): string {
   return `${link.type}:${link.url.toLowerCase()}`;
 }
 
+/**
+ * The provenance each submitted row says it arrived with, by position.
+ *
+ * Read off the raw input rather than the sanitized links, because sanitizing
+ * drops the key -- `source` is not a writer-supplied field, and it must not
+ * become one. This is only a claim; `sanitizeApiProfileUpdateInput` honours it
+ * against a stored link that genuinely has it.
+ */
+function requestedLinkSources(value: unknown): Array<ProfileLinkSource | undefined> {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.map((entry) => {
+    const source = (entry as { source?: unknown } | null)?.source;
+
+    return LINK_SOURCES.has(source as string) ? (source as ProfileLinkSource) : undefined;
+  });
+}
+
+const LINK_SOURCES = new Set<string>([
+  "owner_authored",
+  "reviewed",
+  "partner_provided",
+  "community_submitted",
+]);
+
 function addChangedField(fields: ProfileEditableField[], field: ProfileEditableField) {
   if (!fields.includes(field)) {
     fields.push(field);
@@ -209,23 +236,44 @@ export function sanitizeApiProfileUpdateInput(
     // field would restamp every owner-authored link as community-submitted --
     // downgrading a trust signal nobody touched. Only genuinely new links carry
     // the writer's own stamp.
-    // Each stored link's provenance is claimed once. A map keyed on identity
-    // alone hands the same owner-authored source to every submitted link that
-    // matches it, so a contributor adding a second row for the same destination
-    // would have it recorded as owner-authored. One existing link, one
-    // inherited source; the surplus is the writer's own.
-    const existingSources = new Map<string, ProfileLinkSource[]>();
+    // Each row says which provenance it arrived with, and claims that exact one.
+    //
+    // Two earlier attempts keyed on the destination alone and both got duplicates
+    // wrong: the first gave every matching row the same source, the second
+    // handed them out in stored order, so deleting an owner-authored link
+    // promoted the community-submitted duplicate behind it. Provenance belongs
+    // to the row, so the row carries it.
+    //
+    // A claim is only honoured against a stored link that actually has it, and
+    // each stored link is claimed once -- so a writer cannot mint
+    // `owner_authored` by asking for it, and anything unmatched falls back to
+    // their own stamp.
+    const unclaimed = new Map<string, number>();
 
     for (const link of profile.outboundLinks ?? []) {
-      const identity = linkIdentity(link);
+      const key = `${linkIdentity(link)}|${link.source}`;
 
-      existingSources.set(identity, [...(existingSources.get(identity) ?? []), link.source]);
+      unclaimed.set(key, (unclaimed.get(key) ?? 0) + 1);
     }
+
+    const claimedSources = requestedLinkSources(input.outboundLinks);
 
     patch.outboundLinks = sanitizeProfileLinks(
       input.outboundLinks ?? [],
       LINK_SOURCE_BY_SUBJECT[subject],
-    ).map((link) => ({ ...link, source: existingSources.get(linkIdentity(link))?.shift() ?? link.source }));
+    ).map((link, index) => {
+      const claimed = claimedSources[index];
+      const key = `${linkIdentity(link)}|${claimed}`;
+      const available = unclaimed.get(key) ?? 0;
+
+      if (claimed === undefined || available === 0) {
+        return link;
+      }
+
+      unclaimed.set(key, available - 1);
+
+      return { ...link, source: claimed };
+    });
     addChangedField(changedFields, "outboundLinks");
   }
 

@@ -529,6 +529,9 @@ export const editableProfile = query({
     return {
       slug: profile.slug,
       profileType: profile.profileType,
+      // Sent back with the save, so a second editor is told the profile moved
+      // rather than quietly overwriting whatever changed underneath them.
+      updatedAt: profile.updatedAt,
       displayName: profile.displayName,
       aliases: whenEditable("aliases", profile.aliases),
       tags: whenEditable("tags", profile.tags),
@@ -548,6 +551,9 @@ export const editableProfile = query({
           label: link.label,
           handle: link.handle,
           presentation: link.presentation,
+          // Echoed back by the form so an untouched link keeps the provenance it
+          // has. Honoured as a claim, never as an assertion.
+          source: link.source,
         })),
       ),
       person:
@@ -586,6 +592,16 @@ export const editableProfile = query({
 export const updateProfileFromBrowser = mutation({
   args: {
     slug: v.string(),
+    /**
+     * The `updatedAt` the editor loaded.
+     *
+     * The form posts every field group it rendered, so a second person saving a
+     * display-name fix would spread stale values over links, tags and roles
+     * somebody else changed in the meantime -- and the diff would read those as
+     * deliberate, because it compares against the profile as it is now. This
+     * refuses the save instead of silently winning it.
+     */
+    expectedUpdatedAt: v.optional(v.number()),
     ...apiProfileUpdateArgs,
   },
   handler: async (ctx, args) => {
@@ -619,6 +635,13 @@ export const updateProfileFromBrowser = mutation({
       throw new ConvexError({
         code: "PROFILE_CLAIMED",
         message: "This profile has been claimed, so only its owner can edit it.",
+      });
+    }
+
+    if (args.expectedUpdatedAt !== undefined && args.expectedUpdatedAt !== profile.updatedAt) {
+      throw new ConvexError({
+        code: "PROFILE_CHANGED",
+        message: "This profile changed while you were editing it. Reload to see the current version.",
       });
     }
 
