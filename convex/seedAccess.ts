@@ -198,34 +198,49 @@ const PROFILE_HISTORY_LIMIT = 20;
  * Whether the import record behind a live profile is still one the narrower
  * grant may see, judged by the rule the name lookup uses.
  *
- * Runs the profile back to its candidate rather than judging the profile alone,
+ * Runs the profile back to its candidates rather than judging the profile alone,
  * because half the rule lives on the batch: policy revoked to `private_only`,
  * review withdrawn to `rejected` or `superseded`, the candidate itself no longer
  * accepted. None of those touch the published profile, so a surface reading only
  * the profile keeps answering long after the lookup has stopped.
+ *
+ * Any eligible candidate is enough, which is what the name lookup does -- it
+ * returns a row per candidate, so a profile two batches contributed to still
+ * appears there on the strength of the live one. Judging only the first row this
+ * index happens to return would hide such a profile whenever the withdrawn batch
+ * sorted first, which is arbitrary rather than a decision. `MAX` bounds the read;
+ * more than a couple of candidates per profile does not happen outside a merge.
  */
+const MAX_PUBLISHING_CANDIDATES = 8;
+
 async function publishedSeedCandidateIsVisible(
   ctx: { db: GenericDatabaseReader<DataModel> },
   profile: Doc<"profiles">,
 ): Promise<boolean> {
-  const candidate = await ctx.db
+  const candidates = await ctx.db
     .query("seedImportCandidateProfiles")
     .withIndex("by_publishedProfileId", (query) => query.eq("publishedProfileId", profile._id))
-    .first();
+    .take(MAX_PUBLISHING_CANDIDATES);
 
-  if (candidate === null) {
-    return false;
+  for (const candidate of candidates) {
+    const batch = await ctx.db.get(candidate.batchId);
+
+    if (
+      canIncludePrivateSeedCandidate(
+        candidate,
+        batch?.publicationPolicy,
+        batch?.reviewState,
+        false,
+        profile,
+      )
+    ) {
+      return true;
+    }
   }
 
-  const batch = await ctx.db.get(candidate.batchId);
-
-  return canIncludePrivateSeedCandidate(
-    candidate,
-    batch?.publicationPolicy,
-    batch?.reviewState,
-    false,
-    profile,
-  );
+  // Includes the no-candidate case: nothing to check the profile against fails
+  // closed rather than falling back to trusting the profile alone.
+  return false;
 }
 
 /**

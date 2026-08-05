@@ -513,5 +513,48 @@ describe("private seed Convex handlers", () => {
       }),
       null,
     );
+
+    // A merge can leave two candidates pointing at one profile. The name lookup
+    // returns a row per candidate, so such a profile still appears there on the
+    // strength of the live one -- judging only whichever row the index returns
+    // first would hide it here whenever the withdrawn batch sorted ahead.
+    await t.run(async (ctx) => {
+      const profile = await ctx.db
+        .query("profiles")
+        .withIndex("by_slug", (query) => query.eq("slug", "handler-published-import"))
+        .unique();
+      const batchId = await ctx.db.insert("seedImportBatches", {
+        externalBatchId: "handler_test_batch_two",
+        sourceName: "NWinn",
+        sourceType: "partner",
+        receivedAt: NOW,
+        publicationPolicy: "reviewed_publication_allowed",
+        reviewState: "approved",
+        createdAt: NOW,
+        updatedAt: NOW,
+      });
+      await ctx.db.insert("seedImportCandidateProfiles", {
+        batchId,
+        externalCandidateId: "handler-test-dj-merged",
+        profileType: "person",
+        proposedDisplayName: "DJ Example",
+        reviewState: "accepted",
+        publicationState: "published_unclaimed",
+        claimState: "unclaimed",
+        publishedProfileId: profile!._id,
+        publishedAt: NOW,
+        createdAt: NOW,
+        updatedAt: NOW,
+      });
+    });
+
+    assert.deepEqual(
+      (
+        await t.withIdentity(identity).query(api.seedAccess.withheldProfileRecord, {
+          slug: "handler-published-import",
+        })
+      )?.withheldFields.map((field) => field.key),
+      ["bio"],
+    );
   });
 });
