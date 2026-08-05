@@ -893,6 +893,24 @@ describe("seed handoff helpers", () => {
     assert.equal("outboundLinks" in patch, false);
     assert.equal(linkStats.droppedCount, 1);
 
+    // The visibility goes back with the value. Carrying it across on its own
+    // would keep the live links and hide them -- arguably worse than deleting
+    // them, since they are still there and nobody can see them.
+    assert.equal(patch.fieldVisibility?.outboundLinks, undefined);
+    assert.equal(
+      buildConciergeProfileFieldPatch(
+        [
+          seedField({
+            fieldKey: "outboundLinks",
+            value: [{ type: "twitch", label: "Twitch", url: "https://not-twitch.invalid/x" }],
+            visibility: "private",
+          }),
+        ],
+        { ...existing, fieldVisibility: { outboundLinks: "public" } } as never,
+      ).fieldVisibility?.outboundLinks,
+      "public",
+    );
+
     // A create has nothing to lose, so the empty array is what it would get
     // anyway and is written.
     assert.deepEqual(buildConciergeProfileFieldPatch(unusable).outboundLinks, []);
