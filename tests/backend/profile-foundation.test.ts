@@ -1247,22 +1247,7 @@ describe("API profile update helpers", () => {
         ).patch.outboundLinks as Array<{ source: string }>
       )[0]?.source;
 
-    // Resubmitting the list exactly is not an edit: the group is left out of the
-    // patch entirely, so the stored provenance is untouched rather than
-    // re-derived and matched.
-    assert.equal(
-      sanitizeApiProfileUpdateInput(
-        withLinks,
-        {
-          outboundLinks: [
-            { type: "website", url: "https://example.invalid/Mix", source: "owner_authored" },
-          ],
-        },
-        "community_submitter",
-      ).patch.outboundLinks,
-      undefined,
-    );
-
+    assert.equal(sourceFor("https://example.invalid/Mix"), "owner_authored");
     // A different page on a case-sensitive host is a different destination, so
     // the claim is refused and the writer gets their own stamp.
     assert.equal(sourceFor("https://example.invalid/mix"), "community_submitted");
@@ -1305,6 +1290,82 @@ describe("API profile update helpers", () => {
       aliases: ["Legacy Name", "A New Name"],
     });
     assert.equal(asked, true);
+  });
+
+  // Skipping the permission check for a group that happened to match made the
+  // mutation an oracle: post a guessed alias array at an unclaimed profile whose
+  // aliases are private, and the reply says whether the guess was right -- an
+  // exact one took the no-op path and succeeded, a wrong one was refused by name.
+  // Neither advances `updatedAt`, so the guessing could run indefinitely.
+  it("refuses a withheld field whether or not the guess was right", () => {
+    const withPrivateAliases = {
+      ...claimedPerson,
+      claimState: "unclaimed",
+      aliases: ["Secret Alias"],
+      fieldVisibility: { aliases: "private" },
+    } as unknown as Doc<"profiles">;
+
+    for (const guess of [["Secret Alias"], ["Wrong Guess"]]) {
+      assert.throws(
+        () =>
+          sanitizeApiProfileUpdateInput(
+            withPrivateAliases,
+            { aliases: guess, bio: "Corrected biography" },
+            "community_submitter",
+          ),
+        /aliases field cannot be edited/,
+        guess.join(","),
+      );
+    }
+
+    // The same shape for a private nested list, which is its own group.
+    assert.throws(
+      () =>
+        sanitizeApiProfileUpdateInput(
+          {
+            ...claimedPerson,
+            claimState: "unclaimed",
+            person: { roleTags: ["Secret Role"] },
+            fieldVisibility: { personRoleTags: "private" },
+          } as unknown as Doc<"profiles">,
+          { person: { roleTags: ["Secret Role"] } },
+          "community_submitter",
+        ),
+      /person field cannot be edited/,
+    );
+  });
+
+  // Comparing type and URL alone called a row unchanged when an owner had edited
+  // only its label, handle or presentation, so the update returned success and
+  // wrote nothing.
+  it("applies a link change that touches only its metadata", () => {
+    const withLink = {
+      ...claimedPerson,
+      outboundLinks: [
+        {
+          type: "website",
+          label: "Website",
+          url: "https://example.invalid/dj",
+          source: "owner_authored",
+        },
+      ],
+    } as unknown as Doc<"profiles">;
+
+    const result = sanitizeApiProfileUpdateInput(
+      withLink,
+      {
+        outboundLinks: [
+          { type: "website", label: "Bookings", url: "https://example.invalid/dj" },
+        ],
+      },
+      "claimed_owner",
+    );
+
+    assert.deepEqual(result.changedFields, ["outboundLinks"]);
+    assert.equal(
+      (result.patch.outboundLinks as Array<{ label: string }>)[0]?.label,
+      "Bookings",
+    );
   });
 
   // The editor posts every group it rendered, so an untouched group is validated

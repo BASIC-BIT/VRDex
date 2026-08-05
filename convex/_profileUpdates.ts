@@ -86,21 +86,32 @@ function matchesStoredList(submitted: unknown, stored: unknown): boolean {
 /**
  * The same question for outbound links, which carry rendering metadata.
  *
- * Compared on type and destination rather than whole objects: the editor echoes
- * a row's label, handle and provenance back, but only the fields it was given,
- * so a strict comparison would call an untouched row changed and put the whole
- * list back through a cap it may already exceed.
+ * Every writable part of a link is compared, not just its destination. Comparing
+ * type and URL alone called a row unchanged when an API owner had edited only its
+ * label, handle or presentation, so the update returned success and wrote
+ * nothing.
+ *
+ * `source` is deliberately excluded. It is not writable -- it is stripped before
+ * normalization and honoured only against a stored link that already carries it
+ * -- so a differing claim is not an edit, and counting it would let a caller
+ * force the whole group through validation by asking for a provenance they were
+ * never going to get.
  */
+const COMPARED_LINK_KEYS = ["type", "url", "label", "handle", "presentation"] as const;
+
 function matchesStoredLinks(submitted: unknown, stored: Doc<"profiles">["outboundLinks"]): boolean {
   if (!Array.isArray(submitted) || submitted.length !== (stored ?? []).length) {
     return false;
   }
 
   return submitted.every((entry, index) => {
-    const link = (stored ?? [])[index];
-    const proposed = entry as { type?: unknown; url?: unknown } | null;
+    const link = (stored ?? [])[index] as Record<string, unknown> | undefined;
+    const proposed = (entry ?? {}) as Record<string, unknown>;
 
-    return link !== undefined && proposed?.type === link.type && proposed?.url === link.url;
+    return (
+      link !== undefined &&
+      COMPARED_LINK_KEYS.every((key) => (proposed[key] ?? undefined) === (link[key] ?? undefined))
+    );
   });
 }
 
@@ -224,10 +235,16 @@ export function sanitizeApiProfileUpdateInput(
 ): SanitizedApiProfileUpdate {
   const patch: Record<string, unknown> = {};
   const changedFields: ProfileEditableField[] = [];
-  // Groups the writer sent that turned out to match what is stored. Counted so
-  // the "send at least one field" guard stays a question about the request shape:
-  // a form that posts only untouched groups is a no-op save, not an empty one.
-  let unchangedGroups = 0;
+  // Groups the writer sent that turned out to match what is stored. Kept, not
+  // just counted, because permission is a question about what was *submitted*.
+  //
+  // Skipping the permission check for a group that happened to match made this
+  // an oracle: a signed-in non-owner could post a guessed alias array at an
+  // unclaimed profile whose aliases are private, and read the answer off the
+  // response -- an exact guess took the no-op path and succeeded, a wrong guess
+  // was refused by name. Neither advances `updatedAt`, so the guesses could run
+  // as long as they liked. Private tags and links had the same shape.
+  const unchangedFields: ProfileEditableField[] = [];
 
   if (hasOwn(input, "displayName")) {
     const displayName = requireBoundedText(
@@ -243,7 +260,7 @@ export function sanitizeApiProfileUpdateInput(
   }
 
   if (hasOwn(input, "aliases") && matchesStoredList(input.aliases, profile.aliases)) {
-    unchangedGroups += 1;
+    unchangedFields.push("aliases");
   } else if (hasOwn(input, "aliases")) {
     patch.aliases = sanitizeProfileTextList(input.aliases, "Aliases", {
       maxItems: PROFILE_ALIAS_MAX_COUNT,
@@ -253,7 +270,7 @@ export function sanitizeApiProfileUpdateInput(
   }
 
   if (hasOwn(input, "tags") && matchesStoredList(input.tags, profile.tags)) {
-    unchangedGroups += 1;
+    unchangedFields.push("tags");
   } else if (hasOwn(input, "tags")) {
     patch.tags = sanitizeProfileTextList(input.tags, "Tags", {
       maxItems: PROFILE_TAG_MAX_COUNT,
@@ -283,7 +300,7 @@ export function sanitizeApiProfileUpdateInput(
   }
 
   if (hasOwn(input, "outboundLinks") && matchesStoredLinks(input.outboundLinks, profile.outboundLinks)) {
-    unchangedGroups += 1;
+    unchangedFields.push("outboundLinks");
   } else if (hasOwn(input, "outboundLinks")) {
     // Stamped from the subject rather than assumed: `requireEditableFields`
     // below decides whether this writer may touch the field at all, and calling
@@ -369,7 +386,13 @@ export function sanitizeApiProfileUpdateInput(
       changed = true;
     }
 
-    if (hasOwn(input.person, "roleTags")) {
+    // Grandfathered the same way the top-level lists are: the editor rebuilds and
+    // posts this array on every save, so a profile whose stored roles already
+    // exceed a cap could not save a bio, headline or pronoun correction either.
+    if (
+      hasOwn(input.person, "roleTags") &&
+      !matchesStoredList(input.person.roleTags, profile.person.roleTags)
+    ) {
       person.roleTags = sanitizeProfileTextList(input.person.roleTags, "Role tags", {
         maxItems: PROFILE_TAG_MAX_COUNT,
         maxLength: PROFILE_TAG_MAX_LENGTH,
@@ -380,6 +403,11 @@ export function sanitizeApiProfileUpdateInput(
     if (changed) {
       patch.person = person;
       addChangedField(changedFields, "person");
+    } else {
+      // Submitted and identical. Recorded so the permission check still sees it:
+      // without this, private role tags are guessable the same way private
+      // aliases were, by reading success or refusal off the reply.
+      unchangedFields.push("person");
     }
   }
 
@@ -407,7 +435,10 @@ export function sanitizeApiProfileUpdateInput(
       changed = true;
     }
 
-    if (hasOwn(input.community, "categoryTags")) {
+    if (
+      hasOwn(input.community, "categoryTags") &&
+      !matchesStoredList(input.community.categoryTags, profile.community.categoryTags)
+    ) {
       community.categoryTags = sanitizeProfileTextList(input.community.categoryTags, "Category tags", {
         maxItems: PROFILE_TAG_MAX_COUNT,
         maxLength: PROFILE_TAG_MAX_LENGTH,
@@ -418,17 +449,20 @@ export function sanitizeApiProfileUpdateInput(
     if (changed) {
       patch.community = community;
       addChangedField(changedFields, "community");
+    } else {
+      unchangedFields.push("community");
     }
   }
 
-  if (changedFields.length === 0 && unchangedGroups === 0) {
+  if (changedFields.length === 0 && unchangedFields.length === 0) {
     throw profileInputError("At least one editable profile field is required.");
   }
 
-  // Permission is checked on everything submitted, before the diff. A writer
-  // sending a field they may not touch is refused whether or not the value
-  // happens to match.
-  requireEditableFields(profile, changedFields, subject);
+  // Permission is checked on everything submitted, including the groups that
+  // matched what is stored. A writer sending a field they may not touch is
+  // refused whether or not the value happens to match -- otherwise the reply
+  // tells them whether their guess was right, and their guess was at the value.
+  requireEditableFields(profile, [...changedFields, ...unchangedFields], subject);
 
   return { changedFields: changedFields.filter((field) => fieldChanged(profile, field, patch)), patch };
 }
