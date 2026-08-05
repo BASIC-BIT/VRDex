@@ -464,8 +464,48 @@ describe("private seed projection", () => {
         "reviewed_publication_allowed",
         "approved",
         false,
+        "unclaimed",
       ),
       true,
+    );
+  });
+
+  it("stops covering a published candidate once its profile is claimed", () => {
+    // The candidate's own claimState goes stale: claim flows patch the profile
+    // and never revisit the candidate row, so reading it alone would keep
+    // handing someone's imported private fields to a beta grant after they took
+    // ownership -- the moment those fields stop being the directory's to show.
+    const published = {
+      claimState: "unclaimed" as const,
+      profileType: "person" as const,
+      publicationState: "published_unclaimed" as const,
+      reviewState: "accepted" as const,
+    };
+
+    for (const liveClaimState of ["claimed_unverified", "claimed_verified"] as const) {
+      assert.equal(
+        canIncludePrivateSeedCandidate(
+          published as never,
+          "reviewed_publication_allowed",
+          "approved",
+          false,
+          liveClaimState,
+        ),
+        false,
+        liveClaimState,
+      );
+    }
+
+    // Unknown counts as claimed: a profile that could not be loaded is not
+    // evidence that nobody owns it.
+    assert.equal(
+      canIncludePrivateSeedCandidate(
+        published as never,
+        "reviewed_publication_allowed",
+        "approved",
+        false,
+      ),
+      false,
     );
   });
 

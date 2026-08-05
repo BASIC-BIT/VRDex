@@ -48,5 +48,16 @@ describe("VRCDN stream links", () => {
     assert.equal(parseVrcdnStreamLinks("https://panel.vrcdn.live/dashboard"), null);
     assert.equal(parseVrcdnStreamLinks("https://panel.vrcdn.live/"), null);
     assert.equal(parseVrcdnStreamLinks("https://panel.vrcdn.live/preview/"), null);
+
+    // The reserved names the root host rejects, reachable through the preview
+    // path too: without the same check, /preview/dashboard canonicalizes to
+    // vrcdn.live/dashboard and a product page ships as somebody's stream link.
+    for (const reserved of ["dashboard", "login", "panel", "status", "wiki", "api"]) {
+      assert.equal(
+        parseVrcdnStreamLinks(`https://panel.vrcdn.live/preview/${reserved}`),
+        null,
+        reserved,
+      );
+    }
   });
 });

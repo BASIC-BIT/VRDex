@@ -66,25 +66,33 @@ export const lookupPeople = query({
         query.search("proposedDisplayName", searchTerm).eq("profileType", "person"),
       )
       .take(limit * 3);
+    // The published profile is loaded here, not just for its slug below: the
+    // candidate's own `claimState` goes stale, because claim flows patch the
+    // profile and never revisit the candidate row.
     const candidatesWithBatches = await Promise.all(
       matches.map(async (candidate) => ({
         batch: await ctx.db.get(candidate.batchId),
         candidate,
+        publishedProfile:
+          candidate.publishedProfileId === undefined
+            ? null
+            : await ctx.db.get(candidate.publishedProfileId),
       })),
     );
     const candidates = candidatesWithBatches
-      .filter(({ batch, candidate }) =>
+      .filter(({ batch, candidate, publishedProfile }) =>
         canIncludePrivateSeedCandidate(
           candidate,
           batch?.publicationPolicy,
           batch?.reviewState,
           access.superAdmin,
+          publishedProfile?.claimState,
         ),
       )
       .slice(0, limit);
 
     return await Promise.all(
-      candidates.map(async ({ batch, candidate }) => {
+      candidates.map(async ({ batch, candidate, publishedProfile }) => {
         const fields = await ctx.db
           .query("seedImportCandidateFields")
           .withIndex("by_candidateId", (query) =>
@@ -116,10 +124,7 @@ export const lookupPeople = query({
                 },
           // Where to go next once a candidate has published. Without it the
           // lookup names a person it can no longer take you to.
-          publishedProfileSlug:
-            candidate.publishedProfileId === undefined
-              ? undefined
-              : (await ctx.db.get(candidate.publishedProfileId))?.slug,
+          publishedProfileSlug: publishedProfile?.slug,
           fields: projectedFields,
         };
       }),

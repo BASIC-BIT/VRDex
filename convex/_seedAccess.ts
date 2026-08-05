@@ -50,6 +50,17 @@ export function canIncludePrivateSeedCandidate(
   publicationPolicy: Doc<"seedImportBatches">["publicationPolicy"] | undefined,
   batchReviewState: Doc<"seedImportBatches">["reviewState"] | undefined,
   superAdmin: boolean,
+  /**
+   * The live claim state of the profile this candidate published to, when it
+   * published to one.
+   *
+   * The candidate's own `claimState` goes stale: claim flows patch
+   * `profiles.claimState` and never revisit the candidate row, so a person who
+   * claimed their profile is still `unclaimed` here. Reading that alone would
+   * keep handing their imported private fields to a beta grant after they took
+   * ownership -- the moment those fields stop being the directory's to show.
+   */
+  publishedProfileClaimState?: Doc<"profiles">["claimState"],
 ): boolean {
   if (candidate.profileType !== "person") {
     return false;
@@ -60,6 +71,15 @@ export function canIncludePrivateSeedCandidate(
   }
 
   if (!OPERATOR_LOOKUP_PUBLICATION_STATES.has(candidate.publicationState)) {
+    return false;
+  }
+
+  // Unknown counts as claimed. A published candidate whose profile could not be
+  // loaded is not evidence that nobody owns it.
+  if (
+    candidate.publicationState === "published_unclaimed" &&
+    publishedProfileClaimState !== "unclaimed"
+  ) {
     return false;
   }
 

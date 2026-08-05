@@ -53,7 +53,19 @@ function getVrcdnPreviewStreamId(url: URL): string | null {
 
   const segments = cleanPathSegments(url.pathname);
 
-  return segments[0]?.toLowerCase() === "preview" ? toVrcdnStreamId(segments[1]) : null;
+  if (segments[0]?.toLowerCase() !== "preview") {
+    return null;
+  }
+
+  const streamId = toVrcdnStreamId(segments[1]);
+
+  // The same reserved names the root host rejects. Without this,
+  // `/preview/dashboard` canonicalizes to `vrcdn.live/dashboard` and a product
+  // page ships as somebody's stream link -- through the very check that keeps
+  // `vrcdn.live/dashboard` from being one when typed directly.
+  return streamId !== null && !vrcdnReservedPagePaths.has(streamId.toLowerCase())
+    ? streamId
+    : null;
 }
 
 function cleanPathSegments(pathname: string): string[] {

@@ -472,7 +472,10 @@ across import policies.
 
 `seedAccess:lookupPeople` covers every publication state for a super-admin, and
 `draft_private`, `review_pending` and `published_unclaimed` for the narrower
-grant. Publishing used to move a candidate out of the lookup entirely, so the
+grant — and for a published candidate it reads the *live profile's* claim state
+rather than the candidate's own. Claim flows patch `profiles.claimState` and
+never revisit the candidate row, so the candidate still reads `unclaimed` long
+after someone took ownership; a profile that cannot be loaded counts as claimed. Publishing used to move a candidate out of the lookup entirely, so the
 operator surface covered exactly the records that had not shipped yet — a
 published candidate's batch is necessarily relaxed past `private_only`, so the
 policy check does not apply to it either. `rejected` and `suppressed` stay
