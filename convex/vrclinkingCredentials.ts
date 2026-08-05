@@ -853,25 +853,25 @@ export const sweepAbandonedDelegationKeys = internalAction({
       return { swept: 0, configured: false };
     }
 
-    const obligations = (await ctx.runMutation(
-      internal.vrclinkingCredentials.claimOverdueSecretCleanups,
-      {},
-    )) as { credentialId: string; secretName: string }[];
-
-    if (obligations.length === 0) {
-      return { swept: 0, configured: true };
-    }
-
+    // A trigger, not a payload. Claiming here and posting the names meant the
+    // route deleted whatever the body said, so the bearer alone was authority to
+    // schedule `DeleteSecret` on any delegated-credential name a caller could
+    // spell. The route claims them itself now, through the admin credential it
+    // already needs to confirm them — this only decides when.
     const response = await boundedFetch(requireSecureOutboundUrl(url, "cleanup_url"), {
       method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-      body: JSON.stringify({ obligations }),
+      headers: { authorization: `Bearer ${token}` },
     });
+
+    const retired: unknown =
+      response.ok && typeof response.body === "object" && response.body !== null
+        ? (response.body as { retired?: unknown }).retired
+        : undefined;
 
     // Left for the next run rather than reported: a sweep has no caller waiting
     // on it, and the rows stay unretired, which is the durable retry handle this
     // exists to preserve.
-    return { swept: response.ok ? obligations.length : 0, configured: true };
+    return { swept: typeof retired === "number" ? retired : 0, configured: true };
   },
 });
 
