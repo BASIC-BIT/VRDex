@@ -183,8 +183,33 @@ test("fixture-backed handoff coverage runs in the flow lane and stays out of pro
   assert.equal(fixtureTags.length, 7);
   assert.equal(flowTags.length, 7);
   assert.match(workflow, /playwright test --grep @flow --project=desktop-chromium/);
-  assert.match(webPackage.scripts?.["test:e2e:hosted"] ?? "", /--grep @flow/);
-  assert.match(webPackage.scripts?.["test:e2e:hosted"] ?? "", /--grep-invert @fixture/);
+  const hostedScript = webPackage.scripts?.["test:e2e:hosted"] ?? "";
+  assert.match(hostedScript, /--grep @flow/);
+
+  // Reads the excluded tags rather than matching the flag literally. The list is
+  // an alternation now, so a substring match would have to be loose enough to
+  // pass on `--grep-invert "@somethingelse|@fixtureish"` — this asserts
+  // `@fixture` is genuinely one of the excluded tags, which is the invariant.
+  const hostedExclusions = (hostedScript.match(/--grep-invert\s+"?([^"\s]+)"?/)?.[1] ?? "").split(
+    "|",
+  );
+  assert.ok(
+    hostedExclusions.includes("@fixture"),
+    `test:e2e:hosted must exclude @fixture, excludes: ${hostedExclusions.join("|")}`,
+  );
+
+  // `@account-visual` is excluded here because it has its own command, and that
+  // command must run both projects — the whole reason it was split out. Excluding
+  // it without the replacement would silently drop the suite from CI entirely.
+  assert.ok(
+    hostedExclusions.includes("@account-visual"),
+    `test:e2e:hosted must exclude @account-visual, excludes: ${hostedExclusions.join("|")}`,
+  );
+  assert.equal(
+    webPackage.scripts?.["test:e2e:hosted:account-visual"],
+    "playwright test account-surfaces.visual.spec.ts --project=desktop-chromium --project=mobile-chromium",
+  );
+  assert.match(workflow, /run: pnpm test:e2e:hosted:account-visual/);
   const productionSmokeScript =
     webPackage.scripts?.["test:e2e:hosted:smoke"] ?? "";
   assert.equal(

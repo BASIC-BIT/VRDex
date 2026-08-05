@@ -261,10 +261,22 @@ export async function hostedHelperLagReason(
  * guard reads that claim, so a user created any other way fails claiming with
  * `EMAIL_NOT_VERIFIED` rather than anything that names the real cause.
  */
-export async function createClerkTestAccount(runSuffix: string): Promise<ClerkTestAccount> {
+export async function createClerkTestAccount(
+  runSuffix: string,
+  options?: { onEmailReserved?: (email: string) => void },
+): Promise<ClerkTestAccount> {
   await ensureClerkSetup();
 
   const email = clerkTestEmail(runSuffix);
+
+  // Handed to the caller *before* the request, because the failure this covers
+  // is one where the account exists and this function still throws: Clerk can
+  // commit the POST and the connection reset or time out before the response
+  // arrives. There is then a real user with no id here to delete it by. The
+  // email is deterministic and known already, so it is the one recovery handle
+  // that survives — see `deleteClerkTestAccountByEmail`.
+  options?.onEmailReserved?.(email);
+
   const response = await clerkBackendRequest("/v1/users", {
     method: "POST",
     body: JSON.stringify({
@@ -321,8 +333,21 @@ async function requireClerkOnTarget(page: Page) {
  * until a signed-in page has rendered. Every `/api/e2e/auth` helper resolves the
  * account by email against that row, so returning before `/account` shows the
  * identity would make the next helper call fail with "E2E user not found."
+ *
+ * `onAuthenticated` fires the moment `clerk.signIn()` resolves, which is the
+ * first instant a Convex row can exist — before that point nothing has been
+ * provisioned and nothing can be. A teardown that has to decide whether an
+ * absent row means "cleaned up" or "never created" cannot tell from the cleanup
+ * response alone; this is the signal that separates them. Everything before the
+ * call can fail (`requireClerkOnTarget` in particular, which is a network wait
+ * against the target), and those failures leave a Clerk user with no Convex
+ * counterpart at all.
  */
-export async function signInClerkTestAccount(page: Page, account: ClerkTestAccount) {
+export async function signInClerkTestAccount(
+  page: Page,
+  account: ClerkTestAccount,
+  options?: { onAuthenticated?: () => void },
+) {
   await ensureClerkSetup();
   await setupClerkTestingToken({ page });
 
@@ -331,6 +356,8 @@ export async function signInClerkTestAccount(page: Page, account: ClerkTestAccou
   await gotoFlowPage(page, "/");
   await requireClerkOnTarget(page);
   await clerk.signIn({ page, emailAddress: account.email });
+
+  options?.onAuthenticated?.();
 
   await gotoFlowPage(page, "/account");
   await expect(page.getByRole("heading", { name: account.email })).toBeVisible(hostedExpectOptions);
@@ -351,11 +378,28 @@ export async function deleteClerkTestAccount(account: ClerkTestAccount | undefin
   }
 
   try {
-    await clerkBackendRequest(`/v1/users/${encodeURIComponent(account.clerkUserId)}`, {
+    // Returned, not discarded. `clerkBackendRequest` hands back the response
+    // whatever the status, so a 429 or 5xx from Clerk left the user in the tenant
+    // while this reported nothing at all. Callers that care can assert; the
+    // existing ones ignore it and behave as before.
+    //
+    // 404 counts as success: the user being absent is the state this is trying to
+    // reach, and a retry should not fail because the first attempt worked.
+    const response = await clerkBackendRequest(`/v1/users/${encodeURIComponent(account.clerkUserId)}`, {
       method: "DELETE",
     });
+
+    if (!response.ok && response.status !== 404) {
+      console.warn(`Clerk refused to delete test user ${account.clerkUserId}: ${response.status}`);
+    }
+
+    return response;
   } catch (error) {
+    // Still never throws: this runs from `finally` blocks, where masking the
+    // assertion failure that got us here would be worse than leaking one
+    // disposable account.
     console.warn(`Failed to delete Clerk test user ${account.clerkUserId}:`, error);
+    return undefined;
   }
 }
 
@@ -363,14 +407,102 @@ export async function deleteClerkTestAccount(account: ClerkTestAccount | undefin
 export async function cleanupClerkTestAccountData(
   request: APIRequestContext,
   e2eToken: string,
-  account: ClerkTestAccount | undefined,
+  // Only the email, because that is all the route resolves by — and it lets a
+  // teardown recovering from a lost creation response call this with the
+  // reserved email alone, having never received a `clerkUserId`.
+  account: Pick<ClerkTestAccount, "email"> | undefined,
 ) {
   if (!account) {
     return;
   }
 
-  await request.delete("/api/e2e/auth", {
+  // Returned rather than discarded. `request.delete` resolves for any status, so
+  // a 403 or 400 looks identical to success at the call site — and the route
+  // requires four deployment-side settings (`VRDEX_ENABLE_E2E_HELPERS`,
+  // `VRDEX_ENABLE_E2E_AUTH_HELPERS`, `VRDEX_E2E_BROWSER_TOKEN`,
+  // `VRDEX_E2E_CONVEX_SECRET`) that no runner-side flag can vouch for. A caller
+  // that goes on to delete the Clerk identity after a failed cleanup leaves a
+  // `users` row nothing can reach.
+  //
+  // Existing callers ignore the return value, which keeps their behaviour
+  // unchanged; callers that care can assert on it.
+  return await request.delete("/api/e2e/auth", {
     headers: { "x-vrdex-e2e-token": e2eToken },
     data: { email: account.email },
   });
+}
+
+/**
+ * Deletes any Clerk user holding this email, for when no user id was ever
+ * returned.
+ *
+ * `createClerkTestAccount` throws if the creation response never arrives, but
+ * Clerk may well have committed the user — so a plain retry leaves one
+ * disposable account behind per attempt, with nothing holding its id. The email
+ * is reserved before the request precisely so this can find it.
+ *
+ * Three fields, because "the lookup ran" and "nothing is left" are different
+ * claims and only the second is what a teardown needs:
+ *
+ * - `checked` — the lookup itself completed, so the other two mean something.
+ * - `deleted` — users removed. `0` alongside `checked` is the ordinary answer
+ *   when the creation request never landed, and is not a failure.
+ * - `failed` — users found and *not* removed, because Clerk answered 429 or 5xx.
+ *   Non-zero means a disposable account survives, whatever the other two say.
+ *
+ * Never throws, for the same reason `deleteClerkTestAccount` does not: this runs
+ * from teardown, where masking the failure that got us there would be worse than
+ * leaking one account.
+ */
+export async function deleteClerkTestAccountByEmail(email: string | undefined) {
+  if (!email || !secretKey()) {
+    return { deleted: 0, failed: 0, checked: false };
+  }
+
+  try {
+    const found = await clerkBackendRequest(
+      `/v1/users?email_address=${encodeURIComponent(email)}`,
+      { method: "GET" },
+    );
+
+    if (!found.ok) {
+      console.warn(`Clerk lookup for ${email} failed: ${found.status}`);
+      return { deleted: 0, failed: 0, checked: false };
+    }
+
+    // Clerk returns a bare array here, not a paginated envelope.
+    const users = (await found.json()) as Array<{ id?: unknown }>;
+    let deleted = 0;
+    let failed = 0;
+
+    for (const user of Array.isArray(users) ? users : []) {
+      // Counted as a failure rather than skipped. A row with no usable id is a
+      // user this found and cannot remove, which is the same outcome for the
+      // tenant as a refused delete.
+      if (typeof user.id !== "string" || user.id === "") {
+        failed += 1;
+        continue;
+      }
+
+      const response = await clerkBackendRequest(`/v1/users/${encodeURIComponent(user.id)}`, {
+        method: "DELETE",
+      });
+
+      // 404 counts as deleted: the goal is the user being absent.
+      if (response.ok || response.status === 404) {
+        deleted += 1;
+      } else {
+        // A 429 or 5xx here leaves a real disposable account behind. Warning and
+        // reporting success would let the teardown pass over exactly the leak it
+        // exists to prevent.
+        failed += 1;
+        console.warn(`Clerk refused to delete recovered user ${user.id}: ${response.status}`);
+      }
+    }
+
+    return { deleted, failed, checked: true };
+  } catch (error) {
+    console.warn(`Failed to recover Clerk test user for ${email}:`, error);
+    return { deleted: 0, failed: 0, checked: false };
+  }
 }
