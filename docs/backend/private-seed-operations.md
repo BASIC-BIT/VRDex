@@ -362,13 +362,16 @@ pnpm ops:seed-publish -- `
 - Claimed profiles are left alone and reported as `profile_claimed`.
   Re-deriving one would overwrite whatever its owner has edited since with the
   seed snapshot.
-- A batch revoked to `private_only`, or moved out of `approved`, re-derives
-  nothing and reports `batch_not_authorized`. Re-derivation republishes seed data
-  onto a live profile, so it answers to the same kill switch publishing does --
-  and that switch has two levers, so honouring only the policy would let a
-  rejected or superseded batch replay values after review had been withdrawn.
-  Candidate rows are still updated: setting visibility before authorizing a
-  batch is preparation.
+- A batch revoked to `private_only`, moved out of `approved`, or carrying no
+  recorded authorization re-derives nothing and reports `batch_not_authorized`.
+  Re-derivation republishes seed data onto a live profile, so it answers to every
+  lever publishing answers to, not a subset — the same
+  `hasPublicationAuthorization` check both publish gates use. Honouring only
+  policy and review state would let a legacy or fixture batch carrying
+  `reviewed_publication_allowed` by accident replay values that the publish gate
+  refuses with `publication_not_authorized`. Record permission with
+  `setBatchPublicationPolicy` first. Candidate rows are still updated: setting
+  visibility before authorizing a batch is preparation.
 
 ## Suppression Requests
 
@@ -485,6 +488,16 @@ published candidate's batch is necessarily relaxed past `private_only`, so the
 policy check does not apply to it either. `rejected` and `suppressed` stay
 super-admin-only: both record a decision to stop handling that person.
 
+Each search reads until it has collected `limit` rows the viewer may see, rather
+than taking a window sized to the answer and filtering it afterwards. Eligibility
+depends on the candidate's batch and on the live profile it published to, neither
+of which the search index can filter on, so a fixed window held however many
+eligible rows happened to fall inside it — for a common name whose leading
+matches all belonged to a rejected batch, none, and the surface reported "no
+records" for somebody the lane holds one for. `LOOKUP_SCAN_LIMIT` caps the walk
+at 300 rows per state so a three-character query against a large withdrawn batch
+does not read the whole batch.
+
 `seedAccess:withheldProfileRecord` answers the profile-level question — what a
 profile holds that its public page does not show, plus its edit history. It is
 read-only, and it returns `null` rather than throwing for everyone else, because
@@ -493,14 +506,21 @@ for this person?" stops being a question that needs a deploy key, which cannot b
 scoped read-only and can therefore also deploy code.
 
 It answers by slug, so who may call it is scoped deliberately: the profile's own
-owner, any super-admin, and a `view_private_seed_lookup` holder only for
-unclaimed, publicly surfaced profiles whose `creationSource` is `import` — the
-same records the seed lookup already shows them. Without those conditions the
-beta grant could read hidden fields and edit history for any profile whose slug
+owner, any super-admin, and a `view_private_seed_lookup` holder only for profiles
+whose `creationSource` is `import` — and then only when the import record behind
+the profile is one the name lookup would still return. Without that the beta
+grant could read hidden fields and edit history for any profile whose slug
 someone guessed, because a direct Convex call is not bounded by the public page
-this renders on. The surfacing check is the profile-level equivalent of the
-lookup keeping `rejected` and `suppressed` candidates to super-admins: a profile
-withdrawn by moderation or opted out was withdrawn on purpose.
+this renders on.
+
+The two surfaces run the same predicate over the same rows rather than each
+judging what it happens to hold. This query is handed a slug, so it walks
+`seedImportCandidateProfiles.by_publishedProfileId` back to the candidate and its
+batch before deciding. Half the rule lives on the batch — policy revoked to
+`private_only`, review withdrawn to `rejected` or `superseded`, the candidate no
+longer accepted — and none of those touch the published profile, so a check
+reading only the profile kept answering long after the lookup had stopped. A
+profile with no candidate behind it has nothing to check against and is refused.
 
 ```powershell
 pnpm cx -- prod run accountFeatureGrants:grant `
@@ -545,6 +565,15 @@ details only after verified email. The
 result is a private `claimed_unverified` profile with owner authority. Accepted
 fields become `owner_confirmed`; deselected fields are not copied and are
 removed from a reused concierge profile.
+
+The preview shows links through the same normalizer the accept writes them with,
+so what the recipient confirms is what gets stored. The two used to disagree: the
+preview listed the raw seed value while the write canonicalized it, so a link
+whose host no longer matched its provider vanished between confirming and saving,
+and a VRCDN operator panel preview URL was shown to the person being handed the
+profile rather than the public `vrcdn.live` page it resolves to. A link field
+where nothing survives normalization is withheld from the preview entirely rather
+than offered as an empty list somebody would confirm.
 
 ## Outreach Copy
 

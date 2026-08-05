@@ -12,6 +12,7 @@ import {
   canBulkApproveSeedImportBatch,
   getSeedImportPublicationBlockers,
   getSeedImportPublishBlockers,
+  hasPublicationAuthorization,
   normalizeSeedImportFixture,
   type SeedImportFixture,
 } from "../../convex/_seedImports";
@@ -366,6 +367,45 @@ describe("seed import review and publication guards", () => {
     });
 
     assert.deepEqual(blockers, ["publication_not_authorized"]);
+  });
+
+  // The predicate itself, because three gates ask it -- queue, publish, and the
+  // `--set-visibility --rederive-values` migration -- and the third was written
+  // with its own weaker copy that read policy and review state alone. A fixture
+  // batch carrying the relaxed policy by accident could replay seed values onto
+  // live profiles the publish gate would have refused.
+  it("recognizes authorization only from a live authorizing entry", () => {
+    assert.equal(hasPublicationAuthorization({}), false);
+    assert.equal(hasPublicationAuthorization({ publicationAuthorizations: [] }), false);
+    assert.equal(
+      hasPublicationAuthorization({
+        publicationAuthorizations: [
+          { policy: "private_only" as const, reason: "Revoked.", authorizedAt: 1_788_220_800_000 },
+        ],
+      }),
+      false,
+    );
+    assert.equal(
+      hasPublicationAuthorization({
+        publicationAuthorizations: [
+          { policy: "private_only" as const, reason: "Revoked.", authorizedAt: 1_788_220_800_000 },
+          {
+            policy: "reviewed_publication_allowed" as const,
+            reason: "Source re-confirmed permission.",
+            authorizedAt: 1_788_307_200_000,
+          },
+        ],
+      }),
+      true,
+    );
+    // Written before revocations were recorded, so an entry with no policy is an
+    // authorization by the only thing the list held then.
+    assert.equal(
+      hasPublicationAuthorization({
+        publicationAuthorizations: [{ reason: "Legacy grant.", authorizedAt: 1_788_220_800_000 }],
+      }),
+      true,
+    );
   });
 
   it("blocks a cross-type match at the queue gate", () => {

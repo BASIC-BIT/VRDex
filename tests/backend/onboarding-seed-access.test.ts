@@ -828,4 +828,37 @@ describe("seed handoff helpers", () => {
       { label: "VRChat", url: "https://vrchat.com/home/user/usr_example" },
     ]);
   });
+
+  // What the owner confirms has to be what the accept writes. The preview showed
+  // the raw seed value while the write normalized it, so a link whose host no
+  // longer matched its provider vanished between the two, and an operator panel
+  // preview URL was shown to the person being handed the profile.
+  it("previews handoff links as the accept will store them", () => {
+    const preview = projectHandoffPreviewField(
+      seedField({
+        fieldKey: "outboundLinks",
+        value: [
+          { type: "vrcdn", label: "Stream", url: "https://panel.vrcdn.live/preview/example" },
+          { type: "twitch", label: "Twitch", url: "https://not-twitch.invalid/example" },
+        ],
+      }),
+    );
+
+    assert.equal(preview?.kind, "link");
+    assert.equal(preview && "url" in preview ? preview.url : undefined, "https://vrcdn.live/example");
+  });
+
+  it("withholds a handoff link field when nothing survives normalization", () => {
+    // Offering "0 prepared links" would invite the owner to confirm a write that
+    // stores nothing, and mark the field owner-confirmed on the way through.
+    assert.equal(
+      projectHandoffPreviewField(
+        seedField({
+          fieldKey: "outboundLinks",
+          value: [{ type: "twitch", label: "Twitch", url: "https://not-twitch.invalid/example" }],
+        }),
+      ),
+      null,
+    );
+  });
 });

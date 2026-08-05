@@ -98,8 +98,25 @@ export function projectHandoffPreviewField(
     const normalized = normalizeSafePrivateSeedFieldValue(field.fieldKey, field.value);
 
     if (field.fieldKey === "outboundLinks") {
-      const links = normalized as Array<{ label: string; url: string }>;
-      const previewLinks = links.map(({ label, url }) => ({ label, url }));
+      // Through the sanitizer the write uses, not the raw seed value. The two
+      // disagree: normalization drops a link whose host no longer matches its
+      // provider and rewrites a VRCDN operator panel URL to the public page. A
+      // preview built from the raw list showed the owner links that the accept
+      // would then discard, so they confirmed one profile and got another --
+      // and showed them an operator preview URL that is not theirs to be handed.
+      //
+      // Provenance does not affect which links survive, so the stamp passed
+      // here is immaterial; the accept path decides the stored one from the
+      // batch's source type.
+      const previewLinks = sanitizeProfileLinksLeniently(normalized, "partner_provided").links.map(
+        (link) => ({ label: link.label, url: link.url }),
+      );
+      // Nothing survived, so there is no field to offer. Listing it as "0
+      // prepared links" would invite the owner to confirm an empty write.
+      if (previewLinks.length === 0) {
+        return null;
+      }
+
       const singleLink = previewLinks.length === 1 ? previewLinks[0] : undefined;
 
       return {

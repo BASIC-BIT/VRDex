@@ -1,3 +1,4 @@
+import { GenericDatabaseReader } from "convex/server";
 import { v } from "convex/values";
 
 import {
@@ -5,13 +6,13 @@ import {
   requirePrivateSeedLookupAccess,
 } from "./_accountFeatures";
 import { activeBrowserSessionOrNull } from "./_browserSessionAuthority";
+import { DataModel, Doc } from "./_generated/dataModel";
 import { query } from "./_generated/server";
 import { userOwnsProfile } from "./_profileOwnership";
 import { canReadProfile } from "./_profilePermissions";
 import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 import {
   canIncludePrivateSeedCandidate,
-  isOperatorVisiblePublishedProfile,
   OPERATOR_LOOKUP_PUBLICATION_STATES,
   projectSafePrivateSeedField,
   withheldProfileFields,
@@ -42,6 +43,80 @@ export const viewerAccess = query({
   },
 });
 
+/**
+ * How far a single search will read looking for rows the viewer may see.
+ *
+ * A ceiling on work, not on results: the walk stops as soon as `limit` eligible
+ * rows are found, and only a search whose matches are mostly ineligible reaches
+ * this. Without it a three-character query against a large rejected batch would
+ * read the whole batch.
+ */
+const LOOKUP_SCAN_LIMIT = 300;
+
+/**
+ * Read a search until `limit` rows the viewer may see are collected.
+ *
+ * Not a fixed window that is filtered afterwards. Eligibility depends on the
+ * candidate's batch and on the live profile it published to, neither of which
+ * the search index can filter on, so a window sized to the answer holds however
+ * many eligible rows happen to fall inside it. For a common name whose first
+ * matches all belong to a rejected batch, that was none -- the surface reported
+ * "no matches" for a person it holds records for, which is the failure this
+ * lookup exists to prevent.
+ */
+async function takeEligibleCandidates(
+  ctx: { db: GenericDatabaseReader<DataModel> },
+  searchTerm: string,
+  // Absent for a super-admin, who sees every state and so searches unfiltered.
+  publicationState: (typeof OPERATOR_LOOKUP_PUBLICATION_STATES)[number] | undefined,
+  limit: number,
+  superAdmin: boolean,
+) {
+  const eligible = [];
+  let scanned = 0;
+
+  for await (const candidate of ctx.db
+    .query("seedImportCandidateProfiles")
+    .withSearchIndex("search_proposedDisplayName", (query) => {
+      const named = query.search("proposedDisplayName", searchTerm).eq("profileType", "person");
+
+      return publicationState === undefined ? named : named.eq("publicationState", publicationState);
+    })) {
+    if (scanned >= LOOKUP_SCAN_LIMIT) {
+      break;
+    }
+
+    scanned += 1;
+    // The published profile is loaded here, not just for its slug on the way
+    // out: the candidate's own `claimState` goes stale, because claim flows
+    // patch the profile and never revisit the candidate row.
+    const [batch, publishedProfile] = await Promise.all([
+      ctx.db.get(candidate.batchId),
+      candidate.publishedProfileId === undefined
+        ? Promise.resolve(null)
+        : ctx.db.get(candidate.publishedProfileId),
+    ]);
+
+    if (
+      canIncludePrivateSeedCandidate(
+        candidate,
+        batch?.publicationPolicy,
+        batch?.reviewState,
+        superAdmin,
+        publishedProfile,
+      )
+    ) {
+      eligible.push({ batch, candidate, publishedProfile });
+
+      if (eligible.length >= limit) {
+        break;
+      }
+    }
+  }
+
+  return eligible;
+}
+
 export const lookupPeople = query({
   args: {
     query: v.string(),
@@ -64,52 +139,17 @@ export const lookupPeople = query({
     //
     // A super-admin sees every state, so a single unfiltered search cannot
     // starve them.
-    const matches = access.superAdmin
-      ? await ctx.db
-          .query("seedImportCandidateProfiles")
-          .withSearchIndex("search_proposedDisplayName", (query) =>
-            query.search("proposedDisplayName", searchTerm).eq("profileType", "person"),
-          )
-          .take(limit * 3)
-      : (
-          await Promise.all(
-            OPERATOR_LOOKUP_PUBLICATION_STATES.map(async (publicationState) =>
-              ctx.db
-                .query("seedImportCandidateProfiles")
-                .withSearchIndex("search_proposedDisplayName", (query) =>
-                  query
-                    .search("proposedDisplayName", searchTerm)
-                    .eq("profileType", "person")
-                    .eq("publicationState", publicationState),
-                )
-                .take(limit * 2),
-            ),
-          )
-        ).flat();
-    // The published profile is loaded here, not just for its slug below: the
-    // candidate's own `claimState` goes stale, because claim flows patch the
-    // profile and never revisit the candidate row.
-    const candidatesWithBatches = await Promise.all(
-      matches.map(async (candidate) => ({
-        batch: await ctx.db.get(candidate.batchId),
-        candidate,
-        publishedProfile:
-          candidate.publishedProfileId === undefined
-            ? null
-            : await ctx.db.get(candidate.publishedProfileId),
-      })),
-    );
-    const candidates = candidatesWithBatches
-      .filter(({ batch, candidate, publishedProfile }) =>
-        canIncludePrivateSeedCandidate(
-          candidate,
-          batch?.publicationPolicy,
-          batch?.reviewState,
-          access.superAdmin,
-          publishedProfile,
-        ),
-      )
-      .slice(0, limit);
+    const candidates = (
+      access.superAdmin
+        ? await takeEligibleCandidates(ctx, searchTerm, undefined, limit, true)
+        : (
+            await Promise.all(
+              OPERATOR_LOOKUP_PUBLICATION_STATES.map((publicationState) =>
+                takeEligibleCandidates(ctx, searchTerm, publicationState, limit, false),
+              ),
+            )
+          ).flat()
+    ).slice(0, limit);
 
     return await Promise.all(
       candidates.map(async ({ batch, candidate, publishedProfile }) => {
@@ -153,6 +193,40 @@ export const lookupPeople = query({
 });
 
 const PROFILE_HISTORY_LIMIT = 20;
+
+/**
+ * Whether the import record behind a live profile is still one the narrower
+ * grant may see, judged by the rule the name lookup uses.
+ *
+ * Runs the profile back to its candidate rather than judging the profile alone,
+ * because half the rule lives on the batch: policy revoked to `private_only`,
+ * review withdrawn to `rejected` or `superseded`, the candidate itself no longer
+ * accepted. None of those touch the published profile, so a surface reading only
+ * the profile keeps answering long after the lookup has stopped.
+ */
+async function publishedSeedCandidateIsVisible(
+  ctx: { db: GenericDatabaseReader<DataModel> },
+  profile: Doc<"profiles">,
+): Promise<boolean> {
+  const candidate = await ctx.db
+    .query("seedImportCandidateProfiles")
+    .withIndex("by_publishedProfileId", (query) => query.eq("publishedProfileId", profile._id))
+    .first();
+
+  if (candidate === null) {
+    return false;
+  }
+
+  const batch = await ctx.db.get(candidate.batchId);
+
+  return canIncludePrivateSeedCandidate(
+    candidate,
+    batch?.publicationPolicy,
+    batch?.reviewState,
+    false,
+    profile,
+  );
+}
 
 /**
  * What a profile holds that its public page does not show, plus its history.
@@ -204,21 +278,29 @@ export const withheldProfileRecord = query({
     ]);
 
     // `view_private_seed_lookup` is scoped to the private seed lane, and this
-    // query answers by slug -- so without the second condition the beta grant
-    // would read hidden fields and edit history for any profile whose slug
-    // someone guessed, claimed ones included. A direct Convex call is not
-    // bounded by the public page this renders on.
+    // query answers by slug -- so without this the beta grant would read hidden
+    // fields and edit history for any profile whose slug someone guessed,
+    // claimed ones included. A direct Convex call is not bounded by the public
+    // page this renders on.
     //
-    // The narrower grant sees what the seed lookup already shows it: import
-    // records that are still the directory's to show. One shared predicate with
-    // `lookupPeople`, because narrowing it in one surface and not the other is
-    // how this repeatedly came apart.
+    // The narrower grant sees exactly what the name lookup shows it, decided by
+    // the same predicate over the same rows: the candidate the profile was
+    // published from, and that candidate's batch. Checking only the live profile
+    // was still the surface reasoning it apart -- a batch rejected or superseded
+    // after publication vanishes from `lookupPeople` while the profile stays
+    // public, and by-slug reads went on answering. No candidate means nothing to
+    // check it against, which fails closed.
     //
-    // Super-admins and the profile's own owner are unrestricted.
+    // Super-admins and the profile's own owner are unrestricted, so this whole
+    // lookup is skipped for them.
     const withinSeedGrant =
-      profile.creationSource === "import" && isOperatorVisiblePublishedProfile(profile);
+      !owns &&
+      !access.superAdmin &&
+      access.canViewPrivateSeedLookup &&
+      profile.creationSource === "import" &&
+      (await publishedSeedCandidateIsVisible(ctx, profile));
 
-    if (!owns && !access.superAdmin && !(access.canViewPrivateSeedLookup && withinSeedGrant)) {
+    if (!owns && !access.superAdmin && !withinSeedGrant) {
       return null;
     }
 
