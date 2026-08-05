@@ -196,14 +196,27 @@ Vercel one, and prints none of them — neither provider receives it as a proces
 argument, since argv is readable by any other process on the box. It then
 redeploys, because a Vercel environment change reaches future deployments only:
 without that, Convex starts posting a bearer the running function has never seen
-and the sweep answers 401 daily with nothing surfacing it. Rerunning rotates the token, and rotating is
-safe in either order: a mismatched pair fails closed, costing one sweep. The
-route also fails closed on an unset token rather than reading "none configured"
-as "none required".
+and the sweep answers 401 daily with nothing surfacing it. Rerunning rotates the
+token, and a mismatched pair fails closed, costing one sweep. Two read-only
+Vercel calls run before Convex is touched, because no ordering makes the
+rotation atomic — whichever provider moves first is the one left disagreeing —
+so the causes that would strand it half-applied (no login, no project link, a
+mistyped deployment URL) fail while nothing has changed. The route also fails
+closed on an unset token rather than reading "none configured" as "none
+required".
 
 Provisioned by script rather than by hand because the failure is invisible: a
 deployment can enable the delegation form, run the cron daily, and have it report
 `configured: false` forever while keys accumulate.
+
+One credential the bootstrap does not set: `CONVEX_ADMIN_TOKEN` — or
+`CONVEX_DEPLOY_KEY`, which the same lookup accepts — has to already be in the web
+runtime. There is no session in this flow, so it is the only way the route can
+record what it retired, and the route proves it works before deleting anything
+rather than after. A deployment without it answers 503 every run while the cron
+posts successfully and the obligations queue behind it, which is the same
+invisible failure one step further along. Production and staging already carry
+it; a new deployment needs it before the sweep does anything.
 
 A cancelled reservation is deliberately *not* retirable while it is younger than
 the reservation TTL. Deleting a key that does not exist yet succeeds, so a revoke

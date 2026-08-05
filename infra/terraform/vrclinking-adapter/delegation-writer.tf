@@ -58,6 +58,25 @@ variable "staging_custom_environment_ids" {
 
   type    = set(string)
   default = []
+
+  # `runtime_environments` defaults to production *and* staging, so the empty
+  # opt-in in `environments/production.tfvars` trusts staging in the role while
+  # this list decides whether staging is ever told the role and region. An apply
+  # that forgets `TF_VAR_staging_custom_environment_ids` therefore reaches a
+  # half-enabled state — staging trusted by IAM, staging carrying neither
+  # variable, and the stack removing any copies that were already there — which
+  # reaches a community owner as the delegation form deciding it is unavailable.
+  # Refused here for the same reason `delegation_writer_kms_key_id` refuses its
+  # own half: the requirement was documented and unenforced, and the failure is
+  # silent.
+  validation {
+    condition = (
+      var.vercel_delegation_writer == null ||
+      !contains(tolist(var.vercel_delegation_writer.runtime_environments), "staging") ||
+      length(var.staging_custom_environment_ids) > 0
+    )
+    error_message = "staging is in vercel_delegation_writer.runtime_environments, so staging_custom_environment_ids must name the custom environment that receives the role ARN and region: export TF_VAR_staging_custom_environment_ids, or drop \"staging\" from runtime_environments."
+  }
 }
 
 variable "delegation_writer_kms_key_id" {
