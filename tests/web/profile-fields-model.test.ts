@@ -330,6 +330,48 @@ describe("profile fields payload", () => {
     ]);
   });
 
+  it("keeps an edited row where the form is still showing it", () => {
+    // Position and content are separate questions, and tying them together made
+    // editing a row move it: the changed row looked like a newly added one and
+    // went to the end. Correcting the first URL of two must not reorder them.
+    const stored = [
+      { type: "soundcloud", url: "https://soundcloud.com/old" },
+      { type: "bandcamp", url: "https://snekwtf.bandcamp.com" },
+    ] as const;
+    const { rows } = partitionLinks([...stored], true);
+    const payload = profileFieldsPayload(
+      formData(
+        [
+          ["displayName", "Snek"],
+          ...rows.flatMap((link, index) => [
+            ["linkType", link.type],
+            // The first row's URL was edited; the second is untouched.
+            ["linkUrl", index === 0 ? "https://soundcloud.com/new" : link.url],
+            ["linkOriginalUrl", link.url],
+            ["linkOriginalType", link.type],
+            ["linkOriginalIndex", String(link.originalIndex)],
+            ["linkLabel", "Old set archive"],
+            ["linkHandle", "old"],
+            ["linkPresentation", ""],
+          ] as Array<[string, string]>),
+        ],
+        ["outboundLinks"],
+      ),
+      "person",
+    );
+
+    assert.deepEqual(payload.outboundLinks, [
+      // Still first, and stripped of metadata that described the old URL.
+      { type: "soundcloud", url: "https://soundcloud.com/new" },
+      {
+        type: "bandcamp",
+        url: "https://snekwtf.bandcamp.com",
+        label: "Old set archive",
+        handle: "old",
+      },
+    ]);
+  });
+
   it("keeps a new row aligned with its own blank metadata", () => {
     // Every row emits all its hidden fields, so a blank one added above a
     // populated one cannot shift the pairing and hand its label to a neighbour.

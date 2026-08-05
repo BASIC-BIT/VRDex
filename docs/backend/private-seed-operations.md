@@ -216,7 +216,10 @@ Publish behavior worth knowing:
   provenance for an operator import; `creationSource: "import"` records the real
   origin.
 - A batch with no explicit `publicationPolicy` fails closed and is treated as
-  `private_only`. Legacy batches need step 1 before they can publish.
+  `private_only`. Legacy batches need step 1 before they can publish. The seed
+  lookup applies the same default rather than comparing the stored literal, so a
+  legacy batch imported before the column was backfilled still shows its accepted
+  rows to a `view_private_seed_lookup` holder instead of only to super-admins.
 - A relaxed policy alone is not authorization. Both gates also require a non-empty
   `publicationAuthorizations` history and report `publication_not_authorized`
   otherwise, so a legacy or fixture batch that already carries
@@ -563,6 +566,15 @@ Sharing the predicate makes the grant person-only here too, because
 `lookupPeople` is person-only and the shared rule carries that. An imported
 community profile is outside what this grant was issued for; its owner and any
 super-admin still read the record.
+
+What counts as withheld is "the page does not render it", not "it is not
+public". `about`, `genres` and `timezone` reach the profile row and no public
+surface shows them — the same three the publication gate refuses to count as
+visible content — so they appear in the panel whatever their visibility says.
+Reading `public` as though it meant *shown* made those values invisible from
+both directions at once: held back from this panel for being public, and absent
+from the page for never having been rendered, which left a deploy key as the
+only way to read them. That is precisely what this panel exists to replace.
 
 ```powershell
 pnpm cx -- prod run accountFeatureGrants:grant `

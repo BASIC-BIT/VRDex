@@ -575,6 +575,30 @@ describe("private seed projection", () => {
       );
     }
   });
+
+  // A legacy batch imported before the policy column was backfilled carries no
+  // policy at all. Both publish gates and the runbook read that as private_only;
+  // comparing the literal here instead hid every accepted row of such a batch
+  // from the narrower grant while super-admins went on seeing them.
+  it("reads a missing policy as private-only, the way the gates do", () => {
+    for (const publicationState of ["draft_private", "review_pending"] as const) {
+      assert.equal(
+        canIncludePrivateSeedCandidate(
+          {
+            claimState: "unclaimed",
+            profileType: "person",
+            publicationState,
+            reviewState: "accepted",
+          } as never,
+          undefined,
+          "approved",
+          false,
+        ),
+        true,
+        publicationState,
+      );
+    }
+  });
 });
 
 describe("withheld profile fields", () => {
@@ -616,6 +640,43 @@ describe("withheld profile fields", () => {
       ["personRoleTags"],
     );
     assert.deepEqual(withheldProfileFields({ ...profile, fieldVisibility: {} } as never), []);
+  });
+
+  // "Does not render" is the question, not "is not public". These three reach the
+  // profile row and no public surface shows them -- the same three the publication
+  // gate refuses to count as visible content. Filtering on visibility alone made
+  // them invisible from both directions at once: withheld from this panel for
+  // being public, absent from the page for never having been rendered, and
+  // unreadable without a deploy key, which is what this panel replaced.
+  it("reports fields nothing renders even when they are public", () => {
+    const withheld = withheldProfileFields({
+      ...profile,
+      about: "Long-form profile text",
+      timezone: "Europe/Berlin",
+      genres: [{ slug: "house", displayName: "House", source: "import", explicit: false }],
+      fieldVisibility: {},
+    } as never);
+
+    // Ordered by PROFILE_FIELD_VISIBILITY_KEYS, which is the record's order
+    // rather than an alphabetical one.
+    assert.deepEqual(
+      withheld.map((field) => [field.key, field.visibility, field.values]),
+      [
+        ["genres", "public", ["House"]],
+        ["about", "public", ["Long-form profile text"]],
+        ["timezone", "public", ["Europe/Berlin"]],
+      ],
+    );
+
+    // A public field the page does render stays out of the panel.
+    assert.deepEqual(
+      withheldProfileFields({
+        ...profile,
+        region: "Berlin",
+        fieldVisibility: {},
+      } as never),
+      [],
+    );
   });
 });
 

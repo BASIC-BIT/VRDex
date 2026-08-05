@@ -237,11 +237,15 @@ function linksFromFormData(formData: FormData): ProfileLinkInput[] {
       stringField(originals[index] ?? null).trim() === url &&
       stringField(originalTypes[index] ?? null) === link.type;
 
+    // Position is a separate question from content, and tying them together made
+    // editing a row move it: correcting the first URL of [SoundCloud, Bandcamp]
+    // sent that row to the end, because a changed row was treated as a newly
+    // added one. A row the editor is still showing first is still first.
     const rowIndex = Number.parseInt(stringField(rowIndexes[index] ?? null), 10);
 
     return [
       {
-        originalIndex: unchanged && Number.isInteger(rowIndex) ? rowIndex : -1,
+        originalIndex: Number.isInteger(rowIndex) ? rowIndex : -1,
         link: withLinkMetadata(link, unchanged
           ? {
               label: stringField(labels[index] ?? null),
@@ -272,7 +276,12 @@ function linksFromFormData(formData: FormData): ProfileLinkInput[] {
         // at the front, rewriting `outboundLinks` on a save that changed
         // nothing and recording "outboundLinks updated" for a reordering the
         // editor did to itself.
-        originalIndex: unchanged && Number.isInteger(originalIndex) ? originalIndex : -1,
+        //
+        // Kept even when the URL changed, same as the rows: pasting a different
+        // stream into this field is editing the link that was in it, not adding
+        // one somewhere else. Only the metadata below is dropped, because that
+        // described the old destination.
+        originalIndex: Number.isInteger(originalIndex) ? originalIndex : -1,
         link: withLinkMetadata({ type, url }, unchanged
           ? {
               label: stringField(formData.get(`${type}Label`)),

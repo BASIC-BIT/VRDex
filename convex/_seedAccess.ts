@@ -131,10 +131,16 @@ export function canIncludePrivateSeedCandidate(
   // still allow publication; revocation withdraws it here the same way it
   // withdraws the right to publish more. Super-admins still see it, because
   // "why is this person gone?" is exactly what they are there to answer.
+  // Both sides default a missing policy to `private_only`, matching the publish
+  // gates and the runbook. Reading the unpublished side as a literal comparison
+  // hid every accepted row of a legacy batch whose policy was never backfilled:
+  // gone for the narrower grant, still there for a super-admin, with nothing
+  // saying why.
+  const policy = publicationPolicy ?? "private_only";
   const policyAllows =
     candidate.publicationState === "published_unclaimed"
-      ? (publicationPolicy ?? "private_only") === "reviewed_publication_allowed"
-      : publicationPolicy === "private_only";
+      ? policy === "reviewed_publication_allowed"
+      : policy === "private_only";
 
   return (
     policyAllows &&
@@ -209,18 +215,39 @@ function profileFieldValues(
 }
 
 /**
+ * Field keys the record holds and no public surface renders, whatever their
+ * visibility says.
+ *
+ * The same three the publication gate refuses to count as visible content, for
+ * the same reason: they reach the profile row and nothing on the page shows
+ * them. `public` is a permission, not a rendering — reading it as one made these
+ * invisible from both directions at once, withheld from the panel for being
+ * public and absent from the page for never having been rendered.
+ */
+const UNRENDERED_PROFILE_FIELD_KEYS = new Set<ProfileFieldVisibilityKey>([
+  "about",
+  "genres",
+  "timezone",
+]);
+
+/**
  * The fields a profile holds that the public page does not render.
  *
  * Only fields that both carry a value and are held back, so the result is the
  * gap itself rather than the whole record with the visible parts repeated.
  * `unlisted` is included: it renders on the profile page but not in discovery,
  * and an operator asking why someone is unsearchable needs to see that.
+ *
+ * "Does not render" is the question, not "is not public". A field can be public
+ * and still be shown nowhere, and those are exactly the values an owner or
+ * operator had no way to read short of a deploy key -- which is the thing this
+ * panel exists to replace.
  */
 export function withheldProfileFields(profile: Doc<"profiles">): OperatorProfileField[] {
   return PROFILE_FIELD_VISIBILITY_KEYS.flatMap((key) => {
     const visibility = getProfileFieldVisibility(profile, key);
 
-    if (visibility === "public") {
+    if (visibility === "public" && !UNRENDERED_PROFILE_FIELD_KEYS.has(key)) {
       return [];
     }
 
