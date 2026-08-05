@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useState, useTransition } from "react";
+import { FormEvent, useState, useTransition, type ReactNode } from "react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { api } from "@convex-generated-api";
 
@@ -65,7 +65,7 @@ function editErrorMessage(error: unknown): string {
   return "Saving failed. Please try again once the backend is reachable.";
 }
 
-function EditPanel({ children, title }: { children: React.ReactNode; title: string }) {
+function EditPanel({ children, title }: { children: ReactNode; title: string }) {
   return (
     <div className="border-t border-border py-6">
       <h2 className="text-lg font-semibold">{title}</h2>
@@ -178,9 +178,11 @@ export function ProfileEditForm({ profilePath, slug }: { profilePath: string; sl
   const { isAuthenticated, isLoading } = useConvexAuth();
 
   if (!convexUrl) {
-    return <EditPanel title="Profile editing is unavailable">
-      <p className="text-sm text-muted">Try again later.</p>
-    </EditPanel>;
+    return (
+      <EditPanel title="Profile editing is unavailable">
+        <p className="text-sm text-muted">Try again later.</p>
+      </EditPanel>
+    );
   }
 
   if (isLoading) {

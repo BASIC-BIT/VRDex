@@ -86,9 +86,14 @@ export function ProfilePrivateRecord({
         ) : null}
       </div>
 
-      <p className="mt-2 text-sm text-muted">
-        {record.claimState} / {record.publicationState} / {record.publicSurfacingState}
-      </p>
+      {/* Operators only. These are the stored state values, which is what an
+          operator is here to read; to an owner they are jargon about their own
+          profile that names nothing they can act on. */}
+      {isOwner ? null : (
+        <p className="mt-2 text-sm text-muted">
+          {record.claimState} / {record.publicationState} / {record.publicSurfacingState}
+        </p>
+      )}
 
       {record.withheldFields.length > 0 ? (
         <div className="mt-5">
