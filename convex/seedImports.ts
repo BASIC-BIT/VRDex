@@ -4,6 +4,7 @@ import { internal } from "./_generated/api";
 import { activeBrowserSessionSubjectOrNull } from "./_browserSessionAuthority";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "./_generated/server";
+import { canReadProfile } from "./_profilePermissions";
 import { createProfileSortName } from "./_profileSubmissions";
 import { createProfileSearchDocument, upsertSearchDocument, vocabularyForProfile } from "./_searchDocuments";
 import { buildConciergeProfileFieldPatch, isLiveHandoffInvitation } from "./_seedHandoffs";
@@ -85,7 +86,11 @@ async function reindexProfileVocabularyDelta(
   profile: Doc<"profiles">,
   now: number,
 ): Promise<void> {
-  const after = vocabularyForProfile(profile);
+  // Empty for a profile the public cannot read. `vocabularyForProfile` honours
+  // per-field visibility but knows nothing about surfacing state, so re-deriving
+  // an opted-out or suppressed profile would otherwise push its tags into the
+  // discovery term list while its own search document stayed hidden.
+  const after = canReadProfile("public", profile) ? vocabularyForProfile(profile) : [];
   const beforeKeys = vocabularyKeys(before);
   const afterKeys = vocabularyKeys(after);
   const key = (candidate: VocabularyCandidates[number]) =>
@@ -1670,8 +1675,19 @@ export const bulkSetFieldVisibility = internalMutation({
         continue;
       }
 
+      // Scoped to `fieldKeys` when one was given. `--field-keys outboundLinks`
+      // says which fields this run is about, and feeding the builder every
+      // accepted field would replay the whole import snapshot -- overwriting
+      // live aliases, tags and roles nobody asked to touch. Narrowing the input
+      // narrows both halves: `person` rebuilds from the profile's own value with
+      // only the selected seed field applied, so a run targeting role tags
+      // leaves pronouns alone.
       const acceptedFields = fields
-        .filter((field) => field.reviewState === "accepted")
+        .filter(
+          (field) =>
+            field.reviewState === "accepted" &&
+            (fieldKeys === undefined || fieldKeys.has(field.fieldKey)),
+        )
         .map((field) =>
           targets.some((target) => target._id === field._id)
             ? { ...field, visibility: args.visibility }

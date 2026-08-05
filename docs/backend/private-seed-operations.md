@@ -338,7 +338,12 @@ pnpm ops:seed-publish -- `
 
 - Without `--apply` it is a dry run: the same counts, nothing written. This
   changes what the public sees on live profiles, so the dry run is the default.
-- `--field-keys` is optional; omitting it targets every accepted field.
+- `--field-keys` is optional; omitting it targets every accepted field. It scopes
+  the whole run, not just the visibility change: with `--rederive-values`, only
+  the named fields are replayed, so a run repairing links cannot overwrite live
+  aliases, tags or roles nobody asked to touch. `person.roleTags` alone rebuilds
+  `person` from the profile's own value with just the role tags applied, leaving
+  pronouns as they are.
 - **Visibility only by default.** Published profiles are community-editable, so
   replaying the seed values would silently undo every correction made since
   publication -- links fixed, tags added, a name spelled right -- while reporting

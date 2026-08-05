@@ -587,7 +587,12 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
             {/* Provenance describes the record, not the person. Sitting above
                 the display name it read as a label on them; here it is one of
                 the facts about how this listing came to exist, as plain text
-                with the date on its own line. */}
+                with the date on its own line.
+                A published import carries no `sourceAttribution` -- deliberately,
+                since "Community submitted" would be false provenance for an
+                operator import -- so it needs its own line rather than none.
+                Every unclaimed listing says so, which is what the repo means by
+                labelling an unclaimed profile as unverified. */}
             {profile.source ? (
               <p className="text-right text-sm text-muted">
                 {profile.source.label}
@@ -595,6 +600,8 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
                   <span className="block">{formatSubmittedDate(profile.source.submittedAt)}</span>
                 ) : null}
               </p>
+            ) : profile.trustLabel === "unclaimed" ? (
+              <p className="text-right text-sm text-muted">Unclaimed</p>
             ) : null}
 
             {canClaim ? (

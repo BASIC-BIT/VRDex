@@ -553,13 +553,21 @@ export async function reindexProfileSearchDocument(
   // Deduplicated by scoped key before recording, same as the world path: two
   // candidates can share one key, the document stores it once, and recording
   // both would increment twice against a single later release.
+  //
+  // Nothing is recorded for a profile the public cannot read. `vocabularyForProfile`
+  // honours per-field visibility but knows nothing about surfacing state, so an
+  // opted-out or suppressed profile would otherwise push its tags into the
+  // discovery term list while its own search document stayed hidden -- a term
+  // offered to everyone, sourced from a record withdrawn from everyone.
   const addedCandidates = new Map<string, VocabularyCandidate>();
 
-  for (const candidate of vocabularyForProfile(profile)) {
-    const scopedKey = `${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`;
+  if (canReadProfile("public", profile)) {
+    for (const candidate of vocabularyForProfile(profile)) {
+      const scopedKey = `${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`;
 
-    if (!beforeKeys.has(scopedKey) && !addedCandidates.has(scopedKey)) {
-      addedCandidates.set(scopedKey, candidate);
+      if (!beforeKeys.has(scopedKey) && !addedCandidates.has(scopedKey)) {
+        addedCandidates.set(scopedKey, candidate);
+      }
     }
   }
 
