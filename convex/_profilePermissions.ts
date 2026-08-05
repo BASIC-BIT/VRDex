@@ -78,24 +78,32 @@ const VISIBILITY_KEYS_BY_FIELD: Record<ProfileEditableField, ProfileFieldVisibil
 };
 
 /**
- * Fields the public page renders only in the header's metadata line.
+ * Visibility keys the page shows only while no headline takes their row.
  *
- * `ProfilePublicPage` builds that line from pronouns or subtype, region, and
- * then the "focus items" -- role tags, category tags and free tags -- but it
+ * `ProfilePublicPage` builds one metadata line from pronouns or subtype, region,
+ * and then the "focus items" -- role tags, category tags and free tags -- and
  * drops the focus items when the profile has a headline, because the headline is
  * already carrying that row. There is no second place they render.
+ *
+ * Keys rather than fields, because `person` and `community` each group one focus
+ * key with one that is not: pronouns and subtype keep their place in that row
+ * whatever the headline does.
  */
-const HEADER_ONLY_FIELDS: readonly ProfileEditableField[] = ["tags", "person", "community"];
+const HEADER_ONLY_KEYS = new Set<ProfileFieldVisibilityKey>([
+  "tags",
+  "personRoleTags",
+  "communityCategoryTags",
+]);
 
 /**
- * Fields the profile page never renders, whatever else is on it.
+ * Visibility keys the profile page never renders, whatever else is on it.
  *
  * `timezone` reaches the record and no part of the page shows it. The public
  * lookup does, so it is readable while it is `public` -- and unreadable the
  * moment it is `unlisted`, because that is precisely the state discovery
  * excludes and the page was never going to cover.
  */
-const PAGE_INVISIBLE_FIELDS: readonly ProfileEditableField[] = ["timezone"];
+const PAGE_INVISIBLE_KEYS = new Set<ProfileFieldVisibilityKey>(["timezone"]);
 
 /**
  * Whether a field is held back from the contributor on this profile.
@@ -122,19 +130,20 @@ function isFieldWithheldFromCommunity(
   profile: Pick<Doc<"profiles">, "fieldVisibility"> & Partial<Pick<Doc<"profiles">, "headline">>,
   field: ProfileEditableField,
 ): boolean {
-  const hidesFocusItems =
-    typeof profile.headline === "string" &&
-    profile.headline.trim().length > 0 &&
-    HEADER_ONLY_FIELDS.includes(field);
-  const pageNeverRenders = PAGE_INVISIBLE_FIELDS.includes(field);
+  const headlineTakesFocusRow = (profile.headline ?? "").trim().length > 0;
 
   return VISIBILITY_KEYS_BY_FIELD[field].some((key) => {
     const visibility = getProfileFieldVisibility(profile, key);
 
-    return (
-      visibility === "private" ||
-      ((hidesFocusItems || pageNeverRenders) && visibility === "unlisted")
-    );
+    // Per key, not per field. `person` covers pronouns *and* role tags, and only
+    // the role tags are focus content -- the page keeps rendering pronouns in the
+    // metadata row when a headline is there. Asking the question of the whole
+    // group withheld the entire form group over an unlisted pronoun that is on
+    // the page, which is the opposite of what this rule is for.
+    const pageShowsKey =
+      !PAGE_INVISIBLE_KEYS.has(key) && !(headlineTakesFocusRow && HEADER_ONLY_KEYS.has(key));
+
+    return visibility === "private" || (!pageShowsKey && visibility === "unlisted");
   });
 }
 

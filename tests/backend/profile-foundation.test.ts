@@ -346,6 +346,40 @@ describe("profile permission helpers", () => {
     assert.equal(canEditProfileField("community_submitter", withHeadline, "bio"), true);
   });
 
+  // `person` groups pronouns with role tags and only the role tags are focus
+  // content: the page keeps rendering pronouns in the metadata row whatever the
+  // headline does. Asking the question of the whole group withheld the entire
+  // form group over an unlisted pronoun that is on the page.
+  it("hides a grouped field only for the keys a headline displaces", () => {
+    const withHeadline = { ...publishedUnclaimedPerson, headline: "Resident DJ at Afterglow" };
+
+    assert.equal(
+      canEditProfileField(
+        "community_submitter",
+        { ...withHeadline, fieldVisibility: { personPronouns: "unlisted" } },
+        "person",
+      ),
+      true,
+    );
+    assert.equal(
+      canEditProfileField(
+        "community_submitter",
+        { ...withHeadline, fieldVisibility: { personRoleTags: "unlisted" } },
+        "person",
+      ),
+      false,
+    );
+    // A private pronoun is still withheld: private is nowhere regardless.
+    assert.equal(
+      canEditProfileField(
+        "community_submitter",
+        { ...withHeadline, fieldVisibility: { personPronouns: "private" } },
+        "person",
+      ),
+      false,
+    );
+  });
+
   // The *profile page* never renders `timezone`; the public lookup does, at
   // `public` visibility, beside the region. So it is readable while public and
   // unreadable once unlisted, unlisted being exactly the state discovery excludes
