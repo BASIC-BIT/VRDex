@@ -1569,15 +1569,21 @@ export const bulkSetFieldVisibility = internalMutation({
       throw new Error("Pass at least one field key, or omit fieldKeys to change every accepted field.");
     }
 
-    if (args.cursor === undefined && !dryRun) {
+    // Re-deriving a live profile republishes seed data onto it, so it answers to
+    // the same kill switch publishing does. Revoking a batch to `private_only`
+    // has to stop that, not just stop new publications. Candidate rows are still
+    // updated -- setting visibility before authorizing a batch is preparation,
+    // and publication is gated separately.
+    const canRederive =
+      (batch.publicationPolicy ?? "private_only") === "reviewed_publication_allowed";
+    const note = `Field visibility set to ${args.visibility} by ${reviewer.displayName ?? reviewer.subject}: ${reason}`;
+
+    // Skipped when the note is already the last line. A cursor-less retry after a
+    // lost response would otherwise append it again, and appendBatchNote trims
+    // oldest-first, so repeats eat the source and review context it exists to keep.
+    if (args.cursor === undefined && !dryRun && !(batch.notes ?? "").endsWith(note)) {
       await ctx.db.patch(batch._id, {
-        ...optionalValue(
-          "notes",
-          appendBatchNote(
-            batch.notes,
-            `Field visibility set to ${args.visibility} by ${reviewer.displayName ?? reviewer.subject}: ${reason}`,
-          ),
-        ),
+        ...optionalValue("notes", appendBatchNote(batch.notes, note)),
         updatedAt: now,
       });
     }
@@ -1610,6 +1616,14 @@ export const bulkSetFieldVisibility = internalMutation({
       }
 
       if (candidate.publishedProfileId === undefined) {
+        continue;
+      }
+
+      if (!canRederive) {
+        skipped.push({
+          externalCandidateId: candidate.externalCandidateId,
+          reason: "batch_not_authorized",
+        });
         continue;
       }
 

@@ -9,8 +9,16 @@ import {
   PROFILE_LINK_MAX_COUNT,
   PROFILE_LINK_TYPE_LABELS,
   PROFILE_LINK_TYPES,
-  type ProfileLinkType,
 } from "../../../../../convex/_profileLinks";
+import {
+  isStreamingRole,
+  partitionLinks,
+  PERSON_ROLE_OPTIONS,
+  PRESET_ROLES,
+  type ProfileFieldsDefaults,
+  type ProfileFieldsType,
+  type ProfileLinkInput,
+} from "./profile-fields-model";
 
 /**
  * The fields a person or community profile carries, shared by the submit form
@@ -20,176 +28,10 @@ import {
  * fix what submission collected: a role vocabulary or link shape that differed
  * between them would mean the same profile could be described one way when
  * created and another way when corrected.
- */
-
-export type ProfileFieldsType = "person" | "community";
-
-export type ProfileLinkInput = {
-  type: ProfileLinkType;
-  url: string;
-};
-
-export type ProfileFieldsDefaults = {
-  displayName?: string;
-  aliases?: string[];
-  tags?: string[];
-  roleTags?: string[];
-  subtype?: string;
-  categoryTags?: string[];
-  links?: ProfileLinkInput[];
-};
-
-export type ProfileFieldsPayload =
-  | {
-      profileType: "person";
-      displayName: string;
-      aliases: string[];
-      tags: string[];
-      outboundLinks: ProfileLinkInput[];
-      person: { roleTags: string[] };
-    }
-  | {
-      profileType: "community";
-      displayName: string;
-      aliases: string[];
-      tags: string[];
-      outboundLinks: ProfileLinkInput[];
-      community: { subtype: string; categoryTags: string[] };
-    };
-
-/**
- * Roles offered as checkboxes.
  *
- * A shortcut, not a restriction: anything outside the list still goes in the
- * freeform field beside it. Ordered by how common they are in the directory
- * rather than alphabetically, so the two that unlock stream links come first.
+ * The form-to-payload half lives in `profile-fields-model.ts` so it is reachable
+ * from a plain test.
  */
-export const PERSON_ROLE_OPTIONS = [
-  "DJ",
-  "VJ",
-  "Producer",
-  "Host",
-  "Dancer",
-  "Photographer",
-  "Organizer",
-] as const;
-
-/**
- * Roles that stream, and therefore have a VRCDN or Twitch destination worth
- * asking for directly instead of leaving buried in a generic link list.
- */
-const STREAMING_ROLES = new Set<string>(["DJ", "VJ"]);
-
-const PRESET_ROLES = new Set<string>(PERSON_ROLE_OPTIONS);
-
-export function isStreamingRole(roles: Iterable<string>): boolean {
-  return [...roles].some((role) => STREAMING_ROLES.has(role));
-}
-
-function stringField(value: FormDataEntryValue | null): string {
-  return typeof value === "string" ? value : "";
-}
-
-function splitList(value: FormDataEntryValue | null): string[] {
-  return stringField(value)
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function dedupe(values: string[]): string[] {
-  const seen = new Set<string>();
-
-  return values.filter((value) => {
-    const key = value.toLowerCase();
-
-    if (seen.has(key)) {
-      return false;
-    }
-
-    seen.add(key);
-
-    return true;
-  });
-}
-
-/**
- * The first link of a given type, which is what the dedicated input holds.
- *
- * Any further links of that type stay in the generic rows, so an editor with two
- * Twitch links does not lose one by opening the form.
- */
-function partitionLinks(links: ProfileLinkInput[]) {
-  const featured: Partial<Record<ProfileLinkType, string>> = {};
-  const rows: ProfileLinkInput[] = [];
-
-  for (const link of links) {
-    if ((link.type === "vrcdn" || link.type === "twitch") && featured[link.type] === undefined) {
-      featured[link.type] = link.url;
-      continue;
-    }
-
-    rows.push(link);
-  }
-
-  return { featured, rows };
-}
-
-function linksFromFormData(formData: FormData): ProfileLinkInput[] {
-  const types = formData.getAll("linkType");
-  const urls = formData.getAll("linkUrl");
-  // Rows are uncontrolled, so both lists come back in DOM order and pair by
-  // index. Rows left blank are dropped rather than rejected.
-  const rows = types.flatMap((type, index) => {
-    const url = stringField(urls[index] ?? null).trim();
-
-    return url ? [{ type: stringField(type) as ProfileLinkType, url }] : [];
-  });
-  const featured = (["vrcdn", "twitch"] as const).flatMap((type) => {
-    const url = stringField(formData.get(`${type}Url`)).trim();
-
-    return url ? [{ type, url }] : [];
-  });
-
-  return [...featured, ...rows];
-}
-
-export function profileFieldsPayload(
-  formData: FormData,
-  profileType: ProfileFieldsType,
-): ProfileFieldsPayload {
-  const shared = {
-    displayName: stringField(formData.get("displayName")),
-    aliases: splitList(formData.get("aliases")),
-    tags: splitList(formData.get("tags")),
-    outboundLinks: linksFromFormData(formData),
-  };
-
-  if (profileType === "community") {
-    return {
-      ...shared,
-      profileType: "community",
-      community: {
-        subtype: stringField(formData.get("subtype")),
-        categoryTags: splitList(formData.get("categoryTags")),
-      },
-    };
-  }
-
-  return {
-    ...shared,
-    profileType: "person",
-    person: {
-      // Checked boxes first so the common roles keep a stable order, then
-      // whatever the freeform field adds. Deduplicated because someone will
-      // type "DJ" next to the box they already ticked.
-      roleTags: dedupe([
-        ...formData.getAll("roleTag").map((value) => stringField(value)),
-        ...splitList(formData.get("roleTagsOther")),
-      ]),
-    },
-  };
-}
 
 function PersonRoleFields({ defaults }: { defaults: ProfileFieldsDefaults }) {
   const initialRoles = defaults.roleTags ?? [];
@@ -197,7 +39,13 @@ function PersonRoleFields({ defaults }: { defaults: ProfileFieldsDefaults }) {
     initialRoles.filter((role) => PRESET_ROLES.has(role)),
   );
   const otherRoles = initialRoles.filter((role) => !PRESET_ROLES.has(role));
-  const { featured } = partitionLinks(defaults.links ?? []);
+  const { featured } = partitionLinks(defaults.links ?? [], true);
+  // Revealed by a streaming role, and kept open whenever the profile already
+  // holds one of these links. Otherwise a DJ whose role tags never made it into
+  // the record would open the editor to a hidden field and save away the stream
+  // link it was holding -- which is exactly the shape of the 405 seeded
+  // profiles, where the links are present and the roles are not visible.
+  const hasFeaturedLink = featured.vrcdn !== undefined || featured.twitch !== undefined;
 
   function toggleRole(role: string, checked: boolean) {
     setSelectedRoles((roles) => (checked ? [...roles, role] : roles.filter((item) => item !== role)));
@@ -226,7 +74,7 @@ function PersonRoleFields({ defaults }: { defaults: ProfileFieldsDefaults }) {
         </Field>
       </div>
 
-      {isStreamingRole(selectedRoles) ? (
+      {isStreamingRole(selectedRoles) || hasFeaturedLink ? (
         <div className="grid gap-4 sm:grid-cols-2">
           <Field>
             Stream
@@ -262,7 +110,7 @@ export function ProfileFields({
   defaults?: ProfileFieldsDefaults;
   profileType: ProfileFieldsType;
 }) {
-  const { rows } = partitionLinks(defaults.links ?? []);
+  const { rows } = partitionLinks(defaults.links ?? [], profileType === "person");
   // Stable ids rather than indices: the inputs are uncontrolled, so keying by
   // index would shift the surviving rows' DOM values when one is removed.
   const linkRowSeq = useRef(rows.length);

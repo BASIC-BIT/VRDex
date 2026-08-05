@@ -562,7 +562,6 @@ export const updateProfileFromBrowser = mutation({
   args: {
     slug: v.string(),
     ...apiProfileUpdateArgs,
-    assets: v.optional(v.array(profileAssetUploadInput)),
   },
   handler: async (ctx, args) => {
     const { subject, user } = await requireActiveBrowserSessionSubject(ctx);
@@ -604,19 +603,13 @@ export const updateProfileFromBrowser = mutation({
       now,
     });
 
-    if ((args.assets ?? []).length > 0) {
-      await consumeProfileAssetUploads(ctx.db, {
-        profileId: profile._id,
-        requestedBy: subject,
-        uploads: args.assets ?? [],
-        // A profile picture or logo is information about the person, which is
-        // exactly what a third party is positioned to supply, and the most
-        // visible thing missing from a seeded profile. The provenance stamp is
-        // what keeps it honest.
-        source: owns ? "owner_authored" : "community_submitted",
-        now,
-      });
-    }
+    // No media here. `profileAssets:createUploadIntentForOwnedProfile` is the
+    // only browser path to an upload intent and it requires ownership and
+    // refuses unclaimed profiles outright, so a community contributor cannot
+    // obtain one -- accepting an `assets` argument would be a parameter no
+    // caller can satisfy. Letting any signed-in account attach images to
+    // somebody else's profile also needs a moderation answer this change does
+    // not have; the field policy is the part that was ready.
 
     // The durable record of who changed what, and when. A claiming owner
     // inherits a history rather than a mystery, and it is what the operator

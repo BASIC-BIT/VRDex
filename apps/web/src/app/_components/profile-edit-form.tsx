@@ -9,7 +9,8 @@ import { api } from "@convex-generated-api";
 import { buttonVariants, Button } from "@/components/ui/button";
 import { Notice } from "@/components/ui/notice";
 import { cn } from "@/lib/cn";
-import { ProfileFields, profileFieldsPayload } from "./profile-fields";
+import { ProfileFields } from "./profile-fields";
+import { profileFieldsPayload } from "./profile-fields-model";
 
 /**
  * One editor for a profile's owner and for a community contributor.

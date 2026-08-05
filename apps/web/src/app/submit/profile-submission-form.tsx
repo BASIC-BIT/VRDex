@@ -9,11 +9,11 @@ import { buttonVariants, Button } from "@/components/ui/button";
 import { Field, Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { cn } from "@/lib/cn";
+import { ProfileFields } from "../_components/profile-fields";
 import {
-  ProfileFields,
   profileFieldsPayload,
   type ProfileFieldsPayload,
-} from "../_components/profile-fields";
+} from "../_components/profile-fields-model";
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 
