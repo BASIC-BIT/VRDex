@@ -10,6 +10,7 @@ import {
 import {
   canIncludePrivateSeedCandidate,
   projectSafePrivateSeedField,
+  withheldProfileFields,
 } from "../../convex/_seedAccess";
 import {
   buildConciergeProfileFieldPatch,
@@ -229,10 +230,57 @@ describe("permissioned seed import", () => {
 
     // publication_not_authorized too: a private_only batch has no authorization
     // record, and both are required before anything publishes.
+    // no_publicly_visible_field as well: the one accepted field is private, so
+    // publishing would produce a profile with a name and nothing else.
     assert.deepEqual(new Set(blockers), new Set([
       "source_private_only",
       "publication_not_authorized",
+      "no_publicly_visible_field",
     ]));
+  });
+
+  it("passes a batch whose accepted fields would actually be visible", () => {
+    // The complement of the case above. Without this, a visibility gate that
+    // fired on every candidate would look identical to one that works.
+    const blockers = getSeedImportPublicationBlockers({
+      batch: {
+        publicationPolicy: "reviewed_publication_allowed",
+        reviewState: "approved",
+        publicationAuthorizations: [
+          {
+            policy: "reviewed_publication_allowed",
+            reason: "Source permitted publication.",
+            recordedAt: Date.UTC(2026, 6, 16),
+          },
+        ],
+      },
+      candidate: {
+        reviewState: "accepted",
+        publicationState: "review_pending",
+        claimState: "unclaimed",
+        proposedSlug: "example-dj",
+      },
+      fields: [
+        {
+          fieldKey: "aliases",
+          value: ["DJ Example"],
+          confidence: "medium",
+          reviewState: "accepted",
+          visibility: "private",
+        },
+        {
+          fieldKey: "person.roleTags",
+          value: ["DJ"],
+          confidence: "medium",
+          reviewState: "accepted",
+          // unlisted counts as visible: it renders on the profile page and is
+          // only held back from discovery, which is a decision someone made.
+          visibility: "unlisted",
+        },
+      ],
+    });
+
+    assert.deepEqual(blockers, []);
   });
 
   it("rejects future freshness timestamps", () => {
@@ -321,6 +369,97 @@ describe("private seed projection", () => {
       ),
       null,
     );
+  });
+
+  it("keeps covering a candidate after it publishes", () => {
+    // The lookup used to filter to draft_private and review_pending, so 405
+    // people left the operator's own surface at the moment they went live --
+    // it covered exactly the records that had not shipped, and stopped the
+    // instant they had.
+    const published = {
+      claimState: "unclaimed" as const,
+      profileType: "person" as const,
+      publicationState: "published_unclaimed" as const,
+      reviewState: "accepted" as const,
+    };
+
+    // Its batch is necessarily relaxed by then, so requiring private_only would
+    // reintroduce the same hole through the policy check instead.
+    assert.equal(
+      canIncludePrivateSeedCandidate(
+        published as never,
+        "reviewed_publication_allowed",
+        "approved",
+        false,
+      ),
+      true,
+    );
+  });
+
+  it("keeps a narrower grant away from decisions to stop handling someone", () => {
+    for (const publicationState of ["rejected", "suppressed"] as const) {
+      const candidate = {
+        claimState: "unclaimed" as const,
+        profileType: "person" as const,
+        publicationState,
+        reviewState: "accepted" as const,
+      };
+
+      assert.equal(
+        canIncludePrivateSeedCandidate(candidate as never, "private_only", "approved", false),
+        false,
+        publicationState,
+      );
+      // A super-admin still sees them: "why is this person not here?" is the
+      // question the operator surface exists to answer.
+      assert.equal(
+        canIncludePrivateSeedCandidate(candidate as never, "private_only", "approved", true),
+        true,
+        publicationState,
+      );
+    }
+  });
+});
+
+describe("withheld profile fields", () => {
+  const profile = {
+    profileType: "person" as const,
+    slug: "snek",
+    displayName: "Snek",
+    aliases: ["snekwtf"],
+    tags: [],
+    outboundLinks: [
+      { type: "vrcdn", label: "VRCDN", url: "https://vrcdn.live/snekwtf", source: "reviewed" },
+    ],
+    person: { roleTags: ["DJ"] },
+    fieldVisibility: { outboundLinks: "private", personRoleTags: "private", aliases: "unlisted" },
+  };
+
+  it("reports the fields a profile holds but does not show", () => {
+    // The state 405 live profiles were in: everything stored, nothing visible.
+    const withheld = withheldProfileFields(profile as never);
+
+    assert.deepEqual(
+      withheld.map((field) => [field.key, field.visibility, field.values]),
+      [
+        ["aliases", "unlisted", ["snekwtf"]],
+        ["outboundLinks", "private", ["VRCDN: https://vrcdn.live/snekwtf"]],
+        ["personRoleTags", "private", ["DJ"]],
+      ],
+    );
+  });
+
+  it("skips fields that are visible, and fields with nothing in them", () => {
+    // Otherwise the panel reports a hidden field for every empty key on the
+    // record and the real gap is lost in it.
+    assert.deepEqual(
+      withheldProfileFields({
+        ...profile,
+        fieldVisibility: { bio: "private", personRoleTags: "private" },
+      } as never).map((field) => field.key),
+      ["personRoleTags"],
+    );
+    assert.deepEqual(withheldProfileFields({ ...profile, fieldVisibility: {} } as never), []);
   });
 });
 

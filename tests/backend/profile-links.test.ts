@@ -3,7 +3,11 @@ import { describe, it } from "node:test";
 
 import { ConvexError } from "convex/values";
 
-import { sanitizeProfileLinks } from "../../convex/_profileLinks";
+import {
+  PROFILE_LINK_MAX_COUNT,
+  sanitizeProfileLinks,
+  sanitizeProfileLinksLeniently,
+} from "../../convex/_profileLinks";
 import { sanitizeCommunitySubmissionProfileInput } from "../../convex/_profileSubmissions";
 
 /**
@@ -125,5 +129,77 @@ describe("profile link sanitization", () => {
         source: "community_submitted",
       },
     ]);
+  });
+});
+
+describe("lenient profile link sanitization", () => {
+  it("collapses a stream link and its panel preview onto one public link", () => {
+    // The exact pair the NWinn export carried for most DJs. Storing them as
+    // given put VRCDN's operator console on public profiles, and keeping only
+    // the parseable one would have dropped the DJs who had a preview and
+    // nothing else.
+    const result = sanitizeProfileLinksLeniently(
+      [
+        { type: "vrcdn", url: "https://stream.vrcdn.live/live/snekwtf.live.ts" },
+        { type: "vrcdn", url: "https://panel.vrcdn.live/preview/snekwtf" },
+      ],
+      "reviewed",
+    );
+
+    assert.deepEqual(result.links, [
+      {
+        type: "vrcdn",
+        label: "VRCDN",
+        url: "https://vrcdn.live/snekwtf",
+        handle: "snekwtf",
+        source: "reviewed",
+      },
+    ]);
+    assert.equal(result.deduplicatedCount, 1);
+    assert.equal(result.droppedCount, 0);
+  });
+
+  it("keeps the good links when one entry is unusable", () => {
+    // The whole reason this exists beside sanitizeProfileLinks: a publication
+    // has no writer looking at a form, so one bad row must not fail the batch.
+    const result = sanitizeProfileLinksLeniently(
+      [
+        { type: "twitch", url: "https://twitch.tv/snekwtf" },
+        { type: "vrcdn", url: "https://example.invalid/not-a-stream" },
+        { type: "website", url: "not a url at all" },
+      ],
+      "reviewed",
+    );
+
+    assert.deepEqual(
+      result.links.map((link) => link.url),
+      ["https://twitch.tv/snekwtf"],
+    );
+    assert.equal(result.droppedCount, 2);
+  });
+
+  it("counts the overflow past the link cap instead of truncating quietly", () => {
+    const result = sanitizeProfileLinksLeniently(
+      Array.from({ length: PROFILE_LINK_MAX_COUNT + 3 }, (_unused, index) => ({
+        type: "website",
+        url: `https://example.com/${index}`,
+      })),
+      "reviewed",
+    );
+
+    assert.equal(result.links.length, PROFILE_LINK_MAX_COUNT);
+    assert.equal(result.droppedCount, 3);
+  });
+
+  it("still enforces the provider host rule", () => {
+    // Leniency is about not failing a whole batch, not about relaxing what may
+    // be stored: a "Twitch" button pointing elsewhere is the same lie here.
+    const result = sanitizeProfileLinksLeniently(
+      [{ type: "twitch", url: "https://example.com/djceline" }],
+      "reviewed",
+    );
+
+    assert.deepEqual(result.links, []);
+    assert.equal(result.droppedCount, 1);
   });
 });

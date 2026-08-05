@@ -1,4 +1,5 @@
 import type { Doc, Id } from "./_generated/dataModel";
+import { sanitizeProfileLinksLeniently } from "./_profileLinks";
 import { normalizeSafePrivateSeedFieldValue } from "./_seedImports";
 
 type PersonProfile = Extract<Doc<"profiles">, { profileType: "person" }>;
@@ -273,6 +274,20 @@ export type SeedFieldPatchOptions = {
    * selection, so it derives provenance from the batch's source type instead.
    */
   sourceType?: Doc<"seedImportBatches">["sourceType"];
+  /**
+   * Optional accumulator for what link normalization discarded.
+   *
+   * An out-parameter rather than a second return value because every call site
+   * spreads the patch straight into a `db.patch`, and the counts are not profile
+   * fields. Publication previews and the re-derivation migration read it so a
+   * dropped link is reported rather than noticed later on a live profile.
+   */
+  linkStats?: SeedFieldPatchLinkStats;
+};
+
+export type SeedFieldPatchLinkStats = {
+  droppedCount: number;
+  deduplicatedCount: number;
 };
 
 export function buildConciergeProfileFieldPatch(
@@ -376,12 +391,23 @@ export function buildConciergeProfileFieldPatch(
       case "timezone":
         patch[field.fieldKey] = value as string;
         break;
-      case "outboundLinks":
-        patch.outboundLinks = (value as Array<Record<string, unknown>>).map((link) => ({
-          ...(link as Omit<NonNullable<PersonProfile["outboundLinks"]>[number], "source">),
-          source: linkSource,
-        }));
+      case "outboundLinks": {
+        // Through the same normalizer every other writer uses, rather than
+        // copied across as stored. The seed lane validated links as plain URLs,
+        // so it carried whatever the export held -- including VRCDN operator
+        // panel preview URLs, which are not a link to put on a public profile.
+        // Canonicalizing here collapses those onto the public vrcdn.live page
+        // and applies the provider host checks the import never ran.
+        const sanitized = sanitizeProfileLinksLeniently(value, linkSource);
+
+        if (options?.linkStats !== undefined) {
+          options.linkStats.droppedCount += sanitized.droppedCount;
+          options.linkStats.deduplicatedCount += sanitized.deduplicatedCount;
+        }
+
+        patch.outboundLinks = sanitized.links;
         break;
+      }
       case "person.pronouns":
         person = { ...person, pronouns: value as string };
         personChanged = true;

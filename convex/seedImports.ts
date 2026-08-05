@@ -34,6 +34,7 @@ import {
   seedImportBatchReviewStateValidator,
   seedImportCandidateReviewStateValidator,
   seedImportFieldReviewStateValidator,
+  seedImportFieldVisibilityValidator,
   seedImportPublicationPolicyValidator,
 } from "./_seedImportValidators";
 import {
@@ -55,6 +56,47 @@ const PREVIEW_CANDIDATE_READ_CAP = 2_000;
 
 function optionalValue<T>(key: string, value: T | undefined): Record<string, T> {
   return value === undefined ? {} : { [key]: value };
+}
+
+type VocabularyCandidates = ReturnType<typeof vocabularyForProfile>;
+
+function vocabularyKeys(candidates: VocabularyCandidates): Set<string> {
+  return new Set(
+    candidates.map((candidate) => `${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`),
+  );
+}
+
+/**
+ * Reindex a profile whose public fields just changed, both directions.
+ *
+ * `recordVocabularyTerms` only increments, so replaying an unchanged set
+ * inflates counts, and replacing a visible tag would leave the old term's count
+ * inflated forever while the search document correctly drops it.
+ *
+ * `before` is what the profile contributed to vocabulary *while publicly
+ * readable* — pass an empty list for a profile that was not, or its terms get
+ * filtered out of the introduced set and the now-public profile ends up
+ * searchable while its facets never reach `vocabularyTerms`.
+ */
+async function reindexProfileVocabularyDelta(
+  ctx: Pick<MutationCtx, "db">,
+  before: VocabularyCandidates,
+  profile: Doc<"profiles">,
+  now: number,
+): Promise<void> {
+  const after = vocabularyForProfile(profile);
+  const beforeKeys = vocabularyKeys(before);
+  const afterKeys = vocabularyKeys(after);
+  const key = (candidate: VocabularyCandidates[number]) =>
+    `${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`;
+
+  // Colliding labels are deduplicated inside the vocabulary helpers, so both
+  // sides of the delta can stay a plain filter.
+  await Promise.all([
+    upsertSearchDocument(ctx.db, createProfileSearchDocument(profile)),
+    recordVocabularyTerms(ctx.db, after.filter((candidate) => !beforeKeys.has(key(candidate))), now),
+    releaseVocabularyTerms(ctx.db, before.filter((candidate) => !afterKeys.has(key(candidate))), now),
+  ]);
 }
 
 function optionalReviewNote(value: string | undefined): string | undefined {
@@ -1014,11 +1056,6 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
       matchedProfileWasPublic && matchedProfile !== null
         ? vocabularyForProfile(matchedProfile)
         : [];
-    const vocabularyBefore = new Set(
-      vocabularyBeforeCandidates.map(
-        (candidate) => `${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`,
-      ),
-    );
 
     if (matchedProfile !== null) {
       const existingPerson = matchedProfile as Extract<Doc<"profiles">, { profileType: "person" }>;
@@ -1066,32 +1103,7 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
       throw new Error("Unable to load published profile.");
     }
 
-    // Both directions of the delta. recordVocabularyTerms only increments, so
-    // replaying an unchanged set inflates counts, and a merge that replaces a
-    // visible tag would leave the old term's count inflated forever while the
-    // search document correctly drops it.
-    const vocabularyAfter = vocabularyForProfile(profile);
-    const afterKeys = new Set(
-      vocabularyAfter.map(
-        (candidate) => `${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`,
-      ),
-    );
-    // Colliding labels are deduplicated inside the vocabulary helpers, so both
-    // sides of the delta can stay a plain filter.
-    const introducedVocabulary = vocabularyAfter.filter(
-      (candidate) =>
-        !vocabularyBefore.has(`${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`),
-    );
-    const removedVocabulary = vocabularyBeforeCandidates.filter(
-      (candidate) =>
-        !afterKeys.has(`${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`),
-    );
-
-    await Promise.all([
-      upsertSearchDocument(ctx.db, createProfileSearchDocument(profile)),
-      recordVocabularyTerms(ctx.db, introducedVocabulary, now),
-      releaseVocabularyTerms(ctx.db, removedVocabulary, now),
-    ]);
+    await reindexProfileVocabularyDelta(ctx, vocabularyBeforeCandidates, profile, now);
 
     await ctx.db.patch(candidate._id, {
       publishedProfileId: profileId,
@@ -1193,9 +1205,14 @@ export const previewBatchPublication = internalQuery({
     const fieldStatsSampleSize = Math.min(candidates.length, PREVIEW_FIELD_SAMPLE_CANDIDATES);
     const fieldReviewStates: string[] = [];
 
+    const acceptedFieldVisibilities: string[] = [];
+
     for (const candidate of candidates.slice(0, fieldStatsSampleSize)) {
       const fields = await getCandidateFields(ctx, candidate._id);
       fieldReviewStates.push(...fields.map((field) => field.reviewState));
+      acceptedFieldVisibilities.push(
+        ...fields.filter((field) => field.reviewState === "accepted").map((field) => field.visibility),
+      );
     }
 
     return {
@@ -1215,6 +1232,14 @@ export const previewBatchPublication = internalQuery({
       fieldStatsComplete: fieldStatsSampleSize === candidates.length,
       fieldCount: fieldReviewStates.length,
       fieldReviewStates: tally(fieldReviewStates),
+      // What the preview could not say before: "100 fields accepted" reads as
+      // content going live, and every one of those fields can still be private.
+      // Publication carries the reviewed visibility through, so this is the
+      // number that predicts whether anyone will see anything.
+      acceptedFieldVisibilities: tally(acceptedFieldVisibilities),
+      publiclyVisibleFieldCount: acceptedFieldVisibilities.filter(
+        (visibility) => visibility !== "private",
+      ).length,
     };
   },
 });
@@ -1474,6 +1499,192 @@ export const bulkPublishBatch = internalMutation({
       processed: page.length,
       published,
       skipped,
+      nextCursor: pageResult.isDone ? null : pageResult.continueCursor,
+      isDone: pageResult.isDone,
+    };
+  },
+});
+
+/**
+ * Change the stored visibility of a batch's fields, and carry it to profiles
+ * already published from them.
+ *
+ * A field's `visibility` is what publication copies onto the profile, so an
+ * import that stored everything private publishes profiles that show nothing.
+ * The publish gate refuses that now (`no_publicly_visible_field`), but a batch
+ * already through it needs both halves fixed: the candidate rows, so the record
+ * is right, and the profiles derived from them, so people can actually see it.
+ *
+ * Re-derivation runs the accepted fields back through the same builder
+ * publication uses, which is also what canonicalizes links — a batch published
+ * before that existed picks up the fix here rather than needing a second pass.
+ *
+ * Paged like `bulkPublishBatch`, and `dryRun` reports the same counts without
+ * writing, because this changes what the public can see on live profiles.
+ */
+export const bulkSetFieldVisibility = internalMutation({
+  args: {
+    batchId: v.optional(v.id("seedImportBatches")),
+    externalBatchId: v.optional(v.string()),
+    visibility: seedImportFieldVisibilityValidator,
+    // Absent means every accepted field. Named keys are the common case: role
+    // tags and links go public while a bio stays back.
+    fieldKeys: v.optional(v.array(v.string())),
+    reason: v.string(),
+    dryRun: v.optional(v.boolean()),
+    limit: v.optional(v.number()),
+    cursor: v.optional(v.string()),
+    reviewer: v.optional(seedImportAuthSubjectValidator),
+    now: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const batch = await resolveBatch(ctx, args);
+
+    if (batch === null) {
+      throw new Error("Seed import batch not found.");
+    }
+
+    const reason = optionalReviewNote(args.reason);
+
+    if (reason === undefined) {
+      throw new Error("Changing field visibility requires a reason recording the decision.");
+    }
+
+    const reviewer = await actorFromArgs(ctx, args.reviewer);
+
+    // Same rule as bulk publishing: this changes what the public can see, so it
+    // must never be recorded as an unknown operator.
+    if (reviewer === undefined) {
+      throw new Error(
+        "Changing field visibility requires an operator identity. Pass reviewer when calling outside a browser session.",
+      );
+    }
+
+    const now = args.now ?? Date.now();
+    const dryRun = args.dryRun === true;
+    const limit = Math.max(1, Math.min(args.limit ?? 10, BULK_PUBLISH_MAX_PAGE_SIZE));
+    const fieldKeys = args.fieldKeys === undefined ? undefined : new Set(args.fieldKeys);
+
+    if (fieldKeys?.size === 0) {
+      throw new Error("Pass at least one field key, or omit fieldKeys to change every accepted field.");
+    }
+
+    if (args.cursor === undefined && !dryRun) {
+      await ctx.db.patch(batch._id, {
+        ...optionalValue(
+          "notes",
+          appendBatchNote(
+            batch.notes,
+            `Field visibility set to ${args.visibility} by ${reviewer.displayName ?? reviewer.subject}: ${reason}`,
+          ),
+        ),
+        updatedAt: now,
+      });
+    }
+
+    const pageResult = await ctx.db
+      .query("seedImportCandidateProfiles")
+      .withIndex("by_batchId", (query) => query.eq("batchId", batch._id))
+      .paginate({ numItems: limit, cursor: args.cursor ?? null });
+
+    const linkStats = { droppedCount: 0, deduplicatedCount: 0 };
+    const skipped: Array<{ externalCandidateId: string; reason: string }> = [];
+    let fieldsChanged = 0;
+    let profilesRederived = 0;
+
+    for (const candidate of pageResult.page) {
+      const fields = await getCandidateFields(ctx, candidate._id);
+      const targets = fields.filter(
+        (field) =>
+          field.reviewState === "accepted" &&
+          field.visibility !== args.visibility &&
+          (fieldKeys === undefined || fieldKeys.has(field.fieldKey)),
+      );
+
+      fieldsChanged += targets.length;
+
+      if (!dryRun) {
+        for (const field of targets) {
+          await ctx.db.patch(field._id, { visibility: args.visibility, updatedAt: now });
+        }
+      }
+
+      if (candidate.publishedProfileId === undefined) {
+        continue;
+      }
+
+      const profile = await ctx.db.get(candidate.publishedProfileId);
+
+      if (profile === null) {
+        continue;
+      }
+
+      // A claimed profile is its owner's. Re-deriving it would overwrite whatever
+      // they have edited since with the seed snapshot, which is a far worse
+      // outcome than a stale visibility flag on the candidate row.
+      if (profile.claimState !== "unclaimed") {
+        skipped.push({
+          externalCandidateId: candidate.externalCandidateId,
+          reason: "profile_claimed",
+        });
+        continue;
+      }
+
+      // The field patch builder is person-only, same as publication.
+      if (profile.profileType !== "person") {
+        skipped.push({
+          externalCandidateId: candidate.externalCandidateId,
+          reason: "profile_type_unsupported",
+        });
+        continue;
+      }
+
+      const acceptedFields = fields
+        .filter((field) => field.reviewState === "accepted")
+        .map((field) =>
+          targets.some((target) => target._id === field._id)
+            ? { ...field, visibility: args.visibility }
+            : field,
+        );
+      const patch = buildConciergeProfileFieldPatch(acceptedFields, profile, {
+        fieldVisibilitySource: "reviewed",
+        clearUnselectedFields: false,
+        sourceType: batch.sourceType,
+        linkStats,
+      });
+
+      profilesRederived += 1;
+
+      if (dryRun) {
+        continue;
+      }
+
+      const vocabularyBefore =
+        profile.publicationState === "published" && profile.publicSurfacingState === "public"
+          ? vocabularyForProfile(profile)
+          : [];
+
+      await ctx.db.patch(profile._id, { ...patch, updatedAt: now });
+
+      const updated = await ctx.db.get(profile._id);
+
+      if (updated !== null) {
+        await reindexProfileVocabularyDelta(ctx, vocabularyBefore, updated, now);
+      }
+    }
+
+    return {
+      externalBatchId: batch.externalBatchId,
+      dryRun,
+      processed: pageResult.page.length,
+      fieldsChanged,
+      profilesRederived,
+      skipped,
+      // Links the canonicalizer could not carry, and links that collapsed onto
+      // one already present. Reported rather than swallowed: a re-derivation that
+      // quietly drops a stream link looks identical to one that carried it.
+      linksDropped: linkStats.droppedCount,
+      linksDeduplicated: linkStats.deduplicatedCount,
       nextCursor: pageResult.isDone ? null : pageResult.continueCursor,
       isDone: pageResult.isDone,
     };

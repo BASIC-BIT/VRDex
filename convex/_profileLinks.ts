@@ -313,3 +313,70 @@ export function sanitizeProfileLinks(
     });
   }
 }
+
+export type LenientProfileLinkResult = {
+  links: Array<NormalizedProfileLink & { source: ProfileLinkSource }>;
+  /** Entries that could not be normalized into a publishable link. */
+  droppedCount: number;
+  /** Entries that collapsed onto a link already in the list. */
+  deduplicatedCount: number;
+};
+
+/**
+ * Normalize links one at a time, keeping the ones that survive.
+ *
+ * `sanitizeProfileLinks` rejects the whole array, which is right for a writer
+ * who is looking at a form and can fix their input. A seed publication has no
+ * such writer: the export was produced elsewhere, possibly months earlier, and
+ * one unusable row must not hold back every profile in the batch.
+ *
+ * Normalization is the point, not just validation. VRCDN entries collapse onto
+ * the canonical `vrcdn.live/<id>` page URL, so a stream URL and an operator
+ * panel preview URL for the same DJ become one link and no preview URL is
+ * carried onto a public profile. What is dropped is counted rather than
+ * swallowed — a publication path that silently discards data is how this became
+ * a problem in the first place.
+ */
+export function sanitizeProfileLinksLeniently(
+  value: unknown,
+  source: ProfileLinkSource,
+): LenientProfileLinkResult {
+  const entries = Array.isArray(value) ? value : [];
+  const seen = new Set<string>();
+  const links: LenientProfileLinkResult["links"] = [];
+  let droppedCount = 0;
+  let deduplicatedCount = 0;
+
+  for (const entry of entries) {
+    let normalized: LenientProfileLinkResult["links"];
+
+    try {
+      normalized = sanitizeProfileLinks([entry], source);
+    } catch {
+      droppedCount += 1;
+      continue;
+    }
+
+    for (const link of normalized) {
+      const key = `${link.type}:${link.url.toLowerCase()}`;
+
+      if (seen.has(key)) {
+        deduplicatedCount += 1;
+        continue;
+      }
+
+      // Counted as dropped rather than silently truncated: the cap is enforced
+      // per write everywhere else, and a caller reporting "all links carried"
+      // while holding back the tail would be wrong.
+      if (links.length >= PROFILE_LINK_MAX_COUNT) {
+        droppedCount += 1;
+        continue;
+      }
+
+      seen.add(key);
+      links.push(link);
+    }
+  }
+
+  return { links, droppedCount, deduplicatedCount };
+}

@@ -11,6 +11,10 @@ describe("VRCDN stream links", () => {
       "rtspt://stream.vrcdn.live/live/basicbit",
       "https://stream.vrcdn.live/live/basicbit.m3u8",
       "https://stream.vrcdn.live/live/basicbit.mp4",
+      // The URL VRCDN hands an operator looking for their own stream, so it is
+      // what people paste and what the NWinn partner export carried. Read for
+      // its id and rebuilt as the public page URL, never stored as-is.
+      "https://panel.vrcdn.live/preview/basicbit",
     ]) {
       const links = parseVrcdnStreamLinks(input);
 
@@ -35,5 +39,14 @@ describe("VRCDN stream links", () => {
     assert.equal(parseVrcdnStreamLinks("https://vrcdn.live/status"), null);
     assert.equal(parseVrcdnStreamLinks("https://stream.vrcdn.live/api/v1/basicbit"), null);
     assert.equal(parseVrcdnStreamLinks("https://example.invalid/live/basicbit.m3u8"), null);
+  });
+
+  it("reads only the preview path on the panel host", () => {
+    // The panel is VRCDN's operator console. /preview/<id> names a stream; the
+    // rest of it names pages that have nothing to do with one, and admitting the
+    // whole host would make "VRCDN link" mean "anything on the dashboard".
+    assert.equal(parseVrcdnStreamLinks("https://panel.vrcdn.live/dashboard"), null);
+    assert.equal(parseVrcdnStreamLinks("https://panel.vrcdn.live/"), null);
+    assert.equal(parseVrcdnStreamLinks("https://panel.vrcdn.live/preview/"), null);
   });
 });

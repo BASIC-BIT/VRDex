@@ -168,6 +168,7 @@ export type SeedImportPublicationBlocker =
   | "publication_not_authorized"
   | "field_exceeds_public_profile_limits"
   | "display_name_outside_public_limits"
+  | "no_publicly_visible_field"
   | "live_handoff_invitation_blocks_publication";
 
 type SeedImportPublicationCandidate = Pick<
@@ -1013,6 +1014,25 @@ export function getSeedImportFieldBlockers(
     if (field.reviewState === "accepted" && exceedsPublicProfileLimits(field)) {
       blockers.add("field_exceeds_public_profile_limits");
     }
+  }
+
+  // Publication carries each field's reviewed visibility, and `toPublicProfile`
+  // omits private ones. A candidate whose accepted fields are all private
+  // publishes a profile holding a display name and a slug, which is what batch
+  // nwinn_2026_07_16_ad79dca17a did to 405 people: every gate passed, the
+  // preview reported a hundred accepted fields, and none of them could be seen.
+  //
+  // `unlisted` counts as visible -- it renders on the profile page and is only
+  // held back from discovery, which is a deliberate choice rather than an
+  // accident. Candidates with no accepted fields at all are left to the review
+  // gates above; this fires only when there was content and none of it survives.
+  const acceptedFields = fields.filter((field) => field.reviewState === "accepted");
+
+  if (
+    acceptedFields.length > 0 &&
+    acceptedFields.every((field) => field.visibility === "private")
+  ) {
+    blockers.add("no_publicly_visible_field");
   }
 
   return [...blockers];

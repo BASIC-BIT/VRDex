@@ -25,7 +25,17 @@ const USAGE = [
   "Without --apply this prints a read-only preview and writes nothing.",
   "--accept-fields accepts fields still marked unreviewed. Rejected and",
   "needs-correction fields are always left alone.",
+  "",
+  "Field visibility mode:",
+  "  --set-visibility <public|unlisted|private> [--field-keys <a,b,c>]",
+  "",
+  "Sets the stored visibility of a batch's accepted fields and re-derives every",
+  "profile already published from them. Publication copies each field's",
+  "visibility onto the profile, so a batch imported private publishes profiles",
+  "that show nothing. Without --apply this runs as a dry run and writes nothing.",
 ].join("\n");
+
+const FIELD_VISIBILITIES = ["public", "unlisted", "private"];
 
 export function readOption(argv, name) {
   const index = argv.indexOf(name);
@@ -121,6 +131,17 @@ function printPreview(preview) {
   console.log(`  candidate types:       ${JSON.stringify(preview.candidateProfileTypes)}`);
   console.log(`  fields:                ${preview.fieldCount}`);
   console.log(`  field review:          ${JSON.stringify(preview.fieldReviewStates)}`);
+  console.log(`  accepted visibility:   ${JSON.stringify(preview.acceptedFieldVisibilities)}`);
+  console.log(`  publicly visible:      ${preview.publiclyVisibleFieldCount}`);
+
+  // The number that predicts whether anyone will see anything. A batch of
+  // accepted fields that are all private publishes profiles holding a display
+  // name and a slug, which is what happened to nwinn_2026_07_16_ad79dca17a.
+  if (preview.fieldCount > 0 && preview.publiclyVisibleFieldCount === 0) {
+    console.log(
+      "  warning: no accepted field would be visible. Publication is blocked on no_publicly_visible_field; use --set-visibility first.",
+    );
+  }
 
   if (preview.candidateCountComplete === false) {
     console.log(
@@ -155,6 +176,79 @@ function reportSkipped(skipped) {
   }
 }
 
+function setFieldVisibility({ batchId, visibility, reason, reviewer, limit }) {
+  const fieldKeysOption = option("--field-keys");
+  const fieldKeys = fieldKeysOption
+    ?.split(",")
+    .map((key) => key.trim())
+    .filter(Boolean);
+
+  if (fieldKeysOption !== undefined && (fieldKeys === undefined || fieldKeys.length === 0)) {
+    fail("--field-keys needs at least one comma-separated field key.");
+  }
+
+  const dryRun = !flag("--apply");
+  let processedTotal = 0;
+  let fieldsChangedTotal = 0;
+  let profilesRederivedTotal = 0;
+  let linksDroppedTotal = 0;
+  let linksDeduplicatedTotal = 0;
+  let cursor;
+  const skipped = [];
+
+  console.log("");
+
+  for (;;) {
+    const page = runConvex("seedImports:bulkSetFieldVisibility", {
+      externalBatchId: batchId,
+      visibility,
+      reason,
+      reviewer,
+      dryRun,
+      limit,
+      ...(fieldKeys === undefined ? {} : { fieldKeys }),
+      ...(cursor === undefined || cursor === null ? {} : { cursor }),
+    });
+
+    processedTotal += page.processed;
+    fieldsChangedTotal += page.fieldsChanged;
+    profilesRederivedTotal += page.profilesRederived;
+    linksDroppedTotal += page.linksDropped;
+    linksDeduplicatedTotal += page.linksDeduplicated;
+    skipped.push(...page.skipped);
+
+    console.log(`  fields ${fieldsChangedTotal}, profiles ${profilesRederivedTotal}`);
+
+    if (page.isDone || page.nextCursor === null || page.nextCursor === undefined) {
+      break;
+    }
+
+    cursor = page.nextCursor;
+  }
+
+  console.log(
+    `\n${dryRun ? "Would set" : "Set"} ${fieldsChangedTotal} accepted fields to ${visibility} across ${processedTotal} candidates, ` +
+      `re-deriving ${profilesRederivedTotal} published profiles.`,
+  );
+
+  // Reported every run, including zero. A re-derivation that silently discarded
+  // a stream link would otherwise be indistinguishable from one that carried it.
+  console.log(
+    `Links: ${linksDeduplicatedTotal} collapsed onto an existing link, ${linksDroppedTotal} could not be normalized.`,
+  );
+
+  if (skipped.length > 0) {
+    console.log("Profiles left alone:");
+    for (const entry of skipped) {
+      console.log(`  ${entry.externalCandidateId}: ${entry.reason}`);
+    }
+  }
+
+  if (dryRun) {
+    console.log("\nDry run. Nothing was written. Re-run with --apply to write.");
+  }
+}
+
 function main() {
   target = requireTarget();
 
@@ -164,9 +258,15 @@ function main() {
     fail(USAGE);
   }
 
+  const visibility = option("--set-visibility");
+
+  if (visibility !== undefined && !FIELD_VISIBILITIES.includes(visibility)) {
+    fail(`--set-visibility must be one of ${FIELD_VISIBILITIES.join(", ")}.`);
+  }
+
   printPreview(runConvex("seedImports:previewBatchPublication", { externalBatchId: batchId }));
 
-  if (!flag("--apply")) {
+  if (visibility === undefined && !flag("--apply")) {
     console.log("\nPreview only. Nothing was written. Re-run with --apply to publish.");
     return;
   }
@@ -178,11 +278,11 @@ function main() {
   const reason = option("--reason");
 
   if (!actorToken || !actorIssuer || !actorSubject) {
-    fail(`--apply requires actor identity.\n\n${USAGE}`);
+    fail(`This run requires actor identity.\n\n${USAGE}`);
   }
 
   if (!reason) {
-    fail(`--apply requires --reason recording why the source permits publication.\n\n${USAGE}`);
+    fail(`This run requires --reason recording the decision.\n\n${USAGE}`);
   }
 
   const limitOption = option("--limit");
@@ -198,6 +298,11 @@ function main() {
     subject: actorSubject,
     ...(actorName ? { displayName: actorName } : {}),
   };
+
+  if (visibility !== undefined) {
+    setFieldVisibility({ batchId, visibility, reason, reviewer, limit });
+    return;
+  }
 
   let publishedTotal = 0;
   let processedTotal = 0;

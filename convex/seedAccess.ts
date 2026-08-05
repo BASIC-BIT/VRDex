@@ -6,9 +6,11 @@ import {
 } from "./_accountFeatures";
 import { activeBrowserSessionOrNull } from "./_browserSessionAuthority";
 import { query } from "./_generated/server";
+import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 import {
   canIncludePrivateSeedCandidate,
   projectSafePrivateSeedField,
+  withheldProfileFields,
 } from "./_seedAccess";
 
 export const viewerAccess = query({
@@ -50,28 +52,20 @@ export const lookupPeople = query({
     }
 
     const limit = Math.max(1, Math.min(Math.floor(args.limit ?? 20), 50));
-    const [draftCandidates, reviewCandidates] = await Promise.all([
-      ctx.db
-        .query("seedImportCandidateProfiles")
-        .withSearchIndex("search_proposedDisplayName", (query) =>
-          query
-            .search("proposedDisplayName", searchTerm)
-            .eq("profileType", "person")
-            .eq("publicationState", "draft_private"),
-        )
-        .take(limit * 2),
-      ctx.db
-        .query("seedImportCandidateProfiles")
-        .withSearchIndex("search_proposedDisplayName", (query) =>
-          query
-            .search("proposedDisplayName", searchTerm)
-            .eq("profileType", "person")
-            .eq("publicationState", "review_pending"),
-        )
-        .take(limit * 2),
-    ]);
+    // One search with no publication-state filter, rather than one query per
+    // state. The two-query version covered draft_private and review_pending
+    // only, so a candidate left this lookup at the moment it published: the
+    // surface stopped covering a record precisely because it had shipped.
+    // Which states a given viewer may see is decided by
+    // canIncludePrivateSeedCandidate below, where the grant is known.
+    const matches = await ctx.db
+      .query("seedImportCandidateProfiles")
+      .withSearchIndex("search_proposedDisplayName", (query) =>
+        query.search("proposedDisplayName", searchTerm).eq("profileType", "person"),
+      )
+      .take(limit * 3);
     const candidatesWithBatches = await Promise.all(
-      [...draftCandidates, ...reviewCandidates].map(async (candidate) => ({
+      matches.map(async (candidate) => ({
         batch: await ctx.db.get(candidate.batchId),
         candidate,
       })),
@@ -118,9 +112,89 @@ export const lookupPeople = query({
                   name: batch.sourceName,
                   observedAt: batch.sourceObservedAt,
                 },
+          // Where to go next once a candidate has published. Without it the
+          // lookup names a person it can no longer take you to.
+          publishedProfileSlug:
+            candidate.publishedProfileId === undefined
+              ? undefined
+              : (await ctx.db.get(candidate.publishedProfileId))?.slug,
           fields: projectedFields,
         };
       }),
     );
+  },
+});
+
+const PROFILE_HISTORY_LIMIT = 20;
+
+/**
+ * What a profile holds that its public page does not show.
+ *
+ * The only way to answer that used to be the Convex CLI with a production
+ * deploy key -- a credential that can also deploy arbitrary code, spent on a
+ * read. This is the same question asked through the same grant that already
+ * governs the private seed lookup.
+ *
+ * Read-only and null for everyone else, including signed-out visitors: it
+ * renders on every public profile page, so refusing loudly would put an error
+ * in front of ordinary readers.
+ */
+export const withheldProfileRecord = query({
+  args: {
+    slug: v.string(),
+    profileType: v.optional(v.union(v.literal("person"), v.literal("community"))),
+  },
+  handler: async (ctx, args) => {
+    const activeSession = await activeBrowserSessionOrNull(ctx);
+
+    if (activeSession === null) {
+      return null;
+    }
+
+    const access = await getAccountFeatureAccess(ctx.db, activeSession.user._id);
+
+    if (!access.canViewPrivateSeedLookup) {
+      return null;
+    }
+
+    const validation = validateProfileSlug(args.slug);
+
+    if (!validation.ok) {
+      return null;
+    }
+
+    const profile = await getProfileBySlug(ctx.db, validation.slug);
+
+    if (profile === null) {
+      return null;
+    }
+
+    if (args.profileType !== undefined && profile.profileType !== args.profileType) {
+      return null;
+    }
+
+    const history = await ctx.db
+      .query("profileAuditEvents")
+      .withIndex("by_profileId_createdAt", (query) => query.eq("profileId", profile._id))
+      .order("desc")
+      .take(PROFILE_HISTORY_LIMIT);
+
+    return {
+      slug: profile.slug,
+      claimState: profile.claimState,
+      publicationState: profile.publicationState,
+      publicSurfacingState: profile.publicSurfacingState,
+      withheldFields: withheldProfileFields(profile),
+      history: history.map((event) => ({
+        id: event._id,
+        action: event.action,
+        sourceType: event.sourceType,
+        note: event.note,
+        createdAt: event.createdAt,
+        // Operator-only, and the whole point of the record: an edit with no
+        // attributable actor is a mystery a claiming owner inherits.
+        actor: event.actor?.displayName ?? event.actor?.subject,
+      })),
+    };
   },
 });
