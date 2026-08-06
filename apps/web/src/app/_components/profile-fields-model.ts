@@ -137,6 +137,45 @@ function splitList(value: FormDataEntryValue | null): string[] {
     .filter(Boolean);
 }
 
+/**
+ * The hidden input each comma-joined list carries: what it was rendered from.
+ *
+ * A comma-separated control cannot represent a value containing a comma, and the
+ * backend allows one -- so hydrating `["Foo, Jr."]` and saving an unrelated field
+ * split it into `["Foo", "Jr."]` and wrote that, quietly, over a name somebody
+ * had presumably typed carefully.
+ *
+ * So the original array travels beside the text. If the text still reads exactly
+ * as the form rendered it, nobody touched the control and the original goes back
+ * unchanged; the moment it differs, the comma split is what the writer means. It
+ * still cannot *create* a value containing a comma, which is a limitation of the
+ * control rather than something to fix by guessing.
+ */
+const LIST_ORIGINAL_SUFFIX = "Original";
+
+export function listFieldValue(values: string[]): string {
+  return values.join(", ");
+}
+
+function parseList(formData: FormData, name: string): string[] {
+  const text = stringField(formData.get(name));
+  const original = formData.get(`${name}${LIST_ORIGINAL_SUFFIX}`);
+
+  if (typeof original === "string") {
+    try {
+      const stored = JSON.parse(original) as unknown;
+
+      if (Array.isArray(stored) && listFieldValue(stored as string[]) === text.trim()) {
+        return stored as string[];
+      }
+    } catch {
+      // Not parseable, so there is nothing to preserve. The split below stands.
+    }
+  }
+
+  return splitList(text);
+}
+
 function dedupe(values: string[]): string[] {
   const seen = new Set<string>();
 
@@ -326,8 +365,8 @@ export function profileFieldsPayload(
   const shared = {
     // Always rendered, and a profile cannot be nameless.
     displayName: stringField(formData.get("displayName")),
-    ...when("aliases", splitList(formData.get("aliases"))),
-    ...when("tags", splitList(formData.get("tags"))),
+    ...when("aliases", parseList(formData, "aliases")),
+    ...when("tags", parseList(formData, "tags")),
     ...when("outboundLinks", linksFromFormData(formData)),
     ...Object.fromEntries(
       NARRATIVE_FIELDS.filter((name) => present.has(name)).map((name) => [
@@ -343,7 +382,7 @@ export function profileFieldsPayload(
       profileType: "community",
       ...when("community", {
         subtype: stringField(formData.get("subtype")),
-        categoryTags: splitList(formData.get("categoryTags")),
+        categoryTags: parseList(formData, "categoryTags"),
       }),
     } as ProfileFieldsPayload;
   }
@@ -357,7 +396,7 @@ export function profileFieldsPayload(
       // "DJ" next to the box they already ticked.
       roleTags: dedupe([
         ...formData.getAll("roleTag").map((value) => stringField(value)),
-        ...splitList(formData.get("roleTagsOther")),
+        ...parseList(formData, "roleTagsOther"),
       ]),
       // Only when the control was rendered, which is the editor and not the
       // submit form. `submitCommunityProfile` validates `person` as role tags

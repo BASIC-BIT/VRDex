@@ -201,6 +201,18 @@ function reportSkipped(skipped) {
 
 function setFieldVisibility({ batchId, visibility, reason, reviewer, limit }) {
   const fieldKeysOption = option("--field-keys");
+
+  // `readOption` returns undefined both when the flag is absent and when it is
+  // present with no value or a flag-shaped one, and those mean opposite things
+  // here: absent restricts nothing on purpose, present-but-empty is an operator
+  // asking to restrict and not saying to what. Read as "absent",
+  // `--set-visibility public --field-keys --apply` would set *every* accepted
+  // field in the batch public, which is the mistake this whole mode exists to
+  // make avoidable.
+  if (fieldKeysOption === undefined && flag("--field-keys")) {
+    fail(`--field-keys needs a comma-separated list of field keys.\n\n${USAGE}`);
+  }
+
   const fieldKeys = fieldKeysOption
     ?.split(",")
     .map((key) => key.trim())
@@ -294,7 +306,10 @@ function main() {
 
   const misplacedFlag = misplacedMigrationFlag(visibility, {
     "--rederive-values": flag("--rederive-values"),
-    "--field-keys": option("--field-keys") !== undefined,
+    // `flag`, not `option`: `--field-keys` with a missing value still means the
+    // operator asked for it, and reading that as absent would let the misplaced
+    // form through to a bulk publication.
+    "--field-keys": flag("--field-keys"),
   });
 
   if (misplacedFlag) {

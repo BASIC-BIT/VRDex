@@ -18,6 +18,7 @@ import {
   PRESET_ROLES,
   type ProfileFieldsDefaults,
   type ProfileFieldsType,
+  listFieldValue,
   type PositionedProfileLink,
 } from "./profile-fields-model";
 
@@ -82,6 +83,18 @@ function LinkMetadata({
   );
 }
 
+/**
+ * What a comma-joined list was rendered from, so an untouched control round-trips.
+ *
+ * The control cannot represent a value containing a comma, and the backend allows
+ * one, so re-parsing the text split `["Foo, Jr."]` into two entries and wrote
+ * that over a name somebody typed deliberately. With the original beside it, text
+ * that still reads as rendered means nobody touched the field.
+ */
+function ListOriginal({ name, values }: { name: string; values: string[] }) {
+  return <input name={`${name}Original`} type="hidden" value={JSON.stringify(values)} />;
+}
+
 function PersonRoleFields({
   defaults,
   atLinkCap,
@@ -132,7 +145,8 @@ function PersonRoleFields({
         </div>
         <Field>
           <FieldText>Other roles</FieldText>
-          <Input defaultValue={otherRoles.join(", ")} name="roleTagsOther" placeholder="Comma-separated" />
+          <ListOriginal name="roleTagsOther" values={otherRoles} />
+          <Input defaultValue={listFieldValue(otherRoles)} name="roleTagsOther" placeholder="Comma-separated" />
         </Field>
       </div>
 
@@ -288,8 +302,9 @@ export function ProfileFields({
           <FieldGroup field="aliases">
             <Field>
               Aliases
+              <ListOriginal name="aliases" values={defaults.aliases ?? []} />
               <Input
-                defaultValue={(defaults.aliases ?? []).join(", ")}
+                defaultValue={listFieldValue(defaults.aliases ?? [])}
                 name="aliases"
                 placeholder="Comma-separated names"
               />
@@ -301,8 +316,9 @@ export function ProfileFields({
           <FieldGroup field="tags">
             <Field>
               Tags
+              <ListOriginal name="tags" values={defaults.tags ?? []} />
               <Input
-                defaultValue={(defaults.tags ?? []).join(", ")}
+                defaultValue={listFieldValue(defaults.tags ?? [])}
                 name="tags"
                 placeholder="house, trance, vrchat"
               />
@@ -381,8 +397,9 @@ export function ProfileFields({
 
                 <Field>
                   Community categories
+                  <ListOriginal name="categoryTags" values={defaults.categoryTags ?? []} />
                   <Input
-                    defaultValue={(defaults.categoryTags ?? []).join(", ")}
+                    defaultValue={listFieldValue(defaults.categoryTags ?? [])}
                     name="categoryTags"
                     placeholder="events, music, hangout"
                   />

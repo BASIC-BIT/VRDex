@@ -340,13 +340,33 @@ export function sanitizeProfileLinks(
  * separately and folded differently, which is how the same defect had to be
  * found twice.
  */
+/**
+ * Hosts whose path is case-insensitive, so two spellings are one destination.
+ *
+ * The web lookup's own merger keeps the same list for the same reason. Kept
+ * small and explicit: this is a claim about a specific provider, not a general
+ * rule about URLs.
+ */
+const CASE_INSENSITIVE_PATH_HOSTS = new Set(["twitch.tv"]);
+
 export function profileLinkDestinationKey(link: { type: string; url: string }): string {
   try {
     const url = new URL(link.url);
+    // Some hosts say their path is case-insensitive, and Twitch is one:
+    // `twitch.tv/Snek` and `twitch.tv/snek` are one channel. Keeping the case
+    // there left the seed lane publishing both as separate buttons and the
+    // browser lane failing the provenance match on a case-only correction.
+    //
+    // A named list rather than folding every path, because the general case runs
+    // the other way -- on most hosts `/Mix` and `/mix` are two pages, which is
+    // the defect this key was written to fix.
+    const path = CASE_INSENSITIVE_PATH_HOSTS.has(url.host)
+      ? url.pathname.toLowerCase()
+      : url.pathname;
 
     // `URL` lowercases protocol and host itself; the rest is used exactly as
     // given rather than folded along with them.
-    return `${link.type}:${url.protocol}//${url.host}${url.pathname}${url.search}${url.hash}`;
+    return `${link.type}:${url.protocol}//${url.host}${path}${url.search}${url.hash}`;
   } catch {
     // Unparseable, so no part of it is known to be case-insensitive. Compared
     // verbatim, which can only ever treat two links as distinct rather than

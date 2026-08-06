@@ -191,6 +191,24 @@ describe("lenient profile link sanitization", () => {
     assert.equal(sameHost.deduplicatedCount, 1);
   });
 
+  // Twitch says its channel path is case-insensitive, so these are one channel.
+  // Keeping the case left the seed lane publishing both as separate buttons and
+  // the browser lane failing the provenance match on a case-only correction. The
+  // list is named rather than general: on most hosts `/Mix` and `/mix` are two
+  // pages, which is what this key was written to get right.
+  it("folds the path case only for hosts that say it is insensitive", () => {
+    const result = sanitizeProfileLinksLeniently(
+      [
+        { type: "twitch", url: "https://twitch.tv/Snek" },
+        { type: "twitch", url: "https://twitch.tv/snek" },
+      ],
+      "reviewed",
+    );
+
+    assert.equal(result.links.length, 1);
+    assert.equal(result.deduplicatedCount, 1);
+  });
+
   it("keeps the good links when one entry is unusable", () => {
     // The whole reason this exists beside sanitizeProfileLinks: a publication
     // has no writer looking at a form, so one bad row must not fail the batch.

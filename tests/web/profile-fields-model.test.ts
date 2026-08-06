@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   FIELD_PRESENT_INPUT,
+  listFieldValue,
   partitionLinks,
   profileFieldsPayload,
 } from "../../apps/web/src/app/_components/profile-fields-model";
@@ -370,6 +371,44 @@ describe("profile fields payload", () => {
         handle: "old",
       },
     ]);
+  });
+
+  // A comma-separated control cannot represent a value containing a comma, and
+  // the backend allows one -- so hydrating ["Foo, Jr."] and saving an unrelated
+  // field split it in two and wrote that over a name somebody typed deliberately.
+  it("keeps a comma inside a list value the writer did not touch", () => {
+    const stored = ["Foo, Jr.", "Snek"];
+    const payload = profileFieldsPayload(
+      formData(
+        [
+          ["displayName", "Snek"],
+          ["aliases", listFieldValue(stored)],
+          ["aliasesOriginal", JSON.stringify(stored)],
+        ],
+        ["aliases"],
+      ),
+      "person",
+    );
+
+    assert.deepEqual(payload.aliases, stored);
+  });
+
+  it("splits the list once the writer edits it", () => {
+    const stored = ["Foo, Jr."];
+    const payload = profileFieldsPayload(
+      formData(
+        [
+          ["displayName", "Snek"],
+          // Edited, so the comma is the separator the writer means.
+          ["aliases", "Foo, Jr., Snek"],
+          ["aliasesOriginal", JSON.stringify(stored)],
+        ],
+        ["aliases"],
+      ),
+      "person",
+    );
+
+    assert.deepEqual(payload.aliases, ["Foo", "Jr.", "Snek"]);
   });
 
   it("keeps a new row aligned with its own blank metadata", () => {

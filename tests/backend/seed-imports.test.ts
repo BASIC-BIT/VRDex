@@ -843,6 +843,14 @@ describe("seed publish CLI option parsing", () => {
       "--field-keys",
     );
 
+    // `--field-keys` with no value still means the operator asked for it.
+    // Reading that as absent let the misplaced form through to a bulk
+    // publication, which is the operation this guard exists to keep separate.
+    assert.equal(
+      misplacedMigrationFlag(undefined, { "--rederive-values": false, "--field-keys": true }),
+      "--field-keys",
+    );
+
     // In visibility mode both belong, and neither is required.
     assert.equal(
       misplacedMigrationFlag("public", { "--rederive-values": true, "--field-keys": true }),

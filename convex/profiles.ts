@@ -49,7 +49,11 @@ import { ensureShortLinkForTarget } from "./_shortLinks";
 import { assertIdentityNotSuppressed } from "./_suppressions";
 import { recordVocabularyTerms } from "./_vocabulary";
 import { userOwnsProfile } from "./_profileOwnership";
-import { applyApiProfileUpdate, assertProfileEditNotSuppressed } from "./_profileUpdates";
+import {
+  applyApiProfileUpdate,
+  assertProfileEditNotSuppressed,
+  assertSubmittedFieldsEditable,
+} from "./_profileUpdates";
 
 const profileType = v.union(v.literal("person"), v.literal("community"));
 const PROFILE_LOOKUP_RESULT_LIMIT = 12;
@@ -667,6 +671,16 @@ export const updateProfileFromBrowser = mutation({
         message: "This profile changed while you were editing it. Reload to see the current version.",
       });
     }
+
+    // Permission first, before anything that answers differently for a value
+    // this writer may not read. The suppression lookup returns
+    // `IDENTITY_SUPPRESSED` for a retracted name and refuses everything else by
+    // field name, so running it ahead of the field check told any signed-in
+    // caller which identities had asked to be suppressed -- submit guesses at a
+    // profile whose aliases are private and read the answer off the reply.
+    // `applyApiProfileUpdate` checks the same thing again over what it is about
+    // to write; this is the earlier gate, not a replacement for it.
+    assertSubmittedFieldsEditable(profile, args, editSubject);
 
     await assertProfileEditNotSuppressed(ctx.db, profile, args);
 

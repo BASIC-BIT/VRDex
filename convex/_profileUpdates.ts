@@ -4,6 +4,7 @@ import { getProfileFieldVisibility } from "./_profileFieldVisibility";
 import {
   canEditProfileField,
   canReadProfile,
+  PROFILE_EDITABLE_FIELDS,
   type ProfileEditableField,
   type ProfilePermissionSubject,
 } from "./_profilePermissions";
@@ -192,6 +193,31 @@ function addChangedField(fields: ProfileEditableField[], field: ProfileEditableF
   if (!fields.includes(field)) {
     fields.push(field);
   }
+}
+
+/**
+ * Every editable field this request carries, whatever its value turns out to be.
+ *
+ * Exported so a caller can settle permission *before* doing anything else that
+ * answers differently for a value the writer may not read. The suppression
+ * lookup was the case: it ran first, so submitting a guessed alias at a profile
+ * whose aliases are private returned `IDENTITY_SUPPRESSED` for a retracted name
+ * and the cannot-edit refusal for anything else -- which discloses who has asked
+ * to be suppressed, to anyone signed in.
+ */
+export function submittedEditableFields(input: ApiProfileUpdateInput): ProfileEditableField[] {
+  return PROFILE_EDITABLE_FIELDS.filter(
+    (field): field is ProfileEditableField =>
+      field !== "slug" && hasOwn(input as Record<string, unknown>, field),
+  );
+}
+
+export function assertSubmittedFieldsEditable(
+  profile: Doc<"profiles">,
+  input: ApiProfileUpdateInput,
+  subject: ProfileEditSubject,
+): void {
+  requireEditableFields(profile, submittedEditableFields(input), subject);
 }
 
 function requireEditableFields(
