@@ -127,20 +127,39 @@ export function unknownOption(argv, known = KNOWN_OPTIONS, consumesValue = VALUE
       return { name: token, reason: "positional" };
     }
 
-    if (!known.includes(token)) {
+    // `--target=prod` as well as `--target prod`. The shared target helper reads
+    // both, so refusing the equals form here would reject a run the rest of the
+    // script is perfectly happy with.
+    //
+    // Only for `--target`. Every other option is read by `readOption`, which
+    // matches the flag exactly, so a `--reason=why` would reach the run with no
+    // reason at all -- and letting it past this check to be dropped silently is
+    // the failure this function exists to stop. Refused as unrecognized instead,
+    // which at least says so.
+    const inlineTarget = token.startsWith("--target=");
+    const name = inlineTarget ? "--target" : token;
+
+    if (!known.includes(name)) {
       return { name: token, reason: "unknown" };
     }
 
-    if (seen.has(token)) {
+    // Keyed on the resolved name, so `--target prod --target=dev` is still one
+    // option given twice.
+    if (seen.has(name)) {
       return { name: token, reason: "repeated" };
     }
 
-    seen.add(token);
+    seen.add(name);
 
     const value = argv[index + 1];
 
     index +=
-      consumesValue.includes(token) && value !== undefined && !value.startsWith("--") ? 2 : 1;
+      !inlineTarget &&
+      consumesValue.includes(name) &&
+      value !== undefined &&
+      !value.startsWith("--")
+        ? 2
+        : 1;
   }
 
   return undefined;

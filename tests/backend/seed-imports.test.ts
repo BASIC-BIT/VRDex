@@ -943,6 +943,29 @@ describe("seed publish option safety", () => {
     );
   });
 
+  it("accepts the equals form of the target selector", () => {
+    // `resolveTargetName` reads `--target=prod`, so refusing it here would
+    // reject a run the rest of the script is happy with.
+    assert.equal(
+      unknownOption(["--batch-id", "b", "--target=prod", "--apply"]),
+      undefined,
+    );
+
+    // Still one option, so giving it twice in either spelling is still a repeat.
+    assert.deepEqual(
+      unknownOption(["--target", "prod", "--target=dev"]),
+      { name: "--target=dev", reason: "repeated" },
+    );
+
+    // Only `--target`. Every other option is read by an exact match, so the
+    // equals form would reach the run as absent -- which for `--reason` means a
+    // migration with no recorded decision.
+    assert.deepEqual(
+      unknownOption(["--reason=because"]),
+      { name: "--reason=because", reason: "unknown" },
+    );
+  });
+
   it("refuses a repeated option rather than silently taking the first", () => {
     assert.deepEqual(
       unknownOption(["--set-visibility", "public", "--set-visibility", "private"]),
