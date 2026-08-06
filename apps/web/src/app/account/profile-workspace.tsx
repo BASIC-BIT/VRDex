@@ -288,19 +288,32 @@ function ConnectedProfileWorkspace({
     return <div className="grid gap-6">{children}</div>;
   }
 
+  // Signed in and owning nothing goes to the panel too, because the panel knows
+  // why *its* surface is unavailable and the chrome does not. Replacing that
+  // with one grey sentence also dropped the only heading on the page.
+  //
+  // The link stays above it. Only privacy and personalization carry their own
+  // way out; connections renders a notice and the media kit renders two words,
+  // so without this an account with nothing to manage reaches those two tabs and
+  // finds no route back to the claims surface at all.
+  if (owned !== undefined && owned !== null && owned.length === 0 && previewProfiles === undefined) {
+    return (
+      <div className="grid gap-6">
+        <Link className="text-sm text-muted underline underline-offset-4" href="/account">
+          All profiles
+        </Link>
+        {children}
+      </div>
+    );
+  }
+
   if (active === undefined) {
     return (
       <div className="grid gap-6">
         <Link className="text-sm text-muted underline underline-offset-4" href="/account">
           All profiles
         </Link>
-        {owned === undefined ? (
-          <p className="text-sm text-muted">Loading your profiles…</p>
-        ) : (
-          <p className="text-sm text-muted">
-            You do not manage any profiles yet. Claim one to edit it here.
-          </p>
-        )}
+        <p className="text-sm text-muted">Loading your profiles…</p>
       </div>
     );
   }

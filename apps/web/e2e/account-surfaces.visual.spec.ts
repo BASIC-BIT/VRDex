@@ -6,6 +6,7 @@ import {
   createClerkTestAccount,
   deleteClerkTestAccount,
   deleteClerkTestAccountByEmail,
+  hostedTargetRunsCurrentRevision,
   signInClerkTestAccount,
   type ClerkTestAccount,
 } from "./clerk-auth";
@@ -349,7 +350,7 @@ test.describe("account surfaces @visual @flow @account-visual", () => {
     });
   });
 
-  test("account privacy", async ({ page }, testInfo) => {
+  test("account privacy", async ({ page, request }, testInfo) => {
     await page.goto("/account/privacy");
     // A freshly created account owns no profile, so this panel renders its
     // empty state rather than the field-visibility editor. That is the surface
@@ -365,18 +366,18 @@ test.describe("account surfaces @visual @flow @account-visual", () => {
     // state. Capturing it needs the account to own a profile, which is what
     // `auth-claim.flow.spec.ts` builds; fold this in there if the editor's
     // rendering ever needs watching.
-    // Which element carries that empty state depends on the revision the target
-    // runs, and this lane always points at staging rather than at the branch it
-    // is checking out. `main` moved profile selection into `ProfileWorkspace`
-    // (#246), whose own empty state now answers before this panel's ever
-    // renders, so a hosted run reads a paragraph where a local run reads this
-    // panel's heading. Both say the same thing -- signed in, owning nothing --
-    // which is the whole claim the screenshot below makes, and the negative
-    // assertion after this is what proves the signed-in half on either.
+    // Tolerated only while the target is behind this commit. This lane runs
+    // against staging, which serves the previous release for as long as a branch
+    // is in review, so a change to this empty state cannot be green on the PR
+    // that makes it — the fix and the assertion land together and staging has
+    // neither yet. The gate closes the moment staging carries the commit, which
+    // is the post-merge health run, so the lagging shape is never accepted twice.
+    const emptyState = page.getByRole("heading", { name: "No owned profiles yet" });
+
     await expect(
-      page
-        .getByRole("heading", { name: "No owned profiles yet" })
-        .or(page.getByText("You do not manage any profiles yet")),
+      (await hostedTargetRunsCurrentRevision(request))
+        ? emptyState
+        : emptyState.or(page.getByText("You do not manage any profiles yet.")),
     ).toBeVisible(hostedExpectOptions);
     await expect(page.getByRole("heading", { name: "Sign in to manage privacy" })).toHaveCount(
       0,

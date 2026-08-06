@@ -191,8 +191,21 @@ It needs two Convex variables and one Vercel variable, and is inert without
 them — which is where every deployment that has never delegated a key sits:
 
 ```bash
-pnpm ops:bootstrap-vrclinking-cleanup -- --target prod --site-url https://vrdex.net --deployment-url <vercel-deployment-url>
+pnpm ops:bootstrap-vrclinking-cleanup --target prod --site-url https://vrdex.net --deployment-url <vercel-deployment-url>
 ```
+
+Staging is the same script against the shared development backend and Vercel's
+custom `staging` environment, which is not the default:
+
+```bash
+pnpm ops:bootstrap-vrclinking-cleanup --target dev --site-url https://staging.vrdex.net --deployment-url <vercel-deployment-url> --vercel-environment staging
+```
+
+Both were enabled on 2026-08-06 and verified by running
+`vrclinkingCredentials:sweepAbandonedDelegationKeys` against each backend and
+reading the runtime log for the request it makes. `configured: true` alone is not
+that proof: `swept` is `0` both when there is nothing to retire and when the POST
+was rejected, so the status code is the thing to look at.
 
 That generates the shared bearer, sets both Convex variables and the matching
 Vercel one, and prints none of them — neither provider receives it as a process
