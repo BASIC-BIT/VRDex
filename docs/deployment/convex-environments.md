@@ -170,17 +170,23 @@ Convex deploy and before its Vercel deploy.
 
 ## Transactional Email Environment
 
-**No deployment needs these today.** Clerk sends the verification and password
-email this section used to describe, and nothing in the codebase calls SES. They
-are documented for whichever feature adopts SES next.
+**The support digest needs these.** Clerk sends the verification and password
+email this section used to describe, so SES is out of the auth path, but the
+hourly `internal.supportRequestDigest.sendSupportDigest` cron mails new
+`/support` requests through it.
 
-A Convex deployment that does send through SES must set:
+A Convex deployment that sends through SES must set:
 
 - `AWS_SES_REGION`
 - `AWS_SES_FROM_EMAIL`
 - `AWS_ACCESS_KEY_ID`
 - `AWS_SECRET_ACCESS_KEY`
 - `VRDEX_APP_NAME` optional display name
+- `VRDEX_SUPPORT_DIGEST_TO`: the mailbox the `/support` digest is delivered to.
+  Without it the cron sends nothing and reports `configured: false`, which is
+  the correct state for a deployment with no operator mailbox. Requests keep
+  their unset `notifiedAt` in the meantime, so setting this later delivers the
+  backlog rather than starting from whatever arrives next.
 
 The hosted SES baseline is documented in `docs/deployment/ses-auth-email.md` and `docs/deployment/aws-baseline.md`. Store secret values in Convex env, never in git.
 
@@ -321,7 +327,11 @@ deployment once the cutover is verified:
 
 - `AUTH_GOOGLE_ID` and `AUTH_GOOGLE_SECRET`: Google sign-in now runs through Clerk. Do not delete the Google OAuth *client* — point it at Clerk's callback URL instead
 - `JWT_PRIVATE_KEY` and `JWKS`: Convex Auth signed its own tokens; Clerk signs them now
-- `AWS_SES_REGION`, `AWS_SES_FROM_EMAIL`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`: these sent email/password verification codes. Clerk sends its own, so they are unused **unless** another feature adopts SES — check before deleting
+
+The four `AWS_SES_*` and `AWS_*` credentials are **no longer on that list**. They
+sent email/password verification codes, which Clerk now handles, but the hourly
+support digest has since adopted them. Deleting them stops `/support` requests
+from reaching anyone, and stops it quietly.
 
 Discord community verification needs no additional production Convex environment
 variables. It reuses `AUTH_DISCORD_ID`, `AUTH_DISCORD_SECRET`, and `SITE_URL`

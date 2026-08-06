@@ -17,6 +17,7 @@ This doc captures the first community-submitted profile flow for `#23`, plus the
 ## Public Routes
 
 - `/submit`: first community-facing submission form
+- `/support`: contact, dispute, transfer, recovery, opt-out, and safety-review intake
 - `/p/<slug>`: public person profile page
 - `/c/<slug>`: public community profile page
 
@@ -25,6 +26,34 @@ The `/submit` route is protected by the middleware and redirects a signed-out vi
 Both public profile routes read through `profiles:getPublicBySlug`, require `publicationState: "published"` plus `publicSurfacingState: "public"`, verify the requested route type matches the stored `profileType`, and return a public projection that omits source-attribution identifiers.
 
 Public source display is sanitized to labels such as `Community submitted` and submitted date. Submitter token identifiers, issuer, subject, and display name are not exposed publicly in this slice.
+
+### The `/support` intake
+
+Unlike `/submit`, this route is deliberately open to signed-out visitors.
+Recovery is "I lost access to the account that holds my profile", so requiring a
+session would exclude the case that needs it most. A session is attached to the
+request when one exists.
+
+One selector, two destinations, because the two halves have different
+consequences:
+
+- `owner_opt_out` and `pre_claim_safety` call `suppressions:requestProfileSuppression` and write `profileSuppressionRequests`. Accepting one of those retracts matching profiles from discovery through a scheduled job.
+- `ownership_dispute`, `transfer`, `recovery`, and `feedback` call `supportRequests:submitSupportRequest` and write `supportRequests`, which has no automation behind it at all.
+
+They are kept apart so a feedback row can never be one operator action away from
+opting a profile out.
+
+Both mutations resolve the profile field through `readProfileSlugFromInput`, so
+a pasted profile link works on every topic. Text that names no profile is
+refused rather than dropped: discarding the only identifier on a dispute without
+saying so is how one arrives unactionable.
+
+`supportRequests` carries no lifecycle state. The hourly digest
+(`supportRequestDigest:sendSupportDigest`, see
+[`ses-auth-email.md`](../deployment/ses-auth-email.md)) is the read path and the
+operator mailbox is the workflow. `notifiedAt` unset means "not yet mailed", and
+the digest sends before it stamps, so a failure between the two costs a
+duplicate email rather than a lost request.
 
 ## Allowed Submission Fields
 

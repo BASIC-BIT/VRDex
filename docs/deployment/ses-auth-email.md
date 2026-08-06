@@ -2,14 +2,18 @@
 
 ## Current Recommendation
 
-**Retired for authentication.** Clerk sends its own verification and password
-email, so SES is no longer part of sign-in — see
+**Retired for authentication, live for the support digest.** Clerk sends its own
+verification and password email, so SES is no longer part of sign-in — see
 [`auth-sessions.md`](../backend/auth-sessions.md).
 
-The stack below is kept because the domain identity and DKIM records are
-reusable, and because nothing should delete production DNS on the strength of
-one migration. Do not wire it back into an auth flow. Check whether any other
-feature has adopted SES before removing the infrastructure.
+This section previously asked whether any other feature had adopted SES before
+anyone removed the infrastructure. One has: the hourly
+`internal.supportRequestDigest.sendSupportDigest` cron mails new `/support`
+requests through this identity. Deleting the domain identity or the IAM key now
+breaks it, and the breakage is silent, because requests keep landing in
+`supportRequests` with nobody told about them.
+
+Do not wire it back into an auth flow.
 
 The Terraform stack at `infra/terraform/ses` provisions the SES domain identity, DKIM, custom MAIL FROM records, and an optional least-privilege IAM access key for Convex.
 
@@ -32,6 +36,15 @@ Set these in each Convex deployment that sends email:
 - `AWS_ACCESS_KEY_ID`
 - `AWS_SECRET_ACCESS_KEY`
 - `VRDEX_APP_NAME` optional display name for email copy
+- `VRDEX_SUPPORT_DIGEST_TO`: where the hourly `/support` digest is delivered.
+  Without it the cron returns `configured: false` and sends nothing, which is
+  the correct state for a deployment that has no operator mailbox. Requests keep
+  their unset `notifiedAt` meanwhile, so setting this later delivers the backlog
+  rather than starting from whatever arrives next.
+
+`configured: true` is not proof of delivery. It means the three variables are
+present, not that SES accepted the message, so confirm a real digest arrived
+after setting the recipient for the first time.
 
 ## Adapter Environment Variables
 
