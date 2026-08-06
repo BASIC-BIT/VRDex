@@ -406,6 +406,7 @@ export function sanitizeApiProfileUpdateInput(
     // link at a time so each keeps the source it was stored with rather than the
     // stamp the sanitizer would apply.
     const remaining = new Map<string, Map<ProfileLinkSource, number>>();
+    const storedPerDestination = new Map<string, number>();
 
     for (const link of profile.outboundLinks ?? []) {
       const [canonical] = sanitizeProfileLinksLeniently([link], link.source).links;
@@ -414,19 +415,43 @@ export function sanitizeApiProfileUpdateInput(
 
       bySource.set(link.source, (bySource.get(link.source) ?? 0) + 1);
       remaining.set(key, bySource);
+      storedPerDestination.set(key, (storedPerDestination.get(key) ?? 0) + 1);
     }
 
     const claimedSources = requestedLinkSources(input.outboundLinks);
-
-    patch.outboundLinks = sanitizeProfileLinks(
+    const submitted = sanitizeProfileLinks(
       input.outboundLinks ?? [],
       LINK_SOURCE_BY_SUBJECT[subject],
-    ).map((link, index) => {
-      const bySource = remaining.get(linkIdentity(link));
+    );
+    // How many rows the request puts on each destination, counted before any of
+    // them consumes anything. Nothing here deduplicates, so a writer can send a
+    // destination more times than the profile stores it.
+    const submittedPerDestination = new Map<string, number>();
+
+    for (const link of submitted) {
+      const key = linkIdentity(link);
+
+      submittedPerDestination.set(key, (submittedPerDestination.get(key) ?? 0) + 1);
+    }
+
+    patch.outboundLinks = submitted.map((link, index) => {
+      const key = linkIdentity(link);
+      const bySource = remaining.get(key);
 
       if (bySource === undefined) {
         // A destination the profile did not already hold. Genuinely this
         // writer's, so their own stamp is the honest one.
+        return link;
+      }
+
+      // More rows on this destination than the profile stores there, so which
+      // submitted row is the stored one is unanswerable. Consuming in submitted
+      // order answered it anyway, and answered wrong: prepending a row to a
+      // reviewed link handed that row the `reviewed` stamp and left the real one
+      // to be restamped community-submitted as the count ran out. Provenance
+      // transferred between rows, which is the one thing claiming it once was
+      // supposed to prevent.
+      if ((submittedPerDestination.get(key) ?? 0) > (storedPerDestination.get(key) ?? 0)) {
         return link;
       }
 

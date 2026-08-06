@@ -1612,12 +1612,53 @@ describe("API profile update helpers", () => {
     assert.equal(links[0]?.source, "reviewed");
   });
 
-  it("stamps a duplicate link from the writer rather than the one it matches", () => {
-    // One stored link, one inherited source. Keying on identity alone handed the
-    // same owner-authored provenance to every submitted link that matched it, so
-    // a contributor adding a second row for the same destination would have it
-    // recorded as owner-authored -- inventing provenance rather than preserving
-    // it, which is the opposite of what the inheritance is for.
+  it("does not let a prepended row take a reviewed link's standing", () => {
+    // The reported shape. A community contributor prepends a row on the same
+    // destination as a reviewed link, with whatever label and handle they like.
+    // Consuming in submitted order gave that row `reviewed` and left the real
+    // one to be restamped, so the trust signal followed the attacker's row.
+    const withReviewed = {
+      ...claimedPerson,
+      claimState: "unclaimed",
+      outboundLinks: [
+        {
+          type: "twitch",
+          label: "Twitch",
+          url: "https://twitch.tv/snekwtf",
+          source: "reviewed",
+        },
+      ],
+    } as unknown as Doc<"profiles">;
+
+    const links = sanitizeApiProfileUpdateInput(
+      withReviewed,
+      {
+        outboundLinks: [
+          { type: "twitch", url: "https://twitch.tv/snekwtf", label: "Mine" },
+          { type: "twitch", url: "https://twitch.tv/snekwtf", label: "Twitch" },
+        ],
+      },
+      "community_submitter",
+    ).patch.outboundLinks as Array<{ source: string }>;
+
+    // Neither row carries `reviewed` away.
+    assert.deepEqual(links.map((link) => link.source), [
+      "community_submitted",
+      "community_submitted",
+    ]);
+  });
+
+  it("gives a destination no provenance when more rows arrive than it stores", () => {
+    // One stored link, two submitted rows on its destination. Nothing in the
+    // request says which of them is the stored one, and answering by submitted
+    // order answered it wrong: the first row took the owner-authored stamp and
+    // the real one was restamped as the count ran out, so provenance moved
+    // between rows. A writer could take a reviewed link's standing by prepending
+    // a row to it.
+    //
+    // Neither row inherits now. That also covers what this case was first written
+    // for -- a duplicate must not be recorded as owner-authored, which would be
+    // inventing provenance rather than preserving it.
     const withLinks = {
       ...claimedPerson,
       claimState: "unclaimed",
@@ -1643,7 +1684,7 @@ describe("API profile update helpers", () => {
     ).patch.outboundLinks as Array<{ source: string }>;
 
     assert.deepEqual(links.map((link) => link.source), [
-      "owner_authored",
+      "community_submitted",
       "community_submitted",
     ]);
   });
