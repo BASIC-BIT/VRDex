@@ -115,6 +115,37 @@ describe("vocabulary usage counts", () => {
     assert.equal(store.rows[0].usageCount, 1);
   });
 
+  it("leaves a shared term's label to the profiles sharing it", async () => {
+    // Two public profiles spelling one key differently. Reconciling on every
+    // reindex meant an edit to either profile's bio re-asserted that profile's
+    // spelling as the discovery label, so the last save won a fight neither
+    // profile had picked.
+    const store = createVocabularyDb([
+      {
+        _id: "term0",
+        scope: "profile_tag",
+        key: createVocabularyKey("Drum & Bass"),
+        label: "Drum & Bass",
+        aliases: [],
+        source: "user_created",
+        usageCount: 2,
+        rank: 10,
+      },
+    ]);
+
+    await recordVocabularyTerms(
+      store.db as never,
+      [{ scope: "profile_tag" as const, label: "Drum and Bass" }],
+      7,
+      { incrementUsage: false },
+    );
+
+    assert.equal(store.rows[0].label, "Drum & Bass");
+    assert.equal(store.rows[0].usageCount, 2);
+    // Not touched at all, so an unrelated edit does not even restamp the row.
+    assert.equal(store.rows[0].updatedAt, undefined);
+  });
+
   it("does not invent a term for a retained key with no row", async () => {
     // A retained key whose row went missing is a lost record, not a new
     // contribution. Inserting one would put a count on the books that no later

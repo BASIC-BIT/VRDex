@@ -138,6 +138,23 @@ export async function recordVocabularyTerms(
       .unique();
 
     if (existing) {
+      // A retained key writes nothing unless this contributor is entitled to
+      // set the label and the label would actually move.
+      //
+      // Entitlement is the important half. Two spellings share one key, so with
+      // `Drum & Bass` on one public profile and `Drum and Bass` on another, every
+      // reindex re-asserted whichever spelling had just been saved -- an edit to
+      // one profile's bio flipped the discovery label to that profile's wording,
+      // and the last save won. A term the profile is alone in using is its to
+      // spell; a term other profiles are also holding is not.
+      //
+      // `usageCount` counts this contributor, so sole means exactly one. It is
+      // the same number the release path decrements, so the two agree about who
+      // holds a term.
+      if (!incrementUsage && (existing.usageCount > 1 || existing.label === label)) {
+        continue;
+      }
+
       await db.patch(existing._id, {
         label: candidate.source === "seeded" ? label : existing.source === "seeded" ? existing.label : label,
         aliases: candidate.source === "seeded" ? aliases : existing.aliases,
