@@ -1263,7 +1263,14 @@ export const previewBatchPublication = internalQuery({
           ? null
           : await ctx.db.get(candidate.matchedProfileId);
 
+      // Only candidates a publication run would actually process.
+      // `bulkPublishBatch` filters out rows that already published, so counting
+      // them here reported a blocker for work that is finished -- and the driver
+      // then recommended `--set-visibility` to unblock a publication that is not
+      // pending, which would have made those profiles' private fields public for
+      // nothing.
       if (
+        candidate.publishedProfileId === undefined &&
         !isPubliclyReadableProfile(matchedProfile) &&
         !accepted.some((field) => field.visibility !== "private" && hasSeedFieldContent(field))
       ) {
@@ -1807,6 +1814,37 @@ export const bulkSetFieldVisibility = internalMutation({
         continue;
       }
 
+      // Suppression is rechecked here, not only at publication. Making an alias
+      // public is a way to surface an identity, and it is the one this path has:
+      // a profile can be publicly readable *because* the retracted name was
+      // private, and `--set-visibility public --field-keys aliases` then puts it
+      // on the page and into the search index. Publication asks this question and
+      // so does the owner visibility mutation; a migration that changes the same
+      // thing has to ask it too.
+      //
+      // The profile is skipped and reported rather than the run failing: one
+      // retracted identity in a batch of 405 must not strand the other 404, and
+      // the operator needs to see which it was.
+      const surfacedAfterPatch = surfacedProfileNames({
+        ...profile,
+        ...(patch as Partial<Doc<"profiles">>),
+      });
+
+      if (
+        canReadProfile("public", profile) &&
+        (await hasAcceptedSuppression(ctx.db, {
+          slugs: [],
+          displayNames: surfacedAfterPatch,
+          profileType: profile.profileType,
+        }))
+      ) {
+        skipped.push({
+          externalCandidateId: candidate.externalCandidateId,
+          reason: "suppressed_identity_blocks_visibility_change",
+        });
+        continue;
+      }
+
       profilesRederived += 1;
 
       if (dryRun) {
@@ -1819,6 +1857,25 @@ export const bulkSetFieldVisibility = internalMutation({
           : [];
 
       await ctx.db.patch(profile._id, { ...patch, updatedAt: now });
+
+      // The same row the owner visibility mutation writes, for the same reason:
+      // `withheldProfileRecord` builds its History from this table alone, so
+      // without it a claiming owner sees that their imported fields were exposed,
+      // hidden or replayed and nothing about who did it or why. This path already
+      // holds a reviewer identity and a required reason -- it was simply not
+      // writing them down, which is the gap the whole record panel exists to
+      // close.
+      await ctx.db.insert("profileAuditEvents", {
+        profileId: profile._id,
+        action:
+          args.rederiveValues === true
+            ? "seed_import_values_rederived"
+            : "profile_field_visibility_updated",
+        actor: reviewer,
+        sourceType: "import",
+        note,
+        createdAt: now,
+      });
 
       const updated = await ctx.db.get(profile._id);
 

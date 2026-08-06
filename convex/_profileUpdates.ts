@@ -272,7 +272,14 @@ export function sanitizeApiProfileUpdateInput(
   // as long as they liked. Private tags and links had the same shape.
   const unchangedFields: ProfileEditableField[] = [];
 
-  if (hasOwn(input, "displayName")) {
+  // Grandfathered like the lists. The editor submits the name on every save, and
+  // a profile published before `display_name_outside_public_limits` existed can
+  // hold one that is too short or too long -- so revalidating it refused a bio or
+  // link correction the writer did make, over a name they did not touch. A rename
+  // is still validated, so nothing new gets in this way.
+  if (hasOwn(input, "displayName") && input.displayName === profile.displayName) {
+    unchangedFields.push("displayName");
+  } else if (hasOwn(input, "displayName")) {
     const displayName = requireBoundedText(
       input.displayName ?? "",
       "Display name",

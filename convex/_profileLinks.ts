@@ -352,21 +352,27 @@ const CASE_INSENSITIVE_PATH_HOSTS = new Set(["twitch.tv"]);
 export function profileLinkDestinationKey(link: { type: string; url: string }): string {
   try {
     const url = new URL(link.url);
-    // Some hosts say their path is case-insensitive, and Twitch is one:
-    // `twitch.tv/Snek` and `twitch.tv/snek` are one channel. Keeping the case
-    // there left the seed lane publishing both as separate buttons and the
-    // browser lane failing the provenance match on a case-only correction.
+    // `www.` dropped before anything is decided by host. Branded provider links
+    // carry it -- `www.twitch.tv/Snek` is the same channel as `twitch.tv/snek` --
+    // so leaving it on both failed the provider lookup below *and* made the two
+    // spellings different destinations. The web lookup's merger already strips it
+    // for the same reason.
+    const host = url.host.replace(/^www\./i, "");
+    // Some hosts say their path is case-insensitive, and Twitch is one. Keeping
+    // the case there left the seed lane publishing both spellings as separate
+    // buttons and the browser lane failing the provenance match on a case-only
+    // correction.
     //
     // A named list rather than folding every path, because the general case runs
     // the other way -- on most hosts `/Mix` and `/mix` are two pages, which is
     // the defect this key was written to fix.
-    const path = CASE_INSENSITIVE_PATH_HOSTS.has(url.host)
+    const path = CASE_INSENSITIVE_PATH_HOSTS.has(host)
       ? url.pathname.toLowerCase()
       : url.pathname;
 
     // `URL` lowercases protocol and host itself; the rest is used exactly as
     // given rather than folded along with them.
-    return `${link.type}:${url.protocol}//${url.host}${path}${url.search}${url.hash}`;
+    return `${link.type}:${url.protocol}//${host}${path}${url.search}${url.hash}`;
   } catch {
     // Unparseable, so no part of it is known to be case-insensitive. Compared
     // verbatim, which can only ever treat two links as distinct rather than

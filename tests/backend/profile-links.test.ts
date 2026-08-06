@@ -207,6 +207,20 @@ describe("lenient profile link sanitization", () => {
 
     assert.equal(result.links.length, 1);
     assert.equal(result.deduplicatedCount, 1);
+
+    // Branded provider links carry `www.`, and the host has to be normalized
+    // before the provider is looked up or the fold never applies to them.
+    const branded = sanitizeProfileLinksLeniently(
+      [
+        { type: "twitch", url: "https://www.twitch.tv/Snek" },
+        { type: "twitch", url: "https://www.twitch.tv/snek" },
+        { type: "twitch", url: "https://twitch.tv/snek" },
+      ],
+      "reviewed",
+    );
+
+    assert.equal(branded.links.length, 1);
+    assert.equal(branded.deduplicatedCount, 2);
   });
 
   it("keeps the good links when one entry is unusable", () => {

@@ -162,7 +162,10 @@ Publish behavior worth knowing:
   `--set-visibility`, which would have made imported private fields public to fix
   nothing. A dry run cannot say the opposite of what the publish gate does, and
   it must not recommend an irreversible privacy change on the strength of a
-  number that is not the gate's answer. Batch
+  number that is not the gate's answer. Candidates that have already published
+  are excluded from that count for the same reason: `bulkPublishBatch` filters
+  them out, so a blocker reported against one is a blocker on work that is
+  finished. Batch
   `nwinn_2026_07_16_ad79dca17a` is why it exists: it published 405 people whose
   every field was stored private, so each live profile showed a display name and
   a slug and nothing else.
@@ -386,6 +389,19 @@ pnpm ops:seed-publish -- `
 - Claimed profiles are left alone and reported as `profile_claimed`.
   Re-deriving one would overwrite whatever its owner has edited since with the
   seed snapshot.
+- Suppression is rechecked per profile, not only at publication. Making an alias
+  public is a way to surface an identity, and it is the one this path has: a
+  profile can be publicly readable *because* the retracted name was private, and
+  `--set-visibility public --field-keys aliases` then puts it on the page and in
+  the search index. A profile whose surfaced names would match an accepted
+  request is skipped and reported as
+  `suppressed_identity_blocks_visibility_change` rather than failing the run —
+  one retracted identity in a batch of 405 must not strand the other 404.
+- Every applied change writes a `profileAuditEvents` row naming the operator and
+  carrying the run's reason, the same as the owner visibility mutation.
+  `withheldProfileRecord` builds its History from that table alone, so without it
+  a claiming owner would see that their imported fields had been exposed, hidden
+  or replayed and nothing about who did it or why.
 - A batch revoked to `private_only`, moved out of `approved`, or carrying no
   recorded authorization re-derives nothing and reports `batch_not_authorized`.
   Re-derivation republishes seed data onto a live profile, so it answers to every

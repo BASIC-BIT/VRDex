@@ -1368,6 +1368,38 @@ describe("API profile update helpers", () => {
     );
   });
 
+  // The editor submits the name on every save, so revalidating it refused a
+  // correction the writer did make over a name they did not touch -- on a profile
+  // published before `display_name_outside_public_limits` existed and holding one
+  // outside the current bounds.
+  it("lets an unrelated edit through a legacy display name", () => {
+    const withLegacyName = {
+      ...claimedPerson,
+      claimState: "unclaimed",
+      displayName: "X",
+    } as unknown as Doc<"profiles">;
+
+    const result = sanitizeApiProfileUpdateInput(
+      withLegacyName,
+      { displayName: "X", bio: "Corrected biography" },
+      "community_submitter",
+    );
+
+    assert.deepEqual(result.changedFields, ["bio"]);
+    assert.equal("displayName" in result.patch, false);
+
+    // A rename is still validated, so nothing new gets in this way.
+    assert.throws(
+      () =>
+        sanitizeApiProfileUpdateInput(
+          withLegacyName,
+          { displayName: "Y" },
+          "community_submitter",
+        ),
+      /Display name must be at least/,
+    );
+  });
+
   // The editor posts every group it rendered, so an untouched group is validated
   // again on every save. That is fine until the stored value is outside a limit
   // the writer cannot fix -- published before the cap existed, or seeded past it
