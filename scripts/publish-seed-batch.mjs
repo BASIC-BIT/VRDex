@@ -190,14 +190,23 @@ function printPreview(preview) {
   // public to fix nothing.
   if (preview.blockedOnNoVisibleFieldCount > 0) {
     console.log(
-      `  warning: ${preview.blockedOnNoVisibleFieldCount} candidate(s) have no field anyone would see.`,
+      `  warning: ${preview.blockedOnNoVisibleFieldCount} candidate(s) have no field anyone would see${
+        preview.fieldStatsComplete ? "" : ` (of ${preview.fieldStatsSampledCandidates} sampled; there may be more)`
+      }.`,
     );
     console.log(
       "  publication is blocked on no_publicly_visible_field for those; use --set-visibility first.",
     );
   } else if (preview.fieldCount > 0 && preview.publiclyVisibleFieldCount === 0) {
+    // Both counters come from a sample, so "no candidate is blocked" is only
+    // sayable when the sample was the whole batch. Otherwise the reassurance is
+    // about the first fifty rows and reads as if it were about all of them --
+    // which is worse than saying nothing, because it is the reader's cue to stop
+    // checking.
     console.log(
-      "  note: no accepted field is publicly visible, but every candidate merges into a profile that already is.",
+      preview.fieldStatsComplete
+        ? "  note: no accepted field is publicly visible, but every candidate merges into a profile that already is."
+        : `  note: no accepted field is publicly visible in the first ${preview.fieldStatsSampledCandidates} candidates, and each of those merges into a profile that already is. Later candidates were not sampled.`,
     );
   }
 

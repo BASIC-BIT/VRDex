@@ -1302,7 +1302,16 @@ export const previewBatchPublication = internalQuery({
         (candidate) => candidate.publishedProfileId !== undefined,
       ).length,
       fieldStatsSampledCandidates: fieldStatsSampleSize,
-      fieldStatsComplete: fieldStatsSampleSize === candidates.length,
+      // Whether the field counters saw the whole batch. Both the candidate list
+      // and the per-candidate field sample can stop short, and a reader cannot
+      // tell "no candidate is blocked" from "none of the first fifty was" without
+      // this -- which is the difference between a reassurance and a guess.
+      // `!truncated` as well as the sample size. The candidate list itself stops
+      // short on a large batch, so a sample that covered every candidate it was
+      // handed still has not seen the batch -- and a reader cannot tell "no
+      // candidate is blocked" from "none of the ones we looked at was" without
+      // this. That is the difference between a reassurance and a guess.
+      fieldStatsComplete: !truncated && fieldStatsSampleSize === candidates.length,
       fieldCount: fieldReviewStates.length,
       fieldReviewStates: tally(fieldReviewStates),
       // What the preview could not say before: "100 fields accepted" reads as
@@ -1688,6 +1697,18 @@ export const bulkSetFieldVisibility = internalMutation({
       .paginate({ numItems: limit, cursor: args.cursor ?? null });
 
     const linkStats = { droppedCount: 0, deduplicatedCount: 0 };
+    /**
+     * What this run has already decided each profile's `fieldVisibility` will be.
+     *
+     * Several candidates can point at one merged profile. An applied run lets the
+     * second see the first's patch and skip as already-synchronized; a dry run
+     * reads the untouched row every time and counted both. Tracked here so the
+     * two agree, which is the only thing that makes a dry run worth running.
+     */
+    const writtenFieldVisibility = new Map<
+      Id<"profiles">,
+      Doc<"profiles">["fieldVisibility"]
+    >();
     const skipped: Array<{ externalCandidateId: string; reason: string }> = [];
     let fieldsChanged = 0;
     let profilesRederived = 0;
@@ -1807,12 +1828,22 @@ export const bulkSetFieldVisibility = internalMutation({
       // Only for the visibility-only path. `--rederive-values` replays values
       // that this cannot compare cheaply, and running it twice is a deliberate
       // act rather than an accident.
+      // Compared against what the run has already written to this profile, not
+      // only against what the row held when the page was read. Two candidates can
+      // publish to one merged profile, and an applied run lets the second see the
+      // first's patch -- so a dry run reading the untouched row counted two
+      // re-derivations where the write does one. A dry run whose whole job is to
+      // predict the write cannot be off by the thing it is predicting.
+      const alreadyWritten = writtenFieldVisibility.get(profile._id) ?? profile.fieldVisibility;
+
       if (
         args.rederiveValues !== true &&
-        sameFieldVisibility(rebuilt.fieldVisibility, profile.fieldVisibility)
+        sameFieldVisibility(rebuilt.fieldVisibility, alreadyWritten)
       ) {
         continue;
       }
+
+      writtenFieldVisibility.set(profile._id, rebuilt.fieldVisibility);
 
       // Suppression is rechecked here, not only at publication. Making an alias
       // public is a way to surface an identity, and it is the one this path has:
