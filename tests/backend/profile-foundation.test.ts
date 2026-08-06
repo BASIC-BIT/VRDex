@@ -1068,15 +1068,20 @@ describe("API profile update helpers", () => {
       },
     });
 
-    // displayName and bio are absent: both normalize to exactly what the profile
-    // already holds, and `changedFields` is the audit record, so it reports what
-    // changed rather than what was submitted. The patch still carries them.
+    // displayName and bio are absent from `changedFields`: both normalize to
+    // exactly what the profile already holds, and that is the audit record, so
+    // it reports what changed rather than what was submitted.
+    //
+    // They part company in the patch. The display name still normalizes through
+    // the validator, because the raw input differs from the stored string even
+    // though the normalized form does not. The bio is left out entirely: it is
+    // whitespace against a profile that has no bio, so there is nothing to write
+    // and the old `bio: undefined` was a clear of a field that was already clear.
     assert.deepEqual(result.changedFields, ["aliases", "person"]);
     assert.deepEqual(result.patch, {
       displayName: "DJ Celine",
       sortName: "dj celine",
       aliases: ["Celine"],
-      bio: undefined,
       person: {
         roleTags: ["DJ", "VJ"],
       },
@@ -1547,6 +1552,37 @@ describe("API profile update helpers", () => {
   // the writer cannot fix -- published before the cap existed, or seeded past it
   // -- at which point resubmitting it refuses an unrelated correction and names a
   // field they never opened.
+  it("lets an unrelated edit through a legacy over-limit headline", () => {
+    // Same grandfathering the display name and the lists already had, for the
+    // scalars that did not. A seeded profile can hold a headline longer than the
+    // cap, and this editor posts every rendered field on every save -- so
+    // validating before comparing refused the link correction the writer did
+    // make, naming a headline they never opened and could not shorten without
+    // losing what was there.
+    const legacy = {
+      ...claimedPerson,
+      headline: "x".repeat(400),
+      person: { ...claimedPerson.person, pronouns: "y".repeat(200) },
+    } as unknown as Doc<"profiles">;
+
+    const result = sanitizeApiProfileUpdateInput(legacy, {
+      headline: "x".repeat(400),
+      person: { pronouns: "y".repeat(200) },
+      bio: "A bio the writer actually changed.",
+    });
+
+    assert.deepEqual(result.changedFields, ["bio"]);
+
+    // Editing the over-limit value itself is still refused.
+    assert.throws(
+      () =>
+        sanitizeApiProfileUpdateInput(legacy, {
+          headline: "z".repeat(400),
+        }),
+      /Headline must be \d+ characters or fewer/,
+    );
+  });
+
   it("lets an unrelated edit through a legacy over-limit list", () => {
     const overLimit = Array.from({ length: PROFILE_ALIAS_MAX_COUNT + 4 }, (_u, i) => `alias-${i}`);
     const withLegacyAliases = {

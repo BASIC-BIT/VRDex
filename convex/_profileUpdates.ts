@@ -130,6 +130,27 @@ function requireBoundedText(input: string, fieldName: string, minLength: number,
   return value;
 }
 
+/**
+ * Whether a submitted scalar is already what the profile holds.
+ *
+ * Normalized exactly as `optionalBoundedText` would, minus the length check --
+ * which is the whole point. A profile seeded before the current limits can hold
+ * a headline or a pronoun string longer than one of them, and the editor posts
+ * every field it rendered on every save, so validating before comparing refused
+ * a link or bio correction the writer did make over a value they never touched.
+ * The same grandfathering the display name and the lists already get. A real
+ * edit is still validated, so nothing new arrives this way.
+ */
+function matchesStoredText(submitted: NullableString, stored: string | undefined): boolean {
+  if (submitted === null || submitted === undefined) {
+    return stored === undefined;
+  }
+
+  const value = normalizeProfileInlineText(submitted);
+
+  return (value.length === 0 ? undefined : value) === stored;
+}
+
 function optionalBoundedText(input: NullableString, fieldName: string, maxLength: number): string | undefined {
   if (input === null || input === undefined) {
     return undefined;
@@ -351,22 +372,30 @@ export function sanitizeApiProfileUpdateInput(
     addChangedField(changedFields, "tags");
   }
 
-  if (hasOwn(input, "headline")) {
+  if (hasOwn(input, "headline") && matchesStoredText(input.headline, profile.headline)) {
+    unchangedFields.push("headline");
+  } else if (hasOwn(input, "headline")) {
     patch.headline = optionalBoundedText(input.headline, "Headline", PROFILE_HEADLINE_MAX_LENGTH);
     addChangedField(changedFields, "headline");
   }
 
-  if (hasOwn(input, "bio")) {
+  if (hasOwn(input, "bio") && matchesStoredText(input.bio, profile.bio)) {
+    unchangedFields.push("bio");
+  } else if (hasOwn(input, "bio")) {
     patch.bio = optionalBoundedText(input.bio, "Bio", PROFILE_BIO_MAX_LENGTH);
     addChangedField(changedFields, "bio");
   }
 
-  if (hasOwn(input, "region")) {
+  if (hasOwn(input, "region") && matchesStoredText(input.region, profile.region)) {
+    unchangedFields.push("region");
+  } else if (hasOwn(input, "region")) {
     patch.region = optionalBoundedText(input.region, "Region", PROFILE_REGION_MAX_LENGTH);
     addChangedField(changedFields, "region");
   }
 
-  if (hasOwn(input, "timezone")) {
+  if (hasOwn(input, "timezone") && matchesStoredText(input.timezone, profile.timezone)) {
+    unchangedFields.push("timezone");
+  } else if (hasOwn(input, "timezone")) {
     patch.timezone = optionalBoundedText(input.timezone, "Timezone", PROFILE_TIMEZONE_MAX_LENGTH);
     addChangedField(changedFields, "timezone");
   }
@@ -506,7 +535,13 @@ export function sanitizeApiProfileUpdateInput(
     const person = { ...profile.person };
     let changed = false;
 
-    if (hasOwn(input.person, "pronouns")) {
+    // Grandfathered like the top-level scalars: a seeded pronoun string longer
+    // than the current cap refused every other correction on the profile until
+    // somebody shortened one the writer had not touched.
+    if (
+      hasOwn(input.person, "pronouns") &&
+      !matchesStoredText(input.person.pronouns, profile.person.pronouns)
+    ) {
       const pronouns = optionalBoundedText(
         input.person.pronouns,
         "Pronouns",
@@ -560,7 +595,11 @@ export function sanitizeApiProfileUpdateInput(
     const community = { ...profile.community };
     let changed = false;
 
-    if (hasOwn(input.community, "subtype")) {
+    // Grandfathered the same way, for the same reason.
+    if (
+      hasOwn(input.community, "subtype") &&
+      !matchesStoredText(input.community.subtype, profile.community.subtype)
+    ) {
       const subtype = optionalBoundedText(
         input.community.subtype,
         "Community subtype",

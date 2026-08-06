@@ -327,6 +327,20 @@ function ConnectedProfileWorkspace({
             >
               {active.displayName}
             </h1>
+            {/*
+              The only way into the profile editor from an account surface. Every
+              tab here is a settings surface and the editor is not one, so a
+              draft-private, opted-out or suppressed profile had nowhere to be
+              edited from: its public page 404s for its own owner, and the single
+              link to this route lived inside the record panel that this route is
+              what mounts. `Edit profile` is the heading that page already carries.
+            */}
+            <Link
+              className="mt-2 inline-block text-sm text-muted underline underline-offset-4"
+              href={`/${active.profileType === "person" ? "p" : "c"}/${active.slug}/edit`}
+            >
+              Edit profile
+            </Link>
           </div>
           {profiles.length > 1 ? (
             <label className="grid gap-1 text-sm">

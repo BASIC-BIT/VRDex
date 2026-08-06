@@ -413,7 +413,22 @@ export const withheldProfileRecord = query({
         // The whole point of the record: an edit with no attributable actor is
         // exactly the mystery a claiming owner should not inherit. Not in the
         // public projection -- an editor's identity is not the public's.
-        actor: event.actor?.displayName ?? event.actor?.subject,
+        //
+        // Except on a suppression request, where the actor is whoever filed it.
+        // A `pre_claim_safety` request records the person who reported a concern
+        // about this profile, and claiming it would otherwise hand the subject
+        // their name: the disclosure suppression exists to prevent, arriving
+        // through the record that documents it. An owner still sees that a
+        // request was filed and when, which is the part that is theirs.
+        //
+        // Withheld by action rather than by request type, because the audit row
+        // does not carry the type -- only a note, which owners do not see either.
+        // An `owner_opt_out` filer loses their own name off their own request,
+        // which is the cheap half of failing closed here.
+        actor:
+          seesInternalNotes || event.action !== "suppression_requested"
+            ? (event.actor?.displayName ?? event.actor?.subject)
+            : undefined,
       })),
     };
   },
