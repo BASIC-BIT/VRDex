@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { convexTest } from "convex-test";
+
+import { internal } from "../../convex/_generated/api";
+import schemaModule from "../../convex/schema";
 import type { Id } from "../../convex/_generated/dataModel";
 import {
   FAKE_SEED_IMPORT_FIXTURE_KEY,
@@ -12,10 +16,26 @@ import {
   canBulkApproveSeedImportBatch,
   getSeedImportPublicationBlockers,
   getSeedImportPublishBlockers,
+  hasPublicationAuthorization,
+  hasSeedFieldContent,
   normalizeSeedImportFixture,
   type SeedImportFixture,
 } from "../../convex/_seedImports";
-import { readOption } from "../../scripts/publish-seed-batch.mjs";
+import {
+  misplacedMigrationFlag,
+  misplacedPublishFlag,
+  readOption,
+  unknownOption,
+  VALUE_OPTIONS,
+} from "../../scripts/publish-seed-batch.mjs";
+
+const modules = {
+  "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
+  "../../convex/seedImports.ts": () => import("../../convex/seedImports"),
+};
+const schema = (
+  schemaModule as unknown as { default?: typeof schemaModule }
+).default ?? schemaModule;
 
 function cloneFixture(fixture: SeedImportFixture): SeedImportFixture {
   return structuredClone(fixture);
@@ -176,6 +196,8 @@ describe("seed import review and publication guards", () => {
     });
 
     // source_private_only too: a batch with no explicit policy fails closed.
+    // no_publicly_visible_field as well: neither field is accepted, so nothing
+    // here would reach the profile even once the review states were resolved.
     assert.deepEqual(new Set(blockers), new Set([
       "source_private_only",
       "publication_not_authorized",
@@ -184,6 +206,7 @@ describe("seed import review and publication guards", () => {
       "candidate_not_pending_publication",
       "field_unreviewed",
       "field_needs_correction",
+      "no_publicly_visible_field",
     ]));
   });
 
@@ -365,6 +388,45 @@ describe("seed import review and publication guards", () => {
     assert.deepEqual(blockers, ["publication_not_authorized"]);
   });
 
+  // The predicate itself, because three gates ask it -- queue, publish, and the
+  // `--set-visibility --rederive-values` migration -- and the third was written
+  // with its own weaker copy that read policy and review state alone. A fixture
+  // batch carrying the relaxed policy by accident could replay seed values onto
+  // live profiles the publish gate would have refused.
+  it("recognizes authorization only from a live authorizing entry", () => {
+    assert.equal(hasPublicationAuthorization({}), false);
+    assert.equal(hasPublicationAuthorization({ publicationAuthorizations: [] }), false);
+    assert.equal(
+      hasPublicationAuthorization({
+        publicationAuthorizations: [
+          { policy: "private_only" as const, reason: "Revoked.", authorizedAt: 1_788_220_800_000 },
+        ],
+      }),
+      false,
+    );
+    assert.equal(
+      hasPublicationAuthorization({
+        publicationAuthorizations: [
+          { policy: "private_only" as const, reason: "Revoked.", authorizedAt: 1_788_220_800_000 },
+          {
+            policy: "reviewed_publication_allowed" as const,
+            reason: "Source re-confirmed permission.",
+            authorizedAt: 1_788_307_200_000,
+          },
+        ],
+      }),
+      true,
+    );
+    // Written before revocations were recorded, so an entry with no policy is an
+    // authorization by the only thing the list held then.
+    assert.equal(
+      hasPublicationAuthorization({
+        publicationAuthorizations: [{ reason: "Legacy grant.", authorizedAt: 1_788_220_800_000 }],
+      }),
+      true,
+    );
+  });
+
   it("blocks a cross-type match at the queue gate", () => {
     const blockers = getSeedImportPublicationBlockers({
       batch: approvedBatch,
@@ -439,11 +501,120 @@ describe("seed import publish guards", () => {
     profileType: "person" as const,
     proposedSlug: "dj-example",
   };
+  // A candidate with nothing publishable is refused by `no_publicly_visible_field`
+  // regardless of every other gate, so the fixture for "this one can publish"
+  // has to carry a field somebody could actually see.
+  const publishableFields = [
+    {
+      fieldKey: "person.roleTags",
+      value: ["DJ"],
+      confidence: "medium" as const,
+      reviewState: "accepted" as const,
+      visibility: "public" as const,
+    },
+  ];
 
   it("allows publishing an approved, accepted, queued person candidate", () => {
     assert.deepEqual(
-      getSeedImportPublishBlockers({ batch: publishableBatch, candidate: queuedCandidate }),
+      getSeedImportPublishBlockers({
+        batch: publishableBatch,
+        candidate: queuedCandidate,
+        fields: publishableFields,
+      }),
       [],
+    );
+  });
+
+  // Create-only, like the slug and display-name bounds beside it. A merge writes
+  // into a profile that already exists and — because both gates refuse a match
+  // that is not publicly surfaced — one that is already public with its own
+  // content, so it cannot produce the display-name-only page this refuses.
+  // Blocking it stranded the private-only merge `matchCandidateToProfile` exists
+  // to record.
+  // The import normalizers do not drop blank strings, so `tags: [""]` reached
+  // this as a list of length one and counted as content, while the page filters
+  // falsy metadata out and shows nothing. A list of nothing is nothing, the same
+  // way an empty list already was.
+  //
+  // Publication was never actually open to it -- `unsafe_public_field` refuses
+  // any public list carrying a blank entry, independently. What was wrong is the
+  // answer, which `previewBatchPublication` reports as `publiclyVisibleFieldCount`
+  // and which should not depend on a neighbouring gate to come out right.
+  it("does not count a list of blank entries as visible content", () => {
+    const field = (value: unknown) =>
+      ({
+        fieldKey: "tags",
+        value,
+        confidence: "medium" as const,
+        reviewState: "accepted" as const,
+        visibility: "public" as const,
+      }) as never;
+
+    assert.equal(hasSeedFieldContent(field([""])), false);
+    assert.equal(hasSeedFieldContent(field(["", "   "])), false);
+    assert.equal(hasSeedFieldContent(field([])), false);
+    assert.equal(hasSeedFieldContent(field(["", "house"])), true);
+    assert.equal(hasSeedFieldContent(field(["house"])), true);
+
+    assert.ok(
+      getSeedImportPublishBlockers({
+        batch: publishableBatch,
+        candidate: queuedCandidate,
+        fields: [field(["", "   "])],
+      }).includes("no_publicly_visible_field"),
+    );
+  });
+
+  it("lets private-only fields merge into an existing profile", () => {
+    const privateOnlyFields = [
+      {
+        fieldKey: "person.roleTags",
+        value: ["DJ"],
+        confidence: "medium" as const,
+        reviewState: "accepted" as const,
+        visibility: "private" as const,
+      },
+    ];
+
+    assert.ok(
+      getSeedImportPublishBlockers({
+        batch: publishableBatch,
+        candidate: queuedCandidate,
+        fields: privateOnlyFields,
+      }).includes("no_publicly_visible_field"),
+    );
+
+    assert.deepEqual(
+      getSeedImportPublishBlockers({
+        batch: publishableBatch,
+        candidate: queuedCandidate,
+        fields: privateOnlyFields,
+        matchedProfile: {
+          _id: "profile-merge-target" as never,
+          claimState: "unclaimed" as const,
+          publicationState: "published" as const,
+          publicSurfacingState: "public" as const,
+        },
+      }),
+      [],
+    );
+
+    // Surfacing is not publication, and the exemption rests on the merge target
+    // already being a page a reader can open. A legacy draft_private row carrying
+    // publicSurfacingState: "public" is not one, so the candidate still has to
+    // bring something visible of its own.
+    assert.ok(
+      getSeedImportPublishBlockers({
+        batch: publishableBatch,
+        candidate: queuedCandidate,
+        fields: privateOnlyFields,
+        matchedProfile: {
+          _id: "profile-merge-target" as never,
+          claimState: "unclaimed" as const,
+          publicationState: "draft_private" as const,
+          publicSurfacingState: "public" as const,
+        },
+      }).includes("no_publicly_visible_field"),
     );
   });
 
@@ -604,6 +775,7 @@ describe("seed import publish guards", () => {
       getSeedImportPublishBlockers({
         batch: publishableBatch,
         candidate: { ...queuedCandidate, proposedDisplayName: "DJ Example" },
+        fields: publishableFields,
       }),
       [],
     );
@@ -673,5 +845,455 @@ describe("seed publish CLI option parsing", () => {
     assert.equal(readOption(["--reason", "--accept-fields", "--apply"], "--reason"), undefined);
     assert.equal(readOption(["--apply", "--reason"], "--reason"), undefined);
     assert.equal(readOption(["--apply"], "--reason"), undefined);
+  });
+
+  // Without `--set-visibility` the run is a bulk publication, so
+  // `--rederive-values --apply` -- meant to replay values onto profiles that are
+  // already live -- would publish every pending candidate in the batch instead.
+  // A typo that changes which operation runs is not a typo to absorb.
+  it("refuses migration-only flags outside visibility mode", () => {
+    assert.equal(
+      misplacedMigrationFlag(undefined, { "--rederive-values": true, "--field-keys": false }),
+      "--rederive-values",
+    );
+    assert.equal(
+      misplacedMigrationFlag(undefined, { "--rederive-values": false, "--field-keys": true }),
+      "--field-keys",
+    );
+
+    // `--field-keys` with no value still means the operator asked for it.
+    // Reading that as absent let the misplaced form through to a bulk
+    // publication, which is the operation this guard exists to keep separate.
+    assert.equal(
+      misplacedMigrationFlag(undefined, { "--rederive-values": false, "--field-keys": true }),
+      "--field-keys",
+    );
+
+    // Every value-taking option is refused when its value is missing, because
+    // `readOption` cannot tell that from the option being absent and the two mean
+    // opposite things. `--set-visibility --apply` read as "no visibility mode"
+    // runs a bulk publication instead of a migration.
+    for (const name of VALUE_OPTIONS) {
+      assert.equal(readOption([name, "--apply"], name), undefined, name);
+      assert.equal(readOption([name], name), undefined, name);
+    }
+
+    assert.ok(VALUE_OPTIONS.includes("--set-visibility"));
+    assert.ok(VALUE_OPTIONS.includes("--field-keys"));
+
+    // In visibility mode both belong, and neither is required.
+    assert.equal(
+      misplacedMigrationFlag("public", { "--rederive-values": true, "--field-keys": true }),
+      undefined,
+    );
+    assert.equal(
+      misplacedMigrationFlag(undefined, { "--rederive-values": false, "--field-keys": false }),
+      undefined,
+    );
+  });
+});
+
+describe("seed publish option safety", () => {
+  it("refuses a misspelled option instead of running a different operation", () => {
+    // The two reported spellings, both of which changed what the run did.
+    // `--set-visibilty` leaves the real selector unset, so the run falls past
+    // the migration into a bulk publication.
+    assert.deepEqual(
+      unknownOption(["--batch-id", "b", "--set-visibilty", "public", "--apply"]),
+      { name: "--set-visibilty", reason: "unknown" },
+    );
+
+    // `--field-key` leaves `--field-keys` absent, which the script reads as
+    // every accepted field, so a migration scoped to one key exposes all.
+    assert.deepEqual(
+      unknownOption(["--set-visibility", "public", "--field-key", "aliases"]),
+      { name: "--field-key", reason: "unknown" },
+    );
+  });
+
+  it("refuses an option that lost its dashes", () => {
+    // The dashes are what made the earlier fix work at all: it filtered to
+    // `--` tokens, so a `--field-keys` typed without them left both tokens
+    // unclaimed and `fieldKeys` undefined, which this script reads as every
+    // accepted field.
+    assert.deepEqual(
+      unknownOption(["--set-visibility", "public", "field-keys", "aliases", "--apply"]),
+      { name: "field-keys", reason: "positional" },
+    );
+
+    // One dash short counts too.
+    assert.deepEqual(
+      unknownOption(["--set-visibility", "public", "-field-keys", "aliases"]),
+      { name: "-field-keys", reason: "positional" },
+    );
+  });
+
+  it("does not mistake an option value for a stray argument", () => {
+    // Walking positionally means knowing which options consume the token after
+    // them, or every value would read as unclaimed.
+    assert.equal(
+      unknownOption(["--reason", "Source permits listing these publicly.", "--apply"]),
+      undefined,
+    );
+
+    // A value option whose value is missing consumes nothing, so the flag after
+    // it is still checked rather than swallowed as its argument.
+    assert.deepEqual(
+      unknownOption(["--reason", "--apply", "--apply"]),
+      { name: "--apply", reason: "repeated" },
+    );
+  });
+
+  it("refuses publication-only flags inside the visibility migration", () => {
+    // `--accept-fields` patches unreviewed fields to accepted on the way
+    // through publication. The migration has no such step and selects only
+    // fields already accepted, so the flag was recognized, dropped, and the run
+    // reported success having done none of what it promised.
+    assert.equal(
+      misplacedPublishFlag("public", { "--accept-fields": true }),
+      "--accept-fields",
+    );
+
+    // Still fine where it belongs.
+    assert.equal(
+      misplacedPublishFlag(undefined, { "--accept-fields": true }),
+      undefined,
+    );
+  });
+
+  it("accepts the equals form of the target selector", () => {
+    // `resolveTargetName` reads `--target=prod`, so refusing it here would
+    // reject a run the rest of the script is happy with.
+    assert.equal(
+      unknownOption(["--batch-id", "b", "--target=prod", "--apply"]),
+      undefined,
+    );
+
+    // Still one option, so giving it twice in either spelling is still a repeat.
+    assert.deepEqual(
+      unknownOption(["--target", "prod", "--target=dev"]),
+      { name: "--target=dev", reason: "repeated" },
+    );
+
+    // Only `--target`. Every other option is read by an exact match, so the
+    // equals form would reach the run as absent -- which for `--reason` means a
+    // migration with no recorded decision.
+    assert.deepEqual(
+      unknownOption(["--reason=because"]),
+      { name: "--reason=because", reason: "unknown" },
+    );
+  });
+
+  it("refuses a repeated option rather than silently taking the first", () => {
+    assert.deepEqual(
+      unknownOption(["--set-visibility", "public", "--set-visibility", "private"]),
+      { name: "--set-visibility", reason: "repeated" },
+    );
+  });
+
+  it("accepts a well-formed run, separator and all", () => {
+    assert.equal(
+      unknownOption([
+        "--",
+        "--batch-id",
+        "seed_fake_2026_001",
+        "--set-visibility",
+        "public",
+        "--field-keys",
+        "aliases",
+        "--rederive-values",
+        "--apply",
+        "--target",
+        "prod",
+      ]),
+      undefined,
+    );
+  });
+});
+
+describe("seed import visibility migration", () => {
+  const reviewer = {
+    tokenIdentifier: "operator:vrdex",
+    issuer: "vrdex",
+    subject: "seed-publish",
+    displayName: "VRDex operator",
+  };
+
+  /**
+   * Two candidates merged onto one published profile, each carrying a different
+   * accepted field. This is the shape the 405-profile batch actually has, and
+   * the one that made the per-profile identity set dangerous: used as a skip it
+   * dropped the second candidate's patch, so a run could report success with a
+   * field it had been told to hide still public.
+   */
+  async function seedMergedBatch(
+    t: ReturnType<typeof convexTest>,
+    now: number,
+    seedAlias = "Merged",
+  ) {
+    return await t.run(async (ctx) => {
+      const batchId = await ctx.db.insert("seedImportBatches", {
+        externalBatchId: "seed_fake_merge_001",
+        sourceName: "Example Partner Directory",
+        sourceType: "partner",
+        receivedAt: now,
+        publicationPolicy: "reviewed_publication_allowed",
+        publicationAuthorizations: [
+          {
+            policy: "reviewed_publication_allowed",
+            reason: "Source confirmed public listing is permitted.",
+            authorizedAt: now,
+          },
+        ],
+        importedBy: reviewer,
+        reviewState: "approved",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const profileId = await ctx.db.insert("profiles", {
+        profileType: "person",
+        slug: "merged-seed-target",
+        displayName: "Merged Seed Target",
+        sortName: "merged seed target",
+        aliases: ["Merged"],
+        tags: ["dj"],
+        claimState: "unclaimed",
+        publicationState: "published",
+        publicSurfacingState: "public",
+        creationSource: "concierge",
+        person: { roleTags: [] },
+        fieldVisibility: { aliases: "public", tags: "public" },
+        updatedAt: now,
+      });
+
+      for (const [index, fieldKey] of ["aliases", "tags"].entries()) {
+        const candidateId = await ctx.db.insert("seedImportCandidateProfiles", {
+          batchId,
+          externalCandidateId: `merge-candidate-${index + 1}`,
+          profileType: "person",
+          proposedDisplayName: "Merged Seed Target",
+          reviewState: "accepted",
+          publicationState: "published_unclaimed",
+          claimState: "unclaimed",
+          publishedProfileId: profileId,
+          publishedAt: now,
+          createdAt: now,
+          updatedAt: now,
+        });
+
+        await ctx.db.insert("seedImportCandidateFields", {
+          candidateId,
+          fieldKey,
+          value: fieldKey === "aliases" ? [seedAlias] : ["dj"],
+          sourceLabel: "Example Partner Directory",
+          sourceType: "partner",
+          confidence: "medium",
+          reviewState: "accepted",
+          visibility: "public",
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+
+      return { batchId, profileId };
+    });
+  }
+
+  it("applies every candidate's visibility to a profile two of them share", async () => {
+    const t = convexTest({ schema, modules });
+    const now = 1_788_220_800_000;
+    const { batchId, profileId } = await seedMergedBatch(t, now);
+
+    const result = await t.mutation(internal.seedImports.bulkSetFieldVisibility, {
+      batchId,
+      visibility: "private",
+      reason: "Source withdrew permission to list these publicly.",
+      reviewer,
+      now,
+    });
+
+    const profile = await t.run(async (ctx) => await ctx.db.get(profileId));
+
+    // The whole point: the second candidate's field is hidden too. Before the
+    // identity set was demoted to counting only, this stayed "public" while the
+    // run reported a profile re-derived.
+    assert.equal(profile?.fieldVisibility?.aliases, "private");
+    assert.equal(profile?.fieldVisibility?.tags, "private");
+    // One profile, not one per candidate.
+    assert.equal(result.profilesRederived, 1);
+    assert.equal(result.fieldsChanged, 2);
+    // A visibility-only applied run carries the membership and not the
+    // snapshot. The row the next page reads already holds this patch, so
+    // replaying the map would grow the payload with the batch for nothing --
+    // but reading it back only skips a profile with nothing left to change, and
+    // a later candidate contributing a different key is a change. Without the
+    // id it would be counted a second time, and the apply would report more
+    // profiles than the dry run it is supposed to match.
+    assert.deepEqual(result.simulatedProfiles, [{ profileId }]);
+  });
+
+  it("carries re-derived names to the next page, and nothing when it need not", async () => {
+    const t = convexTest({ schema, modules });
+    const now = 1_788_220_800_000;
+    const { batchId } = await seedMergedBatch(t, now);
+
+    // `--rederive-values` replaces values, so a later page's suppression
+    // recheck has to see the names an earlier page decided rather than the
+    // row's. The three fields carried are exactly the ones
+    // `surfacedProfileNames` reads.
+    const rederived = await t.mutation(internal.seedImports.bulkSetFieldVisibility, {
+      batchId,
+      visibility: "private",
+      reason: "Replaying the corrected import snapshot.",
+      rederiveValues: true,
+      reviewer,
+      dryRun: true,
+      now,
+    });
+
+    assert.equal(rederived.simulatedProfiles.length, 1);
+    assert.equal(rederived.simulatedProfiles[0]?.displayName, "Merged Seed Target");
+    assert.ok(Array.isArray(rederived.simulatedProfiles[0]?.aliases));
+    assert.equal(rederived.simulationComplete, true);
+
+    // A visibility-only dry run carries the visibility but not the names,
+    // because nothing in it moves them.
+    const visibilityOnly = await t.mutation(internal.seedImports.bulkSetFieldVisibility, {
+      batchId,
+      visibility: "private",
+      reason: "Source withdrew permission to list these publicly.",
+      reviewer,
+      dryRun: true,
+      now,
+    });
+
+    assert.equal(visibilityOnly.simulatedProfiles.length, 1);
+    assert.equal(visibilityOnly.simulatedProfiles[0]?.displayName, undefined);
+    assert.equal(visibilityOnly.simulatedProfiles[0]?.aliases, undefined);
+  });
+
+  it("advances the simulation from what the run carries, not the stored row", async () => {
+    const t = convexTest({ schema, modules });
+    const now = 1_788_220_800_000;
+    // The seed alias differs from the profile's, so a re-derivation actually
+    // moves the name and the layering is observable. The "tags" candidate that
+    // follows carries no alias field at all: rebuilding its snapshot from the
+    // row reset the name to the original, throwing away what the first
+    // candidate had simulated, and a third candidate on the profile would then
+    // run its suppression check against a name the applied run has replaced.
+    const { batchId } = await seedMergedBatch(t, now, "Renamed");
+
+    const result = await t.mutation(internal.seedImports.bulkSetFieldVisibility, {
+      batchId,
+      visibility: "private",
+      reason: "Replaying the corrected import snapshot.",
+      rederiveValues: true,
+      reviewer,
+      dryRun: true,
+      now,
+    });
+
+    assert.deepEqual(result.simulatedProfiles[0]?.aliases, ["Renamed"]);
+  });
+
+  it("leaves a profile alone when only the map shape differs", async () => {
+    const t = convexTest({ schema, modules });
+    const now = 1_788_220_800_000;
+    const { batchId, profileId } = await seedMergedBatch(t, now);
+
+    // The owner visibility control drops a key it is setting back to the
+    // default, and an absent key already means public -- so this row and a
+    // rebuilt map that spells both keys out say exactly the same thing. Reading
+    // the shapes as different made the migration patch a profile it had nothing
+    // to change on, and that is not free: it bumps `updatedAt`, which is the
+    // version every open editor is holding.
+    const before = await t.run(async (ctx) => {
+      await ctx.db.patch(profileId, { fieldVisibility: undefined });
+      return (await ctx.db.get(profileId))?.updatedAt;
+    });
+
+    const result = await t.mutation(internal.seedImports.bulkSetFieldVisibility, {
+      batchId,
+      visibility: "public",
+      reason: "Source permits listing these publicly.",
+      reviewer,
+      now: now + 1_000,
+    });
+
+    const after = await t.run(async (ctx) => (await ctx.db.get(profileId))?.updatedAt);
+
+    assert.equal(result.profilesRederived, 0);
+    assert.equal(after, before);
+  });
+
+  it("counts a shared profile once when its pages are applied separately", async () => {
+    const t = convexTest({ schema, modules });
+    const now = 1_788_220_800_000;
+    const { batchId, profileId } = await seedMergedBatch(t, now);
+
+    // One candidate per page, applied, so the second page reads the row the
+    // first patched. It is not skipped -- its own field is still public, so
+    // there is a real change to make -- which is exactly why membership has to
+    // travel even where the visibility snapshot does not.
+    const first = await t.mutation(internal.seedImports.bulkSetFieldVisibility, {
+      batchId,
+      visibility: "private",
+      reason: "Source withdrew permission to list these publicly.",
+      reviewer,
+      limit: 1,
+      now,
+    });
+
+    assert.equal(first.profilesRederived, 1);
+    assert.deepEqual(first.simulatedProfiles, [{ profileId }]);
+
+    const second = await t.mutation(internal.seedImports.bulkSetFieldVisibility, {
+      batchId,
+      visibility: "private",
+      reason: "Source withdrew permission to list these publicly.",
+      reviewer,
+      limit: 1,
+      cursor: first.nextCursor ?? undefined,
+      simulatedProfiles: first.simulatedProfiles,
+      now,
+    });
+
+    // The second candidate's field is still hidden, so the write happened.
+    const profile = await t.run(async (ctx) => await ctx.db.get(profileId));
+
+    assert.equal(profile?.fieldVisibility?.aliases, "private");
+    assert.equal(profile?.fieldVisibility?.tags, "private");
+    // One profile across both pages, which is what the dry run reports too.
+    assert.equal(first.profilesRederived + second.profilesRederived, 1);
+  });
+
+  it("predicts that same result without writing it", async () => {
+    const t = convexTest({ schema, modules });
+    const now = 1_788_220_800_000;
+    const { batchId, profileId } = await seedMergedBatch(t, now);
+
+    const result = await t.mutation(internal.seedImports.bulkSetFieldVisibility, {
+      batchId,
+      visibility: "private",
+      reason: "Source withdrew permission to list these publicly.",
+      reviewer,
+      dryRun: true,
+      now,
+    });
+
+    const profile = await t.run(async (ctx) => await ctx.db.get(profileId));
+
+    assert.equal(profile?.fieldVisibility?.aliases, "public");
+    assert.equal(profile?.fieldVisibility?.tags, "public");
+    // The count the runbook promises will match the write.
+    assert.equal(result.profilesRederived, 1);
+    // Carried forward so a later page starts from what this one decided,
+    // rather than re-reading a row nothing wrote to.
+    assert.deepEqual(
+      result.simulatedProfiles.map((entry) => entry.profileId),
+      [profileId],
+    );
+    assert.equal(result.simulationComplete, true);
   });
 });

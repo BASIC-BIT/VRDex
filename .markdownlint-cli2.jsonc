@@ -17,6 +17,10 @@
     "apps/docs/build/**",
     "apps/web/.next/**",
     "apps/web/playwright-report/**",
+    // The storybook lane writes its own report directory. Both are gitignored
+    // build output, so linting either only ever fails on a machine that has run
+    // the suite locally.
+    "apps/web/playwright-report-storybook/**",
     "apps/web/test-results/**",
     "apps/web/playwright-artifacts/**"
   ],

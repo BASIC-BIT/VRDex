@@ -2263,6 +2263,11 @@ export default defineSchema({
     .index("by_batchId_externalCandidateId", ["batchId", "externalCandidateId"])
     .index("by_externalCandidateId", ["externalCandidateId"])
     .index("by_matchedProfileId", ["matchedProfileId"])
+    // Answers "which import record produced this live profile?", which is the
+    // direction `seedAccess:withheldProfileRecord` needs: it is handed a slug and
+    // has to reach the candidate and its batch to apply the same eligibility rule
+    // the name lookup applies.
+    .index("by_publishedProfileId", ["publishedProfileId"])
     .searchIndex("search_proposedDisplayName", {
       searchField: "proposedDisplayName",
       filterFields: ["profileType", "publicationState"],

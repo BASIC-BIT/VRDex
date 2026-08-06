@@ -6,15 +6,15 @@ import { FormEvent, MouseEvent, useEffect, useRef, useState, useTransition } fro
 import { useConvexAuth, useMutation } from "convex/react";
 import { api } from "@convex-generated-api";
 import { buttonVariants, Button } from "@/components/ui/button";
-import { Field, FieldText, Input, Select } from "@/components/ui/field";
+import { Field, Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { cn } from "@/lib/cn";
+import { BACKEND_ERROR_COPY } from "@/lib/error-copy";
+import { ProfileFields } from "../_components/profile-fields";
 import {
-  PROFILE_LINK_MAX_COUNT,
-  PROFILE_LINK_TYPE_LABELS,
-  PROFILE_LINK_TYPES,
-  type ProfileLinkType,
-} from "../../../../../convex/_profileLinks";
+  profileFieldsPayload,
+  type ProfileFieldsPayload,
+} from "../_components/profile-fields-model";
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 
@@ -34,28 +34,7 @@ type ProfileSubmissionResult = {
   slug: string;
 };
 
-type ProfileLinkInput = {
-  type: ProfileLinkType;
-  url: string;
-};
-
-type ProfileSubmissionPayload =
-  | {
-      profileType: "person";
-      displayName: string;
-      aliases: string[];
-      tags: string[];
-      outboundLinks: ProfileLinkInput[];
-      person: { roleTags: string[] };
-    }
-  | {
-      profileType: "community";
-      displayName: string;
-      aliases: string[];
-      tags: string[];
-      outboundLinks: ProfileLinkInput[];
-      community: { subtype: string; categoryTags: string[] };
-    };
+type ProfileSubmissionPayload = ProfileFieldsPayload;
 
 const userSafeErrorPatterns = [
   /Profile submissions require a signed-in user\./,
@@ -86,6 +65,15 @@ function submissionErrorMessage(error: unknown): string {
     return data.message;
   }
 
+  // Field validation now arrives structured too, for the same reason. The
+  // pattern list below still catches anything that does not, but it only ever
+  // worked on a development deployment -- production redacts the message it
+  // matches against, so every one of those was reaching the person as "try again
+  // once the backend is reachable" for a name they could have simply lengthened.
+  if (data?.code === "PROFILE_INPUT_INVALID" && data.message) {
+    return data.message;
+  }
+
   const message = error instanceof Error ? error.message : String(error);
 
   for (const pattern of userSafeErrorPatterns) {
@@ -96,66 +84,7 @@ function submissionErrorMessage(error: unknown): string {
     }
   }
 
-  return "Profile submission failed. Please try again once the backend is reachable.";
-}
-
-function splitList(value: FormDataEntryValue | null): string[] {
-  if (typeof value !== "string") {
-    return [];
-  }
-
-  return value
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function stringField(value: FormDataEntryValue | null): string {
-  return typeof value === "string" ? value : "";
-}
-
-/**
- * Rows are uncontrolled, so both lists come back in DOM order and pair by
- * index. Rows left blank are dropped rather than rejected.
- */
-function linksFromFormData(formData: FormData): ProfileLinkInput[] {
-  const types = formData.getAll("linkType");
-  const urls = formData.getAll("linkUrl");
-
-  return types.flatMap((type, index) => {
-    const url = stringField(urls[index] ?? null).trim();
-
-    return url ? [{ type: stringField(type) as ProfileLinkType, url }] : [];
-  });
-}
-
-function payloadFromFormData(formData: FormData): ProfileSubmissionPayload {
-  const selectedType = stringField(formData.get("profileType")) as ProfileType;
-  const sharedPayload = {
-    displayName: stringField(formData.get("displayName")),
-    aliases: splitList(formData.get("aliases")),
-    tags: splitList(formData.get("tags")),
-    outboundLinks: linksFromFormData(formData),
-  };
-
-  if (selectedType === "community") {
-    return {
-      ...sharedPayload,
-      profileType: "community",
-      community: {
-        subtype: stringField(formData.get("subtype")),
-        categoryTags: splitList(formData.get("categoryTags")),
-      },
-    };
-  }
-
-  return {
-    ...sharedPayload,
-    profileType: "person",
-    person: {
-      roleTags: splitList(formData.get("roleTags")),
-    },
-  };
+  return BACKEND_ERROR_COPY;
 }
 
 function DisabledSubmissionPanel() {
@@ -183,10 +112,10 @@ function SubmissionFormFields({ submitProfile }: {
 }) {
   const [profileType, setProfileType] = useState<ProfileType>("person");
   const [status, setStatus] = useState<SubmissionStatus>({ kind: "idle" });
-  // Stable ids rather than indices: the inputs are uncontrolled, so keying by
-  // index would shift the surviving rows' DOM values when one is removed.
-  const [linkRows, setLinkRows] = useState<number[]>([]);
-  const linkRowSeq = useRef(0);
+  // Remounts the field set on a successful submit. form.reset() restores each
+  // input's default, but the role checkboxes and link rows are React state, so
+  // they would survive into the next submission.
+  const [formGeneration, setFormGeneration] = useState(0);
   const successDialogRef = useRef<HTMLDialogElement>(null);
   const [, startTransition] = useTransition();
   const successResult = status.kind === "success" ? status.result : null;
@@ -198,15 +127,6 @@ function SubmissionFormFields({ submitProfile }: {
       dialog.showModal();
     }
   }, [successResult]);
-
-  function addLinkRow() {
-    linkRowSeq.current += 1;
-    setLinkRows((rows) => [...rows, linkRowSeq.current]);
-  }
-
-  function removeLinkRow(rowId: number) {
-    setLinkRows((rows) => rows.filter((row) => row !== rowId));
-  }
 
   function closeSuccessDialog() {
     successDialogRef.current?.close();
@@ -228,11 +148,11 @@ function SubmissionFormFields({ submitProfile }: {
     setStatus({ kind: "submitting" });
 
     try {
-      const result = await submitProfile(payloadFromFormData(formData));
+      const result = await submitProfile(profileFieldsPayload(formData, profileType));
 
       form.reset();
       setProfileType("person");
-      setLinkRows([]);
+      setFormGeneration((generation) => generation + 1);
       startTransition(() => setStatus({ kind: "success", result }));
     } catch (error) {
       startTransition(() => setStatus({ kind: "error", message: submissionErrorMessage(error) }));
@@ -243,97 +163,19 @@ function SubmissionFormFields({ submitProfile }: {
 
   return (
     <form className="grid gap-5" onSubmit={onSubmit}>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field>
-          Profile type
-          <Select
-            name="profileType"
-            value={profileType}
-            onChange={(event) => setProfileType(event.target.value as ProfileType)}
-          >
-            <option value="person">Person</option>
-            <option value="community">Community</option>
-          </Select>
-        </Field>
+      <Field className="sm:max-w-xs">
+        Profile type
+        <Select
+          name="profileType"
+          value={profileType}
+          onChange={(event) => setProfileType(event.target.value as ProfileType)}
+        >
+          <option value="person">Person</option>
+          <option value="community">Community</option>
+        </Select>
+      </Field>
 
-        <Field>
-          Display name
-          <Input name="displayName" placeholder="DJ Celine" required />
-        </Field>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field>
-          Aliases
-          <Input name="aliases" placeholder="Comma-separated names" />
-        </Field>
-
-        <Field>
-          Tags
-          <Input name="tags" placeholder="house, trance, vrchat" />
-        </Field>
-      </div>
-
-      {profileType === "person" ? (
-        <Field>
-          Person roles
-          <Input name="roleTags" placeholder="DJ, VJ, photographer" />
-        </Field>
-      ) : (
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field>
-            Community subtype
-            <Input name="subtype" placeholder="Club, collective, venue" />
-          </Field>
-
-          <Field>
-            Community categories
-            <Input name="categoryTags" placeholder="events, music, hangout" />
-          </Field>
-        </div>
-      )}
-
-      <div className="grid gap-3">
-        <span className="text-sm font-medium">Links</span>
-
-        {linkRows.map((rowId) => (
-          <div className="flex items-end gap-3" key={rowId}>
-            <Field className="w-44 shrink-0">
-              <FieldText>Type</FieldText>
-              <Select defaultValue="website" name="linkType">
-                {PROFILE_LINK_TYPES.map((linkType) => (
-                  <option key={linkType} value={linkType}>
-                    {PROFILE_LINK_TYPE_LABELS[linkType]}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-
-            <Field className="flex-1">
-              <FieldText>URL</FieldText>
-              <Input maxLength={2048} name="linkUrl" placeholder="https://soundcloud.com/name" type="url" />
-            </Field>
-
-            <Button
-              aria-label="Remove link"
-              className="size-11 shrink-0 p-0"
-              type="button"
-              variant="ghost"
-              onClick={() => removeLinkRow(rowId)}
-            >
-              <X aria-hidden="true" className="size-4" />
-            </Button>
-          </div>
-        ))}
-
-        {linkRows.length < PROFILE_LINK_MAX_COUNT ? (
-          <div>
-            <Button size="sm" type="button" variant="secondary" onClick={addLinkRow}>
-              Add link
-            </Button>
-          </div>
-        ) : null}
-      </div>
+      <ProfileFields key={formGeneration} profileType={profileType} />
 
       <div className="flex flex-col gap-3 border-t border-border pt-6 sm:flex-row sm:items-center">
         <Button className="sm:min-w-40" disabled={isSubmitting} size="lg" type="submit" variant="primary">
@@ -425,11 +267,14 @@ function E2eSubmissionForm() {
             aliases: payload.aliases,
             tags: payload.tags,
             outboundLinks: payload.outboundLinks,
+            // Optional in the payload because the editor renders only the fields
+            // its writer may change. This form renders all of them, so the
+            // fallbacks are for the type rather than for a case that happens.
             ...(payload.profileType === "person"
-              ? { roleTags: payload.person.roleTags }
+              ? { roleTags: payload.person?.roleTags ?? [] }
               : {
-                  subtype: payload.community.subtype,
-                  categoryTags: payload.community.categoryTags,
+                  subtype: payload.community?.subtype ?? "",
+                  categoryTags: payload.community?.categoryTags ?? [],
                 }),
           }),
         });

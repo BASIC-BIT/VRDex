@@ -4,6 +4,11 @@ import { internal } from "./_generated/api";
 import { activeBrowserSessionSubjectOrNull } from "./_browserSessionAuthority";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "./_generated/server";
+import {
+  getProfileFieldVisibility,
+  PROFILE_FIELD_VISIBILITY_KEYS,
+} from "./_profileFieldVisibility";
+import { canReadProfile } from "./_profilePermissions";
 import { createProfileSortName } from "./_profileSubmissions";
 import { createProfileSearchDocument, upsertSearchDocument, vocabularyForProfile } from "./_searchDocuments";
 import { buildConciergeProfileFieldPatch, isLiveHandoffInvitation } from "./_seedHandoffs";
@@ -25,6 +30,9 @@ import {
   createSeedImportDocumentsFromFixture,
   getSeedImportPublicationBlockers,
   getSeedImportPublishBlockers,
+  hasPublicationAuthorization,
+  hasSeedFieldContent,
+  isPubliclyReadableProfile,
   normalizePermissionedSeedImport,
   normalizeSeedImportFixture,
   seedImportCandidateFingerprint,
@@ -34,6 +42,7 @@ import {
   seedImportBatchReviewStateValidator,
   seedImportCandidateReviewStateValidator,
   seedImportFieldReviewStateValidator,
+  seedImportFieldVisibilityValidator,
   seedImportPublicationPolicyValidator,
 } from "./_seedImportValidators";
 import {
@@ -51,10 +60,120 @@ const PREVIEW_FIELD_SAMPLE_CANDIDATES = 50;
 // vocabulary lookup and write per list value. Split field acceptance and
 // vocabulary recording into separately paged mutations if larger pages are needed.
 const BULK_PUBLISH_MAX_PAGE_SIZE = 10;
+
+/**
+ * How many profiles the visibility migration will carry between cursor pages.
+ *
+ * This is the only part of that mutation's argument and response that grows with
+ * the batch rather than the page, so left unbounded it eventually passes the
+ * driver's stdout buffer and aborts a migration part-way through. The bound is
+ * far above the 405-profile batch it exists for, and passing it is reported
+ * rather than absorbed -- past this point a dry run may count a merged profile
+ * twice or refuse one the apply accepts.
+ */
+const SIMULATION_CARRY_LIMIT = 1_000;
+
+/**
+ * What a migration page tells the next one about a profile it already accepted.
+ *
+ * Every field is optional because the presence of the profile is itself the
+ * message: it says the run has counted this one, which is all a later page needs
+ * where it can read the earlier patch off the row. The visibility is carried only
+ * where nothing was written to read, and the names only for `--rederive-values`,
+ * which is the one mode that moves them.
+ */
+type SimulatedProfileState = {
+  fieldVisibility?: Doc<"profiles">["fieldVisibility"];
+  displayName?: string;
+  aliases?: string[];
+  searchAliases?: string[];
+};
 const PREVIEW_CANDIDATE_READ_CAP = 2_000;
 
 function optionalValue<T>(key: string, value: T | undefined): Record<string, T> {
   return value === undefined ? {} : { [key]: value };
+}
+
+type VocabularyCandidates = ReturnType<typeof vocabularyForProfile>;
+
+function vocabularyKeys(candidates: VocabularyCandidates): Set<string> {
+  return new Set(
+    candidates.map((candidate) => `${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`),
+  );
+}
+
+/**
+ * Reindex a profile whose public fields just changed, both directions.
+ *
+ * `recordVocabularyTerms` only increments, so replaying an unchanged set
+ * inflates counts, and replacing a visible tag would leave the old term's count
+ * inflated forever while the search document correctly drops it.
+ *
+ * `before` is what the profile contributed to vocabulary *while publicly
+ * readable* — pass an empty list for a profile that was not, or its terms get
+ * filtered out of the introduced set and the now-public profile ends up
+ * searchable while its facets never reach `vocabularyTerms`.
+ */
+/**
+ * Whether two `fieldVisibility` maps say the same thing.
+ *
+ * Compared by entry rather than by serialization, because key order is an
+ * artefact of how each map was built and would report a difference where there
+ * is none -- which is the whole failure this guards against, one level down.
+ */
+function sameFieldVisibility(
+  left: Doc<"profiles">["fieldVisibility"],
+  right: Doc<"profiles">["fieldVisibility"],
+): boolean {
+  // Compared as visibility rather than as maps. An absent key already means
+  // `public`, so `{}` and `{ aliases: "public" }` say the same thing about
+  // aliases -- and the two sides reach that state by different routes: the owner
+  // visibility control drops a key it is setting back to the default, while the
+  // rebuild writes it out. Reading the shapes as different made the migration
+  // patch a profile it had nothing to change on, which is not free: it bumps
+  // `updatedAt`, and that is the version every open editor is holding, so a
+  // no-op write refuses everybody's in-progress save.
+  return PROFILE_FIELD_VISIBILITY_KEYS.every(
+    (key) =>
+      getProfileFieldVisibility({ fieldVisibility: left }, key) ===
+      getProfileFieldVisibility({ fieldVisibility: right }, key),
+  );
+}
+
+async function reindexProfileVocabularyDelta(
+  ctx: Pick<MutationCtx, "db">,
+  before: VocabularyCandidates,
+  profile: Doc<"profiles">,
+  now: number,
+): Promise<void> {
+  // Empty for a profile the public cannot read. `vocabularyForProfile` honours
+  // per-field visibility but knows nothing about surfacing state, so re-deriving
+  // an opted-out or suppressed profile would otherwise push its tags into the
+  // discovery term list while its own search document stayed hidden.
+  const after = canReadProfile("public", profile) ? vocabularyForProfile(profile) : [];
+  const beforeKeys = vocabularyKeys(before);
+  const afterKeys = vocabularyKeys(after);
+  const key = (candidate: VocabularyCandidates[number]) =>
+    `${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`;
+
+  // Colliding labels are deduplicated inside the vocabulary helpers, so every
+  // side of the delta can stay a plain filter.
+  await Promise.all([
+    upsertSearchDocument(ctx.db, createProfileSearchDocument(profile)),
+    recordVocabularyTerms(ctx.db, after.filter((candidate) => !beforeKeys.has(key(candidate))), now),
+    // Retained keys reconciled rather than skipped, the same as the reindex path
+    // this mirrors. Two spellings share one key, so a merge or a re-derivation
+    // that rewrites `Drum & Bass` as `Drum and Bass` has nothing to add to the
+    // count and a new label to record -- and dropping the candidate left
+    // discovery reading the old wording off a profile that no longer says it.
+    recordVocabularyTerms(
+      ctx.db,
+      after.filter((candidate) => beforeKeys.has(key(candidate))),
+      now,
+      { incrementUsage: false },
+    ),
+    releaseVocabularyTerms(ctx.db, before.filter((candidate) => !afterKeys.has(key(candidate))), now),
+  ]);
 }
 
 function optionalReviewNote(value: string | undefined): string | undefined {
@@ -989,10 +1108,19 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
     // Publication keeps each field's reviewed visibility and never clears fields
     // the candidate did not propose. The concierge defaults do the opposite:
     // everything private, and the accepted selection replaces the whole profile.
+    //
+    // `linkStats` is threaded here for the same reason the migration threads it:
+    // an accepted link whose host no longer matches its provider is dropped by
+    // normalization, and a candidate with another visible field publishes anyway.
+    // Without this the result said "published" and nothing said a reviewed link
+    // had not made it -- a publication path that silently discards data, which is
+    // the thing this whole slice exists to stop doing.
+    const linkStats = { droppedCount: 0, deduplicatedCount: 0 };
     const publishFieldPatchOptions = {
       fieldVisibilitySource: "reviewed" as const,
       clearUnselectedFields: false,
       sourceType: batch.sourceType,
+      linkStats,
     };
 
     const publicSurfacing = {
@@ -1014,11 +1142,6 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
       matchedProfileWasPublic && matchedProfile !== null
         ? vocabularyForProfile(matchedProfile)
         : [];
-    const vocabularyBefore = new Set(
-      vocabularyBeforeCandidates.map(
-        (candidate) => `${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`,
-      ),
-    );
 
     if (matchedProfile !== null) {
       const existingPerson = matchedProfile as Extract<Doc<"profiles">, { profileType: "person" }>;
@@ -1066,32 +1189,7 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
       throw new Error("Unable to load published profile.");
     }
 
-    // Both directions of the delta. recordVocabularyTerms only increments, so
-    // replaying an unchanged set inflates counts, and a merge that replaces a
-    // visible tag would leave the old term's count inflated forever while the
-    // search document correctly drops it.
-    const vocabularyAfter = vocabularyForProfile(profile);
-    const afterKeys = new Set(
-      vocabularyAfter.map(
-        (candidate) => `${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`,
-      ),
-    );
-    // Colliding labels are deduplicated inside the vocabulary helpers, so both
-    // sides of the delta can stay a plain filter.
-    const introducedVocabulary = vocabularyAfter.filter(
-      (candidate) =>
-        !vocabularyBefore.has(`${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`),
-    );
-    const removedVocabulary = vocabularyBeforeCandidates.filter(
-      (candidate) =>
-        !afterKeys.has(`${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`),
-    );
-
-    await Promise.all([
-      upsertSearchDocument(ctx.db, createProfileSearchDocument(profile)),
-      recordVocabularyTerms(ctx.db, introducedVocabulary, now),
-      releaseVocabularyTerms(ctx.db, removedVocabulary, now),
-    ]);
+    await reindexProfileVocabularyDelta(ctx, vocabularyBeforeCandidates, profile, now);
 
     await ctx.db.patch(candidate._id, {
       publishedProfileId: profileId,
@@ -1111,6 +1209,8 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
       // published profile into a single worlds scan. A world crediting this slug
       // hid the attribution while the profile was not publicly readable.
       reindexKey: { profileType: profile.profileType, profileSlug: profile.slug },
+      linksDropped: linkStats.droppedCount,
+      linksDeduplicated: linkStats.deduplicatedCount,
     };
   }
 }
@@ -1193,9 +1293,63 @@ export const previewBatchPublication = internalQuery({
     const fieldStatsSampleSize = Math.min(candidates.length, PREVIEW_FIELD_SAMPLE_CANDIDATES);
     const fieldReviewStates: string[] = [];
 
+    const acceptedFieldVisibilities: string[] = [];
+    let publiclyVisibleFieldCount = 0;
+    // Candidates `no_publicly_visible_field` would actually refuse, as opposed to
+    // fields that happen to be invisible. The gate exempts a merge into a profile
+    // the public can already read, so a batch of those has no visible seed field
+    // and publishes anyway -- while the driver, reading the field count alone,
+    // told the operator publication was blocked and to run `--set-visibility`.
+    // That is the worst shape of wrong answer: one recommending an irreversible
+    // privacy change to fix a problem that is not there.
+    let blockedOnNoVisibleFieldCount = 0;
+
     for (const candidate of candidates.slice(0, fieldStatsSampleSize)) {
       const fields = await getCandidateFields(ctx, candidate._id);
+      const accepted = fields.filter((field) => field.reviewState === "accepted");
+      const matchedProfile =
+        candidate.matchedProfileId === undefined
+          ? null
+          : await ctx.db.get(candidate.matchedProfileId);
+
+      // Only candidates a publication run would actually process.
+      // `bulkPublishBatch` filters out rows that already published, so counting
+      // them here reported a blocker for work that is finished -- and the driver
+      // then recommended `--set-visibility` to unblock a publication that is not
+      // pending, which would have made those profiles' private fields public for
+      // nothing.
+      //
+      // The same argument reaches further than that filter did. A candidate the
+      // publish gate refuses on its own facts never gets as far as asking whether
+      // a field is visible, and no visibility change makes it: rejected review,
+      // a rejected or suppressed publication state, a claim, or a community
+      // candidate this slice cannot publish at all. Counting those recommended
+      // an irreversible privacy reclassification that unblocks nothing.
+      const canReachVisibleFieldGate =
+        candidate.reviewState === "accepted" &&
+        candidate.claimState === "unclaimed" &&
+        candidate.profileType === "person" &&
+        candidate.publicationState !== "rejected" &&
+        candidate.publicationState !== "suppressed";
+
+      if (
+        canReachVisibleFieldGate &&
+        candidate.publishedProfileId === undefined &&
+        !isPubliclyReadableProfile(matchedProfile) &&
+        !accepted.some((field) => field.visibility !== "private" && hasSeedFieldContent(field))
+      ) {
+        blockedOnNoVisibleFieldCount += 1;
+      }
+
       fieldReviewStates.push(...fields.map((field) => field.reviewState));
+      acceptedFieldVisibilities.push(...accepted.map((field) => field.visibility));
+      // The same predicate `no_publicly_visible_field` uses, so the preview and
+      // the gate cannot disagree. Counting by visibility alone reported content
+      // for a public `tags: []` and then refused the batch anyway, which is a
+      // dry run that says the opposite of what happens.
+      publiclyVisibleFieldCount += accepted.filter(
+        (field) => field.visibility !== "private" && hasSeedFieldContent(field),
+      ).length;
     }
 
     return {
@@ -1212,9 +1366,25 @@ export const previewBatchPublication = internalQuery({
         (candidate) => candidate.publishedProfileId !== undefined,
       ).length,
       fieldStatsSampledCandidates: fieldStatsSampleSize,
-      fieldStatsComplete: fieldStatsSampleSize === candidates.length,
+      // Whether the field counters saw the whole batch. Both the candidate list
+      // and the per-candidate field sample can stop short, and a reader cannot
+      // tell "no candidate is blocked" from "none of the first fifty was" without
+      // this -- which is the difference between a reassurance and a guess.
+      // `!truncated` as well as the sample size. The candidate list itself stops
+      // short on a large batch, so a sample that covered every candidate it was
+      // handed still has not seen the batch -- and a reader cannot tell "no
+      // candidate is blocked" from "none of the ones we looked at was" without
+      // this. That is the difference between a reassurance and a guess.
+      fieldStatsComplete: !truncated && fieldStatsSampleSize === candidates.length,
       fieldCount: fieldReviewStates.length,
       fieldReviewStates: tally(fieldReviewStates),
+      // What the preview could not say before: "100 fields accepted" reads as
+      // content going live, and every one of those fields can still be private.
+      // Publication carries the reviewed visibility through, so this is the
+      // number that predicts whether anyone will see anything.
+      acceptedFieldVisibilities: tally(acceptedFieldVisibilities),
+      publiclyVisibleFieldCount,
+      blockedOnNoVisibleFieldCount,
     };
   },
 });
@@ -1383,6 +1553,12 @@ export const bulkPublishBatch = internalMutation({
       .collect();
 
     let published = 0;
+    // Accumulated across the page for the same reason the migration reports them:
+    // a link dropped by normalization does not block publication when the
+    // candidate has other visible content, so without a count the run says
+    // "published 50" and nothing says a reviewed link was discarded on the way.
+    let linksDropped = 0;
+    let linksDeduplicated = 0;
     const skipped: Array<{ externalCandidateId: string; blockers: string[] }> = [];
     const reindexKeys: Array<{
       profileType: Doc<"profiles">["profileType"];
@@ -1450,6 +1626,8 @@ export const bulkPublishBatch = internalMutation({
 
       if (publishResult.published) {
         published += 1;
+        linksDropped += publishResult.linksDropped ?? 0;
+        linksDeduplicated += publishResult.linksDeduplicated ?? 0;
 
         if (publishResult.reindexKey !== undefined) {
           reindexKeys.push(publishResult.reindexKey);
@@ -1473,7 +1651,510 @@ export const bulkPublishBatch = internalMutation({
       externalBatchId: batch.externalBatchId,
       processed: page.length,
       published,
+      linksDropped,
+      linksDeduplicated,
       skipped,
+      nextCursor: pageResult.isDone ? null : pageResult.continueCursor,
+      isDone: pageResult.isDone,
+    };
+  },
+});
+
+/**
+ * Change the stored visibility of a batch's fields, and carry it to profiles
+ * already published from them.
+ *
+ * A field's `visibility` is what publication copies onto the profile, so an
+ * import that stored everything private publishes profiles that show nothing.
+ * The publish gate refuses that now (`no_publicly_visible_field`), but a batch
+ * already through it needs both halves fixed: the candidate rows, so the record
+ * is right, and the profiles derived from them, so people can actually see it.
+ *
+ * Re-derivation runs the accepted fields back through the same builder
+ * publication uses, which is also what canonicalizes links — a batch published
+ * before that existed picks up the fix here rather than needing a second pass.
+ *
+ * Paged like `bulkPublishBatch`, and `dryRun` reports the same counts without
+ * writing, because this changes what the public can see on live profiles.
+ */
+export const bulkSetFieldVisibility = internalMutation({
+  args: {
+    batchId: v.optional(v.id("seedImportBatches")),
+    externalBatchId: v.optional(v.string()),
+    visibility: seedImportFieldVisibilityValidator,
+    // Absent means every accepted field. Named keys are the common case: role
+    // tags and links go public while a bio stays back.
+    fieldKeys: v.optional(v.array(v.string())),
+    // Also replay the accepted field *values* onto already-published profiles,
+    // not just their visibility. Off by default: these profiles are
+    // community-editable, so replaying the import snapshot undoes every
+    // correction made since publication.
+    rederiveValues: v.optional(v.boolean()),
+    reason: v.string(),
+    dryRun: v.optional(v.boolean()),
+    limit: v.optional(v.number()),
+    cursor: v.optional(v.string()),
+    /**
+     * What earlier pages of this run already decided about each profile.
+     *
+     * One structure rather than the two this grew as. `countedProfileIds` and the
+     * visibility map ended up with identical key sets -- a profile is recorded
+     * once, after it survives every check -- so carrying both doubled the payload
+     * to say one thing twice.
+     *
+     * Why any of it travels: several candidates can publish to one merged
+     * profile. An applied run's later page reads the row the earlier one patched;
+     * a dry run writes nothing and would re-read the original, counting the same
+     * profile once per page and recomputing the suppression check against an
+     * alias the real run would already have hidden.
+     *
+     * Membership travels in every mode, because the count is per profile and a
+     * profile can straddle a page in all of them. A visibility-only applied run
+     * does read its own earlier patch back, but that only skips the profile when
+     * there is nothing left to change -- a second candidate contributing a
+     * different key is a real change, so it is processed, and without membership
+     * it was counted a second time. The dry run reported one profile and the
+     * apply two, for the same batch.
+     *
+     * The visibility snapshot is the part that does not: an applied run reads it
+     * off the row. It rides along only where nothing was written to read.
+     *
+     * The names ride along only for `--rederive-values`, which replaces values
+     * and not just visibility. `surfacedProfileNames` is the only consumer of the
+     * simulated state besides the visibility comparison, and it reads exactly
+     * these three fields -- so carrying them is what a "simulate the accumulated
+     * value patch" fix actually needs, without putting a whole profile patch on
+     * every page.
+     */
+    simulatedProfiles: v.optional(
+      v.array(
+        v.object({
+          profileId: v.id("profiles"),
+          fieldVisibility: v.optional(v.record(v.string(), seedImportFieldVisibilityValidator)),
+          displayName: v.optional(v.string()),
+          aliases: v.optional(v.array(v.string())),
+          searchAliases: v.optional(v.array(v.string())),
+        }),
+      ),
+    ),
+    reviewer: v.optional(seedImportAuthSubjectValidator),
+    now: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const batch = await resolveBatch(ctx, args);
+
+    if (batch === null) {
+      throw new Error("Seed import batch not found.");
+    }
+
+    const reason = optionalReviewNote(args.reason);
+
+    if (reason === undefined) {
+      throw new Error("Changing field visibility requires a reason recording the decision.");
+    }
+
+    const reviewer = await actorFromArgs(ctx, args.reviewer);
+
+    // Same rule as bulk publishing: this changes what the public can see, so it
+    // must never be recorded as an unknown operator.
+    if (reviewer === undefined) {
+      throw new Error(
+        "Changing field visibility requires an operator identity. Pass reviewer when calling outside a browser session.",
+      );
+    }
+
+    const now = args.now ?? Date.now();
+    const dryRun = args.dryRun === true;
+    const limit = Math.max(1, Math.min(args.limit ?? 10, BULK_PUBLISH_MAX_PAGE_SIZE));
+    const fieldKeys = args.fieldKeys === undefined ? undefined : new Set(args.fieldKeys);
+
+    if (fieldKeys?.size === 0) {
+      throw new Error("Pass at least one field key, or omit fieldKeys to change every accepted field.");
+    }
+
+    // Re-deriving a live profile republishes seed data onto it, so it answers to
+    // every lever publishing answers to, not a subset. `bulkPublishBatch` refuses
+    // a batch revoked to `private_only`, a batch moved out of `approved`, and a
+    // batch nobody recorded permission for -- so honouring only the first two
+    // would leave a legacy or fixture batch carrying the relaxed policy by
+    // accident able to replay seed values onto live profiles that the publish
+    // gate would have refused with `publication_not_authorized`.
+    //
+    // Candidate rows are still updated either way: setting visibility before a
+    // batch is authorized is preparation, and publication is gated separately.
+    const canRederive =
+      (batch.publicationPolicy ?? "private_only") === "reviewed_publication_allowed" &&
+      batch.reviewState === "approved" &&
+      hasPublicationAuthorization(batch);
+    const note = `Field visibility set to ${args.visibility} by ${reviewer.displayName ?? reviewer.subject}: ${reason}`;
+
+    // Skipped when the note is already the last line. A cursor-less retry after a
+    // lost response would otherwise append it again, and appendBatchNote trims
+    // oldest-first, so repeats eat the source and review context it exists to keep.
+    if (args.cursor === undefined && !dryRun && !(batch.notes ?? "").endsWith(note)) {
+      await ctx.db.patch(batch._id, {
+        ...optionalValue("notes", appendBatchNote(batch.notes, note)),
+        updatedAt: now,
+      });
+    }
+
+    const pageResult = await ctx.db
+      .query("seedImportCandidateProfiles")
+      .withIndex("by_batchId", (query) => query.eq("batchId", batch._id))
+      .paginate({ numItems: limit, cursor: args.cursor ?? null });
+
+    // Read once per page rather than once per candidate, the same as
+    // `bulkPublishBatch`. The recheck below is name-based, so it has no index to
+    // narrow on and collects the whole accepted history on every call -- a 50
+    // candidate page against a few hundred accepted requests multiplies into
+    // enough document reads to pass the transaction limit and roll the page back.
+    const acceptedRequests = await ctx.db
+      .query("profileSuppressionRequests")
+      .withIndex("by_state_createdAt", (query) => query.eq("state", "accepted"))
+      .collect();
+
+    // The visibility snapshot, not the membership. An applied run reads its own
+    // earlier patch off the row, so carrying the map back would be payload for
+    // nothing -- but membership travels in every mode, because the count is per
+    // profile and reading the patch back only skips the profile when there is
+    // nothing left to change. A second candidate contributing a different key is
+    // a real change, so it is processed, and without membership it was counted
+    // again: the dry run reported one profile where the apply reported two.
+    const carriesVisibility = dryRun || args.rederiveValues === true;
+    const linkStats = { droppedCount: 0, deduplicatedCount: 0 };
+    /**
+     * What this run has already decided about each profile it accepted.
+     *
+     * Several candidates can point at one merged profile. An applied run lets the
+     * second see the first's patch and skip as already-synchronized; a dry run
+     * reads the untouched row every time and counted both. Tracked here so the
+     * two agree, which is the only thing that makes a dry run worth running.
+     *
+     * Membership also decides the count, which is why the separate id set went
+     * away: a profile is recorded once, after it survives every check, so "have
+     * we written this" and "have we counted this" were always the same question.
+     */
+    const simulated = new Map<Id<"profiles">, SimulatedProfileState>(
+      // Seeded from earlier pages, so a later page starts where the previous one
+      // left off instead of re-reading a row nothing wrote to.
+      (args.simulatedProfiles ?? []).map((entry) => [
+        entry.profileId,
+        {
+          // Absent, not undefined. These spread over the row further down, so a
+          // key present and empty would blank the value the row actually holds --
+          // which is the value an applied run is carrying nothing precisely
+          // because it can read it back.
+          ...optionalValue(
+            "fieldVisibility",
+            entry.fieldVisibility as Doc<"profiles">["fieldVisibility"],
+          ),
+          ...optionalValue("displayName", entry.displayName),
+          ...optionalValue("aliases", entry.aliases),
+          ...optionalValue("searchAliases", entry.searchAliases),
+        },
+      ]),
+    );
+    const skipped: Array<{ externalCandidateId: string; reason: string }> = [];
+    let fieldsChanged = 0;
+    let profilesRederived = 0;
+
+    for (const candidate of pageResult.page) {
+      const fields = await getCandidateFields(ctx, candidate._id);
+      const targets = fields.filter(
+        (field) =>
+          field.reviewState === "accepted" &&
+          field.visibility !== args.visibility &&
+          (fieldKeys === undefined || fieldKeys.has(field.fieldKey)),
+      );
+
+      fieldsChanged += targets.length;
+
+      if (!dryRun) {
+        for (const field of targets) {
+          await ctx.db.patch(field._id, { visibility: args.visibility, updatedAt: now });
+        }
+      }
+
+      if (candidate.publishedProfileId === undefined) {
+        continue;
+      }
+
+      if (!canRederive) {
+        skipped.push({
+          externalCandidateId: candidate.externalCandidateId,
+          reason: "batch_not_authorized",
+        });
+        continue;
+      }
+
+      const profile = await ctx.db.get(candidate.publishedProfileId);
+
+      if (profile === null) {
+        continue;
+      }
+
+      // A claimed profile is its owner's. Re-deriving it would overwrite whatever
+      // they have edited since with the seed snapshot, which is a far worse
+      // outcome than a stale visibility flag on the candidate row.
+      if (profile.claimState !== "unclaimed") {
+        skipped.push({
+          externalCandidateId: candidate.externalCandidateId,
+          reason: "profile_claimed",
+        });
+        continue;
+      }
+
+      // The field patch builder is person-only, same as publication.
+      if (profile.profileType !== "person") {
+        skipped.push({
+          externalCandidateId: candidate.externalCandidateId,
+          reason: "profile_type_unsupported",
+        });
+        continue;
+      }
+
+      // Scoped to `fieldKeys` when one was given. `--field-keys outboundLinks`
+      // says which fields this run is about, and feeding the builder every
+      // accepted field would replay the whole import snapshot -- overwriting
+      // live aliases, tags and roles nobody asked to touch. Narrowing the input
+      // narrows both halves: `person` rebuilds from the profile's own value with
+      // only the selected seed field applied, so a run targeting role tags
+      // leaves pronouns alone.
+      const acceptedFields = fields
+        .filter(
+          (field) =>
+            field.reviewState === "accepted" &&
+            (fieldKeys === undefined || fieldKeys.has(field.fieldKey)),
+        )
+        .map((field) =>
+          targets.some((target) => target._id === field._id)
+            ? { ...field, visibility: args.visibility }
+            : field,
+        );
+      // Nothing selected for this candidate, so there is nothing to carry. A
+      // `--field-keys outboundLinks` run over a batch reaches plenty of profiles
+      // with no link field at all, and the builder would hand back the profile's
+      // own `fieldVisibility` unchanged -- a patch whose only effect is a fresh
+      // `updatedAt` and a reindex, counted and reported as a re-derivation. The
+      // run would say it had touched every published profile in the batch and
+      // mean nothing by it.
+      if (acceptedFields.length === 0) {
+        continue;
+      }
+
+      // Compared and accumulated against what the run has already written to
+      // this profile, not only against what the row held when the page was read.
+      // Two candidates can publish to one merged profile, and an applied run lets
+      // the second see the first's patch -- so a dry run reading the untouched
+      // row counted two re-derivations where the write does one. A dry run whose
+      // whole job is to predict the write cannot be off by the thing it is
+      // predicting.
+      const carried = simulated.get(profile._id);
+      const alreadyWritten = carried?.fieldVisibility ?? profile.fieldVisibility;
+
+      const rebuilt = buildConciergeProfileFieldPatch(
+        acceptedFields,
+        // Layered onto the visibility this run has accumulated for the profile
+        // rather than the row's own. Two candidates merging into one profile
+        // contribute different fields, and rebuilding the second from the
+        // untouched row drops the first's contribution on a dry run, which has no
+        // write to read back.
+        { ...profile, fieldVisibility: alreadyWritten },
+        {
+          fieldVisibilitySource: "reviewed",
+          clearUnselectedFields: false,
+          sourceType: batch.sourceType,
+          linkStats,
+        },
+      );
+      // Visibility only, unless the operator asks for the values too.
+      //
+      // These profiles are community-editable now, so replaying the whole seed
+      // patch would silently undo every correction made since publication --
+      // links fixed, tags added, a name spelled right -- and the operator would
+      // see only a count of profiles "re-derived". Changing what is visible does
+      // not require changing what is there.
+      //
+      // `rederiveValues` is the one-time pass for a batch published before link
+      // canonicalization existed. It overwrites live values with the import
+      // snapshot, which is the point and also the risk.
+      const patch =
+        args.rederiveValues === true
+          ? rebuilt
+          : { fieldVisibility: rebuilt.fieldVisibility };
+
+      // A visibility-only run that would write the visibility the profile already
+      // has is not a re-derivation, and patching it anyway is not free: it bumps
+      // `updatedAt`, which is the version every open edit form is holding, so
+      // re-running a finished migration would refuse everybody's in-progress save
+      // -- while reporting a count of profiles it had updated and had not.
+      //
+      // Only for the visibility-only path. `--rederive-values` replays values
+      // that this cannot compare cheaply, and running it twice is a deliberate
+      // act rather than an accident.
+      if (
+        args.rederiveValues !== true &&
+        sameFieldVisibility(rebuilt.fieldVisibility, alreadyWritten)
+      ) {
+        continue;
+      }
+
+      // Suppression is rechecked here, not only at publication. Making an alias
+      // public is a way to surface an identity, and it is the one this path has:
+      // a profile can be publicly readable *because* the retracted name was
+      // private, and `--set-visibility public --field-keys aliases` then puts it
+      // on the page and into the search index. Publication asks this question and
+      // so does the owner visibility mutation; a migration that changes the same
+      // thing has to ask it too.
+      //
+      // The profile is skipped and reported rather than the run failing: one
+      // retracted identity in a batch of 405 must not strand the other 404, and
+      // the operator needs to see which it was.
+      //
+      // Layered over the names this run has already accumulated, not only the
+      // row's own. With `--rederive-values` an earlier candidate can replace a
+      // retracted alias with a safe one; an applied run's later page reads that
+      // back, while a dry run re-read the retracted alias and refused a profile
+      // the apply accepts. The three fields carried between pages are exactly
+      // the ones `surfacedProfileNames` reads.
+      const surfacedAfterPatch = surfacedProfileNames({
+        ...profile,
+        ...carried,
+        ...(patch as Partial<Doc<"profiles">>),
+      });
+
+      if (
+        canReadProfile("public", profile) &&
+        (await hasAcceptedSuppression(ctx.db, {
+          slugs: [],
+          displayNames: surfacedAfterPatch,
+          profileType: profile.profileType,
+          acceptedRequests,
+        }))
+      ) {
+        skipped.push({
+          externalCandidateId: candidate.externalCandidateId,
+          reason: "suppressed_identity_blocks_visibility_change",
+        });
+        continue;
+      }
+
+      // Recorded only once the patch has survived every check, so what the run
+      // carries forward is what it accepted. Recording before the suppression
+      // check meant a refused candidate still claimed the profile: a later
+      // candidate on the same profile built its rebuild on a patch that was
+      // never applied, and the profile id it had already taken suppressed the
+      // count for whichever patch did go through.
+      //
+      // Counted once per profile, applied once per candidate. Membership exists
+      // so a profile two candidates contribute to is not reported twice; using it
+      // to skip the work as well dropped the second candidate's patch entirely,
+      // so `--set-visibility private` could report success while a field it named
+      // stayed public on the live profile. Whether this profile has been recorded
+      // decides the number, never whether the write happens.
+      const alreadyCounted = simulated.has(profile._id);
+      // Layered the same way the suppression check above layers it, and for the
+      // same reason. Rebuilding this snapshot from the row alone let a candidate
+      // that touched only tags reset the names to their originals, throwing away
+      // the alias an earlier candidate had replaced -- so a third candidate on
+      // the profile refused a change the applied run, which reads its own writes,
+      // accepts. The consumer and the snapshot have to agree on what "current"
+      // means.
+      const patched = { ...profile, ...carried, ...(patch as Partial<Doc<"profiles">>) };
+
+      simulated.set(profile._id, {
+        fieldVisibility: rebuilt.fieldVisibility,
+        // Only `--rederive-values` moves these, and only it needs them carried.
+        // A visibility-only run leaves every name exactly as the row has it, so
+        // sending them would grow the page payload to repeat what the next page
+        // reads anyway.
+        ...(args.rederiveValues === true
+          ? {
+              displayName: patched.displayName,
+              aliases: patched.aliases,
+              ...optionalValue("searchAliases", patched.searchAliases),
+            }
+          : {}),
+      });
+
+      if (!alreadyCounted) {
+        profilesRederived += 1;
+      }
+
+      if (dryRun) {
+        continue;
+      }
+
+      const vocabularyBefore =
+        profile.publicationState === "published" && profile.publicSurfacingState === "public"
+          ? vocabularyForProfile(profile)
+          : [];
+
+      await ctx.db.patch(profile._id, { ...patch, updatedAt: now });
+
+      // The same row the owner visibility mutation writes, for the same reason:
+      // `withheldProfileRecord` builds its History from this table alone, so
+      // without it a claiming owner sees that their imported fields were exposed,
+      // hidden or replayed and nothing about who did it or why. This path already
+      // holds a reviewer identity and a required reason -- it was simply not
+      // writing them down, which is the gap the whole record panel exists to
+      // close.
+      await ctx.db.insert("profileAuditEvents", {
+        profileId: profile._id,
+        action:
+          args.rederiveValues === true
+            ? "seed_import_values_rederived"
+            : "profile_field_visibility_updated",
+        actor: reviewer,
+        sourceType: "import",
+        note,
+        createdAt: now,
+      });
+
+      const updated = await ctx.db.get(profile._id);
+
+      if (updated !== null) {
+        await reindexProfileVocabularyDelta(ctx, vocabularyBefore, updated, now);
+      }
+    }
+
+    return {
+      externalBatchId: batch.externalBatchId,
+      dryRun,
+      processed: pageResult.page.length,
+      fieldsChanged,
+      profilesRederived,
+      rederivedValues: args.rederiveValues === true,
+      skipped,
+      // Links the canonicalizer could not carry, and links that collapsed onto
+      // one already present. Reported rather than swallowed: a re-derivation that
+      // quietly drops a stream link looks identical to one that carried it.
+      // Counted from the rebuilt patch either way, so a visibility-only run still
+      // says what a value re-derivation would do.
+      linksDropped: linkStats.droppedCount,
+      linksDeduplicated: linkStats.deduplicatedCount,
+      // Handed back so the next page starts where this one finished, the same as
+      // the cursor -- and bounded, because it is the one part of the response
+      // that grows with the batch rather than the page. Replaying the whole
+      // history each call put an O(batch) array in both the argument and the
+      // response, which on a large enough batch passes the script's stdout buffer
+      // and aborts a migration mid-way through.
+      //
+      // Membership always, the snapshot only where it changes an answer. An
+      // applied run re-reads its own patch off the row, so the map would repeat
+      // what the next page can already see -- but reading the patch back only
+      // skips a profile with nothing left to change, and a second candidate
+      // contributing a different key is a change. Without the id it was counted
+      // twice, so the apply reported more profiles than the dry run it is
+      // supposed to match.
+      simulatedProfiles: [...simulated]
+        .slice(0, SIMULATION_CARRY_LIMIT)
+        .map(([profileId, state]) => (carriesVisibility ? { profileId, ...state } : { profileId })),
+      // Said out loud rather than silently truncated. Past the bound a dry run
+      // can double-count a merged profile or refuse one the apply accepts, and an
+      // operator reading a total the runbook promises will match the write has to
+      // know when it stopped promising that.
+      simulationComplete: simulated.size <= SIMULATION_CARRY_LIMIT,
       nextCursor: pageResult.isDone ? null : pageResult.continueCursor,
       isDone: pageResult.isDone,
     };

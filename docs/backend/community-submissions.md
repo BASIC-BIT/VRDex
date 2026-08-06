@@ -37,7 +37,12 @@ Shared fields:
 
 Person-specific fields:
 
-- `person.roleTags`
+- `person.roleTags`, collected as checkboxes over a fixed vocabulary with a
+  freeform field beside it for anything outside the list. Selecting a streaming
+  role reveals dedicated stream and Twitch inputs, which fold into
+  `outboundLinks` rather than being separate fields. A VRCDN URL of any shape,
+  including the operator panel preview URL people are handed, canonicalizes to
+  the public `vrcdn.live/<streamId>` page.
 
 Community-specific fields:
 
@@ -55,6 +60,16 @@ The schema supports these owner-authored presentation fields for public pages:
 - `bannerImageUrl`
 
 Ordinary community submissions do not set those fields in this slice. Owner, concierge, moderation, import, or claim flows can populate them only with stricter validation and audit behavior.
+
+Editing an existing unclaimed profile is a wider set than creating one, and the
+rule there is information about the person versus the record itself — see
+[Profile Access And Claims](./profile-access-and-claims.md#edit-baseline).
+Headline, bio, region and timezone are information about the person and are
+editable there; appearance choices and the slug are not. `timezone` and the
+focus items carry one extra condition, because the profile page does not render
+them in every state and editing a field means being shown its current value
+first — the same section says which. Media is not editable by the community
+either, for want of an upload path rather than by the rule.
 
 ## Implementation Boundaries
 

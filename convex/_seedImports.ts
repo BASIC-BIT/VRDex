@@ -28,7 +28,7 @@ import {
   requireRecord,
   requireStringValue,
 } from "./_inputValidation";
-import { normalizeOutboundLinks } from "./_profileLinks";
+import { normalizeOutboundLinks, sanitizeProfileLinksLeniently } from "./_profileLinks";
 
 export type SeedImportFixture = {
   batchId: string;
@@ -168,6 +168,7 @@ export type SeedImportPublicationBlocker =
   | "publication_not_authorized"
   | "field_exceeds_public_profile_limits"
   | "display_name_outside_public_limits"
+  | "no_publicly_visible_field"
   | "live_handoff_invitation_blocks_publication";
 
 type SeedImportPublicationCandidate = Pick<
@@ -186,7 +187,30 @@ type SeedImportPublicationField = Pick<
 type SeedImportPublicationProfile = Pick<
   Doc<"profiles">,
   "_id" | "claimState" | "publicSurfacingState"
->;
+> &
+  // Optional because the queue gate's callers do not all load it, and its absence
+  // must read as "not known to be published" rather than as published.
+  Partial<Pick<Doc<"profiles">, "publicationState">>;
+
+/**
+ * Whether a merge target is a page the public can already read.
+ *
+ * Surfacing is not publication. `publicSurfacingState: "public"` only says
+ * nobody opted this profile out; a legacy `draft_private` row can carry it and
+ * still 404 for everyone. The gates check surfacing because that is the decision
+ * an operator makes, so anything reasoning about what a *reader* sees has to ask
+ * for both.
+ */
+export function isPubliclyReadableProfile(
+  profile: SeedImportPublicationProfile | null | undefined,
+): boolean {
+  return (
+    profile !== null &&
+    profile !== undefined &&
+    profile.publicationState === "published" &&
+    profile.publicSurfacingState === "public"
+  );
+}
 
 type SeedImportFixtureWriter = Pick<DatabaseWriter, "insert">;
 
@@ -980,8 +1004,71 @@ export function displayNameOutsidePublicLimits(displayName: string): boolean {
  * a field moved back to `needs_correction` would simply be dropped and the
  * profile published anyway.
  */
+/**
+ * Whether a field would put anything on a profile.
+ *
+ * An empty list and a blank string are both accepted values that render as
+ * nothing, so neither is evidence that a publication will show something.
+ *
+ * Links are counted after normalization, not before. Publication runs them
+ * through `sanitizeProfileLinksLeniently`, which drops what it cannot turn into
+ * a publishable link -- so a field holding only `panel.vrcdn.live/dashboard`
+ * has a non-zero array length and still publishes nothing.
+ */
+/**
+ * Seed fields that reach a profile but never reach its page.
+ *
+ * `about` is projected by `toPublicProfile` and rendered by nothing --
+ * `ProfilePublicPage`'s About block shows `bio`. Genres and timezone reach the
+ * search corpus but have no place on the page either. A candidate whose only
+ * public content is one of these publishes exactly the display-name-only
+ * profile `no_publicly_visible_field` exists to refuse, so they do not count as
+ * something to see.
+ *
+ * The other resolution is to render them, which is a product decision rather
+ * than a gate fix; until someone makes it, the gate declines to publish a page
+ * that would look empty.
+ */
+const UNRENDERED_SEED_FIELD_KEYS = new Set(["about", "genres", "timezone"]);
+
+export function hasSeedFieldContent(
+  field: Pick<SeedImportPublicationField, "fieldKey" | "value">,
+): boolean {
+  if (UNRENDERED_SEED_FIELD_KEYS.has(field.fieldKey)) {
+    return false;
+  }
+
+  if (field.fieldKey === "outboundLinks") {
+    return sanitizeProfileLinksLeniently(field.value, "reviewed").links.length > 0;
+  }
+
+  if (Array.isArray(field.value)) {
+    // Entries, not length. The import normalizers do not drop blank strings, so
+    // an accepted public `tags: [""]` arrived here as content -- while the page
+    // filters falsy metadata out and renders the same display-name-only profile
+    // this gate exists to refuse. A list of nothing is nothing, the same way an
+    // empty list already was.
+    return field.value.some(
+      (entry) => typeof entry !== "string" ? entry !== null && entry !== undefined : entry.trim().length > 0,
+    );
+  }
+
+  if (typeof field.value === "string") {
+    return field.value.trim().length > 0;
+  }
+
+  return field.value !== null && field.value !== undefined;
+}
+
 export function getSeedImportFieldBlockers(
   fields: SeedImportPublicationField[],
+  options?: {
+    /**
+     * True when publication merges into an existing profile instead of creating
+     * one, which exempts the display-name-only gate below.
+     */
+    mergesIntoExistingProfile?: boolean;
+  },
 ): SeedImportPublicationBlocker[] {
   const blockers = new Set<SeedImportPublicationBlocker>();
 
@@ -1015,7 +1102,67 @@ export function getSeedImportFieldBlockers(
     }
   }
 
+  // Publication carries each field's reviewed visibility, and `toPublicProfile`
+  // omits private ones. A candidate whose accepted fields are all private
+  // publishes a profile holding a display name and a slug, which is what batch
+  // nwinn_2026_07_16_ad79dca17a did to 405 people: every gate passed, the
+  // preview reported a hundred accepted fields, and none of them could be seen.
+  //
+  // `unlisted` counts as visible -- it renders on the profile page and is only
+  // held back from discovery, which is a deliberate choice rather than an
+  // accident.
+  //
+  // Emptiness is checked, not just visibility: a public `tags: []` beside a
+  // private set of links satisfies "has a non-private field" while publishing
+  // exactly the display-name-only profile this gate exists to stop.
+  //
+  // Zero accepted fields fails too. An accepted candidate whose every field was
+  // rejected reaches no other gate -- `field_unreviewed` and the rest only fire
+  // on fields that exist -- and publishes a name and a slug, which is the
+  // outcome this refuses by definition rather than a case to exempt.
+  //
+  // Create-only, like `invalid_proposed_slug`, `slug_collision_blocks_publication`
+  // and `display_name_outside_public_limits` above it. A merge writes into a
+  // profile that already exists and, because both gates refuse a match that is
+  // not publicly surfaced, one that is already public with its own content --
+  // so it cannot produce the display-name-only page this refuses. Private-only
+  // seed data merging into a live profile is an ordinary thing to want, and
+  // blocking it stranded exactly the operator decision `matchCandidateToProfile`
+  // exists to record.
+  const acceptedFields = fields.filter((field) => field.reviewState === "accepted");
+
+  if (
+    options?.mergesIntoExistingProfile !== true &&
+    !acceptedFields.some((field) => field.visibility !== "private" && hasSeedFieldContent(field))
+  ) {
+    blockers.add("no_publicly_visible_field");
+  }
+
   return [...blockers];
+}
+
+/**
+ * Whether somebody recorded permission to publish this batch.
+ *
+ * A relaxed policy alone is not authorization. Legacy and fixture batches can
+ * carry `reviewed_publication_allowed` with no recorded reason, and acting on
+ * one would put seed values on public profiles with nothing establishing that
+ * the source permitted it. `setBatchPublicationPolicy` is what records that.
+ *
+ * An authorization entry specifically, not a non-empty list: the list also
+ * records revocations, so a batch authorized and later revoked must not read as
+ * authorized here.
+ *
+ * One function rather than the same predicate written at each gate, because
+ * three gates decide this -- queue, publish, and re-derive -- and the third was
+ * written without it.
+ */
+export function hasPublicationAuthorization(
+  batch: Pick<Doc<"seedImportBatches">, "publicationAuthorizations">,
+): boolean {
+  return (batch.publicationAuthorizations ?? []).some(
+    (record) => (record.policy ?? "reviewed_publication_allowed") === "reviewed_publication_allowed",
+  );
 }
 
 /**
@@ -1045,17 +1192,7 @@ export function getSeedImportPublishBlockers(args: {
     blockers.add("source_private_only");
   }
 
-  // A relaxed policy alone is not authorization. Legacy and fixture batches can
-  // carry reviewed_publication_allowed with no recorded reason, and publishing
-  // those would create public profiles with nothing establishing that the source
-  // permitted it. setBatchPublicationPolicy is what records that.
-  // An authorization entry specifically: the list also records revocations, so a
-  // batch that was authorized and later revoked must not read as authorized here.
-  if (
-    !(args.batch.publicationAuthorizations ?? []).some(
-      (record) => (record.policy ?? "reviewed_publication_allowed") === "reviewed_publication_allowed",
-    )
-  ) {
+  if (!hasPublicationAuthorization(args.batch)) {
     blockers.add("publication_not_authorized");
   }
 
@@ -1143,7 +1280,15 @@ export function getSeedImportPublishBlockers(args: {
     blockers.add("display_name_outside_public_limits");
   }
 
-  for (const blocker of getSeedImportFieldBlockers(args.fields ?? [])) {
+  for (const blocker of getSeedImportFieldBlockers(args.fields ?? [], {
+    // Publicly readable, not merely matched. The exemption rests on the merge
+    // target already being a page a reader can open, and the match gates check
+    // surfacing rather than publication -- so a legacy `draft_private` row
+    // carrying `publicSurfacingState: "public"` would have skipped the
+    // visible-field gate and published exactly the display-name-only page it
+    // exists to refuse.
+    mergesIntoExistingProfile: isPubliclyReadableProfile(args.matchedProfile),
+  })) {
     blockers.add(blocker);
   }
 
@@ -1172,15 +1317,7 @@ export function getSeedImportPublicationBlockers(args: {
     blockers.add("source_private_only");
   }
 
-  // Same as the publish gate: a relaxed policy with no recorded authorization is
-  // not a decision anyone made.
-  // An authorization entry specifically: the list also records revocations, so a
-  // batch that was authorized and later revoked must not read as authorized here.
-  if (
-    !(args.batch.publicationAuthorizations ?? []).some(
-      (record) => (record.policy ?? "reviewed_publication_allowed") === "reviewed_publication_allowed",
-    )
-  ) {
+  if (!hasPublicationAuthorization(args.batch)) {
     blockers.add("publication_not_authorized");
   }
 
@@ -1278,7 +1415,11 @@ export function getSeedImportPublicationBlockers(args: {
     blockers.add("slug_collision_blocks_publication");
   }
 
-  for (const blocker of getSeedImportFieldBlockers(args.fields)) {
+  for (const blocker of getSeedImportFieldBlockers(args.fields, {
+    // Same rule as the publish gate: only a merge target the public can already
+    // read exempts the candidate from needing visible content of its own.
+    mergesIntoExistingProfile: isPubliclyReadableProfile(args.matchedProfile),
+  })) {
     blockers.add(blocker);
   }
 

@@ -823,7 +823,11 @@ describe("public event projection", () => {
       {
         type: "watch",
         label: "Event stream",
-        url: "https://panel.vrcdn.live/preview/basicbit",
+        // Resolves to the public VRCDN page like every other VRCDN input shape.
+        // The panel preview URL passed through untouched only because the parser
+        // did not recognize that host, which put a link to VRCDN's operator
+        // console on a public event page.
+        url: "https://vrcdn.live/basicbit",
         presentation: "open",
       },
       {
