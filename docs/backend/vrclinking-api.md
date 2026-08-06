@@ -130,23 +130,188 @@ the containment is in how it is stored and used, not in the token itself.
 the reference through its own IAM role. This is why the token is not encrypted
 in Convex: it is never there.
 
+The owner pastes the key into `/account/connections` and
+`POST /api/account/vrclinking-delegation` is the only thing that handles it, in
+three steps:
+
+1. `reserveCredential` authorizes and inserts a `pending` row, which gives the
+   key a name of its own: `vrdex/vrclinking/<guildId>/<credentialId>`.
+2. The key is written to that name in Secrets Manager.
+3. `activateCredential` flips the row to `active` and revokes the delegation it
+   replaces, returning the superseded secret names so the route can retire them.
+
+The order is the point. Nothing existing is touched until the new key is
+provably stored, so a Secrets Manager failure costs an unused reservation rather
+than the community's working delegation — and because names are per credential,
+the write cannot land on top of the key its predecessor is still answering with.
+`activateCredential` is idempotent: a retry after a lost response reports
+success rather than looking like a failure, which is what stops the route from
+retiring a key that had in fact just been installed.
+
+Cleanup is key-first everywhere, and it is the same three steps on all three
+paths — a reservation whose activation failed, a stale reservation swept by a
+later one, and an owner revoking:
+
+1. Convex **reports** the row and the name its key actually occupies, without
+   deleting anything. `abandonCredential` answers whether a reservation is still
+   `pending`, which is the only state where its key is provably unreachable.
+2. The route **deletes** the key.
+3. `confirmSecretsRetired` **removes or stamps** the row.
+
+The order matters because the row is the only thing its name can be derived
+from: deleting the row first meant a transient Secrets Manager failure stranded
+the key with nothing left to retry from. A row that is never confirmed stays
+reportable, and the next reservation for that guild offers it again — which is
+the retry, and the only one any of these paths has. A secret that is already
+absent counts as retired, so a key whose creation failed does not leave a row
+that can never be cleared.
+
+Names for cleanup are derived per row rather than per scheme, so a delegation
+created before per-credential naming is retired under the guild-only name its
+key actually occupies. That name is shared by every pre-naming row for the same
+guild, so it is only offered for retirement once no live row still resolves
+through it — the per-credential names carry no such question, since nothing else
+can name them. The delete grant is correspondingly one segment wider than the
+write grant; the shared secret is kept out of reach by the explicit Deny on its
+ARN rather than by the pattern.
+
+A daily Convex cron retires keys nobody is coming back for. Every other cleanup
+path is driven by a request — a reservation sweeps its own guild, a revoke
+settles what it cancels — and none of them run for an owner who revoked and then
+never touched delegations again, which is the shape of the one leak that
+persists: a key written by a POST that died after a revoke had already cancelled
+its reservation. The cron triggers
+`POST /api/account/vrclinking-delegation/sweep`, which claims the obligations
+from Convex itself and acts on them, because Convex cannot reach the secret
+store. The cron sends nothing but its bearer: passing the names in the request
+body made that token sufficient to schedule `DeleteSecret` on any
+delegated-credential name a caller could spell, backed by no row at all.
+
+It needs two Convex variables and one Vercel variable, and is inert without
+them — which is where every deployment that has never delegated a key sits:
+
+```bash
+pnpm ops:bootstrap-vrclinking-cleanup -- --target prod --site-url https://vrdex.net --deployment-url <vercel-deployment-url>
+```
+
+That generates the shared bearer, sets both Convex variables and the matching
+Vercel one, and prints none of them — neither provider receives it as a process
+argument, since argv is readable by any other process on the box. It then
+redeploys, because a Vercel environment change reaches future deployments only:
+without that, Convex starts posting a bearer the running function has never seen
+and the sweep answers 401 daily with nothing surfacing it. Rerunning rotates the
+token, and a mismatched pair fails closed, costing one sweep. Two read-only
+Vercel calls run before Convex is touched, because no ordering makes the
+rotation atomic — whichever provider moves first is the one left disagreeing —
+so the causes that would strand it half-applied (no login, no project link, a
+mistyped deployment URL) fail while nothing has changed. The route also fails
+closed on an unset token rather than reading "none configured" as "none
+required".
+
+Provisioned by script rather than by hand because the failure is invisible: a
+deployment can enable the delegation form, run the cron daily, and have it report
+`configured: false` forever while keys accumulate.
+
+One credential the bootstrap does not set: `CONVEX_ADMIN_TOKEN` — or
+`CONVEX_DEPLOY_KEY`, which the same lookup accepts — has to already be in the web
+runtime. There is no session in this flow, so it is the only way the route can
+record what it retired, and the route proves it works before deleting anything
+rather than after. A deployment without it answers 503 every run while the cron
+posts successfully and the obligations queue behind it, which is the same
+invisible failure one step further along. Production and staging already carry
+it; a new deployment needs it before the sweep does anything.
+
+A cancelled reservation is deliberately *not* retirable while it is younger than
+the reservation TTL. Deleting a key that does not exist yet succeeds, so a revoke
+racing a reservation would otherwise record the retirement moments before the
+POST creates the key, and the stamp would suppress the only durable handle to it.
+
+Revoking also cancels reservations for the same guild. A replacement that has
+reserved a row and is still writing its key would otherwise activate afterwards,
+find no active predecessor, and promote itself — resurrecting the delegation the
+owner had just revoked from another tab or session.
+
+Where an installation requires a customer-managed KMS key, set
+`delegation_writer_kms_key_id` alongside the same key in `kms_key_arns`:
+`CreateSecret` without an explicit key silently uses the AWS-managed one, and
+because every reservation creates a new name there is no later `PutSecretValue`
+to correct it.
+
+The write needs `VRDEX_VRCLINKING_DELEGATION_ROLE_ARN` and
+`VRDEX_VRCLINKING_SECRET_REGION`, both managed by
+`infra/terraform/vrclinking-adapter/delegation-writer.tf` and applied to
+production and staging on 2026-08-04. The role is Vercel-OIDC and holds **no `GetSecretValue`** — Vercel never reads a
+delegated key back, and a role that could both write and read every tenant's key
+is a far larger blast radius than one that can only replace them.
+
+Write and delete are scoped differently, on purpose:
+
+| Action | Scope | Why |
+| --- | --- | --- |
+| `CreateSecret`, `PutSecretValue` | `vrdex/vrclinking/*/*` | Two segments. `vrdex/vrclinking/shared` holds the adapter's own bearer token and capability key and sits one segment deep, so nothing may ever create or overwrite at that depth |
+| `DeleteSecret` | `vrdex/vrclinking/*` | One segment wider, because a delegation created before per-credential naming keeps its key at `vrdex/vrclinking/<guildId>` and retiring it is exactly what replacing or revoking such a row does |
+
+The shared secret is kept out of the wider delete grant by an explicit Deny on
+its ARN in the same policy, not by the resource pattern. The trust policy pins named subjects
+(`…:project:vr-dex-web:environment:{production,staging}`) rather than a
+wildcard, so no other project in the team can assume it.
+
+**Deploy the Lambda first.** Convex emits the row-qualified reference as soon as
+it deploys, and the *previously* deployed Lambda accepts only the guild-only
+shape — the compatibility branch lives in the new adapter, so it does nothing
+for requests still reaching the old one. Convex deploys automatically on merge
+while the Lambda is deployed by hand, which makes Lambda-first the only ordering
+that is continuously correct:
+
+```bash
+pnpm ops:package-vrclinking-adapter
+cd infra/terraform/vrclinking-adapter && terraform apply -var-file=environments/production.tfvars
+```
+
+The var-file is not optional. `enable_service` defaults to false so a new
+environment is inert, and `environments/production.tfvars` is the only thing
+setting it true — a plain `terraform apply` plans the live adapter away, which
+is a startling thing to do while following a runbook written to make a rollout
+safe.
+
+Nothing is at risk today either way — `communityVrclinkingCredentials` is empty
+on every deployment, and the first delegation cannot exist until the form that
+creates it ships — but the ordering is a standing requirement for any future
+change to the reference shape, not a one-off. Remove the guild-only branch from
+the adapter once it is deployed everywhere and no row can still emit that shape.
+
+A self-hosted deployment can set `VRDEX_VRCLINKING_SECRET_DIR` on the web app
+instead — the same file backend the adapter documents. Writes then land in that
+directory rather than Secrets Manager, and neither AWS variable is needed. That
+path exists because resolving was supported and writing was not, so a
+file-backed deployment could read delegated keys while having no way to create
+one.
+
+The region is explicit rather than inherited from the ambient `AWS_REGION`,
+which Vercel sets to wherever a function runs. Falling back to it would report
+every deployment as configured and then write keys into whichever region served
+the request — a different store from the one the adapter reads, so the
+delegation would register, report success, and resolve to nothing. The form
+reports the feature unavailable unless both variables are set.
+
 Constraints enforced in `vrclinkingCredentials.ts`:
 
-- registering requires **both** profile ownership and a current
+- reserving and activating each require **both** profile ownership and a current
   `externalControlProofs` row proving the caller manages that guild, so nobody
   can delegate a key for a server they do not control;
 - each delegation records the single `guildId` it is authorized for, so a key
   that could technically read other guilds is never used to;
-- the reference itself is bound to that guild: the only accepted value is
-  `secret://vrdex/vrclinking/<guildId>`. An ARN form was accepted until its
-  pattern was found to permit any region and any 12-digit account, while the
-  adapter's execution role can read only its own — a cross-account ARN
-  registered cleanly, was selected for claims, and then failed every resolution
-  as `unavailable` with nothing pointing back at the reference. The name has no
-  region or account to get wrong. Syntax is not authorization either: the
-  adapter resolves whatever it is given through its own IAM role, so accepting
-  arbitrary well-formed names would let the owner of one guild register another
-  tenant's reference and have VRDex spend that tenant's key;
+- the reference is **derived** from the row, never supplied: `reserveCredential`
+  takes no `secretRef` argument and computes
+  `secret://vrdex/vrclinking/<guildId>/<credentialId>` itself. It was an
+  argument, validated to a single legal value, which made the delegation form
+  ask a community owner for a pointer into a secret store only operators can
+  write — the one value they could enter was the one the system already knew,
+  and every delegation registered that way resolved to nothing. Deriving it also
+  settles the authorization question the validation was standing in for: the
+  adapter resolves whatever it is handed through its own IAM role, so an
+  argument at all meant the owner of one guild could name another tenant's
+  reference and have VRDex spend that tenant's key;
 - `secretRef` leaves the table through exactly one internal function,
   the mutation `reserveAdapterDelegations`, consumed by the action that calls
   the adapter and never by a client-facing query. A mutation rather than a query
@@ -219,8 +384,9 @@ both sides refuse to start or call without them:
 
 What is left needs something outside the codebase:
 
-1. **Putting a real key in the secret store** and recording its reference
-   against a community. Until one community has done this, the method is offered
+1. **A community actually delegating a key**, which now means an owner pasting
+   one into `/account/connections` on a deployment where
+   `VRDEX_VRCLINKING_DELEGATION_ROLE_ARN` is set. Until one has, the method is offered
    wherever the adapter is configured and every attempt short-circuits to
    `unavailable` — `verifyVrchatProofViaAdapter` has nothing to ask, so it never
    posts the claimant's Discord id. A genuine no-match is a different state and

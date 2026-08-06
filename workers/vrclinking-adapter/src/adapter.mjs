@@ -62,11 +62,30 @@ function withDeadline(work, remainingMs) {
  * `convex/vrclinkingCredentials.ts`.
  */
 function isSecretRefForGuild(secretRef, guildId) {
-  // One form, matching registration. The ARN form was accepted here too, and its
-  // pattern allowed any region and any 12-digit account while this adapter's
-  // execution role can read only its own — so it admitted references that could
-  // never resolve.
-  return secretRef === `secret://vrdex/vrclinking/${guildId}`;
+  // The current form is the guild, then the credential row that owns this key.
+  // The trailing segment is what lets two profiles delegate the same guild
+  // without sharing one secret, and what keeps a replacement from overwriting
+  // the key its predecessor is still answering with.
+  //
+  // The guild-only form is still accepted, and deliberately: Convex deploys
+  // automatically on merge while this Lambda is deployed by hand, so the two
+  // are never upgraded in one step. Accepting only the new form would mean a
+  // Convex-first rollout has the old Lambda discard every reference, and a
+  // Lambda-first rollout has the new Lambda discard everything the old Convex
+  // sends. Neither order works without an overlap.
+  //
+  // ponytail: transitional. Delete the guild-only branch once this Lambda is
+  // deployed everywhere and no row can still emit that shape — the whole point
+  // of the credential segment is that a name is never reused, and accepting a
+  // shared name keeps that door open.
+  //
+  // The ARN form was accepted here too, and its pattern allowed any region and
+  // any 12-digit account while this adapter's execution role can read only its
+  // own — so it admitted references that could never resolve.
+  return (
+    secretRef === `secret://vrdex/vrclinking/${guildId}` ||
+    new RegExp(`^secret://vrdex/vrclinking/${guildId}/[A-Za-z0-9]{1,64}$`).test(secretRef)
+  );
 }
 
 /**

@@ -1,6 +1,5 @@
 import Link from "next/link";
 
-import { Badge } from "@/components/ui/badge";
 import { Eyebrow, SectionHeading } from "@/components/ui/card";
 import { EntityImage } from "@/components/ui/entity-image";
 import { Notice } from "@/components/ui/notice";
@@ -41,12 +40,6 @@ function ActiveWorldCard({ world }: { world: PublicActiveWorld }) {
       <EntityImage className="absolute inset-0 size-full rounded-none bg-media text-4xl text-white" label={world.displayName} sizes="(min-width: 1024px) 33vw, 100vw" src={world.heroImageUrl} />
       <span aria-hidden="true" className="absolute inset-0 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--media)_80%,transparent),color-mix(in_srgb,var(--accent)_16%,transparent))]" />
 
-      <div className="relative flex justify-end text-xs">
-        <Badge className="border-border bg-surface-muted text-foreground" variant="inverseMuted">
-          {world.upcomingEventCount} upcoming
-        </Badge>
-      </div>
-
       <div className="relative">
         <h3 className="text-3xl font-semibold text-white">{world.displayName}</h3>
         <p className="mt-3 line-clamp-2 text-sm leading-6 text-white/76">
@@ -74,11 +67,7 @@ export function HomeActiveWorldsSection({
 }) {
   return (
     <section className="min-w-0 border-t border-border pt-6">
-      <SectionHeading
-        description="Worlds with upcoming public events."
-      >
-        Worlds hosting events soon
-      </SectionHeading>
+      <SectionHeading>Featured worlds</SectionHeading>
 
       {worlds.length > 0 ? (
         <div className="mt-6 grid gap-4 lg:grid-cols-3">

@@ -104,7 +104,7 @@ jobs:
 
       # `check-vercel-env.mjs` only warns when the Convex URL is absent, so a
       # build with no backend still serves auth pages while every data and
-      # account action is unavailable. `/deployment` reports what the running
+      # account action is unavailable. `/api/deployment` reports what the running
       # build actually resolved.
       - name: Verify the deployment has a backend
         env:
@@ -112,32 +112,37 @@ jobs:
         run: |
           set -euo pipefail
 
-          status=$(curl -s -o /tmp/deployment.html -w '%{http_code}' --max-time 20 "$DEPLOYMENT_URL/deployment")
+          status=$(curl -s -o /tmp/deployment.json -w '%{http_code}' --max-time 20 "$DEPLOYMENT_URL/api/deployment")
           if [ "$status" != "200" ]; then
-            echo "::error::$DEPLOYMENT_URL/deployment returned $status."
+            echo "::error::$DEPLOYMENT_URL/api/deployment returned $status."
             exit 1
           fi
 
           # Identity, not presence. "Configured" is equally true for a build
           # pointed at the staging Convex deployment, and promoting that would put
           # vrdex.net on the wrong dataset with the wrong auth configuration.
-          attr() {
-            python3 -c 'import re,sys; html=open("/tmp/deployment.html",encoding="utf-8").read(); m=re.search(sys.argv[1]+r"=\"([^\"]*)\"", html); print((m.group(1) if m else "MISSING").strip())' "$1"
+          #
+          # Read as JSON rather than scraped out of markup: the page this
+          # replaced could change its rendering and silently stop matching, which
+          # a missing attribute would have reported as `MISSING` and failed on —
+          # but only after someone noticed the promotion was stuck.
+          field() {
+            python3 -c 'import json,sys; print(str(json.load(open("/tmp/deployment.json",encoding="utf-8")).get(sys.argv[1],"MISSING")).strip())' "$1"
           }
 
           # Both Convex targets. `convexHttpClient()` resolves
           # `CONVEX_URL ?? NEXT_PUBLIC_CONVEX_URL`, so the API, OAuth, MCP, and
           # account route handlers can read a different deployment than the
           # browser while the public URL looks correct.
-          for attr_name in data-convex-browser data-convex-server; do
-            value=$(attr "$attr_name")
+          for field_name in convexBrowser convexServer; do
+            value=$(field "$field_name")
             if [ "$value" != "$EXPECTED_CONVEX_URL" ]; then
-              echo "::error::$DEPLOYMENT_URL reports $attr_name as '$value', expected '$EXPECTED_CONVEX_URL'."
+              echo "::error::$DEPLOYMENT_URL reports $field_name as '$value', expected '$EXPECTED_CONVEX_URL'."
               exit 1
             fi
           done
 
-          clerk_origin=$(attr data-clerk-frontend-api)
+          clerk_origin=$(field clerkFrontendApi)
           if [ "$clerk_origin" != "https://$EXPECTED_CLERK_HOST" ]; then
             echo "::error::$DEPLOYMENT_URL points at Clerk '$clerk_origin', expected 'https://$EXPECTED_CLERK_HOST'."
             exit 1

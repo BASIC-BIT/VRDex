@@ -34,4 +34,16 @@ crons.hourly(
   {},
 );
 
+// Every other cleanup path is driven by a request, and the one leak that matters
+// is shaped exactly like the case no request returns for: a key written by a
+// POST that died after a revoke had already cancelled its reservation. Daily is
+// ample — the rows are durable and the window they close is measured in the
+// reservation TTL, not in minutes.
+crons.daily(
+  "retire abandoned VRCLinking delegation keys",
+  { hourUTC: 5, minuteUTC: 40 },
+  internal.vrclinkingCredentials.sweepAbandonedDelegationKeys,
+  {},
+);
+
 export default crons;

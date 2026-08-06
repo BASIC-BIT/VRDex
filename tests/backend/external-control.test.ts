@@ -16,6 +16,7 @@ import {
   removeProfileLink,
   requireControlProof,
 } from "../../convex/_externalControl";
+import { vrclinkingSecretRef } from "../../convex/_vrclinkingSecretRef";
 
 import { newClerkUserId } from "./_clerkTestIdentity";
 
@@ -967,6 +968,282 @@ describe("VRCLinking credential delegation", () => {
     });
   }
 
+
+  /**
+   * The route's sequence, as the backend sees it: reserve a row, then activate
+   * it once the key is in the store. Tests that only need a live delegation use
+   * this rather than repeating both calls.
+   */
+  async function delegateCredential(
+    t: ReturnType<typeof convexTest>,
+    identity: Parameters<ReturnType<typeof convexTest>["withIdentity"]>[0],
+    profileSlug: string,
+    guildId: string,
+  ) {
+    const reserved = await t
+      .withIdentity(identity)
+      .mutation(api.vrclinkingCredentials.reserveCredential, { profileSlug, guildId });
+
+    await t
+      .withIdentity(identity)
+      .mutation(api.vrclinkingCredentials.activateCredential, {
+        profileSlug,
+        credentialId: reserved.credentialId,
+      });
+
+    return reserved;
+  }
+
+  // Every reservation creates a Secrets Manager object, so the bound has to hold
+  // against a burst — and a burst is entirely `pending`, because no request in
+  // it has reached activation. Counting only settled rows let every concurrent
+  // reservation through, each creating its own secret.
+  // A request still in flight past the TTL could otherwise activate the very row
+  // a later request has just scheduled for deletion — and with the file backend
+  // that deletion is immediate, so the winning activation would come up backed
+  // by nothing. The sweep takes the row out of `pending` first, which is the
+  // only state `activateCredential` accepts.
+  // A replacement that has reserved a row and is still writing its key would
+  // otherwise activate afterwards, find no active predecessor, and promote
+  // itself — resurrecting the delegation the owner had just revoked from another
+  // tab, another session, or a co-owner.
+  // A guild-scoped name is shared by every pre-naming row for that guild, across
+  // profiles — so retiring one profile's legacy delegation must not hand back a
+  // name another profile is still resolving through. Three separate rounds each
+  // retired that name from a different path, which is why the check now lives in
+  // one helper every path goes through.
+  it("withholds a legacy name another profile still resolves through", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const guildId = "92345678901234567";
+    const first = await seedOwnedCommunity(t, "legacy-shared-a", now);
+    const second = await seedOwnedCommunity(t, "legacy-shared-b", now);
+
+    for (const seeded of [first, second]) {
+      await t.run(async (ctx) => {
+        await recordExternalControlProof(ctx.db, {
+          userId: seeded.userId,
+          assetType: "discord_guild",
+          assetExternalId: guildId,
+          controlLevel: "owner",
+          evidenceSource: "discord_oauth",
+          now,
+        });
+      });
+    }
+
+    await delegateCredential(t, first.identity, "legacy-shared-a", guildId);
+    await delegateCredential(t, second.identity, "legacy-shared-b", guildId);
+
+    // Both predate per-credential naming, so both resolve to the shared name.
+    await t.run(async (ctx) => {
+      const rows = await ctx.db.query("communityVrclinkingCredentials").collect();
+
+      await Promise.all(
+        rows.map((row) =>
+          ctx.db.patch(row._id, { secretRef: `secret://vrdex/vrclinking/${guildId}` }),
+        ),
+      );
+    });
+
+    const revoked = await t
+      .withIdentity(first.identity)
+      .mutation(api.vrclinkingCredentials.revokeCredential, {
+        profileSlug: "legacy-shared-a",
+        guildId,
+      });
+
+    assert.equal(revoked.revoked, true);
+    // Revoked, but nothing to retire: the key is not this profile's alone to
+    // delete while the other profile still resolves through the same name.
+    assert.deepEqual(revoked.retired, []);
+  });
+
+  // Deleting a key that does not exist yet succeeds, so a revoke racing a
+  // reservation can retire a name moments before the POST creates it. Stamping
+  // there would suppress the only durable handle to a key that then comes into
+  // existence, so a cancelled reservation stays unretired until its writer is
+  // presumed gone.
+  it("holds retirement of a cancelled reservation while its writer may run", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const seeded = await seedOwnedCommunity(t, "delegation-late-write", now);
+    const guildId = "13345678901234567";
+    await t.run(async (ctx) => {
+      await recordExternalControlProof(ctx.db, {
+        userId: seeded.userId,
+        assetType: "discord_guild",
+        assetExternalId: guildId,
+        controlLevel: "owner",
+        evidenceSource: "discord_oauth",
+        now,
+      });
+    });
+
+    const asOwner = t.withIdentity(seeded.identity);
+    const reserved = await asOwner.mutation(api.vrclinkingCredentials.reserveCredential, {
+      profileSlug: "delegation-late-write",
+      guildId,
+    });
+
+    // The revoke path cancels it, and the route confirms the deletion of a key
+    // that has not been written yet.
+    await asOwner.mutation(api.vrclinkingCredentials.abandonCredential, {
+      profileSlug: "delegation-late-write",
+      credentialId: reserved.credentialId,
+    });
+    await asOwner.mutation(api.vrclinkingCredentials.confirmSecretsRetired, {
+      profileSlug: "delegation-late-write",
+      credentialIds: [reserved.credentialId],
+    });
+
+    const fresh = await t.run(async (ctx) => ctx.db.get(reserved.credentialId));
+
+    // Not retired: a late write would otherwise leave a live key with nothing
+    // able to find it.
+    assert.equal(fresh?.secretRetiredAt, undefined);
+
+    // Once the writer is presumed gone, the same confirmation settles it.
+    await t.run(async (ctx) => {
+      await ctx.db.patch(reserved.credentialId, { createdAt: now - 60 * 60 * 1000 });
+    });
+    await asOwner.mutation(api.vrclinkingCredentials.confirmSecretsRetired, {
+      profileSlug: "delegation-late-write",
+      credentialIds: [reserved.credentialId],
+    });
+
+    // Gone, not stamped: an aborted write is not audit history — nobody
+    // delegated anything — and keeping every one of them would eventually put
+    // the profile's revoked-row query past Convex's read limits.
+    const settled = await t.run(async (ctx) => ctx.db.get(reserved.credentialId));
+
+    assert.equal(settled, null);
+  });
+
+  it("cancels reservations for a guild the owner revokes", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const seeded = await seedOwnedCommunity(t, "delegation-revoke-race", now);
+    const guildId = "82345678901234567";
+    await t.run(async (ctx) => {
+      await recordExternalControlProof(ctx.db, {
+        userId: seeded.userId,
+        assetType: "discord_guild",
+        assetExternalId: guildId,
+        controlLevel: "owner",
+        evidenceSource: "discord_oauth",
+        now,
+      });
+    });
+
+    const asOwner = t.withIdentity(seeded.identity);
+    await delegateCredential(t, seeded.identity, "delegation-revoke-race", guildId);
+
+    // A replacement in flight: reserved, key not yet written.
+    const inFlight = await asOwner.mutation(api.vrclinkingCredentials.reserveCredential, {
+      profileSlug: "delegation-revoke-race",
+      guildId,
+    });
+
+    await asOwner.mutation(api.vrclinkingCredentials.revokeCredential, {
+      profileSlug: "delegation-revoke-race",
+      guildId,
+    });
+
+    await assert.rejects(
+      () =>
+        asOwner.mutation(api.vrclinkingCredentials.activateCredential, {
+          profileSlug: "delegation-revoke-race",
+          credentialId: inFlight.credentialId,
+        }),
+      /LINK_NOT_FOUND/,
+    );
+
+    const stillActive = await asOwner.query(api.vrclinkingCredentials.listCredentials, {
+      profileSlug: "delegation-revoke-race",
+    });
+
+    assert.deepEqual(stillActive, []);
+  });
+
+  it("claims a stale reservation before its key can be deleted", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const seeded = await seedOwnedCommunity(t, "delegation-stale", now);
+    const guildId = "72345678901234567";
+    await t.run(async (ctx) => {
+      await recordExternalControlProof(ctx.db, {
+        userId: seeded.userId,
+        assetType: "discord_guild",
+        assetExternalId: guildId,
+        controlLevel: "owner",
+        evidenceSource: "discord_oauth",
+        now,
+      });
+    });
+
+    const asOwner = t.withIdentity(seeded.identity);
+    const stranded = await asOwner.mutation(api.vrclinkingCredentials.reserveCredential, {
+      profileSlug: "delegation-stale",
+      guildId,
+    });
+
+    // Age it past the reservation TTL without activating.
+    await t.run(async (ctx) => {
+      await ctx.db.patch(stranded.credentialId, { createdAt: now - 60 * 60 * 1000 });
+    });
+
+    const next = await asOwner.mutation(api.vrclinkingCredentials.reserveCredential, {
+      profileSlug: "delegation-stale",
+      guildId,
+    });
+
+    assert.deepEqual(
+      next.abandoned.map((row: { credentialId: string }) => row.credentialId),
+      [stranded.credentialId],
+    );
+
+    // The original request losing the race must not be able to bring it back.
+    await assert.rejects(
+      () =>
+        asOwner.mutation(api.vrclinkingCredentials.activateCredential, {
+          profileSlug: "delegation-stale",
+          credentialId: stranded.credentialId,
+        }),
+      /LINK_NOT_FOUND/,
+    );
+  });
+
+  it("counts reservations still in flight toward the write bound", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const seeded = await seedOwnedCommunity(t, "delegation-burst", now);
+    const guildId = "62345678901234567";
+    await t.run(async (ctx) => {
+      await recordExternalControlProof(ctx.db, {
+        userId: seeded.userId,
+        assetType: "discord_guild",
+        assetExternalId: guildId,
+        controlLevel: "owner",
+        evidenceSource: "discord_oauth",
+        now,
+      });
+    });
+
+    const reserve = () =>
+      t.withIdentity(seeded.identity).mutation(api.vrclinkingCredentials.reserveCredential, {
+        profileSlug: "delegation-burst",
+        guildId,
+      });
+
+    // None of these activate, so every row stays `pending`.
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      await reserve();
+    }
+
+    await assert.rejects(reserve, /TOO_MANY_OPEN_PROOFS/);
+  });
+
   it("refuses a delegation for a guild the owner has not proved they manage", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
@@ -974,23 +1251,22 @@ describe("VRCLinking credential delegation", () => {
 
     await assert.rejects(
       () =>
-        t.withIdentity(seeded.identity).mutation(api.vrclinkingCredentials.registerCredential, {
+        t.withIdentity(seeded.identity).mutation(api.vrclinkingCredentials.reserveCredential, {
           profileSlug: "delegation-unproved",
           guildId: "12345678901234567",
-          secretRef: "secret://vrdex/vrclinking/12345678901234567",
         }),
       /CONTROL_NOT_VERIFIED/,
     );
   });
 
-  // Every one of these would register cleanly and then fail resolution forever,
-  // with no operator-visible signal beyond a permanently unavailable claim: the
-  // adapter classifies references with case-sensitive startsWith, allows only
-  // [A-Za-z0-9._/-] after `secret://`, and receives whatever is stored verbatim.
-  it("refuses references the adapter could never resolve", async () => {
+  // The reference is derived from the guild now, so the whole class of
+  // unresolvable references these used to enumerate is unreachable: there is no
+  // argument to carry one. What is worth pinning is that the derived value is
+  // the one the adapter resolves, and that a caller cannot smuggle its own.
+  it("derives the guild-scoped reference and accepts no other", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
-    const seeded = await seedOwnedCommunity(t, "delegation-casing", now);
+    const seeded = await seedOwnedCommunity(t, "delegation-derived", now);
     const guildId = "12345678901234567";
     await t.run(async (ctx) => {
       await recordExternalControlProof(ctx.db, {
@@ -1003,68 +1279,49 @@ describe("VRCLinking credential delegation", () => {
       });
     });
 
-    for (const secretRef of [
-      // Reference syntax is not authorization. The adapter resolves whatever it
-      // is handed through its own IAM role, so a name that is well-formed but
-      // belongs to another guild would have VRDex spend another tenant's key.
-      "secret://vrdex/vrclinking/99999999999999999",
-      "arn:aws:secretsmanager:us-east-1:123456789012:secret:vrdex/vrclinking/99999999999999999",
-      // The ARN form is rejected outright now, even naming the right guild: the
-      // pattern permitted any region and account while the adapter's execution
-      // role reads only its own, so a cross-account reference registered
-      // cleanly and then failed every resolution as `unavailable`.
-      `arn:aws:secretsmanager:us-east-1:123456789012:secret:vrdex/vrclinking/${guildId}`,
-      `arn:aws:secretsmanager:eu-west-1:999988887777:secret:vrdex/vrclinking/${guildId}-AbC123`,
-      "secret://vrdex/group-telemetry/oak",
-      // An overlong ARN used to pass validation and then be truncated on write,
-      // so the adapter resolved a different reference and every verification
-      // through the delegation was permanently unavailable.
-      `arn:aws:secretsmanager:us-east-1:123456789012:secret:vrdex/vrclinking/${guildId}${"o".repeat(600)}`,
-      "SECRET://vrdex/group-telemetry/oak",
-      "ARN:aws:secretsmanager:us-east-1:1234:secret:oak",
-      // The adapter's local-name grammar allows only [A-Za-z0-9._/-] and
-      // rejects traversal; anything looser registers then never resolves.
-      "secret://team:key",
-      "secret://../../etc/passwd",
-      "secret://name with spaces",
-    ]) {
-      await assert.rejects(
-        () =>
-          t.withIdentity(seeded.identity).mutation(api.vrclinkingCredentials.registerCredential, {
-            profileSlug: "delegation-casing",
-            guildId,
-            secretRef,
-          }),
-        /ADAPTER_NOT_CONFIGURED/,
-        secretRef,
-      );
-    }
-  });
-
-  it("refuses a raw token and requires a secret store reference", async () => {
-    const t = convexTest({ schema, modules });
-    const now = Date.now();
-    const seeded = await seedOwnedCommunity(t, "delegation-rawtoken", now);
-    await t.run(async (ctx) => {
-      await recordExternalControlProof(ctx.db, {
-        userId: seeded.userId,
-        assetType: "discord_guild",
-        assetExternalId: "12345678901234567",
-        controlLevel: "owner",
-        evidenceSource: "discord_oauth",
-        now,
+    const reserved = await t
+      .withIdentity(seeded.identity)
+      .mutation(api.vrclinkingCredentials.reserveCredential, {
+        profileSlug: "delegation-derived",
+        guildId,
       });
-    });
 
+    // Reserved, not delegated: the name exists so the key has somewhere to go,
+    // and nothing selects the row until the write has landed.
+    const pending = await t.run(async (ctx) => ctx.db.get(reserved.credentialId));
+
+    assert.equal(pending?.state, "pending");
+    assert.equal(reserved.secretName, `vrdex/vrclinking/${guildId}/${reserved.credentialId}`);
+
+    await t
+      .withIdentity(seeded.identity)
+      .mutation(api.vrclinkingCredentials.activateCredential, {
+        profileSlug: "delegation-derived",
+        credentialId: reserved.credentialId,
+      });
+
+    const stored = await t.run(async (ctx) => ctx.db.get(reserved.credentialId));
+
+    assert.equal(stored?.state, "active");
+    assert.equal(
+      stored?.secretRef,
+      `secret://vrdex/vrclinking/${guildId}/${reserved.credentialId}`,
+    );
+
+    // A pasted VRCLinking token must never reach the database, and now it
+    // cannot: there is no argument that would carry one, so Convex's validator
+    // refuses the call before the handler runs.
     await assert.rejects(
       () =>
-        t.withIdentity(seeded.identity).mutation(api.vrclinkingCredentials.registerCredential, {
-          profileSlug: "delegation-rawtoken",
-          guildId: "12345678901234567",
-          // A pasted VRCLinking token must never be accepted into the database.
-          secretRef: "eyJhbGciOiJIUzI1NiJ9.fake.token",
-        }),
-      /ADAPTER_NOT_CONFIGURED/,
+        t.withIdentity(seeded.identity).mutation(
+          api.vrclinkingCredentials.reserveCredential,
+          {
+            profileSlug: "delegation-derived",
+            guildId,
+            secretRef: "eyJhbGciOiJIUzI1NiJ9.fake.token",
+          } as never,
+        ),
+      /secretRef/,
     );
   });
 
@@ -1085,11 +1342,7 @@ describe("VRCLinking credential delegation", () => {
     });
     const asOwner = t.withIdentity(seeded.identity);
 
-    await asOwner.mutation(api.vrclinkingCredentials.registerCredential, {
-      profileSlug: "delegation-ok",
-      guildId,
-      secretRef: "secret://vrdex/vrclinking/12345678901234567",
-    });
+    await delegateCredential(t, seeded.identity, "delegation-ok", guildId);
 
     const listed = await asOwner.query(api.vrclinkingCredentials.listCredentials, {
       profileSlug: "delegation-ok",
@@ -1113,8 +1366,10 @@ describe("VRCLinking credential delegation", () => {
   });
 
   // Every surface that compares a reference against a credential derives it
-  // from the guild id rather than reading the stored string, so a row written
-  // before the ARN form was retired still works end to end. Four sites had to
+  // from the row rather than reading the stored string, so a row written before
+  // the ARN form was retired still works end to end — now including the choice
+  // between the per-credential name and the guild-only one an upgraded
+  // installation's existing rows still use. Four sites had to
   // learn this one at a time; the audit path was the last and the quietest —
   // it reported "Not used yet" for a key being queried on every claim, which is
   // the opposite of what an operator needs to tell a dead delegation from a
@@ -1137,11 +1392,7 @@ describe("VRCLinking credential delegation", () => {
       });
     });
 
-    await t.withIdentity(seeded.identity).mutation(api.vrclinkingCredentials.registerCredential, {
-      profileSlug: "delegation-legacy",
-      guildId,
-      secretRef: `secret://vrdex/vrclinking/${guildId}`,
-    });
+    await delegateCredential(t, seeded.identity, "delegation-legacy", guildId);
 
     // Registered through the mutation, then rewritten to the retired form:
     // registration rejects that form now, and the row an upgraded deployment
@@ -1186,6 +1437,10 @@ describe("VRCLinking credential delegation", () => {
     );
 
     assert.notEqual(delegation, undefined);
+    // The guild-only name, because that is where this row's key actually is.
+    // Its secret was written before per-credential naming and nothing copies it,
+    // so emitting the per-credential reference would point every adapter at an
+    // object that does not exist and take a working delegation offline.
     assert.equal(delegation?.secretRef, `secret://vrdex/vrclinking/${guildId}`);
 
     await t.run(async (ctx) =>
@@ -1232,17 +1487,44 @@ describe("VRCLinking credential delegation", () => {
     });
 
     const asOwner = t.withIdentity(seeded.identity);
-    const register = () =>
-      asOwner.mutation(api.vrclinkingCredentials.registerCredential, {
+    const register = async () => {
+      const reserved = await asOwner.mutation(api.vrclinkingCredentials.reserveCredential, {
         profileSlug: "delegation-replace",
         guildId,
-        secretRef: `secret://vrdex/vrclinking/${guildId}`,
       });
+
+      return await asOwner.mutation(api.vrclinkingCredentials.activateCredential, {
+        profileSlug: "delegation-replace",
+        credentialId: reserved.credentialId,
+      });
+    };
 
     const first = await register();
     const second = await register();
 
     assert.equal(second.replaced, true);
+
+    // The replaced key is unreachable the moment its row is revoked — names are
+    // per credential and never reused — so activation has to hand the caller
+    // the names to retire, or a community's live provider credential stays in
+    // the store forever.
+    assert.deepEqual(second.supersededSecretNames, [
+      `vrdex/vrclinking/${guildId}/${first.credentialId}`,
+    ]);
+
+    // Idempotent: a retry after a lost response must report success rather than
+    // looking like a failure. The route decides whether to delete the stored key
+    // from this answer, so an activation reported as failed after it committed
+    // would destroy the key it had just installed.
+    const replay = await asOwner.mutation(api.vrclinkingCredentials.activateCredential, {
+      profileSlug: "delegation-replace",
+      credentialId: second.credentialId,
+    });
+
+    assert.equal(replay.credentialId, second.credentialId);
+    // The same cleanup obligation, not an empty one: a lost response must not
+    // also lose the names of the keys the first call retired.
+    assert.deepEqual(replay.supersededSecretNames, second.supersededSecretNames);
     assert.notEqual(second.credentialId, first.credentialId);
 
     // The superseded row is revoked rather than deleted, so a response carrying
@@ -1266,7 +1548,7 @@ describe("VRCLinking credential delegation", () => {
   // community's quota once per row and, at five rows, filling the entire
   // fan-out with a single server while a guild that could actually attest the
   // claimant waited for a cooldown-limited retry.
-  it("sends one delegation per guild even when several profiles delegate it", async () => {
+  it("tries a second distinct key for a guild several profiles delegate", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
     const guildId = "42345678901234567";
@@ -1288,11 +1570,7 @@ describe("VRCLinking credential delegation", () => {
         });
       });
 
-      await t.withIdentity(seeded.identity).mutation(api.vrclinkingCredentials.registerCredential, {
-        profileSlug: slug,
-        guildId,
-        secretRef: `secret://vrdex/vrclinking/${guildId}`,
-      });
+      await delegateCredential(t, seeded.identity, slug, guildId);
     }
 
     const claimantId = await t.run(async (ctx) => {
@@ -1318,9 +1596,20 @@ describe("VRCLinking credential delegation", () => {
       userId: claimantId,
     });
 
+    // Two, not one. These rows used to derive a single shared reference, so
+    // sending both was a duplicate lookup; per-credential names made them
+    // different keys, and dropping all but the first let a stale key
+    // deterministically suppress a working one. Capped so one guild still
+    // cannot crowd out every other community in the fan-out.
+    const delegations = reserved?.delegations ?? [];
+
     assert.deepEqual(
-      reserved?.delegations.map((delegation: { guildId: string }) => delegation.guildId),
-      [guildId],
+      delegations.map((delegation: { guildId: string }) => delegation.guildId),
+      [guildId, guildId],
+    );
+    assert.equal(
+      new Set(delegations.map((delegation: { secretRef: string }) => delegation.secretRef)).size,
+      2,
     );
   });
 
@@ -1351,16 +1640,8 @@ describe("VRCLinking credential delegation", () => {
       });
     }
 
-    await t.withIdentity(lapsed.identity).mutation(api.vrclinkingCredentials.registerCredential, {
-      profileSlug: "delegation-lapsed",
-      guildId: lapsedGuild,
-      secretRef: "secret://vrdex/vrclinking/12345678901234567",
-    });
-    await t.withIdentity(live.identity).mutation(api.vrclinkingCredentials.registerCredential, {
-      profileSlug: "delegation-live",
-      guildId: liveGuild,
-      secretRef: "secret://vrdex/vrclinking/22345678901234567",
-    });
+    await delegateCredential(t, lapsed.identity, "delegation-lapsed", lapsedGuild);
+    await delegateCredential(t, live.identity, "delegation-live", liveGuild);
 
     const claimantId = await t.run(async (ctx) => {
       // The lapsed delegator's proof is past its revalidation window, which is
@@ -1412,6 +1693,171 @@ describe("VRCLinking credential delegation", () => {
       ),
     );
     assert.equal(rotated.length, 2);
+  });
+
+  /**
+   * A backlog whose rows all carry the same `createdAt` — a bulk import, or a
+   * migration that stamped one timestamp across a batch — has to drain, not
+   * stall.
+   *
+   * The sweep used to page with `.gt("createdAt", cursor)`, and that cursor is
+   * not unique: advancing past the last row of a batch stepped over every row
+   * sharing its millisecond. Nothing due was actually lost, because both filters
+   * are functions of `createdAt` and so rows sharing one share their verdict —
+   * but the safety of the skip rested on that coincidence rather than on
+   * anything the loop said. This pins the outcome instead.
+   */
+  it("drains a backlog whose rows all share one timestamp", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const seeded = await seedOwnedCommunity(t, "delegation-backlog", now);
+    const guildId = "82345678901234567";
+    // One millisecond for all sixty, and old enough that every row is due.
+    const createdAt = now - 60 * 60 * 1000;
+
+    await t.run(async (ctx) => {
+      const profile = await ctx.db
+        .query("profiles")
+        .withIndex("by_slug", (q) => q.eq("slug", "delegation-backlog"))
+        .unique();
+
+      for (let index = 0; index < 60; index += 1) {
+        const credentialId = await ctx.db.insert("communityVrclinkingCredentials", {
+          communityProfileId: profile!._id,
+          guildId,
+          secretRef: "",
+          state: "revoked",
+          delegatedByUserId: seeded.userId,
+          revokedAt: createdAt,
+          createdAt,
+          updatedAt: createdAt,
+        });
+
+        // Per-credential, so the legacy-name liveness guard has no shared name
+        // to withhold and every row is a genuine obligation.
+        await ctx.db.patch(credentialId, {
+          secretRef: vrclinkingSecretRef(guildId, credentialId),
+        });
+      }
+    });
+
+    const first = await t.mutation(internal.vrclinkingCredentials.claimOverdueSecretCleanups, {});
+
+    assert.equal(first.length, 50);
+
+    // Retired, as the sweep route confirms them, which is what takes them out of
+    // the index and lets the next run reach what is behind them.
+    await t.run(async (ctx) => {
+      for (const obligation of first) {
+        await ctx.db.patch(obligation.credentialId, { secretRetiredAt: Date.now() });
+      }
+    });
+
+    const second = await t.mutation(internal.vrclinkingCredentials.claimOverdueSecretCleanups, {});
+
+    // The remaining ten, not zero: sharing a timestamp with a full batch must not
+    // put a row permanently out of the sweep's reach.
+    assert.equal(second.length, 10);
+    assert.equal(new Set(second.map((row) => row.credentialId)).size, 10);
+  });
+
+  /**
+   * Withheld legacy rows must not pin the head of every sweep.
+   *
+   * A revoked row whose guild-scoped name another profile is still active on is
+   * due forever: the liveness guard refuses to retire it, so nothing stamps it
+   * and it leads the index again tomorrow. Counting those against the batch let
+   * a batch's worth of them fill every sweep with rows that produce no work,
+   * while a per-credential obligation behind them kept its key indefinitely.
+   */
+  it("reaches obligations behind a batch of permanently withheld rows", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const sharedGuild = "92345678901234500";
+    const ownGuild = "92345678901234501";
+    const seeded = await seedOwnedCommunity(t, "delegation-withheld", now);
+    const createdAt = now - 60 * 60 * 1000;
+
+    await t.run(async (ctx) => {
+      const profile = await ctx.db
+        .query("profiles")
+        .withIndex("by_slug", (q) => q.eq("slug", "delegation-withheld"))
+        .unique();
+
+      // The live delegation whose shared name keeps every legacy row below
+      // unretirable, for as long as it stays active.
+      await ctx.db.insert("communityVrclinkingCredentials", {
+        communityProfileId: profile!._id,
+        guildId: sharedGuild,
+        secretRef: `secret://vrdex/vrclinking/${sharedGuild}`,
+        state: "active",
+        delegatedByUserId: seeded.userId,
+        createdAt,
+        updatedAt: createdAt,
+      });
+
+      // A full batch of them, all older than the obligation behind them so they
+      // lead the index.
+      for (let index = 0; index < 50; index += 1) {
+        await ctx.db.insert("communityVrclinkingCredentials", {
+          communityProfileId: profile!._id,
+          guildId: sharedGuild,
+          secretRef: `secret://vrdex/vrclinking/${sharedGuild}`,
+          state: "revoked",
+          delegatedByUserId: seeded.userId,
+          revokedAt: createdAt,
+          createdAt,
+          updatedAt: createdAt,
+        });
+      }
+
+      // Behind them, and genuinely retirable: its own guild, its own name.
+      const reachable = await ctx.db.insert("communityVrclinkingCredentials", {
+        communityProfileId: profile!._id,
+        guildId: ownGuild,
+        secretRef: "",
+        state: "revoked",
+        delegatedByUserId: seeded.userId,
+        revokedAt: createdAt + 1,
+        createdAt: createdAt + 1,
+        updatedAt: createdAt + 1,
+      });
+
+      await ctx.db.patch(reachable, {
+        secretRef: vrclinkingSecretRef(ownGuild, reachable),
+      });
+    });
+
+    const obligations = await t.mutation(
+      internal.vrclinkingCredentials.claimOverdueSecretCleanups,
+      {},
+    );
+
+    // Exactly the reachable one. The fifty ahead of it are due and selected, and
+    // the guard drops all fifty — so they must cost the scan, not the batch.
+    assert.equal(obligations.length, 1);
+    assert.match(obligations[0]!.secretName, new RegExp(`^vrdex/vrclinking/${ownGuild}/`));
+
+    // And they move. Withholding is permanent — no path stamps `secretRetiredAt`
+    // on a name another profile still resolves through — so if the scan kept
+    // returning to them by age, a wide enough head of them would outrun any read
+    // cap and every later obligation would sit behind it forever. Stamped, they
+    // sort behind everything the scan has not reached yet.
+    const scanned = await t.run(async (ctx) =>
+      (await ctx.db.query("communityVrclinkingCredentials").collect()).filter(
+        (row) => row.state === "revoked" && row.guildId === sharedGuild,
+      ),
+    );
+
+    assert.equal(scanned.length, 50);
+    assert.ok(scanned.every((row) => row.lastCleanupScanAt !== undefined));
+
+    // The one handed out is deliberately not stamped: it leaves the index when
+    // its retirement is confirmed, and if that never lands it has to lead the
+    // next scan, because that retry is the only one it gets.
+    const handedOut = await t.run(async (ctx) => ctx.db.get(obligations[0]!.credentialId));
+
+    assert.equal(handedOut?.lastCleanupScanAt, undefined);
   });
 });
 

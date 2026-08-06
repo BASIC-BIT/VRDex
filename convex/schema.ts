@@ -2033,7 +2033,11 @@ export default defineSchema({
     communityProfileId: v.id("profiles"),
     guildId: v.string(),
     secretRef: v.string(),
-    state: v.union(v.literal("active"), v.literal("revoked")),
+    // `pending` is a reservation: the row exists so the key has a name to be
+    // written under, and nothing selects it until the write has landed. Every
+    // selection query matches `active` only, so a reservation that is never
+    // activated is inert rather than a half-live delegation.
+    state: v.union(v.literal("pending"), v.literal("active"), v.literal("revoked")),
     delegatedByUserId: v.id("users"),
     // Three separate facts, because conflating them makes one of them wrong.
     // `lastRotatedAt` is a selection cursor only: every row a selection pass
@@ -2046,14 +2050,56 @@ export default defineSchema({
     lastConsultedAt: v.optional(v.number()),
     lastUsedAt: v.optional(v.number()),
     lastResultSummary: v.optional(v.string()),
+    // Secret names this row's activation retired, so a retry after a lost
+    // response can hand back the same cleanup obligation. By then the revoked
+    // rows are indistinguishable from ones an earlier replacement retired.
+    supersededSecretNames: v.optional(v.array(v.string())),
     revokedAt: v.optional(v.number()),
     revokedReason: v.optional(v.string()),
+    // Set once the key behind this row is confirmed gone from the secret store.
+    // A revoked row without it still has a live provider key, and the row is the
+    // only thing its name can be derived from — so it is the retry handle, not
+    // bookkeeping.
+    secretRetiredAt: v.optional(v.number()),
+    // The cleanup sweep's selection cursor, and the same idea as
+    // `lastRotatedAt` one field up: every row a pass *considers* is stamped,
+    // whether or not it produced work. Without it the rows the legacy-name
+    // liveness guard permanently withholds — a guild-scoped key another
+    // profile is still active on is due forever, because nothing ever retires
+    // it — sit at the head of the cleanup index and are rescanned every day,
+    // and enough of them means later obligations are never reached at all.
+    lastCleanupScanAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_communityProfileId_state", ["communityProfileId", "state"])
     .index("by_guildId_state", ["guildId", "state"])
+    // The per-guild cleanup lookup. Collecting a profile's whole revoked history
+    // to find this guild's outstanding obligations would eventually exceed
+    // Convex's read limits on a busy profile — genuine revocations are kept as
+    // audit history, so that history only grows.
+    .index("by_guildId_state_secretRetiredAt", ["guildId", "state", "secretRetiredAt"])
     .index("by_state_lastRotatedAt", ["state", "lastRotatedAt"])
+    // Selects the cleanup predicate rather than filtering after a scan cap.
+    // Capping first meant rows that are not obligations — retired history, and
+    // *active* delegations, which also carry no `secretRetiredAt` — could sit at
+    // the head and starve the sweep forever while unretired rows behind them
+    // kept their keys. State leads, so each scan is obligations only.
+    //
+    // Ordered by the scan stamp rather than by `createdAt`, so a sweep resumes
+    // where the last one stopped instead of restarting into the same head every
+    // day. Unstamped sorts first, which is the right order anyway: a row nothing
+    // has looked at yet outranks one already passed over.
+    .index("by_state_secretRetiredAt_lastCleanupScanAt", [
+      "state",
+      "secretRetiredAt",
+      "lastCleanupScanAt",
+    ])
+    // The write bound reads one owner's rows for one guild inside a window.
+    // Collecting every row a long-lived operator ever delegated, then filtering,
+    // would eventually put that read past Convex's limits and block them from
+    // reserving at all.
+    .index("by_delegatedByUserId_guildId_createdAt", ["delegatedByUserId", "guildId", "createdAt"])
     .index("by_delegatedByUserId", ["delegatedByUserId"]),
   // Short-lived CSRF state for the purpose-scoped Discord guild-verification
   // OAuth round-trip. Stored server-side rather than in a cookie so the flow

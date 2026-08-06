@@ -69,6 +69,7 @@ Prefer explicit labels in docs:
 - Obvious one- or two-word utility labels and exact strings matching an already-approved pattern may proceed. When in doubt, treat copy as reviewable.
 - New taglines, marketing copy, onboarding or help prose, explanatory cards, empty-state prose, profile or media-kit guidance, and other authored sentences require BASIC's review of the exact copy before shipping unless BASIC already approved that exact copy.
 - Do not foreground or mention AI to users without explicit owner direction.
+- Never use an em-dash (`—`) in public-facing copy. Locked decision: BASIC ruled this on 2026-08-05. A double hyphen (`--`) is not a substitute and is equally banned; a single hyphen (`-`) is fine where a hyphen is what you actually want. Reach for another device instead: split the sentence, use a colon for a reveal, a comma for an aside, or parentheses for a true digression. This is about the glyph in copy only, not code comments or engineering prose.
 - Fable and blind review may improve a draft but cannot substitute for BASIC's approval.
 - Preserve existing approved copy unless a task has a concrete reason to change it. Do not invent explanatory prose because a layout has space.
 - This rule applies to public-facing product copy. It does not apply to code, tests, internal engineering prose, accessibility names that must be explicit, or required safety and legal text.

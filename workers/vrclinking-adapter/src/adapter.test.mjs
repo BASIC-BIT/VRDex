@@ -14,6 +14,7 @@ import { VrclinkingProviderError, createVrclinkingClient } from "./vrclinking-cl
 const DISCORD_ID = "123456789012345678";
 const VRC_ID = "usr_11111111-2222-3333-4444-555555555555";
 const OTHER_VRC_ID = "usr_99999999-8888-7777-6666-555555555555";
+const CREDENTIAL_ID = "k17abcdefghijklmnopqrstuvwxyz01";
 const GUILD_ID = "123456789012345671";
 // The adapter accepts only the one reference name provisioned for that guild;
 // see `isSecretRefForGuild` in adapter.mjs.
@@ -35,7 +36,7 @@ function signDelegation(guildId, secretRef, expiresAt) {
 const FAR_FUTURE = Date.UTC(2099, 0, 1);
 const DELEGATION = signDelegation(
   GUILD_ID,
-  `secret://vrdex/vrclinking/${GUILD_ID}`,
+  `secret://vrdex/vrclinking/${GUILD_ID}/${CREDENTIAL_ID}`,
   FAR_FUTURE,
 );
 
@@ -56,7 +57,7 @@ describe("adapter request validation", () => {
     const many = Array.from({ length: 9 }, (_, index) =>
       signDelegation(
         `1234567890123456${index}`,
-        `secret://vrdex/vrclinking/1234567890123456${index}`,
+        `secret://vrdex/vrclinking/1234567890123456${index}/cred${index}`,
         FAR_FUTURE,
       ),
     );
@@ -80,7 +81,7 @@ describe("adapter request validation", () => {
   // matching pair as easily as VRDex does. Only the signature, made with a key
   // that token does not carry, tells the two apart.
   it("rejects a delegation without a valid, unexpired capability", () => {
-    const secretRef = `secret://vrdex/vrclinking/${GUILD_ID}`;
+    const secretRef = `secret://vrdex/vrclinking/${GUILD_ID}/${CREDENTIAL_ID}`;
     const unsigned = { guildId: GUILD_ID, secretRef };
     const forged = { ...DELEGATION, capability: "0".repeat(64) };
     // 64 characters, but not 64 bytes. `timingSafeEqual` throws on unequal
@@ -109,7 +110,7 @@ describe("adapter request validation", () => {
     const goodGuild = "12345678901234599";
     const valid = signDelegation(
       goodGuild,
-      `secret://vrdex/vrclinking/${goodGuild}`,
+      `secret://vrdex/vrclinking/${goodGuild}/${CREDENTIAL_ID}`,
       FAR_FUTURE,
     );
     const dropped = { ...DELEGATION, capability: "f".repeat(64) };
@@ -147,7 +148,7 @@ describe("adapter request validation", () => {
         delegations: [0, 1, 2].map((offset) =>
           signDelegation(
             `12345678901234${567 + offset}`,
-            `secret://vrdex/vrclinking/12345678901234${567 + offset}`,
+            `secret://vrdex/vrclinking/12345678901234${567 + offset}/cred${offset}`,
             FAR_FUTURE,
           ),
         ),
@@ -177,10 +178,20 @@ describe("adapter request validation", () => {
   // credential: a caller holding it posts straight here and never passes that
   // check. Since the deployment role can read every delegated tenant secret, an
   // unbound reference would spend another community's key.
+  // Convex deploys on merge and this Lambda is deployed by hand, so the two
+  // shapes have to overlap for the length of a rollout. Removing this before
+  // the Lambda is everywhere makes a Convex-first deploy discard every
+  // reference.
+  it("accepts the guild-only reference through the rollout overlap", () => {
+    const legacy = signDelegation(GUILD_ID, `secret://vrdex/vrclinking/${GUILD_ID}`, FAR_FUTURE);
+
+    assert.equal(validateRequest(baseBody({ delegations: [legacy] })).error, undefined);
+  });
+
   it("rejects a secret reference that does not name its own guild", () => {
     const foreign = signDelegation(
       GUILD_ID,
-      "secret://vrdex/vrclinking/999999999999999999",
+      "secret://vrdex/vrclinking/999999999999999999/aaaaaaaaaaaaaaaa",
       FAR_FUTURE,
     );
     const traversal = signDelegation(
@@ -337,7 +348,7 @@ describe("linkage verification", () => {
         delegations: [
           {
           guildId: "11111111111111111",
-          secretRef: "secret://vrdex/vrclinking/11111111111111111",
+          secretRef: "secret://vrdex/vrclinking/11111111111111111/aaaaaaaaaaaaaaaa",
         },
           DELEGATION,
         ],

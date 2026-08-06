@@ -5,7 +5,10 @@ import type { ComponentPropsWithoutRef } from "react";
 import { cn } from "@/lib/cn";
 import { NavUtilities } from "@/components/ui/nav-utilities";
 
-const pageShellVariants = cva("min-h-screen px-6 py-8 text-foreground sm:px-10 lg:px-16", {
+// `px-4` below `sm`, because this gutter is the outermost of three: the shell,
+// then a card, then the padding on each row inside it. Each is defensible alone,
+// and together they left a phone-width panel about two thirds of the screen.
+const pageShellVariants = cva("min-h-screen px-4 py-8 text-foreground sm:px-10 lg:px-16", {
   variants: {
     tone: {
       default: "bg-background",
@@ -55,7 +58,14 @@ export function PageNav({
   return (
     <nav
       className={cn(
-        "sticky top-0 z-40 -mx-3 flex flex-wrap items-center gap-3 border-b border-border bg-background/90 px-3 py-3 text-sm backdrop-blur",
+        // `min-h-16` rather than padding around whatever the page put here.
+        // The bar's height was the tallest child plus `py-3`, so it changed
+        // between routes: a page with no nav buttons sat shorter than one with
+        // them, and the account control growing 40px → 42px when auth resolved
+        // shifted the whole page down. A floor taller than any control makes
+        // the bar the same height everywhere, and `flex-wrap` still lets a
+        // crowded nav grow onto a second row on narrow viewports.
+        "sticky top-0 z-40 -mx-3 flex min-h-16 flex-wrap items-center gap-3 border-b border-border bg-background/90 px-3 py-2 text-sm backdrop-blur",
         className,
       )}
       {...props}

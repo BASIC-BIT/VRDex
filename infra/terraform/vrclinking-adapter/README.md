@@ -24,11 +24,18 @@ endpoint would be unreachable by its only client.
 
 ## What this stack does not create
 
-The delegated credentials. One secret per participating community, named
-`vrdex/vrclinking/<guildId>`, provisioned by an operator when that community
-delegates. The IAM policy grants the name prefix rather than an enumerated list,
-so onboarding a community is not a Terraform change — the guild binding is
+The delegated credentials themselves. One secret per delegation, named
+`vrdex/vrclinking/<guildId>/<credentialId>`, written by the web app when a
+community owner pastes their VRCLinking API key into `/account/connections` —
+not by an operator. The IAM policy grants the shape rather than an enumerated
+list, so onboarding a community is not a Terraform change; the guild binding is
 enforced in code, where it can see which guild a given request is for.
+
+The name carries the credential row, not just the guild, so a community
+replacing its key writes a new object rather than overwriting the one its
+current delegation is still answering with, and two profiles delegating the
+same guild never share a secret. That second path segment is also what keeps
+the shared secret out of the writer's reach — see below.
 
 The shared secret is also created outside this stack and passed in by ARN. A
 secret Terraform creates has its value in the state file.
@@ -80,7 +87,36 @@ holds — see the rotation section for the check that does.
 | Secret | Owner | Read by |
 | --- | --- | --- |
 | `vrdex/vrclinking/shared` | VRDex operator | The adapter at cold start. JSON: `{ "bearerToken": …, "capabilityKey": … }`, mirrored in Convex as `VRCHAT_PROOF_ADAPTER_BEARER_TOKEN` and `VRCLINKING_ADAPTER_CAPABILITY_KEY` |
-| `vrdex/vrclinking/<guildId>` | The delegating community | The adapter only, per request, through the execution role |
+| `vrdex/vrclinking/<guildId>/<credentialId>` | The delegating community | The adapter only, per request, through the execution role. Written by the web app through the delegation writer role |
+
+The shared secret sits one path segment deep and every delegation sits two, which
+is what lets the writer role be granted `vrdex/vrclinking/*/*` and reach no
+further. It is also denied by ARN outright: a role that could replace the
+bearer token and the capability key could forge VRDex's own authorization to
+this adapter, and that is too important to leave resting on a wildcard staying
+narrow through future edits.
+
+## Enabling the delegation writer
+
+Set `vercel_delegation_writer` (see `environments/production.tfvars`) and apply.
+An empty object takes every default — the checked-in Vercel team, project, and
+the `production` and `staging` runtime environments — and produces:
+
+- an IAM role Vercel assumes through OIDC, holding `PutSecretValue` and
+  `CreateSecret` on delegated-credential names and nothing else, with no
+  `GetSecretValue`: the web app never reads a delegated key back.
+- `VRDEX_VRCLINKING_DELEGATION_ROLE_ARN` and `VRDEX_VRCLINKING_SECRET_REGION`
+  on the matching Vercel environments. Standard targets are derived from
+  `runtime_environments`; a custom environment such as `staging` is trusted by
+  the role through the same list but receives its variables through
+  `staging_custom_environment_ids`, which is account-specific and comes from
+  `TF_VAR_staging_custom_environment_ids`.
+
+Leaving it `null` creates none of that, and the delegation form reports itself
+unavailable rather than accepting a key it cannot store. Applying without
+`staging_custom_environment_ids` exported destroys the staging copies of both
+variables, which reads to a community owner as the form deciding it is
+unavailable — export it alongside the var-file.
 
 The two values inside the shared secret must differ — the capability signature
 is only meaningful while its key is unknown to whoever holds the bearer token,

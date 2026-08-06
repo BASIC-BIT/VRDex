@@ -217,7 +217,7 @@ export async function expectDiscoveryPage(page: Page) {
   await expect(page.getByRole("button", { name: /Search VRDex/i })).toBeVisible();
   await expect(page.getByRole("button", { name: "Toggle color theme" })).toBeVisible();
   await expect(page.getByRole("heading", { name: /Upcoming events/i })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Worlds hosting events soon" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Featured worlds" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Neon Harbor", exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: /Afterglow Harbor Sessions/i }).first()).toBeVisible();
   await expect(page.getByLabel("Verified profile").first()).toBeVisible();
@@ -289,8 +289,7 @@ export async function expectHandoffPage(page: Page) {
   await expect(page.getByRole("heading", { name: "DJ Aurora" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Choose the details to keep" })).toBeVisible();
   await expect(page.getByLabel("Include Display name")).toBeChecked();
-  await expect(page.getByRole("button", { name: "Accept handoff" })).toBeVisible();
-  await expect(page.getByText("It does not publish it.", { exact: false })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Take ownership" })).toBeVisible();
 }
 
 export async function expectAccountPage(page: Page) {
@@ -299,18 +298,18 @@ export async function expectAccountPage(page: Page) {
 
 export async function expectAppearancePage(page: Page) {
   await expect(page.getByRole("heading", { name: "Personalization", exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Privacy", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Profile picture shape and border" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Supporting section order" })).toBeVisible();
   await expect(page.getByLabel("Avatar roundedness")).toBeVisible();
-  await expect(page.getByText("Demo mode is live-only", { exact: false })).toBeVisible();
 }
 
 export async function expectPrivacyPage(page: Page) {
-  await expect(page.getByRole("heading", { name: "Privacy Controls", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Privacy", exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Personalization", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Field visibility" })).toBeVisible();
   await expect(page.getByLabel("Bio visibility")).toBeVisible();
   await expect(page.getByText("Current settings", { exact: true })).toBeVisible();
-  await expect(page.getByText("Demo mode is live-only", { exact: false })).toBeVisible();
 }
 
 export async function expectSuppressionPage(page: Page) {
@@ -326,11 +325,6 @@ export async function expectNewEventPage(page: Page) {
 
 export async function expectEditEventPage(page: Page) {
   await expectProtectedRouteRedirect(page, "/events/playwright-afterglow-harbor-sessions/edit");
-}
-
-export async function expectDeploymentPage(page: Page) {
-  await expect(page.getByRole("heading", { name: /Initial Vercel deployment baseline/i })).toBeVisible();
-  await expect(page.getByText(/Deployment facts/i)).toBeVisible();
 }
 
 export async function expectDeveloperApiPage(page: Page) {
@@ -597,11 +591,6 @@ export const capturedRoutes: CapturedRoute[] = [
     expectPage: expectEditEventPage,
   },
   {
-    name: "deployment",
-    path: "/deployment",
-    expectPage: expectDeploymentPage,
-  },
-  {
     name: "developer-api",
     path: "/developers/api",
     expectPage: expectDeveloperApiPage,
@@ -664,7 +653,7 @@ export const capturedRoutes: CapturedRoute[] = [
 ];
 
 export const productionSmokeRoutes: CapturedRoute[] = capturedRoutes.filter((route) =>
-  ["submit", "sign-in", "privacy-suppression", "event-new-signed-out", "deployment"].includes(
+  ["submit", "sign-in", "privacy-suppression", "event-new-signed-out"].includes(
     route.name,
   ),
 );

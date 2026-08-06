@@ -317,10 +317,7 @@ function ReviewInvitation({
           </>
         ) : (
           <>
-            <h2 className="text-xl font-semibold">Accept this handoff</h2>
-            <p className="mt-3 text-sm leading-6 text-muted">
-              Accepting confirms the selected details and gives your account control of this prepared profile. It does not publish it.
-            </p>
+            <h2 className="text-xl font-semibold">Finalize</h2>
             <Button
               className="mt-5 w-full"
               disabled={isAccepting}
@@ -329,7 +326,7 @@ function ReviewInvitation({
               variant="primary"
               onClick={() => void accept()}
             >
-              {isAccepting ? "Accepting..." : "Accept handoff"}
+              {isAccepting ? "Accepting..." : "Take ownership"}
             </Button>
           </>
         )}

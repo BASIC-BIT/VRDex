@@ -42,6 +42,9 @@ terraform.tfvars.json
 tfplan
 tfplan.*
 tfplan-*
+# Named plans too: a plan file is binary, environment-specific, and produced
+# during an apply. `adapter.tfplan` reached a commit before this existed.
+*.tfplan
 .vercel
 __pycache__/
 *.py[cod]

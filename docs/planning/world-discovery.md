@@ -107,7 +107,10 @@ Candidate first slice for `#80`:
 
 Locked decision for the first implementation slice:
 
-- Home labels this module `Worlds hosting events soon`, not `Hot Worlds` or `Live now`
+- Home labels this module `Featured worlds`, not `Hot Worlds` or `Live now` — BASIC
+  moved it off `Worlds hosting events soon` on 2026-08-05, onto one of the safer
+  labels already listed below, and dropped the supporting line and the per-card
+  event count with it
 - cards are built from published events with confirmed event-world links
 - the first sort is earliest next event time, not global popularity or attendance
 - unconfirmed, disputed, draft, or private records do not contribute to Home world activity

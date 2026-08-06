@@ -14,7 +14,7 @@ const VRC_ID = "usr_11111111-2222-3333-4444-555555555555";
 const FAR_FUTURE = Date.UTC(2099, 0, 1);
 
 function signedDelegation() {
-  const secretRef = `secret://vrdex/vrclinking/${GUILD_ID}`;
+  const secretRef = `secret://vrdex/vrclinking/${GUILD_ID}/k17abcdefghijklmnopqrstuvwxyz01`;
 
   return {
     guildId: GUILD_ID,

@@ -33,6 +33,7 @@
     "check:staging-runtime-env": "node scripts/check-staging-runtime-env.mjs",
     "preops:bootstrap-staging-developer-runtime": "node scripts/guard-main-worktree.mjs",
     "ops:bootstrap-staging-developer-runtime": "node scripts/bootstrap-staging-developer-runtime.mjs",
+    "ops:bootstrap-vrclinking-cleanup": "node scripts/bootstrap-vrclinking-cleanup.mjs",
     "pregenerate:api-openapi": "node scripts/guard-main-worktree.mjs",
     "generate:api-openapi": "pnpm --filter @vrdex/api-contracts generate:openapi",
     "precheck:api-openapi": "node scripts/guard-main-worktree.mjs",

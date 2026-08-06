@@ -13,7 +13,7 @@ test("person profile connections @visual", async ({ page }, testInfo) => {
   await expect(page.getByText("VRChat account · Primary · Verified")).toBeVisible();
   // A person profile has no VRCLinking section and nothing left to connect.
   await expect(page.getByText("Nothing left to connect.")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "VRCLinking delegation" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "VRCLinking", exact: true })).toHaveCount(0);
   await captureRouteScreenshot(page, testInfo, "connections-person");
 });
 
@@ -22,7 +22,10 @@ test("community profile connections @visual", async ({ page }, testInfo) => {
   await expect(page.getByText("Discord server · Primary · Verified")).toBeVisible();
   await expect(page.getByText("VRChat group · Verified")).toBeVisible();
   await expect(page.getByRole("button", { name: "Connect to this profile" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "VRCLinking delegation" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Save delegation" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "VRCLinking", exact: true })).toBeVisible();
+  // The API key itself, not a reference to a secret store the owner cannot
+  // reach. A regression here is the whole point of the section.
+  await expect(page.getByLabel("VRCLinking API key")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save key" })).toBeVisible();
   await captureRouteScreenshot(page, testInfo, "connections-community");
 });

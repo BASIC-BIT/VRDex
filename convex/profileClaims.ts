@@ -27,7 +27,7 @@ import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 import { createProfileSearchDocument, upsertSearchDocument } from "./_searchDocuments";
 import { normalizeVrchatTargetId } from "./_vrchatIdentity";
 import { getPublicProfileMediaKit } from "./_profileAssets";
-import { vrclinkingSecretRef } from "./_vrclinkingSecretRef";
+import { vrclinkingSecretRefForRow } from "./_vrclinkingSecretRef";
 
 const DAY_MS = 86_400_000;
 // Minimum gap between adapter-backed checks of one attempt, whatever the
@@ -1292,7 +1292,7 @@ export const recordVrchatProofVerification = internalMutation({
       if (
         credential === null ||
         credential.state !== "active" ||
-        vrclinkingSecretRef(credential.guildId) !== args.vrclinkingDelegation.secretRef
+        vrclinkingSecretRefForRow(credential) !== args.vrclinkingDelegation.secretRef
       ) {
         return { state: "unavailable" as const };
       }

@@ -298,7 +298,7 @@ export function ClaimFlow({
       kind: "working",
       message:
         method === "vrchat"
-          ? "Creating your proof code…"
+          ? "Creating your code…"
           : method === "vrclinking"
             ? "Asking VRCLinking…"
             : "Checking Discord access…",
@@ -325,7 +325,7 @@ export function ClaimFlow({
           targetType: profile.profileType === "person" ? "vrchat_user" : "vrchat_group",
           targetExternalId: String(form.get("targetExternalId") ?? ""),
         });
-        setStatus({ kind: "notice", message: "Proof code ready. Finish the VRChat step below." });
+        setStatus({ kind: "notice", message: "Your code is ready. Add it to VRChat below." });
         return;
       }
 
@@ -334,7 +334,7 @@ export function ClaimFlow({
         const alreadyOwned = "state" in result && result.state === "already_owned";
         setStatus({
           kind: "complete",
-          message: alreadyOwned ? "This profile is already yours." : "Profile claimed. You can manage it now.",
+          message: alreadyOwned ? "This profile is already yours." : "Done. This profile is yours to manage.",
           verified: false,
         });
       captureProductEvent(posthog, "claim_completed", {
@@ -363,10 +363,10 @@ export function ClaimFlow({
       setStatus({
         kind: "complete",
         message: connectionOnly
-          ? "Server control verified. That server is now connected to this profile."
+          ? "That server is now connected to this profile."
           : verified
-            ? "Server control verified. This community is now yours."
-            : "Server control verified, and this community is now yours. The listing is not marked verified, which needs VRDex to have this server on record for it — contact support if it should be.",
+            ? "Verified. This community is yours."
+            : "This community is yours. You can manage it now.",
         verified,
       });
 
@@ -400,7 +400,7 @@ export function ClaimFlow({
 
     setStatus({
       kind: "working",
-      message: viaVrclinking ? "Asking VRCLinking…" : "Checking for your proof code…",
+      message: viaVrclinking ? "Asking VRCLinking…" : "Looking for your code…",
     });
     try {
       const result = await verifyVrchat({ attemptId });
@@ -418,10 +418,10 @@ export function ClaimFlow({
         setStatus({
           kind: "complete",
           message: connectionOnly
-            ? "Control verified. That account is now connected to this profile."
+            ? "That account is now connected to this profile."
             : verified
-              ? "Ownership verified. This profile is now yours."
-              : "Ownership confirmed, and this profile is now yours. It is not marked verified yet, because this account or group was not already on record for the listing.",
+              ? "Verified. This profile is yours."
+              : "This profile is yours. You can manage it now.",
           verified,
         });
         // No `claim_completed` here. This same verification advances
@@ -458,8 +458,8 @@ export function ClaimFlow({
               ? "This profile already has an active owner."
               : "This listing is no longer available to claim."
             : viaVrclinking
-              ? "No linked server confirmed that VRChat account for you. Start again to try another method."
-              : "This verification attempt was rejected. Start again to get a new code.",
+              ? "No server we asked has your Discord linked to that VRChat account. Start over to try another method."
+              : "That check did not pass. Start over to get a new code.",
         });
         captureProductEvent(posthog, "claim_failed", {
           method: proofMethod,
@@ -484,19 +484,19 @@ export function ClaimFlow({
             ? {
                 kind: "notice",
                 message:
-                  "Your proof is queued. VRDex checks VRChat for the code automatically; this page updates once it is found.",
+                  "We are checking VRChat for your code. This page updates on its own, so you can leave and come back.",
               }
             : {
                 kind: "error",
                 message: result.state === "expired"
-                  ? "This proof code expired. Start again to get a new code."
+                  ? "That code expired. Start over to get a new one."
                   : result.state === "unavailable"
                     ? viaVrclinking
-                      ? "VRCLinking could not be reached. Your attempt is still pending; try again shortly."
-                      : "VRChat verification is temporarily unavailable. Your proof is still pending; try again shortly."
+                      ? "We could not reach VRCLinking. Your attempt is still good. Try again in a minute."
+                      : "We could not reach VRChat. Your code is still good. Try again in a minute."
                     : viaVrclinking
-                      ? "No linked server has confirmed that VRChat account yet. Try again shortly, or use another method."
-                      : "We could not find the proof code yet. Check where you placed it, then try again.",
+                      ? "No server we asked has your Discord linked to that VRChat account yet. Try again shortly, or use another method."
+                      : "We have not found the code yet. Check that it is saved and visible to everyone, then check again.",
               },
         );
         if (outcome !== null) {
@@ -526,8 +526,8 @@ export function ClaimFlow({
         setStatus({
           kind: "complete",
           message: verified
-            ? "Server control verified. This community is now yours."
-            : "Server control verified, and this community is now yours. The listing is not marked verified, which needs VRDex to have this server on record for it — contact support if it should be.",
+            ? "Verified. This community is yours."
+            : "This community is yours. You can manage it now.",
           verified,
         });
       captureProductEvent(posthog, "claim_completed", {
@@ -543,7 +543,7 @@ export function ClaimFlow({
               ? "Someone else claimed this community while the check was running."
               : result.reason === "not_claimable"
                 ? "This listing is no longer available to claim."
-                : "Administrator access was not found. Check the server and your role, then start again.",
+                : "We did not find Administrator access for you in that server. Check your role, then start over.",
         });
         if (result.state === "rejected") {
           captureProductEvent(posthog, "claim_failed", {
@@ -565,7 +565,7 @@ export function ClaimFlow({
 
   async function startOver(pendingType: "claim_request" | "proof") {
     setCollectorCompletion(null);
-    setStatus({ kind: "working", message: "Canceling this attempt…" });
+    setStatus({ kind: "working", message: "Canceling…" });
     try {
       const result = await cancelPending({ profileSlug: profile.slug, pendingType });
 
@@ -579,7 +579,7 @@ export function ClaimFlow({
         return;
       }
 
-      setStatus({ kind: "notice", message: "Attempt canceled. Choose a method to start again." });
+      setStatus({ kind: "notice", message: "Canceled. Pick a method to start again." });
     } catch (error) {
       setStatus({ kind: "error", message: errorMessage(error) });
     }
@@ -588,7 +588,7 @@ export function ClaimFlow({
   const vrchatMethodCard = (
     <MethodCard active={method === "vrchat"} title="Verify with VRChat" onClick={() => selectMethod("vrchat")}>
       <ShieldCheck aria-hidden="true" className="mb-2 size-5 text-accent" />
-      Match a one-time code on your VRChat {profile.profileType === "person" ? "profile" : "group"}. Grants ownership.
+      Post a one-time code on your VRChat {profile.profileType === "person" ? "profile" : "group"}. Gives you ownership.
     </MethodCard>
   );
   const vrclinkingMethodCard = (
@@ -602,7 +602,7 @@ export function ClaimFlow({
     >
       <Link2 aria-hidden="true" className="mb-2 size-5 text-accent" />
       Ask a community that already links your Discord and VRChat accounts, instead of posting a
-      code. Grants ownership.
+      code. Gives you ownership.
       {vrclinkingMethodBlocked ? " Verify your Discord account first." : ""}
     </MethodCard>
   );
@@ -617,8 +617,8 @@ export function ClaimFlow({
     >
       {profile.profileType === "person" ? <UserRound aria-hidden="true" className="mb-2 size-5 text-accent" /> : <Building2 aria-hidden="true" className="mb-2 size-5 text-accent" />}
       {profile.profileType === "person"
-        ? "Fast access with your linked account. This claims the profile but does not verify that it represents you."
-        : "Confirm you own, administer, or manage the community’s Discord server. Grants ownership."}
+        ? "Quick access with your linked Discord. Claims the profile, but does not prove it is you."
+        : "Confirm you own or manage the community’s Discord server. Gives you ownership."}
       {discordMethodBlocked ? " Verify your Discord account first." : ""}
     </MethodCard>
   );
@@ -659,9 +659,6 @@ export function ClaimFlow({
         <h1 className="text-3xl font-semibold sm:text-4xl" id="claim-heading">
           Claim {profile.displayName}
         </h1>
-        <p className="mt-3 max-w-xl text-base leading-7 text-muted">
-          Confirm you represent this {profile.profileType}. You will see exactly what each method proves before continuing.
-        </p>
 
         {context === undefined ? <p className="mt-8 text-sm text-muted">Loading claim options…</p> : null}
         {context?.ownership === "signed_out" ? (
@@ -694,10 +691,10 @@ export function ClaimFlow({
                       ? status.message
                       : collectorCompletion !== null
                         ? collectorCompletion.connectionOnly
-                          ? "Control confirmed. That account or group is now connected to this profile."
+                          ? "That account or group is now connected to this profile."
                           : collectorCompletion.verified
-                            ? "Ownership confirmed. This profile is now yours."
-                            : "Ownership confirmed, and this profile is now yours. It is not marked verified yet, because this account or group was not already on record for the listing."
+                            ? "Verified. This profile is yours."
+                            : "This profile is yours. You can manage it now."
                         : "You already manage this profile."}
                   </p>
                   <div className="mt-3 flex flex-wrap gap-2">
@@ -723,11 +720,11 @@ export function ClaimFlow({
         ) : null}
         {isUnverifiedViewer && status.kind !== "complete" ? (
           <Notice className="mt-8">
-            <p className="font-semibold">You manage this profile, but it is not verified yet.</p>
+            <p className="font-semibold">You manage this profile. It is not verified yet.</p>
             <p className="mt-1">
               {profile.profileType === "community"
-                ? "Prove control of its Discord server or VRChat group below to record that control."
-                : "Complete the VRChat proof below to record that control."}
+                ? "Verifying takes one more step: show us you run its Discord server or VRChat group."
+                : "Verifying takes one more step: show us you own this VRChat account."}
             </p>
           </Notice>
         ) : null}
@@ -779,23 +776,45 @@ export function ClaimFlow({
               </div>
             ) : context.pendingProof && !context.pendingProof.expired ? (
               <div className="mt-8 rounded-card border border-border bg-surface p-5">
-                <h2 className="text-xl font-semibold">Finish your VRChat proof</h2>
+                <h2 className="text-xl font-semibold">
+                  Add this code to your VRChat{" "}
+                  {context.pendingProof.targetType === "vrchat_group" ? "group" : "profile"}
+                </h2>
                 <p className="mt-2 text-sm leading-6 text-muted">
-                  Put this code in the profile or group represented by the URL you entered. It expires{" "}
-                  {new Date(context.pendingProof.expiresAt).toLocaleString()}.
+                  {context.pendingProof.targetType === "vrchat_group"
+                    ? "Paste it anywhere in the group’s description and save, then check below. Once we find it you can take it back out."
+                    : "Paste it anywhere in your profile bio and save, then check below. Once we find it you can take it back out."}
                 </p>
-                <p className="mt-2 break-all text-sm text-muted">{context.pendingProof.targetExternalId}</p>
                 <CopyValueRow className="mt-4" label="Proof code" value={context.pendingProof.proofCode} />
+                <dl className="mt-4 grid gap-1 text-sm text-muted">
+                  <div className="flex flex-wrap gap-x-2">
+                    <dt>
+                      {context.pendingProof.targetType === "vrchat_group" ? "Group" : "Account"}
+                    </dt>
+                    <dd className="break-all text-foreground">
+                      {context.pendingProof.targetExternalId}
+                    </dd>
+                  </div>
+                  <div className="flex flex-wrap gap-x-2">
+                    <dt>Code expires</dt>
+                    <dd className="text-foreground">
+                      {new Date(context.pendingProof.expiresAt).toLocaleString(undefined, {
+                        dateStyle: "medium",
+                        timeStyle: "short",
+                      })}
+                    </dd>
+                  </div>
+                </dl>
                 <div className="mt-4 flex flex-wrap gap-2">
-                  <Button disabled={status.kind === "working"} variant="primary" onClick={() => void checkProof(context.pendingProof!.id)}>Check proof now</Button>
+                  <Button disabled={status.kind === "working"} variant="primary" onClick={() => void checkProof(context.pendingProof!.id)}>I&apos;ve added it - check now</Button>
                   <Button disabled={status.kind === "working"} variant="ghost" onClick={() => void startOver("proof")}>Start over</Button>
                 </div>
               </div>
             ) : context.pendingClaimRequest && !isUnverifiedViewer && !isVerifiedViewer ? (
               <div className="mt-8 rounded-card border border-border bg-surface p-5">
-                <h2 className="text-xl font-semibold">Finish your Discord check</h2>
+                <h2 className="text-xl font-semibold">One more step</h2>
                 <p className="mt-2 text-sm leading-6 text-muted">
-                  We will confirm that your linked Discord account has Administrator access in the server you entered.
+                  We will check that your Discord account has Administrator in that server.
                 </p>
                 {context.pendingClaimRequest.discordGuildId ? (
                   <p className="mt-2 break-all text-sm text-muted">Server ID: {context.pendingClaimRequest.discordGuildId}</p>
@@ -880,7 +899,7 @@ export function ClaimFlow({
                       <FieldText>
                         VRDex asks the communities that have delegated a VRCLinking credential whether
                         your Discord account is linked to this VRChat account and verified. It receives a
-                        yes or no and which server answered — nothing else.
+                        yes or no and which server answered, nothing else.
                       </FieldText>
                     </Field>
                   ) : method === "vrchat" ? (
@@ -892,7 +911,7 @@ export function ClaimFlow({
                         placeholder={profile.profileType === "person" ? "https://vrchat.com/home/user/usr_…" : "https://vrchat.com/home/group/grp_…"}
                         required
                       />
-                      <FieldText>We only use this identifier to check the one-time proof code.</FieldText>
+                      <FieldText>We only use this to look for your code.</FieldText>
                     </Field>
                   ) : profile.profileType === "community" ? (
                     verifiedGuilds.length > 0 ? (
@@ -983,7 +1002,11 @@ export function ClaimFlow({
         </div>
 
         <p className="mt-8 border-t border-border pt-5 text-sm leading-6 text-muted">
-          Need to transfer, recover, or dispute ownership? Contact support. Do not claim a profile you do not represent.
+          Transferring, recovering, or disputing ownership?{" "}
+          <a className="underline underline-offset-4" href="mailto:basic@basicbit.net">
+            Contact support
+          </a>
+          .
         </p>
       </section>
     </div>

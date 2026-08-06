@@ -12,9 +12,18 @@ import { cn } from "@/lib/cn";
 
 const convexEnabled = Boolean(process.env.NEXT_PUBLIC_CONVEX_URL);
 
+/**
+ * One height for every nav control, including the loading placeholder.
+ *
+ * The account control resolved from a 40px skeleton to a 42px chip, which moved
+ * the nav border and every route below it once auth settled. Sizing by content
+ * is what let that happen, so these are sized by the row instead.
+ */
+const NAV_CONTROL_HEIGHT = "h-10 py-0";
+
 function SignedOutControl() {
   return (
-    <Link className={buttonVariants({ variant: "secondary" })} href="/sign-in">
+    <Link className={cn(buttonVariants({ variant: "secondary" }), NAV_CONTROL_HEIGHT)} href="/sign-in">
       Sign in
     </Link>
   );
@@ -35,7 +44,10 @@ function ConnectedAccountControl() {
   const label = viewer?.user.name ?? viewer?.user.email ?? "Account";
 
   return (
-    <Link className={cn(buttonVariants({ variant: "secondary" }), "gap-2 py-1.5 pr-3 pl-1.5")} href="/account">
+    <Link
+      className={cn(buttonVariants({ variant: "secondary" }), NAV_CONTROL_HEIGHT, "gap-2 pr-3 pl-1.5")}
+      href="/account"
+    >
       <EntityImage alt="" className="size-7 rounded-control" label={label} sizes="28px" src={viewer?.user.image} />
       <span>Account</span>
     </Link>

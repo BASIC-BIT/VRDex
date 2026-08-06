@@ -16,7 +16,7 @@ import { AccountSignOutControl } from "./sign-out-control";
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 const clerkConfigured = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
 
-function ConnectedAccountPanel({ mediaKitEnabled }: { mediaKitEnabled: boolean }) {
+function ConnectedAccountPanel() {
   const viewer = useQuery(api.accounts.viewer);
   const ownedProfiles = useQuery(api.profilePrivacy.listOwnedPrivacyProfilesForAccount);
   const { openUserProfile } = useClerk();
@@ -60,13 +60,12 @@ function ConnectedAccountPanel({ mediaKitEnabled }: { mediaKitEnabled: boolean }
               <dd>{viewer.user.emailVerified ? "Verified" : "Verification required"}</dd>
             </div>
           </dl>
+          {/* Privacy, connections, personalization and media kit used to start
+              here, as four destinations that each asked which profile you meant
+              on arrival. They hang off a profile now — see the Edit action on
+              each row below — because that is the order the decision is
+              actually made in. */}
           <div className="mt-5 flex flex-wrap gap-2">
-            <Link className={buttonVariants({ variant: "secondary" })} href="/account/privacy">Privacy controls</Link>
-            <Link className={buttonVariants({ variant: "secondary" })} href="/account/connections">Connections</Link>
-            <Link className={buttonVariants({ variant: "secondary" })} href="/account/appearance">Personalization</Link>
-            {mediaKitEnabled ? (
-              <Link className={buttonVariants({ variant: "secondary" })} href="/account/media-kit">Media kit</Link>
-            ) : null}
             <AccountSignOutControl />
           </div>
         </div>
@@ -147,14 +146,12 @@ function ConnectedAccountPanel({ mediaKitEnabled }: { mediaKitEnabled: boolean }
                         Verify with VRChat
                       </Link>
                     ) : null}
-                    {mediaKitEnabled ? (
-                      <Link
-                        className={buttonVariants({ size: "sm", variant: "secondary" })}
-                        href={`/account/media-kit?profile=${encodeURIComponent(profile.slug)}`}
-                      >
-                        Manage media
-                      </Link>
-                    ) : null}
+                    <Link
+                      className={buttonVariants({ size: "sm", variant: "secondary" })}
+                      href={`/account/privacy?profileId=${encodeURIComponent(profile.profileId)}`}
+                    >
+                      Edit
+                    </Link>
                   </div>
                 </li>
               );
@@ -186,7 +183,7 @@ class AccountPanelErrorBoundary extends Component<{ children: ReactNode }, { has
   }
 }
 
-export function AccountPanel({ mediaKitEnabled }: { mediaKitEnabled: boolean }) {
+export function AccountPanel() {
   // `useClerk()` inside the connected panel asserts a ClerkProvider ancestor, and
   // the provider is only mounted when Clerk has credentials. Bail out here rather
   // than making that hook conditional.
@@ -200,7 +197,7 @@ export function AccountPanel({ mediaKitEnabled }: { mediaKitEnabled: boolean }) 
 
   return (
     <AccountPanelErrorBoundary>
-      <ConnectedAccountPanel mediaKitEnabled={mediaKitEnabled} />
+      <ConnectedAccountPanel />
     </AccountPanelErrorBoundary>
   );
 }

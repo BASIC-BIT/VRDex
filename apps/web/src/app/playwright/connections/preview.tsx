@@ -10,6 +10,7 @@ export function ConnectionsPanelPreview({ community = false }: { community?: boo
   return (
     <ConvexProvider client={previewClient}>
       <ConnectionsPanel
+        delegationEnabled
         initialProfileSlug={community ? "playwright-afterglow-social" : "basicbit"}
         preview={{
           ownedProfiles: community

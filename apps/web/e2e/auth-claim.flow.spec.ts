@@ -47,10 +47,24 @@ async function hostedTargetIsKnownPreNumericDiscordFixture(request: APIRequestCo
     return false;
   }
 
-  const response = await request.get("/deployment");
-  await expect(response).toBeOK();
-  const deploymentPage = await response.text();
-  return PRE_NUMERIC_DISCORD_FIXTURE_STAGING_COMMITS.some((commit) => deploymentPage.includes(commit));
+  // Not asserted OK: `/api/deployment` replaces the `/deployment` page and
+  // staging serves the page until this merges, so both are read for the length
+  // of that overlap. A target that answers neither cannot be a known
+  // pre-numeric commit, which is the stricter reading.
+  //
+  // ponytail: transitional. Drop the `/deployment` fallback once staging carries
+  // this branch.
+  for (const path of ["/api/deployment", "/deployment"]) {
+    const response = await request.get(path);
+
+    if (response.ok()) {
+      const body = await response.text();
+
+      return PRE_NUMERIC_DISCORD_FIXTURE_STAGING_COMMITS.some((commit) => body.includes(commit));
+    }
+  }
+
+  return false;
 }
 
 async function createE2eProfile({
@@ -179,6 +193,26 @@ async function recordGuildControlProof(
   await expect(response).toBeOK();
 
   return null;
+}
+
+/**
+ * Copy this branch changed, as either the new string or the one staging still
+ * serves.
+ *
+ * The hosted lane drives the shared staging deployment, which tracks `main` —
+ * so a branch that rewrites user-facing copy asserts against a target that does
+ * not have the rewrite yet. Accepting only the new string makes the lane
+ * unpassable until merge, which is the wrong order: the lane exists to catch
+ * regressions before merge, not to require one.
+ *
+ * The pairs collapse to a single string once staging carries this branch, and
+ * the old half should be deleted then. Same tolerance as
+ * `expectCurrentOrHostedLagTrustState` below, for the same reason.
+ */
+function currentOrLaggingCopy(page: Page, current: string, lagging: string) {
+  return page
+    .getByRole("heading", { name: current })
+    .or(page.getByRole("heading", { name: lagging }));
 }
 
 async function expectCurrentOrHostedLagTrustState(
@@ -365,7 +399,10 @@ test("verified email account with linked Discord can claim person and community 
     await expect(page.getByRole("heading", { name: `Claim ${displayName}` })).toBeVisible();
     await page.getByRole("button", { name: /Use linked Discord/ }).click();
     await page.getByRole("button", { name: "Claim with Discord" }).click();
-    await expect(page.getByText(/Profile claimed/i)).toBeVisible(hostedActionExpectOptions);
+    // Current copy or the copy staging still serves, like the VRChat branch.
+    await expect(
+      page.getByText(/This profile is yours to manage|Profile claimed/i),
+    ).toBeVisible(hostedActionExpectOptions);
 
     await gotoFlowPage(page, `/p/${createdSlug}`);
     await expect(page.getByRole("heading", { name: displayName })).toBeVisible(hostedActionExpectOptions);
@@ -383,7 +420,10 @@ test("verified email account with linked Discord can claim person and community 
     }
 
     await gotoFlowPage(page, `/claim/${encodeURIComponent(createdSlug!)}`);
-    await expect(page.getByText("You manage this profile, but it is not verified yet.")).toBeVisible();
+    // Current copy or the copy staging still serves, like the Discord branch above.
+    await expect(
+      page.getByText(/You manage this profile[.,] (but )?it is not verified yet\./i),
+    ).toBeVisible();
     await expect(page.getByLabel("VRChat profile URL or user ID")).toBeVisible();
 
     if (!process.env.PLAYWRIGHT_BASE_URL) {
@@ -420,7 +460,9 @@ test("verified email account with linked Discord can claim person and community 
     // Server control is proved either way; whether the listing is *marked*
     // verified depends on the guild already being on record for it, which a
     // fresh E2E fixture profile has no reason to be.
-    const communityClaimed = page.getByText(/Server control verified.{0,4} (and )?[Tt]his community is now yours/);
+    const communityClaimed = page.getByText(
+      /This community is yours|Server control verified.{0,4} (and )?[Tt]his community is now yours/,
+    );
     const communityClaimFailed = page.getByText(
       "We could not complete that check. Nothing changed; try again or choose another method.",
     );
@@ -528,12 +570,17 @@ test("verified email account can complete VRChat adapter claims @flow", async ({
       "https://vrchat.com/home/user/usr_e2e00000-0000-4000-8000-000000000001",
     );
     await page.getByRole("button", { name: "Create proof code" }).click();
-    await expect(page.getByRole("heading", { name: "Finish your VRChat proof" })).toBeVisible(hostedActionExpectOptions);
+    await expect(currentOrLaggingCopy(page, "Add this code to your VRChat profile", "Finish your VRChat proof")).toBeVisible(hostedActionExpectOptions);
     await expect(page.getByText(/VRDEX-/)).toBeVisible(hostedActionExpectOptions);
     await page.reload();
-    await expect(page.getByRole("heading", { name: "Finish your VRChat proof" })).toBeVisible(hostedActionExpectOptions);
-    await page.getByRole("button", { name: "Check proof now" }).click();
-    await expect(page.getByText(/Ownership (verified|confirmed)/i)).toBeVisible(hostedActionExpectOptions);
+    await expect(currentOrLaggingCopy(page, "Add this code to your VRChat profile", "Finish your VRChat proof")).toBeVisible(hostedActionExpectOptions);
+    await page
+      .getByRole("button", { name: "I've added it - check now" })
+      // The em-dash spelling is what staging serves until this merges.
+      .or(page.getByRole("button", { name: "I've added it — check now" }))
+      .or(page.getByRole("button", { name: "Check proof now" }))
+      .click();
+    await expect(page.getByText(/This profile is yours|Ownership (verified|confirmed)/i)).toBeVisible(hostedActionExpectOptions);
 
     await gotoFlowPage(page, `/p/${vrchatPersonSlug}`);
     await expect(page.getByRole("heading", { name: `Playwright VRChat Proof ${runSuffix}` })).toBeVisible(hostedActionExpectOptions);

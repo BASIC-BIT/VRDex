@@ -7,7 +7,7 @@ import { Component, FormEvent, ReactNode, useEffect, useMemo, useRef, useState, 
 import { api } from "@convex-generated-api";
 import { buttonVariants, Button } from "@/components/ui/button";
 import { Card, cardVariants } from "@/components/ui/card";
-import { Field, Select } from "@/components/ui/field";
+import { Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { cn } from "@/lib/cn";
 import type { Id } from "../../../../../../convex/_generated/dataModel";
@@ -236,24 +236,21 @@ function PrivacyEditor({
 
   return (
     <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
-      <form className={cn(cardVariants({ surface: "glass" }), "grid gap-5")} onSubmit={submitPrivacy}>
+      <form
+        className={cn(
+          cardVariants({ surface: "glass" }),
+          // Flat on phones. This card sits inside the page card that already
+          // names the surface, so below `sm` its border and gutter buy nothing
+          // and cost every field inside it 32px of width.
+          "max-sm:rounded-none max-sm:border-0 max-sm:bg-transparent max-sm:p-0",
+          "grid gap-5",
+        )}
+        onSubmit={submitPrivacy}
+      >
         <div>
           <h2 className="text-2xl font-semibold">Field visibility</h2>
           <p className="mt-2 text-sm leading-6 text-muted">{selectedProfile.displayName}</p>
         </div>
-
-        {profiles.length > 1 ? (
-          <Field>
-            Profile
-            <Select value={selectedProfileId} onChange={(event) => setSelectedProfileId(event.target.value)}>
-              {profiles.map((profile) => (
-                <option key={profile.profileId} value={profile.profileId}>
-                  {profile.displayName}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        ) : null}
 
         <div className="grid gap-4">
           {groupsForProfile(selectedProfile).map((group) => (
@@ -262,7 +259,7 @@ function PrivacyEditor({
               <div className="grid gap-2">
                 {group.fields.map((field) => (
                   <label
-                    className="grid gap-3 rounded-control border border-border bg-surface-strong px-4 py-3 text-sm sm:grid-cols-[minmax(0,1fr)_10rem] sm:items-center"
+                    className="grid gap-3 rounded-control border border-border bg-surface-strong px-3 py-3 text-sm sm:grid-cols-[minmax(0,1fr)_10rem] sm:items-center sm:px-4"
                     key={field.key}
                   >
                     <span className="font-medium">{field.label}</span>
@@ -288,7 +285,6 @@ function PrivacyEditor({
           ))}
         </div>
 
-        {demo ? <Notice variant="dashed">Demo mode is live-only. Sign in and claim a profile to save privacy settings.</Notice> : null}
         {status.kind === "saving" ? <p className="text-sm text-muted">Saving privacy...</p> : null}
         {status.kind === "success" ? <Notice>Privacy saved.</Notice> : null}
         {status.kind === "error" ? <Notice variant="error">{status.message}</Notice> : null}

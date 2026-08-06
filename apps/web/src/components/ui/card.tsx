@@ -13,11 +13,15 @@ export const cardVariants = cva("rounded-panel border", {
       dashed: "border-dashed border-border bg-surface",
       dark: "border-white/15 bg-white/14 text-white backdrop-blur",
     },
+    // Narrower on small screens, because these gutters stack. A phone-width
+    // account panel pays the page shell's gutter, then the card's, then the
+    // padding on each row inside it — three surfaces deep, none of them wrong on
+    // its own, leaving the content itself about two thirds of the screen.
     padding: {
       none: "",
       sm: "px-4 py-4",
-      md: "px-5 py-6 sm:px-6",
-      lg: "px-6 py-8 sm:px-8",
+      md: "px-4 py-5 sm:px-6 sm:py-6",
+      lg: "px-4 py-6 sm:px-8 sm:py-8",
     },
   },
   defaultVariants: {
