@@ -910,6 +910,39 @@ describe("seed publish option safety", () => {
     );
   });
 
+  it("refuses an option that lost its dashes", () => {
+    // The dashes are what made the earlier fix work at all: it filtered to
+    // `--` tokens, so a `--field-keys` typed without them left both tokens
+    // unclaimed and `fieldKeys` undefined, which this script reads as every
+    // accepted field.
+    assert.deepEqual(
+      unknownOption(["--set-visibility", "public", "field-keys", "aliases", "--apply"]),
+      { name: "field-keys", reason: "positional" },
+    );
+
+    // One dash short counts too.
+    assert.deepEqual(
+      unknownOption(["--set-visibility", "public", "-field-keys", "aliases"]),
+      { name: "-field-keys", reason: "positional" },
+    );
+  });
+
+  it("does not mistake an option value for a stray argument", () => {
+    // Walking positionally means knowing which options consume the token after
+    // them, or every value would read as unclaimed.
+    assert.equal(
+      unknownOption(["--reason", "Source permits listing these publicly.", "--apply"]),
+      undefined,
+    );
+
+    // A value option whose value is missing consumes nothing, so the flag after
+    // it is still checked rather than swallowed as its argument.
+    assert.deepEqual(
+      unknownOption(["--reason", "--apply", "--apply"]),
+      { name: "--apply", reason: "repeated" },
+    );
+  });
+
   it("refuses a repeated option rather than silently taking the first", () => {
     assert.deepEqual(
       unknownOption(["--set-visibility", "public", "--set-visibility", "private"]),

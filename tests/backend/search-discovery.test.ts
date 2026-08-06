@@ -85,6 +85,52 @@ describe("vocabulary usage counts", () => {
     assert.equal(store.rows[0].usageCount, 1);
   });
 
+  it("refreshes a retained term's label without counting it again", async () => {
+    // The two spellings share a key, so a profile correcting one contributes
+    // nothing new to count -- but the label is what discovery shows, and
+    // skipping the candidate left it reading the old wording even where this
+    // profile was the only contributor.
+    const store = createVocabularyDb([
+      {
+        _id: "term0",
+        scope: "profile_tag",
+        key: createVocabularyKey("Drum & Bass"),
+        label: "Drum & Bass",
+        aliases: [],
+        source: "user_created",
+        usageCount: 1,
+        rank: 10,
+      },
+    ]);
+
+    await recordVocabularyTerms(
+      store.db as never,
+      [{ scope: "profile_tag" as const, label: "Drum and Bass" }],
+      7,
+      { incrementUsage: false },
+    );
+
+    assert.equal(store.rows.length, 1);
+    assert.equal(store.rows[0].label, "Drum and Bass");
+    assert.equal(store.rows[0].usageCount, 1);
+  });
+
+  it("does not invent a term for a retained key with no row", async () => {
+    // A retained key whose row went missing is a lost record, not a new
+    // contribution. Inserting one would put a count on the books that no later
+    // release accounts for.
+    const store = createVocabularyDb([]);
+
+    await recordVocabularyTerms(
+      store.db as never,
+      [{ scope: "profile_tag" as const, label: "Drum and Bass" }],
+      7,
+      { incrementUsage: false },
+    );
+
+    assert.deepEqual(store.rows, []);
+  });
+
   it("releases colliding labels once", async () => {
     const store = createVocabularyDb([
       {

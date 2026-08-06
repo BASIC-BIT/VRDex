@@ -566,18 +566,29 @@ export async function reindexProfileSearchDocument(
   // discovery term list while its own search document stayed hidden -- a term
   // offered to everyone, sourced from a record withdrawn from everyone.
   const addedCandidates = new Map<string, VocabularyCandidate>();
+  // Keys this profile already held, split out rather than skipped. Two spellings
+  // canonicalize to one key -- "Drum & Bass" and "Drum and Bass" -- so correcting
+  // one is a label change with nothing to add to the count. Dropping the
+  // candidate entirely left the search document carrying the corrected text while
+  // `vocabularyTerms.label` kept the old wording, and discovery reads the term
+  // list, so the correction never reached the surface it was made for.
+  const retainedCandidates = new Map<string, VocabularyCandidate>();
 
   if (isPublic) {
     for (const candidate of vocabularyForProfile(profile)) {
       const scopedKey = `${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`;
+      const into = beforeKeys.has(scopedKey) ? retainedCandidates : addedCandidates;
 
-      if (!beforeKeys.has(scopedKey) && !addedCandidates.has(scopedKey)) {
-        addedCandidates.set(scopedKey, candidate);
+      if (!into.has(scopedKey)) {
+        into.set(scopedKey, candidate);
       }
     }
   }
 
   await recordVocabularyTerms(db, [...addedCandidates.values()], now);
+  await recordVocabularyTerms(db, [...retainedCandidates.values()], now, {
+    incrementUsage: false,
+  });
 
   const removedKeys = [...beforeKeys].filter((key) => !afterKeys.has(key));
 
@@ -616,16 +627,24 @@ export async function reindexWorldSearchDocument(
   // recording both would increment twice while a later release decrements once --
   // permanently inflating the term.
   const addedCandidates = new Map<string, VocabularyCandidate>();
+  // Retained keys reconciled rather than skipped, the same as the profile path
+  // above and for the same reason: a spelling correction that keeps the key is a
+  // label change, and dropping it left discovery showing the old wording.
+  const retainedCandidates = new Map<string, VocabularyCandidate>();
 
   for (const candidate of vocabularyForWorld(world, { hiddenProfileKeys })) {
     const scopedKey = `${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`;
+    const into = beforeKeys.has(scopedKey) ? retainedCandidates : addedCandidates;
 
-    if (!beforeKeys.has(scopedKey) && !addedCandidates.has(scopedKey)) {
-      addedCandidates.set(scopedKey, candidate);
+    if (!into.has(scopedKey)) {
+      into.set(scopedKey, candidate);
     }
   }
 
   await recordVocabularyTerms(db, [...addedCandidates.values()], now);
+  await recordVocabularyTerms(db, [...retainedCandidates.values()], now, {
+    incrementUsage: false,
+  });
 
   const removedKeys = [...beforeKeys].filter((key) => !afterKeys.has(key));
 

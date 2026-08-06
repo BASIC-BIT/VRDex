@@ -549,6 +549,12 @@ export const editableProfile = query({
     return {
       slug: profile.slug,
       profileType: profile.profileType,
+      // Whether the public profile route can render this at all, answered by the
+      // predicate that route answers to. A `draft_private`, opted-out or
+      // suppressed profile is editable by its owner and 404s for everybody
+      // including them, so the editor has to know not to send them there once
+      // the save succeeds.
+      publiclyViewable: canReadProfile("public", profile),
       // Sent back with the save, so a second editor is told the profile moved
       // rather than quietly overwriting whatever changed underneath them.
       updatedAt: profile.updatedAt,
@@ -719,6 +725,16 @@ export const updateProfileFromBrowser = mutation({
     return {
       ...toApiProfileWriteResponse(updatedProfile),
       changedFields,
+      // The version the editor should hold from here. It pins the one it loaded
+      // so a save cannot carry stale values over somebody else's edit, and until
+      // now every successful save navigated away, so the pin never had to move.
+      // An owner whose profile has no public page stays on the form, and a second
+      // save would otherwise be refused as a conflict with their own first.
+      //
+      // Alongside `changedFields` rather than in the shared write response, which
+      // is the public API's shape and has a schema and two OpenAPI artifacts
+      // behind it.
+      updatedAt: updatedProfile.updatedAt,
     };
   },
 });

@@ -31,6 +31,7 @@ const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 type EditStatus =
   | { kind: "idle" }
   | { kind: "saving" }
+  | { kind: "saved" }
   | { kind: "error"; message: string };
 
 const userSafeErrorPatterns = [
@@ -145,7 +146,7 @@ function ConnectedProfileEditForm({
       // instruction -- so naming the rest here would clear fields this writer
       // was never shown. An emptied narrative field becomes `null`, which is how
       // that path spells "clear this" rather than "leave it alone".
-      await updateProfile({
+      const saved = await updateProfile({
         slug,
         expectedUpdatedAt: loadedUpdatedAt.current ?? profile.updatedAt,
         ...fields,
@@ -160,9 +161,26 @@ function ConnectedProfileEditForm({
         ...(fields.timezone === undefined ? {} : { timezone: fields.timezone || null }),
       });
 
+      // Moved to the version this save produced. The pin exists so a form cannot
+      // carry the values it mounted with over somebody else's edit; leaving it on
+      // the loaded version would make an owner's own second save look like that
+      // conflict, which only became reachable once a save could keep them here.
+      loadedUpdatedAt.current = saved.updatedAt;
+
       startTransition(() => {
-        setStatus({ kind: "idle" });
-        router.push(profilePath);
+        // Only where there is a public page to land on. `draft_private`, opted
+        // out and suppressed profiles are editable by their owner and 404 for
+        // everybody including them, so pushing there turned a successful save
+        // into a not-found -- and this route is the one surface those owners
+        // have, now that the record panel hangs off it too. They stay here with
+        // refreshed values instead.
+        if (profile.publiclyViewable) {
+          setStatus({ kind: "idle" });
+          router.push(profilePath);
+        } else {
+          setStatus({ kind: "saved" });
+        }
+
         router.refresh();
       });
     } catch (error) {
@@ -217,6 +235,13 @@ function ConnectedProfileEditForm({
           Cancel
         </Link>
       </div>
+
+      {/*
+        Only reached when the save did not navigate away, which is the profiles
+        with no public page to navigate to. `Saved.` is the wording the media kit
+        panel already uses for the same event rather than a new sentence.
+      */}
+      {status.kind === "saved" ? <Notice variant="info">Saved.</Notice> : null}
 
       {status.kind === "error" ? <Notice variant="error">{status.message}</Notice> : null}
     </form>

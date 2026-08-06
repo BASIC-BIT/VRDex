@@ -78,28 +78,53 @@ export const KNOWN_OPTIONS = [
 ];
 
 /**
- * The first unrecognized or repeated option, if any.
+ * The options that consume the token after them, `--target` included.
  *
- * Ignoring what it did not recognize is how a spelling mistake changed which
- * operation ran. `--set-visibilty public --apply` leaves the real
- * `--set-visibility` unset, so the run falls past the migration and bulk
- * publishes every pending candidate in the batch. `--field-key aliases` is the
- * quieter one: the recognized `--field-keys` stays absent, which this script
- * reads as "every accepted field", so a migration an operator scoped to one key
- * makes all of them public instead.
+ * Walking the arguments needs to know this to tell a value apart from a stray
+ * token: `--reason publish these` has a value the parser expects, while
+ * `field-keys aliases` has two tokens nothing asked for.
+ */
+const VALUE_CONSUMING_OPTIONS = [...VALUE_OPTIONS, "--target"];
+
+/**
+ * The first token this script cannot account for, if any.
+ *
+ * Every argument has to be either an option it knows or the value consumed by
+ * one, because a token nobody claimed is a token the operator believed was doing
+ * something. Walking the list positionally rather than filtering it is the whole
+ * point: checking only `--`-prefixed tokens left `field-keys aliases`, a
+ * `--field-keys` with the dashes missed, passing silently -- and a
+ * `--set-visibility public --apply` beside it makes every accepted field public
+ * instead of the one that was named.
+ *
+ * The same for a misspelling that does keep its dashes. `--set-visibilty public
+ * --apply` leaves the real `--set-visibility` unset, so the run falls past the
+ * migration and bulk publishes every pending candidate in the batch.
  *
  * Repeats are refused rather than resolved. `readOption` takes the first match,
  * so `--set-visibility public --set-visibility private` runs one of them and
  * says nothing about which.
  *
+ * A value option whose value is missing consumes nothing here, so the token
+ * after it is still checked as an option and the missing value is caught by the
+ * dedicated check rather than swallowed as this one's argument.
+ *
  * A bare `--` is the package-manager separator, not an option.
  */
-export function unknownOption(argv, known = KNOWN_OPTIONS) {
+export function unknownOption(argv, known = KNOWN_OPTIONS, consumesValue = VALUE_CONSUMING_OPTIONS) {
   const seen = new Set();
+  let index = 0;
 
-  for (const token of argv) {
-    if (token === "--" || !token.startsWith("--")) {
+  while (index < argv.length) {
+    const token = argv[index];
+
+    if (token === "--") {
+      index += 1;
       continue;
+    }
+
+    if (!token.startsWith("--")) {
+      return { name: token, reason: "positional" };
     }
 
     if (!known.includes(token)) {
@@ -111,6 +136,11 @@ export function unknownOption(argv, known = KNOWN_OPTIONS) {
     }
 
     seen.add(token);
+
+    const value = argv[index + 1];
+
+    index +=
+      consumesValue.includes(token) && value !== undefined && !value.startsWith("--") ? 2 : 1;
   }
 
   return undefined;
@@ -420,11 +450,13 @@ function main() {
   const badOption = unknownOption(args);
 
   if (badOption !== undefined) {
-    fail(
-      badOption.reason === "unknown"
-        ? `Unknown option ${badOption.name}.\n\n${USAGE}`
-        : `${badOption.name} was given more than once.\n\n${USAGE}`,
-    );
+    const complaint = {
+      unknown: `Unknown option ${badOption.name}.`,
+      repeated: `${badOption.name} was given more than once.`,
+      positional: `Unexpected argument ${badOption.name}. Options need their leading --.`,
+    }[badOption.reason];
+
+    fail(`${complaint}\n\n${USAGE}`);
   }
 
   const batchId = option("--batch-id");

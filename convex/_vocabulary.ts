@@ -104,7 +104,16 @@ export async function recordVocabularyTerms(
   db: DatabaseWriter,
   candidates: VocabularyCandidate[],
   now: number,
+  options: { incrementUsage?: boolean } = {},
 ) {
+  // Off for a key the contributor already held. Distinct labels share one key --
+  // "Drum & Bass" and "Drum and Bass" -- so correcting the spelling changes the
+  // label with nothing to add to the count. Skipping such a candidate outright
+  // left `vocabularyTerms.label` showing the old wording in discovery even where
+  // the editing profile was its only contributor. The label, alias and rank
+  // rules below are then the same either way rather than restated at the call
+  // site.
+  const incrementUsage = options.incrementUsage !== false;
   // Deduplicated by scoped key here rather than at each call site. Distinct labels
   // can canonicalize to one key -- "Drum & Bass" and "Drum and Bass" -- and a search
   // document stores that key once, so incrementing per candidate would overstate the
@@ -133,9 +142,16 @@ export async function recordVocabularyTerms(
         label: candidate.source === "seeded" ? label : existing.source === "seeded" ? existing.label : label,
         aliases: candidate.source === "seeded" ? aliases : existing.aliases,
         rank: candidate.source === "seeded" && candidate.rank !== undefined ? candidate.rank : existing.rank,
-        usageCount: existing.usageCount + 1,
+        usageCount: existing.usageCount + (incrementUsage ? 1 : 0),
         updatedAt: now,
       });
+      continue;
+    }
+
+    // A retained key with no row is a record that went missing, not a term this
+    // contributor is introducing. Inventing one here would put a usage count on
+    // the books that no later release accounts for.
+    if (!incrementUsage) {
       continue;
     }
 
