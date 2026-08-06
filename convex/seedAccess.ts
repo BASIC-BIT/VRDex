@@ -244,18 +244,23 @@ const PROFILE_HISTORY_LIMIT = 20;
  * accepted. None of those touch the published profile, so a surface reading only
  * the profile keeps answering long after the lookup has stopped.
  *
- * Any eligible candidate is enough, which is what the name lookup does -- it
- * returns a row per candidate, so a profile two batches contributed to still
- * appears there on the strength of the live one. Judging only the first row this
- * index happens to return would hide such a profile whenever the withdrawn batch
- * sorted first, which is arbitrary rather than a decision.
+ * Every contributing candidate has to be eligible, not just one of them.
  *
- * Read as a stream, stopping at the first eligible row. A fixed `take` was the
- * same mistake in miniature: eight withdrawn candidates ahead of the live one and
- * the profile went missing from this surface while the lookup went on listing it,
- * because the bound was sized to what seemed likely rather than to the question.
- * `LOOKUP_SCAN_LIMIT` still caps the work, and it is the ceiling the name lookup
- * already uses.
+ * Matching the name lookup here was wrong, and the difference is what each
+ * surface hands back. `lookupPeople` returns a row per candidate, so a profile
+ * two batches contributed to appears on the strength of the live one and shows
+ * that candidate's data alone -- the withdrawn batch's row is still withheld.
+ * This returns the merged profile: every withheld field and the whole audit
+ * history, including everything the withdrawn batch put there. Under "any
+ * eligible candidate", one active batch became a capability for the fields and
+ * operator notes of a batch that had been rejected, superseded, or revoked to
+ * `private_only`, which is the opposite of what revocation is for.
+ *
+ * Read as a stream. A fixed `take` was a different mistake in the same place:
+ * the bound was sized to what seemed likely rather than to the question.
+ * `LOOKUP_SCAN_LIMIT` still caps the work, and running past it denies rather
+ * than approves -- a contributor this never looked at is a contributor whose
+ * revocation it cannot honour.
  */
 async function publishedSeedCandidateIsVisible(
   ctx: { db: GenericDatabaseReader<DataModel> },
@@ -267,7 +272,9 @@ async function publishedSeedCandidateIsVisible(
     .query("seedImportCandidateProfiles")
     .withIndex("by_publishedProfileId", (query) => query.eq("publishedProfileId", profile._id))) {
     if (scanned >= LOOKUP_SCAN_LIMIT) {
-      break;
+      // More contributors than this will read. Approving on the strength of the
+      // ones it happened to reach would make the answer depend on index order.
+      return false;
     }
 
     scanned += 1;
@@ -275,7 +282,7 @@ async function publishedSeedCandidateIsVisible(
     const batch = await ctx.db.get(candidate.batchId);
 
     if (
-      canIncludePrivateSeedCandidate(
+      !canIncludePrivateSeedCandidate(
         candidate,
         batch?.publicationPolicy,
         batch?.reviewState,
@@ -283,13 +290,13 @@ async function publishedSeedCandidateIsVisible(
         profile,
       )
     ) {
-      return true;
+      return false;
     }
   }
 
   // Includes the no-candidate case: nothing to check the profile against fails
   // closed rather than falling back to trusting the profile alone.
-  return false;
+  return scanned > 0;
 }
 
 /**

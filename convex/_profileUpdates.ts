@@ -391,40 +391,45 @@ export function sanitizeApiProfileUpdateInput(
         return link;
       }
 
-      const claimed = claimedSources[index];
-      let inherited: ProfileLinkSource | undefined;
+      // A destination speaks for its provenance only when its stored rows agree
+      // on it. Two rows at one destination carrying different sources are
+      // indistinguishable to everyone -- the writer, the form and this function
+      // -- so nothing in the request can say which of them survived a delete.
+      //
+      // That cuts both ways, and the claimed side is the one that bites. Trusting
+      // a claim against "some stored row has this source" let a community
+      // contributor facing a mixed destination drop the community row, submit
+      // `source: "owner_authored"`, and keep the elevated stamp of a row they had
+      // just removed. Ambiguity now falls back to the writer's own stamp whether
+      // or not they claimed anything, which is the only answer that cannot invent
+      // authority nobody granted.
+      const live = [...bySource].filter(([, count]) => count > 0);
 
-      if (claimed === undefined) {
-        // No claim to honour. `ApiProfileUpdateRequestSchema` has no `source`
-        // field at all, so an owner patching one link's label through the public
-        // API sends none for any of them -- and falling straight through to the
-        // sanitizer restamped every reviewed, partner-provided and
-        // community-submitted link on the profile as `owner_authored`. The
-        // destination's own provenance is inherited instead.
-        //
-        // Only where it is unambiguous. Two stored rows on one destination
-        // carrying different sources is exactly what the earlier
-        // destination-keyed attempts got wrong: handing them out in stored order
-        // promoted the community-submitted duplicate sitting behind a deleted
-        // owner-authored one. That case keeps the writer's own stamp, which is
-        // conservative in the direction that cannot invent authority.
-        const live = [...bySource].filter(([, count]) => count > 0);
-
-        inherited = live.length === 1 ? live[0]?.[0] : undefined;
-      } else if ((bySource.get(claimed) ?? 0) > 0) {
-        // A claim is honoured only against a stored row that actually carries
-        // it, and each stored row is claimed once, so a writer cannot mint
-        // `owner_authored` by asking for it.
-        inherited = claimed;
-      }
-
-      if (inherited === undefined) {
+      if (live.length !== 1) {
         return link;
       }
 
-      bySource.set(inherited, (bySource.get(inherited) ?? 0) - 1);
+      const stored = live[0]?.[0];
 
-      return { ...link, source: inherited };
+      if (stored === undefined) {
+        return link;
+      }
+
+      // An explicit claim still has to match. `ApiProfileUpdateRequestSchema` has
+      // no `source` field at all, so an owner patching one link's label through
+      // the public API claims nothing for any of them -- and falling through to
+      // the sanitizer restamped every reviewed, partner-provided and
+      // community-submitted link on the profile as `owner_authored`. Absent a
+      // claim, the destination's own provenance is what the row keeps.
+      const claimed = claimedSources[index];
+
+      if (claimed !== undefined && claimed !== stored) {
+        return link;
+      }
+
+      bySource.set(stored, (bySource.get(stored) ?? 0) - 1);
+
+      return { ...link, source: stored };
     });
     addChangedField(changedFields, "outboundLinks");
   }
@@ -470,10 +475,15 @@ export function sanitizeApiProfileUpdateInput(
     if (changed) {
       patch.person = person;
       addChangedField(changedFields, "person");
-    } else {
+    } else if (hasOwn(input.person, "pronouns") || hasOwn(input.person, "roleTags")) {
       // Submitted and identical. Recorded so the permission check still sees it:
       // without this, private role tags are guessable the same way private
       // aliases were, by reading success or refusal off the reply.
+      //
+      // A nested object that names no field is not a submission. `{"person":{}}`
+      // recorded here counted toward "at least one editable field" and returned
+      // success for a request that asked for nothing, which is the same empty
+      // write the top-level check refuses.
       unchangedFields.push("person");
     }
   }
@@ -516,7 +526,10 @@ export function sanitizeApiProfileUpdateInput(
     if (changed) {
       patch.community = community;
       addChangedField(changedFields, "community");
-    } else {
+    } else if (
+      hasOwn(input.community, "subtype") ||
+      hasOwn(input.community, "categoryTags")
+    ) {
       unchangedFields.push("community");
     }
   }

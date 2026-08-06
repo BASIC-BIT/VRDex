@@ -467,6 +467,29 @@ describe("profile fields payload", () => {
     assert.deepEqual(payload.profileType === "person" ? payload.person?.roleTags : [], stored);
   });
 
+  it("treats a capitalization fix as a real role change", () => {
+    // Case-folding the comparison declared these one set, so the save returned
+    // the stored spelling and reported success -- the one correction the writer
+    // actually asked for, silently discarded.
+    const payload = profileFieldsPayload(
+      formData(
+        [
+          ["displayName", "Snek"],
+          ["roleTagsStored", JSON.stringify(["DJ", "resident"])],
+          ["roleTag", "DJ"],
+          ["roleTagsOther", "Resident"],
+        ],
+        ["person"],
+      ),
+      "person",
+    );
+
+    assert.deepEqual(payload.profileType === "person" ? payload.person?.roleTags : [], [
+      "DJ",
+      "Resident",
+    ]);
+  });
+
   it("rebuilds the role list once the roles actually change", () => {
     const payload = profileFieldsPayload(
       formData(
@@ -488,10 +511,10 @@ describe("profile fields payload", () => {
     );
   });
 
-  // `source` is a claim the mutation checks against the canonical destination, so
-  // it survives a URL edit and lets the backend decide. Dropping it meant
-  // retyping `www.twitch.tv/Snek` as `twitch.tv/snek` -- the same channel, and to
-  // the backend the same key -- arrived with no claim at all and was restamped.
+  // Retyping `www.twitch.tv/Snek` as `twitch.tv/snek` is the same channel and the
+  // same destination key, so the row is not edited in any sense either lane
+  // recognizes. `source` is a claim the mutation checks against that key, and the
+  // label and handle still describe the link they came with.
   it("carries link provenance through an equivalent URL edit", () => {
     const payload = profileFieldsPayload(
       formData(
@@ -512,9 +535,18 @@ describe("profile fields payload", () => {
       "person",
     );
 
-    // The claim travels; the metadata describing the old destination does not.
+    // Same destination by the key both lanes use, so nothing about this row
+    // changed: the claim travels and so does the metadata that still describes
+    // it. Dropping the label and handle here replaced an operator's wording with
+    // provider defaults for a correction that was purely cosmetic.
     assert.deepEqual(payload.outboundLinks, [
-      { type: "twitch", url: "https://twitch.tv/snek", source: "owner_authored" },
+      {
+        type: "twitch",
+        url: "https://twitch.tv/snek",
+        label: "Restream",
+        handle: "snek",
+        source: "owner_authored",
+      },
     ]);
   });
 

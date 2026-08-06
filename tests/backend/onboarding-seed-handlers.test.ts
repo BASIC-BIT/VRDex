@@ -601,11 +601,11 @@ describe("private seed Convex handlers", () => {
     );
   });
 
-  // A fixed `take` here was the same asymmetry in miniature: enough withdrawn
-  // candidates ahead of the live one and the profile went missing from the record
-  // read while the name lookup went on listing it, because the bound was sized to
-  // what seemed likely rather than to the question.
-  it("finds the live candidate behind a crowd of withdrawn ones", async () => {
+  // This surface hands back the merged record -- every withheld field and the
+  // whole audit history -- so one live batch must not unlock what twelve
+  // rejected ones contributed. The name lookup can answer per candidate and
+  // withhold the withdrawn rows; this cannot, so it answers for all of them.
+  it("refuses a merged record any withdrawn batch contributed to", async () => {
     const t = convexTest({ schema, modules });
     const candidate = await importCandidate(t);
     const identity = await t.run(async (ctx) => {
@@ -683,13 +683,11 @@ describe("private seed Convex handlers", () => {
       return { subject: clerkUserId, emailVerified: true };
     });
 
-    assert.deepEqual(
-      (
-        await t.withIdentity(identity).query(api.seedAccess.withheldProfileRecord, {
-          slug: "handler-crowded-import",
-        })
-      )?.withheldFields.map((field) => field.key),
-      ["bio"],
+    assert.equal(
+      await t.withIdentity(identity).query(api.seedAccess.withheldProfileRecord, {
+        slug: "handler-crowded-import",
+      }),
+      null,
     );
   });
 
@@ -759,10 +757,10 @@ describe("private seed Convex handlers", () => {
       null,
     );
 
-    // A merge can leave two candidates pointing at one profile. The name lookup
-    // returns a row per candidate, so such a profile still appears there on the
-    // strength of the live one -- judging only whichever row the index returns
-    // first would hide it here whenever the withdrawn batch sorted ahead.
+    // A merge can leave two candidates pointing at one profile. Adding a live
+    // batch alongside the rejected one does not bring the record back: the
+    // rejected batch still contributed fields and history to this profile, and
+    // this surface cannot hand back one contributor's half of a merged record.
     await t.run(async (ctx) => {
       const profile = await ctx.db
         .query("profiles")
@@ -791,6 +789,19 @@ describe("private seed Convex handlers", () => {
         createdAt: NOW,
         updatedAt: NOW,
       });
+    });
+
+    assert.equal(
+      await t.withIdentity(identity).query(api.seedAccess.withheldProfileRecord, {
+        slug: "handler-published-import",
+      }),
+      null,
+    );
+
+    // And it comes back once every contributor is eligible again, so the rule is
+    // "all of them" rather than "none once one was ever withdrawn".
+    await t.run(async (ctx) => {
+      await ctx.db.patch(candidate.batchId, { reviewState: "approved", updatedAt: NOW });
     });
 
     assert.deepEqual(

@@ -1,4 +1,7 @@
-import type { ProfileLinkType } from "../../../../../convex/_profileLinks";
+import {
+  profileLinkDestinationKey,
+  type ProfileLinkType,
+} from "../../../../../convex/_profileLinks";
 
 /**
  * The shape of the profile field set, without the rendering.
@@ -202,8 +205,13 @@ function sameRoleSet(formData: FormData): string[] {
 
       if (Array.isArray(stored)) {
         const storedRoles = stored as string[];
-        const key = (values: string[]) =>
-          [...values].map((value) => value.toLowerCase()).sort().join("\u0000");
+        // Order ignored, spelling not. Case-folding here declared `resident` and
+        // `Resident` one set, so a save whose whole purpose was fixing the
+        // capitalization of a custom role returned the stored spelling and
+        // reported success -- and replacing a lowercase custom value with the
+        // canonical preset checkbox did the same. Only a genuinely untouched
+        // set keeps the stored order.
+        const key = (values: string[]) => [...values].sort().join("\u0000");
 
         if (key(storedRoles) === key(rebuilt)) {
           return storedRoles;
@@ -309,13 +317,24 @@ function linksFromFormData(formData: FormData): ProfileLinkInput[] {
     }
 
     const link = { type: stringField(type) as ProfileLinkType, url };
+    const originalUrl = stringField(originals[index] ?? null).trim();
+    const originalType = stringField(originalTypes[index] ?? null);
     // Metadata describes the link it came with, so a row that was edited starts
     // clean rather than inheriting the old one's handle. Type counts as much as
     // the URL: switching a twitch.tv row from Website to Twitch keeps the same
     // destination while changing what the label and presentation mean.
+    //
+    // Compared by canonical destination rather than by string, using the key the
+    // mutation matches provenance with. Retyping `www.twitch.tv/Snek` as
+    // `twitch.tv/snek`, or dropping a trailing slash, is the same destination and
+    // the metadata still describes it -- but an exact comparison called the row
+    // edited and dropped its label, handle and presentation, replacing an
+    // operator's wording with provider defaults for a cosmetic correction the
+    // backend does not even treat as a change.
     const unchanged =
-      stringField(originals[index] ?? null).trim() === url &&
-      stringField(originalTypes[index] ?? null) === link.type;
+      originalType === link.type &&
+      profileLinkDestinationKey({ type: originalType, url: originalUrl }) ===
+        profileLinkDestinationKey(link);
 
     // Position is a separate question from content, and tying them together made
     // editing a row move it: correcting the first URL of [SoundCloud, Bandcamp]

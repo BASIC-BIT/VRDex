@@ -1707,6 +1707,16 @@ export const bulkSetFieldVisibility = internalMutation({
       .withIndex("by_batchId", (query) => query.eq("batchId", batch._id))
       .paginate({ numItems: limit, cursor: args.cursor ?? null });
 
+    // Read once per page rather than once per candidate, the same as
+    // `bulkPublishBatch`. The recheck below is name-based, so it has no index to
+    // narrow on and collects the whole accepted history on every call -- a 50
+    // candidate page against a few hundred accepted requests multiplies into
+    // enough document reads to pass the transaction limit and roll the page back.
+    const acceptedRequests = await ctx.db
+      .query("profileSuppressionRequests")
+      .withIndex("by_state_createdAt", (query) => query.eq("state", "accepted"))
+      .collect();
+
     const linkStats = { droppedCount: 0, deduplicatedCount: 0 };
     /**
      * What this run has already decided each profile's `fieldVisibility` will be.
@@ -1871,17 +1881,6 @@ export const bulkSetFieldVisibility = internalMutation({
         continue;
       }
 
-      // Counted once per profile, applied once per candidate. The identity set
-      // exists so a profile two candidates contribute to is not reported twice;
-      // using it to skip the work as well dropped the second candidate's patch
-      // entirely, so `--set-visibility private` could report success while a
-      // field it named stayed public on the live profile. Whether this profile
-      // has been counted decides the number, never whether the write happens.
-      const alreadyCounted = countedProfileIds.has(profile._id);
-
-      writtenFieldVisibility.set(profile._id, rebuilt.fieldVisibility);
-      countedProfileIds.add(profile._id);
-
       // Suppression is rechecked here, not only at publication. Making an alias
       // public is a way to surface an identity, and it is the one this path has:
       // a profile can be publicly readable *because* the retracted name was
@@ -1904,6 +1903,7 @@ export const bulkSetFieldVisibility = internalMutation({
           slugs: [],
           displayNames: surfacedAfterPatch,
           profileType: profile.profileType,
+          acceptedRequests,
         }))
       ) {
         skipped.push({
@@ -1912,6 +1912,24 @@ export const bulkSetFieldVisibility = internalMutation({
         });
         continue;
       }
+
+      // Recorded only once the patch has survived every check, so what the run
+      // carries forward is what it accepted. Recording before the suppression
+      // check meant a refused candidate still claimed the profile: a later
+      // candidate on the same profile built its rebuild on a patch that was
+      // never applied, and the profile id it had already taken suppressed the
+      // count for whichever patch did go through.
+      //
+      // Counted once per profile, applied once per candidate. The identity set
+      // exists so a profile two candidates contribute to is not reported twice;
+      // using it to skip the work as well dropped the second candidate's patch
+      // entirely, so `--set-visibility private` could report success while a
+      // field it named stayed public on the live profile. Whether this profile
+      // has been counted decides the number, never whether the write happens.
+      const alreadyCounted = countedProfileIds.has(profile._id);
+
+      writtenFieldVisibility.set(profile._id, rebuilt.fieldVisibility);
+      countedProfileIds.add(profile._id);
 
       if (!alreadyCounted) {
         profilesRederived += 1;

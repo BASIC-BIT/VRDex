@@ -1,4 +1,5 @@
 import { ProfileEditForm } from "../../../_components/profile-edit-form";
+import { ProfilePrivateRecord } from "../../../_components/profile-private-record";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 
 export const dynamic = "force-dynamic";
@@ -26,6 +27,13 @@ export default async function CommunityProfileEditPage({ params }: ProfileEditPa
             <ProfileEditForm profilePath={`/c/${slug}`} profileType="community" slug={slug} />
           </div>
         </section>
+
+        {/*
+          Same reason as the person route: the public page is the record's only
+          other mount, and it is exactly the profiles with no public page whose
+          owners could not reach it.
+        */}
+        <ProfilePrivateRecord profilePath={`/c/${slug}`} profileType="community" slug={slug} />
       </PageContainer>
     </PageShell>
   );

@@ -1263,6 +1263,53 @@ describe("API profile update helpers", () => {
     );
   });
 
+  it("rejects a nested group that names no field", () => {
+    // `{ person: {} }` asked for nothing, but recording the group as submitted
+    // satisfied the at-least-one-field check and returned success. An empty
+    // nested object is the same empty write the top-level check already refuses.
+    assert.throws(
+      () =>
+        sanitizeApiProfileUpdateInput(
+          claimedPerson as unknown as Doc<"profiles">,
+          { person: {} } as ApiProfileUpdateInput,
+          "claimed_owner",
+        ),
+      /At least one editable profile field is required/,
+    );
+  });
+
+  it("refuses a provenance claim on a destination whose rows disagree", () => {
+    // The claim used to be honoured whenever *some* stored row carried it. On a
+    // mixed destination the rows are indistinguishable, so a community
+    // contributor could drop the community row, submit the owner-authored source
+    // of the one beside it, and keep a stamp for a row they had just deleted.
+    const withDisagreement = {
+      ...claimedPerson,
+      claimState: "unclaimed",
+      outboundLinks: [
+        { type: "twitch", label: "Twitch", url: "https://twitch.tv/snekwtf", source: "owner_authored" },
+        {
+          type: "twitch",
+          label: "Twitch",
+          url: "https://twitch.tv/snekwtf",
+          source: "community_submitted",
+        },
+      ],
+    } as unknown as Doc<"profiles">;
+
+    const links = sanitizeApiProfileUpdateInput(
+      withDisagreement,
+      {
+        outboundLinks: [
+          { type: "twitch", url: "https://twitch.tv/snekwtf", source: "owner_authored" },
+        ],
+      },
+      "community_submitter",
+    ).patch.outboundLinks as Array<{ source: string }>;
+
+    assert.deepEqual(links.map((link) => link.source), ["community_submitted"]);
+  });
+
   it("declines to inherit provenance a destination does not agree on", () => {
     // Inheriting by destination is only safe where the destination speaks with
     // one voice. Two stored rows disagreeing is the case that defeated the
