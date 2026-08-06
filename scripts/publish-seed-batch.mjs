@@ -394,10 +394,15 @@ function setFieldVisibility({ batchId, visibility, reason, reviewer, limit }) {
   // total that quietly drifted from what the write will do.
   if (!simulationComplete) {
     console.log(
-      "\nWarning: this batch has more merged profiles than the run carries between pages.\n" +
-        "Counts past that point may double-count a profile two candidates share, or report\n" +
-        "a suppression skip the apply would not hit. Re-run with a larger --limit so fewer\n" +
-        "pages are needed, or treat these totals as approximate.",
+      "\nWarning: this batch has more distinct published profiles than the run carries\n" +
+        "between pages, so the totals above are approximate. Past that point a profile\n" +
+        "two candidates share can be counted twice, and a suppression skip can be\n" +
+        "reported that the apply would not hit.\n" +
+        "\n" +
+        "--limit does not help: the carry holds every distinct profile seen so far, not\n" +
+        "one entry per page, and the mutation clamps the page size regardless. What the\n" +
+        "numbers say about the writes is unchanged -- an applied run reads back what it\n" +
+        "wrote, so it is the reporting that degrades here and not the migration.",
     );
   }
 

@@ -952,7 +952,11 @@ describe("seed import visibility migration", () => {
    * dropped the second candidate's patch, so a run could report success with a
    * field it had been told to hide still public.
    */
-  async function seedMergedBatch(t: ReturnType<typeof convexTest>, now: number) {
+  async function seedMergedBatch(
+    t: ReturnType<typeof convexTest>,
+    now: number,
+    seedAlias = "Merged",
+  ) {
     return await t.run(async (ctx) => {
       const batchId = await ctx.db.insert("seedImportBatches", {
         externalBatchId: "seed_fake_merge_001",
@@ -1007,7 +1011,7 @@ describe("seed import visibility migration", () => {
         await ctx.db.insert("seedImportCandidateFields", {
           candidateId,
           fieldKey,
-          value: fieldKey === "aliases" ? ["Merged"] : ["dj"],
+          value: fieldKey === "aliases" ? [seedAlias] : ["dj"],
           sourceLabel: "Example Partner Directory",
           sourceType: "partner",
           confidence: "medium",
@@ -1089,6 +1093,30 @@ describe("seed import visibility migration", () => {
     assert.equal(visibilityOnly.simulatedProfiles.length, 1);
     assert.equal(visibilityOnly.simulatedProfiles[0]?.displayName, undefined);
     assert.equal(visibilityOnly.simulatedProfiles[0]?.aliases, undefined);
+  });
+
+  it("advances the simulation from what the run carries, not the stored row", async () => {
+    const t = convexTest({ schema, modules });
+    const now = 1_788_220_800_000;
+    // The seed alias differs from the profile's, so a re-derivation actually
+    // moves the name and the layering is observable. The "tags" candidate that
+    // follows carries no alias field at all: rebuilding its snapshot from the
+    // row reset the name to the original, throwing away what the first
+    // candidate had simulated, and a third candidate on the profile would then
+    // run its suppression check against a name the applied run has replaced.
+    const { batchId } = await seedMergedBatch(t, now, "Renamed");
+
+    const result = await t.mutation(internal.seedImports.bulkSetFieldVisibility, {
+      batchId,
+      visibility: "private",
+      reason: "Replaying the corrected import snapshot.",
+      rederiveValues: true,
+      reviewer,
+      dryRun: true,
+      now,
+    });
+
+    assert.deepEqual(result.simulatedProfiles[0]?.aliases, ["Renamed"]);
   });
 
   it("predicts that same result without writing it", async () => {

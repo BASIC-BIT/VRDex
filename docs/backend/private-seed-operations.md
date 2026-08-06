@@ -388,10 +388,15 @@ pnpm ops:seed-publish -- `
   visibility, and `--rederive-values` also carries the display name and aliases,
   because those are what the suppression recheck reads and a re-derivation is
   the only mode that moves them. It is the one part of the call that grows with
-  the batch rather than the page, so it is capped; a batch with more merged
-  profiles than the cap prints a warning saying the totals are approximate,
-  rather than quietly drifting from what the write will do. Re-run with a larger
-  `--limit` so fewer pages are needed if you see it.
+  the batch rather than the page, so it is capped; a batch with more distinct
+  published profiles than the cap prints a warning saying the totals are
+  approximate, rather than quietly drifting from what the write will do.
+  `--limit` is not the lever, and the warning says so: the carry holds every
+  distinct profile seen so far rather than one entry per page, and the mutation
+  clamps the page size anyway. What degrades past the cap is the reporting, not
+  the migration -- an applied run reads back what it wrote, so the writes are
+  the same either way. Raising the cap is a code change, and the batch this
+  exists for is well under it.
 - `--field-keys` is optional; omitting it targets every accepted field. It scopes
   the whole run, not just the visibility change: with `--rederive-values`, only
   the named fields are replayed, so a run repairing links cannot overwrite live

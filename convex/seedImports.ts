@@ -2008,7 +2008,14 @@ export const bulkSetFieldVisibility = internalMutation({
       // stayed public on the live profile. Whether this profile has been recorded
       // decides the number, never whether the write happens.
       const alreadyCounted = simulated.has(profile._id);
-      const patched = { ...profile, ...(patch as Partial<Doc<"profiles">>) };
+      // Layered the same way the suppression check above layers it, and for the
+      // same reason. Rebuilding this snapshot from the row alone let a candidate
+      // that touched only tags reset the names to their originals, throwing away
+      // the alias an earlier candidate had replaced -- so a third candidate on
+      // the profile refused a change the applied run, which reads its own writes,
+      // accepts. The consumer and the snapshot have to agree on what "current"
+      // means.
+      const patched = { ...profile, ...carried, ...(patch as Partial<Doc<"profiles">>) };
 
       simulated.set(profile._id, {
         fieldVisibility: rebuilt.fieldVisibility,
