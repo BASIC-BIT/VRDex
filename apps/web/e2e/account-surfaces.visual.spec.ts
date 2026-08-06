@@ -6,6 +6,7 @@ import {
   createClerkTestAccount,
   deleteClerkTestAccount,
   deleteClerkTestAccountByEmail,
+  hostedTargetRunsCurrentRevision,
   signInClerkTestAccount,
   type ClerkTestAccount,
 } from "./clerk-auth";
@@ -349,7 +350,7 @@ test.describe("account surfaces @visual @flow @account-visual", () => {
     });
   });
 
-  test("account privacy", async ({ page }, testInfo) => {
+  test("account privacy", async ({ page, request }, testInfo) => {
     await page.goto("/account/privacy");
     // A freshly created account owns no profile, so this panel renders its
     // empty state rather than the field-visibility editor. That is the surface
@@ -365,9 +366,19 @@ test.describe("account surfaces @visual @flow @account-visual", () => {
     // state. Capturing it needs the account to own a profile, which is what
     // `auth-claim.flow.spec.ts` builds; fold this in there if the editor's
     // rendering ever needs watching.
-    await expect(page.getByRole("heading", { name: "No owned profiles yet" })).toBeVisible(
-      hostedExpectOptions,
-    );
+    // Tolerated only while the target is behind this commit. This lane runs
+    // against staging, which serves the previous release for as long as a branch
+    // is in review, so a change to this empty state cannot be green on the PR
+    // that makes it — the fix and the assertion land together and staging has
+    // neither yet. The gate closes the moment staging carries the commit, which
+    // is the post-merge health run, so the lagging shape is never accepted twice.
+    const emptyState = page.getByRole("heading", { name: "No owned profiles yet" });
+
+    await expect(
+      (await hostedTargetRunsCurrentRevision(request))
+        ? emptyState
+        : emptyState.or(page.getByText("You do not manage any profiles yet.")),
+    ).toBeVisible(hostedExpectOptions);
     await expect(page.getByRole("heading", { name: "Sign in to manage privacy" })).toHaveCount(
       0,
       hostedExpectOptions,
