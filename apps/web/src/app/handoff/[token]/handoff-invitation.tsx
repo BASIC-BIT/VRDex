@@ -317,7 +317,7 @@ function ReviewInvitation({
           </>
         ) : (
           <>
-            <h2 className="text-xl font-semibold">Take ownership</h2>
+            <h2 className="text-xl font-semibold">Finalize</h2>
             <Button
               className="mt-5 w-full"
               disabled={isAccepting}

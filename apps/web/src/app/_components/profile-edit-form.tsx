@@ -64,7 +64,7 @@ function editErrorMessage(error: unknown): string {
     }
   }
 
-  return "Saving failed. Please try again once the backend is reachable.";
+  return "Backend error - please try again later";
 }
 
 type ProfileEditFormProps = {

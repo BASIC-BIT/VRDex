@@ -575,7 +575,9 @@ test("verified email account can complete VRChat adapter claims @flow", async ({
     await page.reload();
     await expect(currentOrLaggingCopy(page, "Add this code to your VRChat profile", "Finish your VRChat proof")).toBeVisible(hostedActionExpectOptions);
     await page
-      .getByRole("button", { name: "I've added it — check now" })
+      .getByRole("button", { name: "I've added it - check now" })
+      // The em-dash spelling is what staging serves until this merges.
+      .or(page.getByRole("button", { name: "I've added it — check now" }))
       .or(page.getByRole("button", { name: "Check proof now" }))
       .click();
     await expect(page.getByText(/This profile is yours|Ownership (verified|confirmed)/i)).toBeVisible(hostedActionExpectOptions);

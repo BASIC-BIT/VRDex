@@ -366,7 +366,7 @@ export function ClaimFlow({
           ? "That server is now connected to this profile."
           : verified
             ? "Verified. This community is yours."
-            : "This community is yours — you can manage it now. The verified badge needs a manual check on our side; contact support to request it.",
+            : "This community is yours. You can manage it now.",
         verified,
       });
 
@@ -421,7 +421,7 @@ export function ClaimFlow({
             ? "That account is now connected to this profile."
             : verified
               ? "Verified. This profile is yours."
-              : "This profile is yours — you can manage it now. The verified badge needs a manual check on our side; contact support to request it.",
+              : "This profile is yours. You can manage it now.",
           verified,
         });
         // No `claim_completed` here. This same verification advances
@@ -458,7 +458,7 @@ export function ClaimFlow({
               ? "This profile already has an active owner."
               : "This listing is no longer available to claim."
             : viaVrclinking
-              ? "No linked server confirmed that VRChat account for you. Start over to try another method."
+              ? "No server we asked has your Discord linked to that VRChat account. Start over to try another method."
               : "That check did not pass. Start over to get a new code.",
         });
         captureProductEvent(posthog, "claim_failed", {
@@ -492,10 +492,10 @@ export function ClaimFlow({
                   ? "That code expired. Start over to get a new one."
                   : result.state === "unavailable"
                     ? viaVrclinking
-                      ? "We could not reach VRCLinking. Your attempt is still good — try again in a minute."
-                      : "We could not reach VRChat. Your code is still good — try again in a minute."
+                      ? "We could not reach VRCLinking. Your attempt is still good. Try again in a minute."
+                      : "We could not reach VRChat. Your code is still good. Try again in a minute."
                     : viaVrclinking
-                      ? "No linked server has confirmed that VRChat account yet. Try again shortly, or use another method."
+                      ? "No server we asked has your Discord linked to that VRChat account yet. Try again shortly, or use another method."
                       : "We have not found the code yet. Check that it is saved and visible to everyone, then check again.",
               },
         );
@@ -527,7 +527,7 @@ export function ClaimFlow({
           kind: "complete",
           message: verified
             ? "Verified. This community is yours."
-            : "This community is yours — you can manage it now. The verified badge needs a manual check on our side; contact support to request it.",
+            : "This community is yours. You can manage it now.",
           verified,
         });
       captureProductEvent(posthog, "claim_completed", {
@@ -618,7 +618,7 @@ export function ClaimFlow({
       {profile.profileType === "person" ? <UserRound aria-hidden="true" className="mb-2 size-5 text-accent" /> : <Building2 aria-hidden="true" className="mb-2 size-5 text-accent" />}
       {profile.profileType === "person"
         ? "Quick access with your linked Discord. Claims the profile, but does not prove it is you."
-        : "Confirm you own, administer, or manage the community’s Discord server. Gives you ownership."}
+        : "Confirm you own or manage the community’s Discord server. Gives you ownership."}
       {discordMethodBlocked ? " Verify your Discord account first." : ""}
     </MethodCard>
   );
@@ -659,9 +659,6 @@ export function ClaimFlow({
         <h1 className="text-3xl font-semibold sm:text-4xl" id="claim-heading">
           Claim {profile.displayName}
         </h1>
-        <p className="mt-3 max-w-xl text-base leading-7 text-muted">
-          Confirm it&apos;s yours. Each method below tells you what it proves before you start.
-        </p>
 
         {context === undefined ? <p className="mt-8 text-sm text-muted">Loading claim options…</p> : null}
         {context?.ownership === "signed_out" ? (
@@ -697,7 +694,7 @@ export function ClaimFlow({
                           ? "That account or group is now connected to this profile."
                           : collectorCompletion.verified
                             ? "Verified. This profile is yours."
-                            : "This profile is yours — you can manage it now. The verified badge needs a manual check on our side; contact support to request it."
+                            : "This profile is yours. You can manage it now."
                         : "You already manage this profile."}
                   </p>
                   <div className="mt-3 flex flex-wrap gap-2">
@@ -727,7 +724,7 @@ export function ClaimFlow({
             <p className="mt-1">
               {profile.profileType === "community"
                 ? "Verifying takes one more step: show us you run its Discord server or VRChat group."
-                : "Verifying takes one more step: show us you own its VRChat account."}
+                : "Verifying takes one more step: show us you own this VRChat account."}
             </p>
           </Notice>
         ) : null}
@@ -809,7 +806,7 @@ export function ClaimFlow({
                   </div>
                 </dl>
                 <div className="mt-4 flex flex-wrap gap-2">
-                  <Button disabled={status.kind === "working"} variant="primary" onClick={() => void checkProof(context.pendingProof!.id)}>I&apos;ve added it — check now</Button>
+                  <Button disabled={status.kind === "working"} variant="primary" onClick={() => void checkProof(context.pendingProof!.id)}>I&apos;ve added it - check now</Button>
                   <Button disabled={status.kind === "working"} variant="ghost" onClick={() => void startOver("proof")}>Start over</Button>
                 </div>
               </div>
@@ -902,7 +899,7 @@ export function ClaimFlow({
                       <FieldText>
                         VRDex asks the communities that have delegated a VRCLinking credential whether
                         your Discord account is linked to this VRChat account and verified. It receives a
-                        yes or no and which server answered — nothing else.
+                        yes or no and which server answered, nothing else.
                       </FieldText>
                     </Field>
                   ) : method === "vrchat" ? (
@@ -1005,7 +1002,11 @@ export function ClaimFlow({
         </div>
 
         <p className="mt-8 border-t border-border pt-5 text-sm leading-6 text-muted">
-          Transferring, recovering, or disputing ownership? Contact support.
+          Transferring, recovering, or disputing ownership?{" "}
+          <a className="underline underline-offset-4" href="mailto:basic@basicbit.net">
+            Contact support
+          </a>
+          .
         </p>
       </section>
     </div>

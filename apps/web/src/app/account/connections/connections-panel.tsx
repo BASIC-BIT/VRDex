@@ -374,7 +374,7 @@ export function ConnectionsPanel({
           <h2 className="text-xl font-semibold">VRCLinking</h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">
             If your server uses VRCLinking, share its API key and your members can claim their own
-            VRDex profile without posting a proof code — VRDex asks your server whether they are
+            VRDex profile without posting a proof code. VRDex asks your server whether they are
             linked and verified, and gets back only yes or no.
           </p>
 
