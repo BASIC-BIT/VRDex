@@ -83,13 +83,59 @@ export function parseArgs(argv) {
     "--deployment-url is required: the running deployment must be redeployed to pick up the new token.",
   );
 
+  // Constrained, not merely parsed, because Windows needs `shell: true` to
+  // reach the `.cmd` shims for `pnpm` and `npx`, and a shell concatenates rather
+  // than escapes. `new URL()` is no defence on its own: `&`, `|` and `%` are all
+  // legal in a path or query and all mean something to `cmd.exe`, so a URL
+  // pasted from the wrong place could run a second command holding the
+  // operator's Vercel and Convex credentials.
+  //
+  // The bearer never travels this way, since it goes to stdin. What does is
+  // these three strings, so each is held to the narrowest shape that still
+  // admits every real value: `target` is a whitelist, the environment is a bare
+  // name, and both URLs are an https origin with an optional plain path. Vercel
+  // deployment URLs and site origins carry no query, so none is allowed.
+  for (const [flag, value] of [
+    ["--site-url", options.siteUrl],
+    ["--deployment-url", options.deploymentUrl],
+  ]) {
+    assert.doesNotThrow(() => new URL(value), `${flag} must be a URL.`);
+    assert.ok(
+      /^https:\/\/[A-Za-z0-9.-]+(?::\d+)?(?:\/[A-Za-z0-9._~/-]*)?$/.test(value),
+      `${flag} must be an https origin with an optional plain path, and nothing a shell could read as a second command.`,
+    );
+  }
+
+  assert.ok(
+    /^[a-z0-9_-]+$/i.test(options.vercelEnvironment),
+    "--vercel-environment must be a plain environment name.",
+  );
+
   return options;
 }
 
-function run(command, args, label, input) {
-  const result = spawnSync(command, args, { encoding: "utf8", shell: false, ...(input === undefined ? {} : { input }) });
+/**
+ * `pnpm` and `npx` are `.cmd` shims on Windows, and Node refuses to spawn those
+ * without a shell — so `shell: false` made this script unrunnable on the one
+ * machine an operator actually holds. A shell costs nothing here that matters:
+ * the bearer is written to stdin and never appears in `args`, which is the whole
+ * reason `shell: false` was chosen in the first place. What travels through the
+ * shell is a target name, two URLs, and an environment name.
+ */
+const SPAWN_THROUGH_SHELL = process.platform === "win32";
 
-  assert.equal(result.status, 0, `${label} failed: ${result.stderr?.trim() || result.stdout?.trim()}`);
+function run(command, args, label, input) {
+  const result = spawnSync(command, args, {
+    encoding: "utf8",
+    shell: SPAWN_THROUGH_SHELL,
+    ...(input === undefined ? {} : { input }),
+  });
+
+  assert.equal(
+    result.status,
+    0,
+    `${label} failed: ${result.stderr?.trim() || result.stdout?.trim() || result.error?.message || "no output"}`,
+  );
 }
 
 function main() {
@@ -143,22 +189,25 @@ function main() {
       options.vercelEnvironment,
       "--force",
     ],
-    { input: token, encoding: "utf8", shell: false },
+    { input: token, encoding: "utf8", shell: SPAWN_THROUGH_SHELL },
   );
 
   assert.equal(
     vercel.status,
     0,
-    `Setting VRCLINKING_CLEANUP_TOKEN in Vercel failed: ${vercel.stderr?.trim()}`,
+    `Setting VRCLINKING_CLEANUP_TOKEN in Vercel failed: ${vercel.stderr?.trim() || vercel.error?.message || "no output"}`,
   );
 
   // Vercel applies an environment change to future deployments only, so the
   // running function still holds the old token — or none — until it is rebuilt.
   // Convex is already posting the new one, so skipping this leaves the sweep
   // answering 401 daily with nothing surfacing it.
+  // `--target`, not `--yes`: `vercel redeploy` has never accepted the latter,
+  // so this step failed every time it was reached and left the two providers
+  // holding a token the running function did not have.
   run(
     "npx",
-    ["--yes", "vercel@latest", "redeploy", options.deploymentUrl, "--yes"],
+    ["--yes", "vercel@latest", "redeploy", options.deploymentUrl, "--target", options.vercelEnvironment],
     "Redeploying so the new token reaches the running function",
   );
 
