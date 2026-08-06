@@ -366,9 +366,12 @@ export function profileLinkDestinationKey(link: { type: string; url: string }): 
     // A named list rather than folding every path, because the general case runs
     // the other way -- on most hosts `/Mix` and `/mix` are two pages, which is
     // the defect this key was written to fix.
-    const path = CASE_INSENSITIVE_PATH_HOSTS.has(host)
-      ? url.pathname.toLowerCase()
-      : url.pathname;
+    // Trailing slashes dropped for every host: `/snek/` and `/snek` are one
+    // resource, and the lookup merger has always normalized them. Leaving them
+    // meant a seed carrying both spellings published two buttons and reported no
+    // duplicate, which is the exact failure the case fold was added to stop.
+    const pathname = url.pathname.replace(/\/+$/, "") || "/";
+    const path = CASE_INSENSITIVE_PATH_HOSTS.has(host) ? pathname.toLowerCase() : pathname;
 
     // `URL` lowercases protocol and host itself; the rest is used exactly as
     // given rather than folded along with them.

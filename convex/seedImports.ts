@@ -1630,6 +1630,17 @@ export const bulkSetFieldVisibility = internalMutation({
     dryRun: v.optional(v.boolean()),
     limit: v.optional(v.number()),
     cursor: v.optional(v.string()),
+    /**
+     * Profiles earlier pages of this dry run already counted.
+     *
+     * Only a dry run needs it. An applied run's later page reads the patch the
+     * earlier one wrote and skips the profile as already-synchronized; a dry run
+     * writes nothing, so without this it re-reads the untouched row and counts
+     * the same merged profile once per page. The driver sums those pages, and the
+     * total it shows an operator is the one the runbook promises will match the
+     * write.
+     */
+    countedProfileIds: v.optional(v.array(v.id("profiles"))),
     reviewer: v.optional(seedImportAuthSubjectValidator),
     now: v.optional(v.number()),
   },
@@ -1709,6 +1720,10 @@ export const bulkSetFieldVisibility = internalMutation({
       Id<"profiles">,
       Doc<"profiles">["fieldVisibility"]
     >();
+    // Seeded from earlier pages of the same dry run. Their exact visibility is
+    // not carried -- only that the run has already decided this profile, which is
+    // all the skip needs.
+    const countedProfileIds = new Set<Id<"profiles">>(args.countedProfileIds ?? []);
     const skipped: Array<{ externalCandidateId: string; reason: string }> = [];
     let fieldsChanged = 0;
     let profilesRederived = 0;
@@ -1838,12 +1853,14 @@ export const bulkSetFieldVisibility = internalMutation({
 
       if (
         args.rederiveValues !== true &&
-        sameFieldVisibility(rebuilt.fieldVisibility, alreadyWritten)
+        (countedProfileIds.has(profile._id) ||
+          sameFieldVisibility(rebuilt.fieldVisibility, alreadyWritten))
       ) {
         continue;
       }
 
       writtenFieldVisibility.set(profile._id, rebuilt.fieldVisibility);
+      countedProfileIds.add(profile._id);
 
       // Suppression is rechecked here, not only at publication. Making an alias
       // public is a way to surface an identity, and it is the one this path has:
@@ -1930,6 +1947,11 @@ export const bulkSetFieldVisibility = internalMutation({
       // says what a value re-derivation would do.
       linksDropped: linkStats.droppedCount,
       linksDeduplicated: linkStats.deduplicatedCount,
+      // Handed back so the next page starts where this one finished, the same as
+      // the cursor. Returned on an applied run too, where it costs nothing and
+      // keeps the two runs taking identical arguments -- a dry run whose call
+      // shape differs from the real one is predicting something else.
+      countedProfileIds: [...countedProfileIds],
       nextCursor: pageResult.isDone ? null : pageResult.continueCursor,
       isDone: pageResult.isDone,
     };

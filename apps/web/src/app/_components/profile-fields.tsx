@@ -143,6 +143,11 @@ function PersonRoleFields({
             </CheckboxField>
           ))}
         </div>
+        {/* The whole stored array, so an untouched control round-trips its
+            order. The form splits roles across checkboxes and this field and
+            reassembles them checkboxes-first, which rewrites any profile whose
+            roles did not originate here. */}
+        <input name="roleTagsStored" type="hidden" value={JSON.stringify(initialRoles)} />
         <Field>
           <FieldText>Other roles</FieldText>
           <ListOriginal name="roleTagsOther" values={otherRoles} />

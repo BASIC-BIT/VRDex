@@ -443,6 +443,81 @@ describe("profile fields payload", () => {
     ]);
   });
 
+  // The form splits roles across checkboxes and a freeform field and reassembles
+  // them checkboxes-first, so it cannot express the stored order. A profile whose
+  // roles did not originate here was rewritten on a save about something else --
+  // an audit entry, and a possible change to the page, since only the first four
+  // focus values are shown.
+  it("keeps the stored role order when the controls were not touched", () => {
+    const stored = ["Host", "Resident", "DJ"];
+    const payload = profileFieldsPayload(
+      formData(
+        [
+          ["displayName", "Snek"],
+          ["roleTagsStored", JSON.stringify(stored)],
+          ["roleTag", "DJ"],
+          ["roleTag", "Host"],
+          ["roleTagsOther", "Resident"],
+        ],
+        ["person"],
+      ),
+      "person",
+    );
+
+    assert.deepEqual(payload.profileType === "person" ? payload.person?.roleTags : [], stored);
+  });
+
+  it("rebuilds the role list once the roles actually change", () => {
+    const payload = profileFieldsPayload(
+      formData(
+        [
+          ["displayName", "Snek"],
+          ["roleTagsStored", JSON.stringify(["Host", "Resident", "DJ"])],
+          ["roleTag", "DJ"],
+          ["roleTag", "Host"],
+          ["roleTagsOther", "Resident, Lighting design"],
+        ],
+        ["person"],
+      ),
+      "person",
+    );
+
+    assert.deepEqual(
+      payload.profileType === "person" ? payload.person?.roleTags : [],
+      ["DJ", "Host", "Resident", "Lighting design"],
+    );
+  });
+
+  // `source` is a claim the mutation checks against the canonical destination, so
+  // it survives a URL edit and lets the backend decide. Dropping it meant
+  // retyping `www.twitch.tv/Snek` as `twitch.tv/snek` -- the same channel, and to
+  // the backend the same key -- arrived with no claim at all and was restamped.
+  it("carries link provenance through an equivalent URL edit", () => {
+    const payload = profileFieldsPayload(
+      formData(
+        [
+          ["displayName", "Snek"],
+          ["linkType", "twitch"],
+          ["linkUrl", "https://twitch.tv/snek"],
+          ["linkOriginalUrl", "https://www.twitch.tv/Snek"],
+          ["linkOriginalType", "twitch"],
+          ["linkOriginalIndex", "0"],
+          ["linkLabel", "Restream"],
+          ["linkHandle", "snek"],
+          ["linkPresentation", ""],
+          ["linkSource", "owner_authored"],
+        ],
+        ["outboundLinks"],
+      ),
+      "person",
+    );
+
+    // The claim travels; the metadata describing the old destination does not.
+    assert.deepEqual(payload.outboundLinks, [
+      { type: "twitch", url: "https://twitch.tv/snek", source: "owner_authored" },
+    ]);
+  });
+
   it("keeps the submit payload inside what the submission mutation accepts", () => {
     // Convex rejects an unknown argument outright, so a key the form gained and
     // the mutation did not is not a no-op -- it fails every submission. Nothing

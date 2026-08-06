@@ -187,6 +187,16 @@ export function selectHandoffFields(
       throw new Error("A selected handoff field is no longer available.");
     }
     normalizeSafePrivateSeedFieldValue(field.fieldKey, field.value);
+
+    // Judged by what the preview would show today, not only by review state. A
+    // link field whose every entry now fails normalization is hidden from the
+    // preview -- but a page loaded before that deploy, or any direct caller,
+    // still holds its id, and accepting it marked a field the owner never saw as
+    // `owner_confirmed` while storing nothing. The guarantee is that the preview
+    // is what gets stored, so the preview is what selection has to agree with.
+    if (projectHandoffPreviewField(field) === null) {
+      throw new Error("A selected handoff field is no longer available.");
+    }
   }
 
   return selectedFields;

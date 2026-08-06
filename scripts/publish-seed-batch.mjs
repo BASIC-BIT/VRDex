@@ -266,6 +266,7 @@ function setFieldVisibility({ batchId, visibility, reason, reviewer, limit }) {
   let linksDroppedTotal = 0;
   let linksDeduplicatedTotal = 0;
   let cursor;
+  let countedProfileIds = [];
   const skipped = [];
 
   console.log("");
@@ -281,7 +282,13 @@ function setFieldVisibility({ batchId, visibility, reason, reviewer, limit }) {
       rederiveValues: flag("--rederive-values"),
       ...(fieldKeys === undefined ? {} : { fieldKeys }),
       ...(cursor === undefined || cursor === null ? {} : { cursor }),
+      ...(countedProfileIds.length === 0 ? {} : { countedProfileIds }),
     });
+
+    // Carried into the next page so one merged profile is not counted once per
+    // page. Several candidates can publish to the same profile, and an applied
+    // run's later page sees the earlier patch where a dry run would not.
+    countedProfileIds = page.countedProfileIds ?? countedProfileIds;
 
     processedTotal += page.processed;
     fieldsChangedTotal += page.fieldsChanged;
