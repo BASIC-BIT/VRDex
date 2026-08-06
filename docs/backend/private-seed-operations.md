@@ -369,6 +369,12 @@ pnpm ops:seed-publish -- `
 
 - Without `--apply` it is a dry run: the same counts, nothing written. This
   changes what the public sees on live profiles, so the dry run is the default.
+  The dry run simulates across cursor pages rather than per page: the script
+  threads both the visibility it pretended to write and the profiles it has
+  already counted into the next page, so a profile whose fields straddle a page
+  boundary is counted once and page two evaluates its publication gate against
+  what page one would have done. Without that, a dry run of a batch large enough
+  to page reports a different total than the apply run it exists to predict.
 - `--field-keys` is optional; omitting it targets every accepted field. It scopes
   the whole run, not just the visibility change: with `--rederive-values`, only
   the named fields are replayed, so a run repairing links cannot overwrite live
