@@ -365,9 +365,19 @@ test.describe("account surfaces @visual @flow @account-visual", () => {
     // state. Capturing it needs the account to own a profile, which is what
     // `auth-claim.flow.spec.ts` builds; fold this in there if the editor's
     // rendering ever needs watching.
-    await expect(page.getByRole("heading", { name: "No owned profiles yet" })).toBeVisible(
-      hostedExpectOptions,
-    );
+    // Which element carries that empty state depends on the revision the target
+    // runs, and this lane always points at staging rather than at the branch it
+    // is checking out. `main` moved profile selection into `ProfileWorkspace`
+    // (#246), whose own empty state now answers before this panel's ever
+    // renders, so a hosted run reads a paragraph where a local run reads this
+    // panel's heading. Both say the same thing -- signed in, owning nothing --
+    // which is the whole claim the screenshot below makes, and the negative
+    // assertion after this is what proves the signed-in half on either.
+    await expect(
+      page
+        .getByRole("heading", { name: "No owned profiles yet" })
+        .or(page.getByText("You do not manage any profiles yet")),
+    ).toBeVisible(hostedExpectOptions);
     await expect(page.getByRole("heading", { name: "Sign in to manage privacy" })).toHaveCount(
       0,
       hostedExpectOptions,
