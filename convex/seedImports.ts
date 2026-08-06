@@ -56,6 +56,31 @@ const PREVIEW_FIELD_SAMPLE_CANDIDATES = 50;
 // vocabulary lookup and write per list value. Split field acceptance and
 // vocabulary recording into separately paged mutations if larger pages are needed.
 const BULK_PUBLISH_MAX_PAGE_SIZE = 10;
+
+/**
+ * How many profiles the visibility migration will carry between cursor pages.
+ *
+ * This is the only part of that mutation's argument and response that grows with
+ * the batch rather than the page, so left unbounded it eventually passes the
+ * driver's stdout buffer and aborts a migration part-way through. The bound is
+ * far above the 405-profile batch it exists for, and passing it is reported
+ * rather than absorbed -- past this point a dry run may count a merged profile
+ * twice or refuse one the apply accepts.
+ */
+const SIMULATION_CARRY_LIMIT = 1_000;
+
+/**
+ * What a migration page tells the next one about a profile it already accepted.
+ *
+ * The names are present only for `--rederive-values`; a visibility-only run
+ * leaves every name where the row has it.
+ */
+type SimulatedProfileState = {
+  fieldVisibility: Doc<"profiles">["fieldVisibility"];
+  displayName?: string;
+  aliases?: string[];
+  searchAliases?: string[];
+};
 const PREVIEW_CANDIDATE_READ_CAP = 2_000;
 
 function optionalValue<T>(key: string, value: T | undefined): Record<string, T> {
@@ -1646,35 +1671,34 @@ export const bulkSetFieldVisibility = internalMutation({
     limit: v.optional(v.number()),
     cursor: v.optional(v.string()),
     /**
-     * Profiles earlier pages of this dry run already counted.
+     * What earlier pages of this run already decided about each profile.
      *
-     * Only a dry run needs it. An applied run's later page reads the patch the
-     * earlier one wrote and skips the profile as already-synchronized; a dry run
-     * writes nothing, so without this it re-reads the untouched row and counts
-     * the same merged profile once per page. The driver sums those pages, and the
-     * total it shows an operator is the one the runbook promises will match the
-     * write.
-     */
-    countedProfileIds: v.optional(v.array(v.id("profiles"))),
-    /**
-     * What earlier pages of this dry run decided each profile's visibility would
-     * be.
+     * One structure rather than the two this grew as. `countedProfileIds` and the
+     * visibility map ended up with identical key sets -- a profile is recorded
+     * once, after it survives every check -- so carrying both doubled the payload
+     * to say one thing twice.
      *
-     * The counted ids alone were not enough, and saying they were is the reason
-     * this had to be found twice. They stop a merged profile being reported once
-     * per page; they carry nothing about the visibility itself. An applied run's
-     * later page reads the row the earlier one patched, so a candidate on a
-     * shared profile sees the alias page one hid. A dry run writes nothing and
-     * reread the original -- so it recomputed the suppression check against a
-     * public alias the real run would have already hidden, and reported
-     * `suppressed_identity_blocks_visibility_change` for a profile the apply
-     * accepts.
+     * Why any of it travels: several candidates can publish to one merged
+     * profile. An applied run's later page reads the row the earlier one patched;
+     * a dry run writes nothing and would re-read the original, counting the same
+     * profile once per page and recomputing the suppression check against an
+     * alias the real run would already have hidden.
+     *
+     * The names ride along only for `--rederive-values`, which replaces values
+     * and not just visibility. `surfacedProfileNames` is the only consumer of the
+     * simulated state besides the visibility comparison, and it reads exactly
+     * these three fields -- so carrying them is what a "simulate the accumulated
+     * value patch" fix actually needs, without putting a whole profile patch on
+     * every page.
      */
-    simulatedFieldVisibility: v.optional(
+    simulatedProfiles: v.optional(
       v.array(
         v.object({
           profileId: v.id("profiles"),
           fieldVisibility: v.record(v.string(), seedImportFieldVisibilityValidator),
+          displayName: v.optional(v.string()),
+          aliases: v.optional(v.array(v.string())),
+          searchAliases: v.optional(v.array(v.string())),
         }),
       ),
     ),
@@ -1754,33 +1778,37 @@ export const bulkSetFieldVisibility = internalMutation({
       .withIndex("by_state_createdAt", (query) => query.eq("state", "accepted"))
       .collect();
 
+    // Only a dry run, or a re-derivation, changes its answer with this state
+    // carried. A visibility-only applied run re-reads the row it patched, and the
+    // `sameFieldVisibility` guard skips the profile before counting it, so
+    // sending the history back would be payload growth in exchange for nothing.
+    const carriesSimulation = dryRun || args.rederiveValues === true;
     const linkStats = { droppedCount: 0, deduplicatedCount: 0 };
     /**
-     * What this run has already decided each profile's `fieldVisibility` will be.
+     * What this run has already decided about each profile it accepted.
      *
      * Several candidates can point at one merged profile. An applied run lets the
      * second see the first's patch and skip as already-synchronized; a dry run
      * reads the untouched row every time and counted both. Tracked here so the
      * two agree, which is the only thing that makes a dry run worth running.
+     *
+     * Membership also decides the count, which is why the separate id set went
+     * away: a profile is recorded once, after it survives every check, so "have
+     * we written this" and "have we counted this" were always the same question.
      */
-    const writtenFieldVisibility = new Map<
-      Id<"profiles">,
-      Doc<"profiles">["fieldVisibility"]
-    >(
-      // Seeded from earlier pages, so a dry run's second page starts where its
-      // first left off instead of re-reading a row nothing wrote to.
-      (args.simulatedFieldVisibility ?? []).map((entry) => [
+    const simulated = new Map<Id<"profiles">, SimulatedProfileState>(
+      // Seeded from earlier pages, so a later page starts where the previous one
+      // left off instead of re-reading a row nothing wrote to.
+      (args.simulatedProfiles ?? []).map((entry) => [
         entry.profileId,
-        entry.fieldVisibility as Doc<"profiles">["fieldVisibility"],
+        {
+          fieldVisibility: entry.fieldVisibility as Doc<"profiles">["fieldVisibility"],
+          ...optionalValue("displayName", entry.displayName),
+          ...optionalValue("aliases", entry.aliases),
+          ...optionalValue("searchAliases", entry.searchAliases),
+        },
       ]),
     );
-    // Seeded from earlier pages of the same dry run. Their exact visibility is
-    // not carried -- only that the run has already reported this profile, which
-    // is all the count needs. It decides the number and nothing else: a profile
-    // in here is still patched, because two candidates on one merged profile
-    // contribute different fields, and the second one's are no less real for the
-    // first having been counted.
-    const countedProfileIds = new Set<Id<"profiles">>(args.countedProfileIds ?? []);
     const skipped: Array<{ externalCandidateId: string; reason: string }> = [];
     let fieldsChanged = 0;
     let profilesRederived = 0;
@@ -1876,7 +1904,8 @@ export const bulkSetFieldVisibility = internalMutation({
       // row counted two re-derivations where the write does one. A dry run whose
       // whole job is to predict the write cannot be off by the thing it is
       // predicting.
-      const alreadyWritten = writtenFieldVisibility.get(profile._id) ?? profile.fieldVisibility;
+      const carried = simulated.get(profile._id);
+      const alreadyWritten = carried?.fieldVisibility ?? profile.fieldVisibility;
 
       const rebuilt = buildConciergeProfileFieldPatch(
         acceptedFields,
@@ -1936,8 +1965,16 @@ export const bulkSetFieldVisibility = internalMutation({
       // The profile is skipped and reported rather than the run failing: one
       // retracted identity in a batch of 405 must not strand the other 404, and
       // the operator needs to see which it was.
+      //
+      // Layered over the names this run has already accumulated, not only the
+      // row's own. With `--rederive-values` an earlier candidate can replace a
+      // retracted alias with a safe one; an applied run's later page reads that
+      // back, while a dry run re-read the retracted alias and refused a profile
+      // the apply accepts. The three fields carried between pages are exactly
+      // the ones `surfacedProfileNames` reads.
       const surfacedAfterPatch = surfacedProfileNames({
         ...profile,
+        ...carried,
         ...(patch as Partial<Doc<"profiles">>),
       });
 
@@ -1964,16 +2001,29 @@ export const bulkSetFieldVisibility = internalMutation({
       // never applied, and the profile id it had already taken suppressed the
       // count for whichever patch did go through.
       //
-      // Counted once per profile, applied once per candidate. The identity set
-      // exists so a profile two candidates contribute to is not reported twice;
-      // using it to skip the work as well dropped the second candidate's patch
-      // entirely, so `--set-visibility private` could report success while a
-      // field it named stayed public on the live profile. Whether this profile
-      // has been counted decides the number, never whether the write happens.
-      const alreadyCounted = countedProfileIds.has(profile._id);
+      // Counted once per profile, applied once per candidate. Membership exists
+      // so a profile two candidates contribute to is not reported twice; using it
+      // to skip the work as well dropped the second candidate's patch entirely,
+      // so `--set-visibility private` could report success while a field it named
+      // stayed public on the live profile. Whether this profile has been recorded
+      // decides the number, never whether the write happens.
+      const alreadyCounted = simulated.has(profile._id);
+      const patched = { ...profile, ...(patch as Partial<Doc<"profiles">>) };
 
-      writtenFieldVisibility.set(profile._id, rebuilt.fieldVisibility);
-      countedProfileIds.add(profile._id);
+      simulated.set(profile._id, {
+        fieldVisibility: rebuilt.fieldVisibility,
+        // Only `--rederive-values` moves these, and only it needs them carried.
+        // A visibility-only run leaves every name exactly as the row has it, so
+        // sending them would grow the page payload to repeat what the next page
+        // reads anyway.
+        ...(args.rederiveValues === true
+          ? {
+              displayName: patched.displayName,
+              aliases: patched.aliases,
+              ...optionalValue("searchAliases", patched.searchAliases),
+            }
+          : {}),
+      });
 
       if (!alreadyCounted) {
         profilesRederived += 1;
@@ -2032,16 +2082,27 @@ export const bulkSetFieldVisibility = internalMutation({
       linksDropped: linkStats.droppedCount,
       linksDeduplicated: linkStats.deduplicatedCount,
       // Handed back so the next page starts where this one finished, the same as
-      // the cursor. Returned on an applied run too, where it costs nothing and
-      // keeps the two runs taking identical arguments -- a dry run whose call
-      // shape differs from the real one is predicting something else.
-      countedProfileIds: [...countedProfileIds],
-      // Handed back for the same reason and with the same caveat: only a dry run
-      // needs it, and an applied run returns it so both take identical arguments.
-      simulatedFieldVisibility: [...writtenFieldVisibility].flatMap(
-        ([profileId, fieldVisibility]) =>
-          fieldVisibility === undefined ? [] : [{ profileId, fieldVisibility }],
-      ),
+      // the cursor -- and bounded, because it is the one part of the response
+      // that grows with the batch rather than the page. Replaying the whole
+      // history each call put an O(batch) array in both the argument and the
+      // response, which on a large enough batch passes the script's stdout buffer
+      // and aborts a migration mid-way through.
+      //
+      // Sent only where it changes an answer. A visibility-only applied run needs
+      // none of it: the row it re-reads on the next page already holds the patch,
+      // and the `sameFieldVisibility` guard skips the profile without counting it
+      // twice. `--rederive-values` skips that guard, so it still needs the
+      // membership to count once per profile.
+      simulatedProfiles: carriesSimulation
+        ? [...simulated]
+            .slice(0, SIMULATION_CARRY_LIMIT)
+            .map(([profileId, state]) => ({ profileId, ...state }))
+        : [],
+      // Said out loud rather than silently truncated. Past the bound a dry run
+      // can double-count a merged profile or refuse one the apply accepts, and an
+      // operator reading a total the runbook promises will match the write has to
+      // know when it stopped promising that.
+      simulationComplete: !carriesSimulation || simulated.size <= SIMULATION_CARRY_LIMIT,
       nextCursor: pageResult.isDone ? null : pageResult.continueCursor,
       isDone: pageResult.isDone,
     };

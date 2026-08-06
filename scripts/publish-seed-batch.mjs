@@ -317,8 +317,8 @@ function setFieldVisibility({ batchId, visibility, reason, reviewer, limit }) {
   let linksDroppedTotal = 0;
   let linksDeduplicatedTotal = 0;
   let cursor;
-  let countedProfileIds = [];
-  let simulatedFieldVisibility = [];
+  let simulatedProfiles = [];
+  let simulationComplete = true;
   const skipped = [];
 
   console.log("");
@@ -334,19 +334,20 @@ function setFieldVisibility({ batchId, visibility, reason, reviewer, limit }) {
       rederiveValues: flag("--rederive-values"),
       ...(fieldKeys === undefined ? {} : { fieldKeys }),
       ...(cursor === undefined || cursor === null ? {} : { cursor }),
-      ...(countedProfileIds.length === 0 ? {} : { countedProfileIds }),
-      ...(simulatedFieldVisibility.length === 0 ? {} : { simulatedFieldVisibility }),
+      ...(simulatedProfiles.length === 0 ? {} : { simulatedProfiles }),
     });
 
     // Carried into the next page so one merged profile is not counted once per
-    // page. Several candidates can publish to the same profile, and an applied
-    // run's later page sees the earlier patch where a dry run would not.
-    countedProfileIds = page.countedProfileIds ?? countedProfileIds;
-    // The visibility itself, not just which profiles were counted. The ids stop
-    // a double count; they say nothing about what page one decided, so without
-    // this a dry run's later page recomputes the suppression check against the
-    // row as it was before the run started.
-    simulatedFieldVisibility = page.simulatedFieldVisibility ?? simulatedFieldVisibility;
+    // page, and so a dry run's suppression recheck sees what the earlier page
+    // decided rather than the row as it stood before the run. Several candidates
+    // can publish to the same profile, and an applied run's later page reads the
+    // earlier patch where a dry run has nothing to read.
+    //
+    // The mutation returns an empty array where none of this changes an answer,
+    // which is every applied run that is not re-deriving values, so the usual
+    // production migration carries nothing between pages at all.
+    simulatedProfiles = page.simulatedProfiles ?? simulatedProfiles;
+    simulationComplete = simulationComplete && page.simulationComplete !== false;
 
     processedTotal += page.processed;
     fieldsChangedTotal += page.fieldsChanged;
@@ -384,6 +385,20 @@ function setFieldVisibility({ batchId, visibility, reason, reviewer, limit }) {
     for (const entry of skipped) {
       console.log(`  ${entry.externalCandidateId}: ${entry.reason}`);
     }
+  }
+
+  // Said out loud, because past the bound these numbers stop being the promise
+  // the runbook makes about them. The state a page carries forward is the one
+  // part of the call that grows with the batch rather than the page, so it is
+  // capped; a batch large enough to reach the cap gets a warning rather than a
+  // total that quietly drifted from what the write will do.
+  if (!simulationComplete) {
+    console.log(
+      "\nWarning: this batch has more merged profiles than the run carries between pages.\n" +
+        "Counts past that point may double-count a profile two candidates share, or report\n" +
+        "a suppression skip the apply would not hit. Re-run with a larger --limit so fewer\n" +
+        "pages are needed, or treat these totals as approximate.",
+    );
   }
 
   if (dryRun) {

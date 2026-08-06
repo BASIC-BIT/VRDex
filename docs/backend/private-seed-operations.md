@@ -376,12 +376,22 @@ pnpm ops:seed-publish -- `
 
 - Without `--apply` it is a dry run: the same counts, nothing written. This
   changes what the public sees on live profiles, so the dry run is the default.
-  The dry run simulates across cursor pages rather than per page: the script
-  threads both the visibility it pretended to write and the profiles it has
-  already counted into the next page, so a profile whose fields straddle a page
-  boundary is counted once and page two evaluates its publication gate against
-  what page one would have done. Without that, a dry run of a batch large enough
-  to page reports a different total than the apply run it exists to predict.
+  The dry run simulates across cursor pages rather than per page: each page
+  hands the next what it decided about the profiles it accepted, so a profile
+  two candidates share is counted once and a later page evaluates its gates
+  against what the earlier one would have done. Without that, a dry run of a
+  batch large enough to page reports a different total than the apply run it
+  exists to predict.
+- That carried state is bounded, and it is sent only where it changes an
+  answer. A visibility-only `--apply` run carries nothing: the row the next
+  page reads already holds the patch. A dry run carries the simulated
+  visibility, and `--rederive-values` also carries the display name and aliases,
+  because those are what the suppression recheck reads and a re-derivation is
+  the only mode that moves them. It is the one part of the call that grows with
+  the batch rather than the page, so it is capped; a batch with more merged
+  profiles than the cap prints a warning saying the totals are approximate,
+  rather than quietly drifting from what the write will do. Re-run with a larger
+  `--limit` so fewer pages are needed if you see it.
 - `--field-keys` is optional; omitting it targets every accepted field. It scopes
   the whole run, not just the visibility change: with `--rederive-values`, only
   the named fields are replayed, so a run repairing links cannot overwrite live

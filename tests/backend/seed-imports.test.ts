@@ -1045,6 +1045,50 @@ describe("seed import visibility migration", () => {
     // One profile, not one per candidate.
     assert.equal(result.profilesRederived, 1);
     assert.equal(result.fieldsChanged, 2);
+    // A visibility-only applied run carries nothing between pages: the row the
+    // next page reads already holds this patch, so replaying the history would
+    // grow the payload with the batch in exchange for nothing.
+    assert.deepEqual(result.simulatedProfiles, []);
+  });
+
+  it("carries re-derived names to the next page, and nothing when it need not", async () => {
+    const t = convexTest({ schema, modules });
+    const now = 1_788_220_800_000;
+    const { batchId } = await seedMergedBatch(t, now);
+
+    // `--rederive-values` replaces values, so a later page's suppression
+    // recheck has to see the names an earlier page decided rather than the
+    // row's. The three fields carried are exactly the ones
+    // `surfacedProfileNames` reads.
+    const rederived = await t.mutation(internal.seedImports.bulkSetFieldVisibility, {
+      batchId,
+      visibility: "private",
+      reason: "Replaying the corrected import snapshot.",
+      rederiveValues: true,
+      reviewer,
+      dryRun: true,
+      now,
+    });
+
+    assert.equal(rederived.simulatedProfiles.length, 1);
+    assert.equal(rederived.simulatedProfiles[0]?.displayName, "Merged Seed Target");
+    assert.ok(Array.isArray(rederived.simulatedProfiles[0]?.aliases));
+    assert.equal(rederived.simulationComplete, true);
+
+    // A visibility-only dry run carries the visibility but not the names,
+    // because nothing in it moves them.
+    const visibilityOnly = await t.mutation(internal.seedImports.bulkSetFieldVisibility, {
+      batchId,
+      visibility: "private",
+      reason: "Source withdrew permission to list these publicly.",
+      reviewer,
+      dryRun: true,
+      now,
+    });
+
+    assert.equal(visibilityOnly.simulatedProfiles.length, 1);
+    assert.equal(visibilityOnly.simulatedProfiles[0]?.displayName, undefined);
+    assert.equal(visibilityOnly.simulatedProfiles[0]?.aliases, undefined);
   });
 
   it("predicts that same result without writing it", async () => {
@@ -1067,6 +1111,12 @@ describe("seed import visibility migration", () => {
     assert.equal(profile?.fieldVisibility?.tags, "public");
     // The count the runbook promises will match the write.
     assert.equal(result.profilesRederived, 1);
-    assert.deepEqual(result.countedProfileIds, [profileId]);
+    // Carried forward so a later page starts from what this one decided,
+    // rather than re-reading a row nothing wrote to.
+    assert.deepEqual(
+      result.simulatedProfiles.map((entry) => entry.profileId),
+      [profileId],
+    );
+    assert.equal(result.simulationComplete, true);
   });
 });
