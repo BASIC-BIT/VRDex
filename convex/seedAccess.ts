@@ -381,6 +381,15 @@ export const withheldProfileRecord = query({
       .order("desc")
       .take(PROFILE_HISTORY_LIMIT);
 
+    // Audit notes are written by operators, for operators. A seed visibility
+    // migration records the free-form reason one of them typed, and the claim
+    // adapter's notes describe internal mechanics -- neither is prose anybody
+    // wrote expecting a profile's owner to read it, and a migration reason can
+    // carry source and review context that is not the owner's to see. What makes
+    // the history worth inheriting is the action, who did it and when, and an
+    // owner still gets all three.
+    const seesInternalNotes = access.superAdmin || withinSeedGrant;
+
     return {
       slug: profile.slug,
       viewerRole: owns ? ("owner" as const) : ("operator" as const),
@@ -392,7 +401,7 @@ export const withheldProfileRecord = query({
         id: event._id,
         action: event.action,
         sourceType: event.sourceType,
-        note: event.note,
+        note: seesInternalNotes ? event.note : undefined,
         createdAt: event.createdAt,
         // The whole point of the record: an edit with no attributable actor is
         // exactly the mystery a claiming owner should not inherit. Not in the

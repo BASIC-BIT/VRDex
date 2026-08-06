@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { convexTest } from "convex-test";
+
+import { internal } from "../../convex/_generated/api";
+import schemaModule from "../../convex/schema";
 import type { Id } from "../../convex/_generated/dataModel";
 import {
   FAKE_SEED_IMPORT_FIXTURE_KEY,
@@ -22,6 +26,14 @@ import {
   readOption,
   VALUE_OPTIONS,
 } from "../../scripts/publish-seed-batch.mjs";
+
+const modules = {
+  "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
+  "../../convex/seedImports.ts": () => import("../../convex/seedImports"),
+};
+const schema = (
+  schemaModule as unknown as { default?: typeof schemaModule }
+).default ?? schemaModule;
 
 function cloneFixture(fixture: SeedImportFixture): SeedImportFixture {
   return structuredClone(fixture);
@@ -876,5 +888,139 @@ describe("seed publish CLI option parsing", () => {
       misplacedMigrationFlag(undefined, { "--rederive-values": false, "--field-keys": false }),
       undefined,
     );
+  });
+});
+
+describe("seed import visibility migration", () => {
+  const reviewer = {
+    tokenIdentifier: "operator:vrdex",
+    issuer: "vrdex",
+    subject: "seed-publish",
+    displayName: "VRDex operator",
+  };
+
+  /**
+   * Two candidates merged onto one published profile, each carrying a different
+   * accepted field. This is the shape the 405-profile batch actually has, and
+   * the one that made the per-profile identity set dangerous: used as a skip it
+   * dropped the second candidate's patch, so a run could report success with a
+   * field it had been told to hide still public.
+   */
+  async function seedMergedBatch(t: ReturnType<typeof convexTest>, now: number) {
+    return await t.run(async (ctx) => {
+      const batchId = await ctx.db.insert("seedImportBatches", {
+        externalBatchId: "seed_fake_merge_001",
+        sourceName: "Example Partner Directory",
+        sourceType: "partner",
+        receivedAt: now,
+        publicationPolicy: "reviewed_publication_allowed",
+        publicationAuthorizations: [
+          {
+            policy: "reviewed_publication_allowed",
+            reason: "Source confirmed public listing is permitted.",
+            authorizedAt: now,
+          },
+        ],
+        importedBy: reviewer,
+        reviewState: "approved",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const profileId = await ctx.db.insert("profiles", {
+        profileType: "person",
+        slug: "merged-seed-target",
+        displayName: "Merged Seed Target",
+        sortName: "merged seed target",
+        aliases: ["Merged"],
+        tags: ["dj"],
+        claimState: "unclaimed",
+        publicationState: "published",
+        publicSurfacingState: "public",
+        creationSource: "concierge",
+        person: { roleTags: [] },
+        fieldVisibility: { aliases: "public", tags: "public" },
+        updatedAt: now,
+      });
+
+      for (const [index, fieldKey] of ["aliases", "tags"].entries()) {
+        const candidateId = await ctx.db.insert("seedImportCandidateProfiles", {
+          batchId,
+          externalCandidateId: `merge-candidate-${index + 1}`,
+          profileType: "person",
+          proposedDisplayName: "Merged Seed Target",
+          reviewState: "accepted",
+          publicationState: "published_unclaimed",
+          claimState: "unclaimed",
+          publishedProfileId: profileId,
+          publishedAt: now,
+          createdAt: now,
+          updatedAt: now,
+        });
+
+        await ctx.db.insert("seedImportCandidateFields", {
+          candidateId,
+          fieldKey,
+          value: fieldKey === "aliases" ? ["Merged"] : ["dj"],
+          sourceLabel: "Example Partner Directory",
+          sourceType: "partner",
+          confidence: "medium",
+          reviewState: "accepted",
+          visibility: "public",
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+
+      return { batchId, profileId };
+    });
+  }
+
+  it("applies every candidate's visibility to a profile two of them share", async () => {
+    const t = convexTest({ schema, modules });
+    const now = 1_788_220_800_000;
+    const { batchId, profileId } = await seedMergedBatch(t, now);
+
+    const result = await t.mutation(internal.seedImports.bulkSetFieldVisibility, {
+      batchId,
+      visibility: "private",
+      reason: "Source withdrew permission to list these publicly.",
+      reviewer,
+      now,
+    });
+
+    const profile = await t.run(async (ctx) => await ctx.db.get(profileId));
+
+    // The whole point: the second candidate's field is hidden too. Before the
+    // identity set was demoted to counting only, this stayed "public" while the
+    // run reported a profile re-derived.
+    assert.equal(profile?.fieldVisibility?.aliases, "private");
+    assert.equal(profile?.fieldVisibility?.tags, "private");
+    // One profile, not one per candidate.
+    assert.equal(result.profilesRederived, 1);
+    assert.equal(result.fieldsChanged, 2);
+  });
+
+  it("predicts that same result without writing it", async () => {
+    const t = convexTest({ schema, modules });
+    const now = 1_788_220_800_000;
+    const { batchId, profileId } = await seedMergedBatch(t, now);
+
+    const result = await t.mutation(internal.seedImports.bulkSetFieldVisibility, {
+      batchId,
+      visibility: "private",
+      reason: "Source withdrew permission to list these publicly.",
+      reviewer,
+      dryRun: true,
+      now,
+    });
+
+    const profile = await t.run(async (ctx) => await ctx.db.get(profileId));
+
+    assert.equal(profile?.fieldVisibility?.aliases, "public");
+    assert.equal(profile?.fieldVisibility?.tags, "public");
+    // The count the runbook promises will match the write.
+    assert.equal(result.profilesRederived, 1);
+    assert.deepEqual(result.countedProfileIds, [profileId]);
   });
 });

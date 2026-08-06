@@ -1220,6 +1220,77 @@ describe("API profile update helpers", () => {
     );
   });
 
+  it("keeps stored provenance for a writer whose request cannot carry a claim", () => {
+    // `ApiProfileUpdateRequestSchema` has no `source` field, so an owner
+    // patching one link through the public API sends a claim for none of them.
+    // Falling through to the sanitizer restamped the whole set `owner_authored`,
+    // erasing the trust signal the reviewed and partner rows exist to carry.
+    const withLinks = {
+      ...claimedPerson,
+      outboundLinks: [
+        {
+          type: "twitch",
+          label: "Twitch",
+          url: "https://twitch.tv/snekwtf",
+          source: "reviewed",
+        },
+        {
+          type: "soundcloud",
+          label: "SoundCloud",
+          url: "https://soundcloud.com/snekwtf",
+          source: "partner_provided",
+        },
+      ],
+    } as unknown as Doc<"profiles">;
+
+    const links = sanitizeApiProfileUpdateInput(
+      withLinks,
+      {
+        outboundLinks: [
+          { type: "twitch", url: "https://twitch.tv/snekwtf", label: "Twitch stream" },
+          { type: "soundcloud", url: "https://soundcloud.com/snekwtf" },
+        ],
+      },
+      "claimed_owner",
+    ).patch.outboundLinks as Array<{ source: string; type: string }>;
+
+    assert.deepEqual(
+      links.map((link) => [link.type, link.source]),
+      [
+        ["twitch", "reviewed"],
+        ["soundcloud", "partner_provided"],
+      ],
+    );
+  });
+
+  it("declines to inherit provenance a destination does not agree on", () => {
+    // Inheriting by destination is only safe where the destination speaks with
+    // one voice. Two stored rows disagreeing is the case that defeated the
+    // earlier destination-keyed attempts, which handed sources out in stored
+    // order and promoted the row sitting behind a deleted one. Here the writer
+    // keeps their own stamp, which cannot invent authority nobody granted.
+    const withDisagreement = {
+      ...claimedPerson,
+      outboundLinks: [
+        { type: "twitch", label: "Twitch", url: "https://twitch.tv/snekwtf", source: "reviewed" },
+        {
+          type: "twitch",
+          label: "Twitch",
+          url: "https://twitch.tv/snekwtf",
+          source: "partner_provided",
+        },
+      ],
+    } as unknown as Doc<"profiles">;
+
+    const links = sanitizeApiProfileUpdateInput(
+      withDisagreement,
+      { outboundLinks: [{ type: "twitch", url: "https://twitch.tv/snekwtf" }] },
+      "claimed_owner",
+    ).patch.outboundLinks as Array<{ source: string }>;
+
+    assert.deepEqual(links.map((link) => link.source), ["owner_authored"]);
+  });
+
   // Scheme and host are case-insensitive; a path is not. Folding the whole URL
   // made `/Mix` and `/mix` one destination, so a writer could move an
   // owner-authored link to a different page on a case-sensitive host and keep the

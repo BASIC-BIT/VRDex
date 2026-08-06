@@ -353,10 +353,11 @@ export function sanitizeApiProfileUpdateInput(
     // promoted the community-submitted duplicate behind it. Provenance belongs
     // to the row, so the row carries it.
     //
-    // A claim is only honoured against a stored link that actually has it, and
-    // each stored link is claimed once -- so a writer cannot mint
-    // `owner_authored` by asking for it, and anything unmatched falls back to
-    // their own stamp.
+    // Counted per destination and per source, so both rules below can consume
+    // from one structure: a claim takes the row carrying that exact source, and
+    // an unclaimed write takes the destination's provenance only when every row
+    // there agrees on it.
+    //
     // Keyed on what each stored link canonicalizes to, not on how it is stored.
     // The submitted side is sanitized before it gets here, so a legacy row still
     // holding a `stream.vrcdn.live/live/<id>.m3u8` or a panel preview URL was
@@ -365,13 +366,15 @@ export function sanitizeApiProfileUpdateInput(
     // partner link as community-submitted. Same normalizer on both sides, one
     // link at a time so each keeps the source it was stored with rather than the
     // stamp the sanitizer would apply.
-    const unclaimed = new Map<string, number>();
+    const remaining = new Map<string, Map<ProfileLinkSource, number>>();
 
     for (const link of profile.outboundLinks ?? []) {
       const [canonical] = sanitizeProfileLinksLeniently([link], link.source).links;
-      const key = `${linkIdentity(canonical ?? link)}|${link.source}`;
+      const key = linkIdentity(canonical ?? link);
+      const bySource = remaining.get(key) ?? new Map<ProfileLinkSource, number>();
 
-      unclaimed.set(key, (unclaimed.get(key) ?? 0) + 1);
+      bySource.set(link.source, (bySource.get(link.source) ?? 0) + 1);
+      remaining.set(key, bySource);
     }
 
     const claimedSources = requestedLinkSources(input.outboundLinks);
@@ -380,17 +383,48 @@ export function sanitizeApiProfileUpdateInput(
       input.outboundLinks ?? [],
       LINK_SOURCE_BY_SUBJECT[subject],
     ).map((link, index) => {
-      const claimed = claimedSources[index];
-      const key = `${linkIdentity(link)}|${claimed}`;
-      const available = unclaimed.get(key) ?? 0;
+      const bySource = remaining.get(linkIdentity(link));
 
-      if (claimed === undefined || available === 0) {
+      if (bySource === undefined) {
+        // A destination the profile did not already hold. Genuinely this
+        // writer's, so their own stamp is the honest one.
         return link;
       }
 
-      unclaimed.set(key, available - 1);
+      const claimed = claimedSources[index];
+      let inherited: ProfileLinkSource | undefined;
 
-      return { ...link, source: claimed };
+      if (claimed === undefined) {
+        // No claim to honour. `ApiProfileUpdateRequestSchema` has no `source`
+        // field at all, so an owner patching one link's label through the public
+        // API sends none for any of them -- and falling straight through to the
+        // sanitizer restamped every reviewed, partner-provided and
+        // community-submitted link on the profile as `owner_authored`. The
+        // destination's own provenance is inherited instead.
+        //
+        // Only where it is unambiguous. Two stored rows on one destination
+        // carrying different sources is exactly what the earlier
+        // destination-keyed attempts got wrong: handing them out in stored order
+        // promoted the community-submitted duplicate sitting behind a deleted
+        // owner-authored one. That case keeps the writer's own stamp, which is
+        // conservative in the direction that cannot invent authority.
+        const live = [...bySource].filter(([, count]) => count > 0);
+
+        inherited = live.length === 1 ? live[0]?.[0] : undefined;
+      } else if ((bySource.get(claimed) ?? 0) > 0) {
+        // A claim is honoured only against a stored row that actually carries
+        // it, and each stored row is claimed once, so a writer cannot mint
+        // `owner_authored` by asking for it.
+        inherited = claimed;
+      }
+
+      if (inherited === undefined) {
+        return link;
+      }
+
+      bySource.set(inherited, (bySource.get(inherited) ?? 0) - 1);
+
+      return { ...link, source: inherited };
     });
     addChangedField(changedFields, "outboundLinks");
   }

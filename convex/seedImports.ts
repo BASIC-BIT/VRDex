@@ -1721,8 +1721,11 @@ export const bulkSetFieldVisibility = internalMutation({
       Doc<"profiles">["fieldVisibility"]
     >();
     // Seeded from earlier pages of the same dry run. Their exact visibility is
-    // not carried -- only that the run has already decided this profile, which is
-    // all the skip needs.
+    // not carried -- only that the run has already reported this profile, which
+    // is all the count needs. It decides the number and nothing else: a profile
+    // in here is still patched, because two candidates on one merged profile
+    // contribute different fields, and the second one's are no less real for the
+    // first having been counted.
     const countedProfileIds = new Set<Id<"profiles">>(args.countedProfileIds ?? []);
     const skipped: Array<{ externalCandidateId: string; reason: string }> = [];
     let fieldsChanged = 0;
@@ -1812,12 +1815,30 @@ export const bulkSetFieldVisibility = internalMutation({
         continue;
       }
 
-      const rebuilt = buildConciergeProfileFieldPatch(acceptedFields, profile, {
-        fieldVisibilitySource: "reviewed",
-        clearUnselectedFields: false,
-        sourceType: batch.sourceType,
-        linkStats,
-      });
+      // Compared and accumulated against what the run has already written to
+      // this profile, not only against what the row held when the page was read.
+      // Two candidates can publish to one merged profile, and an applied run lets
+      // the second see the first's patch -- so a dry run reading the untouched
+      // row counted two re-derivations where the write does one. A dry run whose
+      // whole job is to predict the write cannot be off by the thing it is
+      // predicting.
+      const alreadyWritten = writtenFieldVisibility.get(profile._id) ?? profile.fieldVisibility;
+
+      const rebuilt = buildConciergeProfileFieldPatch(
+        acceptedFields,
+        // Layered onto the visibility this run has accumulated for the profile
+        // rather than the row's own. Two candidates merging into one profile
+        // contribute different fields, and rebuilding the second from the
+        // untouched row drops the first's contribution on a dry run, which has no
+        // write to read back.
+        { ...profile, fieldVisibility: alreadyWritten },
+        {
+          fieldVisibilitySource: "reviewed",
+          clearUnselectedFields: false,
+          sourceType: batch.sourceType,
+          linkStats,
+        },
+      );
       // Visibility only, unless the operator asks for the values too.
       //
       // These profiles are community-editable now, so replaying the whole seed
@@ -1843,21 +1864,20 @@ export const bulkSetFieldVisibility = internalMutation({
       // Only for the visibility-only path. `--rederive-values` replays values
       // that this cannot compare cheaply, and running it twice is a deliberate
       // act rather than an accident.
-      // Compared against what the run has already written to this profile, not
-      // only against what the row held when the page was read. Two candidates can
-      // publish to one merged profile, and an applied run lets the second see the
-      // first's patch -- so a dry run reading the untouched row counted two
-      // re-derivations where the write does one. A dry run whose whole job is to
-      // predict the write cannot be off by the thing it is predicting.
-      const alreadyWritten = writtenFieldVisibility.get(profile._id) ?? profile.fieldVisibility;
-
       if (
         args.rederiveValues !== true &&
-        (countedProfileIds.has(profile._id) ||
-          sameFieldVisibility(rebuilt.fieldVisibility, alreadyWritten))
+        sameFieldVisibility(rebuilt.fieldVisibility, alreadyWritten)
       ) {
         continue;
       }
+
+      // Counted once per profile, applied once per candidate. The identity set
+      // exists so a profile two candidates contribute to is not reported twice;
+      // using it to skip the work as well dropped the second candidate's patch
+      // entirely, so `--set-visibility private` could report success while a
+      // field it named stayed public on the live profile. Whether this profile
+      // has been counted decides the number, never whether the write happens.
+      const alreadyCounted = countedProfileIds.has(profile._id);
 
       writtenFieldVisibility.set(profile._id, rebuilt.fieldVisibility);
       countedProfileIds.add(profile._id);
@@ -1893,7 +1913,9 @@ export const bulkSetFieldVisibility = internalMutation({
         continue;
       }
 
-      profilesRederived += 1;
+      if (!alreadyCounted) {
+        profilesRederived += 1;
+      }
 
       if (dryRun) {
         continue;
