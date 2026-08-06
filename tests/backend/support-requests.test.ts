@@ -5,8 +5,8 @@ import { convexTest } from "convex-test";
 
 import { api, internal } from "../../convex/_generated/api";
 import schemaModule from "../../convex/schema";
+import { readProfileSlugFromInput } from "../../convex/_profileSlugs";
 import { formatDigestEntry, supportDigestConfig } from "../../convex/_supportDigest";
-import { supportProfileSlugInput } from "../../convex/supportRequests";
 
 // `supportRequestDigest.ts` is deliberately absent. It is a `"use node"` module,
 // so importing it loads the AWS SES client, whose CJS bundle does not survive
@@ -16,6 +16,7 @@ import { supportProfileSlugInput } from "../../convex/supportRequests";
 const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
   "../../convex/supportRequests.ts": () => import("../../convex/supportRequests"),
+  "../../convex/suppressions.ts": () => import("../../convex/suppressions"),
 };
 const schema = (
   schemaModule as unknown as { default?: typeof schemaModule }
@@ -120,6 +121,28 @@ describe("support request intake", () => {
 
     assert.equal(stored[0].profileSlug, "dj-aurora");
     assert.equal(stored[0].displayName, "DJ Aurora");
+  });
+
+  /**
+   * One form feeds two mutations, and its profile field says "paste the profile
+   * link" on every topic. Parsing that on only one path meant the same link
+   * resolved for a dispute and was rejected for an opt-out.
+   */
+  it("takes the same pasted link on the suppression topics", async () => {
+    const t = convexTest({ schema, modules });
+
+    await t.mutation(api.suppressions.requestProfileSuppression, {
+      requestType: "owner_opt_out",
+      profileSlug: "https://vrdex.net/p/dj-aurora",
+      requesterNote: "This listing is mine and I would like it hidden.",
+    });
+
+    const stored = await t.run(async (ctx) =>
+      ctx.db.query("profileSuppressionRequests").collect(),
+    );
+
+    assert.equal(stored.length, 1);
+    assert.equal(stored[0].profileSlug, "dj-aurora");
   });
 
   /**
@@ -258,15 +281,18 @@ describe("support request digest", () => {
 
 describe("support request helpers", () => {
   it("reads a slug from the shapes people actually paste", () => {
-    assert.equal(supportProfileSlugInput("dj-aurora"), "dj-aurora");
-    assert.equal(supportProfileSlugInput("  DJ Aurora  "), "dj-aurora");
-    assert.equal(supportProfileSlugInput("https://vrdex.net/p/dj-aurora"), "dj-aurora");
-    assert.equal(supportProfileSlugInput("https://vrdex.net/c/afterglow-social?x=1"), "afterglow-social");
-    assert.equal(supportProfileSlugInput("vrdex.net/p/dj-aurora"), "dj-aurora");
-    assert.equal(supportProfileSlugInput(""), "");
+    assert.equal(readProfileSlugFromInput("dj-aurora"), "dj-aurora");
+    assert.equal(readProfileSlugFromInput("  DJ Aurora  "), "dj-aurora");
+    assert.equal(readProfileSlugFromInput("https://vrdex.net/p/dj-aurora"), "dj-aurora");
+    assert.equal(
+      readProfileSlugFromInput("https://vrdex.net/c/afterglow-social?x=1"),
+      "afterglow-social",
+    );
+    assert.equal(readProfileSlugFromInput("vrdex.net/p/dj-aurora"), "dj-aurora");
+    assert.equal(readProfileSlugFromInput(""), "");
     // A bare origin carries no profile, and normalizing the host would invent a
     // slug-shaped string that resolves to nothing.
-    assert.equal(supportProfileSlugInput("https://vrdex.net"), "");
+    assert.equal(readProfileSlugFromInput("https://vrdex.net"), "");
   });
 
   it("names a missing contact rather than leaving a gap in the digest", () => {

@@ -64,6 +64,7 @@ import type * as _seedHandoffs from "../_seedHandoffs.js";
 import type * as _seedImportValidators from "../_seedImportValidators.js";
 import type * as _seedImports from "../_seedImports.js";
 import type * as _shortLinks from "../_shortLinks.js";
+import type * as _supportDigest from "../_supportDigest.js";
 import type * as _suppressions from "../_suppressions.js";
 import type * as _vocabulary from "../_vocabulary.js";
 import type * as _vrcdnLinks from "../_vrcdnLinks.js";
@@ -173,6 +174,7 @@ declare const fullApi: ApiFromModules<{
   _seedImportValidators: typeof _seedImportValidators;
   _seedImports: typeof _seedImports;
   _shortLinks: typeof _shortLinks;
+  _supportDigest: typeof _supportDigest;
   _suppressions: typeof _suppressions;
   _vocabulary: typeof _vocabulary;
   _vrcdnLinks: typeof _vrcdnLinks;

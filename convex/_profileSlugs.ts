@@ -72,6 +72,40 @@ export function normalizeProfileSlugInput(input: string): string {
     .replace(/-{2,}/g, "-");
 }
 
+/**
+ * Read a profile slug out of whatever someone actually pasted.
+ *
+ * Request forms ask for a profile and get the link, because the link is what the
+ * person has in front of them. Running that through `normalizeProfileSlugInput`
+ * alone turns `https://vrdex.net/p/dj-aurora` into one long slug-shaped string
+ * that passes validation and resolves to nothing, so the path segment is taken
+ * first.
+ *
+ * Returns an empty string when the input names no profile, which the callers
+ * distinguish from an empty field: text that normalizes away to nothing still
+ * meant something to whoever typed it, and dropping it silently is how a dispute
+ * arrives with no identifier on it.
+ */
+export function readProfileSlugFromInput(raw: string): string {
+  const trimmed = raw.trim();
+
+  if (trimmed === "") {
+    return "";
+  }
+
+  const url = /^(?:https?:\/\/)?([^/\s]+\.[^/\s]+)(\/.*)?$/i.exec(trimmed);
+
+  // A bare host names no profile. Falling through would normalize the hostname
+  // itself into `vrdex-net`, which is slug-shaped and passes validation.
+  if (url !== null && (url[2] === undefined || url[2] === "/")) {
+    return "";
+  }
+
+  const segments = (url?.[2] ?? trimmed).split(/[?#]/)[0].split("/").filter(Boolean);
+
+  return normalizeProfileSlugInput(segments[segments.length - 1] ?? "");
+}
+
 export function validateProfileSlug(slug: string): ProfileSlugValidationResult {
   if (slug.length === 0) {
     return { ok: false, reason: "empty" };

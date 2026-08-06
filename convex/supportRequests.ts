@@ -5,7 +5,7 @@ import { internalMutation, internalQuery, mutation } from "./_generated/server";
 import { activeBrowserSessionSubjectOrNull } from "./_browserSessionAuthority";
 import {
   getProfileBySlug,
-  normalizeProfileSlugInput,
+  readProfileSlugFromInput,
   validateProfileSlug,
 } from "./_profileSlugs";
 import { normalizeProfileInlineText } from "./_profileSubmissions";
@@ -76,34 +76,37 @@ function normalizeMessage(input: string): string {
     .slice(0, MESSAGE_MAX_LENGTH);
 }
 
+/** Shared with `suppressions.ts`, which the same form's other two topics call. */
+export const INVALID_PROFILE_INPUT_MESSAGE =
+  "That does not look like a profile. Paste the profile link, or the last part of it, like dj-aurora.";
+
 /**
- * Read a profile slug out of whatever the requester actually pasted.
+ * The slug a request names, or `undefined`, or a refusal.
  *
- * The field asks for a slug and most people will paste the profile link, since
- * that is the thing they have in front of them. Normalizing a full URL turns it
- * into a slug-shaped string that resolves to nothing, so the last path segment
- * is taken first and only then normalized. Anything else still falls through to
- * `validateProfileSlug` and is rejected with a message that says what to paste.
+ * Both intake mutations behind `/support` run this, because one form feeds both
+ * and the field it fills says "paste the profile link" either way. Splitting the
+ * parsing would mean a pasted link resolved on one topic and was rejected on the
+ * next.
  */
-export function supportProfileSlugInput(raw: string): string {
-  const trimmed = raw.trim();
+export function resolveRequestedProfileSlug(raw: string | undefined): string | undefined {
+  const trimmed = (raw ?? "").trim();
+  const slug = readProfileSlugFromInput(trimmed);
 
-  if (trimmed === "") {
-    return "";
+  if (trimmed !== "" && slug === "") {
+    throw new Error(INVALID_PROFILE_INPUT_MESSAGE);
   }
 
-  const url = /^(?:https?:\/\/)?([^/\s]+\.[^/\s]+)(\/.*)?$/i.exec(trimmed);
-
-  // A host with nothing after it names no profile. Falling through would
-  // normalize the hostname itself into `vrdex-net`, which is slug-shaped, passes
-  // validation, and resolves to nothing.
-  if (url !== null && (url[2] === undefined || url[2] === "/")) {
-    return "";
+  if (slug === "") {
+    return undefined;
   }
 
-  const segments = (url?.[2] ?? trimmed).split(/[?#]/)[0].split("/").filter(Boolean);
+  const validation = validateProfileSlug(slug);
 
-  return normalizeProfileSlugInput(segments[segments.length - 1] ?? "");
+  if (!validation.ok) {
+    throw new Error(INVALID_PROFILE_INPUT_MESSAGE);
+  }
+
+  return validation.slug;
 }
 
 /**
@@ -146,29 +149,17 @@ export const submitSupportRequest = mutation({
       throw new Error("Add a contact so we can reply.");
     }
 
-    const rawSlug = (args.profileSlug ?? "").trim();
-    const slugInput = supportProfileSlugInput(rawSlug);
-    const slugValidation = slugInput ? validateProfileSlug(slugInput) : undefined;
-
-    // Rejected rather than quietly dropped. Text that normalizes away to nothing
-    // still meant something to whoever typed it, and discarding the only
-    // identifier on the request without saying so is how a dispute arrives
-    // unactionable.
-    if ((rawSlug !== "" && slugInput === "") || (slugValidation && !slugValidation.ok)) {
-      throw new Error(
-        "That does not look like a profile. Paste the profile link, or the last part of it, like dj-aurora.",
-      );
-    }
+    const profileSlug = resolveRequestedProfileSlug(args.profileSlug);
 
     // Resolved only to borrow the display name when the requester left it blank.
     // A slug with no profile behind it is still recorded: someone disputing a
     // listing may be reading it off a URL that has since changed, and dropping
     // it would discard the only identifier they had.
-    const profile = slugValidation?.ok ? await getProfileBySlug(ctx.db, slugValidation.slug) : null;
+    const profile = profileSlug === undefined ? null : await getProfileBySlug(ctx.db, profileSlug);
 
     const requestId = await ctx.db.insert("supportRequests", {
       topic: args.topic,
-      ...optionalValue("profileSlug", slugValidation?.ok ? slugValidation.slug : undefined),
+      ...optionalValue("profileSlug", profileSlug),
       ...optionalValue(
         "displayName",
         optionalText(args.displayName ?? profile?.displayName, DISPLAY_NAME_MAX_LENGTH),

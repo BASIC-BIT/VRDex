@@ -4,7 +4,8 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, mutation, type MutationCtx } from "./_generated/server";
 import { activeBrowserSessionSubjectOrNull } from "./_browserSessionAuthority";
-import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
+import { getProfileBySlug } from "./_profileSlugs";
+import { resolveRequestedProfileSlug } from "./supportRequests";
 import { createProfileSortName, normalizeProfileInlineText } from "./_profileSubmissions";
 import { surfacedProfileNames } from "./_suppressions";
 import {
@@ -53,26 +54,25 @@ export const requestProfileSuppression = mutation({
   handler: async (ctx, args) => {
     const now = Date.now();
     const requester = (await activeBrowserSessionSubjectOrNull(ctx))?.subject;
-    const slugValidation = args.profileSlug ? validateProfileSlug(args.profileSlug) : undefined;
-
-    if (slugValidation && !slugValidation.ok) {
-      throw new Error("Profile slug is invalid.");
-    }
-
-    const profile = slugValidation ? await getProfileBySlug(ctx.db, slugValidation.slug) : null;
+    // Shared with `submitSupportRequest`, because one form feeds both and its
+    // profile field says "paste the profile link" whichever topic is chosen.
+    // Parsing this only on the other path meant a pasted link resolved for a
+    // dispute and was rejected for an opt-out.
+    const profileSlug = resolveRequestedProfileSlug(args.profileSlug);
+    const profile = profileSlug === undefined ? null : await getProfileBySlug(ctx.db, profileSlug);
     const displayName = optionalText(args.displayName ?? profile?.displayName, 120);
 
     // A validated slug counts even when no profile holds it yet. The pre-claim case
     // is precisely "this slug is about me, do not let it be taken", and the
     // publication guards and retraction resolver both honour slug-only requests --
     // requiring a *resolved* profile made that documented shape impossible to file.
-    if (profile === null && displayName === undefined && slugValidation === undefined) {
+    if (profile === null && displayName === undefined && profileSlug === undefined) {
       throw new Error("Suppression requests need a profile slug or display name.");
     }
 
     const requestId = await ctx.db.insert("profileSuppressionRequests", {
       ...optionalValue("profileId", profile?._id),
-      ...optionalValue("profileSlug", profile?.slug ?? slugValidation?.slug),
+      ...optionalValue("profileSlug", profile?.slug ?? profileSlug),
       ...optionalValue("profileType", profile?.profileType ?? args.profileType),
       ...optionalValue("displayName", displayName),
       requestType: args.requestType,
