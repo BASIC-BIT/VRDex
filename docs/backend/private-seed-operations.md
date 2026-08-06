@@ -382,12 +382,15 @@ pnpm ops:seed-publish -- `
   against what the earlier one would have done. Without that, a dry run of a
   batch large enough to page reports a different total than the apply run it
   exists to predict.
-- That carried state is bounded, and it is sent only where it changes an
-  answer. A visibility-only `--apply` run carries nothing: the row the next
-  page reads already holds the patch. A dry run carries the simulated
-  visibility, and `--rederive-values` also carries the display name and aliases,
-  because those are what the suppression recheck reads and a re-derivation is
-  the only mode that moves them. It is the one part of the call that grows with
+- That carried state is bounded, and each part of it is sent only where it
+  changes an answer. Which profiles the run has already counted travels in
+  every mode, because the total is per profile and a profile two candidates
+  share can straddle a page in all of them. The simulated visibility travels
+  only where nothing was written to read it back from, so a visibility-only
+  `--apply` run sends the identifiers alone. `--rederive-values` also carries
+  the display name and aliases, because those are what the suppression recheck
+  reads and a re-derivation is the only mode that moves them. It is the one
+  part of the call that grows with
   the batch rather than the page, so it is capped; a batch with more distinct
   published profiles than the cap prints a warning saying the totals are
   approximate, rather than quietly drifting from what the write will do.

@@ -76,11 +76,14 @@ const SIMULATION_CARRY_LIMIT = 1_000;
 /**
  * What a migration page tells the next one about a profile it already accepted.
  *
- * The names are present only for `--rederive-values`; a visibility-only run
- * leaves every name where the row has it.
+ * Every field is optional because the presence of the profile is itself the
+ * message: it says the run has counted this one, which is all a later page needs
+ * where it can read the earlier patch off the row. The visibility is carried only
+ * where nothing was written to read, and the names only for `--rederive-values`,
+ * which is the one mode that moves them.
  */
 type SimulatedProfileState = {
-  fieldVisibility: Doc<"profiles">["fieldVisibility"];
+  fieldVisibility?: Doc<"profiles">["fieldVisibility"];
   displayName?: string;
   aliases?: string[];
   searchAliases?: string[];
@@ -1705,6 +1708,17 @@ export const bulkSetFieldVisibility = internalMutation({
      * profile once per page and recomputing the suppression check against an
      * alias the real run would already have hidden.
      *
+     * Membership travels in every mode, because the count is per profile and a
+     * profile can straddle a page in all of them. A visibility-only applied run
+     * does read its own earlier patch back, but that only skips the profile when
+     * there is nothing left to change -- a second candidate contributing a
+     * different key is a real change, so it is processed, and without membership
+     * it was counted a second time. The dry run reported one profile and the
+     * apply two, for the same batch.
+     *
+     * The visibility snapshot is the part that does not: an applied run reads it
+     * off the row. It rides along only where nothing was written to read.
+     *
      * The names ride along only for `--rederive-values`, which replaces values
      * and not just visibility. `surfacedProfileNames` is the only consumer of the
      * simulated state besides the visibility comparison, and it reads exactly
@@ -1716,7 +1730,7 @@ export const bulkSetFieldVisibility = internalMutation({
       v.array(
         v.object({
           profileId: v.id("profiles"),
-          fieldVisibility: v.record(v.string(), seedImportFieldVisibilityValidator),
+          fieldVisibility: v.optional(v.record(v.string(), seedImportFieldVisibilityValidator)),
           displayName: v.optional(v.string()),
           aliases: v.optional(v.array(v.string())),
           searchAliases: v.optional(v.array(v.string())),
@@ -1799,11 +1813,14 @@ export const bulkSetFieldVisibility = internalMutation({
       .withIndex("by_state_createdAt", (query) => query.eq("state", "accepted"))
       .collect();
 
-    // Only a dry run, or a re-derivation, changes its answer with this state
-    // carried. A visibility-only applied run re-reads the row it patched, and the
-    // `sameFieldVisibility` guard skips the profile before counting it, so
-    // sending the history back would be payload growth in exchange for nothing.
-    const carriesSimulation = dryRun || args.rederiveValues === true;
+    // The visibility snapshot, not the membership. An applied run reads its own
+    // earlier patch off the row, so carrying the map back would be payload for
+    // nothing -- but membership travels in every mode, because the count is per
+    // profile and reading the patch back only skips the profile when there is
+    // nothing left to change. A second candidate contributing a different key is
+    // a real change, so it is processed, and without membership it was counted
+    // again: the dry run reported one profile where the apply reported two.
+    const carriesVisibility = dryRun || args.rederiveValues === true;
     const linkStats = { droppedCount: 0, deduplicatedCount: 0 };
     /**
      * What this run has already decided about each profile it accepted.
@@ -1823,7 +1840,14 @@ export const bulkSetFieldVisibility = internalMutation({
       (args.simulatedProfiles ?? []).map((entry) => [
         entry.profileId,
         {
-          fieldVisibility: entry.fieldVisibility as Doc<"profiles">["fieldVisibility"],
+          // Absent, not undefined. These spread over the row further down, so a
+          // key present and empty would blank the value the row actually holds --
+          // which is the value an applied run is carrying nothing precisely
+          // because it can read it back.
+          ...optionalValue(
+            "fieldVisibility",
+            entry.fieldVisibility as Doc<"profiles">["fieldVisibility"],
+          ),
           ...optionalValue("displayName", entry.displayName),
           ...optionalValue("aliases", entry.aliases),
           ...optionalValue("searchAliases", entry.searchAliases),
@@ -2116,21 +2140,21 @@ export const bulkSetFieldVisibility = internalMutation({
       // response, which on a large enough batch passes the script's stdout buffer
       // and aborts a migration mid-way through.
       //
-      // Sent only where it changes an answer. A visibility-only applied run needs
-      // none of it: the row it re-reads on the next page already holds the patch,
-      // and the `sameFieldVisibility` guard skips the profile without counting it
-      // twice. `--rederive-values` skips that guard, so it still needs the
-      // membership to count once per profile.
-      simulatedProfiles: carriesSimulation
-        ? [...simulated]
-            .slice(0, SIMULATION_CARRY_LIMIT)
-            .map(([profileId, state]) => ({ profileId, ...state }))
-        : [],
+      // Membership always, the snapshot only where it changes an answer. An
+      // applied run re-reads its own patch off the row, so the map would repeat
+      // what the next page can already see -- but reading the patch back only
+      // skips a profile with nothing left to change, and a second candidate
+      // contributing a different key is a change. Without the id it was counted
+      // twice, so the apply reported more profiles than the dry run it is
+      // supposed to match.
+      simulatedProfiles: [...simulated]
+        .slice(0, SIMULATION_CARRY_LIMIT)
+        .map(([profileId, state]) => (carriesVisibility ? { profileId, ...state } : { profileId })),
       // Said out loud rather than silently truncated. Past the bound a dry run
       // can double-count a merged profile or refuse one the apply accepts, and an
       // operator reading a total the runbook promises will match the write has to
       // know when it stopped promising that.
-      simulationComplete: !carriesSimulation || simulated.size <= SIMULATION_CARRY_LIMIT,
+      simulationComplete: simulated.size <= SIMULATION_CARRY_LIMIT,
       nextCursor: pageResult.isDone ? null : pageResult.continueCursor,
       isDone: pageResult.isDone,
     };

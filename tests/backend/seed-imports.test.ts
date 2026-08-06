@@ -1082,10 +1082,14 @@ describe("seed import visibility migration", () => {
     // One profile, not one per candidate.
     assert.equal(result.profilesRederived, 1);
     assert.equal(result.fieldsChanged, 2);
-    // A visibility-only applied run carries nothing between pages: the row the
-    // next page reads already holds this patch, so replaying the history would
-    // grow the payload with the batch in exchange for nothing.
-    assert.deepEqual(result.simulatedProfiles, []);
+    // A visibility-only applied run carries the membership and not the
+    // snapshot. The row the next page reads already holds this patch, so
+    // replaying the map would grow the payload with the batch for nothing --
+    // but reading it back only skips a profile with nothing left to change, and
+    // a later candidate contributing a different key is a change. Without the
+    // id it would be counted a second time, and the apply would report more
+    // profiles than the dry run it is supposed to match.
+    assert.deepEqual(result.simulatedProfiles, [{ profileId }]);
   });
 
   it("carries re-derived names to the next page, and nothing when it need not", async () => {
@@ -1180,6 +1184,47 @@ describe("seed import visibility migration", () => {
 
     assert.equal(result.profilesRederived, 0);
     assert.equal(after, before);
+  });
+
+  it("counts a shared profile once when its pages are applied separately", async () => {
+    const t = convexTest({ schema, modules });
+    const now = 1_788_220_800_000;
+    const { batchId, profileId } = await seedMergedBatch(t, now);
+
+    // One candidate per page, applied, so the second page reads the row the
+    // first patched. It is not skipped -- its own field is still public, so
+    // there is a real change to make -- which is exactly why membership has to
+    // travel even where the visibility snapshot does not.
+    const first = await t.mutation(internal.seedImports.bulkSetFieldVisibility, {
+      batchId,
+      visibility: "private",
+      reason: "Source withdrew permission to list these publicly.",
+      reviewer,
+      limit: 1,
+      now,
+    });
+
+    assert.equal(first.profilesRederived, 1);
+    assert.deepEqual(first.simulatedProfiles, [{ profileId }]);
+
+    const second = await t.mutation(internal.seedImports.bulkSetFieldVisibility, {
+      batchId,
+      visibility: "private",
+      reason: "Source withdrew permission to list these publicly.",
+      reviewer,
+      limit: 1,
+      cursor: first.nextCursor ?? undefined,
+      simulatedProfiles: first.simulatedProfiles,
+      now,
+    });
+
+    // The second candidate's field is still hidden, so the write happened.
+    const profile = await t.run(async (ctx) => await ctx.db.get(profileId));
+
+    assert.equal(profile?.fieldVisibility?.aliases, "private");
+    assert.equal(profile?.fieldVisibility?.tags, "private");
+    // One profile across both pages, which is what the dry run reports too.
+    assert.equal(first.profilesRederived + second.profilesRederived, 1);
   });
 
   it("predicts that same result without writing it", async () => {
