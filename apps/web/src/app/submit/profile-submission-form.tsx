@@ -9,6 +9,7 @@ import { buttonVariants, Button } from "@/components/ui/button";
 import { Field, Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { cn } from "@/lib/cn";
+import { BACKEND_ERROR_COPY } from "@/lib/error-copy";
 import { ProfileFields } from "../_components/profile-fields";
 import {
   profileFieldsPayload,
@@ -83,7 +84,7 @@ function submissionErrorMessage(error: unknown): string {
     }
   }
 
-  return "Profile submission failed. Please try again once the backend is reachable.";
+  return BACKEND_ERROR_COPY;
 }
 
 function DisabledSubmissionPanel() {

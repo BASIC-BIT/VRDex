@@ -9,6 +9,7 @@ import { api } from "@convex-generated-api";
 import { buttonVariants, Button } from "@/components/ui/button";
 import { Notice } from "@/components/ui/notice";
 import { cn } from "@/lib/cn";
+import { BACKEND_ERROR_COPY } from "@/lib/error-copy";
 import { protectedRouteSignInPath } from "@/lib/protected-route-redirect";
 import { ProfileFields } from "./profile-fields";
 import { profileFieldsPayload } from "./profile-fields-model";
@@ -64,7 +65,7 @@ function editErrorMessage(error: unknown): string {
     }
   }
 
-  return "Backend error - please try again later";
+  return BACKEND_ERROR_COPY;
 }
 
 type ProfileEditFormProps = {
@@ -115,7 +116,7 @@ function ConnectedProfileEditForm({
 
   if (profile === null) {
     return (
-      <EditPanel title="This profile cannot be edited here">
+      <EditPanel title="This profile cannot be edited">
         <Link className={buttonVariants({ size: "lg", variant: "secondary" })} href={profilePath}>
           Back to profile
         </Link>

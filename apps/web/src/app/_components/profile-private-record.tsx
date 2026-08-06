@@ -49,7 +49,7 @@ const FIELD_LABELS: Record<string, string> = {
 const WITHHELD_GROUP_LABELS = {
   private: "Not shown publicly",
   unlisted: "On this page, not in search",
-  public: "Not shown anywhere",
+  public: "Allowed publicly, shown nowhere",
 } as const;
 
 function formatDate(value: number) {
