@@ -182,6 +182,29 @@ export function misplacedMigrationFlag(visibility, supplied) {
   return Object.keys(supplied).find((name) => supplied[name]);
 }
 
+/**
+ * The first publication-only flag supplied *with* `--set-visibility`, if any.
+ *
+ * The mirror of the check above, and refused for the same reason rather than
+ * ignored. `--accept-fields` belongs to publication, where it patches unreviewed
+ * fields to accepted on the way through. The visibility migration selects fields
+ * that are already accepted and has no such step, so the flag was recognized,
+ * dropped, and the run reported success -- having promised to accept unreviewed
+ * fields and left every one of them alone.
+ *
+ * Refused rather than implemented. Accepting a field is a review decision, and
+ * `--set-visibility` is already the most destructive thing this script does;
+ * giving it the power to mark unreviewed source data accepted on the way past is
+ * a different operation, and it should be asked for by name.
+ */
+export function misplacedPublishFlag(visibility, supplied) {
+  if (visibility === undefined) {
+    return undefined;
+  }
+
+  return Object.keys(supplied).find((name) => supplied[name]);
+}
+
 export function readOption(argv, name) {
   const index = argv.indexOf(name);
 
@@ -514,6 +537,14 @@ function main() {
 
   if (misplacedFlag) {
     fail(`${misplacedFlag} only applies with --set-visibility.\n\n${USAGE}`);
+  }
+
+  const misplacedPublishOnlyFlag = misplacedPublishFlag(visibility, {
+    "--accept-fields": flag("--accept-fields"),
+  });
+
+  if (misplacedPublishOnlyFlag) {
+    fail(`${misplacedPublishOnlyFlag} does not apply with --set-visibility.\n\n${USAGE}`);
   }
 
   printPreview(runConvex("seedImports:previewBatchPublication", { externalBatchId: batchId }));

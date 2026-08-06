@@ -311,6 +311,13 @@ pnpm ops:seed-publish -- `
   until the batch is drained and prints running progress. Cursor paging matters: a
   permanently blocked candidate never receives a `publishedProfileId`, so
   offset-style paging would re-read the same page forever.
+- Flags that belong to the other mode are refused rather than ignored, in both
+  directions. `--rederive-values` and `--field-keys` without `--set-visibility`
+  would otherwise fall through to a bulk publication, and `--accept-fields`
+  *with* `--set-visibility` was recognized and dropped: the migration selects
+  fields that are already accepted and has no step that accepts one, so the run
+  reported success having left every unreviewed field exactly as it was.
+  Accepting a field is a review decision and has to be asked for by name.
 - Unknown and repeated options are refused before the script decides which
   operation to run. This is not tidiness: the parser used to ignore what it did
   not recognize, so `--set-visibilty public --apply` left the real

@@ -23,6 +23,7 @@ import {
 } from "../../convex/_seedImports";
 import {
   misplacedMigrationFlag,
+  misplacedPublishFlag,
   readOption,
   unknownOption,
   VALUE_OPTIONS,
@@ -940,6 +941,23 @@ describe("seed publish option safety", () => {
     assert.deepEqual(
       unknownOption(["--reason", "--apply", "--apply"]),
       { name: "--apply", reason: "repeated" },
+    );
+  });
+
+  it("refuses publication-only flags inside the visibility migration", () => {
+    // `--accept-fields` patches unreviewed fields to accepted on the way
+    // through publication. The migration has no such step and selects only
+    // fields already accepted, so the flag was recognized, dropped, and the run
+    // reported success having done none of what it promised.
+    assert.equal(
+      misplacedPublishFlag("public", { "--accept-fields": true }),
+      "--accept-fields",
+    );
+
+    // Still fine where it belongs.
+    assert.equal(
+      misplacedPublishFlag(undefined, { "--accept-fields": true }),
+      undefined,
     );
   });
 
