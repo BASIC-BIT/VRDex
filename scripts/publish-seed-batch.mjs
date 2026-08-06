@@ -44,6 +44,28 @@ const USAGE = [
 const FIELD_VISIBILITIES = ["public", "unlisted", "private"];
 
 /**
+ * Every option that takes a value, so a missing one is refused rather than read
+ * as the option being absent.
+ *
+ * The whole list rather than the two that were reported: they only differed in
+ * how visible the consequence was. `--set-visibility` selects the operation, so
+ * losing its value runs a publication instead of a migration; `--reason` losing
+ * its value would fail anyway; `--limit` would silently take the default. They
+ * are the same mistake and refusing all of them is the same amount of code.
+ */
+export const VALUE_OPTIONS = [
+  "--actor-issuer",
+  "--actor-name",
+  "--actor-subject",
+  "--actor-token",
+  "--batch-id",
+  "--field-keys",
+  "--limit",
+  "--reason",
+  "--set-visibility",
+];
+
+/**
  * The first migration-only flag supplied without `--set-visibility`, if any.
  *
  * Refused rather than ignored. These two belong to the visibility migration, and
@@ -160,9 +182,22 @@ function printPreview(preview) {
   // The number that predicts whether anyone will see anything. A batch of
   // accepted fields that are all private publishes profiles holding a display
   // name and a slug, which is what happened to nwinn_2026_07_16_ad79dca17a.
-  if (preview.fieldCount > 0 && preview.publiclyVisibleFieldCount === 0) {
+  //
+  // Keyed on the candidates the gate would actually refuse, not on the field
+  // count. The gate exempts a merge into a profile the public can already read,
+  // so a batch of those shows zero visible fields and publishes anyway -- and
+  // recommending `--set-visibility` there would make imported private fields
+  // public to fix nothing.
+  if (preview.blockedOnNoVisibleFieldCount > 0) {
     console.log(
-      "  warning: no accepted field would be visible. Publication is blocked on no_publicly_visible_field; use --set-visibility first.",
+      `  warning: ${preview.blockedOnNoVisibleFieldCount} candidate(s) have no field anyone would see.`,
+    );
+    console.log(
+      "  publication is blocked on no_publicly_visible_field for those; use --set-visibility first.",
+    );
+  } else if (preview.fieldCount > 0 && preview.publiclyVisibleFieldCount === 0) {
+    console.log(
+      "  note: no accepted field is publicly visible, but every candidate merges into a profile that already is.",
     );
   }
 
@@ -202,17 +237,10 @@ function reportSkipped(skipped) {
 function setFieldVisibility({ batchId, visibility, reason, reviewer, limit }) {
   const fieldKeysOption = option("--field-keys");
 
-  // `readOption` returns undefined both when the flag is absent and when it is
-  // present with no value or a flag-shaped one, and those mean opposite things
-  // here: absent restricts nothing on purpose, present-but-empty is an operator
-  // asking to restrict and not saying to what. Read as "absent",
-  // `--set-visibility public --field-keys --apply` would set *every* accepted
-  // field in the batch public, which is the mistake this whole mode exists to
-  // make avoidable.
-  if (fieldKeysOption === undefined && flag("--field-keys")) {
-    fail(`--field-keys needs a comma-separated list of field keys.\n\n${USAGE}`);
-  }
-
+  // A missing value is refused up front by `VALUE_OPTIONS`, so reaching here
+  // with `undefined` means the flag was genuinely absent: restrict nothing, on
+  // purpose. Read the other way, `--set-visibility public --field-keys --apply`
+  // would set *every* accepted field in the batch public.
   const fieldKeys = fieldKeysOption
     ?.split(",")
     .map((key) => key.trim())
@@ -296,6 +324,20 @@ function main() {
 
   if (!batchId) {
     fail(USAGE);
+  }
+
+  // Every option that takes a value, checked once rather than one at a time.
+  // `readOption` returns undefined both for an absent flag and for one whose
+  // value is missing or itself flag-shaped, and for a mode selector those mean
+  // opposite things: `--set-visibility --apply` read as "no visibility mode"
+  // falls through to a bulk publication and publishes pending candidates, when
+  // the operator was asking to migrate visibility and only forgot to say to
+  // what. `--field-keys` had the same hole; naming them together is what stops
+  // the next one being found the same way.
+  for (const name of VALUE_OPTIONS) {
+    if (flag(name) && option(name) === undefined) {
+      fail(`${name} needs a value.\n\n${USAGE}`);
+    }
   }
 
   const visibility = option("--set-visibility");

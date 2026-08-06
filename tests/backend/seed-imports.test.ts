@@ -17,7 +17,11 @@ import {
   normalizeSeedImportFixture,
   type SeedImportFixture,
 } from "../../convex/_seedImports";
-import { misplacedMigrationFlag, readOption } from "../../scripts/publish-seed-batch.mjs";
+import {
+  misplacedMigrationFlag,
+  readOption,
+  VALUE_OPTIONS,
+} from "../../scripts/publish-seed-batch.mjs";
 
 function cloneFixture(fixture: SeedImportFixture): SeedImportFixture {
   return structuredClone(fixture);
@@ -850,6 +854,18 @@ describe("seed publish CLI option parsing", () => {
       misplacedMigrationFlag(undefined, { "--rederive-values": false, "--field-keys": true }),
       "--field-keys",
     );
+
+    // Every value-taking option is refused when its value is missing, because
+    // `readOption` cannot tell that from the option being absent and the two mean
+    // opposite things. `--set-visibility --apply` read as "no visibility mode"
+    // runs a bulk publication instead of a migration.
+    for (const name of VALUE_OPTIONS) {
+      assert.equal(readOption([name, "--apply"], name), undefined, name);
+      assert.equal(readOption([name], name), undefined, name);
+    }
+
+    assert.ok(VALUE_OPTIONS.includes("--set-visibility"));
+    assert.ok(VALUE_OPTIONS.includes("--field-keys"));
 
     // In visibility mode both belong, and neither is required.
     assert.equal(

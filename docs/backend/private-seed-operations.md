@@ -155,8 +155,14 @@ Publish behavior worth knowing:
   refuses. Where the exemption does apply, private-only seed data merging into a
   live profile is an ordinary operator decision, and blocking it stranded the
   case `matchCandidateToProfile` exists to record. `previewBatchPublication`
-  uses the same predicate, so a dry run cannot say the opposite of what the
-  publish gate does. Batch
+  uses the same predicate *and* the same exemption, reporting
+  `blockedOnNoVisibleFieldCount` — the candidates this gate would actually
+  refuse — beside the raw `publiclyVisibleFieldCount`. Counting fields alone made
+  a batch of merges look blocked when it was not, and the driver then advised
+  `--set-visibility`, which would have made imported private fields public to fix
+  nothing. A dry run cannot say the opposite of what the publish gate does, and
+  it must not recommend an irreversible privacy change on the strength of a
+  number that is not the gate's answer. Batch
   `nwinn_2026_07_16_ad79dca17a` is why it exists: it published 405 people whose
   every field was stored private, so each live profile showed a display name and
   a slug and nothing else.

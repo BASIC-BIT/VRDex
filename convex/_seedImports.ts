@@ -201,7 +201,7 @@ type SeedImportPublicationProfile = Pick<
  * an operator makes, so anything reasoning about what a *reader* sees has to ask
  * for both.
  */
-function isPubliclyReadableProfile(
+export function isPubliclyReadableProfile(
   profile: SeedImportPublicationProfile | null | undefined,
 ): boolean {
   return (

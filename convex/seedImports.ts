@@ -28,6 +28,7 @@ import {
   getSeedImportPublishBlockers,
   hasPublicationAuthorization,
   hasSeedFieldContent,
+  isPubliclyReadableProfile,
   normalizePermissionedSeedImport,
   normalizeSeedImportFixture,
   seedImportCandidateFingerprint,
@@ -1245,10 +1246,29 @@ export const previewBatchPublication = internalQuery({
 
     const acceptedFieldVisibilities: string[] = [];
     let publiclyVisibleFieldCount = 0;
+    // Candidates `no_publicly_visible_field` would actually refuse, as opposed to
+    // fields that happen to be invisible. The gate exempts a merge into a profile
+    // the public can already read, so a batch of those has no visible seed field
+    // and publishes anyway -- while the driver, reading the field count alone,
+    // told the operator publication was blocked and to run `--set-visibility`.
+    // That is the worst shape of wrong answer: one recommending an irreversible
+    // privacy change to fix a problem that is not there.
+    let blockedOnNoVisibleFieldCount = 0;
 
     for (const candidate of candidates.slice(0, fieldStatsSampleSize)) {
       const fields = await getCandidateFields(ctx, candidate._id);
       const accepted = fields.filter((field) => field.reviewState === "accepted");
+      const matchedProfile =
+        candidate.matchedProfileId === undefined
+          ? null
+          : await ctx.db.get(candidate.matchedProfileId);
+
+      if (
+        !isPubliclyReadableProfile(matchedProfile) &&
+        !accepted.some((field) => field.visibility !== "private" && hasSeedFieldContent(field))
+      ) {
+        blockedOnNoVisibleFieldCount += 1;
+      }
 
       fieldReviewStates.push(...fields.map((field) => field.reviewState));
       acceptedFieldVisibilities.push(...accepted.map((field) => field.visibility));
@@ -1284,6 +1304,7 @@ export const previewBatchPublication = internalQuery({
       // number that predicts whether anyone will see anything.
       acceptedFieldVisibilities: tally(acceptedFieldVisibilities),
       publiclyVisibleFieldCount,
+      blockedOnNoVisibleFieldCount,
     };
   },
 });
