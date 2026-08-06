@@ -288,19 +288,21 @@ function ConnectedProfileWorkspace({
     return <div className="grid gap-6">{children}</div>;
   }
 
+  // Signed in and owning nothing goes to the panel too. Each one already has an
+  // empty state with a heading, its own reason the surface is unavailable, and a
+  // link to go and claim something; replacing all of that with one grey sentence
+  // dropped the heading landmark and left the reader with nowhere to go.
+  if (owned !== undefined && owned !== null && owned.length === 0 && previewProfiles === undefined) {
+    return <div className="grid gap-6">{children}</div>;
+  }
+
   if (active === undefined) {
     return (
       <div className="grid gap-6">
         <Link className="text-sm text-muted underline underline-offset-4" href="/account">
           All profiles
         </Link>
-        {owned === undefined ? (
-          <p className="text-sm text-muted">Loading your profiles…</p>
-        ) : (
-          <p className="text-sm text-muted">
-            You do not manage any profiles yet. Claim one to edit it here.
-          </p>
-        )}
+        <p className="text-sm text-muted">Loading your profiles…</p>
       </div>
     );
   }
