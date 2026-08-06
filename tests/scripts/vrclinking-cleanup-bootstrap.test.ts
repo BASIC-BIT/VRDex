@@ -48,6 +48,48 @@ test("refuses a target that is not a known deployment", () => {
 });
 
 /**
+ * Windows cannot spawn the `pnpm` and `npx` shims without a shell, and a shell
+ * concatenates its arguments rather than escaping them. `new URL()` is not a
+ * defence: every string below parses cleanly, and each one carries something
+ * `cmd.exe` reads as a second command or a variable to expand. They would run
+ * holding the operator's Vercel and Convex credentials.
+ */
+test("refuses URLs a shell could read as a second command", () => {
+  const hostile = [
+    "https://x.vercel.app/a&whoami",
+    "https://x.vercel.app/a|whoami",
+    "https://x.vercel.app/a%USERPROFILE%",
+    "https://x.vercel.app/a>out",
+    "https://x.vercel.app/?q=a&b",
+    'https://x.vercel.app/a"b',
+    "https://x.vercel.app/a^b",
+  ];
+
+  for (const value of hostile) {
+    assert.doesNotThrow(() => new URL(value), `${value} should still parse as a URL`);
+    assert.throws(
+      () =>
+        parseArgs(["--target", "prod", "--site-url", "https://vrdex.net", "--deployment-url", value]),
+      /nothing a shell could read as a second command/,
+      value,
+    );
+  }
+
+  // The shapes actually used stay accepted: a bare origin, a subdomain, and the
+  // generated Vercel deployment hostname.
+  for (const value of [
+    "https://vrdex.net",
+    "https://staging.vrdex.net",
+    "https://vr-dex-917snupst-basicbit.vercel.app",
+  ]) {
+    assert.deepEqual(
+      parseArgs(["--target", "prod", "--site-url", value, "--deployment-url", value]).deploymentUrl,
+      value,
+    );
+  }
+});
+
+/**
  * Both names, because the sweep is inert unless both are present and the cron
  * reports that state nowhere an operator sees.
  */

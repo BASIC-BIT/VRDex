@@ -83,16 +83,27 @@ export function parseArgs(argv) {
     "--deployment-url is required: the running deployment must be redeployed to pick up the new token.",
   );
 
-  // Shape-checked because Windows needs `shell: true` to reach the `.cmd` shims
-  // for `pnpm` and `npx`, and a shell concatenates rather than escapes. The
-  // bearer never travels this way — it goes to stdin — so what is left to guard
-  // is these three operator-supplied strings. `target` is already a whitelist;
-  // both URLs have to parse as URLs, and the environment is a bare name.
+  // Constrained, not merely parsed, because Windows needs `shell: true` to
+  // reach the `.cmd` shims for `pnpm` and `npx`, and a shell concatenates rather
+  // than escapes. `new URL()` is no defence on its own: `&`, `|` and `%` are all
+  // legal in a path or query and all mean something to `cmd.exe`, so a URL
+  // pasted from the wrong place could run a second command holding the
+  // operator's Vercel and Convex credentials.
+  //
+  // The bearer never travels this way, since it goes to stdin. What does is
+  // these three strings, so each is held to the narrowest shape that still
+  // admits every real value: `target` is a whitelist, the environment is a bare
+  // name, and both URLs are an https origin with an optional plain path. Vercel
+  // deployment URLs and site origins carry no query, so none is allowed.
   for (const [flag, value] of [
     ["--site-url", options.siteUrl],
     ["--deployment-url", options.deploymentUrl],
   ]) {
     assert.doesNotThrow(() => new URL(value), `${flag} must be a URL.`);
+    assert.ok(
+      /^https:\/\/[A-Za-z0-9.-]+(?::\d+)?(?:\/[A-Za-z0-9._~/-]*)?$/.test(value),
+      `${flag} must be an https origin with an optional plain path, and nothing a shell could read as a second command.`,
+    );
   }
 
   assert.ok(
