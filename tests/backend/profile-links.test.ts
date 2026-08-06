@@ -5,6 +5,7 @@ import { ConvexError } from "convex/values";
 
 import {
   PROFILE_LINK_MAX_COUNT,
+  profileLinkDestinationKey,
   sanitizeProfileLinks,
   sanitizeProfileLinksLeniently,
 } from "../../convex/_profileLinks";
@@ -265,5 +266,31 @@ describe("lenient profile link sanitization", () => {
 
     assert.deepEqual(result.links, []);
     assert.equal(result.droppedCount, 1);
+  });
+});
+
+describe("link destination identity", () => {
+  it("folds www only for hosts whose two spellings are one place", () => {
+    // Branded provider profiles live in one account namespace, so the apex and
+    // the www spelling are the same channel.
+    assert.equal(
+      profileLinkDestinationKey({ type: "twitch", url: "https://www.twitch.tv/Snek" }),
+      profileLinkDestinationKey({ type: "twitch", url: "https://twitch.tv/snek" }),
+    );
+
+    // An arbitrary site is two origins that may serve two pages. Folding them
+    // let seed publication drop one of a profile's two real links as a
+    // duplicate, and let an edit inherit the other origin's provenance.
+    assert.notEqual(
+      profileLinkDestinationKey({ type: "website", url: "https://www.example.com/dj" }),
+      profileLinkDestinationKey({ type: "website", url: "https://example.com/dj" }),
+    );
+  });
+
+  it("keeps a trailing slash and a bare host on one key", () => {
+    assert.equal(
+      profileLinkDestinationKey({ type: "twitch", url: "https://twitch.tv/snek/" }),
+      profileLinkDestinationKey({ type: "twitch", url: "https://twitch.tv/snek" }),
+    );
   });
 });

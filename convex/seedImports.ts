@@ -1269,7 +1269,22 @@ export const previewBatchPublication = internalQuery({
       // then recommended `--set-visibility` to unblock a publication that is not
       // pending, which would have made those profiles' private fields public for
       // nothing.
+      //
+      // The same argument reaches further than that filter did. A candidate the
+      // publish gate refuses on its own facts never gets as far as asking whether
+      // a field is visible, and no visibility change makes it: rejected review,
+      // a rejected or suppressed publication state, a claim, or a community
+      // candidate this slice cannot publish at all. Counting those recommended
+      // an irreversible privacy reclassification that unblocks nothing.
+      const canReachVisibleFieldGate =
+        candidate.reviewState === "accepted" &&
+        candidate.claimState === "unclaimed" &&
+        candidate.profileType === "person" &&
+        candidate.publicationState !== "rejected" &&
+        candidate.publicationState !== "suppressed";
+
       if (
+        canReachVisibleFieldGate &&
         candidate.publishedProfileId === undefined &&
         !isPubliclyReadableProfile(matchedProfile) &&
         !accepted.some((field) => field.visibility !== "private" && hasSeedFieldContent(field))

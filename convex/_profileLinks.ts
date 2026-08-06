@@ -349,15 +349,37 @@ export function sanitizeProfileLinks(
  */
 const CASE_INSENSITIVE_PATH_HOSTS = new Set(["twitch.tv"]);
 
+/**
+ * Hosts whose apex and `www.` spellings are the same destination.
+ *
+ * Flattened from `PROFILE_LINK_TYPE_HOSTS` rather than restated, so a host
+ * counts as a provider here exactly when the type validator already treats it as
+ * one, plus VRCDN's own root. Each is a branded profile in a single account
+ * namespace, where `www.twitch.tv/Snek` and `twitch.tv/Snek` are the same
+ * channel by construction.
+ *
+ * Deliberately not a general rule. `example.com` and `www.example.com` are
+ * distinct origins that may serve different pages, and a `website` link is
+ * exactly where that happens: folding them everywhere let seed publication drop
+ * one of a profile's two real links as a duplicate, and let an edit to one
+ * inherit the other origin's metadata and provenance.
+ */
+const WWW_EQUIVALENT_HOSTS = new Set([
+  ...Object.values(PROFILE_LINK_TYPE_HOSTS).flatMap((hosts) => hosts ?? []),
+  "vrcdn.live",
+]);
+
 export function profileLinkDestinationKey(link: { type: string; url: string }): string {
   try {
     const url = new URL(link.url);
-    // `www.` dropped before anything is decided by host. Branded provider links
-    // carry it -- `www.twitch.tv/Snek` is the same channel as `twitch.tv/snek` --
-    // so leaving it on both failed the provider lookup below *and* made the two
-    // spellings different destinations. The web lookup's merger already strips it
-    // for the same reason.
-    const host = url.host.replace(/^www\./i, "");
+    // `www.` dropped only where the two spellings are known to be one place.
+    // Branded provider links carry it -- `www.twitch.tv/Snek` is the same channel
+    // as `twitch.tv/snek` -- so leaving it on failed the host lookups below *and*
+    // made the two spellings different destinations. Stripping it for every host
+    // ran too far the other way: on an arbitrary `website` link the apex and the
+    // `www` origin are two addresses that may serve two pages.
+    const apex = url.host.replace(/^www\./i, "");
+    const host = WWW_EQUIVALENT_HOSTS.has(apex) ? apex : url.host;
     // Some hosts say their path is case-insensitive, and Twitch is one. Keeping
     // the case there left the seed lane publishing both spellings as separate
     // buttons and the browser lane failing the provenance match on a case-only
