@@ -522,6 +522,82 @@ export async function upsertSearchDocument(db: DatabaseWriter, input: SearchDocu
 }
 
 /**
+ * Rebuild one profile's search document and reconcile its vocabulary as a delta.
+ *
+ * The profile counterpart of `reindexWorldSearchDocument`, for the same reason:
+ * `recordVocabularyTerms` only increments, so a path that replays a profile's
+ * whole vocabulary on every write inflates counts for terms nothing touched, and
+ * never releases the ones an edit removed. Editing tags through the profile
+ * editor did exactly that -- discovery dropped the old value while its
+ * `usageCount` kept the reference for good.
+ *
+ * The stored document's `vocabularyKeys` are the "before" set rather than a
+ * snapshot the caller takes, so no caller can forget to take one and a profile
+ * that has never been indexed starts from empty on its own.
+ */
+export async function reindexProfileSearchDocument(
+  db: DatabaseWriter,
+  profile: Doc<"profiles">,
+  now: number,
+) {
+  const existingDocument = await db
+    .query("searchDocuments")
+    .withIndex("by_profileId", (query) => query.eq("profileId", profile._id))
+    .unique();
+  const nextDocument = createProfileSearchDocument(profile);
+  // A hidden profile contributes nothing in either direction. Its document
+  // keeps `vocabularyKeys` after suppression has already released those terms,
+  // so treating them as live would release them a second time -- decrementing
+  // counts for terms other, still-public profiles are using. Republishing
+  // records the whole set again, which is where they come back.
+  const isPublic = canReadProfile("public", profile);
+  const beforeKeys = new Set(isPublic ? (existingDocument?.vocabularyKeys ?? []) : []);
+  const afterKeys = new Set(isPublic ? (nextDocument.vocabularyKeys ?? []) : []);
+
+  await upsertSearchDocument(db, nextDocument);
+
+  // Deduplicated by scoped key before recording, same as the world path: two
+  // candidates can share one key, the document stores it once, and recording
+  // both would increment twice against a single later release.
+  //
+  // Nothing is recorded for a profile the public cannot read. `vocabularyForProfile`
+  // honours per-field visibility but knows nothing about surfacing state, so an
+  // opted-out or suppressed profile would otherwise push its tags into the
+  // discovery term list while its own search document stayed hidden -- a term
+  // offered to everyone, sourced from a record withdrawn from everyone.
+  const addedCandidates = new Map<string, VocabularyCandidate>();
+  // Keys this profile already held, split out rather than skipped. Two spellings
+  // canonicalize to one key -- "Drum & Bass" and "Drum and Bass" -- so correcting
+  // one is a label change with nothing to add to the count. Dropping the
+  // candidate entirely left the search document carrying the corrected text while
+  // `vocabularyTerms.label` kept the old wording, and discovery reads the term
+  // list, so the correction never reached the surface it was made for.
+  const retainedCandidates = new Map<string, VocabularyCandidate>();
+
+  if (isPublic) {
+    for (const candidate of vocabularyForProfile(profile)) {
+      const scopedKey = `${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`;
+      const into = beforeKeys.has(scopedKey) ? retainedCandidates : addedCandidates;
+
+      if (!into.has(scopedKey)) {
+        into.set(scopedKey, candidate);
+      }
+    }
+  }
+
+  await recordVocabularyTerms(db, [...addedCandidates.values()], now);
+  await recordVocabularyTerms(db, [...retainedCandidates.values()], now, {
+    incrementUsage: false,
+  });
+
+  const removedKeys = [...beforeKeys].filter((key) => !afterKeys.has(key));
+
+  if (removedKeys.length > 0) {
+    await releaseVocabularyKeys(db, removedKeys, now);
+  }
+}
+
+/**
  * Rebuild one world's search document and reconcile its vocabulary as a delta.
  *
  * `recordVocabularyTerms` increments unconditionally, so replaying a world's whole
@@ -551,16 +627,24 @@ export async function reindexWorldSearchDocument(
   // recording both would increment twice while a later release decrements once --
   // permanently inflating the term.
   const addedCandidates = new Map<string, VocabularyCandidate>();
+  // Retained keys reconciled rather than skipped, the same as the profile path
+  // above and for the same reason: a spelling correction that keeps the key is a
+  // label change, and dropping it left discovery showing the old wording.
+  const retainedCandidates = new Map<string, VocabularyCandidate>();
 
   for (const candidate of vocabularyForWorld(world, { hiddenProfileKeys })) {
     const scopedKey = `${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`;
+    const into = beforeKeys.has(scopedKey) ? retainedCandidates : addedCandidates;
 
-    if (!beforeKeys.has(scopedKey) && !addedCandidates.has(scopedKey)) {
-      addedCandidates.set(scopedKey, candidate);
+    if (!into.has(scopedKey)) {
+      into.set(scopedKey, candidate);
     }
   }
 
   await recordVocabularyTerms(db, [...addedCandidates.values()], now);
+  await recordVocabularyTerms(db, [...retainedCandidates.values()], now, {
+    incrementUsage: false,
+  });
 
   const removedKeys = [...beforeKeys].filter((key) => !afterKeys.has(key));
 

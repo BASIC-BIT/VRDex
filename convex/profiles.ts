@@ -1,10 +1,13 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 
 import type { Doc } from "./_generated/dataModel";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { getPublicCommunityHostedEvents, getPublicPersonUpcomingEvents } from "./_eventPublic";
 import type { AuthSubject } from "./_communityAuthority";
-import { requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
+import {
+  activeBrowserSessionOrNull,
+  requireActiveBrowserSessionSubject,
+} from "./_browserSessionAuthority";
 import { getPublicCommunityTelemetry } from "./_communityTelemetryPublic";
 import {
   apiWriteAuditActorKindValidator,
@@ -16,7 +19,12 @@ import {
   getProfileAssetDisplayPreference,
   getPublicProfileMediaKit,
 } from "./_profileAssets";
-import { canReadProfile } from "./_profilePermissions";
+import {
+  canEditProfileField,
+  canReadProfile,
+  PROFILE_EDITABLE_FIELDS,
+  type ProfileEditableField,
+} from "./_profilePermissions";
 import { profileLinkInputValidator } from "./_profileLinks";
 import { toPublicProfile } from "./_profilePublic";
 import {
@@ -41,7 +49,11 @@ import { ensureShortLinkForTarget } from "./_shortLinks";
 import { assertIdentityNotSuppressed } from "./_suppressions";
 import { recordVocabularyTerms } from "./_vocabulary";
 import { userOwnsProfile } from "./_profileOwnership";
-import { applyApiProfileUpdate } from "./_profileUpdates";
+import {
+  applyApiProfileUpdate,
+  assertProfileEditNotSuppressed,
+  assertSubmittedFieldsEditable,
+} from "./_profileUpdates";
 
 const profileType = v.union(v.literal("person"), v.literal("community"));
 const PROFILE_LOOKUP_RESULT_LIMIT = 12;
@@ -173,51 +185,8 @@ export const updateProfileForApiOwner = internalMutation({
     // Renaming is another way to reintroduce a retracted identity: an owner of some
     // other public profile could rename it to a name an accepted suppression
     // request covers, putting that identity straight back on public pages and in
-    // search. Only checked when the name actually changes, so an unrelated update
-    // to a profile that already holds the name is unaffected.
-    // Aliases count as names here, so an alias-only update needs the same guard: a
-    // caller can leave displayName untouched and put the suppressed name in
-    // aliases, which the public projection exposes and search indexes.
-    const renamesProfile =
-      args.displayName !== undefined &&
-      createProfileSortName(args.displayName) !== createProfileSortName(profile.displayName);
-    const changesAliases = args.aliases !== undefined;
-
-    // Only when the profile is actually publicly readable. A hidden profile --
-    // opted_out or suppressed -- surfaces nothing through this mutation, which never
-    // changes publicSurfacingState, so guarding it would block an owner from editing
-    // a profile that is already retracted. Republication re-checks the identity.
-    if ((renamesProfile || changesAliases) && canReadProfile("public", profile)) {
-      // No profileId: an accepted request against *this* profile would otherwise
-      // match every proposed name, so an already-opted-out profile could never be
-      // renamed even though renaming never restores public surfacing. Only the
-      // proposed identity is evaluated.
-      const proposedDisplayName = args.displayName ?? profile.displayName;
-
-      await assertIdentityNotSuppressed(
-        ctx.db,
-        {
-          // No slug: applyApiProfileUpdate patches displayName and sortName only, so
-          // this path never occupies a slug derived from the new name. Checking one
-          // would reject an unrelated /p/bob owner renaming to a name whose base
-          // slug happens to be suppressed.
-          slugs: [],
-          // Aliases only when they would actually be visible. A private alias is
-          // absent from public pages and search, so submitting it here would reject
-          // an edit that surfaces nothing.
-          displayNames: [
-            proposedDisplayName,
-            ...(getProfileFieldVisibility(profile, "aliases") === "private"
-              ? []
-              : (args.aliases ?? profile.aliases)),
-          ],
-          profileType: profile.profileType,
-        },
-        // Uses the approved default rather than a rename-specific sentence: only
-        // "This profile cannot be submitted." and "This profile cannot be created."
-        // carry BASIC's sign-off, and unapproved public copy must not ship.
-      );
-    }
+    // search.
+    await assertProfileEditNotSuppressed(ctx.db, profile, args);
 
     const now = Date.now();
     const { changedFields, profile: updatedProfile } = await applyApiProfileUpdate(ctx.db, {
@@ -226,14 +195,23 @@ export const updateProfileForApiOwner = internalMutation({
       now,
     });
 
-    await ctx.db.insert("profileAuditEvents", {
-      profileId: profile._id,
-      action: "api_profile_updated",
-      actor: apiOwnerAuthSubject(args.ownerUserId),
-      sourceType: "owner",
-      note: `Public API profile update: ${changedFields.join(", ")}.`,
-      createdAt: now,
-    });
+    // Same rule as the browser path, and it needs stating here too now that
+    // `changedFields` is a diff: a PATCH that re-sent what the profile already
+    // held used to be impossible to distinguish and now reads as
+    // "Public API profile update: ." -- a history row saying nothing happened.
+    if (changedFields.length > 0) {
+      await ctx.db.insert("profileAuditEvents", {
+        profileId: profile._id,
+        action: "api_profile_updated",
+        actor: apiOwnerAuthSubject(args.ownerUserId),
+        sourceType: "owner",
+        note: `Public API profile update: ${changedFields.join(", ")}.`,
+        createdAt: now,
+      });
+    }
+
+    // Recorded regardless: this is the API rate-and-abuse ledger, and a write
+    // request that changed nothing is still a write request that was made.
     await recordApiWriteAuditEvent(ctx.db, {
       action: "profile_updated",
       actorKind: args.actorKind,
@@ -499,6 +477,264 @@ export const submitCommunityProfile = mutation({
       profilePath: `/c/${slug}`,
       shortLinkCode: shortLink.code,
       shortLinkPath: shortLink.shortLinkPath,
+    };
+  },
+});
+
+/**
+ * The record an editor is about to change, as stored rather than as published.
+ *
+ * The public projection is the wrong source for a form: it omits private fields,
+ * so an editor would see an empty link list, add one, and save an array that
+ * silently dropped everything already there. That is exactly the state 405
+ * seeded profiles are in.
+ *
+ * Reading stored values is not a licence to read *private* ones. Every value
+ * here belongs to a field `canEditProfileField` has already cleared for this
+ * subject, and that check refuses a private field to the community -- so a
+ * contributor is shown what they may edit and nothing else, and the form cannot
+ * become a way to read a withheld value by opening it.
+ */
+export const editableProfile = query({
+  args: {
+    slug: v.string(),
+    /**
+     * The type the route claims this profile is.
+     *
+     * Slugs are global, so `/p/<community-slug>/edit` resolves to the community
+     * profile and would have edited it happily -- then sent the writer back to a
+     * `/p/` path that 404s, because `profilePath` came from the route rather than
+     * the record. Refused here, the same way `seedAccess:withheldProfileRecord`
+     * refuses a mismatched type, rather than checked in the component.
+     */
+    profileType: v.optional(v.union(v.literal("person"), v.literal("community"))),
+  },
+  handler: async (ctx, args) => {
+    const activeSession = await activeBrowserSessionOrNull(ctx);
+
+    if (activeSession === null) {
+      return null;
+    }
+
+    const validation = validateProfileSlug(args.slug);
+
+    if (!validation.ok) {
+      return null;
+    }
+
+    const profile = await getProfileBySlug(ctx.db, validation.slug);
+
+    if (profile === null) {
+      return null;
+    }
+
+    if (args.profileType !== undefined && profile.profileType !== args.profileType) {
+      return null;
+    }
+
+    const owns = await userOwnsProfile(ctx.db, profile._id, activeSession.user._id);
+    const subject = owns ? ("claimed_owner" as const) : ("community_submitter" as const);
+    const editableFields = PROFILE_EDITABLE_FIELDS.filter((field) =>
+      canEditProfileField(subject, profile, field),
+    );
+    const editable = new Set<string>(editableFields);
+
+    if (editableFields.length === 0) {
+      return null;
+    }
+
+    const whenEditable = <T>(field: ProfileEditableField, value: T) =>
+      editable.has(field) ? value : undefined;
+
+    return {
+      slug: profile.slug,
+      profileType: profile.profileType,
+      // Whether the public profile route can render this at all, answered by the
+      // predicate that route answers to. A `draft_private`, opted-out or
+      // suppressed profile is editable by its owner and 404s for everybody
+      // including them, so the editor has to know not to send them there once
+      // the save succeeds.
+      publiclyViewable: canReadProfile("public", profile),
+      // Sent back with the save, so a second editor is told the profile moved
+      // rather than quietly overwriting whatever changed underneath them.
+      updatedAt: profile.updatedAt,
+      displayName: profile.displayName,
+      aliases: whenEditable("aliases", profile.aliases),
+      tags: whenEditable("tags", profile.tags),
+      headline: whenEditable("headline", profile.headline),
+      bio: whenEditable("bio", profile.bio),
+      region: whenEditable("region", profile.region),
+      timezone: whenEditable("timezone", profile.timezone),
+      // The whole link, not just type and url. The form posts this array back,
+      // so anything omitted here is dropped on the next save: a custom label
+      // becomes the provider's default name, a VRCDN handle has to be re-derived,
+      // and a copy-styled link turns into a button.
+      outboundLinks: whenEditable(
+        "outboundLinks",
+        (profile.outboundLinks ?? []).map((link) => ({
+          type: link.type,
+          url: link.url,
+          label: link.label,
+          handle: link.handle,
+          presentation: link.presentation,
+          // Echoed back by the form so an untouched link keeps the provenance it
+          // has. Honoured as a claim, never as an assertion.
+          source: link.source,
+        })),
+      ),
+      person:
+        profile.profileType === "person"
+          ? whenEditable("person", {
+              pronouns: profile.person.pronouns,
+              roleTags: profile.person.roleTags,
+            })
+          : undefined,
+      community:
+        profile.profileType === "community"
+          ? whenEditable("community", {
+              subtype: profile.community.subtype,
+              categoryTags: profile.community.categoryTags,
+            })
+          : undefined,
+      subject,
+      editableFields,
+    };
+  },
+});
+
+/**
+ * Edit a profile from the browser, as its owner or as the community.
+ *
+ * One mutation for both, because they are the same operation with a different
+ * writer: `canEditProfileField` decides which fields the subject may touch and
+ * the link stamp follows from it. Splitting them would mean two sanitizers and
+ * two field policies drifting apart, and the community half is the one that
+ * exists to correct an unclaimed profile nobody else can.
+ *
+ * Applies directly rather than queueing for review, matching community
+ * submissions, which publish immediately. A queue is a real option later; it is
+ * not a prerequisite for a profile being correctable at all.
+ */
+export const updateProfileFromBrowser = mutation({
+  args: {
+    slug: v.string(),
+    /**
+     * The `updatedAt` the editor loaded.
+     *
+     * The form posts every field group it rendered, so a second person saving a
+     * display-name fix would spread stale values over links, tags and roles
+     * somebody else changed in the meantime -- and the diff would read those as
+     * deliberate, because it compares against the profile as it is now. This
+     * refuses the save instead of silently winning it.
+     *
+     * Required, not optional. A check a caller can decline by omitting the
+     * argument is not a check: a cached page still running the previous
+     * deployment's bundle, or anything calling the mutation directly, would post
+     * the same whole-form payload and skip straight past it -- landing exactly
+     * the overwrite this exists to refuse. Every browser save knows the version
+     * it loaded, because it had to read the profile to fill the form.
+     */
+    expectedUpdatedAt: v.number(),
+    ...apiProfileUpdateArgs,
+  },
+  handler: async (ctx, args) => {
+    const { subject, user } = await requireActiveBrowserSessionSubject(ctx);
+    const validation = validateProfileSlug(args.slug);
+
+    if (!validation.ok) {
+      throw new Error("Profile was not found.");
+    }
+
+    const profile = await getProfileBySlug(ctx.db, validation.slug);
+
+    if (profile === null) {
+      throw new Error("Profile was not found.");
+    }
+
+    const owns = await userOwnsProfile(ctx.db, profile._id, user._id);
+    const editSubject = owns ? ("claimed_owner" as const) : ("community_submitter" as const);
+
+    // Readability first, and only then the claimed-profile message. The other
+    // order tells anyone who guesses the slug of a draft or opted-out claimed
+    // profile that it exists and is claimed -- a distinction the generic
+    // not-found is there to withhold from someone who cannot read it at all.
+    if (!canReadProfile(editSubject, profile)) {
+      throw new Error("Profile was not found.");
+    }
+
+    // Ahead of the per-field checks, so a claimed profile gives the reason
+    // rather than a field name the editor cannot act on.
+    if (!owns && profile.claimState !== "unclaimed") {
+      throw new ConvexError({
+        code: "PROFILE_CLAIMED",
+        message: "This profile has been claimed, so only its owner can edit it.",
+      });
+    }
+
+    if (args.expectedUpdatedAt !== profile.updatedAt) {
+      throw new ConvexError({
+        code: "PROFILE_CHANGED",
+        message: "This profile changed while you were editing it. Reload to see the current version.",
+      });
+    }
+
+    // Permission first, before anything that answers differently for a value
+    // this writer may not read. The suppression lookup returns
+    // `IDENTITY_SUPPRESSED` for a retracted name and refuses everything else by
+    // field name, so running it ahead of the field check told any signed-in
+    // caller which identities had asked to be suppressed -- submit guesses at a
+    // profile whose aliases are private and read the answer off the reply.
+    // `applyApiProfileUpdate` checks the same thing again over what it is about
+    // to write; this is the earlier gate, not a replacement for it.
+    assertSubmittedFieldsEditable(profile, args, editSubject);
+
+    await assertProfileEditNotSuppressed(ctx.db, profile, args);
+
+    const now = Date.now();
+    const { changedFields, profile: updatedProfile } = await applyApiProfileUpdate(ctx.db, {
+      profile,
+      input: args,
+      subject: editSubject,
+      now,
+    });
+
+    // No media here. `profileAssets:createUploadIntentForOwnedProfile` is the
+    // only browser path to an upload intent and it requires ownership and
+    // refuses unclaimed profiles outright, so a community contributor cannot
+    // obtain one -- accepting an `assets` argument would be a parameter no
+    // caller can satisfy. Letting any signed-in account attach images to
+    // somebody else's profile also needs a moderation answer this change does
+    // not have; the field policy is the part that was ready.
+
+    // The durable record of who changed what, and when. A claiming owner
+    // inherits a history rather than a mystery, and it is what the operator
+    // surface reads back -- so a save that changed nothing writes nothing, and
+    // one that changed a display name says so rather than naming every field
+    // the form happened to post.
+    if (changedFields.length > 0) {
+      await ctx.db.insert("profileAuditEvents", {
+        profileId: profile._id,
+        action: owns ? "owner_profile_updated" : "community_profile_updated",
+        actor: subject,
+        sourceType: owns ? "owner" : "community",
+        note: `${changedFields.join(", ")} updated.`,
+        createdAt: now,
+      });
+    }
+
+    return {
+      ...toApiProfileWriteResponse(updatedProfile),
+      changedFields,
+      // The version the editor should hold from here. It pins the one it loaded
+      // so a save cannot carry stale values over somebody else's edit, and until
+      // now every successful save navigated away, so the pin never had to move.
+      // An owner whose profile has no public page stays on the form, and a second
+      // save would otherwise be refused as a conflict with their own first.
+      //
+      // Alongside `changedFields` rather than in the shared write response, which
+      // is the public API's shape and has a schema and two OpenAPI artifacts
+      // behind it.
+      updatedAt: updatedProfile.updatedAt,
     };
   },
 });

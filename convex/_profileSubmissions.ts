@@ -1,8 +1,26 @@
+import { ConvexError } from "convex/values";
 import {
   type NormalizedProfileLink,
   type ProfileLinkSource,
   sanitizeProfileLinks,
 } from "./_profileLinks";
+
+/**
+ * A rejection the writer can act on, in a form that survives production.
+ *
+ * Convex redacts plain `Error` messages on production deployments, so "Display
+ * name must be at least 2 characters" reached the form as the generic
+ * backend-unreachable notice, for a problem entirely fixable in the form the
+ * person was looking at. The structured payload survives, which is why
+ * `sanitizeProfileLinks` already answers this way; these are the same kind of
+ * message and now answer the same way.
+ *
+ * Only messages written for the writer come through here. Internal failures stay
+ * plain, and stay redacted.
+ */
+export function profileInputError(message: string): ConvexError<{ code: string; message: string }> {
+  return new ConvexError({ code: "PROFILE_INPUT_INVALID", message });
+}
 
 export const PROFILE_DISPLAY_NAME_MIN_LENGTH = 2;
 export const PROFILE_DISPLAY_NAME_MAX_LENGTH = 80;
@@ -81,11 +99,11 @@ function requireBoundedText(
   const value = normalizeProfileInlineText(input);
 
   if (value.length < minLength) {
-    throw new Error(`${fieldName} must be at least ${minLength} characters.`);
+    throw profileInputError(`${fieldName} must be at least ${minLength} characters.`);
   }
 
   if (value.length > maxLength) {
-    throw new Error(`${fieldName} must be ${maxLength} characters or fewer.`);
+    throw profileInputError(`${fieldName} must be ${maxLength} characters or fewer.`);
   }
 
   return value;
@@ -107,7 +125,7 @@ function optionalBoundedText(
   }
 
   if (value.length > maxLength) {
-    throw new Error(`${fieldName} must be ${maxLength} characters or fewer.`);
+    throw profileInputError(`${fieldName} must be ${maxLength} characters or fewer.`);
   }
 
   return value;
@@ -129,7 +147,7 @@ export function sanitizeProfileTextList(
     }
 
     if (value.length > options.maxLength) {
-      throw new Error(`${fieldName} items must be ${options.maxLength} characters or fewer.`);
+      throw profileInputError(`${fieldName} items must be ${options.maxLength} characters or fewer.`);
     }
 
     const key = value.toLowerCase();
@@ -138,7 +156,7 @@ export function sanitizeProfileTextList(
     }
 
     if (values.length >= options.maxItems) {
-      throw new Error(`${fieldName} can include at most ${options.maxItems} entries.`);
+      throw profileInputError(`${fieldName} can include at most ${options.maxItems} entries.`);
     }
 
     seen.add(key);
@@ -197,7 +215,7 @@ export function sanitizeCommunitySubmissionProfileInput(
 
   if (input.profileType === "person") {
     if (hasCommunitySubmissionFields(input.community)) {
-      throw new Error("Community fields cannot be submitted for a person profile.");
+      throw profileInputError("Community fields cannot be submitted for a person profile.");
     }
 
     return {
@@ -213,7 +231,7 @@ export function sanitizeCommunitySubmissionProfileInput(
   }
 
   if (hasPersonSubmissionFields(input.person)) {
-    throw new Error("Person fields cannot be submitted for a community profile.");
+    throw profileInputError("Person fields cannot be submitted for a community profile.");
   }
 
   const subtype = optionalBoundedText(

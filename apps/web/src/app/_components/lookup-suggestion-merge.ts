@@ -63,6 +63,17 @@ export function mergeLookupSuggestions(
     ),
   }));
   const uniquePrivateResults = privateResults.filter((profile) => {
+    // A published candidate is *expected* to have a public row: it made one.
+    // This deduplication was written when every private row was a candidate that
+    // had not shipped, so matching a public profile meant the same person was
+    // already listed and the private row was noise. Once published candidates
+    // joined the lookup, that rule started deleting the row carrying the accepted
+    // seed fields -- the operator's whole reason for being on this surface --
+    // because the profile it had itself created matched it.
+    if (profile.publicationState === "published_unclaimed") {
+      return true;
+    }
+
     if (profile.proposedSlug && publicSlugs.has(normalizeIdentityText(profile.proposedSlug))) {
       return false;
     }

@@ -10,6 +10,7 @@ import { buttonVariants, Button } from "@/components/ui/button";
 import { Card, Eyebrow, SectionTitle } from "@/components/ui/card";
 import { Field, FieldText, Input, Select, Textarea } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
+import { BACKEND_ERROR_COPY } from "@/lib/error-copy";
 import { VrcdnMediaLinkAssistant } from "../_components/vrcdn-media-link-assistant";
 import { parseVrcdnStreamLinks } from "../../../../../convex/_vrcdnLinks";
 
@@ -101,7 +102,7 @@ function eventEditorErrorMessage(error: unknown): string {
     }
   }
 
-  return "Event save failed. Please try again once the backend is reachable.";
+  return BACKEND_ERROR_COPY;
 }
 
 function stringField(value: FormDataEntryValue | null): string {

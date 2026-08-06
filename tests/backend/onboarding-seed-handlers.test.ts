@@ -395,4 +395,422 @@ describe("private seed Convex handlers", () => {
       /^\/account\/privacy\?profileId=/,
     );
   });
+
+  // The window used to be sized to the answer -- `limit * 2` rows taken, then
+  // filtered -- so eligibility, which depends on the batch and on the live
+  // profile and cannot be pushed into the search index, was decided over
+  // whatever happened to fall inside it. A common name whose leading matches are
+  // all unaccepted reported "no records" for somebody the lane holds one for.
+  it("reads past ineligible matches rather than reporting none", async () => {
+    const t = convexTest({ schema, modules });
+    const payload = permissionedPayload();
+    await t.mutation(internal.seedImports.importPermissionedJsonBatch, {
+      payload: {
+        ...payload,
+        candidates: Array.from({ length: 11 }, (_unused, index) => ({
+          ...payload.candidates[0],
+          candidateId: `crowded-${index}`,
+          proposedDisplayName: "Crowded Name",
+        })),
+      },
+      importedBy: actor,
+      now: NOW,
+    });
+
+    const identity = await t.run(async (ctx) => {
+      const candidates = await ctx.db.query("seedImportCandidateProfiles").collect();
+      // Exactly one acceptance, and it is last in the list -- comfortably past
+      // the two rows the old fixed window would have read for `limit: 1`.
+      await ctx.db.patch(candidates[candidates.length - 1]._id, {
+        reviewState: "accepted",
+        updatedAt: NOW,
+      });
+
+      const clerkUserId = newClerkUserId();
+      const userId = await ctx.db.insert("users", { clerkUserId, name: "Crowded lookup operator" });
+      await ctx.db.insert("accountFeatureGrants", {
+        userId,
+        feature: "view_private_seed_lookup",
+        state: "active",
+        grantedBy: actor,
+        grantedAt: NOW,
+        updatedAt: NOW,
+      });
+      return { subject: clerkUserId, emailVerified: true };
+    });
+
+    const results = await t.withIdentity(identity).query(api.seedAccess.lookupPeople, {
+      query: "Crowded",
+      limit: 1,
+    });
+
+    assert.equal(results.length, 1);
+    assert.equal(results[0]?.displayName, "Crowded Name");
+  });
+
+  // Each state collects up to `limit` on its own, so concatenating and slicing
+  // spends the whole limit on whichever state fills first. A common name with
+  // enough draft rows dropped every published one -- hiding exactly the
+  // published imports this surface was widened to recover.
+  it("gives each publication state a share of the lookup limit", async () => {
+    const t = convexTest({ schema, modules });
+    const payload = permissionedPayload();
+    await t.mutation(internal.seedImports.importPermissionedJsonBatch, {
+      payload: {
+        ...payload,
+        candidates: Array.from({ length: 6 }, (_unused, index) => ({
+          ...payload.candidates[0],
+          candidateId: `shared-${index}`,
+          proposedDisplayName: "Shared Name",
+        })),
+      },
+      importedBy: actor,
+      now: NOW,
+    });
+
+    const identity = await t.run(async (ctx) => {
+      const candidates = await ctx.db.query("seedImportCandidateProfiles").collect();
+      // The published row goes in its own batch, because one batch cannot hold
+      // both: a draft row is visible to this grant only while its batch is still
+      // `private_only`, and publishing required the batch to be relaxed past
+      // that. A `private_only` batch containing a published candidate is a state
+      // publication cannot produce.
+      const publishedBatchId = await ctx.db.insert("seedImportBatches", {
+        externalBatchId: "handler_test_batch_published",
+        sourceName: "NWinn",
+        sourceType: "partner",
+        receivedAt: NOW,
+        publicationPolicy: "reviewed_publication_allowed",
+        reviewState: "approved",
+        createdAt: NOW,
+        updatedAt: NOW,
+      });
+
+      // Five drafts and one published, so concatenation would spend a limit of
+      // four entirely on drafts and never reach the published row.
+      for (const [index, candidate] of candidates.entries()) {
+        const published = index === candidates.length - 1;
+        const profileId = published
+          ? await ctx.db.insert("profiles", {
+              ...privateProfile("unclaimed"),
+              slug: "shared-name-published",
+              publicationState: "published" as const,
+              publicSurfacingState: "public" as const,
+              creationSource: "import" as const,
+            })
+          : undefined;
+        await ctx.db.patch(candidate._id, {
+          reviewState: "accepted",
+          ...(published
+            ? {
+                batchId: publishedBatchId,
+                publicationState: "published_unclaimed" as const,
+                publishedProfileId: profileId,
+                publishedAt: NOW,
+              }
+            : {}),
+          updatedAt: NOW,
+        });
+      }
+      await ctx.db.patch(candidates[0].batchId, {
+        publicationPolicy: "private_only",
+        reviewState: "approved",
+        updatedAt: NOW,
+      });
+
+      const clerkUserId = newClerkUserId();
+      const userId = await ctx.db.insert("users", { clerkUserId, name: "Share lookup operator" });
+      await ctx.db.insert("accountFeatureGrants", {
+        userId,
+        feature: "view_private_seed_lookup",
+        state: "active",
+        grantedBy: actor,
+        grantedAt: NOW,
+        updatedAt: NOW,
+      });
+      return { subject: clerkUserId, emailVerified: true };
+    });
+
+    const results = await t.withIdentity(identity).query(api.seedAccess.lookupPeople, {
+      query: "Shared",
+      limit: 4,
+    });
+
+    assert.equal(results.length, 4);
+    assert.equal(
+      results.filter((result) => result.publicationState === "published_unclaimed").length,
+      1,
+    );
+  });
+
+  // Publishing by merging into an existing profile keeps that profile's original
+  // `creationSource`, so a merged seed profile is not `import`. Checking that
+  // beside the candidate meant the name lookup listed the person -- it asks the
+  // candidate -- while the record refused to open from the link right beside it.
+  // Reaching a candidate whose `publishedProfileId` is this profile is already
+  // proof it came from the seed lane, so the extra check was wrong and redundant
+  // at once.
+  it("opens the record for a seed profile published by merge", async () => {
+    const t = convexTest({ schema, modules });
+    const candidate = await importCandidate(t);
+    const identity = await t.run(async (ctx) => {
+      const profileId = await ctx.db.insert("profiles", {
+        ...privateProfile("unclaimed"),
+        slug: "handler-merged-import",
+        publicationState: "published" as const,
+        publicSurfacingState: "public" as const,
+        // The matched profile was created by a community submission and keeps
+        // saying so after the merge.
+        creationSource: "community" as const,
+        fieldVisibility: { bio: "private" as const },
+        bio: "Withheld biography",
+      });
+      await ctx.db.patch(candidate._id, {
+        publicationState: "published_unclaimed",
+        publishedProfileId: profileId,
+        publishedAt: NOW,
+        reviewState: "accepted",
+        updatedAt: NOW,
+      });
+      await ctx.db.patch(candidate.batchId, {
+        publicationPolicy: "reviewed_publication_allowed",
+        reviewState: "approved",
+        updatedAt: NOW,
+      });
+
+      const clerkUserId = newClerkUserId();
+      const userId = await ctx.db.insert("users", { clerkUserId, name: "Merge lookup operator" });
+      await ctx.db.insert("accountFeatureGrants", {
+        userId,
+        feature: "view_private_seed_lookup",
+        state: "active",
+        grantedBy: actor,
+        grantedAt: NOW,
+        updatedAt: NOW,
+      });
+      return { subject: clerkUserId, emailVerified: true };
+    });
+
+    assert.deepEqual(
+      (
+        await t.withIdentity(identity).query(api.seedAccess.withheldProfileRecord, {
+          slug: "handler-merged-import",
+        })
+      )?.withheldFields.map((field) => field.key),
+      ["bio"],
+    );
+  });
+
+  // This surface hands back the merged record -- every withheld field and the
+  // whole audit history -- so one live batch must not unlock what twelve
+  // rejected ones contributed. The name lookup can answer per candidate and
+  // withhold the withdrawn rows; this cannot, so it answers for all of them.
+  it("refuses a merged record any withdrawn batch contributed to", async () => {
+    const t = convexTest({ schema, modules });
+    const candidate = await importCandidate(t);
+    const identity = await t.run(async (ctx) => {
+      const profileId = await ctx.db.insert("profiles", {
+        ...privateProfile("unclaimed"),
+        slug: "handler-crowded-import",
+        publicationState: "published" as const,
+        publicSurfacingState: "public" as const,
+        creationSource: "import" as const,
+        fieldVisibility: { bio: "private" as const },
+        bio: "Withheld biography",
+      });
+
+      // Twelve rejected batches ahead of the live one, comfortably past the eight
+      // the old bound would have read.
+      for (let index = 0; index < 12; index += 1) {
+        const withdrawnBatchId = await ctx.db.insert("seedImportBatches", {
+          externalBatchId: `handler_test_batch_withdrawn_${index}`,
+          sourceName: "NWinn",
+          sourceType: "partner",
+          receivedAt: NOW,
+          publicationPolicy: "reviewed_publication_allowed",
+          reviewState: "rejected",
+          createdAt: NOW,
+          updatedAt: NOW,
+        });
+        await ctx.db.insert("seedImportCandidateProfiles", {
+          batchId: withdrawnBatchId,
+          externalCandidateId: `handler-test-withdrawn-${index}`,
+          profileType: "person",
+          proposedDisplayName: "DJ Example",
+          reviewState: "accepted",
+          publicationState: "published_unclaimed",
+          claimState: "unclaimed",
+          publishedProfileId: profileId,
+          publishedAt: NOW,
+          createdAt: NOW,
+          updatedAt: NOW,
+        });
+      }
+
+      // The live one is inserted *after* the withdrawn crowd, so it sorts behind
+      // all of them on `by_publishedProfileId`. Reusing the imported candidate
+      // would not test anything: `importCandidate` created it first, so a bounded
+      // read finds it immediately whatever the bound is.
+      await ctx.db.patch(candidate.batchId, {
+        publicationPolicy: "reviewed_publication_allowed",
+        reviewState: "approved",
+        updatedAt: NOW,
+      });
+      await ctx.db.insert("seedImportCandidateProfiles", {
+        batchId: candidate.batchId,
+        externalCandidateId: "handler-test-live-behind-the-crowd",
+        profileType: "person",
+        proposedDisplayName: "DJ Example",
+        reviewState: "accepted",
+        publicationState: "published_unclaimed",
+        claimState: "unclaimed",
+        publishedProfileId: profileId,
+        publishedAt: NOW,
+        createdAt: NOW,
+        updatedAt: NOW,
+      });
+
+      const clerkUserId = newClerkUserId();
+      const userId = await ctx.db.insert("users", { clerkUserId, name: "Crowd lookup operator" });
+      await ctx.db.insert("accountFeatureGrants", {
+        userId,
+        feature: "view_private_seed_lookup",
+        state: "active",
+        grantedBy: actor,
+        grantedAt: NOW,
+        updatedAt: NOW,
+      });
+      return { subject: clerkUserId, emailVerified: true };
+    });
+
+    assert.equal(
+      await t.withIdentity(identity).query(api.seedAccess.withheldProfileRecord, {
+        slug: "handler-crowded-import",
+      }),
+      null,
+    );
+  });
+
+  // Both operator surfaces answer to one rule. `lookupPeople` reached the batch
+  // through the candidate and stopped returning a withdrawn record; the by-slug
+  // record read judged the live profile alone, which a batch rejection does not
+  // touch -- so a grant holder went on reading private fields and edit history
+  // for a person review had decided to stop handling.
+  it("stops the by-slug record read when the batch behind it is withdrawn", async () => {
+    const t = convexTest({ schema, modules });
+    const candidate = await importCandidate(t);
+    const identity = await t.run(async (ctx) => {
+      const profileId = await ctx.db.insert("profiles", {
+        ...privateProfile("unclaimed"),
+        slug: "handler-published-import",
+        publicationState: "published" as const,
+        publicSurfacingState: "public" as const,
+        creationSource: "import" as const,
+        fieldVisibility: { bio: "private" as const },
+        bio: "Withheld biography",
+      });
+      await ctx.db.patch(candidate._id, {
+        publicationState: "published_unclaimed",
+        publishedProfileId: profileId,
+        publishedAt: NOW,
+        reviewState: "accepted",
+        updatedAt: NOW,
+      });
+      await ctx.db.patch(candidate.batchId, {
+        publicationPolicy: "reviewed_publication_allowed",
+        reviewState: "approved",
+        updatedAt: NOW,
+      });
+
+      const clerkUserId = newClerkUserId();
+      const userId = await ctx.db.insert("users", {
+        clerkUserId,
+        name: "Seed lookup grant holder",
+      });
+      await ctx.db.insert("accountFeatureGrants", {
+        userId,
+        // The narrow beta grant, not super_admin: super-admins are unrestricted
+        // and would pass whatever this checks.
+        feature: "view_private_seed_lookup",
+        state: "active",
+        grantedBy: actor,
+        grantedAt: NOW,
+        updatedAt: NOW,
+      });
+      return { subject: clerkUserId, emailVerified: true };
+    });
+
+    const before = await t.withIdentity(identity).query(api.seedAccess.withheldProfileRecord, {
+      slug: "handler-published-import",
+    });
+
+    assert.deepEqual(before?.withheldFields.map((field) => field.key), ["bio"]);
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(candidate.batchId, { reviewState: "rejected", updatedAt: NOW });
+    });
+
+    assert.equal(
+      await t.withIdentity(identity).query(api.seedAccess.withheldProfileRecord, {
+        slug: "handler-published-import",
+      }),
+      null,
+    );
+
+    // A merge can leave two candidates pointing at one profile. Adding a live
+    // batch alongside the rejected one does not bring the record back: the
+    // rejected batch still contributed fields and history to this profile, and
+    // this surface cannot hand back one contributor's half of a merged record.
+    await t.run(async (ctx) => {
+      const profile = await ctx.db
+        .query("profiles")
+        .withIndex("by_slug", (query) => query.eq("slug", "handler-published-import"))
+        .unique();
+      const batchId = await ctx.db.insert("seedImportBatches", {
+        externalBatchId: "handler_test_batch_two",
+        sourceName: "NWinn",
+        sourceType: "partner",
+        receivedAt: NOW,
+        publicationPolicy: "reviewed_publication_allowed",
+        reviewState: "approved",
+        createdAt: NOW,
+        updatedAt: NOW,
+      });
+      await ctx.db.insert("seedImportCandidateProfiles", {
+        batchId,
+        externalCandidateId: "handler-test-dj-merged",
+        profileType: "person",
+        proposedDisplayName: "DJ Example",
+        reviewState: "accepted",
+        publicationState: "published_unclaimed",
+        claimState: "unclaimed",
+        publishedProfileId: profile!._id,
+        publishedAt: NOW,
+        createdAt: NOW,
+        updatedAt: NOW,
+      });
+    });
+
+    assert.equal(
+      await t.withIdentity(identity).query(api.seedAccess.withheldProfileRecord, {
+        slug: "handler-published-import",
+      }),
+      null,
+    );
+
+    // And it comes back once every contributor is eligible again, so the rule is
+    // "all of them" rather than "none once one was ever withdrawn".
+    await t.run(async (ctx) => {
+      await ctx.db.patch(candidate.batchId, { reviewState: "approved", updatedAt: NOW });
+    });
+
+    assert.deepEqual(
+      (
+        await t.withIdentity(identity).query(api.seedAccess.withheldProfileRecord, {
+          slug: "handler-published-import",
+        })
+      )?.withheldFields.map((field) => field.key),
+      ["bio"],
+    );
+  });
 });

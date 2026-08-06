@@ -85,6 +85,16 @@ export const profileLinkInputValidator = v.object({
   label: v.optional(v.string()),
   handle: v.optional(v.string()),
   presentation: v.optional(v.string()),
+  /**
+   * The provenance an editor's row says it arrived with.
+   *
+   * Accepted here and stripped before normalization, so it can never be stored
+   * from writer input. `sanitizeApiProfileUpdateInput` reads it off the raw
+   * argument as a claim and honours it only against a stored link that actually
+   * carries it -- which is what lets a form post the whole array back without
+   * an owner-authored link losing its stamp, or a writer inventing one.
+   */
+  source: v.optional(v.string()),
 });
 
 export const PROFILE_LINK_MAX_COUNT = 20;
@@ -224,7 +234,10 @@ export function normalizeOutboundLinks(value: unknown): NormalizedProfileLink[] 
  * stream id in `handle` means every reader gets the same thing.
  */
 function prepareProfileLink(entry: unknown, index: number): Record<string, unknown> {
-  const link = requireRecord(entry, `Outbound link ${index + 1}`);
+  // `source` never reaches the normalizer: provenance is stamped by the caller
+  // from the writer's own subject, and `assertOnlyKeys` is left strict so any
+  // other stray key is still an error rather than a silent pass.
+  const { source: _claimedSource, ...link } = requireRecord(entry, `Outbound link ${index + 1}`);
   const type = requireStringValue(link.type, "Outbound link type");
 
   if (!isProfileLinkType(type)) {
@@ -312,4 +325,154 @@ export function sanitizeProfileLinks(
       message: error instanceof Error ? error.message : "Outbound links are invalid.",
     });
   }
+}
+
+/**
+ * What makes two links the same link, as a comparable key.
+ *
+ * Type plus destination, and only the genuinely case-insensitive parts of the
+ * destination are folded -- scheme and host. Lowercasing the whole URL made
+ * `https://example.invalid/Mix` and `/mix` one link on hosts where they are two
+ * pages: the seed lane dropped the second as a duplicate, and the browser lane
+ * handed the first's provenance to the second.
+ *
+ * One function because both lanes ask the same question. They were written
+ * separately and folded differently, which is how the same defect had to be
+ * found twice.
+ */
+/**
+ * Hosts whose path is case-insensitive, so two spellings are one destination.
+ *
+ * The web lookup's own merger keeps the same list for the same reason. Kept
+ * small and explicit: this is a claim about a specific provider, not a general
+ * rule about URLs.
+ */
+const CASE_INSENSITIVE_PATH_HOSTS = new Set(["twitch.tv"]);
+
+/**
+ * Hosts that address one profile per account, so the spellings of a URL that
+ * differ only in `www.` or a trailing slash all name the same destination.
+ *
+ * Flattened from `PROFILE_LINK_TYPE_HOSTS` rather than restated, so a host
+ * counts as a provider here exactly when the type validator already treats it as
+ * one, plus VRCDN's own root. Each serves a branded profile in a single account
+ * namespace, where `www.twitch.tv/Snek/` and `twitch.tv/Snek` are the same
+ * channel by construction.
+ *
+ * Deliberately not a general rule, and both normalizations were general rules
+ * once. `example.com` and `www.example.com` are distinct origins, and `/foo` and
+ * `/foo/` are distinct paths a server may answer differently -- a `website` link
+ * is exactly where that happens. Folding either everywhere let seed publication
+ * drop one of a profile's two real links as a duplicate, and let an edit to one
+ * inherit the other's metadata and provenance.
+ */
+const SINGLE_PROFILE_HOSTS = new Set([
+  ...Object.values(PROFILE_LINK_TYPE_HOSTS).flatMap((hosts) => hosts ?? []),
+  "vrcdn.live",
+]);
+
+export function profileLinkDestinationKey(link: { type: string; url: string }): string {
+  try {
+    const url = new URL(link.url);
+    // `www.` dropped only where the two spellings are known to be one place.
+    // Branded provider links carry it -- `www.twitch.tv/Snek` is the same channel
+    // as `twitch.tv/snek` -- so leaving it on failed the host lookups below *and*
+    // made the two spellings different destinations. Stripping it for every host
+    // ran too far the other way: on an arbitrary `website` link the apex and the
+    // `www` origin are two addresses that may serve two pages.
+    const apex = url.host.replace(/^www\./i, "");
+    const singleProfileHost = SINGLE_PROFILE_HOSTS.has(apex);
+    const host = singleProfileHost ? apex : url.host;
+    // Some hosts say their path is case-insensitive, and Twitch is one. Keeping
+    // the case there left the seed lane publishing both spellings as separate
+    // buttons and the browser lane failing the provenance match on a case-only
+    // correction.
+    //
+    // A named list rather than folding every path, because the general case runs
+    // the other way -- on most hosts `/Mix` and `/mix` are two pages, which is
+    // the defect this key was written to fix.
+    // Trailing slashes dropped on the same hosts and for the same reason:
+    // `twitch.tv/snek/` and `twitch.tv/snek` are one channel, and a seed carrying
+    // both spellings published two buttons and reported no duplicate. Elsewhere
+    // `/foo` and `/foo/` are two paths a server may answer differently, so they
+    // stay two destinations.
+    const pathname = singleProfileHost ? url.pathname.replace(/\/+$/, "") || "/" : url.pathname;
+    const path = CASE_INSENSITIVE_PATH_HOSTS.has(host) ? pathname.toLowerCase() : pathname;
+
+    // `URL` lowercases protocol and host itself; the rest is used exactly as
+    // given rather than folded along with them.
+    return `${link.type}:${url.protocol}//${host}${path}${url.search}${url.hash}`;
+  } catch {
+    // Unparseable, so no part of it is known to be case-insensitive. Compared
+    // verbatim, which can only ever treat two links as distinct rather than
+    // merge them.
+    return `${link.type}:${link.url}`;
+  }
+}
+
+export type LenientProfileLinkResult = {
+  links: Array<NormalizedProfileLink & { source: ProfileLinkSource }>;
+  /** Entries that could not be normalized into a publishable link. */
+  droppedCount: number;
+  /** Entries that collapsed onto a link already in the list. */
+  deduplicatedCount: number;
+};
+
+/**
+ * Normalize links one at a time, keeping the ones that survive.
+ *
+ * `sanitizeProfileLinks` rejects the whole array, which is right for a writer
+ * who is looking at a form and can fix their input. A seed publication has no
+ * such writer: the export was produced elsewhere, possibly months earlier, and
+ * one unusable row must not hold back every profile in the batch.
+ *
+ * Normalization is the point, not just validation. VRCDN entries collapse onto
+ * the canonical `vrcdn.live/<id>` page URL, so a stream URL and an operator
+ * panel preview URL for the same DJ become one link and no preview URL is
+ * carried onto a public profile. What is dropped is counted rather than
+ * swallowed — a publication path that silently discards data is how this became
+ * a problem in the first place.
+ */
+export function sanitizeProfileLinksLeniently(
+  value: unknown,
+  source: ProfileLinkSource,
+): LenientProfileLinkResult {
+  const entries = Array.isArray(value) ? value : [];
+  const seen = new Set<string>();
+  const links: LenientProfileLinkResult["links"] = [];
+  let droppedCount = 0;
+  let deduplicatedCount = 0;
+
+  for (const entry of entries) {
+    let normalized: LenientProfileLinkResult["links"];
+
+    try {
+      normalized = sanitizeProfileLinks([entry], source);
+    } catch {
+      droppedCount += 1;
+      continue;
+    }
+
+    for (const link of normalized) {
+      const key = profileLinkDestinationKey(link);
+
+      if (seen.has(key)) {
+        deduplicatedCount += 1;
+        continue;
+      }
+
+      // Counted as dropped rather than silently truncated: the cap is enforced
+      // per write everywhere else, and a caller reporting "all links carried"
+      // while holding back the tail would be wrong.
+      if (links.length >= PROFILE_LINK_MAX_COUNT) {
+        droppedCount += 1;
+        continue;
+      }
+
+      seen.add(key);
+      links.push(link);
+    }
+  }
+
+  return { links, droppedCount, deduplicatedCount };
 }

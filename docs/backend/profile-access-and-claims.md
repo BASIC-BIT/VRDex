@@ -15,19 +15,134 @@ It intentionally does not add moderation UI, role delegation, ownership transfer
 
 ## Edit Baseline
 
-Ordinary public users cannot edit profiles.
+Signed-out users cannot edit profiles.
 
-Community submitters may populate only a narrow safe field set for unclaimed profiles through `profiles:submitCommunityProfile`:
+What separates a community contributor from an owner is what a field describes,
+not a list of field names:
 
-- `displayName`
-- `aliases`
-- `tags`
-- `person` type-specific fields
-- `community` type-specific fields
+- **Information about the person** is community-editable on an unclaimed
+  profile. Display name, aliases, tags, outbound links, headline, bio, region,
+  timezone, role tags and pronouns. Facts a third party can know and correct,
+  and the reason an unclaimed profile is worth visiting at all. A few of these
+  carry one extra condition, described below, and it is about whether the value
+  is on screen rather than about what it describes.
+- **The record itself** is not. `slug` is the profile's address, so changing it
+  on someone else's behalf breaks every link already shared. Appearance --
+  avatar shape, border colour, section order -- is a presentation choice
+  belonging to whoever owns the profile, and is governed by `profileAppearance`
+  rather than the editable-field union.
 
-Community submitters must not set fields that imply verified authority, private contact details, billing state, ownership, custom slugs, or sensitive visibility choices. Profile creation can still generate an initial slug from submitted display text.
+`COMMUNITY_UNEDITABLE_FIELDS` in `convex/_profilePermissions.ts` states that as
+an exclusion. It replaced an allowlist, under which the default for any field
+added later was "not editable" -- which is how `outboundLinks` came to be
+excluded by omission rather than by decision.
 
-The current public mutation requires a Convex authenticated identity and stores source attribution. Freeform bios, about text, avatar URLs, banner URLs, private contact details, and custom slugs are intentionally outside the ordinary community-submission field set.
+Community contributors must not set fields implying verified authority, private
+contact details, billing state, ownership, custom slugs, or field-visibility
+choices.
+
+A field the profile marks `private` is not community-editable either. Editing a
+field means being shown its current value first, so the community may not edit
+what it may not read -- otherwise the editor becomes a way to read a withheld
+value by opening a form, and a blind save would overwrite one. `unlisted` is
+usually not private: for most fields it renders on the profile page, so a
+contributor looking at that page has already seen it — with the exceptions below.
+`profiles:editableProfile` returns values only for fields the subject has
+cleared, so the form shows exactly what it may change.
+
+Visibility does not settle that on its own, because "may be shown" is not
+"is shown". The public page puts role tags, category tags and free tags in a
+single metadata line, and whether a given value reaches it depends on the
+profile: a headline takes that row entirely, and without one the line renders
+four values after deduplication. `timezone` has no place on the page at all;
+only the lookup shows it, beside the region.
+
+So those keys are treated as *not reliably shown*, and for them `unlisted` — the
+state discovery excludes — means the value may be nowhere a contributor can
+reach. They are withheld from community editing while `unlisted`, and editable
+while `public`, because the lookup carries public values whatever the page does.
+Owners keep them either way; it is their own record.
+
+This is deliberately conservative rather than exact. Three review rounds each
+found another way that re-deriving the page's layout in the permission check was
+inexact — the headline, then grouped keys whose two halves render differently,
+then the four-item limit — and a rule that has to mirror a component's rendering
+will keep being wrong in a new way. The conservative version can cost a
+contributor an edit to an unlisted value that happened to be on screen. The exact
+one, whenever it drifts, lets them read a value the page never showed them, which
+is the thing the rule exists to prevent.
+
+`timezone` was briefly excluded outright, on the claim that no public surface
+renders it. That was wrong about the lookup. The true claim is the narrower one:
+the *profile page* does not render it.
+
+An existing link keeps the provenance it already had, and each row says which
+one it arrived with. The form posts the whole array back, so restamping on every
+save would downgrade an owner-authored link to community-submitted because
+somebody fixed a typo elsewhere — while matching by destination alone gets
+duplicates wrong in both directions, either handing one link's source to every
+row that shares its URL or promoting a community row when the owner row above it
+is deleted.
+
+The claim is not authority. `source` is accepted on the input, stripped before
+normalization so it can never be stored from writer input, and honoured only
+against a stored link that genuinely carries it — each stored link claimed once.
+A writer asking for `owner_authored` on a link nothing has gets their own stamp.
+
+The editor sends the `updatedAt` it loaded. Because the form posts every group it
+rendered, a second person saving a display-name fix would otherwise spread stale
+values over links and tags somebody else changed meanwhile, and the diff would
+read those as deliberate. A mismatched version is refused rather than silently
+won.
+
+"It loaded" is the contract, not "the query currently holds". The fields are
+uncontrolled, so when somebody else saves while the page is open, Convex pushes a
+newer `updatedAt` while every `defaultValue` keeps the values it mounted with.
+Sending the live number would pass the check with a payload built from what the
+other editor just replaced — the overwrite the check exists to refuse, arriving
+through the check. The editor pins the version its inputs were filled from for
+the life of the form, so that save is refused and the message says to reload.
+
+The argument is required rather than optional. A check a caller can decline by
+omitting it is not a check: a cached page still running the previous
+deployment's bundle, or anything calling the mutation directly, would post the
+same whole-form payload and skip straight past it. Every browser save knows the
+version it loaded, because it had to read the profile to fill the form.
+
+**Media is out of scope for community editing.** A profile picture or logo is
+information about the person by the rule above, and it is the most visible thing
+missing from a seeded profile — but no path exists to supply one.
+`profileAssets:createUploadIntentForOwnedProfile` is the only browser route to an
+upload intent, and it requires ownership and refuses unclaimed profiles, so
+`updateProfileFromBrowser` deliberately takes no `assets` argument rather than
+declaring one no caller could satisfy. Letting any signed-in account attach
+images to somebody else's profile needs a moderation answer that does not exist
+yet; the field policy is the part that is ready.
+
+`profiles:updateProfileFromBrowser` serves both subjects and resolves which one
+applies from ownership: the profile's owner edits as `claimed_owner`, anyone
+else editing an unclaimed profile edits as `community_submitter`, and a non-owner
+editing a claimed profile is refused. Links carry the subject's provenance, so a
+contributor's links are stored `community_submitted` rather than
+`owner_authored`.
+
+Edits apply directly rather than queueing for review, matching community
+submissions, which publish immediately. An edit that changes a value writes a
+`profileAuditEvents` row naming the actor and the fields that actually changed,
+readable by the profile's owner and by an operator holding
+`view_private_seed_lookup` through `seedAccess:withheldProfileRecord`.
+
+"Actually changed" is the contract, not "was submitted". The editor posts every
+field group it rendered on every save, so recording the payload's keys would
+report aliases, tags, links and roles as updated because somebody fixed a typo in
+the display name — and a save that changed nothing would still write a row. A
+no-op save writes no patch, no reindex and no history. The public API's own write
+ledger (`apiWriteAuditEvents`) is separate and records the request regardless: a
+write that changed nothing is still a write that was made.
+
+`profiles:submitCommunityProfile` creates a profile from the same field set,
+requires an authenticated identity, and stores source attribution. Creation
+generates an initial slug from submitted display text.
 
 Claimed owners may edit normal profile fields after a claim attaches authority to the existing profile record. This baseline assumes claimed owners can edit identity, presentation, slug, tags, and type-specific profile fields, subject to future field-level visibility and abuse controls.
 

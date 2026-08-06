@@ -44,6 +44,18 @@ function profileUpdateErrorResponse(error: unknown) {
     return problem(400, "Invalid profile update request", data.message ?? "The outbound links are invalid.");
   }
 
+  // Profile field validation answers structured now, the way links already did.
+  // Without this an API caller gets the Convex wrapper text for "Display name
+  // must be at least 2 characters" -- a redacted message for the one class of
+  // failure they could have acted on from the response.
+  if (data?.code === "PROFILE_INPUT_INVALID") {
+    return problem(
+      400,
+      "Invalid profile update request",
+      data.message ?? "The profile update request is invalid.",
+    );
+  }
+
   if (data?.code === "IDENTITY_SUPPRESSED") {
     // Reuses the existing 400 title rather than introducing a 409 with a new one:
     // that would mean unapproved public copy, a wider status union in `problem`,

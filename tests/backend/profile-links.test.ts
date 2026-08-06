@@ -3,7 +3,12 @@ import { describe, it } from "node:test";
 
 import { ConvexError } from "convex/values";
 
-import { sanitizeProfileLinks } from "../../convex/_profileLinks";
+import {
+  PROFILE_LINK_MAX_COUNT,
+  profileLinkDestinationKey,
+  sanitizeProfileLinks,
+  sanitizeProfileLinksLeniently,
+} from "../../convex/_profileLinks";
 import { sanitizeCommunitySubmissionProfileInput } from "../../convex/_profileSubmissions";
 
 /**
@@ -125,5 +130,173 @@ describe("profile link sanitization", () => {
         source: "community_submitted",
       },
     ]);
+  });
+});
+
+describe("lenient profile link sanitization", () => {
+  it("collapses a stream link and its panel preview onto one public link", () => {
+    // The exact pair the NWinn export carried for most DJs. Storing them as
+    // given put VRCDN's operator console on public profiles, and keeping only
+    // the parseable one would have dropped the DJs who had a preview and
+    // nothing else.
+    const result = sanitizeProfileLinksLeniently(
+      [
+        { type: "vrcdn", url: "https://stream.vrcdn.live/live/snekwtf.live.ts" },
+        { type: "vrcdn", url: "https://panel.vrcdn.live/preview/snekwtf" },
+      ],
+      "reviewed",
+    );
+
+    assert.deepEqual(result.links, [
+      {
+        type: "vrcdn",
+        label: "VRCDN",
+        url: "https://vrcdn.live/snekwtf",
+        handle: "snekwtf",
+        source: "reviewed",
+      },
+    ]);
+    assert.equal(result.deduplicatedCount, 1);
+    assert.equal(result.droppedCount, 0);
+  });
+
+  // Same folding as the browser provenance check, out of the same function.
+  // Lowercasing the whole URL made these one link, so the seed lane dropped the
+  // second as a duplicate while the browser lane handed the first's provenance
+  // to it -- two lanes, one defect, because each had written the key itself.
+  it("treats a case-different path as a different destination", () => {
+    const result = sanitizeProfileLinksLeniently(
+      [
+        { type: "website", url: "https://example.invalid/Mix" },
+        { type: "website", url: "https://example.invalid/mix" },
+      ],
+      "reviewed",
+    );
+
+    assert.deepEqual(result.links.map((link) => link.url), [
+      "https://example.invalid/Mix",
+      "https://example.invalid/mix",
+    ]);
+    assert.equal(result.deduplicatedCount, 0);
+
+    // Host case still folds, because it genuinely is case-insensitive.
+    const sameHost = sanitizeProfileLinksLeniently(
+      [
+        { type: "website", url: "https://example.invalid/Mix" },
+        { type: "website", url: "https://EXAMPLE.INVALID/Mix" },
+      ],
+      "reviewed",
+    );
+
+    assert.equal(sameHost.links.length, 1);
+    assert.equal(sameHost.deduplicatedCount, 1);
+  });
+
+  // Twitch says its channel path is case-insensitive, so these are one channel.
+  // Keeping the case left the seed lane publishing both as separate buttons and
+  // the browser lane failing the provenance match on a case-only correction. The
+  // list is named rather than general: on most hosts `/Mix` and `/mix` are two
+  // pages, which is what this key was written to get right.
+  it("folds the path case only for hosts that say it is insensitive", () => {
+    const result = sanitizeProfileLinksLeniently(
+      [
+        { type: "twitch", url: "https://twitch.tv/Snek" },
+        { type: "twitch", url: "https://twitch.tv/snek" },
+      ],
+      "reviewed",
+    );
+
+    assert.equal(result.links.length, 1);
+    assert.equal(result.deduplicatedCount, 1);
+
+    // Branded provider links carry `www.`, and the host has to be normalized
+    // before the provider is looked up or the fold never applies to them.
+    const branded = sanitizeProfileLinksLeniently(
+      [
+        { type: "twitch", url: "https://www.twitch.tv/Snek" },
+        { type: "twitch", url: "https://www.twitch.tv/snek" },
+        { type: "twitch", url: "https://twitch.tv/snek" },
+      ],
+      "reviewed",
+    );
+
+    assert.equal(branded.links.length, 1);
+    assert.equal(branded.deduplicatedCount, 2);
+  });
+
+  it("keeps the good links when one entry is unusable", () => {
+    // The whole reason this exists beside sanitizeProfileLinks: a publication
+    // has no writer looking at a form, so one bad row must not fail the batch.
+    const result = sanitizeProfileLinksLeniently(
+      [
+        { type: "twitch", url: "https://twitch.tv/snekwtf" },
+        { type: "vrcdn", url: "https://example.invalid/not-a-stream" },
+        { type: "website", url: "not a url at all" },
+      ],
+      "reviewed",
+    );
+
+    assert.deepEqual(
+      result.links.map((link) => link.url),
+      ["https://twitch.tv/snekwtf"],
+    );
+    assert.equal(result.droppedCount, 2);
+  });
+
+  it("counts the overflow past the link cap instead of truncating quietly", () => {
+    const result = sanitizeProfileLinksLeniently(
+      Array.from({ length: PROFILE_LINK_MAX_COUNT + 3 }, (_unused, index) => ({
+        type: "website",
+        url: `https://example.com/${index}`,
+      })),
+      "reviewed",
+    );
+
+    assert.equal(result.links.length, PROFILE_LINK_MAX_COUNT);
+    assert.equal(result.droppedCount, 3);
+  });
+
+  it("still enforces the provider host rule", () => {
+    // Leniency is about not failing a whole batch, not about relaxing what may
+    // be stored: a "Twitch" button pointing elsewhere is the same lie here.
+    const result = sanitizeProfileLinksLeniently(
+      [{ type: "twitch", url: "https://example.com/djceline" }],
+      "reviewed",
+    );
+
+    assert.deepEqual(result.links, []);
+    assert.equal(result.droppedCount, 1);
+  });
+});
+
+describe("link destination identity", () => {
+  it("folds www only for hosts whose two spellings are one place", () => {
+    // Branded provider profiles live in one account namespace, so the apex and
+    // the www spelling are the same channel.
+    assert.equal(
+      profileLinkDestinationKey({ type: "twitch", url: "https://www.twitch.tv/Snek" }),
+      profileLinkDestinationKey({ type: "twitch", url: "https://twitch.tv/snek" }),
+    );
+
+    // An arbitrary site is two origins that may serve two pages. Folding them
+    // let seed publication drop one of a profile's two real links as a
+    // duplicate, and let an edit inherit the other origin's provenance.
+    assert.notEqual(
+      profileLinkDestinationKey({ type: "website", url: "https://www.example.com/dj" }),
+      profileLinkDestinationKey({ type: "website", url: "https://example.com/dj" }),
+    );
+  });
+
+  it("folds a trailing slash only on those same hosts", () => {
+    assert.equal(
+      profileLinkDestinationKey({ type: "twitch", url: "https://twitch.tv/snek/" }),
+      profileLinkDestinationKey({ type: "twitch", url: "https://twitch.tv/snek" }),
+    );
+
+    // `/foo` and `/foo/` are two paths a server may answer differently.
+    assert.notEqual(
+      profileLinkDestinationKey({ type: "website", url: "https://example.com/dj/" }),
+      profileLinkDestinationKey({ type: "website", url: "https://example.com/dj" }),
+    );
   });
 });

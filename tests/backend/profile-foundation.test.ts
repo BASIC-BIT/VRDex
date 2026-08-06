@@ -43,10 +43,16 @@ import { canEditProfileField, canReadProfile } from "../../convex/_profilePermis
 import { toPublicProfile } from "../../convex/_profilePublic";
 import {
   createProfileSortName,
+  PROFILE_ALIAS_MAX_COUNT,
   sanitizeCommunitySubmissionProfileInput,
   sanitizeProfileTextList,
 } from "../../convex/_profileSubmissions";
-import { sanitizeApiProfileUpdateInput } from "../../convex/_profileUpdates";
+import {
+  assertProfileEditNotSuppressed,
+  sanitizeApiProfileUpdateInput,
+  submittedEditableFields,
+  type ApiProfileUpdateInput,
+} from "../../convex/_profileUpdates";
 import { createClaimedDiscordProfileForUser } from "../../convex/_profileClaimCreation";
 import { createPublicProfileWorldCredits } from "../../convex/_profileWorldCredits";
 import {
@@ -272,6 +278,151 @@ describe("profile permission helpers", () => {
       false,
     );
     assert.equal(canEditProfileField("community_submitter", publishedUnclaimedPerson, "slug"), false);
+  });
+
+  it("lets the community correct information about an unclaimed person", () => {
+    // The rule is information about the person versus the record itself, not a
+    // growing allowlist. outboundLinks is the case that proves it: a DJ's stream
+    // links are why anyone visits the profile, and the old allowlist left them
+    // out by omission rather than by any decision.
+    for (const field of [
+      "displayName",
+      "aliases",
+      "tags",
+      "headline",
+      "bio",
+      "region",
+      "outboundLinks",
+      "person",
+    ] as const) {
+      assert.equal(
+        canEditProfileField("community_submitter", publishedUnclaimedPerson, field),
+        true,
+        field,
+      );
+    }
+  });
+
+  // Editing a field means being shown its current value first, and no public
+  // surface renders `timezone` -- only the operator lookup does, behind
+  // `view_private_seed_lookup`. Visibility does not catch this on its own: the
+  // field sits at `public` by default and is invisible anyway, because being
+  // allowed to show something is not the same as showing it. The owner keeps it,
+  // since it is their own record.
+  // The page shows focus items -- role tags, category tags, free tags -- in one
+  // metadata line, and whether a given value reaches it depends on the profile: a
+  // headline takes the row, and without one the line renders four values after
+  // deduplication. `timezone` has no place on the page at all; only the lookup
+  // shows it.
+  //
+  // So the rule is "the page does not reliably show it" rather than a copy of the
+  // component's layout. Three review rounds each found another way that copy was
+  // inexact, and the conservative version cannot be wrong in the direction that
+  // matters: it can cost a contributor an edit to an unlisted value that happened
+  // to be on screen, never let them read one that was not.
+  it("keeps the community out of focus fields the page may not show", () => {
+    for (const [field, key] of [
+      ["tags", "tags"],
+      ["person", "personRoleTags"],
+      ["timezone", "timezone"],
+    ] as const) {
+      assert.equal(
+        canEditProfileField(
+          "community_submitter",
+          { ...publishedUnclaimedPerson, fieldVisibility: { [key]: "unlisted" } },
+          field,
+        ),
+        false,
+        key,
+      );
+      // Public is unaffected: discovery carries it whatever the page does.
+      assert.equal(
+        canEditProfileField(
+          "community_submitter",
+          { ...publishedUnclaimedPerson, fieldVisibility: {} },
+          field,
+        ),
+        true,
+        key,
+      );
+    }
+
+    // Nothing else moves. `bio` has its own section on the page.
+    assert.equal(
+      canEditProfileField(
+        "community_submitter",
+        { ...publishedUnclaimedPerson, fieldVisibility: { bio: "unlisted" } },
+        "bio",
+      ),
+      true,
+    );
+  });
+
+  // `person` groups pronouns with role tags and only the role tags are focus
+  // content: the page renders pronouns in that metadata row either way. Asking
+  // the question of the whole group withheld the entire form group over an
+  // unlisted pronoun that is on the page.
+  it("hides a grouped field only for the keys the page may not show", () => {
+    assert.equal(
+      canEditProfileField(
+        "community_submitter",
+        { ...publishedUnclaimedPerson, fieldVisibility: { personPronouns: "unlisted" } },
+        "person",
+      ),
+      true,
+    );
+    assert.equal(
+      canEditProfileField(
+        "community_submitter",
+        { ...publishedUnclaimedPerson, fieldVisibility: { personRoleTags: "unlisted" } },
+        "person",
+      ),
+      false,
+    );
+    // A private pronoun is still withheld: private is nowhere regardless.
+    assert.equal(
+      canEditProfileField(
+        "community_submitter",
+        { ...publishedUnclaimedPerson, fieldVisibility: { personPronouns: "private" } },
+        "person",
+      ),
+      false,
+    );
+  });
+
+  it("stops the community editing a profile once someone owns it", () => {
+    const claimedPerson = { ...publishedUnclaimedPerson, claimState: "claimed_unverified" } as const;
+
+    assert.equal(canEditProfileField("community_submitter", claimedPerson, "outboundLinks"), false);
+    assert.equal(canEditProfileField("claimed_owner", claimedPerson, "outboundLinks"), true);
+  });
+
+  it("keeps the community out of fields the profile withholds", () => {
+    // Editing a field means being shown its current value first, so the
+    // community may not edit what it may not read -- otherwise the editor is a
+    // way to read a private value by opening a form.
+    const withPrivateBio = {
+      ...publishedUnclaimedPerson,
+      fieldVisibility: { bio: "private", personRoleTags: "private", aliases: "unlisted" },
+    } as const;
+
+    assert.equal(canEditProfileField("community_submitter", withPrivateBio, "bio"), false);
+    // `person` covers pronouns and role tags, so a private half holds the whole
+    // grouped field back rather than being revealed by an edit to the other.
+    assert.equal(canEditProfileField("community_submitter", withPrivateBio, "person"), false);
+    // unlisted is not private: it renders on the profile page, so a contributor
+    // looking at that page has already seen it.
+    assert.equal(canEditProfileField("community_submitter", withPrivateBio, "aliases"), true);
+    assert.equal(canEditProfileField("community_submitter", withPrivateBio, "tags"), true);
+    // The owner's own hidden fields stay theirs to edit.
+    assert.equal(
+      canEditProfileField(
+        "claimed_owner",
+        { ...withPrivateBio, claimState: "claimed_unverified" },
+        "bio",
+      ),
+      true,
+    );
   });
 });
 
@@ -917,16 +1068,64 @@ describe("API profile update helpers", () => {
       },
     });
 
-    assert.deepEqual(result.changedFields, ["displayName", "aliases", "bio", "person"]);
+    // displayName and bio are absent from `changedFields`: both normalize to
+    // exactly what the profile already holds, and that is the audit record, so
+    // it reports what changed rather than what was submitted.
+    //
+    // They part company in the patch. The display name still normalizes through
+    // the validator, because the raw input differs from the stored string even
+    // though the normalized form does not. The bio is left out entirely: it is
+    // whitespace against a profile that has no bio, so there is nothing to write
+    // and the old `bio: undefined` was a clear of a field that was already clear.
+    assert.deepEqual(result.changedFields, ["aliases", "person"]);
     assert.deepEqual(result.patch, {
       displayName: "DJ Celine",
       sortName: "dj celine",
       aliases: ["Celine"],
-      bio: undefined,
       person: {
         roleTags: ["DJ", "VJ"],
       },
     });
+  });
+
+  // Convex redacts plain `Error` messages on production deployments, so every
+  // one of these reached the form as "try again once the backend is reachable"
+  // for a name the person could simply have lengthened. The structured payload
+  // survives, which is how link errors already answered.
+  it("rejects invalid input in a shape that survives production", () => {
+    const invalid: Array<[string, ApiProfileUpdateInput]> = [
+      ["display name too short", { displayName: "a" }],
+      ["too many aliases", { aliases: Array.from({ length: 40 }, (_u, i) => `alias-${i}`) }],
+      // The community may not edit a field the profile marks private.
+      ["field not editable", { headline: "Updated" }],
+      ["wrong profile type", { community: { subtype: "Club" } }],
+    ];
+
+    for (const [label, input] of invalid) {
+      assert.throws(
+        () =>
+          sanitizeApiProfileUpdateInput(
+            {
+              ...claimedPerson,
+              claimState: "unclaimed",
+              // So the "field not editable" case has something to refuse: the
+              // community may not edit a field the profile marks private.
+              fieldVisibility: { headline: "private" },
+            } as Doc<"profiles">,
+            input,
+            "community_submitter",
+          ),
+        (error: unknown) => {
+          const data = (error as { data?: { code?: string; message?: string } }).data;
+
+          assert.equal(data?.code, "PROFILE_INPUT_INVALID", label);
+          assert.ok((data?.message ?? "").length > 0, label);
+
+          return true;
+        },
+        label,
+      );
+    }
   });
 
   it("requires claimed-owner edit permission and compatible type fields", () => {
@@ -947,6 +1146,638 @@ describe("API profile update helpers", () => {
           },
         }),
       /Community fields cannot be updated for a person profile/,
+    );
+  });
+
+  it("stamps link provenance from the writer, not from the code path", () => {
+    // One sanitizer serves the owner and the community, so the stamp has to
+    // follow the subject. Calling a third party's links owner-authored would be
+    // a plain lie on a surface that renders provenance as a trust signal.
+    const unclaimedPerson = { ...claimedPerson, claimState: "unclaimed" } as Doc<"profiles">;
+    const links = [{ type: "twitch", url: "https://twitch.tv/snekwtf" }];
+
+    assert.equal(
+      (
+        sanitizeApiProfileUpdateInput(unclaimedPerson, { outboundLinks: links }, "community_submitter")
+          .patch.outboundLinks as Array<{ source: string }>
+      )[0]?.source,
+      "community_submitted",
+    );
+    assert.equal(
+      (
+        sanitizeApiProfileUpdateInput(claimedPerson, { outboundLinks: links }, "claimed_owner")
+          .patch.outboundLinks as Array<{ source: string }>
+      )[0]?.source,
+      "owner_authored",
+    );
+  });
+
+  it("reports nothing changed when a save re-sends what is already stored", () => {
+    // The editor posts every field group it rendered on every save, so without
+    // the diff a typo fix records "aliases, tags, links, roles updated" and a
+    // no-op save records a broad update anyway. That history is what a claiming
+    // owner inherits.
+    const result = sanitizeApiProfileUpdateInput(claimedPerson, {
+      displayName: "DJ Celine",
+      aliases: [],
+      tags: [],
+      person: { roleTags: ["DJ"] },
+    });
+
+    assert.deepEqual(result.changedFields, []);
+  });
+
+  it("keeps the provenance a link already had", () => {
+    // The form posts the whole array back, so without this, saving an unrelated
+    // field restamps every owner-authored link as community-submitted --
+    // downgrading a trust signal nobody touched.
+    const withLinks = {
+      ...claimedPerson,
+      claimState: "unclaimed",
+      outboundLinks: [
+        {
+          type: "twitch",
+          label: "Twitch",
+          url: "https://twitch.tv/snekwtf",
+          source: "owner_authored",
+        },
+      ],
+    } as unknown as Doc<"profiles">;
+
+    const links = sanitizeApiProfileUpdateInput(
+      withLinks,
+      {
+        outboundLinks: [
+          // Echoes the provenance it arrived with, which is what the editor
+          // sends for a row nobody touched.
+          { type: "twitch", url: "https://twitch.tv/snekwtf", source: "owner_authored" },
+          { type: "soundcloud", url: "https://soundcloud.com/snekwtf" },
+        ],
+      },
+      "community_submitter",
+    ).patch.outboundLinks as Array<{ source: string; type: string }>;
+
+    assert.deepEqual(
+      links.map((link) => [link.type, link.source]),
+      [
+        ["twitch", "owner_authored"],
+        ["soundcloud", "community_submitted"],
+      ],
+    );
+  });
+
+  it("keeps stored provenance for a writer whose request cannot carry a claim", () => {
+    // `ApiProfileUpdateRequestSchema` has no `source` field, so an owner
+    // patching one link through the public API sends a claim for none of them.
+    // Falling through to the sanitizer restamped the whole set `owner_authored`,
+    // erasing the trust signal the reviewed and partner rows exist to carry.
+    const withLinks = {
+      ...claimedPerson,
+      outboundLinks: [
+        {
+          type: "twitch",
+          label: "Twitch",
+          url: "https://twitch.tv/snekwtf",
+          source: "reviewed",
+        },
+        {
+          type: "soundcloud",
+          label: "SoundCloud",
+          url: "https://soundcloud.com/snekwtf",
+          source: "partner_provided",
+        },
+      ],
+    } as unknown as Doc<"profiles">;
+
+    const links = sanitizeApiProfileUpdateInput(
+      withLinks,
+      {
+        outboundLinks: [
+          { type: "twitch", url: "https://twitch.tv/snekwtf", label: "Twitch stream" },
+          { type: "soundcloud", url: "https://soundcloud.com/snekwtf" },
+        ],
+      },
+      "claimed_owner",
+    ).patch.outboundLinks as Array<{ source: string; type: string }>;
+
+    assert.deepEqual(
+      links.map((link) => [link.type, link.source]),
+      [
+        ["twitch", "reviewed"],
+        ["soundcloud", "partner_provided"],
+      ],
+    );
+  });
+
+  it("keeps an empty nested group out of the permission preflight", () => {
+    // The preflight decides which fields the permission check sees. Counting an
+    // empty group made the refusal depend on whether that group happened to be
+    // withheld -- a withheld one answered with the field-specific message, an
+    // editable one fell through to the generic empty-request error -- which is
+    // the response oracle this preflight exists to close. Both asked for
+    // nothing, so both have to answer the same.
+    assert.deepEqual(
+      submittedEditableFields({ person: {} } as ApiProfileUpdateInput),
+      [],
+    );
+    assert.deepEqual(
+      submittedEditableFields({ community: {} } as ApiProfileUpdateInput),
+      [],
+    );
+
+    // A group that names one of its own fields still counts, whatever the value.
+    assert.deepEqual(
+      submittedEditableFields({ person: { roleTags: [] } } as ApiProfileUpdateInput),
+      ["person"],
+    );
+  });
+
+  it("rejects a nested group that names no field", () => {
+    // `{ person: {} }` asked for nothing, but recording the group as submitted
+    // satisfied the at-least-one-field check and returned success. An empty
+    // nested object is the same empty write the top-level check already refuses.
+    assert.throws(
+      () =>
+        sanitizeApiProfileUpdateInput(
+          claimedPerson as unknown as Doc<"profiles">,
+          { person: {} } as ApiProfileUpdateInput,
+          "claimed_owner",
+        ),
+      /At least one editable profile field is required/,
+    );
+  });
+
+  it("refuses a provenance claim on a destination whose rows disagree", () => {
+    // The claim used to be honoured whenever *some* stored row carried it. On a
+    // mixed destination the rows are indistinguishable, so a community
+    // contributor could drop the community row, submit the owner-authored source
+    // of the one beside it, and keep a stamp for a row they had just deleted.
+    const withDisagreement = {
+      ...claimedPerson,
+      claimState: "unclaimed",
+      outboundLinks: [
+        { type: "twitch", label: "Twitch", url: "https://twitch.tv/snekwtf", source: "owner_authored" },
+        {
+          type: "twitch",
+          label: "Twitch",
+          url: "https://twitch.tv/snekwtf",
+          source: "community_submitted",
+        },
+      ],
+    } as unknown as Doc<"profiles">;
+
+    const links = sanitizeApiProfileUpdateInput(
+      withDisagreement,
+      {
+        outboundLinks: [
+          { type: "twitch", url: "https://twitch.tv/snekwtf", source: "owner_authored" },
+        ],
+      },
+      "community_submitter",
+    ).patch.outboundLinks as Array<{ source: string }>;
+
+    assert.deepEqual(links.map((link) => link.source), ["community_submitted"]);
+  });
+
+  it("declines to inherit provenance a destination does not agree on", () => {
+    // Inheriting by destination is only safe where the destination speaks with
+    // one voice. Two stored rows disagreeing is the case that defeated the
+    // earlier destination-keyed attempts, which handed sources out in stored
+    // order and promoted the row sitting behind a deleted one. Here the writer
+    // keeps their own stamp, which cannot invent authority nobody granted.
+    const withDisagreement = {
+      ...claimedPerson,
+      outboundLinks: [
+        { type: "twitch", label: "Twitch", url: "https://twitch.tv/snekwtf", source: "reviewed" },
+        {
+          type: "twitch",
+          label: "Twitch",
+          url: "https://twitch.tv/snekwtf",
+          source: "partner_provided",
+        },
+      ],
+    } as unknown as Doc<"profiles">;
+
+    const links = sanitizeApiProfileUpdateInput(
+      withDisagreement,
+      { outboundLinks: [{ type: "twitch", url: "https://twitch.tv/snekwtf" }] },
+      "claimed_owner",
+    ).patch.outboundLinks as Array<{ source: string }>;
+
+    assert.deepEqual(links.map((link) => link.source), ["owner_authored"]);
+  });
+
+  // Scheme and host are case-insensitive; a path is not. Folding the whole URL
+  // made `/Mix` and `/mix` one destination, so a writer could move an
+  // owner-authored link to a different page on a case-sensitive host and keep the
+  // stamp. The form drops the claim for a case-only edit, but the mutation takes
+  // `source` from any caller, so the form cannot be where this is decided.
+  it("honours a provenance claim only for the exact destination", () => {
+    const withLinks = {
+      ...claimedPerson,
+      claimState: "unclaimed",
+      outboundLinks: [
+        {
+          type: "website",
+          label: "Website",
+          url: "https://example.invalid/Mix",
+          source: "owner_authored",
+        },
+      ],
+    } as unknown as Doc<"profiles">;
+    const sourceFor = (url: string) =>
+      (
+        sanitizeApiProfileUpdateInput(
+          withLinks,
+          { outboundLinks: [{ type: "website", url, source: "owner_authored" }] },
+          "community_submitter",
+        ).patch.outboundLinks as Array<{ source: string }>
+      )[0]?.source;
+
+    assert.equal(sourceFor("https://example.invalid/Mix"), "owner_authored");
+    // A different page on a case-sensitive host is a different destination, so
+    // the claim is refused and the writer gets their own stamp.
+    assert.equal(sourceFor("https://example.invalid/mix"), "community_submitted");
+    // Host case genuinely is case-insensitive, so this reaches the patch as a
+    // changed URL and the claim still matches the link it names.
+    assert.equal(sourceFor("https://EXAMPLE.invalid/Mix"), "owner_authored");
+  });
+
+  // The editor posts the alias list it rendered on every save, so treating any
+  // defined `aliases` as a proposed identity re-asks the suppression question
+  // about names already on the profile. A profile carrying a legacy alias that a
+  // later name-only request covers would then refuse every edit, including a bio
+  // typo, naming nothing the writer could act on.
+  it("asks the suppression question only when the identity changes", async () => {
+    let asked = false;
+    const db = {
+      query() {
+        asked = true;
+
+        return {
+          withIndex() {
+            return { collect: async () => [] };
+          },
+        };
+      },
+    };
+    const publicProfile = {
+      ...claimedPerson,
+      publicationState: "published",
+      publicSurfacingState: "public",
+      aliases: ["Legacy Name"],
+    } as unknown as Doc<"profiles">;
+
+    await assertProfileEditNotSuppressed(db as never, publicProfile, {
+      aliases: ["Legacy Name"],
+    });
+    assert.equal(asked, false);
+
+    await assertProfileEditNotSuppressed(db as never, publicProfile, {
+      aliases: ["Legacy Name", "A New Name"],
+    });
+    assert.equal(asked, true);
+  });
+
+  // Skipping the permission check for a group that happened to match made the
+  // mutation an oracle: post a guessed alias array at an unclaimed profile whose
+  // aliases are private, and the reply says whether the guess was right -- an
+  // exact one took the no-op path and succeeded, a wrong one was refused by name.
+  // Neither advances `updatedAt`, so the guessing could run indefinitely.
+  it("refuses a withheld field whether or not the guess was right", () => {
+    const withPrivateAliases = {
+      ...claimedPerson,
+      claimState: "unclaimed",
+      aliases: ["Secret Alias"],
+      fieldVisibility: { aliases: "private" },
+    } as unknown as Doc<"profiles">;
+
+    for (const guess of [["Secret Alias"], ["Wrong Guess"]]) {
+      assert.throws(
+        () =>
+          sanitizeApiProfileUpdateInput(
+            withPrivateAliases,
+            { aliases: guess, bio: "Corrected biography" },
+            "community_submitter",
+          ),
+        /aliases field cannot be edited/,
+        guess.join(","),
+      );
+    }
+
+    // The same shape for a private nested list, which is its own group.
+    assert.throws(
+      () =>
+        sanitizeApiProfileUpdateInput(
+          {
+            ...claimedPerson,
+            claimState: "unclaimed",
+            person: { roleTags: ["Secret Role"] },
+            fieldVisibility: { personRoleTags: "private" },
+          } as unknown as Doc<"profiles">,
+          { person: { roleTags: ["Secret Role"] } },
+          "community_submitter",
+        ),
+      /person field cannot be edited/,
+    );
+  });
+
+  // Comparing type and URL alone called a row unchanged when an owner had edited
+  // only its label, handle or presentation, so the update returned success and
+  // wrote nothing.
+  it("applies a link change that touches only its metadata", () => {
+    const withLink = {
+      ...claimedPerson,
+      outboundLinks: [
+        {
+          type: "website",
+          label: "Website",
+          url: "https://example.invalid/dj",
+          source: "owner_authored",
+        },
+      ],
+    } as unknown as Doc<"profiles">;
+
+    const result = sanitizeApiProfileUpdateInput(
+      withLink,
+      {
+        outboundLinks: [
+          { type: "website", label: "Bookings", url: "https://example.invalid/dj" },
+        ],
+      },
+      "claimed_owner",
+    );
+
+    assert.deepEqual(result.changedFields, ["outboundLinks"]);
+    assert.equal(
+      (result.patch.outboundLinks as Array<{ label: string }>)[0]?.label,
+      "Bookings",
+    );
+  });
+
+  // The editor submits the name on every save, so revalidating it refused a
+  // correction the writer did make over a name they did not touch -- on a profile
+  // published before `display_name_outside_public_limits` existed and holding one
+  // outside the current bounds.
+  it("lets an unrelated edit through a legacy display name", () => {
+    const withLegacyName = {
+      ...claimedPerson,
+      claimState: "unclaimed",
+      displayName: "X",
+    } as unknown as Doc<"profiles">;
+
+    const result = sanitizeApiProfileUpdateInput(
+      withLegacyName,
+      { displayName: "X", bio: "Corrected biography" },
+      "community_submitter",
+    );
+
+    assert.deepEqual(result.changedFields, ["bio"]);
+    assert.equal("displayName" in result.patch, false);
+
+    // A rename is still validated, so nothing new gets in this way.
+    assert.throws(
+      () =>
+        sanitizeApiProfileUpdateInput(
+          withLegacyName,
+          { displayName: "Y" },
+          "community_submitter",
+        ),
+      /Display name must be at least/,
+    );
+  });
+
+  // The editor posts every group it rendered, so an untouched group is validated
+  // again on every save. That is fine until the stored value is outside a limit
+  // the writer cannot fix -- published before the cap existed, or seeded past it
+  // -- at which point resubmitting it refuses an unrelated correction and names a
+  // field they never opened.
+  it("lets an unrelated edit through a legacy over-limit headline", () => {
+    // Same grandfathering the display name and the lists already had, for the
+    // scalars that did not. A seeded profile can hold a headline longer than the
+    // cap, and this editor posts every rendered field on every save -- so
+    // validating before comparing refused the link correction the writer did
+    // make, naming a headline they never opened and could not shorten without
+    // losing what was there.
+    const legacy = {
+      ...claimedPerson,
+      headline: "x".repeat(400),
+      person: { ...claimedPerson.person, pronouns: "y".repeat(200) },
+    } as unknown as Doc<"profiles">;
+
+    const result = sanitizeApiProfileUpdateInput(legacy, {
+      headline: "x".repeat(400),
+      person: { pronouns: "y".repeat(200) },
+      bio: "A bio the writer actually changed.",
+    });
+
+    assert.deepEqual(result.changedFields, ["bio"]);
+
+    // Editing the over-limit value itself is still refused.
+    assert.throws(
+      () =>
+        sanitizeApiProfileUpdateInput(legacy, {
+          headline: "z".repeat(400),
+        }),
+      /Headline must be \d+ characters or fewer/,
+    );
+  });
+
+  it("lets an unrelated edit through a legacy over-limit list", () => {
+    const overLimit = Array.from({ length: PROFILE_ALIAS_MAX_COUNT + 4 }, (_u, i) => `alias-${i}`);
+    const withLegacyAliases = {
+      ...claimedPerson,
+      claimState: "unclaimed",
+      aliases: overLimit,
+    } as unknown as Doc<"profiles">;
+
+    const result = sanitizeApiProfileUpdateInput(
+      withLegacyAliases,
+      { aliases: overLimit, bio: "Corrected biography" },
+      "community_submitter",
+    );
+
+    assert.deepEqual(result.changedFields, ["bio"]);
+    // Left out of the patch entirely rather than rewritten or truncated.
+    assert.equal("aliases" in result.patch, false);
+
+    // Changing the group still has to satisfy the limit: this grandfathers what
+    // is stored without letting anything new past.
+    assert.throws(
+      () =>
+        sanitizeApiProfileUpdateInput(
+          withLegacyAliases,
+          { aliases: [...overLimit, "one-more"] },
+          "community_submitter",
+        ),
+      /Aliases can include at most/,
+    );
+  });
+
+  // The submitted side is canonicalized before provenance is matched, so keying
+  // the stored side on its raw URL missed every legacy row: a profile still
+  // holding a `stream.vrcdn.live/live/<id>.m3u8` was compared against the
+  // `vrcdn.live/<id>` it becomes, the claim never matched, and editing an
+  // unrelated field restamped a reviewed link as community-submitted.
+  it("matches provenance across VRCDN canonicalization", () => {
+    const withLegacyLink = {
+      ...claimedPerson,
+      claimState: "unclaimed",
+      outboundLinks: [
+        {
+          type: "vrcdn",
+          label: "VRCDN",
+          url: "https://stream.vrcdn.live/live/snekwtf.m3u8",
+          source: "reviewed",
+        },
+      ],
+    } as unknown as Doc<"profiles">;
+
+    const links = sanitizeApiProfileUpdateInput(
+      withLegacyLink,
+      {
+        // What the editor posts back for an untouched row: the canonical URL it
+        // was shown, and the provenance it arrived with.
+        outboundLinks: [
+          { type: "vrcdn", url: "https://vrcdn.live/snekwtf", source: "reviewed" },
+        ],
+      },
+      "community_submitter",
+    ).patch.outboundLinks as Array<{ source: string }>;
+
+    assert.equal(links[0]?.source, "reviewed");
+  });
+
+  it("does not let a prepended row take a reviewed link's standing", () => {
+    // The reported shape. A community contributor prepends a row on the same
+    // destination as a reviewed link, with whatever label and handle they like.
+    // Consuming in submitted order gave that row `reviewed` and left the real
+    // one to be restamped, so the trust signal followed the attacker's row.
+    const withReviewed = {
+      ...claimedPerson,
+      claimState: "unclaimed",
+      outboundLinks: [
+        {
+          type: "twitch",
+          label: "Twitch",
+          url: "https://twitch.tv/snekwtf",
+          source: "reviewed",
+        },
+      ],
+    } as unknown as Doc<"profiles">;
+
+    const links = sanitizeApiProfileUpdateInput(
+      withReviewed,
+      {
+        outboundLinks: [
+          { type: "twitch", url: "https://twitch.tv/snekwtf", label: "Mine" },
+          { type: "twitch", url: "https://twitch.tv/snekwtf", label: "Twitch" },
+        ],
+      },
+      "community_submitter",
+    ).patch.outboundLinks as Array<{ source: string }>;
+
+    // Neither row carries `reviewed` away.
+    assert.deepEqual(links.map((link) => link.source), [
+      "community_submitted",
+      "community_submitted",
+    ]);
+  });
+
+  it("gives a destination no provenance when more rows arrive than it stores", () => {
+    // One stored link, two submitted rows on its destination. Nothing in the
+    // request says which of them is the stored one, and answering by submitted
+    // order answered it wrong: the first row took the owner-authored stamp and
+    // the real one was restamped as the count ran out, so provenance moved
+    // between rows. A writer could take a reviewed link's standing by prepending
+    // a row to it.
+    //
+    // Neither row inherits now. That also covers what this case was first written
+    // for -- a duplicate must not be recorded as owner-authored, which would be
+    // inventing provenance rather than preserving it.
+    const withLinks = {
+      ...claimedPerson,
+      claimState: "unclaimed",
+      outboundLinks: [
+        {
+          type: "twitch",
+          label: "Twitch",
+          url: "https://twitch.tv/snekwtf",
+          source: "owner_authored",
+        },
+      ],
+    } as unknown as Doc<"profiles">;
+
+    const links = sanitizeApiProfileUpdateInput(
+      withLinks,
+      {
+        outboundLinks: [
+          { type: "twitch", url: "https://twitch.tv/snekwtf", source: "owner_authored" },
+          { type: "twitch", url: "https://twitch.tv/snekwtf" },
+        ],
+      },
+      "community_submitter",
+    ).patch.outboundLinks as Array<{ source: string }>;
+
+    assert.deepEqual(links.map((link) => link.source), [
+      "community_submitted",
+      "community_submitted",
+    ]);
+  });
+
+  it("does not let a claim invent provenance the stored link never had", () => {
+    // The claim is honoured against a stored link that actually carries it, and
+    // each stored link is claimed once. So deleting the owner-authored row and
+    // keeping the community duplicate leaves the survivor community-submitted --
+    // matching by position in stored order promoted it instead -- and a writer
+    // asking for a source nothing has simply gets their own.
+    const withDuplicates = {
+      ...claimedPerson,
+      claimState: "unclaimed",
+      outboundLinks: [
+        { type: "twitch", label: "Twitch", url: "https://twitch.tv/snekwtf", source: "owner_authored" },
+        { type: "twitch", label: "Twitch", url: "https://twitch.tv/snekwtf", source: "community_submitted" },
+      ],
+    } as unknown as Doc<"profiles">;
+
+    const survivors = sanitizeApiProfileUpdateInput(
+      withDuplicates,
+      {
+        outboundLinks: [
+          { type: "twitch", url: "https://twitch.tv/snekwtf", source: "community_submitted" },
+        ],
+      },
+      "community_submitter",
+    ).patch.outboundLinks as Array<{ source: string }>;
+
+    assert.deepEqual(survivors.map((link) => link.source), ["community_submitted"]);
+
+    const invented = sanitizeApiProfileUpdateInput(
+      { ...claimedPerson, claimState: "unclaimed", outboundLinks: [] } as unknown as Doc<"profiles">,
+      {
+        outboundLinks: [
+          { type: "twitch", url: "https://twitch.tv/snekwtf", source: "owner_authored" },
+        ],
+      },
+      "community_submitter",
+    ).patch.outboundLinks as Array<{ source: string }>;
+
+    assert.deepEqual(invented.map((link) => link.source), ["community_submitted"]);
+  });
+
+  it("lets the community correct an unclaimed profile, and stops at a claimed one", () => {
+    const unclaimedPerson = { ...claimedPerson, claimState: "unclaimed" } as Doc<"profiles">;
+    const edit = { displayName: "Snek", person: { roleTags: ["DJ"] } };
+
+    // `person` is absent: the fixture already carries roleTags ["DJ"], so only
+    // the display name actually changed.
+    assert.deepEqual(
+      sanitizeApiProfileUpdateInput(unclaimedPerson, edit, "community_submitter").changedFields,
+      ["displayName"],
+    );
+    assert.throws(
+      () => sanitizeApiProfileUpdateInput(claimedPerson, edit, "community_submitter"),
+      /cannot be edited on a profile you do not own/,
     );
   });
 });

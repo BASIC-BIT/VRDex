@@ -10,6 +10,7 @@ import {
 import {
   canIncludePrivateSeedCandidate,
   projectSafePrivateSeedField,
+  withheldProfileFields,
 } from "../../convex/_seedAccess";
 import {
   buildConciergeProfileFieldPatch,
@@ -229,10 +230,130 @@ describe("permissioned seed import", () => {
 
     // publication_not_authorized too: a private_only batch has no authorization
     // record, and both are required before anything publishes.
+    // no_publicly_visible_field as well: the one accepted field is private, so
+    // publishing would produce a profile with a name and nothing else.
     assert.deepEqual(new Set(blockers), new Set([
       "source_private_only",
       "publication_not_authorized",
+      "no_publicly_visible_field",
     ]));
+  });
+
+  it("passes a batch whose accepted fields would actually be visible", () => {
+    // The complement of the case above. Without this, a visibility gate that
+    // fired on every candidate would look identical to one that works.
+    const blockers = getSeedImportPublicationBlockers({
+      batch: {
+        publicationPolicy: "reviewed_publication_allowed",
+        reviewState: "approved",
+        publicationAuthorizations: [
+          {
+            policy: "reviewed_publication_allowed",
+            reason: "Source permitted publication.",
+            recordedAt: Date.UTC(2026, 6, 16),
+          },
+        ],
+      },
+      candidate: {
+        reviewState: "accepted",
+        publicationState: "review_pending",
+        claimState: "unclaimed",
+        proposedSlug: "example-dj",
+      },
+      fields: [
+        {
+          fieldKey: "aliases",
+          value: ["DJ Example"],
+          confidence: "medium",
+          reviewState: "accepted",
+          visibility: "private",
+        },
+        {
+          fieldKey: "person.roleTags",
+          value: ["DJ"],
+          confidence: "medium",
+          reviewState: "accepted",
+          // unlisted counts as visible: it renders on the profile page and is
+          // only held back from discovery, which is a decision someone made.
+          visibility: "unlisted",
+        },
+      ],
+    });
+
+    assert.deepEqual(blockers, []);
+  });
+
+  it("does not count an empty public field as something to see", () => {
+    // A public `tags: []` beside a private set of links satisfies "has a
+    // non-private field" while publishing the display-name-only profile the
+    // gate exists to stop.
+    const blockers = getSeedImportPublicationBlockers({
+      batch: {
+        publicationPolicy: "reviewed_publication_allowed",
+        reviewState: "approved",
+        publicationAuthorizations: [
+          {
+            policy: "reviewed_publication_allowed",
+            reason: "Source permitted publication.",
+            recordedAt: Date.UTC(2026, 6, 16),
+          },
+        ],
+      },
+      candidate: {
+        reviewState: "accepted",
+        publicationState: "review_pending",
+        claimState: "unclaimed",
+        proposedSlug: "example-dj",
+      },
+      fields: [
+        { fieldKey: "tags", value: [], confidence: "medium", reviewState: "accepted", visibility: "public" },
+        {
+          fieldKey: "outboundLinks",
+          value: [{ type: "twitch", label: "Twitch", url: "https://twitch.tv/example" }],
+          confidence: "medium",
+          reviewState: "accepted",
+          visibility: "private",
+        },
+      ],
+    });
+
+    assert.deepEqual(new Set(blockers), new Set(["no_publicly_visible_field"]));
+  });
+
+  it("does not count links that publication will drop", () => {
+    // Raw array length is not content: publication normalizes links and discards
+    // what it cannot publish, so a field holding only an operator console URL
+    // has a non-zero length and still produces a display-name-only profile.
+    const blockers = getSeedImportPublicationBlockers({
+      batch: {
+        publicationPolicy: "reviewed_publication_allowed",
+        reviewState: "approved",
+        publicationAuthorizations: [
+          {
+            policy: "reviewed_publication_allowed",
+            reason: "Source permitted publication.",
+            recordedAt: Date.UTC(2026, 6, 16),
+          },
+        ],
+      },
+      candidate: {
+        reviewState: "accepted",
+        publicationState: "review_pending",
+        claimState: "unclaimed",
+        proposedSlug: "example-dj",
+      },
+      fields: [
+        {
+          fieldKey: "outboundLinks",
+          value: [{ type: "vrcdn", label: "VRCDN", url: "https://panel.vrcdn.live/dashboard" }],
+          confidence: "medium",
+          reviewState: "accepted",
+          visibility: "public",
+        },
+      ],
+    });
+
+    assert.equal(new Set(blockers).has("no_publicly_visible_field"), true);
   });
 
   it("rejects future freshness timestamps", () => {
@@ -321,6 +442,270 @@ describe("private seed projection", () => {
       ),
       null,
     );
+  });
+
+  it("keeps covering a candidate after it publishes", () => {
+    // The lookup used to filter to draft_private and review_pending, so 405
+    // people left the operator's own surface at the moment they went live --
+    // it covered exactly the records that had not shipped, and stopped the
+    // instant they had.
+    const published = {
+      claimState: "unclaimed" as const,
+      profileType: "person" as const,
+      publicationState: "published_unclaimed" as const,
+      reviewState: "accepted" as const,
+    };
+
+    // Its batch is necessarily relaxed by then, so requiring private_only would
+    // reintroduce the same hole through the policy check instead.
+    assert.equal(
+      canIncludePrivateSeedCandidate(
+        published as never,
+        "reviewed_publication_allowed",
+        "approved",
+        false,
+        {
+          claimState: "unclaimed",
+          publicationState: "published",
+          publicSurfacingState: "public",
+        } as never,
+      ),
+      true,
+    );
+
+    // But "was relaxed once" is not "is still permitted". Written as one
+    // disjunction, a published row satisfied the policy clause on its state
+    // alone, so revoking a batch back to private_only after it published changed
+    // nothing -- the narrower grant went on reading its accepted private fields
+    // after the source withdrew permission.
+    assert.equal(
+      canIncludePrivateSeedCandidate(published as never, "private_only", "approved", false, {
+        claimState: "unclaimed",
+        publicationState: "published",
+        publicSurfacingState: "public",
+      } as never),
+      false,
+    );
+
+    // Super-admins still see it. "Why is this person gone?" is exactly the
+    // question they are there to answer.
+    assert.equal(
+      canIncludePrivateSeedCandidate(published as never, "private_only", "approved", true, {
+        claimState: "unclaimed",
+        publicationState: "published",
+        publicSurfacingState: "public",
+      } as never),
+      true,
+    );
+  });
+
+  it("reads the live profile, because the candidate row goes stale both ways", () => {
+    // Claim flows patch `profiles.claimState` and suppression patches
+    // `publicSurfacingState`; neither revisits the candidate. Reading the
+    // candidate alone kept handing someone's imported private fields to a beta
+    // grant after they claimed their profile, or after it was withdrawn.
+    const published = {
+      claimState: "unclaimed" as const,
+      profileType: "person" as const,
+      publicationState: "published_unclaimed" as const,
+      reviewState: "accepted" as const,
+    };
+    const live = {
+      claimState: "unclaimed" as const,
+      publicationState: "published" as const,
+      publicSurfacingState: "public" as const,
+    };
+
+    for (const withdrawn of [
+      { ...live, claimState: "claimed_unverified" as const },
+      { ...live, claimState: "claimed_verified" as const },
+      { ...live, publicSurfacingState: "opted_out" as const },
+      { ...live, publicSurfacingState: "suppressed" as const },
+      { ...live, publicationState: "draft_private" as const },
+    ]) {
+      assert.equal(
+        canIncludePrivateSeedCandidate(
+          published as never,
+          "reviewed_publication_allowed",
+          "approved",
+          false,
+          withdrawn as never,
+        ),
+        false,
+        JSON.stringify(withdrawn),
+      );
+    }
+
+    // A profile that could not be loaded fails too: failing to load is not
+    // evidence that nobody owns it.
+    for (const missing of [undefined, null]) {
+      assert.equal(
+        canIncludePrivateSeedCandidate(
+          published as never,
+          "reviewed_publication_allowed",
+          "approved",
+          false,
+          missing,
+        ),
+        false,
+      );
+    }
+  });
+
+  it("keeps a narrower grant away from decisions to stop handling someone", () => {
+    for (const publicationState of ["rejected", "suppressed"] as const) {
+      const candidate = {
+        claimState: "unclaimed" as const,
+        profileType: "person" as const,
+        publicationState,
+        reviewState: "accepted" as const,
+      };
+
+      assert.equal(
+        canIncludePrivateSeedCandidate(candidate as never, "private_only", "approved", false),
+        false,
+        publicationState,
+      );
+      // A super-admin still sees them: "why is this person not here?" is the
+      // question the operator surface exists to answer.
+      assert.equal(
+        canIncludePrivateSeedCandidate(candidate as never, "private_only", "approved", true),
+        true,
+        publicationState,
+      );
+    }
+  });
+
+  // A legacy batch imported before the policy column was backfilled carries no
+  // policy at all. Both publish gates and the runbook read that as private_only;
+  // comparing the literal here instead hid every accepted row of such a batch
+  // from the narrower grant while super-admins went on seeing them.
+  it("reads a missing policy as private-only, the way the gates do", () => {
+    for (const publicationState of ["draft_private", "review_pending"] as const) {
+      assert.equal(
+        canIncludePrivateSeedCandidate(
+          {
+            claimState: "unclaimed",
+            profileType: "person",
+            publicationState,
+            reviewState: "accepted",
+          } as never,
+          undefined,
+          "approved",
+          false,
+        ),
+        true,
+        publicationState,
+      );
+    }
+  });
+});
+
+describe("withheld profile fields", () => {
+  const profile = {
+    profileType: "person" as const,
+    slug: "snek",
+    displayName: "Snek",
+    aliases: ["snekwtf"],
+    tags: [],
+    outboundLinks: [
+      { type: "vrcdn", label: "VRCDN", url: "https://vrcdn.live/snekwtf", source: "reviewed" },
+    ],
+    person: { roleTags: ["DJ"] },
+    fieldVisibility: { outboundLinks: "private", personRoleTags: "private", aliases: "unlisted" },
+  };
+
+  it("reports the fields a profile holds but does not show", () => {
+    // The state 405 live profiles were in: everything stored, nothing visible.
+    const withheld = withheldProfileFields(profile as never);
+
+    assert.deepEqual(
+      withheld.map((field) => [field.key, field.visibility, field.values]),
+      [
+        ["aliases", "unlisted", ["snekwtf"]],
+        ["outboundLinks", "private", ["VRCDN: https://vrcdn.live/snekwtf"]],
+        ["personRoleTags", "private", ["DJ"]],
+      ],
+    );
+  });
+
+  it("skips fields that are visible, and fields with nothing in them", () => {
+    // Otherwise the panel reports a hidden field for every empty key on the
+    // record and the real gap is lost in it.
+    assert.deepEqual(
+      withheldProfileFields({
+        ...profile,
+        fieldVisibility: { bio: "private", personRoleTags: "private" },
+      } as never).map((field) => field.key),
+      ["personRoleTags"],
+    );
+    assert.deepEqual(withheldProfileFields({ ...profile, fieldVisibility: {} } as never), []);
+  });
+
+  // "Is it shown" is the question, not "is it public". `about` reaches the
+  // profile row and the public projection and no component reads it -- the page's
+  // About section renders `bio`. Filtering on visibility alone left it invisible
+  // from both directions at once: withheld from this panel for being public, and
+  // absent from the page for never having been rendered.
+  //
+  // `genres` and `timezone` were treated the same way and should not have been.
+  // The profile page skips them, but the public lookup renders them at `public`
+  // visibility, so at `public` they are shown and are not part of the gap.
+  it("reports a public field only when no surface shows it", () => {
+    const stored = {
+      ...profile,
+      about: "Long-form profile text",
+      timezone: "Europe/Berlin",
+      genres: [{ slug: "house", displayName: "House", source: "import", explicit: false }],
+    };
+    const withheld = withheldProfileFields({ ...stored, fieldVisibility: {} } as never);
+
+    assert.deepEqual(
+      withheld.map((field) => [field.key, field.visibility, field.onProfilePage]),
+      [["about", "public", false]],
+    );
+
+    // Unlisted, and the lookup excludes unlisted, so now they are on no surface
+    // and the panel has to say so rather than "on this page, not in search".
+    assert.deepEqual(
+      withheldProfileFields({
+        ...stored,
+        fieldVisibility: { genres: "unlisted", timezone: "unlisted" },
+      } as never)
+        .filter((field) => field.key !== "about")
+        .map((field) => [field.key, field.onProfilePage]),
+      [
+        ["genres", false],
+        ["timezone", false],
+      ],
+    );
+
+    // An unlisted alias *is* on the page, which is the case the middle group is
+    // for.
+    assert.deepEqual(
+      withheldProfileFields({ ...profile, fieldVisibility: { aliases: "unlisted" } } as never)
+        .map((field) => [field.key, field.onProfilePage]),
+      [["aliases", true]],
+    );
+
+    // A focus item is not reliably on the page: a headline takes that row
+    // entirely, and without one the line shows four values after deduplication.
+    // Reported as not-on-page either way, rather than re-deriving the layout --
+    // which errs toward showing an operator a value they may also find on the
+    // page, the safe direction for this surface.
+    for (const headline of ["Resident DJ at Afterglow", undefined]) {
+      assert.deepEqual(
+        withheldProfileFields({
+          ...profile,
+          ...(headline === undefined ? {} : { headline }),
+          fieldVisibility: { tags: "unlisted" },
+          tags: ["house"],
+        } as never)
+          .map((field) => [field.key, field.onProfilePage]),
+        [["tags", false]],
+        String(headline),
+      );
+    }
   });
 });
 
@@ -441,6 +826,40 @@ describe("seed handoff helpers", () => {
     assert.equal(publishPatch.fieldVisibility?.tags, "unlisted");
   });
 
+  it("canonicalizes seed links and reports what it collapsed", () => {
+    // The exact pair the NWinn export carried, and the reason 249 profiles went
+    // live holding a link into VRCDN's operator console: the seed lane validated
+    // links as plain URLs and copied them across as stored, while every other
+    // writer went through the normalizer that knows what a VRCDN link is.
+    const linkStats = { droppedCount: 0, deduplicatedCount: 0 };
+    const patch = buildConciergeProfileFieldPatch(
+      [
+        seedField({
+          fieldKey: "outboundLinks",
+          reviewState: "accepted",
+          visibility: "public",
+          value: [
+            { type: "vrcdn", label: "VRCDN stream", url: "https://stream.vrcdn.live/live/snekwtf.live.ts" },
+            { type: "vrcdn", label: "VRCDN preview", url: "https://panel.vrcdn.live/preview/snekwtf" },
+            { type: "twitch", label: "Twitch", url: "https://twitch.tv/snekwtf" },
+          ],
+        }),
+      ],
+      undefined,
+      { fieldVisibilitySource: "reviewed", clearUnselectedFields: false, linkStats },
+    );
+
+    assert.deepEqual(
+      patch.outboundLinks?.map((link) => link.url),
+      ["https://vrcdn.live/snekwtf", "https://twitch.tv/snekwtf"],
+    );
+    // Both VRCDN entries name one stream, so the profile carries one link and
+    // the operator is told one collapsed rather than being left to notice.
+    assert.equal(linkStats.deduplicatedCount, 1);
+    assert.equal(linkStats.droppedCount, 0);
+    assert.equal(patch.fieldVisibility?.outboundLinks, "public");
+  });
+
   it("rejects handoff fields withdrawn during review", () => {
     for (const reviewState of ["rejected", "needs_correction"] as const) {
       const field = seedField({ reviewState });
@@ -454,6 +873,69 @@ describe("seed handoff helpers", () => {
     assert.equal(isHandoffBatchAvailable({ reviewState: "rejected" }), false);
     assert.equal(isHandoffBatchAvailable({ reviewState: "superseded" }), false);
     assert.equal(isHandoffBatchAvailable(null), false);
+  });
+
+  // Normalization discarding everything is not an instruction to delete. A merge
+  // or a re-derivation writes onto a profile that already exists, so a seed field
+  // whose every entry failed the provider-host checks patched `outboundLinks: []`
+  // over that profile's real links -- destroying live data to carry across
+  // nothing, while the run reported only that some seed rows had dropped.
+  it("keeps a merge target's links when every seed link is unusable", () => {
+    const existing = {
+      outboundLinks: [
+        { type: "twitch", label: "Twitch", url: "https://twitch.tv/snekwtf", source: "owner_authored" },
+      ],
+    };
+    const unusable = [
+      seedField({
+        fieldKey: "outboundLinks",
+        value: [{ type: "twitch", label: "Twitch", url: "https://not-twitch.invalid/snekwtf" }],
+      }),
+    ];
+    const linkStats = { droppedCount: 0, deduplicatedCount: 0 };
+    const patch = buildConciergeProfileFieldPatch(unusable, existing as never, { linkStats });
+
+    // Left alone rather than emptied, and the drop is still counted so the run
+    // says what happened.
+    assert.equal("outboundLinks" in patch, false);
+    assert.equal(linkStats.droppedCount, 1);
+
+    // The visibility goes back with the value. Carrying it across on its own
+    // would keep the live links and hide them -- arguably worse than deleting
+    // them, since they are still there and nobody can see them.
+    assert.equal(patch.fieldVisibility?.outboundLinks, undefined);
+    assert.equal(
+      buildConciergeProfileFieldPatch(
+        [
+          seedField({
+            fieldKey: "outboundLinks",
+            value: [{ type: "twitch", label: "Twitch", url: "https://not-twitch.invalid/x" }],
+            visibility: "private",
+          }),
+        ],
+        { ...existing, fieldVisibility: { outboundLinks: "public" } } as never,
+      ).fieldVisibility?.outboundLinks,
+      "public",
+    );
+
+    // A create has nothing to lose, so the empty array is what it would get
+    // anyway and is written.
+    assert.deepEqual(buildConciergeProfileFieldPatch(unusable).outboundLinks, []);
+
+    // One usable link still replaces the existing list, which is the ordinary
+    // case and must not be caught by this.
+    assert.deepEqual(
+      buildConciergeProfileFieldPatch(
+        [
+          seedField({
+            fieldKey: "outboundLinks",
+            value: [{ type: "twitch", label: "Twitch", url: "https://twitch.tv/moved" }],
+          }),
+        ],
+        existing as never,
+      ).outboundLinks?.map((link) => link.url),
+      ["https://twitch.tv/moved"],
+    );
   });
 
   it("clears stale search aliases when replacing aliases on a reused profile", () => {
@@ -523,5 +1005,38 @@ describe("seed handoff helpers", () => {
       { label: "Twitch", url: "https://twitch.tv/example" },
       { label: "VRChat", url: "https://vrchat.com/home/user/usr_example" },
     ]);
+  });
+
+  // What the owner confirms has to be what the accept writes. The preview showed
+  // the raw seed value while the write normalized it, so a link whose host no
+  // longer matched its provider vanished between the two, and an operator panel
+  // preview URL was shown to the person being handed the profile.
+  it("previews handoff links as the accept will store them", () => {
+    const preview = projectHandoffPreviewField(
+      seedField({
+        fieldKey: "outboundLinks",
+        value: [
+          { type: "vrcdn", label: "Stream", url: "https://panel.vrcdn.live/preview/example" },
+          { type: "twitch", label: "Twitch", url: "https://not-twitch.invalid/example" },
+        ],
+      }),
+    );
+
+    assert.equal(preview?.kind, "link");
+    assert.equal(preview && "url" in preview ? preview.url : undefined, "https://vrcdn.live/example");
+  });
+
+  it("withholds a handoff link field when nothing survives normalization", () => {
+    // Offering "0 prepared links" would invite the owner to confirm a write that
+    // stores nothing, and mark the field owner-confirmed on the way through.
+    assert.equal(
+      projectHandoffPreviewField(
+        seedField({
+          fieldKey: "outboundLinks",
+          value: [{ type: "twitch", label: "Twitch", url: "https://not-twitch.invalid/example" }],
+        }),
+      ),
+      null,
+    );
   });
 });

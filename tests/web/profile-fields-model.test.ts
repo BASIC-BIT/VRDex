@@ -1,0 +1,664 @@
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+
+import {
+  FIELD_PRESENT_INPUT,
+  listFieldValue,
+  partitionLinks,
+  profileFieldsPayload,
+} from "../../apps/web/src/app/_components/profile-fields-model";
+
+/**
+ * `present` names the field groups the form rendered, which is what the real
+ * form emits as hidden markers. Anything not listed is absent from the payload
+ * rather than present and empty.
+ */
+function formData(entries: Array<[string, string]>, present: string[] = []): FormData {
+  const data = new FormData();
+
+  for (const field of present) {
+    data.append(FIELD_PRESENT_INPUT, field);
+  }
+
+  for (const [name, value] of entries) {
+    data.append(name, value);
+  }
+
+  return data;
+}
+
+describe("stream link partitioning", () => {
+  const links = [
+    { type: "vrcdn", url: "https://vrcdn.live/snekwtf" },
+    { type: "twitch", url: "https://twitch.tv/snekwtf" },
+    { type: "twitch", url: "https://twitch.tv/snekwtf-alt" },
+    { type: "soundcloud", url: "https://soundcloud.com/snekwtf" },
+  ] as const;
+
+  it("promotes the first of each type and leaves the rest in rows", () => {
+    const { featured, rows } = partitionLinks([...links], true);
+
+    // The whole link, not just its URL: the dedicated inputs carry the label,
+    // handle and presentation through as hidden fields, same as the rows.
+    // `originalIndex` is the position in the whole list, so an untouched link
+    // goes back where it was instead of surfacing at the front and rewriting the
+    // array on a save that changed nothing. Counting rows instead gave two
+    // adjacent stream links the same index, which swapped them.
+    assert.deepEqual(featured, {
+      vrcdn: { type: "vrcdn", url: "https://vrcdn.live/snekwtf", originalIndex: 0 },
+      twitch: { type: "twitch", url: "https://twitch.tv/snekwtf", originalIndex: 1 },
+    });
+    // The second Twitch link stays a row rather than being dropped for having
+    // nowhere to go.
+    assert.deepEqual(rows.map((link) => link.url), [
+      "https://twitch.tv/snekwtf-alt",
+      "https://soundcloud.com/snekwtf",
+    ]);
+  });
+
+  it("leaves every link in rows when the dedicated inputs are not rendered", () => {
+    // Three ways those inputs are absent: a community profile, which has no
+    // roles; an editor whose subject may not touch `person`; and one who may not
+    // touch `outboundLinks`. Promoting a link into a field that is not on the
+    // page drops it on the next save, silently, with no error anywhere.
+    const { featured, rows } = partitionLinks([...links], false);
+
+    assert.deepEqual(featured, {});
+    assert.equal(rows.length, links.length);
+  });
+});
+
+describe("profile fields payload", () => {
+  it("merges the dedicated stream inputs into the link list", () => {
+    const payload = profileFieldsPayload(
+      formData([
+        ["displayName", "Snek"],
+        ["vrcdnUrl", "https://panel.vrcdn.live/preview/snekwtf"],
+        ["twitchUrl", "https://twitch.tv/snekwtf"],
+        ["linkType", "soundcloud"],
+        ["linkUrl", "https://soundcloud.com/snekwtf"],
+        ["linkOriginalUrl", ""],
+        ["linkOriginalType", ""],
+        ["linkLabel", ""],
+        ["linkHandle", ""],
+        ["linkPresentation", ""],
+      ], ["outboundLinks"]),
+      "person",
+    );
+
+    assert.deepEqual(payload.outboundLinks, [
+      { type: "vrcdn", url: "https://panel.vrcdn.live/preview/snekwtf" },
+      { type: "twitch", url: "https://twitch.tv/snekwtf" },
+      { type: "soundcloud", url: "https://soundcloud.com/snekwtf" },
+    ]);
+  });
+
+  it("drops blank rows and blank stream inputs rather than rejecting them", () => {
+    const payload = profileFieldsPayload(
+      formData([
+        ["displayName", "Snek"],
+        ["vrcdnUrl", "   "],
+        ["linkType", "website"],
+        ["linkUrl", ""],
+        ["linkType", "website"],
+        ["linkUrl", "https://example.com/snek"],
+      ], ["outboundLinks"]),
+      "person",
+    );
+
+    assert.deepEqual(payload.outboundLinks, [
+      { type: "website", url: "https://example.com/snek" },
+    ]);
+  });
+
+  it("combines checked roles with the freeform field, without repeating one", () => {
+    const payload = profileFieldsPayload(
+      formData([
+        ["displayName", "Snek"],
+        ["roleTag", "DJ"],
+        ["roleTag", "VJ"],
+        // Someone will type a role next to the box they already ticked.
+        ["roleTagsOther", "dj, Lighting design"],
+      ], ["person"]),
+      "person",
+    );
+
+    assert.deepEqual(
+      payload.profileType === "person" ? payload.person.roleTags : [],
+      ["DJ", "VJ", "Lighting design"],
+    );
+  });
+
+  it("omits narrative fields the form never rendered", () => {
+    // The update path treats a key it receives as an instruction, so sending an
+    // empty string for a control nobody rendered would clear a headline the
+    // editor never showed. The submit form does not carry these at all.
+    const submitted = profileFieldsPayload(formData([["displayName", "Snek"]]), "person");
+
+    assert.equal("headline" in submitted, false);
+    assert.equal("bio" in submitted, false);
+
+    const edited = profileFieldsPayload(
+      formData([
+        ["displayName", "Snek"],
+        ["headline", "Bass in VRChat"],
+        ["bio", ""],
+        ["region", "EU"],
+        ["timezone", ""],
+      ], ["headline", "bio", "region", "timezone"]),
+      "person",
+    );
+
+    // Present-but-empty is a clear, and has to survive as a key to mean one.
+    assert.equal(edited.headline, "Bass in VRChat");
+    assert.equal(edited.bio, "");
+    assert.equal(edited.region, "EU");
+    assert.equal(edited.timezone, "");
+  });
+
+  it("carries the metadata of an untouched link, and drops it from an edited one", () => {
+    // The form has no control for a label, handle or presentation, and posts the
+    // whole array back — so without this an untouched row returns with its
+    // custom label replaced by the provider default and its VRCDN handle gone.
+    // A row whose URL was edited starts clean: the metadata described the old
+    // destination and would be wrong on the new one.
+    const payload = profileFieldsPayload(
+      formData(
+        [
+          ["displayName", "Snek"],
+          ["linkType", "twitch"],
+          ["linkUrl", "https://twitch.tv/snekwtf"],
+          ["linkOriginalUrl", "https://twitch.tv/snekwtf"],
+          ["linkOriginalType", "twitch"],
+          ["linkLabel", "Restream"],
+          ["linkHandle", "snekwtf"],
+          ["linkPresentation", "copy"],
+          ["linkType", "soundcloud"],
+          ["linkUrl", "https://soundcloud.com/moved"],
+          ["linkOriginalUrl", "https://soundcloud.com/original"],
+          ["linkOriginalType", "soundcloud"],
+          ["linkLabel", "Old set archive"],
+          ["linkHandle", "original"],
+          ["linkPresentation", "copy"],
+        ],
+        ["outboundLinks"],
+      ),
+      "person",
+    );
+
+    assert.deepEqual(payload.outboundLinks, [
+      {
+        type: "twitch",
+        url: "https://twitch.tv/snekwtf",
+        label: "Restream",
+        handle: "snekwtf",
+        presentation: "copy",
+      },
+      { type: "soundcloud", url: "https://soundcloud.com/moved" },
+    ]);
+  });
+
+  it("puts an untouched stream link back where it was stored", () => {
+    // The form lifts a stream link into its own input regardless of where it sat
+    // in the list. Without its original position it comes back at the front, so
+    // opening the editor and saving nothing rewrites `outboundLinks` and records
+    // "outboundLinks updated" for a reordering the form did to itself.
+    const stored = [
+      { type: "soundcloud", url: "https://soundcloud.com/snekwtf" },
+      { type: "twitch", url: "https://twitch.tv/snekwtf" },
+    ] as const;
+    const { featured, rows } = partitionLinks([...stored], true);
+
+    assert.equal(featured.twitch?.originalIndex, 1);
+
+    const payload = profileFieldsPayload(
+      formData(
+        [
+          ["displayName", "Snek"],
+          ["twitchUrl", featured.twitch?.url ?? ""],
+          ["twitchOriginalUrl", featured.twitch?.url ?? ""],
+          ["twitchOriginalIndex", String(featured.twitch?.originalIndex)],
+          ...rows.flatMap((link) => [
+            ["linkType", link.type],
+            ["linkUrl", link.url],
+            ["linkOriginalUrl", link.url],
+            ["linkOriginalType", link.type],
+            ["linkOriginalIndex", String(link.originalIndex)],
+            ["linkLabel", ""],
+            ["linkHandle", ""],
+            ["linkPresentation", ""],
+          ] as Array<[string, string]>),
+        ],
+        ["outboundLinks"],
+      ),
+      "person",
+    );
+
+    assert.deepEqual(
+      payload.outboundLinks?.map((link) => link.url),
+      stored.map((link) => link.url),
+    );
+  });
+
+  it("keeps two adjacent stream links in their stored order", () => {
+    // Both saw the same generic-row count when indices were relative, so both
+    // were reinserted at the same position and came back swapped -- rewriting
+    // `outboundLinks` on a save that changed nothing.
+    const stored = [
+      { type: "vrcdn", url: "https://vrcdn.live/snekwtf" },
+      { type: "twitch", url: "https://twitch.tv/snekwtf" },
+      { type: "soundcloud", url: "https://soundcloud.com/snekwtf" },
+    ] as const;
+    const { featured, rows } = partitionLinks([...stored], true);
+
+    const payload = profileFieldsPayload(
+      formData(
+        [
+          ["displayName", "Snek"],
+          ["vrcdnUrl", featured.vrcdn?.url ?? ""],
+          ["vrcdnOriginalUrl", featured.vrcdn?.url ?? ""],
+          ["vrcdnOriginalIndex", String(featured.vrcdn?.originalIndex)],
+          ["twitchUrl", featured.twitch?.url ?? ""],
+          ["twitchOriginalUrl", featured.twitch?.url ?? ""],
+          ["twitchOriginalIndex", String(featured.twitch?.originalIndex)],
+          ...rows.flatMap((link) => [
+            ["linkType", link.type],
+            ["linkUrl", link.url],
+            ["linkOriginalUrl", link.url],
+            ["linkOriginalType", link.type],
+            ["linkOriginalIndex", String(link.originalIndex)],
+            ["linkLabel", ""],
+            ["linkHandle", ""],
+            ["linkPresentation", ""],
+          ] as Array<[string, string]>),
+        ],
+        ["outboundLinks"],
+      ),
+      "person",
+    );
+
+    assert.deepEqual(
+      payload.outboundLinks?.map((link) => link.url),
+      stored.map((link) => link.url),
+    );
+  });
+
+  it("keeps a stream link in place when a row above it is removed", () => {
+    // Splicing the stream link back at its absolute index only held while every
+    // row survived. Removing the first of these left Twitch claiming index 1 of
+    // a one-element row array, which put it behind Bandcamp -- so deleting one
+    // link silently reordered another and reported `outboundLinks` changed for a
+    // link nobody had touched.
+    const stored = [
+      { type: "soundcloud", url: "https://soundcloud.com/snekwtf" },
+      { type: "twitch", url: "https://twitch.tv/snekwtf" },
+      { type: "bandcamp", url: "https://snekwtf.bandcamp.com" },
+    ] as const;
+    const { featured, rows } = partitionLinks([...stored], true);
+
+    assert.equal(featured.twitch?.originalIndex, 1);
+
+    const payload = profileFieldsPayload(
+      formData(
+        [
+          ["displayName", "Snek"],
+          ["twitchUrl", featured.twitch?.url ?? ""],
+          ["twitchOriginalUrl", featured.twitch?.url ?? ""],
+          ["twitchOriginalIndex", String(featured.twitch?.originalIndex)],
+          // The SoundCloud row is gone. Bandcamp is untouched and still reports
+          // that it was stored third.
+          ...rows
+            .filter((link) => link.type !== "soundcloud")
+            .flatMap((link) => [
+              ["linkType", link.type],
+              ["linkUrl", link.url],
+              ["linkOriginalUrl", link.url],
+              ["linkOriginalType", link.type],
+              ["linkOriginalIndex", String(link.originalIndex)],
+              ["linkLabel", ""],
+              ["linkHandle", ""],
+              ["linkPresentation", ""],
+            ] as Array<[string, string]>),
+        ],
+        ["outboundLinks"],
+      ),
+      "person",
+    );
+
+    assert.deepEqual(payload.outboundLinks?.map((link) => link.url), [
+      "https://twitch.tv/snekwtf",
+      "https://snekwtf.bandcamp.com",
+    ]);
+  });
+
+  it("keeps an edited row where the form is still showing it", () => {
+    // Position and content are separate questions, and tying them together made
+    // editing a row move it: the changed row looked like a newly added one and
+    // went to the end. Correcting the first URL of two must not reorder them.
+    const stored = [
+      { type: "soundcloud", url: "https://soundcloud.com/old" },
+      { type: "bandcamp", url: "https://snekwtf.bandcamp.com" },
+    ] as const;
+    const { rows } = partitionLinks([...stored], true);
+    const payload = profileFieldsPayload(
+      formData(
+        [
+          ["displayName", "Snek"],
+          ...rows.flatMap((link, index) => [
+            ["linkType", link.type],
+            // The first row's URL was edited; the second is untouched.
+            ["linkUrl", index === 0 ? "https://soundcloud.com/new" : link.url],
+            ["linkOriginalUrl", link.url],
+            ["linkOriginalType", link.type],
+            ["linkOriginalIndex", String(link.originalIndex)],
+            ["linkLabel", "Old set archive"],
+            ["linkHandle", "old"],
+            ["linkPresentation", ""],
+          ] as Array<[string, string]>),
+        ],
+        ["outboundLinks"],
+      ),
+      "person",
+    );
+
+    assert.deepEqual(payload.outboundLinks, [
+      // Still first, and stripped of metadata that described the old URL.
+      { type: "soundcloud", url: "https://soundcloud.com/new" },
+      {
+        type: "bandcamp",
+        url: "https://snekwtf.bandcamp.com",
+        label: "Old set archive",
+        handle: "old",
+      },
+    ]);
+  });
+
+  // A comma-separated control cannot represent a value containing a comma, and
+  // the backend allows one -- so hydrating ["Foo, Jr."] and saving an unrelated
+  // field split it in two and wrote that over a name somebody typed deliberately.
+  it("keeps a comma inside a list value the writer did not touch", () => {
+    const stored = ["Foo, Jr.", "Snek"];
+    const payload = profileFieldsPayload(
+      formData(
+        [
+          ["displayName", "Snek"],
+          ["aliases", listFieldValue(stored)],
+          ["aliasesOriginal", JSON.stringify(stored)],
+        ],
+        ["aliases"],
+      ),
+      "person",
+    );
+
+    assert.deepEqual(payload.aliases, stored);
+  });
+
+  it("splits the list once the writer edits it", () => {
+    const stored = ["Foo, Jr."];
+    const payload = profileFieldsPayload(
+      formData(
+        [
+          ["displayName", "Snek"],
+          // Edited, so the comma is the separator the writer means.
+          ["aliases", "Foo, Jr., Snek"],
+          ["aliasesOriginal", JSON.stringify(stored)],
+        ],
+        ["aliases"],
+      ),
+      "person",
+    );
+
+    assert.deepEqual(payload.aliases, ["Foo", "Jr.", "Snek"]);
+  });
+
+  it("keeps a new row aligned with its own blank metadata", () => {
+    // Every row emits all its hidden fields, so a blank one added above a
+    // populated one cannot shift the pairing and hand its label to a neighbour.
+    const payload = profileFieldsPayload(
+      formData(
+        [
+          ["displayName", "Snek"],
+          ["linkType", "website"],
+          ["linkUrl", ""],
+          ["linkOriginalUrl", ""],
+          ["linkOriginalType", ""],
+          ["linkLabel", ""],
+          ["linkHandle", ""],
+          ["linkPresentation", ""],
+          ["linkType", "twitch"],
+          ["linkUrl", "https://twitch.tv/snekwtf"],
+          ["linkOriginalUrl", "https://twitch.tv/snekwtf"],
+          ["linkOriginalType", "twitch"],
+          ["linkLabel", "Restream"],
+          ["linkHandle", "snekwtf"],
+          ["linkPresentation", ""],
+        ],
+        ["outboundLinks"],
+      ),
+      "person",
+    );
+
+    assert.deepEqual(payload.outboundLinks, [
+      { type: "twitch", url: "https://twitch.tv/snekwtf", label: "Restream", handle: "snekwtf" },
+    ]);
+  });
+
+  // The form splits roles across checkboxes and a freeform field and reassembles
+  // them checkboxes-first, so it cannot express the stored order. A profile whose
+  // roles did not originate here was rewritten on a save about something else --
+  // an audit entry, and a possible change to the page, since only the first four
+  // focus values are shown.
+  it("keeps the stored role order when the controls were not touched", () => {
+    const stored = ["Host", "Resident", "DJ"];
+    const payload = profileFieldsPayload(
+      formData(
+        [
+          ["displayName", "Snek"],
+          ["roleTagsStored", JSON.stringify(stored)],
+          ["roleTag", "DJ"],
+          ["roleTag", "Host"],
+          ["roleTagsOther", "Resident"],
+        ],
+        ["person"],
+      ),
+      "person",
+    );
+
+    assert.deepEqual(payload.profileType === "person" ? payload.person?.roleTags : [], stored);
+  });
+
+  it("treats a capitalization fix as a real role change", () => {
+    // Case-folding the comparison declared these one set, so the save returned
+    // the stored spelling and reported success -- the one correction the writer
+    // actually asked for, silently discarded.
+    const payload = profileFieldsPayload(
+      formData(
+        [
+          ["displayName", "Snek"],
+          ["roleTagsStored", JSON.stringify(["DJ", "resident"])],
+          ["roleTag", "DJ"],
+          ["roleTagsOther", "Resident"],
+        ],
+        ["person"],
+      ),
+      "person",
+    );
+
+    assert.deepEqual(payload.profileType === "person" ? payload.person?.roleTags : [], [
+      "DJ",
+      "Resident",
+    ]);
+  });
+
+  it("rebuilds the role list once the roles actually change", () => {
+    const payload = profileFieldsPayload(
+      formData(
+        [
+          ["displayName", "Snek"],
+          ["roleTagsStored", JSON.stringify(["Host", "Resident", "DJ"])],
+          ["roleTag", "DJ"],
+          ["roleTag", "Host"],
+          ["roleTagsOther", "Resident, Lighting design"],
+        ],
+        ["person"],
+      ),
+      "person",
+    );
+
+    assert.deepEqual(
+      payload.profileType === "person" ? payload.person?.roleTags : [],
+      ["DJ", "Host", "Resident", "Lighting design"],
+    );
+  });
+
+  // Retyping `www.twitch.tv/Snek` as `twitch.tv/snek` is the same channel and the
+  // same destination key, so the row is not edited in any sense either lane
+  // recognizes. `source` is a claim the mutation checks against that key, and the
+  // label and handle still describe the link they came with.
+  it("carries link provenance through an equivalent URL edit", () => {
+    const payload = profileFieldsPayload(
+      formData(
+        [
+          ["displayName", "Snek"],
+          ["linkType", "twitch"],
+          ["linkUrl", "https://twitch.tv/snek"],
+          ["linkOriginalUrl", "https://www.twitch.tv/Snek"],
+          ["linkOriginalType", "twitch"],
+          ["linkOriginalIndex", "0"],
+          ["linkLabel", "Restream"],
+          ["linkHandle", "snek"],
+          ["linkPresentation", ""],
+          ["linkSource", "owner_authored"],
+        ],
+        ["outboundLinks"],
+      ),
+      "person",
+    );
+
+    // Same destination by the key both lanes use, so nothing about this row
+    // changed: the claim travels and so does the metadata that still describes
+    // it. Dropping the label and handle here replaced an operator's wording with
+    // provider defaults for a correction that was purely cosmetic.
+    assert.deepEqual(payload.outboundLinks, [
+      {
+        type: "twitch",
+        url: "https://twitch.tv/snek",
+        label: "Restream",
+        handle: "snek",
+        source: "owner_authored",
+      },
+    ]);
+  });
+
+  it("keeps the submit payload inside what the submission mutation accepts", () => {
+    // Convex rejects an unknown argument outright, so a key the form gained and
+    // the mutation did not is not a no-op -- it fails every submission. Nothing
+    // caught the last one: the web tests exercise this builder, and the e2e flow
+    // posts through the helper route's own explicit field mapping rather than
+    // `profiles:submitCommunityProfile`.
+    const accepted = new Set([
+      "profileType",
+      "displayName",
+      "aliases",
+      "tags",
+      "person",
+      "community",
+      "outboundLinks",
+      "assets",
+    ]);
+    const acceptedPersonKeys = new Set(["roleTags"]);
+
+    for (const profileType of ["person", "community"] as const) {
+      // The submit form renders every group and no narrative fields.
+      const payload = profileFieldsPayload(
+        formData(
+          [["displayName", "Snek"], ["roleTag", "DJ"], ["subtype", "Club"]],
+          ["aliases", "tags", "person", "community", "outboundLinks"],
+        ),
+        profileType,
+      );
+
+      for (const key of Object.keys(payload)) {
+        assert.ok(accepted.has(key), `submitCommunityProfile does not accept "${key}"`);
+      }
+
+      if (payload.profileType === "person" && payload.person !== undefined) {
+        for (const key of Object.keys(payload.person)) {
+          assert.ok(acceptedPersonKeys.has(key), `submitCommunityProfile person does not accept "${key}"`);
+        }
+      }
+    }
+  });
+
+  it("sends pronouns only when the editor rendered the control", () => {
+    // `submitCommunityProfile` validates `person` as role tags alone, so an
+    // always-present `pronouns: ""` is not a harmless empty string on the submit
+    // path — Convex rejects the whole argument as an unknown field, and every
+    // person submission fails.
+    const submitted = profileFieldsPayload(
+      formData([["displayName", "Snek"], ["roleTag", "DJ"]], ["person"]),
+      "person",
+    );
+
+    assert.deepEqual(
+      submitted.profileType === "person" ? submitted.person : null,
+      { roleTags: ["DJ"] },
+    );
+
+    const edited = profileFieldsPayload(
+      formData([["displayName", "Snek"], ["roleTag", "DJ"], ["pronouns", "they/them"]], ["person"]),
+      "person",
+    );
+
+    assert.deepEqual(
+      edited.profileType === "person" ? edited.person : null,
+      { roleTags: ["DJ"], pronouns: "they/them" },
+    );
+  });
+
+  it("omits a field group the form did not render", () => {
+    // The editor hides fields this writer may not edit, and the update path
+    // reads every key it receives as an instruction. Without the marker, "no
+    // link rows" is indistinguishable from "the links section was not shown",
+    // so saving a typo fix would delete links the editor never displayed.
+    const payload = profileFieldsPayload(
+      formData([["displayName", "Snek"]], ["tags"]),
+      "person",
+    );
+
+    assert.deepEqual(payload.tags, []);
+    assert.equal("aliases" in payload, false);
+    assert.equal("outboundLinks" in payload, false);
+    assert.equal("person" in payload, false);
+  });
+
+  it("keeps an emptied group as an explicit clear", () => {
+    // The other half: rendered and emptied has to reach the backend, or removing
+    // your last link would silently do nothing.
+    const payload = profileFieldsPayload(
+      formData([["displayName", "Snek"]], ["outboundLinks", "aliases"]),
+      "person",
+    );
+
+    assert.deepEqual(payload.outboundLinks, []);
+    assert.deepEqual(payload.aliases, []);
+  });
+
+  it("ignores person fields on a community profile", () => {
+    const payload = profileFieldsPayload(
+      formData([
+        ["displayName", "Afterglow"],
+        ["roleTag", "DJ"],
+        ["subtype", "Club"],
+        ["categoryTags", "events, music"],
+      ], ["person", "community"]),
+      "community",
+    );
+
+    assert.equal(payload.profileType, "community");
+    assert.deepEqual(
+      payload.profileType === "community" ? payload.community : null,
+      { subtype: "Club", categoryTags: ["events", "music"] },
+    );
+  });
+});

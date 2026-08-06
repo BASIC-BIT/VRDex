@@ -7,6 +7,7 @@ import { api } from "@convex-generated-api";
 import { Button } from "@/components/ui/button";
 import { Field, FieldText, Input, Select, Textarea } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
+import { BACKEND_ERROR_COPY } from "@/lib/error-copy";
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 
@@ -73,7 +74,7 @@ type Status =
  * straight into the page put that whole stack dump in front of whoever mistyped
  * a link.
  */
-const RECOVERABLE_ERROR_PATTERNS = [
+const userSafeErrorPatterns = [
   /That does not look like a profile\.[^\n]*/,
   /Add a contact so we can reply\./,
   /Tell us a little more about what you need\./,
@@ -83,7 +84,7 @@ const RECOVERABLE_ERROR_PATTERNS = [
 function requestErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
 
-  for (const pattern of RECOVERABLE_ERROR_PATTERNS) {
+  for (const pattern of userSafeErrorPatterns) {
     const match = message.match(pattern);
 
     if (match) {
@@ -91,7 +92,11 @@ function requestErrorMessage(error: unknown): string {
     }
   }
 
-  return "That did not send. Try again in a moment.";
+  // The shared sentence, not a fourth spelling of it. `error-copy.ts` exists
+  // because three forms each had their own wording for "the backend did not
+  // answer", so fixing one left the others saying something else. The patterns
+  // above are this form's own, which is the part that is meant to differ.
+  return BACKEND_ERROR_COPY;
 }
 
 function textField(value: FormDataEntryValue | null): string {

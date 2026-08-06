@@ -100,8 +100,15 @@ export type PrivateSeedLookupResult = {
   displayName: string;
   proposedSlug?: string;
   reviewState: string;
-  publicationState: "draft_private" | "review_pending";
+  publicationState: "draft_private" | "review_pending" | "published_unclaimed";
   reviewedAt?: number;
+  /**
+   * Where the candidate went once it published.
+   *
+   * The lookup covers published records now, and naming a person it cannot take
+   * you to is the smaller half of the surface that used to drop them entirely.
+   */
+  publishedProfileSlug?: string;
   source: {
     name: string;
     observedAt?: number;
@@ -695,7 +702,16 @@ function PrivateSeedIdentity({ candidate }: { candidate: PrivateSeedLookupResult
 
   return (
     <div className="lookup-private-identity ph-no-capture" data-ph-no-capture>
-      <span className="lookup-private-name">{candidate.displayName}</span>
+      {/* Linked once it has somewhere to go. A published candidate whose public
+          search result does not match what the operator typed would otherwise be
+          named here and nowhere else. */}
+      {candidate.publishedProfileSlug ? (
+        <Link className="lookup-private-name" href={`/p/${candidate.publishedProfileSlug}`}>
+          {candidate.displayName}
+        </Link>
+      ) : (
+        <span className="lookup-private-name">{candidate.displayName}</span>
+      )}
       {aliases.length > 0 ? (
         <div className="lookup-alias-line">
           <span>aka</span>

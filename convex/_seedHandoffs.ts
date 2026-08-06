@@ -1,4 +1,5 @@
 import type { Doc, Id } from "./_generated/dataModel";
+import { sanitizeProfileLinksLeniently } from "./_profileLinks";
 import { normalizeSafePrivateSeedFieldValue } from "./_seedImports";
 
 type PersonProfile = Extract<Doc<"profiles">, { profileType: "person" }>;
@@ -97,8 +98,25 @@ export function projectHandoffPreviewField(
     const normalized = normalizeSafePrivateSeedFieldValue(field.fieldKey, field.value);
 
     if (field.fieldKey === "outboundLinks") {
-      const links = normalized as Array<{ label: string; url: string }>;
-      const previewLinks = links.map(({ label, url }) => ({ label, url }));
+      // Through the sanitizer the write uses, not the raw seed value. The two
+      // disagree: normalization drops a link whose host no longer matches its
+      // provider and rewrites a VRCDN operator panel URL to the public page. A
+      // preview built from the raw list showed the owner links that the accept
+      // would then discard, so they confirmed one profile and got another --
+      // and showed them an operator preview URL that is not theirs to be handed.
+      //
+      // Provenance does not affect which links survive, so the stamp passed
+      // here is immaterial; the accept path decides the stored one from the
+      // batch's source type.
+      const previewLinks = sanitizeProfileLinksLeniently(normalized, "partner_provided").links.map(
+        (link) => ({ label: link.label, url: link.url }),
+      );
+      // Nothing survived, so there is no field to offer. Listing it as "0
+      // prepared links" would invite the owner to confirm an empty write.
+      if (previewLinks.length === 0) {
+        return null;
+      }
+
       const singleLink = previewLinks.length === 1 ? previewLinks[0] : undefined;
 
       return {
@@ -169,6 +187,16 @@ export function selectHandoffFields(
       throw new Error("A selected handoff field is no longer available.");
     }
     normalizeSafePrivateSeedFieldValue(field.fieldKey, field.value);
+
+    // Judged by what the preview would show today, not only by review state. A
+    // link field whose every entry now fails normalization is hidden from the
+    // preview -- but a page loaded before that deploy, or any direct caller,
+    // still holds its id, and accepting it marked a field the owner never saw as
+    // `owner_confirmed` while storing nothing. The guarantee is that the preview
+    // is what gets stored, so the preview is what selection has to agree with.
+    if (projectHandoffPreviewField(field) === null) {
+      throw new Error("A selected handoff field is no longer available.");
+    }
   }
 
   return selectedFields;
@@ -273,6 +301,20 @@ export type SeedFieldPatchOptions = {
    * selection, so it derives provenance from the batch's source type instead.
    */
   sourceType?: Doc<"seedImportBatches">["sourceType"];
+  /**
+   * Optional accumulator for what link normalization discarded.
+   *
+   * An out-parameter rather than a second return value because every call site
+   * spreads the patch straight into a `db.patch`, and the counts are not profile
+   * fields. Publication previews and the re-derivation migration read it so a
+   * dropped link is reported rather than noticed later on a live profile.
+   */
+  linkStats?: SeedFieldPatchLinkStats;
+};
+
+export type SeedFieldPatchLinkStats = {
+  droppedCount: number;
+  deduplicatedCount: number;
 };
 
 export function buildConciergeProfileFieldPatch(
@@ -344,7 +386,16 @@ export function buildConciergeProfileFieldPatch(
 
   for (const field of fields) {
     const value = normalizeSafePrivateSeedFieldValue(field.fieldKey, field.value);
-    fieldVisibility[visibilityKeyForSeedField(field.fieldKey)] =
+    // Written before the switch, and taken back below if the value turns out not
+    // to be written at all. A visibility describes the value it arrived with, so
+    // carrying it across on its own reclassifies whatever the profile already
+    // had: a private seed link field whose every entry was unusable would leave
+    // the live links in place and mark them private, hiding real links to
+    // describe links that never landed.
+    const visibilityKey = visibilityKeyForSeedField(field.fieldKey);
+    const previousVisibility = fieldVisibility[visibilityKey];
+
+    fieldVisibility[visibilityKey] =
       fieldVisibilitySource === "private" ? "private" : field.visibility;
 
     switch (field.fieldKey) {
@@ -376,12 +427,40 @@ export function buildConciergeProfileFieldPatch(
       case "timezone":
         patch[field.fieldKey] = value as string;
         break;
-      case "outboundLinks":
-        patch.outboundLinks = (value as Array<Record<string, unknown>>).map((link) => ({
-          ...(link as Omit<NonNullable<PersonProfile["outboundLinks"]>[number], "source">),
-          source: linkSource,
-        }));
+      case "outboundLinks": {
+        // Through the same normalizer every other writer uses, rather than
+        // copied across as stored. The seed lane validated links as plain URLs,
+        // so it carried whatever the export held -- including VRCDN operator
+        // panel preview URLs, which are not a link to put on a public profile.
+        // Canonicalizing here collapses those onto the public vrcdn.live page
+        // and applies the provider host checks the import never ran.
+        const sanitized = sanitizeProfileLinksLeniently(value, linkSource);
+
+        if (options?.linkStats !== undefined) {
+          options.linkStats.droppedCount += sanitized.droppedCount;
+          options.linkStats.deduplicatedCount += sanitized.deduplicatedCount;
+        }
+
+        // Normalization discarding everything is not an instruction to delete.
+        // A merge or a re-derivation writes onto a profile that already exists,
+        // and a seed field whose every entry failed the provider-host checks
+        // would have patched `outboundLinks: []` over that profile's real links
+        // -- destroying live data to carry across nothing, while the run reported
+        // only that some seed rows had dropped. The counts still say it happened;
+        // the profile keeps what it had.
+        //
+        // A create is unaffected: there is nothing to preserve, and `[]` is what
+        // the profile would get anyway.
+        if (sanitized.links.length > 0 || (profile?.outboundLinks?.length ?? 0) === 0) {
+          patch.outboundLinks = sanitized.links;
+        } else if (previousVisibility === undefined) {
+          delete fieldVisibility[visibilityKey];
+        } else {
+          fieldVisibility[visibilityKey] = previousVisibility;
+        }
+
         break;
+      }
       case "person.pronouns":
         person = { ...person, pronouns: value as string };
         personChanged = true;
