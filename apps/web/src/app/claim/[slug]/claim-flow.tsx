@@ -1001,11 +1001,15 @@ export function ClaimFlow({
           {status.kind === "error" ? <Notice variant="error">{status.message}</Notice> : null}
         </div>
 
+        {/* Was a `mailto:`, which asked for none of the identifiers any of these
+            three need and required a mail client, on a headset. The form
+            prompts for the profile and a way to reply, and the topic is chosen
+            before the page loads. */}
         <p className="mt-8 border-t border-border pt-5 text-sm leading-6 text-muted">
           Transferring, recovering, or disputing ownership?{" "}
-          <a className="underline underline-offset-4" href="mailto:basic@basicbit.net">
+          <Link className="underline underline-offset-4" href="/support?topic=ownership_dispute">
             Contact support
-          </a>
+          </Link>
           .
         </p>
       </section>
