@@ -24,6 +24,7 @@ import {
 import {
   misplacedMigrationFlag,
   readOption,
+  unknownOption,
   VALUE_OPTIONS,
 } from "../../scripts/publish-seed-batch.mjs";
 
@@ -886,6 +887,51 @@ describe("seed publish CLI option parsing", () => {
     );
     assert.equal(
       misplacedMigrationFlag(undefined, { "--rederive-values": false, "--field-keys": false }),
+      undefined,
+    );
+  });
+});
+
+describe("seed publish option safety", () => {
+  it("refuses a misspelled option instead of running a different operation", () => {
+    // The two reported spellings, both of which changed what the run did.
+    // `--set-visibilty` leaves the real selector unset, so the run falls past
+    // the migration into a bulk publication.
+    assert.deepEqual(
+      unknownOption(["--batch-id", "b", "--set-visibilty", "public", "--apply"]),
+      { name: "--set-visibilty", reason: "unknown" },
+    );
+
+    // `--field-key` leaves `--field-keys` absent, which the script reads as
+    // every accepted field, so a migration scoped to one key exposes all.
+    assert.deepEqual(
+      unknownOption(["--set-visibility", "public", "--field-key", "aliases"]),
+      { name: "--field-key", reason: "unknown" },
+    );
+  });
+
+  it("refuses a repeated option rather than silently taking the first", () => {
+    assert.deepEqual(
+      unknownOption(["--set-visibility", "public", "--set-visibility", "private"]),
+      { name: "--set-visibility", reason: "repeated" },
+    );
+  });
+
+  it("accepts a well-formed run, separator and all", () => {
+    assert.equal(
+      unknownOption([
+        "--",
+        "--batch-id",
+        "seed_fake_2026_001",
+        "--set-visibility",
+        "public",
+        "--field-keys",
+        "aliases",
+        "--rederive-values",
+        "--apply",
+        "--target",
+        "prod",
+      ]),
       undefined,
     );
   });

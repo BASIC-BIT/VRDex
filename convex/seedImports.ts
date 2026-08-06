@@ -1656,6 +1656,28 @@ export const bulkSetFieldVisibility = internalMutation({
      * write.
      */
     countedProfileIds: v.optional(v.array(v.id("profiles"))),
+    /**
+     * What earlier pages of this dry run decided each profile's visibility would
+     * be.
+     *
+     * The counted ids alone were not enough, and saying they were is the reason
+     * this had to be found twice. They stop a merged profile being reported once
+     * per page; they carry nothing about the visibility itself. An applied run's
+     * later page reads the row the earlier one patched, so a candidate on a
+     * shared profile sees the alias page one hid. A dry run writes nothing and
+     * reread the original -- so it recomputed the suppression check against a
+     * public alias the real run would have already hidden, and reported
+     * `suppressed_identity_blocks_visibility_change` for a profile the apply
+     * accepts.
+     */
+    simulatedFieldVisibility: v.optional(
+      v.array(
+        v.object({
+          profileId: v.id("profiles"),
+          fieldVisibility: v.record(v.string(), seedImportFieldVisibilityValidator),
+        }),
+      ),
+    ),
     reviewer: v.optional(seedImportAuthSubjectValidator),
     now: v.optional(v.number()),
   },
@@ -1744,7 +1766,14 @@ export const bulkSetFieldVisibility = internalMutation({
     const writtenFieldVisibility = new Map<
       Id<"profiles">,
       Doc<"profiles">["fieldVisibility"]
-    >();
+    >(
+      // Seeded from earlier pages, so a dry run's second page starts where its
+      // first left off instead of re-reading a row nothing wrote to.
+      (args.simulatedFieldVisibility ?? []).map((entry) => [
+        entry.profileId,
+        entry.fieldVisibility as Doc<"profiles">["fieldVisibility"],
+      ]),
+    );
     // Seeded from earlier pages of the same dry run. Their exact visibility is
     // not carried -- only that the run has already reported this profile, which
     // is all the count needs. It decides the number and nothing else: a profile
@@ -2007,6 +2036,12 @@ export const bulkSetFieldVisibility = internalMutation({
       // keeps the two runs taking identical arguments -- a dry run whose call
       // shape differs from the real one is predicting something else.
       countedProfileIds: [...countedProfileIds],
+      // Handed back for the same reason and with the same caveat: only a dry run
+      // needs it, and an applied run returns it so both take identical arguments.
+      simulatedFieldVisibility: [...writtenFieldVisibility].flatMap(
+        ([profileId, fieldVisibility]) =>
+          fieldVisibility === undefined ? [] : [{ profileId, fieldVisibility }],
+      ),
       nextCursor: pageResult.isDone ? null : pageResult.continueCursor,
       isDone: pageResult.isDone,
     };

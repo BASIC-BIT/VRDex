@@ -378,7 +378,16 @@ function linksFromFormData(formData: FormData): ProfileLinkInput[] {
 
     // Only when the URL is unchanged. Pasting a different stream is a new link,
     // and keeping the old handle or label on it would describe the wrong one.
-    const unchanged = stringField(formData.get(`${type}OriginalUrl`)).trim() === url;
+    //
+    // Compared by canonical destination, the same as the generic rows and with
+    // the same key the mutation uses. Retyping `www.twitch.tv/Snek` as
+    // `twitch.tv/snek` is the same channel, and an exact comparison called it a
+    // different stream and replaced the operator's label and handle with
+    // provider defaults.
+    const originalUrl = stringField(formData.get(`${type}OriginalUrl`)).trim();
+    const unchanged =
+      profileLinkDestinationKey({ type, url: originalUrl }) ===
+      profileLinkDestinationKey({ type, url });
     const originalIndex = Number.parseInt(stringField(formData.get(`${type}OriginalIndex`)), 10);
 
     return [

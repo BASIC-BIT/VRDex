@@ -287,10 +287,16 @@ describe("link destination identity", () => {
     );
   });
 
-  it("keeps a trailing slash and a bare host on one key", () => {
+  it("folds a trailing slash only on those same hosts", () => {
     assert.equal(
       profileLinkDestinationKey({ type: "twitch", url: "https://twitch.tv/snek/" }),
       profileLinkDestinationKey({ type: "twitch", url: "https://twitch.tv/snek" }),
+    );
+
+    // `/foo` and `/foo/` are two paths a server may answer differently.
+    assert.notEqual(
+      profileLinkDestinationKey({ type: "website", url: "https://example.com/dj/" }),
+      profileLinkDestinationKey({ type: "website", url: "https://example.com/dj" }),
     );
   });
 });

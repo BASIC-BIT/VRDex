@@ -66,6 +66,57 @@ export const VALUE_OPTIONS = [
 ];
 
 /**
+ * Every option this script understands, `--target` included: the shared target
+ * helper reads it off the same argv.
+ */
+export const KNOWN_OPTIONS = [
+  ...VALUE_OPTIONS,
+  "--target",
+  "--accept-fields",
+  "--apply",
+  "--rederive-values",
+];
+
+/**
+ * The first unrecognized or repeated option, if any.
+ *
+ * Ignoring what it did not recognize is how a spelling mistake changed which
+ * operation ran. `--set-visibilty public --apply` leaves the real
+ * `--set-visibility` unset, so the run falls past the migration and bulk
+ * publishes every pending candidate in the batch. `--field-key aliases` is the
+ * quieter one: the recognized `--field-keys` stays absent, which this script
+ * reads as "every accepted field", so a migration an operator scoped to one key
+ * makes all of them public instead.
+ *
+ * Repeats are refused rather than resolved. `readOption` takes the first match,
+ * so `--set-visibility public --set-visibility private` runs one of them and
+ * says nothing about which.
+ *
+ * A bare `--` is the package-manager separator, not an option.
+ */
+export function unknownOption(argv, known = KNOWN_OPTIONS) {
+  const seen = new Set();
+
+  for (const token of argv) {
+    if (token === "--" || !token.startsWith("--")) {
+      continue;
+    }
+
+    if (!known.includes(token)) {
+      return { name: token, reason: "unknown" };
+    }
+
+    if (seen.has(token)) {
+      return { name: token, reason: "repeated" };
+    }
+
+    seen.add(token);
+  }
+
+  return undefined;
+}
+
+/**
  * The first migration-only flag supplied without `--set-visibility`, if any.
  *
  * Refused rather than ignored. These two belong to the visibility migration, and
@@ -267,6 +318,7 @@ function setFieldVisibility({ batchId, visibility, reason, reviewer, limit }) {
   let linksDeduplicatedTotal = 0;
   let cursor;
   let countedProfileIds = [];
+  let simulatedFieldVisibility = [];
   const skipped = [];
 
   console.log("");
@@ -283,12 +335,18 @@ function setFieldVisibility({ batchId, visibility, reason, reviewer, limit }) {
       ...(fieldKeys === undefined ? {} : { fieldKeys }),
       ...(cursor === undefined || cursor === null ? {} : { cursor }),
       ...(countedProfileIds.length === 0 ? {} : { countedProfileIds }),
+      ...(simulatedFieldVisibility.length === 0 ? {} : { simulatedFieldVisibility }),
     });
 
     // Carried into the next page so one merged profile is not counted once per
     // page. Several candidates can publish to the same profile, and an applied
     // run's later page sees the earlier patch where a dry run would not.
     countedProfileIds = page.countedProfileIds ?? countedProfileIds;
+    // The visibility itself, not just which profiles were counted. The ids stop
+    // a double count; they say nothing about what page one decided, so without
+    // this a dry run's later page recomputes the suppression check against the
+    // row as it was before the run started.
+    simulatedFieldVisibility = page.simulatedFieldVisibility ?? simulatedFieldVisibility;
 
     processedTotal += page.processed;
     fieldsChangedTotal += page.fieldsChanged;
@@ -335,6 +393,19 @@ function setFieldVisibility({ batchId, visibility, reason, reviewer, limit }) {
 
 function main() {
   target = requireTarget();
+
+  // Before anything reads an option, because what this catches is a run doing
+  // something other than what was typed. Every other check here assumes the
+  // options it is looking at are the ones the operator meant.
+  const badOption = unknownOption(args);
+
+  if (badOption !== undefined) {
+    fail(
+      badOption.reason === "unknown"
+        ? `Unknown option ${badOption.name}.\n\n${USAGE}`
+        : `${badOption.name} was given more than once.\n\n${USAGE}`,
+    );
+  }
 
   const batchId = option("--batch-id");
 

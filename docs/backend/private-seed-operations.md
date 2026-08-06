@@ -311,6 +311,13 @@ pnpm ops:seed-publish -- `
   until the batch is drained and prints running progress. Cursor paging matters: a
   permanently blocked candidate never receives a `publishedProfileId`, so
   offset-style paging would re-read the same page forever.
+- Unknown and repeated options are refused before the script decides which
+  operation to run. This is not tidiness: the parser used to ignore what it did
+  not recognize, so `--set-visibilty public --apply` left the real
+  `--set-visibility` unset and the run fell through to a bulk publication, and
+  `--field-key aliases` left `--field-keys` absent, which means every accepted
+  field. A misspelling could pick a different destructive operation, or widen
+  the one you asked for to the whole batch.
 - Batches already marked `rejected` or `superseded` are refused. Those are review
   decisions; move them with `seedImports:setBatchReviewState` first if that is
   genuinely intended.

@@ -350,21 +350,23 @@ export function sanitizeProfileLinks(
 const CASE_INSENSITIVE_PATH_HOSTS = new Set(["twitch.tv"]);
 
 /**
- * Hosts whose apex and `www.` spellings are the same destination.
+ * Hosts that address one profile per account, so the spellings of a URL that
+ * differ only in `www.` or a trailing slash all name the same destination.
  *
  * Flattened from `PROFILE_LINK_TYPE_HOSTS` rather than restated, so a host
  * counts as a provider here exactly when the type validator already treats it as
- * one, plus VRCDN's own root. Each is a branded profile in a single account
- * namespace, where `www.twitch.tv/Snek` and `twitch.tv/Snek` are the same
+ * one, plus VRCDN's own root. Each serves a branded profile in a single account
+ * namespace, where `www.twitch.tv/Snek/` and `twitch.tv/Snek` are the same
  * channel by construction.
  *
- * Deliberately not a general rule. `example.com` and `www.example.com` are
- * distinct origins that may serve different pages, and a `website` link is
- * exactly where that happens: folding them everywhere let seed publication drop
- * one of a profile's two real links as a duplicate, and let an edit to one
- * inherit the other origin's metadata and provenance.
+ * Deliberately not a general rule, and both normalizations were general rules
+ * once. `example.com` and `www.example.com` are distinct origins, and `/foo` and
+ * `/foo/` are distinct paths a server may answer differently -- a `website` link
+ * is exactly where that happens. Folding either everywhere let seed publication
+ * drop one of a profile's two real links as a duplicate, and let an edit to one
+ * inherit the other's metadata and provenance.
  */
-const WWW_EQUIVALENT_HOSTS = new Set([
+const SINGLE_PROFILE_HOSTS = new Set([
   ...Object.values(PROFILE_LINK_TYPE_HOSTS).flatMap((hosts) => hosts ?? []),
   "vrcdn.live",
 ]);
@@ -379,7 +381,8 @@ export function profileLinkDestinationKey(link: { type: string; url: string }): 
     // ran too far the other way: on an arbitrary `website` link the apex and the
     // `www` origin are two addresses that may serve two pages.
     const apex = url.host.replace(/^www\./i, "");
-    const host = WWW_EQUIVALENT_HOSTS.has(apex) ? apex : url.host;
+    const singleProfileHost = SINGLE_PROFILE_HOSTS.has(apex);
+    const host = singleProfileHost ? apex : url.host;
     // Some hosts say their path is case-insensitive, and Twitch is one. Keeping
     // the case there left the seed lane publishing both spellings as separate
     // buttons and the browser lane failing the provenance match on a case-only
@@ -388,11 +391,12 @@ export function profileLinkDestinationKey(link: { type: string; url: string }): 
     // A named list rather than folding every path, because the general case runs
     // the other way -- on most hosts `/Mix` and `/mix` are two pages, which is
     // the defect this key was written to fix.
-    // Trailing slashes dropped for every host: `/snek/` and `/snek` are one
-    // resource, and the lookup merger has always normalized them. Leaving them
-    // meant a seed carrying both spellings published two buttons and reported no
-    // duplicate, which is the exact failure the case fold was added to stop.
-    const pathname = url.pathname.replace(/\/+$/, "") || "/";
+    // Trailing slashes dropped on the same hosts and for the same reason:
+    // `twitch.tv/snek/` and `twitch.tv/snek` are one channel, and a seed carrying
+    // both spellings published two buttons and reported no duplicate. Elsewhere
+    // `/foo` and `/foo/` are two paths a server may answer differently, so they
+    // stay two destinations.
+    const pathname = singleProfileHost ? url.pathname.replace(/\/+$/, "") || "/" : url.pathname;
     const path = CASE_INSENSITIVE_PATH_HOSTS.has(host) ? pathname.toLowerCase() : pathname;
 
     // `URL` lowercases protocol and host itself; the rest is used exactly as
