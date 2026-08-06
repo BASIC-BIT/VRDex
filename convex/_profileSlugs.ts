@@ -106,6 +106,43 @@ export function readProfileSlugFromInput(raw: string): string {
   return normalizeProfileSlugInput(segments[segments.length - 1] ?? "");
 }
 
+/** Shared by both intake mutations behind `/support`. */
+export const INVALID_PROFILE_INPUT_MESSAGE =
+  "That does not look like a profile. Paste the profile link, or the last part of it, like dj-aurora.";
+
+/**
+ * The slug a request names, `undefined` for a blank field, or a refusal.
+ *
+ * Lives here rather than in either caller because one form feeds both
+ * `supportRequests` and `suppressions`, and its profile field says "paste the
+ * profile link" whichever topic is chosen. Parsing it in one mutation only
+ * meant a pasted link resolved for a dispute and was rejected for an opt-out.
+ *
+ * Throws rather than returning `undefined` for unusable text: dropping the only
+ * identifier on a request, without telling the person who typed it, is how a
+ * dispute arrives that nobody can act on.
+ */
+export function resolveRequestedProfileSlug(raw: string | undefined): string | undefined {
+  const trimmed = (raw ?? "").trim();
+  const slug = readProfileSlugFromInput(trimmed);
+
+  if (slug === "") {
+    if (trimmed !== "") {
+      throw new Error(INVALID_PROFILE_INPUT_MESSAGE);
+    }
+
+    return undefined;
+  }
+
+  const validation = validateProfileSlug(slug);
+
+  if (!validation.ok) {
+    throw new Error(INVALID_PROFILE_INPUT_MESSAGE);
+  }
+
+  return validation.slug;
+}
+
 export function validateProfileSlug(slug: string): ProfileSlugValidationResult {
   if (slug.length === 0) {
     return { ok: false, reason: "empty" };

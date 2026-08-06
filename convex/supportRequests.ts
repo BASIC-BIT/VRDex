@@ -3,11 +3,7 @@ import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { internalMutation, internalQuery, mutation } from "./_generated/server";
 import { activeBrowserSessionSubjectOrNull } from "./_browserSessionAuthority";
-import {
-  getProfileBySlug,
-  readProfileSlugFromInput,
-  validateProfileSlug,
-} from "./_profileSlugs";
+import { getProfileBySlug, resolveRequestedProfileSlug } from "./_profileSlugs";
 import { normalizeProfileInlineText } from "./_profileSubmissions";
 
 const supportRequestTopic = v.union(
@@ -66,7 +62,13 @@ function optionalText(value: string | undefined, maxLength: number): string | un
  * blank lines still collapse, so the digest cannot be padded into a wall.
  */
 function normalizeMessage(input: string): string {
+  // Sliced before the passes below, not after. This mutation is public and
+  // unauthenticated, so the argument size is whatever a caller sends, and
+  // running four regex passes over it before trimming means the work scales
+  // with what an attacker chooses rather than with what is kept. The generous
+  // headroom is so trailing whitespace cannot push real text over the edge.
   return input
+    .slice(0, MESSAGE_MAX_LENGTH * 2)
     .replace(/\r\n?/g, "\n")
     .split("\n")
     .map((line) => line.trimEnd())
@@ -74,39 +76,6 @@ function normalizeMessage(input: string): string {
     .replace(/\n{3,}/g, "\n\n")
     .trim()
     .slice(0, MESSAGE_MAX_LENGTH);
-}
-
-/** Shared with `suppressions.ts`, which the same form's other two topics call. */
-export const INVALID_PROFILE_INPUT_MESSAGE =
-  "That does not look like a profile. Paste the profile link, or the last part of it, like dj-aurora.";
-
-/**
- * The slug a request names, or `undefined`, or a refusal.
- *
- * Both intake mutations behind `/support` run this, because one form feeds both
- * and the field it fills says "paste the profile link" either way. Splitting the
- * parsing would mean a pasted link resolved on one topic and was rejected on the
- * next.
- */
-export function resolveRequestedProfileSlug(raw: string | undefined): string | undefined {
-  const trimmed = (raw ?? "").trim();
-  const slug = readProfileSlugFromInput(trimmed);
-
-  if (trimmed !== "" && slug === "") {
-    throw new Error(INVALID_PROFILE_INPUT_MESSAGE);
-  }
-
-  if (slug === "") {
-    return undefined;
-  }
-
-  const validation = validateProfileSlug(slug);
-
-  if (!validation.ok) {
-    throw new Error(INVALID_PROFILE_INPUT_MESSAGE);
-  }
-
-  return validation.slug;
 }
 
 /**

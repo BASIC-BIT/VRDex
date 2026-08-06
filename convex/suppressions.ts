@@ -4,8 +4,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, mutation, type MutationCtx } from "./_generated/server";
 import { activeBrowserSessionSubjectOrNull } from "./_browserSessionAuthority";
-import { getProfileBySlug } from "./_profileSlugs";
-import { resolveRequestedProfileSlug } from "./supportRequests";
+import { getProfileBySlug, resolveRequestedProfileSlug } from "./_profileSlugs";
 import { createProfileSortName, normalizeProfileInlineText } from "./_profileSubmissions";
 import { surfacedProfileNames } from "./_suppressions";
 import {
