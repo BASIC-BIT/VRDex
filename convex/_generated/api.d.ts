@@ -101,6 +101,8 @@ import type * as seedAccess from "../seedAccess.js";
 import type * as seedHandoffs from "../seedHandoffs.js";
 import type * as seedImports from "../seedImports.js";
 import type * as shortLinks from "../shortLinks.js";
+import type * as supportRequestDigest from "../supportRequestDigest.js";
+import type * as supportRequests from "../supportRequests.js";
 import type * as suppressions from "../suppressions.js";
 import type * as temporalParsing from "../temporalParsing.js";
 import type * as temporalParsingActions from "../temporalParsingActions.js";
@@ -208,6 +210,8 @@ declare const fullApi: ApiFromModules<{
   seedHandoffs: typeof seedHandoffs;
   seedImports: typeof seedImports;
   shortLinks: typeof shortLinks;
+  supportRequestDigest: typeof supportRequestDigest;
+  supportRequests: typeof supportRequests;
   suppressions: typeof suppressions;
   temporalParsing: typeof temporalParsing;
   temporalParsingActions: typeof temporalParsingActions;

@@ -501,6 +501,18 @@ const suppressionRequestState = v.union(
   v.literal("rejected"),
 );
 
+// Deliberately excludes the two suppression topics. `/support` presents all six
+// in one selector, but opt-out and safety review keep writing
+// `profileSuppressionRequests`, because accepting one of those retracts profiles
+// from discovery. A feedback row sharing that table could be accepted by the
+// same operator action and quietly opt a profile out.
+const supportRequestTopic = v.union(
+  v.literal("ownership_dispute"),
+  v.literal("transfer"),
+  v.literal("recovery"),
+  v.literal("feedback"),
+);
+
 const vocabularyScope = v.union(
   v.literal("profile_tag"),
   v.literal("profile_genre"),
@@ -2190,6 +2202,28 @@ export default defineSchema({
     .index("by_state_createdAt", ["state", "createdAt"])
     .index("by_profileId_state", ["profileId", "state"])
     .index("by_profileSlug_state", ["profileSlug", "state"]),
+  // Contact, dispute, transfer, and recovery requests from `/support`.
+  //
+  // No lifecycle columns. The hourly digest is the read path and the operator's
+  // inbox is the workflow, which is what the `mailto:` this replaces already
+  // was, minus the missing identifiers. Add a state column when a second reader
+  // exists to disagree with the first.
+  supportRequests: defineTable({
+    topic: supportRequestTopic,
+    profileSlug: v.optional(v.string()),
+    displayName: v.optional(v.string()),
+    requesterContact: v.optional(v.string()),
+    message: v.string(),
+    requester: v.optional(authSubject),
+    // Unset means "not yet sent". Convex indexes match on `undefined`, so the
+    // digest seeks straight to the unsent rows instead of paging the table and
+    // filtering, which is what would eventually put a wall in front of it.
+    notifiedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_notifiedAt_createdAt", ["notifiedAt", "createdAt"])
+    .index("by_profileSlug_createdAt", ["profileSlug", "createdAt"]),
   profileAuditEvents: defineTable({
     profileId: v.id("profiles"),
     action: v.string(),
