@@ -205,11 +205,50 @@ function addChangedField(fields: ProfileEditableField[], field: ProfileEditableF
  * and the cannot-edit refusal for anything else -- which discloses who has asked
  * to be suppressed, to anyone signed in.
  */
-export function submittedEditableFields(input: ApiProfileUpdateInput): ProfileEditableField[] {
-  return PROFILE_EDITABLE_FIELDS.filter(
-    (field): field is ProfileEditableField =>
-      field !== "slug" && hasOwn(input as Record<string, unknown>, field),
+/**
+ * What each nested group has to name before it counts as submitted.
+ *
+ * Defined once because two places ask it. The preflight below decides whether a
+ * group is subject to the permission check, and the sanitizer decides whether it
+ * belongs in `unchangedFields`; a group that counts for one and not the other is
+ * the response oracle the preflight exists to close. `{ "person": {} }` asked for
+ * nothing either way.
+ */
+const NESTED_GROUP_PROPERTIES = {
+  person: ["pronouns", "roleTags"],
+  community: ["subtype", "categoryTags"],
+} as const;
+
+export function namesNestedGroupField(
+  input: ApiProfileUpdateInput,
+  group: keyof typeof NESTED_GROUP_PROPERTIES,
+): boolean {
+  const value = (input as Record<string, unknown>)[group];
+
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  return NESTED_GROUP_PROPERTIES[group].some((property) =>
+    hasOwn(value as Record<string, unknown>, property),
   );
+}
+
+export function submittedEditableFields(input: ApiProfileUpdateInput): ProfileEditableField[] {
+  return PROFILE_EDITABLE_FIELDS.filter((field): field is ProfileEditableField => {
+    if (field === "slug" || !hasOwn(input as Record<string, unknown>, field)) {
+      return false;
+    }
+
+    // An empty nested group reached the permission check as a submitted field,
+    // so the refusal it produced depended on whether that group happened to be
+    // withheld -- a withheld one answered with the field-specific message and an
+    // editable one fell through to the generic empty-request error. Both are
+    // requests that asked for nothing, and they have to answer the same.
+    return field === "person" || field === "community"
+      ? namesNestedGroupField(input, field)
+      : true;
+  });
 }
 
 export function assertSubmittedFieldsEditable(
@@ -475,7 +514,7 @@ export function sanitizeApiProfileUpdateInput(
     if (changed) {
       patch.person = person;
       addChangedField(changedFields, "person");
-    } else if (hasOwn(input.person, "pronouns") || hasOwn(input.person, "roleTags")) {
+    } else if (namesNestedGroupField(input, "person")) {
       // Submitted and identical. Recorded so the permission check still sees it:
       // without this, private role tags are guessable the same way private
       // aliases were, by reading success or refusal off the reply.
@@ -526,10 +565,7 @@ export function sanitizeApiProfileUpdateInput(
     if (changed) {
       patch.community = community;
       addChangedField(changedFields, "community");
-    } else if (
-      hasOwn(input.community, "subtype") ||
-      hasOwn(input.community, "categoryTags")
-    ) {
+    } else if (namesNestedGroupField(input, "community")) {
       unchangedFields.push("community");
     }
   }

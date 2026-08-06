@@ -1152,6 +1152,36 @@ describe("seed import visibility migration", () => {
     assert.deepEqual(result.simulatedProfiles[0]?.aliases, ["Renamed"]);
   });
 
+  it("leaves a profile alone when only the map shape differs", async () => {
+    const t = convexTest({ schema, modules });
+    const now = 1_788_220_800_000;
+    const { batchId, profileId } = await seedMergedBatch(t, now);
+
+    // The owner visibility control drops a key it is setting back to the
+    // default, and an absent key already means public -- so this row and a
+    // rebuilt map that spells both keys out say exactly the same thing. Reading
+    // the shapes as different made the migration patch a profile it had nothing
+    // to change on, and that is not free: it bumps `updatedAt`, which is the
+    // version every open editor is holding.
+    const before = await t.run(async (ctx) => {
+      await ctx.db.patch(profileId, { fieldVisibility: undefined });
+      return (await ctx.db.get(profileId))?.updatedAt;
+    });
+
+    const result = await t.mutation(internal.seedImports.bulkSetFieldVisibility, {
+      batchId,
+      visibility: "public",
+      reason: "Source permits listing these publicly.",
+      reviewer,
+      now: now + 1_000,
+    });
+
+    const after = await t.run(async (ctx) => (await ctx.db.get(profileId))?.updatedAt);
+
+    assert.equal(result.profilesRederived, 0);
+    assert.equal(after, before);
+  });
+
   it("predicts that same result without writing it", async () => {
     const t = convexTest({ schema, modules });
     const now = 1_788_220_800_000;

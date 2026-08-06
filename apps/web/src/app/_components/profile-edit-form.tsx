@@ -229,9 +229,17 @@ function ConnectedProfileEditForm({
         <Button className="sm:min-w-40" disabled={isSaving} size="lg" type="submit" variant="primary">
           {isSaving ? "Saving..." : "Save changes"}
         </Button>
+        {/*
+          Same landing question the save path answers, and it has to answer it
+          too: `/p/<slug>` and `/c/<slug>` 404 for a draft-private, opted-out or
+          suppressed profile, so cancelling out of the one editor those owners
+          can reach dropped them on a not-found. Sent to the account workspace
+          instead, which is where an owner manages profiles and is reachable
+          whatever this one's publication state is.
+        */}
         <Link
           className={cn(buttonVariants({ size: "lg", variant: "secondary" }), "sm:min-w-32")}
-          href={profilePath}
+          href={profile.publiclyViewable ? profilePath : "/account"}
         >
           Cancel
         </Link>

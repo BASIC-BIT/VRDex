@@ -4,6 +4,10 @@ import { internal } from "./_generated/api";
 import { activeBrowserSessionSubjectOrNull } from "./_browserSessionAuthority";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "./_generated/server";
+import {
+  getProfileFieldVisibility,
+  PROFILE_FIELD_VISIBILITY_KEYS,
+} from "./_profileFieldVisibility";
 import { canReadProfile } from "./_profilePermissions";
 import { createProfileSortName } from "./_profileSubmissions";
 import { createProfileSearchDocument, upsertSearchDocument, vocabularyForProfile } from "./_searchDocuments";
@@ -118,12 +122,18 @@ function sameFieldVisibility(
   left: Doc<"profiles">["fieldVisibility"],
   right: Doc<"profiles">["fieldVisibility"],
 ): boolean {
-  const a = Object.entries(left ?? {});
-  const b = Object.entries(right ?? {});
-
-  return (
-    a.length === b.length &&
-    a.every(([key, value]) => (right ?? {})[key as keyof typeof right] === value)
+  // Compared as visibility rather than as maps. An absent key already means
+  // `public`, so `{}` and `{ aliases: "public" }` say the same thing about
+  // aliases -- and the two sides reach that state by different routes: the owner
+  // visibility control drops a key it is setting back to the default, while the
+  // rebuild writes it out. Reading the shapes as different made the migration
+  // patch a profile it had nothing to change on, which is not free: it bumps
+  // `updatedAt`, and that is the version every open editor is holding, so a
+  // no-op write refuses everybody's in-progress save.
+  return PROFILE_FIELD_VISIBILITY_KEYS.every(
+    (key) =>
+      getProfileFieldVisibility({ fieldVisibility: left }, key) ===
+      getProfileFieldVisibility({ fieldVisibility: right }, key),
   );
 }
 
@@ -143,11 +153,22 @@ async function reindexProfileVocabularyDelta(
   const key = (candidate: VocabularyCandidates[number]) =>
     `${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`;
 
-  // Colliding labels are deduplicated inside the vocabulary helpers, so both
-  // sides of the delta can stay a plain filter.
+  // Colliding labels are deduplicated inside the vocabulary helpers, so every
+  // side of the delta can stay a plain filter.
   await Promise.all([
     upsertSearchDocument(ctx.db, createProfileSearchDocument(profile)),
     recordVocabularyTerms(ctx.db, after.filter((candidate) => !beforeKeys.has(key(candidate))), now),
+    // Retained keys reconciled rather than skipped, the same as the reindex path
+    // this mirrors. Two spellings share one key, so a merge or a re-derivation
+    // that rewrites `Drum & Bass` as `Drum and Bass` has nothing to add to the
+    // count and a new label to record -- and dropping the candidate left
+    // discovery reading the old wording off a profile that no longer says it.
+    recordVocabularyTerms(
+      ctx.db,
+      after.filter((candidate) => beforeKeys.has(key(candidate))),
+      now,
+      { incrementUsage: false },
+    ),
     releaseVocabularyTerms(ctx.db, before.filter((candidate) => !afterKeys.has(key(candidate))), now),
   ]);
 }

@@ -50,6 +50,7 @@ import {
 import {
   assertProfileEditNotSuppressed,
   sanitizeApiProfileUpdateInput,
+  submittedEditableFields,
   type ApiProfileUpdateInput,
 } from "../../convex/_profileUpdates";
 import { createClaimedDiscordProfileForUser } from "../../convex/_profileClaimCreation";
@@ -1260,6 +1261,29 @@ describe("API profile update helpers", () => {
         ["twitch", "reviewed"],
         ["soundcloud", "partner_provided"],
       ],
+    );
+  });
+
+  it("keeps an empty nested group out of the permission preflight", () => {
+    // The preflight decides which fields the permission check sees. Counting an
+    // empty group made the refusal depend on whether that group happened to be
+    // withheld -- a withheld one answered with the field-specific message, an
+    // editable one fell through to the generic empty-request error -- which is
+    // the response oracle this preflight exists to close. Both asked for
+    // nothing, so both have to answer the same.
+    assert.deepEqual(
+      submittedEditableFields({ person: {} } as ApiProfileUpdateInput),
+      [],
+    );
+    assert.deepEqual(
+      submittedEditableFields({ community: {} } as ApiProfileUpdateInput),
+      [],
+    );
+
+    // A group that names one of its own fields still counts, whatever the value.
+    assert.deepEqual(
+      submittedEditableFields({ person: { roleTags: [] } } as ApiProfileUpdateInput),
+      ["person"],
     );
   });
 
