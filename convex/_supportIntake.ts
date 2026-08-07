@@ -206,9 +206,14 @@ export async function requireSupportBacklogHeadroom(
   const pendingSupport = await db
     .query("supportRequests")
     .withIndex("by_notifiedAt_createdAt", (query) => query.eq("notifiedAt", undefined))
-    .take(MAX_PENDING_ANONYMOUS_REQUESTS + 1);
+    .take(MAX_PENDING_ANONYMOUS_REQUESTS);
 
-  if (pendingSupport.length > MAX_PENDING_ANONYMOUS_REQUESTS) {
+  // `>=`, because this runs before the insert: a queue already at the ceiling
+  // is what refuses the request about to join it. `>` let every check pass at
+  // two hundred and store the two hundred and first, so the documented ceiling
+  // was never the ceiling. The rate window a few lines down already reasoned
+  // this way; these two did not.
+  if (pendingSupport.length >= MAX_PENDING_ANONYMOUS_REQUESTS) {
     throw supportInputError(BACKLOG_FULL_MESSAGE);
   }
 
@@ -220,9 +225,9 @@ export async function requireSupportBacklogHeadroom(
     .withIndex("by_state_notifiedAt_createdAt", (query) =>
       query.eq("state", "submitted").eq("notifiedAt", undefined),
     )
-    .take(MAX_PENDING_ANONYMOUS_REQUESTS + 1 - pendingSupport.length);
+    .take(MAX_PENDING_ANONYMOUS_REQUESTS - pendingSupport.length);
 
-  if (pendingSupport.length + pendingSuppressions.length > MAX_PENDING_ANONYMOUS_REQUESTS) {
+  if (pendingSupport.length + pendingSuppressions.length >= MAX_PENDING_ANONYMOUS_REQUESTS) {
     throw supportInputError(BACKLOG_FULL_MESSAGE);
   }
 }

@@ -1585,3 +1585,55 @@ describe("support request review findings, seventeenth round", () => {
     );
   });
 });
+
+
+describe("support request review findings, eighteenth round", () => {
+  /**
+   * The check runs before the insert, so a queue already at the ceiling is what
+   * refuses the request about to join it. `>` passed at two hundred and stored
+   * the two hundred and first.
+   */
+  it("refuses at the ceiling rather than one past it", async () => {
+    const t = convexTest({ schema, modules });
+    const identity = clerkTestIdentity(newClerkUserId());
+    const signedIn = t.withIdentity(identity);
+    const now = Date.now();
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("users", {
+        clerkUserId: identity.subject,
+        email: "queue-watcher@example.test",
+        emailVerificationTime: now,
+      });
+
+      // Exactly the ceiling, attributed so the anonymous rate window is not
+      // what answers here.
+      for (let index = 0; index < 200; index += 1) {
+        await ctx.db.insert("supportRequests", {
+          topic: "feedback",
+          message: `Queued request ${index}.`,
+          requester: {
+            tokenIdentifier: "test|somebody-else",
+            issuer: "test",
+            subject: "somebody-else",
+          },
+          createdAt: now - 200 + index,
+          updatedAt: now,
+        });
+      }
+    });
+
+    await assert.rejects(
+      () =>
+        signedIn.mutation(api.supportRequests.submitSupportRequest, {
+          topic: "feedback",
+          message: "The two hundred and first request.",
+        }),
+      /more requests than we can answer/,
+    );
+
+    const stored = await t.run(async (ctx) => ctx.db.query("supportRequests").collect());
+
+    assert.equal(stored.length, 200, "nothing was inserted past the ceiling");
+  });
+});
