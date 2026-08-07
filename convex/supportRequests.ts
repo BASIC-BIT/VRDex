@@ -191,7 +191,7 @@ export const submitSupportRequest = mutation({
     // Only now the database: identity, then capacity, then the profile read.
     const requester = (await activeBrowserSessionSubjectOrNull(ctx))?.subject;
 
-    await requireSupportBacklogHeadroom(ctx.db, requester);
+    await requireSupportBacklogHeadroom(ctx.db, requester, args.topic);
 
     // Resolved only to borrow the display name when the requester left it blank.
     // A slug with no profile behind it is still recorded: someone disputing a

@@ -1079,17 +1079,21 @@ describe("support request review findings, seventh round", () => {
     // sixty to thirty for a reason and a hardcoded loop would have gone on
     // asserting the old shape.
     for (let index = 0; index < MAX_ANONYMOUS_REQUESTS_PER_HOUR; index += 1) {
-      await t.mutation(api.supportRequests.submitSupportRequest, {
-        topic: "feedback",
-        message: `Automated submission number ${index}.`,
+      await t.mutation(api.suppressions.requestProfileSuppression, {
+        requestType: "owner_opt_out",
+        displayName: `Listing number ${index}`,
+        profileType: "person",
+        requesterNote: `Please delist listing number ${index}.`,
       });
     }
 
     await assert.rejects(
       () =>
-        t.mutation(api.supportRequests.submitSupportRequest, {
-          topic: "feedback",
-          message: "One past the hour's allowance.",
+        t.mutation(api.suppressions.requestProfileSuppression, {
+          requestType: "owner_opt_out",
+          displayName: "One past the allowance",
+          profileType: "person",
+          requesterNote: "One past the hour's allowance.",
         }),
       /more requests than we can answer/,
     );
@@ -1099,15 +1103,17 @@ describe("support request review findings, seventh round", () => {
     const batch = await t.query(internal.supportRequests.pendingDigestRequests, {});
 
     await t.mutation(internal.supportRequests.markDigestSent, {
-      supportRequestIds: batch.map((entry) => entry.id),
-      suppressionRequestIds: [],
+      supportRequestIds: [],
+      suppressionRequestIds: batch.map((entry) => entry.id as Id<"profileSuppressionRequests">),
     });
 
     await assert.rejects(
       () =>
-        t.mutation(api.supportRequests.submitSupportRequest, {
-          topic: "feedback",
-          message: "Still inside the same hour after a delivery.",
+        t.mutation(api.suppressions.requestProfileSuppression, {
+          requestType: "owner_opt_out",
+          displayName: "After a delivery",
+          profileType: "person",
+          requesterNote: "Still inside the same hour after a delivery.",
         }),
       /more requests than we can answer/,
     );
@@ -1437,17 +1443,21 @@ describe("support request review findings, fourteenth round", () => {
     const t = convexTest({ schema, modules });
 
     for (let index = 0; index < MAX_ANONYMOUS_REQUESTS_PER_HOUR; index += 1) {
-      await t.mutation(api.supportRequests.submitSupportRequest, {
-        topic: "feedback",
-        message: `Automated submission number ${index}.`,
+      await t.mutation(api.suppressions.requestProfileSuppression, {
+        requestType: "owner_opt_out",
+        displayName: `Listing number ${index}`,
+        profileType: "person",
+        requesterNote: `Please delist listing number ${index}.`,
       });
     }
 
     await assert.rejects(
       () =>
-        t.mutation(api.supportRequests.submitSupportRequest, {
-          topic: "feedback",
-          message: "One past the hour's allowance.",
+        t.mutation(api.suppressions.requestProfileSuppression, {
+          requestType: "owner_opt_out",
+          displayName: "One past the allowance",
+          profileType: "person",
+          requesterNote: "One past the hour's allowance.",
         }),
       /more requests than we can answer/,
     );
@@ -1635,5 +1645,54 @@ describe("support request review findings, eighteenth round", () => {
     const stored = await t.run(async (ctx) => ctx.db.query("supportRequests").collect());
 
     assert.equal(stored.length, 200, "nothing was inserted past the ceiling");
+  });
+});
+
+
+describe("support request review findings, nineteenth round", () => {
+  /**
+   * One bucket for every anonymous sender meant a flood of anything starved
+   * everything, and the sign-in escape is exactly what a recovery request
+   * cannot use. The split is by what the request is for, which is the axis this
+   * layer can see.
+   */
+  it("keeps room for listing requests when feedback floods", async () => {
+    const t = convexTest({ schema, modules });
+
+    for (let index = 0; index < 10; index += 1) {
+      await t.mutation(api.supportRequests.submitSupportRequest, {
+        topic: "feedback",
+        message: `Automated chatter number ${index}.`,
+      });
+    }
+
+    await assert.rejects(
+      () =>
+        t.mutation(api.supportRequests.submitSupportRequest, {
+          topic: "feedback",
+          message: "One past the feedback share.",
+        }),
+      /more requests than we can answer/,
+      "feedback answers to its own smaller cap",
+    );
+
+    // The requests somebody is waiting on still get through.
+    await t.mutation(api.supportRequests.submitSupportRequest, {
+      topic: "recovery",
+      displayName: "DJ Aurora",
+      requesterContact: "someone@example.test",
+      message: "I lost the account that holds this profile.",
+    });
+
+    await t.mutation(api.suppressions.requestProfileSuppression, {
+      requestType: "pre_claim_safety",
+      displayName: "Someone at risk",
+      profileType: "person",
+      requesterNote: "This listing needs review.",
+    });
+
+    const stored = await t.run(async (ctx) => ctx.db.query("supportRequests").collect());
+
+    assert.equal(stored.filter((row) => row.topic === "recovery").length, 1);
   });
 });

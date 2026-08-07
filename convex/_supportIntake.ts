@@ -103,6 +103,36 @@ export const SUPPORT_DIGEST_BATCH_SIZE = 50;
  */
 export const MAX_ANONYMOUS_REQUESTS_PER_HOUR = 30;
 
+/**
+ * The share of that hour reserved for requests about a specific listing.
+ *
+ * One bucket for every anonymous sender means one bot spends the hour and
+ * everybody else is refused, and there is no way to tell anonymous senders
+ * apart here: a Convex mutation sees no address, and the sign-in escape is
+ * exactly what a recovery request cannot use, since losing the account is why
+ * they are writing.
+ *
+ * So the split is by what the request is for rather than by who sent it, which
+ * is the axis this code can actually see. Feedback is capped well below the
+ * hour, leaving the rest for disputes, transfers, recoveries, and safety
+ * reports. A flood of chatter can no longer starve those.
+ *
+ * Partial, and deliberately so: a bot that files disputes still competes with
+ * real ones. Fixing that needs a per-sender signal this layer does not have --
+ * an address from the web tier, or a challenge -- which is a product decision
+ * rather than a tuning one. See the follow-up issue.
+ */
+export const MAX_ANONYMOUS_FEEDBACK_PER_HOUR = 10;
+
+/** Topics that name a listing, and so hold the reserved share. */
+const ABOUT_A_LISTING: ReadonlySet<string> = new Set([
+  "ownership_dispute",
+  "transfer",
+  "recovery",
+  "owner_opt_out",
+  "pre_claim_safety",
+]);
+
 const RATE_WINDOW_MS = 60 * 60 * 1_000;
 
 /**
@@ -158,6 +188,7 @@ const TOO_MANY_OWN_REQUESTS_MESSAGE =
 export async function requireSupportBacklogHeadroom(
   db: MutationCtx["db"],
   requester: { subject: string } | undefined,
+  topic?: string,
 ): Promise<void> {
   if (requester !== undefined) {
     const ownSupport = await db
@@ -201,7 +232,7 @@ export async function requireSupportBacklogHeadroom(
   // every further anonymous attempt is refused regardless -- so the expensive
   // check ran first only to reach the same answer, turning a rate limiter into
   // a backlog-sized read amplifier for a caller who just keeps trying.
-  await requireRateHeadroom(db, requester);
+  await requireRateHeadroom(db, requester, topic);
 
   const pendingSupport = await db
     .query("supportRequests")
@@ -250,6 +281,7 @@ export async function requireSupportBacklogHeadroom(
 async function requireRateHeadroom(
   db: MutationCtx["db"],
   requester: { subject: string } | undefined,
+  topic: string | undefined,
 ): Promise<void> {
   // Anonymous arrivals only.
   //
@@ -265,7 +297,15 @@ async function requireRateHeadroom(
     return;
   }
 
-  await countArrivals(db, Date.now() - RATE_WINDOW_MS, MAX_ANONYMOUS_REQUESTS_PER_HOUR);
+  const since = Date.now() - RATE_WINDOW_MS;
+
+  await countArrivals(db, since, MAX_ANONYMOUS_REQUESTS_PER_HOUR);
+
+  // Feedback answers to the smaller cap as well, so the rest of the hour stays
+  // available to the requests somebody is waiting on.
+  if (topic !== undefined && !ABOUT_A_LISTING.has(topic)) {
+    await countAnonymousFeedback(db, since);
+  }
 }
 
 /**
@@ -274,11 +314,7 @@ async function requireRateHeadroom(
  * Seeks on the absent requester rather than filtering a page, so the cost is
  * the size of the window and not of the table.
  */
-async function countArrivals(
-  db: MutationCtx["db"],
-  since: number,
-  limit: number,
-): Promise<void> {
+async function countArrivals(db: MutationCtx["db"], since: number, limit: number): Promise<void> {
   let seen = 0;
 
   for (const table of ["supportRequests", "profileSuppressionRequests"] as const) {
@@ -294,9 +330,32 @@ async function countArrivals(
     // `>=`, because this runs before the insert: the window being full already
     // is what refuses the request about to be added, and `>` would have let
     // every hour take one more than its allowance.
-    // The one limit signing in escapes, so the one that may say so.
     if (seen >= limit) {
       throw supportInputError(RATE_LIMITED_MESSAGE);
     }
+  }
+}
+
+/**
+ * Refuse once anonymous feedback has used its smaller share of the hour.
+ *
+ * Its own function rather than a flag on the one above, because the two read
+ * different things: this reads only `supportRequests`, since a suppression is
+ * never feedback, and it counts a topic rather than a table. Folding both into
+ * one counter produced a `take()` expression nobody would be able to read.
+ *
+ * The whole window is thirty, so taking that many finds every feedback row it
+ * could possibly contain.
+ */
+async function countAnonymousFeedback(db: MutationCtx["db"], since: number): Promise<void> {
+  const recent = await db
+    .query("supportRequests")
+    .withIndex("by_requesterSubject", (query) =>
+      query.eq("requester.subject", undefined).gt("_creationTime", since),
+    )
+    .take(MAX_ANONYMOUS_REQUESTS_PER_HOUR);
+
+  if (recent.filter((row) => row.topic === "feedback").length >= MAX_ANONYMOUS_FEEDBACK_PER_HOUR) {
+    throw supportInputError(RATE_LIMITED_MESSAGE);
   }
 }

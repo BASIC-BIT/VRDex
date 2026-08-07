@@ -126,7 +126,7 @@ export const requestProfileSuppression = mutation({
     // cannot spend index reads on it.
     const requester = (await activeBrowserSessionSubjectOrNull(ctx))?.subject;
 
-    await requireSupportBacklogHeadroom(ctx.db, requester);
+    await requireSupportBacklogHeadroom(ctx.db, requester, args.requestType);
 
     const profile = await getRequestedProfile(ctx.db, requested);
     const displayName = optionalText(

@@ -309,6 +309,11 @@ function ConnectedSupportRequestForm() {
       <Field>
         Request type
         <Select
+          // Locked while a request is in flight. Changing it mid-submit started
+          // a fresh request, which made the generation guard drop the result of
+          // the one already accepted: no success, no error, and a re-enabled
+          // button, so the obvious next move was to send it again.
+          disabled={status.kind === "submitting"}
           name="topic"
           onChange={(event) => startFreshRequest(event.currentTarget.value as Topic | "")}
           required
