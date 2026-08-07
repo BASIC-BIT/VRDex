@@ -1243,3 +1243,26 @@ describe("support request review findings, tenth round", () => {
     );
   });
 });
+
+
+describe("support request review findings, eleventh round", () => {
+  /**
+   * A URL with more path after the slug does not resolve to the profile page,
+   * so accepting it named a real profile the pasted link never pointed at.
+   */
+  it("rejects a profile URL with anything after the slug", () => {
+    assert.equal(readProfileReferenceFromInput("https://vrdex.net/p/dj-aurora/extra").slug, "");
+    assert.equal(readProfileReferenceFromInput("https://vrdex.net/c/afterglow/edit").slug, "");
+
+    // A trailing slash, query, or fragment is still the same route.
+    assert.equal(readProfileReferenceFromInput("https://vrdex.net/p/dj-aurora/").slug, "dj-aurora");
+    assert.equal(
+      readProfileReferenceFromInput("https://vrdex.net/p/dj-aurora?utm_source=x").slug,
+      "dj-aurora",
+    );
+    assert.equal(
+      readProfileReferenceFromInput("https://vrdex.net/p/dj-aurora#links").slug,
+      "dj-aurora",
+    );
+  });
+});

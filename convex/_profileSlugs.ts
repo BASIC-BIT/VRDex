@@ -133,7 +133,12 @@ export function readProfileReferenceFromInput(raw: string): ProfileReference {
     // normalized into a slug-shaped string that passes validation and points at
     // some other profile, or none. The digest then aimed an operator at the
     // wrong record while the URL they actually meant was discarded.
-    const profilePath = /^\/(p|c)\/([^/?#]+)/i.exec(path);
+    // Anchored past the slug. Unanchored, `/p/dj-aurora/somewhere-else`
+    // matched and reported `dj-aurora`, so a URL that does not resolve to the
+    // profile page silently named a real profile anyway -- the same substitution
+    // the segment validation above exists to stop, one path segment further
+    // along. A trailing slash, query, or fragment still belongs to the route.
+    const profilePath = /^\/(p|c)\/([^/?#]+)\/?(?:[?#].*)?$/i.exec(path);
 
     if (profilePath === null) {
       return none;

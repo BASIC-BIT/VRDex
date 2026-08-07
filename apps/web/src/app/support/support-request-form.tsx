@@ -155,12 +155,18 @@ function isTopic(value: string): value is Topic {
  * requires that context, and hooks run before any early return inside the same
  * component, so the notice below could never be reached: the page threw
  * instead of explaining itself.
+ *
+ * What it says is for whoever is reading it. This inherited the suppression
+ * form's wording, which named Convex and told the reader to start a local
+ * backend -- an instruction only an operator can act on, in front of a visitor
+ * who wanted to report something. The runbook is where that belongs; see
+ * `docs/deployment/convex-environments.md`.
  */
 export function SupportRequestForm() {
   if (!convexUrl) {
     return (
       <Notice className="px-5 py-6 leading-7" variant="dashed">
-        Convex is not configured. Run the local backend before submitting requests.
+        This form is unavailable right now. Please try again later.
       </Notice>
     );
   }
