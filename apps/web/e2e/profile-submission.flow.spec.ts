@@ -1,6 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { hostedTargetRunsCurrentRevision } from "./clerk-auth";
 import { gotoFlowPage } from "./flow-navigation";
 import { captureRouteScreenshot } from "./public-routes";
 
@@ -67,34 +66,32 @@ test("profile submission writes through to public profile and discovery @flow", 
     await page.getByLabel("Aliases").fill(`Flow ${runSuffix}`);
     await page.getByLabel("Tags", { exact: true }).or(page.getByLabel("Shared tags", { exact: true })).first().fill("playwright, data-flow");
 
-    // Shared staging only ever serves `main`, so it renders the freeform role
-    // input this branch replaces until this merges. `hostedTargetRunsCurrentRevision`
-    // is true for every local run and for the post-merge health lane, and false
-    // exactly while the target genuinely is behind -- so the new controls are
-    // asserted everywhere they exist, and the tolerance expires on merge rather
-    // than living on as a permanent excuse.
-    if (await hostedTargetRunsCurrentRevision(request)) {
-      // Roles are checkboxes over a fixed vocabulary with a freeform field
-      // beside it. Checking DJ is also what reveals the stream inputs, which is
-      // why roles are asked for before links.
-      const streamUrl = page.getByLabel("Stream");
-      await expect(streamUrl).toHaveCount(0);
-      await page.getByRole("checkbox", { name: "DJ", exact: true }).check();
-      await expect(streamUrl).toBeVisible();
-      await page.getByLabel("Other roles").fill("Test profile");
+    // The tolerance that used to stand here filled a freeform `Person roles`
+    // input whenever the target's revision was not this branch's, on the
+    // reasoning that staging serves `main` and therefore lags. Staging now
+    // carries the checkbox form, so "not this branch" stopped meaning "the old
+    // form": every pull request took the lagging path, waited thirty seconds
+    // for an input that no longer exists anywhere, and timed out. The gate was
+    // written to expire on merge and this is that expiry.
+    //
+    // Roles are checkboxes over a fixed vocabulary with a freeform field beside
+    // it. Checking DJ is also what reveals the stream inputs, which is why
+    // roles are asked for before links.
+    const streamUrl = page.getByLabel("Stream");
+    await expect(streamUrl).toHaveCount(0);
+    await page.getByRole("checkbox", { name: "DJ", exact: true }).check();
+    await expect(streamUrl).toBeVisible();
+    await page.getByLabel("Other roles").fill("Test profile");
 
-      // The URL VRCDN hands someone looking for their own stream, so it is what
-      // they paste. It has to reach the profile as the public page URL: the seed
-      // lane stored this shape verbatim and put VRCDN's operator console on
-      // hundreds of public profiles.
-      // Run-scoped like every other value here: two projects submit concurrently
-      // against one backend, and a shared stream id would have them writing the
-      // same derived values at the same time.
-      await streamUrl.fill(`https://panel.vrcdn.live/preview/${streamId}`);
-      submittedStreamId = streamId;
-    } else {
-      await page.getByLabel("Person roles").fill("Test profile");
-    }
+    // The URL VRCDN hands someone looking for their own stream, so it is what
+    // they paste. It has to reach the profile as the public page URL: the seed
+    // lane stored this shape verbatim and put VRCDN's operator console on
+    // hundreds of public profiles.
+    // Run-scoped like every other value here: two projects submit concurrently
+    // against one backend, and a shared stream id would have them writing the
+    // same derived values at the same time.
+    await streamUrl.fill(`https://panel.vrcdn.live/preview/${streamId}`);
+    submittedStreamId = streamId;
 
     await page.getByRole("button", { name: "Submit profile" }).click();
 
