@@ -121,17 +121,18 @@ export type ProfileReference = {
 function isDeploymentHost(host: string, siteUrl: string | undefined): boolean {
   const hostname = host.replace(/:\d+$/, "").toLowerCase();
 
-  if (
+  const loopback =
     hostname === "localhost" ||
     hostname === "127.0.0.1" ||
     hostname === "[::1]" ||
-    hostname === "::1"
-  ) {
-    return true;
-  }
+    hostname === "::1";
 
+  // Loopback only where loopback is what this deployment is. Accepting it
+  // unconditionally meant a hosted deployment resolved `http://localhost/p/x`
+  // against its own data, so a pasted development URL named a production
+  // profile and the digest rebuilt a production link nobody supplied.
   if (siteUrl === undefined) {
-    return false;
+    return loopback;
   }
 
   try {
@@ -142,7 +143,14 @@ function isDeploymentHost(host: string, siteUrl: string | undefined): boolean {
     // both have Route 53 records -- so a visitor reading their own profile at
     // `www.vrdex.net` pastes exactly what their address bar shows and was told
     // it did not look like a profile.
-    return configured === hostname || wwwSibling(configured) === hostname;
+    if (configured === hostname || wwwSibling(configured) === hostname) {
+      return true;
+    }
+
+    return (
+      loopback &&
+      (configured === "localhost" || configured === "127.0.0.1" || configured === "[::1]")
+    );
   } catch {
     return false;
   }
@@ -193,10 +201,15 @@ export function readProfileReferenceFromInput(
     // substitute while discarding the URL actually given. A link is a precise
     // identifier or it is nothing.
     //
-    // Case and percent-encoding are the two exceptions, because neither changes
-    // which profile is named: slugs are lowercase by construction and a browser
-    // may hand back an encoded path.
-    const segment = decodeUrlSegment(profilePath[2]).toLowerCase();
+    // Percent-encoding is the one exception, because a browser may hand back an
+    // encoded path for the same address.
+    //
+    // Case is not. `/p/DJ-Aurora` is a 404 on the site, since the public route
+    // validates the segment as written, so lowercasing it here resolved a real
+    // profile from a link that does not work -- and on a suppression stored that
+    // profile's id, showing the operator a valid target the requester never
+    // reached.
+    const segment = decodeUrlSegment(profilePath[2]);
 
     return PROFILE_SLUG_PATTERN.test(segment)
       ? {

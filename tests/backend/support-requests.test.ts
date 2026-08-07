@@ -853,9 +853,15 @@ describe("support request review findings, third round", () => {
   });
 
   it("reads a profile link from a deployment without a dotted host", () => {
-    assert.equal(readProfileSlugFromInput("http://localhost:3000/p/dj-aurora", "https://vrdex.net"), "dj-aurora");
-    assert.equal(readProfileSlugFromInput("http://127.0.0.1:3210/c/afterglow-social", "https://vrdex.net"), "afterglow-social");
-    assert.equal(readProfileSlugFromInput("http://[::1]:3000/p/dj-aurora", "https://vrdex.net"), "dj-aurora");
+    assert.equal(
+      readProfileSlugFromInput("http://localhost:3000/p/dj-aurora", "http://localhost:3000"),
+      "dj-aurora",
+    );
+    assert.equal(
+      readProfileSlugFromInput("http://127.0.0.1:3210/c/afterglow-social", undefined),
+      "afterglow-social",
+    );
+    assert.equal(readProfileSlugFromInput("http://[::1]:3000/p/dj-aurora", undefined), "dj-aurora");
     // Still only the two profile routes, whatever the host.
     assert.equal(readProfileSlugFromInput("http://localhost:3000/w/neon-harbor", "https://vrdex.net"), "");
   });
@@ -1116,7 +1122,12 @@ describe("support request review findings, seventh round", () => {
     assert.equal(readProfileReferenceFromInput("https://vrdex.net/p/dj_aurora", "https://vrdex.net").slug, "");
     assert.equal(readProfileReferenceFromInput("https://vrdex.net/p/DJ Aurora", "https://vrdex.net").slug, "");
     // Case and percent-encoding change nothing about which profile is named.
-    assert.equal(readProfileReferenceFromInput("https://vrdex.net/p/DJ-Aurora", "https://vrdex.net").slug, "dj-aurora");
+    // A 404 on the site, because the public route validates the segment as
+    // written, so it names no profile here either.
+    assert.equal(
+      readProfileReferenceFromInput("https://vrdex.net/p/DJ-Aurora", "https://vrdex.net").slug,
+      "",
+    );
     assert.equal(readProfileReferenceFromInput("https://vrdex.net/p/dj%2Daurora", "https://vrdex.net").slug, "dj-aurora");
     // A bare typed word is still normalized, since it is not a precise link.
     assert.equal(readProfileReferenceFromInput("DJ Aurora", "https://vrdex.net").slug, "dj-aurora");
@@ -1439,6 +1450,51 @@ describe("support request review findings, fourteenth round", () => {
           message: "One past the hour's allowance.",
         }),
       /more requests than we can answer/,
+    );
+  });
+});
+
+
+describe("support request review findings, fifteenth round", () => {
+  /**
+   * The public route validates the segment as written, so `/p/DJ-Aurora` is a
+   * 404. Lowercasing it here resolved a real profile from a link that does not
+   * work, and on a suppression stored that profile's id.
+   */
+  it("does not rescue a pasted path by changing its case", () => {
+    assert.equal(
+      readProfileReferenceFromInput("https://vrdex.net/p/DJ-Aurora", "https://vrdex.net").slug,
+      "",
+    );
+    assert.equal(
+      readProfileReferenceFromInput("https://vrdex.net/p/dj-aurora", "https://vrdex.net").slug,
+      "dj-aurora",
+    );
+    // Percent-encoding still decodes: it is the same address, spelled for a URL.
+    assert.equal(
+      readProfileReferenceFromInput("https://vrdex.net/p/dj%2Daurora", "https://vrdex.net").slug,
+      "dj-aurora",
+    );
+  });
+
+  /**
+   * A hosted deployment resolving `http://localhost/p/x` against its own data
+   * meant a pasted development URL named a production profile.
+   */
+  it("accepts loopback only where the deployment is loopback", () => {
+    assert.equal(
+      readProfileReferenceFromInput("http://localhost:3000/p/dj-aurora", "https://vrdex.net").slug,
+      "",
+    );
+    assert.equal(
+      readProfileReferenceFromInput("http://localhost:3000/p/dj-aurora", "http://localhost:3000")
+        .slug,
+      "dj-aurora",
+    );
+    // No configured origin at all is the self-hosted mid-setup case.
+    assert.equal(
+      readProfileReferenceFromInput("http://127.0.0.1:3210/c/afterglow", undefined).slug,
+      "afterglow",
     );
   });
 });

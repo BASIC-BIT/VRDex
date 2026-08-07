@@ -106,21 +106,19 @@ export const MAX_ANONYMOUS_REQUESTS_PER_HOUR = 30;
 const RATE_WINDOW_MS = 60 * 60 * 1_000;
 
 /**
- * Two messages, because the advice differs and one of them stopped being true.
+ * Two messages, split by which limit was hit rather than by who hit it.
  *
- * The shared ceiling applies to signed-in senders now, deliberately, so telling
- * them to sign in offered a recovery that cannot work. An anonymous sender can
- * still get a route that way, since the per-subject quota is theirs alone.
+ * Signing in escapes exactly one of these: the anonymous hourly window, which
+ * signed-in callers skip. The aggregate ceiling applies to everybody, so the
+ * advice was wrong there for anonymous senders too -- a first pass moved it off
+ * signed-in callers and left it pointing anonymous ones at a recovery that
+ * refuses them all the same.
  */
-export const BACKLOG_FULL_MESSAGE =
+export const RATE_LIMITED_MESSAGE =
   "We have more requests than we can answer right now. Try again in a few hours, or sign in to send this one now.";
 
-export const BACKLOG_FULL_SIGNED_IN_MESSAGE =
+export const BACKLOG_FULL_MESSAGE =
   "We have more requests than we can answer right now. Please try again in a few hours.";
-
-function backlogFullMessage(requester: { subject: string } | undefined): string {
-  return requester === undefined ? BACKLOG_FULL_MESSAGE : BACKLOG_FULL_SIGNED_IN_MESSAGE;
-}
 
 /**
  * How many undelivered requests one signed-in subject may have waiting.
@@ -211,7 +209,7 @@ export async function requireSupportBacklogHeadroom(
     .take(MAX_PENDING_ANONYMOUS_REQUESTS + 1);
 
   if (pendingSupport.length > MAX_PENDING_ANONYMOUS_REQUESTS) {
-    throw supportInputError(backlogFullMessage(requester));
+    throw supportInputError(BACKLOG_FULL_MESSAGE);
   }
 
   // `submitted` only, seeked rather than filtered. Resolved rows predate
@@ -225,7 +223,7 @@ export async function requireSupportBacklogHeadroom(
     .take(MAX_PENDING_ANONYMOUS_REQUESTS + 1 - pendingSupport.length);
 
   if (pendingSupport.length + pendingSuppressions.length > MAX_PENDING_ANONYMOUS_REQUESTS) {
-    throw supportInputError(backlogFullMessage(requester));
+    throw supportInputError(BACKLOG_FULL_MESSAGE);
   }
 }
 
@@ -291,8 +289,9 @@ async function countArrivals(
     // `>=`, because this runs before the insert: the window being full already
     // is what refuses the request about to be added, and `>` would have let
     // every hour take one more than its allowance.
+    // The one limit signing in escapes, so the one that may say so.
     if (seen >= limit) {
-      throw supportInputError(BACKLOG_FULL_MESSAGE);
+      throw supportInputError(RATE_LIMITED_MESSAGE);
     }
   }
 }
