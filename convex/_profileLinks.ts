@@ -238,8 +238,9 @@ export function normalizeOutboundLinks(value: unknown): NormalizedProfileLink[] 
  * `rtspt://` and `.m3u8`/`.live.ts` stream endpoints rather than a web page.
  * Rejecting those as "not HTTPS" would be wrong, and storing them raw would
  * leave the public profile page and issue #217 re-deriving the stream id from a
- * shape they may not recognize. Normalizing to the canonical page URL plus the
- * stream id in `handle` means every reader gets the same thing.
+ * shape they may not recognize. Normalizing to the `vrcdn:<streamId>`
+ * identifier plus the stream id in `handle` means every reader gets the same
+ * thing, and gets something it can derive every playback endpoint from.
  */
 function prepareProfileLink(entry: unknown, index: number): Record<string, unknown> {
   // `source` never reaches the normalizer: provenance is stamped by the caller
@@ -439,9 +440,8 @@ export type LenientProfileLinkResult = {
  * one unusable row must not hold back every profile in the batch.
  *
  * Normalization is the point, not just validation. VRCDN entries collapse onto
- * the canonical `vrcdn.live/<id>` page URL, so a stream URL and an operator
- * panel preview URL for the same DJ become one link and no preview URL is
- * carried onto a public profile. What is dropped is counted rather than
+ * `vrcdn:<id>`, so a stream URL and an operator panel preview URL for the same
+ * DJ become one link and no preview URL is carried onto a public profile. What is dropped is counted rather than
  * swallowed — a publication path that silently discards data is how this became
  * a problem in the first place.
  */

@@ -59,8 +59,8 @@ export function isVrcdnHost(hostname: string): boolean {
  * is what they paste and what partner exports carry.
  *
  * It is read for its id only. Every caller here builds canonical links from
- * `createVrcdnStreamLinks`, so a pasted preview URL becomes the public
- * `vrcdn.live/<id>` page rather than being stored and published as-is.
+ * `createVrcdnStreamLinks`, so a pasted preview URL becomes `vrcdn:<id>`
+ * rather than being stored and published as-is.
  */
 function getVrcdnPreviewStreamId(url: URL): string | null {
   if (normalizeHostname(url.hostname) !== vrcdnPanelHost) {
@@ -74,8 +74,7 @@ function getVrcdnPreviewStreamId(url: URL): string | null {
   }
 
   // Reserved names are refused by `toVrcdnStreamId` for every route into it, so
-  // `/preview/dashboard` cannot canonicalize to `vrcdn.live/dashboard` here
-  // either.
+  // `/preview/dashboard` cannot canonicalize to `vrcdn:dashboard` here either.
   return toVrcdnStreamId(segments[1]);
 }
 
@@ -101,8 +100,8 @@ function toVrcdnStreamId(segment: string | undefined): string | null {
   const streamId = decoded.replace(vrcdnStreamExtension, "").replace(/\.live$/i, "");
 
   // Reserved names are refused here rather than at each parse site, because
-  // every one of them ends up building the same canonical `vrcdn.live/<id>`
-  // page link. Checking only the paths where a reserved name looks likely left
+  // every one of them ends up building the same canonical `vrcdn:<id>`
+  // reference. Checking only the paths where a reserved name looks likely left
   // `stream.vrcdn.live/live/dashboard.m3u8` and `rtspt://stream.vrcdn.live/live/login`
   // rebuilt as links to VRCDN's own product pages -- the same publishable
   // not-a-stream the root-host check already refused, arriving by another route.
@@ -216,6 +215,20 @@ export function vrcdnPlaybackHref(url: string): string | undefined {
   const stream = parseVrcdnStreamLinks(url);
 
   return stream === null ? undefined : stream.directVideoUrl ?? stream.hlsUrl;
+}
+
+/**
+ * What a public projection should publish for a stored link.
+ *
+ * The generic HTTPS filter every projection already applied is right for every
+ * type but this one: a VRCDN stream is stored as an identifier, so the filter
+ * dropped it and the link never reached the page at all. Resolving first hands
+ * readers the playlist, which is a real URL *and* parses back to the same
+ * stream -- so the copy rows and the embed keep deriving what they need without
+ * every consumer having to learn a second format.
+ */
+export function safePublicLinkUrl(url: string): string | undefined {
+  return vrcdnPlaybackHref(url) ?? safeHttpsUrl(url);
 }
 
 export function safePublicMediaUrl(url: string): string | undefined {

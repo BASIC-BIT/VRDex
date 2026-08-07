@@ -550,8 +550,8 @@ export const ApiProfileLinkInputSchema = z
     type: ProfileLinkTypeSchema,
     // Deliberately not `safeHttpUrl`: a `vrcdn` link is normally pasted from the
     // player URLs VRCDN hands out, which use `rtspt://` and stream endpoints.
-    // Those are resolved to the canonical HTTPS page URL server-side, and every
-    // other type is rejected there unless it is already HTTPS.
+    // Those are resolved to the `vrcdn:<streamId>` identifier server-side, and
+    // every other type is rejected there unless it is already HTTPS.
     url: z.string().min(1).max(2_048),
     label: z.string().min(1).max(120).optional(),
     handle: z.string().min(1).max(160).optional(),

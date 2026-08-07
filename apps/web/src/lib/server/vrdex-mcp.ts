@@ -53,6 +53,7 @@ import {
   hostedMcpEventWriteScopes,
   hostedMcpReadScopes,
 } from "@/lib/server/hosted-mcp-policy";
+import { vrcdnPlaybackHref } from "../../../../../convex/_vrcdnLinks";
 
 type ResponseSchema<T> = z.ZodType<T>;
 
@@ -302,7 +303,11 @@ function formatOutboundLinks(links: Array<{ label: string; url: string }> | unde
     return undefined;
   }
 
-  return links.map((link) => `${link.label}: ${link.url}`).join("; ");
+  // Resolved for the same reason the Discord export resolves: this is a flat
+  // text document handed to a client that has no VRCDN parser, so a bare
+  // `vrcdn:<id>` would arrive as an opaque token where a fetchable address
+  // belongs.
+  return links.map((link) => `${link.label}: ${vrcdnPlaybackHref(link.url) ?? link.url}`).join("; ");
 }
 
 function namedItemLabel(value: unknown) {

@@ -180,7 +180,7 @@ function PersonRoleFields({
               disabled={streamValues.vrcdn === "" && atLinkCap}
               maxLength={2048}
               name="vrcdnUrl"
-              placeholder="https://vrcdn.live/name"
+              placeholder="https://panel.vrcdn.live/preview/name"
               type="url"
               value={streamValues.vrcdn}
               onChange={(event) =>

@@ -115,16 +115,20 @@ function optionalString(value: string): string | undefined {
 }
 
 function createInitialVrcdnOutputForm(event: PublicEvent | undefined): VrcdnOutputFormState {
-  const browserLink = event?.mediaLinks.find((link) => link.type === "watch" && link.url.includes("vrcdn.live"));
-  const standaloneLink = event?.mediaLinks.find((link) => link.type === "vrcdn" && link.url.includes(".live.ts"));
-  const pcLink = event?.mediaLinks.find((link) => link.type === "vrcdn" && link.url.startsWith("rtspt://"));
+  // Derived from the stored reference rather than matched out of three rows.
+  // Every spelling of one stream canonicalizes to the same `vrcdn:<id>` now, so
+  // the sanitizer dedupes them into a single link and there is no `.live.ts`
+  // row or `rtspt://` row left to find.
+  const vrcdnLink = (event?.mediaLinks ?? [])
+    .map((link) => ({ label: link.label, stream: parseVrcdnStreamLinks(link.url) }))
+    .find((entry) => entry.stream !== null);
 
   return {
     outputAccount: "",
-    label: browserLink?.label ?? "Event stream",
-    browserUrl: browserLink?.url ?? "",
-    standaloneUrl: standaloneLink?.url ?? "",
-    pcUrl: pcLink?.url ?? "",
+    label: vrcdnLink?.label ?? "Event stream",
+    browserUrl: vrcdnLink?.stream?.hlsUrl ?? "",
+    standaloneUrl: vrcdnLink?.stream?.questUrl ?? "",
+    pcUrl: vrcdnLink?.stream?.pcUrl ?? "",
     authorized: false,
   };
 }

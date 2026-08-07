@@ -1,5 +1,6 @@
 import { createDiscordTimestampSet } from "./_discordTimestamps";
 import type { PublicEvent } from "./_eventPublic";
+import { vrcdnPlaybackHref } from "./_vrcdnLinks";
 
 export type DiscordEventPostInput = {
   event: PublicEvent;
@@ -43,7 +44,13 @@ function formatParticipantLine(participant: PublicEvent["participants"][number])
 }
 
 function formatMediaLinkLine(link: PublicEvent["mediaLinks"][number]): string {
-  return `- ${cleanPublicText(link.label)}: ${cleanPublicText(link.url)}`;
+  // Resolved rather than printed as stored. This is plain text pasted into
+  // Discord, so unlike the web renderers there is nothing downstream to turn a
+  // `vrcdn:<id>` back into a destination -- it would arrive as an opaque,
+  // unclickable token where a playable address belongs.
+  const url = vrcdnPlaybackHref(link.url) ?? link.url;
+
+  return `- ${cleanPublicText(link.label)}: ${cleanPublicText(url)}`;
 }
 
 export function formatDiscordEventPost({ canonicalUrl, event }: DiscordEventPostInput): string {

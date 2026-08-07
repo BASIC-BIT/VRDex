@@ -58,7 +58,7 @@ describe("Discord event post export", () => {
         {
           type: "vrcdn",
           label: "Quest stream",
-          url: "https://vrcdn.live/basicbit",
+          url: "vrcdn:basicbit",
           presentation: "copy",
         },
       ],
@@ -110,7 +110,7 @@ describe("Discord event post export", () => {
         "",
         "Links:",
         "- Watch: https://example.invalid/watch",
-        "- Quest stream: https://vrcdn.live/basicbit",
+        "- Quest stream: https://stream.vrcdn.live/live/basicbit.m3u8",
       ].join("\n"),
     );
   });

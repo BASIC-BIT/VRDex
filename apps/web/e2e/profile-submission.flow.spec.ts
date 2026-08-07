@@ -141,8 +141,8 @@ test("profile submission writes through to public profile and discovery @flow", 
     await expect(page.getByLabel("Verified profile")).toHaveCount(0);
 
     // Canonicalized on the way in: the panel preview URL that was typed is read
-    // for its stream id and stored as the VRCDN page URL, which is what the
-    // watch surface then derives every playback address from.
+    // for its stream id and stored as the `vrcdn:<id>` identifier, which is what
+    // the copy rows then derive every playback address from.
     if (submittedStreamId !== undefined) {
       await expect(
         page.getByText(`https://stream.vrcdn.live/live/${submittedStreamId}.live.ts`),

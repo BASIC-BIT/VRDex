@@ -13,7 +13,7 @@ describe("VRCDN stream links", () => {
       "https://stream.vrcdn.live/live/basicbit.mp4",
       // The URL VRCDN hands an operator looking for their own stream, so it is
       // what people paste and what the NWinn partner export carried. Read for
-      // its id and rebuilt as the public page URL, never stored as-is.
+      // its id and rebuilt as the `vrcdn:<id>` reference, never stored as-is.
       "https://panel.vrcdn.live/preview/basicbit",
     ]) {
       const links = parseVrcdnStreamLinks(input);

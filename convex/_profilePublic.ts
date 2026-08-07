@@ -1,6 +1,7 @@
 import type { Doc } from "./_generated/dataModel";
 import { visibleProfileField, visibleProfileList } from "./_profileFieldVisibility";
 import { optionalField, safeHttpsUrl } from "./_publicFields";
+import { safePublicLinkUrl } from "./_vrcdnLinks";
 import { getProfileTrustLabel } from "./_profileStates";
 
 function visibleHttpsProfileImage(
@@ -42,7 +43,7 @@ export function toPublicProfile(profile: Doc<"profiles">) {
       profile.outboundLinks ?? [],
       "profile_page",
     ).flatMap((link) => {
-      const linkUrl = safeHttpsUrl(link.url);
+      const linkUrl = safePublicLinkUrl(link.url);
 
       if (linkUrl === undefined) {
         return [];
