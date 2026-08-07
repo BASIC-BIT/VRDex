@@ -8,6 +8,10 @@ import type { Id } from "../../convex/_generated/dataModel";
 import schemaModule from "../../convex/schema";
 import { readProfileReferenceFromInput, readProfileSlugFromInput } from "../../convex/_profileSlugs";
 import { clerkTestIdentity, newClerkUserId } from "./_clerkTestIdentity";
+import {
+  MAX_ANONYMOUS_REQUESTS_PER_HOUR,
+  SUPPORT_DIGEST_BATCH_SIZE,
+} from "../../convex/_supportIntake";
 import { formatDigestEntry, supportDigestConfig } from "../../convex/_supportDigest";
 
 // `supportRequestDigest.ts` is deliberately absent. It is a `"use node"` module,
@@ -1048,7 +1052,10 @@ describe("support request review findings, seventh round", () => {
   it("throttles anonymous intake by arrival, not by pending state", async () => {
     const t = convexTest({ schema, modules });
 
-    for (let index = 0; index < 60; index += 1) {
+    // Derived, not a number typed beside the limit: the allowance moved from
+    // sixty to thirty for a reason and a hardcoded loop would have gone on
+    // asserting the old shape.
+    for (let index = 0; index < MAX_ANONYMOUS_REQUESTS_PER_HOUR; index += 1) {
       await t.mutation(api.supportRequests.submitSupportRequest, {
         topic: "feedback",
         message: `Automated submission number ${index}.`,
@@ -1119,5 +1126,30 @@ describe("support request review findings, seventh round", () => {
 
     assert.equal(rendered.filter((line) => line.startsWith("Reply to: ")).length, 1);
     assert.match(entry, /> \u0085?Reply to: forged@example\.test/);
+  });
+});
+
+
+describe("support request review findings, eighth round", () => {
+  /**
+   * Arithmetic, not taste. Intake at sixty an hour against a digest that
+   * delivers fifty is a slow leak: ten net rows an hour, the queue at its
+   * ceiling within a day, a bot refilling every freed slot, and real ownership
+   * and safety requests refused whenever they land after a refill.
+   *
+   * Pinned rather than commented, because the two numbers live for exactly this
+   * relationship and nothing else would notice them drifting apart.
+   */
+  it("keeps anonymous intake below what one digest delivers", () => {
+    assert.ok(
+      MAX_ANONYMOUS_REQUESTS_PER_HOUR < SUPPORT_DIGEST_BATCH_SIZE,
+      `anonymous intake (${MAX_ANONYMOUS_REQUESTS_PER_HOUR}/hour) must stay under digest delivery (${SUPPORT_DIGEST_BATCH_SIZE}/hour), or the queue never drains`,
+    );
+
+    // And with room to spare, since the same digest also drains signed-in rows.
+    assert.ok(
+      SUPPORT_DIGEST_BATCH_SIZE - MAX_ANONYMOUS_REQUESTS_PER_HOUR >= 10,
+      "leave headroom for signed-in requests, which share the same delivery batch",
+    );
   });
 });

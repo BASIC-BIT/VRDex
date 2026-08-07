@@ -44,20 +44,33 @@ export function supportInputError(message: string): ConvexError<{ code: string; 
 const MAX_PENDING_ANONYMOUS_REQUESTS = 200;
 
 /**
+ * How many requests one digest delivers.
+ *
+ * Kept beside the intake rate below rather than next to the query that uses it,
+ * because the only thing that makes either number safe is their relationship,
+ * and split across two files that relationship went unnoticed.
+ */
+export const SUPPORT_DIGEST_BATCH_SIZE = 50;
+
+/**
  * How many anonymous requests may arrive in one rolling hour.
  *
  * The pending ceiling above bounds the queue at an instant, not intake over
  * time. Every digest stamps its batch and frees those slots again, so a bot
- * that simply retries refills them hour after hour: the queue stays at the
- * ceiling, ordinary requesters meet the backlog error nearly always, and the
- * tables grow by roughly a thousand rows a day that nothing ever removes.
+ * that simply retries refills them hour after hour, and a rolling window on
+ * arrival is what bounds the rate instead.
  *
- * A rolling window is what bounds the *rate*, and the two together bound both
- * the depth of the queue and the speed it can be refilled at. Counted on
- * `_creationTime`, which Convex indexes for every table, so this needs no index
- * of its own and cannot be reset by stamping.
+ * **Below `SUPPORT_DIGEST_BATCH_SIZE`, and that is the whole point.** The first
+ * version of this allowed sixty an hour against a digest that delivers fifty,
+ * which is not a limit but a slow leak: ten net rows an hour, the queue at its
+ * ceiling within a day, a bot refilling every freed slot, and real ownership and
+ * safety requests refused whenever they arrive after a refill. Intake has to sit
+ * under delivery for the queue to drain at all, and the gap left here is the
+ * room signed-in requests need, since the digest drains both.
+ *
+ * Counted on `_creationTime`, so nothing the sender does resets it.
  */
-const MAX_ANONYMOUS_REQUESTS_PER_HOUR = 60;
+export const MAX_ANONYMOUS_REQUESTS_PER_HOUR = 30;
 const ANONYMOUS_RATE_WINDOW_MS = 60 * 60 * 1_000;
 
 export const BACKLOG_FULL_MESSAGE =

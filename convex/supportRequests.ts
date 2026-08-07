@@ -4,7 +4,11 @@ import type { Doc } from "./_generated/dataModel";
 import { internalMutation, internalQuery, mutation } from "./_generated/server";
 import { activeBrowserSessionSubjectOrNull } from "./_browserSessionAuthority";
 import { getProfileBySlug, resolveRequestedProfile } from "./_profileSlugs";
-import { requireSupportBacklogHeadroom, supportInputError } from "./_supportIntake";
+import {
+  requireSupportBacklogHeadroom,
+  SUPPORT_DIGEST_BATCH_SIZE,
+  supportInputError,
+} from "./_supportIntake";
 import { normalizeProfileInlineText } from "./_profileSubmissions";
 
 const profileType = v.union(v.literal("person"), v.literal("community"));
@@ -35,16 +39,6 @@ export const MESSAGE_MAX_LENGTH = 4_000;
 const MESSAGE_MIN_LENGTH = 10;
 export const CONTACT_MAX_LENGTH = 160;
 const DISPLAY_NAME_MAX_LENGTH = 120;
-
-/**
- * How many requests one digest covers.
- *
- * A bound on the size of one email, not an abuse control. What bounds abuse is
- * `requireSupportBacklogHeadroom` in `_supportIntake.ts`, because this cap drains
- * the oldest rows and so cannot stop a flood from queueing ahead of real ones.
- * Anything past it keeps its unset `notifiedAt` and rides the next run.
- */
-export const SUPPORT_DIGEST_BATCH_SIZE = 50;
 
 function optionalValue<T>(key: string, value: T | undefined): Record<string, T> {
   return value === undefined ? {} : { [key]: value };
