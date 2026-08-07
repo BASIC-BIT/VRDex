@@ -119,10 +119,21 @@ function isLoopbackHost(host: string): boolean {
   );
 }
 
-/** The other spelling of a host: `example.com` and `www.example.com`. */
-function wwwSibling(hostname: string): string {
-  return hostname.startsWith("www.") ? hostname.slice(4) : `www.${hostname}`;
-}
+/**
+ * The hosted VRDex origins, which are two spellings of one deployment.
+ *
+ * Named rather than derived. Deriving `www.` for whatever host was configured
+ * trusted a sibling nobody said was ours: a self-hoster at
+ * `https://tenant.example.com` had `https://www.tenant.example.com` accepted
+ * too, and if that belongs to someone else its links resolved against this
+ * instance. VRDex production genuinely binds both -- Vercel project domains and
+ * Route 53 records for the apex and the www name, in
+ * `infra/terraform/web-domains` -- so that pair is a fact about this
+ * deployment and is written down as one.
+ */
+const HOSTED_ORIGIN_ALIASES: ReadonlyArray<readonly string[]> = [
+  ["https://vrdex.net", "https://www.vrdex.net"],
+];
 
 /**
  * Every origin whose `/p/` and `/c/` paths are this deployment's.
@@ -139,12 +150,10 @@ function wwwSibling(hostname: string): string {
  */
 function allowedOrigins(siteUrl: string): Set<string> {
   try {
-    const url = new URL(siteUrl);
-    const sibling = new URL(siteUrl);
+    const origin = new URL(siteUrl).origin.toLowerCase();
+    const aliases = HOSTED_ORIGIN_ALIASES.find((group) => group.includes(origin));
 
-    sibling.hostname = wwwSibling(url.hostname.toLowerCase());
-
-    return new Set([url.origin.toLowerCase(), sibling.origin.toLowerCase()]);
+    return new Set(aliases ?? [origin]);
   } catch {
     return new Set();
   }
@@ -215,7 +224,11 @@ export function readProfileReferenceFromInput(
     // profile page silently named a real profile anyway -- the same substitution
     // the segment validation above exists to stop, one path segment further
     // along. A trailing slash, query, or fragment still belongs to the route.
-    const profilePath = /^\/(p|c)\/([^/?#]+)\/?(?:[?#].*)?$/i.exec(path);
+    // Case-sensitive, unlike the scheme and host above it. Only `/p` and `/c`
+    // are routes, so `/P/dj-aurora` is a 404 and names no profile -- accepting
+    // it resolved the real lowercase-route listing from a link that does not
+    // work, which is the same rescue the segment case check already refuses.
+    const profilePath = /^\/(p|c)\/([^/?#]+)\/?(?:[?#].*)?$/.exec(path);
 
     if (profilePath === null) {
       return none;
@@ -240,7 +253,7 @@ export function readProfileReferenceFromInput(
     return PROFILE_SLUG_PATTERN.test(segment)
       ? {
           slug: segment,
-          profileType: profilePath[1].toLowerCase() === "c" ? "community" : "person",
+          profileType: profilePath[1] === "c" ? "community" : "person",
         }
       : none;
   }

@@ -1535,3 +1535,53 @@ describe("support request review findings, sixteenth round", () => {
     );
   });
 });
+
+
+describe("support request review findings, seventeenth round", () => {
+  /**
+   * Deriving a `www.` sibling for whatever host was configured trusted an
+   * origin nobody said was ours. VRDex production binds both names; a
+   * self-hoster's sibling may belong to somebody else entirely.
+   */
+  it("trusts the www sibling only for the hosted VRDex origins", () => {
+    assert.equal(
+      readProfileReferenceFromInput("https://www.vrdex.net/p/dj-aurora", "https://vrdex.net").slug,
+      "dj-aurora",
+    );
+    assert.equal(
+      readProfileReferenceFromInput(
+        "https://www.tenant.example.com/p/dj-aurora",
+        "https://tenant.example.com",
+      ).slug,
+      "",
+      "a self-hoster's www sibling is not automatically theirs",
+    );
+    assert.equal(
+      readProfileReferenceFromInput(
+        "https://tenant.example.com/p/dj-aurora",
+        "https://tenant.example.com",
+      ).slug,
+      "dj-aurora",
+    );
+  });
+
+  /**
+   * Only `/p` and `/c` are routes, so `/P/dj-aurora` is a 404. Accepting it
+   * resolved the real listing from a link that does not work.
+   */
+  it("matches the route prefix case-sensitively", () => {
+    assert.equal(
+      readProfileReferenceFromInput("https://vrdex.net/P/dj-aurora", "https://vrdex.net").slug,
+      "",
+    );
+    assert.equal(
+      readProfileReferenceFromInput("https://vrdex.net/C/afterglow", "https://vrdex.net").slug,
+      "",
+    );
+    // The scheme stays case-insensitive, which is what a URL actually allows.
+    assert.equal(
+      readProfileReferenceFromInput("HTTPS://vrdex.net/p/dj-aurora", "https://vrdex.net").slug,
+      "dj-aurora",
+    );
+  });
+});
