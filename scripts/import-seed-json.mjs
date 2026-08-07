@@ -7,6 +7,7 @@ import {
   CONVEX_TARGET_NAMES,
   convexCliPath,
   convexTargetEnv,
+  MAX_CONVEX_ARGS_BYTES,
   SEED_SCRIPT_TARGET_HELP,
   resolveTargetName,
   targetSelectorFlagError,
@@ -17,7 +18,12 @@ const scriptDir = path.dirname(scriptPath);
 const repoRoot = path.resolve(scriptDir, "..");
 const args = process.argv.slice(2);
 
-export const MAX_CONVEX_IMPORT_ARGS_BYTES = 20_000;
+/**
+ * Kept under the name this script and its tests already use. The ceiling is the
+ * command line every operator script shares rather than anything about
+ * importing, which is why the value now lives beside the CLI wrapper.
+ */
+export const MAX_CONVEX_IMPORT_ARGS_BYTES = MAX_CONVEX_ARGS_BYTES;
 
 function option(name) {
   const index = args.indexOf(name);

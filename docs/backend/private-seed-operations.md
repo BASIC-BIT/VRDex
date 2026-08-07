@@ -397,16 +397,22 @@ pnpm ops:seed-publish -- `
   `--apply` run sends the identifiers alone. `--rederive-values` also carries
   the display name and aliases, because those are what the suppression recheck
   reads and a re-derivation is the only mode that moves them. It is the one
-  part of the call that grows with
-  the batch rather than the page, so it is capped; a batch with more distinct
-  published profiles than the cap prints a warning saying the totals are
-  approximate, rather than quietly drifting from what the write will do.
-  `--limit` is not the lever, and the warning says so: the carry holds every
-  distinct profile seen so far rather than one entry per page, and the mutation
-  clamps the page size anyway. What degrades past the cap is the reporting, not
-  the migration -- an applied run reads back what it wrote, so the writes are
-  the same either way. Raising the cap is a code change, and the batch this
-  exists for is well under it.
+  part of the call that grows with the batch rather than the page, and it
+  reaches the Convex CLI as one process argument -- so the ceiling is the
+  command line, not anything Convex enforces. On Windows that is 32,767
+  characters, and crossing it fails the spawn before the process starts: no
+  Convex error, no stderr, just a failed call with nothing to inspect. A run
+  against the 405-profile batch hit exactly that at 244 profiles.
+- The driver now fits the carry into a byte budget, shedding in the order that
+  keeps the promise worth most. Which profiles have been counted is what keeps
+  the totals honest and costs an identifier, so the visibility maps and names go
+  first; entries are dropped outright only if the identifiers alone still will
+  not fit. Anything shed prints a warning and marks the totals approximate,
+  rather than quietly drifting from what the write will do. `--limit` is not the
+  lever, and the warning says so: the carry holds every distinct profile seen so
+  far rather than one entry per page, and the mutation clamps the page size
+  anyway. What degrades is the reporting, not the migration -- an applied run
+  reads back what it wrote, so the writes are the same either way.
 - `--field-keys` is optional; omitting it targets every accepted field. It scopes
   the whole run, not just the visibility change: with `--rederive-values`, only
   the named fields are replayed, so a run repairing links cannot overwrite live
