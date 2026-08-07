@@ -190,6 +190,11 @@ function ConnectedSupportRequestForm() {
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const [, startTransition] = useTransition();
   const formRef = useRef<HTMLFormElement>(null);
+  // Bumped whenever the deep link changes. A submit captures the value it
+  // started under and drops its own result if that no longer matches, because
+  // by then the visitor is filling in a different request: without it the old
+  // promise cleared their draft and reported success for the topic they left.
+  const submissionGeneration = useRef(0);
 
   // The initializer above runs once. Navigating between `?topic=` links while
   // the form is already mounted -- the footer's two entries do exactly that --
@@ -210,6 +215,7 @@ function ConnectedSupportRequestForm() {
     // last one would have sat above an untouched form claiming it was sent.
     formRef.current?.reset();
     setStatus({ kind: "idle" });
+    submissionGeneration.current += 1;
   }, [requestedTopic]);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -233,6 +239,8 @@ function ConnectedSupportRequestForm() {
     // promised a reply to an address the digest does not contain.
     const requesterContact = textField(formData.get("requesterContact")).trim() || undefined;
     const message = textField(formData.get("message"));
+
+    const generation = submissionGeneration.current;
 
     setStatus({ kind: "submitting" });
 
@@ -260,12 +268,20 @@ function ConnectedSupportRequestForm() {
         });
       }
 
+      if (generation !== submissionGeneration.current) {
+        return;
+      }
+
       form.reset();
       setTopic("");
       startTransition(() =>
         setStatus({ kind: "success", repliable: Boolean(requesterContact) }),
       );
     } catch (error) {
+      if (generation !== submissionGeneration.current) {
+        return;
+      }
+
       startTransition(() => setStatus({ kind: "error", message: requestErrorMessage(error) }));
     }
   }

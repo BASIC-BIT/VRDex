@@ -105,8 +105,22 @@ export const MAX_ANONYMOUS_REQUESTS_PER_HOUR = 30;
 
 const RATE_WINDOW_MS = 60 * 60 * 1_000;
 
+/**
+ * Two messages, because the advice differs and one of them stopped being true.
+ *
+ * The shared ceiling applies to signed-in senders now, deliberately, so telling
+ * them to sign in offered a recovery that cannot work. An anonymous sender can
+ * still get a route that way, since the per-subject quota is theirs alone.
+ */
 export const BACKLOG_FULL_MESSAGE =
   "We have more requests than we can answer right now. Try again in a few hours, or sign in to send this one now.";
+
+export const BACKLOG_FULL_SIGNED_IN_MESSAGE =
+  "We have more requests than we can answer right now. Please try again in a few hours.";
+
+function backlogFullMessage(requester: { subject: string } | undefined): string {
+  return requester === undefined ? BACKLOG_FULL_MESSAGE : BACKLOG_FULL_SIGNED_IN_MESSAGE;
+}
 
 /**
  * How many undelivered requests one signed-in subject may have waiting.
@@ -190,7 +204,7 @@ export async function requireSupportBacklogHeadroom(
     .take(MAX_PENDING_ANONYMOUS_REQUESTS + 1);
 
   if (pendingSupport.length > MAX_PENDING_ANONYMOUS_REQUESTS) {
-    throw supportInputError(BACKLOG_FULL_MESSAGE);
+    throw supportInputError(backlogFullMessage(requester));
   }
 
   // `submitted` only, seeked rather than filtered. Resolved rows predate
@@ -204,7 +218,7 @@ export async function requireSupportBacklogHeadroom(
     .take(MAX_PENDING_ANONYMOUS_REQUESTS + 1 - pendingSupport.length);
 
   if (pendingSupport.length + pendingSuppressions.length > MAX_PENDING_ANONYMOUS_REQUESTS) {
-    throw supportInputError(BACKLOG_FULL_MESSAGE);
+    throw supportInputError(backlogFullMessage(requester));
   }
 
   await requireRateHeadroom(db, requester);

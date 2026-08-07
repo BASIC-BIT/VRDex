@@ -24,6 +24,10 @@ const modules = {
   "../../convex/supportRequests.ts": () => import("../../convex/supportRequests"),
   "../../convex/suppressions.ts": () => import("../../convex/suppressions"),
 };
+
+// The intake resolves a pasted absolute URL only when its host is this
+// deployment's, so these tests have to say which deployment they are.
+process.env.SITE_URL = "https://vrdex.net";
 const schema = (
   schemaModule as unknown as { default?: typeof schemaModule }
 ).default ?? schemaModule;
@@ -300,24 +304,24 @@ describe("support request digest", () => {
 
 describe("support request helpers", () => {
   it("reads a slug from the shapes people actually paste", () => {
-    assert.equal(readProfileSlugFromInput("dj-aurora"), "dj-aurora");
-    assert.equal(readProfileSlugFromInput("  DJ Aurora  "), "dj-aurora");
-    assert.equal(readProfileSlugFromInput("https://vrdex.net/p/dj-aurora"), "dj-aurora");
+    assert.equal(readProfileSlugFromInput("dj-aurora", "https://vrdex.net"), "dj-aurora");
+    assert.equal(readProfileSlugFromInput("  DJ Aurora  ", "https://vrdex.net"), "dj-aurora");
+    assert.equal(readProfileSlugFromInput("https://vrdex.net/p/dj-aurora", "https://vrdex.net"), "dj-aurora");
     assert.equal(
-      readProfileSlugFromInput("https://vrdex.net/c/afterglow-social?x=1"),
+      readProfileSlugFromInput("https://vrdex.net/c/afterglow-social?x=1", "https://vrdex.net"),
       "afterglow-social",
     );
-    assert.equal(readProfileSlugFromInput("vrdex.net/p/dj-aurora"), "dj-aurora");
-    assert.equal(readProfileSlugFromInput(""), "");
+    assert.equal(readProfileSlugFromInput("vrdex.net/p/dj-aurora", "https://vrdex.net"), "dj-aurora");
+    assert.equal(readProfileSlugFromInput("", "https://vrdex.net"), "");
     // A bare origin carries no profile, and normalizing the host would invent a
     // slug-shaped string that resolves to nothing.
-    assert.equal(readProfileSlugFromInput("https://vrdex.net"), "");
+    assert.equal(readProfileSlugFromInput("https://vrdex.net", "https://vrdex.net"), "");
     // Evidence links are the common paste into this field, and any dotted host
     // used to qualify: the last segment became a valid-looking slug pointing at
     // some unrelated profile while the URL that mattered was thrown away.
-    assert.equal(readProfileSlugFromInput("https://vrchat.com/home/user/usr_123"), "");
-    assert.equal(readProfileSlugFromInput("https://discord.gg/abcdef"), "");
-    assert.equal(readProfileSlugFromInput("https://vrdex.net/w/neon-harbor"), "");
+    assert.equal(readProfileSlugFromInput("https://vrchat.com/home/user/usr_123", "https://vrdex.net"), "");
+    assert.equal(readProfileSlugFromInput("https://discord.gg/abcdef", "https://vrdex.net"), "");
+    assert.equal(readProfileSlugFromInput("https://vrdex.net/w/neon-harbor", "https://vrdex.net"), "");
   });
 
   it("names a missing contact rather than leaving a gap in the digest", () => {
@@ -849,11 +853,11 @@ describe("support request review findings, third round", () => {
   });
 
   it("reads a profile link from a deployment without a dotted host", () => {
-    assert.equal(readProfileSlugFromInput("http://localhost:3000/p/dj-aurora"), "dj-aurora");
-    assert.equal(readProfileSlugFromInput("http://127.0.0.1:3210/c/afterglow-social"), "afterglow-social");
-    assert.equal(readProfileSlugFromInput("http://[::1]:3000/p/dj-aurora"), "dj-aurora");
+    assert.equal(readProfileSlugFromInput("http://localhost:3000/p/dj-aurora", "https://vrdex.net"), "dj-aurora");
+    assert.equal(readProfileSlugFromInput("http://127.0.0.1:3210/c/afterglow-social", "https://vrdex.net"), "afterglow-social");
+    assert.equal(readProfileSlugFromInput("http://[::1]:3000/p/dj-aurora", "https://vrdex.net"), "dj-aurora");
     // Still only the two profile routes, whatever the host.
-    assert.equal(readProfileSlugFromInput("http://localhost:3000/w/neon-harbor"), "");
+    assert.equal(readProfileSlugFromInput("http://localhost:3000/w/neon-harbor", "https://vrdex.net"), "");
   });
 });
 
@@ -921,16 +925,16 @@ describe("support request review findings, fourth round", () => {
   });
 
   it("reads the route type out of a pasted link", () => {
-    assert.deepEqual(readProfileReferenceFromInput("https://vrdex.net/c/afterglow-social"), {
+    assert.deepEqual(readProfileReferenceFromInput("https://vrdex.net/c/afterglow-social", "https://vrdex.net"), {
       slug: "afterglow-social",
       profileType: "community",
     });
-    assert.deepEqual(readProfileReferenceFromInput("https://vrdex.net/p/dj-aurora"), {
+    assert.deepEqual(readProfileReferenceFromInput("https://vrdex.net/p/dj-aurora", "https://vrdex.net"), {
       slug: "dj-aurora",
       profileType: "person",
     });
     // A bare slug names no route, so it carries no type to trust.
-    assert.deepEqual(readProfileReferenceFromInput("dj-aurora"), {
+    assert.deepEqual(readProfileReferenceFromInput("dj-aurora", "https://vrdex.net"), {
       slug: "dj-aurora",
       profileType: null,
     });
@@ -1109,13 +1113,13 @@ describe("support request review findings, seventh round", () => {
    * substitute while discarding the URL actually given.
    */
   it("does not rewrite a pasted path onto a different profile", () => {
-    assert.equal(readProfileReferenceFromInput("https://vrdex.net/p/dj_aurora").slug, "");
-    assert.equal(readProfileReferenceFromInput("https://vrdex.net/p/DJ Aurora").slug, "");
+    assert.equal(readProfileReferenceFromInput("https://vrdex.net/p/dj_aurora", "https://vrdex.net").slug, "");
+    assert.equal(readProfileReferenceFromInput("https://vrdex.net/p/DJ Aurora", "https://vrdex.net").slug, "");
     // Case and percent-encoding change nothing about which profile is named.
-    assert.equal(readProfileReferenceFromInput("https://vrdex.net/p/DJ-Aurora").slug, "dj-aurora");
-    assert.equal(readProfileReferenceFromInput("https://vrdex.net/p/dj%2Daurora").slug, "dj-aurora");
+    assert.equal(readProfileReferenceFromInput("https://vrdex.net/p/DJ-Aurora", "https://vrdex.net").slug, "dj-aurora");
+    assert.equal(readProfileReferenceFromInput("https://vrdex.net/p/dj%2Daurora", "https://vrdex.net").slug, "dj-aurora");
     // A bare typed word is still normalized, since it is not a precise link.
-    assert.equal(readProfileReferenceFromInput("DJ Aurora").slug, "dj-aurora");
+    assert.equal(readProfileReferenceFromInput("DJ Aurora", "https://vrdex.net").slug, "dj-aurora");
   });
 
   it("quotes the next-line control as well", () => {
@@ -1251,18 +1255,104 @@ describe("support request review findings, eleventh round", () => {
    * so accepting it named a real profile the pasted link never pointed at.
    */
   it("rejects a profile URL with anything after the slug", () => {
-    assert.equal(readProfileReferenceFromInput("https://vrdex.net/p/dj-aurora/extra").slug, "");
-    assert.equal(readProfileReferenceFromInput("https://vrdex.net/c/afterglow/edit").slug, "");
+    assert.equal(readProfileReferenceFromInput("https://vrdex.net/p/dj-aurora/extra", "https://vrdex.net").slug, "");
+    assert.equal(readProfileReferenceFromInput("https://vrdex.net/c/afterglow/edit", "https://vrdex.net").slug, "");
 
     // A trailing slash, query, or fragment is still the same route.
-    assert.equal(readProfileReferenceFromInput("https://vrdex.net/p/dj-aurora/").slug, "dj-aurora");
+    assert.equal(readProfileReferenceFromInput("https://vrdex.net/p/dj-aurora/", "https://vrdex.net").slug, "dj-aurora");
     assert.equal(
-      readProfileReferenceFromInput("https://vrdex.net/p/dj-aurora?utm_source=x").slug,
+      readProfileReferenceFromInput("https://vrdex.net/p/dj-aurora?utm_source=x", "https://vrdex.net").slug,
       "dj-aurora",
     );
     assert.equal(
-      readProfileReferenceFromInput("https://vrdex.net/p/dj-aurora#links").slug,
+      readProfileReferenceFromInput("https://vrdex.net/p/dj-aurora#links", "https://vrdex.net").slug,
       "dj-aurora",
+    );
+  });
+});
+
+
+describe("support request review findings, twelfth round", () => {
+  /**
+   * A pasted link's host is part of what it names. Discarding it meant
+   * `https://anywhere.example/p/dj-aurora` resolved `dj-aurora` here, and on a
+   * suppression that stored the real profile's id for an operator to act on.
+   */
+  it("only resolves profile links belonging to this deployment", () => {
+    assert.equal(
+      readProfileReferenceFromInput("https://anywhere.example/p/dj-aurora", "https://vrdex.net")
+        .slug,
+      "",
+    );
+    assert.equal(
+      readProfileReferenceFromInput("anywhere.example/p/dj-aurora", "https://vrdex.net").slug,
+      "",
+    );
+    assert.equal(
+      readProfileReferenceFromInput("https://vrdex.net/p/dj-aurora", "https://vrdex.net").slug,
+      "dj-aurora",
+    );
+
+    // Loopback always, since a self-hosted instance serves its own links from
+    // one and may not have set an origin at all.
+    assert.equal(
+      readProfileReferenceFromInput("http://localhost:3000/p/dj-aurora", undefined).slug,
+      "dj-aurora",
+    );
+    assert.equal(
+      readProfileReferenceFromInput("http://127.0.0.1:3210/c/afterglow", undefined).slug,
+      "afterglow",
+    );
+
+    // A bare slug is not a link and carries no host to disagree with.
+    assert.equal(readProfileReferenceFromInput("dj-aurora", "https://vrdex.net").slug, "dj-aurora");
+  });
+
+  /**
+   * The ceiling applies to signed-in senders now, so telling them to sign in
+   * offered a recovery that cannot work.
+   */
+  it("does not tell a signed-in requester to sign in", async () => {
+    const t = convexTest({ schema, modules });
+    const identity = clerkTestIdentity(newClerkUserId());
+    const signedIn = t.withIdentity(identity);
+    const now = Date.now();
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("users", {
+        clerkUserId: identity.subject,
+        email: "queue-watcher@example.test",
+        emailVerificationTime: now,
+      });
+
+      for (let index = 0; index < 201; index += 1) {
+        await ctx.db.insert("supportRequests", {
+          topic: "feedback",
+          message: `Queued request ${index}.`,
+          requester: {
+            tokenIdentifier: "test|somebody-else",
+            issuer: "test",
+            subject: "somebody-else",
+          },
+          createdAt: now - 201 + index,
+          updatedAt: now,
+        });
+      }
+    });
+
+    await assert.rejects(
+      () =>
+        signedIn.mutation(api.supportRequests.submitSupportRequest, {
+          topic: "feedback",
+          message: "One more while the queue is full.",
+        }),
+      (error: unknown) => {
+        const message = (error as { data?: { message?: string } }).data?.message ?? "";
+
+        assert.match(message, /more requests than we can answer/);
+        assert.doesNotMatch(message, /sign in/);
+        return true;
+      },
     );
   });
 });

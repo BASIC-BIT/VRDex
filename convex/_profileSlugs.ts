@@ -87,14 +87,8 @@ export function normalizeProfileSlugInput(input: string): string {
  * meant something to whoever typed it, and dropping it silently is how a dispute
  * arrives with no identifier on it.
  */
-export function readProfileSlugFromInput(raw: string): string {
-  const trimmed = raw.trim();
-
-  if (trimmed === "") {
-    return "";
-  }
-
-  return readProfileReferenceFromInput(raw).slug;
+export function readProfileSlugFromInput(raw: string, siteUrl?: string): string {
+  return readProfileReferenceFromInput(raw, siteUrl).slug;
 }
 
 export type ProfileReference = {
@@ -113,7 +107,44 @@ export type ProfileReference = {
  * skipped by `hasAcceptedSuppression`'s type check, so the very listing someone
  * asked to be kept down could still be published.
  */
-export function readProfileReferenceFromInput(raw: string): ProfileReference {
+/**
+ * Whether an absolute URL's host is one whose `/p/` and `/c/` paths are ours.
+ *
+ * Without this, `https://anywhere.example/p/dj-aurora` had its host discarded
+ * and its path resolved against VRDex, so a link to somewhere else entirely
+ * named a real profile here. On a suppression that stored the profile's id, and
+ * an operator could retract a listing the requester never pointed at.
+ *
+ * Loopback is always allowed, because a self-hosted or local deployment serves
+ * its own profile links from one and `SITE_URL` may be unset there.
+ */
+function isDeploymentHost(host: string, siteUrl: string | undefined): boolean {
+  const hostname = host.replace(/:\d+$/, "").toLowerCase();
+
+  if (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "[::1]" ||
+    hostname === "::1"
+  ) {
+    return true;
+  }
+
+  if (siteUrl === undefined) {
+    return false;
+  }
+
+  try {
+    return new URL(siteUrl).hostname.toLowerCase() === hostname;
+  } catch {
+    return false;
+  }
+}
+
+export function readProfileReferenceFromInput(
+  raw: string,
+  siteUrl?: string,
+): ProfileReference {
   const trimmed = raw.trim();
   const none: ProfileReference = { slug: "", profileType: null };
 
@@ -124,7 +155,7 @@ export function readProfileReferenceFromInput(raw: string): ProfileReference {
   // Read by path, not by hostname. Requiring a dotted host rejected the profile
   // URL of every localhost and loopback deployment, so a self-hosted instance
   // could not paste the link its own form asks for.
-  const path = profileUrlPath(trimmed);
+  const path = profileUrlPath(trimmed, siteUrl);
 
   if (path !== null) {
     // Only the two routes that actually name a profile. Any host used to
@@ -181,12 +212,12 @@ function decodeUrlSegment(segment: string): string {
 }
 
 /** The path of `input` when it is a URL, or `null` when it is not one. */
-function profileUrlPath(input: string): string | null {
+function profileUrlPath(input: string, siteUrl: string | undefined): string | null {
   if (/^https?:\/\//i.test(input)) {
     try {
       const url = new URL(input);
 
-      return `${url.pathname}${url.search}`;
+      return isDeploymentHost(url.host, siteUrl) ? `${url.pathname}${url.search}` : null;
     } catch {
       return null;
     }
@@ -195,9 +226,13 @@ function profileUrlPath(input: string): string | null {
   // Scheme-less, which is how most people paste a link. Only a dotted host is
   // recognizable without one: `localhost/p/x` cannot be told apart from a
   // relative path, and guessing would swallow real paths.
-  const hostless = /^[^/\s]+\.[^/\s]+(\/.*)?$/i.exec(input);
+  const hostless = /^([^/\s]+\.[^/\s]+)(\/.*)?$/i.exec(input);
 
-  return hostless === null ? null : (hostless[1] ?? "");
+  if (hostless === null) {
+    return null;
+  }
+
+  return isDeploymentHost(hostless[1], siteUrl) ? (hostless[2] ?? "") : null;
 }
 
 /** Shared by both intake mutations behind `/support`. */
@@ -216,9 +251,12 @@ export const INVALID_PROFILE_INPUT_MESSAGE =
  * identifier on a request, without telling the person who typed it, is how a
  * dispute arrives that nobody can act on.
  */
-export function resolveRequestedProfile(raw: string | undefined): ProfileReference | undefined {
+export function resolveRequestedProfile(
+  raw: string | undefined,
+  siteUrl?: string,
+): ProfileReference | undefined {
   const trimmed = (raw ?? "").trim();
-  const reference = readProfileReferenceFromInput(trimmed);
+  const reference = readProfileReferenceFromInput(trimmed, siteUrl);
 
   if (reference.slug === "") {
     if (trimmed !== "") {

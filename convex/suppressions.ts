@@ -5,6 +5,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, mutation, type MutationCtx } from "./_generated/server";
 import { activeBrowserSessionSubjectOrNull } from "./_browserSessionAuthority";
 import { getProfileBySlug, getRequestedProfile, resolveRequestedProfile } from "./_profileSlugs";
+import { optionalEnv } from "./_supportEnv";
 import {
   requireRawArgumentsWithinBounds,
   requireSupportBacklogHeadroom,
@@ -75,13 +76,6 @@ export const requestProfileSuppression = mutation({
       "That is longer than we can store.",
     );
 
-    const requester = (await activeBrowserSessionSubjectOrNull(ctx))?.subject;
-
-    // Same ceiling as the support intake. This mutation was already public and
-    // unauthenticated, but it now feeds the same digest and the same mailbox, so
-    // a flood of opt-outs buries disputes exactly as a flood of disputes would.
-    await requireSupportBacklogHeadroom(ctx.db, requester);
-
     // The sibling intake refuses an overlong contact; this one silently stored
     // the first 160 characters, so a caller reaching this mutation directly got
     // success and the digest got a truncated address.
@@ -112,10 +106,6 @@ export const requestProfileSuppression = mutation({
     // profile field says "paste the profile link" whichever topic is chosen.
     // Parsing this only on the other path meant a pasted link resolved for a
     // dispute and was rejected for an opt-out.
-    const requested = resolveRequestedProfile(args.profileSlug);
-    const profileSlug = requested?.slug;
-    const profile = await getRequestedProfile(ctx.db, requested);
-
     // The requester's own text, measured untruncated, as the sibling intake
     // does. Resolution searches on this name, so a silently sliced one sends the
     // scan after something the requester never wrote -- and on this path that
@@ -128,6 +118,17 @@ export const requestProfileSuppression = mutation({
       );
     }
 
+    const requested = resolveRequestedProfile(args.profileSlug, optionalEnv("SITE_URL"));
+    const profileSlug = requested?.slug;
+
+    // Only now the database, as on the sibling path: everything decidable
+    // without it has already refused, so a caller repeating invalid input
+    // cannot spend index reads on it.
+    const requester = (await activeBrowserSessionSubjectOrNull(ctx))?.subject;
+
+    await requireSupportBacklogHeadroom(ctx.db, requester);
+
+    const profile = await getRequestedProfile(ctx.db, requested);
     const displayName = optionalText(
       args.displayName ?? profile?.displayName,
       SUPPRESSION_DISPLAY_NAME_MAX_LENGTH,

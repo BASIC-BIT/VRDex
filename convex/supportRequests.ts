@@ -4,6 +4,7 @@ import type { Doc } from "./_generated/dataModel";
 import { internalMutation, internalQuery, mutation } from "./_generated/server";
 import { activeBrowserSessionSubjectOrNull } from "./_browserSessionAuthority";
 import { getRequestedProfile, resolveRequestedProfile } from "./_profileSlugs";
+import { optionalEnv } from "./_supportEnv";
 import {
   requireRawArgumentsWithinBounds,
   requireSupportBacklogHeadroom,
@@ -140,10 +141,10 @@ export const submitSupportRequest = mutation({
     );
     requireRawMessageWithinBounds(args.message);
 
-    const requester = (await activeBrowserSessionSubjectOrNull(ctx))?.subject;
-
-    await requireSupportBacklogHeadroom(ctx.db, requester);
-
+    // Everything decidable without the database comes first. These used to run
+    // after the session lookup and the backlog reads, so a caller repeating one
+    // whitespace-only message made this do hundreds of index reads per attempt
+    // and insert nothing, which spends no row-counted allowance either.
     const message = normalizeMessage(args.message);
 
     if (message.length < MESSAGE_MIN_LENGTH) {
@@ -175,25 +176,28 @@ export const submitSupportRequest = mutation({
       throw supportInputError("Add a contact so we can reply.");
     }
 
-    const requested = resolveRequestedProfile(args.profileSlug);
-    const profileSlug = requested?.slug;
-
-    // Resolved only to borrow the display name when the requester left it blank.
-    // A slug with no profile behind it is still recorded: someone disputing a
-    // listing may be reading it off a URL that has since changed, and dropping
-    // it would discard the only identifier they had.
-    const profile = await getRequestedProfile(ctx.db, requested);
-
     // The requester's own text, measured untruncated. A name is an identifier
     // here, so slicing it produced a request that succeeded while naming
-    // something subtly different from the listing the person meant. The stored
-    // profile's name is not checked: it came from the record, not from them.
+    // something subtly different from the listing the person meant.
     if (normalizeProfileInlineText(args.displayName ?? "").length > DISPLAY_NAME_MAX_LENGTH) {
       throw supportInputError(
         `That name is longer than we can store. Keep it under ${DISPLAY_NAME_MAX_LENGTH} characters.`,
       );
     }
 
+    const requested = resolveRequestedProfile(args.profileSlug, optionalEnv("SITE_URL"));
+    const profileSlug = requested?.slug;
+
+    // Only now the database: identity, then capacity, then the profile read.
+    const requester = (await activeBrowserSessionSubjectOrNull(ctx))?.subject;
+
+    await requireSupportBacklogHeadroom(ctx.db, requester);
+
+    // Resolved only to borrow the display name when the requester left it blank.
+    // A slug with no profile behind it is still recorded: someone disputing a
+    // listing may be reading it off a URL that has since changed, and dropping
+    // it would discard the only identifier they had.
+    const profile = await getRequestedProfile(ctx.db, requested);
     const displayName = optionalText(
       args.displayName ?? profile?.displayName,
       DISPLAY_NAME_MAX_LENGTH,
