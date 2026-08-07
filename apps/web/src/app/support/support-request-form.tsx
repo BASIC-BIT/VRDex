@@ -145,7 +145,29 @@ function isTopic(value: string): value is Topic {
   return TOPIC_VALUES.includes(value);
 }
 
+/**
+ * The unconfigured branch, above the hooks rather than below them.
+ *
+ * `ConvexClientProvider` deliberately renders its children with no Convex
+ * context when `NEXT_PUBLIC_CONVEX_URL` is absent, which is the normal state of
+ * a shell-only preview and of a self-hosted instance mid-setup. `useMutation`
+ * requires that context, and hooks run before any early return inside the same
+ * component, so the notice below could never be reached: the page threw
+ * instead of explaining itself.
+ */
 export function SupportRequestForm() {
+  if (!convexUrl) {
+    return (
+      <Notice className="px-5 py-6 leading-7" variant="dashed">
+        Convex is not configured. Run the local backend before submitting requests.
+      </Notice>
+    );
+  }
+
+  return <ConnectedSupportRequestForm />;
+}
+
+function ConnectedSupportRequestForm() {
   const searchParams = useSearchParams();
   const requestedTopic = searchParams.get("topic") ?? "";
   const submitSupportRequest = useMutation(api.supportRequests.submitSupportRequest);
@@ -174,14 +196,6 @@ export function SupportRequestForm() {
     setTopic(isTopic(requestedTopic) ? requestedTopic : "");
   }, [requestedTopic]);
 
-  if (!convexUrl) {
-    return (
-      <Notice className="px-5 py-6 leading-7" variant="dashed">
-        Convex is not configured. Run the local backend before submitting requests.
-      </Notice>
-    );
-  }
-
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
@@ -198,7 +212,10 @@ export function SupportRequestForm() {
       | "community"
       | undefined;
     const displayName = textField(formData.get("displayName")) || undefined;
-    const requesterContact = textField(formData.get("requesterContact")) || undefined;
+    // Trimmed here, because both mutations normalize it away and the success
+    // notice is decided from this value. Spaces alone counted as a contact and
+    // promised a reply to an address the digest does not contain.
+    const requesterContact = textField(formData.get("requesterContact")).trim() || undefined;
     const message = textField(formData.get("message"));
 
     setStatus({ kind: "submitting" });

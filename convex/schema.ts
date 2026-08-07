@@ -2212,7 +2212,14 @@ export default defineSchema({
     // written also reads as unnotified. Seeking on both is what keeps a
     // filter-after-take from starving on a prefix of historical rows.
     .index("by_state_notifiedAt_createdAt", ["state", "notifiedAt", "createdAt"])
-    .index("by_requesterSubject_notifiedAt", ["requester.subject", "notifiedAt"]),
+    // State here too. The per-sender quota needs the same "actionable" meaning
+    // the other two queries do, or a subject's own resolved rows count against
+    // them forever and lock their account out of the form permanently.
+    .index("by_requesterSubject_state_notifiedAt", [
+      "requester.subject",
+      "state",
+      "notifiedAt",
+    ]),
   // Contact, dispute, transfer, and recovery requests from `/support`.
   //
   // No lifecycle columns. The hourly digest is the read path and the operator's

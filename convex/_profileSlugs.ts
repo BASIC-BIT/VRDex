@@ -94,6 +94,33 @@ export function readProfileSlugFromInput(raw: string): string {
     return "";
   }
 
+  return readProfileReferenceFromInput(raw).slug;
+}
+
+export type ProfileReference = {
+  slug: string;
+  /** Read off the route, so `null` means the input never named one. */
+  profileType: "person" | "community" | null;
+};
+
+/**
+ * The slug *and* the kind of profile the input names.
+ *
+ * The route carries the type and the slug alone throws it away. That mattered
+ * more than it looks: a pre-claim safety request for a community that does not
+ * exist yet has no stored profile to correct a wrong guess, and the form's
+ * selector defaults to `person`. An accepted suppression recorded that way is
+ * skipped by `hasAcceptedSuppression`'s type check, so the very listing someone
+ * asked to be kept down could still be published.
+ */
+export function readProfileReferenceFromInput(raw: string): ProfileReference {
+  const trimmed = raw.trim();
+  const none: ProfileReference = { slug: "", profileType: null };
+
+  if (trimmed === "") {
+    return none;
+  }
+
   // Read by path, not by hostname. Requiring a dotted host rejected the profile
   // URL of every localhost and loopback deployment, so a self-hosted instance
   // could not paste the link its own form asks for.
@@ -106,14 +133,22 @@ export function readProfileSlugFromInput(raw: string): string {
     // normalized into a slug-shaped string that passes validation and points at
     // some other profile, or none. The digest then aimed an operator at the
     // wrong record while the URL they actually meant was discarded.
-    const profilePath = /^\/(?:p|c)\/([^/?#]+)/i.exec(path);
+    const profilePath = /^\/(p|c)\/([^/?#]+)/i.exec(path);
 
-    return profilePath === null ? "" : normalizeProfileSlugInput(profilePath[1]);
+    return profilePath === null
+      ? none
+      : {
+          slug: normalizeProfileSlugInput(profilePath[2]),
+          profileType: profilePath[1].toLowerCase() === "c" ? "community" : "person",
+        };
   }
 
   // A bare word, typed rather than pasted. Slashes here would mean a path
-  // fragment with no host, which names no profile either.
-  return trimmed.includes("/") ? "" : normalizeProfileSlugInput(trimmed);
+  // fragment with no host, which names no profile either. No type: a slug on
+  // its own says nothing about which route it belongs to.
+  return trimmed.includes("/")
+    ? none
+    : { slug: normalizeProfileSlugInput(trimmed), profileType: null };
 }
 
 /** The path of `input` when it is a URL, or `null` when it is not one. */
@@ -152,11 +187,11 @@ export const INVALID_PROFILE_INPUT_MESSAGE =
  * identifier on a request, without telling the person who typed it, is how a
  * dispute arrives that nobody can act on.
  */
-export function resolveRequestedProfileSlug(raw: string | undefined): string | undefined {
+export function resolveRequestedProfile(raw: string | undefined): ProfileReference | undefined {
   const trimmed = (raw ?? "").trim();
-  const slug = readProfileSlugFromInput(trimmed);
+  const reference = readProfileReferenceFromInput(trimmed);
 
-  if (slug === "") {
+  if (reference.slug === "") {
     if (trimmed !== "") {
       throw supportInputError(INVALID_PROFILE_INPUT_MESSAGE);
     }
@@ -164,13 +199,13 @@ export function resolveRequestedProfileSlug(raw: string | undefined): string | u
     return undefined;
   }
 
-  const validation = validateProfileSlug(slug);
+  const validation = validateProfileSlug(reference.slug);
 
   if (!validation.ok) {
     throw supportInputError(INVALID_PROFILE_INPUT_MESSAGE);
   }
 
-  return validation.slug;
+  return { slug: validation.slug, profileType: reference.profileType };
 }
 
 export function validateProfileSlug(slug: string): ProfileSlugValidationResult {

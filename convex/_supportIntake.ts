@@ -96,10 +96,18 @@ export async function requireSupportBacklogHeadroom(
     const ownSuppressions =
       ownSupport.length >= MAX_PENDING_PER_SUBJECT
         ? []
-        : await db
+        : // `submitted` only, for the same reason the anonymous ceiling and the
+          // digest seek on it: a subject's own resolved rows keep their unset
+          // watermark forever, so counting them would lock that account out of
+          // the form permanently once it had filed ten things that were dealt
+          // with.
+          await db
             .query("profileSuppressionRequests")
-            .withIndex("by_requesterSubject_notifiedAt", (query) =>
-              query.eq("requester.subject", requester.subject).eq("notifiedAt", undefined),
+            .withIndex("by_requesterSubject_state_notifiedAt", (query) =>
+              query
+                .eq("requester.subject", requester.subject)
+                .eq("state", "submitted")
+                .eq("notifiedAt", undefined),
             )
             .take(MAX_PENDING_PER_SUBJECT - ownSupport.length);
 

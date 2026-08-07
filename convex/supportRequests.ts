@@ -3,7 +3,7 @@ import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { internalMutation, internalQuery, mutation } from "./_generated/server";
 import { activeBrowserSessionSubjectOrNull } from "./_browserSessionAuthority";
-import { getProfileBySlug, resolveRequestedProfileSlug } from "./_profileSlugs";
+import { getProfileBySlug, resolveRequestedProfile } from "./_profileSlugs";
 import { requireSupportBacklogHeadroom, supportInputError } from "./_supportIntake";
 import { normalizeProfileInlineText } from "./_profileSubmissions";
 
@@ -159,7 +159,8 @@ export const submitSupportRequest = mutation({
       throw supportInputError("Add a contact so we can reply.");
     }
 
-    const profileSlug = resolveRequestedProfileSlug(args.profileSlug);
+    const requested = resolveRequestedProfile(args.profileSlug);
+    const profileSlug = requested?.slug;
 
     // Resolved only to borrow the display name when the requester left it blank.
     // A slug with no profile behind it is still recorded: someone disputing a
@@ -187,9 +188,14 @@ export const submitSupportRequest = mutation({
     const requestId = await ctx.db.insert("supportRequests", {
       topic: args.topic,
       ...optionalValue("profileSlug", profileSlug),
-      // The resolved profile wins: it is the record, and the requester is
-      // guessing about somebody else's listing.
-      ...optionalValue("profileType", profile?.profileType ?? args.profileType),
+      // Precedence, strongest evidence first: the resolved record, then the
+      // route of the link that was pasted, then the selector. The selector is
+      // last because it silently defaults to `person`, and a pre-claim request
+      // for a community that does not exist yet has no record to correct it.
+      ...optionalValue(
+        "profileType",
+        profile?.profileType ?? requested?.profileType ?? args.profileType,
+      ),
       ...optionalValue("displayName", displayName),
       ...optionalValue("requesterContact", contact),
       message,

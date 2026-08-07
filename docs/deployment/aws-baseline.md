@@ -57,7 +57,7 @@ Verified state as of this baseline pass:
 - Terraform plan against the hosted stack: no changes
 - SES send quota: `Max24HourSend=50000`, `MaxSendRate=14`, `SentLast24Hours=0`
 
-A Convex deployment that sends email through SES must set the following. Both hosted deployments do, for the support digest:
+A Convex deployment that sends email through SES must set the following. Both hosted deployments set the four AWS values; the digest recipient is **still outstanding on both**, so support mail is not live yet and requests accumulate unannounced until it is:
 
 - `AWS_SES_REGION`
 - `AWS_SES_FROM_EMAIL`

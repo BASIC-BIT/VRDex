@@ -4,7 +4,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, mutation, type MutationCtx } from "./_generated/server";
 import { activeBrowserSessionSubjectOrNull } from "./_browserSessionAuthority";
-import { getProfileBySlug, resolveRequestedProfileSlug } from "./_profileSlugs";
+import { getProfileBySlug, resolveRequestedProfile } from "./_profileSlugs";
 import { requireSupportBacklogHeadroom, supportInputError } from "./_supportIntake";
 import { createProfileSortName, normalizeProfileInlineText } from "./_profileSubmissions";
 import { surfacedProfileNames } from "./_suppressions";
@@ -86,7 +86,8 @@ export const requestProfileSuppression = mutation({
     // profile field says "paste the profile link" whichever topic is chosen.
     // Parsing this only on the other path meant a pasted link resolved for a
     // dispute and was rejected for an opt-out.
-    const profileSlug = resolveRequestedProfileSlug(args.profileSlug);
+    const requested = resolveRequestedProfile(args.profileSlug);
+    const profileSlug = requested?.slug;
     const profile = profileSlug === undefined ? null : await getProfileBySlug(ctx.db, profileSlug);
     const displayName = optionalText(args.displayName ?? profile?.displayName, 120);
 
@@ -101,7 +102,14 @@ export const requestProfileSuppression = mutation({
     const requestId = await ctx.db.insert("profileSuppressionRequests", {
       ...optionalValue("profileId", profile?._id),
       ...optionalValue("profileSlug", profile?.slug ?? profileSlug),
-      ...optionalValue("profileType", profile?.profileType ?? args.profileType),
+      // The pasted route beats the selector, which silently defaults to
+      // `person`. A pre-claim request names a listing that does not exist yet,
+      // so no record corrects a wrong guess, and `hasAcceptedSuppression`
+      // checks type: the listing someone asked to keep down could be published.
+      ...optionalValue(
+        "profileType",
+        profile?.profileType ?? requested?.profileType ?? args.profileType,
+      ),
       ...optionalValue("displayName", displayName),
       requestType: args.requestType,
       state: "submitted",

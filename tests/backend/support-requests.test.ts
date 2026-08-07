@@ -6,7 +6,7 @@ import { convexTest } from "convex-test";
 import { api, internal } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import schemaModule from "../../convex/schema";
-import { readProfileSlugFromInput } from "../../convex/_profileSlugs";
+import { readProfileReferenceFromInput, readProfileSlugFromInput } from "../../convex/_profileSlugs";
 import { clerkTestIdentity, newClerkUserId } from "./_clerkTestIdentity";
 import { formatDigestEntry, supportDigestConfig } from "../../convex/_supportDigest";
 
@@ -821,5 +821,85 @@ describe("support request review findings, third round", () => {
     assert.equal(readProfileSlugFromInput("http://[::1]:3000/p/dj-aurora"), "dj-aurora");
     // Still only the two profile routes, whatever the host.
     assert.equal(readProfileSlugFromInput("http://localhost:3000/w/neon-harbor"), "");
+  });
+});
+
+describe("support request review findings, fourth round", () => {
+  /**
+   * A pre-claim request names a listing that does not exist yet, so no stored
+   * record corrects a wrong type, and `hasAcceptedSuppression` checks type: the
+   * listing someone asked to keep down could be published anyway.
+   */
+  it("takes the profile type from a pasted community link over the selector", async () => {
+    const t = convexTest({ schema, modules });
+
+    await t.mutation(api.suppressions.requestProfileSuppression, {
+      requestType: "pre_claim_safety",
+      profileSlug: "https://vrdex.net/c/afterglow-social",
+      // What the form sends when nobody touches the selector.
+      profileType: "person",
+      requesterNote: "This community listing should not be published.",
+    });
+
+    const stored = await t.run(async (ctx) =>
+      ctx.db.query("profileSuppressionRequests").collect(),
+    );
+
+    assert.equal(stored[0].profileType, "community");
+  });
+
+  /**
+   * A subject's own resolved rows keep their unset watermark forever, so
+   * counting them locked that account out of the form permanently.
+   */
+  it("does not count a subject's resolved suppressions against their quota", async () => {
+    const t = convexTest({ schema, modules });
+    const identity = clerkTestIdentity(newClerkUserId());
+    const signedIn = t.withIdentity(identity);
+    const now = Date.now();
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("users", {
+        clerkUserId: identity.subject,
+        email: "long-time-user@example.test",
+        emailVerificationTime: now,
+      });
+
+      for (let index = 0; index < 12; index += 1) {
+        await ctx.db.insert("profileSuppressionRequests", {
+          displayName: `Handled ${index}`,
+          requestType: "owner_opt_out",
+          state: "accepted",
+          requester: {
+            tokenIdentifier: `${identity.issuer}|${identity.subject}`,
+            issuer: identity.issuer,
+            subject: identity.subject,
+          },
+          createdAt: now - 12 + index,
+          updatedAt: now,
+        });
+      }
+    });
+
+    await signedIn.mutation(api.supportRequests.submitSupportRequest, {
+      topic: "feedback",
+      message: "Still able to reach support after a dozen resolved requests.",
+    });
+  });
+
+  it("reads the route type out of a pasted link", () => {
+    assert.deepEqual(readProfileReferenceFromInput("https://vrdex.net/c/afterglow-social"), {
+      slug: "afterglow-social",
+      profileType: "community",
+    });
+    assert.deepEqual(readProfileReferenceFromInput("https://vrdex.net/p/dj-aurora"), {
+      slug: "dj-aurora",
+      profileType: "person",
+    });
+    // A bare slug names no route, so it carries no type to trust.
+    assert.deepEqual(readProfileReferenceFromInput("dj-aurora"), {
+      slug: "dj-aurora",
+      profileType: null,
+    });
   });
 });
