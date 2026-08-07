@@ -28,6 +28,8 @@ const PROFILE_RETRACTION_PAGE_SIZE = 20;
  */
 export const SUPPRESSION_NOTE_MAX_LENGTH = 1_000;
 const SUPPRESSION_CONTACT_MAX_LENGTH = 160;
+/** Matches the support intake's floor, since one form feeds both. */
+const SUPPRESSION_NOTE_MIN_LENGTH = 10;
 const WORLD_REINDEX_PAGE_SIZE = 25;
 const suppressionRequestType = v.union(
   v.literal("owner_opt_out"),
@@ -73,10 +75,20 @@ export const requestProfileSuppression = mutation({
       throw supportInputError("That contact is too long. Give us a shorter address or handle.");
     }
 
+    // The form marks Message required, but `required` only rejects an empty
+    // field: spaces satisfy it, normalize to nothing, and `optionalText` then
+    // omits the note entirely. An owner opt-out or a safety report arrived
+    // reported as sent, with no explanation of what it was for.
+    const note = normalizeProfileInlineText(args.requesterNote ?? "");
+
+    if (note.length < SUPPRESSION_NOTE_MIN_LENGTH) {
+      throw supportInputError("Tell us a little more about what you need.");
+    }
+
     // Refused rather than sliced. `optionalText` below would quietly drop
     // everything past 1,000 characters while the requester was told the request
     // was sent, and on a safety report the part that goes last is the evidence.
-    if (normalizeProfileInlineText(args.requesterNote ?? "").length > SUPPRESSION_NOTE_MAX_LENGTH) {
+    if (note.length > SUPPRESSION_NOTE_MAX_LENGTH) {
       throw supportInputError(
         `That note is longer than we can store. Keep it under ${SUPPRESSION_NOTE_MAX_LENGTH} characters and link to the rest.`,
       );

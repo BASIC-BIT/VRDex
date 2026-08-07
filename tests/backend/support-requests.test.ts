@@ -903,3 +903,52 @@ describe("support request review findings, fourth round", () => {
     });
   });
 });
+
+describe("support request review findings, fifth round", () => {
+  /**
+   * The textarea is marked required, but `required` only rejects an empty
+   * field: spaces satisfy it, normalize to nothing, and the note was omitted
+   * entirely. An opt-out or safety report arrived reported as sent, explaining
+   * nothing.
+   */
+  it("refuses a suppression with nothing written in it", async () => {
+    const t = convexTest({ schema, modules });
+
+    await assert.rejects(
+      () =>
+        t.mutation(api.suppressions.requestProfileSuppression, {
+          requestType: "owner_opt_out",
+          displayName: "DJ Aurora",
+          requesterNote: "    \n\n   ",
+        }),
+      /Tell us a little more/,
+    );
+  });
+
+  /**
+   * A name is an identifier on these requests, so slicing it produced a
+   * successful submission naming something other than the listing meant.
+   */
+  it("refuses an overlong display name rather than slicing it", async () => {
+    const t = convexTest({ schema, modules });
+
+    await assert.rejects(
+      () =>
+        t.mutation(api.supportRequests.submitSupportRequest, {
+          topic: "transfer",
+          displayName: "A".repeat(121),
+          requesterContact: "someone@example.test",
+          message: "I want to hand this profile to someone else.",
+        }),
+      /name is longer than we can store/,
+    );
+
+    // The boundary the form's own `maxLength` invites still goes through.
+    await t.mutation(api.supportRequests.submitSupportRequest, {
+      topic: "transfer",
+      displayName: "A".repeat(120),
+      requesterContact: "someone@example.test",
+      message: "I want to hand this profile to someone else.",
+    });
+  });
+});

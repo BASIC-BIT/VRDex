@@ -167,6 +167,17 @@ export const submitSupportRequest = mutation({
     // listing may be reading it off a URL that has since changed, and dropping
     // it would discard the only identifier they had.
     const profile = profileSlug === undefined ? null : await getProfileBySlug(ctx.db, profileSlug);
+
+    // The requester's own text, measured untruncated. A name is an identifier
+    // here, so slicing it produced a request that succeeded while naming
+    // something subtly different from the listing the person meant. The stored
+    // profile's name is not checked: it came from the record, not from them.
+    if (normalizeProfileInlineText(args.displayName ?? "").length > DISPLAY_NAME_MAX_LENGTH) {
+      throw supportInputError(
+        `That name is longer than we can store. Keep it under ${DISPLAY_NAME_MAX_LENGTH} characters.`,
+      );
+    }
+
     const displayName = optionalText(
       args.displayName ?? profile?.displayName,
       DISPLAY_NAME_MAX_LENGTH,

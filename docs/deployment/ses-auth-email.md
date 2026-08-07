@@ -46,6 +46,26 @@ Set these in each Convex deployment that sends email:
 present, not that SES accepted the message, so confirm a real digest arrived
 after setting the recipient for the first time.
 
+## Support Digest Rollout Order
+
+`/support` accepts requests whether or not anyone is listening, and tells every
+requester it succeeded. That is correct behaviour, since a request kept with an
+unset `notifiedAt` is delivered whenever the recipient is configured, but it
+means the window between shipping the route and configuring delivery is one
+where people are told they have been heard and have not been. Keep it short and
+deliberate:
+
+1. Set `VRDEX_SUPPORT_DIGEST_TO` on the deployment.
+2. Run `internal.supportRequestDigest.sendSupportDigest` by hand from the Convex
+   dashboard and confirm the mail actually arrives. SPF and DMARC failures are
+   silent from Convex's side, and `configured: true` does not see them.
+3. Only then announce the route.
+
+Until step 1 is done, the hourly cron logs a warning naming the number of
+requests waiting, so an operator wondering why nobody has answered has
+something to find. It is deliberately quiet when nothing is waiting, which is
+the ordinary state of a deployment with no operator mailbox.
+
 ## Adapter Environment Variables
 
 Discord community Administrator verification:

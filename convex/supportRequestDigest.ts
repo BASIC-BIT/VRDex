@@ -43,15 +43,25 @@ export const sendSupportDigest = internalAction({
   args: {},
   handler: async (ctx): Promise<SupportDigestResult> => {
     const config = supportDigestConfig(process.env);
-
-    if (config === null) {
-      return { sent: 0, configured: false };
-    }
-
     const requests: DigestRequest[] = await ctx.runQuery(
       internal.supportRequests.pendingDigestRequests,
       {},
     );
+
+    if (config === null) {
+      // Loud, and only when it matters. An unconfigured digest on a deployment
+      // with nothing waiting is the ordinary state and says nothing. One with
+      // requests waiting is the failure this whole feature exists to prevent,
+      // happening quietly, once an hour, forever -- so it goes in the logs
+      // where an operator checking why nobody has answered will find it.
+      if (requests.length > 0) {
+        console.warn(
+          `${requests.length} support request(s) are waiting and VRDEX_SUPPORT_DIGEST_TO is not set, so none of them have reached anyone.`,
+        );
+      }
+
+      return { sent: 0, configured: false };
+    }
 
     if (requests.length === 0) {
       return { sent: 0, configured: true };

@@ -68,6 +68,7 @@ type Topic = (typeof TOPICS)[number]["value"];
 
 const TOPIC_VALUES: readonly string[] = TOPICS.map((topic) => topic.value);
 const CONTACT_MAX_LENGTH = 160;
+const DISPLAY_NAME_MAX_LENGTH = 120;
 
 // Feedback is the one topic that can be answered by nobody, so it is the one
 // that does not ask for a way to answer, or for a profile. Demanding either
@@ -292,7 +293,7 @@ function ConnectedSupportRequestForm() {
 
             <Field>
               Name, if you do not have the link
-              <Input name="displayName" placeholder="DJ Aurora" />
+              <Input maxLength={DISPLAY_NAME_MAX_LENGTH} name="displayName" placeholder="DJ Aurora" />
             </Field>
           </div>
 
@@ -340,14 +341,27 @@ function ConnectedSupportRequestForm() {
         {status.kind === "submitting" ? "Sending..." : "Send request"}
       </Button>
 
-      {status.kind === "success" ? (
-        <Notice variant="success">
-          {status.repliable
-            ? "Request sent. We reply to the contact you gave."
-            : "Request sent. You did not leave a contact, so we cannot reply to this one."}
-        </Notice>
-      ) : null}
-      {status.kind === "error" ? <Notice variant="error">{status.message}</Notice> : null}
+      {/* One live region, always mounted, rather than a notice appearing from
+          nowhere. Focus stays on the submit button after an async submit, and
+          `Notice` is a plain `div`, so neither outcome was announced: a
+          screen-reader user had no way to know a request had gone through and
+          could resend one that already had. `alert` for the error, because a
+          refusal needs interrupting for; `status` for the success, which does
+          not. */}
+      <div aria-live="polite" className="empty:hidden">
+        {status.kind === "success" ? (
+          <Notice role="status" variant="success">
+            {status.repliable
+              ? "Request sent. We reply to the contact you gave."
+              : "Request sent. You did not leave a contact, so we cannot reply to this one."}
+          </Notice>
+        ) : null}
+        {status.kind === "error" ? (
+          <Notice role="alert" variant="error">
+            {status.message}
+          </Notice>
+        ) : null}
+      </div>
     </form>
   );
 }
