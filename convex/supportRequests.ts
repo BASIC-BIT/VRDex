@@ -77,20 +77,26 @@ function normalizeMessage(input: string): string {
     .trim();
 }
 
+const MESSAGE_TOO_LONG_MESSAGE = `That message is longer than we can store. Keep it under ${MESSAGE_MAX_LENGTH} characters and link to the rest.`;
+
 /**
- * Refuse an oversized message before any of it is processed or discarded.
+ * The bound on what a caller can make this mutation do, checked first.
  *
- * Two bounds, checked in this order. The raw one exists because this mutation
- * is public and unauthenticated, so the argument size is whatever a caller
- * sends and the normalization passes should not scale with it. The normalized
- * one is the real limit a person is held to, applied to what would actually be
- * stored.
+ * Generous against the real limit, because whitespace and line endings shrink
+ * under normalization and a legitimate message must not be refused for padding
+ * it will not keep. Its job is only to stop an unauthenticated caller spending
+ * unbounded work per request.
  */
-function requireMessageWithinBounds(raw: string, normalized: string): void {
-  if (raw.length > MESSAGE_MAX_LENGTH * 2 || normalized.length > MESSAGE_MAX_LENGTH) {
-    throw supportInputError(
-      `That message is longer than we can store. Keep it under ${MESSAGE_MAX_LENGTH} characters and link to the rest.`,
-    );
+function requireRawMessageWithinBounds(raw: string): void {
+  if (raw.length > MESSAGE_MAX_LENGTH * 2) {
+    throw supportInputError(MESSAGE_TOO_LONG_MESSAGE);
+  }
+}
+
+/** The limit a person is actually held to, applied to what would be stored. */
+function requireNormalizedMessageWithinBounds(normalized: string): void {
+  if (normalized.length > MESSAGE_MAX_LENGTH) {
+    throw supportInputError(MESSAGE_TOO_LONG_MESSAGE);
   }
 }
 
@@ -118,6 +124,15 @@ export const submitSupportRequest = mutation({
   },
   handler: async (ctx, args) => {
     const now = Date.now();
+
+    // First, before the session lookup, the backlog queries, and the
+    // normalization passes. The raw ceiling existed to bound the work an
+    // unauthenticated caller can cause, and checking it after all of that
+    // bounded nothing: a caller could spend several whole-string rewrites and a
+    // handful of index reads per request without ever inserting a row or
+    // spending any row-counted allowance.
+    requireRawMessageWithinBounds(args.message);
+
     const requester = (await activeBrowserSessionSubjectOrNull(ctx))?.subject;
 
     await requireSupportBacklogHeadroom(ctx.db, requester);
@@ -131,7 +146,7 @@ export const submitSupportRequest = mutation({
     // Refused rather than sliced. Truncating reported success and then dropped
     // whatever came last, which on a safety report or a dispute is the evidence
     // links people put at the end.
-    requireMessageWithinBounds(args.message, message);
+    requireNormalizedMessageWithinBounds(message);
 
     // Measured before truncation, and `>` rather than `>=`. Checking the sliced
     // value could only ever see the limit exactly, which rejected an address of

@@ -33,6 +33,26 @@ const ENTRY_SEPARATOR = "-".repeat(60);
  */
 const LINE_BOUNDARY = /\r\n|[\n\r\v\f\u0085\u2028\u2029]/;
 
+/** The same set, globally, for fields that must stay on one line. */
+const LINE_BOUNDARY_GLOBAL = /\r\n|[\n\r\v\f\u0085\u2028\u2029]/g;
+
+/**
+ * A requester-supplied value, flattened to one line.
+ *
+ * The quote prefix was applied to the message and nothing else, on the
+ * assumption that the other fields are short. They are not sanitized, though:
+ * `normalizeProfileInlineText` collapses `\s`, which does not include U+0085, so
+ * a contact or a name carrying one renders a suffix like `Signed in as:` or
+ * `Record:` on its own unprefixed line. Same forgery as the message had, through
+ * a field nobody thought of as prose.
+ *
+ * Every value this file interpolates from a request goes through here, so the
+ * next field added is covered by construction rather than by remembering.
+ */
+function oneLine(value: string): string {
+  return value.replace(LINE_BOUNDARY_GLOBAL, " ").trim();
+}
+
 export type DigestRequest = {
   table: "supportRequests" | "profileSuppressionRequests";
   id: string;
@@ -129,15 +149,15 @@ function profileIdentity(request: DigestRequest, siteUrl: string | undefined): s
   const parts: string[] = [];
 
   if (request.profileSlug !== null) {
+    const slug = oneLine(request.profileSlug);
+
     parts.push(
-      siteUrl === undefined
-        ? request.profileSlug
-        : `${request.profileSlug} (${profileHref(siteUrl, request.profileSlug, request.profileType)})`,
+      siteUrl === undefined ? slug : `${slug} (${profileHref(siteUrl, slug, request.profileType)})`,
     );
   }
 
   if (request.displayName !== null) {
-    parts.push(`name "${request.displayName}"`);
+    parts.push(`name "${oneLine(request.displayName)}"`);
   }
 
   if (request.profileType !== null) {
@@ -166,7 +186,7 @@ export function formatDigestEntry(
   request: DigestRequest,
   siteUrl: string | undefined,
 ): string {
-  const label = TOPIC_LABELS[request.topic] ?? request.topic;
+  const label = TOPIC_LABELS[request.topic] ?? oneLine(request.topic);
   const message =
     request.message.trim() === ""
       ? `${QUOTE_PREFIX}(no message)`
@@ -178,14 +198,14 @@ export function formatDigestEntry(
   return [
     `${label} at ${new Date(request.createdAt).toISOString()}`,
     `Profile: ${profileIdentity(request, siteUrl)}`,
-    `Reply to: ${request.requesterContact ?? "not given"}`,
+    `Reply to: ${request.requesterContact === null ? "not given" : oneLine(request.requesterContact)}`,
     // Absent for every anonymous request, which recovery requests generally are.
     // Named rather than omitted, so its absence is a fact rather than a gap.
-    `Signed in as: ${request.requesterSubject ?? "not signed in"}`,
+    `Signed in as: ${request.requesterSubject === null ? "not signed in" : oneLine(request.requesterSubject)}`,
     // Named so the operator knows which table to resolve it in. The two have
     // different consequences: accepting a suppression retracts profiles from
     // discovery, and nothing at all happens automatically for the rest.
-    `Record: ${request.table}/${request.id}`,
+    `Record: ${request.table}/${oneLine(request.id)}`,
     "",
     `Message (every line below is the requester's, quoted):`,
     message,

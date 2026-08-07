@@ -28,6 +28,7 @@ const PROFILE_RETRACTION_PAGE_SIZE = 20;
  */
 export const SUPPRESSION_NOTE_MAX_LENGTH = 1_000;
 const SUPPRESSION_CONTACT_MAX_LENGTH = 160;
+const SUPPRESSION_DISPLAY_NAME_MAX_LENGTH = 120;
 /** Matches the support intake's floor, since one form feeds both. */
 const SUPPRESSION_NOTE_MIN_LENGTH = 10;
 const WORLD_REINDEX_PAGE_SIZE = 25;
@@ -101,7 +102,23 @@ export const requestProfileSuppression = mutation({
     const requested = resolveRequestedProfile(args.profileSlug);
     const profileSlug = requested?.slug;
     const profile = profileSlug === undefined ? null : await getProfileBySlug(ctx.db, profileSlug);
-    const displayName = optionalText(args.displayName ?? profile?.displayName, 120);
+
+    // The requester's own text, measured untruncated, as the sibling intake
+    // does. Resolution searches on this name, so a silently sliced one sends the
+    // scan after something the requester never wrote -- and on this path that
+    // scan retracts every profile it matches.
+    if (
+      normalizeProfileInlineText(args.displayName ?? "").length > SUPPRESSION_DISPLAY_NAME_MAX_LENGTH
+    ) {
+      throw supportInputError(
+        `That name is longer than we can store. Keep it under ${SUPPRESSION_DISPLAY_NAME_MAX_LENGTH} characters.`,
+      );
+    }
+
+    const displayName = optionalText(
+      args.displayName ?? profile?.displayName,
+      SUPPRESSION_DISPLAY_NAME_MAX_LENGTH,
+    );
 
     // A validated slug counts even when no profile holds it yet. The pre-claim case
     // is precisely "this slug is about me, do not let it be taken", and the

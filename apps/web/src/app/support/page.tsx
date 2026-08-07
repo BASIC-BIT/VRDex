@@ -3,7 +3,7 @@ import { Suspense } from "react";
 
 import { SupportRequestForm } from "./support-request-form";
 import { buttonVariants } from "@/components/ui/button";
-import { Card, Eyebrow } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 
 export const dynamic = "force-dynamic";
@@ -25,8 +25,9 @@ export default function SupportPage() {
         </PageNav>
 
         <Card className="shadow-hero" padding="lg">
-          <Eyebrow>Contact and requests</Eyebrow>
-          <h1 className="mt-4 text-4xl leading-none font-semibold tracking-[-0.04em] sm:text-6xl">
+          {/* No eyebrow. "Contact and requests" above "Tell us what you need."
+              is the heading said twice, which the UI rules call out by name. */}
+          <h1 className="text-4xl leading-none font-semibold tracking-[-0.04em] sm:text-6xl">
             Tell us what you need.
           </h1>
         </Card>

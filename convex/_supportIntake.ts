@@ -71,7 +71,8 @@ export const SUPPORT_DIGEST_BATCH_SIZE = 50;
  * Counted on `_creationTime`, so nothing the sender does resets it.
  */
 export const MAX_ANONYMOUS_REQUESTS_PER_HOUR = 30;
-const ANONYMOUS_RATE_WINDOW_MS = 60 * 60 * 1_000;
+
+const RATE_WINDOW_MS = 60 * 60 * 1_000;
 
 export const BACKLOG_FULL_MESSAGE =
   "We have more requests than we can answer right now. Try again in a few hours, or sign in to send this one now.";
@@ -144,10 +145,14 @@ export async function requireSupportBacklogHeadroom(
     if (ownSupport.length + ownSuppressions.length >= MAX_PENDING_PER_SUBJECT) {
       throw supportInputError(TOO_MANY_OWN_REQUESTS_MESSAGE);
     }
-
-    return;
   }
 
+  // Everyone, not just anonymous callers. This used to return above, so a
+  // signed-in requester skipped the shared ceiling and the rate window entirely
+  // and was bounded only per subject -- which bounds nothing in aggregate, since
+  // twenty-one fresh subjects clear the two hundred row ceiling between them and
+  // rotating subjects grow the backlog without limit. A per-subject quota is a
+  // fairness rule; the bounds below are the capacity ones.
   const pendingSupport = await db
     .query("supportRequests")
     .withIndex("by_notifiedAt_createdAt", (query) => query.eq("notifiedAt", undefined))
@@ -171,7 +176,7 @@ export async function requireSupportBacklogHeadroom(
     throw supportInputError(BACKLOG_FULL_MESSAGE);
   }
 
-  await requireAnonymousRateHeadroom(db);
+  await requireRateHeadroom(db, requester);
 }
 
 /**
@@ -189,8 +194,38 @@ export async function requireSupportBacklogHeadroom(
  * seeded row has no requester either, but a time bound always clears itself,
  * which is the difference between this and the ceilings above.
  */
-async function requireAnonymousRateHeadroom(db: MutationCtx["db"]): Promise<void> {
-  const since = Date.now() - ANONYMOUS_RATE_WINDOW_MS;
+async function requireRateHeadroom(
+  db: MutationCtx["db"],
+  requester: { subject: string } | undefined,
+): Promise<void> {
+  // Anonymous arrivals only.
+  //
+  // A window over *every* arrival was tried and removed: it bounded signed-in
+  // traffic by making any bulk write -- an operator import, a backfill, a
+  // migration -- shut the form for everyone for an hour, which is a worse
+  // failure than the one it guarded. The aggregate bound signed-in senders
+  // actually needed is the pending ceiling above, which now applies to them
+  // because this function no longer returns early: the backlog cannot pass two
+  // hundred rows no matter how many subjects an attacker rotates through, and
+  // each subject costs a real account.
+  if (requester !== undefined) {
+    return;
+  }
+
+  await countArrivals(db, Date.now() - RATE_WINDOW_MS, MAX_ANONYMOUS_REQUESTS_PER_HOUR);
+}
+
+/**
+ * Refuse once `limit` anonymous arrivals already sit inside the window.
+ *
+ * Seeks on the absent requester rather than filtering a page, so the cost is
+ * the size of the window and not of the table.
+ */
+async function countArrivals(
+  db: MutationCtx["db"],
+  since: number,
+  limit: number,
+): Promise<void> {
   let seen = 0;
 
   for (const table of ["supportRequests", "profileSuppressionRequests"] as const) {
@@ -199,14 +234,14 @@ async function requireAnonymousRateHeadroom(db: MutationCtx["db"]): Promise<void
       .withIndex("by_requesterSubject", (query) =>
         query.eq("requester.subject", undefined).gt("_creationTime", since),
       )
-      .take(MAX_ANONYMOUS_REQUESTS_PER_HOUR - seen);
+      .take(limit - seen);
 
     seen += recent.length;
 
     // `>=`, because this runs before the insert: the window being full already
     // is what refuses the request about to be added, and `>` would have let
     // every hour take one more than its allowance.
-    if (seen >= MAX_ANONYMOUS_REQUESTS_PER_HOUR) {
+    if (seen >= limit) {
       throw supportInputError(BACKLOG_FULL_MESSAGE);
     }
   }

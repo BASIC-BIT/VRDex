@@ -712,12 +712,25 @@ describe("support request review findings, third round", () => {
         emailVerificationTime: now,
       });
 
-      // Somebody else's backlog, larger than any page the quota check reads.
-      for (let index = 0; index < 210; index += 1) {
+      // Somebody else's backlog, larger than the page the quota check reads.
+      //
+      // Thirty, not the two hundred an earlier version used: the shared ceiling
+      // applies to signed-in senders now, so a queue that large refuses this
+      // account for the right reason and stops testing the wrong thing. Ten is
+      // what the per-subject query takes, so thirty foreign rows is already more
+      // than enough to defeat the filter-a-page shape this pins.
+      for (let index = 0; index < 30; index += 1) {
         await ctx.db.insert("supportRequests", {
           topic: "feedback",
           message: `Unrelated pending request ${index}.`,
-          createdAt: now - 210 + index,
+          // Attributed to somebody, so these are not anonymous arrivals inside
+          // the rate window.
+          requester: {
+            tokenIdentifier: "test|somebody-else",
+            issuer: "test",
+            subject: "somebody-else",
+          },
+          createdAt: now - 30 + index,
           updatedAt: now,
         });
       }
