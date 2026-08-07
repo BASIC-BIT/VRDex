@@ -6,6 +6,7 @@ import {
   CONVEX_TARGET_NAMES,
   convexCliPath,
   convexTargetEnv,
+  MAX_CONVEX_ARGS_BYTES,
   SEED_SCRIPT_TARGET_HELP,
   resolveTargetName,
   targetSelectorFlagError,
@@ -205,6 +206,57 @@ export function misplacedPublishFlag(visibility, supplied) {
   return Object.keys(supplied).find((name) => supplied[name]);
 }
 
+/**
+ * Fit the state a page carries forward inside the argument budget.
+ *
+ * This state is the one part of the call that grows with the batch rather than
+ * the page, and it reaches the Convex CLI as a process argument -- so the
+ * ceiling is the command line, not anything Convex enforces. A run against the
+ * 405-profile batch died at 244 profiles because the serialized state crossed
+ * Windows' 32,767-character limit and `spawnSync` never launched the process:
+ * no Convex error, no stderr, just a non-zero status with nothing to inspect.
+ *
+ * The mutation already caps how many profiles it hands back, but a count of
+ * entries is the wrong dimension. What matters is bytes, and a profile carrying
+ * a visibility map and a display name costs several times one carrying an id.
+ *
+ * Degraded in the order that keeps the promise worth most. Membership -- which
+ * profiles the run has already counted -- is what keeps the totals honest, and
+ * it costs an id. The visibility and names only change an answer for a profile
+ * some later candidate touches again, so they go first. Only if the ids alone
+ * still do not fit does anything get dropped outright.
+ *
+ * `complete` is false the moment anything is shed, because past that point the
+ * dry run can count a merged profile twice or predict a suppression skip the
+ * apply would not hit, and a total the runbook promises will match the write has
+ * to say when it stopped promising that.
+ */
+export function fitCarriedProfiles(entries, maxBytes = MAX_CONVEX_ARGS_BYTES) {
+  const size = (value) => Buffer.byteLength(JSON.stringify(value), "utf8");
+
+  if (entries.length === 0 || size(entries) <= maxBytes) {
+    return { carried: entries, complete: true };
+  }
+
+  const idsOnly = entries.map((entry) => ({ profileId: entry.profileId }));
+
+  if (size(idsOnly) <= maxBytes) {
+    return { carried: idsOnly, complete: false };
+  }
+
+  // Estimated from the whole array rather than one entry, so the array's own
+  // punctuation is counted, then walked down. Ids are a fixed width, so this
+  // lands on the answer or one step above it.
+  const perEntry = Math.max(1, Math.ceil(size(idsOnly) / idsOnly.length));
+  let kept = Math.max(0, Math.min(idsOnly.length, Math.floor(maxBytes / perEntry)));
+
+  while (kept > 0 && size(idsOnly.slice(0, kept)) > maxBytes) {
+    kept -= 1;
+  }
+
+  return { carried: idsOnly.slice(0, kept), complete: false };
+}
+
 export function readOption(argv, name) {
   const index = argv.indexOf(name);
 
@@ -396,6 +448,13 @@ function setFieldVisibility({ batchId, visibility, reason, reviewer, limit }) {
   console.log("");
 
   for (;;) {
+    // Trimmed on the way out rather than on the way in, because the ceiling
+    // belongs to this call: the state is fine in the response and fine in the
+    // mutation, and only becomes too large when it has to fit on a command line.
+    const { carried, complete } = fitCarriedProfiles(simulatedProfiles);
+
+    simulationComplete = simulationComplete && complete;
+
     const page = runConvex("seedImports:bulkSetFieldVisibility", {
       externalBatchId: batchId,
       visibility,
@@ -406,7 +465,7 @@ function setFieldVisibility({ batchId, visibility, reason, reviewer, limit }) {
       rederiveValues: flag("--rederive-values"),
       ...(fieldKeys === undefined ? {} : { fieldKeys }),
       ...(cursor === undefined || cursor === null ? {} : { cursor }),
-      ...(simulatedProfiles.length === 0 ? {} : { simulatedProfiles }),
+      ...(carried.length === 0 ? {} : { simulatedProfiles: carried }),
     });
 
     // Carried into the next page so one merged profile is not counted once per
@@ -466,15 +525,17 @@ function setFieldVisibility({ batchId, visibility, reason, reviewer, limit }) {
   // total that quietly drifted from what the write will do.
   if (!simulationComplete) {
     console.log(
-      "\nWarning: this batch has more distinct published profiles than the run carries\n" +
-        "between pages, so the totals above are approximate. Past that point a profile\n" +
-        "two candidates share can be counted twice, and a suppression skip can be\n" +
-        "reported that the apply would not hit.\n" +
+      "\nWarning: this batch carries more state between pages than one Convex CLI call\n" +
+        "can take, so some of it was shed and the totals above are approximate. Past\n" +
+        "that point a profile two candidates share can be counted twice, and a\n" +
+        "suppression skip can be reported that the apply would not hit.\n" +
         "\n" +
-        "--limit does not help: the carry holds every distinct profile seen so far, not\n" +
-        "one entry per page, and the mutation clamps the page size regardless. What the\n" +
-        "numbers say about the writes is unchanged -- an applied run reads back what it\n" +
-        "wrote, so it is the reporting that degrades here and not the migration.",
+        "The detail goes before the membership, so the counts are the last thing to\n" +
+        "suffer and usually survive intact. --limit does not help either way: the carry\n" +
+        "holds every distinct profile seen so far rather than one entry per page, and\n" +
+        "the mutation clamps the page size regardless. What the numbers say about the\n" +
+        "writes is unchanged -- an applied run reads back what it wrote, so it is the\n" +
+        "reporting that degrades here and not the migration.",
     );
   }
 

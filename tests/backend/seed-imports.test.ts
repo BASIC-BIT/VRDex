@@ -22,6 +22,7 @@ import {
   type SeedImportFixture,
 } from "../../convex/_seedImports";
 import {
+  fitCarriedProfiles,
   misplacedMigrationFlag,
   misplacedPublishFlag,
   readOption,
@@ -942,6 +943,54 @@ describe("seed publish option safety", () => {
       unknownOption(["--reason", "--apply", "--apply"]),
       { name: "--apply", reason: "repeated" },
     );
+  });
+
+  describe("carried simulation state", () => {
+    // The shape the real batch carries: a Convex id and the two field keys the
+    // NWinn import actually holds.
+    const entry = (index: number) => ({
+      profileId: `m57${String(index).padStart(29, "0")}`,
+      fieldVisibility: { outboundLinks: "public", personRoleTags: "public" },
+    });
+    const entries = (count: number) =>
+      Array.from({ length: count }, (_unused, index) => entry(index));
+    const bytes = (value: unknown) => Buffer.byteLength(JSON.stringify(value), "utf8");
+
+    it("passes a payload that already fits through untouched", () => {
+      const carried = entries(10);
+      const result = fitCarriedProfiles(carried, 20_000);
+
+      assert.deepEqual(result.carried, carried);
+      assert.equal(result.complete, true);
+    });
+
+    it("sheds the detail before the membership", () => {
+      // 405 profiles at roughly 119 bytes each is about 48KB, over the budget and
+      // over the Windows command line that budget exists for. The run that found
+      // this died at 244 profiles with no error to inspect, because the spawn
+      // never happened.
+      const result = fitCarriedProfiles(entries(405), 20_000);
+
+      // Every profile still counted, which is what keeps the totals right.
+      assert.equal(result.carried.length, 405);
+      assert.ok(bytes(result.carried) <= 20_000);
+      // Detail gone, and said so.
+      assert.deepEqual(Object.keys(result.carried[0] ?? {}), ["profileId"]);
+      assert.equal(result.complete, false);
+    });
+
+    it("drops entries only when the identifiers alone will not fit", () => {
+      const result = fitCarriedProfiles(entries(4_000), 20_000);
+
+      assert.ok(result.carried.length > 0);
+      assert.ok(result.carried.length < 4_000);
+      assert.ok(bytes(result.carried) <= 20_000);
+      assert.equal(result.complete, false);
+    });
+
+    it("keeps an empty carry empty and complete", () => {
+      assert.deepEqual(fitCarriedProfiles([], 20_000), { carried: [], complete: true });
+    });
   });
 
   it("refuses publication-only flags inside the visibility migration", () => {
