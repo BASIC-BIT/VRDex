@@ -1,4 +1,5 @@
 import { validateSignInReturnTo } from "../../../lib/safe-return-to";
+import { vrcdnPlaybackHref } from "../../../../../../convex/_vrcdnLinks";
 
 export type HandoffField = {
   id: string;
@@ -47,6 +48,17 @@ function numberValue(...values: unknown[]): number | undefined {
 export function safeExternalHttpUrl(value: unknown): string | undefined {
   if (typeof value !== "string") {
     return undefined;
+  }
+
+  // A VRCDN stream is stored as `vrcdn:<streamId>`, which is deliberately not
+  // an address and so fails the protocol check below. Dropping it left a
+  // recipient reviewing a bare label with nothing to inspect, or -- in a field
+  // with several links -- no row at all for a link accepting the handoff still
+  // writes. Resolved to the playlist so what is shown is what gets stored.
+  const vrcdnPlayback = vrcdnPlaybackHref(value);
+
+  if (vrcdnPlayback !== undefined) {
+    return vrcdnPlayback;
   }
 
   try {

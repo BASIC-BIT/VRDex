@@ -179,21 +179,22 @@ export function normalizeOutboundLinks(value: unknown): NormalizedProfileLink[] 
       `Outbound link ${index + 1}`,
     );
     const type = requireStringValue(link.type, "Outbound link type");
-    const rawUrl = requireStringValue(link.url, "Outbound link URL");
-    // A VRCDN stream is stored as `vrcdn:<streamId>` rather than an address,
-    // because the service publishes no page for one. `requireHttpsUrl` is still
-    // what every other type answers to; this only spares the one form that is
-    // deliberately not a URL, and it has already been through the stream
-    // normalizer to get here.
-    const vrcdnReference = parseVrcdnStreamLinks(rawUrl)?.reference;
-    const url =
-      vrcdnReference !== undefined && rawUrl === vrcdnReference
-        ? rawUrl
-        : requireHttpsUrl(rawUrl, "Outbound link URL");
 
     if (!isProfileLinkType(type)) {
       throw new Error(`Unsupported outbound link type "${type}".`);
     }
+
+    const rawUrl = requireStringValue(link.url, "Outbound link URL");
+    // A VRCDN stream is stored as `vrcdn:<streamId>` rather than an address,
+    // because the service publishes no page for one. Every other type still
+    // answers to `requireHttpsUrl`, and so does a `vrcdn:` value arriving under
+    // another type -- otherwise a `website` entry could carry the reference past
+    // the HTTPS contract, be stored, and then be dropped by every public
+    // projection as unsafe.
+    const url =
+      type === "vrcdn" && rawUrl === parseVrcdnStreamLinks(rawUrl)?.reference
+        ? rawUrl
+        : requireHttpsUrl(rawUrl, "Outbound link URL");
 
     const parsedUrl = new URL(url!);
     if (parsedUrl.username || parsedUrl.password) {

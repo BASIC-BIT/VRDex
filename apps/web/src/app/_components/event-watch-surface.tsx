@@ -464,13 +464,16 @@ export function EventWatchSurface({
     return null;
   }
 
+  const embed = createWatchEmbed(primaryWatchLink, browserHostname);
+  // An open target is optional now, because VRCDN has none: the service
+  // publishes no page for a stream, and the player below is the whole point of
+  // this card. Treating a missing target as a reason to render nothing took the
+  // embed with it and left a live VRCDN event with no watch surface at all.
   const primaryWatchUrl = parseWatchOpenUrl(primaryWatchLink.url);
 
-  if (!primaryWatchUrl) {
+  if (!embed && !primaryWatchUrl) {
     return null;
   }
-
-  const embed = createWatchEmbed(primaryWatchLink, browserHostname);
 
   return (
     <Card className="overflow-hidden" padding="none" surface="white">
@@ -479,14 +482,16 @@ export function EventWatchSurface({
       </div>
       <div className="flex flex-col gap-3 border-t border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-base font-semibold tracking-[-0.02em]">{primaryWatchLink.label}</h2>
-        <a
-          className={cn(buttonVariants({ size: "sm", variant: "primary" }), "w-full sm:w-fit")}
-          href={primaryWatchUrl.href}
-          rel="noreferrer"
-          target="_blank"
-        >
-          Open stream
-        </a>
+        {primaryWatchUrl ? (
+          <a
+            className={cn(buttonVariants({ size: "sm", variant: "primary" }), "w-full sm:w-fit")}
+            href={primaryWatchUrl.href}
+            rel="noreferrer"
+            target="_blank"
+          >
+            Open stream
+          </a>
+        ) : null}
       </div>
     </Card>
   );

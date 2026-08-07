@@ -17,7 +17,7 @@ import { hasRenderableProfileMediaKit } from "@/lib/profile-media-kit";
 import { safeImageBackground } from "@/lib/safe-image";
 import type { TwitchLiveState } from "@/lib/server/twitch-live";
 import { twitchLoginFromUrl } from "@/lib/twitch-url";
-import { parseVrcdnStreamLinks } from "../../../../../convex/_vrcdnLinks";
+import { parseVrcdnStreamLinks, vrcdnPlaybackHref } from "../../../../../convex/_vrcdnLinks";
 
 /**
  * Rendered on the server, so the viewer's locale is unavailable and a
@@ -387,9 +387,14 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
         ),
   ));
   const validLinks = profile.outboundLinks
-    .map((link) => ({ link, href: safeHttpsUrl(link.url) }))
+    // VRCDN resolved before the HTTPS filter, because its stored value is an
+    // identifier rather than an address and `safeHttpsUrl` drops it. Filtering
+    // first took the stream back out of `vrcdnStreams` below, which is the whole
+    // watch and copy surface for a creator whose only link is their stream.
+    .map((link) => ({ link, href: vrcdnPlaybackHref(link.url) ?? safeHttpsUrl(link.url) }))
     .filter(
-      (item): item is { link: (typeof profile.outboundLinks)[number]; href: string } => item.href !== null,
+      (item): item is { link: (typeof profile.outboundLinks)[number]; href: string } =>
+        item.href !== null && item.href !== undefined,
     );
   const twitchLink = validLinks.find(({ link }) => link.type === "twitch" && twitchLoginFromUrl(link.url));
   const discordHandles = validLinks.flatMap((item) => {

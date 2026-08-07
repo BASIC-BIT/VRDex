@@ -171,9 +171,10 @@ Publish behavior worth knowing:
   a slug and nothing else.
 - Outbound links are normalized through `sanitizeProfileLinksLeniently`, the same
   path every other writer uses, rather than carried across as stored. VRCDN
-  entries canonicalize to the public `vrcdn.live/<streamId>` page, so an operator
-  panel preview URL in an export becomes the public link and dedupes against the
-  stream link for the same person. Entries that cannot be normalized are dropped
+  entries canonicalize to `vrcdn:<streamId>`, so an operator panel preview URL in
+  an export becomes the stored identifier and dedupes against the stream link
+  for the same person. It is an identifier rather than an address because VRCDN
+  publishes no page for a stream. Entries that cannot be normalized are dropped
   and counted rather than failing the batch, and the driver reports the counts on
   both runs — the publish run and the `--set-visibility --rederive-values` one.
   Publication reported nothing at first: a dropped link does not block a candidate
@@ -715,7 +716,7 @@ so what the recipient confirms is what gets stored. The two used to disagree: th
 preview listed the raw seed value while the write canonicalized it, so a link
 whose host no longer matched its provider vanished between confirming and saving,
 and a VRCDN operator panel preview URL was shown to the person being handed the
-profile rather than the public `vrcdn.live` page it resolves to. A link field
+profile rather than the stream identifier it resolves to. A link field
 where nothing survives normalization is withheld from the preview entirely rather
 than offered as an empty list somebody would confirm.
 

@@ -42,7 +42,8 @@ Person-specific fields:
   role reveals dedicated stream and Twitch inputs, which fold into
   `outboundLinks` rather than being separate fields. A VRCDN URL of any shape,
   including the operator panel preview URL people are handed, canonicalizes to
-  the public `vrcdn.live/<streamId>` page.
+  `vrcdn:<streamId>`. VRCDN publishes no page for a stream, so the identifier
+  is what gets stored and each surface derives the endpoint it needs from it.
 
 Community-specific fields:
 
