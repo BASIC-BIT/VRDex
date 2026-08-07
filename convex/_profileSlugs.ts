@@ -94,16 +94,19 @@ export function readProfileSlugFromInput(raw: string): string {
     return "";
   }
 
-  const url = /^(?:https?:\/\/)?([^/\s]+\.[^/\s]+)(\/.*)?$/i.exec(trimmed);
+  // Read by path, not by hostname. Requiring a dotted host rejected the profile
+  // URL of every localhost and loopback deployment, so a self-hosted instance
+  // could not paste the link its own form asks for.
+  const path = profileUrlPath(trimmed);
 
-  if (url !== null) {
-    // Only the two routes that actually name a profile. Any dotted host used to
-    // qualify, so a requester pasting the evidence for their dispute -- a VRChat
-    // page, a Discord invite, a post -- had its last path segment normalized
-    // into a slug-shaped string that passes validation and points at some other
-    // profile, or none. The digest then aimed an operator at the wrong record
-    // while the URL they actually meant was discarded.
-    const profilePath = /^\/(?:p|c)\/([^/?#]+)/i.exec(url[2] ?? "");
+  if (path !== null) {
+    // Only the two routes that actually name a profile. Any host used to
+    // qualify, so a requester pasting the evidence for their dispute -- a
+    // VRChat page, a Discord invite, a post -- had its last path segment
+    // normalized into a slug-shaped string that passes validation and points at
+    // some other profile, or none. The digest then aimed an operator at the
+    // wrong record while the URL they actually meant was discarded.
+    const profilePath = /^\/(?:p|c)\/([^/?#]+)/i.exec(path);
 
     return profilePath === null ? "" : normalizeProfileSlugInput(profilePath[1]);
   }
@@ -111,6 +114,26 @@ export function readProfileSlugFromInput(raw: string): string {
   // A bare word, typed rather than pasted. Slashes here would mean a path
   // fragment with no host, which names no profile either.
   return trimmed.includes("/") ? "" : normalizeProfileSlugInput(trimmed);
+}
+
+/** The path of `input` when it is a URL, or `null` when it is not one. */
+function profileUrlPath(input: string): string | null {
+  if (/^https?:\/\//i.test(input)) {
+    try {
+      const url = new URL(input);
+
+      return `${url.pathname}${url.search}`;
+    } catch {
+      return null;
+    }
+  }
+
+  // Scheme-less, which is how most people paste a link. Only a dotted host is
+  // recognizable without one: `localhost/p/x` cannot be told apart from a
+  // relative path, and guessing would swallow real paths.
+  const hostless = /^[^/\s]+\.[^/\s]+(\/.*)?$/i.exec(input);
+
+  return hostless === null ? null : (hostless[1] ?? "");
 }
 
 /** Shared by both intake mutations behind `/support`. */

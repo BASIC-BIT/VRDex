@@ -73,26 +73,37 @@ const TOO_MANY_OWN_REQUESTS_MESSAGE =
  * flooding and keeps a route open for a real person while anonymous traffic is
  * at its ceiling.
  *
- * Counts both tables, since a flood of either is what buries the other, and
- * reads at most a ceiling plus one row, so the cost never grows with the table.
+ * Every count below seeks, and none of them filters a page after reading it.
+ * That distinction is the whole correctness of this function: filtering a
+ * global prefix by sender returned nothing once the prefix was full of somebody
+ * else's rows, so the per-subject quota stopped applying exactly when it was
+ * needed. The same shape counted resolved suppressions toward the ceiling, and
+ * since the digest never stamps those, waiting could not clear it and anonymous
+ * intake would have been refused permanently.
  */
 export async function requireSupportBacklogHeadroom(
   db: MutationCtx["db"],
   requester: { subject: string } | undefined,
 ): Promise<void> {
   if (requester !== undefined) {
-    const own = [
-      ...(await db
-        .query("supportRequests")
-        .withIndex("by_notifiedAt_createdAt", (query) => query.eq("notifiedAt", undefined))
-        .take(MAX_PENDING_ANONYMOUS_REQUESTS + 1)),
-      ...(await db
-        .query("profileSuppressionRequests")
-        .withIndex("by_notifiedAt_createdAt", (query) => query.eq("notifiedAt", undefined))
-        .take(MAX_PENDING_ANONYMOUS_REQUESTS + 1)),
-    ].filter((row) => row.requester?.subject === requester.subject);
+    const ownSupport = await db
+      .query("supportRequests")
+      .withIndex("by_requesterSubject_notifiedAt", (query) =>
+        query.eq("requester.subject", requester.subject).eq("notifiedAt", undefined),
+      )
+      .take(MAX_PENDING_PER_SUBJECT);
 
-    if (own.length >= MAX_PENDING_PER_SUBJECT) {
+    const ownSuppressions =
+      ownSupport.length >= MAX_PENDING_PER_SUBJECT
+        ? []
+        : await db
+            .query("profileSuppressionRequests")
+            .withIndex("by_requesterSubject_notifiedAt", (query) =>
+              query.eq("requester.subject", requester.subject).eq("notifiedAt", undefined),
+            )
+            .take(MAX_PENDING_PER_SUBJECT - ownSupport.length);
+
+    if (ownSupport.length + ownSuppressions.length >= MAX_PENDING_PER_SUBJECT) {
       throw supportInputError(TOO_MANY_OWN_REQUESTS_MESSAGE);
     }
 
@@ -108,9 +119,14 @@ export async function requireSupportBacklogHeadroom(
     throw supportInputError(BACKLOG_FULL_MESSAGE);
   }
 
+  // `submitted` only, seeked rather than filtered. Resolved rows predate
+  // `notifiedAt` and nothing ever stamps them, so counting them here would have
+  // wedged anonymous intake shut on any deployment with a suppression history.
   const pendingSuppressions = await db
     .query("profileSuppressionRequests")
-    .withIndex("by_notifiedAt_createdAt", (query) => query.eq("notifiedAt", undefined))
+    .withIndex("by_state_notifiedAt_createdAt", (query) =>
+      query.eq("state", "submitted").eq("notifiedAt", undefined),
+    )
     .take(MAX_PENDING_ANONYMOUS_REQUESTS + 1 - pendingSupport.length);
 
   if (pendingSupport.length + pendingSuppressions.length > MAX_PENDING_ANONYMOUS_REQUESTS) {

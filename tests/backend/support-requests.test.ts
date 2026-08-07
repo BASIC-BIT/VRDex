@@ -688,3 +688,138 @@ describe("support request review findings, second round", () => {
     );
   });
 });
+
+describe("support request review findings, third round", () => {
+  /**
+   * Every one of these was the same mistake: filtering a page after taking it.
+   * Once the prefix is full of rows the filter removes, the query returns
+   * nothing useful and the guard it feeds stops working.
+   */
+  it("counts a subject's own backlog even behind a full queue", async () => {
+    const t = convexTest({ schema, modules });
+    const identity = clerkTestIdentity(newClerkUserId());
+    const signedIn = t.withIdentity(identity);
+    const now = Date.now();
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("users", {
+        clerkUserId: identity.subject,
+        email: "flooder@example.test",
+        emailVerificationTime: now,
+      });
+
+      // Somebody else's backlog, larger than any page the quota check reads.
+      for (let index = 0; index < 210; index += 1) {
+        await ctx.db.insert("supportRequests", {
+          topic: "feedback",
+          message: `Unrelated pending request ${index}.`,
+          createdAt: now - 210 + index,
+          updatedAt: now,
+        });
+      }
+    });
+
+    for (let index = 0; index < 10; index += 1) {
+      await signedIn.mutation(api.supportRequests.submitSupportRequest, {
+        topic: "feedback",
+        message: `Message number ${index} from one account.`,
+      });
+    }
+
+    await assert.rejects(
+      () =>
+        signedIn.mutation(api.supportRequests.submitSupportRequest, {
+          topic: "feedback",
+          message: "One more than the ceiling allows.",
+        }),
+      /already have several requests waiting/,
+    );
+  });
+
+  /**
+   * Resolved suppressions predate `notifiedAt` and nothing stamps them, so a
+   * page of them returned the same useless prefix forever and no newer report
+   * was ever mailed.
+   */
+  it("reaches new suppressions behind a page of resolved ones", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+
+    await t.run(async (ctx) => {
+      for (let index = 0; index < 60; index += 1) {
+        await ctx.db.insert("profileSuppressionRequests", {
+          displayName: `Historic ${index}`,
+          requestType: "owner_opt_out",
+          state: "accepted",
+          createdAt: now - 60 + index,
+          updatedAt: now,
+        });
+      }
+    });
+
+    await t.mutation(api.suppressions.requestProfileSuppression, {
+      requestType: "pre_claim_safety",
+      displayName: "Someone at risk",
+      profileType: "person",
+      requesterNote: "This listing needs review.",
+    });
+
+    const batch = await t.query(internal.supportRequests.pendingDigestRequests, {});
+
+    assert.equal(batch.length, 1);
+    assert.equal(batch[0].displayName, "Someone at risk");
+  });
+
+  /**
+   * The same resolved rows counted toward the anonymous ceiling, and since the
+   * digest never stamps them, waiting could not clear it: intake would have
+   * been refused permanently on any deployment with a suppression history.
+   */
+  it("does not let resolved suppressions wedge intake shut", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+
+    await t.run(async (ctx) => {
+      for (let index = 0; index < 220; index += 1) {
+        await ctx.db.insert("profileSuppressionRequests", {
+          displayName: `Historic ${index}`,
+          requestType: "owner_opt_out",
+          state: "accepted",
+          createdAt: now - 220 + index,
+          updatedAt: now,
+        });
+      }
+    });
+
+    await t.mutation(api.supportRequests.submitSupportRequest, {
+      topic: "feedback",
+      message: "An ordinary request on a deployment with history.",
+    });
+  });
+
+  /**
+   * A pre-normalization slice let whitespace-heavy input shrink back under the
+   * limit, so the request succeeded with everything past the cut discarded.
+   */
+  it("refuses a message whose ending would be dropped", async () => {
+    const t = convexTest({ schema, modules });
+    const padded = `${"a".repeat(3_900)}${"\n".repeat(5_000)}https://example.invalid/the-evidence`;
+
+    await assert.rejects(
+      () =>
+        t.mutation(api.supportRequests.submitSupportRequest, {
+          topic: "feedback",
+          message: padded,
+        }),
+      /longer than we can store/,
+    );
+  });
+
+  it("reads a profile link from a deployment without a dotted host", () => {
+    assert.equal(readProfileSlugFromInput("http://localhost:3000/p/dj-aurora"), "dj-aurora");
+    assert.equal(readProfileSlugFromInput("http://127.0.0.1:3210/c/afterglow-social"), "afterglow-social");
+    assert.equal(readProfileSlugFromInput("http://[::1]:3000/p/dj-aurora"), "dj-aurora");
+    // Still only the two profile routes, whatever the host.
+    assert.equal(readProfileSlugFromInput("http://localhost:3000/w/neon-harbor"), "");
+  });
+});

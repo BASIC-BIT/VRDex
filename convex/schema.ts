@@ -2207,7 +2207,12 @@ export default defineSchema({
     .index("by_state_createdAt", ["state", "createdAt"])
     .index("by_profileId_state", ["profileId", "state"])
     .index("by_profileSlug_state", ["profileSlug", "state"])
-    .index("by_notifiedAt_createdAt", ["notifiedAt", "createdAt"]),
+    // State first, because "unnotified" alone does not mean "needs attention"
+    // here: `notifiedAt` is newer than the table, so every resolved row ever
+    // written also reads as unnotified. Seeking on both is what keeps a
+    // filter-after-take from starving on a prefix of historical rows.
+    .index("by_state_notifiedAt_createdAt", ["state", "notifiedAt", "createdAt"])
+    .index("by_requesterSubject_notifiedAt", ["requester.subject", "notifiedAt"]),
   // Contact, dispute, transfer, and recovery requests from `/support`.
   //
   // No lifecycle columns. The hourly digest is the read path and the operator's
@@ -2234,6 +2239,10 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_notifiedAt_createdAt", ["notifiedAt", "createdAt"])
+    // Per-sender, so one account's share of the backlog can be counted by
+    // seeking rather than by scanning a global prefix and filtering, which
+    // returns nothing at all once that prefix is full of somebody else's rows.
+    .index("by_requesterSubject_notifiedAt", ["requester.subject", "notifiedAt"])
     .index("by_profileSlug_createdAt", ["profileSlug", "createdAt"]),
   profileAuditEvents: defineTable({
     profileId: v.id("profiles"),

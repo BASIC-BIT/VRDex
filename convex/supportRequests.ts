@@ -66,25 +66,38 @@ function optionalText(value: string | undefined, maxLength: number): string | un
  * blank lines still collapse, so the digest cannot be padded into a wall.
  */
 function normalizeMessage(input: string): string {
-  // Bounded before the passes below, not after. This mutation is public and
-  // unauthenticated, so the argument size is whatever a caller sends, and
-  // running four regex passes over it before trimming means the work scales
-  // with what an attacker chooses rather than with what is kept.
+  // No slice. Two versions of one lived here and both lost text silently: cut
+  // to the limit, the caller's length check compared an already-truncated
+  // string to the same number and could never fire; cut to twice the limit,
+  // whitespace-heavy input could normalize back under the limit and be accepted
+  // with everything past character eight thousand gone.
   //
-  // That bound is deliberately above `MESSAGE_MAX_LENGTH` rather than at it.
-  // Cutting to the limit here left the caller's length check comparing an
-  // already-truncated string against the same number, so the check could never
-  // fire and every oversized message was still silently shortened -- the exact
-  // behaviour it was added to stop. Anything past the real limit has to survive
-  // this function for that refusal to have something to refuse.
+  // The bound is a refusal now, in `requireMessageWithinBounds`, so nothing is
+  // ever dropped without saying so and the regex work below is still capped.
   return input
-    .slice(0, MESSAGE_MAX_LENGTH * 2)
     .replace(/\r\n?/g, "\n")
     .split("\n")
     .map((line) => line.trimEnd())
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+/**
+ * Refuse an oversized message before any of it is processed or discarded.
+ *
+ * Two bounds, checked in this order. The raw one exists because this mutation
+ * is public and unauthenticated, so the argument size is whatever a caller
+ * sends and the normalization passes should not scale with it. The normalized
+ * one is the real limit a person is held to, applied to what would actually be
+ * stored.
+ */
+function requireMessageWithinBounds(raw: string, normalized: string): void {
+  if (raw.length > MESSAGE_MAX_LENGTH * 2 || normalized.length > MESSAGE_MAX_LENGTH) {
+    throw supportInputError(
+      `That message is longer than we can store. Keep it under ${MESSAGE_MAX_LENGTH} characters and link to the rest.`,
+    );
+  }
 }
 
 /**
@@ -124,11 +137,7 @@ export const submitSupportRequest = mutation({
     // Refused rather than sliced. Truncating reported success and then dropped
     // whatever came last, which on a safety report or a dispute is the evidence
     // links people put at the end.
-    if (message.length > MESSAGE_MAX_LENGTH) {
-      throw supportInputError(
-        `That message is longer than we can store. Keep it under ${MESSAGE_MAX_LENGTH} characters and link to the rest.`,
-      );
-    }
+    requireMessageWithinBounds(args.message, message);
 
     // Measured before truncation, and `>` rather than `>=`. Checking the sliced
     // value could only ever see the limit exactly, which rejected an address of
@@ -221,19 +230,20 @@ export const pendingDigestRequests = internalQuery({
       .order("asc")
       .take(limit);
 
-    // `submitted` only. `notifiedAt` is new, so every row written before it
-    // reads as unnotified, including ones an operator already accepted or
-    // rejected. Without this the first digest after deploy announces the entire
-    // history as new, and those stale rows take the batch limit ahead of
-    // current disputes. A request resolved between two runs drops out the same
-    // way, which is right: it has already been dealt with.
-    const suppressionRows = (
-      await ctx.db
-        .query("profileSuppressionRequests")
-        .withIndex("by_notifiedAt_createdAt", (query) => query.eq("notifiedAt", undefined))
-        .order("asc")
-        .take(limit)
-    ).filter((request) => request.state === "submitted");
+    // `submitted` only, and seeked on it rather than filtered after the fact.
+    // `notifiedAt` is newer than this table, so every row written before it
+    // reads as unnotified, accepted and rejected ones included. Filtering a
+    // page after taking it meant fifty old resolved rows returned the same
+    // useless prefix on every run, and no newer opt-out or safety report was
+    // ever mailed. A request resolved between two runs drops out the same way,
+    // which is right: it has already been dealt with.
+    const suppressionRows = await ctx.db
+      .query("profileSuppressionRequests")
+      .withIndex("by_state_notifiedAt_createdAt", (query) =>
+        query.eq("state", "submitted").eq("notifiedAt", undefined),
+      )
+      .order("asc")
+      .take(limit);
 
     const entries = [
       ...supportRows.map((request) => ({
