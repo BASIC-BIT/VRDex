@@ -1498,3 +1498,40 @@ describe("support request review findings, fifteenth round", () => {
     );
   });
 });
+
+
+describe("support request review findings, sixteenth round", () => {
+  /**
+   * A port is part of which service a URL belongs to. Comparing hostnames
+   * discarded it, so a self-hosted deployment accepted a link from an unrelated
+   * service on the same machine and resolved its path here.
+   */
+  it("matches the whole origin, port and scheme included", () => {
+    const configured = "https://example.test:8443";
+
+    assert.equal(
+      readProfileReferenceFromInput("https://example.test:8443/p/dj-aurora", configured).slug,
+      "dj-aurora",
+    );
+    assert.equal(
+      readProfileReferenceFromInput("https://example.test:9999/p/dj-aurora", configured).slug,
+      "",
+      "a different port is a different service",
+    );
+    assert.equal(
+      readProfileReferenceFromInput("http://example.test:8443/p/dj-aurora", configured).slug,
+      "",
+      "a different scheme is a different origin",
+    );
+
+    // The default port stays implicit, as a browser writes it.
+    assert.equal(
+      readProfileReferenceFromInput("https://vrdex.net/p/dj-aurora", "https://vrdex.net").slug,
+      "dj-aurora",
+    );
+    assert.equal(
+      readProfileReferenceFromInput("https://www.vrdex.net/p/dj-aurora", "https://vrdex.net").slug,
+      "dj-aurora",
+    );
+  });
+});

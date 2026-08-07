@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useMutation } from "convex/react";
 import { api } from "@convex-generated-api";
 import { Button } from "@/components/ui/button";
-import { Field, FieldText, Input, Select, Textarea } from "@/components/ui/field";
+import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { BACKEND_ERROR_COPY } from "@/lib/error-copy";
 
@@ -377,9 +377,6 @@ function ConnectedSupportRequestForm() {
           placeholder="Tell us what happened. Paste links to anything that backs it up."
           required
         />
-        <FieldText>
-          Links are enough. Do not paste passwords, codes, or anything else private.
-        </FieldText>
       </Field>
 
       <Button

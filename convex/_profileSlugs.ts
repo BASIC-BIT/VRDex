@@ -107,58 +107,84 @@ export type ProfileReference = {
  * skipped by `hasAcceptedSuppression`'s type check, so the very listing someone
  * asked to be kept down could still be published.
  */
-/**
- * Whether an absolute URL's host is one whose `/p/` and `/c/` paths are ours.
- *
- * Without this, `https://anywhere.example/p/dj-aurora` had its host discarded
- * and its path resolved against VRDex, so a link to somewhere else entirely
- * named a real profile here. On a suppression that stored the profile's id, and
- * an operator could retract a listing the requester never pointed at.
- *
- * Loopback is always allowed, because a self-hosted or local deployment serves
- * its own profile links from one and `SITE_URL` may be unset there.
- */
-function isDeploymentHost(host: string, siteUrl: string | undefined): boolean {
+/** A host that names this machine rather than a deployment. */
+function isLoopbackHost(host: string): boolean {
   const hostname = host.replace(/:\d+$/, "").toLowerCase();
 
-  const loopback =
+  return (
     hostname === "localhost" ||
     hostname === "127.0.0.1" ||
     hostname === "[::1]" ||
-    hostname === "::1";
-
-  // Loopback only where loopback is what this deployment is. Accepting it
-  // unconditionally meant a hosted deployment resolved `http://localhost/p/x`
-  // against its own data, so a pasted development URL named a production
-  // profile and the digest rebuilt a production link nobody supplied.
-  if (siteUrl === undefined) {
-    return loopback;
-  }
-
-  try {
-    const configured = new URL(siteUrl).hostname.toLowerCase();
-
-    // The `www` sibling as well as the configured host. Production serves both
-    // -- `infra/terraform/web-domains` binds the apex and the www domain, and
-    // both have Route 53 records -- so a visitor reading their own profile at
-    // `www.vrdex.net` pastes exactly what their address bar shows and was told
-    // it did not look like a profile.
-    if (configured === hostname || wwwSibling(configured) === hostname) {
-      return true;
-    }
-
-    return (
-      loopback &&
-      (configured === "localhost" || configured === "127.0.0.1" || configured === "[::1]")
-    );
-  } catch {
-    return false;
-  }
+    hostname === "::1"
+  );
 }
 
 /** The other spelling of a host: `example.com` and `www.example.com`. */
 function wwwSibling(hostname: string): string {
   return hostname.startsWith("www.") ? hostname.slice(4) : `www.${hostname}`;
+}
+
+/**
+ * Every origin whose `/p/` and `/c/` paths are this deployment's.
+ *
+ * Whole origins, not hostnames pulled out of them. Comparing only the hostname
+ * discarded the port, so a self-hosted deployment at `https://example.test:8443`
+ * accepted a link from `https://example.test:9999` -- a different service on the
+ * same machine -- and resolved its path here.
+ *
+ * The `www` sibling is included because production binds both: the apex and the
+ * www domain each have Vercel project-domain bindings and Route 53 records, so
+ * a visitor reading their profile at either one pastes what their address bar
+ * shows.
+ */
+function allowedOrigins(siteUrl: string): Set<string> {
+  try {
+    const url = new URL(siteUrl);
+    const sibling = new URL(siteUrl);
+
+    sibling.hostname = wwwSibling(url.hostname.toLowerCase());
+
+    return new Set([url.origin.toLowerCase(), sibling.origin.toLowerCase()]);
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * Whether a pasted link's origin is one of this deployment's.
+ *
+ * `host` carries the port when the URL had one, and is compared as part of the
+ * origin rather than stripped down to a name.
+ *
+ * Loopback is accepted only where the deployment is itself loopback, or where
+ * no origin is configured at all. Accepting it unconditionally meant a hosted
+ * deployment resolved `http://localhost/p/x` against its own data, so a pasted
+ * development URL named a production profile.
+ */
+function isDeploymentHost(
+  host: string,
+  scheme: string | undefined,
+  siteUrl: string | undefined,
+): boolean {
+  if (siteUrl === undefined) {
+    return isLoopbackHost(host);
+  }
+
+  const allowed = allowedOrigins(siteUrl);
+
+  if (allowed.size === 0) {
+    return false;
+  }
+
+  // A scheme-less paste carries no origin, so it is matched on host and port
+  // against the origins that are allowed.
+  if (scheme === undefined) {
+    const hosts = new Set([...allowed].map((origin) => new URL(origin).host.toLowerCase()));
+
+    return hosts.has(host.toLowerCase());
+  }
+
+  return allowed.has(`${scheme.toLowerCase()}//${host.toLowerCase()}`);
 }
 
 export function readProfileReferenceFromInput(
@@ -242,7 +268,9 @@ function profileUrlPath(input: string, siteUrl: string | undefined): string | nu
     try {
       const url = new URL(input);
 
-      return isDeploymentHost(url.host, siteUrl) ? `${url.pathname}${url.search}` : null;
+      return isDeploymentHost(url.host, url.protocol, siteUrl)
+        ? `${url.pathname}${url.search}`
+        : null;
     } catch {
       return null;
     }
@@ -257,7 +285,7 @@ function profileUrlPath(input: string, siteUrl: string | undefined): string | nu
     return null;
   }
 
-  return isDeploymentHost(hostless[1], siteUrl) ? (hostless[2] ?? "") : null;
+  return isDeploymentHost(hostless[1], undefined, siteUrl) ? (hostless[2] ?? "") : null;
 }
 
 /** Shared by both intake mutations behind `/support`. */
