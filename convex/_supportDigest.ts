@@ -30,13 +30,6 @@ const ENTRY_SEPARATOR = "-".repeat(60);
  * set -- CR, LF, CRLF, vertical tab, form feed, NEL, and the two Unicode
  * separators -- so a requester cannot reach an unprefixed line through a
  * character nobody happened to name.
- *
- *
- * A plaintext mail client breaks on U+2028 and U+2029 as well, so splitting on
- * `\n` alone left everything after one of those on a rendered line with no
- * quote prefix, free to impersonate a field this file wrote. That is the exact
- * forgery the prefix exists to prevent, reachable through a character the
- * splitter did not recognise.
  */
 const LINE_BOUNDARY = /\r\n|[\n\r\v\f\u0085\u2028\u2029]/;
 

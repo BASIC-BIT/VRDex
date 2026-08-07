@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import { hostedTargetRunsCurrentRevision } from "./clerk-auth";
 import { gotoFlowPage } from "./flow-navigation";
 import { captureRouteScreenshot } from "./public-routes";
 
@@ -66,32 +67,52 @@ test("profile submission writes through to public profile and discovery @flow", 
     await page.getByLabel("Aliases").fill(`Flow ${runSuffix}`);
     await page.getByLabel("Tags", { exact: true }).or(page.getByLabel("Shared tags", { exact: true })).first().fill("playwright, data-flow");
 
-    // The tolerance that used to stand here filled a freeform `Person roles`
-    // input whenever the target's revision was not this branch's, on the
-    // reasoning that staging serves `main` and therefore lags. Staging now
-    // carries the checkbox form, so "not this branch" stopped meaning "the old
-    // form": every pull request took the lagging path, waited thirty seconds
-    // for an input that no longer exists anywhere, and timed out. The gate was
-    // written to expire on merge and this is that expiry.
+    // Driven by what the page actually renders, not by which revision the target
+    // is meant to be on.
     //
-    // Roles are checkboxes over a fixed vocabulary with a freeform field beside
-    // it. Checking DJ is also what reveals the stream inputs, which is why
-    // roles are asked for before links.
-    const streamUrl = page.getByLabel("Stream");
-    await expect(streamUrl).toHaveCount(0);
-    await page.getByRole("checkbox", { name: "DJ", exact: true }).check();
-    await expect(streamUrl).toBeVisible();
-    await page.getByLabel("Other roles").fill("Test profile");
+    // This branched on `hostedTargetRunsCurrentRevision` alone and fell back to
+    // the freeform input, on the reasoning that the helper is false exactly while
+    // staging is behind. It is not: it is false on every branch that is not the
+    // deployed revision, which is every pull request. So the moment the role
+    // checkboxes reached staging the fallback stopped being a safety net and
+    // became a guaranteed 30s wait for a control that no longer exists anywhere.
+    //
+    // The revision check still earns its place, one line down: once the target
+    // provably runs this commit, the old shape is not tolerated at all, so this
+    // cannot quietly go on accepting a regression.
+    const roleCheckbox = page.getByRole("checkbox", { name: "DJ", exact: true });
+    const rendersRoleCheckboxes = (await roleCheckbox.count()) > 0;
 
-    // The URL VRCDN hands someone looking for their own stream, so it is what
-    // they paste. It has to reach the profile as the public page URL: the seed
-    // lane stored this shape verbatim and put VRCDN's operator console on
-    // hundreds of public profiles.
-    // Run-scoped like every other value here: two projects submit concurrently
-    // against one backend, and a shared stream id would have them writing the
-    // same derived values at the same time.
-    await streamUrl.fill(`https://panel.vrcdn.live/preview/${streamId}`);
-    submittedStreamId = streamId;
+    if (await hostedTargetRunsCurrentRevision(request)) {
+      expect(
+        rendersRoleCheckboxes,
+        "target runs this revision, so it must render the role checkboxes",
+      ).toBe(true);
+    }
+
+    if (rendersRoleCheckboxes) {
+      // Roles are checkboxes over a fixed vocabulary with a freeform field
+      // beside it. Checking DJ is also what reveals the stream inputs, which is
+      // why roles are asked for before links.
+      const streamUrl = page.getByLabel("Stream");
+      await expect(streamUrl).toHaveCount(0);
+      await roleCheckbox.check();
+      await expect(streamUrl).toBeVisible();
+      await page.getByLabel("Other roles").fill("Test profile");
+
+      // The URL VRCDN hands someone looking for their own stream, so it is what
+      // they paste. It has to reach the profile as the public page URL: the seed
+      // lane stored this shape verbatim and put VRCDN's operator console on
+      // hundreds of public profiles.
+      // Run-scoped like every other value here: two projects submit concurrently
+      // against one backend, and a shared stream id would have them writing the
+      // same derived values at the same time.
+      await streamUrl.fill(`https://panel.vrcdn.live/preview/${streamId}`);
+      submittedStreamId = streamId;
+    } else {
+      // Only reachable against a target that predates the checkboxes.
+      await page.getByLabel("Person roles").fill("Test profile");
+    }
 
     await page.getByRole("button", { name: "Submit profile" }).click();
 

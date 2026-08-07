@@ -73,6 +73,23 @@ export type ConvexTargetName = keyof typeof CONVEX_TARGETS;
 export const CONVEX_TARGET_NAMES = Object.keys(CONVEX_TARGETS);
 
 /**
+ * How much serialized argument any operator script may hand the Convex CLI.
+ *
+ * Arguments reach the CLI as one process argument, so the ceiling is the
+ * platform's command line rather than anything Convex enforces: Windows
+ * `CreateProcess` caps at 32,767 characters and fails the spawn outright. That
+ * failure is silent in the worst way -- the process never starts, so there is no
+ * Convex error, no stderr, and a caller that only checks the exit status reports
+ * a failed call with nothing to inspect.
+ *
+ * 20,000 leaves room for the rest of the command line and for a payload that
+ * measures larger once escaped. Lives here rather than in one script because
+ * every script that talks to the CLI answers to the same ceiling, and the one
+ * that learned it first had already paid for it.
+ */
+export const MAX_CONVEX_ARGS_BYTES = 20_000;
+
+/**
  * Every Convex CLI flag that can point a command at a different deployment, or
  * supply different credentials. Four rounds of review each found one more entry
  * for this list, so it is no longer written from memory: `--prod`,
