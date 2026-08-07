@@ -3,7 +3,7 @@
 ## Current Recommendation
 
 **Retired for authentication, live for the support digest.** Clerk sends its own
-verification and password email, so SES is no longer part of sign-in — see
+verification and password email, so SES is no longer part of sign-in. See
 [`auth-sessions.md`](../backend/auth-sessions.md).
 
 This section previously asked whether any other feature had adopted SES before

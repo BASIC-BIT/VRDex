@@ -4,8 +4,12 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, mutation, type MutationCtx } from "./_generated/server";
 import { activeBrowserSessionSubjectOrNull } from "./_browserSessionAuthority";
-import { getProfileBySlug, resolveRequestedProfile } from "./_profileSlugs";
-import { requireSupportBacklogHeadroom, supportInputError } from "./_supportIntake";
+import { getProfileBySlug, getRequestedProfile, resolveRequestedProfile } from "./_profileSlugs";
+import {
+  requireRawArgumentsWithinBounds,
+  requireSupportBacklogHeadroom,
+  supportInputError,
+} from "./_supportIntake";
 import { createProfileSortName, normalizeProfileInlineText } from "./_profileSubmissions";
 import { surfacedProfileNames } from "./_suppressions";
 import {
@@ -62,6 +66,15 @@ export const requestProfileSuppression = mutation({
   },
   handler: async (ctx, args) => {
     const now = Date.now();
+
+    // Before the session lookup and the backlog queries, as on the sibling
+    // path: these bound the work one unauthenticated call can cause, and a
+    // check that runs after the database reads bounds nothing.
+    requireRawArgumentsWithinBounds(
+      [args.profileSlug, args.displayName, args.requesterContact, args.requesterNote],
+      "That is longer than we can store.",
+    );
+
     const requester = (await activeBrowserSessionSubjectOrNull(ctx))?.subject;
 
     // Same ceiling as the support intake. This mutation was already public and
@@ -101,7 +114,7 @@ export const requestProfileSuppression = mutation({
     // dispute and was rejected for an opt-out.
     const requested = resolveRequestedProfile(args.profileSlug);
     const profileSlug = requested?.slug;
-    const profile = profileSlug === undefined ? null : await getProfileBySlug(ctx.db, profileSlug);
+    const profile = await getRequestedProfile(ctx.db, requested);
 
     // The requester's own text, measured untruncated, as the sibling intake
     // does. Resolution searches on this name, so a silently sliced one sends the

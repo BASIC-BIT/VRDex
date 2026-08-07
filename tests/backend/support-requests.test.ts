@@ -1166,3 +1166,80 @@ describe("support request review findings, eighth round", () => {
     );
   });
 });
+
+
+describe("support request review findings, tenth round", () => {
+  /**
+   * Slugs are unique across both entity types, so `/c/foo` resolves the person
+   * holding `foo` just as happily as a community would. Storing that profile's
+   * id meant an accepted community opt-out retracted a person, since the
+   * acceptance resolver trusts a stored id unconditionally.
+   */
+  it("does not resolve a pasted community link onto a person", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("profiles", {
+        profileType: "person",
+        slug: "aurora",
+        displayName: "Aurora",
+        sortName: "aurora",
+        aliases: [],
+        tags: [],
+        claimState: "unclaimed",
+        publicationState: "published",
+        publicSurfacingState: "public",
+        creationSource: "concierge",
+        person: { roleTags: [] },
+        updatedAt: now,
+      });
+    });
+
+    await t.mutation(api.suppressions.requestProfileSuppression, {
+      requestType: "owner_opt_out",
+      profileSlug: "https://vrdex.net/c/aurora",
+      requesterNote: "Our community listing should come down.",
+    });
+
+    const stored = await t.run(async (ctx) =>
+      ctx.db.query("profileSuppressionRequests").collect(),
+    );
+
+    // No id, so acceptance cannot retract the person holding that slug.
+    assert.equal(stored[0].profileId, undefined);
+    assert.equal(stored[0].profileSlug, "aurora");
+    assert.equal(stored[0].profileType, "community");
+  });
+
+  /**
+   * The message field got the raw guard first and the others did not, so a
+   * contact near the payload limit was scanned in full after the session lookup
+   * and the backlog reads, then rejected without inserting a row.
+   */
+  it("refuses absurd raw input on every field, not just the message", async () => {
+    const t = convexTest({ schema, modules });
+    const huge = "a".repeat(8_001);
+
+    for (const args of [
+      { topic: "feedback" as const, message: "Fine message.", displayName: huge },
+      { topic: "feedback" as const, message: "Fine message.", requesterContact: huge },
+      { topic: "feedback" as const, message: "Fine message.", profileSlug: huge },
+    ]) {
+      await assert.rejects(
+        () => t.mutation(api.supportRequests.submitSupportRequest, args),
+        /longer than we can store/,
+      );
+    }
+
+    await assert.rejects(
+      () =>
+        t.mutation(api.suppressions.requestProfileSuppression, {
+          requestType: "owner_opt_out",
+          displayName: huge,
+          requesterNote: "Please delist this.",
+        }),
+      /longer than we can store/,
+    );
+  });
+});

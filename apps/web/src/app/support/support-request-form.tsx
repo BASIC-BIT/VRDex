@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState, useTransition } from "react";
+import { FormEvent, useEffect, useRef, useState, useTransition } from "react";
 import { useSearchParams } from "next/navigation";
 import { useMutation } from "convex/react";
 import { api } from "@convex-generated-api";
@@ -183,6 +183,7 @@ function ConnectedSupportRequestForm() {
   );
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const [, startTransition] = useTransition();
+  const formRef = useRef<HTMLFormElement>(null);
 
   // The initializer above runs once. Navigating between `?topic=` links while
   // the form is already mounted -- the footer's two entries do exactly that --
@@ -195,6 +196,14 @@ function ConnectedSupportRequestForm() {
   // `/support`, which is precisely the case a guarded version missed.
   useEffect(() => {
     setTopic(isTopic(requestedTopic) ? requestedTopic : "");
+
+    // The fields and the notice too, not only the selector. Following the
+    // footer's other support link is starting a different request, but the
+    // router changes the query without remounting: a half-written message would
+    // have carried over into the new category, and a success notice from the
+    // last one would have sat above an untouched form claiming it was sent.
+    formRef.current?.reset();
+    setStatus({ kind: "idle" });
   }, [requestedTopic]);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -263,7 +272,7 @@ function ConnectedSupportRequestForm() {
   const aboutAProfile = topic === "" || TOPICS_ABOUT_A_PROFILE.includes(topic);
 
   return (
-    <form className="grid gap-5" onSubmit={onSubmit}>
+    <form className="grid gap-5" onSubmit={onSubmit} ref={formRef}>
       <Field>
         Request type
         <Select

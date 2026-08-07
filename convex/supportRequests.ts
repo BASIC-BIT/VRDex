@@ -3,8 +3,9 @@ import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { internalMutation, internalQuery, mutation } from "./_generated/server";
 import { activeBrowserSessionSubjectOrNull } from "./_browserSessionAuthority";
-import { getProfileBySlug, resolveRequestedProfile } from "./_profileSlugs";
+import { getRequestedProfile, resolveRequestedProfile } from "./_profileSlugs";
 import {
+  requireRawArgumentsWithinBounds,
   requireSupportBacklogHeadroom,
   SUPPORT_DIGEST_BATCH_SIZE,
   supportInputError,
@@ -126,11 +127,17 @@ export const submitSupportRequest = mutation({
     const now = Date.now();
 
     // First, before the session lookup, the backlog queries, and the
-    // normalization passes. The raw ceiling existed to bound the work an
-    // unauthenticated caller can cause, and checking it after all of that
-    // bounded nothing: a caller could spend several whole-string rewrites and a
-    // handful of index reads per request without ever inserting a row or
-    // spending any row-counted allowance.
+    // normalization passes. These bound the work an unauthenticated caller can
+    // cause, and checking after all of that bounded nothing: a caller could
+    // spend whole-string rewrites and index reads per request without ever
+    // inserting a row or spending any row-counted allowance.
+    //
+    // Every field, not just the message. Covering one of five left the same hole
+    // open through `requesterContact`.
+    requireRawArgumentsWithinBounds(
+      [args.profileSlug, args.displayName, args.requesterContact],
+      "That is longer than we can store.",
+    );
     requireRawMessageWithinBounds(args.message);
 
     const requester = (await activeBrowserSessionSubjectOrNull(ctx))?.subject;
@@ -175,7 +182,7 @@ export const submitSupportRequest = mutation({
     // A slug with no profile behind it is still recorded: someone disputing a
     // listing may be reading it off a URL that has since changed, and dropping
     // it would discard the only identifier they had.
-    const profile = profileSlug === undefined ? null : await getProfileBySlug(ctx.db, profileSlug);
+    const profile = await getRequestedProfile(ctx.db, requested);
 
     // The requester's own text, measured untruncated. A name is an identifier
     // here, so slicing it produced a request that succeeded while naming

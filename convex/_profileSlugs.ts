@@ -291,6 +291,35 @@ export function createProfileSlugCandidate(base: string, attempt: number): strin
   return `${base.slice(0, maxBaseLength).replace(/-+$/g, "")}${suffix}`;
 }
 
+/**
+ * The profile a request named, or `null` when the slug finds a different kind.
+ *
+ * Slugs are unique across both entity types, so `/c/foo` resolves the person
+ * holding `foo` just as happily as a community would. Storing that profile's id
+ * meant an accepted opt-out for a community retracted a person instead, since
+ * the acceptance resolver trusts a stored id unconditionally. A pasted route is
+ * an assertion about which kind was meant, and one that disagrees with the
+ * record resolves to nothing rather than to the wrong thing.
+ */
+export async function getRequestedProfile(
+  db: DatabaseReader,
+  requested: ProfileReference | undefined,
+) {
+  if (requested === undefined) {
+    return null;
+  }
+
+  const profile = await getProfileBySlug(db, requested.slug);
+
+  if (profile === null) {
+    return null;
+  }
+
+  return requested.profileType === null || requested.profileType === profile.profileType
+    ? profile
+    : null;
+}
+
 export async function getProfileBySlug(db: DatabaseReader, slug: string) {
   return await db
     .query("profiles")

@@ -21,6 +21,37 @@ export function supportInputError(message: string): ConvexError<{ code: string; 
 }
 
 /**
+ * The ceiling on what one call may ask these mutations to read, in characters.
+ *
+ * Deliberately far above every real field limit. It is not the limit a person
+ * is held to, which each field applies to its own normalized value: it is the
+ * bound on work an unauthenticated caller can cause per call, so it has to be
+ * loose enough that no legitimate submission meets it.
+ */
+const RAW_ARGUMENT_MAX_LENGTH = 8_000;
+
+/**
+ * Refuse absurd raw input before anything reads the database.
+ *
+ * The message field got this guard first and the others did not, which left the
+ * hole open: `requesterContact` alone could arrive near the payload limit, be
+ * scanned in full after the session lookup and the backlog queries, and then be
+ * rejected without inserting a row -- so the call cost real work and spent none
+ * of the arrival allowance, which counts rows. Every requester-supplied string
+ * goes through here now, first thing.
+ */
+export function requireRawArgumentsWithinBounds(
+  values: Array<string | undefined>,
+  tooLongMessage: string,
+): void {
+  for (const value of values) {
+    if (value !== undefined && value.length > RAW_ARGUMENT_MAX_LENGTH) {
+      throw supportInputError(tooLongMessage);
+    }
+  }
+}
+
+/**
  * The abuse ceiling shared by both public intake mutations behind `/support`.
  *
  * Lives here rather than in either of them because both are unauthenticated,
