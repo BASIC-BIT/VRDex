@@ -2196,12 +2196,18 @@ export default defineSchema({
     resolutionNote: v.optional(v.string()),
     resolvedBy: v.optional(authSubject),
     resolvedAt: v.optional(v.number()),
+    // Same watermark the support digest uses, because these arrive through the
+    // same form and had no reader at all: nothing in the repo watched for
+    // `submitted` rows, so an opt-out or a safety report reported success and
+    // then sat until somebody thought to open the Convex dashboard.
+    notifiedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_state_createdAt", ["state", "createdAt"])
     .index("by_profileId_state", ["profileId", "state"])
-    .index("by_profileSlug_state", ["profileSlug", "state"]),
+    .index("by_profileSlug_state", ["profileSlug", "state"])
+    .index("by_notifiedAt_createdAt", ["notifiedAt", "createdAt"]),
   // Contact, dispute, transfer, and recovery requests from `/support`.
   //
   // No lifecycle columns. The hourly digest is the read path and the operator's
@@ -2211,6 +2217,11 @@ export default defineSchema({
   supportRequests: defineTable({
     topic: supportRequestTopic,
     profileSlug: v.optional(v.string()),
+    // Resolved from the profile when the slug finds one, and taken from the
+    // requester otherwise. The digest needs it to link `/c/` rather than `/p/`,
+    // which are separate routes that each fetch by type, so the wrong one is a
+    // 404 for exactly the disputes that concern communities.
+    profileType: v.optional(profileType),
     displayName: v.optional(v.string()),
     requesterContact: v.optional(v.string()),
     message: v.string(),

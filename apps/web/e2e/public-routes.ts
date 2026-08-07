@@ -320,6 +320,10 @@ export async function expectSupportPage(page: Page) {
   await expect(page.getByRole("heading", { name: "Tell us what you need." })).toBeVisible();
   await expect(page.getByLabel("Request type")).toBeVisible();
   await expect(page.getByLabel("Profile", { exact: true })).toBeVisible();
+  // A name-only opt-out with no type makes the acceptance resolver scan people
+  // *and* communities, so this field is what stops one accepted request from
+  // retracting every namesake of both kinds.
+  await expect(page.getByLabel("Is this a person or a community?")).toBeVisible();
   await expect(page.getByLabel("Message")).toBeVisible();
   await expect(page.getByRole("button", { name: "Send request" })).toBeVisible();
   // The two suppression topics live in the same selector as the rest. They are
@@ -343,6 +347,19 @@ export async function expectSuppressionPage(page: Page) {
     url.pathname === "/support" && url.searchParams.get("topic") === "owner_opt_out",
   );
   await expect(page.getByLabel("Request type")).toHaveValue("owner_opt_out");
+  await expectSupportPage(page);
+}
+
+/**
+ * A bare `/support` opens with nothing chosen.
+ *
+ * The claim page's footer offers transfer, recovery, and dispute in one
+ * sentence, so a link that preselected any of the three filed the other two
+ * under the wrong heading. This is what stops that from coming back.
+ */
+export async function expectSupportPageWithNoTopicChosen(page: Page) {
+  await expect(page.getByLabel("Request type")).toHaveValue("");
+  await expect(page.getByRole("button", { name: "Send request" })).toBeDisabled();
   await expectSupportPage(page);
 }
 
@@ -615,7 +632,7 @@ export const capturedRoutes: CapturedRoute[] = [
   {
     name: "support",
     path: "/support",
-    expectPage: expectSupportPage,
+    expectPage: expectSupportPageWithNoTopicChosen,
   },
   {
     name: "privacy-suppression",

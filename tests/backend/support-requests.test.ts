@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import { convexTest } from "convex-test";
 
 import { api, internal } from "../../convex/_generated/api";
+import type { Id } from "../../convex/_generated/dataModel";
 import schemaModule from "../../convex/schema";
 import { readProfileSlugFromInput } from "../../convex/_profileSlugs";
 import { formatDigestEntry, supportDigestConfig } from "../../convex/_supportDigest";
@@ -28,6 +29,7 @@ describe("support request intake", () => {
 
     await t.mutation(api.supportRequests.submitSupportRequest, {
       topic: "recovery",
+      displayName: "DJ Aurora",
       requesterContact: "  someone@example.test  ",
       message: "I lost my Discord.\r\n\r\n\r\n\r\nThe profile is still mine.   ",
     });
@@ -183,7 +185,8 @@ describe("support request digest", () => {
     assert.ok(firstBatch[0].createdAt <= firstBatch[1].createdAt);
 
     const { marked } = await t.mutation(internal.supportRequests.markDigestSent, {
-      requestIds: firstBatch.map((request) => request.id),
+      supportRequestIds: firstBatch.map((request) => request.id as Id<"supportRequests">),
+      suppressionRequestIds: [],
     });
 
     assert.equal(marked, 2);
@@ -214,11 +217,16 @@ describe("support request digest", () => {
     });
 
     const batch = await t.query(internal.supportRequests.pendingDigestRequests, {});
-    const requestIds = batch.map((request) => request.id);
+    const supportRequestIds = batch.map((request) => request.id as Id<"supportRequests">);
 
-    await t.mutation(internal.supportRequests.markDigestSent, { requestIds, now: 1_000 });
+    await t.mutation(internal.supportRequests.markDigestSent, {
+      supportRequestIds,
+      suppressionRequestIds: [],
+      now: 1_000,
+    });
     const second = await t.mutation(internal.supportRequests.markDigestSent, {
-      requestIds,
+      supportRequestIds,
+      suppressionRequestIds: [],
       now: 2_000,
     });
 
@@ -240,11 +248,12 @@ describe("support request digest", () => {
     const batch = await t.query(internal.supportRequests.pendingDigestRequests, {});
 
     await t.run(async (ctx) => {
-      await ctx.db.delete(batch[0].id);
+      await ctx.db.delete(batch[0].id as Id<"supportRequests">);
     });
 
     const result = await t.mutation(internal.supportRequests.markDigestSent, {
-      requestIds: batch.map((request) => request.id),
+      supportRequestIds: batch.map((request) => request.id as Id<"supportRequests">),
+      suppressionRequestIds: [],
     });
 
     assert.equal(result.marked, 0);
@@ -265,7 +274,12 @@ describe("support request digest", () => {
 
     assert.equal(supportDigestConfig(ses), null);
     assert.equal(supportDigestConfig({ ...ses, VRDEX_SUPPORT_DIGEST_TO: "   " }), null);
-    assert.equal(supportDigestConfig({ VRDEX_SUPPORT_DIGEST_TO: "ops@vrdex.net" }), null);
+    // A recipient without SES is a broken mail deployment, not a disabled one.
+    // Returning null there let the cron succeed hourly while disputes piled up.
+    assert.throws(
+      () => supportDigestConfig({ VRDEX_SUPPORT_DIGEST_TO: "ops@vrdex.net" }),
+      /cannot be delivered/,
+    );
 
     const configured = supportDigestConfig({
       ...ses,
@@ -293,14 +307,22 @@ describe("support request helpers", () => {
     // A bare origin carries no profile, and normalizing the host would invent a
     // slug-shaped string that resolves to nothing.
     assert.equal(readProfileSlugFromInput("https://vrdex.net"), "");
+    // Evidence links are the common paste into this field, and any dotted host
+    // used to qualify: the last segment became a valid-looking slug pointing at
+    // some unrelated profile while the URL that mattered was thrown away.
+    assert.equal(readProfileSlugFromInput("https://vrchat.com/home/user/usr_123"), "");
+    assert.equal(readProfileSlugFromInput("https://discord.gg/abcdef"), "");
+    assert.equal(readProfileSlugFromInput("https://vrdex.net/w/neon-harbor"), "");
   });
 
   it("names a missing contact rather than leaving a gap in the digest", () => {
     const entry = formatDigestEntry(
       {
-        id: "irrelevant" as never,
+        table: "supportRequests" as const,
+        id: "irrelevant",
         topic: "feedback",
         profileSlug: null,
+        profileType: null,
         displayName: null,
         requesterContact: null,
         requesterSubject: null,
@@ -318,9 +340,11 @@ describe("support request helpers", () => {
   it("links the profile when the deployment knows its own origin", () => {
     const entry = formatDigestEntry(
       {
-        id: "irrelevant" as never,
+        table: "supportRequests" as const,
+        id: "irrelevant",
         topic: "ownership_dispute",
         profileSlug: "dj-aurora",
+        profileType: "person" as const,
         displayName: "DJ Aurora",
         requesterContact: "someone@example.test",
         requesterSubject: "user_123",
@@ -332,5 +356,201 @@ describe("support request helpers", () => {
 
     assert.match(entry, /Ownership dispute/);
     assert.match(entry, /https:\/\/vrdex\.net\/p\/dj-aurora/);
+  });
+});
+
+describe("support request review findings", () => {
+  /**
+   * The whole point of this change was that requests stop landing where nobody
+   * looks, and half of it still did: nothing read `profileSuppressionRequests`,
+   * so an opt-out or a safety report was told "Request sent" and then sat.
+   */
+  it("puts suppression requests in the same digest as the rest", async () => {
+    const t = convexTest({ schema, modules });
+
+    await t.mutation(api.suppressions.requestProfileSuppression, {
+      requestType: "pre_claim_safety",
+      displayName: "DJ Aurora",
+      profileType: "person",
+      requesterNote: "This listing puts a real person at risk.",
+    });
+    await t.mutation(api.supportRequests.submitSupportRequest, {
+      topic: "feedback",
+      message: "Unrelated feedback that arrived after it.",
+    });
+
+    const batch = await t.query(internal.supportRequests.pendingDigestRequests, {});
+
+    assert.equal(batch.length, 2);
+    // Both tables reach one digest. Which of two rows written in the same
+    // millisecond sorts first is a tie this does not depend on.
+    assert.deepEqual(
+      [...new Set(batch.map((entry) => entry.table))].sort(),
+      ["profileSuppressionRequests", "supportRequests"],
+    );
+
+    const { marked } = await t.mutation(internal.supportRequests.markDigestSent, {
+      supportRequestIds: batch
+        .filter((entry) => entry.table === "supportRequests")
+        .map((entry) => entry.id as Id<"supportRequests">),
+      suppressionRequestIds: batch
+        .filter((entry) => entry.table === "profileSuppressionRequests")
+        .map((entry) => entry.id as Id<"profileSuppressionRequests">),
+    });
+
+    assert.equal(marked, 2);
+    assert.deepEqual(await t.query(internal.supportRequests.pendingDigestRequests, {}), []);
+  });
+
+  /**
+   * A name-only suppression with no type makes the acceptance resolver scan
+   * people *and* communities, so accepting one opt-out for a common name could
+   * retract every namesake of both kinds.
+   */
+  it("keeps the profile type on a name-only suppression", async () => {
+    const t = convexTest({ schema, modules });
+
+    await t.mutation(api.suppressions.requestProfileSuppression, {
+      requestType: "owner_opt_out",
+      displayName: "Aurora",
+      profileType: "community",
+      requesterNote: "We run this community and want it delisted.",
+    });
+
+    const stored = await t.run(async (ctx) =>
+      ctx.db.query("profileSuppressionRequests").collect(),
+    );
+
+    assert.equal(stored[0].profileType, "community");
+  });
+
+  it("requires a profile on the topics that resolve against one", async () => {
+    const t = convexTest({ schema, modules });
+
+    await assert.rejects(
+      () =>
+        t.mutation(api.supportRequests.submitSupportRequest, {
+          topic: "ownership_dispute",
+          requesterContact: "someone@example.test",
+          message: "Someone took the listing that is about me.",
+        }),
+      /Tell us which profile this is about/,
+    );
+
+    // Feedback is about VRDex rather than about a record, so it asks for none.
+    await t.mutation(api.supportRequests.submitSupportRequest, {
+      topic: "feedback",
+      message: "The claim page could say what happens next.",
+    });
+
+    assert.equal((await t.run(async (ctx) => ctx.db.query("supportRequests").collect())).length, 1);
+  });
+
+  /**
+   * Truncating reported success and then dropped whatever came last, which on a
+   * dispute is the evidence links people put at the end.
+   */
+  it("refuses oversized messages and contacts instead of trimming them", async () => {
+    const t = convexTest({ schema, modules });
+
+    await assert.rejects(
+      () =>
+        t.mutation(api.supportRequests.submitSupportRequest, {
+          topic: "feedback",
+          message: "x".repeat(4_001),
+        }),
+      /longer than we can store/,
+    );
+
+    await assert.rejects(
+      () =>
+        t.mutation(api.supportRequests.submitSupportRequest, {
+          topic: "recovery",
+          displayName: "DJ Aurora",
+          requesterContact: `${"a".repeat(160)}@example.test`,
+          message: "I lost the account that holds this profile.",
+        }),
+      /contact is too long/,
+    );
+
+    await assert.rejects(
+      () =>
+        t.mutation(api.suppressions.requestProfileSuppression, {
+          requestType: "owner_opt_out",
+          displayName: "DJ Aurora",
+          requesterNote: "x".repeat(1_001),
+        }),
+      /longer than we can store/,
+    );
+  });
+});
+
+describe("support digest formatting", () => {
+  /**
+   * The message is written by an anonymous stranger and the entry separator is
+   * a run of hyphens, so pasted raw a requester could append a second entry with
+   * forged contact and identity fields, in the one mailbox an ownership decision
+   * is made from.
+   */
+  it("cannot be made to forge a second entry", () => {
+    const forged = [
+      "Please hand me this profile.",
+      "",
+      "-".repeat(60),
+      "",
+      "Ownership dispute at 1970-01-01T00:00:00.000Z",
+      "Profile: someone-else",
+      "Reply to: attacker@example.test",
+      "Signed in as: user_trustme",
+    ].join("\n");
+
+    const entry = formatDigestEntry(
+      {
+        table: "supportRequests" as const,
+        id: "abc",
+        topic: "transfer",
+        profileSlug: null,
+        profileType: null,
+        displayName: "DJ Aurora",
+        requesterContact: "real@example.test",
+        requesterSubject: null,
+        message: forged,
+        createdAt: 0,
+      },
+      undefined,
+    );
+
+    // Exactly one of each field line, all of them written by this file.
+    assert.equal(entry.split("\n").filter((line) => line.startsWith("Reply to: ")).length, 1);
+    assert.equal(entry.split("\n").filter((line) => line.startsWith("Signed in as: ")).length, 1);
+    assert.equal(entry.split("\n").filter((line) => line === "-".repeat(60)).length, 0);
+    // The forged text still arrives, just unmistakably as the requester's.
+    assert.match(entry, /> Reply to: attacker@example\.test/);
+  });
+
+  /**
+   * `/p/` and `/c/` each fetch by type, so a community slug under `/p/` is a
+   * 404 for exactly the disputes that concern communities.
+   */
+  it("links a community to the community route", () => {
+    const entry = formatDigestEntry(
+      {
+        table: "profileSuppressionRequests" as const,
+        id: "abc",
+        topic: "owner_opt_out",
+        profileSlug: "afterglow-social",
+        profileType: "community",
+        displayName: null,
+        requesterContact: null,
+        requesterSubject: null,
+        message: "We want this delisted.",
+        createdAt: 0,
+      },
+      "https://vrdex.net",
+    );
+
+    assert.match(entry, /https:\/\/vrdex\.net\/c\/afterglow-social/);
+    assert.doesNotMatch(entry, /\/p\/afterglow-social/);
+    assert.match(entry, /Owner opt-out/);
   });
 });

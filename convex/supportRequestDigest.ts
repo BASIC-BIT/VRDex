@@ -3,6 +3,7 @@
 import { SendEmailCommand, SESClient } from "@aws-sdk/client-ses";
 
 import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import { internalAction } from "./_generated/server";
 import {
   type DigestRequest,
@@ -75,7 +76,14 @@ export const sendSupportDigest = internalAction({
 
     const { marked }: { marked: number } = await ctx.runMutation(
       internal.supportRequests.markDigestSent,
-      { requestIds: requests.map((request) => request.id) },
+      {
+        supportRequestIds: requests
+          .filter((request) => request.table === "supportRequests")
+          .map((request) => request.id as Id<"supportRequests">),
+        suppressionRequestIds: requests
+          .filter((request) => request.table === "profileSuppressionRequests")
+          .map((request) => request.id as Id<"profileSuppressionRequests">),
+      },
     );
 
     return { sent: requests.length, marked, configured: true };

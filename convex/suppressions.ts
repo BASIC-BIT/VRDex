@@ -5,6 +5,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, mutation, type MutationCtx } from "./_generated/server";
 import { activeBrowserSessionSubjectOrNull } from "./_browserSessionAuthority";
 import { getProfileBySlug, resolveRequestedProfileSlug } from "./_profileSlugs";
+import { requireSupportBacklogHeadroom } from "./_supportIntake";
 import { createProfileSortName, normalizeProfileInlineText } from "./_profileSubmissions";
 import { surfacedProfileNames } from "./_suppressions";
 import {
@@ -21,6 +22,11 @@ import { seedImportAuthSubjectValidator as authSubjectValidator } from "./_seedI
 const profileType = v.union(v.literal("person"), v.literal("community"));
 
 const PROFILE_RETRACTION_PAGE_SIZE = 20;
+/**
+ * Shorter than the support intake's 4,000, and exported so the one form feeding
+ * both can hold the requester to whichever limit their topic actually has.
+ */
+export const SUPPRESSION_NOTE_MAX_LENGTH = 1_000;
 const WORLD_REINDEX_PAGE_SIZE = 25;
 const suppressionRequestType = v.union(
   v.literal("owner_opt_out"),
@@ -53,6 +59,21 @@ export const requestProfileSuppression = mutation({
   handler: async (ctx, args) => {
     const now = Date.now();
     const requester = (await activeBrowserSessionSubjectOrNull(ctx))?.subject;
+
+    // Same ceiling as the support intake. This mutation was already public and
+    // unauthenticated, but it now feeds the same digest and the same mailbox, so
+    // a flood of opt-outs buries disputes exactly as a flood of disputes would.
+    await requireSupportBacklogHeadroom(ctx.db, requester);
+
+    // Refused rather than sliced. `optionalText` below would quietly drop
+    // everything past 1,000 characters while the requester was told the request
+    // was sent, and on a safety report the part that goes last is the evidence.
+    if (normalizeProfileInlineText(args.requesterNote ?? "").length > SUPPRESSION_NOTE_MAX_LENGTH) {
+      throw new Error(
+        `That note is longer than we can store. Keep it under ${SUPPRESSION_NOTE_MAX_LENGTH} characters and link to the rest.`,
+      );
+    }
+
     // Shared with `submitSupportRequest`, because one form feeds both and its
     // profile field says "paste the profile link" whichever topic is chosen.
     // Parsing this only on the other path meant a pasted link resolved for a
@@ -78,7 +99,7 @@ export const requestProfileSuppression = mutation({
       state: "submitted",
       ...optionalValue("requester", requester),
       ...optionalValue("requesterContact", optionalText(args.requesterContact, 160)),
-      ...optionalValue("requesterNote", optionalText(args.requesterNote, 1_000)),
+      ...optionalValue("requesterNote", optionalText(args.requesterNote, SUPPRESSION_NOTE_MAX_LENGTH)),
       createdAt: now,
       updatedAt: now,
     });

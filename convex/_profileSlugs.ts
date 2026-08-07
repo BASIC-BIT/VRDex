@@ -95,15 +95,21 @@ export function readProfileSlugFromInput(raw: string): string {
 
   const url = /^(?:https?:\/\/)?([^/\s]+\.[^/\s]+)(\/.*)?$/i.exec(trimmed);
 
-  // A bare host names no profile. Falling through would normalize the hostname
-  // itself into `vrdex-net`, which is slug-shaped and passes validation.
-  if (url !== null && (url[2] === undefined || url[2] === "/")) {
-    return "";
+  if (url !== null) {
+    // Only the two routes that actually name a profile. Any dotted host used to
+    // qualify, so a requester pasting the evidence for their dispute -- a VRChat
+    // page, a Discord invite, a post -- had its last path segment normalized
+    // into a slug-shaped string that passes validation and points at some other
+    // profile, or none. The digest then aimed an operator at the wrong record
+    // while the URL they actually meant was discarded.
+    const profilePath = /^\/(?:p|c)\/([^/?#]+)/i.exec(url[2] ?? "");
+
+    return profilePath === null ? "" : normalizeProfileSlugInput(profilePath[1]);
   }
 
-  const segments = (url?.[2] ?? trimmed).split(/[?#]/)[0].split("/").filter(Boolean);
-
-  return normalizeProfileSlugInput(segments[segments.length - 1] ?? "");
+  // A bare word, typed rather than pasted. Slashes here would mean a path
+  // fragment with no host, which names no profile either.
+  return trimmed.includes("/") ? "" : normalizeProfileSlugInput(trimmed);
 }
 
 /** Shared by both intake mutations behind `/support`. */

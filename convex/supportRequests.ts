@@ -4,7 +4,10 @@ import type { Doc } from "./_generated/dataModel";
 import { internalMutation, internalQuery, mutation } from "./_generated/server";
 import { activeBrowserSessionSubjectOrNull } from "./_browserSessionAuthority";
 import { getProfileBySlug, resolveRequestedProfileSlug } from "./_profileSlugs";
+import { requireSupportBacklogHeadroom } from "./_supportIntake";
 import { normalizeProfileInlineText } from "./_profileSubmissions";
+
+const profileType = v.union(v.literal("person"), v.literal("community"));
 
 const supportRequestTopic = v.union(
   v.literal("ownership_dispute"),
@@ -28,17 +31,18 @@ const TOPICS_REQUIRING_CONTACT: ReadonlySet<string> = new Set([
   "recovery",
 ]);
 
-const MESSAGE_MAX_LENGTH = 4_000;
+export const MESSAGE_MAX_LENGTH = 4_000;
 const MESSAGE_MIN_LENGTH = 10;
-const CONTACT_MAX_LENGTH = 160;
+export const CONTACT_MAX_LENGTH = 160;
 const DISPLAY_NAME_MAX_LENGTH = 120;
 
 /**
  * How many requests one digest covers.
  *
- * The form is public and unauthenticated, so this is the bound on what a flood
- * can do to a single email rather than an expectation about volume. Anything
- * past the cap keeps its unset `notifiedAt` and rides the next run.
+ * A bound on the size of one email, not an abuse control. What bounds abuse is
+ * `requireSupportBacklogHeadroom` in `_supportIntake.ts`, because this cap drains
+ * the oldest rows and so cannot stop a flood from queueing ahead of real ones.
+ * Anything past it keeps its unset `notifiedAt` and rides the next run.
  */
 export const SUPPORT_DIGEST_BATCH_SIZE = 50;
 
@@ -62,11 +66,17 @@ function optionalText(value: string | undefined, maxLength: number): string | un
  * blank lines still collapse, so the digest cannot be padded into a wall.
  */
 function normalizeMessage(input: string): string {
-  // Sliced before the passes below, not after. This mutation is public and
+  // Bounded before the passes below, not after. This mutation is public and
   // unauthenticated, so the argument size is whatever a caller sends, and
   // running four regex passes over it before trimming means the work scales
-  // with what an attacker chooses rather than with what is kept. The generous
-  // headroom is so trailing whitespace cannot push real text over the edge.
+  // with what an attacker chooses rather than with what is kept.
+  //
+  // That bound is deliberately above `MESSAGE_MAX_LENGTH` rather than at it.
+  // Cutting to the limit here left the caller's length check comparing an
+  // already-truncated string against the same number, so the check could never
+  // fire and every oversized message was still silently shortened -- the exact
+  // behaviour it was added to stop. Anything past the real limit has to survive
+  // this function for that refusal to have something to refuse.
   return input
     .slice(0, MESSAGE_MAX_LENGTH * 2)
     .replace(/\r\n?/g, "\n")
@@ -74,8 +84,7 @@ function normalizeMessage(input: string): string {
     .map((line) => line.trimEnd())
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
-    .trim()
-    .slice(0, MESSAGE_MAX_LENGTH);
+    .trim();
 }
 
 /**
@@ -95,6 +104,7 @@ export const submitSupportRequest = mutation({
   args: {
     topic: supportRequestTopic,
     profileSlug: v.optional(v.string()),
+    profileType: v.optional(profileType),
     displayName: v.optional(v.string()),
     requesterContact: v.optional(v.string()),
     message: v.string(),
@@ -102,13 +112,32 @@ export const submitSupportRequest = mutation({
   handler: async (ctx, args) => {
     const now = Date.now();
     const requester = (await activeBrowserSessionSubjectOrNull(ctx))?.subject;
+
+    await requireSupportBacklogHeadroom(ctx.db, requester);
+
     const message = normalizeMessage(args.message);
 
     if (message.length < MESSAGE_MIN_LENGTH) {
       throw new Error("Tell us a little more about what you need.");
     }
 
+    // Refused rather than sliced. Truncating reported success and then dropped
+    // whatever came last, which on a safety report or a dispute is the evidence
+    // links people put at the end.
+    if (message.length > MESSAGE_MAX_LENGTH) {
+      throw new Error(
+        `That message is longer than we can store. Keep it under ${MESSAGE_MAX_LENGTH} characters and link to the rest.`,
+      );
+    }
+
     const contact = optionalText(args.requesterContact, CONTACT_MAX_LENGTH);
+
+    // Same reason, and worse here: a sliced address still passes the check
+    // below, so the request looked answered for and the reply target was a
+    // mangled string nobody reads.
+    if (contact !== undefined && contact.length >= CONTACT_MAX_LENGTH) {
+      throw new Error("That contact is too long. Give us a shorter address or handle.");
+    }
 
     // Checked against the topic rather than the session. A signed-in requester
     // still gets asked, because the account that holds the session is often not
@@ -125,14 +154,31 @@ export const submitSupportRequest = mutation({
     // listing may be reading it off a URL that has since changed, and dropping
     // it would discard the only identifier they had.
     const profile = profileSlug === undefined ? null : await getProfileBySlug(ctx.db, profileSlug);
+    const displayName = optionalText(
+      args.displayName ?? profile?.displayName,
+      DISPLAY_NAME_MAX_LENGTH,
+    );
+
+    // A dispute, transfer, or recovery resolves against one listing, so one
+    // arriving as `Profile: not given` costs a round trip before the operator
+    // can start. Either identifier will do: someone reading a name off a
+    // profile they cannot find the link for is the case the name field is for.
+    // Feedback is about VRDex rather than about a record and asks for neither.
+    if (
+      profileSlug === undefined &&
+      displayName === undefined &&
+      TOPICS_REQUIRING_CONTACT.has(args.topic)
+    ) {
+      throw new Error("Tell us which profile this is about, by link or by name.");
+    }
 
     const requestId = await ctx.db.insert("supportRequests", {
       topic: args.topic,
       ...optionalValue("profileSlug", profileSlug),
-      ...optionalValue(
-        "displayName",
-        optionalText(args.displayName ?? profile?.displayName, DISPLAY_NAME_MAX_LENGTH),
-      ),
+      // The resolved profile wins: it is the record, and the requester is
+      // guessing about somebody else's listing.
+      ...optionalValue("profileType", profile?.profileType ?? args.profileType),
+      ...optionalValue("displayName", displayName),
       ...optionalValue("requesterContact", contact),
       message,
       ...optionalValue("requester", requester),
@@ -145,38 +191,75 @@ export const submitSupportRequest = mutation({
 });
 
 /**
- * The requests no digest has covered yet, oldest first.
+ * Everything no digest has covered yet, from both intake tables, oldest first.
  *
- * Seeks on `notifiedAt` being unset rather than paging and filtering, so the
- * cost is the size of the backlog and not the size of the table.
+ * Both, because the same form writes both and only one of them had a reader.
+ * Nothing in the repo watched `profileSuppressionRequests` for `submitted`
+ * rows, so an opt-out or a pre-claim safety report was told "Request sent" and
+ * then sat unseen until somebody happened to open the Convex dashboard. That is
+ * the failure this whole change exists to end, and half of it was still here.
+ *
+ * Each side seeks on its own `notifiedAt` being unset rather than paging and
+ * filtering, so the cost is the size of the backlog and not of the table. They
+ * are merged and re-sorted afterwards, so a mail covering both reads in arrival
+ * order rather than in table order.
  */
 export const pendingDigestRequests = internalQuery({
   args: { limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
-    const requests = await ctx.db
+    const limit = Math.max(
+      1,
+      Math.min(args.limit ?? SUPPORT_DIGEST_BATCH_SIZE, SUPPORT_DIGEST_BATCH_SIZE),
+    );
+
+    const supportRows = await ctx.db
       .query("supportRequests")
       .withIndex("by_notifiedAt_createdAt", (query) => query.eq("notifiedAt", undefined))
       .order("asc")
-      .take(Math.min(args.limit ?? SUPPORT_DIGEST_BATCH_SIZE, SUPPORT_DIGEST_BATCH_SIZE));
+      .take(limit);
 
-    return requests.map((request) => ({
-      id: request._id,
-      topic: request.topic,
-      profileSlug: request.profileSlug ?? null,
-      displayName: request.displayName ?? null,
-      requesterContact: request.requesterContact ?? null,
-      // The signed-in identity, when there was one. Included because "the person
-      // asking is already signed in as someone" is usually the first thing an
-      // ownership dispute turns on.
-      requesterSubject: request.requester?.subject ?? null,
-      message: request.message,
-      createdAt: request.createdAt,
-    }));
+    const suppressionRows = await ctx.db
+      .query("profileSuppressionRequests")
+      .withIndex("by_notifiedAt_createdAt", (query) => query.eq("notifiedAt", undefined))
+      .order("asc")
+      .take(limit);
+
+    const entries = [
+      ...supportRows.map((request) => ({
+        table: "supportRequests" as const,
+        id: request._id as string,
+        topic: request.topic as string,
+        profileSlug: request.profileSlug ?? null,
+        profileType: request.profileType ?? null,
+        displayName: request.displayName ?? null,
+        requesterContact: request.requesterContact ?? null,
+        // The signed-in identity, when there was one. Included because "the
+        // person asking is already signed in as someone" is usually the first
+        // thing an ownership dispute turns on.
+        requesterSubject: request.requester?.subject ?? null,
+        message: request.message,
+        createdAt: request.createdAt,
+      })),
+      ...suppressionRows.map((request) => ({
+        table: "profileSuppressionRequests" as const,
+        id: request._id as string,
+        topic: request.requestType as string,
+        profileSlug: request.profileSlug ?? null,
+        profileType: request.profileType ?? null,
+        displayName: request.displayName ?? null,
+        requesterContact: request.requesterContact ?? null,
+        requesterSubject: request.requester?.subject ?? null,
+        message: request.requesterNote ?? "",
+        createdAt: request.createdAt,
+      })),
+    ];
+
+    return entries.sort((left, right) => left.createdAt - right.createdAt).slice(0, limit);
   },
 });
 
 /**
- * Stamp the requests a digest actually delivered.
+ * Stamp the requests a digest actually delivered, in whichever table holds them.
  *
  * Called after the send, never before. A crash between the two resends the same
  * rows an hour later, which is noise; stamping first would drop a dispute with
@@ -185,14 +268,15 @@ export const pendingDigestRequests = internalQuery({
  */
 export const markDigestSent = internalMutation({
   args: {
-    requestIds: v.array(v.id("supportRequests")),
+    supportRequestIds: v.array(v.id("supportRequests")),
+    suppressionRequestIds: v.array(v.id("profileSuppressionRequests")),
     now: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const now = args.now ?? Date.now();
     let marked = 0;
 
-    for (const requestId of args.requestIds) {
+    for (const requestId of [...args.supportRequestIds, ...args.suppressionRequestIds]) {
       const request = await ctx.db.get(requestId);
 
       // Already stamped means a previous run delivered it and this one is a

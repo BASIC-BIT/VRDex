@@ -1002,12 +1002,13 @@ export function ClaimFlow({
         </div>
 
         {/* Was a `mailto:`, which asked for none of the identifiers any of these
-            three need and required a mail client, on a headset. The form
-            prompts for the profile and a way to reply, and the topic is chosen
-            before the page loads. */}
+            three need and required a mail client, on a headset. No `?topic=`:
+            this sentence offers three, so preselecting any one of them files
+            the other two under the wrong heading. The form opens unchosen and
+            asks. */}
         <p className="mt-8 border-t border-border pt-5 text-sm leading-6 text-muted">
           Transferring, recovering, or disputing ownership?{" "}
-          <Link className="underline underline-offset-4" href="/support?topic=ownership_dispute">
+          <Link className="underline underline-offset-4" href="/support">
             Contact support
           </Link>
           .
