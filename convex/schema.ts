@@ -2219,7 +2219,11 @@ export default defineSchema({
       "requester.subject",
       "state",
       "notifiedAt",
-    ]),
+    ])
+    // Convex appends `_creationTime` to every index, so seeking
+    // `requester.subject === undefined` and then ranging on it counts anonymous
+    // arrivals in a time window exactly, without filtering a page.
+    .index("by_requesterSubject", ["requester.subject"]),
   // Contact, dispute, transfer, and recovery requests from `/support`.
   //
   // No lifecycle columns. The hourly digest is the read path and the operator's
@@ -2250,6 +2254,10 @@ export default defineSchema({
     // seeking rather than by scanning a global prefix and filtering, which
     // returns nothing at all once that prefix is full of somebody else's rows.
     .index("by_requesterSubject_notifiedAt", ["requester.subject", "notifiedAt"])
+    // Convex appends `_creationTime` to every index, so seeking
+    // `requester.subject === undefined` and then ranging on it counts anonymous
+    // arrivals in a time window exactly, without filtering a page.
+    .index("by_requesterSubject", ["requester.subject"])
     .index("by_profileSlug_createdAt", ["profileSlug", "createdAt"]),
   profileAuditEvents: defineTable({
     profileId: v.id("profiles"),

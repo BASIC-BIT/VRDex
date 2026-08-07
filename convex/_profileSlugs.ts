@@ -135,12 +135,27 @@ export function readProfileReferenceFromInput(raw: string): ProfileReference {
     // wrong record while the URL they actually meant was discarded.
     const profilePath = /^\/(p|c)\/([^/?#]+)/i.exec(path);
 
-    return profilePath === null
-      ? none
-      : {
-          slug: normalizeProfileSlugInput(profilePath[2]),
+    if (profilePath === null) {
+      return none;
+    }
+
+    // Validated as written, not normalized into shape. Slug generation maps
+    // `dj_aurora` onto `dj-aurora`, so a pasted URL naming one thing quietly
+    // resolved to a different real listing, and the digest then showed the
+    // substitute while discarding the URL actually given. A link is a precise
+    // identifier or it is nothing.
+    //
+    // Case and percent-encoding are the two exceptions, because neither changes
+    // which profile is named: slugs are lowercase by construction and a browser
+    // may hand back an encoded path.
+    const segment = decodeUrlSegment(profilePath[2]).toLowerCase();
+
+    return PROFILE_SLUG_PATTERN.test(segment)
+      ? {
+          slug: segment,
           profileType: profilePath[1].toLowerCase() === "c" ? "community" : "person",
-        };
+        }
+      : none;
   }
 
   // A bare word, typed rather than pasted. Slashes here would mean a path
@@ -149,6 +164,15 @@ export function readProfileReferenceFromInput(raw: string): ProfileReference {
   return trimmed.includes("/")
     ? none
     : { slug: normalizeProfileSlugInput(trimmed), profileType: null };
+}
+
+/** A path segment as typed, or unchanged when it is not valid encoding. */
+function decodeUrlSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
 }
 
 /** The path of `input` when it is a URL, or `null` when it is not one. */

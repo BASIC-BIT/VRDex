@@ -751,6 +751,14 @@ describe("support request review findings, third round", () => {
           displayName: `Historic ${index}`,
           requestType: "owner_opt_out",
           state: "accepted",
+          // Attributed, so seeded history counts as somebody's rather than as
+          // anonymous arrivals inside the rate window. This test is about the
+          // digest reaching past resolved rows; the window has its own.
+          requester: {
+            tokenIdentifier: "test|historic",
+            issuer: "test",
+            subject: "historic-operator",
+          },
           createdAt: now - 60 + index,
           updatedAt: now,
         });
@@ -785,6 +793,14 @@ describe("support request review findings, third round", () => {
           displayName: `Historic ${index}`,
           requestType: "owner_opt_out",
           state: "accepted",
+          // Attributed, so these count as somebody's history rather than as
+          // anonymous arrivals inside the rate window. This test is about the
+          // pending ceiling; the window has its own.
+          requester: {
+            tokenIdentifier: "test|historic",
+            issuer: "test",
+            subject: "historic-operator",
+          },
           createdAt: now - 220 + index,
           updatedAt: now,
         });
@@ -1019,5 +1035,89 @@ describe("support request review findings, sixth round", () => {
     assert.match(entry, /dj-aurora/);
     assert.match(entry, /name "DJ Aurora"/);
     assert.match(entry, /person/);
+  });
+});
+
+
+describe("support request review findings, seventh round", () => {
+  /**
+   * The pending ceiling bounds the queue at an instant, not intake over time.
+   * Stamping a batch hands its slots back, so a bot that simply retries refills
+   * them every hour forever.
+   */
+  it("throttles anonymous intake by arrival, not by pending state", async () => {
+    const t = convexTest({ schema, modules });
+
+    for (let index = 0; index < 60; index += 1) {
+      await t.mutation(api.supportRequests.submitSupportRequest, {
+        topic: "feedback",
+        message: `Automated submission number ${index}.`,
+      });
+    }
+
+    await assert.rejects(
+      () =>
+        t.mutation(api.supportRequests.submitSupportRequest, {
+          topic: "feedback",
+          message: "One past the hour's allowance.",
+        }),
+      /more requests than we can answer/,
+    );
+
+    // Delivering the backlog frees every pending slot, and must not reopen the
+    // rate window: that is exactly the refill this throttle exists to stop.
+    const batch = await t.query(internal.supportRequests.pendingDigestRequests, {});
+
+    await t.mutation(internal.supportRequests.markDigestSent, {
+      supportRequestIds: batch.map((entry) => entry.id),
+      suppressionRequestIds: [],
+    });
+
+    await assert.rejects(
+      () =>
+        t.mutation(api.supportRequests.submitSupportRequest, {
+          topic: "feedback",
+          message: "Still inside the same hour after a delivery.",
+        }),
+      /more requests than we can answer/,
+    );
+  });
+
+  /**
+   * Slug generation maps `dj_aurora` onto `dj-aurora`, so a pasted URL naming
+   * one thing resolved to a different real listing and the digest showed the
+   * substitute while discarding the URL actually given.
+   */
+  it("does not rewrite a pasted path onto a different profile", () => {
+    assert.equal(readProfileReferenceFromInput("https://vrdex.net/p/dj_aurora").slug, "");
+    assert.equal(readProfileReferenceFromInput("https://vrdex.net/p/DJ Aurora").slug, "");
+    // Case and percent-encoding change nothing about which profile is named.
+    assert.equal(readProfileReferenceFromInput("https://vrdex.net/p/DJ-Aurora").slug, "dj-aurora");
+    assert.equal(readProfileReferenceFromInput("https://vrdex.net/p/dj%2Daurora").slug, "dj-aurora");
+    // A bare typed word is still normalized, since it is not a precise link.
+    assert.equal(readProfileReferenceFromInput("DJ Aurora").slug, "dj-aurora");
+  });
+
+  it("quotes the next-line control as well", () => {
+    const entry = formatDigestEntry(
+      {
+        table: "supportRequests",
+        id: "abc",
+        topic: "transfer",
+        profileSlug: null,
+        profileType: null,
+        displayName: "DJ Aurora",
+        requesterContact: "real@example.test",
+        requesterSubject: null,
+        message: "Please hand me this profile.\u0085Reply to: forged@example.test",
+        createdAt: 0,
+      },
+      undefined,
+    );
+
+    const rendered = entry.split(/\r\n|[\n\r\v\f\u0085\u2028\u2029]/);
+
+    assert.equal(rendered.filter((line) => line.startsWith("Reply to: ")).length, 1);
+    assert.match(entry, /> \u0085?Reply to: forged@example\.test/);
   });
 });

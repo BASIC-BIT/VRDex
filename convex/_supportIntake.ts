@@ -43,6 +43,23 @@ export function supportInputError(message: string): ConvexError<{ code: string; 
  */
 const MAX_PENDING_ANONYMOUS_REQUESTS = 200;
 
+/**
+ * How many anonymous requests may arrive in one rolling hour.
+ *
+ * The pending ceiling above bounds the queue at an instant, not intake over
+ * time. Every digest stamps its batch and frees those slots again, so a bot
+ * that simply retries refills them hour after hour: the queue stays at the
+ * ceiling, ordinary requesters meet the backlog error nearly always, and the
+ * tables grow by roughly a thousand rows a day that nothing ever removes.
+ *
+ * A rolling window is what bounds the *rate*, and the two together bound both
+ * the depth of the queue and the speed it can be refilled at. Counted on
+ * `_creationTime`, which Convex indexes for every table, so this needs no index
+ * of its own and cannot be reset by stamping.
+ */
+const MAX_ANONYMOUS_REQUESTS_PER_HOUR = 60;
+const ANONYMOUS_RATE_WINDOW_MS = 60 * 60 * 1_000;
+
 export const BACKLOG_FULL_MESSAGE =
   "We have more requests than we can answer right now. Try again in a few hours, or sign in to send this one now.";
 
@@ -139,5 +156,45 @@ export async function requireSupportBacklogHeadroom(
 
   if (pendingSupport.length + pendingSuppressions.length > MAX_PENDING_ANONYMOUS_REQUESTS) {
     throw supportInputError(BACKLOG_FULL_MESSAGE);
+  }
+
+  await requireAnonymousRateHeadroom(db);
+}
+
+/**
+ * Refuse once anonymous intake has used its hour.
+ *
+ * Counted on arrival rather than on delivery state, which is the whole point:
+ * stamping a row hands its pending slot back, so a queue-depth ceiling alone
+ * lets a retrying bot refill the queue hour after hour. Nothing the sender does
+ * resets this one.
+ *
+ * Anonymous rows only, seeked on the absent requester rather than filtered out
+ * of a page. Counting everything meant a signed-in person's request spent the
+ * anonymous budget, and a one-off operator import of suppression rows shut
+ * anonymous intake for the window. Import still costs that window, since a
+ * seeded row has no requester either, but a time bound always clears itself,
+ * which is the difference between this and the ceilings above.
+ */
+async function requireAnonymousRateHeadroom(db: MutationCtx["db"]): Promise<void> {
+  const since = Date.now() - ANONYMOUS_RATE_WINDOW_MS;
+  let seen = 0;
+
+  for (const table of ["supportRequests", "profileSuppressionRequests"] as const) {
+    const recent = await db
+      .query(table)
+      .withIndex("by_requesterSubject", (query) =>
+        query.eq("requester.subject", undefined).gt("_creationTime", since),
+      )
+      .take(MAX_ANONYMOUS_REQUESTS_PER_HOUR - seen);
+
+    seen += recent.length;
+
+    // `>=`, because this runs before the insert: the window being full already
+    // is what refuses the request about to be added, and `>` would have let
+    // every hour take one more than its allowance.
+    if (seen >= MAX_ANONYMOUS_REQUESTS_PER_HOUR) {
+      throw supportInputError(BACKLOG_FULL_MESSAGE);
+    }
   }
 }

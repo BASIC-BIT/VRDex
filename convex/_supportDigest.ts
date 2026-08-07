@@ -20,7 +20,17 @@ const QUOTE_PREFIX = "> ";
 const ENTRY_SEPARATOR = "-".repeat(60);
 
 /**
- * Every Unicode line boundary, not only LF.
+ * Every line boundary a mail client might honour, not a growing list of the
+ * ones somebody thought of.
+ *
+ * This started as LF. U+2028 and U+2029 were added when it turned out a
+ * plaintext client breaks on those too, and U+0085 after the same thing was
+ * pointed out again, which is two rounds of adding one character at a time to a
+ * defence that only works when it is complete. This is now the whole standard
+ * set -- CR, LF, CRLF, vertical tab, form feed, NEL, and the two Unicode
+ * separators -- so a requester cannot reach an unprefixed line through a
+ * character nobody happened to name.
+ *
  *
  * A plaintext mail client breaks on U+2028 and U+2029 as well, so splitting on
  * `\n` alone left everything after one of those on a rendered line with no
@@ -28,7 +38,7 @@ const ENTRY_SEPARATOR = "-".repeat(60);
  * forgery the prefix exists to prevent, reachable through a character the
  * splitter did not recognise.
  */
-const LINE_BOUNDARY = /\r\n|[\n\r\u2028\u2029]/;
+const LINE_BOUNDARY = /\r\n|[\n\r\v\f\u0085\u2028\u2029]/;
 
 export type DigestRequest = {
   table: "supportRequests" | "profileSuppressionRequests";
