@@ -609,7 +609,7 @@ describe("withheld profile fields", () => {
     aliases: ["snekwtf"],
     tags: [],
     outboundLinks: [
-      { type: "vrcdn", label: "VRCDN", url: "https://vrcdn.live/snekwtf", source: "reviewed" },
+      { type: "vrcdn", label: "VRCDN", url: "vrcdn:snekwtf", source: "reviewed" },
     ],
     person: { roleTags: ["DJ"] },
     fieldVisibility: { outboundLinks: "private", personRoleTags: "private", aliases: "unlisted" },
@@ -623,7 +623,7 @@ describe("withheld profile fields", () => {
       withheld.map((field) => [field.key, field.visibility, field.values]),
       [
         ["aliases", "unlisted", ["snekwtf"]],
-        ["outboundLinks", "private", ["VRCDN: https://vrcdn.live/snekwtf"]],
+        ["outboundLinks", "private", ["VRCDN: vrcdn:snekwtf"]],
         ["personRoleTags", "private", ["DJ"]],
       ],
     );
@@ -851,7 +851,7 @@ describe("seed handoff helpers", () => {
 
     assert.deepEqual(
       patch.outboundLinks?.map((link) => link.url),
-      ["https://vrcdn.live/snekwtf", "https://twitch.tv/snekwtf"],
+      ["vrcdn:snekwtf", "https://twitch.tv/snekwtf"],
     );
     // Both VRCDN entries name one stream, so the profile carries one link and
     // the operator is told one collapsed rather than being left to notice.
@@ -1023,7 +1023,7 @@ describe("seed handoff helpers", () => {
     );
 
     assert.equal(preview?.kind, "link");
-    assert.equal(preview && "url" in preview ? preview.url : undefined, "https://vrcdn.live/example");
+    assert.equal(preview && "url" in preview ? preview.url : undefined, "vrcdn:example");
   });
 
   it("withholds a handoff link field when nothing survives normalization", () => {

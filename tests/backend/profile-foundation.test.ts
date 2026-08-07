@@ -1639,7 +1639,7 @@ describe("API profile update helpers", () => {
         // What the editor posts back for an untouched row: the canonical URL it
         // was shown, and the provenance it arrived with.
         outboundLinks: [
-          { type: "vrcdn", url: "https://vrcdn.live/snekwtf", source: "reviewed" },
+          { type: "vrcdn", url: "vrcdn:snekwtf", source: "reviewed" },
         ],
       },
       "community_submitter",

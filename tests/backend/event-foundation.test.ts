@@ -200,7 +200,7 @@ describe("event draft input", () => {
     });
 
     assert.equal(input.mediaLinks.length, 1);
-    assert.equal(input.mediaLinks[0]?.url, "https://vrcdn.live/basicbit");
+    assert.equal(input.mediaLinks[0]?.url, "vrcdn:basicbit");
   });
 
   it("preserves direct VRCDN media files for native playback", () => {
@@ -827,13 +827,13 @@ describe("public event projection", () => {
         // The panel preview URL passed through untouched only because the parser
         // did not recognize that host, which put a link to VRCDN's operator
         // console on a public event page.
-        url: "https://vrcdn.live/basicbit",
+        url: "vrcdn:basicbit",
         presentation: "open",
       },
       {
         type: "vrcdn",
         label: "Quest stream",
-        url: "https://vrcdn.live/basicbit",
+        url: "vrcdn:basicbit",
         presentation: "copy",
       },
     ]);

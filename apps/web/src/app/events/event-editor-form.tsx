@@ -280,7 +280,7 @@ function parseMediaLinks(value: string) {
         return {
           type: "vrcdn" as const,
           label: "VRCDN stream",
-          url: vrcdnLinks.pageUrl,
+          url: vrcdnLinks.reference,
           presentation: "copy" as const,
         };
       }

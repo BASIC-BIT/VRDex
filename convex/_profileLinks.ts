@@ -179,10 +179,17 @@ export function normalizeOutboundLinks(value: unknown): NormalizedProfileLink[] 
       `Outbound link ${index + 1}`,
     );
     const type = requireStringValue(link.type, "Outbound link type");
-    const url = requireHttpsUrl(
-      requireStringValue(link.url, "Outbound link URL"),
-      "Outbound link URL",
-    );
+    const rawUrl = requireStringValue(link.url, "Outbound link URL");
+    // A VRCDN stream is stored as `vrcdn:<streamId>` rather than an address,
+    // because the service publishes no page for one. `requireHttpsUrl` is still
+    // what every other type answers to; this only spares the one form that is
+    // deliberately not a URL, and it has already been through the stream
+    // normalizer to get here.
+    const vrcdnReference = parseVrcdnStreamLinks(rawUrl)?.reference;
+    const url =
+      vrcdnReference !== undefined && rawUrl === vrcdnReference
+        ? rawUrl
+        : requireHttpsUrl(rawUrl, "Outbound link URL");
 
     if (!isProfileLinkType(type)) {
       throw new Error(`Unsupported outbound link type "${type}".`);
@@ -274,7 +281,11 @@ function prepareProfileLink(entry: unknown, index: number): Record<string, unkno
   return {
     ...link,
     label,
-    url: stream.pageUrl,
+    // The identifier, not an address. Every spelling VRCDN hands out -- the panel
+    // preview, the HLS playlist, the Quest transport stream, the RTSP endpoint --
+    // says the same stream, and this is the one form that says it without
+    // claiming there is a page to open.
+    url: stream.reference,
     handle: optionalStringValue(link.handle, "Outbound link handle") ?? stream.streamId,
   };
 }

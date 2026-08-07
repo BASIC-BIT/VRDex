@@ -19,7 +19,7 @@ describe("VRCDN stream links", () => {
       const links = parseVrcdnStreamLinks(input);
 
       assert.equal(links?.streamId, "basicbit");
-      assert.equal(links?.pageUrl, "https://vrcdn.live/basicbit");
+      assert.equal(links?.reference, "vrcdn:basicbit");
       assert.equal(links?.previewUrl, "https://panel.vrcdn.live/preview/basicbit");
       assert.equal(links?.hlsUrl, "https://stream.vrcdn.live/live/basicbit.m3u8");
       assert.equal(links?.questUrl, "https://stream.vrcdn.live/live/basicbit.live.ts");
@@ -80,15 +80,47 @@ describe("VRCDN stream links", () => {
 
     // Still a stream when the name is not reserved, on the same paths.
     assert.equal(
-      parseVrcdnStreamLinks("https://stream.vrcdn.live/live/snekwtf.m3u8")?.pageUrl,
-      "https://vrcdn.live/snekwtf",
+      parseVrcdnStreamLinks("https://stream.vrcdn.live/live/snekwtf.m3u8")?.reference,
+      "vrcdn:snekwtf",
     );
+  });
+
+  it("reads its own stored form back", () => {
+    // The reference is what gets stored, so it has to parse. Everything that
+    // shows a VRCDN stream re-derives the endpoint it needs from this, and a
+    // stored value the parser rejects would strand every one of them.
+    const stored = createVrcdnStreamLinks("basicbit")?.reference;
+
+    assert.equal(stored, "vrcdn:basicbit");
+    assert.deepEqual(
+      parseVrcdnStreamLinks(stored ?? ""),
+      createVrcdnStreamLinks("basicbit"),
+    );
+  });
+
+  it("collapses every spelling of one stream onto one reference", () => {
+    // The whole reason to store an identifier: the panel preview, the playlist,
+    // the Quest transport stream and the RTSP endpoint are four ways of naming
+    // one thing, and dedup only works if they agree on what that thing is.
+    const references = [
+      "https://panel.vrcdn.live/preview/basicbit",
+      "https://stream.vrcdn.live/live/basicbit.m3u8",
+      "https://stream.vrcdn.live/live/basicbit.live.ts",
+      "rtspt://stream.vrcdn.live/live/basicbit",
+      "vrcdn:basicbit",
+    ].map((input) => parseVrcdnStreamLinks(input)?.reference);
+
+    assert.deepEqual(new Set(references), new Set(["vrcdn:basicbit"]));
+  });
+
+  it("refuses a reserved id through the stored form too", () => {
+    assert.equal(parseVrcdnStreamLinks("vrcdn:dashboard"), null);
   });
 
   it("refuses to build canonical links for a reserved id", () => {
     // createVrcdnStreamLinks is called with ids from outside the parser too, so
     // the shared normalizer is where this has to hold.
     assert.equal(createVrcdnStreamLinks("dashboard"), null);
-    assert.equal(createVrcdnStreamLinks("snekwtf")?.pageUrl, "https://vrcdn.live/snekwtf");
+    assert.equal(createVrcdnStreamLinks("snekwtf")?.reference, "vrcdn:snekwtf");
   });
 });

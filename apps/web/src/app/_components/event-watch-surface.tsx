@@ -125,10 +125,12 @@ function parseHttpsUrl(url: string): URL | null {
 }
 
 function parseWatchOpenUrl(url: string): URL | null {
-  const vrcdnLinks = parseVrcdnStreamLinks(url);
-
-  if (vrcdnLinks !== null) {
-    return new URL(vrcdnLinks.pageUrl);
+  // VRCDN has nothing to open. The stream plays in the embed below, and the only
+  // pages on that host are the operator panel and the wiki -- so this handed the
+  // caller `https://vrcdn.live/<id>`, a 404 wearing the shape of a destination.
+  // No open affordance is the honest answer.
+  if (parseVrcdnStreamLinks(url) !== null) {
+    return null;
   }
 
   return parseHttpsUrl(url);

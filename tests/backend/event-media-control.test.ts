@@ -38,7 +38,7 @@ describe("event media control helpers", () => {
       {
         platform: "browser",
         label: "Browser",
-        url: "https://vrcdn.live/basicbit",
+        url: "https://stream.vrcdn.live/live/basicbit.m3u8",
       },
       {
         platform: "pc",
@@ -205,7 +205,7 @@ describe("event media control helpers", () => {
       rightsClearedMedia: "accepted",
     });
     assert.deepEqual(output.playbackLinks, [
-      { platform: "browser", label: "Browser watch link", url: "https://vrcdn.live/basicbit" },
+      { platform: "browser", label: "Browser watch link", url: "https://stream.vrcdn.live/live/basicbit.m3u8" },
       { platform: "pc", label: "PC stream link", url: "rtspt://stream.vrcdn.live/live/basicbit" },
       { platform: "standalone", label: "Standalone stream link", url: "https://stream.vrcdn.live/live/basicbit.live.ts" },
     ]);
