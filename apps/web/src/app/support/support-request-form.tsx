@@ -205,6 +205,17 @@ function ConnectedSupportRequestForm() {
   // Unconditional, so a link that carries no topic clears it rather than
   // leaving the last one selected. The footer's "Contact" goes to a bare
   // `/support`, which is precisely the case a guarded version missed.
+  // Shared by the deep link and the selector, because both mean the same
+  // thing: the request being written is not the one that was written before.
+  // Only the deep link did this, so changing the type left a success notice
+  // from the last request sitting above the new one, and let an in-flight
+  // mutation come back and clear the draft that replaced it.
+  function startFreshRequest(nextTopic: Topic | "") {
+    setTopic(nextTopic);
+    setStatus({ kind: "idle" });
+    submissionGeneration.current += 1;
+  }
+
   useEffect(() => {
     setTopic(isTopic(requestedTopic) ? requestedTopic : "");
 
@@ -299,7 +310,7 @@ function ConnectedSupportRequestForm() {
         Request type
         <Select
           name="topic"
-          onChange={(event) => setTopic(event.currentTarget.value as Topic | "")}
+          onChange={(event) => startFreshRequest(event.currentTarget.value as Topic | "")}
           required
           value={topic}
         >

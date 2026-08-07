@@ -135,10 +135,22 @@ function isDeploymentHost(host: string, siteUrl: string | undefined): boolean {
   }
 
   try {
-    return new URL(siteUrl).hostname.toLowerCase() === hostname;
+    const configured = new URL(siteUrl).hostname.toLowerCase();
+
+    // The `www` sibling as well as the configured host. Production serves both
+    // -- `infra/terraform/web-domains` binds the apex and the www domain, and
+    // both have Route 53 records -- so a visitor reading their own profile at
+    // `www.vrdex.net` pastes exactly what their address bar shows and was told
+    // it did not look like a profile.
+    return configured === hostname || wwwSibling(configured) === hostname;
   } catch {
     return false;
   }
+}
+
+/** The other spelling of a host: `example.com` and `www.example.com`. */
+function wwwSibling(hostname: string): string {
+  return hostname.startsWith("www.") ? hostname.slice(4) : `www.${hostname}`;
 }
 
 export function readProfileReferenceFromInput(

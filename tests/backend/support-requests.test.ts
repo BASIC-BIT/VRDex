@@ -1356,3 +1356,37 @@ describe("support request review findings, twelfth round", () => {
     );
   });
 });
+
+
+describe("support request review findings, thirteenth round", () => {
+  /**
+   * Production binds the apex and the www domain and serves profiles from
+   * both, so a visitor reading their own profile at the second one pastes
+   * exactly what their address bar shows.
+   */
+  it("accepts both production spellings of the deployment host", () => {
+    for (const configured of ["https://vrdex.net", "https://www.vrdex.net"]) {
+      assert.equal(
+        readProfileReferenceFromInput("https://vrdex.net/p/dj-aurora", configured).slug,
+        "dj-aurora",
+        `apex link under ${configured}`,
+      );
+      assert.equal(
+        readProfileReferenceFromInput("https://www.vrdex.net/p/dj-aurora", configured).slug,
+        "dj-aurora",
+        `www link under ${configured}`,
+      );
+    }
+
+    // Still only this deployment: a lookalike prefix is not the same host.
+    assert.equal(
+      readProfileReferenceFromInput("https://wwwXvrdex.net/p/dj-aurora", "https://vrdex.net").slug,
+      "",
+    );
+    assert.equal(
+      readProfileReferenceFromInput("https://vrdex.net.evil.example/p/dj-aurora", "https://vrdex.net")
+        .slug,
+      "",
+    );
+  });
+});
