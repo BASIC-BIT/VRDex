@@ -1,4 +1,24 @@
+import { ConvexError } from "convex/values";
+
 import type { MutationCtx } from "./_generated/server";
+
+/**
+ * A refusal the requester can act on, in a form that survives production.
+ *
+ * Convex redacts plain `Error` messages on production deployments, so every
+ * fixable rejection here -- a link that names no profile, a missing contact, a
+ * message over the limit, a full backlog -- reached the form as the generic
+ * backend-unreachable sentence, for problems entirely fixable in the form the
+ * person was looking at. Matching on `error.message` in the client works in
+ * development and silently stops working where it matters.
+ *
+ * The structured payload survives redaction, which is why
+ * `_profileSubmissions.ts` and `_claimErrors.ts` already answer this way.
+ * Internal failures stay plain, and stay redacted.
+ */
+export function supportInputError(message: string): ConvexError<{ code: string; message: string }> {
+  return new ConvexError({ code: "SUPPORT_INPUT_INVALID", message });
+}
 
 /**
  * The abuse ceiling shared by both public intake mutations behind `/support`.
@@ -27,22 +47,55 @@ export const BACKLOG_FULL_MESSAGE =
   "We have more requests than we can answer right now. Try again in a few hours, or sign in to send this one now.";
 
 /**
- * Refuse an anonymous request once the undelivered backlog is at its ceiling.
+ * How many undelivered requests one signed-in subject may have waiting.
  *
- * A signed-in caller is never refused. They carry an identity that can be
- * traced and blocked after the fact, which is the property an anonymous insert
- * lacks and the whole reason it needs a cap. That also keeps a route open for a
- * real person during a flood, which a flat cap would close.
+ * Signed in used to mean exempt, on the reasoning that an identity can be
+ * traced and blocked afterwards. That is a remedy, not a bound: nothing here
+ * requires a verified email, so one throwaway account could still insert faster
+ * than the digest drains and queue ahead of every real dispute, which is the
+ * exact failure the ceiling was added to prevent.
+ *
+ * Per subject rather than shared, so one abusive account cannot spend the
+ * global allowance and lock everyone else out. Generous against real use: a
+ * person with a genuine problem files one request, maybe two.
+ */
+const MAX_PENDING_PER_SUBJECT = 10;
+
+const TOO_MANY_OWN_REQUESTS_MESSAGE =
+  "You already have several requests waiting. We will answer those first.";
+
+/**
+ * Refuse a request once its sender's share of the undelivered backlog is full.
+ *
+ * Two ceilings, because the two callers are different risks. An anonymous
+ * insert is bounded globally, since there is nothing else to attribute it to. A
+ * signed-in one is bounded per subject, which both stops one account from
+ * flooding and keeps a route open for a real person while anonymous traffic is
+ * at its ceiling.
  *
  * Counts both tables, since a flood of either is what buries the other, and
- * reads at most the ceiling plus one row, so the cost never grows with the
- * table.
+ * reads at most a ceiling plus one row, so the cost never grows with the table.
  */
 export async function requireSupportBacklogHeadroom(
   db: MutationCtx["db"],
-  requester: unknown,
+  requester: { subject: string } | undefined,
 ): Promise<void> {
   if (requester !== undefined) {
+    const own = [
+      ...(await db
+        .query("supportRequests")
+        .withIndex("by_notifiedAt_createdAt", (query) => query.eq("notifiedAt", undefined))
+        .take(MAX_PENDING_ANONYMOUS_REQUESTS + 1)),
+      ...(await db
+        .query("profileSuppressionRequests")
+        .withIndex("by_notifiedAt_createdAt", (query) => query.eq("notifiedAt", undefined))
+        .take(MAX_PENDING_ANONYMOUS_REQUESTS + 1)),
+    ].filter((row) => row.requester?.subject === requester.subject);
+
+    if (own.length >= MAX_PENDING_PER_SUBJECT) {
+      throw supportInputError(TOO_MANY_OWN_REQUESTS_MESSAGE);
+    }
+
     return;
   }
 
@@ -52,7 +105,7 @@ export async function requireSupportBacklogHeadroom(
     .take(MAX_PENDING_ANONYMOUS_REQUESTS + 1);
 
   if (pendingSupport.length > MAX_PENDING_ANONYMOUS_REQUESTS) {
-    throw new Error(BACKLOG_FULL_MESSAGE);
+    throw supportInputError(BACKLOG_FULL_MESSAGE);
   }
 
   const pendingSuppressions = await db
@@ -61,6 +114,6 @@ export async function requireSupportBacklogHeadroom(
     .take(MAX_PENDING_ANONYMOUS_REQUESTS + 1 - pendingSupport.length);
 
   if (pendingSupport.length + pendingSuppressions.length > MAX_PENDING_ANONYMOUS_REQUESTS) {
-    throw new Error(BACKLOG_FULL_MESSAGE);
+    throw supportInputError(BACKLOG_FULL_MESSAGE);
   }
 }

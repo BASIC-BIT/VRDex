@@ -4,7 +4,7 @@ import type { Doc } from "./_generated/dataModel";
 import { internalMutation, internalQuery, mutation } from "./_generated/server";
 import { activeBrowserSessionSubjectOrNull } from "./_browserSessionAuthority";
 import { getProfileBySlug, resolveRequestedProfileSlug } from "./_profileSlugs";
-import { requireSupportBacklogHeadroom } from "./_supportIntake";
+import { requireSupportBacklogHeadroom, supportInputError } from "./_supportIntake";
 import { normalizeProfileInlineText } from "./_profileSubmissions";
 
 const profileType = v.union(v.literal("person"), v.literal("community"));
@@ -118,33 +118,36 @@ export const submitSupportRequest = mutation({
     const message = normalizeMessage(args.message);
 
     if (message.length < MESSAGE_MIN_LENGTH) {
-      throw new Error("Tell us a little more about what you need.");
+      throw supportInputError("Tell us a little more about what you need.");
     }
 
     // Refused rather than sliced. Truncating reported success and then dropped
     // whatever came last, which on a safety report or a dispute is the evidence
     // links people put at the end.
     if (message.length > MESSAGE_MAX_LENGTH) {
-      throw new Error(
+      throw supportInputError(
         `That message is longer than we can store. Keep it under ${MESSAGE_MAX_LENGTH} characters and link to the rest.`,
       );
     }
 
-    const contact = optionalText(args.requesterContact, CONTACT_MAX_LENGTH);
-
-    // Same reason, and worse here: a sliced address still passes the check
-    // below, so the request looked answered for and the reply target was a
-    // mangled string nobody reads.
-    if (contact !== undefined && contact.length >= CONTACT_MAX_LENGTH) {
-      throw new Error("That contact is too long. Give us a shorter address or handle.");
+    // Measured before truncation, and `>` rather than `>=`. Checking the sliced
+    // value could only ever see the limit exactly, which rejected an address of
+    // precisely the length the form's own `maxLength` invites. Same reason as
+    // the message above, and worse here: a sliced address still satisfies the
+    // required-contact check below, so the request looks answered for while the
+    // reply target is a mangled string nobody reads.
+    if (normalizeProfileInlineText(args.requesterContact ?? "").length > CONTACT_MAX_LENGTH) {
+      throw supportInputError("That contact is too long. Give us a shorter address or handle.");
     }
+
+    const contact = optionalText(args.requesterContact, CONTACT_MAX_LENGTH);
 
     // Checked against the topic rather than the session. A signed-in requester
     // still gets asked, because the account that holds the session is often not
     // the address the answer should go to -- recovery is exactly the case where
     // it cannot be.
     if (contact === undefined && TOPICS_REQUIRING_CONTACT.has(args.topic)) {
-      throw new Error("Add a contact so we can reply.");
+      throw supportInputError("Add a contact so we can reply.");
     }
 
     const profileSlug = resolveRequestedProfileSlug(args.profileSlug);
@@ -169,7 +172,7 @@ export const submitSupportRequest = mutation({
       displayName === undefined &&
       TOPICS_REQUIRING_CONTACT.has(args.topic)
     ) {
-      throw new Error("Tell us which profile this is about, by link or by name.");
+      throw supportInputError("Tell us which profile this is about, by link or by name.");
     }
 
     const requestId = await ctx.db.insert("supportRequests", {
@@ -218,11 +221,19 @@ export const pendingDigestRequests = internalQuery({
       .order("asc")
       .take(limit);
 
-    const suppressionRows = await ctx.db
-      .query("profileSuppressionRequests")
-      .withIndex("by_notifiedAt_createdAt", (query) => query.eq("notifiedAt", undefined))
-      .order("asc")
-      .take(limit);
+    // `submitted` only. `notifiedAt` is new, so every row written before it
+    // reads as unnotified, including ones an operator already accepted or
+    // rejected. Without this the first digest after deploy announces the entire
+    // history as new, and those stale rows take the batch limit ahead of
+    // current disputes. A request resolved between two runs drops out the same
+    // way, which is right: it has already been dealt with.
+    const suppressionRows = (
+      await ctx.db
+        .query("profileSuppressionRequests")
+        .withIndex("by_notifiedAt_createdAt", (query) => query.eq("notifiedAt", undefined))
+        .order("asc")
+        .take(limit)
+    ).filter((request) => request.state === "submitted");
 
     const entries = [
       ...supportRows.map((request) => ({

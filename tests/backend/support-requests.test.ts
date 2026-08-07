@@ -7,6 +7,7 @@ import { api, internal } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import schemaModule from "../../convex/schema";
 import { readProfileSlugFromInput } from "../../convex/_profileSlugs";
+import { clerkTestIdentity, newClerkUserId } from "./_clerkTestIdentity";
 import { formatDigestEntry, supportDigestConfig } from "../../convex/_supportDigest";
 
 // `supportRequestDigest.ts` is deliberately absent. It is a `"use node"` module,
@@ -552,5 +553,138 @@ describe("support digest formatting", () => {
     assert.match(entry, /https:\/\/vrdex\.net\/c\/afterglow-social/);
     assert.doesNotMatch(entry, /\/p\/afterglow-social/);
     assert.match(entry, /Owner opt-out/);
+  });
+});
+
+describe("support request review findings, second round", () => {
+  /**
+   * Convex redacts plain `Error` messages on production deployments, so every
+   * fixable refusal here would have reached a real visitor as the generic
+   * backend sentence while looking correct in development.
+   */
+  it("carries correctable refusals in structured data", async () => {
+    const t = convexTest({ schema, modules });
+
+    await assert.rejects(
+      () =>
+        t.mutation(api.supportRequests.submitSupportRequest, {
+          topic: "feedback",
+          profileSlug: "https://vrchat.com/home/user/usr_123",
+          message: "Pasting my evidence into the wrong field.",
+        }),
+      (error: unknown) => {
+        const data = (error as { data?: { code?: string; message?: string } }).data;
+
+        assert.equal(data?.code, "SUPPORT_INPUT_INVALID");
+        assert.match(data?.message ?? "", /Paste the profile link/);
+        return true;
+      },
+    );
+  });
+
+  /**
+   * Signed in used to mean exempt. Nothing requires a verified email, so one
+   * throwaway account could out-run the digest and queue ahead of every real
+   * dispute, which is what the ceiling exists to stop.
+   */
+  it("caps a signed-in requester's own share of the backlog", async () => {
+    const t = convexTest({ schema, modules });
+    const identity = clerkTestIdentity(newClerkUserId());
+    const signedIn = t.withIdentity(identity);
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("users", {
+        clerkUserId: identity.subject,
+        email: "flooder@example.test",
+        emailVerificationTime: Date.now(),
+      });
+    });
+
+    for (let index = 0; index < 10; index += 1) {
+      await signedIn.mutation(api.supportRequests.submitSupportRequest, {
+        topic: "feedback",
+        message: `Message number ${index} from one account.`,
+      });
+    }
+
+    await assert.rejects(
+      () =>
+        signedIn.mutation(api.supportRequests.submitSupportRequest, {
+          topic: "feedback",
+          message: "One more than the ceiling allows.",
+        }),
+      /already have several requests waiting/,
+    );
+
+    // Someone else is unaffected: the ceiling is per subject, so one account
+    // cannot spend a shared allowance and lock everybody out.
+    await t.mutation(api.supportRequests.submitSupportRequest, {
+      topic: "feedback",
+      message: "An unrelated visitor with something to say.",
+    });
+  });
+
+  /**
+   * `notifiedAt` is new, so every suppression row written before it reads as
+   * unnotified. Without a state check the first digest after deploy announces
+   * the whole history, resolved rows included, ahead of current disputes.
+   */
+  it("leaves resolved suppression requests out of the digest", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+
+    await t.run(async (ctx) => {
+      for (const state of ["accepted", "rejected", "under_review", "submitted"] as const) {
+        await ctx.db.insert("profileSuppressionRequests", {
+          displayName: `Historic ${state}`,
+          requestType: "owner_opt_out",
+          state,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+    });
+
+    const batch = await t.query(internal.supportRequests.pendingDigestRequests, {});
+
+    assert.equal(batch.length, 1);
+    assert.equal(batch[0].displayName, "Historic submitted");
+  });
+
+  /**
+   * The form's own `maxLength` invites exactly 160 characters, so rejecting at
+   * the boundary refused input the page said was fine.
+   */
+  it("accepts a contact of exactly the advertised maximum", async () => {
+    const t = convexTest({ schema, modules });
+    const exactly160 = `${"a".repeat(147)}@example.test`;
+
+    assert.equal(exactly160.length, 160);
+
+    await t.mutation(api.supportRequests.submitSupportRequest, {
+      topic: "recovery",
+      displayName: "DJ Aurora",
+      requesterContact: exactly160,
+      message: "I lost the account that holds this profile.",
+    });
+
+    const stored = await t.run(async (ctx) => ctx.db.query("supportRequests").collect());
+
+    assert.equal(stored[0].requesterContact, exactly160);
+  });
+
+  it("refuses an oversized contact on the suppression path too", async () => {
+    const t = convexTest({ schema, modules });
+
+    await assert.rejects(
+      () =>
+        t.mutation(api.suppressions.requestProfileSuppression, {
+          requestType: "owner_opt_out",
+          displayName: "DJ Aurora",
+          requesterContact: `${"a".repeat(160)}@example.test`,
+          requesterNote: "Please delist this.",
+        }),
+      /contact is too long/,
+    );
   });
 });

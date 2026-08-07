@@ -1,5 +1,6 @@
 import type { Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
+import { supportInputError } from "./_supportIntake";
 
 export const PROFILE_SLUG_MIN_LENGTH = 3;
 export const PROFILE_SLUG_MAX_LENGTH = 64;
@@ -134,7 +135,7 @@ export function resolveRequestedProfileSlug(raw: string | undefined): string | u
 
   if (slug === "") {
     if (trimmed !== "") {
-      throw new Error(INVALID_PROFILE_INPUT_MESSAGE);
+      throw supportInputError(INVALID_PROFILE_INPUT_MESSAGE);
     }
 
     return undefined;
@@ -143,7 +144,7 @@ export function resolveRequestedProfileSlug(raw: string | undefined): string | u
   const validation = validateProfileSlug(slug);
 
   if (!validation.ok) {
-    throw new Error(INVALID_PROFILE_INPUT_MESSAGE);
+    throw supportInputError(INVALID_PROFILE_INPUT_MESSAGE);
   }
 
   return validation.slug;

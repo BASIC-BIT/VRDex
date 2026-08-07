@@ -88,13 +88,18 @@ type Status =
   | { kind: "error"; message: string };
 
 /**
- * The refusals that are worth showing, because each names something the person
- * can fix without leaving the page.
+ * The refusals worth showing, because each names something the person can fix
+ * without leaving the page.
  *
- * Everything else becomes the shared sentence. A Convex error carries the
- * function name, a request id, and a source location, and rendering
- * `error.message` straight into the page put that whole stack dump in front of
- * whoever mistyped a link.
+ * Read from the structured payload, not from `error.message`. Convex redacts
+ * plain error messages on production deployments, so matching on the text works
+ * in development and then silently stops working exactly where it matters:
+ * every fixable rejection would have reached a real visitor as the generic
+ * backend sentence. `_supportIntake.ts` throws these as `SUPPORT_INPUT_INVALID`
+ * for that reason, and `/submit` and the claim flow already do the same.
+ *
+ * The patterns stay as a fallback for a local backend, where messages are not
+ * redacted and the code path is otherwise never exercised.
  */
 const userSafeErrorPatterns = [
   /That does not look like a profile\.[^\n]*/,
@@ -104,10 +109,17 @@ const userSafeErrorPatterns = [
   /That (?:message|note) is longer than we can store\.[^\n]*/,
   /That contact is too long\.[^\n]*/,
   /We have more requests than we can answer right now\.[^\n]*/,
+  /You already have several requests waiting\.[^\n]*/,
   /Suppression requests need a profile slug or display name\./,
 ];
 
 function requestErrorMessage(error: unknown): string {
+  const data = (error as { data?: { code?: string; message?: string } } | null)?.data;
+
+  if (data?.code === "SUPPORT_INPUT_INVALID" && data.message) {
+    return data.message;
+  }
+
   const message = error instanceof Error ? error.message : String(error);
 
   for (const pattern of userSafeErrorPatterns) {
@@ -154,10 +166,12 @@ export function SupportRequestForm() {
   // changes the query string without remounting, so without this the selector
   // kept its previous topic and could file an ownership dispute for someone who
   // clicked "Privacy request".
+  //
+  // Unconditional, so a link that carries no topic clears it rather than
+  // leaving the last one selected. The footer's "Contact" goes to a bare
+  // `/support`, which is precisely the case a guarded version missed.
   useEffect(() => {
-    if (isTopic(requestedTopic)) {
-      setTopic(requestedTopic);
-    }
+    setTopic(isTopic(requestedTopic) ? requestedTopic : "");
   }, [requestedTopic]);
 
   if (!convexUrl) {
