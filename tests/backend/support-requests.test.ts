@@ -1390,3 +1390,55 @@ describe("support request review findings, thirteenth round", () => {
     );
   });
 });
+
+
+describe("support request review findings, fourteenth round", () => {
+  /**
+   * A name-only or unresolved request has no record to correct a wrong type.
+   * The resolver scans only the kind it was given and the publication guard
+   * checks type, so a community opt-out filed as a person could be accepted
+   * while the community stayed public and publishable.
+   */
+  it("keeps an explicitly chosen community type on an unresolved request", async () => {
+    const t = convexTest({ schema, modules });
+
+    await t.mutation(api.suppressions.requestProfileSuppression, {
+      requestType: "pre_claim_safety",
+      displayName: "Aurora Collective",
+      profileType: "community",
+      requesterNote: "This community listing should not be published.",
+    });
+
+    const stored = await t.run(async (ctx) =>
+      ctx.db.query("profileSuppressionRequests").collect(),
+    );
+
+    assert.equal(stored[0].profileType, "community");
+    assert.equal(stored[0].profileId, undefined);
+  });
+
+  /**
+   * The hourly window reads at most thirty rows; the pending scans read up to
+   * two hundred and one. Once the window is spent the answer is the same either
+   * way, so the expensive one running first was a read amplifier.
+   */
+  it("refuses a spent hourly allowance without scanning the queue", async () => {
+    const t = convexTest({ schema, modules });
+
+    for (let index = 0; index < MAX_ANONYMOUS_REQUESTS_PER_HOUR; index += 1) {
+      await t.mutation(api.supportRequests.submitSupportRequest, {
+        topic: "feedback",
+        message: `Automated submission number ${index}.`,
+      });
+    }
+
+    await assert.rejects(
+      () =>
+        t.mutation(api.supportRequests.submitSupportRequest, {
+          topic: "feedback",
+          message: "One past the hour's allowance.",
+        }),
+      /more requests than we can answer/,
+    );
+  });
+});

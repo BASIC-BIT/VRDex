@@ -198,6 +198,13 @@ export async function requireSupportBacklogHeadroom(
   // twenty-one fresh subjects clear the two hundred row ceiling between them and
   // rotating subjects grow the backlog without limit. A per-subject quota is a
   // fairness rule; the bounds below are the capacity ones.
+  // Before the pending scans, not after. This reads at most thirty rows and
+  // those read up to two hundred and one, and once the hourly window is spent
+  // every further anonymous attempt is refused regardless -- so the expensive
+  // check ran first only to reach the same answer, turning a rate limiter into
+  // a backlog-sized read amplifier for a caller who just keeps trying.
+  await requireRateHeadroom(db, requester);
+
   const pendingSupport = await db
     .query("supportRequests")
     .withIndex("by_notifiedAt_createdAt", (query) => query.eq("notifiedAt", undefined))
@@ -220,8 +227,6 @@ export async function requireSupportBacklogHeadroom(
   if (pendingSupport.length + pendingSuppressions.length > MAX_PENDING_ANONYMOUS_REQUESTS) {
     throw supportInputError(backlogFullMessage(requester));
   }
-
-  await requireRateHeadroom(db, requester);
 }
 
 /**

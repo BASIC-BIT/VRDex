@@ -340,8 +340,17 @@ function ConnectedSupportRequestForm() {
           </div>
 
           <Field className="sm:max-w-xs">
+            {/* Unchosen, not defaulted. A resolved profile corrects a wrong
+                guess, but a name-only or unresolved request has no record to
+                correct it: the type is persisted as given, the acceptance
+                resolver scans only that kind, and the publication guard checks
+                type too. Defaulting to person meant a community opt-out could be
+                accepted while the community stayed public and publishable. */}
             Is this a person or a community?
-            <Select defaultValue="person" name="profileType">
+            <Select defaultValue="" name="profileType" required>
+              <option disabled value="">
+                Choose one
+              </option>
               <option value="person">Person</option>
               <option value="community">Community</option>
             </Select>
