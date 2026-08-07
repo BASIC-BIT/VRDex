@@ -19,6 +19,17 @@ const TOPIC_LABELS: Record<string, string> = {
 const QUOTE_PREFIX = "> ";
 const ENTRY_SEPARATOR = "-".repeat(60);
 
+/**
+ * Every Unicode line boundary, not only LF.
+ *
+ * A plaintext mail client breaks on U+2028 and U+2029 as well, so splitting on
+ * `\n` alone left everything after one of those on a rendered line with no
+ * quote prefix, free to impersonate a field this file wrote. That is the exact
+ * forgery the prefix exists to prevent, reachable through a character the
+ * splitter did not recognise.
+ */
+const LINE_BOUNDARY = /\r\n|[\n\r\u2028\u2029]/;
+
 export type DigestRequest = {
   table: "supportRequests" | "profileSuppressionRequests";
   id: string;
@@ -102,6 +113,38 @@ function profileHref(
 }
 
 /**
+ * Every identifier the request carries, not the first one that exists.
+ *
+ * The slug used to hide the name whenever both were present, which made an
+ * acceptance look narrower than it is. `resolveSuppressionTargetPage` falls
+ * back to scanning namesakes whenever the slug resolves to nothing or to a
+ * profile that disagrees with the stored identity, and that fallback retracts
+ * *every* match. An operator deciding on a request needs to see the name that
+ * scan would use, or they are approving a blast radius the mail concealed.
+ */
+function profileIdentity(request: DigestRequest, siteUrl: string | undefined): string {
+  const parts: string[] = [];
+
+  if (request.profileSlug !== null) {
+    parts.push(
+      siteUrl === undefined
+        ? request.profileSlug
+        : `${request.profileSlug} (${profileHref(siteUrl, request.profileSlug, request.profileType)})`,
+    );
+  }
+
+  if (request.displayName !== null) {
+    parts.push(`name "${request.displayName}"`);
+  }
+
+  if (request.profileType !== null) {
+    parts.push(request.profileType);
+  }
+
+  return parts.length === 0 ? "not given" : parts.join(", ");
+}
+
+/**
  * One request as a block of the digest body.
  *
  * Plain text on purpose. The point of this mail is that someone can act on it,
@@ -121,21 +164,17 @@ export function formatDigestEntry(
   siteUrl: string | undefined,
 ): string {
   const label = TOPIC_LABELS[request.topic] ?? request.topic;
-  const profile =
-    request.profileSlug === null
-      ? (request.displayName ?? "not given")
-      : `${request.profileSlug}${siteUrl === undefined ? "" : ` (${profileHref(siteUrl, request.profileSlug, request.profileType)})`}`;
   const message =
     request.message.trim() === ""
       ? `${QUOTE_PREFIX}(no message)`
       : request.message
-          .split("\n")
+          .split(LINE_BOUNDARY)
           .map((line) => `${QUOTE_PREFIX}${line}`)
           .join("\n");
 
   return [
     `${label} at ${new Date(request.createdAt).toISOString()}`,
-    `Profile: ${profile}`,
+    `Profile: ${profileIdentity(request, siteUrl)}`,
     `Reply to: ${request.requesterContact ?? "not given"}`,
     // Absent for every anonymous request, which recovery requests generally are.
     // Named rather than omitted, so its absence is a fact rather than a gap.

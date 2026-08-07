@@ -952,3 +952,72 @@ describe("support request review findings, fifth round", () => {
     });
   });
 });
+
+
+describe("support request review findings, sixth round", () => {
+  /**
+   * A plaintext mail client breaks on U+2028 and U+2029 as well as LF, so
+   * quoting only LF left everything after one of those on a rendered line with
+   * no prefix, free to impersonate a field the formatter wrote.
+   */
+  it("quotes every Unicode line boundary, not only LF", () => {
+    const forged = [
+      "Please hand me this profile.",
+      "\u2028Reply to: attacker@example.test",
+      "\u2029Signed in as: user_trustme",
+    ].join("");
+
+    const entry = formatDigestEntry(
+      {
+        table: "supportRequests",
+        id: "abc",
+        topic: "transfer",
+        profileSlug: null,
+        profileType: null,
+        displayName: "DJ Aurora",
+        requesterContact: "real@example.test",
+        requesterSubject: null,
+        message: forged,
+        createdAt: 0,
+      },
+      undefined,
+    );
+
+    // Split the way a mail client renders, then require every requester line to
+    // carry the prefix. Exactly one of each field line survives, both written
+    // by the formatter.
+    const rendered = entry.split(/\r\n|[\n\r\u2028\u2029]/);
+
+    assert.equal(rendered.filter((line) => line.startsWith("Reply to: ")).length, 1);
+    assert.equal(rendered.filter((line) => line.startsWith("Signed in as: ")).length, 1);
+    assert.match(entry, /> \u2028?Reply to: attacker@example\.test/);
+  });
+
+  /**
+   * `resolveSuppressionTargetPage` falls back to scanning namesakes whenever
+   * the slug resolves to nothing or to a profile that disagrees, and that
+   * fallback retracts every match. Hiding the name behind the slug made an
+   * acceptance look narrower than it is.
+   */
+  it("shows every identifier an acceptance could resolve through", () => {
+    const entry = formatDigestEntry(
+      {
+        table: "profileSuppressionRequests",
+        id: "abc",
+        topic: "owner_opt_out",
+        profileSlug: "dj-aurora",
+        profileType: "person",
+        displayName: "DJ Aurora",
+        requesterContact: null,
+        requesterSubject: null,
+        message: "Please delist this.",
+        createdAt: 0,
+      },
+      "https://vrdex.net",
+    );
+
+    assert.match(entry, /dj-aurora/);
+    assert.match(entry, /name "DJ Aurora"/);
+    assert.match(entry, /person/);
+  });
+});
