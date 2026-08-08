@@ -1001,11 +1001,16 @@ export function ClaimFlow({
           {status.kind === "error" ? <Notice variant="error">{status.message}</Notice> : null}
         </div>
 
+        {/* Was a `mailto:`, which asked for none of the identifiers any of these
+            three need and required a mail client, on a headset. No `?topic=`:
+            this sentence offers three, so preselecting any one of them files
+            the other two under the wrong heading. The form opens unchosen and
+            asks. */}
         <p className="mt-8 border-t border-border pt-5 text-sm leading-6 text-muted">
           Transferring, recovering, or disputing ownership?{" "}
-          <a className="underline underline-offset-4" href="mailto:basic@basicbit.net">
+          <Link className="underline underline-offset-4" href="/support">
             Contact support
-          </a>
+          </Link>
           .
         </p>
       </section>

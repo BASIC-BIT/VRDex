@@ -31,6 +31,12 @@ const PRIVATE_ROUTE_GROUPS = [
   "handoff",
   "lookup",
   "oauth",
+  // The one page whose purpose is collecting a narrative: which account someone
+  // lost, why a listing is really about them, and links to whatever proves it.
+  // A textarea's value is masked, so nothing leaks on today's markup; that is
+  // the objection. Masking would be the only thing between a replay session and
+  // an ownership dispute.
+  "support",
   // The parser echoes the user's expression back as model-derived clarification
   // and failure text.
   "time",

@@ -3,6 +3,7 @@ import { ClerkProvider } from "@clerk/nextjs";
 import { IBM_Plex_Mono, Space_Grotesk } from "next/font/google";
 import { ConvexClientProvider } from "./ConvexClientProvider";
 import { PostHogProvider } from "./PostHogProvider";
+import { SiteFooter } from "@/components/ui/site-footer";
 import "./globals.css";
 
 const spaceGrotesk = Space_Grotesk({
@@ -46,6 +47,9 @@ export default async function RootLayout({
         <PostHogProvider>
           <ConvexClientProvider>
             {children}
+            {/* Outside the page's `<main>`, and here rather than in `PageShell`,
+                so a route that renders its own shell still gets a way out. */}
+            <SiteFooter />
           </ConvexClientProvider>
         </PostHogProvider>
       </body>

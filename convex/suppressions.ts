@@ -4,7 +4,13 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, mutation, type MutationCtx } from "./_generated/server";
 import { activeBrowserSessionSubjectOrNull } from "./_browserSessionAuthority";
-import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
+import { getProfileBySlug, getRequestedProfile, resolveRequestedProfile } from "./_profileSlugs";
+import { optionalEnv } from "./_supportEnv";
+import {
+  requireRawArgumentsWithinBounds,
+  requireSupportBacklogHeadroom,
+  supportInputError,
+} from "./_supportIntake";
 import { createProfileSortName, normalizeProfileInlineText } from "./_profileSubmissions";
 import { surfacedProfileNames } from "./_suppressions";
 import {
@@ -21,6 +27,15 @@ import { seedImportAuthSubjectValidator as authSubjectValidator } from "./_seedI
 const profileType = v.union(v.literal("person"), v.literal("community"));
 
 const PROFILE_RETRACTION_PAGE_SIZE = 20;
+/**
+ * Shorter than the support intake's 4,000, and exported so the one form feeding
+ * both can hold the requester to whichever limit their topic actually has.
+ */
+export const SUPPRESSION_NOTE_MAX_LENGTH = 1_000;
+const SUPPRESSION_CONTACT_MAX_LENGTH = 160;
+const SUPPRESSION_DISPLAY_NAME_MAX_LENGTH = 120;
+/** Matches the support intake's floor, since one form feeds both. */
+const SUPPRESSION_NOTE_MIN_LENGTH = 10;
 const WORLD_REINDEX_PAGE_SIZE = 25;
 const suppressionRequestType = v.union(
   v.literal("owner_opt_out"),
@@ -52,34 +67,101 @@ export const requestProfileSuppression = mutation({
   },
   handler: async (ctx, args) => {
     const now = Date.now();
-    const requester = (await activeBrowserSessionSubjectOrNull(ctx))?.subject;
-    const slugValidation = args.profileSlug ? validateProfileSlug(args.profileSlug) : undefined;
 
-    if (slugValidation && !slugValidation.ok) {
-      throw new Error("Profile slug is invalid.");
+    // Before the session lookup and the backlog queries, as on the sibling
+    // path: these bound the work one unauthenticated call can cause, and a
+    // check that runs after the database reads bounds nothing.
+    requireRawArgumentsWithinBounds(
+      [args.profileSlug, args.displayName, args.requesterContact, args.requesterNote],
+      "That is longer than we can store.",
+    );
+
+    // The sibling intake refuses an overlong contact; this one silently stored
+    // the first 160 characters, so a caller reaching this mutation directly got
+    // success and the digest got a truncated address.
+    if (normalizeProfileInlineText(args.requesterContact ?? "").length > SUPPRESSION_CONTACT_MAX_LENGTH) {
+      throw supportInputError("That contact is too long. Give us a shorter address or handle.");
     }
 
-    const profile = slugValidation ? await getProfileBySlug(ctx.db, slugValidation.slug) : null;
-    const displayName = optionalText(args.displayName ?? profile?.displayName, 120);
+    // The form marks Message required, but `required` only rejects an empty
+    // field: spaces satisfy it, normalize to nothing, and `optionalText` then
+    // omits the note entirely. An owner opt-out or a safety report arrived
+    // reported as sent, with no explanation of what it was for.
+    const note = normalizeProfileInlineText(args.requesterNote ?? "");
+
+    if (note.length < SUPPRESSION_NOTE_MIN_LENGTH) {
+      throw supportInputError("Tell us a little more about what you need.");
+    }
+
+    // Refused rather than sliced. `optionalText` below would quietly drop
+    // everything past 1,000 characters while the requester was told the request
+    // was sent, and on a safety report the part that goes last is the evidence.
+    if (note.length > SUPPRESSION_NOTE_MAX_LENGTH) {
+      throw supportInputError(
+        `That note is longer than we can store. Keep it under ${SUPPRESSION_NOTE_MAX_LENGTH} characters and link to the rest.`,
+      );
+    }
+
+    // Shared with `submitSupportRequest`, because one form feeds both and its
+    // profile field says "paste the profile link" whichever topic is chosen.
+    // Parsing this only on the other path meant a pasted link resolved for a
+    // dispute and was rejected for an opt-out.
+    // The requester's own text, measured untruncated, as the sibling intake
+    // does. Resolution searches on this name, so a silently sliced one sends the
+    // scan after something the requester never wrote -- and on this path that
+    // scan retracts every profile it matches.
+    if (
+      normalizeProfileInlineText(args.displayName ?? "").length > SUPPRESSION_DISPLAY_NAME_MAX_LENGTH
+    ) {
+      throw supportInputError(
+        `That name is longer than we can store. Keep it under ${SUPPRESSION_DISPLAY_NAME_MAX_LENGTH} characters.`,
+      );
+    }
+
+    const requested = resolveRequestedProfile(args.profileSlug, optionalEnv("SITE_URL"));
+    const profileSlug = requested?.slug;
+
+    // Only now the database, as on the sibling path: everything decidable
+    // without it has already refused, so a caller repeating invalid input
+    // cannot spend index reads on it.
+    const requester = (await activeBrowserSessionSubjectOrNull(ctx))?.subject;
+
+    await requireSupportBacklogHeadroom(ctx.db, requester, args.requestType);
+
+    const profile = await getRequestedProfile(ctx.db, requested);
+    const displayName = optionalText(
+      args.displayName ?? profile?.displayName,
+      SUPPRESSION_DISPLAY_NAME_MAX_LENGTH,
+    );
 
     // A validated slug counts even when no profile holds it yet. The pre-claim case
     // is precisely "this slug is about me, do not let it be taken", and the
     // publication guards and retraction resolver both honour slug-only requests --
     // requiring a *resolved* profile made that documented shape impossible to file.
-    if (profile === null && displayName === undefined && slugValidation === undefined) {
-      throw new Error("Suppression requests need a profile slug or display name.");
+    if (profile === null && displayName === undefined && profileSlug === undefined) {
+      throw supportInputError("Suppression requests need a profile slug or display name.");
     }
 
     const requestId = await ctx.db.insert("profileSuppressionRequests", {
       ...optionalValue("profileId", profile?._id),
-      ...optionalValue("profileSlug", profile?.slug ?? slugValidation?.slug),
-      ...optionalValue("profileType", profile?.profileType ?? args.profileType),
+      ...optionalValue("profileSlug", profile?.slug ?? profileSlug),
+      // The pasted route beats the selector, which silently defaults to
+      // `person`. A pre-claim request names a listing that does not exist yet,
+      // so no record corrects a wrong guess, and `hasAcceptedSuppression`
+      // checks type: the listing someone asked to keep down could be published.
+      ...optionalValue(
+        "profileType",
+        profile?.profileType ?? requested?.profileType ?? args.profileType,
+      ),
       ...optionalValue("displayName", displayName),
       requestType: args.requestType,
       state: "submitted",
       ...optionalValue("requester", requester),
-      ...optionalValue("requesterContact", optionalText(args.requesterContact, 160)),
-      ...optionalValue("requesterNote", optionalText(args.requesterNote, 1_000)),
+      ...optionalValue(
+        "requesterContact",
+        optionalText(args.requesterContact, SUPPRESSION_CONTACT_MAX_LENGTH),
+      ),
+      ...optionalValue("requesterNote", optionalText(args.requesterNote, SUPPRESSION_NOTE_MAX_LENGTH)),
       createdAt: now,
       updatedAt: now,
     });

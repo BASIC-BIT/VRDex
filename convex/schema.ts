@@ -501,6 +501,18 @@ const suppressionRequestState = v.union(
   v.literal("rejected"),
 );
 
+// Deliberately excludes the two suppression topics. `/support` presents all six
+// in one selector, but opt-out and safety review keep writing
+// `profileSuppressionRequests`, because accepting one of those retracts profiles
+// from discovery. A feedback row sharing that table could be accepted by the
+// same operator action and quietly opt a profile out.
+const supportRequestTopic = v.union(
+  v.literal("ownership_dispute"),
+  v.literal("transfer"),
+  v.literal("recovery"),
+  v.literal("feedback"),
+);
+
 const vocabularyScope = v.union(
   v.literal("profile_tag"),
   v.literal("profile_genre"),
@@ -2184,12 +2196,69 @@ export default defineSchema({
     resolutionNote: v.optional(v.string()),
     resolvedBy: v.optional(authSubject),
     resolvedAt: v.optional(v.number()),
+    // Same watermark the support digest uses, because these arrive through the
+    // same form and had no reader at all: nothing in the repo watched for
+    // `submitted` rows, so an opt-out or a safety report reported success and
+    // then sat until somebody thought to open the Convex dashboard.
+    notifiedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_state_createdAt", ["state", "createdAt"])
     .index("by_profileId_state", ["profileId", "state"])
-    .index("by_profileSlug_state", ["profileSlug", "state"]),
+    .index("by_profileSlug_state", ["profileSlug", "state"])
+    // State first, because "unnotified" alone does not mean "needs attention"
+    // here: `notifiedAt` is newer than the table, so every resolved row ever
+    // written also reads as unnotified. Seeking on both is what keeps a
+    // filter-after-take from starving on a prefix of historical rows.
+    .index("by_state_notifiedAt_createdAt", ["state", "notifiedAt", "createdAt"])
+    // State here too. The per-sender quota needs the same "actionable" meaning
+    // the other two queries do, or a subject's own resolved rows count against
+    // them forever and lock their account out of the form permanently.
+    .index("by_requesterSubject_state_notifiedAt", [
+      "requester.subject",
+      "state",
+      "notifiedAt",
+    ])
+    // Convex appends `_creationTime` to every index, so seeking
+    // `requester.subject === undefined` and then ranging on it counts anonymous
+    // arrivals in a time window exactly, without filtering a page.
+    .index("by_requesterSubject", ["requester.subject"]),
+  // Contact, dispute, transfer, and recovery requests from `/support`.
+  //
+  // No lifecycle columns. The hourly digest is the read path and the operator's
+  // inbox is the workflow, which is what the `mailto:` this replaces already
+  // was, minus the missing identifiers. Add a state column when a second reader
+  // exists to disagree with the first.
+  supportRequests: defineTable({
+    topic: supportRequestTopic,
+    profileSlug: v.optional(v.string()),
+    // Resolved from the profile when the slug finds one, and taken from the
+    // requester otherwise. The digest needs it to link `/c/` rather than `/p/`,
+    // which are separate routes that each fetch by type, so the wrong one is a
+    // 404 for exactly the disputes that concern communities.
+    profileType: v.optional(profileType),
+    displayName: v.optional(v.string()),
+    requesterContact: v.optional(v.string()),
+    message: v.string(),
+    requester: v.optional(authSubject),
+    // Unset means "not yet sent". Convex indexes match on `undefined`, so the
+    // digest seeks straight to the unsent rows instead of paging the table and
+    // filtering, which is what would eventually put a wall in front of it.
+    notifiedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_notifiedAt_createdAt", ["notifiedAt", "createdAt"])
+    // Per-sender, so one account's share of the backlog can be counted by
+    // seeking rather than by scanning a global prefix and filtering, which
+    // returns nothing at all once that prefix is full of somebody else's rows.
+    .index("by_requesterSubject_notifiedAt", ["requester.subject", "notifiedAt"])
+    // Convex appends `_creationTime` to every index, so seeking
+    // `requester.subject === undefined` and then ranging on it counts anonymous
+    // arrivals in a time window exactly, without filtering a page.
+    .index("by_requesterSubject", ["requester.subject"])
+    .index("by_profileSlug_createdAt", ["profileSlug", "createdAt"]),
   profileAuditEvents: defineTable({
     profileId: v.id("profiles"),
     action: v.string(),

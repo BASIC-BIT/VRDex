@@ -210,6 +210,10 @@ export async function expectHomePage(page: Page) {
   await expect(page.getByRole("button", { name: "Toggle color theme" })).toBeVisible();
   await expect(page.getByText(/Start with a name, scene, world, genre, or event/i)).toHaveCount(0);
   await expect(page.getByText("Start with a name or genre.", { exact: true })).toHaveCount(0);
+  // Checked on the busiest route, because the footer is the only thing that
+  // makes support and the developer pages reachable at all. Both were orphans
+  // before it, and losing it would put them straight back.
+  await expectFooterReachesSupport(page);
 }
 
 export async function expectDiscoveryPage(page: Page) {
@@ -312,11 +316,61 @@ export async function expectPrivacyPage(page: Page) {
   await expect(page.getByText("Current settings", { exact: true })).toBeVisible();
 }
 
-export async function expectSuppressionPage(page: Page) {
-  await expect(page.getByRole("heading", { name: /Request review of a public listing/i })).toBeVisible();
+export async function expectSupportPage(page: Page) {
+  await expect(page.getByRole("heading", { name: "Tell us what you need." })).toBeVisible();
   await expect(page.getByLabel("Request type")).toBeVisible();
-  await expect(page.getByLabel("Profile slug")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Submit request" })).toBeVisible();
+  await expect(page.getByLabel("Profile", { exact: true })).toBeVisible();
+  // A name-only opt-out with no type makes the acceptance resolver scan people
+  // *and* communities, so this field is what stops one accepted request from
+  // retracting every namesake of both kinds.
+  await expect(page.getByLabel("Is this a person or a community?")).toBeVisible();
+  await expect(page.getByLabel("Message")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Send request" })).toBeVisible();
+  // The two suppression topics live in the same selector as the rest. They are
+  // the reason this route replaced `/privacy/suppression` rather than sitting
+  // beside it, so their absence would mean the fold silently came undone.
+  await expect(
+    page.getByRole("option", { name: "I own this listing and want it opted out" }),
+  ).toHaveCount(1);
+  await expect(
+    page.getByRole("option", { name: "This unclaimed listing needs safety review" }),
+  ).toHaveCount(1);
+}
+
+/**
+ * The old address, which is in the production smoke set and in whatever
+ * bookmarks and operator replies already carry it. It has to land on the folded
+ * form with its topic chosen, not on a 404.
+ */
+export async function expectSuppressionPage(page: Page) {
+  await expect(page).toHaveURL((url) =>
+    url.pathname === "/support" && url.searchParams.get("topic") === "owner_opt_out",
+  );
+  await expect(page.getByLabel("Request type")).toHaveValue("owner_opt_out");
+  await expectSupportPage(page);
+}
+
+/**
+ * A bare `/support` opens with nothing chosen.
+ *
+ * The claim page's footer offers transfer, recovery, and dispute in one
+ * sentence, so a link that preselected any of the three filed the other two
+ * under the wrong heading. This is what stops that from coming back.
+ */
+export async function expectSupportPageWithNoTopicChosen(page: Page) {
+  await expect(page.getByLabel("Request type")).toHaveValue("");
+  await expect(page.getByRole("button", { name: "Send request" })).toBeDisabled();
+  await expectSupportPage(page);
+}
+
+export async function expectFooterReachesSupport(page: Page) {
+  const footer = page.getByRole("navigation", { name: "Site" });
+
+  await expect(footer.getByRole("link", { name: "Contact" })).toHaveAttribute("href", "/support");
+  await expect(footer.getByRole("link", { name: "Developers" })).toHaveAttribute(
+    "href",
+    "/developers/api",
+  );
 }
 
 export async function expectNewEventPage(page: Page) {
@@ -576,6 +630,11 @@ export const capturedRoutes: CapturedRoute[] = [
     expectPage: expectPrivateSeedLookupPage,
   },
   {
+    name: "support",
+    path: "/support",
+    expectPage: expectSupportPageWithNoTopicChosen,
+  },
+  {
     name: "privacy-suppression",
     path: "/privacy/suppression",
     expectPage: expectSuppressionPage,
@@ -653,7 +712,10 @@ export const capturedRoutes: CapturedRoute[] = [
 ];
 
 export const productionSmokeRoutes: CapturedRoute[] = capturedRoutes.filter((route) =>
-  ["submit", "sign-in", "privacy-suppression", "event-new-signed-out"].includes(
+  // `privacy-suppression` stays alongside `support`: it is now a redirect, and
+  // the redirect is the part that keeps every bookmark and operator reply
+  // already carrying that address out of a 404.
+  ["submit", "sign-in", "support", "privacy-suppression", "event-new-signed-out"].includes(
     route.name,
   ),
 );

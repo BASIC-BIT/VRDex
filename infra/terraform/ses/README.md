@@ -1,6 +1,8 @@
 # SES Auth Email Terraform
 
-This stack provisions the SES sender identity VRDex needs for Convex Auth password and email verification messages.
+This stack provisions the SES sender identity VRDex sends operational mail from.
+
+Its original consumer was Convex Auth password and verification email, which Clerk replaced. Its consumer now is the hourly support digest, `internal.supportRequestDigest.sendSupportDigest`, which mails new `/support` requests to an operator.
 
 Hosted baseline context and verification status are documented in `docs/deployment/aws-baseline.md` and `docs/deployment/ses-auth-email.md`.
 
@@ -37,6 +39,7 @@ Convex env values after apply:
 - `AWS_SES_FROM_EMAIL`: `terraform output -raw aws_ses_from_email`
 - `AWS_ACCESS_KEY_ID`: `terraform output -raw aws_access_key_id`
 - `AWS_SECRET_ACCESS_KEY`: `terraform output -raw aws_secret_access_key`
+- `VRDEX_SUPPORT_DIGEST_TO`: the mailbox the support digest is delivered to. Not a Terraform output; choose the address an operator actually reads. **Applying this stack without setting it leaves the digest switched off**, so `/support` requests accumulate in Convex with nobody notified, which is exactly the failure the digest exists to prevent.
 
 SES accounts can remain in sandbox mode even after domain verification. If production sending is still sandboxed, request SES production access in the AWS console before relying on real user emails.
 
