@@ -429,7 +429,7 @@ export function sanitizeApiProfileUpdateInput(
     // Keyed on what each stored link canonicalizes to, not on how it is stored.
     // The submitted side is sanitized before it gets here, so a legacy row still
     // holding a `stream.vrcdn.live/live/<id>.m3u8` or a panel preview URL was
-    // being compared against the `vrcdn.live/<id>` it becomes -- the claim missed
+    // being compared against the `vrcdn:<id>` it becomes -- the claim missed
     // every time, and an edit to an unrelated field restamped a reviewed or
     // partner link as community-submitted. Same normalizer on both sides, one
     // link at a time so each keeps the source it was stored with rather than the

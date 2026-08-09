@@ -19,6 +19,7 @@ import { VerifiedTrustMark } from "@/components/ui/verified-trust-mark";
 import { Table, TableCell, TableFrame, TableHead, TableHeaderCell } from "@/components/ui/table";
 import { cn } from "@/lib/cn";
 import { discordCopyValue } from "@/lib/discord-link";
+import { parseVrcdnStreamLinks } from "../../../../../convex/_vrcdnLinks";
 import type { AvatarAppearance } from "@/lib/avatar-appearance";
 import {
   captureProductEvent,
@@ -225,36 +226,33 @@ function isVrcdnStreamLink(link: LookupLink) {
   return link.type === "vrcdn" && !isVrcdnPreviewLink(link);
 }
 
-function vrcdnStreamName(url: string): string | undefined {
-  try {
-    return new URL(url).pathname.split("/").filter(Boolean).at(-1)?.replace(/\.live\.ts$/, "");
-  } catch {
-    return undefined;
-  }
-}
-
+/**
+ * Both derived through the shared stream parser rather than by pulling the URL
+ * apart here.
+ *
+ * These used to read the last path segment and rebuild `rtspt://` from the
+ * hostname, which happens to work for one spelling and fails for the rest. The
+ * stored form is now `vrcdn:<streamId>`, which has no hostname at all -- that
+ * produced `rtspt:///live/<id>` and offered the identifier itself as the Quest
+ * value, so everything copied off this page was unusable.
+ */
 function deriveVrcdnPreviewLink(url: string): { label: string; url: string } | null {
-  const streamName = vrcdnStreamName(url);
+  const stream = parseVrcdnStreamLinks(url);
 
-  return streamName ? { label: "VRCDN preview", url: `https://panel.vrcdn.live/preview/${streamName}` } : null;
+  return stream ? { label: "VRCDN preview", url: stream.previewUrl } : null;
 }
 
 function deriveVrcdnCopyLinks(url: string): Array<{ label: string; value: string }> {
-  try {
-    const parsed = new URL(url);
-    const streamName = vrcdnStreamName(url);
+  const stream = parseVrcdnStreamLinks(url);
 
-    if (!streamName) {
-      return [{ label: "Quest MPEG-TS", value: url }];
-    }
-
-    return [
-      { label: "Quest MPEG-TS", value: url },
-      { label: "PC RTSPT", value: `rtspt://${parsed.hostname}/live/${streamName}` },
-    ];
-  } catch {
+  if (stream === null) {
     return [{ label: "VRCDN stream", value: url }];
   }
+
+  return [
+    { label: "Quest MPEG-TS", value: stream.questUrl },
+    { label: "PC RTSPT", value: stream.pcUrl },
+  ];
 }
 
 function ExternalIcon({ className }: { className?: string }) {

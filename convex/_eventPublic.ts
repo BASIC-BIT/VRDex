@@ -5,7 +5,7 @@ import { firstSafeHttpsUrl, optionalField, safeHttpsUrl } from "./_publicFields"
 import { visibleProfileField } from "./_profileFieldVisibility";
 import { canReadProfile } from "./_profilePermissions";
 import { getProfileTrustLabel } from "./_profileStates";
-import { safePublicMediaUrl } from "./_vrcdnLinks";
+import { safePublicLinkUrl } from "./_vrcdnLinks";
 import {
   getPublicProfileMediaKit,
   type PublicProfileAvatarAppearance,
@@ -155,7 +155,7 @@ function publicMediaLinkKey(link: PublicEvent["mediaLinks"][number]) {
 }
 
 function safePublicEventMediaLink(link: PublicEvent["mediaLinks"][number]): PublicEvent["mediaLinks"] {
-    const url = safePublicMediaUrl(link.url);
+    const url = safePublicLinkUrl(link.url);
 
     if (url === undefined) {
       return [];

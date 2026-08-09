@@ -515,7 +515,7 @@ export async function expectEventPage(page: Page) {
   );
   await expect(page.getByText("Afterglow watch link", { exact: true })).toBeVisible();
   await expect(
-    page.locator('a[href="https://stream.vrcdn.live/live/playwright-afterglow-harbor-sessions.live.ts"]'),
+    page.locator('a[href="https://stream.vrcdn.live/live/playwright-afterglow-harbor-sessions.m3u8"]'),
   ).toBeVisible();
   await expect(page.getByText("Watch now", { exact: true })).toHaveCount(0);
 }
@@ -524,10 +524,10 @@ export async function expectEventWatchPage(page: Page) {
   await expect(page.getByRole("heading", { name: "Afterglow Watch Room" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Event stream" })).toBeVisible();
   await expect(page.locator('video[title="VRCDN stream for Event stream"]')).toBeVisible();
-  await expect(page.getByRole("link", { name: "Open stream" }).first()).toHaveAttribute(
-    "href",
-    "https://vrcdn.live/playwright-afterglow-watch-room",
-  );
+  // No open affordance for a VRCDN stream, because there is nowhere to open: the
+  // service publishes no page for one. The player above is the whole surface.
+  // This used to assert an `https://vrcdn.live/<id>` href, which answered 404.
+  await expect(page.getByRole("link", { name: "Open stream" })).toHaveCount(0);
   await expect(page.getByText("YouTube archive link", { exact: true })).toBeVisible();
   await expect(page.getByText("Twitch channel link", { exact: true })).toBeVisible();
 }
@@ -537,7 +537,10 @@ export async function expectVrcdnMediaLinkPreviewPage(page: Page) {
   await expect(page.getByText("https://stream.vrcdn.live/live/basicbit.live.ts", { exact: true })).toBeVisible();
   await expect(page.getByText("Quest MPEG-TS", { exact: true })).toBeVisible();
   await expect(page.getByText("PC RTSPT", { exact: true })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Open preview" })).toHaveAttribute("href", "https://vrcdn.live/basicbit");
+  await expect(page.getByRole("link", { name: "Open preview" })).toHaveAttribute(
+    "href",
+    "https://panel.vrcdn.live/preview/basicbit",
+  );
   await expect(page.getByRole("button", { name: "Copy" })).toHaveCount(2);
 }
 

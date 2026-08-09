@@ -1,6 +1,7 @@
 import type { Doc } from "./_generated/dataModel";
 import { visibleProfileField, visibleProfileList } from "./_profileFieldVisibility";
 import { optionalField, safeHttpsUrl, safePublicImageUrl } from "./_publicFields";
+import { safePublicLinkUrl } from "./_vrcdnLinks";
 import { getProfileTrustLabel } from "./_profileStates";
 import type { PublicProfileAvatarAppearance } from "./_profileAssets";
 
@@ -63,7 +64,7 @@ function publicLookupGenres(profile: Doc<"profiles">) {
 function publicLookupLinks(profile: Doc<"profiles">): ProfileLookupLink[] {
   return visibleProfileList(profile, "outboundLinks", profile.outboundLinks ?? [], "discovery").flatMap(
     (link) => {
-      const linkUrl = safeHttpsUrl(link.url);
+      const linkUrl = safePublicLinkUrl(link.url);
 
       if (linkUrl === undefined) {
         return [];

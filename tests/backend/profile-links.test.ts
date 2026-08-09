@@ -51,7 +51,7 @@ describe("profile link sanitization", () => {
     );
 
     assert.equal(link?.type, "vrcdn");
-    assert.equal(link?.url, "https://vrcdn.live/basicbit");
+    assert.equal(link?.url, "vrcdn:basicbit");
     assert.equal(link?.handle, "basicbit");
     assert.equal(link?.label, "VRCDN");
     assert.equal(link?.source, "owner_authored");
@@ -151,7 +151,7 @@ describe("lenient profile link sanitization", () => {
       {
         type: "vrcdn",
         label: "VRCDN",
-        url: "https://vrcdn.live/snekwtf",
+        url: "vrcdn:snekwtf",
         handle: "snekwtf",
         source: "reviewed",
       },

@@ -110,7 +110,7 @@ export function VrcdnMediaLinkAssistant({
               </div>
               <a
                 className={cn(buttonVariants({ size: "sm", variant: "secondary" }), "w-full sm:w-fit")}
-                href={link.pageUrl}
+                href={link.previewUrl}
                 rel="noreferrer"
                 target="_blank"
               >

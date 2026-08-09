@@ -179,14 +179,22 @@ export function normalizeOutboundLinks(value: unknown): NormalizedProfileLink[] 
       `Outbound link ${index + 1}`,
     );
     const type = requireStringValue(link.type, "Outbound link type");
-    const url = requireHttpsUrl(
-      requireStringValue(link.url, "Outbound link URL"),
-      "Outbound link URL",
-    );
 
     if (!isProfileLinkType(type)) {
       throw new Error(`Unsupported outbound link type "${type}".`);
     }
+
+    const rawUrl = requireStringValue(link.url, "Outbound link URL");
+    // A VRCDN stream is stored as `vrcdn:<streamId>` rather than an address,
+    // because the service publishes no page for one. Every other type still
+    // answers to `requireHttpsUrl`, and so does a `vrcdn:` value arriving under
+    // another type -- otherwise a `website` entry could carry the reference past
+    // the HTTPS contract, be stored, and then be dropped by every public
+    // projection as unsafe.
+    const url =
+      type === "vrcdn" && rawUrl === parseVrcdnStreamLinks(rawUrl)?.reference
+        ? rawUrl
+        : requireHttpsUrl(rawUrl, "Outbound link URL");
 
     const parsedUrl = new URL(url!);
     if (parsedUrl.username || parsedUrl.password) {
@@ -230,8 +238,9 @@ export function normalizeOutboundLinks(value: unknown): NormalizedProfileLink[] 
  * `rtspt://` and `.m3u8`/`.live.ts` stream endpoints rather than a web page.
  * Rejecting those as "not HTTPS" would be wrong, and storing them raw would
  * leave the public profile page and issue #217 re-deriving the stream id from a
- * shape they may not recognize. Normalizing to the canonical page URL plus the
- * stream id in `handle` means every reader gets the same thing.
+ * shape they may not recognize. Normalizing to the `vrcdn:<streamId>`
+ * identifier plus the stream id in `handle` means every reader gets the same
+ * thing, and gets something it can derive every playback endpoint from.
  */
 function prepareProfileLink(entry: unknown, index: number): Record<string, unknown> {
   // `source` never reaches the normalizer: provenance is stamped by the caller
@@ -274,7 +283,11 @@ function prepareProfileLink(entry: unknown, index: number): Record<string, unkno
   return {
     ...link,
     label,
-    url: stream.pageUrl,
+    // The identifier, not an address. Every spelling VRCDN hands out -- the panel
+    // preview, the HLS playlist, the Quest transport stream, the RTSP endpoint --
+    // says the same stream, and this is the one form that says it without
+    // claiming there is a page to open.
+    url: stream.reference,
     handle: optionalStringValue(link.handle, "Outbound link handle") ?? stream.streamId,
   };
 }
@@ -427,9 +440,8 @@ export type LenientProfileLinkResult = {
  * one unusable row must not hold back every profile in the batch.
  *
  * Normalization is the point, not just validation. VRCDN entries collapse onto
- * the canonical `vrcdn.live/<id>` page URL, so a stream URL and an operator
- * panel preview URL for the same DJ become one link and no preview URL is
- * carried onto a public profile. What is dropped is counted rather than
+ * `vrcdn:<id>`, so a stream URL and an operator panel preview URL for the same
+ * DJ become one link and no preview URL is carried onto a public profile. What is dropped is counted rather than
  * swallowed — a publication path that silently discards data is how this became
  * a problem in the first place.
  */

@@ -3,15 +3,31 @@ import { safeHttpsUrl } from "./_publicFields";
 const vrcdnRootHost = "vrcdn.live";
 const vrcdnStreamHost = "stream.vrcdn.live";
 const vrcdnPanelHost = "panel.vrcdn.live";
-const vrcdnAllowedProtocols = new Set(["https:", "http:", "rtspt:", "rtsp:", "rtmp:"]);
+const vrcdnAllowedProtocols = new Set(["https:", "http:", "rtspt:", "rtsp:", "rtmp:", "vrcdn:"]);
 const vrcdnReservedPagePaths = new Set(["about", "api", "dashboard", "login", "panel", "privacy", "status", "terms", "wiki"]);
 const vrcdnDirectVideoExtension = /\.(mp4|ogg|webm)$/i;
 const vrcdnStreamExtension = /(?:\.live)?\.(m3u8|ts|mp4|ogg|webm)$/i;
 const vrcdnStreamIdPattern = /^[a-zA-Z0-9_-]{2,128}$/;
 
+export const VRCDN_REFERENCE_PROTOCOL = "vrcdn:";
+
 export type VrcdnStreamLinks = {
   streamId: string;
-  pageUrl: string;
+  /**
+   * What a VRCDN stream is stored and compared as.
+   *
+   * `vrcdn:<streamId>`, not a URL, because VRCDN publishes no page for a stream.
+   * It is a CDN: the id resolves to playback endpoints a VRChat world consumes,
+   * and the only pages on the host are the operator panel and the wiki. This was
+   * a `pageUrl` of `https://vrcdn.live/<streamId>`, which was invented -- it has
+   * the shape of an address and answers 404, and it reached several hundred
+   * published profiles before anyone opened one.
+   *
+   * A scheme rather than a bare id, so it round-trips through everything that
+   * expects to parse a link, and so the spellings of one stream collapse on the
+   * identifier rather than on a host and path that never meant anything.
+   */
+  reference: string;
   previewUrl: string;
   hlsUrl: string;
   questUrl: string;
@@ -43,8 +59,8 @@ export function isVrcdnHost(hostname: string): boolean {
  * is what they paste and what partner exports carry.
  *
  * It is read for its id only. Every caller here builds canonical links from
- * `createVrcdnStreamLinks`, so a pasted preview URL becomes the public
- * `vrcdn.live/<id>` page rather than being stored and published as-is.
+ * `createVrcdnStreamLinks`, so a pasted preview URL becomes `vrcdn:<id>`
+ * rather than being stored and published as-is.
  */
 function getVrcdnPreviewStreamId(url: URL): string | null {
   if (normalizeHostname(url.hostname) !== vrcdnPanelHost) {
@@ -58,8 +74,7 @@ function getVrcdnPreviewStreamId(url: URL): string | null {
   }
 
   // Reserved names are refused by `toVrcdnStreamId` for every route into it, so
-  // `/preview/dashboard` cannot canonicalize to `vrcdn.live/dashboard` here
-  // either.
+  // `/preview/dashboard` cannot canonicalize to `vrcdn:dashboard` here either.
   return toVrcdnStreamId(segments[1]);
 }
 
@@ -85,8 +100,8 @@ function toVrcdnStreamId(segment: string | undefined): string | null {
   const streamId = decoded.replace(vrcdnStreamExtension, "").replace(/\.live$/i, "");
 
   // Reserved names are refused here rather than at each parse site, because
-  // every one of them ends up building the same canonical `vrcdn.live/<id>`
-  // page link. Checking only the paths where a reserved name looks likely left
+  // every one of them ends up building the same canonical `vrcdn:<id>`
+  // reference. Checking only the paths where a reserved name looks likely left
   // `stream.vrcdn.live/live/dashboard.m3u8` and `rtspt://stream.vrcdn.live/live/login`
   // rebuilt as links to VRCDN's own product pages -- the same publishable
   // not-a-stream the root-host check already refused, arriving by another route.
@@ -132,7 +147,7 @@ export function createVrcdnStreamLinks(streamId: string, directVideoUrl?: string
 
   return {
     streamId: cleanStreamId,
-    pageUrl: `https://${vrcdnRootHost}/${cleanStreamId}`,
+    reference: `${VRCDN_REFERENCE_PROTOCOL}${cleanStreamId}`,
     previewUrl: `https://${vrcdnPanelHost}/preview/${cleanStreamId}`,
     hlsUrl: `https://${vrcdnStreamHost}/live/${cleanStreamId}.m3u8`,
     questUrl: `https://${vrcdnStreamHost}/live/${cleanStreamId}.live.ts`,
@@ -152,6 +167,14 @@ export function parseVrcdnStreamLinks(input: string): VrcdnStreamLinks | null {
 
   if (!vrcdnAllowedProtocols.has(url.protocol.toLowerCase())) {
     return null;
+  }
+
+  // The stored form, read straight back. `new URL("vrcdn:buki")` puts the id in
+  // `pathname` with no host, so there is nothing to resolve and nothing to
+  // normalize -- which is the point of storing the identifier rather than a
+  // fabricated address for it.
+  if (url.protocol.toLowerCase() === VRCDN_REFERENCE_PROTOCOL) {
+    return createVrcdnStreamLinks(url.pathname);
   }
 
   const previewStreamId = getVrcdnPreviewStreamId(url);
@@ -175,8 +198,42 @@ export function parseVrcdnStreamLinks(input: string): VrcdnStreamLinks | null {
   return createVrcdnStreamLinks(streamId, directVideoUrl);
 }
 
-export function safePublicMediaUrl(url: string): string | undefined {
-  const vrcdnLinks = parseVrcdnStreamLinks(url);
+/**
+ * A real, fetchable target for a stored VRCDN value, for surfaces that must put
+ * one in an `href`.
+ *
+ * The reference is deliberately not a URL, and most surfaces do not want one:
+ * the profile page lifts VRCDN out into copy rows, and the event watch surface
+ * embeds the playlist. This is for the generic link renderers that have an
+ * anchor to fill either way, and it hands them the playlist -- the same value the
+ * embed uses, and one that actually resolves.
+ *
+ * `undefined` for anything that is not a VRCDN value, so callers can fall
+ * through to their own HTTPS handling rather than special-casing the type.
+ */
+export function vrcdnPlaybackHref(url: string): string | undefined {
+  const stream = parseVrcdnStreamLinks(url);
 
-  return vrcdnLinks?.directVideoUrl ?? vrcdnLinks?.pageUrl ?? safeHttpsUrl(url);
+  return stream === null ? undefined : stream.directVideoUrl ?? stream.hlsUrl;
+}
+
+/**
+ * What a public projection should publish for a stored link.
+ *
+ * The generic HTTPS filter every projection already applied is right for every
+ * type but this one: a VRCDN stream is stored as an identifier, so the filter
+ * dropped it and the link never reached the page at all. Resolving first hands
+ * readers the playlist, which is a real URL *and* parses back to the same
+ * stream -- so the copy rows and the embed keep deriving what they need without
+ * every consumer having to learn a second format.
+ *
+ * One helper for links and media both. Media links briefly published the raw
+ * reference instead, on the theory that every reader parses it back. The web
+ * surfaces do; `/api/v0/events/[slug]` and the `vrdex_get_event` MCP tool
+ * serialize the projection as-is, so an external client got an opaque token in
+ * a field documented as a URL. Nothing wanted the reference that did not
+ * already have the parser.
+ */
+export function safePublicLinkUrl(url: string): string | undefined {
+  return vrcdnPlaybackHref(url) ?? safeHttpsUrl(url);
 }

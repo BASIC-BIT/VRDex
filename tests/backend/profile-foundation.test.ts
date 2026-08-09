@@ -1617,7 +1617,7 @@ describe("API profile update helpers", () => {
   // The submitted side is canonicalized before provenance is matched, so keying
   // the stored side on its raw URL missed every legacy row: a profile still
   // holding a `stream.vrcdn.live/live/<id>.m3u8` was compared against the
-  // `vrcdn.live/<id>` it becomes, the claim never matched, and editing an
+  // `vrcdn:<id>` it becomes, the claim never matched, and editing an
   // unrelated field restamped a reviewed link as community-submitted.
   it("matches provenance across VRCDN canonicalization", () => {
     const withLegacyLink = {
@@ -1639,7 +1639,7 @@ describe("API profile update helpers", () => {
         // What the editor posts back for an untouched row: the canonical URL it
         // was shown, and the provenance it arrived with.
         outboundLinks: [
-          { type: "vrcdn", url: "https://vrcdn.live/snekwtf", source: "reviewed" },
+          { type: "vrcdn", url: "vrcdn:snekwtf", source: "reviewed" },
         ],
       },
       "community_submitter",

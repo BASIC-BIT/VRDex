@@ -267,7 +267,10 @@ function optionalEventMediaUrl(input: string | undefined, fieldName: string): st
   const vrcdnLinks = parseVrcdnStreamLinks(value);
 
   if (vrcdnLinks !== null) {
-    return vrcdnLinks.directVideoUrl ?? vrcdnLinks.pageUrl;
+    // The identifier, since this is what gets stored. Every reader parses it
+    // back and builds the endpoint it needs, so storing an address for a page
+    // that does not exist only ever travelled as far as somebody clicking it.
+    return vrcdnLinks.directVideoUrl ?? vrcdnLinks.reference;
   }
 
   return optionalHttpsUrl(value, fieldName);

@@ -17,6 +17,7 @@ import {
   type AvatarAppearance,
 } from "@/lib/avatar-appearance";
 import { EventWatchSurface } from "./event-watch-surface";
+import { vrcdnPlaybackHref } from "../../../../../convex/_vrcdnLinks";
 import {
   ViewerLocalEventDateTime,
   ViewerLocalEventTime,
@@ -471,7 +472,7 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
                 </a>
               ) : null}
               {event.mediaLinks.map((link) => (
-                <a className={actionCardVariants({ variant: "accent" })} href={link.url} key={`${link.type}-${link.url}`} rel="noreferrer" target="_blank">
+                <a className={actionCardVariants({ variant: "accent" })} href={vrcdnPlaybackHref(link.url) ?? link.url} key={`${link.type}-${link.url}`} rel="noreferrer" target="_blank">
                   <span className={actionLabelClassName}>
                     {link.label}
                   </span>
