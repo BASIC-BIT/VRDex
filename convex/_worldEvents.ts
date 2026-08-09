@@ -1,7 +1,7 @@
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
 import { firstSafeHttpsUrl, optionalField, safeHttpsUrl } from "./_publicFields";
-import { safePublicMediaUrl } from "./_vrcdnLinks";
+import { safePublicLinkUrl } from "./_vrcdnLinks";
 
 const WORLD_EVENT_SECTION_LIMIT = 4;
 const ACTIVE_WORLD_QUERY_EVENT_LIMIT = 50;
@@ -106,7 +106,7 @@ function toPublicWorldEventPreview(
     title: event.title,
     startAt: event.startAt,
     mediaLinks: (event.mediaLinks ?? []).flatMap((link) => {
-      const linkUrl = safePublicMediaUrl(link.url);
+      const linkUrl = safePublicLinkUrl(link.url);
 
       if (linkUrl === undefined) {
         return [];

@@ -827,13 +827,13 @@ describe("public event projection", () => {
         // The panel preview URL passed through untouched only because the parser
         // did not recognize that host, which put a link to VRCDN's operator
         // console on a public event page.
-        url: "vrcdn:basicbit",
+        url: "https://stream.vrcdn.live/live/basicbit.m3u8",
         presentation: "open",
       },
       {
         type: "vrcdn",
         label: "Quest stream",
-        url: "vrcdn:basicbit",
+        url: "https://stream.vrcdn.live/live/basicbit.m3u8",
         presentation: "copy",
       },
     ]);

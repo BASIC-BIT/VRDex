@@ -886,7 +886,7 @@ const publicEvent: PublicEvent = {
     {
       type: "vrcdn",
       label: "VRCDN copy link",
-      url: "vrcdn:playwright-afterglow-harbor-sessions",
+      url: "https://stream.vrcdn.live/live/playwright-afterglow-harbor-sessions.m3u8",
       presentation: "copy",
     },
   ],
@@ -1006,7 +1006,7 @@ const publicWatchEvent: PublicEvent = {
     {
       type: "watch",
       label: "Event stream",
-      url: "vrcdn:playwright-afterglow-watch-room",
+      url: "https://stream.vrcdn.live/live/playwright-afterglow-watch-room.m3u8",
       presentation: "open",
     },
     {

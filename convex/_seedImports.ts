@@ -29,6 +29,7 @@ import {
   requireStringValue,
 } from "./_inputValidation";
 import { normalizeOutboundLinks, sanitizeProfileLinksLeniently } from "./_profileLinks";
+import { parseVrcdnStreamLinks } from "./_vrcdnLinks";
 
 export type SeedImportFixture = {
   batchId: string;
@@ -857,7 +858,18 @@ function hasSafeOutboundLinkValues(value: unknown): boolean {
 
     const url = (entry as { url?: unknown }).url;
 
-    return typeof url === "string" && isHttpsUrl(url);
+    if (typeof url !== "string") {
+      return false;
+    }
+
+    // The same exemption the writer applies. A VRCDN stream is stored as an
+    // identifier rather than an address, so an HTTPS-only predicate refuses a
+    // value `sanitizeProfileLinks` produced itself: the field is accepted and
+    // then publication reports `unsafe_public_field` forever, for a stream that
+    // publishes fine when the same person pastes a panel URL instead.
+    //
+    // Exact match only, so an arbitrary `vrcdn:` string is still refused.
+    return url === parseVrcdnStreamLinks(url)?.reference || isHttpsUrl(url);
   });
 }
 

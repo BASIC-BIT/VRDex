@@ -226,18 +226,14 @@ export function vrcdnPlaybackHref(url: string): string | undefined {
  * readers the playlist, which is a real URL *and* parses back to the same
  * stream -- so the copy rows and the embed keep deriving what they need without
  * every consumer having to learn a second format.
+ *
+ * One helper for links and media both. Media links briefly published the raw
+ * reference instead, on the theory that every reader parses it back. The web
+ * surfaces do; `/api/v0/events/[slug]` and the `vrdex_get_event` MCP tool
+ * serialize the projection as-is, so an external client got an opaque token in
+ * a field documented as a URL. Nothing wanted the reference that did not
+ * already have the parser.
  */
 export function safePublicLinkUrl(url: string): string | undefined {
   return vrcdnPlaybackHref(url) ?? safeHttpsUrl(url);
-}
-
-export function safePublicMediaUrl(url: string): string | undefined {
-  const vrcdnLinks = parseVrcdnStreamLinks(url);
-
-  // The reference rather than a page, for the same reason the reference is what
-  // gets stored. Every surface that shows a VRCDN stream parses this back and
-  // builds the endpoint it needs -- the event watch surface embeds `hlsUrl`, the
-  // profile page offers `questUrl` and `pcUrl` to copy -- so handing them an
-  // address that answers 404 helped none of them and published a dead link.
-  return vrcdnLinks?.directVideoUrl ?? vrcdnLinks?.reference ?? safeHttpsUrl(url);
 }

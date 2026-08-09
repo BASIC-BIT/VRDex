@@ -18,6 +18,7 @@ import {
   getSeedImportPublishBlockers,
   hasPublicationAuthorization,
   hasSeedFieldContent,
+  isSafePublicSeedImportField,
   normalizeSeedImportFixture,
   type SeedImportFixture,
 } from "../../convex/_seedImports";
@@ -299,6 +300,35 @@ describe("seed import review and publication guards", () => {
     });
 
     assert.ok(blockers.includes("unsafe_public_field"));
+  });
+
+  it("publishes a VRCDN stream stored as an identifier rather than an address", () => {
+    const outboundLinks = (url: string) => [
+      {
+        fieldKey: "outboundLinks" as const,
+        value: [{ type: "vrcdn", url, label: "VRCDN" }],
+        confidence: "medium" as const,
+        reviewState: "accepted" as const,
+        visibility: "public" as const,
+      },
+    ];
+
+    // The writer stores this form, so a predicate that only knows HTTPS accepts
+    // the field and then refuses to publish it forever.
+    assert.ok(
+      !getSeedImportPublicationBlockers({
+        batch: approvedBatch,
+        candidate: acceptedCandidate,
+        fields: outboundLinks("vrcdn:basicbit"),
+      }).includes("unsafe_public_field"),
+    );
+
+    // Exact references only, asserted against the predicate rather than the
+    // blocker: the mapper refuses a malformed `vrcdn:` value first, so going
+    // through the gate would pass whether or not the predicate is exact.
+    assert.equal(isSafePublicSeedImportField(outboundLinks("vrcdn:basicbit")[0]!), true);
+    assert.equal(isSafePublicSeedImportField(outboundLinks("vrcdn:not a stream id")[0]!), false);
+    assert.equal(isSafePublicSeedImportField(outboundLinks("vrcdn:basicbit?x=1")[0]!), false);
   });
 
   it("applies display-name bounds only when creating a profile", () => {
