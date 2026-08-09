@@ -90,7 +90,8 @@ Profile screenshots use deterministic Next-server fixtures when `VRDEX_ENABLE_PL
 - `/sign-in`
 - `/account`
 - `/search?q=aurora`
-- `/privacy/suppression`
+- `/support`
+- `/privacy/suppression` (redirects to `/support?topic=owner_opt_out`)
 - `/events/new`
 - `/events/playwright-afterglow-harbor-sessions/edit`
 - `/p/playwright-dj-aurora`

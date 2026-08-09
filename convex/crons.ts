@@ -34,6 +34,17 @@ crons.hourly(
   {},
 );
 
+// A digest rather than a message per submission: `/support` accepts anonymous
+// requests, so per-submission delivery would hand anyone with a script a way to
+// flood the mailbox this exists to make useful. One email an hour is the ceiling
+// no matter what arrives, and an unread hour costs a request nothing.
+crons.hourly(
+  "mail new support requests",
+  { minuteUTC: 25 },
+  internal.supportRequestDigest.sendSupportDigest,
+  {},
+);
+
 // Every other cleanup path is driven by a request, and the one leak that matters
 // is shaped exactly like the case no request returns for: a key written by a
 // POST that died after a revoke had already cancelled its reservation. Daily is
