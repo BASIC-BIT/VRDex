@@ -662,7 +662,11 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
               <SectionHeading>Watch</SectionHeading>
               {twitchLink ? (
                 <div className="mt-4 border-b border-border pb-5">
-                  <div className="flex items-center justify-between gap-3">
+                  {/* Badge beside the provider name, matching the VRCDN row
+                      below. The VRCDN row cannot push it to the far edge --
+                      `Open preview` sits there -- so this is the placement both
+                      can share. */}
+                  <div className="flex items-center gap-3">
                     <span className="font-medium">Twitch</span>
                     {profile.twitchLive?.status === "live" ? (
                       <span className="text-sm font-medium text-success">Live now</span>
