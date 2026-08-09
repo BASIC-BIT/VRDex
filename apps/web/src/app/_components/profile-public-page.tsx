@@ -16,6 +16,7 @@ import { profileClaimPath } from "@/lib/profile-claim";
 import { hasRenderableProfileMediaKit } from "@/lib/profile-media-kit";
 import { safeImageBackground } from "@/lib/safe-image";
 import type { TwitchLiveState } from "@/lib/server/twitch-live";
+import type { VrcdnLiveState } from "@/lib/vrcdn-live";
 import { twitchLoginFromUrl } from "@/lib/twitch-url";
 import { parseVrcdnStreamLinks } from "../../../../../convex/_vrcdnLinks";
 
@@ -155,6 +156,7 @@ type PublicProfileBase = {
   appearance?: PublicProfileAppearance;
   mediaKit?: PublicProfileMediaKit;
   twitchLive?: TwitchLiveState;
+  vrcdnLive?: Record<string, VrcdnLiveState>;
 };
 
 type PublicPersonProfile = PublicProfileBase & {
@@ -678,7 +680,12 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
               {vrcdnStreams.map(({ label, stream }) => (
                 <div className="pt-5" key={stream.streamId}>
                   <div className="flex flex-wrap items-center justify-between gap-3 pb-3">
-                    <p className="font-medium">{label}</p>
+                    <div className="flex items-center gap-3">
+                      <p className="font-medium">{label}</p>
+                      {profile.vrcdnLive?.[stream.streamId] === "live" ? (
+                        <span className="text-sm font-medium text-success">Live now</span>
+                      ) : null}
+                    </div>
                     <a
                       className={cn(buttonVariants({ size: "sm", variant: "secondary" }), "gap-2")}
                       href={stream.previewUrl}
