@@ -23,7 +23,32 @@ export function vrcdnLiveStateFromStatus(status: number): VrcdnLiveState {
     return "offline";
   }
 
-  return status >= 200 && status < 300 ? "live" : "unavailable";
+  // `200` exactly, not 2xx. The verified contract is a manifest served behind a
+  // `200`; a bodyless success from an intermediary -- a `204`, a cache layer's
+  // `205` -- is that intermediary answering, not VRCDN saying someone is
+  // publishing, and it should not light up `Live now`.
+  return status === 200 ? "live" : "unavailable";
+}
+
+/**
+ * How old an observation may be before it stops being reported.
+ *
+ * The sixty-second cache window does not bound this on its own.
+ * `unstable_cache` serves the stale entry while it refreshes, and a refresh
+ * that throws leaves the previous answer in place -- so a stream that was live
+ * when VRCDN started failing would keep claiming `Live now` for as long as the
+ * failure lasted. Sixty seconds is when the answer is refreshed; this is when
+ * it stops counting as an answer.
+ */
+export const maxVrcdnObservationAgeMs = 5 * 60_000;
+
+export type VrcdnLiveObservation = {
+  observedAt: number;
+  state: VrcdnLiveState;
+};
+
+export function vrcdnReportedState(observation: VrcdnLiveObservation, now: number): VrcdnLiveState {
+  return now - observation.observedAt <= maxVrcdnObservationAgeMs ? observation.state : "unavailable";
 }
 
 /**

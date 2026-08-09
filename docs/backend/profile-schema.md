@@ -58,6 +58,15 @@ Core presentation fields:
 - profile links may optionally set `presentation: "icon" | "copy"`; lookup treats Twitch as icon-only unless a link explicitly requests copy presentation, while VRCDN stream rows remain the preferred elevated stream controls
 - first-slice profile genre facts include a stable `slug`, canonical `displayName`, optional short `displayLabel`, optional featured display intent, optional aliases, optional parent genre slugs, source, confidence, explicit/inferred state, and optional external IDs such as MusicBrainz genre UUID or Wikidata QID
 
+Provider liveness is read when the profile is requested and is not stored on the profile. Twitch comes from `apps/web/src/lib/server/twitch-live.ts`, VRCDN from `apps/web/src/lib/server/vrcdn-live.ts`; both cache for sixty seconds and render as a `Live now` badge in the `Watch` surface.
+
+- VRCDN publishes no liveness API. `GET https://stream.vrcdn.live/live/<streamId>.m3u8` answers `200` when the origin is publishing and `404` when it is not, and that is the whole signal. `vrcdn.live` is a Blazor SPA that answers `200` with its app shell for unknown paths, so neither the page nor `/api/live` distinguishes anything.
+- Only `200` counts as live. A bodyless `2xx` is an intermediary answering, not VRCDN reporting a stream.
+- A `404` cannot separate "not publishing" from "no such stream", which is why a stream id has to come from an owner-confirmed link rather than from the probe.
+- Three states, not two: `offline` is a real `404`, `unavailable` is a probe that could not finish. A failed probe renders no badge rather than an idle stream.
+- Observations expire after five minutes. The cache serves a stale entry while it refreshes, and a refresh that keeps throwing would otherwise leave a `Live now` claim standing for the length of a provider outage.
+- Nothing sweeps on a schedule. A stream nobody opens is never probed, and the probe cancels the response body without pulling a media segment. VRCDN plans are viewer-capped and whether a manifest request spends a slot is not answerable from outside the operator's account, so the recurring sweep that a `Live now` discovery surface would need should not ship until VRCDN answers that. See `#217`.
+
 State fields:
 
 - `claimState`: `"unclaimed" | "claimed_unverified" | "claimed_verified"`
