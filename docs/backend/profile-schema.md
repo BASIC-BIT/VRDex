@@ -85,7 +85,7 @@ State fields:
 - `creationSource`: `"self" | "community" | "concierge" | "import" | "moderator"`
 - `publicSurfacingState`: `"public" | "opted_out" | "suppressed" | "archived"`
 - `publicSurfacingUpdatedAt`: optional timestamp for the latest public-surfacing state change
-- `publicSurfacingReason`: optional short reason for opt-out or suppression state
+- `publicSurfacingReason`: optional short reason the profile is hidden -- an opt-out, a suppression or an archival. Cleared when a profile returns to `public`, since it describes the current state rather than the history; why a profile was archived or restored stays in `profileAuditEvents`
 - `fieldVisibility`: optional per-field visibility map using `"public" | "unlisted" | "private"`
 - `claimedAt`: optional claim timestamp, present only after claim authority is established
 - `publishedAt`: optional publication timestamp, present once a profile has been published
@@ -366,7 +366,7 @@ Deploy-time migrations use `@convex-dev/migrations` and are run by `migrations:r
 - `by_slug`: canonical profile lookup and mutation-enforced slug uniqueness
 - `by_profileType_publicationState`: public page/discovery entry points split by person vs community
 - `by_publicationState_claimState`: public/trust filtering for later profile lists
-- `by_publicSurfacingState_publicationState`: public suppression and opt-out enforcement
+- `by_publicSurfacingState_publicationState`: public surfacing enforcement across every hidden state -- opt-out, suppression and archival
 - `by_claimState_profileType`: moderation and claim-review flows by claim state, with optional type splitting
 - `by_creationSource_claimState`: moderation and community-submitted/unclaimed review flows
 - `by_profileType_sortName`: deterministic profile listing by type

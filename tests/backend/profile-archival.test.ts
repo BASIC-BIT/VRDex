@@ -91,12 +91,27 @@ describe("superadmin profile archival", () => {
     const stored = await t.run(async (ctx) => await ctx.db.get(profileId));
     assert.equal(stored?.publicSurfacingState, "archived");
     assert.equal(stored?.publicSurfacingReason, REASON);
+
     // The slug is kept on purpose: releasing it would let a later import take
     // the name and resurrect the identity under a new row.
     assert.equal(stored?.slug, "junk-row");
 
     const publicRead = await t.query(api.profiles.getPublicBySlug, { slug: "junk-row" });
     assert.equal(publicRead, null);
+
+    // Cleared on the way back, because the field explains why a row is hidden
+    // and a public profile carrying one contradicts its own state. The note is
+    // not lost: the audit event keeps it, which is where a past decision belongs.
+    await t.withIdentity(identity).mutation(api.profileArchival.setProfileArchived, {
+      slug: "junk-row",
+      archived: false,
+      reason: "Archived in error; the row is a real person.",
+    });
+
+    const restored = await t.run(async (ctx) => await ctx.db.get(profileId));
+    assert.equal(restored?.publicSurfacingState, "public");
+    assert.equal(restored?.publicSurfacingReason, undefined);
+    assert.notEqual(await t.query(api.profiles.getPublicBySlug, { slug: "junk-row" }), null);
   });
 
   it("refuses a caller without the super_admin grant", async () => {

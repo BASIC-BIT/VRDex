@@ -64,7 +64,13 @@ export async function setProfileSurfacing(
   await db.patch(profile._id, {
     publicSurfacingState: next.state,
     publicSurfacingUpdatedAt: next.now,
-    publicSurfacingReason: next.reason,
+    // Only while the profile is hidden. The field explains why a row is off the
+    // public surfaces, so carrying a restoration note on a public profile leaves
+    // current-state metadata that contradicts the state -- and seed publication
+    // already clears it on the same transition. The note is not lost: the
+    // `profile_unarchived` audit event keeps it, which is where a past decision
+    // belongs.
+    publicSurfacingReason: next.state === "public" ? undefined : next.reason,
     updatedAt: next.now,
   });
 
