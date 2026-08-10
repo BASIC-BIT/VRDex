@@ -1,7 +1,40 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { twitchLoginFromUrl } from "../../apps/web/src/lib/twitch-url";
+import { twitchLoginForLiveClaim, twitchLoginFromUrl } from "../../apps/web/src/lib/twitch-url";
+
+describe("Twitch live claims", () => {
+  it("reports a channel the profile owner put there", () => {
+    assert.equal(
+      twitchLoginForLiveClaim([
+        { source: "owner_authored", type: "twitch", url: "https://www.twitch.tv/dj_aurora" },
+      ]),
+      "dj_aurora",
+    );
+  });
+
+  it("will not claim someone is live on a stranger's say-so", () => {
+    // `submitCommunityProfile` publishes immediately, so anyone signed in can
+    // attach a channel to somebody else's unclaimed profile. Helix would report
+    // that channel live and hand over its title and viewer count with it.
+    assert.equal(
+      twitchLoginForLiveClaim([
+        { source: "community_submitted", type: "twitch", url: "https://www.twitch.tv/someone_else" },
+      ]),
+      null,
+    );
+  });
+
+  it("skips the unvetted link rather than the whole profile", () => {
+    assert.equal(
+      twitchLoginForLiveClaim([
+        { source: "community_submitted", type: "twitch", url: "https://www.twitch.tv/someone_else" },
+        { source: "reviewed", type: "twitch", url: "https://www.twitch.tv/dj_aurora" },
+      ]),
+      "dj_aurora",
+    );
+  });
+});
 
 describe("Twitch channel URLs", () => {
   it("normalizes canonical channel URLs", () => {
