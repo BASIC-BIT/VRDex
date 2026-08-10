@@ -90,9 +90,9 @@ State fields:
 - `claimState`: `"unclaimed" | "claimed_unverified" | "claimed_verified"`
 - `publicationState`: `"draft_private" | "published"`
 - `creationSource`: `"self" | "community" | "concierge" | "import" | "moderator"`
-- `publicSurfacingState`: `"public" | "opted_out" | "suppressed"`
+- `publicSurfacingState`: `"public" | "opted_out" | "suppressed" | "archived"`
 - `publicSurfacingUpdatedAt`: optional timestamp for the latest public-surfacing state change
-- `publicSurfacingReason`: optional short reason for opt-out or suppression state
+- `publicSurfacingReason`: optional short reason the profile is hidden -- an opt-out, a suppression or an archival. Cleared when a profile returns to `public`, since it describes the current state rather than the history; why a profile was archived or restored stays in `profileAuditEvents`
 - `fieldVisibility`: optional per-field visibility map using `"public" | "unlisted" | "private"`
 - `claimedAt`: optional claim timestamp, present only after claim authority is established
 - `publishedAt`: optional publication timestamp, present once a profile has been published
@@ -303,6 +303,7 @@ Current recommendation:
 - `public`: profile can appear on profile pages, search, discovery, event participant references, and linked attribution surfaces
 - `opted_out`: valid owner opt-out; hide from ordinary public surfaces
 - `suppressed`: moderation/safety suppression; hide from ordinary public surfaces
+- `archived`: operator judgement that the row should not be on the site at all -- a display name that is a pasted URL, a placeholder that is not a person, a duplicate an import produced. Hidden from ordinary public surfaces, reversible, and never a claim about the person: `opted_out` and `suppressed` both record that somebody asked, and filing one of those for a data-quality problem puts a fabricated take-down in the moderation history. Written only by `profileArchival`, which refuses to overwrite either of the other two hidden states; an accepted suppression arriving at an archived profile replaces it, because a request from a person outranks an operator's tidy-up in both orderings. See `docs/backend/private-seed-operations.md` for the operator flow.
 
 `creationSource` describes how the record entered the system. It is not an authority marker by itself; authority comes from `claimState` and later claim records.
 
@@ -342,6 +343,7 @@ It only touches profiles that are `draft_private` **and** `public`, which is the
 
 - `opted_out` profiles. This is the canonical "keep off ordinary public surfaces" signal and it is what `seedHandoffs` writes on a prepared concierge profile, including *unclaimed* ones prepared for outreach but never accepted. Those were offered on the explicit promise that nothing is published, so claim state cannot be used to discard the opt-out.
 - `suppressed` profiles, which are a moderation state rather than a default.
+- `archived` profiles, which an operator has already judged should not be on the site. Publishing one would undo that decision silently, and the seed re-derivation path skips them for the same reason.
 - Profiles with an accepted `profileSuppressionRequests` row, which records someone asking not to be listed. All three request shapes are checked (profile id, slug, and pre-claim name/type), not just slug.
 - Claimed profiles, because publication of an owned profile is the owner's decision.
 - Profiles with a live concierge handoff invitation, which are instead marked `opted_out` with reason `Concierge handoff invitation pending.` A bare skip would advance the migration cursor, leaving a profile whose invitation later expires stuck at `draft_private` with no record of why; `opted_out` is the same state `seedHandoffs` writes on a prepared concierge profile, and the ordinary publication and suppression paths govern it from there. The migration bypasses both publication gates, so it repeats their handoff check: an invitation can reuse a legacy `draft_private` profile whose surfacing state is still `public`, and publishing it would expose the profile while its private review link is live.
@@ -371,7 +373,7 @@ Deploy-time migrations use `@convex-dev/migrations` and are run by `migrations:r
 - `by_slug`: canonical profile lookup and mutation-enforced slug uniqueness
 - `by_profileType_publicationState`: public page/discovery entry points split by person vs community
 - `by_publicationState_claimState`: public/trust filtering for later profile lists
-- `by_publicSurfacingState_publicationState`: public suppression and opt-out enforcement
+- `by_publicSurfacingState_publicationState`: public surfacing enforcement across every hidden state -- opt-out, suppression and archival
 - `by_claimState_profileType`: moderation and claim-review flows by claim state, with optional type splitting
 - `by_creationSource_claimState`: moderation and community-submitted/unclaimed review flows
 - `by_profileType_sortName`: deterministic profile listing by type

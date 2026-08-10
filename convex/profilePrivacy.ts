@@ -7,6 +7,7 @@ import {
 import { mutation, query } from "./_generated/server";
 import { getProfileFieldVisibility } from "./_profileFieldVisibility";
 import { canReadProfile } from "./_profilePermissions";
+import { isPubliclySurfaced } from "./_profileSurfacing";
 import { assertIdentityNotSuppressed } from "./_suppressions";
 import {
   applyProfileFieldVisibilityUpdate,
@@ -98,7 +99,14 @@ export const updateFieldVisibility = mutation({
     if (updatedProfile !== null) {
       await Promise.all([
         upsertSearchDocument(ctx.db, createProfileSearchDocument(updatedProfile)),
-        recordVocabularyTerms(ctx.db, vocabularyForProfile(updatedProfile), now),
+        // Only while the profile is actually on the public surfaces. A hidden
+        // profile contributes nothing to discovery, so recording its terms here
+        // inflated the facet counts on its own -- and now that restoring one
+        // records too, an owner editing visibility while hidden would have the
+        // same profile counted twice with only one reference to release.
+        ...(isPubliclySurfaced(updatedProfile)
+          ? [recordVocabularyTerms(ctx.db, vocabularyForProfile(updatedProfile), now)]
+          : []),
         ctx.db.insert("profileAuditEvents", {
           profileId: profile._id,
           action: "profile_field_visibility_updated",

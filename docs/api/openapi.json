@@ -6277,7 +6277,8 @@
             "enum": [
               "public",
               "opted_out",
-              "suppressed"
+              "suppressed",
+              "archived"
             ],
             "description": "Profile public surfacing state for an authenticated owner inventory."
           },
@@ -6383,7 +6384,8 @@
             "enum": [
               "public",
               "opted_out",
-              "suppressed"
+              "suppressed",
+              "archived"
             ],
             "description": "Profile public surfacing state for an authenticated owner inventory."
           },

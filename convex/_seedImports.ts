@@ -29,6 +29,7 @@ import {
   requireStringValue,
 } from "./_inputValidation";
 import { normalizeOutboundLinks, sanitizeProfileLinksLeniently } from "./_profileLinks";
+import { isPubliclySurfaced } from "./_profileSurfacing";
 import { parseVrcdnStreamLinks } from "./_vrcdnLinks";
 
 export type SeedImportFixture = {
@@ -205,12 +206,7 @@ type SeedImportPublicationProfile = Pick<
 export function isPubliclyReadableProfile(
   profile: SeedImportPublicationProfile | null | undefined,
 ): boolean {
-  return (
-    profile !== null &&
-    profile !== undefined &&
-    profile.publicationState === "published" &&
-    profile.publicSurfacingState === "public"
-  );
+  return profile !== null && profile !== undefined && isPubliclySurfaced(profile);
 }
 
 type SeedImportFixtureWriter = Pick<DatabaseWriter, "insert">;

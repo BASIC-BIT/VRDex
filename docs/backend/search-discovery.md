@@ -82,8 +82,11 @@ Profiles carry `publicSurfacingState`:
 - `public`: normal public discovery and profile access
 - `opted_out`: valid owner opt-out, hidden from ordinary public surfaces
 - `suppressed`: moderation/safety suppression, hidden from ordinary public surfaces
+- `archived`: operator judgement that the row should not be on the site, hidden from ordinary public surfaces
 
-Public profile reads, search documents, event participants, and linked world attributions must respect this state. World search documents must not index linked profile attribution names unless the linked profile is publicly readable.
+Only `public` surfaces. Ask `isPubliclySurfaced` rather than comparing against the hidden states, so a fifth one is hidden everywhere by adding a literal instead of by finding each comparison -- which is what adding `archived` had to do to the two places that spelled it out inline.
+
+Public profile reads, search documents, event participants, and linked world attributions must respect this state. Hiding a profile releases the vocabulary terms it contributed and restoring one records them again, so a reversible state does not leave discovery facets undercounted; see `_profileSurfacing.setProfileSurfacing`. World search documents must not index linked profile attribution names unless the linked profile is publicly readable.
 
 ## Analytics Events
 

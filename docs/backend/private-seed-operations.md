@@ -554,6 +554,104 @@ Notes:
   must not corrupt it. Counts are reconciled along the paths this PR touches, not
   globally.
 
+## Profile Archival
+
+Archival is the operator's answer to a row that should not be on the site: a
+display name that is a pasted URL, a placeholder that is not a person, a
+duplicate an import produced. It is deliberately not suppression, and the two are
+not interchangeable.
+
+| | Suppression | Archival |
+| --- | --- | --- |
+| Means | somebody asked to be hidden | this row should not exist |
+| Filed by | the person, or someone on their behalf | an operator |
+| Resolved by | a reviewer, against a request record | nobody; the operator's own call |
+| State | `opted_out` | `archived` |
+
+Filing the wrong one puts a fabricated take-down in the moderation history,
+which is why there is no operator path that reaches `opted_out` directly and no
+archival path that clears one.
+
+### What Archival Does
+
+`publicSurfacingState: "archived"` joins `opted_out` and `suppressed` as a state
+`isPubliclySurfaced` refuses, and every public read runs through that one
+predicate, so a new hidden state hides everywhere by adding a literal rather than
+by finding each comparison. Alongside the state change it releases the profile's
+public vocabulary terms, rewrites its search document, and reindexes the worlds
+crediting it — the fourth is the one that looks optional and leaves an archived
+name searchable through its world credits when skipped.
+
+Invisible and reversible, never destructive. The row, its slug and its audit
+trail all survive. The slug is kept deliberately: releasing it would let a later
+import take the name and rebuild the identity under a new row, which is the
+opposite of what archiving it was for.
+
+### Two Callers, One Implementation
+
+- `profileArchival:setProfileArchived` is the in-app path. Authority is the
+  caller's own active `super_admin` grant.
+- `profileArchival:setProfileArchivedAsOperator` is internal, for the CLI, where
+  the deploy key is the authority and there is no session to carry a grant. The
+  actor is recorded from what the operator names rather than verified, which is
+  why it cannot be reached from a browser.
+
+Both run the same gates and the same writes.
+
+### Claimed Profiles
+
+A super admin has complete data authority, so the claimed check is not a
+permission boundary — it is that archiving a claimed profile takes a page away
+from the person answerable for it, which is a moderation act wearing a
+data-quality label. Obvious actions stay one step; that one has to be named with
+`--confirm-claimed`.
+
+### Republication
+
+An archived profile cannot be resurrected by the seed pipeline. `bulkPublishBatch`
+already refuses a candidate sitting at `published_unclaimed`, and
+`bulkSetFieldVisibility --rederive-values` skips archived profiles explicitly
+with `profile_archived`. That second skip is not covered by the suppression
+recheck beside it: that one keys off an accepted suppression *request*, and an
+archival files none, so without the explicit skip a re-derivation would rewrite
+the very values the profile was archived over.
+
+```powershell
+pnpm ops:profile-archive -- `
+  --slug vrcdn-preview `
+  --reason "Placeholder row from an import; not a person." `
+  --actor-token operator:vrdex `
+  --actor-issuer vrdex `
+  --actor-subject profile-archival `
+  --actor-name "VRDex operator" `
+  --apply `
+  --target prod
+```
+
+- Without `--apply` it is a dry run: every gate runs and nothing is written.
+- `--unarchive` reverses it. It refuses a profile that is `opted_out` or
+  `suppressed`, because restoring one of those would resolve somebody's request
+  as a side effect, through a path with no reviewer and no record.
+- Archival refuses those two states as well, in the other direction. Archiving
+  over a suppression overwrites the state and its reason, and a later
+  `--unarchive` then reads a plain archival and republishes a profile somebody
+  opted out of. Nothing is lost by refusing: the profile is already off every
+  public surface, which is all archiving it would achieve.
+- Restoring records the profile's discovery terms again, not just releases them
+  on the way out. Release-only was right while hiding was permanent; for a
+  reversible state it brought profiles back searchable with their facets
+  missing, and a later reindex reads the retained vocabulary keys as references
+  that already exist and never increments them.
+- A live concierge handoff invitation cannot be accepted onto an archived
+  profile. Acceptance replays the selected seed fields and stamps `opted_out`
+  over the state, so an invitation issued before the archival would have erased
+  it and handed somebody ownership of the row. Both the creation and acceptance
+  paths assert through `isReusablePrivateConciergeProfile`, so the one check
+  covers both.
+- Option parsing is the seed script's, not a second copy, so the
+  package-manager `--`, repeated options, positional strays and the `--target=`
+  equals form all behave the same way in both.
+
 ## Lookup Grants
 
 The first grant for the operator is `super_admin`. Beta users receive only

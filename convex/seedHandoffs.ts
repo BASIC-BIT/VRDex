@@ -277,6 +277,30 @@ export const previewInvitation = query({
       return { state: "invalid" as const };
     }
 
+    // The same gate acceptance applies, asked here too. Without it a recipient
+    // was shown a ready handoff with every offered field, on a profile that
+    // `assertReusableConciergeProfile` would then refuse -- an invitation that
+    // reads as usable and cannot be accepted is worse than one that says so.
+    const preparedProfileId = invitation.profileId ?? candidate.matchedProfileId;
+
+    if (preparedProfileId !== undefined) {
+      const preparedProfile = await ctx.db.get(preparedProfileId);
+
+      if (preparedProfile === null) {
+        return { state: "invalid" as const };
+      }
+
+      // `assertReusableConciergeProfile` rather than a second spelling of the
+      // same rule, in the try/catch shape this preview already uses for the
+      // candidate: acceptance runs exactly this assertion, so the two cannot
+      // drift into disagreeing about what is offerable.
+      try {
+        assertReusableConciergeProfile(preparedProfile);
+      } catch {
+        return { state: "invalid" as const };
+      }
+    }
+
     return {
       state: "ready" as const,
       displayName: candidate.proposedDisplayName,

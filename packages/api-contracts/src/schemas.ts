@@ -38,7 +38,11 @@ export const ProfilePublicationStateSchema = z
   .meta({ description: "Profile or event publication state for an authenticated owner inventory." });
 
 export const ProfilePublicSurfacingStateSchema = z
-  .enum(["public", "opted_out", "suppressed"])
+  // `archived` is here because an owner can see it: a super admin may archive a
+  // claimed profile, and the owner inventory then reports the state of a page
+  // they still own. Leaving it out did not hide anything -- `apiJson` parses
+  // this on the way out, so one archived profile threw the whole request.
+  .enum(["public", "opted_out", "suppressed", "archived"])
   .meta({ description: "Profile public surfacing state for an authenticated owner inventory." });
 
 export const ProfileCreationSourceSchema = z

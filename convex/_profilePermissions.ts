@@ -3,6 +3,7 @@ import {
   getProfileFieldVisibility,
   type ProfileFieldVisibilityKey,
 } from "./_profileFieldVisibility";
+import { isPubliclySurfaced } from "./_profileSurfacing";
 
 export type ProfilePermissionSubject =
   | "public"
@@ -162,7 +163,7 @@ export function canReadProfile(
     return true;
   }
 
-  return profile.publicationState === "published" && profile.publicSurfacingState === "public";
+  return isPubliclySurfaced(profile);
 }
 
 export function canEditProfileField(

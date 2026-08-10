@@ -12,16 +12,11 @@ import {
   supportInputError,
 } from "./_supportIntake";
 import { createProfileSortName, normalizeProfileInlineText } from "./_profileSubmissions";
+import { setProfileSurfacing } from "./_profileSurfacing";
 import { surfacedProfileNames } from "./_suppressions";
 import {
-  createProfileSearchDocument,
   reindexWorldSearchDocument,
-  upsertSearchDocument,
-  vocabularyForProfile,
 } from "./_searchDocuments";
-import {
-  releaseVocabularyTerms,
-} from "./_vocabulary";
 import { seedImportAuthSubjectValidator as authSubjectValidator } from "./_seedImportValidators";
 
 const profileType = v.union(v.literal("person"), v.literal("community"));
@@ -413,37 +408,32 @@ export const retractProfilesForSuppression = internalMutation({
     let retracted = 0;
 
     for (const profile of page.profiles) {
-      // An existing moderation suppression outranks a later opt-out. Both hide the
-      // profile, but downgrading would destroy the distinct moderation state and
-      // its reason; the request is still accepted and audited.
-      const alreadySuppressed = profile.publicSurfacingState === "suppressed";
-      // Captured before the state change: after it, the profile is no longer
-      // publicly readable and contributes nothing to release.
-      const vocabularyBefore =
-        profile.publicationState === "published" && profile.publicSurfacingState === "public"
-          ? vocabularyForProfile(profile)
-          : [];
+      // An existing moderation suppression outranks a later opt-out: both hide
+      // the profile, but downgrading would destroy the distinct moderation state
+      // and its reason. The request is still accepted and audited.
+      //
+      // An archival does *not* outrank it, and must be replaced rather than left
+      // alone. Leaving it recorded the accepted request in audit history only,
+      // and `--unarchive` reads the surfacing state -- so a profile archived
+      // between acceptance and this job running would be republished later
+      // despite the opt-out. Suppression outranking archival is the same rule
+      // archival itself enforces by refusing to write over one; this is the
+      // other ordering of it.
+      const priorState = profile.publicSurfacingState;
+      const alreadyHidden = priorState === "suppressed";
 
-      if (!alreadySuppressed) {
-        await ctx.db.patch(profile._id, {
-          publicSurfacingState: "opted_out",
-          publicSurfacingUpdatedAt: now,
-          publicSurfacingReason:
+      if (!alreadyHidden) {
+        const reindexKey = await setProfileSurfacing(ctx.db, profile, {
+          state: "opted_out",
+          reason:
             request.requestType === "owner_opt_out"
               ? "Owner opt-out request accepted."
               : "Pre-claim safety suppression request accepted.",
-          updatedAt: now,
+          now,
         });
 
-        const updated = await ctx.db.get(profile._id);
-
-        if (updated !== null) {
-          await upsertSearchDocument(ctx.db, createProfileSearchDocument(updated));
-          // The profile no longer contributes to discovery, so its terms are
-          // released. Snapshotted before the patch, because vocabularyForProfile
-          // reads the visible fields.
-          await releaseVocabularyTerms(ctx.db, vocabularyBefore, now);
-          reindexKeys.push({ profileType: updated.profileType, profileSlug: updated.slug });
+        if (reindexKey !== null) {
+          reindexKeys.push(reindexKey);
         }
 
         retracted += 1;
@@ -454,9 +444,11 @@ export const retractProfilesForSuppression = internalMutation({
         action: "suppression_accepted",
         ...optionalValue("actor", request.resolvedBy),
         sourceType: "moderator",
-        note: alreadySuppressed
-          ? "Suppression request accepted; existing moderation suppression left in place."
-          : "Profile opted out of public surfacing by accepted suppression request.",
+        note: alreadyHidden
+          ? `Suppression request accepted; existing ${priorState} state left in place.`
+          : priorState === "archived"
+            ? "Profile opted out of public surfacing by accepted suppression request, replacing an operator archival."
+            : "Profile opted out of public surfacing by accepted suppression request.",
         createdAt: now,
       });
     }
