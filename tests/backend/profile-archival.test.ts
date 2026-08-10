@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 
 import { convexTest } from "convex-test";
 
-import { api } from "../../convex/_generated/api";
+import { api, internal } from "../../convex/_generated/api";
 import schemaModule from "../../convex/schema";
 
 import { newClerkUserId } from "./_clerkTestIdentity";
@@ -239,6 +239,47 @@ describe("superadmin profile archival", () => {
     // restore has to record too, or the profile comes back searchable with its
     // discovery facets missing and no later reindex increments them.
     assert.equal(await usage(), 1);
+  });
+
+  it("lets an accepted suppression replace an archival rather than sit behind it", async () => {
+    const t = convexTest({ schema, modules });
+    const profileId = await seedProfile(t, {
+      slug: "archived-row",
+      publicSurfacingState: "archived",
+    });
+    const identity = await signIn(t, { superAdmin: true });
+
+    // Acceptance schedules the retraction, so an operator can archive the
+    // profile in between. Leaving the archival in place recorded the accepted
+    // request in audit history alone -- and `--unarchive` reads the surfacing
+    // state, so the opt-out would have been undone by a path that never saw it.
+    const requestId = await t.run(async (ctx) =>
+      await ctx.db.insert("profileSuppressionRequests", {
+        profileId,
+        requestType: "owner_opt_out",
+        state: "accepted",
+        resolvedBy: actor,
+        resolvedAt: NOW,
+        createdAt: NOW,
+        updatedAt: NOW,
+      }),
+    );
+
+    await t.mutation(internal.suppressions.retractProfilesForSuppression, { requestId, now: NOW });
+
+    assert.equal(
+      (await t.run(async (ctx) => await ctx.db.get(profileId)))?.publicSurfacingState,
+      "opted_out",
+    );
+
+    await assert.rejects(
+      t.withIdentity(identity).mutation(api.profileArchival.setProfileArchived, {
+        slug: "archived-row",
+        archived: false,
+        reason: "Trying to undo the opt-out through the archival path.",
+      }),
+      (error: { data?: { code?: string } }) => error.data?.code === "NOT_ARCHIVED",
+    );
   });
 
   it("requires a reason long enough to mean something", async () => {

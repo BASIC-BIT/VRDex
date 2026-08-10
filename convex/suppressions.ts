@@ -408,12 +408,19 @@ export const retractProfilesForSuppression = internalMutation({
     let retracted = 0;
 
     for (const profile of page.profiles) {
-      // An existing moderation suppression outranks a later opt-out, and so does
-      // an operator archival. All of them hide the profile, but downgrading
-      // would destroy the distinct state and its reason; the request is still
-      // accepted and audited either way.
+      // An existing moderation suppression outranks a later opt-out: both hide
+      // the profile, but downgrading would destroy the distinct moderation state
+      // and its reason. The request is still accepted and audited.
+      //
+      // An archival does *not* outrank it, and must be replaced rather than left
+      // alone. Leaving it recorded the accepted request in audit history only,
+      // and `--unarchive` reads the surfacing state -- so a profile archived
+      // between acceptance and this job running would be republished later
+      // despite the opt-out. Suppression outranking archival is the same rule
+      // archival itself enforces by refusing to write over one; this is the
+      // other ordering of it.
       const priorState = profile.publicSurfacingState;
-      const alreadyHidden = priorState === "suppressed" || priorState === "archived";
+      const alreadyHidden = priorState === "suppressed";
 
       if (!alreadyHidden) {
         const reindexKey = await setProfileSurfacing(ctx.db, profile, {
@@ -439,7 +446,9 @@ export const retractProfilesForSuppression = internalMutation({
         sourceType: "moderator",
         note: alreadyHidden
           ? `Suppression request accepted; existing ${priorState} state left in place.`
-          : "Profile opted out of public surfacing by accepted suppression request.",
+          : priorState === "archived"
+            ? "Profile opted out of public surfacing by accepted suppression request, replacing an operator archival."
+            : "Profile opted out of public surfacing by accepted suppression request.",
         createdAt: now,
       });
     }
