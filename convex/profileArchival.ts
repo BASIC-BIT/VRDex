@@ -6,6 +6,7 @@ import { internalMutation, mutation, type MutationCtx } from "./_generated/serve
 import { getAccountFeatureAccess } from "./_accountFeatures";
 import { requireClaimSession } from "./_claimSession";
 import { getProfileBySlug } from "./_profileSlugs";
+import { assertIdentityNotSuppressed, surfacedProfileNames } from "./_suppressions";
 import { setProfileSurfacing } from "./_profileSurfacing";
 import { seedImportAuthSubjectValidator as authSubjectValidator } from "./_seedImportValidators";
 
@@ -102,17 +103,30 @@ async function applyProfileArchival(
         `This profile is already hidden as ${profile.publicSurfacingState}. Archiving it would overwrite that decision.`,
       );
     }
-  } else if (profile.publicSurfacingState !== "archived") {
+  } else {
     // Unarchiving only ever undoes an archival. A profile sitting at
     // `opted_out` or `suppressed` is hidden because of a request somebody
     // filed, and restoring it here would resolve that request as a side effect,
     // through a path with no reviewer and no record of the decision.
-    throw archivalError(
-      "NOT_ARCHIVED",
-      profile.publicSurfacingState === "public"
-        ? "This profile is not archived."
-        : `This profile is ${profile.publicSurfacingState}, not archived. Resolve that through suppressions.`,
-    );
+    if (profile.publicSurfacingState !== "archived") {
+      throw archivalError(
+        "NOT_ARCHIVED",
+        profile.publicSurfacingState === "public"
+          ? "This profile is not archived."
+          : `This profile is ${profile.publicSurfacingState}, not archived. Resolve that through suppressions.`,
+      );
+    }
+
+    // Restoring is a republication, and edits made while the profile was hidden
+    // were let through on exactly that promise: `assertProfileEditNotSuppressed`
+    // skips the identity check for a profile that surfaces nothing, on the
+    // written contract that republication re-checks it. Without this an owner
+    // could rename an archived row onto a name somebody already had suppressed,
+    // and the restore would publish the identity they withdrew.
+    await assertIdentityNotSuppressed(ctx.db, {
+      displayNames: surfacedProfileNames(profile),
+      profileType: profile.profileType,
+    });
   }
 
   const nextState = args.archived ? ("archived" as const) : ("public" as const);

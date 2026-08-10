@@ -282,6 +282,45 @@ describe("superadmin profile archival", () => {
     );
   });
 
+  it("rechecks the identity before restoring, since editing while hidden did not", async () => {
+    const t = convexTest({ schema, modules });
+    await seedProfile(t, { slug: "archived-row", publicSurfacingState: "archived" });
+    const identity = await signIn(t, { superAdmin: true });
+
+    // The name-only request nobody could match while the row was hidden.
+    // `assertProfileEditNotSuppressed` lets an edit through on a profile that
+    // surfaces nothing, explicitly because republication re-checks -- so a rename
+    // onto a withdrawn identity is legal right up until the restore.
+    await t.run(async (ctx) => {
+      await ctx.db.insert("profileSuppressionRequests", {
+        displayName: "Retired Name",
+        profileType: "person",
+        requestType: "owner_opt_out",
+        state: "accepted",
+        resolvedBy: actor,
+        resolvedAt: NOW,
+        createdAt: NOW,
+        updatedAt: NOW,
+      });
+
+      const profile = await ctx.db
+        .query("profiles")
+        .withIndex("by_slug", (query) => query.eq("slug", "archived-row"))
+        .unique();
+
+      await ctx.db.patch(profile!._id, { displayName: "Retired Name" });
+    });
+
+    await assert.rejects(
+      t.withIdentity(identity).mutation(api.profileArchival.setProfileArchived, {
+        slug: "archived-row",
+        archived: false,
+        reason: "Restoring a row that now carries a withdrawn identity.",
+      }),
+      (error: { data?: { code?: string } }) => error.data?.code === "IDENTITY_SUPPRESSED",
+    );
+  });
+
   it("requires a reason long enough to mean something", async () => {
     const t = convexTest({ schema, modules });
     await seedProfile(t);
