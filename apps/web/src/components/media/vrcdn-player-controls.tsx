@@ -11,6 +11,13 @@ export type VrcdnPlayerControlsProps = {
   onVolumeChange: (volume: number) => void;
   paused: boolean;
   volume: number;
+  /**
+   * Whether the platform lets script set `HTMLMediaElement.volume`. iOS Safari
+   * does not -- it is read-only there, and only the hardware buttons move it --
+   * so the slider is withheld rather than shown sliding and changing nothing.
+   * Muting still works, so that button stays.
+   */
+  volumeSettable: boolean;
 };
 
 const controlButton =
@@ -35,6 +42,7 @@ export function VrcdnPlayerControls({
   onVolumeChange,
   paused,
   volume,
+  volumeSettable,
 }: VrcdnPlayerControlsProps) {
   return (
     <div className="absolute inset-x-0 bottom-0 flex items-center gap-1 bg-gradient-to-t from-black/70 to-transparent px-2 py-1">
@@ -44,16 +52,18 @@ export function VrcdnPlayerControls({
       <button aria-label={muted ? "Unmute" : "Mute"} className={controlButton} onClick={onToggleMute} type="button">
         {muted ? <VolumeX aria-hidden="true" className="size-5" /> : <Volume2 aria-hidden="true" className="size-5" />}
       </button>
-      <input
-        aria-label="Volume"
-        className="h-11 w-24 cursor-pointer accent-white"
-        max={1}
-        min={0}
-        onChange={(event) => onVolumeChange(Number(event.target.value))}
-        step={0.01}
-        type="range"
-        value={muted ? 0 : volume}
-      />
+      {volumeSettable ? (
+        <input
+          aria-label="Volume"
+          className="h-11 w-24 cursor-pointer accent-white"
+          max={1}
+          min={0}
+          onChange={(event) => onVolumeChange(Number(event.target.value))}
+          step={0.01}
+          type="range"
+          value={muted ? 0 : volume}
+        />
+      ) : null}
       <span className="ml-auto pr-1 text-xs font-medium tracking-wide text-white/80">LIVE</span>
       <button
         // Announces what pressing it will do, not what the button is. While the

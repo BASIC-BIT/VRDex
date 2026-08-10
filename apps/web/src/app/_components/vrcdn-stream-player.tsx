@@ -23,6 +23,25 @@ export function WatchPlayPoster() {
   );
 }
 
+/**
+ * Whether script can move the media volume at all.
+ *
+ * Feature-tested rather than sniffed for iOS: the platform refuses the write
+ * and leaves the property where it was, which is exactly what this asks. On
+ * Safari for iPhone and iPad, volume is the hardware buttons' business alone,
+ * so a slider there would drag and change nothing.
+ */
+function canSetMediaVolume(): boolean {
+  if (typeof document === "undefined") {
+    return true;
+  }
+
+  const probe = document.createElement("video");
+  probe.volume = 0.5;
+
+  return probe.volume === 0.5;
+}
+
 type MpegTsPlayer = {
   destroy: () => void;
   detachMediaElement: () => void;
@@ -64,6 +83,10 @@ export function VrcdnStreamPlayer({ src, title }: VrcdnStreamPlayerProps) {
   const [muted, setMuted] = useState(false);
   const [volume, setVolume] = useState(1);
   const [fullscreen, setFullscreen] = useState(false);
+  // Lazily, not in an effect: the controls only mount after a click, so this has
+  // always run client-side by the time it is read, and there is no server pass
+  // to disagree with.
+  const [volumeSettable] = useState(canSetMediaVolume);
   // What unmute restores to. A slider dragged to zero mutes, and clearing
   // `muted` alone would leave the controls claiming sound over silence.
   const lastAudibleVolumeRef = useRef(1);
@@ -302,6 +325,7 @@ export function VrcdnStreamPlayer({ src, title }: VrcdnStreamPlayerProps) {
         }}
         paused={paused}
         volume={volume}
+        volumeSettable={volumeSettable}
       />
     </div>
   );

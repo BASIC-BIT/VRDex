@@ -25,6 +25,7 @@ export const componentStories = [
   { id: "media-vrcdn-player-controls--playing", name: "vrcdn-player-controls-playing" },
   { id: "media-vrcdn-player-controls--paused", name: "vrcdn-player-controls-paused" },
   { id: "media-vrcdn-player-controls--fullscreen", name: "vrcdn-player-controls-fullscreen" },
+  { id: "media-vrcdn-player-controls--without-volume-slider", name: "vrcdn-player-controls-without-volume-slider" },
 ] as const;
 
 export async function prepareStorybookVisualPage(page: Page) {

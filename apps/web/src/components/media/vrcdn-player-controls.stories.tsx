@@ -50,6 +50,7 @@ export const Playing: Story = {
         onVolumeChange={noop}
         paused={false}
         volume={0.8}
+        volumeSettable
       />
     </ControlsFrame>
   ),
@@ -68,6 +69,7 @@ export const Paused: Story = {
         onVolumeChange={noop}
         paused
         volume={0}
+        volumeSettable
       />
     </ControlsFrame>
   ),
@@ -86,6 +88,29 @@ export const Fullscreen: Story = {
         onVolumeChange={noop}
         paused={false}
         volume={0.4}
+        volumeSettable
+      />
+    </ControlsFrame>
+  ),
+};
+
+/**
+ * iOS Safari refuses programmatic volume, so the slider is withheld there
+ * rather than shown dragging and changing nothing. Mute still works.
+ */
+export const WithoutVolumeSlider: Story = {
+  render: () => (
+    <ControlsFrame>
+      <VrcdnPlayerControls
+        fullscreen={false}
+        muted={false}
+        onToggleFullscreen={noop}
+        onToggleMute={noop}
+        onTogglePlay={noop}
+        onVolumeChange={noop}
+        paused={false}
+        volume={1}
+        volumeSettable={false}
       />
     </ControlsFrame>
   ),
