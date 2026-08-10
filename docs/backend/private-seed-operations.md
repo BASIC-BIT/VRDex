@@ -681,25 +681,22 @@ pnpm ops:profile-rename -- `
 - `sortName` is derived from the new display name, never supplied. It is the key
   the directory orders on, and a caller-provided one drifts from the name it
   tracks.
-- A reslug moves every stored reference to the old slug: the
-  `worldProfileCredits` rows, which are indexed by it, and the
-  `creatorAttributions` array denormalized onto each world, which nothing indexes
-  by contained slug and so is paged. Both, or the credit orphans -- it stops
-  resolving to the profile and keeps rendering whatever the old row said.
-- It also breaks any existing link to the profile and frees the old slug for
+- It refuses a profile that anything credits. A world's `creatorAttributions`
+  carry both the name and the slug, `worldProfileCredits` carry the slug, and an
+  event carries its community's name -- moving those means paged scans across two
+  tables, an ordering guarantee between them, and a race with whoever takes the
+  freed slug. Every one of those tables is empty, so the machinery would have
+  been written and reviewed against no rows at all. Refusing fails loudly instead
+  of half-applying, and whoever builds the relink will have real data to test it
+  on. `PROFILE_HAS_CREDITED_REFERENCES` is the code.
+- A reslug breaks any existing link to the profile and frees the old slug for
   anyone else to take, so it is worth reserving for a slug that was never
   meaningful. Short links survive: they store `targetProfileId`, not a slug.
-- A rename moves the name onto every world attribution that still carries the
-  old one, not only the slug. The attribution stores the credited profile's
-  `displayName`, `toPublicWorld` renders it and the world search document indexes
-  it, so a corrected name left the old one visible and searchable everywhere the
-  profile is credited. An attribution crediting somebody under a *different* name
-  is left alone; only an exact match to the previous name moves.
-- The relink stops if something has taken the old slug before it finishes. The
-  slug is free the moment the profile stops holding it, and a reference still
-  carrying it may now belong to the new holder -- so moving them would hand this
-  profile somebody else's credits. It aborts with `previous_slug_reclaimed`
-  rather than guess.
+- An accepted suppression is enforced before the change, while the profile is
+  publicly surfaced. A rename is a way to resurface a retracted identity, which
+  is why ordinary edits are already gated the same way. A hidden profile stays
+  editable on the same contract it always had: it publishes nothing now, and
+  restoring it re-checks.
 - Two audit events for a combined change, one each for the rename and the slug.
   `seedAccess.withheldProfileRecord` shows an owner the action and hides the
   operator note, so a single combined event left an owner with no record that
