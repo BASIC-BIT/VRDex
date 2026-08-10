@@ -1,15 +1,27 @@
 import { parseVrcdnStreamLinks } from "../../../../convex/_vrcdnLinks";
 
 /**
- * VRCDN publishes no liveness API, so this is read off the HLS manifest.
- * `vrcdn.live` is a Blazor SPA that answers `200` with the app shell for
- * unknown paths, which makes both the page and `/api/live` useless as signals.
+ * VRCDN publishes no liveness API, so this is read off the transport stream at
+ * `stream.vrcdn.live/live/<id>.live.ts` -- the endpoint a Quest client pulls.
  *
- * `offline` is a real `404` from the media server, and it cannot separate "not
- * publishing" from "no such stream" -- which is why a stream id has to come
- * from an owner-confirmed link rather than from the probe. `unavailable` is
- * kept distinct from `offline` because a probe that could not finish is not
- * evidence that anyone stopped streaming.
+ *     GET .live.ts   live -> 200 (video/mp2t)   idle -> 404   unknown id -> 401
+ *     GET .m3u8      live -> 404                idle -> 404   unknown id -> 404
+ *     HEAD .live.ts  live -> 200                idle -> 200   unknown id -> 200
+ *
+ * Measured against a real stream on 2026-08-10, live and then idle. The HLS
+ * manifest was the original mechanism and is inert -- it answers `404` for a
+ * stream that is actively publishing, so it could never report anyone live.
+ * `HEAD` answers `200` for stream ids that do not exist, so it is not a signal
+ * either. `vrcdn.live` itself is a Blazor SPA that answers `200` with the app
+ * shell for unknown paths, which rules out the page and `/api/live` as well.
+ *
+ * `unavailable` is kept distinct from `offline` because a probe that could not
+ * finish is not evidence that anyone stopped streaming.
+ *
+ * Note this endpoint serves media: it ignores `Range` and begins pushing MPEG-TS
+ * as soon as it answers, so the probe drops the body immediately. Whether that
+ * still spends one of the operator's viewer slots is not answerable from
+ * outside their account. See `#217`.
  */
 export type VrcdnLiveState = "live" | "offline" | "unavailable";
 
@@ -25,9 +37,9 @@ export type VrcdnLiveLink = {
  * `community_submitted` is deliberately absent. `submitCommunityProfile`
  * publishes immediately, and a community submission is one signed-in person
  * adding somebody else's profile -- so a stranger could attach a stream id they
- * do not own and make an unclaimed profile announce that person is live. A
- * `404` cannot tell "not publishing" from "not their stream", so the probe
- * cannot catch this; only provenance can.
+ * do not own and make an unclaimed profile announce that person is live. The
+ * probe cannot catch this -- somebody else's stream id is a perfectly valid id
+ * and answers `200` while they are streaming -- so only provenance can.
  *
  * The link still renders. It is the claim about who is streaming that needs a
  * vetted source.
@@ -35,14 +47,18 @@ export type VrcdnLiveLink = {
 const liveClaimLinkSources = new Set(["owner_authored", "partner_provided", "reviewed"]);
 
 export function vrcdnLiveStateFromStatus(status: number): VrcdnLiveState {
-  if (status === 404) {
+  // `404` is a real stream that is not publishing. `401` is an id the media
+  // server does not know, which the badge treats the same way -- nobody is
+  // live either way. They are worth keeping apart in the probe because this
+  // endpoint, unlike the manifest, actually does distinguish them: a typo in an
+  // owner's own link reads `401` forever, where an idle stream reads `404`.
+  if (status === 404 || status === 401) {
     return "offline";
   }
 
-  // `200` exactly, not 2xx. The verified contract is a manifest served behind a
-  // `200`; a bodyless success from an intermediary -- a `204`, a cache layer's
-  // `205` -- is that intermediary answering, not VRCDN saying someone is
-  // publishing, and it should not light up `Live now`.
+  // `200` exactly, not 2xx. A bodyless success from an intermediary -- a `204`,
+  // a cache layer's `205` -- is that intermediary answering, not VRCDN handing
+  // over a transport stream, and it should not light up `Live now`.
   return status === 200 ? "live" : "unavailable";
 }
 
