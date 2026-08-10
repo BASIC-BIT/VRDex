@@ -127,10 +127,17 @@ const publicationState = v.union(
   v.literal("published"),
 );
 
+// `archived` is its own state rather than a reuse of `suppressed`, which carries
+// a specific meaning: somebody asked to be hidden, and the audit trail says a
+// moderator agreed. Archival is the operator saying this row should not exist --
+// a name that is a pasted URL, a placeholder that is not a person. Collapsing
+// the two would make "why is this hidden" unanswerable a year from now, and
+// would put fabricated take-down records in the moderation history.
 const publicSurfacingState = v.union(
   v.literal("public"),
   v.literal("opted_out"),
   v.literal("suppressed"),
+  v.literal("archived"),
 );
 
 const fieldVisibilityState = v.union(

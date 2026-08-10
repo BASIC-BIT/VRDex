@@ -1904,6 +1904,18 @@ export const bulkSetFieldVisibility = internalMutation({
         continue;
       }
 
+      // An archived profile was taken off the site deliberately. Replaying the
+      // import snapshot onto it would rewrite the very values it was archived
+      // over, and the suppression recheck further down does not cover this: that
+      // one keys off an accepted suppression *request*, and archival files none.
+      if (profile.publicSurfacingState === "archived") {
+        skipped.push({
+          externalCandidateId: candidate.externalCandidateId,
+          reason: "profile_archived",
+        });
+        continue;
+      }
+
       // The field patch builder is person-only, same as publication.
       if (profile.profileType !== "person") {
         skipped.push({

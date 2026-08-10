@@ -1276,6 +1276,41 @@ describe("seed import visibility migration", () => {
     assert.deepEqual(result.simulatedProfiles[0]?.aliases, ["Renamed"]);
   });
 
+  it("refuses to replay the import snapshot onto an archived profile", async () => {
+    const t = convexTest({ schema, modules });
+    const now = 1_788_220_800_000;
+    const { batchId, profileId } = await seedMergedBatch(t, now, "Renamed");
+
+    const before = await t.run(async (ctx) => {
+      await ctx.db.patch(profileId, {
+        publicSurfacingState: "archived",
+        publicSurfacingReason: "Display name is a pasted URL, not a person.",
+      });
+      return (await ctx.db.get(profileId))?.aliases;
+    });
+
+    const result = await t.mutation(internal.seedImports.bulkSetFieldVisibility, {
+      batchId,
+      visibility: "public",
+      reason: "Replaying the corrected import snapshot.",
+      rederiveValues: true,
+      reviewer,
+      now,
+    });
+
+    // Archival is not covered by the suppression recheck: that one keys off an
+    // accepted suppression request, and archival files none. Without the
+    // explicit skip this rewrote the very values it was archived over.
+    assert.deepEqual(
+      result.skipped.map((entry: { reason: string }) => entry.reason),
+      ["profile_archived", "profile_archived"],
+    );
+
+    const after = await t.run(async (ctx) => await ctx.db.get(profileId));
+    assert.deepEqual(after?.aliases, before);
+    assert.equal(after?.publicSurfacingState, "archived");
+  });
+
   it("leaves a profile alone when only the map shape differs", async () => {
     const t = convexTest({ schema, modules });
     const now = 1_788_220_800_000;
