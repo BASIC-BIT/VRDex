@@ -42,6 +42,7 @@ export const Playing: Story = {
   render: () => (
     <ControlsFrame>
       <VrcdnPlayerControls
+        connected
         fullscreen={false}
         label="VRCDN stream"
         muted={false}
@@ -62,6 +63,7 @@ export const Paused: Story = {
   render: () => (
     <ControlsFrame>
       <VrcdnPlayerControls
+        connected
         fullscreen={false}
         label="VRCDN stream"
         muted
@@ -82,6 +84,7 @@ export const Fullscreen: Story = {
   render: () => (
     <ControlsFrame>
       <VrcdnPlayerControls
+        connected
         fullscreen
         label="VRCDN stream"
         muted={false}
@@ -105,6 +108,7 @@ export const WithoutVolumeSlider: Story = {
   render: () => (
     <ControlsFrame>
       <VrcdnPlayerControls
+        connected
         fullscreen={false}
         label="VRCDN stream"
         muted={false}
@@ -115,6 +119,31 @@ export const WithoutVolumeSlider: Story = {
         paused={false}
         volume={1}
         volumeSettable={false}
+      />
+    </ControlsFrame>
+  ),
+};
+
+/**
+ * Between the press and the first frame. `LIVE` is a claim about the stream,
+ * and pressing play only records the click -- the event surface can offer a
+ * player for a stream that is not publishing at all.
+ */
+export const Connecting: Story = {
+  render: () => (
+    <ControlsFrame>
+      <VrcdnPlayerControls
+        connected={false}
+        fullscreen={false}
+        label="VRCDN stream"
+        muted={false}
+        onToggleFullscreen={noop}
+        onToggleMute={noop}
+        onTogglePlay={noop}
+        onVolumeChange={noop}
+        paused={false}
+        volume={0.8}
+        volumeSettable
       />
     </ControlsFrame>
   ),

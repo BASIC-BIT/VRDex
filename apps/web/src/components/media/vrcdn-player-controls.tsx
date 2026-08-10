@@ -11,6 +11,13 @@ export type VrcdnPlayerControlsProps = {
    * about to change.
    */
   label: string;
+  /**
+   * Whether playback has actually begun. `LIVE` is a claim, and `started` only
+   * records the click -- the event surface can offer a player for a stream that
+   * is not publishing, so the marker would sit over a dead connection until
+   * `mpegts.js` got round to erroring.
+   */
+  connected: boolean;
   muted: boolean;
   onToggleFullscreen: () => void;
   onToggleMute: () => void;
@@ -41,6 +48,7 @@ const controlButton =
  * rebuilt along with the look; the icons stay visually small inside it.
  */
 export function VrcdnPlayerControls({
+  connected,
   fullscreen,
   label,
   muted,
@@ -76,7 +84,11 @@ export function VrcdnPlayerControls({
           value={muted ? 0 : volume}
         />
       ) : null}
-      <span className="ml-auto pr-1 text-xs font-medium tracking-wide text-white/80">LIVE</span>
+      {connected ? (
+        <span className="ml-auto pr-1 text-xs font-medium tracking-wide text-white/80">LIVE</span>
+      ) : (
+        <span className="ml-auto" />
+      )}
       <button
         // Announces what pressing it will do, not what the button is. While the
         // wrapper is fullscreen this exits, and saying `Full screen` there gave

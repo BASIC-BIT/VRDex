@@ -707,10 +707,20 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
                       an idle stream is a control that cannot do anything. */}
                   {profile.vrcdnLive?.[stream.streamId] === "live" ? (
                     <div className="mb-4 overflow-hidden rounded-control border border-border">
-                      {/* The link's own label, unsuffixed. Appending "stream"
+                      {/* The link's own label, unsuffixed -- appending "stream"
                           read as "VRCDN stream stream" on every profile whose
-                          label already said so, which is most of them. */}
-                      <VrcdnStreamPlayer src={stream.questUrl} title={label} />
+                          label already said so, which is most of them.
+
+                          Qualified by stream id only when a profile carries
+                          more than one, because `prepareProfileLink` defaults
+                          every unlabelled VRCDN link to "VRCDN" and nothing
+                          requires labels to be unique. `title` is accessible
+                          text only, never rendered, so this disambiguates the
+                          controls without touching what anyone sees. */}
+                      <VrcdnStreamPlayer
+                        src={stream.questUrl}
+                        title={vrcdnStreams.length > 1 ? `${label} ${stream.streamId}` : label}
+                      />
                     </div>
                   ) : null}
                   <CopyValueRow label="Quest (MPEG-TS)" value={stream.questUrl} />

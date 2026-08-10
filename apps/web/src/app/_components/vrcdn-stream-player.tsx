@@ -23,6 +23,11 @@ export function WatchPlayPoster() {
   );
 }
 
+/** iPhone Safari exposes only video fullscreen, never element fullscreen. */
+type IosFullscreenVideo = HTMLVideoElement & {
+  webkitEnterFullscreen?: () => void;
+};
+
 /**
  * Whether script can move the media volume at all.
  *
@@ -31,11 +36,6 @@ export function WatchPlayPoster() {
  * Safari for iPhone and iPad, volume is the hardware buttons' business alone,
  * so a slider there would drag and change nothing.
  */
-/** iPhone Safari exposes only video fullscreen, never element fullscreen. */
-type IosFullscreenVideo = HTMLVideoElement & {
-  webkitEnterFullscreen?: () => void;
-};
-
 function canSetMediaVolume(): boolean {
   if (typeof document === "undefined") {
     return true;
@@ -88,6 +88,10 @@ export function VrcdnStreamPlayer({ src, title }: VrcdnStreamPlayerProps) {
   const [muted, setMuted] = useState(false);
   const [volume, setVolume] = useState(1);
   const [fullscreen, setFullscreen] = useState(false);
+  // Sticky from the first `playing` event. `started` is only the click, so it
+  // cannot carry the `LIVE` marker; a later stall is transient and should not
+  // retract a claim that was true.
+  const [connected, setConnected] = useState(false);
   // Lazily, not in an effect: the controls only mount after a click, so this has
   // always run client-side by the time it is read, and there is no server pass
   // to disagree with.
@@ -121,12 +125,16 @@ export function VrcdnStreamPlayer({ src, title }: VrcdnStreamPlayerProps) {
       }
     };
 
+    const markConnected = () => setConnected(true);
+
     sync();
+    video.addEventListener("playing", markConnected);
     video.addEventListener("play", sync);
     video.addEventListener("pause", sync);
     video.addEventListener("volumechange", sync);
 
     return () => {
+      video.removeEventListener("playing", markConnected);
       video.removeEventListener("play", sync);
       video.removeEventListener("pause", sync);
       video.removeEventListener("volumechange", sync);
@@ -260,6 +268,7 @@ export function VrcdnStreamPlayer({ src, title }: VrcdnStreamPlayerProps) {
             setEnded(false);
             setFailed(false);
             setStarted(false);
+            setConnected(false);
           }}
           type="button"
         >
@@ -311,6 +320,7 @@ export function VrcdnStreamPlayer({ src, title }: VrcdnStreamPlayerProps) {
         ref={videoRef}
       />
       <VrcdnPlayerControls
+        connected={connected}
         fullscreen={fullscreen}
         label={title}
         muted={muted}
