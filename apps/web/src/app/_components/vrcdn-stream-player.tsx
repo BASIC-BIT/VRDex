@@ -227,8 +227,33 @@ export function VrcdnStreamPlayer({ src, title }: VrcdnStreamPlayerProps) {
   // had no handler and no way back short of reloading.
   if (failed || ended) {
     return (
-      <div className="flex aspect-video min-h-64 items-center justify-center bg-[linear-gradient(135deg,var(--media),var(--surface-raised))] p-5">
-        <p className="text-sm font-medium text-white/80">{ended ? "Stream ended" : "Stream unavailable"}</p>
+      <div className="flex aspect-video min-h-64 flex-col items-center justify-center gap-4 bg-[linear-gradient(135deg,var(--media),var(--surface-raised))] p-5">
+        {/*
+          Announced, because this replaces a focused control. Without a live
+          region a screen-reader user loses focus and is told nothing about why
+          the player disappeared.
+        */}
+        <p className="text-sm font-medium text-white/80" role="status">
+          {ended ? "Stream ended" : "Stream unavailable"}
+        </p>
+        {/*
+          `ended` is not authoritative. A clean EOF also arrives when the CDN
+          closes or recycles the connection while the broadcaster is still
+          going, so a terminal claim with no way back would strand a viewer on
+          a stream that never stopped. Reconnecting returns to the poster, so
+          the retry costs a viewer slot only when someone asks for it.
+        */}
+        <button
+          className="rounded-control border border-white/30 bg-white/16 px-3 py-2 text-sm font-medium text-white"
+          onClick={() => {
+            setEnded(false);
+            setFailed(false);
+            setStarted(false);
+          }}
+          type="button"
+        >
+          Try again
+        </button>
       </div>
     );
   }
@@ -307,11 +332,22 @@ export function VrcdnStreamPlayer({ src, title }: VrcdnStreamPlayerProps) {
             return;
           }
 
-          if (video.paused) {
-            void video.play().catch(() => {});
-          } else {
+          if (!video.paused) {
             video.pause();
+            return;
           }
+
+          // Back to the live edge, not to where the pause happened. The element
+          // holds its timestamp while paused, so resuming would play further
+          // and further behind -- and with no seek bar there is nothing to drag
+          // to catch up.
+          const { buffered } = video;
+
+          if (buffered.length > 0) {
+            video.currentTime = buffered.end(buffered.length - 1);
+          }
+
+          void video.play().catch(() => {});
         }}
         onVolumeChange={(next) => {
           const video = videoRef.current;
