@@ -238,8 +238,14 @@ export function VrcdnStreamPlayer({ src, title }: VrcdnStreamPlayerProps) {
           region a screen-reader user loses focus and is told nothing about why
           the player disappeared.
         */}
+        {/*
+          "Playback stopped", not "Stream ended". EOF says this connection
+          finished, which also happens when the CDN recycles it mid-broadcast,
+          so naming the broadcast would send people away from a set still
+          running. It describes what is known and the retry covers the rest.
+        */}
         <p className="text-sm font-medium text-white/80" role="status">
-          {ended ? "Stream ended" : "Stream unavailable"}
+          {ended ? "Playback stopped" : "Stream unavailable"}
         </p>
         {/*
           `ended` is not authoritative. A clean EOF also arrives when the CDN
