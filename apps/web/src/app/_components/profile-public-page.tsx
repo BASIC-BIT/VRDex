@@ -4,6 +4,7 @@ import { Fragment, type CSSProperties, type ReactNode } from "react";
 
 import { EventPreviewCard, type PublicEventPreview } from "./event-public-page";
 import { MediaPreviewImage } from "./media-preview-image";
+import { VrcdnStreamPlayer } from "./vrcdn-stream-player";
 import { ProfilePrivateRecord } from "./profile-private-record";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, Eyebrow, SectionHeading } from "@/components/ui/card";
@@ -668,9 +669,7 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
               {twitchLink ? (
                 <div className="mt-4 border-b border-border pb-5">
                   {/* Badge beside the provider name, matching the VRCDN row
-                      below. The VRCDN row cannot push it to the far edge --
-                      `Open preview` sits there -- so this is the placement both
-                      can share. */}
+                      below, so one surface does not carry two conventions. */}
                   <div className="flex items-center gap-3">
                     <span className="font-medium">Twitch</span>
                     {profile.twitchLive?.status === "live" ? (
@@ -695,16 +694,15 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
                         <span className="text-sm font-medium text-success">Live now</span>
                       ) : null}
                     </div>
-                    <a
-                      className={cn(buttonVariants({ size: "sm", variant: "secondary" }), "gap-2")}
-                      href={stream.previewUrl}
-                      rel="noreferrer"
-                      target="_blank"
-                    >
-                      Open preview
-                      <ExternalLink aria-hidden="true" className="size-3.5" />
-                    </a>
                   </div>
+                  {/* Only while the stream is actually publishing. The player
+                      is the moment's own affordance, and offering one against
+                      an idle stream is a control that cannot do anything. */}
+                  {profile.vrcdnLive?.[stream.streamId] === "live" ? (
+                    <div className="mb-4 overflow-hidden rounded-control border border-border">
+                      <VrcdnStreamPlayer src={stream.questUrl} title={`${label} stream`} />
+                    </div>
+                  ) : null}
                   <CopyValueRow label="Quest (MPEG-TS)" value={stream.questUrl} />
                   <CopyValueRow label="PC (RTSPT)" value={stream.pcUrl} />
                 </div>
