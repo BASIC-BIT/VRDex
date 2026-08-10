@@ -2,7 +2,8 @@ import "server-only";
 
 import { unstable_cache } from "next/cache";
 
-import { twitchLoginFromUrl } from "@/lib/twitch-url";
+import { type LiveClaimLink } from "@/lib/live-claim-sources";
+import { twitchLoginForLiveClaim } from "@/lib/twitch-url";
 
 export type TwitchLiveState =
   | {
@@ -15,10 +16,7 @@ export type TwitchLiveState =
   | { status: "offline" }
   | { status: "unavailable" };
 
-type PublicLink = {
-  type: string;
-  url: string;
-};
+type PublicLink = LiveClaimLink;
 
 type TwitchTokenResponse = {
   access_token?: string;
@@ -125,10 +123,7 @@ const getCachedTwitchLiveState = unstable_cache(
 );
 
 export async function getTwitchLiveState(links: readonly PublicLink[]): Promise<TwitchLiveState | undefined> {
-  const login = links
-    .filter((link) => link.type === "twitch")
-    .map((link) => twitchLoginFromUrl(link.url))
-    .find((candidate): candidate is string => candidate !== null);
+  const login = twitchLoginForLiveClaim(links);
 
   if (!login) {
     return undefined;
