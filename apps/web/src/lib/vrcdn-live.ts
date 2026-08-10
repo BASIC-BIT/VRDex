@@ -14,9 +14,25 @@ import { parseVrcdnStreamLinks } from "../../../../convex/_vrcdnLinks";
 export type VrcdnLiveState = "live" | "offline" | "unavailable";
 
 export type VrcdnLiveLink = {
+  source: string;
   type: string;
   url: string;
 };
+
+/**
+ * Link provenance a liveness claim may rest on.
+ *
+ * `community_submitted` is deliberately absent. `submitCommunityProfile`
+ * publishes immediately, and a community submission is one signed-in person
+ * adding somebody else's profile -- so a stranger could attach a stream id they
+ * do not own and make an unclaimed profile announce that person is live. A
+ * `404` cannot tell "not publishing" from "not their stream", so the probe
+ * cannot catch this; only provenance can.
+ *
+ * The link still renders. It is the claim about who is streaming that needs a
+ * vetted source.
+ */
+const liveClaimLinkSources = new Set(["owner_authored", "partner_provided", "reviewed"]);
 
 export function vrcdnLiveStateFromStatus(status: number): VrcdnLiveState {
   if (status === 404) {
@@ -61,7 +77,9 @@ export function vrcdnStreamIds(links: readonly VrcdnLiveLink[]): string[] {
   return [
     ...new Set(
       links.flatMap((link) =>
-        link.type === "vrcdn" ? parseVrcdnStreamLinks(link.url)?.streamId ?? [] : [],
+        link.type === "vrcdn" && liveClaimLinkSources.has(link.source)
+          ? parseVrcdnStreamLinks(link.url)?.streamId ?? []
+          : [],
       ),
     ),
   ];

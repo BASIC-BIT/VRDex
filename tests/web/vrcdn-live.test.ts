@@ -38,10 +38,10 @@ describe("VRCDN liveness", () => {
   it("asks once per stream, however the profile spelled it", () => {
     assert.deepEqual(
       vrcdnStreamIds([
-        { type: "vrcdn", url: "https://vrcdn.live/djaurora" },
-        { type: "vrcdn", url: "https://stream.vrcdn.live/live/djaurora.m3u8" },
-        { type: "vrcdn", url: "https://panel.vrcdn.live/preview/djaurora" },
-        { type: "vrcdn", url: "rtspt://stream.vrcdn.live/live/nightshift" },
+        { source: "owner_authored", type: "vrcdn", url: "https://vrcdn.live/djaurora" },
+        { source: "owner_authored", type: "vrcdn", url: "https://stream.vrcdn.live/live/djaurora.m3u8" },
+        { source: "reviewed", type: "vrcdn", url: "https://panel.vrcdn.live/preview/djaurora" },
+        { source: "partner_provided", type: "vrcdn", url: "rtspt://stream.vrcdn.live/live/nightshift" },
       ]),
       ["djaurora", "nightshift"],
     );
@@ -50,12 +50,25 @@ describe("VRCDN liveness", () => {
   it("probes nothing for links that are not a VRCDN stream", () => {
     assert.deepEqual(
       vrcdnStreamIds([
-        { type: "twitch", url: "https://twitch.tv/djaurora" },
+        { source: "owner_authored", type: "twitch", url: "https://twitch.tv/djaurora" },
         // Typed `vrcdn` by a submitter, but VRCDN's own product page rather
         // than a stream. Probing it would ask about a stream id that is really
         // a route name.
-        { type: "vrcdn", url: "https://vrcdn.live/dashboard" },
-        { type: "vrcdn", url: "https://example.com/not-vrcdn" },
+        { source: "owner_authored", type: "vrcdn", url: "https://vrcdn.live/dashboard" },
+        { source: "owner_authored", type: "vrcdn", url: "https://example.com/not-vrcdn" },
+      ]),
+      [],
+    );
+  });
+
+  it("will not claim someone is live on a stranger's say-so", () => {
+    // `submitCommunityProfile` publishes immediately, and a community
+    // submission is one signed-in person adding somebody else's profile. A
+    // stream id arriving that way could belong to anyone, and a `404` cannot
+    // tell "not publishing" from "not their stream".
+    assert.deepEqual(
+      vrcdnStreamIds([
+        { source: "community_submitted", type: "vrcdn", url: "https://vrcdn.live/someone-elses-stream" },
       ]),
       [],
     );
