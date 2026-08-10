@@ -823,17 +823,21 @@ describe("public event projection", () => {
       {
         type: "watch",
         label: "Event stream",
-        // Resolves to the public VRCDN page like every other VRCDN input shape.
-        // The panel preview URL passed through untouched only because the parser
-        // did not recognize that host, which put a link to VRCDN's operator
-        // console on a public event page.
-        url: "https://stream.vrcdn.live/live/basicbit.m3u8",
+        // Every VRCDN input shape resolves to the transport stream, which is
+        // what actually plays. The panel preview URL passed through untouched
+        // only because the parser did not recognize that host, which put a link
+        // to VRCDN's operator console on a public event page.
+        //
+        // This pinned the `.m3u8` until it turned out VRCDN publishes no HLS
+        // and that URL answers `404` even mid-broadcast, so what was being
+        // asserted here was a dead link.
+        url: "https://stream.vrcdn.live/live/basicbit.live.ts",
         presentation: "open",
       },
       {
         type: "vrcdn",
         label: "Quest stream",
-        url: "https://stream.vrcdn.live/live/basicbit.m3u8",
+        url: "https://stream.vrcdn.live/live/basicbit.live.ts",
         presentation: "copy",
       },
     ]);

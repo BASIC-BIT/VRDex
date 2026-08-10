@@ -20,6 +20,14 @@ export function WatchPlayPoster() {
   );
 }
 
+type MpegTsPlayer = {
+  destroy: () => void;
+  detachMediaElement: () => void;
+  pause: () => void;
+  play: () => unknown;
+  unload: () => void;
+};
+
 type VrcdnStreamPlayerProps = {
   /** The `.live.ts` transport stream. VRCDN serves no HLS. */
   src: string;
@@ -43,7 +51,7 @@ type VrcdnStreamPlayerProps = {
 export function VrcdnStreamPlayer({ src, title }: VrcdnStreamPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [started, setStarted] = useState(false);
-  const [unsupported, setUnsupported] = useState(false);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     if (!started) {
@@ -57,12 +65,25 @@ export function VrcdnStreamPlayer({ src, title }: VrcdnStreamPlayerProps) {
     }
 
     let cancelled = false;
-    let player: {
-      destroy: () => void;
-      detachMediaElement: () => void;
-      pause: () => void;
-      unload: () => void;
-    } | null = null;
+    let player: MpegTsPlayer | null = null;
+
+    // Torn down in full rather than dropped. An attached player holds an open
+    // connection to the operator's stream, so anything that stops showing the
+    // video has to release it too -- including the error path, which swaps in
+    // the failure state while the component stays mounted and the effect
+    // cleanup never runs.
+    const releasePlayer = () => {
+      if (!player) {
+        return;
+      }
+
+      const instance = player;
+      player = null;
+      instance.pause();
+      instance.unload();
+      instance.detachMediaElement();
+      instance.destroy();
+    };
 
     void import("mpegts.js")
       .then(({ default: mpegts }) => {
@@ -71,46 +92,51 @@ export function VrcdnStreamPlayer({ src, title }: VrcdnStreamPlayerProps) {
         }
 
         if (!mpegts.isSupported()) {
-          setUnsupported(true);
+          setFailed(true);
           return;
         }
 
         const instance = mpegts.createPlayer({ isLive: true, type: "mpegts", url: src });
 
         instance.on(mpegts.Events.ERROR, () => {
-          setUnsupported(true);
+          releasePlayer();
+          setFailed(true);
         });
         instance.attachMediaElement(videoRef.current);
         instance.load();
-        void instance.play();
         player = instance;
+
+        // The click that started this is already spent by the time the player
+        // chunk resolves, so a browser that blocks audible autoplay can refuse.
+        // The element keeps its native controls, so the viewer presses play
+        // once more rather than being left with a dead frame; muting instead
+        // would be worse, since the audio is the whole point of a DJ set.
+        void Promise.resolve(instance.play()).catch(() => {});
       })
       .catch(() => {
         if (!cancelled) {
-          setUnsupported(true);
+          setFailed(true);
         }
       });
 
     return () => {
       cancelled = true;
-
-      // Torn down in full rather than dropped. This holds an open connection to
-      // the operator's stream, so leaving it attached would keep spending the
-      // viewer slot after the element is gone.
-      if (player) {
-        player.pause();
-        player.unload();
-        player.detachMediaElement();
-        player.destroy();
-      }
+      releasePlayer();
 
       video.removeAttribute("src");
       video.load();
     };
   }, [src, started]);
 
-  if (unsupported) {
-    return <WatchPlayPoster />;
+  // Deliberately not the play poster. That is the same triangle the start
+  // button wears, and reusing it here left the viewer clicking a control that
+  // had no handler and no way back short of reloading.
+  if (failed) {
+    return (
+      <div className="flex aspect-video min-h-64 items-center justify-center bg-[linear-gradient(135deg,var(--media),var(--surface-raised))] p-5">
+        <p className="text-sm font-medium text-white/80">Stream unavailable</p>
+      </div>
+    );
   }
 
   if (!started) {

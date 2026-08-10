@@ -520,7 +520,7 @@ export async function expectEventPage(page: Page) {
   );
   await expect(page.getByText("Afterglow watch link", { exact: true })).toBeVisible();
   await expect(
-    page.locator('a[href="https://stream.vrcdn.live/live/playwright-afterglow-harbor-sessions.m3u8"]'),
+    page.locator('a[href="https://stream.vrcdn.live/live/playwright-afterglow-harbor-sessions.live.ts"]'),
   ).toBeVisible();
   await expect(page.getByText("Watch now", { exact: true })).toHaveCount(0);
 }

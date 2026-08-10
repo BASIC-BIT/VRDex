@@ -202,7 +202,8 @@ Embeds are limited to explicitly supported providers:
 
 - YouTube watch, live, shorts, and embed URLs render through a `youtube-nocookie.com` iframe.
 - Twitch channel, video, collection, and clip URLs render through Twitch's player or clips iframe with the current browser hostname passed as the required `parent` parameter.
-- VRCDN page, HLS, Quest `.live.ts`, PC `rtspt://`, and direct MP4/WebM/Ogg URLs are normalized by stream ID. Direct MP4/WebM/Ogg URLs render as native video; the other VRCDN variants derive an HLS URL and render through `hls.js` with native HLS fallback where available.
+- VRCDN page, HLS, Quest `.live.ts`, PC `rtspt://`, and direct MP4/WebM/Ogg URLs are normalized by stream ID. Direct MP4/WebM/Ogg URLs render as native video; the other VRCDN variants derive the Quest `.live.ts` transport stream and render through `mpegts.js`, the library and endpoint VRCDN's own preview page uses. **Do not route this back through HLS.** VRCDN publishes no HLS — the `.m3u8` answers `404` even while a stream is publishing, so the previous `hls.js` path never played a VRCDN stream at all. Truth table in `docs/backend/profile-schema.md`.
+- The VRCDN player connects only when a viewer presses play, because a player is a viewer against the operator's capped plan. The event surface gates on the opt-in and the scheduled window, not on liveness, so it can offer a player for a stream that is not publishing.
 
 Unsupported watch URLs fall back to a prominent outbound watch card during the scheduled watch window. Source liveness checks, operator status, and restream switching remain part of the larger media-control model tracked in `#124`; public UI should not expose those implementation boundaries as explanatory copy.
 

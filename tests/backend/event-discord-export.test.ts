@@ -110,7 +110,9 @@ describe("Discord event post export", () => {
         "",
         "Links:",
         "- Watch: https://example.invalid/watch",
-        "- Quest stream: https://stream.vrcdn.live/live/basicbit.m3u8",
+        // The transport stream, not the HLS playlist: VRCDN publishes no HLS,
+        // so the exported link used to answer `404` in Discord.
+        "- Quest stream: https://stream.vrcdn.live/live/basicbit.live.ts",
       ].join("\n"),
     );
   });
