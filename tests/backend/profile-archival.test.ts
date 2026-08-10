@@ -321,6 +321,46 @@ describe("superadmin profile archival", () => {
     );
   });
 
+  it("sees a suppression filed against the profile itself, not only its name", async () => {
+    const t = convexTest({ schema, modules });
+    const profileId = await seedProfile(t, {
+      slug: "archived-row",
+      publicSurfacingState: "archived",
+    });
+    const identity = await signIn(t, { superAdmin: true });
+
+    // Acceptance schedules the retraction, so this is the ordinary case rather
+    // than a race: a restore between the two has to see the request. A
+    // names-only check does not -- `hasAcceptedSuppression` excludes a request
+    // naming a live profile from its name scan, because it already resolved to
+    // its target and matching on name too would block a namesake.
+    await t.run(async (ctx) => {
+      await ctx.db.insert("profileSuppressionRequests", {
+        profileId,
+        requestType: "owner_opt_out",
+        state: "accepted",
+        resolvedBy: actor,
+        resolvedAt: NOW,
+        createdAt: NOW,
+        updatedAt: NOW,
+      });
+    });
+
+    await assert.rejects(
+      t.withIdentity(identity).mutation(api.profileArchival.setProfileArchived, {
+        slug: "archived-row",
+        archived: false,
+        reason: "Restoring before the retraction worker has run.",
+      }),
+      (error: { data?: { code?: string } }) => error.data?.code === "IDENTITY_SUPPRESSED",
+    );
+
+    assert.equal(
+      (await t.run(async (ctx) => await ctx.db.get(profileId)))?.publicSurfacingState,
+      "archived",
+    );
+  });
+
   it("requires a reason long enough to mean something", async () => {
     const t = convexTest({ schema, modules });
     await seedProfile(t);

@@ -123,7 +123,16 @@ async function applyProfileArchival(
     // written contract that republication re-checks it. Without this an owner
     // could rename an archived row onto a name somebody already had suppressed,
     // and the restore would publish the identity they withdrew.
+    //
+    // Every identity key, not just the names. `hasAcceptedSuppression` excludes
+    // a request that names a live profile from its name scan -- it already
+    // resolved to its target, and matching on name too would block an unrelated
+    // namesake -- so a request filed against *this* profile is invisible to a
+    // names-only check. That is the ordinary case: acceptance schedules the
+    // retraction, and a restore running before the worker would have passed.
     await assertIdentityNotSuppressed(ctx.db, {
+      profileId: profile._id,
+      slugs: [profile.slug],
       displayNames: surfacedProfileNames(profile),
       profileType: profile.profileType,
     });
