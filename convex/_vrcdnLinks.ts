@@ -227,9 +227,13 @@ export function vrcdnPlaybackHref(url: string): string | undefined {
  * The generic HTTPS filter every projection already applied is right for every
  * type but this one: a VRCDN stream is stored as an identifier, so the filter
  * dropped it and the link never reached the page at all. Resolving first hands
- * readers the playlist, which is a real URL *and* parses back to the same
- * stream -- so the copy rows and the embed keep deriving what they need without
- * every consumer having to learn a second format.
+ * readers the `.live.ts` transport stream, which is a real URL *and* parses
+ * back to the same stream -- so the copy rows and the players keep deriving
+ * what they need without every consumer having to learn a second format.
+ *
+ * Not the HLS playlist, which is what this resolved to until it turned out
+ * VRCDN publishes no HLS: the `.m3u8` answers `404` even mid-broadcast, so
+ * every VRCDN link published here, including over the public API, was dead.
  *
  * One helper for links and media both. Media links briefly published the raw
  * reference instead, on the theory that every reader parses it back. The web
