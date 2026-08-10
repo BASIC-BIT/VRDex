@@ -54,6 +54,7 @@ export function VrcdnStreamPlayer({ src, title }: VrcdnStreamPlayerProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [started, setStarted] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [ended, setEnded] = useState(false);
   // Mirrored from the element rather than driven from here, so the controls
   // still track state the element changes on its own -- a rejected autoplay
   // leaving it paused, or the platform muting it.
@@ -64,7 +65,7 @@ export function VrcdnStreamPlayer({ src, title }: VrcdnStreamPlayerProps) {
   useEffect(() => {
     const video = videoRef.current;
 
-    if (!started || failed || !video) {
+    if (!started || failed || ended || !video) {
       return;
     }
 
@@ -84,7 +85,7 @@ export function VrcdnStreamPlayer({ src, title }: VrcdnStreamPlayerProps) {
       video.removeEventListener("pause", sync);
       video.removeEventListener("volumechange", sync);
     };
-  }, [started, failed]);
+  }, [started, failed, ended]);
 
   useEffect(() => {
     if (!started) {
@@ -118,6 +119,23 @@ export function VrcdnStreamPlayer({ src, title }: VrcdnStreamPlayerProps) {
       instance.destroy();
     };
 
+    // A set that finished is not a player that broke, and saying so needs no
+    // heartbeat: the connection is already open, and when VRCDN stops sending,
+    // `mpegts.js` ends the media source and the element fires `ended`. Polling
+    // liveness from the page instead would mean re-opening `.live.ts` -- the
+    // media endpoint -- on a timer, per open tab, which is the recurring-probe
+    // pattern `#217` deferred, at worse odds than the sweep it deferred.
+    //
+    // `ended` only, never a fatal error. An error after a while of playing is
+    // as likely a network blip, and telling a viewer the set is over while it
+    // is still running sends them away from a stream that is still there.
+    const handleEnded = () => {
+      releasePlayer();
+      setEnded(true);
+    };
+
+    video.addEventListener("ended", handleEnded);
+
     void import("mpegts.js")
       .then(({ default: mpegts }) => {
         if (cancelled || !videoRef.current) {
@@ -141,9 +159,10 @@ export function VrcdnStreamPlayer({ src, title }: VrcdnStreamPlayerProps) {
 
         // The click that started this is already spent by the time the player
         // chunk resolves, so a browser that blocks audible autoplay can refuse.
-        // The element keeps its native controls, so the viewer presses play
-        // once more rather than being left with a dead frame; muting instead
-        // would be worse, since the audio is the whole point of a DJ set.
+        // The control bar mirrors the element, so a refusal surfaces as its
+        // play button and the viewer presses once more rather than being left
+        // with a dead frame; muting to satisfy the policy instead would be
+        // worse, since the audio is the whole point of a DJ set.
         void Promise.resolve(instance.play()).catch(() => {});
       })
       .catch(() => {
@@ -154,6 +173,7 @@ export function VrcdnStreamPlayer({ src, title }: VrcdnStreamPlayerProps) {
 
     return () => {
       cancelled = true;
+      video.removeEventListener("ended", handleEnded);
       releasePlayer();
 
       video.removeAttribute("src");
@@ -164,10 +184,10 @@ export function VrcdnStreamPlayer({ src, title }: VrcdnStreamPlayerProps) {
   // Deliberately not the play poster. That is the same triangle the start
   // button wears, and reusing it here left the viewer clicking a control that
   // had no handler and no way back short of reloading.
-  if (failed) {
+  if (failed || ended) {
     return (
       <div className="flex aspect-video min-h-64 items-center justify-center bg-[linear-gradient(135deg,var(--media),var(--surface-raised))] p-5">
-        <p className="text-sm font-medium text-white/80">Stream unavailable</p>
+        <p className="text-sm font-medium text-white/80">{ended ? "Stream ended" : "Stream unavailable"}</p>
       </div>
     );
   }
