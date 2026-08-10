@@ -1,5 +1,6 @@
 "use client";
 
+import { Maximize, Pause, Play, Volume2, VolumeX } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 /**
@@ -50,8 +51,40 @@ type VrcdnStreamPlayerProps = {
  */
 export function VrcdnStreamPlayer({ src, title }: VrcdnStreamPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const [started, setStarted] = useState(false);
   const [failed, setFailed] = useState(false);
+  // Mirrored from the element rather than driven from here, so the controls
+  // still track state the element changes on its own -- a rejected autoplay
+  // leaving it paused, or the platform muting it.
+  const [paused, setPaused] = useState(false);
+  const [muted, setMuted] = useState(false);
+  const [volume, setVolume] = useState(1);
+
+  useEffect(() => {
+    const video = videoRef.current;
+
+    if (!started || failed || !video) {
+      return;
+    }
+
+    const sync = () => {
+      setPaused(video.paused);
+      setMuted(video.muted);
+      setVolume(video.volume);
+    };
+
+    sync();
+    video.addEventListener("play", sync);
+    video.addEventListener("pause", sync);
+    video.addEventListener("volumechange", sync);
+
+    return () => {
+      video.removeEventListener("play", sync);
+      video.removeEventListener("pause", sync);
+      video.removeEventListener("volumechange", sync);
+    };
+  }, [started, failed]);
 
   useEffect(() => {
     if (!started) {
@@ -153,13 +186,87 @@ export function VrcdnStreamPlayer({ src, title }: VrcdnStreamPlayerProps) {
   }
 
   return (
-    <video
-      autoPlay
-      className="aspect-video w-full bg-media"
-      controls
-      playsInline
-      ref={videoRef}
-      title={title}
-    />
+    <div className="relative bg-media" ref={wrapperRef}>
+      {/*
+        No native `controls`, and no `title`. Native controls put a seek bar on
+        a stream that has nothing to seek: the buffer of a live MPEG-TS feed
+        grows and shifts under the element, so the scrubber jitters and drags
+        against a timeline that does not mean anything. Hiding the timeline
+        alone only works in Chromium and WebKit, so the whole strip is replaced
+        with the controls a live stream can honour.
+
+        `title` rendered as a hover tooltip on the video itself, which is noise;
+        `aria-label` gives the element its accessible name without one.
+      */}
+      <video aria-label={title} autoPlay className="aspect-video w-full" playsInline ref={videoRef} />
+      <div className="absolute inset-x-0 bottom-0 flex items-center gap-3 bg-gradient-to-t from-black/70 to-transparent px-3 py-2">
+        <button
+          aria-label={paused ? "Play" : "Pause"}
+          className="cursor-pointer text-white/90 hover:text-white"
+          onClick={() => {
+            const video = videoRef.current;
+
+            if (!video) {
+              return;
+            }
+
+            if (video.paused) {
+              void video.play().catch(() => {});
+            } else {
+              video.pause();
+            }
+          }}
+          type="button"
+        >
+          {paused ? <Play aria-hidden="true" className="size-5" /> : <Pause aria-hidden="true" className="size-5" />}
+        </button>
+        <button
+          aria-label={muted ? "Unmute" : "Mute"}
+          className="cursor-pointer text-white/90 hover:text-white"
+          onClick={() => {
+            const video = videoRef.current;
+
+            if (video) {
+              video.muted = !video.muted;
+            }
+          }}
+          type="button"
+        >
+          {muted ? <VolumeX aria-hidden="true" className="size-5" /> : <Volume2 aria-hidden="true" className="size-5" />}
+        </button>
+        <input
+          aria-label="Volume"
+          className="h-1 w-24 cursor-pointer accent-white"
+          max={1}
+          min={0}
+          onChange={(event) => {
+            const video = videoRef.current;
+
+            if (video) {
+              video.volume = Number(event.target.value);
+              video.muted = Number(event.target.value) === 0;
+            }
+          }}
+          step={0.01}
+          type="range"
+          value={muted ? 0 : volume}
+        />
+        <span className="ml-auto text-xs font-medium tracking-wide text-white/80">LIVE</span>
+        <button
+          aria-label="Full screen"
+          className="cursor-pointer text-white/90 hover:text-white"
+          onClick={() => {
+            if (document.fullscreenElement) {
+              void document.exitFullscreen().catch(() => {});
+            } else {
+              void wrapperRef.current?.requestFullscreen().catch(() => {});
+            }
+          }}
+          type="button"
+        >
+          <Maximize aria-hidden="true" className="size-5" />
+        </button>
+      </div>
+    </div>
   );
 }
