@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { VrcdnPlayerControls } from "@/components/media/vrcdn-player-controls";
+import { cn } from "@/lib/cn";
 
 /**
  * The play-triangle poster, shared by the VRCDN player and by the watch
@@ -223,7 +224,15 @@ export function VrcdnStreamPlayer({ src, title }: VrcdnStreamPlayerProps) {
   }
 
   return (
-    <div className="relative bg-media" ref={wrapperRef}>
+    <div
+      // Fullscreen hands the wrapper the whole viewport, which is rarely 16:9.
+      // Left at `aspect-video` the video became a strip at the top of a portrait
+      // phone with the controls stranded at the bottom, and overflowed the
+      // height on very wide displays. Filling and letterboxing is what the
+      // native controls did for free.
+      className={cn("relative bg-media", fullscreen && "flex h-full w-full items-center justify-center")}
+      ref={wrapperRef}
+    >
       {/*
         No native `controls`, and no `title`. Native controls put a seek bar on
         a stream that has nothing to seek: the buffer of a live MPEG-TS feed
@@ -235,7 +244,13 @@ export function VrcdnStreamPlayer({ src, title }: VrcdnStreamPlayerProps) {
         `title` rendered as a hover tooltip on the video itself, which is noise;
         `aria-label` gives the element its accessible name without one.
       */}
-      <video aria-label={title} autoPlay className="aspect-video w-full" playsInline ref={videoRef} />
+      <video
+        aria-label={title}
+        autoPlay
+        className={cn("w-full", fullscreen ? "h-full max-h-full object-contain" : "aspect-video")}
+        playsInline
+        ref={videoRef}
+      />
       <VrcdnPlayerControls
         fullscreen={fullscreen}
         muted={muted}
