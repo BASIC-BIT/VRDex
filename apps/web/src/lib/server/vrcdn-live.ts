@@ -26,11 +26,16 @@ const getCachedVrcdnLiveState = unstable_cache(
       return { observedAt: Date.now(), state: "unavailable" };
     }
 
-    const response = await fetch(stream.hlsUrl, { signal: AbortSignal.timeout(probeTimeoutMs) });
+    // The transport stream, not the HLS manifest. The manifest answers `404`
+    // for a stream that is actively publishing, so probing it could never
+    // report anyone live.
+    const response = await fetch(stream.questUrl, { signal: AbortSignal.timeout(probeTimeoutMs) });
 
-    // The status carries the whole answer, so the body is dropped rather than
-    // read. Nothing here pulls a media segment, which is the part that would
-    // plausibly spend one of the operator's paid viewer slots.
+    // Dropped before a frame is read. This endpoint serves media and ignores
+    // `Range`, so it starts pushing MPEG-TS the moment it answers; cancelling
+    // here is what keeps the probe to a connection rather than a download.
+    // Whether VRCDN counts that against the operator's viewer cap cannot be
+    // determined from outside their account.
     await response.body?.cancel();
 
     const state = vrcdnLiveStateFromStatus(response.status);

@@ -60,13 +60,23 @@ Core presentation fields:
 
 Provider liveness is read when the profile is requested and is not stored on the profile. Twitch comes from `apps/web/src/lib/server/twitch-live.ts`, VRCDN from `apps/web/src/lib/server/vrcdn-live.ts`; both cache for sixty seconds and render as a `Live now` badge in the `Watch` surface.
 
-- VRCDN publishes no liveness API. `GET https://stream.vrcdn.live/live/<streamId>.m3u8` answers `200` when the origin is publishing and `404` when it is not, and that is the whole signal. `vrcdn.live` is a Blazor SPA that answers `200` with its app shell for unknown paths, so neither the page nor `/api/live` distinguishes anything.
-- Only `200` counts as live. A bodyless `2xx` is an intermediary answering, not VRCDN reporting a stream.
-- A `404` cannot separate "not publishing" from "no such stream", which is why a stream id has to come from an owner-confirmed link rather than from the probe.
+- VRCDN publishes no liveness API. The signal is `GET https://stream.vrcdn.live/live/<streamId>.live.ts`, the transport stream a Quest client pulls. Measured against a real stream on 2026-08-10, live and then idle:
+
+  | Request | Live | Idle | Unknown id |
+  | --- | --- | --- | --- |
+  | `GET .live.ts` | `200` (`video/mp2t`) | `404` | `401` |
+  | `GET .m3u8` | `404` | `404` | `404` |
+  | `HEAD .live.ts` | `200` | `200` | `200` |
+
+- The HLS manifest is **not** a liveness signal, despite being the original mechanism in `#217`. It answers `404` for a stream that is actively publishing, so probing it reported nobody live, ever. That issue's "verified" note covered only the negative leg — an idle stream and a bad id, both `404` for the wrong reason. `HEAD` is not a signal either, since it answers `200` for ids that do not exist. `vrcdn.live` itself is a Blazor SPA that answers `200` with its app shell for unknown paths, so the page and `/api/live` are out too.
+- Only `200` counts as live. A bodyless `2xx` is an intermediary answering, not VRCDN handing over a stream.
+- `401` (unknown id) and `404` (idle) both render as no badge. They are worth keeping apart because this endpoint distinguishes them: a typo in an owner's own link reads `401` forever, where an idle stream reads `404`.
+- The probe cannot tell whose stream an id belongs to — somebody else's id answers `200` while they are streaming — which is why provenance rather than the probe decides whether a claim may be made.
 - Only `owner_authored`, `reviewed`, and `partner_provided` links are probed. `submitCommunityProfile` publishes immediately and a community submission is one signed-in person adding somebody else's profile, so a `community_submitted` stream id could belong to anyone; the link still renders, but it carries no live claim.
 - Three states, not two: `offline` is a real `404`, `unavailable` is a probe that could not finish. A failed probe renders no badge rather than an idle stream.
 - Observations expire after five minutes. The cache serves a stale entry while it refreshes, and a refresh that keeps throwing would otherwise leave a `Live now` claim standing for the length of a provider outage.
-- Nothing sweeps on a schedule. A stream nobody opens is never probed, and the probe cancels the response body without pulling a media segment. VRCDN plans are viewer-capped and whether a manifest request spends a slot is not answerable from outside the operator's account, so the recurring sweep that a `Live now` discovery surface would need should not ship until VRCDN answers that. See `#217`.
+- Nothing sweeps on a schedule. A stream nobody opens is never probed, and an opened one is probed at most once a minute.
+- The probe touches a media endpoint, and this is the known cost of the mechanism. `.live.ts` ignores `Range` and starts pushing MPEG-TS as soon as it answers, so the probe cancels the body before reading a frame — a connection rather than a download. VRCDN plans are viewer-capped and whether that connection spends a slot cannot be determined from outside the operator's account. Shipping it was an explicit owner decision on `#217` with that question still open, not a resolved one. A recurring sweep, which a `Live now` discovery surface would need, multiplies the same unknown across every stream on a timer and still should not ship until VRCDN answers.
 
 State fields:
 

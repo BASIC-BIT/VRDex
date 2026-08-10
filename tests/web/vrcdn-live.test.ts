@@ -9,6 +9,8 @@ import {
 } from "../../apps/web/src/lib/vrcdn-live";
 
 describe("VRCDN liveness", () => {
+  // Measured against a real stream on 2026-08-10, live and then idle:
+  //   .live.ts   live -> 200   idle -> 404   unknown id -> 401
   it("reads the media server's answer, and refuses to guess at anything else", () => {
     assert.equal(vrcdnLiveStateFromStatus(200), "live");
     // Not `offline`. The stream is publishing or it is not; a CDN failure is
@@ -17,9 +19,16 @@ describe("VRCDN liveness", () => {
     assert.equal(vrcdnLiveStateFromStatus(404), "offline");
   });
 
+  it("treats an id the media server does not know as nobody streaming", () => {
+    // `401` is what a bogus stream id answers -- a typo in an owner's own link,
+    // say. Distinct from the idle `404` at the endpoint, identical to the
+    // reader: no badge either way.
+    assert.equal(vrcdnLiveStateFromStatus(401), "offline");
+  });
+
   it("does not read a bodyless success as a stream", () => {
-    // A `204` carries no manifest, so it is some intermediary answering rather
-    // than VRCDN reporting that anyone is publishing.
+    // A `204` carries no transport stream, so it is some intermediary answering
+    // rather than VRCDN reporting that anyone is publishing.
     assert.equal(vrcdnLiveStateFromStatus(204), "unavailable");
   });
 
