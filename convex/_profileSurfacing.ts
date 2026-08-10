@@ -5,7 +5,7 @@ import {
   upsertSearchDocument,
   vocabularyForProfile,
 } from "./_searchDocuments";
-import { releaseVocabularyTerms } from "./_vocabulary";
+import { recordVocabularyTerms, releaseVocabularyTerms } from "./_vocabulary";
 
 export type ProfileReindexKey = {
   profileType: Doc<"profiles">["profileType"];
@@ -75,7 +75,17 @@ export async function setProfileSurfacing(
   }
 
   await upsertSearchDocument(db, createProfileSearchDocument(updated));
-  await releaseVocabularyTerms(db, vocabularyBefore, next.now);
+
+  // Both directions, because this moves profiles back as well as away. Releasing
+  // alone was right while the only caller hid profiles permanently; for a
+  // reversible state it left a restored profile searchable with its discovery
+  // facets missing, and a later reindex reads the retained vocabulary keys as
+  // references that already exist and never increments them.
+  if (isPubliclySurfaced(updated)) {
+    await recordVocabularyTerms(db, vocabularyForProfile(updated), next.now);
+  } else {
+    await releaseVocabularyTerms(db, vocabularyBefore, next.now);
+  }
 
   return { profileType: updated.profileType, profileSlug: updated.slug };
 }

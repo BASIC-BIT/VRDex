@@ -732,6 +732,28 @@ describe("seed handoff helpers", () => {
         claimState: "claimed_verified",
         profileType: "person",
         publicationState: "draft_private",
+        publicSurfacingState: "opted_out",
+      }),
+      false,
+    );
+    assert.equal(
+      isReusablePrivateConciergeProfile({
+        claimState: "unclaimed",
+        profileType: "person",
+        publicationState: "draft_private",
+        publicSurfacingState: "opted_out",
+      }),
+      true,
+    );
+    // Accepting an invitation issued before the archival stamps `opted_out`
+    // over it and hands somebody ownership of a row an operator said should not
+    // exist. Both the creation and the acceptance path assert through here.
+    assert.equal(
+      isReusablePrivateConciergeProfile({
+        claimState: "unclaimed",
+        profileType: "person",
+        publicationState: "draft_private",
+        publicSurfacingState: "archived",
       }),
       false,
     );

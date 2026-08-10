@@ -632,6 +632,22 @@ pnpm ops:profile-archive -- `
 - `--unarchive` reverses it. It refuses a profile that is `opted_out` or
   `suppressed`, because restoring one of those would resolve somebody's request
   as a side effect, through a path with no reviewer and no record.
+- Archival refuses those two states as well, in the other direction. Archiving
+  over a suppression overwrites the state and its reason, and a later
+  `--unarchive` then reads a plain archival and republishes a profile somebody
+  opted out of. Nothing is lost by refusing: the profile is already off every
+  public surface, which is all archiving it would achieve.
+- Restoring records the profile's discovery terms again, not just releases them
+  on the way out. Release-only was right while hiding was permanent; for a
+  reversible state it brought profiles back searchable with their facets
+  missing, and a later reindex reads the retained vocabulary keys as references
+  that already exist and never increments them.
+- A live concierge handoff invitation cannot be accepted onto an archived
+  profile. Acceptance replays the selected seed fields and stamps `opted_out`
+  over the state, so an invitation issued before the archival would have erased
+  it and handed somebody ownership of the row. Both the creation and acceptance
+  paths assert through `isReusablePrivateConciergeProfile`, so the one check
+  covers both.
 - Option parsing is the seed script's, not a second copy, so the
   package-manager `--`, repeated options, positional strays and the `--target=`
   equals form all behave the same way in both.

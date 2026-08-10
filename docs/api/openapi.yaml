@@ -3568,6 +3568,7 @@ components:
             - public
             - opted_out
             - suppressed
+            - archived
           description: Profile public surfacing state for an authenticated owner inventory.
         creationSource:
           type: string
@@ -3650,6 +3651,7 @@ components:
             - public
             - opted_out
             - suppressed
+            - archived
           description: Profile public surfacing state for an authenticated owner inventory.
         creationSource:
           type: string

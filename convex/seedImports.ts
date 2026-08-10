@@ -1904,11 +1904,15 @@ export const bulkSetFieldVisibility = internalMutation({
         continue;
       }
 
-      // An archived profile was taken off the site deliberately. Replaying the
-      // import snapshot onto it would rewrite the very values it was archived
-      // over, and the suppression recheck further down does not cover this: that
-      // one keys off an accepted suppression *request*, and archival files none.
-      if (profile.publicSurfacingState === "archived") {
+      // Only the replay. An archived profile was taken off the site
+      // deliberately and rewriting its values would undo the reason, but the
+      // visibility half still has to run: the candidate rows are patched either
+      // way, and skipping the profile would leave it holding a `fieldVisibility`
+      // that disagrees with the reviewed record the moment it is unarchived.
+      //
+      // The suppression recheck further down does not cover this at all: it keys
+      // off an accepted suppression *request*, and archival files none.
+      if (args.rederiveValues === true && profile.publicSurfacingState === "archived") {
         skipped.push({
           externalCandidateId: candidate.externalCandidateId,
           reason: "profile_archived",

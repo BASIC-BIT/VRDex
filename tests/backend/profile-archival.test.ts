@@ -177,6 +177,70 @@ describe("superadmin profile archival", () => {
     );
   });
 
+  it("refuses to archive over a suppression rather than overwrite it", async () => {
+    const t = convexTest({ schema, modules });
+    const optedOutId = await seedProfile(t, {
+      slug: "opted-out-row",
+      publicSurfacingState: "opted_out",
+    });
+    await seedProfile(t, { slug: "suppressed-row", publicSurfacingState: "suppressed" });
+    const identity = await signIn(t, { superAdmin: true });
+
+    for (const slug of ["opted-out-row", "suppressed-row"]) {
+      await assert.rejects(
+        t.withIdentity(identity).mutation(api.profileArchival.setProfileArchived, {
+          slug,
+          archived: true,
+          reason: REASON,
+        }),
+        (error: { data?: { code?: string } }) =>
+          error.data?.code === "SUPPRESSION_OUTRANKS_ARCHIVAL",
+      );
+    }
+
+    // The state survives, which is the point: archiving over it and then
+    // un-archiving would have republished a profile somebody opted out of,
+    // through a path that never read the request.
+    assert.equal(
+      (await t.run(async (ctx) => await ctx.db.get(optedOutId)))?.publicSurfacingState,
+      "opted_out",
+    );
+  });
+
+  it("puts the discovery terms back when a profile is restored", async () => {
+    const t = convexTest({ schema, modules });
+    await seedProfile(t);
+    const identity = await signIn(t, { superAdmin: true });
+
+    const usage = async () =>
+      await t.run(async (ctx) => {
+        const terms = await ctx.db.query("vocabularyTerms").collect();
+        return terms.map((term) => term.usageCount ?? 0).reduce((total, n) => total + n, 0);
+      });
+
+    await t.withIdentity(identity).mutation(api.profileArchival.setProfileArchived, {
+      slug: "junk-row",
+      archived: true,
+      reason: REASON,
+    });
+
+    // The fixture is inserted straight into the table, so nothing recorded its
+    // terms on the way in and there is nothing for the archival to release.
+    // Measured anyway, because it is the floor the restore has to climb off.
+    assert.equal(await usage(), 0);
+
+    await t.withIdentity(identity).mutation(api.profileArchival.setProfileArchived, {
+      slug: "junk-row",
+      archived: false,
+      reason: "Archived in error; the row is a real person.",
+    });
+
+    // Releasing alone was right while hiding was permanent. Reversible means the
+    // restore has to record too, or the profile comes back searchable with its
+    // discovery facets missing and no later reindex increments them.
+    assert.equal(await usage(), 1);
+  });
+
   it("requires a reason long enough to mean something", async () => {
     const t = convexTest({ schema, modules });
     await seedProfile(t);

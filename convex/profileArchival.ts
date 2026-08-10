@@ -17,7 +17,8 @@ export type ProfileArchivalErrorCode =
   | "PROFILE_NOT_FOUND"
   | "REASON_REQUIRED"
   | "CLAIMED_PROFILE_NEEDS_CONFIRMATION"
-  | "NOT_ARCHIVED";
+  | "NOT_ARCHIVED"
+  | "SUPPRESSION_OUTRANKS_ARCHIVAL";
 
 function archivalError(code: ProfileArchivalErrorCode, message: string) {
   // Structured rather than a plain `Error`: Convex redacts plain messages on
@@ -82,6 +83,23 @@ async function applyProfileArchival(
       throw archivalError(
         "CLAIMED_PROFILE_NEEDS_CONFIRMATION",
         "This profile is claimed. Re-run with confirmation to archive it anyway.",
+      );
+    }
+
+    // A suppression outranks archival, and archiving over one is how it would
+    // get erased: the state and its reason are overwritten, and then the
+    // `--unarchive` guard sees a plain archival and puts the profile back
+    // public -- undoing an accepted opt-out through a path that never read it.
+    //
+    // Nothing is lost by refusing. The profile is already off every public
+    // surface, which is the whole of what archiving it would achieve.
+    if (
+      profile.publicSurfacingState === "opted_out" ||
+      profile.publicSurfacingState === "suppressed"
+    ) {
+      throw archivalError(
+        "SUPPRESSION_OUTRANKS_ARCHIVAL",
+        `This profile is already hidden as ${profile.publicSurfacingState}. Archiving it would overwrite that decision.`,
       );
     }
   } else if (profile.publicSurfacingState !== "archived") {

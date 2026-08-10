@@ -17,11 +17,19 @@ export function isClaimablePrivatePersonSeedCandidate(
 }
 
 export function isReusablePrivateConciergeProfile(
-  profile: Pick<PersonProfile, "claimState" | "profileType" | "publicationState">,
+  profile: Pick<
+    PersonProfile,
+    "claimState" | "profileType" | "publicationState" | "publicSurfacingState"
+  >,
 ): boolean {
   return profile.profileType === "person" &&
     profile.claimState === "unclaimed" &&
-    profile.publicationState === "draft_private";
+    profile.publicationState === "draft_private" &&
+    // An archived row is one an operator said should not exist. Reusing it
+    // replays the seed fields and stamps `opted_out` over the archival, so
+    // accepting an invitation issued earlier would erase the decision and hand
+    // somebody ownership of the row it was made about.
+    profile.publicSurfacingState !== "archived";
 }
 
 export function canRevealAcceptedHandoffDestination(
