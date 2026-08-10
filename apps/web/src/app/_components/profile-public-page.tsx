@@ -18,7 +18,7 @@ import { hasRenderableProfileMediaKit } from "@/lib/profile-media-kit";
 import { safeImageBackground } from "@/lib/safe-image";
 import type { TwitchLiveState } from "@/lib/server/twitch-live";
 import type { VrcdnLiveState } from "@/lib/vrcdn-live";
-import { twitchLoginFromUrl } from "@/lib/twitch-url";
+import { twitchLinkForLiveClaim, twitchLoginFromUrl } from "@/lib/twitch-url";
 import { parseVrcdnStreamLinks, vrcdnPlaybackHref } from "../../../../../convex/_vrcdnLinks";
 
 /**
@@ -399,7 +399,14 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
       (item): item is { link: (typeof profile.outboundLinks)[number]; href: string } =>
         item.href !== null && item.href !== undefined,
     );
-  const twitchLink = validLinks.find(({ link }) => link.type === "twitch" && twitchLoginFromUrl(link.url));
+  // The very link the probe used, found by the same selector rather than by a
+  // second pass that happens to agree. The fallback keeps an unvetted link
+  // rendering as a plain watch button -- the link was never the problem, the
+  // claim about who is streaming was, and `twitchLive` stays undefined for it.
+  const claimedTwitchLink = twitchLinkForLiveClaim(profile.outboundLinks);
+  const twitchLink =
+    (claimedTwitchLink && validLinks.find(({ link }) => link === claimedTwitchLink)) ??
+    validLinks.find(({ link }) => link.type === "twitch" && twitchLoginFromUrl(link.url));
   const discordHandles = validLinks.flatMap((item) => {
     if (item.link.type !== "discord") {
       return [];

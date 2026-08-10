@@ -46,11 +46,29 @@ export function twitchLoginFromUrl(input: string): string | null {
  * profile for somebody else with an arbitrary channel attached, and Helix would
  * happily report that channel live -- along with its title and viewer count.
  */
-export function twitchLoginForLiveClaim(links: readonly LiveClaimLink[]): string | null {
+export function twitchLinkForLiveClaim<TLink extends LiveClaimLink>(
+  links: readonly TLink[],
+): TLink | null {
   return (
-    links
-      .filter((link) => link.type === "twitch" && carriesLiveClaim(link))
-      .map((link) => twitchLoginFromUrl(link.url))
-      .find((candidate): candidate is string => candidate !== null) ?? null
+    links.find(
+      (link) =>
+        link.type === "twitch" && carriesLiveClaim(link) && twitchLoginFromUrl(link.url) !== null,
+    ) ?? null
   );
+}
+
+/**
+ * The channel to probe, from the link that will also be displayed.
+ *
+ * Returning the link and the login from one selector is deliberate. The profile
+ * page picks the Twitch link it renders, and the server picks the channel it
+ * probes; when those were two similar-looking passes over the same array, a
+ * profile carrying an unvetted link ahead of a vetted one printed the vetted
+ * channel's live title and viewer count above a button pointing at the other
+ * one -- lending a stranger's link precisely the credibility this withholds.
+ */
+export function twitchLoginForLiveClaim(links: readonly LiveClaimLink[]): string | null {
+  const link = twitchLinkForLiveClaim(links);
+
+  return link === null ? null : twitchLoginFromUrl(link.url);
 }
