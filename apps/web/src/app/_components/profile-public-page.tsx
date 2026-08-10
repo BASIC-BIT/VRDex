@@ -16,6 +16,7 @@ import { profileClaimPath } from "@/lib/profile-claim";
 import { hasRenderableProfileMediaKit } from "@/lib/profile-media-kit";
 import { safeImageBackground } from "@/lib/safe-image";
 import type { TwitchLiveState } from "@/lib/server/twitch-live";
+import type { VrcdnLiveState } from "@/lib/vrcdn-live";
 import { twitchLoginFromUrl } from "@/lib/twitch-url";
 import { parseVrcdnStreamLinks, vrcdnPlaybackHref } from "../../../../../convex/_vrcdnLinks";
 
@@ -155,6 +156,7 @@ type PublicProfileBase = {
   appearance?: PublicProfileAppearance;
   mediaKit?: PublicProfileMediaKit;
   twitchLive?: TwitchLiveState;
+  vrcdnLive?: Record<string, VrcdnLiveState>;
 };
 
 type PublicPersonProfile = PublicProfileBase & {
@@ -665,7 +667,11 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
               <SectionHeading>Watch</SectionHeading>
               {twitchLink ? (
                 <div className="mt-4 border-b border-border pb-5">
-                  <div className="flex items-center justify-between gap-3">
+                  {/* Badge beside the provider name, matching the VRCDN row
+                      below. The VRCDN row cannot push it to the far edge --
+                      `Open preview` sits there -- so this is the placement both
+                      can share. */}
+                  <div className="flex items-center gap-3">
                     <span className="font-medium">Twitch</span>
                     {profile.twitchLive?.status === "live" ? (
                       <span className="text-sm font-medium text-success">Live now</span>
@@ -683,7 +689,12 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
               {vrcdnStreams.map(({ label, stream }) => (
                 <div className="pt-5" key={stream.streamId}>
                   <div className="flex flex-wrap items-center justify-between gap-3 pb-3">
-                    <p className="font-medium">{label}</p>
+                    <div className="flex items-center gap-3">
+                      <p className="font-medium">{label}</p>
+                      {profile.vrcdnLive?.[stream.streamId] === "live" ? (
+                        <span className="text-sm font-medium text-success">Live now</span>
+                      ) : null}
+                    </div>
                     <a
                       className={cn(buttonVariants({ size: "sm", variant: "secondary" }), "gap-2")}
                       href={stream.previewUrl}

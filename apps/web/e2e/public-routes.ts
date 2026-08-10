@@ -428,7 +428,12 @@ export async function expectPersonProfilePage(page: Page) {
   await expect(page.getByText("VRChat profile", { exact: true })).toBeVisible();
   await expect(page.getByText("DJ Aurora SoundCloud", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Watch" })).toBeVisible();
-  await expect(page.getByText("Live now", { exact: true })).toBeVisible();
+  // One badge per provider. The fixture is live on Twitch and on VRCDN, so a
+  // single-match assertion would pass with either one of them missing.
+  const liveBadges = page.getByText("Live now", { exact: true });
+  await expect(liveBadges).toHaveCount(2);
+  await expect(liveBadges.first()).toBeVisible();
+  await expect(liveBadges.last()).toBeVisible();
   await expect(page.getByRole("link", { name: /Watch on Twitch/i })).toBeVisible();
   await expect(page.getByText("Quest (MPEG-TS)", { exact: true })).toBeVisible();
   await expect(page.getByText("PC (RTSPT)", { exact: true })).toBeVisible();

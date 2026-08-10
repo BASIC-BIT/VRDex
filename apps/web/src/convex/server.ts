@@ -6,6 +6,7 @@ import type { PrivateSeedLookupResult, SeedLookupViewerAccess } from "@/app/_com
 import type { SearchResultFilter } from "@/app/_components/search-view-state";
 import { publicSearchBackendFilters } from "@/lib/server/public-search-query";
 import { getTwitchLiveState } from "@/lib/server/twitch-live";
+import { getVrcdnLiveStates } from "@/lib/server/vrcdn-live";
 import {
   getPlaywrightActiveWorldFixtures,
   getPlaywrightDiscoveryFixture,
@@ -55,11 +56,20 @@ export async function fetchPublicProfileBySlug(slug: string, profileType: Public
       now: Date.now(),
     });
 
-    const twitchLive = profile ? await getTwitchLiveState(profile.outboundLinks) : undefined;
+    // Together rather than in sequence: a profile that streams to both would
+    // otherwise pay for two provider round trips before rendering anything.
+    const [twitchLive, vrcdnLive] = profile
+      ? await Promise.all([
+          getTwitchLiveState(profile.outboundLinks),
+          getVrcdnLiveStates(profile.outboundLinks),
+        ])
+      : [undefined, undefined];
 
     return {
       kind: "live" as const,
-      profile: profile ? { ...profile, ...(twitchLive ? { twitchLive } : {}) } : null,
+      profile: profile
+        ? { ...profile, ...(twitchLive ? { twitchLive } : {}), ...(vrcdnLive ? { vrcdnLive } : {}) }
+        : null,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

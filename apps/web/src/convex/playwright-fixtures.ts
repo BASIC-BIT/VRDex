@@ -228,6 +228,10 @@ const personProfile: FixturePersonProfile = {
     startedAt: "2026-06-15T01:15:00.000Z",
     gameName: "VRChat",
   },
+  // Live on both at once, which is the layout worth having screenshot evidence
+  // of: the Twitch block and the VRCDN block each carry their own badge, and
+  // this is the only fixture where they stack.
+  vrcdnLive: { "dj-aurora": "live" as const },
   person: {
     pronouns: "she/they",
     roleTags: ["DJ", "Producer", "Host"],
