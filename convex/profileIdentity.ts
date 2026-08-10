@@ -153,67 +153,128 @@ export const setProfileIdentityAsOperator = internalMutation({
       await upsertSearchDocument(ctx.db, createProfileSearchDocument(updated));
     }
 
-    if (reslugs) {
-      // The slug is denormalized onto every world credit, in two places: the
-      // `worldProfileCredits` rows and the `creatorAttributions` array on the
-      // world itself. Leaving either behind orphans the credit -- it stops
-      // resolving to the profile and keeps rendering the old name.
-      await ctx.scheduler.runAfter(0, internal.profileIdentity.relinkProfileSlugReferences, {
-        profileType: profile.profileType,
-        previousSlug: profile.slug,
-        nextSlug,
+    // Scheduled for a rename too, not only a reslug. The slug was the half I
+    // moved and the name is the half that was wrong: a world attribution stores
+    // the credited profile's `displayName`, and `toPublicWorld` renders it while
+    // the world search document indexes it -- so a corrected name left the pasted
+    // URL visible and searchable on every world crediting the profile.
+    await ctx.scheduler.runAfter(0, internal.profileIdentity.relinkProfileReferences, {
+      profileId: profile._id,
+      profileType: profile.profileType,
+      previousSlug: profile.slug,
+      nextSlug,
+      previousDisplayName: profile.displayName,
+      nextDisplayName,
+    });
+
+    // One event per change rather than one for both. A combined rename and
+    // reslug recorded only the reslug, and `seedAccess.withheldProfileRecord`
+    // hides the operator note from an ordinary owner and shows the action as the
+    // description -- so an owner whose name was changed had no record of it.
+    if (renames) {
+      await ctx.db.insert("profileAuditEvents", {
+        profileId: profile._id,
+        action: "profile_renamed",
+        actor: args.actor,
+        sourceType: "moderator",
+        note: reason,
+        createdAt: now,
       });
     }
 
-    await ctx.db.insert("profileAuditEvents", {
-      profileId: profile._id,
-      action: reslugs ? "profile_identity_reslugged" : "profile_renamed",
-      actor: args.actor,
-      sourceType: "moderator",
-      note: reason,
-      createdAt: now,
-    });
+    if (reslugs) {
+      await ctx.db.insert("profileAuditEvents", {
+        profileId: profile._id,
+        action: "profile_slug_changed",
+        actor: args.actor,
+        sourceType: "moderator",
+        note: reason,
+        createdAt: now,
+      });
+    }
 
     return { ...preview, changed: true as const };
   },
 });
 
 /**
- * Move every stored reference to a profile's old slug, in pages.
+ * Move every stored reference to a profile's old identity, in pages.
  *
  * Split out and rescheduled for the same reason the suppression retraction is:
  * a profile credited on many worlds would otherwise push one mutation past a
- * transaction limit, and the rename itself must not be the thing that fails.
+ * transaction limit, and the identity change itself must not be what fails.
+ *
+ * Both halves travel together. The slug is what a credit resolves by, and the
+ * display name is what it renders -- so moving one without the other leaves a
+ * world crediting the right profile under the wrong name, or the wrong profile
+ * under the right one.
  */
-export const relinkProfileSlugReferences = internalMutation({
+export const relinkProfileReferences = internalMutation({
   args: {
+    profileId: v.id("profiles"),
     profileType: v.union(v.literal("person"), v.literal("community")),
     previousSlug: v.string(),
     nextSlug: v.string(),
+    previousDisplayName: v.string(),
+    nextDisplayName: v.string(),
+    // Explicit, because Convex allows one `.paginate()` per function execution
+    // and this walks two tables. The phases run back to back rather than
+    // interleaved: the credit query reads the *old* slug, so a world page landing
+    // between two credit pages would be reasoning about a half-moved set.
+    phase: v.optional(v.union(v.literal("credits"), v.literal("worlds"))),
     cursor: v.optional(v.string()),
     now: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const now = args.now ?? Date.now();
-    // Indexed, so the credit rows cost a lookup rather than a scan. Done on the
-    // first page only: the index is on the old slug, so once these are moved the
-    // query returns nothing on later pages anyway.
-    const credits =
-      args.cursor === undefined
-        ? await ctx.db
-            .query("worldProfileCredits")
-            .withIndex("by_profileType_profileSlug", (query) =>
-              query.eq("profileType", args.profileType).eq("profileSlug", args.previousSlug),
-            )
-            .collect()
-        : [];
+    const reslugged = args.previousSlug !== args.nextSlug;
+    // A rename with no reslug has no credit rows to move -- they are keyed by
+    // slug and it did not change -- so it starts at the worlds phase, which is
+    // where the display name lives.
+    const phase = args.phase ?? (reslugged ? "credits" : "worlds");
 
-    for (const credit of credits) {
-      await ctx.db.patch(credit._id, { profileSlug: args.nextSlug, updatedAt: now });
+    // The old slug is free the moment the profile stops holding it, and this
+    // runs afterwards. If something has taken it in between, every reference
+    // still carrying it is ambiguous -- it may belong to the new holder -- and
+    // rewriting them would hand this profile somebody else's credits. Stopping
+    // turns silent corruption into a run an operator can see and resolve.
+    if (reslugged) {
+      const holder = await getProfileBySlug(ctx.db, args.previousSlug);
+
+      if (holder !== null && holder._id !== args.profileId) {
+        return { aborted: "previous_slug_reclaimed" as const, isDone: true as const };
+      }
+    }
+
+    // Paged rather than collected. An indexed lookup is cheap but unbounded, and
+    // this mutation runs *after* the profile is already renamed -- so one that
+    // fails on a large credit set leaves the profile and its credits permanently
+    // disagreeing, with nothing to retry it.
+    if (phase === "credits") {
+      const credits = await ctx.db
+        .query("worldProfileCredits")
+        .withIndex("by_profileType_profileSlug", (query) =>
+          query.eq("profileType", args.profileType).eq("profileSlug", args.previousSlug),
+        )
+        .paginate({ cursor: args.cursor ?? null, numItems: WORLD_RELINK_PAGE_SIZE });
+
+      for (const credit of credits.page) {
+        await ctx.db.patch(credit._id, { profileSlug: args.nextSlug, updatedAt: now });
+      }
+
+      await ctx.scheduler.runAfter(0, internal.profileIdentity.relinkProfileReferences, {
+        ...args,
+        ...(credits.isDone
+          ? { phase: "worlds" as const, cursor: undefined }
+          : { phase: "credits" as const, cursor: credits.continueCursor ?? undefined }),
+        now,
+      });
+
+      return { credits: credits.page.length, isDone: false as const };
     }
 
     // Worlds are paged rather than indexed: `creatorAttributions` is an array on
-    // the world document, which nothing indexes by contained slug. Same shape as
+    // the world document, and nothing indexes it by contained slug. Same shape as
     // `reindexWorldsCreditingProfile`, which pages worlds for the same reason.
     const worlds = await ctx.db
       .query("worlds")
@@ -221,42 +282,56 @@ export const relinkProfileSlugReferences = internalMutation({
 
     for (const world of worlds.page) {
       const attributions = world.creatorAttributions ?? [];
-      const moves = attributions.some(
-        (attribution) =>
-          attribution.profileSlug === args.previousSlug &&
-          attribution.profileType === args.profileType,
-      );
+      // By id where the attribution carries one, since that survives a slug
+      // change and cannot match somebody else. The slug is the fallback for the
+      // rows that predate it.
+      const isThisProfile = (attribution: (typeof attributions)[number]) =>
+        attribution.profileId === args.profileId ||
+        (attribution.profileId === undefined &&
+          attribution.profileType === args.profileType &&
+          attribution.profileSlug === args.previousSlug);
 
-      if (!moves) {
+      if (!attributions.some(isThisProfile)) {
         continue;
       }
 
       await ctx.db.patch(world._id, {
         creatorAttributions: attributions.map((attribution) =>
-          attribution.profileSlug === args.previousSlug &&
-          attribution.profileType === args.profileType
-            ? { ...attribution, profileSlug: args.nextSlug }
+          isThisProfile(attribution)
+            ? {
+                ...attribution,
+                profileSlug: args.nextSlug,
+                // Only a name that still matches what the profile was called.
+                // An attribution may deliberately credit somebody under a
+                // different name, and overwriting that would be this tool
+                // editing a credit nobody asked it to touch.
+                displayName:
+                  attribution.displayName === args.previousDisplayName
+                    ? args.nextDisplayName
+                    : attribution.displayName,
+              }
             : attribution,
         ),
       });
 
       const patched = await ctx.db.get(world._id);
 
-      // The stored search text carries the credited profile's name and slug, so
-      // a world keeps answering for the old one until something rebuilds it.
+      // The stored search text carries the credited profile's name, so a world
+      // keeps answering for the old one until something rebuilds it.
       if (patched !== null) {
         await reindexWorldSearchDocument(ctx.db, patched, now);
       }
     }
 
     if (!worlds.isDone) {
-      await ctx.scheduler.runAfter(0, internal.profileIdentity.relinkProfileSlugReferences, {
+      await ctx.scheduler.runAfter(0, internal.profileIdentity.relinkProfileReferences, {
         ...args,
+        phase: "worlds" as const,
         cursor: worlds.continueCursor,
         now,
       });
     }
 
-    return { credits: credits.length, isDone: worlds.isDone };
+    return { worlds: worlds.page.length, isDone: worlds.isDone };
   },
 });
