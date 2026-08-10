@@ -17,6 +17,14 @@ export const componentStories = [
   { id: "design-system-primitives--shell-and-actions", name: "shell-and-actions" },
   { id: "features-temporal-parser--resolved", name: "temporal-parser-resolved" },
   { id: "features-temporal-parser--retention-unavailable", name: "temporal-parser-retention-unavailable" },
+  // The live player's control strip. Captured here because it is unreachable
+  // anywhere else: it renders only once a VRCDN stream is actually connected,
+  // which the Playwright fixtures cannot do -- the fixture stream id resolves
+  // to nothing, and connecting to a real one spends a viewer slot on a capped
+  // plan.
+  { id: "media-vrcdn-player-controls--playing", name: "vrcdn-player-controls-playing" },
+  { id: "media-vrcdn-player-controls--paused", name: "vrcdn-player-controls-paused" },
+  { id: "media-vrcdn-player-controls--fullscreen", name: "vrcdn-player-controls-fullscreen" },
 ] as const;
 
 export async function prepareStorybookVisualPage(page: Page) {

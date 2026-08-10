@@ -1,7 +1,8 @@
 "use client";
 
-import { Maximize, Pause, Play, Volume2, VolumeX } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+
+import { VrcdnPlayerControls } from "@/components/media/vrcdn-player-controls";
 
 /**
  * The play-triangle poster, shared by the VRCDN player and by the watch
@@ -61,6 +62,18 @@ export function VrcdnStreamPlayer({ src, title }: VrcdnStreamPlayerProps) {
   const [paused, setPaused] = useState(false);
   const [muted, setMuted] = useState(false);
   const [volume, setVolume] = useState(1);
+  const [fullscreen, setFullscreen] = useState(false);
+  // What unmute restores to. A slider dragged to zero mutes, and clearing
+  // `muted` alone would leave the controls claiming sound over silence.
+  const lastAudibleVolumeRef = useRef(1);
+
+  useEffect(() => {
+    const syncFullscreen = () => setFullscreen(document.fullscreenElement === wrapperRef.current);
+
+    document.addEventListener("fullscreenchange", syncFullscreen);
+
+    return () => document.removeEventListener("fullscreenchange", syncFullscreen);
+  }, []);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -73,6 +86,10 @@ export function VrcdnStreamPlayer({ src, title }: VrcdnStreamPlayerProps) {
       setPaused(video.paused);
       setMuted(video.muted);
       setVolume(video.volume);
+
+      if (video.volume > 0) {
+        lastAudibleVolumeRef.current = video.volume;
+      }
     };
 
     sync();
@@ -219,74 +236,58 @@ export function VrcdnStreamPlayer({ src, title }: VrcdnStreamPlayerProps) {
         `aria-label` gives the element its accessible name without one.
       */}
       <video aria-label={title} autoPlay className="aspect-video w-full" playsInline ref={videoRef} />
-      <div className="absolute inset-x-0 bottom-0 flex items-center gap-3 bg-gradient-to-t from-black/70 to-transparent px-3 py-2">
-        <button
-          aria-label={paused ? "Play" : "Pause"}
-          className="cursor-pointer text-white/90 hover:text-white"
-          onClick={() => {
-            const video = videoRef.current;
+      <VrcdnPlayerControls
+        fullscreen={fullscreen}
+        muted={muted}
+        onToggleFullscreen={() => {
+          if (document.fullscreenElement) {
+            void document.exitFullscreen().catch(() => {});
+          } else {
+            void wrapperRef.current?.requestFullscreen().catch(() => {});
+          }
+        }}
+        onToggleMute={() => {
+          const video = videoRef.current;
 
-            if (!video) {
-              return;
-            }
+          if (!video) {
+            return;
+          }
 
-            if (video.paused) {
-              void video.play().catch(() => {});
-            } else {
-              video.pause();
-            }
-          }}
-          type="button"
-        >
-          {paused ? <Play aria-hidden="true" className="size-5" /> : <Pause aria-hidden="true" className="size-5" />}
-        </button>
-        <button
-          aria-label={muted ? "Unmute" : "Mute"}
-          className="cursor-pointer text-white/90 hover:text-white"
-          onClick={() => {
-            const video = videoRef.current;
+          // Unmuting a slider dragged to zero has to give the volume back, or
+          // the icon and label flip to "unmuted" over silence and the only way
+          // out is to find the slider again.
+          if (video.muted && video.volume === 0) {
+            video.volume = lastAudibleVolumeRef.current;
+          }
 
-            if (video) {
-              video.muted = !video.muted;
-            }
-          }}
-          type="button"
-        >
-          {muted ? <VolumeX aria-hidden="true" className="size-5" /> : <Volume2 aria-hidden="true" className="size-5" />}
-        </button>
-        <input
-          aria-label="Volume"
-          className="h-1 w-24 cursor-pointer accent-white"
-          max={1}
-          min={0}
-          onChange={(event) => {
-            const video = videoRef.current;
+          video.muted = !video.muted;
+        }}
+        onTogglePlay={() => {
+          const video = videoRef.current;
 
-            if (video) {
-              video.volume = Number(event.target.value);
-              video.muted = Number(event.target.value) === 0;
-            }
-          }}
-          step={0.01}
-          type="range"
-          value={muted ? 0 : volume}
-        />
-        <span className="ml-auto text-xs font-medium tracking-wide text-white/80">LIVE</span>
-        <button
-          aria-label="Full screen"
-          className="cursor-pointer text-white/90 hover:text-white"
-          onClick={() => {
-            if (document.fullscreenElement) {
-              void document.exitFullscreen().catch(() => {});
-            } else {
-              void wrapperRef.current?.requestFullscreen().catch(() => {});
-            }
-          }}
-          type="button"
-        >
-          <Maximize aria-hidden="true" className="size-5" />
-        </button>
-      </div>
+          if (!video) {
+            return;
+          }
+
+          if (video.paused) {
+            void video.play().catch(() => {});
+          } else {
+            video.pause();
+          }
+        }}
+        onVolumeChange={(next) => {
+          const video = videoRef.current;
+
+          if (!video) {
+            return;
+          }
+
+          video.volume = next;
+          video.muted = next === 0;
+        }}
+        paused={paused}
+        volume={volume}
+      />
     </div>
   );
 }
