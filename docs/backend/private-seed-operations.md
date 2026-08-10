@@ -652,6 +652,50 @@ pnpm ops:profile-archive -- `
   package-manager `--`, repeated options, positional strays and the `--target=`
   equals form all behave the same way in both.
 
+## Profile Rename And Reslug
+
+An import can write a display name that is a pasted URL. Nothing could fix one:
+community editing renames an unclaimed profile but deliberately refuses `slug` --
+a slug is what every link to the page is made of, so it is not the community's to
+move -- and there was no operator path for either half. That left archiving a real
+person over a bad name, or leaving the bad name up.
+
+`pnpm ops:profile-rename` does one or both. Archival is for a row that should not
+exist; this is for a row that should, under a different name.
+
+```powershell
+pnpm ops:profile-rename -- `
+  --slug https-panel-vrcdn-live-preview-mask9691 `
+  --display-name "mask9691" `
+  --new-slug mask9691 `
+  --actor-token operator:vrdex `
+  --actor-issuer vrdex `
+  --actor-subject profile-rename `
+  --actor-name "VRDex operator" `
+  --reason "Imported display name is a pasted URL, not the DJ's name." `
+  --apply `
+  --target prod
+```
+
+- Without `--apply` it is a dry run: every gate runs and nothing is written.
+- `sortName` is derived from the new display name, never supplied. It is the key
+  the directory orders on, and a caller-provided one drifts from the name it
+  tracks.
+- A reslug moves every stored reference to the old slug: the
+  `worldProfileCredits` rows, which are indexed by it, and the
+  `creatorAttributions` array denormalized onto each world, which nothing indexes
+  by contained slug and so is paged. Both, or the credit orphans -- it stops
+  resolving to the profile and keeps rendering whatever the old row said.
+- It also breaks any existing link to the profile and frees the old slug for
+  anyone else to take, so it is worth reserving for a slug that was never
+  meaningful. Short links survive: they store `targetProfileId`, not a slug.
+- Historical records are left alone on purpose. A claim, suppression or support
+  request stores the slug that was *asked about*, and rewriting it would edit
+  what somebody said.
+- `--confirm-claimed` is required for a claimed profile, whose page somebody
+  answers for. Same rule as archival, and for the same reason: complete data
+  authority, but not by accident.
+
 ## Lookup Grants
 
 The first grant for the operator is `super_admin`. Beta users receive only
