@@ -31,6 +31,11 @@ export function WatchPlayPoster() {
  * Safari for iPhone and iPad, volume is the hardware buttons' business alone,
  * so a slider there would drag and change nothing.
  */
+/** iPhone Safari exposes only video fullscreen, never element fullscreen. */
+type IosFullscreenVideo = HTMLVideoElement & {
+  webkitEnterFullscreen?: () => void;
+};
+
 function canSetMediaVolume(): boolean {
   if (typeof document === "undefined") {
     return true;
@@ -301,13 +306,28 @@ export function VrcdnStreamPlayer({ src, title }: VrcdnStreamPlayerProps) {
       />
       <VrcdnPlayerControls
         fullscreen={fullscreen}
+        label={title}
         muted={muted}
         onToggleFullscreen={() => {
           if (document.fullscreenElement) {
             void document.exitFullscreen().catch(() => {});
-          } else {
-            void wrapperRef.current?.requestFullscreen().catch(() => {});
+            return;
           }
+
+          const wrapper = wrapperRef.current;
+
+          // Feature-detected, not assumed. iPhone Safari has no element
+          // fullscreen -- `requestFullscreen` is simply absent, so calling it
+          // threw before any `.catch()` could see it -- and offers video
+          // fullscreen instead. That path takes the video, not the wrapper, so
+          // iOS gets its own native controls inside it, which is the right
+          // trade against no fullscreen at all.
+          if (wrapper?.requestFullscreen) {
+            void wrapper.requestFullscreen().catch(() => {});
+            return;
+          }
+
+          (videoRef.current as IosFullscreenVideo | null)?.webkitEnterFullscreen?.();
         }}
         onToggleMute={() => {
           const video = videoRef.current;

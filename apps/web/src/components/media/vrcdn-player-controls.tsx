@@ -4,6 +4,13 @@ import { Maximize, Minimize, Pause, Play, Volume2, VolumeX } from "lucide-react"
 
 export type VrcdnPlayerControlsProps = {
   fullscreen: boolean;
+  /**
+   * Which stream these controls drive. A profile can carry more than one live
+   * VRCDN link and renders a player for each, so without this every strip
+   * offers an identical `Play` and `Mute` and nothing says which stream is
+   * about to change.
+   */
+  label: string;
   muted: boolean;
   onToggleFullscreen: () => void;
   onToggleMute: () => void;
@@ -35,6 +42,7 @@ const controlButton =
  */
 export function VrcdnPlayerControls({
   fullscreen,
+  label,
   muted,
   onToggleFullscreen,
   onToggleMute,
@@ -45,7 +53,11 @@ export function VrcdnPlayerControls({
   volumeSettable,
 }: VrcdnPlayerControlsProps) {
   return (
-    <div className="absolute inset-x-0 bottom-0 flex items-center gap-1 bg-gradient-to-t from-black/70 to-transparent px-2 py-1">
+    <div
+      aria-label={`${label} controls`}
+      className="absolute inset-x-0 bottom-0 flex items-center gap-1 bg-gradient-to-t from-black/70 to-transparent px-2 py-1"
+      role="group"
+    >
       <button aria-label={paused ? "Play" : "Pause"} className={controlButton} onClick={onTogglePlay} type="button">
         {paused ? <Play aria-hidden="true" className="size-5" /> : <Pause aria-hidden="true" className="size-5" />}
       </button>

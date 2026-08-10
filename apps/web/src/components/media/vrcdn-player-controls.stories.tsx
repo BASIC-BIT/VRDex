@@ -43,6 +43,7 @@ export const Playing: Story = {
     <ControlsFrame>
       <VrcdnPlayerControls
         fullscreen={false}
+        label="VRCDN stream"
         muted={false}
         onToggleFullscreen={noop}
         onToggleMute={noop}
@@ -62,6 +63,7 @@ export const Paused: Story = {
     <ControlsFrame>
       <VrcdnPlayerControls
         fullscreen={false}
+        label="VRCDN stream"
         muted
         onToggleFullscreen={noop}
         onToggleMute={noop}
@@ -81,6 +83,7 @@ export const Fullscreen: Story = {
     <ControlsFrame>
       <VrcdnPlayerControls
         fullscreen
+        label="VRCDN stream"
         muted={false}
         onToggleFullscreen={noop}
         onToggleMute={noop}
@@ -103,6 +106,7 @@ export const WithoutVolumeSlider: Story = {
     <ControlsFrame>
       <VrcdnPlayerControls
         fullscreen={false}
+        label="VRCDN stream"
         muted={false}
         onToggleFullscreen={noop}
         onToggleMute={noop}
