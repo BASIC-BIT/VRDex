@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 
 import { buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/cn";
+import { VrcdnStreamPlayer, WatchPlayPoster } from "./vrcdn-stream-player";
 import { parseVrcdnStreamLinks } from "../../../../../convex/_vrcdnLinks";
 
 type EventMediaLinkType = "event_page" | "watch" | "stream" | "vrcdn" | "discord" | "ticket" | "other";
@@ -25,7 +26,7 @@ type WatchEmbed =
       title: string;
     }
   | {
-      kind: "hls";
+      kind: "mpegts";
       provider: "VRCDN";
       src: string;
       title: string;
@@ -301,10 +302,13 @@ function createVrcdnEmbed(url: string, label: string): WatchEmbed | null {
     };
   }
 
+  // The transport stream, not the HLS manifest. VRCDN publishes no HLS -- the
+  // manifest answers `404` even while a stream is publishing -- so this surface
+  // was handing `hls.js` a dead URL and never played a VRCDN stream at all.
   return {
-    kind: "hls",
+    kind: "mpegts",
     provider: "VRCDN",
-    src: vrcdnLinks.hlsUrl,
+    src: vrcdnLinks.questUrl,
     title: `VRCDN stream for ${label}`,
   };
 }
@@ -326,21 +330,12 @@ function createWatchEmbed(link: EventWatchMediaLink, browserHostname: string | u
 }
 
 function WatchFallback() {
-  return (
-    <div className="flex aspect-video min-h-64 items-center justify-center bg-[linear-gradient(135deg,var(--media),var(--surface-raised))] p-5 text-white">
-      <div className="flex size-16 items-center justify-center rounded-control border border-white/30 bg-white/16 shadow-panel">
-        <span
-          aria-hidden="true"
-          className="ml-1 h-0 w-0 border-y-[9px] border-l-[14px] border-y-transparent border-l-white"
-        />
-      </div>
-    </div>
-  );
+  return <WatchPlayPoster />;
 }
 
 function WatchEmbedFrame({ embed }: { embed: WatchEmbed }) {
-  if (embed.kind === "hls") {
-    return <WatchHlsVideo embed={embed} />;
+  if (embed.kind === "mpegts") {
+    return <VrcdnStreamPlayer src={embed.src} title={embed.title} />;
   }
 
   if (embed.kind === "video") {
@@ -364,80 +359,6 @@ function WatchEmbedFrame({ embed }: { embed: WatchEmbed }) {
       referrerPolicy="strict-origin-when-cross-origin"
       sandbox="allow-same-origin allow-scripts allow-popups allow-presentation"
       src={embed.src}
-      title={embed.title}
-    />
-  );
-}
-
-function WatchHlsVideo({ embed }: { embed: Extract<WatchEmbed, { kind: "hls" }> }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [unsupported, setUnsupported] = useState(false);
-
-  useEffect(() => {
-    const video = videoRef.current;
-
-    if (!video) {
-      return;
-    }
-
-    let cancelled = false;
-    let hls: { destroy: () => void } | null = null;
-    setUnsupported(false);
-
-    if (video.canPlayType("application/vnd.apple.mpegurl") || video.canPlayType("application/x-mpegURL")) {
-      video.src = embed.src;
-
-      return () => {
-        video.removeAttribute("src");
-        video.load();
-      };
-    }
-
-    void import("hls.js")
-      .then(({ default: Hls }) => {
-        if (cancelled || !videoRef.current) {
-          return;
-        }
-
-        if (!Hls.isSupported()) {
-          setUnsupported(true);
-          return;
-        }
-
-        const player = new Hls();
-        player.on(Hls.Events.ERROR, (_event, data) => {
-          if (data.fatal) {
-            setUnsupported(true);
-          }
-        });
-        player.loadSource(embed.src);
-        player.attachMedia(videoRef.current);
-        hls = player;
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setUnsupported(true);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-      hls?.destroy();
-      video.removeAttribute("src");
-      video.load();
-    };
-  }, [embed.src]);
-
-  if (unsupported) {
-    return <WatchFallback />;
-  }
-
-  return (
-    <video
-      ref={videoRef}
-      className="aspect-video w-full bg-media"
-      controls
-      preload="metadata"
       title={embed.title}
     />
   );

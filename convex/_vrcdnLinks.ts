@@ -203,10 +203,14 @@ export function parseVrcdnStreamLinks(input: string): VrcdnStreamLinks | null {
  * one in an `href`.
  *
  * The reference is deliberately not a URL, and most surfaces do not want one:
- * the profile page lifts VRCDN out into copy rows, and the event watch surface
- * embeds the playlist. This is for the generic link renderers that have an
- * anchor to fill either way, and it hands them the playlist -- the same value the
- * embed uses, and one that actually resolves.
+ * the profile page lifts VRCDN out into copy rows, and the players embed the
+ * transport stream. This is for the generic link renderers that have an anchor
+ * to fill either way, and it hands them the same `.live.ts` the players use.
+ *
+ * This was the HLS playlist, on the belief that it resolved. It does not --
+ * VRCDN publishes no HLS, and the `.m3u8` answers `404` even mid-broadcast --
+ * so every VRCDN link this published, including through the public API, was a
+ * dead URL.
  *
  * `undefined` for anything that is not a VRCDN value, so callers can fall
  * through to their own HTTPS handling rather than special-casing the type.
@@ -214,7 +218,7 @@ export function parseVrcdnStreamLinks(input: string): VrcdnStreamLinks | null {
 export function vrcdnPlaybackHref(url: string): string | undefined {
   const stream = parseVrcdnStreamLinks(url);
 
-  return stream === null ? undefined : stream.directVideoUrl ?? stream.hlsUrl;
+  return stream === null ? undefined : stream.directVideoUrl ?? stream.questUrl;
 }
 
 /**
@@ -223,9 +227,13 @@ export function vrcdnPlaybackHref(url: string): string | undefined {
  * The generic HTTPS filter every projection already applied is right for every
  * type but this one: a VRCDN stream is stored as an identifier, so the filter
  * dropped it and the link never reached the page at all. Resolving first hands
- * readers the playlist, which is a real URL *and* parses back to the same
- * stream -- so the copy rows and the embed keep deriving what they need without
- * every consumer having to learn a second format.
+ * readers the `.live.ts` transport stream, which is a real URL *and* parses
+ * back to the same stream -- so the copy rows and the players keep deriving
+ * what they need without every consumer having to learn a second format.
+ *
+ * Not the HLS playlist, which is what this resolved to until it turned out
+ * VRCDN publishes no HLS: the `.m3u8` answers `404` even mid-broadcast, so
+ * every VRCDN link published here, including over the public API, was dead.
  *
  * One helper for links and media both. Media links briefly published the raw
  * reference instead, on the theory that every reader parses it back. The web

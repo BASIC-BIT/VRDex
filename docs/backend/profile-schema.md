@@ -60,6 +60,13 @@ Core presentation fields:
 
 Provider liveness is read when the profile is requested and is not stored on the profile. Twitch comes from `apps/web/src/lib/server/twitch-live.ts`, VRCDN from `apps/web/src/lib/server/vrcdn-live.ts`; both cache for sixty seconds and render as a `Live now` badge in the `Watch` surface.
 
+A live VRCDN stream also offers an in-site player, `apps/web/src/app/_components/vrcdn-stream-player.tsx`, shared with the event watch surface:
+
+- Playback is `mpegts.js` over the `.live.ts` transport stream — the same library and endpoint VRCDN's own preview page uses. There is no HLS to play. The event watch surface previously handed `hls.js` the `.m3u8`, so it never played a VRCDN stream at all.
+- **Nothing connects until the viewer presses play.** A player is unambiguously a viewer, unlike the liveness probe: plans are commonly capped at 100 while a VRChat instance holds 80–100, so connecting on page load would spend a slot on every passer-by, most heavily while an event is on. The poster state is the whole point, and teardown detaches the media element so a closed player stops holding a slot.
+- **On profile pages only**, the player appears solely while the badge says live, so the control is never present when it could not do anything. The event watch surface shares the component but has no liveness of its own: it gates on the event's opt-in and its scheduled window, so it can offer a player for a stream that is not publishing. Gating it on liveness too is unbuilt.
+- It replaced an `Open preview` link to `panel.vrcdn.live/preview/<id>`. That is an operator surface and `#217` lists publishing it as a non-goal. `apps/web/src/app/_components/profile-lookup-page.tsx` still surfaces it and has not been revisited.
+
 - VRCDN publishes no liveness API. The signal is `GET https://stream.vrcdn.live/live/<streamId>.live.ts`, the transport stream a Quest client pulls. Measured against a real stream on 2026-08-10, live and then idle:
 
   | Request | Live | Idle | Unknown id |

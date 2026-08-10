@@ -439,10 +439,11 @@ export async function expectPersonProfilePage(page: Page) {
   await expect(page.getByText("PC (RTSPT)", { exact: true })).toBeVisible();
   await expect(page.getByText("https://stream.vrcdn.live/live/dj-aurora.live.ts", { exact: true })).toBeVisible();
   await expect(page.getByText("rtspt://stream.vrcdn.live/live/dj-aurora", { exact: true })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Open preview" })).toHaveAttribute(
-    "href",
-    "https://panel.vrcdn.live/preview/dj-aurora",
-  );
+  // Live in this fixture, so the player is offered. It has to stay a control
+  // rather than a connection: nothing may reach VRCDN until a viewer presses
+  // it, or every visitor spends one of the operator's capped viewer slots.
+  await expect(page.getByRole("button", { name: "Play VRCDN stream" })).toBeVisible();
+  await expect(page.locator("video")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Copy Discord" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Media kit" })).toBeVisible();
   await expect(page.getByRole("link", { name: /Primary logo/i })).toBeVisible();
@@ -461,10 +462,9 @@ export async function expectVerifiedPersonProfilePage(page: Page) {
   await expect(page.getByRole("button", { name: "Copy Discord" })).toBeVisible();
   await expect(page.getByText("https://stream.vrcdn.live/live/basicbit.live.ts", { exact: true })).toBeVisible();
   await expect(page.getByText("rtspt://stream.vrcdn.live/live/basicbit", { exact: true })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Open preview" })).toHaveAttribute(
-    "href",
-    "https://panel.vrcdn.live/preview/basicbit",
-  );
+  // No liveness for this fixture, so no player is offered at all. The copy rows
+  // above still carry the stream; only the watch control is withheld.
+  await expect(page.getByRole("button", { name: /^Play / })).toHaveCount(0);
 }
 
 export async function expectCommunityProfilePage(page: Page) {
@@ -520,7 +520,7 @@ export async function expectEventPage(page: Page) {
   );
   await expect(page.getByText("Afterglow watch link", { exact: true })).toBeVisible();
   await expect(
-    page.locator('a[href="https://stream.vrcdn.live/live/playwright-afterglow-harbor-sessions.m3u8"]'),
+    page.locator('a[href="https://stream.vrcdn.live/live/playwright-afterglow-harbor-sessions.live.ts"]'),
   ).toBeVisible();
   await expect(page.getByText("Watch now", { exact: true })).toHaveCount(0);
 }
@@ -528,7 +528,18 @@ export async function expectEventPage(page: Page) {
 export async function expectEventWatchPage(page: Page) {
   await expect(page.getByRole("heading", { name: "Afterglow Watch Room" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Event stream" })).toBeVisible();
-  await expect(page.locator('video[title="VRCDN stream for Event stream"]')).toBeVisible();
+  // Offered, not connected. The player attaches to VRCDN only once a viewer
+  // presses play, so there is no `video` on the page until it is used -- which
+  // is what keeps a scheduled event's watch page from spending a viewer slot
+  // per visitor.
+  //
+  // Deliberately not clicked through: this runs inside the snapshot spec too,
+  // so a click would put a real connection to `stream.vrcdn.live` into CI and
+  // capture a connecting player as the baseline.
+  await expect(
+    page.getByRole("button", { name: "Play VRCDN stream for Event stream" }),
+  ).toBeVisible();
+  await expect(page.locator("video")).toHaveCount(0);
   // No open affordance for a VRCDN stream, because there is nowhere to open: the
   // service publishes no page for one. The player above is the whole surface.
   // This used to assert an `https://vrcdn.live/<id>` href, which answered 404.
