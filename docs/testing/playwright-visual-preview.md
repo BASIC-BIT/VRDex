@@ -94,10 +94,10 @@ Profile screenshots use deterministic Next-server fixtures when `VRDEX_ENABLE_PL
 - `/privacy/suppression` (redirects to `/support?topic=owner_opt_out`)
 - `/events/new`
 - `/events/playwright-afterglow-harbor-sessions/edit`
-- `/p/playwright-dj-aurora`
-- `/c/playwright-afterglow-social`
-- `/w/playwright-neon-harbor`
-- `/e/playwright-afterglow-harbor-sessions`
+- `/playwright-dj-aurora`
+- `/playwright-afterglow-social`
+- `/playwright-neon-harbor`
+- `/playwright-afterglow-harbor-sessions`
 
 Legacy `/discover?q=...` URLs redirect to `/search?q=...`; plain `/discover` redirects to `/`.
 

@@ -17,15 +17,12 @@ describe("profile claim navigation", () => {
 
   it("keeps public profiles on public routes and private owners on an owner-aware destination", () => {
     assert.equal(
-      ownerProfileDestinationPath(
-        { hasPublicProfile: true, profileType: "person", slug: "dj/basic" },
-        "/account",
-      ),
-      "/p/dj%2Fbasic",
+      ownerProfileDestinationPath({ hasPublicProfile: true, slug: "dj/basic" }, "/account"),
+      "/dj%2Fbasic",
     );
     assert.equal(
       ownerProfileDestinationPath(
-        { hasPublicProfile: false, profileType: "community", slug: "private-club" },
+        { hasPublicProfile: false, slug: "private-club" },
         "/account/appearance",
       ),
       "/account/appearance",
@@ -40,8 +37,43 @@ describe("profile claim navigation", () => {
 
   it("preserves legacy profile link parsing before redirecting", () => {
     assert.equal(profileClaimSlugFromInput("https://vrdex.net/p/dj-celine"), "dj-celine");
-    assert.equal(profileClaimSlugFromInput("/c/afterglow-social?ref=account"), "afterglow-social");
+    assert.equal(profileClaimSlugFromInput("/afterglow-social?ref=account"), "afterglow-social");
     assert.equal(profileClaimSlugFromInput("dj-basic"), "dj-basic");
+  });
+
+  it("reads the slug out of a root profile link, with or without a scheme", () => {
+    assert.equal(profileClaimSlugFromInput("https://vrdex.net/afterglow"), "afterglow");
+    // Scheme-less is how a link usually arrives from an address bar. The host is
+    // not a path segment, and the slug is the first one now, so skipping this
+    // would claim the profile `vrdex.net`.
+    assert.equal(profileClaimSlugFromInput("vrdex.net/afterglow"), "afterglow");
+    assert.equal(profileClaimSlugFromInput("www.vrdex.net/dj-celine?ref=account"), "dj-celine");
+    // A bare slug has no host to strip.
+    assert.equal(profileClaimSlugFromInput("afterglow"), "afterglow");
+  });
+
+  it("strips a scheme-less host that new URL would mistake for a scheme", () => {
+    // `new URL("localhost:3000/afterglow")` does not throw. It reads `localhost:`
+    // as the scheme and returns the pathname `3000/afterglow`, so the catch-block
+    // fallback never ran and the claim link pointed at the profile `3000`.
+    assert.equal(profileClaimSlugFromInput("localhost:3000/afterglow"), "afterglow");
+    assert.equal(profileClaimSlugFromInput("127.0.0.1:3210/dj-celine"), "dj-celine");
+    assert.equal(profileClaimSlugFromInput("localhost:3000/p/dj-celine"), "dj-celine");
+    // Still resolved when the scheme is a real one.
+    assert.equal(profileClaimSlugFromInput("http://localhost:3000/afterglow"), "afterglow");
+  });
+
+  it("strips a host that has no dot or colon to give it away", () => {
+    // A self-hosted instance reached by a portless local or single-label name.
+    // Testing the host's shape only caught the ones carrying a dot or a colon, so
+    // these returned the host itself and sent the claim flow to the wrong profile.
+    // Length is the reliable signal: a profile path is one segment at the root.
+    assert.equal(profileClaimSlugFromInput("localhost/afterglow"), "afterglow");
+    assert.equal(profileClaimSlugFromInput("devbox/afterglow"), "afterglow");
+    assert.equal(profileClaimSlugFromInput("devbox/p/dj-celine"), "dj-celine");
+    assert.equal(profileClaimSlugFromInput("localhost/c/afterglow-social"), "afterglow-social");
+    // A leading slash makes it a path, not a host, and one segment is the slug.
+    assert.equal(profileClaimSlugFromInput("/afterglow"), "afterglow");
   });
 });
 

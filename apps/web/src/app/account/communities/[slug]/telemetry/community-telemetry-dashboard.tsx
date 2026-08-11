@@ -284,7 +284,7 @@ function CommunityTelemetryDashboardContent({
           <p className="mt-3 text-sm text-muted">Last observed {formatTime(data.integration.lastSuccessfulObservationAt)}</p>
         </div>
         <div className="flex gap-2">
-          <Link className={buttonVariants({ variant: "secondary" })} href={`/c/${data.community.slug}`}>Public profile</Link>
+          <Link className={buttonVariants({ variant: "secondary" })} href={`/${data.community.slug}`}>Public profile</Link>
           <Select aria-label="Chart range" onChange={(event) => setRangeHours(Number(event.target.value))} value={rangeHours}>
             <option value={24}>24 hours</option><option value={168}>7 days</option><option value={720}>30 days</option>
           </Select>

@@ -35,7 +35,7 @@ function ActiveWorldCard({ world }: { world: PublicActiveWorld }) {
   return (
     <Link
       className="group relative flex aspect-[4/3] min-h-72 min-w-0 flex-col justify-between overflow-hidden rounded-panel border border-border bg-media p-5 !text-white shadow-panel transition hover:-translate-y-1"
-      href={`/w/${world.slug}`}
+      href={`/${world.slug}`}
     >
       <EntityImage className="absolute inset-0 size-full rounded-none bg-media text-4xl text-white" label={world.displayName} sizes="(min-width: 1024px) 33vw, 100vw" src={world.heroImageUrl} />
       <span aria-hidden="true" className="absolute inset-0 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--media)_80%,transparent),color-mix(in_srgb,var(--accent)_16%,transparent))]" />

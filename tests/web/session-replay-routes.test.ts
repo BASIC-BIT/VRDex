@@ -26,7 +26,7 @@ const PRIVATE_ROUTE_GROUPS = [
   "claim",
   "developers",
   // Authoring only — `/events/new` and `/events/[slug]/edit`. The public event
-  // page is `/e/[slug]`.
+  // page is `/[slug]`.
   "events",
   "handoff",
   "lookup",
@@ -52,14 +52,13 @@ const PRIVATE_ROUTE_GROUPS = [
  * review one surface at a time, and each fix covered only the surface reported.
  */
 const PUBLIC_ROUTE_GROUPS = [
+  // Public profile, world, and event pages, all resolved from one root slug.
+  "[slug]",
   "auth",
-  "c",
   "deployment",
   "discover",
   "discovery",
-  "e",
   "l",
-  "p",
   // Fixture routes, and 404 in production unless explicitly enabled.
   "playwright",
   "privacy",
@@ -67,7 +66,6 @@ const PUBLIC_ROUTE_GROUPS = [
   "sign-in",
   "sign-up",
   "submit",
-  "w",
 ] as const;
 
 describe("session replay route blocking", () => {

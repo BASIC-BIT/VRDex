@@ -56,6 +56,8 @@ Candidate first slice for `#84`:
 
 World pages should be reachable at a stable public route such as `/w/<slug>`.
 
+> **Update 2026-08-11:** superseded. Profiles, worlds, and events are now first-class root links at `/<slug>`, sharing one global slug namespace. The `/p/`, `/c/`, `/w/`, and `/e/` prefixes were removed outright with no redirect. The text below is kept as the record of what was planned at the time. See `docs/backend/profile-slugs.md` for the live contract.
+
 ## Creator Attribution
 
 Creator attribution should use explicit roles instead of one ambiguous owner field.
@@ -210,7 +212,7 @@ Unsafe early data sources:
 ## Recommended Sequence
 
 1. Land this planning doc and wire it into the planning index, product spec, PRD, architecture, epics, issue seeding, and dependency map.
-2. Implement `#84` with a separate `worlds` model and `/w/<slug>` public page.
+2. Implement `#84` with a separate `worlds` model and `/w/<slug>` public page. (Shipped; the route later became `/<slug>` — see the update note above.)
 3. Implement `#81` with event-world associations and derived world upcoming-event views.
 4. Implement `#80` using explicit event-world data and honest labels.
 5. Implement `#82` as typed owner-authored commerce links.

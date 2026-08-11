@@ -70,14 +70,12 @@ const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 
 function WithheldProfileRecord({
   profilePath,
-  profileType,
   slug,
 }: {
   profilePath: string;
-  profileType: "person" | "community";
   slug: string;
 }) {
-  const record = useQuery(api.seedAccess.withheldProfileRecord, { profileType, slug });
+  const record = useQuery(api.seedAccess.withheldProfileRecord, { slug });
 
   if (record === undefined || record === null) {
     return null;
@@ -179,7 +177,6 @@ function WithheldProfileRecord({
 
 export function ProfilePrivateRecord(props: {
   profilePath: string;
-  profileType: "person" | "community";
   slug: string;
 }) {
   // `ConvexClientProvider` deliberately renders no provider when the URL is

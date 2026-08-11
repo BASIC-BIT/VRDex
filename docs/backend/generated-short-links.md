@@ -10,9 +10,8 @@ Generated short links are durable pointer records, not vanity slugs.
 
 Canonical public routes stay unchanged:
 
-- profiles use `/p/<slug>` for people and `/c/<slug>` for communities
-- worlds use `/w/<slug>`
-- events use `/e/<slug>`
+- profiles, worlds, and events all use `/<slug>` from the site root
+- the slug namespace is global across the three, so one slug has one owner
 
 Generated short links use `/l/<code>` and redirect to the current canonical
 route for the target. If a target slug changes later, the short link remains

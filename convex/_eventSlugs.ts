@@ -1,60 +1,25 @@
 import type { Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
 import {
-  PROFILE_SLUG_MAX_LENGTH,
-  PROFILE_SLUG_MIN_LENGTH,
-  PROFILE_SLUG_PATTERN,
-  normalizeProfileSlugInput,
-} from "./_profileSlugs";
+  SLUG_MAX_LENGTH,
+  SLUG_MIN_LENGTH,
+  SLUG_PATTERN,
+  checkSlugAvailability,
+  getEventBySlug,
+  isReservedSlug,
+  normalizeSlugInput,
+  validateSlugFormat,
+  type SlugFormatReason,
+} from "./_globalSlugs";
 
-export const EVENT_SLUG_MIN_LENGTH = PROFILE_SLUG_MIN_LENGTH;
-export const EVENT_SLUG_MAX_LENGTH = PROFILE_SLUG_MAX_LENGTH;
-export const EVENT_SLUG_PATTERN = PROFILE_SLUG_PATTERN;
+export { getEventBySlug };
+
+export const EVENT_SLUG_MIN_LENGTH = SLUG_MIN_LENGTH;
+export const EVENT_SLUG_MAX_LENGTH = SLUG_MAX_LENGTH;
+export const EVENT_SLUG_PATTERN = SLUG_PATTERN;
 export const EVENT_SLUG_FALLBACK_BASE = "event-page";
 
-export const RESERVED_EVENT_SLUGS = [
-  "about",
-  "account",
-  "admin",
-  "api",
-  "auth",
-  "billing",
-  "blog",
-  "c",
-  "calendar",
-  "contact",
-  "dashboard",
-  "docs",
-  "e",
-  "events",
-  "help",
-  "l",
-  "login",
-  "logout",
-  "me",
-  "moderation",
-  "new",
-  "p",
-  "people",
-  "pricing",
-  "privacy",
-  "profile",
-  "search",
-  "settings",
-  "signup",
-  "support",
-  "terms",
-  "vrdex",
-  "w",
-  "worlds",
-] as const;
-
-export type EventSlugValidationReason =
-  | "empty"
-  | "too_short"
-  | "too_long"
-  | "invalid_format"
-  | "reserved";
+export type EventSlugValidationReason = SlugFormatReason;
 
 export type EventSlugValidationResult =
   | { ok: true; slug: string }
@@ -64,34 +29,12 @@ export type EventSlugAvailabilityResult =
   | { available: true; slug: string }
   | { available: false; slug: string; reason: "invalid" | "reserved" | "taken" };
 
-const RESERVED_EVENT_SLUG_SET = new Set<string>(RESERVED_EVENT_SLUGS);
-
 export function normalizeEventSlugInput(input: string): string {
-  return normalizeProfileSlugInput(input);
+  return normalizeSlugInput(input);
 }
 
 export function validateEventSlug(slug: string): EventSlugValidationResult {
-  if (slug.length === 0) {
-    return { ok: false, reason: "empty" };
-  }
-
-  if (slug.length < EVENT_SLUG_MIN_LENGTH) {
-    return { ok: false, reason: "too_short" };
-  }
-
-  if (slug.length > EVENT_SLUG_MAX_LENGTH) {
-    return { ok: false, reason: "too_long" };
-  }
-
-  if (!EVENT_SLUG_PATTERN.test(slug)) {
-    return { ok: false, reason: "invalid_format" };
-  }
-
-  if (RESERVED_EVENT_SLUG_SET.has(slug)) {
-    return { ok: false, reason: "reserved" };
-  }
-
-  return { ok: true, slug };
+  return validateSlugFormat(slug);
 }
 
 export function toEventSlug(input: string): EventSlugValidationResult {
@@ -114,7 +57,7 @@ export function createEventSlugBase(title: string, startAt?: number): string {
   let slug = datedTitle;
 
   for (let attempt = 0; attempt < 5; attempt += 1) {
-    if (slug.length < EVENT_SLUG_MIN_LENGTH || RESERVED_EVENT_SLUG_SET.has(slug)) {
+    if (slug.length < EVENT_SLUG_MIN_LENGTH || isReservedSlug(slug)) {
       slug = `${slug}-event`;
     }
 
@@ -123,7 +66,7 @@ export function createEventSlugBase(title: string, startAt?: number): string {
     }
 
     const validated = validateEventSlug(slug);
-    if (validated.ok) {
+    if (validated.ok && !isReservedSlug(validated.slug)) {
       return validated.slug;
     }
   }
@@ -141,32 +84,12 @@ export function createEventSlugCandidate(base: string, attempt: number): string 
   return `${base.slice(0, maxBaseLength).replace(/-+$/g, "")}${suffix}`;
 }
 
-export async function getEventBySlug(db: DatabaseReader, slug: string) {
-  return await db.query("events").withIndex("by_slug", (q) => q.eq("slug", slug)).unique();
-}
-
 export async function checkEventSlugAvailability(
   db: DatabaseReader,
   slug: string,
   excludingEventId?: Id<"events">,
 ): Promise<EventSlugAvailabilityResult> {
-  const validation = validateEventSlug(slug);
-
-  if (!validation.ok) {
-    return {
-      available: false,
-      slug,
-      reason: validation.reason === "reserved" ? "reserved" : "invalid",
-    };
-  }
-
-  const existingEvent = await getEventBySlug(db, validation.slug);
-
-  if (existingEvent !== null && existingEvent._id !== excludingEventId) {
-    return { available: false, slug: validation.slug, reason: "taken" };
-  }
-
-  return { available: true, slug: validation.slug };
+  return await checkSlugAvailability(db, slug, excludingEventId);
 }
 
 export async function findAvailableEventSlug(
@@ -179,6 +102,28 @@ export async function findAvailableEventSlug(
     throw new Error("Event slug must be lowercase letters, numbers, and single hyphens.");
   }
 
+  // Refused rather than worked around. `toEventSlug` is shape-only so that lookups
+  // still resolve a granted reserved name, which leaves this gate to catch one
+  // being *asked for*: without it the reserved first candidate simply fails the
+  // availability check and the loop hands back `support-2`, quietly moving a live
+  // URL.
+  //
+  // Unless the event already holds it. `updateCommunityEventRecord` passes the
+  // event's own slug as the preferred value on every edit, so an unconditional
+  // refusal locked an event that owns a granted premium name out of *all* editing,
+  // summary changes included. Reserved means "not handed out", not "cannot be
+  // kept": creates and real slug changes are still refused.
+  if (preferred !== null && preferred.ok && isReservedSlug(preferred.slug)) {
+    const holder = await getEventBySlug(db, preferred.slug);
+    const alreadyOwnsIt =
+      options.excludingEventId !== undefined && holder?._id === options.excludingEventId;
+
+    if (!alreadyOwnsIt) {
+      throw new Error(`Event slug "${preferred.slug}" is reserved.`);
+    }
+
+  }
+
   const base = preferred?.ok ? preferred.slug : createEventSlugBase(input.title, input.startAt);
   const maxAttempts = options.maxAttempts ?? 50;
 
@@ -188,6 +133,21 @@ export async function findAvailableEventSlug(
 
     if (availability.available) {
       return availability.slug;
+    }
+
+    // Suffixing is for slugs we derived from a title. A slug the caller named is
+    // a public address they chose, so a collision is an error rather than an
+    // invitation to pick a different one.
+    //
+    // This also catches a legacy cross-entity collision on an unrelated update:
+    // `events.ts` passes the event's own slug as the preferred value, which
+    // `excludingEventId` clears, so the only way to reach here is a *profile* or
+    // *world* holding the name. Silently moving the event to `<slug>-2` would
+    // change a live URL during an edit that never asked to.
+    if (preferred?.ok && attempt === 1) {
+      throw new Error(
+        `Event slug "${candidate}" is already taken. Choose another, or resolve the collision first.`,
+      );
     }
   }
 

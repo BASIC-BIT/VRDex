@@ -97,8 +97,8 @@ const mcpWriteToolResourceScopes: Record<(typeof mcpWriteToolNames)[number], Api
   vrdex_event_create: "events:write",
   vrdex_event_update: "events:write",
   vrdex_profile_update: "profile:write",
-  // Submitting is inherently a write to a profile nobody owns, so it asks for
-  // the contribution grant rather than the edit-your-own-profiles one.
+  // Submitting is inherently a write to a profile nobody owns, so it asks for
+  // the contribution grant rather than the edit-your-own-profiles one.
   vrdex_profile_submit: "profile:contribute",
 };
 const mcpToolNames = [
@@ -368,17 +368,15 @@ function formatNamedItems(values: unknown[] | undefined) {
 }
 
 function profileRoutePath(profile: Pick<PublicProfile, "profileType" | "slug">) {
-  return profile.profileType === "community"
-    ? `/c/${encodeURIComponent(profile.slug)}`
-    : `/p/${encodeURIComponent(profile.slug)}`;
+  return `/${encodeURIComponent(profile.slug)}`;
 }
 
 function eventRoutePath(event: Pick<PublicEvent, "slug">) {
-  return `/e/${encodeURIComponent(event.slug)}`;
+  return `/${encodeURIComponent(event.slug)}`;
 }
 
 function worldRoutePath(world: Pick<PublicWorld, "slug">) {
-  return `/w/${encodeURIComponent(world.slug)}`;
+  return `/${encodeURIComponent(world.slug)}`;
 }
 
 function toMcpDocumentSearchResult(result: PublicSearchResult) {

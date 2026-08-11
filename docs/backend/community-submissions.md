@@ -18,12 +18,11 @@ This doc captures the first community-submitted profile flow for `#23`, plus the
 
 - `/submit`: first community-facing submission form
 - `/support`: contact, dispute, transfer, recovery, opt-out, and safety-review intake
-- `/p/<slug>`: public person profile page
-- `/c/<slug>`: public community profile page
+- `/<slug>`: public person or community profile page
 
 The `/submit` route is protected by the middleware and redirects a signed-out visitor to `/sign-in`. Clerk authenticates the browser and the backend mutation stays auth-gated, writing only for callers Convex resolves to a `users` row.
 
-Both public profile routes read through `profiles:getPublicBySlug`, require `publicationState: "published"` plus `publicSurfacingState: "public"`, verify the requested route type matches the stored `profileType`, and return a public projection that omits source-attribution identifiers.
+The root route reads through `profiles:getPublicBySlug`, requires `publicationState: "published"` plus `publicSurfacingState: "public"`, and returns a public projection that omits source-attribution identifiers. It passes no `profileType`: with one route serving both kinds there is no route-claimed type left to check the record against, so the stored `profileType` decides what renders.
 
 Public source display is sanitized to labels such as `Community submitted` and submitted date. Submitter token identifiers, issuer, subject, and display name are not exposed publicly in this slice.
 

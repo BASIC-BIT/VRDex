@@ -130,7 +130,7 @@ export async function createClaimedDiscordProfileForUser(
     profileType: input.profileType,
     slug,
     claimState: finalProfile.claimState,
-    profilePath: input.profileType === "person" ? `/p/${slug}` : `/c/${slug}`,
+    profilePath: `/${slug}`,
     shortLinkCode: shortLink.code,
     shortLinkPath: shortLink.shortLinkPath,
   };

@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
  * Blocks `/events` from session replay.
  *
  * Everything under here is authoring — `/events/new` and `/events/[slug]/edit`;
- * the public event page is `/e/[slug]`. The editor renders private VRCDN output
+ * the public event page is `/[slug]`. The editor renders private VRCDN output
  * accounts and worker status as `<option>` labels and body text, and
  * `maskAllInputs` covers input *values* only.
  *

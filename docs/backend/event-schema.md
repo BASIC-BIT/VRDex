@@ -10,7 +10,7 @@ Events are the primary scheduling object. They are not modeled as appearances or
 
 Current event fields include:
 
-- human-readable editable slug for `/e/<slug>` public routes
+- human-readable editable slug for `/<slug>` public routes
 - title and sort title
 - start time, optional doors-open time, and optional end time
 - optional canonical event time zone
@@ -104,7 +104,7 @@ The first slot editor uses relative minute offsets from the event start for oper
 
 First `#121` slice: the event editor can preview and copy one deterministic Discord-ready post generated from the public event projection.
 
-The export includes the event title, canonical `/e/<slug>` URL, host and world names when projected, Discord timestamp tokens for the event time and slot times, slot lineup rows or public participant rows, and projected public media/watch links. It does not post to Discord, run a bot/Gateway flow, use arbitrary user-authored templates, depend on generated short links, or include private operator/media-control state.
+The export includes the event title, canonical `/<slug>` URL, host and world names when projected, Discord timestamp tokens for the event time and slot times, slot lineup rows or public participant rows, and projected public media/watch links. It does not post to Discord, run a bot/Gateway flow, use arbitrary user-authored templates, depend on generated short links, or include private operator/media-control state.
 
 ## Calendar Import And Export
 

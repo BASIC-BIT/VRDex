@@ -5,12 +5,12 @@ import path from "node:path";
 const screenshotDir = path.join(process.cwd(), "playwright-artifacts", "screenshots");
 
 export const visualProfilePaths = {
-  personPath: "/p/playwright-dj-aurora",
-  verifiedPersonPath: "/p/basicbit",
-  communityPath: "/c/playwright-afterglow-social",
-  worldPath: "/w/playwright-neon-harbor",
-  eventPath: "/e/playwright-afterglow-harbor-sessions",
-  eventWatchPath: "/e/playwright-afterglow-watch-room",
+  personPath: "/playwright-dj-aurora",
+  verifiedPersonPath: "/basicbit",
+  communityPath: "/playwright-afterglow-social",
+  worldPath: "/playwright-neon-harbor",
+  eventPath: "/playwright-afterglow-harbor-sessions",
+  eventWatchPath: "/playwright-afterglow-watch-room",
   lookupPath: "/lookup?q=lineup",
 } as const;
 
@@ -512,7 +512,7 @@ export async function expectEventPage(page: Page) {
   await expect(page.getByText("Neon Harbor", { exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: /Add to calendar/i })).toHaveAttribute(
     "href",
-    "/e/playwright-afterglow-harbor-sessions/calendar.ics",
+    "/playwright-afterglow-harbor-sessions/calendar.ics",
   );
   await expect(page.getByRole("link", { name: "Edit event" })).toHaveAttribute(
     "href",

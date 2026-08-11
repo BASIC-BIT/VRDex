@@ -8,6 +8,7 @@ import {
   type McpProfileWriteResult,
   mcpWriteAttributionArgs,
   recordMcpWriteReceipt,
+  withCurrentWritePaths,
   requireMcpAttributionText,
   requireSha256Hex,
 } from "./_mcpWriteReceipts";
@@ -117,7 +118,9 @@ function toApiProfileWriteResponse(profile: Doc<"profiles">) {
     profileId: profile._id,
     slug: profile.slug,
     profileType: profile.profileType,
-    profilePath: profile.profileType === "person" ? `/p/${profile.slug}` : `/c/${profile.slug}`,
+    // Root-level, per #264. The `/p/` and `/c/` prefixes this branch was written
+    // against are gone.
+    profilePath: `/${profile.slug}`,
     // Computed here rather than by each caller, so no write path can report a
     // public path it did not check is actually readable.
     publiclyViewable: canReadProfile("public", profile),
@@ -570,7 +573,7 @@ async function createCommunityProfileRecord(
         profileId,
         profileType: "person" as const,
         slug,
-        profilePath: `/p/${slug}`,
+        profilePath: `/${slug}`,
         shortLinkCode: shortLink.code,
         shortLinkPath: shortLink.shortLinkPath,
       };
@@ -614,7 +617,7 @@ async function createCommunityProfileRecord(
       profileId,
       profileType: "community" as const,
       slug,
-      profilePath: `/c/${slug}`,
+      profilePath: `/${slug}`,
       shortLinkCode: shortLink.code,
       shortLinkPath: shortLink.shortLinkPath,
     };
@@ -903,7 +906,7 @@ export const updateProfileForMcpActor = internalMutation({
     });
 
     if (existing !== null) {
-      return existing.result as McpProfileWriteResult;
+      return withCurrentWritePaths(existing.result as McpProfileWriteResult);
     }
 
     const validation = validateProfileSlug(args.currentSlug);
@@ -1016,7 +1019,7 @@ export const submitCommunityProfileForMcpActor = internalMutation({
     // submission creates a second profile for the same person under a suffixed
     // slug, and nothing later merges them.
     if (existing !== null) {
-      return existing.result as McpProfileWriteResult;
+      return withCurrentWritePaths(existing.result as McpProfileWriteResult);
     }
 
     let created: Awaited<ReturnType<typeof createCommunityProfileRecord>>;
@@ -1131,7 +1134,7 @@ export const submitCommunityProfileForApiUser = internalMutation({
       }
 
       if (existing !== null) {
-        return existing.result as McpProfileWriteResult;
+        return withCurrentWritePaths(existing.result as McpProfileWriteResult);
       }
     }
 

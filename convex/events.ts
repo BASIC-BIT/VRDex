@@ -29,6 +29,7 @@ import {
   type McpEventWriteResult,
   mcpWriteAttributionArgs,
   recordMcpWriteReceipt,
+  withCurrentWritePaths,
   requireSha256Hex,
 } from "./_mcpWriteReceipts";
 import { normalizeOAuthClientId } from "./_oauth";
@@ -916,7 +917,7 @@ async function insertCommunityEventRecord(
   return {
     eventId,
     slug,
-    eventPath: `/e/${slug}`,
+    eventPath: `/${slug}`,
     shortLinkCode: shortLink.code,
     shortLinkPath: shortLink.shortLinkPath,
   };
@@ -1007,7 +1008,7 @@ async function updateCommunityEventRecord(
   return {
     eventId: event._id,
     slug,
-    eventPath: `/e/${slug}`,
+    eventPath: `/${slug}`,
   };
 }
 
@@ -1620,7 +1621,7 @@ export const getEventMediaControlStatus = query({
     if (program === null) {
       return {
         eventId: event._id,
-        eventPath: `/e/${slug}`,
+        eventPath: `/${slug}`,
         program: null,
         sources: [],
         outputs: [],
@@ -1666,7 +1667,7 @@ export const getEventMediaControlStatus = query({
 
     return {
       eventId: event._id,
-      eventPath: `/e/${slug}`,
+      eventPath: `/${slug}`,
       program: {
         programId: program._id,
         state: program.state,
@@ -1791,7 +1792,7 @@ export const queueEventMediaCommand = mutation({
 
     return {
       eventId: event._id,
-      eventPath: `/e/${slug}`,
+      eventPath: `/${slug}`,
       programId: program._id,
       commandId,
       status: "queued" as const,
@@ -1993,7 +1994,7 @@ export const createCommunityEventForMcpOwner = internalMutation({
     });
 
     if (existing !== null) {
-      return existing.result as McpEventWriteResult;
+      return withCurrentWritePaths(existing.result as McpEventWriteResult);
     }
 
     let community: Doc<"profiles">;
@@ -2086,7 +2087,7 @@ export const updateCommunityEventForMcpOwner = internalMutation({
     });
 
     if (existing !== null) {
-      return existing.result as McpEventWriteResult;
+      return withCurrentWritePaths(existing.result as McpEventWriteResult);
     }
 
     let community: Doc<"profiles">;
@@ -2233,7 +2234,7 @@ export const configureVrcdnOutput = mutation({
 
     return {
       eventId: event._id,
-      eventPath: `/e/${slug}`,
+      eventPath: `/${slug}`,
       programId,
       outputId,
       state: output.state,
@@ -2334,7 +2335,7 @@ export const scheduleEventMediaWorker = mutation({
 
     return {
       eventId: event._id,
-      eventPath: `/e/${slug}`,
+      eventPath: `/${slug}`,
       programId: program._id,
       outputId: output._id,
       sessionId,
@@ -2470,7 +2471,7 @@ export const recordEventMediaWorkerTaskStatus = mutation({
 
     return {
       eventId: event._id,
-      eventPath: `/e/${slug}`,
+      eventPath: `/${slug}`,
       programId: program._id,
       session: updatedSession === null ? workerSessionStatus(session) : workerSessionStatus(updatedSession),
     };
@@ -2527,7 +2528,7 @@ export const stopEventMediaWorker = mutation({
 
     return {
       eventId: event._id,
-      eventPath: `/e/${slug}`,
+      eventPath: `/${slug}`,
       programId: program._id,
       sessionId: session._id,
       status: "stopping" as const,
@@ -2602,7 +2603,7 @@ export const markEventMediaWorkerEnded = mutation({
 
     return {
       eventId: event._id,
-      eventPath: `/e/${slug}`,
+      eventPath: `/${slug}`,
       programId: program._id,
       sessionId: session._id,
       status,

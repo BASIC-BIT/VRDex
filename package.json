@@ -113,6 +113,7 @@
     "ops:profile-archive": "node --import tsx scripts/archive-profile.mjs",
     "preops:profile-rename": "node scripts/guard-main-worktree.mjs",
     "ops:profile-rename": "node --import tsx scripts/rename-profile.mjs",
+    "ops:slug-audit": "node --import tsx scripts/audit-slug-conflicts.mjs",
     "prelint:web": "node scripts/guard-main-worktree.mjs",
     "lint:web": "pnpm --filter web lint",
     "pretest:web": "node scripts/guard-main-worktree.mjs",

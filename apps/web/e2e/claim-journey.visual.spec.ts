@@ -9,7 +9,7 @@ test.beforeEach(async ({ page }) => {
 test("profile-scoped claim journey @visual", async ({ page }, testInfo) => {
   await page.goto("/playwright/claim");
   await expect(page.getByRole("heading", { name: "Claim BASICBIT" })).toBeVisible();
-  await expect(page.getByText("vrdex.net/p/basicbit", { exact: true })).toBeVisible();
+  await expect(page.getByText("vrdex.net/basicbit", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: /Verify with VRChat/ })).toHaveAttribute(
     "aria-pressed",
     "true",

@@ -277,7 +277,7 @@ export const claimCommunityWithVerifiedGuild = mutation({
         claimRequestId: null,
         profileId: profile._id,
         claimState: profile.claimState,
-        profilePath: `/c/${profile.slug}`,
+        profilePath: `/${profile.slug}`,
       };
     }
 
@@ -333,7 +333,7 @@ export const claimCommunityWithVerifiedGuild = mutation({
       claimRequestId,
       profileId: profile._id,
       claimState: updatedProfile?.claimState ?? profile.claimState,
-      profilePath: `/c/${profile.slug}`,
+      profilePath: `/${profile.slug}`,
     };
   },
 });
