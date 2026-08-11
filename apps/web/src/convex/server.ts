@@ -35,8 +35,14 @@ const signedOutSeedAccess: SeedLookupViewerAccess = { allowed: false, source: "s
 
 type PublicProfileType = "person" | "community";
 
-export async function fetchPublicProfileBySlug(slug: string, profileType: PublicProfileType) {
-  const fixtureProfile = getPlaywrightPublicProfileFixture(slug, profileType);
+// `profileType` narrows to one of the two profile kinds. The root slug route omits it
+// because a bare /basicbit does not say which kind it is -- the slug itself decides.
+export async function fetchPublicProfileBySlug(slug: string, profileType?: PublicProfileType) {
+  const fixtureProfile =
+    profileType === undefined
+      ? getPlaywrightPublicProfileFixture(slug, "person") ??
+        getPlaywrightPublicProfileFixture(slug, "community")
+      : getPlaywrightPublicProfileFixture(slug, profileType);
 
   if (fixtureProfile !== null) {
     return {
@@ -52,7 +58,7 @@ export async function fetchPublicProfileBySlug(slug: string, profileType: Public
   try {
     const profile = await fetchQuery(api.profiles.getPublicBySlug, {
       slug,
-      profileType,
+      ...(profileType === undefined ? {} : { profileType }),
       now: Date.now(),
     });
 
@@ -172,6 +178,57 @@ export async function fetchPublicWorldBySlug(slug: string) {
       kind: "error" as const,
     };
   }
+}
+
+type PublicEntity =
+  | { type: "profile"; profile: NonNullable<Awaited<ReturnType<typeof fetchPublicProfileBySlug>>["profile"]> }
+  | { type: "world"; world: NonNullable<Awaited<ReturnType<typeof fetchPublicWorldBySlug>>["world"]> }
+  | { type: "event"; event: NonNullable<Awaited<ReturnType<typeof fetchPublicEventBySlug>>["event"]> };
+
+// Profiles, worlds, and events share one slug namespace and all render from the site
+// root, so /basicbit has to ask all three which one owns the name.
+//
+// Fanned out rather than resolved in a single backend query on purpose: each fetcher
+// already layers Playwright fixtures and (for profiles) Twitch live state over its
+// Convex call, and running them concurrently costs one round of latency, not three.
+export async function fetchPublicEntityBySlug(
+  slug: string,
+): Promise<
+  | { kind: "missing-url" }
+  | { kind: "error" }
+  | { kind: "live"; entity: PublicEntity | null }
+> {
+  const [profileResult, worldResult, eventResult] = await Promise.all([
+    fetchPublicProfileBySlug(slug),
+    fetchPublicWorldBySlug(slug),
+    fetchPublicEventBySlug(slug),
+  ]);
+
+  if (profileResult.kind === "live" && profileResult.profile !== null) {
+    return { kind: "live", entity: { type: "profile", profile: profileResult.profile } };
+  }
+
+  if (worldResult.kind === "live" && worldResult.world !== null) {
+    return { kind: "live", entity: { type: "world", world: worldResult.world } };
+  }
+
+  if (eventResult.kind === "live" && eventResult.event !== null) {
+    return { kind: "live", entity: { type: "event", event: eventResult.event } };
+  }
+
+  const results = [profileResult, worldResult, eventResult];
+
+  // An unreachable backend must not read as "no such page" -- a 404 would tell a
+  // visitor their profile is gone when the truth is the read failed.
+  if (results.some((result) => result.kind === "error")) {
+    return { kind: "error" };
+  }
+
+  if (results.some((result) => result.kind === "missing-url")) {
+    return { kind: "missing-url" };
+  }
+
+  return { kind: "live", entity: null };
 }
 
 export async function fetchPublicShortLinkTargetByCode(code: string) {

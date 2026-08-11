@@ -1,55 +1,27 @@
 import type { Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
+import {
+  SLUG_MAX_LENGTH,
+  SLUG_MIN_LENGTH,
+  SLUG_PATTERN,
+  checkSlugAvailability,
+  getProfileBySlug,
+  isLiveRouteSlug,
+  isReservedSlug,
+  normalizeSlugInput,
+  validateSlugFormat,
+  type SlugFormatReason,
+} from "./_globalSlugs";
 import { supportInputError } from "./_supportIntake";
 
-export const PROFILE_SLUG_MIN_LENGTH = 3;
-export const PROFILE_SLUG_MAX_LENGTH = 64;
-export const PROFILE_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+export { getProfileBySlug };
+
+export const PROFILE_SLUG_MIN_LENGTH = SLUG_MIN_LENGTH;
+export const PROFILE_SLUG_MAX_LENGTH = SLUG_MAX_LENGTH;
+export const PROFILE_SLUG_PATTERN = SLUG_PATTERN;
 export const PROFILE_SLUG_FALLBACK_BASE = "profile-page";
 
-export const RESERVED_PROFILE_SLUGS = [
-  "about",
-  "account",
-  "admin",
-  "api",
-  "auth",
-  "billing",
-  "blog",
-  "c",
-  "cards",
-  "communities",
-  "community",
-  "contact",
-  "dashboard",
-  "docs",
-  "e",
-  "events",
-  "help",
-  "login",
-  "logout",
-  "me",
-  "moderation",
-  "p",
-  "people",
-  "person",
-  "pricing",
-  "privacy",
-  "profile",
-  "profiles",
-  "search",
-  "settings",
-  "signup",
-  "support",
-  "terms",
-  "vrdex",
-] as const;
-
-export type ProfileSlugValidationReason =
-  | "empty"
-  | "too_short"
-  | "too_long"
-  | "invalid_format"
-  | "reserved";
+export type ProfileSlugValidationReason = SlugFormatReason;
 
 export type ProfileSlugValidationResult =
   | { ok: true; slug: string }
@@ -59,18 +31,8 @@ export type ProfileSlugAvailabilityResult =
   | { available: true; slug: string }
   | { available: false; slug: string; reason: "invalid" | "reserved" | "taken" };
 
-const RESERVED_PROFILE_SLUG_SET = new Set<string>(RESERVED_PROFILE_SLUGS);
-
 export function normalizeProfileSlugInput(input: string): string {
-  return input
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim()
-    .toLowerCase()
-    .replace(/&/g, " and ")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .replace(/-{2,}/g, "-");
+  return normalizeSlugInput(input);
 }
 
 /**
@@ -228,9 +190,30 @@ export function readProfileReferenceFromInput(
     // are routes, so `/P/dj-aurora` is a 404 and names no profile -- accepting
     // it resolved the real lowercase-route listing from a link that does not
     // work, which is the same rescue the segment case check already refuses.
-    const profilePath = /^\/(p|c)\/([^/?#]+)\/?(?:[?#].*)?$/.exec(path);
+    // Profiles render from the site root now, so the link someone pastes is
+    // `/dj-aurora`. The retired `/p/` and `/c/` forms still parse, because an
+    // old link or bookmark still names a profile and still carries the type
+    // assertion that stops `/c/foo` from resolving the person holding `foo`.
+    const prefixedPath = /^\/(p|c)\/([^/?#]+)\/?(?:[?#].*)?$/.exec(path);
+    const rootPath = /^\/([^/?#]+)\/?(?:[?#].*)?$/.exec(path);
+    const profilePath = prefixedPath ?? rootPath;
 
     if (profilePath === null) {
+      return none;
+    }
+
+    // A single root segment naming a real page is that page, not a profile named
+    // after one: `/support` and `/lookup` are routes.
+    //
+    // Route names only, not every reserved name. A premium name is withheld from
+    // self-serve but an operator can grant it, so refusing the whole reserved set
+    // here would reject `vrdex.net/basic` from the owner of `basic` -- dropping the
+    // identifier off their dispute, which is the failure this parser exists to
+    // prevent.
+    //
+    // A slug that simply holds no profile needs no check: `/neon-harbor` may be a
+    // world, and getRequestedProfile resolves it to nothing when it reads the table.
+    if (prefixedPath === null && isLiveRouteSlug(decodeUrlSegment(profilePath[1] ?? ""))) {
       return none;
     }
 
@@ -248,12 +231,18 @@ export function readProfileReferenceFromInput(
     // profile from a link that does not work -- and on a suppression stored that
     // profile's id, showing the operator a valid target the requester never
     // reached.
-    const segment = decodeUrlSegment(profilePath[2]);
+    const segment = decodeUrlSegment(
+      (prefixedPath === null ? profilePath[1] : profilePath[2]) ?? "",
+    );
 
     return PROFILE_SLUG_PATTERN.test(segment)
       ? {
           slug: segment,
-          profileType: profilePath[1] === "c" ? "community" : "person",
+          // No prefix, no assertion about which kind was meant. That is the same
+          // `null` a typed-in bare slug produces, and getRequestedProfile already
+          // treats it as "whatever the record says".
+          profileType:
+            prefixedPath === null ? null : prefixedPath[1] === "c" ? "community" : "person",
         }
       : none;
   }
@@ -341,28 +330,10 @@ export function resolveRequestedProfile(
   return { slug: validation.slug, profileType: reference.profileType };
 }
 
+// Shape only. Reserved names are rejected when a slug is assigned, not when one is
+// looked up, so a reserved name an operator has already granted still resolves.
 export function validateProfileSlug(slug: string): ProfileSlugValidationResult {
-  if (slug.length === 0) {
-    return { ok: false, reason: "empty" };
-  }
-
-  if (slug.length < PROFILE_SLUG_MIN_LENGTH) {
-    return { ok: false, reason: "too_short" };
-  }
-
-  if (slug.length > PROFILE_SLUG_MAX_LENGTH) {
-    return { ok: false, reason: "too_long" };
-  }
-
-  if (!PROFILE_SLUG_PATTERN.test(slug)) {
-    return { ok: false, reason: "invalid_format" };
-  }
-
-  if (RESERVED_PROFILE_SLUG_SET.has(slug)) {
-    return { ok: false, reason: "reserved" };
-  }
-
-  return { ok: true, slug };
+  return validateSlugFormat(slug);
 }
 
 export function toProfileSlug(input: string): ProfileSlugValidationResult {
@@ -373,7 +344,7 @@ export function createProfileSlugBase(input: string): string {
   let slug = normalizeProfileSlugInput(input) || PROFILE_SLUG_FALLBACK_BASE;
 
   for (let attempt = 0; attempt < 5; attempt += 1) {
-    if (slug.length < PROFILE_SLUG_MIN_LENGTH || RESERVED_PROFILE_SLUG_SET.has(slug)) {
+    if (slug.length < PROFILE_SLUG_MIN_LENGTH || isReservedSlug(slug)) {
       slug = `${slug}-profile`;
     }
 
@@ -382,7 +353,7 @@ export function createProfileSlugBase(input: string): string {
     }
 
     const validated = validateProfileSlug(slug);
-    if (validated.ok) {
+    if (validated.ok && !isReservedSlug(validated.slug)) {
       return validated.slug;
     }
   }
@@ -429,35 +400,12 @@ export async function getRequestedProfile(
     : null;
 }
 
-export async function getProfileBySlug(db: DatabaseReader, slug: string) {
-  return await db
-    .query("profiles")
-    .withIndex("by_slug", (q) => q.eq("slug", slug))
-    .unique();
-}
-
 export async function checkProfileSlugAvailability(
   db: DatabaseReader,
   slug: string,
   excludingProfileId?: Id<"profiles">,
 ): Promise<ProfileSlugAvailabilityResult> {
-  const validation = validateProfileSlug(slug);
-
-  if (!validation.ok) {
-    return {
-      available: false,
-      slug,
-      reason: validation.reason === "reserved" ? "reserved" : "invalid",
-    };
-  }
-
-  const existingProfile = await getProfileBySlug(db, validation.slug);
-
-  if (existingProfile !== null && existingProfile._id !== excludingProfileId) {
-    return { available: false, slug: validation.slug, reason: "taken" };
-  }
-
-  return { available: true, slug: validation.slug };
+  return await checkSlugAvailability(db, slug, excludingProfileId);
 }
 
 export async function findAvailableProfileSlug(

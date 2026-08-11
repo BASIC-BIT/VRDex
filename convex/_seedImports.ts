@@ -1193,6 +1193,8 @@ export function getSeedImportPublishBlockers(args: {
   hasAcceptedSuppressionRequest?: boolean;
   hasLiveHandoffInvitation?: boolean;
   slugCollisionProfile?: SeedImportPublicationProfile | null;
+  /** A world or event holds the slug. Collides, but is not a merge target. */
+  slugOwnedByOtherEntity?: boolean;
 }): SeedImportPublicationBlocker[] {
   const blockers = new Set<SeedImportPublicationBlocker>();
 
@@ -1264,8 +1266,8 @@ export function getSeedImportPublishBlockers(args: {
   // matchCandidateToProfile exists to resolve.
   if (
     (args.matchedProfile === null || args.matchedProfile === undefined) &&
-    args.slugCollisionProfile !== null &&
-    args.slugCollisionProfile !== undefined
+    ((args.slugCollisionProfile !== null && args.slugCollisionProfile !== undefined) ||
+      args.slugOwnedByOtherEntity === true)
   ) {
     blockers.add("slug_collision_blocks_publication");
   }
@@ -1315,6 +1317,8 @@ export function getSeedImportPublicationBlockers(args: {
   hasAcceptedSuppressionRequest?: boolean;
   hasLiveHandoffInvitation?: boolean;
   slugCollisionProfile?: SeedImportPublicationProfile | null;
+  /** A world or event holds the slug. Collides, but is not a merge target. */
+  slugOwnedByOtherEntity?: boolean;
 }): SeedImportPublicationBlocker[] {
   const blockers = new Set<SeedImportPublicationBlocker>();
 
@@ -1417,8 +1421,8 @@ export function getSeedImportPublicationBlockers(args: {
   // matched profile and keeps its slug, so the colliding slug is never written.
   if (
     (args.matchedProfile === null || args.matchedProfile === undefined) &&
-    args.slugCollisionProfile !== null &&
-    args.slugCollisionProfile !== undefined
+    ((args.slugCollisionProfile !== null && args.slugCollisionProfile !== undefined) ||
+      args.slugOwnedByOtherEntity === true)
   ) {
     blockers.add("slug_collision_blocks_publication");
   }

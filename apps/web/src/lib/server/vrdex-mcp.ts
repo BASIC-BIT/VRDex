@@ -333,17 +333,15 @@ function formatNamedItems(values: unknown[] | undefined) {
 }
 
 function profileRoutePath(profile: Pick<PublicProfile, "profileType" | "slug">) {
-  return profile.profileType === "community"
-    ? `/c/${encodeURIComponent(profile.slug)}`
-    : `/p/${encodeURIComponent(profile.slug)}`;
+  return `/${encodeURIComponent(profile.slug)}`;
 }
 
 function eventRoutePath(event: Pick<PublicEvent, "slug">) {
-  return `/e/${encodeURIComponent(event.slug)}`;
+  return `/${encodeURIComponent(event.slug)}`;
 }
 
 function worldRoutePath(world: Pick<PublicWorld, "slug">) {
-  return `/w/${encodeURIComponent(world.slug)}`;
+  return `/${encodeURIComponent(world.slug)}`;
 }
 
 function toMcpDocumentSearchResult(result: PublicSearchResult) {

@@ -415,7 +415,7 @@ export const acceptInvitation = mutation({
           profileId: profile._id,
           claimState: profile.claimState,
           ownerDestination: ownerDestination(profile._id),
-          profilePath: `/p/${profile.slug}`,
+          profilePath: `/${profile.slug}`,
         };
       }
     }
@@ -526,7 +526,7 @@ export const acceptInvitation = mutation({
       profileId: profile._id,
       claimState: claimedProfile?.claimState ?? "claimed_unverified",
       ownerDestination: ownerDestination(profile._id),
-      profilePath: `/p/${profile.slug}`,
+      profilePath: `/${profile.slug}`,
     };
   },
 });

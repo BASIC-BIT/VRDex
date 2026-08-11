@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { isReservedSlug } from "../../convex/_globalSlugs";
 import type { Doc, Id } from "../../convex/_generated/dataModel";
 import {
   normalizeProfilePublicSectionOrder,
@@ -69,7 +70,11 @@ type ProfileClaimTestTable =
   | "searchDocuments"
   | "shortLinks"
   | "vocabularyTerms"
-  | "profileSuppressionRequests";
+  | "profileSuppressionRequests"
+  // Slug uniqueness is global across the three root-routed entity types, so
+  // assigning a profile slug reads these too.
+  | "worlds"
+  | "events";
 type ProfileClaimTestRow = Record<string, unknown> & {
   _id: string;
   _creationTime: number;
@@ -97,6 +102,8 @@ function createProfileClaimTestDb(
     "shortLinks",
     "vocabularyTerms",
     "profileSuppressionRequests",
+    "worlds",
+    "events",
   ];
   const tables = Object.fromEntries(
     tableNames.map((tableName) => [
@@ -204,10 +211,13 @@ describe("profile slug helpers", () => {
       ok: false,
       reason: "invalid_format",
     });
+    // Reserved names pass shape validation. Rejecting them is the assignment path's
+    // job, so a reserved name an operator has already granted still looks up.
     assert.deepEqual(validateProfileSlug("admin"), {
-      ok: false,
-      reason: "reserved",
+      ok: true,
+      slug: "admin",
     });
+    assert.equal(isReservedSlug("admin"), true);
   });
 
   it("turns freeform input into a valid custom slug result", () => {
@@ -632,7 +642,7 @@ describe("profile ownership helpers", () => {
 
     const profile = tables.profiles[0];
 
-    assert.equal(result.profilePath, "/p/dj-no-match");
+    assert.equal(result.profilePath, "/dj-no-match");
     assert.equal(result.claimState, "claimed_unverified");
     assert.equal(profile?.slug, "dj-no-match");
     assert.equal(profile?.claimState, "claimed_unverified");
@@ -677,7 +687,7 @@ describe("profile ownership helpers", () => {
 
     const profile = tables.profiles[0];
 
-    assert.equal(result.profilePath, "/c/afterglow-social");
+    assert.equal(result.profilePath, "/afterglow-social");
     assert.equal(result.claimState, "claimed_unverified");
     assert.equal(profile?.profileType, "community");
     assert.equal(profile?.claimState, "claimed_unverified");
@@ -685,7 +695,7 @@ describe("profile ownership helpers", () => {
     assert.equal(tables.profileOwners.length, 1);
     assert.equal(tables.profileClaimRequests[0]?.method, "discord_community");
     assert.equal(tables.profileClaimRequests[0]?.evidenceSource, "discord_api");
-    assert.equal(tables.searchDocuments[0]?.routePath, "/c/afterglow-social");
+    assert.equal(tables.searchDocuments[0]?.routePath, "/afterglow-social");
     assert.equal(
       tables.vocabularyTerms.some((term) => term.scope === "community_subtype" && term.key === "club"),
       true,
@@ -1918,7 +1928,7 @@ describe("public profile projection", () => {
 
     const lookup = toProfileLookupResult(profile);
 
-    assert.equal(lookup?.profilePath, "/p/dj-celine");
+    assert.equal(lookup?.profilePath, "/dj-celine");
     assert.deepEqual(lookup?.roleTags, ["DJ"]);
     assert.deepEqual(lookup?.genres, [{ slug: "house", displayName: "House" }]);
     assert.deepEqual(

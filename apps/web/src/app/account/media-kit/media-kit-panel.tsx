@@ -750,7 +750,7 @@ function MediaKitEditor({
             <p className="mt-1 text-sm text-muted">{profile.activePublicAssetCount} / 12</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Link className={buttonVariants({ variant: "secondary" })} href={`/${profile.profileType === "community" ? "c" : "p"}/${profile.slug}`}>
+            <Link className={buttonVariants({ variant: "secondary" })} href={`/${profile.slug}`}>
               View profile
             </Link>
             <label className={cn(buttonVariants({ variant: "primary" }), "cursor-pointer focus-within:ring-2 focus-within:ring-focus focus-within:ring-offset-2", !selectedProfile || uploading || generatingUpload || profile.activePublicAssetCount >= 12 ? "pointer-events-none opacity-60" : "")}>

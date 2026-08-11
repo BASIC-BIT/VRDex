@@ -4,7 +4,9 @@
 
 This doc captures the slug contract for `#10`.
 
-Profiles use one global slug namespace across both people and communities, even though public pages are planned as `/p/<slug>` and `/c/<slug>`. This avoids ambiguous API, card, and search lookups.
+Profiles, worlds, and events share one global slug namespace and all render from the site root as `/<slug>`. This avoids ambiguous API, card, and search lookups, and it is what makes a bare `vrdex.net/basicbit` resolvable without a type prefix.
+
+Reservations live in `convex/_globalSlugs.ts` as four catalogs, because a name can be unavailable for four different reasons and read paths care about only one of them.
 
 ## Rules
 
@@ -19,7 +21,16 @@ Profiles use one global slug namespace across both people and communities, even 
 
 ## Reserved Slugs
 
-The reserved list lives in `convex/_profileSlugs.ts` and protects current plus likely future public routes, including app routes, auth routes, profile collection routes, API surfaces, account/settings routes, and support/legal pages.
+All four live in `convex/_globalSlugs.ts`.
+
+- `LIVE_ROUTE_SLUGS`: `/<name>` itself resolves to something other than `[slug]` -- a page, an optional catch-all, a middleware redirect, or a `beforeFiles` rewrite. An entity holding one has no reachable page. This is the only catalog a *read* path consults, via `isLiveRouteSlug`.
+- `ROUTE_PREFIX_SLUGS`: a route beneath the name matches an entity subpath. Next matches whole leaf patterns rather than claiming everything below a directory, so this is narrower than it looks: `app/developers/` has no leaf at that depth and `/developers/edit` falls through to `/[slug]/edit` like any other URL, while `handoff/[token]/page.tsx` does match `/handoff/edit` with the token read as "edit". `app/events/[slug]/edit` needs three segments, so `/events/edit` is *not* intercepted. Only `handoff` and `l` qualify today. An entity holding one keeps its public page and loses its owner-facing subpaths, which is why `slugAudit` reports these separately.
+- `HELD_ROUTE_SLUGS`: nothing serves them at all. Held for pages we may add.
+- `RESERVED_PREMIUM_SLUGS`: short, generic, or otherwise valuable names withheld from self-serve so they can be granted or sold later. `basicbit` and `vrdex` are here. Slugs under three characters are already unassignable, which reserves that whole space without listing it.
+
+`isReservedSlug` unions all four and gates *assignment*. `isLiveRouteSlug` covers only the first and gates *reading*: refusing a held name when parsing a pasted URL threw away the identifier on disputes about profiles that exist, `basicbit` among them.
+
+`tests/web/reserved-route-slugs.test.ts` walks the app directory, traverses route groups, reads the configured rewrites, and checks both directions, so neither a new route nor a deleted one can drift from the catalog.
 
 ## Generation
 
@@ -36,13 +47,15 @@ Initial slug generation starts from a display name or owner-provided text:
 
 ## Uniqueness
 
-Convex does not enforce unique indexes at the schema layer. Profile slug uniqueness is enforced by mutations using the `by_slug` index before insert or update.
+Convex does not enforce unique indexes at the schema layer. Slug uniqueness is enforced by mutations before insert or update, and it spans all three root-routed tables: a name a world or event holds is taken for a profile too, because only one of them could answer `/<slug>`.
+
+Use `findSlugOwner` from `convex/_globalSlugs.ts`, or the `check*SlugAvailability` helper for the entity being written, which calls it. A single `by_slug` query sees one third of the namespace. Convex mutations are transactional across tables, so a check followed by an insert in the same mutation cannot race.
 
 `profiles:submitCommunityProfile` now creates initial public slugs for authenticated community submissions. Mutations that create or update profiles must:
 
 - normalize and validate the candidate slug
 - reject invalid or reserved slugs
-- query `by_slug` to reject collisions outside the current profile
+- reject collisions across profiles, worlds, and events, excluding the row being updated
 - patch `updatedAt` with the slug write
 
 ## Out of Scope

@@ -79,9 +79,7 @@ This is the canonical Docusaurus-visible version of the portable partner-agent s
 
 ### Website Navigation
 
-- Public person profiles are expected at `/p/<slug>`.
-- Public community profiles are expected at `/c/<slug>`.
-- Public world pages are expected at `/w/<slug>`.
+- Public person profiles, community profiles, and world pages are all expected at `/<slug>`.
 - Event routes and final API routes should be read from current docs before use.
 
 ## Non-Goals

@@ -355,7 +355,7 @@ async function startHostedSuccessFixture() {
               {
                 id: "profile:community:afterglow",
                 title: "Afterglow",
-                url: `${origin}/c/afterglow`,
+                url: `${origin}/afterglow`,
               },
             ],
           },
@@ -404,7 +404,7 @@ async function startHostedSuccessFixture() {
               {
                 entityType: "profile",
                 profileType: "community",
-                routePath: "/c/afterglow",
+                routePath: "/afterglow",
                 score: 42,
                 slug: "afterglow",
                 summary: "A warm VRChat club night.",

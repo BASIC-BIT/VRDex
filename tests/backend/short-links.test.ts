@@ -524,17 +524,17 @@ describe("public short link resolution", () => {
     assert.deepEqual(await resolvePublicShortLinkTarget(db, " PROF1 "), {
       code: "prof1",
       targetType: "profile",
-      path: "/p/dj-aurora",
+      path: "/dj-aurora",
     });
     assert.deepEqual(await resolvePublicShortLinkTarget(db, "world1"), {
       code: "world1",
       targetType: "world",
-      path: "/w/neon-harbor",
+      path: "/neon-harbor",
     });
     assert.deepEqual(await resolvePublicShortLinkTarget(db, "event1"), {
       code: "event1",
       targetType: "event",
-      path: "/e/afterglow-harbor",
+      path: "/afterglow-harbor",
     });
   });
 

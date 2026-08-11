@@ -404,7 +404,7 @@ test("verified email account with linked Discord can claim person and community 
       page.getByText(/This profile is yours to manage|Profile claimed/i),
     ).toBeVisible(hostedActionExpectOptions);
 
-    await gotoFlowPage(page, `/p/${createdSlug}`);
+    await gotoFlowPage(page, `/${createdSlug}`);
     await expect(page.getByRole("heading", { name: displayName })).toBeVisible(hostedActionExpectOptions);
     if (process.env.PLAYWRIGHT_BASE_URL) {
       await expectCurrentOrHostedLagTrustState(
@@ -429,7 +429,7 @@ test("verified email account with linked Discord can claim person and community 
     if (!process.env.PLAYWRIGHT_BASE_URL) {
       await gotoFlowPage(page, "/account");
       const accountProfileLink = page.getByRole("link", { name: "View profile" });
-      await expect(accountProfileLink).toHaveAttribute("href", `/p/${encodeURIComponent(createdSlug!)}`);
+      await expect(accountProfileLink).toHaveAttribute("href", `/${encodeURIComponent(createdSlug!)}`);
       await expect(accountProfileLink).toHaveClass(/bg-accent/);
       await expect(page.getByRole("link", { name: "Verify with VRChat" })).toHaveAttribute(
         "href",
@@ -479,7 +479,7 @@ test("verified email account with linked Discord can claim person and community 
       await expect(communityClaimed).toBeVisible();
     }
 
-    await gotoFlowPage(page, `/c/${communitySlug}`);
+    await gotoFlowPage(page, `/${communitySlug}`);
     await expect(page.getByRole("heading", { name: `Playwright Community Claim ${runSuffix}` })).toBeVisible(
       hostedActionExpectOptions,
     );
@@ -582,7 +582,7 @@ test("verified email account can complete VRChat adapter claims @flow", async ({
       .click();
     await expect(page.getByText(/This profile is yours|Ownership (verified|confirmed)/i)).toBeVisible(hostedActionExpectOptions);
 
-    await gotoFlowPage(page, `/p/${vrchatPersonSlug}`);
+    await gotoFlowPage(page, `/${vrchatPersonSlug}`);
     await expect(page.getByRole("heading", { name: `Playwright VRChat Proof ${runSuffix}` })).toBeVisible(hostedActionExpectOptions);
     if (process.env.PLAYWRIGHT_BASE_URL) {
       await expectCurrentOrHostedLagTrustState(

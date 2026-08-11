@@ -64,7 +64,7 @@ test("private profile claim actions stay on owner-aware routes", async ({ page }
     "/account/appearance?profileId=playwright-profile",
   );
   await expect(page.getByRole("link", { name: "View profile" })).toHaveCount(0);
-  await expect(page.getByText("vrdex.net/p/basicbit")).toHaveCount(0);
+  await expect(page.getByText("vrdex.net/basicbit")).toHaveCount(0);
 
   await page.getByRole("link", { name: "Manage profile" }).click();
   await expect(page).toHaveURL(/\/account\/appearance\?profileId=playwright-profile$/);
@@ -145,7 +145,7 @@ test.describe("fixture lookup smoke", () => {
   test.skip(isHostedRun, "Fixture-specific lookup suggestions are local-only.");
 
   test("profile claim actions stay separate and keyboard focusable", async ({ page }) => {
-    await page.goto("/c/playwright-afterglow-social");
+    await page.goto("/playwright-afterglow-social");
 
     const communityCard = page.getByRole("region", { name: "Afterglow Social" });
     const communityClaim = page
@@ -156,7 +156,7 @@ test.describe("fixture lookup smoke", () => {
     await communityClaim.focus();
     await expect(communityClaim).toBeFocused();
 
-    await page.goto("/p/playwright-dj-aurora");
+    await page.goto("/playwright-dj-aurora");
 
     const personCard = page.getByRole("region", { name: "DJ Aurora" });
     const personClaim = page
@@ -167,13 +167,13 @@ test.describe("fixture lookup smoke", () => {
     await personClaim.focus();
     await expect(personClaim).toBeFocused();
 
-    await page.goto("/p/basicbit");
+    await page.goto("/basicbit");
     await expect(page.getByRole("complementary", { name: "Profile ownership" })).toHaveCount(0);
   });
 
   test("event short link redirects to its public event", async ({ page }) => {
     await page.goto("/l/afh2x67");
-    await expect(page).toHaveURL(/\/e\/playwright-afterglow-harbor-sessions$/);
+    await expect(page).toHaveURL(/\/playwright-afterglow-harbor-sessions$/);
     await expectEventPage(page);
   });
 
@@ -345,7 +345,7 @@ test.describe("fixture lookup smoke", () => {
     await searchInput.press("ArrowDown");
     await expect(page.getByRole("option", { name: /BASICBIT/i })).toHaveClass(/bg-surface-strong/);
     await searchInput.press("Enter");
-    await expect(page).toHaveURL(/\/p\/basicbit$/);
+    await expect(page).toHaveURL(/\/basicbit$/);
 
     await page.goto("/search?q=Sparse%20Import");
     const sparseResult = page.getByRole("region", { name: "Search results" });
@@ -397,7 +397,7 @@ test.describe("fixture lookup smoke", () => {
             displayName: "Logo Only",
             genres: [],
             outboundLinks: [],
-            profilePath: "/p/logo-only",
+            profilePath: "/logo-only",
             roleTags: ["DJ"],
             slug: "logo-only",
             tags: [],
@@ -421,7 +421,7 @@ test.describe("fixture lookup smoke", () => {
   });
 
   test("verified profiles use the same compact mark across profile and search views", async ({ page }, testInfo) => {
-    await page.goto("/p/basicbit");
+    await page.goto("/basicbit");
     const profileMark = page.getByLabel("Verified profile");
     await expect(profileMark).toBeVisible();
     const profileBox = await profileMark.boundingBox();

@@ -21,7 +21,7 @@ export async function GET(request: Request, context: RouteContext) {
     return textResponse("Event not found.", 404);
   }
 
-  const canonicalUrl = new URL(`/e/${result.event.slug}`, request.url).href;
+  const canonicalUrl = new URL(`/${result.event.slug}`, request.url).href;
   const body = createPublicEventIcs(result.event, { canonicalUrl });
 
   return new Response(body, {

@@ -28,7 +28,7 @@ describe("public event ICS serialization", () => {
         worlds: [{ displayName: "Neon Harbor" }, { displayName: "Crystal Annex" }],
       },
       {
-        canonicalUrl: "https://vrdex.example/e/afterglow-harbor-sessions-2026-06-14",
+        canonicalUrl: "https://vrdex.example/afterglow-harbor-sessions-2026-06-14",
         now: Date.UTC(2026, 4, 24, 12, 0, 0),
       },
     );
@@ -40,9 +40,9 @@ describe("public event ICS serialization", () => {
     assert.match(unfoldedCalendar, /DTSTART:20260614T220000Z\r\n/);
     assert.match(unfoldedCalendar, /DTEND:20260615T013000Z\r\n/);
     assert.match(unfoldedCalendar, /SUMMARY:Afterglow Harbor Sessions\r\n/);
-    assert.match(unfoldedCalendar, /DESCRIPTION:A confirmed public event\.\\n\\nhttps:\/\/vrdex\.example\/e\/afterglow-harbor-sessions-2026-06-14\r\n/);
+    assert.match(unfoldedCalendar, /DESCRIPTION:A confirmed public event\.\\n\\nhttps:\/\/vrdex\.example\/afterglow-harbor-sessions-2026-06-14\r\n/);
     assert.match(unfoldedCalendar, /LOCATION:Neon Harbor\\, Crystal Annex\r\n/);
-    assert.match(unfoldedCalendar, /URL:https:\/\/vrdex\.example\/e\/afterglow-harbor-sessions-2026-06-14\r\n/);
+    assert.match(unfoldedCalendar, /URL:https:\/\/vrdex\.example\/afterglow-harbor-sessions-2026-06-14\r\n/);
     assert.match(calendar, /END:VCALENDAR\r\n$/);
   });
 
@@ -81,7 +81,7 @@ describe("public event ICS serialization", () => {
       {
         feedName: "VRDex public events",
         feedUrl: "https://vrdex.example/calendar/events.ics",
-        eventUrl: (event) => `https://vrdex.example/e/${event.slug}`,
+        eventUrl: (event) => `https://vrdex.example/${event.slug}`,
         now: Date.UTC(2026, 4, 24, 12, 0, 0),
       },
     );
@@ -110,7 +110,7 @@ describe("public event ICS serialization", () => {
         mediaCommands: ["switch_source"],
       } as Parameters<typeof createPublicEventIcs>[0],
       {
-        canonicalUrl: "https://vrdex.example/e/community-night",
+        canonicalUrl: "https://vrdex.example/community-night",
         now: Date.UTC(2026, 6, 3, 15, 45, 30),
       },
     );
@@ -118,7 +118,7 @@ describe("public event ICS serialization", () => {
 
     assert.equal(calendar.includes("DTEND"), false);
     assert.match(unfoldedCalendar, /SUMMARY:Community Night\\, Wave 1\r\n/);
-    assert.match(unfoldedCalendar, /DESCRIPTION:Bring friends\\; stay hydrated\.\\n\\nhttps:\/\/vrdex\.example\/e\/community-night\r\n/);
+    assert.match(unfoldedCalendar, /DESCRIPTION:Bring friends\\; stay hydrated\.\\n\\nhttps:\/\/vrdex\.example\/community-night\r\n/);
     assert.match(unfoldedCalendar, /LOCATION:Public Host\r\n/);
     assert.equal(calendar.includes("operatorNotes"), false);
     assert.equal(calendar.includes("switch_source"), false);

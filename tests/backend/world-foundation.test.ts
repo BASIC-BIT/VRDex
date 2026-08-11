@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { isReservedSlug } from "../../convex/_globalSlugs";
 import type { Doc } from "../../convex/_generated/dataModel";
 import { isValidVrchatWorldId, toCanonicalVrchatWorldUrl } from "../../convex/_worldIds";
 import { createPublicActiveWorldPreviews, createPublicWorldEventContext } from "../../convex/_worldEvents";
@@ -29,9 +30,10 @@ describe("world slug helpers", () => {
       reason: "invalid_format",
     });
     assert.deepEqual(validateWorldSlug("worlds"), {
-      ok: false,
-      reason: "reserved",
+      ok: true,
+      slug: "worlds",
     });
+    assert.equal(isReservedSlug("worlds"), true);
   });
 
   it("turns freeform input into a valid world slug result", () => {

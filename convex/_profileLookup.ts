@@ -101,7 +101,7 @@ export function toProfileLookupResult(
   return {
     slug: profile.slug,
     displayName: profile.displayName,
-    profilePath: `/p/${profile.slug}`,
+    profilePath: `/${profile.slug}`,
     aliases: visibleProfileList(profile, "aliases", profile.aliases, "discovery"),
     tags: visibleProfileList(profile, "tags", profile.tags, "discovery"),
     genres: publicLookupGenres(profile),

@@ -195,7 +195,7 @@ describe("@vrdex/api-contracts", () => {
           entityType: "profile",
           profileType: "community",
           slug: "afterglow",
-          routePath: "/c/afterglow",
+          routePath: "/afterglow",
           title: "Afterglow",
           trustLabel: "claimed_verified",
           source: { sourceType: "community", label: "Community submitted" },
@@ -343,7 +343,7 @@ describe("@vrdex/api-contracts", () => {
     ApiEventWriteResponseSchema.parse({
       eventId: "event123",
       slug: "club-night",
-      eventPath: "/e/club-night",
+      eventPath: "/club-night",
       shortLinkCode: "abc123",
       shortLinkPath: "/s/abc123",
     });
@@ -415,7 +415,7 @@ describe("@vrdex/api-contracts", () => {
       profileId: "profile123",
       slug: "artist-name",
       profileType: "person",
-      profilePath: "/p/artist-name",
+      profilePath: "/artist-name",
     });
   });
 
@@ -487,7 +487,7 @@ describe("@vrdex/api-contracts", () => {
       profileId: "profile123",
       slug: "artist-name",
       profileType: "person",
-      profilePath: "/p/artist-name",
+      profilePath: "/artist-name",
       intentId: "intent123",
       uploadToken: "upload-token",
       uploadUrl: "/api/v0/profile-assets/upload-intents/intent123",

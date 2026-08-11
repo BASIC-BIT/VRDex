@@ -424,7 +424,7 @@ export const submitProfile = mutation({
       profileId,
       profileType: input.profileType,
       slug,
-      profilePath: input.profileType === "person" ? `/p/${slug}` : `/c/${slug}`,
+      profilePath: `/${slug}`,
     };
   },
 });

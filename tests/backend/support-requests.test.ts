@@ -7,6 +7,7 @@ import { api, internal } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import schemaModule from "../../convex/schema";
 import { readProfileReferenceFromInput, readProfileSlugFromInput } from "../../convex/_profileSlugs";
+import { isLiveRouteSlug, isReservedSlug } from "../../convex/_globalSlugs";
 import { clerkTestIdentity, newClerkUserId } from "./_clerkTestIdentity";
 import {
   MAX_ANONYMOUS_REQUESTS_PER_HOUR,
@@ -364,7 +365,7 @@ describe("support request helpers", () => {
     );
 
     assert.match(entry, /Ownership dispute/);
-    assert.match(entry, /https:\/\/vrdex\.net\/p\/dj-aurora/);
+    assert.match(entry, /https:\/\/vrdex\.net\/dj-aurora/);
   });
 });
 
@@ -538,10 +539,11 @@ describe("support digest formatting", () => {
   });
 
   /**
-   * `/p/` and `/c/` each fetch by type, so a community slug under `/p/` is a
-   * 404 for exactly the disputes that concern communities.
+   * One root route serves both kinds, so there is no per-type route left to guess
+   * wrong. This used to pick `/p/` or `/c/`, and guessing `/p/` for a community
+   * slug was a 404 on exactly the disputes that concern communities.
    */
-  it("links a community to the community route", () => {
+  it("links a community to its root route", () => {
     const entry = formatDigestEntry(
       {
         table: "profileSuppressionRequests" as const,
@@ -558,8 +560,8 @@ describe("support digest formatting", () => {
       "https://vrdex.net",
     );
 
-    assert.match(entry, /https:\/\/vrdex\.net\/c\/afterglow-social/);
-    assert.doesNotMatch(entry, /\/p\/afterglow-social/);
+    assert.match(entry, /https:\/\/vrdex\.net\/afterglow-social/);
+    assert.doesNotMatch(entry, /\/[pc]\/afterglow-social/);
     assert.match(entry, /Owner opt-out/);
   });
 });
@@ -944,6 +946,50 @@ describe("support request review findings, fourth round", () => {
       slug: "dj-aurora",
       profileType: null,
     });
+  });
+
+  it("reads the profile out of a root link, which is what the site serves now", () => {
+    // The link someone actually has in front of them. Rejecting it dropped the only
+    // identifier on their dispute, which is the failure the prefixed forms were
+    // parsed to prevent in the first place.
+    assert.deepEqual(readProfileReferenceFromInput("https://vrdex.net/dj-aurora", "https://vrdex.net"), {
+      slug: "dj-aurora",
+      profileType: null,
+    });
+    assert.deepEqual(readProfileReferenceFromInput("vrdex.net/afterglow-social", "https://vrdex.net"), {
+      slug: "afterglow-social",
+      profileType: null,
+    });
+    assert.equal(
+      readProfileReferenceFromInput("https://vrdex.net/dj-aurora?utm_source=x", "https://vrdex.net").slug,
+      "dj-aurora",
+    );
+
+    // No prefix means no assertion about the kind, so nothing can disagree with the
+    // record. getRequestedProfile already treats null as "whatever the record says".
+    assert.equal(
+      readProfileReferenceFromInput("https://vrdex.net/afterglow-social", "https://vrdex.net").profileType,
+      null,
+    );
+
+    // A route is a page, not a profile named after one.
+    assert.equal(readProfileReferenceFromInput("https://vrdex.net/support", "https://vrdex.net").slug, "");
+    assert.equal(readProfileReferenceFromInput("https://vrdex.net/lookup", "https://vrdex.net").slug, "");
+
+    // Route names only. A premium name is withheld from self-serve but an operator
+    // can grant it, so once `basic` belongs to somebody it is a real profile link.
+    // Refusing the whole reserved set here would drop the identifier off that
+    // owner's dispute -- the failure this parser exists to prevent.
+    assert.equal(isReservedSlug("basic"), true);
+    assert.equal(isLiveRouteSlug("basic"), false);
+    assert.deepEqual(readProfileReferenceFromInput("https://vrdex.net/basic", "https://vrdex.net"), {
+      slug: "basic",
+      profileType: null,
+    });
+
+    // Still only one segment, and still only this deployment's origins.
+    assert.equal(readProfileReferenceFromInput("https://vrdex.net/dj-aurora/extra", "https://vrdex.net").slug, "");
+    assert.equal(readProfileReferenceFromInput("https://anywhere.example/dj-aurora", "https://vrdex.net").slug, "");
   });
 });
 

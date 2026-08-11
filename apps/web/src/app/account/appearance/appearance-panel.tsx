@@ -463,7 +463,7 @@ function AppearanceEditor({
             Save appearance
           </Button>
           {selectedProfile.hasPublicProfile ? (
-            <Link className={buttonVariants({ size: "lg", variant: "secondary" })} href={`/${selectedProfile.profileType === "community" ? "c" : "p"}/${selectedProfile.slug}`}>
+            <Link className={buttonVariants({ size: "lg", variant: "secondary" })} href={`/${selectedProfile.slug}`}>
               View profile
             </Link>
           ) : null}

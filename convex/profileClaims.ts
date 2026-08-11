@@ -666,7 +666,7 @@ export const claimExistingPersonWithDiscord = mutation({
       return {
         profileId: profile._id,
         claimState: profile.claimState,
-        profilePath: `/p/${profile.slug}`,
+        profilePath: `/${profile.slug}`,
         state: "already_owned" as const,
       };
     }
@@ -708,7 +708,7 @@ export const claimExistingPersonWithDiscord = mutation({
       claimRequestId,
       profileId: profile._id,
       claimState: updatedProfile?.claimState ?? profile.claimState,
-      profilePath: `/p/${profile.slug}`,
+      profilePath: `/${profile.slug}`,
     };
   },
 });
@@ -795,7 +795,7 @@ export const requestCommunityDiscordAdminClaim = mutation({
     if (activeOwner !== null) {
       return {
         profileId: profile._id,
-        profilePath: `/c/${profile.slug}`,
+        profilePath: `/${profile.slug}`,
         state: "already_owned" as const,
       };
     }
@@ -819,7 +819,7 @@ export const requestCommunityDiscordAdminClaim = mutation({
       return {
         claimRequestId: existingRequest._id,
         profileId: profile._id,
-        profilePath: `/c/${profile.slug}`,
+        profilePath: `/${profile.slug}`,
         state: "pending_admin_verification" as const,
       };
     }
@@ -843,7 +843,7 @@ export const requestCommunityDiscordAdminClaim = mutation({
     return {
       claimRequestId,
       profileId: profile._id,
-      profilePath: `/c/${profile.slug}`,
+      profilePath: `/${profile.slug}`,
       state: "pending_admin_verification" as const,
     };
   },

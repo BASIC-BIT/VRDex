@@ -456,7 +456,7 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
     logoCount: mediaKit.logos.length,
   });
   const canClaim = profile.trustLabel === "community_submitted" || profile.trustLabel === "unclaimed";
-  const profileBasePath = isPerson ? `/p/${profile.slug}` : `/c/${profile.slug}`;
+  const profileBasePath = `/${profile.slug}`;
   const secondaryOrder = normalizeProfileSectionOrder(profile.appearance?.sectionOrder).filter((section) =>
     ["events", "media_kit", "worlds"].includes(section),
   );
@@ -516,7 +516,7 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
           {profile.worldCredits.map((world) => (
             <Link
               className="rounded-card border border-border bg-surface-strong px-4 py-4 text-sm transition hover:border-border-strong"
-              href={`/w/${world.slug}`}
+              href={`/${world.slug}`}
               key={world.slug}
             >
               <span className="block text-lg font-semibold">{world.displayName}</span>
@@ -738,11 +738,7 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
           return content ? <Fragment key={section}>{content}</Fragment> : null;
         })}
 
-        <ProfilePrivateRecord
-          profilePath={profileBasePath}
-          profileType={profile.profileType}
-          slug={profile.slug}
-        />
+        <ProfilePrivateRecord profilePath={profileBasePath} slug={profile.slug} />
       </PageContainer>
     </PageShell>
   );

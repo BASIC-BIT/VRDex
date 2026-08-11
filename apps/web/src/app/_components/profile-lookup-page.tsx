@@ -704,7 +704,7 @@ function PrivateSeedIdentity({ candidate }: { candidate: PrivateSeedLookupResult
           search result does not match what the operator typed would otherwise be
           named here and nowhere else. */}
       {candidate.publishedProfileSlug ? (
-        <Link className="lookup-private-name" href={`/p/${candidate.publishedProfileSlug}`}>
+        <Link className="lookup-private-name" href={`/${candidate.publishedProfileSlug}`}>
           {candidate.displayName}
         </Link>
       ) : (

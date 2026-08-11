@@ -184,7 +184,7 @@ function main() {
       `${dryRun ? "Would move" : "Moved"} ${response.previousSlug} to ${response.slug}, ` +
         `and every world credit pointing at it.`,
     );
-    lines.push(`Any existing link to /p/${response.previousSlug} stops resolving.`);
+    lines.push(`Any existing link to /${response.previousSlug} stops resolving.`);
   }
 
   console.log(lines.join("\n"));
