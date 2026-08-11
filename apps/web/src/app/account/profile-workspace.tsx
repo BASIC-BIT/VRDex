@@ -350,7 +350,7 @@ function ConnectedProfileWorkspace({
             */}
             <Link
               className="mt-2 inline-block text-sm text-muted underline underline-offset-4"
-              href={`/${active.profileType === "person" ? "p" : "c"}/${active.slug}/edit`}
+              href={`/${active.slug}/edit`}
             >
               Edit profile
             </Link>

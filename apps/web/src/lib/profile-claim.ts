@@ -20,7 +20,18 @@ export function profileClaimSlugFromInput(value: string): string {
   try {
     path = new URL(trimmed).pathname;
   } catch {
-    // Bare slugs and relative profile paths are valid legacy inputs.
+    // Scheme-less, which is how a link usually arrives when someone copies it out
+    // of an address bar. `new URL` throws, and the host is not a path segment: on
+    // the prefixed routes the old last-segment read happened to skip past it, but
+    // the slug is the *first* segment now, so `vrdex.net/afterglow` would resolve
+    // to the profile `vrdex.net`. A dot cannot appear in a slug, so a dotted first
+    // token is a host rather than the name being claimed.
+    const hostless = /^[^/\s]+\.[^/\s]+(\/.*)?$/.exec(trimmed);
+
+    if (hostless !== null) {
+      path = hostless[1] ?? "/";
+    }
+    // Otherwise a bare slug or a relative path, both of which are valid inputs.
   }
 
   // Query and fragment are dropped before splitting rather than treated as path

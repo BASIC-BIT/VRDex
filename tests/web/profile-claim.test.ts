@@ -40,6 +40,17 @@ describe("profile claim navigation", () => {
     assert.equal(profileClaimSlugFromInput("/afterglow-social?ref=account"), "afterglow-social");
     assert.equal(profileClaimSlugFromInput("dj-basic"), "dj-basic");
   });
+
+  it("reads the slug out of a root profile link, with or without a scheme", () => {
+    assert.equal(profileClaimSlugFromInput("https://vrdex.net/afterglow"), "afterglow");
+    // Scheme-less is how a link usually arrives from an address bar. The host is
+    // not a path segment, and the slug is the first one now, so skipping this
+    // would claim the profile `vrdex.net`.
+    assert.equal(profileClaimSlugFromInput("vrdex.net/afterglow"), "afterglow");
+    assert.equal(profileClaimSlugFromInput("www.vrdex.net/dj-celine?ref=account"), "dj-celine");
+    // A bare slug has no host to strip.
+    assert.equal(profileClaimSlugFromInput("afterglow"), "afterglow");
+  });
 });
 
 describe("VRChat claim targets", () => {

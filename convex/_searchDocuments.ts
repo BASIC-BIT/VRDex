@@ -454,7 +454,15 @@ export function toPublicSearchResult(
     entityType: document.entityType,
     ...optionalField("profileType", document.profileType),
     slug: document.slug,
-    routePath: document.routePath,
+    // Derived, not read back from the row. `routePath` is persisted at index time,
+    // so every document written before profiles moved to the site root still holds
+    // a `/p/`, `/c/`, `/w/`, or `/e/` path -- and those routes are gone. Returning
+    // the stored value would send searchers to a 404 until each entity happened to
+    // be reindexed. The slug is the whole path now, so there is nothing to store.
+    //
+    // Slugless events keep `String(event._id)` as their slug, but the constructor
+    // marks those `hidden`, so they never reach this public projection.
+    routePath: `/${document.slug}`,
     title: document.title,
     ...optionalField("subtitle", document.subtitle),
     ...optionalField("summary", document.summary),

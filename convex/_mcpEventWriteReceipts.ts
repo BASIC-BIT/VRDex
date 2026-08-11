@@ -25,6 +25,19 @@ export type McpEventWriteResult = {
   shortLinkPath?: string;
 };
 
+/**
+ * A stored receipt's result, with its paths brought up to the current routing.
+ *
+ * Receipts are durable and have no expiry, and `eventPath` was `/e/<slug>` when
+ * they were written. Events render from the site root now, so replaying one
+ * verbatim would hand a client retrying an already-acknowledged idempotency key a
+ * permanently dead link. The slug is stored alongside it, so the path is derived
+ * rather than migrated.
+ */
+export function withCurrentEventPaths(result: McpEventWriteResult): McpEventWriteResult {
+  return { ...result, eventPath: `/${result.slug}` };
+}
+
 const sha256HexPattern = /^[a-f0-9]{64}$/;
 
 export function requireSha256Hex(value: string, fieldName: string) {

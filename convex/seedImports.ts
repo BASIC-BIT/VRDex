@@ -45,6 +45,7 @@ import {
   seedImportFieldVisibilityValidator,
   seedImportPublicationPolicyValidator,
 } from "./_seedImportValidators";
+import { isReservedSlug } from "./_globalSlugs";
 import {
   createProfileSlugBase,
   findAvailableProfileSlug,
@@ -825,7 +826,9 @@ async function queueCandidate(ctx: MutationCtx, args: QueueCandidateArgs) {
     }
 
     const proposedSlugValidation =
-      candidate.proposedSlug === undefined ? undefined : validateProfileSlug(candidate.proposedSlug);
+      candidate.proposedSlug === undefined
+        ? undefined
+        : assignableProfileSlug(candidate.proposedSlug);
     const validProposedSlug =
       proposedSlugValidation !== undefined && proposedSlugValidation.ok ? proposedSlugValidation.slug : undefined;
     const [fields, matchedProfile] = await Promise.all([
@@ -895,6 +898,23 @@ async function queueCandidate(ctx: MutationCtx, args: QueueCandidateArgs) {
       note: "Publication is queued only; this mutation does not create or update public profiles.",
     };
   }
+}
+
+/**
+ * A proposed slug, treated as unusable when it is reserved.
+ *
+ * `validateProfileSlug` is shape-only, because lookups run through it and a
+ * reserved name an operator granted still has to resolve. Assignment is the other
+ * half of that split: a candidate proposing `support` or `basic` must raise
+ * `invalid_proposed_slug` rather than pass review and quietly publish under an
+ * allocator-generated suffix the operator never saw.
+ */
+function assignableProfileSlug(proposedSlug: string) {
+  const validation = validateProfileSlug(proposedSlug);
+
+  return validation.ok && isReservedSlug(validation.slug)
+    ? ({ ok: false, reason: "reserved" } as const)
+    : validation;
 }
 
 export const queueCandidatePublication = internalMutation({
@@ -1037,7 +1057,9 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
     }
 
     const proposedSlugValidation =
-      candidate.proposedSlug === undefined ? undefined : validateProfileSlug(candidate.proposedSlug);
+      candidate.proposedSlug === undefined
+        ? undefined
+        : assignableProfileSlug(candidate.proposedSlug);
     const validProposedSlug =
       proposedSlugValidation !== undefined && proposedSlugValidation.ok
         ? proposedSlugValidation.slug

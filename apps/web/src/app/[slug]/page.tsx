@@ -1,8 +1,9 @@
 import { notFound } from "next/navigation";
 
 import { validateSlugFormat } from "../../../../../convex/_globalSlugs";
+import { EntityBackendNotice } from "./entity-backend-notice";
 import { EventPublicPage } from "../_components/event-public-page";
-import { ProfileBackendNotice, ProfilePublicPage } from "../_components/profile-public-page";
+import { ProfilePublicPage } from "../_components/profile-public-page";
 import { WorldPublicPage } from "../_components/world-public-page";
 import { fetchPublicEntityBySlug } from "@/convex/server";
 
@@ -30,9 +31,9 @@ export default async function EntityPage({ params }: EntityPageProps) {
   const result = await fetchPublicEntityBySlug(slug);
 
   if (result.kind === "missing-url" || result.kind === "error") {
-    // Shared across all three entity types: at this point the lookup failed, so which
-    // kind of thing the slug names is exactly what we do not know.
-    return <ProfileBackendNotice kind={result.kind} />;
+    // Entity-neutral on purpose: the lookup that would have said whether this slug
+    // names a person, a world, or an event is the one that just failed.
+    return <EntityBackendNotice />;
   }
 
   if (result.entity === null) {

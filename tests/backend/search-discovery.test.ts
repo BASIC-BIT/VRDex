@@ -402,6 +402,36 @@ describe("search document projection", () => {
     assert.ok(document.searchText.includes("Unlinked Builder"));
   });
 
+  it("returns a root route path even for a row indexed under the retired prefixes", () => {
+    // `routePath` is persisted at index time, so every row written before profiles
+    // moved to the site root still holds `/p/...`. Reading it back verbatim sent
+    // searchers to a deleted route until that entity happened to be reindexed, so
+    // the path is derived from the slug instead of stored.
+    const stale = {
+      entityType: "profile",
+      profileType: "person",
+      slug: "dj-aurora",
+      routePath: "/p/dj-aurora",
+      title: "DJ Aurora",
+      searchText: "House",
+      exactTokens: ["dj aurora"],
+      vocabularyKeys: [],
+      trustRank: 10,
+      featuredRank: 0,
+      publicState: "public",
+      updatedAt: 1,
+    } as unknown as Doc<"searchDocuments">;
+
+    assert.equal(toPublicSearchResult(stale, "House").routePath, "/dj-aurora");
+    assert.equal(
+      toPublicSearchResult(
+        { ...stale, entityType: "world", slug: "neon-harbor", routePath: "/w/neon-harbor" } as unknown as Doc<"searchDocuments">,
+        "House",
+      ).routePath,
+      "/neon-harbor",
+    );
+  });
+
   it("reranks exact and event results above weaker matches", () => {
     const weak = {
       entityType: "profile",

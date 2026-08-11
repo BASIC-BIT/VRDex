@@ -26,6 +26,7 @@ import {
 import {
   findMcpEventWriteReceipt,
   type McpEventWriteResult,
+  withCurrentEventPaths,
   recordMcpEventWriteReceipt,
   requireSha256Hex,
 } from "./_mcpEventWriteReceipts";
@@ -2010,7 +2011,7 @@ export const createCommunityEventForMcpOwner = internalMutation({
     });
 
     if (existing !== null) {
-      return existing.result;
+      return withCurrentEventPaths(existing.result);
     }
 
     let community: Doc<"profiles">;
@@ -2103,7 +2104,7 @@ export const updateCommunityEventForMcpOwner = internalMutation({
     });
 
     if (existing !== null) {
-      return existing.result;
+      return withCurrentEventPaths(existing.result);
     }
 
     let community: Doc<"profiles">;
