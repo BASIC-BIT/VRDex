@@ -51,6 +51,17 @@ describe("profile claim navigation", () => {
     // A bare slug has no host to strip.
     assert.equal(profileClaimSlugFromInput("afterglow"), "afterglow");
   });
+
+  it("strips a scheme-less host that new URL would mistake for a scheme", () => {
+    // `new URL("localhost:3000/afterglow")` does not throw. It reads `localhost:`
+    // as the scheme and returns the pathname `3000/afterglow`, so the catch-block
+    // fallback never ran and the claim link pointed at the profile `3000`.
+    assert.equal(profileClaimSlugFromInput("localhost:3000/afterglow"), "afterglow");
+    assert.equal(profileClaimSlugFromInput("127.0.0.1:3210/dj-celine"), "dj-celine");
+    assert.equal(profileClaimSlugFromInput("localhost:3000/p/dj-celine"), "dj-celine");
+    // Still resolved when the scheme is a real one.
+    assert.equal(profileClaimSlugFromInput("http://localhost:3000/afterglow"), "afterglow");
+  });
 });
 
 describe("VRChat claim targets", () => {

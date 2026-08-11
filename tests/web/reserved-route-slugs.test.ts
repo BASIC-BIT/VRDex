@@ -98,13 +98,21 @@ function servedRootSegments(directory: string): string[] {
 function interceptsEntitySubpath(directory: string): boolean {
   return fs
     .readdirSync(directory, { withFileTypes: true })
-    .some(
+    .filter((entry) => entry.isDirectory())
+    // A dynamic child matches any single segment, so it takes both subpaths at
+    // once. A static one takes only its own name, which is why the two entity
+    // subpaths are named here rather than assumed: `app/developers/edit/page.tsx`
+    // would intercept `/developers/edit` while every other URL under
+    // `developers` kept falling through, and a dynamic-only check would have
+    // stayed green while the audit went quiet about it.
+    .filter(
       (entry) =>
-        entry.isDirectory() &&
-        entry.name.startsWith("[") &&
-        fs
-          .readdirSync(path.join(directory, entry.name))
-          .some((child) => /^(page|route)\.(tsx?|jsx?)$/.test(child)),
+        entry.name.startsWith("[") || entry.name === "edit" || entry.name === "calendar.ics",
+    )
+    .some((entry) =>
+      fs
+        .readdirSync(path.join(directory, entry.name))
+        .some((child) => /^(page|route)\.(tsx?|jsx?)$/.test(child)),
     );
 }
 

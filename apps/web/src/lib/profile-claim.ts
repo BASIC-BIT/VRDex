@@ -8,6 +8,14 @@ type ProfileRouteTarget = {
 
 const claimEntrySources = new Set<ClaimEntrySource>(["account", "profile", "search"]);
 
+function tryParseUrl(value: string): URL | null {
+  try {
+    return new URL(value);
+  } catch {
+    return null;
+  }
+}
+
 export function profileClaimSlugFromInput(value: string): string {
   const trimmed = value.trim();
 
@@ -15,29 +23,28 @@ export function profileClaimSlugFromInput(value: string): string {
     return "";
   }
 
-  let path = trimmed;
-
-  try {
-    path = new URL(trimmed).pathname;
-  } catch {
-    // Scheme-less, which is how a link usually arrives when someone copies it out
-    // of an address bar. `new URL` throws, and the host is not a path segment: on
-    // the prefixed routes the old last-segment read happened to skip past it, but
-    // the slug is the *first* segment now, so `vrdex.net/afterglow` would resolve
-    // to the profile `vrdex.net`. A dot cannot appear in a slug, so a dotted first
-    // token is a host rather than the name being claimed.
-    const hostless = /^[^/\s]+\.[^/\s]+(\/.*)?$/.exec(trimmed);
-
-    if (hostless !== null) {
-      path = hostless[1] ?? "/";
-    }
-    // Otherwise a bare slug or a relative path, both of which are valid inputs.
-  }
+  // `new URL` is trusted only for a real web scheme. It does not throw on
+  // `localhost:3000/afterglow`: it reads `localhost:` as the scheme and hands back
+  // the pathname `3000/afterglow`, so a scheme-less development URL claimed the
+  // profile `3000`. Anything else is treated as scheme-less text below.
+  const absolute = /^https?:\/\//i.test(trimmed) ? tryParseUrl(trimmed) : null;
+  const path = absolute === null ? trimmed : `${absolute.pathname}${absolute.search}`;
 
   // Query and fragment are dropped before splitting rather than treated as path
   // separators. Once profiles moved to the site root the slug became the *first*
   // segment, so `/afterglow?ref=account` would otherwise parse as `ref=account`.
   const segments = (path.split(/[?#]/)[0] ?? "").split("/").filter(Boolean);
+
+  // A scheme-less paste still carries its host, and the host is not a path
+  // segment. The old last-segment read happened to skip past it; reading the first
+  // segment does not, so `vrdex.net/afterglow` resolved the profile `vrdex.net`.
+  //
+  // Matched by shape rather than by a host list, because a slug can contain
+  // neither a dot nor a colon: that covers dotted hosts, `localhost:3000`, and a
+  // bracketed IPv6 literal alike, and cannot swallow a real slug.
+  if (absolute === null && segments[0] !== undefined && /[.:]/.test(segments[0])) {
+    segments.shift();
+  }
 
   // `/p/<slug>` and `/c/<slug>` are retired, but somebody can still paste an old
   // link or bookmark, and reading the slug out of one costs two lines.
