@@ -80,31 +80,89 @@ describe("lookup suggestion merging", () => {
     assert.equal(result.length, 2);
   });
 
-  // A published candidate is expected to have a public row: it made one. This
-  // deduplication was written when every private row was one that had not
-  // shipped, where matching a public profile meant the same person was already
-  // listed. Once published candidates joined the lookup, the same rule deleted
-  // the row carrying the accepted seed fields -- what the operator is on this
-  // surface to read -- because the profile it had itself created matched it.
-  it("keeps a published candidate beside the profile it published", () => {
+  // A published candidate is expected to have a public row: it made one. Keeping
+  // both listed the same person twice -- once with the profile's avatar, once as
+  // the candidate's bare name -- for every one of the 405 published seeds, which
+  // is the lookup "duplicating everybody" an operator reported.
+  it("drops a published candidate when the profile it published to is on screen", () => {
     const bySlug = mergeLookupSuggestions(
       [publicProfile()],
       [privateCandidate({
         fields: [],
-        proposedSlug: "basicbit",
         publicationState: "published_unclaimed",
+        publishedProfileSlug: "basicbit",
       })],
     );
 
-    assert.equal(bySlug.length, 2);
+    assert.equal(bySlug.length, 1);
 
-    // And by the name-plus-link route, which is the same collision reached by a
-    // different test.
+    // And by the name-plus-link route, for a candidate published before the slug
+    // was recorded.
     const byIdentity = mergeLookupSuggestions(
       [publicProfile()],
       [privateCandidate({ publicationState: "published_unclaimed" })],
     );
 
-    assert.equal(byIdentity.length, 2);
+    assert.equal(byIdentity.length, 1);
+  });
+
+  // The other half of that rule, and the reason the exemption existed: dropping
+  // published candidates outright is what hid 405 published people here.
+  // Removing one is only safe while the profile it published to takes its place.
+  it("keeps a published candidate whose profile is not among the results", () => {
+    const result = mergeLookupSuggestions(
+      [publicProfile({ displayName: "Someone Else", outboundLinks: [], slug: "someone-else" })],
+      [privateCandidate({
+        publicationState: "published_unclaimed",
+        publishedProfileSlug: "basicbit",
+      })],
+    );
+
+    assert.equal(result.length, 2);
+  });
+
+  it("prefers a public profile when only the spelling of the name differs", () => {
+    const result = mergeLookupSuggestions(
+      [publicProfile({
+        displayName: "A_Roomba",
+        outboundLinks: [{
+          label: "VRCDN stream",
+          source: "partner_provided",
+          type: "vrcdn",
+          url: "https://stream.vrcdn.live/live/aroombavdj.live.ts",
+        }],
+        slug: "a-roomba",
+      })],
+      [privateCandidate({ displayName: "A Roomba", fields: [{
+        confidence: "medium",
+        fieldKey: "outboundLinks",
+        id: "roomba-links",
+        reviewState: "unreviewed",
+        sourceLabel: "NWinn",
+        value: [{ type: "vrcdn", url: "https://stream.vrcdn.live/live/aroombavdj.live.ts" }],
+        visibility: "private",
+      }] })],
+    );
+
+    assert.equal(result.length, 1);
+  });
+
+  it("keeps differently named candidates that only share a link anyone can post", () => {
+    const result = mergeLookupSuggestions(
+      [publicProfile({
+        outboundLinks: [{ label: "Discord", source: "owner_authored", type: "discord", url: "https://discord.com/" }],
+      })],
+      [privateCandidate({ displayName: "Someone Else", fields: [{
+        confidence: "medium",
+        fieldKey: "outboundLinks",
+        id: "shared-links",
+        reviewState: "unreviewed",
+        sourceLabel: "NWinn",
+        value: [{ type: "discord", url: "https://discord.com/" }],
+        visibility: "private",
+      }] })],
+    );
+
+    assert.equal(result.length, 2);
   });
 });

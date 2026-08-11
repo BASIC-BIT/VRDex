@@ -5,6 +5,18 @@ import type {
 } from "./profile-lookup-page";
 
 const CASE_INSENSITIVE_PATH_HOSTS = new Set(["twitch.tv"]);
+/**
+ * Link types more than one person can legitimately post.
+ *
+ * A venue's Discord invite, a crew's site, an unlabelled "other" -- and the
+ * literal `https://discord.com/` that every Discord handle stores as its URL.
+ * Sharing one of these says nothing about being the same person, so they only
+ * count towards a match alongside the name. Every other type is an account
+ * somebody holds.
+ */
+const SHAREABLE_LINK_TYPES = new Set(["discord", "website", "commissions", "generic_store", "other"]);
+
+type LookupUrlSets = { all: Set<string>; identity: Set<string> };
 
 function normalizeIdentityText(value: string): string {
   return value.trim().replace(/\s+/g, " ").toLowerCase();
@@ -26,27 +38,43 @@ function normalizeLookupUrl(value: string): string | null {
   }
 }
 
-function privateSeedOutboundUrls(profile: PrivateSeedLookupResult): Set<string> {
-  const urls = new Set<string>();
+function collectLookupUrls(links: Array<{ type?: unknown; url: string }>): LookupUrlSets {
+  const all = new Set<string>();
+  const identity = new Set<string>();
 
-  for (const field of profile.fields) {
-    if (field.fieldKey !== "outboundLinks" || !Array.isArray(field.value)) {
+  for (const link of links) {
+    const normalized = normalizeLookupUrl(link.url);
+
+    if (!normalized) {
       continue;
     }
 
-    for (const link of field.value) {
-      if (typeof link !== "object" || link === null || !("url" in link) || typeof link.url !== "string") {
-        continue;
-      }
+    all.add(normalized);
 
-      const normalized = normalizeLookupUrl(link.url);
-      if (normalized) {
-        urls.add(normalized);
-      }
+    // A link with no type recorded stays out of the identity set. An untyped
+    // link is the weaker claim, and over-merging removes a person outright.
+    if (typeof link.type === "string" && !SHAREABLE_LINK_TYPES.has(link.type)) {
+      identity.add(normalized);
     }
   }
 
-  return urls;
+  return { all, identity };
+}
+
+function privateSeedOutboundUrls(profile: PrivateSeedLookupResult): LookupUrlSets {
+  return collectLookupUrls(
+    profile.fields.flatMap((field) => {
+      if (field.fieldKey !== "outboundLinks" || !Array.isArray(field.value)) {
+        return [];
+      }
+
+      return field.value.flatMap((link) => (
+        typeof link === "object" && link !== null && "url" in link && typeof link.url === "string"
+          ? [{ type: "type" in link ? link.type : undefined, url: link.url }]
+          : []
+      ));
+    }),
+  );
 }
 
 export function mergeLookupSuggestions(
@@ -56,25 +84,24 @@ export function mergeLookupSuggestions(
   const publicSlugs = new Set(publicResults.map((profile) => normalizeIdentityText(profile.slug)));
   const publicIdentities = publicResults.map((profile) => ({
     names: new Set([profile.displayName, ...profile.aliases].map(normalizeIdentityText)),
-    urls: new Set(
-      profile.outboundLinks
-        .map((link) => normalizeLookupUrl(link.url))
-        .filter((url): url is string => url !== null),
-    ),
+    urls: collectLookupUrls(profile.outboundLinks),
   }));
   const uniquePrivateResults = privateResults.filter((profile) => {
+    // The slug a candidate published to, like the one it proposed, names the row
+    // beside it outright.
+    //
     // A published candidate is *expected* to have a public row: it made one.
-    // This deduplication was written when every private row was a candidate that
-    // had not shipped, so matching a public profile meant the same person was
-    // already listed and the private row was noise. Once published candidates
-    // joined the lookup, that rule started deleting the row carrying the accepted
-    // seed fields -- the operator's whole reason for being on this surface --
-    // because the profile it had itself created matched it.
-    if (profile.publicationState === "published_unclaimed") {
-      return true;
-    }
+    // Exempting published candidates from deduplication entirely was the fix for
+    // dropping them, which had hidden 405 published people from this lookup --
+    // but a person is only hidden while nothing else lists them. When the profile
+    // a candidate published to is right there, removing the candidate leaves the
+    // person on screen and stops listing them twice: once with the profile's
+    // avatar, once as the candidate's bare name. That pair, for every published
+    // seed, is what the lookup was reported as duplicating. A published candidate
+    // whose profile is *not* among the results still gets its own row.
+    const linkedSlugs = [profile.publishedProfileSlug, profile.proposedSlug];
 
-    if (profile.proposedSlug && publicSlugs.has(normalizeIdentityText(profile.proposedSlug))) {
+    if (linkedSlugs.some((slug) => slug && publicSlugs.has(normalizeIdentityText(slug)))) {
       return false;
     }
 
@@ -82,8 +109,14 @@ export function mergeLookupSuggestions(
     const privateUrls = privateSeedOutboundUrls(profile);
 
     return !publicIdentities.some((publicProfile) => (
-      publicProfile.names.has(displayName) &&
-      [...privateUrls].some((url) => publicProfile.urls.has(url))
+      // An account somebody holds is identity enough on its own. Seed lists spell
+      // the same DJ "A Roomba" and "A_Roomba", and requiring the name to match
+      // too split one person across two rows over an underscore.
+      [...privateUrls.identity].some((url) => publicProfile.urls.identity.has(url)) ||
+      (
+        publicProfile.names.has(displayName) &&
+        [...privateUrls.all].some((url) => publicProfile.urls.all.has(url))
+      )
     ));
   });
 
