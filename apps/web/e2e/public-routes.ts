@@ -442,7 +442,7 @@ export async function expectPersonProfilePage(page: Page) {
   // Live in this fixture, so the player is offered. It has to stay a control
   // rather than a connection: nothing may reach VRCDN until a viewer presses
   // it, or every visitor spends one of the operator's capped viewer slots.
-  await expect(page.getByRole("button", { name: "Play VRCDN stream" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Play VRCDN" })).toBeVisible();
   await expect(page.locator("video")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Copy Discord" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Media kit" })).toBeVisible();

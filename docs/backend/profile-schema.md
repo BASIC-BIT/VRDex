@@ -67,6 +67,16 @@ A live VRCDN stream also offers an in-site player, `apps/web/src/app/_components
 - **On profile pages only**, the player appears solely while the badge says live, so the control is never present when it could not do anything. The event watch surface shares the component but has no liveness of its own: it gates on the event's opt-in and its scheduled window, so it can offer a player for a stream that is not publishing. Gating it on liveness too is unbuilt.
 - It replaced an `Open preview` link to `panel.vrcdn.live/preview/<id>`. That is an operator surface and `#217` lists publishing it as a non-goal. `apps/web/src/app/_components/profile-lookup-page.tsx` still surfaces it and has not been revisited.
 
+The control strip is custom (`apps/web/src/components/media/vrcdn-player-controls.tsx`), and each rule in it exists because replacing the browser's native controls meant inheriting a job they were doing for free:
+
+- **No seek bar, and it must stay absent.** A live MPEG-TS buffer grows and shifts under the element, so the native scrubber jittered against a timeline with nothing to seek. Hiding only the timeline is a Chromium/WebKit CSS trick that Firefox has no equivalent for, which is why the whole strip is replaced rather than patched.
+- **Pausing and resuming returns to the live edge.** The element keeps its timestamp while paused, so without seeking to the end of the buffered range on resume, playback falls further behind every time — and there is no scrubber left to catch up with.
+- **`ended` is playback termination, not stream liveness.** A clean EOF also arrives when the CDN closes or recycles a connection while the broadcaster is still going, so the terminal state always offers a retry rather than stranding a viewer on a stream that never stopped. Retry returns to the poster, so reconnecting still costs a viewer slot only on request. The copy says `Playback stopped` for the same reason — naming the broadcast would send people away from a set that is still running.
+- **Volume is feature-detected, not sniffed.** iOS Safari treats `HTMLMediaElement.volume` as read-only, so the slider is withheld there instead of sliding and changing nothing. Muting still works and stays.
+- **Fullscreen is feature-detected too.** iPhone Safari has no element fullscreen; `requestFullscreen` is absent rather than failing, so it falls back to `webkitEnterFullscreen` on the video, which brings iOS's own controls with it.
+- Hit areas are 44px, and the terminal message carries `role="status"` because it replaces a focused control. The strip is labelled per stream, since a profile can carry more than one live VRCDN link and render a player for each.
+- The strip is presentational and covered by Storybook stories wired into the component-snapshot lane. That is the only place it can be captured: it renders solely once a stream is connected, which fixtures cannot do and a real stream would charge a viewer slot for.
+
 - VRCDN publishes no liveness API. The signal is `GET https://stream.vrcdn.live/live/<streamId>.live.ts`, the transport stream a Quest client pulls. Measured against a real stream on 2026-08-10, live and then idle:
 
   | Request | Live | Idle | Unknown id |

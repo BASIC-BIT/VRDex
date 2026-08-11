@@ -2,6 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { VrcdnPlayerControls } from "@/components/media/vrcdn-player-controls";
+import { cn } from "@/lib/cn";
+
 /**
  * The play-triangle poster, shared by the VRCDN player and by the watch
  * surface's fallback for providers that could not be embedded. One definition
@@ -18,6 +21,30 @@ export function WatchPlayPoster() {
       </div>
     </div>
   );
+}
+
+/** iPhone Safari exposes only video fullscreen, never element fullscreen. */
+type IosFullscreenVideo = HTMLVideoElement & {
+  webkitEnterFullscreen?: () => void;
+};
+
+/**
+ * Whether script can move the media volume at all.
+ *
+ * Feature-tested rather than sniffed for iOS: the platform refuses the write
+ * and leaves the property where it was, which is exactly what this asks. On
+ * Safari for iPhone and iPad, volume is the hardware buttons' business alone,
+ * so a slider there would drag and change nothing.
+ */
+function canSetMediaVolume(): boolean {
+  if (typeof document === "undefined") {
+    return true;
+  }
+
+  const probe = document.createElement("video");
+  probe.volume = 0.5;
+
+  return probe.volume === 0.5;
 }
 
 type MpegTsPlayer = {
@@ -50,8 +77,69 @@ type VrcdnStreamPlayerProps = {
  */
 export function VrcdnStreamPlayer({ src, title }: VrcdnStreamPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const [started, setStarted] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [ended, setEnded] = useState(false);
+  // Mirrored from the element rather than driven from here, so the controls
+  // still track state the element changes on its own -- a rejected autoplay
+  // leaving it paused, or the platform muting it.
+  const [paused, setPaused] = useState(false);
+  const [muted, setMuted] = useState(false);
+  const [volume, setVolume] = useState(1);
+  const [fullscreen, setFullscreen] = useState(false);
+  // Sticky from the first `playing` event. `started` is only the click, so it
+  // cannot carry the `LIVE` marker; a later stall is transient and should not
+  // retract a claim that was true.
+  const [connected, setConnected] = useState(false);
+  // Lazily, not in an effect: the controls only mount after a click, so this has
+  // always run client-side by the time it is read, and there is no server pass
+  // to disagree with.
+  const [volumeSettable] = useState(canSetMediaVolume);
+  // What unmute restores to. A slider dragged to zero mutes, and clearing
+  // `muted` alone would leave the controls claiming sound over silence.
+  const lastAudibleVolumeRef = useRef(1);
+
+  useEffect(() => {
+    const syncFullscreen = () => setFullscreen(document.fullscreenElement === wrapperRef.current);
+
+    document.addEventListener("fullscreenchange", syncFullscreen);
+
+    return () => document.removeEventListener("fullscreenchange", syncFullscreen);
+  }, []);
+
+  useEffect(() => {
+    const video = videoRef.current;
+
+    if (!started || failed || ended || !video) {
+      return;
+    }
+
+    const sync = () => {
+      setPaused(video.paused);
+      setMuted(video.muted);
+      setVolume(video.volume);
+
+      if (video.volume > 0) {
+        lastAudibleVolumeRef.current = video.volume;
+      }
+    };
+
+    const markConnected = () => setConnected(true);
+
+    sync();
+    video.addEventListener("playing", markConnected);
+    video.addEventListener("play", sync);
+    video.addEventListener("pause", sync);
+    video.addEventListener("volumechange", sync);
+
+    return () => {
+      video.removeEventListener("playing", markConnected);
+      video.removeEventListener("play", sync);
+      video.removeEventListener("pause", sync);
+      video.removeEventListener("volumechange", sync);
+    };
+  }, [started, failed, ended]);
 
   useEffect(() => {
     if (!started) {
@@ -85,6 +173,23 @@ export function VrcdnStreamPlayer({ src, title }: VrcdnStreamPlayerProps) {
       instance.destroy();
     };
 
+    // A set that finished is not a player that broke, and saying so needs no
+    // heartbeat: the connection is already open, and when VRCDN stops sending,
+    // `mpegts.js` ends the media source and the element fires `ended`. Polling
+    // liveness from the page instead would mean re-opening `.live.ts` -- the
+    // media endpoint -- on a timer, per open tab, which is the recurring-probe
+    // pattern `#217` deferred, at worse odds than the sweep it deferred.
+    //
+    // `ended` only, never a fatal error. An error after a while of playing is
+    // as likely a network blip, and telling a viewer the set is over while it
+    // is still running sends them away from a stream that is still there.
+    const handleEnded = () => {
+      releasePlayer();
+      setEnded(true);
+    };
+
+    video.addEventListener("ended", handleEnded);
+
     void import("mpegts.js")
       .then(({ default: mpegts }) => {
         if (cancelled || !videoRef.current) {
@@ -108,9 +213,10 @@ export function VrcdnStreamPlayer({ src, title }: VrcdnStreamPlayerProps) {
 
         // The click that started this is already spent by the time the player
         // chunk resolves, so a browser that blocks audible autoplay can refuse.
-        // The element keeps its native controls, so the viewer presses play
-        // once more rather than being left with a dead frame; muting instead
-        // would be worse, since the audio is the whole point of a DJ set.
+        // The control bar mirrors the element, so a refusal surfaces as its
+        // play button and the viewer presses once more rather than being left
+        // with a dead frame; muting to satisfy the policy instead would be
+        // worse, since the audio is the whole point of a DJ set.
         void Promise.resolve(instance.play()).catch(() => {});
       })
       .catch(() => {
@@ -121,6 +227,7 @@ export function VrcdnStreamPlayer({ src, title }: VrcdnStreamPlayerProps) {
 
     return () => {
       cancelled = true;
+      video.removeEventListener("ended", handleEnded);
       releasePlayer();
 
       video.removeAttribute("src");
@@ -131,10 +238,42 @@ export function VrcdnStreamPlayer({ src, title }: VrcdnStreamPlayerProps) {
   // Deliberately not the play poster. That is the same triangle the start
   // button wears, and reusing it here left the viewer clicking a control that
   // had no handler and no way back short of reloading.
-  if (failed) {
+  if (failed || ended) {
     return (
-      <div className="flex aspect-video min-h-64 items-center justify-center bg-[linear-gradient(135deg,var(--media),var(--surface-raised))] p-5">
-        <p className="text-sm font-medium text-white/80">Stream unavailable</p>
+      <div className="flex aspect-video min-h-64 flex-col items-center justify-center gap-4 bg-[linear-gradient(135deg,var(--media),var(--surface-raised))] p-5">
+        {/*
+          Announced, because this replaces a focused control. Without a live
+          region a screen-reader user loses focus and is told nothing about why
+          the player disappeared.
+        */}
+        {/*
+          "Playback stopped", not "Stream ended". EOF says this connection
+          finished, which also happens when the CDN recycles it mid-broadcast,
+          so naming the broadcast would send people away from a set still
+          running. It describes what is known and the retry covers the rest.
+        */}
+        <p className="text-sm font-medium text-white/80" role="status">
+          {ended ? "Playback stopped" : "Stream unavailable"}
+        </p>
+        {/*
+          `ended` is not authoritative. A clean EOF also arrives when the CDN
+          closes or recycles the connection while the broadcaster is still
+          going, so a terminal claim with no way back would strand a viewer on
+          a stream that never stopped. Reconnecting returns to the poster, so
+          the retry costs a viewer slot only when someone asks for it.
+        */}
+        <button
+          className="rounded-control border border-white/30 bg-white/16 px-3 py-2 text-sm font-medium text-white"
+          onClick={() => {
+            setEnded(false);
+            setFailed(false);
+            setStarted(false);
+            setConnected(false);
+          }}
+          type="button"
+        >
+          Try again
+        </button>
       </div>
     );
   }
@@ -153,13 +292,113 @@ export function VrcdnStreamPlayer({ src, title }: VrcdnStreamPlayerProps) {
   }
 
   return (
-    <video
-      autoPlay
-      className="aspect-video w-full bg-media"
-      controls
-      playsInline
-      ref={videoRef}
-      title={title}
-    />
+    <div
+      // Fullscreen hands the wrapper the whole viewport, which is rarely 16:9.
+      // Left at `aspect-video` the video became a strip at the top of a portrait
+      // phone with the controls stranded at the bottom, and overflowed the
+      // height on very wide displays. Filling and letterboxing is what the
+      // native controls did for free.
+      className={cn("relative bg-media", fullscreen && "flex h-full w-full items-center justify-center")}
+      ref={wrapperRef}
+    >
+      {/*
+        No native `controls`, and no `title`. Native controls put a seek bar on
+        a stream that has nothing to seek: the buffer of a live MPEG-TS feed
+        grows and shifts under the element, so the scrubber jitters and drags
+        against a timeline that does not mean anything. Hiding the timeline
+        alone only works in Chromium and WebKit, so the whole strip is replaced
+        with the controls a live stream can honour.
+
+        `title` rendered as a hover tooltip on the video itself, which is noise;
+        `aria-label` gives the element its accessible name without one.
+      */}
+      <video
+        aria-label={title}
+        autoPlay
+        className={cn("w-full", fullscreen ? "h-full max-h-full object-contain" : "aspect-video")}
+        playsInline
+        ref={videoRef}
+      />
+      <VrcdnPlayerControls
+        connected={connected}
+        fullscreen={fullscreen}
+        label={title}
+        muted={muted}
+        onToggleFullscreen={() => {
+          if (document.fullscreenElement) {
+            void document.exitFullscreen().catch(() => {});
+            return;
+          }
+
+          const wrapper = wrapperRef.current;
+
+          // Feature-detected, not assumed. iPhone Safari has no element
+          // fullscreen -- `requestFullscreen` is simply absent, so calling it
+          // threw before any `.catch()` could see it -- and offers video
+          // fullscreen instead. That path takes the video, not the wrapper, so
+          // iOS gets its own native controls inside it, which is the right
+          // trade against no fullscreen at all.
+          if (wrapper?.requestFullscreen) {
+            void wrapper.requestFullscreen().catch(() => {});
+            return;
+          }
+
+          (videoRef.current as IosFullscreenVideo | null)?.webkitEnterFullscreen?.();
+        }}
+        onToggleMute={() => {
+          const video = videoRef.current;
+
+          if (!video) {
+            return;
+          }
+
+          // Unmuting a slider dragged to zero has to give the volume back, or
+          // the icon and label flip to "unmuted" over silence and the only way
+          // out is to find the slider again.
+          if (video.muted && video.volume === 0) {
+            video.volume = lastAudibleVolumeRef.current;
+          }
+
+          video.muted = !video.muted;
+        }}
+        onTogglePlay={() => {
+          const video = videoRef.current;
+
+          if (!video) {
+            return;
+          }
+
+          if (!video.paused) {
+            video.pause();
+            return;
+          }
+
+          // Back to the live edge, not to where the pause happened. The element
+          // holds its timestamp while paused, so resuming would play further
+          // and further behind -- and with no seek bar there is nothing to drag
+          // to catch up.
+          const { buffered } = video;
+
+          if (buffered.length > 0) {
+            video.currentTime = buffered.end(buffered.length - 1);
+          }
+
+          void video.play().catch(() => {});
+        }}
+        onVolumeChange={(next) => {
+          const video = videoRef.current;
+
+          if (!video) {
+            return;
+          }
+
+          video.volume = next;
+          video.muted = next === 0;
+        }}
+        paused={paused}
+        volume={volume}
+        volumeSettable={volumeSettable}
+      />
+    </div>
   );
 }
