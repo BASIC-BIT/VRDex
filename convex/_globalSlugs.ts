@@ -70,10 +70,17 @@ export const LIVE_ROUTE_SLUGS = [
  * Reported by `slugAudit` separately from live routes because the failure differs:
  * the public page still works and only the owner-facing subpaths are gone.
  */
-export const ROUTE_PREFIX_SLUGS = [
-  "handoff",
-  "l",
-] as const;
+export const ENTITY_SUBPATHS = ["edit", "calendar.ics"] as const;
+
+export type EntitySubpath = (typeof ENTITY_SUBPATHS)[number];
+
+export const ROUTE_PREFIX_SUBPATHS: Record<string, readonly EntitySubpath[]> = {
+  // Dynamic children, so they match any single segment and take both subpaths.
+  handoff: ["edit", "calendar.ics"],
+  l: ["edit", "calendar.ics"],
+};
+
+export const ROUTE_PREFIX_SLUGS = Object.keys(ROUTE_PREFIX_SUBPATHS);
 
 export const HELD_ROUTE_SLUGS = [
   "api",
@@ -269,6 +276,17 @@ export function isReservedSlug(slug: string): boolean {
 /** Owns `/<slug>/...` without owning `/<slug>`, so the nested routes collide. */
 export function isRoutePrefixSlug(slug: string): boolean {
   return ROUTE_PREFIX_SLUG_SET.has(slug);
+}
+
+/**
+ * The entity subpaths a prefix takes, or an empty list when it takes none.
+ *
+ * `edit` belongs to profiles and `calendar.ics` to events, so a prefix that takes
+ * only one of them strands only one kind. Answering "is this a prefix at all"
+ * flagged both, which would fail the audit over an event whose export still works.
+ */
+export function routePrefixSubpaths(slug: string): readonly EntitySubpath[] {
+  return ROUTE_PREFIX_SUBPATHS[slug] ?? [];
 }
 
 export function isLiveRouteSlug(slug: string): boolean {

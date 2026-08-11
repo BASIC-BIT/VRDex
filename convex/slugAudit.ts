@@ -1,5 +1,24 @@
 import { internalQuery } from "./_generated/server";
-import { LIVE_ROUTE_SLUGS, isLiveRouteSlug, isRoutePrefixSlug } from "./_globalSlugs";
+import {
+  LIVE_ROUTE_SLUGS,
+  isLiveRouteSlug,
+  routePrefixSubpaths,
+  type EntitySubpath,
+} from "./_globalSlugs";
+
+/**
+ * The one subpath under `/<slug>` that this kind of entity uses.
+ *
+ * `app/[slug]/edit` is the profile editor and `app/[slug]/calendar.ics` is the
+ * event export. Worlds have neither, so they can lose neither.
+ */
+function entitySubpathFor(kind: string): EntitySubpath | null {
+  if (kind === "event") {
+    return "calendar.ics";
+  }
+
+  return kind === "world" ? null : "edit";
+}
 
 /**
  * Slugs that stopped being reachable, or stopped being unique, when profiles,
@@ -105,13 +124,21 @@ export const conflicts = internalQuery({
     // `/handoff/calendar.ics` is intercepted the same way. Reported so the audit
     // cannot print "nothing to migrate" over a broken owner-facing route.
     //
-    // Worlds are exempt: only two subpaths exist under `[slug]`, and `edit` serves
-    // profiles while `calendar.ics` serves events. A world has nothing down there to
-    // lose, so flagging one would fail the audit and demand a rename that fixes
-    // nothing.
-    const nestedRoutesShadowed = holders.filter(
-      (holder) => holder.kind !== "world" && isRoutePrefixSlug(holder.slug),
-    );
+    // Matched per kind against the subpath that kind actually uses. `edit` serves
+    // profiles and `calendar.ics` serves events, and a world uses neither, so it has
+    // nothing down there to lose.
+    //
+    // Both of today's prefixes take both subpaths, having dynamic children. Asking
+    // only "is this a prefix" would still have been right for them and wrong for a
+    // future static `edit` child, which takes one subpath while the audit told an
+    // operator to rename an event whose export still worked.
+    const nestedRoutesShadowed = holders.flatMap((holder) => {
+      const subpath = entitySubpathFor(holder.kind);
+
+      return subpath !== null && routePrefixSubpaths(holder.slug).includes(subpath)
+        ? [{ ...holder, lostSubpath: subpath }]
+        : [];
+    });
 
     return {
       checked: { profiles: profiles.length, worlds: worlds.length, events: events.length },

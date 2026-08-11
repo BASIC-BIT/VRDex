@@ -4,12 +4,15 @@ import path from "node:path";
 import { describe, it } from "node:test";
 
 import {
+  ENTITY_SUBPATHS,
   HELD_ROUTE_SLUGS,
   LIVE_ROUTE_SLUGS,
   ROUTE_PREFIX_SLUGS,
   isLiveRouteSlug,
   isReservedSlug,
   isRoutePrefixSlug,
+  routePrefixSubpaths,
+  type EntitySubpath,
 } from "../../convex/_globalSlugs";
 import { isProtectedRoute } from "../../apps/web/src/lib/protected-route-redirect";
 
@@ -87,33 +90,33 @@ function servedRootSegments(directory: string): string[] {
 }
 
 /**
- * Whether anything under this directory matches `/<name>/<one-more-segment>`, and
- * so would swallow an entity's `/<slug>/edit` or `/<slug>/calendar.ics`.
+ * Which of the entity subpaths this directory's own routes would swallow.
  *
- * A dynamic child with a page of its own does that: `handoff/[token]/page.tsx`
- * answers `/handoff/edit` with the token read as "edit". A directory of static
- * children does not, however many it has, because Next matches complete leaf
- * patterns rather than claiming everything beneath a name.
+ * `handoff/[token]/page.tsx` answers `/handoff/edit` with the token read as
+ * "edit". A directory of unrelated static children swallows neither, however many
+ * it has, because Next matches complete leaf patterns rather than claiming
+ * everything beneath a name.
  */
-function interceptsEntitySubpath(directory: string): boolean {
-  return fs
+function interceptedEntitySubpaths(directory: string): EntitySubpath[] {
+  const children = fs
     .readdirSync(directory, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
-    // A dynamic child matches any single segment, so it takes both subpaths at
-    // once. A static one takes only its own name, which is why the two entity
-    // subpaths are named here rather than assumed: `app/developers/edit/page.tsx`
-    // would intercept `/developers/edit` while every other URL under
-    // `developers` kept falling through, and a dynamic-only check would have
-    // stayed green while the audit went quiet about it.
-    .filter(
-      (entry) =>
-        entry.name.startsWith("[") || entry.name === "edit" || entry.name === "calendar.ics",
-    )
-    .some((entry) =>
+    .filter((entry) =>
       fs
         .readdirSync(path.join(directory, entry.name))
         .some((child) => /^(page|route)\.(tsx?|jsx?)$/.test(child)),
-    );
+    )
+    .map((entry) => entry.name);
+
+  // A dynamic child matches any single segment, so it takes both at once. A static
+  // one takes only its own name, and which it took matters: `edit` strands profiles
+  // while `calendar.ics` strands events, so a prefix that takes one would otherwise
+  // have the audit demand a rename from the kind that lost nothing.
+  if (children.some((name) => name.startsWith("["))) {
+    return [...ENTITY_SUBPATHS];
+  }
+
+  return ENTITY_SUBPATHS.filter((subpath) => children.includes(subpath));
 }
 
 /** Every top-level directory, served or not. All of them stay unassignable. */
@@ -192,9 +195,13 @@ describe("reserved route slugs", () => {
     // Deriving this from "directory with no page of its own" reported six working
     // names as broken and told operators to rename them, so it is derived from the
     // one thing that matters: a child that matches any single extra segment.
-    const intercepting = allRouteDirectories(appRoot).filter((segment) =>
-      interceptsEntitySubpath(path.join(appRoot, segment)),
+    const intercepted = new Map(
+      allRouteDirectories(appRoot).map((segment) => [
+        segment,
+        interceptedEntitySubpaths(path.join(appRoot, segment)),
+      ]),
     );
+    const intercepting = [...intercepted].filter(([, subpaths]) => subpaths.length > 0);
 
     assert.ok(intercepting.length > 0, "expected some intercepting prefixes");
 
@@ -203,16 +210,29 @@ describe("reserved route slugs", () => {
     const liveNames = new Set<string>(LIVE_ROUTE_SLUGS);
 
     assert.deepEqual(
-      intercepting.filter((segment) => !liveNames.has(segment) && !isRoutePrefixSlug(segment)),
+      intercepting
+        .map(([segment]) => segment)
+        .filter((segment) => !liveNames.has(segment) && !isRoutePrefixSlug(segment)),
       [],
-      "add these to ROUTE_PREFIX_SLUGS -- the audit reports nested-route collisions from that catalog",
+      "add these to ROUTE_PREFIX_SUBPATHS -- the audit reports nested-route collisions from that catalog",
     );
 
     assert.deepEqual(
-      ROUTE_PREFIX_SLUGS.filter((slug) => !intercepting.includes(slug)),
+      ROUTE_PREFIX_SLUGS.filter((slug) => (intercepted.get(slug) ?? []).length === 0),
       [],
-      "remove these from ROUTE_PREFIX_SLUGS -- nothing under them matches /<name>/<sub>",
+      "remove these from ROUTE_PREFIX_SUBPATHS -- nothing under them matches /<name>/<sub>",
     );
+
+    // Not just which prefixes, but which subpath each one takes. Recording the
+    // wrong set makes the audit demand a rename from the entity kind that kept
+    // working.
+    for (const slug of ROUTE_PREFIX_SLUGS) {
+      assert.deepEqual(
+        [...routePrefixSubpaths(slug)].sort(),
+        [...(intercepted.get(slug) ?? [])].sort(),
+        `ROUTE_PREFIX_SUBPATHS["${slug}"] does not match what the routes actually take`,
+      );
+    }
   });
 
   it("claims no live route that nothing actually serves", () => {

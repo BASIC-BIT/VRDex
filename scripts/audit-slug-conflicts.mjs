@@ -119,13 +119,11 @@ if (report.nestedRoutesShadowed.length === 0) {
       " still works; the owner-facing subpaths under it do not:",
   );
   for (const holder of report.nestedRoutesShadowed) {
-    // Named per kind, because the two entity subpaths belong to different owners.
-    // An event keeps its editor at `/events/<slug>/edit`, so telling an operator
-    // that `/<slug>/edit` broke would point them at a URL the event never used.
-    const lost = holder.kind === "event" ? "calendar.ics" : "edit";
+    // The audit says which subpath each holder lost rather than this re-deriving it
+    // from the kind, so the two cannot disagree.
     lines.push(
       `  /${holder.slug}  ${holder.kind.padEnd(9)} ${holder.displayName} (${holder.id})` +
-        `  -- /${holder.slug}/${lost} goes to the ${holder.slug} routes instead`,
+        `  -- /${holder.slug}/${holder.lostSubpath} goes to the ${holder.slug} routes instead`,
     );
   }
 }
