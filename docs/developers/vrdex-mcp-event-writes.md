@@ -8,7 +8,8 @@ Implementation checkpoint for
 The local/private `@basicbit/vrdex-mcp` stdio server can expose authenticated
 event-create and event-update tools over the existing `/api/v0` routes. It also
 exposes `vrdex_profile_update` and `vrdex_profile_submit` on the same terms;
-those need `profile:write` rather than `events:write` and are described in
+those need `profile:write` or `profile:contribute` rather than `events:write`,
+and are described in
 [`hosted-mcp-oauth-writes.md`](./hosted-mcp-oauth-writes.md), which covers both
 the hosted and local write surfaces. The hosted `/mcp` implementation stays
 anonymous-capable for reads and registers every write tool behind OAuth.
