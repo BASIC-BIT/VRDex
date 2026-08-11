@@ -62,6 +62,19 @@ describe("profile claim navigation", () => {
     // Still resolved when the scheme is a real one.
     assert.equal(profileClaimSlugFromInput("http://localhost:3000/afterglow"), "afterglow");
   });
+
+  it("strips a host that has no dot or colon to give it away", () => {
+    // A self-hosted instance reached by a portless local or single-label name.
+    // Testing the host's shape only caught the ones carrying a dot or a colon, so
+    // these returned the host itself and sent the claim flow to the wrong profile.
+    // Length is the reliable signal: a profile path is one segment at the root.
+    assert.equal(profileClaimSlugFromInput("localhost/afterglow"), "afterglow");
+    assert.equal(profileClaimSlugFromInput("devbox/afterglow"), "afterglow");
+    assert.equal(profileClaimSlugFromInput("devbox/p/dj-celine"), "dj-celine");
+    assert.equal(profileClaimSlugFromInput("localhost/c/afterglow-social"), "afterglow-social");
+    // A leading slash makes it a path, not a host, and one segment is the slug.
+    assert.equal(profileClaimSlugFromInput("/afterglow"), "afterglow");
+  });
 });
 
 describe("VRChat claim targets", () => {
