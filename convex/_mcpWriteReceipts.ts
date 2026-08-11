@@ -1,7 +1,7 @@
 import { ConvexError, v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
-import type { DatabaseWriter } from "./_generated/server";
+import type { DatabaseReader, DatabaseWriter } from "./_generated/server";
 import {
   mcpWriteToolNameValidator,
   type McpWriteToolName,
@@ -81,6 +81,39 @@ export function withCurrentWritePaths<T extends McpWriteResult>(result: T): T {
   return "eventPath" in result
     ? { ...result, eventPath: `/${result.slug}` }
     : { ...result, profilePath: `/${result.slug}` };
+}
+
+/**
+ * A stored profile receipt, re-resolved through the record it points at.
+ *
+ * Deriving the path from the receipt's own slug is not enough for profiles: an
+ * operator rename moves the profile and `scripts/rename-profile.mjs` says
+ * plainly that links to the previous slug stop resolving. A replay would then
+ * hand back a path that is dead for a second reason, having just been fixed for
+ * the first. The id is stable, so the current slug, path and visibility are read
+ * off the record instead of reconstructed from what was true at write time.
+ */
+export async function withCurrentProfileWritePaths(
+  db: DatabaseReader,
+  result: McpProfileWriteResult,
+  isPubliclyReadable: (profile: Doc<"profiles">) => boolean,
+): Promise<McpProfileWriteResult> {
+  const profile = await db.get(result.profileId);
+
+  // Deleted since. There is no current record to point at, so the stored slug
+  // stays and the caller is told it is not publicly viewable rather than being
+  // handed a path that resolves to nothing.
+  if (profile === null) {
+    return { ...result, profilePath: `/${result.slug}`, publiclyViewable: false };
+  }
+
+  return {
+    ...result,
+    slug: profile.slug,
+    profileType: profile.profileType,
+    profilePath: `/${profile.slug}`,
+    publiclyViewable: isPubliclyReadable(profile),
+  };
 }
 
 /**

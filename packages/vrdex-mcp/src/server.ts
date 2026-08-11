@@ -150,39 +150,39 @@ function mcpEventWriteIndeterminate(operation: "create" | "update") {
   };
 }
 
-function mcpProfileReadbackError(
-  write: z.infer<typeof ApiProfileWriteResponseSchema>,
-  error?: VrdexApiFailure,
-) {
-  const parts = [
-    error === undefined
-      ? `VRDex accepted the profile write for slug "${write.slug}", but the required readback did not complete cleanly.`
-      : `VRDex accepted the profile write for slug "${write.slug}", but the required readback failed with ${error.status}: ${error.title}.`,
-    "Do not retry the mutation automatically; read the saved profile first.",
-  ];
-
-  if (error?.detail !== undefined) {
-    parts.push(error.detail);
-  }
-
-  return {
-    content: [{ type: "text" as const, text: parts.join(" ") }],
-    isError: true as const,
-  };
-}
-
-function mcpProfileWriteIndeterminate(operation: "update" | "submission") {
-  return {
-    content: [
-      {
-        type: "text" as const,
-        text: `The VRDex profile ${operation} request did not complete cleanly, and the server may already have accepted the mutation. Do not retry the mutation automatically; read the target profile first.`,
-      },
-    ],
-    isError: true as const,
-  };
-}
-
+function mcpProfileReadbackError(
+  write: z.infer<typeof ApiProfileWriteResponseSchema>,
+  error?: VrdexApiFailure,
+) {
+  const parts = [
+    error === undefined
+      ? `VRDex accepted the profile write for slug "${write.slug}", but the required readback did not complete cleanly.`
+      : `VRDex accepted the profile write for slug "${write.slug}", but the required readback failed with ${error.status}: ${error.title}.`,
+    "Do not retry the mutation automatically; read the saved profile first.",
+  ];
+
+  if (error?.detail !== undefined) {
+    parts.push(error.detail);
+  }
+
+  return {
+    content: [{ type: "text" as const, text: parts.join(" ") }],
+    isError: true as const,
+  };
+}
+
+function mcpProfileWriteIndeterminate(operation: "update" | "submission") {
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: `The VRDex profile ${operation} request did not complete cleanly, and the server may already have accepted the mutation. Do not retry the mutation automatically; read the target profile first.`,
+      },
+    ],
+    isError: true as const,
+  };
+}
+
 export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
   const config = options.config ?? loadVrdexMcpConfig();
   const apiClient = options.apiClient ?? createVrdexApiClient(config);

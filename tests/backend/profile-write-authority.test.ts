@@ -302,6 +302,38 @@ describe("profile write authority", () => {
     );
   });
 
+  it("replays a receipt through the profile's current slug after a rename", async () => {
+    const t = convexTest(schema, modules);
+    const ownerUserId = await seedUser(t, "renamed");
+    const profileId = await seedProfile(t, "renamed", "unclaimed");
+    const args = {
+      ownerUserId,
+      oauthClientId: "vrdx_app_0123456789abcdef01234567",
+      oauthTokenId: "token-5",
+      requestId: "request-5",
+      idempotencyKeyHash: KEY_HASH,
+      requestFingerprint: FINGERPRINT,
+      contributeGranted: true,
+      currentSlug: "dj-renamed",
+      headline: "Touring",
+    };
+
+    const first = await t.mutation(internal.profiles.updateProfileForMcpActor, args);
+    assert.equal(first.profilePath, "/dj-renamed");
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(profileId as Id<"profiles">, { slug: "dj-new-name" });
+    });
+
+    const replay = await t.mutation(internal.profiles.updateProfileForMcpActor, args);
+
+    // The receipt still holds the old slug, and a link to it stops resolving
+    // once the profile moves. The id is stable, so the replay reports where the
+    // profile actually lives now.
+    assert.equal(replay.slug, "dj-new-name");
+    assert.equal(replay.profilePath, "/dj-new-name");
+  });
+
   it("relays a fixable refusal instead of flattening it into a denial", async () => {
     const t = convexTest(schema, modules);
     const ownerUserId = await seedUser(t, "fixable");

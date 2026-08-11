@@ -931,7 +931,18 @@ async function smokeHostedHttp(results: SmokeResult[], options: SmokeOptions) {
   }
 
   const listedToolNames = new Set((listedTools ?? []).map((tool) => String(tool.name)));
-  const writeToolsListed = writeToolNames.every((toolName) => listedToolNames.has(toolName));
+  // Asserted, not merely observed. Reading this as a flag meant a deployment
+  // that failed to register one write tool made the flag false, skipped every
+  // scope assertion below, and passed: the read-only `hostedExpectedTools`
+  // list was the only thing actually required.
+  for (const toolName of writeToolNames) {
+    assert.equal(
+      listedToolNames.has(toolName),
+      true,
+      `Hosted MCP did not list the ${toolName} write tool.`,
+    );
+  }
+  const writeToolsListed = true;
 
   const anonymousSearch = await postMcpJsonRpc(url, {
     jsonrpc: "2.0",
