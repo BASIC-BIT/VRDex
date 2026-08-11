@@ -433,7 +433,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       {
         title: "Update VRDex Profile",
         description:
-          "Update a VRDex person or community profile, including its outbound links, through the authenticated VRDex API. Works on a profile the token's user owns, and on an unclaimed profile as a community correction. Omitted fields are preserved; sending outboundLinks replaces the whole list, so read the profile first and send back the full set. This changes public VRDex data and requires explicit operator approval.",
+          "Update a profile through the authenticated VRDex API, either one the user owns or an unclaimed profile as a community correction. Omitted fields are preserved; sending outboundLinks replaces the whole list. This changes public VRDex data and requires explicit operator approval.",
         inputSchema: mcpProfileUpdateInputSchema,
         outputSchema: mcpOutputSchema(mcpProfileWriteResultSchema),
         annotations: {
@@ -465,7 +465,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       {
         title: "Submit VRDex Community Profile",
         description:
-          "Create a community-sourced VRDex profile for a person or community that has none, including their outbound links. It publishes immediately as unclaimed, credited to the token's user, and whoever it describes can claim it later. Search first: submitting a duplicate creates a second profile that nothing merges. This changes public VRDex data and requires explicit operator approval.",
+          "Create and publish a community-sourced profile through the authenticated VRDex API, left unclaimed and credited to the user. Search first: a duplicate submission creates a second profile. This changes public VRDex data and requires explicit operator approval.",
         inputSchema: ApiProfileSubmitRequestSchema,
         outputSchema: mcpOutputSchema(mcpProfileWriteResultSchema),
         annotations: {

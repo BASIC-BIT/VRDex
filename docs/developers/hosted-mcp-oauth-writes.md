@@ -63,17 +63,16 @@ VRDex follows the MCP authorization specification for Streamable HTTP:
   forwarded to Convex or `/api/v0`, returned in tool output, or stored in audit
   records.
 
-When the flag is off, write tools are not registered, protected-resource/CIMD
-metadata omits their scopes, DCR rejects them, and authorization rejects an
-attempt to request them. When it is on, `vrdex_event_create` and
-`vrdex_event_update` advertise OAuth-only security metadata. Calling either
-tool requires a user-delegated token for the MCP resource with both
-`mcp:write` and `events:write`. A missing token receives `401` plus an
-authoritative scope challenge; an invalid token receives `401`; insufficient
-scope or a client-credentials subject receives `403`. Anonymous public reads
-remain available, and authenticated read calls require `mcp:read`.
-Constrained DCR accepts the exact write-only scope pair advertised by those
-tools; requesting only one write scope is rejected.
+Every write tool is registered, and each advertises OAuth-only security metadata
+naming `mcp:write` plus the one resource scope from the table above that it
+writes. Calling a tool requires a user-delegated token for the MCP resource
+carrying that exact pair, so a token holding `mcp:write profile:write` reaches
+the profile tools and receives `403` from the event tools. A missing token
+receives `401` plus an authoritative scope challenge; an invalid token receives
+`401`; insufficient scope or a client-credentials subject receives `403`.
+Anonymous public reads remain available, and authenticated read calls require
+`mcp:read`. Constrained DCR accepts `mcp:write` with at least one resource
+scope; either half on its own is rejected.
 
 The canonical `/mcp` URL therefore initializes anonymously. Native clients
 whose explicit login command only starts OAuth after an initial `401` may use

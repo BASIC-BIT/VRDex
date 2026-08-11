@@ -762,8 +762,8 @@ function mcpProfileWriteRejected(error: unknown) {
     content: [{
       type: "text" as const,
       text: message === null
-        ? "VRDex rejected the profile write. Do not retry the same request unchanged."
-        : `VRDex rejected the profile write: ${message} Correct the request before retrying.`,
+        ? "VRDex rejected the profile write. Do not retry the mutation automatically."
+        : `VRDex rejected the profile write. ${message} Correct the request before trying again.`,
     }],
     isError: true as const,
   };
@@ -814,11 +814,15 @@ function mcpProfileWriteDenied() {
   };
 }
 
-function mcpProfileClaimed(slug: string) {
+// The claimed and suppressed refusals reuse the sentences already approved for
+// the browser path verbatim, and add only the no-retry clause the event write
+// tools already carry. New public-facing sentences need sign-off; these are not
+// new ones.
+function mcpProfileClaimed() {
   return {
     content: [{
       type: "text" as const,
-      text: `The VRDex profile "${slug}" has been claimed, so only its owner can edit it. Do not retry. If this is the signed-in user's own profile, they need to claim it first at /claim/${slug}.`,
+      text: "This profile has been claimed, so only its owner can edit it. Do not retry the mutation automatically.",
     }],
     isError: true as const,
   };
@@ -828,7 +832,7 @@ function mcpProfileSuppressed() {
   return {
     content: [{
       type: "text" as const,
-      text: "This identity has asked not to be listed on VRDex. Do not retry, and do not submit it under a different spelling.",
+      text: "This profile cannot be created. Do not retry the mutation automatically.",
     }],
     isError: true as const,
   };
@@ -1958,7 +1962,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     {
       title: "Update VRDex Profile",
       description:
-        "Update a VRDex person or community profile, including its outbound links. Works on a profile the signed-in user owns, and on an unclaimed profile as a community correction. Omitted fields are preserved; sending outboundLinks replaces the whole list, so read the profile first and send back the full set. This changes public data and requires explicit approval.",
+        "Update a profile owned by the signed-in VRDex user, or an unclaimed profile as a community correction. Omitted fields are preserved; sending outboundLinks replaces the whole list. This changes public data and requires explicit approval.",
       inputSchema: mcpProfileUpdateInputSchema,
       outputSchema: mcpOutputSchema(mcpProfileWriteResultSchema),
       annotations: {
@@ -2008,7 +2012,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
         }
 
         if (code === "PROFILE_CLAIMED") {
-          return mcpProfileClaimed(slug);
+          return mcpProfileClaimed();
         }
 
         return code === "MCP_WRITE_DENIED"
@@ -2030,7 +2034,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     {
       title: "Submit VRDex Community Profile",
       description:
-        "Create a community-sourced VRDex profile for a person or community that has none, including their outbound links. It publishes immediately as unclaimed, credited to the signed-in user, and whoever it describes can claim it later. Search first: submitting a duplicate creates a second profile that nothing merges. This changes public data and requires explicit approval.",
+        "Create and publish a community-sourced profile, left unclaimed and credited to the signed-in VRDex user. Search first: a duplicate submission creates a second profile. This changes public data and requires explicit approval.",
       inputSchema: mcpProfileSubmitInputSchema,
       outputSchema: mcpOutputSchema(mcpProfileWriteResultSchema),
       annotations: {
