@@ -128,6 +128,7 @@ const dynamicMcpResourceWriteScopes = new Set<ApiScope>([
   "profile:contribute",
 ]);
 const dynamicMcpWriteScopes = new Set<ApiScope>(["mcp:write", ...dynamicMcpResourceWriteScopes]);
+const resourceWriteScopeList = [...dynamicMcpResourceWriteScopes].join(", ");
 const clientMetadataDocumentMaxLength = 2048;
 const clientIdPattern = /^vrdx_app_[0-9a-f]{24}$/;
 const secretPrefixPattern = /^vrdx_secret_[0-9a-f]{16}$/;
@@ -488,13 +489,13 @@ export function normalizeDynamicMcpScopes(scopes: readonly string[] | undefined)
 
   if (writeScopesRequested && !completeWriteScopes) {
     throw new Error(
-      "Dynamic MCP write clients must request mcp:write and at least one of events:write or profile:write.",
+      `Dynamic MCP write clients must request mcp:write and at least one of ${resourceWriteScopeList}.`,
     );
   }
 
   if (!normalizedScopes.includes("mcp:read") && !completeWriteScopes) {
     throw new Error(
-      "Dynamic MCP clients must request mcp:read, or mcp:write with at least one of events:write or profile:write.",
+      `Dynamic MCP clients must request mcp:read, or mcp:write with at least one of ${resourceWriteScopeList}.`,
     );
   }
 

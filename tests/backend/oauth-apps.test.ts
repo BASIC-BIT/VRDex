@@ -292,7 +292,7 @@ describe("OAuth application helpers", () => {
     assert.throws(() => normalizeDynamicMcpScopes(["public:read"]), /mcp:read/);
     assert.throws(
       () => normalizeDynamicMcpScopes(["mcp:write"]),
-      /at least one of events:write or profile:write/,
+      /at least one of events:write, profile:write, profile:contribute/,
     );
     assert.throws(() => normalizeOAuthResponseTypes(["token"]), /response type/);
     assert.throws(() => normalizeOAuthTokenEndpointAuthMethod("client_secret_basic"), /token_endpoint_auth_method=none/);

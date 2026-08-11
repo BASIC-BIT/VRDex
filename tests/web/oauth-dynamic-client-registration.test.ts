@@ -314,7 +314,7 @@ describe("OAuth dynamic client registration", () => {
     assert.deepEqual(await response.json(), {
       error: "invalid_client_metadata",
       error_description:
-        "Dynamic MCP write clients must request mcp:write and at least one of events:write or profile:write.",
+        "Dynamic MCP write clients must request mcp:write and at least one of events:write, profile:write, profile:contribute.",
     });
   });
 

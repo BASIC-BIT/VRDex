@@ -30,6 +30,7 @@ export const dynamicMcpResourceWriteScopes = [
   "profile:contribute",
 ] as const;
 export const dynamicMcpWriteScopes = ["mcp:write", ...dynamicMcpResourceWriteScopes] as const;
+const resourceWriteScopeList = dynamicMcpResourceWriteScopes.join(", ");
 export const OAUTH_CONSENT_TRANSACTION_TTL_MS = 30 * 60 * 1000;
 
 export type OAuthClientType = (typeof oauthClientTypes)[number];
@@ -455,13 +456,13 @@ export function normalizeDynamicMcpClientRegistration(
 
   if (writeScopesRequested && !completeWriteScopes) {
     throw new Error(
-      "Dynamic MCP write clients must request mcp:write and at least one of events:write or profile:write.",
+      `Dynamic MCP write clients must request mcp:write and at least one of ${resourceWriteScopeList}.`,
     );
   }
 
   if (!allowedScopes.includes("mcp:read") && !completeWriteScopes) {
     throw new Error(
-      "Dynamic MCP clients must request mcp:read, or mcp:write with at least one of events:write or profile:write.",
+      `Dynamic MCP clients must request mcp:read, or mcp:write with at least one of ${resourceWriteScopeList}.`,
     );
   }
 
