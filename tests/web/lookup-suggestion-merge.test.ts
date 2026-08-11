@@ -164,6 +164,34 @@ describe("lookup suggestion merging", () => {
     assert.equal(result.length, 2);
   });
 
+  // One stream has several spellings. A seed listing the panel preview and a
+  // profile listing the `.live.ts` stream are the same person.
+  it("prefers a public profile when a candidate spells the stream differently", () => {
+    const result = mergeLookupSuggestions(
+      [publicProfile({
+        displayName: "SnekWtf",
+        outboundLinks: [{
+          label: "VRCDN stream",
+          source: "partner_provided",
+          type: "vrcdn",
+          url: "https://stream.vrcdn.live/live/snekwtf.live.ts",
+        }],
+        slug: "snekwtf",
+      })],
+      [privateCandidate({ displayName: "Snek WTF", fields: [{
+        confidence: "medium",
+        fieldKey: "outboundLinks",
+        id: "snek-links",
+        reviewState: "unreviewed",
+        sourceLabel: "NWinn",
+        value: [{ type: "vrcdn", url: "https://panel.vrcdn.live/preview/snekwtf" }],
+        visibility: "private",
+      }] })],
+    );
+
+    assert.equal(result.length, 1);
+  });
+
   // Host-only validation accepts `twitch.tv/videos/123` under the type that
   // reads like a channel, and two people can link the same VOD.
   it("keeps differently named candidates that share only a host-validated link", () => {

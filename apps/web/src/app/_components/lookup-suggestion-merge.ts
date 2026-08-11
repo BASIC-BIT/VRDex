@@ -1,3 +1,4 @@
+import { parseVrcdnStreamLinks } from "../../../../../convex/_vrcdnLinks";
 import type {
   PrivateSeedLookupResult,
   ProfileLookupDisplayResult,
@@ -5,18 +6,6 @@ import type {
 } from "./profile-lookup-page";
 
 const CASE_INSENSITIVE_PATH_HOSTS = new Set(["twitch.tv"]);
-/**
- * Link types whose URL names one account rather than a destination.
- *
- * Only `vrcdn`, and for the reason `sanitizeProfileLinks` gives for treating it
- * apart from the rest: every other type is validated by provider host alone, so
- * `twitch.tv/videos/123`, a VRChat world, a YouTube video, a Spotify track are
- * all accepted under a type that reads like an account but names something two
- * people can both link. A VRCDN URL is parsed down to a stream id, which one
- * account holds. Everything else still needs the display name to match, which
- * is what this lookup did for every type before.
- */
-const ACCOUNT_LINK_TYPES = new Set(["vrcdn"]);
 /**
  * Link provenances an identity match may rest on.
  *
@@ -67,14 +56,23 @@ function collectLookupUrls(links: Array<{ source?: unknown; type?: unknown; url:
 
     all.add(normalized);
 
-    // A link with no type recorded stays out of the identity set. An untyped
-    // link is the weaker claim, and over-merging removes a person outright.
-    if (
-      typeof link.type === "string" &&
-      ACCOUNT_LINK_TYPES.has(link.type) &&
-      isTrustedLinkSource(link.source)
-    ) {
-      identity.add(normalized);
+    // Identity rests on VRCDN and nothing else, for the reason
+    // `sanitizeProfileLinks` treats it apart from the rest: every other type is
+    // validated by provider host alone, so `twitch.tv/videos/123`, a VRChat
+    // world, a YouTube video and a Spotify track all pass under a type that
+    // reads like an account while naming something two people can both link. A
+    // VRCDN URL is parsed down to a stream id, which one account holds.
+    //
+    // Keyed by that id rather than by the URL, because one stream has several
+    // spellings -- the panel preview, the `.live.ts` stream, the page, the RTSP
+    // address -- and a seed carrying a different one than the profile is the
+    // same duplicate wearing a different string.
+    if (link.type === "vrcdn" && isTrustedLinkSource(link.source)) {
+      const streamId = parseVrcdnStreamLinks(link.url)?.streamId;
+
+      if (streamId) {
+        identity.add(`vrcdn:${streamId.toLowerCase()}`);
+      }
     }
   }
 
