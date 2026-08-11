@@ -19,16 +19,27 @@ docs update and a changelog entry so early consumers and agents can adapt.
   local stdio MCP servers, plus `POST /api/v0/profiles`, so outbound links and
   community-sourced profiles can be written from an API token or an OAuth
   session rather than only from the browser
-- **breaking**: `PATCH /api/v0/profiles/:slug` no longer requires ownership. A
-  caller without it edits an unclaimed profile as a community contributor, the
-  same authority the web editor grants; a profile claimed by someone else now
-  answers `403` rather than a generic failure
+- added the `profile:contribute` scope for writing a profile the credential
+  does not own, whether by correcting an unclaimed one or submitting a new one.
+  `profile:write` keeps meaning what its consent line says, "Edit your
+  profiles", so credentials issued before this change gain no new authority
+- **breaking**: `PATCH /api/v0/profiles/:slug` no longer requires ownership,
+  but a caller who does not own the target now needs `profile:contribute` as
+  well. With it, an unclaimed profile is edited as a community contributor, the
+  same authority the web editor grants; a profile claimed by someone else
+  answers `403`
+- **breaking**: `POST /api/v0/profiles` requires `profile:contribute` rather
+  than `profile:write`, and accepts an optional `Idempotency-Key` so a retried
+  submission replays the first result instead of publishing a second profile
+- `ApiProfileWriteResponse` gained `publiclyViewable`, so a client reading a
+  profile back after a write can tell a deliberately private page from one that
+  failed to surface
 - **breaking**: removed the `VRDEX_HOSTED_MCP_EVENT_WRITES` deployment switch.
   Every hosted write tool is advertised and the connecting harness decides which
   it exposes; writes stay bounded by granted scopes and per-resource permission
   checks. Dynamic MCP clients now request `mcp:write` with at least one of
-  `events:write` or `profile:write` instead of the fixed `mcp:write
-  events:write` pair
+  `events:write`, `profile:write`, or `profile:contribute` instead of the
+  fixed `mcp:write events:write` pair
 
 ## 2026-07-14
 
