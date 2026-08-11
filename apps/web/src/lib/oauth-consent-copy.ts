@@ -10,6 +10,13 @@ const oauthScopeLabels: Record<string, string> = {
   "mcp:read": "Read public VRDex data through MCP",
   "mcp:write": "Use VRDex MCP write tools",
   "profile:read": "Read profile data",
+  // Copy approved by BASIC on 2026-08-11, alongside the profile write tool
+  // descriptions and API problem details added with the MCP profile writes.
+  //
+  // This line is the boundary between the two profile scopes. `profile:write`
+  // promises only the user's own profiles, so reaching a profile they do not
+  // own is granted here or not at all; a credential holding just the former is
+  // refused with `PROFILE_CONTRIBUTE_SCOPE_REQUIRED`.
   "profile:contribute": "Add and correct community profiles",
   "profile:write": "Edit your profiles",
   "public:read": "Read public API data",
