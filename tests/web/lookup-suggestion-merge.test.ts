@@ -164,6 +164,60 @@ describe("lookup suggestion merging", () => {
     assert.equal(result.length, 2);
   });
 
+  // Host-only validation accepts `twitch.tv/videos/123` under the type that
+  // reads like a channel, and two people can link the same VOD.
+  it("keeps differently named candidates that share only a host-validated link", () => {
+    const result = mergeLookupSuggestions(
+      [publicProfile({
+        outboundLinks: [{
+          label: "Twitch",
+          source: "owner_authored",
+          type: "twitch",
+          url: "https://twitch.tv/videos/123",
+        }],
+      })],
+      [privateCandidate({ displayName: "Someone Else", fields: [{
+        confidence: "medium",
+        fieldKey: "outboundLinks",
+        id: "vod-links",
+        reviewState: "unreviewed",
+        sourceLabel: "NWinn",
+        value: [{ type: "twitch", url: "https://twitch.tv/videos/123" }],
+        visibility: "private",
+      }] })],
+    );
+
+    assert.equal(result.length, 2);
+  });
+
+  // Anyone signed in can attach a stream to a community-submitted profile, so
+  // that link cannot remove somebody else's row on its own.
+  it("keeps a candidate whose only shared link nobody vouched for", () => {
+    const result = mergeLookupSuggestions(
+      [publicProfile({
+        displayName: "Someone Else",
+        outboundLinks: [{
+          label: "VRCDN stream",
+          source: "community_submitted",
+          type: "vrcdn",
+          url: "https://stream.vrcdn.live/live/aroombavdj.live.ts",
+        }],
+        slug: "someone-else",
+      })],
+      [privateCandidate({ displayName: "A Roomba", fields: [{
+        confidence: "medium",
+        fieldKey: "outboundLinks",
+        id: "roomba-links",
+        reviewState: "unreviewed",
+        sourceLabel: "NWinn",
+        value: [{ type: "vrcdn", url: "https://stream.vrcdn.live/live/aroombavdj.live.ts" }],
+        visibility: "private",
+      }] })],
+    );
+
+    assert.equal(result.length, 2);
+  });
+
   // Media links are validated by host, so the same recording can appear on two
   // people's profiles. Only account URLs stand in for a name.
   it("keeps differently named candidates that share only a media link", () => {

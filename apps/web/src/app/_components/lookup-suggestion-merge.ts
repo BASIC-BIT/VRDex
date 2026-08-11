@@ -6,18 +6,27 @@ import type {
 
 const CASE_INSENSITIVE_PATH_HOSTS = new Set(["twitch.tv"]);
 /**
- * Link types whose URL names one account, whatever path it carries.
+ * Link types whose URL names one account rather than a destination.
  *
- * A VRCDN stream id, a Twitch channel, and a VRChat user id each belong to one
- * person, so two rows sharing one are that person twice. Held to an allowlist
- * rather than a list of exclusions because everything else can be posted by
- * more than one person: a venue's Discord invite, a crew's site, the literal
- * `https://discord.com/` every Discord handle stores as its URL, and media
- * links -- a YouTube video, a Spotify track, a SoundCloud set -- which are
- * validated by host and can be a recording two DJs both link rather than
- * either one's account. Those still need the display name to match.
+ * Only `vrcdn`, and for the reason `sanitizeProfileLinks` gives for treating it
+ * apart from the rest: every other type is validated by provider host alone, so
+ * `twitch.tv/videos/123`, a VRChat world, a YouTube video, a Spotify track are
+ * all accepted under a type that reads like an account but names something two
+ * people can both link. A VRCDN URL is parsed down to a stream id, which one
+ * account holds. Everything else still needs the display name to match, which
+ * is what this lookup did for every type before.
  */
-const ACCOUNT_LINK_TYPES = new Set(["vrcdn", "twitch", "vrchat_profile"]);
+const ACCOUNT_LINK_TYPES = new Set(["vrcdn"]);
+/**
+ * Link provenances an identity match may rest on.
+ *
+ * Community submissions publish immediately, and any signed-in user can attach
+ * an arbitrary stream to somebody else's profile -- the live-claim selector
+ * rejects that provenance for the same reason. A link nobody vouched for must
+ * not be able to remove a row. Seed links carry no source of their own: they
+ * are the partner import this lookup exists to surface.
+ */
+const TRUSTED_LINK_SOURCES = new Set(["owner_authored", "reviewed", "partner_provided"]);
 
 type LookupUrlSets = { all: Set<string>; identity: Set<string> };
 
@@ -41,7 +50,11 @@ function normalizeLookupUrl(value: string): string | null {
   }
 }
 
-function collectLookupUrls(links: Array<{ type?: unknown; url: string }>): LookupUrlSets {
+function isTrustedLinkSource(source: unknown): boolean {
+  return source === undefined || (typeof source === "string" && TRUSTED_LINK_SOURCES.has(source));
+}
+
+function collectLookupUrls(links: Array<{ source?: unknown; type?: unknown; url: string }>): LookupUrlSets {
   const all = new Set<string>();
   const identity = new Set<string>();
 
@@ -56,7 +69,11 @@ function collectLookupUrls(links: Array<{ type?: unknown; url: string }>): Looku
 
     // A link with no type recorded stays out of the identity set. An untyped
     // link is the weaker claim, and over-merging removes a person outright.
-    if (typeof link.type === "string" && ACCOUNT_LINK_TYPES.has(link.type)) {
+    if (
+      typeof link.type === "string" &&
+      ACCOUNT_LINK_TYPES.has(link.type) &&
+      isTrustedLinkSource(link.source)
+    ) {
       identity.add(normalized);
     }
   }
