@@ -147,6 +147,49 @@ describe("lookup suggestion merging", () => {
     assert.equal(result.length, 1);
   });
 
+  // Publishing to a matched profile leaves `proposedSlug` pointing at whatever
+  // it originally asked for, which may be a slug another profile kept.
+  it("ignores a published candidate's stale proposal when matching slugs", () => {
+    const result = mergeLookupSuggestions(
+      [publicProfile({ displayName: "Someone Else", outboundLinks: [], slug: "basicbit" })],
+      [privateCandidate({
+        displayName: "A Roomba",
+        fields: [],
+        proposedSlug: "basicbit",
+        publicationState: "published_unclaimed",
+        publishedProfileSlug: "a-roomba",
+      })],
+    );
+
+    assert.equal(result.length, 2);
+  });
+
+  // Media links are validated by host, so the same recording can appear on two
+  // people's profiles. Only account URLs stand in for a name.
+  it("keeps differently named candidates that share only a media link", () => {
+    const result = mergeLookupSuggestions(
+      [publicProfile({
+        outboundLinks: [{
+          label: "YouTube",
+          source: "owner_authored",
+          type: "youtube",
+          url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        }],
+      })],
+      [privateCandidate({ displayName: "Someone Else", fields: [{
+        confidence: "medium",
+        fieldKey: "outboundLinks",
+        id: "media-links",
+        reviewState: "unreviewed",
+        sourceLabel: "NWinn",
+        value: [{ type: "youtube", url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" }],
+        visibility: "private",
+      }] })],
+    );
+
+    assert.equal(result.length, 2);
+  });
+
   it("keeps differently named candidates that only share a link anyone can post", () => {
     const result = mergeLookupSuggestions(
       [publicProfile({

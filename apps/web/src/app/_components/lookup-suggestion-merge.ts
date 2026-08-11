@@ -6,15 +6,18 @@ import type {
 
 const CASE_INSENSITIVE_PATH_HOSTS = new Set(["twitch.tv"]);
 /**
- * Link types more than one person can legitimately post.
+ * Link types whose URL names one account, whatever path it carries.
  *
- * A venue's Discord invite, a crew's site, an unlabelled "other" -- and the
- * literal `https://discord.com/` that every Discord handle stores as its URL.
- * Sharing one of these says nothing about being the same person, so they only
- * count towards a match alongside the name. Every other type is an account
- * somebody holds.
+ * A VRCDN stream id, a Twitch channel, and a VRChat user id each belong to one
+ * person, so two rows sharing one are that person twice. Held to an allowlist
+ * rather than a list of exclusions because everything else can be posted by
+ * more than one person: a venue's Discord invite, a crew's site, the literal
+ * `https://discord.com/` every Discord handle stores as its URL, and media
+ * links -- a YouTube video, a Spotify track, a SoundCloud set -- which are
+ * validated by host and can be a recording two DJs both link rather than
+ * either one's account. Those still need the display name to match.
  */
-const SHAREABLE_LINK_TYPES = new Set(["discord", "website", "commissions", "generic_store", "other"]);
+const ACCOUNT_LINK_TYPES = new Set(["vrcdn", "twitch", "vrchat_profile"]);
 
 type LookupUrlSets = { all: Set<string>; identity: Set<string> };
 
@@ -53,7 +56,7 @@ function collectLookupUrls(links: Array<{ type?: unknown; url: string }>): Looku
 
     // A link with no type recorded stays out of the identity set. An untyped
     // link is the weaker claim, and over-merging removes a person outright.
-    if (typeof link.type === "string" && !SHAREABLE_LINK_TYPES.has(link.type)) {
+    if (typeof link.type === "string" && ACCOUNT_LINK_TYPES.has(link.type)) {
       identity.add(normalized);
     }
   }
@@ -87,8 +90,8 @@ export function mergeLookupSuggestions(
     urls: collectLookupUrls(profile.outboundLinks),
   }));
   const uniquePrivateResults = privateResults.filter((profile) => {
-    // The slug a candidate published to, like the one it proposed, names the row
-    // beside it outright.
+    // The slug a candidate published to, or failing that the one it proposed,
+    // names the row beside it outright.
     //
     // A published candidate is *expected* to have a public row: it made one.
     // Exempting published candidates from deduplication entirely was the fix for
@@ -99,9 +102,14 @@ export function mergeLookupSuggestions(
     // avatar, once as the candidate's bare name. That pair, for every published
     // seed, is what the lookup was reported as duplicating. A published candidate
     // whose profile is *not* among the results still gets its own row.
-    const linkedSlugs = [profile.publishedProfileSlug, profile.proposedSlug];
+    //
+    // Only one slug, not both: publishing to a matched profile leaves the
+    // proposal stale, and a stale proposal can name a *different* profile that
+    // publishing allowed to keep the slug. Reading it for a published candidate
+    // would drop that candidate against a row belonging to somebody else.
+    const linkedSlug = profile.publishedProfileSlug ?? profile.proposedSlug;
 
-    if (linkedSlugs.some((slug) => slug && publicSlugs.has(normalizeIdentityText(slug)))) {
+    if (linkedSlug && publicSlugs.has(normalizeIdentityText(linkedSlug))) {
       return false;
     }
 
