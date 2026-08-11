@@ -405,7 +405,7 @@ export function WorldPublicPage({ world }: { world: PublicWorld }) {
               ) : (
                 world.creatorAttributions.map((attribution) => {
                   const href = attribution.profileSlug && attribution.profileType
-                    ? `/${attribution.profileType === "community" ? "c" : "p"}/${attribution.profileSlug}`
+                    ? `/${attribution.profileSlug}`
                     : null;
                   const content = (
                     <>

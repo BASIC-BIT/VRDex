@@ -250,7 +250,7 @@ test("removed profile replacement cannot report success on the fallback profile 
   // profile from the panel's own list, and the panel is what falls back.
   await expect(page.getByRole("link", { name: "View profile" })).toHaveAttribute(
     "href",
-    "/c/playwright-night-shift",
+    "/playwright-night-shift",
   );
   await expect.poll(() => page.evaluate(
     () => (window as typeof window & { mediaReplacementSettled?: boolean }).mediaReplacementSettled,
@@ -547,7 +547,7 @@ test("removed profile cannot inherit a staged upload @fixture", async ({ page })
   // profile from the panel's own list, and the panel is what falls back.
   await expect(page.getByRole("link", { name: "View profile" })).toHaveAttribute(
     "href",
-    "/c/playwright-night-shift",
+    "/playwright-night-shift",
   );
   await expect(page.getByLabel("Profile to edit", { exact: true })).toBeFocused();
   await expect(page.getByText("No profiles", { exact: true })).toHaveCount(0);
@@ -574,7 +574,7 @@ test("removed profile cannot inherit a staged upload @fixture", async ({ page })
   // profile from the panel's own list, and the panel is what falls back.
   await expect(page.getByRole("link", { name: "View profile" })).toHaveAttribute(
     "href",
-    "/c/playwright-night-shift",
+    "/playwright-night-shift",
   );
   await expect(page.getByRole("button", { name: "Publish" })).toHaveCount(0);
   await expect(page.getByText("last-profile.png", { exact: true })).toHaveCount(0);
@@ -607,7 +607,7 @@ test("removed profile cannot inherit an upload still being prepared @fixture", a
   // profile from the panel's own list, and the panel is what falls back.
   await expect(page.getByRole("link", { name: "View profile" })).toHaveAttribute(
     "href",
-    "/c/playwright-night-shift",
+    "/playwright-night-shift",
   );
   await expect(page.getByRole("button", { name: "Publish" })).toHaveCount(0);
   await expect(page.getByText("preparing-transfer.png", { exact: true })).toHaveCount(0);
@@ -653,7 +653,7 @@ test("removed profile upload cannot overwrite a new staged upload @fixture", asy
   // profile from the panel's own list, and the panel is what falls back.
   await expect(page.getByRole("link", { name: "View profile" })).toHaveAttribute(
     "href",
-    "/c/playwright-night-shift",
+    "/playwright-night-shift",
   );
   await page.getByLabel("Add image").setInputFiles({
     name: "replacement.png",

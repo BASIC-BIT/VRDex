@@ -18,7 +18,7 @@ function publicProfile(overrides: Partial<PublicProfileLookupResult> = {}): Publ
       type: "twitch",
       url: "https://twitch.tv/BASIC_BIT",
     }],
-    profilePath: "/p/basicbit",
+    profilePath: "/basicbit",
     roleTags: [],
     slug: "basicbit",
     tags: [],
