@@ -6,7 +6,7 @@ This doc captures the slug contract for `#10`.
 
 Profiles, worlds, and events share one global slug namespace and all render from the site root as `/<slug>`. This avoids ambiguous API, card, and search lookups, and it is what makes a bare `vrdex.net/basicbit` resolvable without a type prefix.
 
-Reservations live in `convex/_globalSlugs.ts` as three catalogs, because a name can be unavailable for three different reasons and read paths care about only one of them.
+Reservations live in `convex/_globalSlugs.ts` as four catalogs, because a name can be unavailable for four different reasons and read paths care about only one of them.
 
 ## Rules
 

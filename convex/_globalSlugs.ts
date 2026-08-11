@@ -38,7 +38,18 @@ export const LIVE_ROUTE_SLUGS = [
 ] as const;
 
 /**
- * Directories whose own routes match an entity's subpaths.
+ * The only paths that exist beneath an entity's own slug.
+ *
+ * `app/[slug]/edit` is the profile editor and `app/[slug]/calendar.ics` is the
+ * event export. A world has neither, which is why it can hold a route prefix
+ * without losing anything.
+ */
+export const ENTITY_SUBPATHS = ["edit", "calendar.ics"] as const;
+
+export type EntitySubpath = (typeof ENTITY_SUBPATHS)[number];
+
+/**
+ * Directories whose own routes match an entity's subpaths, and which of the two.
  *
  * Narrow on purpose, and checked against a running server rather than inferred
  * from the directory tree. Next matches whole leaf patterns, so `app/developers/`
@@ -48,16 +59,13 @@ export const LIVE_ROUTE_SLUGS = [
  * them.
  *
  * `handoff/[token]/page.tsx` genuinely does match `/handoff/edit`, with the token
- * read as "edit", and would shadow `/handoff/calendar.ics` the same way. `l/[code]`
- * has the same shape.
+ * read as "edit", and shadows `/handoff/calendar.ics` the same way. `l/[code]` has
+ * the same shape. Which subpaths each takes is recorded rather than assumed,
+ * because a static `edit` child would take one and strand only profiles.
  *
  * Reported by `slugAudit` separately from live routes because the failure differs:
  * the public page still works and only the owner-facing subpaths are gone.
  */
-export const ENTITY_SUBPATHS = ["edit", "calendar.ics"] as const;
-
-export type EntitySubpath = (typeof ENTITY_SUBPATHS)[number];
-
 // A Map rather than an object, because the keys are slugs and slugs come from
 // users. `constructor` is a valid, unreserved slug, and a plain object would have
 // answered that lookup with `Object` -- not undefined, so the `?? []` fallback
@@ -269,13 +277,6 @@ export function isReservedSlug(slug: string): boolean {
   return RESERVED_SLUG_SET.has(slug);
 }
 
-/**
- * A real page answers to this, so no profile can.
- *
- * The check for read paths. A held name is not a route -- `basicbit` is a profile
- * and `pricing` is a page we have not built -- so refusing those when *reading* a
- * URL threw away identifiers for profiles that exist.
- */
 /** Owns `/<slug>/...` without owning `/<slug>`, so the nested routes collide. */
 export function isRoutePrefixSlug(slug: string): boolean {
   return ROUTE_PREFIX_SLUG_SET.has(slug);
@@ -292,6 +293,13 @@ export function routePrefixSubpaths(slug: string): readonly EntitySubpath[] {
   return ROUTE_PREFIX_SUBPATHS.get(slug) ?? [];
 }
 
+/**
+ * A real page answers to this, so no profile can.
+ *
+ * The check for read paths. A held name is not a route -- `basicbit` is a profile
+ * and `pricing` is a page we have not built -- so refusing those when *reading* a
+ * URL threw away identifiers for profiles that exist.
+ */
 export function isLiveRouteSlug(slug: string): boolean {
   return LIVE_ROUTE_SLUG_SET.has(slug);
 }
@@ -386,15 +394,6 @@ export async function findSlugOwner(
   return null;
 }
 
-/** The row id behind whichever entity holds a slug. */
-export function slugOwnerId(owner: SlugOwner): SlugOwnerId {
-  if (owner.kind === "world") {
-    return owner.world._id;
-  }
-
-  return owner.kind === "event" ? owner.event._id : owner.profile._id;
-}
-
 export type SlugAvailability =
   | { available: true; slug: string }
   | { available: false; slug: string; reason: "invalid" | "reserved" | "taken" };
@@ -419,11 +418,24 @@ export async function checkSlugAvailability(
     return { available: false, slug, reason: "invalid" };
   }
 
-  // Looked up without the exclusion, so the holder can be compared against it
-  // rather than hidden by it.
-  const owner = await findSlugOwner(db, validation.slug);
+  // Anyone *other than* the row being updated, across all three tables. Asked
+  // first because `findSlugOwner` reports only its first match: comparing an
+  // unexcluded lookup against the excluded id instead would have seen a profile
+  // keeping `afterglow` and never looked at the world also holding it, returning
+  // available on exactly the legacy duplicates the audit exists to find.
+  const remaining = await findSlugOwner(db, validation.slug, excluding);
 
-  if (owner !== null && excluding !== undefined && slugOwnerId(owner) === excluding) {
+  // Whether the row being updated is itself the holder. Only worth asking once
+  // nothing else holds the name, so a first-match lookup answers it.
+  const keepsItsOwn =
+    excluding !== undefined &&
+    remaining === null &&
+    (await findSlugOwner(db, validation.slug)) !== null;
+
+  // Keeping a name is not taking one. A premium slug an operator granted is still
+  // reserved, and refusing it here locked its owner out of editing the very row
+  // that holds it: `ops:profile-rename` passes the current slug back in.
+  if (keepsItsOwn) {
     return { available: true, slug: validation.slug };
   }
 
@@ -433,7 +445,7 @@ export async function checkSlugAvailability(
 
   // Cross-table: profiles, worlds, and events all render from the site root, so a
   // name a world already holds is taken for a profile too.
-  return owner === null
+  return remaining === null
     ? { available: true, slug: validation.slug }
     : { available: false, slug: validation.slug, reason: "taken" };
 }

@@ -253,6 +253,38 @@ describe("global slug namespace", () => {
     });
   });
 
+  it("still reports taken when a later table also holds the excluded row's slug", async () => {
+    // `findSlugOwner` reports its first match, and profiles come first. Comparing an
+    // unexcluded lookup against the excluded id therefore saw the profile keeping
+    // `afterglow` and never looked at the world also holding it, answering available
+    // on exactly the legacy duplicates the audit exists to find.
+    const db = createSlugTestDb({
+      profiles: [{ _id: "profile1", slug: "afterglow", profileType: "person" }],
+      worlds: [{ _id: "world1", slug: "afterglow" }],
+    });
+
+    assert.deepEqual(await checkProfileSlugAvailability(db, "afterglow", "profile1" as never), {
+      available: false,
+      slug: "afterglow",
+      reason: "taken",
+    });
+    assert.deepEqual(await checkWorldSlugAvailability(db, "afterglow", "world1" as never), {
+      available: false,
+      slug: "afterglow",
+      reason: "taken",
+    });
+
+    // Once the duplicate is resolved, the remaining holder keeps it.
+    const settled = createSlugTestDb({
+      profiles: [{ _id: "profile1", slug: "afterglow", profileType: "person" }],
+    });
+
+    assert.deepEqual(await checkProfileSlugAvailability(settled, "afterglow", "profile1" as never), {
+      available: true,
+      slug: "afterglow",
+    });
+  });
+
   it("answers the prefix lookup safely for slugs that name Object members", () => {
     // Slugs come from users, and `constructor` passes validation and is reserved by
     // nothing. Keyed on a plain object this lookup returned `Object` rather than
