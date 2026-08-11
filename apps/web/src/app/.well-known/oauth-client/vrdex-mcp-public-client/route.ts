@@ -1,13 +1,20 @@
-import {
-  hostedMcpReadScopes,
-  hostedMcpWriteScopes,
-} from "@/lib/server/hosted-mcp-policy";
+import { hostedMcpReadScopes } from "@/lib/server/hosted-mcp-policy";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export function GET(request: Request) {
-  const scopes = [...hostedMcpReadScopes, "public:read", ...hostedMcpWriteScopes];
+  /**
+   * Reads only, deliberately, even though every write scope is now grantable.
+   *
+   * This is a shared no-secret client that exists to make hosted CIMD smoke
+   * tests reproducible, and anyone who can catch its loopback callback can use
+   * it. Advertising write scopes here would put a write consent screen in front
+   * of every client that picks up VRDex's own document rather than registering
+   * its own. A client that wants to write registers through DCR, where the
+   * grant is attributable to it.
+   */
+  const scopes = [...hostedMcpReadScopes, "public:read"];
 
   return Response.json(
     {

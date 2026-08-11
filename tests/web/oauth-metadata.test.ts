@@ -115,6 +115,6 @@ describe("OAuth metadata routes", () => {
     assert.match(output, /"grant_types":\["authorization_code","refresh_token"\]/);
     assert.match(output, /"response_types":\["code"\]/);
     assert.match(output, /"token_endpoint_auth_method":"none"/);
-    assert.match(output, /"scope":"mcp:read public:read mcp:write events:write profile:write"/);
+    assert.match(output, /"scope":"mcp:read public:read"/);
   });
 });

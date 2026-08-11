@@ -43,10 +43,12 @@ Personal tokens are best for local automation and the local stdio MCP package:
 VRDEX_API_TOKEN=<personal-api-token> pnpm --silent --dir <path-to-vrdex-checkout> exec tsx packages/vrdex-mcp/src/stdio.ts
 ```
 
-When that token includes `events:write`, local stdio registers authenticated
-event create/update tools. The hosted anonymous MCP remains read-only. See
+When that token carries a write scope, local stdio registers the matching write
+tools: `events:write` for event create/update, `profile:write` for profile
+update/submit. Anonymous hosted reads are unaffected. See
 `docs/developers/vrdex-mcp-event-writes.md` for approval, readback, rotation,
-and real-event production-proof requirements.
+and real-event production-proof requirements, and
+`docs/developers/hosted-mcp-oauth-writes.md` for the hosted OAuth surface.
 
 ## OAuth Access Tokens
 
@@ -179,22 +181,41 @@ community-owned tokens, and OAuth client-credentials tokens do not.
 
 ## Current Profile Writes
 
-Use `PATCH /api/v0/profiles/:slug` to update public metadata for a claimed
-person or community profile owned by the current authenticated user.
+Use `PATCH /api/v0/profiles/:slug` to update a person or community profile, and
+`POST /api/v0/profiles` to submit a community-sourced one that does not exist
+yet.
 
 Current constraints:
 
 - requires `profile:write`
 - requires user authority
-- requires active ownership of the target profile
-- requires claimed-owner field permission
-- updates display name, aliases, tags, headline, bio, region, timezone, person
-  pronouns and role tags, or community subtype and category tags
+- does not require ownership. A caller who owns the profile writes as its owner;
+  a caller who does not writes an **unclaimed** profile as a community
+  contributor, which is the authority the signed-in web editor already grants. A
+  profile claimed by someone else answers `403`
+- applies the same per-field permission the browser editor applies, so a
+  community contributor cannot change `slug` and cannot reach a field the
+  profile keeps private
+- updates display name, aliases, tags, headline, bio, region, timezone, outbound
+  links, person pronouns and role tags, or community subtype and category tags
+- records a community contributor's links as `community_submitted` rather than
+  `owner_authored`, which the public profile page renders as a trust signal
+- replaces the whole `outboundLinks` list rather than appending to it. Read the
+  profile first and send back the full set, or an edit meant to add one link
+  drops the rest
+- checks branded link types against their provider's hosts, so a `discord` link
+  must point at a Discord domain
 - clears optional text fields when they are sent as `null` or blank strings
 - refreshes public search and vocabulary projections
-- writes a profile audit event
+- writes a profile audit event whose source follows the writer rather than the
+  transport
 - does not update slugs, claim state, publication state, field visibility,
-  outbound links, media-kit assets, or page-builder settings in this checkpoint
+  media-kit assets, or page-builder settings
+
+`POST /api/v0/profiles` publishes immediately as unclaimed, credited to the
+submitter, and answers `201`. Whoever the profile describes can claim it later.
+There is no idempotency key: a duplicate submission creates a second profile
+under a suffixed slug, and nothing merges them, so search before submitting.
 
 ## Current Profile Asset Uploads
 

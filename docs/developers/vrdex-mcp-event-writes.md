@@ -6,9 +6,12 @@ Implementation checkpoint for
 [#184](https://github.com/BASIC-BIT/VRDex/issues/184).
 
 The local/private `@basicbit/vrdex-mcp` stdio server can expose authenticated
-event-create and event-update tools over the existing `/api/v0` routes. The
-hosted `/mcp` implementation remains anonymous-capable and read-only; it does
-not register these tools.
+event-create and event-update tools over the existing `/api/v0` routes. It also
+exposes `vrdex_profile_update` and `vrdex_profile_submit` on the same terms;
+those need `profile:write` rather than `events:write` and are described in
+[`hosted-mcp-oauth-writes.md`](./hosted-mcp-oauth-writes.md), which covers both
+the hosted and local write surfaces. The hosted `/mcp` implementation stays
+anonymous-capable for reads and registers every write tool behind OAuth.
 
 The real Faceless production proof is still operator gated. Do not create a
 fake production event or execute a real write until the operator has selected
@@ -34,7 +37,10 @@ must supply `participantLinks` and `slotLinks` together.
 
 Both tools:
 
-- are registered only when local stdio has a non-empty bearer credential
+- are registered only when local stdio has a non-empty bearer credential. The
+  profile tools register on the same condition, so a token carrying only
+  `events:write` still lists them and receives a `403` from the API if it calls
+  one. Scope is enforced at the route, not by hiding the tool
 - call the public API rather than a private Convex mutation path
 - require an API-resource credential with `events:write`, user authority, and
   ownership of the target community
