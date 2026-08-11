@@ -24,7 +24,11 @@ export const dynamicMcpClientScopes = ["public:read", "mcp:read"] as const;
  * it with the resource it actually intends to write, so a set-link agent asks
  * for `profile:write` without also being handed the ability to publish events.
  */
-export const dynamicMcpResourceWriteScopes = ["events:write", "profile:write"] as const;
+export const dynamicMcpResourceWriteScopes = [
+  "events:write",
+  "profile:write",
+  "profile:contribute",
+] as const;
 export const dynamicMcpWriteScopes = ["mcp:write", ...dynamicMcpResourceWriteScopes] as const;
 export const OAUTH_CONSENT_TRANSACTION_TTL_MS = 30 * 60 * 1000;
 

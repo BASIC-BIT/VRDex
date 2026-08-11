@@ -20,7 +20,16 @@ resource it means to write:
 | Tool | Required scopes |
 | --- | --- |
 | `vrdex_event_create`, `vrdex_event_update` | `mcp:write` + `events:write` |
-| `vrdex_profile_update`, `vrdex_profile_submit` | `mcp:write` + `profile:write` |
+| `vrdex_profile_update` | `mcp:write` + `profile:write` |
+| `vrdex_profile_submit` | `mcp:write` + `profile:contribute` |
+
+`profile:write` is bounded by what its consent screen says: "Edit your profiles".
+Reaching a profile the user does not own, whether by correcting an unclaimed one
+or by submitting a new one, additionally requires `profile:contribute`, whose
+consent line names that wider authority. `vrdex_profile_update` advertises only
+`profile:write` because whether the wider grant is needed depends on who owns the
+target, which the write discovers; a session without it is refused there with a
+message naming the missing scope.
 
 A client that only sets DJ links asks for `mcp:read mcp:write profile:write` and
 is never able to publish an event under someone's name. Registration refuses

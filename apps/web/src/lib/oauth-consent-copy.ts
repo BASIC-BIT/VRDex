@@ -10,6 +10,7 @@ const oauthScopeLabels: Record<string, string> = {
   "mcp:read": "Read public VRDex data through MCP",
   "mcp:write": "Use VRDex MCP write tools",
   "profile:read": "Read profile data",
+  "profile:contribute": "Add and correct community profiles",
   "profile:write": "Edit your profiles",
   "public:read": "Read public API data",
 };

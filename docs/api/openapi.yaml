@@ -2699,6 +2699,7 @@ components:
               - public:read
               - profile:read
               - profile:write
+              - profile:contribute
               - community:read
               - community:write
               - events:read
@@ -2770,6 +2771,7 @@ components:
               - public:read
               - profile:read
               - profile:write
+              - profile:contribute
               - community:read
               - community:write
               - events:read
@@ -2847,6 +2849,7 @@ components:
               - public:read
               - profile:read
               - profile:write
+              - profile:contribute
               - community:read
               - community:write
               - events:read
@@ -3472,6 +3475,7 @@ components:
                   - public:read
                   - profile:read
                   - profile:write
+                  - profile:contribute
                   - community:read
                   - community:write
                   - events:read
@@ -3527,6 +3531,7 @@ components:
                   - public:read
                   - profile:read
                   - profile:write
+                  - profile:contribute
                   - community:read
                   - community:write
                   - events:read
@@ -3936,6 +3941,7 @@ components:
               - public:read
               - profile:read
               - profile:write
+              - profile:contribute
               - community:read
               - community:write
               - events:read
@@ -4111,6 +4117,7 @@ components:
               - public:read
               - profile:read
               - profile:write
+              - profile:contribute
               - community:read
               - community:write
               - events:read
@@ -6761,6 +6768,7 @@ components:
             public:read: public:read
             profile:read: profile:read
             profile:write: profile:write
+            profile:contribute: profile:contribute
             community:read: community:read
             community:write: community:write
             events:read: events:read

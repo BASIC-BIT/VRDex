@@ -97,7 +97,9 @@ const mcpWriteToolResourceScopes: Record<(typeof mcpWriteToolNames)[number], Api
   vrdex_event_create: "events:write",
   vrdex_event_update: "events:write",
   vrdex_profile_update: "profile:write",
-  vrdex_profile_submit: "profile:write",
+  // Submitting is inherently a write to a profile nobody owns, so it asks for
+  // the contribution grant rather than the edit-your-own-profiles one.
+  vrdex_profile_submit: "profile:contribute",
 };
 const mcpToolNames = [
   "search",
@@ -1364,6 +1366,9 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
   const readToolMeta = mcpReadToolMeta(anonymousPublicReads);
   const principalFor = (toolName: (typeof mcpWriteToolNames)[number]) =>
     hostedMcpPrincipal(options.authInfo, toolName);
+  // Passed to the mutation rather than checked here: whether the wider grant is
+  // needed depends on who owns the target, which only the write can answer.
+  const contributeGranted = options.authInfo?.scopes?.includes("profile:contribute") === true;
   const server = new McpServer({
     name: "vrdex",
     version: "0.5.0",
@@ -2002,6 +2007,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       try {
         write = await adminConvex().mutation(internal.profiles.updateProfileForMcpActor, {
           ...update,
+          contributeGranted,
           currentSlug: slug,
           idempotencyKeyHash,
           oauthClientId: principal.clientId,

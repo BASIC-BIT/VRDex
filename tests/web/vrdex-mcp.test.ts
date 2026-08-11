@@ -317,11 +317,17 @@ describe("VRDex MCP server", () => {
 
     // Per resource, not one blanket write scope: a token that may set a DJ's
     // links must not thereby be able to publish events under their name.
+    // Submitting is the outlier: it writes a profile nobody owns, so it asks for
+    // the contribution grant rather than the edit-your-own-profiles one.
+    const expectedResourceScope: Record<string, string> = {
+      vrdex_event_create: "events:write",
+      vrdex_event_update: "events:write",
+      vrdex_profile_update: "profile:write",
+      vrdex_profile_submit: "profile:contribute",
+    };
+
     for (const tool of writeTools) {
-      assertWriteSecuritySchemes(
-        tool._meta,
-        tool.name.startsWith("vrdex_event_") ? "events:write" : "profile:write",
-      );
+      assertWriteSecuritySchemes(tool._meta, expectedResourceScope[tool.name ?? ""] ?? "");
     }
   });
 

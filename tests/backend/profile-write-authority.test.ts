@@ -75,6 +75,7 @@ describe("profile write authority", () => {
     const result = await t.mutation(internal.profiles.updateProfileForApiOwner, {
       actorKind: "personal_api_token",
       ownerUserId,
+      contributeGranted: true,
       currentSlug: "dj-unclaimed",
       outboundLinks: [{ type: "soundcloud", url: "https://soundcloud.com/dj-unclaimed" }],
     });
@@ -89,6 +90,27 @@ describe("profile write authority", () => {
     assert.equal(stored?.outboundLinks?.[0]?.source, "community_submitted");
   });
 
+  it("refuses a community correction from a credential without profile:contribute", async () => {
+    const t = convexTest(schema, modules);
+    const ownerUserId = await seedUser(t, "no-contribute");
+    await seedProfile(t, "no-contribute", "unclaimed");
+
+    // The consent screen for `profile:write` reads "Edit your profiles". A token
+    // issued against that promise must not reach somebody else's profile just
+    // because this path learned how to.
+    await assert.rejects(
+      () =>
+        t.mutation(internal.profiles.updateProfileForApiOwner, {
+          actorKind: "personal_api_token",
+          ownerUserId,
+          currentSlug: "dj-no-contribute",
+          contributeGranted: false,
+          outboundLinks: [{ type: "soundcloud", url: "https://soundcloud.com/nope" }],
+        }),
+      (error: unknown) => errorCode(error) === "PROFILE_CONTRIBUTE_SCOPE_REQUIRED",
+    );
+  });
+
   it("refuses an API credential on a profile somebody else claimed", async () => {
     const t = convexTest(schema, modules);
     const ownerUserId = await seedUser(t, "claimed");
@@ -99,6 +121,7 @@ describe("profile write authority", () => {
         t.mutation(internal.profiles.updateProfileForApiOwner, {
           actorKind: "personal_api_token",
           ownerUserId,
+          contributeGranted: true,
           currentSlug: "dj-claimed",
           outboundLinks: [{ type: "soundcloud", url: "https://soundcloud.com/hijack" }],
         }),
@@ -117,6 +140,7 @@ describe("profile write authority", () => {
       requestId: "request-1",
       idempotencyKeyHash: KEY_HASH,
       requestFingerprint: FINGERPRINT,
+      contributeGranted: true,
       currentSlug: "dj-replay",
       outboundLinks: [{ type: "mixcloud" as const, url: "https://mixcloud.com/dj-replay" }],
     };
@@ -162,6 +186,7 @@ describe("profile write authority", () => {
       requestId: "request-4",
       idempotencyKeyHash: KEY_HASH,
       requestFingerprint: FINGERPRINT,
+      contributeGranted: true,
       currentSlug: "dj-hidden",
       headline: "Back soon",
     });
@@ -180,6 +205,7 @@ describe("profile write authority", () => {
     const result = await t.mutation(internal.profiles.updateProfileForApiOwner, {
       actorKind: "personal_api_token",
       ownerUserId,
+      contributeGranted: true,
       currentSlug: "dj-visible",
       headline: "Playing Friday",
     });
@@ -264,6 +290,7 @@ describe("profile write authority", () => {
           requestId: "request-3",
           idempotencyKeyHash: KEY_HASH,
           requestFingerprint: FINGERPRINT,
+          contributeGranted: true,
           currentSlug: "dj-fixable",
           outboundLinks: [{ type: "discord", url: "https://not-discord.example/invite" }],
         }),

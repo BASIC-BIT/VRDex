@@ -92,7 +92,7 @@ describe("OAuth metadata routes", () => {
     // write. There is no deployment switch that removes them.
     assert.match(
       output,
-      /"scopes_supported":\["mcp:read","mcp:write","events:write","profile:write"\]/,
+      /"scopes_supported":\["mcp:read","mcp:write","events:write","profile:write","profile:contribute"\]/,
     );
     assert.match(output, /"bearer_methods_supported":\["header"\]/);
     assert.match(output, /"resource_name":"VRDex MCP"/);

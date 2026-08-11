@@ -533,6 +533,14 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
         return mcpProfileReadbackError(write, readback);
       }
 
+      // The hosted tool checks this and the local one did not. A slug can be
+      // reassigned between the write and this GET, and returning somebody
+      // else's profile as confirmation of your mutation is worse than saying
+      // the readback did not complete.
+      if (readback.data.id !== write.profileId) {
+        return mcpProfileReadbackError(write);
+      }
+
       return mcpJsonResult(
         mcpProfileWriteResultSchema,
         {

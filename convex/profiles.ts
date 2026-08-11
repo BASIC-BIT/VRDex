@@ -145,6 +145,7 @@ function apiOwnerAuthSubject(userId: Doc<"users">["_id"]): AuthSubject {
  */
 const RELAYED_PROFILE_WRITE_ERROR_CODES = new Set([
   "IDENTITY_SUPPRESSED",
+  "PROFILE_CONTRIBUTE_SCOPE_REQUIRED",
   "INVALID_PROFILE_LINK",
   "PROFILE_CLAIMED",
   "PROFILE_INPUT_INVALID",
@@ -173,8 +174,26 @@ async function resolveProfileEditSubject(
   db: DatabaseReader,
   profile: Doc<"profiles">,
   userId: Id<"users">,
+  /**
+   * Whether the calling credential may act as a community contributor.
+   *
+   * Undefined for the browser, where the signed-in user is acting directly and
+   * there is no delegation to bound. A credential passes what it was actually
+   * granted: a token or OAuth session holding only `profile:write` was issued
+   * against a consent screen reading "Edit your profiles", and letting it
+   * correct strangers' profiles would widen a grant its user never made.
+   */
+  contributeGranted?: boolean,
 ) {
   const owns = await userOwnsProfile(db, profile._id, userId);
+
+  if (!owns && contributeGranted === false) {
+    throw new ConvexError({
+      code: "PROFILE_CONTRIBUTE_SCOPE_REQUIRED",
+      message: "Editing a profile you do not own requires the profile:contribute scope.",
+    });
+  }
+
   const editSubject = owns ? ("claimed_owner" as const) : ("community_submitter" as const);
 
   // Readability first, and only then the claimed-profile message. The other
@@ -240,6 +259,7 @@ export const updateProfileForApiOwner = internalMutation({
     actorKind: apiWriteAuditActorKindValidator,
     ownerUserId: v.id("users"),
     currentSlug: v.string(),
+    contributeGranted: v.boolean(),
     ...apiProfileUpdateArgs,
   },
   handler: async (ctx, args) => {
@@ -259,6 +279,7 @@ export const updateProfileForApiOwner = internalMutation({
       ctx.db,
       profile,
       args.ownerUserId,
+      args.contributeGranted,
     );
 
     // Permission first, before anything that answers differently for a value
@@ -857,6 +878,7 @@ export const updateProfileForMcpActor = internalMutation({
   args: {
     ...mcpWriteAttributionArgs,
     currentSlug: v.string(),
+    contributeGranted: v.boolean(),
     ...apiProfileUpdateArgs,
   },
   handler: async (ctx, args) => {
@@ -893,7 +915,12 @@ export const updateProfileForMcpActor = internalMutation({
     let changedFields: string[];
 
     try {
-      const authorization = await resolveProfileEditSubject(ctx.db, profile, args.ownerUserId);
+      const authorization = await resolveProfileEditSubject(
+        ctx.db,
+        profile,
+        args.ownerUserId,
+        args.contributeGranted,
+      );
       owns = authorization.owns;
       assertSubmittedFieldsEditable(profile, args, authorization.editSubject);
       await assertProfileEditNotSuppressed(ctx.db, profile, args);

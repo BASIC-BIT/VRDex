@@ -12,7 +12,10 @@ import {
   rejectBearerTokenQuery,
   rejectInvalidOrRateLimitedPublicApiRequest,
 } from "@/lib/server/api-v0";
-import { evaluateApiUserWriteRequest } from "@/lib/server/api-user-authority";
+import {
+  apiCredentialHasScope,
+  evaluateApiUserWriteRequest,
+} from "@/lib/server/api-user-authority";
 import { convexAdminHttpClient, convexHttpClient } from "@/lib/server/convex-http";
 
 export const dynamic = "force-dynamic";
@@ -58,6 +61,14 @@ function profileUpdateErrorResponse(error: unknown) {
 
   // A claimed profile is an authority answer, not a malformed request: the
   // caller cannot fix it by correcting the body, and a 400 invites them to try.
+  if (data?.code === "PROFILE_CONTRIBUTE_SCOPE_REQUIRED") {
+    return problem(
+      403,
+      "Profile update authority is insufficient",
+      data.message ?? "Editing a profile you do not own requires the profile:contribute scope.",
+    );
+  }
+
   if (data?.code === "PROFILE_CLAIMED") {
     return problem(
       403,
@@ -143,6 +154,7 @@ export async function PATCH(request: Request, context: RouteContext) {
       actorKind: evaluation.source,
       ownerUserId: evaluation.ownerUserId as Id<"users">,
       currentSlug: slug,
+      contributeGranted: apiCredentialHasScope(evaluation.context, "profile:contribute"),
       ...body.data,
     });
 

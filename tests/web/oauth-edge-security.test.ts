@@ -165,6 +165,7 @@ describe("OAuth edge security", () => {
       "mcp:write",
       "events:write",
       "profile:write",
+      "profile:contribute",
     ]);
 
     // The gate is gone, not merely defaulted on: a reintroduced env read here

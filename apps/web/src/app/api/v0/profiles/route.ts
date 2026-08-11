@@ -82,7 +82,9 @@ export async function POST(request: Request) {
     return rejected;
   }
 
-  const evaluation = await evaluateApiUserWriteRequest(request, { requiredScope: "profile:write" });
+  const evaluation = await evaluateApiUserWriteRequest(request, {
+    requiredScope: "profile:contribute",
+  });
   if (!evaluation.ok) {
     return evaluation.response;
   }

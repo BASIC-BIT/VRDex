@@ -103,6 +103,7 @@ const apiScopes = new Set<ApiScope>([
   "profile:write",
   "community:read",
   "community:write",
+  "profile:contribute",
   "events:read",
   "events:write",
   "assets:read",
@@ -121,7 +122,11 @@ const oauthResponseTypes = new Set<OAuthResponseType>(["code"]);
 const dynamicMcpReadScopes = new Set<ApiScope>(["public:read", "mcp:read"]);
 // Mirrors `dynamicMcpResourceWriteScopes` / `dynamicMcpWriteScopes` in
 // @vrdex/api-contracts, which Convex functions cannot import. Keep both in step.
-const dynamicMcpResourceWriteScopes = new Set<ApiScope>(["events:write", "profile:write"]);
+const dynamicMcpResourceWriteScopes = new Set<ApiScope>([
+  "events:write",
+  "profile:write",
+  "profile:contribute",
+]);
 const dynamicMcpWriteScopes = new Set<ApiScope>(["mcp:write", ...dynamicMcpResourceWriteScopes]);
 const clientMetadataDocumentMaxLength = 2048;
 const clientIdPattern = /^vrdx_app_[0-9a-f]{24}$/;

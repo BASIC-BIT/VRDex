@@ -191,10 +191,14 @@ Current constraints:
 
 - requires `profile:write`
 - requires user authority
-- does not require ownership. A caller who owns the profile writes as its owner;
-  a caller who does not writes an **unclaimed** profile as a community
-  contributor, which is the authority the signed-in web editor already grants. A
-  profile claimed by someone else answers `403`
+- requires `profile:contribute` **as well** to write a profile the caller does
+  not own. A caller with only `profile:write` may edit their own profiles, which
+  is exactly what that scope's consent screen promises: "Edit your profiles".
+  Correcting somebody else's unclaimed profile is a wider authority, so it needs
+  a grant that says so, and a credential without it answers `403`
+- writes an **unclaimed** profile as a community contributor when the caller does
+  not own it, which is the authority the signed-in web editor already grants. A
+  profile claimed by someone else answers `403` either way
 - applies the same per-field permission the browser editor applies, so a
   community contributor cannot change `slug` and cannot reach a field the
   profile keeps private

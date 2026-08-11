@@ -38,7 +38,7 @@ describe("API/MCP rollout readiness checker", () => {
     assert.equal(result.status, 0, result.stderr);
     assert.match(
       result.stdout,
-      /Generated OpenAPI contract \| yes \| pass \| 32 required API paths and JSON\/YAML artifacts are present/,
+      /Generated OpenAPI contract \| yes \| pass \| 33 required API paths and JSON\/YAML artifacts are present/,
     );
     assert.match(result.stdout, /Rollout verification scripts \| yes \| pass \| 24 required scripts are defined/);
     assert.match(result.stdout, /External readiness workflow \| yes \| pass/);
