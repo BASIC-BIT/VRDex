@@ -1010,10 +1010,14 @@ async function authenticateMcpBearerToken(
         request,
         403,
         -32600,
-        "Hosted MCP event writes require a user-delegated OAuth token.",
+        "Hosted MCP writes require a user-delegated OAuth token.",
         {
           error: "insufficient_scope",
-          errorDescription: "Use an authorization-code session for a VRDex user who owns the target community.",
+          // Neutral about what is being written. Naming community ownership
+          // sent profile clients after the wrong authority model: a submission
+          // targets no community at all, and a profile correction needs the
+          // profile to be unclaimed rather than owned.
+          errorDescription: "Use an authorization-code session for a VRDex user.",
           requiredScopes,
         },
       ),

@@ -43,11 +43,13 @@ Personal tokens are best for local automation and the local stdio MCP package:
 VRDEX_API_TOKEN=<personal-api-token> pnpm --silent --dir <path-to-vrdex-checkout> exec tsx packages/vrdex-mcp/src/stdio.ts
 ```
 
-When that token carries a write scope, local stdio registers the matching write
-tools: `events:write` for event create/update, `profile:write` for profile
-update/submit. Anonymous hosted reads are unaffected. See
-`docs/developers/vrdex-mcp-event-writes.md` for approval, readback, rotation,
-and real-event production-proof requirements, and
+When that token is present at all, local stdio registers every write tool:
+event create/update and profile update/submit. It does not inspect the token's
+scopes, so a token holding only `events:write` still lists the profile tools and
+receives `403` from the API if one is called. Scope is enforced at the route
+that performs the write, not by hiding tools from the list. Anonymous hosted
+reads are unaffected. See `docs/developers/vrdex-mcp-event-writes.md` for
+approval, readback, rotation, and real-event production-proof requirements, and
 `docs/developers/hosted-mcp-oauth-writes.md` for the hosted OAuth surface.
 
 ## OAuth Access Tokens

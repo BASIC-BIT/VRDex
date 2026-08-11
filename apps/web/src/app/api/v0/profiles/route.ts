@@ -70,11 +70,10 @@ function profileSubmitErrorResponse(error: unknown) {
     );
   }
 
-  return problem(
-    400,
-    "Invalid profile submission",
-    error instanceof Error ? error.message : "The profile submission is invalid.",
-  );
+  // Nothing above recognized this, so there is no evidence the request was
+  // malformed. Answering 400 tells a caller to correct a body that may have
+  // been fine, and hides a backend failure behind a client error.
+  return problem(500, "Profile submission failed", "The profile submission could not be completed.");
 }
 
 export async function POST(request: Request) {

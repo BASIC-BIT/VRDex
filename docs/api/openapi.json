@@ -1684,6 +1684,16 @@
                 }
               }
             }
+          },
+          "500": {
+            "description": "The profile submission could not be completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
           }
         }
       }

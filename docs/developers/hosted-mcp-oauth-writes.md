@@ -91,10 +91,16 @@ defense in depth.
 ## Ownership and write semantics
 
 The MCP server does not use a shared API credential. It calls dedicated Convex
-mutations with the authenticated VRDex user ID. Those mutations share the same
-event normalization and ownership helpers as `/api/v0` and require the user to
-own the durable published community record. Registration metadata, consent
-copy, or a client-supplied community slug never grants ownership.
+mutations with the authenticated VRDex user ID, sharing the same normalization
+and authority helpers as `/api/v0`. Registration metadata, consent copy, or a
+client-supplied slug never grants authority.
+
+The two write kinds ask different authority questions, and the tools say so:
+
+- event writes require the user to own the durable published community record;
+- profile writes require the user to own the profile, or the profile to be
+  unclaimed, in which case the write lands as a community correction with
+  `community_submitted` link provenance. `slug` stays owner-only either way.
 
 Create and update preserve the public API contract introduced with PR #190:
 
@@ -125,8 +131,9 @@ retry automatically.
 
 - Write traffic uses `authenticated_mcp_write`, limited to 30 requests per
   minute before the normal token/client/user aggregate limits and
-  trusted-partner policy. A JSON-RPC batch may contain at most one hosted event
-  write, so one accepted request cannot bypass the per-write throttle.
+  trusted-partner policy. A JSON-RPC batch may contain at most one hosted write
+  of any kind, event or profile, so one accepted request cannot bypass the
+  per-write throttle.
 - `apiWriteAuditEvents` records the accepted mutation, owner, client ID, token
   ID, request ID, tool, idempotency hash, and target IDs.
 - `mcpToolEvents` records accepted, denied, indeterminate, or readback-warning outcomes

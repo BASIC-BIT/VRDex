@@ -793,6 +793,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiProblem"
         "429": *a1
+        "500":
+          description: The profile submission could not be completed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
   /api/v0/profiles/{slug}/assets:
     get:
       operationId: getPublicProfileAssets
