@@ -1,4 +1,5 @@
 import { internalMutation } from "./_generated/server";
+import { findSlugOwner } from "./_globalSlugs";
 import { createProfileSearchDocument, upsertSearchDocument } from "./_searchDocuments";
 import { requireHostedSmokeFixture } from "./_previewPersistence";
 
@@ -41,6 +42,17 @@ export const ensurePublicSearchFixture = internalMutation({
     let created = false;
 
     if (existing === null) {
+      // The slug is not reserved, so nothing stops a world or event from holding
+      // it, and the profile lookup above would not see one. Inserting anyway made
+      // a cross-table duplicate that the root route resolves in the fixture's
+      // favour, quietly replacing a real entity's page with a CI fixture. The
+      // same refusal the non-fixture profile branch below already makes.
+      const owner = await findSlugOwner(ctx.db, fixtureSlug);
+
+      if (owner !== null) {
+        throw new Error(`Hosted smoke fixture slug is owned by a ${owner.kind}.`);
+      }
+
       profileId = await ctx.db.insert("profiles", profileFields);
       created = true;
     } else {

@@ -21,19 +21,11 @@ export const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
  */
 export const LIVE_ROUTE_SLUGS = [
   "account",
-  "api",
   "claim",
-  "developers",
   "discover",
   "discovery",
-  "events",
-  "handoff",
-  "l",
   "lookup",
   "mcp",
-  "oauth",
-  "playwright",
-  "privacy",
   "search",
   "sign-in",
   "sign-up",
@@ -41,23 +33,31 @@ export const LIVE_ROUTE_SLUGS = [
   "support",
   "time",
   // Not a directory under `app`: `next.config.ts` installs a `beforeFiles` rewrite
-  // proxying `/ingest/:path*` to PostHog, which runs ahead of the filesystem. A
-  // profile slugged `ingest` would have its own subpaths swallowed by analytics.
+  // proxying `/ingest/:path*` to PostHog, which runs ahead of the filesystem.
   "ingest",
 ] as const;
 
 /**
- * Names held for pages we may add, and for the ones that are ours.
+ * Names that are unassignable but do not shadow `/<name>`.
+ *
+ * Two kinds live here. Directory prefixes -- `developers`, `events`, `handoff` --
+ * have routes beneath them but no page of their own, so Next falls through to
+ * `[slug]` and `/events` would happily serve a profile named `events`. They stay
+ * unassignable anyway, because that profile's `/events/edit` would land in
+ * `app/events/[slug]/edit` instead of its own editor.
+ *
+ * The rest are names for pages we may add.
  *
  * Unassignable, but nothing shadows them today, so a link to one is still a link
  * to whatever holds it. That distinction is the point of the split: `basicbit` is
  * a real profile, and treating it as a route made the support intake reject its
  * own canonical URL.
  */
-export const FUTURE_ROUTE_SLUGS = [
+export const HELD_ROUTE_SLUGS = [
   "about",
   "admin",
   "ads",
+  "api",
   "analytics",
   "app",
   "apps",
@@ -73,6 +73,7 @@ export const FUTURE_ROUTE_SLUGS = [
   "community",
   "contact",
   "cookies",
+  "developers",
   "dashboard",
   "deployment",
   "developer",
@@ -81,6 +82,7 @@ export const FUTURE_ROUTE_SLUGS = [
   "download",
   "downloads",
   "embed",
+  "events",
   "event",
   "explore",
   "faq",
@@ -91,6 +93,7 @@ export const FUTURE_ROUTE_SLUGS = [
   "followers",
   "following",
   "forgot-password",
+  "handoff",
   "guidelines",
   "health",
   "help",
@@ -100,6 +103,7 @@ export const FUTURE_ROUTE_SLUGS = [
   "integrations",
   "invite",
   "jobs",
+  "l",
   "legal",
   "library",
   "login",
@@ -111,13 +115,16 @@ export const FUTURE_ROUTE_SLUGS = [
   "new",
   "news",
   "notifications",
+  "oauth",
   "onboarding",
   "opensearch",
   "org",
   "partners",
   "people",
   "person",
+  "playwright",
   "plans",
+  "privacy",
   "press",
   "pricing",
   "profile",
@@ -221,7 +228,7 @@ export const RESERVED_PREMIUM_SLUGS = [
 const LIVE_ROUTE_SLUG_SET = new Set<string>(LIVE_ROUTE_SLUGS);
 const RESERVED_SLUG_SET = new Set<string>([
   ...LIVE_ROUTE_SLUGS,
-  ...FUTURE_ROUTE_SLUGS,
+  ...HELD_ROUTE_SLUGS,
   ...RESERVED_PREMIUM_SLUGS,
 ]);
 
