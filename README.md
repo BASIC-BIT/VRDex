@@ -44,7 +44,7 @@ The first product schema table is `profiles`, covering the shared durable record
 
 Profile slug, permission, claim-state, and community-submission contracts live in `docs/backend/profile-slugs.md`, `docs/backend/profile-access-and-claims.md`, and `docs/backend/community-submissions.md`.
 
-Community-submitted public profiles now start at `/submit`. Person, community, world, and event pages all render from the site root at `/<slug>`. They share one global slug namespace, so a slug has exactly one owner.
+Community-submitted public profiles now start at `/submit`. Person, community, world, and event pages all render at `/<slug>`.
 
 Playwright screenshot preview captures desktop and mobile screenshots for public routes and deterministic fixture pages. See `docs/testing/playwright-visual-preview.md`.
 

@@ -21,14 +21,14 @@ Reservations live in `convex/_globalSlugs.ts` as three catalogs, because a name 
 
 ## Reserved Slugs
 
-All three live in `convex/_globalSlugs.ts`.
+All four live in `convex/_globalSlugs.ts`.
 
 - `LIVE_ROUTE_SLUGS`: `/<name>` itself resolves to something other than `[slug]` -- a page, an optional catch-all, a middleware redirect, or a `beforeFiles` rewrite. An entity holding one has no reachable page. This is the only catalog a *read* path consults, via `isLiveRouteSlug`.
-- `ROUTE_PREFIX_SLUGS`: a directory owns everything under the name without serving the name itself. `/events` falls through to `[slug]`, but `/events/edit` is matched by `app/events/[slug]/edit`, so an entity holding one keeps its public page and loses its owner-facing subpaths. `slugAudit` reports these separately for that reason.
+- `ROUTE_PREFIX_SLUGS`: a route beneath the name matches an entity subpath. Next matches whole leaf patterns rather than claiming everything below a directory, so this is narrower than it looks: `app/developers/` has no leaf at that depth and `/developers/edit` falls through to `/[slug]/edit` like any other URL, while `handoff/[token]/page.tsx` does match `/handoff/edit` with the token read as "edit". `app/events/[slug]/edit` needs three segments, so `/events/edit` is *not* intercepted. Only `handoff` and `l` qualify today. An entity holding one keeps its public page and loses its owner-facing subpaths, which is why `slugAudit` reports these separately.
 - `HELD_ROUTE_SLUGS`: nothing serves them at all. Held for pages we may add.
 - `RESERVED_PREMIUM_SLUGS`: short, generic, or otherwise valuable names withheld from self-serve so they can be granted or sold later. `basicbit` and `vrdex` are here. Slugs under three characters are already unassignable, which reserves that whole space without listing it.
 
-`isReservedSlug` unions all three and gates *assignment*. `isLiveRouteSlug` covers only the first and gates *reading*: refusing a held name when parsing a pasted URL threw away the identifier on disputes about profiles that exist, `basicbit` among them.
+`isReservedSlug` unions all four and gates *assignment*. `isLiveRouteSlug` covers only the first and gates *reading*: refusing a held name when parsing a pasted URL threw away the identifier on disputes about profiles that exist, `basicbit` among them.
 
 `tests/web/reserved-route-slugs.test.ts` walks the app directory, traverses route groups, reads the configured rewrites, and checks both directions, so neither a new route nor a deleted one can drift from the catalog.
 
