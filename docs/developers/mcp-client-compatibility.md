@@ -878,8 +878,11 @@ pnpm ops:mcp-client-smokes -- \
    `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true` is enabled alongside the
    already-present hosted auth-helper inputs.
 For local stdio rows, an anonymous session lists the six public read tools. A
-session configured with a bearer credential lists eight tools: those six reads
-plus `vrdex_event_create` and `vrdex_event_update`.
+session configured with a bearer credential lists ten tools: those six reads
+plus `vrdex_event_create`, `vrdex_event_update`, `vrdex_profile_update`, and
+`vrdex_profile_submit`. Registration does not inspect the token's scopes, so all
+four write tools appear whenever a credential is present regardless of what that
+credential may actually write.
 
 1. Claude Desktop local stdio starts, lists six anonymous tools or eight
    credentialed tools as appropriate, and calls `vrdex_search`.
