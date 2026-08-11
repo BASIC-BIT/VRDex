@@ -107,7 +107,7 @@ function toApiProfileWriteResponse(profile: Doc<"profiles">) {
     profileId: profile._id,
     slug: profile.slug,
     profileType: profile.profileType,
-    profilePath: profile.profileType === "person" ? `/p/${profile.slug}` : `/c/${profile.slug}`,
+    profilePath: `/${profile.slug}`,
   };
 }
 
@@ -430,7 +430,7 @@ export const submitCommunityProfile = mutation({
         profileId,
         profileType: "person" as const,
         slug,
-        profilePath: `/p/${slug}`,
+        profilePath: `/${slug}`,
         shortLinkCode: shortLink.code,
         shortLinkPath: shortLink.shortLinkPath,
       };
@@ -474,7 +474,7 @@ export const submitCommunityProfile = mutation({
       profileId,
       profileType: "community" as const,
       slug,
-      profilePath: `/c/${slug}`,
+      profilePath: `/${slug}`,
       shortLinkCode: shortLink.code,
       shortLinkPath: shortLink.shortLinkPath,
     };

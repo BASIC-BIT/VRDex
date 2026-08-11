@@ -1044,7 +1044,7 @@ const discoveryResults: PublicSearchResult[] = [
   {
     entityType: "event",
     slug: eventSlug,
-    routePath: `/e/${eventSlug}`,
+    routePath: `/${eventSlug}`,
     title: "Afterglow Harbor Sessions",
     subtitle: "Afterglow Social",
     summary: "Late-night harbor club session with house, trance, and warm social energy.",
@@ -1060,7 +1060,7 @@ const discoveryResults: PublicSearchResult[] = [
     entityType: "profile",
     profileType: "person",
     slug: personSlug,
-    routePath: `/p/${personSlug}`,
+    routePath: `/${personSlug}`,
     title: "DJ Aurora",
     subtitle: "Person profile",
     summary: "Melodic house sets for late-night VRChat floors.",
@@ -1079,7 +1079,7 @@ const discoveryResults: PublicSearchResult[] = [
     entityType: "profile",
     profileType: "person",
     slug: basicBitSlug,
-    routePath: `/p/${basicBitSlug}`,
+    routePath: `/${basicBitSlug}`,
     title: "BASICBIT",
     subtitle: "Person profile",
     summary: "Software Dev | 3D Designer | VRDJ",
@@ -1097,7 +1097,7 @@ const discoveryResults: PublicSearchResult[] = [
     entityType: "profile",
     profileType: "person",
     slug: generatedFixtureProfiles[0]!.slug,
-    routePath: `/p/${generatedFixtureProfiles[0]!.slug}`,
+    routePath: `/${generatedFixtureProfiles[0]!.slug}`,
     title: generatedFixtureProfiles[0]!.displayName,
     subtitle: "Person profile",
     summary: generatedFixtureProfiles[0]!.headline,
@@ -1114,7 +1114,7 @@ const discoveryResults: PublicSearchResult[] = [
     entityType: "profile",
     profileType: "community",
     slug: communitySlug,
-    routePath: `/c/${communitySlug}`,
+    routePath: `/${communitySlug}`,
     title: "Afterglow Social",
     subtitle: "Community profile",
     summary: "A warm VRChat club night for music-first communities.",
@@ -1128,7 +1128,7 @@ const discoveryResults: PublicSearchResult[] = [
   {
     entityType: "world",
     slug: worldSlug,
-    routePath: `/w/${worldSlug}`,
+    routePath: `/${worldSlug}`,
     title: "Neon Harbor",
     subtitle: "World",
     summary: "Cyberpunk harbor club world with layered dance floors and quiet balcony corners.",
@@ -1142,7 +1142,7 @@ const discoveryResults: PublicSearchResult[] = [
     entityType: "profile",
     profileType: "person",
     slug: sparseImportedProfile.slug,
-    routePath: `/p/${sparseImportedProfile.slug}`,
+    routePath: `/${sparseImportedProfile.slug}`,
     title: sparseImportedProfile.displayName,
     subtitle: "Person profile",
     trustLabel: sparseImportedProfile.trustLabel,
@@ -1204,7 +1204,7 @@ function toProfileLookupFixture(
   return {
     slug: profile.slug,
     displayName: profile.displayName,
-    profilePath: `/p/${profile.slug}`,
+    profilePath: `/${profile.slug}`,
     aliases: profile.aliases,
     tags: profile.tags,
     genres: profile.genres,
@@ -1526,7 +1526,7 @@ export function getPlaywrightPublicShortLinkFixture(
     return {
       code: normalized,
       targetType: "event",
-      path: `/e/${eventSlug}`,
+      path: `/${eventSlug}`,
     };
   }
 
@@ -1545,9 +1545,9 @@ export function getPlaywrightActiveWorldFixtures(): PublicActiveWorld[] | null {
 }
 
 export const playwrightPublicProfilePaths = {
-  personPath: `/p/${personSlug}`,
-  communityPath: `/c/${communitySlug}`,
-  worldPath: `/w/${worldSlug}`,
-  eventPath: `/e/${eventSlug}`,
-  eventWatchPath: `/e/${eventWatchSlug}`,
+  personPath: `/${personSlug}`,
+  communityPath: `/${communitySlug}`,
+  worldPath: `/${worldSlug}`,
+  eventPath: `/${eventSlug}`,
+  eventWatchPath: `/${eventWatchSlug}`,
 };

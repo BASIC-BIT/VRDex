@@ -18,8 +18,7 @@ This doc captures the first community-submitted profile flow for `#23`, plus the
 
 - `/submit`: first community-facing submission form
 - `/support`: contact, dispute, transfer, recovery, opt-out, and safety-review intake
-- `/p/<slug>`: public person profile page
-- `/c/<slug>`: public community profile page
+- `/<slug>`: public person or community profile page
 
 The `/submit` route is protected by the middleware and redirects a signed-out visitor to `/sign-in`. Clerk authenticates the browser and the backend mutation stays auth-gated, writing only for callers Convex resolves to a `users` row.
 

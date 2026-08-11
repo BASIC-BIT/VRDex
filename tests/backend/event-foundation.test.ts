@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { isReservedSlug } from "../../convex/_globalSlugs";
 import type { Doc } from "../../convex/_generated/dataModel";
 import type { DatabaseReader } from "../../convex/_generated/server";
 import { createDiscordTimestampSet, toDiscordTimestamp } from "../../convex/_discordTimestamps";
@@ -41,9 +42,10 @@ describe("event slug helpers", () => {
       reason: "invalid_format",
     });
     assert.deepEqual(validateEventSlug("events"), {
-      ok: false,
-      reason: "reserved",
+      ok: true,
+      slug: "events",
     });
+    assert.equal(isReservedSlug("events"), true);
   });
 
   it("keeps retry candidates inside the maximum length", () => {

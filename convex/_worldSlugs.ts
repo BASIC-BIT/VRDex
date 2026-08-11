@@ -1,63 +1,25 @@
 import type { Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
 import {
-  PROFILE_SLUG_MAX_LENGTH,
-  PROFILE_SLUG_MIN_LENGTH,
-  PROFILE_SLUG_PATTERN,
-  normalizeProfileSlugInput,
-} from "./_profileSlugs";
+  SLUG_MAX_LENGTH,
+  SLUG_MIN_LENGTH,
+  SLUG_PATTERN,
+  findSlugOwner,
+  getWorldBySlug,
+  isReservedSlug,
+  normalizeSlugInput,
+  validateSlugFormat,
+  type SlugFormatReason,
+} from "./_globalSlugs";
 
-export const WORLD_SLUG_MIN_LENGTH = PROFILE_SLUG_MIN_LENGTH;
-export const WORLD_SLUG_MAX_LENGTH = PROFILE_SLUG_MAX_LENGTH;
-export const WORLD_SLUG_PATTERN = PROFILE_SLUG_PATTERN;
+export { getWorldBySlug };
+
+export const WORLD_SLUG_MIN_LENGTH = SLUG_MIN_LENGTH;
+export const WORLD_SLUG_MAX_LENGTH = SLUG_MAX_LENGTH;
+export const WORLD_SLUG_PATTERN = SLUG_PATTERN;
 export const WORLD_SLUG_FALLBACK_BASE = "world-page";
 
-export const RESERVED_WORLD_SLUGS = [
-  "about",
-  "account",
-  "admin",
-  "api",
-  "auth",
-  "billing",
-  "blog",
-  "c",
-  "cards",
-  "communities",
-  "community",
-  "contact",
-  "dashboard",
-  "docs",
-  "e",
-  "events",
-  "help",
-  "login",
-  "logout",
-  "me",
-  "moderation",
-  "p",
-  "people",
-  "person",
-  "pricing",
-  "privacy",
-  "profile",
-  "profiles",
-  "search",
-  "settings",
-  "signup",
-  "support",
-  "terms",
-  "vrdex",
-  "w",
-  "world",
-  "worlds",
-] as const;
-
-export type WorldSlugValidationReason =
-  | "empty"
-  | "too_short"
-  | "too_long"
-  | "invalid_format"
-  | "reserved";
+export type WorldSlugValidationReason = SlugFormatReason;
 
 export type WorldSlugValidationResult =
   | { ok: true; slug: string }
@@ -67,34 +29,12 @@ export type WorldSlugAvailabilityResult =
   | { available: true; slug: string }
   | { available: false; slug: string; reason: "invalid" | "reserved" | "taken" };
 
-const RESERVED_WORLD_SLUG_SET = new Set<string>(RESERVED_WORLD_SLUGS);
-
 export function normalizeWorldSlugInput(input: string): string {
-  return normalizeProfileSlugInput(input);
+  return normalizeSlugInput(input);
 }
 
 export function validateWorldSlug(slug: string): WorldSlugValidationResult {
-  if (slug.length === 0) {
-    return { ok: false, reason: "empty" };
-  }
-
-  if (slug.length < WORLD_SLUG_MIN_LENGTH) {
-    return { ok: false, reason: "too_short" };
-  }
-
-  if (slug.length > WORLD_SLUG_MAX_LENGTH) {
-    return { ok: false, reason: "too_long" };
-  }
-
-  if (!WORLD_SLUG_PATTERN.test(slug)) {
-    return { ok: false, reason: "invalid_format" };
-  }
-
-  if (RESERVED_WORLD_SLUG_SET.has(slug)) {
-    return { ok: false, reason: "reserved" };
-  }
-
-  return { ok: true, slug };
+  return validateSlugFormat(slug);
 }
 
 export function toWorldSlug(input: string): WorldSlugValidationResult {
@@ -105,7 +45,7 @@ export function createWorldSlugBase(input: string): string {
   let slug = normalizeWorldSlugInput(input) || WORLD_SLUG_FALLBACK_BASE;
 
   for (let attempt = 0; attempt < 5; attempt += 1) {
-    if (slug.length < WORLD_SLUG_MIN_LENGTH || RESERVED_WORLD_SLUG_SET.has(slug)) {
+    if (slug.length < WORLD_SLUG_MIN_LENGTH || isReservedSlug(slug)) {
       slug = `${slug}-world`;
     }
 
@@ -114,7 +54,7 @@ export function createWorldSlugBase(input: string): string {
     }
 
     const validated = validateWorldSlug(slug);
-    if (validated.ok) {
+    if (validated.ok && !isReservedSlug(validated.slug)) {
       return validated.slug;
     }
   }
@@ -132,10 +72,6 @@ export function createWorldSlugCandidate(base: string, attempt: number): string 
   return `${base.slice(0, maxBaseLength).replace(/-+$/g, "")}${suffix}`;
 }
 
-export async function getWorldBySlug(db: DatabaseReader, slug: string) {
-  return await db.query("worlds").withIndex("by_slug", (q) => q.eq("slug", slug)).unique();
-}
-
 export async function checkWorldSlugAvailability(
   db: DatabaseReader,
   slug: string,
@@ -144,16 +80,16 @@ export async function checkWorldSlugAvailability(
   const validation = validateWorldSlug(slug);
 
   if (!validation.ok) {
-    return {
-      available: false,
-      slug,
-      reason: validation.reason === "reserved" ? "reserved" : "invalid",
-    };
+    return { available: false, slug, reason: "invalid" };
   }
 
-  const existingWorld = await getWorldBySlug(db, validation.slug);
+  if (isReservedSlug(validation.slug)) {
+    return { available: false, slug: validation.slug, reason: "reserved" };
+  }
 
-  if (existingWorld !== null && existingWorld._id !== excludingWorldId) {
+  const owner = await findSlugOwner(db, validation.slug, excludingWorldId);
+
+  if (owner !== null) {
     return { available: false, slug: validation.slug, reason: "taken" };
   }
 

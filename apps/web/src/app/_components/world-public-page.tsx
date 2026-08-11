@@ -230,7 +230,7 @@ function EventList({
                 <span>Confirmed venue</span>
               </div>
               <h3 className={`mt-3 text-lg font-semibold tracking-[-0.03em] ${posterStyle ? "text-white" : ""}`}>
-                {event.slug ? <Link href={`/e/${event.slug}`}>{event.title}</Link> : event.title}
+                {event.slug ? <Link href={`/${event.slug}`}>{event.title}</Link> : event.title}
               </h3>
               {event.communityName ? <p className={`mt-1 ${posterTextClass}`}>Hosted by {event.communityName}</p> : null}
             </div>

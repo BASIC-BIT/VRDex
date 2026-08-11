@@ -382,8 +382,9 @@ Current recommendation:
 
 Locked decision for the first implementation slice:
 
-- event pages use readable `/e/<slug>` routes
-- editable slugs and future generated short links are separate concepts
+> **Update 2026-08-11:** superseded. Profiles, worlds, and events are now first-class root links at `/<slug>`, sharing one global slug namespace. The `/p/`, `/c/`, `/w/`, and `/e/` prefixes were removed outright with no redirect. The text below is kept as the record of what was planned at the time. See `docs/backend/profile-slugs.md` for the live contract.
+
+- event pages use readable `/e/<slug>` routes- editable slugs and future generated short links are separate concepts
 - participant role labels start as freeform text rather than a fixed dropdown
 - person-event links can appear immediately when they reference published profiles and published events
 - notifications, approval gates, disputes, RSVP/interested state, recurring events, and friend-aware discovery stay out of the first event CRUD PR and remain tracked as follow-up work

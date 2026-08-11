@@ -144,7 +144,7 @@ function privacyErrorMessage(error: unknown): string {
 }
 
 function profilePath(profile: PrivacyProfile): string {
-  return `/${profile.profileType === "community" ? "c" : "p"}/${profile.slug}`;
+  return `/${profile.slug}`;
 }
 
 function groupsForProfile(profile: PrivacyProfile): FieldGroup[] {

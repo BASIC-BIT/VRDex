@@ -112,8 +112,8 @@ describe("handoff preview contract", () => {
     assert.equal(safeExternalHttpUrl("javascript:alert(1)"), undefined);
     assert.equal(safeExternalHttpUrl("not a url"), undefined);
 
-    assert.deepEqual(normalizeOwnerDestination({ ownerDestination: "/p/dj-aurora" }), {
-      ownerDestination: "/p/dj-aurora",
+    assert.deepEqual(normalizeOwnerDestination({ ownerDestination: "/dj-aurora" }), {
+      ownerDestination: "/dj-aurora",
     });
     assert.deepEqual(normalizeOwnerDestination({ ownerDestination: "https://attacker.invalid" }), {});
     assert.deepEqual(normalizeOwnerDestination({ destination: "//attacker.invalid" }), {});

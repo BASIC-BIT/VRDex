@@ -123,16 +123,13 @@ export function supportDigestSubject(count: number): string {
 /**
  * Where the profile a request names actually lives.
  *
- * `/p/` and `/c/` are separate routes that each fetch by type, so a community
- * slug under `/p/` is a 404. Emitting one for every request handed operators a
- * dead link for exactly the disputes that concern communities.
+ * One root route for both kinds now. This used to pick between `/p/` and `/c/`,
+ * which each fetched by type, so guessing `/p/` for a community slug handed
+ * operators a dead link on exactly the disputes that concern communities. The
+ * slug alone resolves either kind, so there is nothing left to guess.
  */
-function profileHref(
-  siteUrl: string,
-  slug: string,
-  profileType: "person" | "community" | null,
-): string {
-  return `${siteUrl}/${profileType === "community" ? "c" : "p"}/${slug}`;
+function profileHref(siteUrl: string, slug: string): string {
+  return `${siteUrl}/${slug}`;
 }
 
 /**
@@ -152,7 +149,7 @@ function profileIdentity(request: DigestRequest, siteUrl: string | undefined): s
     const slug = oneLine(request.profileSlug);
 
     parts.push(
-      siteUrl === undefined ? slug : `${slug} (${profileHref(siteUrl, slug, request.profileType)})`,
+      siteUrl === undefined ? slug : `${slug} (${profileHref(siteUrl, slug)})`,
     );
   }
 

@@ -283,6 +283,8 @@ Related policy recommendation:
 - likely fields: `slug`, `displayName`, `sortName`, `summary`, `description`, `vrchatWorldId`, `canonicalVrchatWorldUrl`, `sourceUrl`, `visibilityStatus`, `platformCompatibility`, `publicationState`, `creationSource`, `createdAt`, and `updatedAt`
 - supports public route `/w/<slug>`
 
+> **Update 2026-08-11:** superseded. Profiles, worlds, and events are now first-class root links at `/<slug>`, sharing one global slug namespace. The `/p/`, `/c/`, `/w/`, and `/e/` prefixes were removed outright with no redirect. The text below is kept as the record of what was planned at the time. See `docs/backend/profile-slugs.md` for the live contract.
+
 ### `world_media`
 
 - hero image, screenshots, trailer/video links, or embeds
@@ -314,8 +316,9 @@ Related policy recommendation:
 
 Implementation status:
 
-- `events` stores canonical event data and readable `/e/<slug>` routing slugs
-- `eventParticipants` links published person profiles to events with source and confirmation metadata
+> **Update 2026-08-11:** superseded. Profiles, worlds, and events are now first-class root links at `/<slug>`, sharing one global slug namespace. The `/p/`, `/c/`, `/w/`, and `/e/` prefixes were removed outright with no redirect. The text below is kept as the record of what was planned at the time. See `docs/backend/profile-slugs.md` for the live contract.
+
+- `events` stores canonical event data and readable `/e/<slug>` routing slugs- `eventParticipants` links published person profiles to events with source and confirmation metadata
 - `eventWorlds` links events to world records with source, confidence, and confirmation metadata
 - `communityAuthorities` reserves a small capability-based seam for community-owned event management without implementing the full staff-role product yet
 - `docs/backend/event-schema.md` is the backend reference for the first event foundation slice
@@ -757,6 +760,8 @@ AI should assist matching and extraction, not silently publish uncertain facts.
 ## Public surfaces to build early
 
 ### Public web page
+
+> **Update 2026-08-11:** superseded. Profiles, worlds, and events are now first-class root links at `/<slug>`, sharing one global slug namespace. The `/p/`, `/c/`, `/w/`, and `/e/` prefixes were removed outright with no redirect. The text below is kept as the record of what was planned at the time. See `docs/backend/profile-slugs.md` for the live contract.
 
 - `/p/<slug>` for people
 - `/c/<slug>` for communities

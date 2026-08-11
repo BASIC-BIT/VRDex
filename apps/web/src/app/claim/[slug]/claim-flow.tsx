@@ -180,7 +180,7 @@ export function ClaimFlow({
   const discordVerifyHref = `/api/discord/verify/start?returnTo=${encodeURIComponent(
     profileClaimPath(profile.slug, source),
   )}`;
-  const publicProfilePath = `/${profile.profileType === "community" ? "c" : "p"}/${profile.slug}`;
+  const publicProfilePath = `/${profile.slug}`;
   const backPath = ownerProfileDestinationPath(profile, "/account");
   const appearancePath = profile.profileId
     ? `/account/appearance?profileId=${encodeURIComponent(profile.profileId)}`

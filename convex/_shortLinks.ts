@@ -402,7 +402,7 @@ async function publicProfileShortLinkPath(db: DatabaseReader, shortLink: Doc<"sh
     return null;
   }
 
-  return profile.profileType === "person" ? `/p/${profile.slug}` : `/c/${profile.slug}`;
+  return `/${profile.slug}`;
 }
 
 async function publicWorldShortLinkPath(db: DatabaseReader, shortLink: Doc<"shortLinks">) {
@@ -416,7 +416,7 @@ async function publicWorldShortLinkPath(db: DatabaseReader, shortLink: Doc<"shor
     return null;
   }
 
-  return `/w/${world.slug}`;
+  return `/${world.slug}`;
 }
 
 async function publicEventShortLinkPath(db: DatabaseReader, shortLink: Doc<"shortLinks">) {
@@ -431,7 +431,7 @@ async function publicEventShortLinkPath(db: DatabaseReader, shortLink: Doc<"shor
     return null;
   }
 
-  return `/e/${publicEvent.slug}`;
+  return `/${publicEvent.slug}`;
 }
 
 export async function resolvePublicShortLinkTarget(

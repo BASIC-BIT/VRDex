@@ -116,13 +116,12 @@ test("profile submission writes through to public profile and discovery @flow", 
 
     await page.getByRole("button", { name: "Submit profile" }).click();
 
-    const dialogProfileLink = page.getByRole("dialog", { name: "Profile added" }).getByRole("link", {
+    // The pre-dialog fallback keyed off `/p/`-prefixed hrefs, which no longer exist
+    // now that profiles render from the site root.
+    const profileLink = page.getByRole("dialog", { name: "Profile added" }).getByRole("link", {
       name: "View profile",
     });
-    const legacyProfileLink = page.locator('a[href^="/p/"]').filter({ hasText: /View \/p\// }).first();
-    const visibleProfileLink = dialogProfileLink.or(legacyProfileLink).first();
-    await expect(visibleProfileLink).toBeVisible();
-    const profileLink = (await dialogProfileLink.isVisible()) ? dialogProfileLink : legacyProfileLink;
+    await expect(profileLink).toBeVisible();
     const href = await profileLink.getAttribute("href");
     createdSlug = href?.split("/").filter(Boolean).at(-1);
     expect(createdSlug).toBeTruthy();
@@ -205,7 +204,7 @@ test("profile field visibility keeps unlisted fields on profiles and out of disc
     createdSlug = profile.slug;
     expect(createdSlug).toBeTruthy();
 
-    await gotoFlowPage(page, `/p/${createdSlug}`);
+    await gotoFlowPage(page, `/${createdSlug}`);
     await expect(page.getByRole("heading", { name: displayName })).toBeVisible();
     await expect(page.getByText(directOnlyAlias)).toBeVisible();
     await expect(page.getByText(directOnlyBio).first()).toBeVisible();

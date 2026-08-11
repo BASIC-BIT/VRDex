@@ -70,8 +70,6 @@ function editErrorMessage(error: unknown): string {
 
 type ProfileEditFormProps = {
   profilePath: string;
-  /** The type the route claims, checked against the record before editing. */
-  profileType: "person" | "community";
   slug: string;
 };
 
@@ -84,15 +82,12 @@ function EditPanel({ children, title }: { children: ReactNode; title: string }) 
   );
 }
 
-function ConnectedProfileEditForm({
-  profilePath,
-  profileType,
-  slug,
-}: ProfileEditFormProps) {
+function ConnectedProfileEditForm({ profilePath, slug }: ProfileEditFormProps) {
   const router = useRouter();
-  // With the route type, so `/p/<community-slug>/edit` is refused rather than
-  // editing the community profile and returning to a `/p/` path that 404s.
-  const profile = useQuery(api.profiles.editableProfile, { profileType, slug });
+  // No route type to pass. Profiles are served from the site root, so the slug is
+  // the whole identifier and there is no `/p/<community-slug>/edit` mismatch left
+  // for the query to refuse.
+  const profile = useQuery(api.profiles.editableProfile, { slug });
   const updateProfile = useMutation(api.profiles.updateProfileFromBrowser);
   const [status, setStatus] = useState<EditStatus>({ kind: "idle" });
   const [, startTransition] = useTransition();
@@ -257,7 +252,7 @@ function ConnectedProfileEditForm({
   );
 }
 
-function AuthenticatedProfileEditForm({ profilePath, profileType, slug }: ProfileEditFormProps) {
+function AuthenticatedProfileEditForm({ profilePath, slug }: ProfileEditFormProps) {
   const { isAuthenticated, isLoading } = useConvexAuth();
 
   if (isLoading) {
@@ -283,10 +278,10 @@ function AuthenticatedProfileEditForm({ profilePath, profileType, slug }: Profil
     );
   }
 
-  return <ConnectedProfileEditForm profilePath={profilePath} profileType={profileType} slug={slug} />;
+  return <ConnectedProfileEditForm profilePath={profilePath} slug={slug} />;
 }
 
-export function ProfileEditForm({ profilePath, profileType, slug }: ProfileEditFormProps) {
+export function ProfileEditForm({ profilePath, slug }: ProfileEditFormProps) {
   // Ahead of every Convex hook, not beside them. `ConvexClientProvider` renders
   // no provider when the URL is unset, so `useConvexAuth` throws on mount there
   // and the fallback below is never reached -- the same shape as the fixture
@@ -301,6 +296,6 @@ export function ProfileEditForm({ profilePath, profileType, slug }: ProfileEditF
   }
 
   return (
-    <AuthenticatedProfileEditForm profilePath={profilePath} profileType={profileType} slug={slug} />
+    <AuthenticatedProfileEditForm profilePath={profilePath} slug={slug} />
   );
 }

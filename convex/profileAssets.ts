@@ -121,7 +121,7 @@ function apiOwnerAuthSubject(userId: Doc<"users">["_id"]): AuthSubject {
 }
 
 function profilePath(profile: Doc<"profiles">): string {
-  return profile.profileType === "person" ? `/p/${profile.slug}` : `/c/${profile.slug}`;
+  return `/${profile.slug}`;
 }
 
 async function requireApiOwnedClaimedProfileBySlug(

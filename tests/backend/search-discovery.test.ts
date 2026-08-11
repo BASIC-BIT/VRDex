@@ -242,7 +242,7 @@ describe("search document projection", () => {
     const document = createProfileSearchDocument(profile);
 
     assert.equal(document.publicState, "hidden");
-    assert.equal(document.routePath, "/p/dj-aurora");
+    assert.equal(document.routePath, "/dj-aurora");
     assert.equal(document.trustRank, 40);
     assert.ok(document.searchText.includes("DJ Aurora"));
     assert.ok(document.searchText.includes("dj_aurora"));
@@ -406,7 +406,7 @@ describe("search document projection", () => {
     const weak = {
       entityType: "profile",
       slug: "random-profile",
-      routePath: "/p/random-profile",
+      routePath: "/random-profile",
       title: "Random Profile",
       searchText: "House",
       exactTokens: ["random profile"],
@@ -420,7 +420,7 @@ describe("search document projection", () => {
       ...weak,
       entityType: "event",
       slug: "house-night",
-      routePath: "/e/house-night",
+      routePath: "/house-night",
       title: "House Night",
       exactTokens: ["house"],
       trustRank: 30,
@@ -441,7 +441,7 @@ describe("search document projection", () => {
       entityType: "profile",
       profileType: "person",
       slug: "basicbit",
-      routePath: "/p/basicbit",
+      routePath: "/basicbit",
       title: "BASICBIT",
       searchText: "BASICBIT BASIC basic_bit",
       exactTokens: ["basic", "basic bit", "basicbit"],
@@ -482,7 +482,7 @@ describe("search document projection", () => {
       profileType: "person",
       profileId: profile._id,
       slug: profile.slug,
-      routePath: `/p/${profile.slug}`,
+      routePath: `/${profile.slug}`,
       title: profile.displayName,
       searchText: profile.displayName,
       exactTokens: ["hidden basicbit"],
@@ -523,7 +523,7 @@ describe("search document projection", () => {
       profileType: "person",
       profileId: profile._id,
       slug: profile.slug,
-      routePath: `/p/${profile.slug}`,
+      routePath: `/${profile.slug}`,
       title: profile.displayName,
       searchText: profile.displayName,
       exactTokens: ["basicbit"],
@@ -572,7 +572,7 @@ describe("search document projection", () => {
       profileType: "person",
       profileId: hiddenProfile._id,
       slug: hiddenProfile.slug,
-      routePath: `/p/${hiddenProfile.slug}`,
+      routePath: `/${hiddenProfile.slug}`,
       title: hiddenProfile.displayName,
       searchText: "House",
       exactTokens: ["house"],
@@ -585,7 +585,7 @@ describe("search document projection", () => {
     const visibleDocument = {
       entityType: "event",
       slug: "visible-house-night",
-      routePath: "/e/visible-house-night",
+      routePath: "/visible-house-night",
       title: "Visible House Night",
       searchText: "House",
       exactTokens: [],
@@ -643,7 +643,7 @@ describe("search document projection", () => {
       profileType: "person",
       profileId: profile._id,
       slug: profile.slug,
-      routePath: `/p/${profile.slug}`,
+      routePath: `/${profile.slug}`,
       title: profile.displayName,
       searchText: "House",
       exactTokens: index === 0 ? ["house"] : [],
@@ -738,7 +738,7 @@ describe("search document projection", () => {
       entityType: "profile",
       profileType: "person",
       slug: "basicbit",
-      routePath: "/p/basicbit",
+      routePath: "/basicbit",
       title: "BASICBIT",
       searchText: "BASICBIT",
       exactTokens: ["basicbit"],
@@ -793,7 +793,7 @@ describe("search document projection", () => {
     const pastEvent = {
       entityType: "event",
       slug: "past-house-night",
-      routePath: "/e/past-house-night",
+      routePath: "/past-house-night",
       title: "Past House Night",
       searchText: "House",
       exactTokens: ["house"],
@@ -807,7 +807,7 @@ describe("search document projection", () => {
     const upcomingEvent = {
       ...pastEvent,
       slug: "upcoming-house-night",
-      routePath: "/e/upcoming-house-night",
+      routePath: "/upcoming-house-night",
       title: "Upcoming House Night",
       startsAt: Date.now() + 3_600_000,
     } as unknown as Doc<"searchDocuments">;

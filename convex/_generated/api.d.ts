@@ -33,6 +33,7 @@ import type * as _eventPublic from "../_eventPublic.js";
 import type * as _eventSlots from "../_eventSlots.js";
 import type * as _eventSlugs from "../_eventSlugs.js";
 import type * as _externalControl from "../_externalControl.js";
+import type * as _globalSlugs from "../_globalSlugs.js";
 import type * as _identity from "../_identity.js";
 import type * as _inputValidation from "../_inputValidation.js";
 import type * as _mcpEventWriteReceipts from "../_mcpEventWriteReceipts.js";
@@ -148,6 +149,7 @@ declare const fullApi: ApiFromModules<{
   _eventSlots: typeof _eventSlots;
   _eventSlugs: typeof _eventSlugs;
   _externalControl: typeof _externalControl;
+  _globalSlugs: typeof _globalSlugs;
   _identity: typeof _identity;
   _inputValidation: typeof _inputValidation;
   _mcpEventWriteReceipts: typeof _mcpEventWriteReceipts;

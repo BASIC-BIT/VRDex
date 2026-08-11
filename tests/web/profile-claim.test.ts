@@ -17,15 +17,12 @@ describe("profile claim navigation", () => {
 
   it("keeps public profiles on public routes and private owners on an owner-aware destination", () => {
     assert.equal(
-      ownerProfileDestinationPath(
-        { hasPublicProfile: true, profileType: "person", slug: "dj/basic" },
-        "/account",
-      ),
-      "/p/dj%2Fbasic",
+      ownerProfileDestinationPath({ hasPublicProfile: true, slug: "dj/basic" }, "/account"),
+      "/dj%2Fbasic",
     );
     assert.equal(
       ownerProfileDestinationPath(
-        { hasPublicProfile: false, profileType: "community", slug: "private-club" },
+        { hasPublicProfile: false, slug: "private-club" },
         "/account/appearance",
       ),
       "/account/appearance",
@@ -40,7 +37,7 @@ describe("profile claim navigation", () => {
 
   it("preserves legacy profile link parsing before redirecting", () => {
     assert.equal(profileClaimSlugFromInput("https://vrdex.net/p/dj-celine"), "dj-celine");
-    assert.equal(profileClaimSlugFromInput("/c/afterglow-social?ref=account"), "afterglow-social");
+    assert.equal(profileClaimSlugFromInput("/afterglow-social?ref=account"), "afterglow-social");
     assert.equal(profileClaimSlugFromInput("dj-basic"), "dj-basic");
   });
 });

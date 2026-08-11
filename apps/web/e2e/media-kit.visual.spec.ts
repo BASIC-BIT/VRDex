@@ -695,7 +695,7 @@ test("owner preview failure can retry @fixture", async ({ page }) => {
 });
 
 test("public profile media kit @visual @fixture", async ({ page }, testInfo) => {
-  await page.goto("/p/playwright-dj-aurora");
+  await page.goto("/playwright-dj-aurora");
   const mediaKit = page.getByRole("heading", { name: "Media kit" }).locator("xpath=ancestor::section");
   await expect(mediaKit.getByRole("heading", { name: "Aurora press portrait" })).toHaveCount(1);
   await expect(

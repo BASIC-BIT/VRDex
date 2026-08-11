@@ -44,7 +44,7 @@ function getRequestOrigin(requestHeaders: Headers): string | undefined {
 }
 
 function getCanonicalEventUrl(slug: string, requestHeaders: Headers): string {
-  const routePath = `/e/${slug}`;
+  const routePath = `/${slug}`;
   const origin = getRequestOrigin(requestHeaders);
 
   if (origin === undefined) {
@@ -77,7 +77,7 @@ export default async function EditEventPage({ params }: EditEventPageProps) {
       <PageContainer max="5xl">
         <PageNav>
           <BrandLink />
-          <Link className={buttonVariants({ variant: "secondary" })} href={`/e/${result.event.slug}`}>
+          <Link className={buttonVariants({ variant: "secondary" })} href={`/${result.event.slug}`}>
             View event
           </Link>
         </PageNav>

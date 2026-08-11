@@ -240,7 +240,7 @@ export function createProfileSearchDocument(profile: Doc<"profiles">): SearchDoc
     profileId: profile._id,
     profileType: profile.profileType,
     slug: profile.slug,
-    routePath: profile.profileType === "person" ? `/p/${profile.slug}` : `/c/${profile.slug}`,
+    routePath: `/${profile.slug}`,
     title: profile.displayName,
     subtitle: typeLabel,
     ...optionalField("summary", headline ?? bio),
@@ -346,7 +346,7 @@ export function createWorldSearchDocument(
     publicState: world.publicationState === "published" ? "public" : "hidden",
     worldId: world._id,
     slug: world.slug,
-    routePath: `/w/${world.slug}`,
+    routePath: `/${world.slug}`,
     title: world.displayName,
     subtitle: "World",
     ...optionalField("summary", world.summary ?? world.description),
@@ -384,7 +384,7 @@ export function createEventSearchDocument(
   const sourceUrl = safeHttpsUrl(event.sourceUrl);
   const vocabulary = vocabularyForEvent(event, context.roleLabels ?? []);
   const worldTerms = context.world ? [context.world.displayName, ...context.world.tags] : [];
-  const routePath = event.slug === undefined ? "/" : `/e/${event.slug}`;
+  const routePath = event.slug === undefined ? "/" : `/${event.slug}`;
   const isUpcoming = event.startAt >= Date.now();
 
   return {

@@ -4,7 +4,9 @@
 
 This doc captures the slug contract for `#10`.
 
-Profiles use one global slug namespace across both people and communities, even though public pages are planned as `/p/<slug>` and `/c/<slug>`. This avoids ambiguous API, card, and search lookups.
+Profiles, worlds, and events share one global slug namespace and all render from the site root as `/<slug>`. This avoids ambiguous API, card, and search lookups, and it is what makes a bare `vrdex.net/basicbit` resolvable without a type prefix.
+
+Because a slug can be shadowed by a real page route, every top-level route name is held in `RESERVED_ROUTE_SLUGS` in `convex/_globalSlugs.ts` and can never be assigned. `tests/web/reserved-route-slugs.test.ts` fails when a new top-level route lands without a matching reservation. `RESERVED_PREMIUM_SLUGS` holds short, generic names back from self-serve so they can be granted or sold later.
 
 ## Rules
 

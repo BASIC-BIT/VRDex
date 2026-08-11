@@ -224,7 +224,7 @@ export function EventPreviewCard({ event }: { event: PublicEventPreview }) {
           {event.communityName ? <span>/ {event.communityName}</span> : null}
         </div>
         <h3 className="mt-4 text-2xl font-semibold tracking-[-0.04em]">
-          {event.slug ? <Link href={`/e/${event.slug}`}>{event.title}</Link> : event.title}
+          {event.slug ? <Link href={`/${event.slug}`}>{event.title}</Link> : event.title}
         </h3>
       </div>
       <div className="grid gap-3 px-4 py-4">
@@ -345,7 +345,7 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
               <Eyebrow>Place</Eyebrow>
               <div className="mt-5 grid gap-3 text-sm">
                 {event.communitySlug ? (
-                  <Link className={cn(actionCardVariants({ variant: "accent" }), "flex items-center gap-3")} href={`/c/${event.communitySlug}`}>
+                  <Link className={cn(actionCardVariants({ variant: "accent" }), "flex items-center gap-3")} href={`/${event.communitySlug}`}>
                     <EntityImage appearance={event.communityAvatarAppearance} imageUrl={event.communityImageUrl} label={event.communityName ?? "Community profile"} />
                     <span className="min-w-0">
                       <span className={actionLabelClassName}>
@@ -362,7 +362,7 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
                   <p className="leading-6 text-muted">No host listed.</p>
                 )}
                 {event.worlds.map((world) => (
-                  <Link className={cn(actionCardVariants({ variant: "accent" }), "flex items-center gap-3")} href={`/w/${world.slug}`} key={world.slug}>
+                  <Link className={cn(actionCardVariants({ variant: "accent" }), "flex items-center gap-3")} href={`/${world.slug}`} key={world.slug}>
                     <EntityImage imageUrl={world.heroImageUrl} label={world.displayName} />
                     <span className="min-w-0">
                       <span className={actionLabelClassName}>
@@ -391,7 +391,7 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
                       <ViewerLocalEventTimeRange className="font-medium" endAt={slot.endAt} startAt={slot.startAt} />
                       <div>
                         {slot.performer ? (
-                          <Link className={inlineActionClassName} href={`/p/${slot.performer.slug}`}>
+                          <Link className={inlineActionClassName} href={`/${slot.performer.slug}`}>
                             {slot.displayLabel}
                           </Link>
                         ) : (
@@ -416,7 +416,7 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
                         <TableCell className="whitespace-nowrap font-medium"><ViewerLocalEventTimeRange endAt={slot.endAt} startAt={slot.startAt} /></TableCell>
                         <TableCell>
                           {slot.performer ? (
-                            <Link className={inlineActionClassName} href={`/p/${slot.performer.slug}`}>
+                            <Link className={inlineActionClassName} href={`/${slot.performer.slug}`}>
                               {slot.displayLabel}
                             </Link>
                           ) : (
@@ -440,7 +440,7 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
               <p className="text-sm leading-6 text-muted">No lineup yet.</p>
             ) : (
               event.participants.map((participant) => (
-                <Link className={cn(actionCardVariants({ padding: "lg", variant: "accent" }), "flex items-center gap-3")} href={`/p/${participant.slug}`} key={participant.slug}>
+                <Link className={cn(actionCardVariants({ padding: "lg", variant: "accent" }), "flex items-center gap-3")} href={`/${participant.slug}`} key={participant.slug}>
                   <EntityImage appearance={participant.avatarAppearance} imageUrl={participant.imageUrl} label={participant.displayName} />
                   <span className="min-w-0">
                     <span className="block text-lg font-semibold tracking-[-0.03em] text-accent-strong underline decoration-accent/45 underline-offset-4 group-hover:decoration-accent">
@@ -459,7 +459,7 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
           <Card surface="white">
             <Eyebrow>Links</Eyebrow>
             <div className="mt-4 grid gap-3">
-              <a className={actionCardVariants({ variant: "accent" })} href={`/e/${event.slug}/calendar.ics`}>
+              <a className={actionCardVariants({ variant: "accent" })} href={`/${event.slug}/calendar.ics`}>
                 <span className={actionLabelClassName}>Add to calendar</span>
                 <span className={actionMetaClassName}>Download .ics</span>
               </a>

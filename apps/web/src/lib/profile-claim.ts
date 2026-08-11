@@ -3,7 +3,6 @@ export type ClaimEntrySource = "account" | "profile" | "search";
 export type DiscordVerifyStatus = "verified" | "declined" | "failed" | "unavailable" | null;
 type ProfileRouteTarget = {
   hasPublicProfile: boolean;
-  profileType: "person" | "community";
   slug: string;
 };
 
@@ -24,13 +23,18 @@ export function profileClaimSlugFromInput(value: string): string {
     // Bare slugs and relative profile paths are valid legacy inputs.
   }
 
-  const segments = path.split(/[/?#]/).filter(Boolean);
+  // Query and fragment are dropped before splitting rather than treated as path
+  // separators. Once profiles moved to the site root the slug became the *first*
+  // segment, so `/afterglow?ref=account` would otherwise parse as `ref=account`.
+  const segments = (path.split(/[?#]/)[0] ?? "").split("/").filter(Boolean);
 
+  // `/p/<slug>` and `/c/<slug>` are retired, but somebody can still paste an old
+  // link or bookmark, and reading the slug out of one costs two lines.
   if ((segments[0] === "p" || segments[0] === "c") && segments[1]) {
     return segments[1];
   }
 
-  return segments.at(-1) ?? "";
+  return segments[0] ?? "";
 }
 
 export function profileClaimPath(
@@ -50,7 +54,7 @@ export function ownerProfileDestinationPath(
     return privateDestination;
   }
 
-  return `/${profile.profileType === "community" ? "c" : "p"}/${encodeURIComponent(profile.slug)}`;
+  return `/${encodeURIComponent(profile.slug)}`;
 }
 
 const discordVerifyStatuses = new Set(["verified", "declined", "failed", "unavailable"]);

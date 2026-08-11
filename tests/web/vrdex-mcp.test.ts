@@ -965,7 +965,7 @@ describe("VRDex MCP server", () => {
             return {
               eventId: "event_123",
               slug: "afterglow-night",
-              eventPath: "/e/afterglow-night",
+              eventPath: "/afterglow-night",
               shortLinkCode: "abc123",
               shortLinkPath: "/s/abc123",
             };
@@ -1010,7 +1010,7 @@ describe("VRDex MCP server", () => {
     };
 
     assert.equal(result.status, 200);
-    assert.match(result.body, /"canonicalUrl":"https:\/\/app\.example\.test\/e\/afterglow-night"/);
+    assert.match(result.body, /"canonicalUrl":"https:\/\/app\.example\.test\/afterglow-night"/);
     assert.equal(result.mutationArgs.ownerUserId, "user_123");
     assert.equal(result.mutationArgs.oauthClientId, "vrdx_app_test");
     assert.equal(result.mutationArgs.oauthTokenId, "token-123");
@@ -1041,7 +1041,7 @@ describe("VRDex MCP server", () => {
       const write = {
         eventId: "event_123",
         slug: "afterglow-night",
-        eventPath: "/e/afterglow-night",
+        eventPath: "/afterglow-night",
         shortLinkCode: "abc123",
         shortLinkPath: "/s/abc123",
       };
@@ -1229,7 +1229,7 @@ describe("VRDex MCP server", () => {
                 {
                   entityType: "profile",
                   profileType: "community",
-                  routePath: "/c/afterglow",
+                  routePath: "/afterglow",
                   score: 42,
                   slug: "afterglow",
                   summary: "A warm VRChat club night.",
@@ -1295,7 +1295,7 @@ describe("VRDex MCP server", () => {
 
     assert.match(output, /^200/m);
     assert.match(output, /"id":"profile:community:afterglow"/);
-    assert.match(output, /"url":"https:\/\/app\.example\.test\/c\/afterglow"/);
+    assert.match(output, /"url":"https:\/\/app\.example\.test\/afterglow"/);
     assert.match(output, /"text":"Title: Afterglow\\nEntity type: profile/);
     assert.match(output, /"metadata":\{"entityType":"profile","profileType":"community","slug":"afterglow"/);
   });
