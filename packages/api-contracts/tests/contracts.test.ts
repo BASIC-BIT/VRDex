@@ -416,7 +416,20 @@ describe("@vrdex/api-contracts", () => {
       slug: "artist-name",
       profileType: "person",
       profilePath: "/p/artist-name",
+      publiclyViewable: true,
     });
+
+    // Required, not optional. A client reading the profile back to confirm a
+    // write uses this to tell a deliberately private page from one that failed
+    // to surface, and an omitted field would silently read as "hidden".
+    assert.throws(() =>
+      ApiProfileWriteResponseSchema.parse({
+        profileId: "profile123",
+        slug: "artist-name",
+        profileType: "person",
+        profilePath: "/p/artist-name",
+      })
+    );
   });
 
   it("parses profile asset upload-intent contracts", () => {
