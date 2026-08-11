@@ -7,6 +7,7 @@ import { api, internal } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import schemaModule from "../../convex/schema";
 import { readProfileReferenceFromInput, readProfileSlugFromInput } from "../../convex/_profileSlugs";
+import { isReservedRouteSlug, isReservedSlug } from "../../convex/_globalSlugs";
 import { clerkTestIdentity, newClerkUserId } from "./_clerkTestIdentity";
 import {
   MAX_ANONYMOUS_REQUESTS_PER_HOUR,
@@ -974,6 +975,17 @@ describe("support request review findings, fourth round", () => {
     // A route is a page, not a profile named after one.
     assert.equal(readProfileReferenceFromInput("https://vrdex.net/support", "https://vrdex.net").slug, "");
     assert.equal(readProfileReferenceFromInput("https://vrdex.net/lookup", "https://vrdex.net").slug, "");
+
+    // Route names only. A premium name is withheld from self-serve but an operator
+    // can grant it, so once `basic` belongs to somebody it is a real profile link.
+    // Refusing the whole reserved set here would drop the identifier off that
+    // owner's dispute -- the failure this parser exists to prevent.
+    assert.equal(isReservedSlug("basic"), true);
+    assert.equal(isReservedRouteSlug("basic"), false);
+    assert.deepEqual(readProfileReferenceFromInput("https://vrdex.net/basic", "https://vrdex.net"), {
+      slug: "basic",
+      profileType: null,
+    });
 
     // Still only one segment, and still only this deployment's origins.
     assert.equal(readProfileReferenceFromInput("https://vrdex.net/dj-aurora/extra", "https://vrdex.net").slug, "");

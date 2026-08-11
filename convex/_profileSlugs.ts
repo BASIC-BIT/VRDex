@@ -6,6 +6,7 @@ import {
   SLUG_PATTERN,
   findSlugOwner,
   getProfileBySlug,
+  isReservedRouteSlug,
   isReservedSlug,
   normalizeSlugInput,
   validateSlugFormat,
@@ -201,11 +202,18 @@ export function readProfileReferenceFromInput(
       return none;
     }
 
-    // A single root segment that names a real page is that page, not a profile:
-    // `/support` and `/lookup` are routes, and `/neon-harbor` may be a world.
-    // Reserved names are refused outright; a slug that simply holds no profile
-    // resolves to nothing later, in getRequestedProfile, which reads the table.
-    if (prefixedPath === null && isReservedSlug(decodeUrlSegment(profilePath[1] ?? ""))) {
+    // A single root segment naming a real page is that page, not a profile named
+    // after one: `/support` and `/lookup` are routes.
+    //
+    // Route names only, not every reserved name. A premium name is withheld from
+    // self-serve but an operator can grant it, so refusing the whole reserved set
+    // here would reject `vrdex.net/basic` from the owner of `basic` -- dropping the
+    // identifier off their dispute, which is the failure this parser exists to
+    // prevent.
+    //
+    // A slug that simply holds no profile needs no check: `/neon-harbor` may be a
+    // world, and getRequestedProfile resolves it to nothing when it reads the table.
+    if (prefixedPath === null && isReservedRouteSlug(decodeUrlSegment(profilePath[1] ?? ""))) {
       return none;
     }
 

@@ -200,13 +200,28 @@ export const RESERVED_PREMIUM_SLUGS = [
   "vrchat",
 ] as const;
 
+const RESERVED_ROUTE_SLUG_SET = new Set<string>(RESERVED_ROUTE_SLUGS);
 const RESERVED_SLUG_SET = new Set<string>([
   ...RESERVED_ROUTE_SLUGS,
   ...RESERVED_PREMIUM_SLUGS,
 ]);
 
+/** Not assignable to anyone, by either self-serve or an operator. */
 export function isReservedSlug(slug: string): boolean {
   return RESERVED_SLUG_SET.has(slug);
+}
+
+/**
+ * Names a real page, so no profile can ever answer to it.
+ *
+ * Narrower than `isReservedSlug` on purpose, and the distinction matters wherever
+ * a slug is *read* rather than assigned. A premium name is held back from
+ * self-serve but an operator can still grant it, so once `basic` belongs to
+ * somebody, `vrdex.net/basic` is a real profile link and has to be readable as
+ * one. Only a route name can never be a profile.
+ */
+export function isReservedRouteSlug(slug: string): boolean {
+  return RESERVED_ROUTE_SLUG_SET.has(slug);
 }
 
 export function normalizeSlugInput(input: string): string {
