@@ -1047,14 +1047,72 @@ export const submitCommunityProfileForApiUser = internalMutation({
   args: {
     actorKind: apiWriteAuditActorKindValidator,
     ownerUserId: v.id("users"),
+    /**
+     * Optional, and the reason it exists is retries rather than tidiness.
+     *
+     * A create has no natural replay guard: `findAvailableProfileSlug` suffixes
+     * on collision, so a resubmission after a lost response publishes a second
+     * profile for the same person under a second slug, and nothing merges them.
+     * A caller that cannot lose its response can omit the key; the local stdio
+     * MCP tool always sends one, because a tool loop retrying on timeout is
+     * exactly the case this guards.
+     */
+    idempotencyKeyHash: v.optional(v.string()),
+    requestFingerprint: v.optional(v.string()),
     ...communityProfileSubmissionArgs,
   },
   handler: async (ctx, args) => {
+    const toolName = "vrdex_profile_submit" as const;
+    // Scoped to the user rather than the individual credential. Two of one
+    // user's tokens replaying one key is not a case worth splitting, and
+    // conflating them errs toward fewer duplicate profiles.
+    const receiptClientRef = `api:${args.actorKind}`;
+    const idempotencyKeyHash = args.idempotencyKeyHash === undefined
+      ? undefined
+      : requireSha256Hex(args.idempotencyKeyHash, "Idempotency key hash");
+    const requestFingerprint = args.requestFingerprint === undefined
+      ? undefined
+      : requireSha256Hex(args.requestFingerprint, "Request fingerprint");
+
+    if (idempotencyKeyHash !== undefined && requestFingerprint !== undefined) {
+      let existing;
+
+      try {
+        existing = await findMcpWriteReceipt(ctx.db, {
+          ownerUserId: args.ownerUserId,
+          oauthClientId: receiptClientRef,
+          toolName,
+          idempotencyKeyHash,
+          requestFingerprint,
+        });
+      } catch {
+        // The stored receipt holds a different request. Reusing one key for two
+        // different profiles is a caller bug, and answering it with the first
+        // profile would be worse than refusing.
+        throw new ConvexError({
+          code: "IDEMPOTENCY_KEY_REUSED",
+          message: "This Idempotency-Key was already used for a different profile submission.",
+        });
+      }
+
+      if (existing !== null) {
+        return existing.result as McpProfileWriteResult;
+      }
+    }
+
     const created = await createCommunityProfileRecord(
       ctx,
       args,
       apiOwnerAuthSubject(args.ownerUserId),
     );
+    const now = Date.now();
+    const result: McpProfileWriteResult = {
+      profileId: created.profileId,
+      slug: created.slug,
+      profileType: created.profileType,
+      profilePath: created.profilePath,
+      publiclyViewable: true,
+    };
 
     await recordApiWriteAuditEvent(ctx.db, {
       action: "profile_created",
@@ -1063,14 +1121,22 @@ export const submitCommunityProfileForApiUser = internalMutation({
       resourceType: "profile",
       routeClass: "public_write",
       targetProfileId: created.profileId,
-      now: Date.now(),
+      ...(idempotencyKeyHash === undefined ? {} : { idempotencyKeyHash }),
+      now,
     });
 
-    return {
-      profileId: created.profileId,
-      slug: created.slug,
-      profileType: created.profileType,
-      profilePath: created.profilePath,
-    };
+    if (idempotencyKeyHash !== undefined && requestFingerprint !== undefined) {
+      await recordMcpWriteReceipt(ctx.db, {
+        ownerUserId: args.ownerUserId,
+        oauthClientId: receiptClientRef,
+        toolName,
+        idempotencyKeyHash,
+        requestFingerprint,
+        result,
+        now,
+      });
+    }
+
+    return result;
   },
 });

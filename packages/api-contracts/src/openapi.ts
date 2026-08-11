@@ -57,6 +57,7 @@ import {
   type z,
 } from "./schemas";
 import {
+  ApiIdempotencyHeaderSchema,
   TemporalContinuationPathParamsSchema,
   TemporalIdempotencyHeaderSchema,
   TemporalParseCompletedResponseSchema,
@@ -637,7 +638,7 @@ export const openApiSource = {
         tags: ["Profiles"],
         summary: "Update a profile",
         description:
-          "Updates editable metadata, including outbound links, for a profile owned by a bearer credential with user authority and profile:write scope, or for an unclaimed profile as a community correction. Sending outboundLinks replaces the whole list.",
+          "Updates editable metadata for a profile owned by a bearer credential with user authority and profile:write scope, or for an unclaimed profile as a community correction.",
         security: profileWriteSecurity,
         requestParams: {
           path: SlugPathParamsSchema,
@@ -678,8 +679,11 @@ export const openApiSource = {
         tags: ["Profiles"],
         summary: "Submit a community-sourced profile",
         description:
-          "Creates a profile for a person or community that has none. It publishes immediately as unclaimed and credited to the submitter, and whoever it describes can claim it later. Requires a bearer credential with user authority and profile:write scope.",
+          "Creates an unclaimed community-sourced profile, submitted by a bearer credential with user authority and profile:write scope.",
         security: profileWriteSecurity,
+        requestParams: {
+          header: ApiIdempotencyHeaderSchema,
+        },
         requestBody: {
           required: true,
           content: jsonContent(ApiProfileSubmitRequestSchema),
@@ -700,6 +704,10 @@ export const openApiSource = {
           },
           "403": {
             description: "The bearer credential lacks profile:write scope or user authority.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "409": {
+            description: "The Idempotency-Key was already used for a different submission.",
             content: jsonContent(ApiProblemSchema),
           },
           "429": publicReadProblemResponses["429"],

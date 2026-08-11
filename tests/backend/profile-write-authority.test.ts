@@ -172,6 +172,63 @@ describe("profile write authority", () => {
     assert.equal(result.publiclyViewable, false);
   });
 
+  it("replays an API submission carrying the same idempotency key", async () => {
+    const t = convexTest(schema, modules);
+    const ownerUserId = await seedUser(t, "api-replay");
+    const args = {
+      actorKind: "personal_api_token" as const,
+      ownerUserId,
+      idempotencyKeyHash: KEY_HASH,
+      requestFingerprint: FINGERPRINT,
+      profileType: "person" as const,
+      displayName: "DJ Api Replay",
+    };
+
+    const first = await t.mutation(internal.profiles.submitCommunityProfileForApiUser, args);
+    const second = await t.mutation(internal.profiles.submitCommunityProfileForApiUser, args);
+
+    assert.equal(first.profileId, second.profileId);
+
+    const profiles = await t.run(async (ctx) =>
+      ctx.db
+        .query("profiles")
+        .filter((query) => query.eq(query.field("displayName"), "DJ Api Replay"))
+        .collect()
+    );
+
+    // One profile, not two under suffixed slugs. This is the whole point: a
+    // create has no natural replay guard, so a retry after a lost response
+    // would otherwise publish a second profile for the same person.
+    assert.equal(profiles.length, 1);
+  });
+
+  it("refuses an idempotency key reused for a different submission", async () => {
+    const t = convexTest(schema, modules);
+    const ownerUserId = await seedUser(t, "api-reuse");
+    const base = {
+      actorKind: "personal_api_token" as const,
+      ownerUserId,
+      idempotencyKeyHash: KEY_HASH,
+      profileType: "person" as const,
+    };
+
+    await t.mutation(internal.profiles.submitCommunityProfileForApiUser, {
+      ...base,
+      requestFingerprint: FINGERPRINT,
+      displayName: "DJ First",
+    });
+
+    await assert.rejects(
+      () =>
+        t.mutation(internal.profiles.submitCommunityProfileForApiUser, {
+          ...base,
+          requestFingerprint: "e".repeat(64),
+          displayName: "DJ Second",
+        }),
+      (error: unknown) => errorCode(error) === "IDEMPOTENCY_KEY_REUSED",
+    );
+  });
+
   it("relays a fixable refusal instead of flattening it into a denial", async () => {
     const t = convexTest(schema, modules);
     const ownerUserId = await seedUser(t, "fixable");

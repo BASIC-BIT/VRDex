@@ -686,7 +686,7 @@ paths:
       tags:
         - Profiles
       summary: Update a profile
-      description: Updates editable metadata, including outbound links, for a profile owned by a bearer credential with user authority and profile:write scope, or for an unclaimed profile as a community correction. Sending outboundLinks replaces the whole list.
+      description: Updates editable metadata for a profile owned by a bearer credential with user authority and profile:write scope, or for an unclaimed profile as a community correction.
       security: &a6
         - bearerAuth: []
         - oauth2:
@@ -745,8 +745,16 @@ paths:
       tags:
         - Profiles
       summary: Submit a community-sourced profile
-      description: Creates a profile for a person or community that has none. It publishes immediately as unclaimed and credited to the submitter, and whoever it describes can claim it later. Requires a bearer credential with user authority and profile:write scope.
+      description: Creates an unclaimed community-sourced profile, submitted by a bearer credential with user authority and profile:write scope.
       security: *a6
+      parameters:
+        - in: header
+          name: idempotency-key
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+            pattern: ^[A-Za-z0-9._:-]+$
       requestBody:
         required: true
         content:
@@ -774,6 +782,12 @@ paths:
                 $ref: "#/components/schemas/ApiProblem"
         "403":
           description: The bearer credential lacks profile:write scope or user authority.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "409":
+          description: The Idempotency-Key was already used for a different submission.
           content:
             application/json:
               schema:
@@ -3025,7 +3039,7 @@ components:
       required:
         - profileType
         - displayName
-      description: Create a community-sourced profile. It publishes immediately as unclaimed and credited to the submitter, and whoever it describes can claim it later.
+      description: Create an unclaimed community-sourced profile credited to the current authenticated API user.
     ApiProfileAssetUploadIntentCreateRequest:
       type: object
       properties:

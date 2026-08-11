@@ -1,4 +1,10 @@
-import { ApiProfileSubmitRequestSchema, ApiProfileWriteResponseSchema } from "@vrdex/api-contracts";
+import { createHash } from "node:crypto";
+
+import {
+  ApiIdempotencyKeySchema,
+  ApiProfileSubmitRequestSchema,
+  ApiProfileWriteResponseSchema,
+} from "@vrdex/api-contracts";
 import { internal } from "@convex-generated-api";
 import type { Id } from "../../../../../../../convex/_generated/dataModel";
 import { apiJson, apiProblemResponse, rejectBearerTokenQuery } from "@/lib/server/api-v0";
@@ -7,8 +13,35 @@ import { convexAdminHttpClient } from "@/lib/server/convex-http";
 
 export const dynamic = "force-dynamic";
 
-function problem(status: 400 | 500, title: string, detail: string) {
+function problem(status: 400 | 409 | 500, title: string, detail: string) {
   return apiProblemResponse({ type: "about:blank", title, status, detail });
+}
+
+function sha256(value: string) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+/**
+ * Canonical JSON, so a retry that serializes its keys in a different order is
+ * still recognized as the same request rather than a conflicting one.
+ */
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalJson).join(",")}]`;
+  }
+
+  if (value !== null && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+
+    return `{${
+      Object.keys(record)
+        .sort()
+        .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
+        .join(",")
+    }}`;
+  }
+
+  return JSON.stringify(value) ?? "null";
 }
 
 function profileSubmitErrorResponse(error: unknown) {
@@ -27,6 +60,14 @@ function profileSubmitErrorResponse(error: unknown) {
 
   if (data?.code === "IDENTITY_SUPPRESSED") {
     return problem(400, "Invalid profile submission", data.message ?? "This profile cannot be created.");
+  }
+
+  if (data?.code === "IDEMPOTENCY_KEY_REUSED") {
+    return problem(
+      409,
+      "Idempotency-Key already used",
+      data.message ?? "This Idempotency-Key was already used for a different profile submission.",
+    );
   }
 
   return problem(
@@ -64,12 +105,36 @@ export async function POST(request: Request) {
     );
   }
 
+  // Optional, because a caller that never loses a response does not need one.
+  // A create has no natural replay guard, so anything that retries on timeout
+  // should send it: without one, the retry publishes a second profile.
+  const rawIdempotencyKey = request.headers.get("idempotency-key");
+  const idempotencyKey = rawIdempotencyKey === null
+    ? undefined
+    : ApiIdempotencyKeySchema.safeParse(rawIdempotencyKey);
+
+  if (idempotencyKey !== undefined && !idempotencyKey.success) {
+    return problem(
+      400,
+      "Invalid Idempotency-Key",
+      "Use 1 to 128 letters, numbers, dots, underscores, colons, or hyphens.",
+    );
+  }
+
+  const idempotency = idempotencyKey === undefined || !idempotencyKey.success
+    ? {}
+    : {
+      idempotencyKeyHash: sha256(idempotencyKey.data),
+      requestFingerprint: sha256(canonicalJson(body.data)),
+    };
+
   try {
     const result = await convexAdminHttpClient().mutation(
       internal.profiles.submitCommunityProfileForApiUser,
       {
         actorKind: evaluation.source,
         ownerUserId: evaluation.ownerUserId as Id<"users">,
+        ...idempotency,
         ...body.data,
       },
     );

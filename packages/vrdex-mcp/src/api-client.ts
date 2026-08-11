@@ -121,6 +121,7 @@ export function createVrdexApiClient(options: ApiClientOptions) {
     requestOptions: {
       authenticate?: boolean;
       body?: unknown;
+      idempotencyKey?: string;
       method?: "GET" | "PATCH" | "POST";
       searchParams?: Record<string, number | string | undefined>;
     } = {},
@@ -137,6 +138,10 @@ export function createVrdexApiClient(options: ApiClientOptions) {
 
     if (requestOptions.body !== undefined) {
       headers.set("content-type", "application/json");
+    }
+
+    if (requestOptions.idempotencyKey !== undefined) {
+      headers.set("idempotency-key", requestOptions.idempotencyKey);
     }
 
     const response = await fetcher(url, {
@@ -211,9 +216,10 @@ export function createVrdexApiClient(options: ApiClientOptions) {
         type: input.type,
       });
     },
-    submitProfile(input: VrdexProfileSubmitInput) {
+    submitProfile(input: VrdexProfileSubmitInput, idempotencyKey: string) {
       return request(ApiProfileWriteResponseSchema, "profiles", {
         body: ApiProfileSubmitRequestSchema.parse(input),
+        idempotencyKey,
         method: "POST",
       });
     },

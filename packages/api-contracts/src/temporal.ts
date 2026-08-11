@@ -121,15 +121,25 @@ export const TemporalParseCompletedResponseSchema = z.union([
   TemporalNoPlanResponseSchema,
 ]);
 
-export const TemporalIdempotencyHeaderSchema = z.object({
-  "idempotency-key": z
-    .string()
-    .trim()
-    .min(1)
-    .max(128)
-    .regex(/^[A-Za-z0-9._:-]+$/, "Idempotency-Key contains unsupported characters.")
-    .optional(),
+/**
+ * The `Idempotency-Key` value VRDex write routes accept.
+ *
+ * Defined once because a second route inventing its own bounds is how two
+ * endpoints end up disagreeing about what a valid key looks like.
+ */
+export const ApiIdempotencyKeySchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(128)
+  .regex(/^[A-Za-z0-9._:-]+$/, "Idempotency-Key contains unsupported characters.");
+
+export const ApiIdempotencyHeaderSchema = z.object({
+  "idempotency-key": ApiIdempotencyKeySchema.optional(),
 });
+
+/** Kept so the temporal route and its OpenAPI entry read as they always did. */
+export const TemporalIdempotencyHeaderSchema = ApiIdempotencyHeaderSchema;
 
 export const TemporalContinuationPathParamsSchema = z.object({
   continuationToken: z.string().regex(/^[A-Za-z0-9_-]{43}$/),

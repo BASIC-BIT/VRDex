@@ -613,7 +613,7 @@ export const ApiProfileSubmitRequestSchema = z
   })
   .meta({
     description:
-      "Create a community-sourced profile. It publishes immediately as unclaimed and credited to the submitter, and whoever it describes can claim it later.",
+      "Create an unclaimed community-sourced profile credited to the current authenticated API user.",
     id: "ApiProfileSubmitRequest",
   });
 

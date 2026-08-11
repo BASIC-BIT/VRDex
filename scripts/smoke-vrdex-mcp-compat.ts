@@ -604,11 +604,18 @@ async function smokeHostedOAuthMetadata(url: URL, results: SmokeResult[]): Promi
 }
 
 function requestedHostedOAuthScopes(metadata: HostedOAuthMetadata) {
+  // Every resource scope the deployment advertises, not a hardcoded pair. A
+  // registration that asked only for `events:write` would pass while
+  // `profile:write` was rejected, leaving the profile tools unreachable for
+  // discovered clients and the smoke none the wiser.
+  const resourceWrites = [...new Set(Object.values(writeToolResourceScopes))]
+    .filter((scope) => metadata.scopes.includes(scope));
+
   return [
     "mcp:read",
     "public:read",
-    ...(metadata.scopes.includes("mcp:write") && metadata.scopes.includes("events:write")
-      ? ["mcp:write", "events:write"]
+    ...(metadata.scopes.includes("mcp:write") && resourceWrites.length > 0
+      ? ["mcp:write", ...resourceWrites]
       : []),
   ];
 }
@@ -924,7 +931,7 @@ async function smokeHostedHttp(results: SmokeResult[], options: SmokeOptions) {
   }
 
   const listedToolNames = new Set((listedTools ?? []).map((tool) => String(tool.name)));
-  const eventWritesListed = writeToolNames.every((toolName) => listedToolNames.has(toolName));
+  const writeToolsListed = writeToolNames.every((toolName) => listedToolNames.has(toolName));
 
   const anonymousSearch = await postMcpJsonRpc(url, {
     jsonrpc: "2.0",
@@ -984,9 +991,22 @@ async function smokeHostedHttp(results: SmokeResult[], options: SmokeOptions) {
 
   const metadata = await smokeHostedOAuthMetadata(url, results);
 
-  if (eventWritesListed) {
+  if (writeToolsListed) {
     assert.equal(metadata.scopes.includes("mcp:write"), true);
-    assert.equal(metadata.scopes.includes("events:write"), true);
+
+    // Every resource scope a listed write tool needs. Asserting only the event
+    // pair let a deployment advertise the profile tools while omitting
+    // `profile:write` from its protected-resource metadata, which is exactly
+    // the shape that leaves a discovered client unable to call them.
+    for (const toolName of writeToolNames) {
+      const resourceScope = writeToolResourceScopes[toolName];
+
+      assert.equal(
+        metadata.scopes.includes(resourceScope),
+        true,
+        `Hosted protected-resource metadata omits ${resourceScope}, required by ${toolName}.`,
+      );
+    }
   }
 
   await runHostedDiagnosticStep(results, options, "Hosted Dynamic Client Registration", () =>

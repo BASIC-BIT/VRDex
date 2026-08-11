@@ -3,6 +3,7 @@ import {
   ApiEventCreateRequestSchema,
   ApiEventUpdateRequestSchema,
   ApiEventWriteResponseSchema,
+  ApiIdempotencyKeySchema,
   ApiProfileSubmitRequestSchema,
   ApiProfileUpdateRequestSchema,
   ApiProfileWriteResponseSchema,
@@ -42,6 +43,12 @@ const mcpEventWriteResultSchema = ApiEventWriteResponseSchema.extend({
   id: "McpEventWriteResult",
 });
 
+const mcpIdempotencyKeySchema = ApiIdempotencyKeySchema.describe(
+  "Caller-chosen key that makes a retry replay the first submission instead of publishing a second profile.",
+);
+const mcpProfileSubmitInputSchema = ApiProfileSubmitRequestSchema.extend({
+  idempotencyKey: mcpIdempotencyKeySchema,
+});
 const mcpProfileUpdateInputSchema = z.object({
   slug: mcpSlugSchema.describe("Current public profile slug."),
   update: ApiProfileUpdateRequestSchema,
@@ -457,7 +464,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
           return write.status >= 500 ? mcpProfileWriteIndeterminate("update") : mcpApiError(write);
         }
 
-        return await profileWriteReadback(write.data);
+        return await profileWriteReadback(write.data, true);
       },
     );
 
@@ -467,7 +474,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
         title: "Submit VRDex Community Profile",
         description:
           "Create and publish a community-sourced profile through the authenticated VRDex API, left unclaimed and credited to the user. Search first: a duplicate submission creates a second profile. This changes public VRDex data and requires explicit operator approval.",
-        inputSchema: ApiProfileSubmitRequestSchema,
+        inputSchema: mcpProfileSubmitInputSchema,
         outputSchema: mcpOutputSchema(mcpProfileWriteResultSchema),
         annotations: {
           readOnlyHint: false,
@@ -476,11 +483,11 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
           openWorldHint: true,
         },
       },
-      async (input) => {
+      async ({ idempotencyKey, ...input }) => {
         let write: Awaited<ReturnType<typeof apiClient.submitProfile>>;
 
         try {
-          write = await apiClient.submitProfile(input);
+          write = await apiClient.submitProfile(input, idempotencyKey);
         } catch {
           return mcpProfileWriteIndeterminate("submission");
         }
@@ -491,11 +498,22 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
             : mcpApiError(write);
         }
 
-        return await profileWriteReadback(write.data);
+        return await profileWriteReadback(write.data, false);
       },
     );
 
-    async function profileWriteReadback(write: z.infer<typeof ApiProfileWriteResponseSchema>) {
+    /**
+     * @param mayBeHidden whether a 404 is a legitimate outcome for this write.
+     *
+     * True only for updates: an owner may edit a draft or opted-out profile, and
+     * that profile has no public page to read back. A submission always
+     * publishes, so a 404 there means the write did not surface and has to stay
+     * a warning rather than be reported as a clean success.
+     */
+    async function profileWriteReadback(
+      write: z.infer<typeof ApiProfileWriteResponseSchema>,
+      mayBeHidden: boolean,
+    ) {
       let readback: Awaited<ReturnType<typeof apiClient.getProfile>>;
 
       try {
@@ -504,12 +522,8 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
         return mcpProfileReadbackError(write);
       }
 
-      // A profile with no public surface reads back as 404, and that is the
-      // right outcome rather than a failure: an owner may edit a draft or
-      // opted-out profile, and the write did land. Only a readback that failed
-      // some other way is worth warning about.
       if (!readback.ok) {
-        return readback.status === 404
+        return readback.status === 404 && mayBeHidden
           ? mcpJsonResult(
             mcpProfileWriteResultSchema,
             {
