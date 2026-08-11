@@ -4,7 +4,7 @@ import {
   SLUG_MAX_LENGTH,
   SLUG_MIN_LENGTH,
   SLUG_PATTERN,
-  findSlugOwner,
+  checkSlugAvailability,
   getProfileBySlug,
   isLiveRouteSlug,
   isReservedSlug,
@@ -405,25 +405,7 @@ export async function checkProfileSlugAvailability(
   slug: string,
   excludingProfileId?: Id<"profiles">,
 ): Promise<ProfileSlugAvailabilityResult> {
-  const validation = validateProfileSlug(slug);
-
-  if (!validation.ok) {
-    return { available: false, slug, reason: "invalid" };
-  }
-
-  if (isReservedSlug(validation.slug)) {
-    return { available: false, slug: validation.slug, reason: "reserved" };
-  }
-
-  // Cross-table: profiles, worlds, and events all render from the site root, so a
-  // name a world already holds is taken for a profile too.
-  const owner = await findSlugOwner(db, validation.slug, excludingProfileId);
-
-  if (owner !== null) {
-    return { available: false, slug: validation.slug, reason: "taken" };
-  }
-
-  return { available: true, slug: validation.slug };
+  return await checkSlugAvailability(db, slug, excludingProfileId);
 }
 
 export async function findAvailableProfileSlug(

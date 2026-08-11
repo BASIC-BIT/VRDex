@@ -38,22 +38,6 @@ export const LIVE_ROUTE_SLUGS = [
 ] as const;
 
 /**
- * Names that are unassignable but do not shadow `/<name>`.
- *
- * Two kinds live here. Directory prefixes -- `developers`, `events`, `handoff` --
- * have routes beneath them but no page of their own, so Next falls through to
- * `[slug]` and `/events` would happily serve a profile named `events`. They stay
- * unassignable anyway, because that profile's `/events/edit` would land in
- * `app/events/[slug]/edit` instead of its own editor.
- *
- * The rest are names for pages we may add.
- *
- * Unassignable, but nothing shadows them today, so a link to one is still a link
- * to whatever holds it. That distinction is the point of the split: `basicbit` is
- * a real profile, and treating it as a route made the support intake reject its
- * own canonical URL.
- */
-/**
  * Directories whose own routes match an entity's subpaths.
  *
  * Narrow on purpose, and checked against a running server rather than inferred
@@ -87,6 +71,20 @@ const ROUTE_PREFIX_SUBPATHS = new Map<string, readonly EntitySubpath[]>([
 
 export const ROUTE_PREFIX_SLUGS = [...ROUTE_PREFIX_SUBPATHS.keys()];
 
+/**
+ * Unassignable, but nothing shadows `/<name>`, so a link to one still names
+ * whoever holds it.
+ *
+ * Two kinds. Directory prefixes such as `developers` and `api` have routes beneath
+ * them but no page of their own, and nothing at the depth an entity subpath would
+ * use -- `/developers/edit` falls through to `/[slug]/edit` -- so they shadow
+ * nothing and are held only because a name that reads as a section is a bad slug.
+ * The rest are names for pages we may add.
+ *
+ * Keeping these out of LIVE_ROUTE_SLUGS matters: read paths trust that catalog to
+ * mean "a real page answers here", and listing a name that resolves through
+ * `[slug]` made the support intake throw away identifiers for profiles that exist.
+ */
 export const HELD_ROUTE_SLUGS = [
   "api",
   "developers",
@@ -386,4 +384,56 @@ export async function findSlugOwner(
   }
 
   return null;
+}
+
+/** The row id behind whichever entity holds a slug. */
+export function slugOwnerId(owner: SlugOwner): SlugOwnerId {
+  if (owner.kind === "world") {
+    return owner.world._id;
+  }
+
+  return owner.kind === "event" ? owner.event._id : owner.profile._id;
+}
+
+export type SlugAvailability =
+  | { available: true; slug: string }
+  | { available: false; slug: string; reason: "invalid" | "reserved" | "taken" };
+
+/**
+ * Whether a slug can be assigned, shared by all three entity types.
+ *
+ * The ownership check runs *before* the reserved gate, because keeping a name is
+ * not taking one. A premium slug an operator granted is still reserved, and
+ * rejecting it here locked its owner out of editing the very row that holds it:
+ * `ops:profile-rename` passes the current slug back in, so an idempotent rename of
+ * a profile called `basic` failed. Creates and real changes are still refused.
+ */
+export async function checkSlugAvailability(
+  db: DatabaseReader,
+  slug: string,
+  excluding?: SlugOwnerId,
+): Promise<SlugAvailability> {
+  const validation = validateSlugFormat(slug);
+
+  if (!validation.ok) {
+    return { available: false, slug, reason: "invalid" };
+  }
+
+  // Looked up without the exclusion, so the holder can be compared against it
+  // rather than hidden by it.
+  const owner = await findSlugOwner(db, validation.slug);
+
+  if (owner !== null && excluding !== undefined && slugOwnerId(owner) === excluding) {
+    return { available: true, slug: validation.slug };
+  }
+
+  if (isReservedSlug(validation.slug)) {
+    return { available: false, slug: validation.slug, reason: "reserved" };
+  }
+
+  // Cross-table: profiles, worlds, and events all render from the site root, so a
+  // name a world already holds is taken for a profile too.
+  return owner === null
+    ? { available: true, slug: validation.slug }
+    : { available: false, slug: validation.slug, reason: "taken" };
 }

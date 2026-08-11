@@ -4,7 +4,7 @@ import {
   SLUG_MAX_LENGTH,
   SLUG_MIN_LENGTH,
   SLUG_PATTERN,
-  findSlugOwner,
+  checkSlugAvailability,
   getEventBySlug,
   isReservedSlug,
   normalizeSlugInput,
@@ -89,23 +89,7 @@ export async function checkEventSlugAvailability(
   slug: string,
   excludingEventId?: Id<"events">,
 ): Promise<EventSlugAvailabilityResult> {
-  const validation = validateEventSlug(slug);
-
-  if (!validation.ok) {
-    return { available: false, slug, reason: "invalid" };
-  }
-
-  if (isReservedSlug(validation.slug)) {
-    return { available: false, slug: validation.slug, reason: "reserved" };
-  }
-
-  const owner = await findSlugOwner(db, validation.slug, excludingEventId);
-
-  if (owner !== null) {
-    return { available: false, slug: validation.slug, reason: "taken" };
-  }
-
-  return { available: true, slug: validation.slug };
+  return await checkSlugAvailability(db, slug, excludingEventId);
 }
 
 export async function findAvailableEventSlug(
@@ -138,11 +122,6 @@ export async function findAvailableEventSlug(
       throw new Error(`Event slug "${preferred.slug}" is reserved.`);
     }
 
-    // Returned here rather than fed to the loop below: `checkEventSlugAvailability`
-    // is the assignment gate and refuses reserved names whoever is asking, which is
-    // right for a create and wrong for an event that already holds one. Keeping a
-    // slug allocates nothing.
-    return preferred.slug;
   }
 
   const base = preferred?.ok ? preferred.slug : createEventSlugBase(input.title, input.startAt);

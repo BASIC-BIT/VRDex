@@ -215,6 +215,44 @@ describe("global slug namespace", () => {
     );
   });
 
+  it("lets any entity keep a reserved slug it already holds", async () => {
+    // `ops:profile-rename` passes the current slug back as `--new-slug`, so an
+    // idempotent rename of the profile called `basic` failed on the reserved gate
+    // before the ownership check could see it was the same row. Events learned this
+    // in an earlier round and profiles did not, which is what sharing one
+    // implementation between the three now prevents.
+    const db = createSlugTestDb({
+      profiles: [{ _id: "profile1", slug: "basic", profileType: "person" }],
+      worlds: [{ _id: "world1", slug: "club" }],
+      events: [{ _id: "event1", slug: "stage" }],
+    });
+
+    assert.deepEqual(await checkProfileSlugAvailability(db, "basic", "profile1" as never), {
+      available: true,
+      slug: "basic",
+    });
+    assert.deepEqual(await checkWorldSlugAvailability(db, "club", "world1" as never), {
+      available: true,
+      slug: "club",
+    });
+    assert.deepEqual(await checkEventSlugAvailability(db, "stage", "event1" as never), {
+      available: true,
+      slug: "stage",
+    });
+
+    // Nobody else may take them, and holding one row does not unlock another's.
+    assert.deepEqual(await checkProfileSlugAvailability(db, "basic"), {
+      available: false,
+      slug: "basic",
+      reason: "reserved",
+    });
+    assert.deepEqual(await checkProfileSlugAvailability(db, "club", "profile1" as never), {
+      available: false,
+      slug: "club",
+      reason: "reserved",
+    });
+  });
+
   it("answers the prefix lookup safely for slugs that name Object members", () => {
     // Slugs come from users, and `constructor` passes validation and is reserved by
     // nothing. Keyed on a plain object this lookup returned `Object` rather than

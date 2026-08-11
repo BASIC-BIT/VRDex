@@ -4,7 +4,7 @@ import {
   SLUG_MAX_LENGTH,
   SLUG_MIN_LENGTH,
   SLUG_PATTERN,
-  findSlugOwner,
+  checkSlugAvailability,
   getWorldBySlug,
   isReservedSlug,
   normalizeSlugInput,
@@ -77,23 +77,7 @@ export async function checkWorldSlugAvailability(
   slug: string,
   excludingWorldId?: Id<"worlds">,
 ): Promise<WorldSlugAvailabilityResult> {
-  const validation = validateWorldSlug(slug);
-
-  if (!validation.ok) {
-    return { available: false, slug, reason: "invalid" };
-  }
-
-  if (isReservedSlug(validation.slug)) {
-    return { available: false, slug: validation.slug, reason: "reserved" };
-  }
-
-  const owner = await findSlugOwner(db, validation.slug, excludingWorldId);
-
-  if (owner !== null) {
-    return { available: false, slug: validation.slug, reason: "taken" };
-  }
-
-  return { available: true, slug: validation.slug };
+  return await checkSlugAvailability(db, slug, excludingWorldId);
 }
 
 export async function findAvailableWorldSlug(
