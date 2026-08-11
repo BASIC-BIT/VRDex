@@ -111,6 +111,35 @@ describe("profile write authority", () => {
     );
   });
 
+  it("answers not-found before naming the missing scope on a hidden profile", async () => {
+    const t = convexTest(schema, modules);
+    const ownerUserId = await seedUser(t, "hidden-leak");
+    const profileId = await seedProfile(t, "hidden-leak", "unclaimed");
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(profileId as Id<"profiles">, { publicSurfacingState: "opted_out" });
+    });
+
+    // A credential without the contribution grant that guesses a hidden slug
+    // must not learn the profile exists from getting a scope error where an
+    // unknown slug gets not-found.
+    await assert.rejects(
+      () =>
+        t.mutation(internal.profiles.updateProfileForApiOwner, {
+          actorKind: "personal_api_token",
+          ownerUserId,
+          currentSlug: "dj-hidden-leak",
+          contributeGranted: false,
+          headline: "probe",
+        }),
+      (error: unknown) => {
+        assert.notEqual(errorCode(error), "PROFILE_CONTRIBUTE_SCOPE_REQUIRED");
+        assert.match(String((error as Error).message ?? ""), /not found/i);
+        return true;
+      },
+    );
+  });
+
   it("refuses an API credential on a profile somebody else claimed", async () => {
     const t = convexTest(schema, modules);
     const ownerUserId = await seedUser(t, "claimed");

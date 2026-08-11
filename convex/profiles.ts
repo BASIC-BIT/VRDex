@@ -186,20 +186,17 @@ async function resolveProfileEditSubject(
   contributeGranted?: boolean,
 ) {
   const owns = await userOwnsProfile(db, profile._id, userId);
-
-  if (!owns && contributeGranted === false) {
-    throw new ConvexError({
-      code: "PROFILE_CONTRIBUTE_SCOPE_REQUIRED",
-      message: "Editing a profile you do not own requires the profile:contribute scope.",
-    });
-  }
-
   const editSubject = owns ? ("claimed_owner" as const) : ("community_submitter" as const);
 
   // Readability first, and only then the claimed-profile message. The other
   // order tells anyone who guesses the slug of a draft or opted-out claimed
   // profile that it exists and is claimed -- a distinction the generic
   // not-found is there to withhold from someone who cannot read it at all.
+  //
+  // The scope refusal below is under the same rule and for the same reason: a
+  // credential without the contribution grant that guessed a hidden slug would
+  // otherwise get a distinct 403 where an unknown slug gets 404, and learn the
+  // profile exists from the difference.
   if (!canReadProfile(editSubject, profile)) {
     throw new Error("Profile was not found.");
   }
@@ -210,6 +207,17 @@ async function resolveProfileEditSubject(
     throw new ConvexError({
       code: "PROFILE_CLAIMED",
       message: "This profile has been claimed, so only its owner can edit it.",
+    });
+  }
+
+  // Last of the three, and after the claimed check on purpose. Claim state is
+  // already public, so leading with it is both safe and accurate: telling a
+  // caller to go get `profile:contribute` for a profile they still could not
+  // write would send them after a grant that would not help.
+  if (!owns && contributeGranted === false) {
+    throw new ConvexError({
+      code: "PROFILE_CONTRIBUTE_SCOPE_REQUIRED",
+      message: "Editing a profile you do not own requires the profile:contribute scope.",
     });
   }
 

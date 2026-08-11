@@ -126,6 +126,10 @@ const profileWriteSecurity: Array<Record<string, string[]>> = [
   { bearerAuth: [] },
   { oauth2: ["profile:write"] },
 ];
+const profileContributeSecurity: Array<Record<string, string[]>> = [
+  { bearerAuth: [] },
+  { oauth2: ["profile:contribute"] },
+];
 const communityReadSecurity: Array<Record<string, string[]>> = [
   { bearerAuth: [] },
   { oauth2: ["community:read"] },
@@ -638,7 +642,7 @@ export const openApiSource = {
         tags: ["Profiles"],
         summary: "Update a profile",
         description:
-          "Updates editable metadata for a profile owned by a bearer credential with user authority and profile:write scope, or for an unclaimed profile as a community correction.",
+          "Updates editable metadata for a profile owned by a bearer credential with user authority and profile:write scope. Correcting an unclaimed profile the credential does not own additionally requires profile:contribute.",
         security: profileWriteSecurity,
         requestParams: {
           path: SlugPathParamsSchema,
@@ -662,7 +666,7 @@ export const openApiSource = {
           },
           "403": {
             description:
-              "The bearer credential lacks profile:write scope or user authority, the profile is claimed by someone else, or the submitted fields are not editable by this writer.",
+              "The bearer credential lacks profile:write scope or user authority, lacks profile:contribute for a profile it does not own, the profile is claimed by someone else, or the submitted fields are not editable by this writer.",
             content: jsonContent(ApiProblemSchema),
           },
           "404": {
@@ -679,8 +683,8 @@ export const openApiSource = {
         tags: ["Profiles"],
         summary: "Submit a community-sourced profile",
         description:
-          "Creates an unclaimed community-sourced profile, submitted by a bearer credential with user authority and profile:write scope.",
-        security: profileWriteSecurity,
+          "Creates an unclaimed community-sourced profile, submitted by a bearer credential with user authority and profile:contribute scope.",
+        security: profileContributeSecurity,
         requestParams: {
           header: ApiIdempotencyHeaderSchema,
         },
@@ -703,7 +707,7 @@ export const openApiSource = {
             content: jsonContent(ApiProblemSchema),
           },
           "403": {
-            description: "The bearer credential lacks profile:write scope or user authority.",
+            description: "The bearer credential lacks profile:contribute scope or user authority.",
             content: jsonContent(ApiProblemSchema),
           },
           "409": {

@@ -686,8 +686,8 @@ paths:
       tags:
         - Profiles
       summary: Update a profile
-      description: Updates editable metadata for a profile owned by a bearer credential with user authority and profile:write scope, or for an unclaimed profile as a community correction.
-      security: &a6
+      description: Updates editable metadata for a profile owned by a bearer credential with user authority and profile:write scope. Correcting an unclaimed profile the credential does not own additionally requires profile:contribute.
+      security:
         - bearerAuth: []
         - oauth2:
             - profile:write
@@ -727,7 +727,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiProblem"
         "403":
-          description: The bearer credential lacks profile:write scope or user authority, the profile is claimed by someone else, or the submitted fields are not editable by this writer.
+          description: The bearer credential lacks profile:write scope or user authority, lacks profile:contribute for a profile it does not own, the profile is claimed by someone else, or the submitted fields are not editable by this writer.
           content:
             application/json:
               schema:
@@ -745,8 +745,11 @@ paths:
       tags:
         - Profiles
       summary: Submit a community-sourced profile
-      description: Creates an unclaimed community-sourced profile, submitted by a bearer credential with user authority and profile:write scope.
-      security: *a6
+      description: Creates an unclaimed community-sourced profile, submitted by a bearer credential with user authority and profile:contribute scope.
+      security:
+        - bearerAuth: []
+        - oauth2:
+            - profile:contribute
       parameters:
         - in: header
           name: idempotency-key
@@ -781,7 +784,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiProblem"
         "403":
-          description: The bearer credential lacks profile:write scope or user authority.
+          description: The bearer credential lacks profile:contribute scope or user authority.
           content:
             application/json:
               schema:
@@ -855,15 +858,15 @@ paths:
           description: The stored public profile asset file.
           content:
             image/png:
-              schema: &a7
+              schema: &a6
                 type: string
                 format: binary
             image/jpeg:
-              schema: *a7
+              schema: *a6
             image/webp:
-              schema: *a7
+              schema: *a6
             image/svg+xml:
-              schema: *a7
+              schema: *a6
         "400": *a2
         "404":
           description: The profile asset or stored object was not found.
@@ -986,7 +989,7 @@ paths:
           description: A ZIP archive containing public profile logos.
           content:
             application/zip:
-              schema: *a7
+              schema: *a6
         "400": *a2
         "404":
           description: The profile, logos, or stored logo objects were not found.
@@ -1034,7 +1037,7 @@ paths:
               required:
                 - file
               properties:
-                file: *a7
+                file: *a6
       responses:
         "200":
           description: Completed profile media upload result.
@@ -1128,7 +1131,7 @@ paths:
         - Assets
       summary: Probe profile asset upload storage
       description: Returns deployment health for the profile asset upload storage backend.
-      security: &a10
+      security: &a9
         - bearerAuth: []
         - oauth2:
             - public:read
@@ -1318,7 +1321,7 @@ paths:
         - Events
       summary: Update a current user's community event
       description: Updates a public event attached to a community profile owned by a bearer credential with user authority and events:write scope. Optional fields and relations omitted from the PATCH body are preserved.
-      security: &a8
+      security: &a7
         - bearerAuth: []
         - oauth2:
             - events:write
@@ -1377,7 +1380,7 @@ paths:
         - Events
       summary: Create a current user's community event
       description: Creates a public event attached to a community profile owned by a bearer credential with user authority and events:write scope.
-      security: *a8
+      security: *a7
       requestBody:
         required: true
         content:
@@ -1545,7 +1548,7 @@ paths:
         - Time
       summary: Parse a natural-language time expression
       description: Returns a canonical instant, range, clarification, or a 202 continuation while the scale-to-zero model warms. Closed beta requires a verified user-owned personal token with time:parse.
-      security: &a9
+      security: &a8
         - bearerAuth: []
       parameters:
         - in: header
@@ -2128,7 +2131,7 @@ paths:
       tags:
         - Time
       summary: Get an accepted temporal parse
-      security: *a9
+      security: *a8
       parameters:
         - in: path
           name: continuationToken
@@ -2671,7 +2674,7 @@ paths:
         - Usage
       summary: Get API and MCP rate-limit policy information
       description: Returns the default route-class policy table and the current request's effective API rate-limit window.
-      security: *a10
+      security: *a9
       responses:
         "200":
           description: Rate-limit policy and current caller window.

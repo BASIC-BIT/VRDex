@@ -55,7 +55,7 @@ const writeToolResourceScopes: Record<string, string> = {
   vrdex_event_create: "events:write",
   vrdex_event_update: "events:write",
   vrdex_profile_update: "profile:write",
-  vrdex_profile_submit: "profile:write",
+  vrdex_profile_submit: "profile:contribute",
 };
 const writeToolNames = Object.keys(writeToolResourceScopes);
 const localExpectedTools = [...localReadTools, ...writeToolNames];

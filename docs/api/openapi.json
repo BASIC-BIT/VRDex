@@ -1467,7 +1467,7 @@
           "Profiles"
         ],
         "summary": "Update a profile",
-        "description": "Updates editable metadata for a profile owned by a bearer credential with user authority and profile:write scope, or for an unclaimed profile as a community correction.",
+        "description": "Updates editable metadata for a profile owned by a bearer credential with user authority and profile:write scope. Correcting an unclaimed profile the credential does not own additionally requires profile:contribute.",
         "security": [
           {
             "bearerAuth": []
@@ -1534,7 +1534,7 @@
             }
           },
           "403": {
-            "description": "The bearer credential lacks profile:write scope or user authority, the profile is claimed by someone else, or the submitted fields are not editable by this writer.",
+            "description": "The bearer credential lacks profile:write scope or user authority, lacks profile:contribute for a profile it does not own, the profile is claimed by someone else, or the submitted fields are not editable by this writer.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1582,14 +1582,14 @@
           "Profiles"
         ],
         "summary": "Submit a community-sourced profile",
-        "description": "Creates an unclaimed community-sourced profile, submitted by a bearer credential with user authority and profile:write scope.",
+        "description": "Creates an unclaimed community-sourced profile, submitted by a bearer credential with user authority and profile:contribute scope.",
         "security": [
           {
             "bearerAuth": []
           },
           {
             "oauth2": [
-              "profile:write"
+              "profile:contribute"
             ]
           }
         ],
@@ -1647,7 +1647,7 @@
             }
           },
           "403": {
-            "description": "The bearer credential lacks profile:write scope or user authority.",
+            "description": "The bearer credential lacks profile:contribute scope or user authority.",
             "content": {
               "application/json": {
                 "schema": {
