@@ -464,7 +464,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
           return write.status >= 500 ? mcpProfileWriteIndeterminate("update") : mcpApiError(write);
         }
 
-        return await profileWriteReadback(write.data, true);
+        return await profileWriteReadback(write.data);
       },
     );
 
@@ -498,22 +498,29 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
             : mcpApiError(write);
         }
 
-        return await profileWriteReadback(write.data, false);
+        return await profileWriteReadback(write.data);
       },
     );
 
     /**
-     * @param mayBeHidden whether a 404 is a legitimate outcome for this write.
-     *
-     * True only for updates: an owner may edit a draft or opted-out profile, and
-     * that profile has no public page to read back. A submission always
-     * publishes, so a 404 there means the write did not surface and has to stay
-     * a warning rather than be reported as a clean success.
+     * A 404 is only an acceptable outcome when the write itself reported that
+     * the profile has no public page, which the API answers with
+     * `publiclyViewable`. Trusting the operation kind instead was wrong twice
+     * over: every update was exempted, including updates to public profiles
+     * where a 404 is a real anomaly worth warning about.
      */
-    async function profileWriteReadback(
-      write: z.infer<typeof ApiProfileWriteResponseSchema>,
-      mayBeHidden: boolean,
-    ) {
+    async function profileWriteReadback(write: z.infer<typeof ApiProfileWriteResponseSchema>) {
+      if (!write.publiclyViewable) {
+        return mcpJsonResult(
+          mcpProfileWriteResultSchema,
+          {
+            ...write,
+            canonicalUrl: canonicalEventUrl(apiClient.apiBaseUrl, write.profilePath),
+          },
+          config.outputMode,
+        );
+      }
+
       let readback: Awaited<ReturnType<typeof apiClient.getProfile>>;
 
       try {
@@ -523,16 +530,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       }
 
       if (!readback.ok) {
-        return readback.status === 404 && mayBeHidden
-          ? mcpJsonResult(
-            mcpProfileWriteResultSchema,
-            {
-              ...write,
-              canonicalUrl: canonicalEventUrl(apiClient.apiBaseUrl, write.profilePath),
-            },
-            config.outputMode,
-          )
-          : mcpProfileReadbackError(write, readback);
+        return mcpProfileReadbackError(write, readback);
       }
 
       return mcpJsonResult(

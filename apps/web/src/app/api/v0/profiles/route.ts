@@ -66,7 +66,7 @@ function profileSubmitErrorResponse(error: unknown) {
     return problem(
       409,
       "Idempotency-Key already used",
-      data.message ?? "This Idempotency-Key was already used for a different profile submission.",
+      data.message ?? "This key was already used for a different profile submission.",
     );
   }
 

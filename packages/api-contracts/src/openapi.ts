@@ -707,7 +707,7 @@ export const openApiSource = {
             content: jsonContent(ApiProblemSchema),
           },
           "409": {
-            description: "The Idempotency-Key was already used for a different submission.",
+            description: "The Idempotency-Key was already used for a different request.",
             content: jsonContent(ApiProblemSchema),
           },
           "429": publicReadProblemResponses["429"],

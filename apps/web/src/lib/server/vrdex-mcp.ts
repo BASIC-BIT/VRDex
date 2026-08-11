@@ -147,7 +147,6 @@ const mcpProfileSubmitInputSchema = ApiProfileSubmitRequestSchema.extend({
 });
 const mcpProfileWriteResultSchema = ApiProfileWriteResponseSchema.extend({
   canonicalUrl: z.string().url(),
-  publiclyViewable: z.boolean(),
   // Absent exactly when the saved profile has no public surface. An owner may
   // edit a draft or opted-out profile, and that write succeeded; there is simply
   // nothing to read back.
@@ -1378,7 +1377,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     idempotencyKeyHash: string;
     principal: HostedMcpPrincipal;
     toolName: "vrdex_profile_update" | "vrdex_profile_submit";
-    write: z.infer<typeof ApiProfileWriteResponseSchema> & { publiclyViewable: boolean };
+    write: z.infer<typeof ApiProfileWriteResponseSchema>;
   }) {
     const { idempotencyKeyHash, principal, toolName, write } = args;
     const targetProfileId = write.profileId as Id<"profiles">;
@@ -1994,7 +1993,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
 
       const idempotencyKeyHash = sha256(idempotencyKey);
       const requestFingerprint = sha256(canonicalJson({ slug, update }));
-      let write: z.infer<typeof ApiProfileWriteResponseSchema> & { publiclyViewable: boolean };
+      let write: z.infer<typeof ApiProfileWriteResponseSchema>;
 
       try {
         write = await adminConvex().mutation(internal.profiles.updateProfileForMcpActor, {
@@ -2066,7 +2065,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
 
       const idempotencyKeyHash = sha256(idempotencyKey);
       const requestFingerprint = sha256(canonicalJson(input));
-      let write: z.infer<typeof ApiProfileWriteResponseSchema> & { publiclyViewable: boolean };
+      let write: z.infer<typeof ApiProfileWriteResponseSchema>;
 
       try {
         write = await adminConvex().mutation(internal.profiles.submitCommunityProfileForMcpActor, {

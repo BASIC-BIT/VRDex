@@ -1657,7 +1657,7 @@
             }
           },
           "409": {
-            "description": "The Idempotency-Key was already used for a different submission.",
+            "description": "The Idempotency-Key was already used for a different request.",
             "content": {
               "application/json": {
                 "schema": {
@@ -8361,16 +8361,20 @@
           "profilePath": {
             "type": "string",
             "minLength": 1
+          },
+          "publiclyViewable": {
+            "type": "boolean"
           }
         },
         "required": [
           "profileId",
           "slug",
           "profileType",
-          "profilePath"
+          "profilePath",
+          "publiclyViewable"
         ],
         "additionalProperties": false,
-        "description": "Updated profile identifiers and public path."
+        "description": "Saved profile identifiers, public path, and whether that path is readable."
       },
       "PublicProfileAssetsResponse": {
         "type": "object",

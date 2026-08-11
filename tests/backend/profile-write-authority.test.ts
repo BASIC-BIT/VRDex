@@ -172,6 +172,24 @@ describe("profile write authority", () => {
     assert.equal(result.publiclyViewable, false);
   });
 
+  it("reports an ordinary update as publicly viewable, so a 404 stays a warning", async () => {
+    const t = convexTest(schema, modules);
+    const ownerUserId = await seedUser(t, "visible");
+    await seedProfile(t, "visible", "unclaimed");
+
+    const result = await t.mutation(internal.profiles.updateProfileForApiOwner, {
+      actorKind: "personal_api_token",
+      ownerUserId,
+      currentSlug: "dj-visible",
+      headline: "Playing Friday",
+    });
+
+    // The counterpart to the hidden-profile case. Exempting every update from
+    // readback would hide a genuine anomaly: this profile does have a public
+    // page, so a 404 reading it back means something went wrong.
+    assert.equal(result.publiclyViewable, true);
+  });
+
   it("replays an API submission carrying the same idempotency key", async () => {
     const t = convexTest(schema, modules);
     const ownerUserId = await seedUser(t, "api-replay");

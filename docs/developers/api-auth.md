@@ -214,8 +214,15 @@ Current constraints:
 
 `POST /api/v0/profiles` publishes immediately as unclaimed, credited to the
 submitter, and answers `201`. Whoever the profile describes can claim it later.
-There is no idempotency key: a duplicate submission creates a second profile
-under a suffixed slug, and nothing merges them, so search before submitting.
+Search before submitting: two submissions of the same person create two
+profiles under suffixed slugs, and nothing merges them.
+
+Send an `Idempotency-Key` header with any submission that might be retried. A
+repeat carrying the same key and the same body replays the first result instead
+of creating a second profile; the same key with a different body answers `409`.
+Both profile write responses carry `publiclyViewable`, which is false for a
+draft or opted-out profile an owner edited, so a client reading the profile back
+can tell a deliberately private page from a write that failed to surface.
 
 ## Current Profile Asset Uploads
 

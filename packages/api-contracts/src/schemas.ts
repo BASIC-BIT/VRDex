@@ -623,9 +623,18 @@ export const ApiProfileWriteResponseSchema = z
     slug,
     profileType: ProfileTypeSchema,
     profilePath: z.string().min(1),
+    /**
+     * Whether the saved profile is readable at `profilePath`.
+     *
+     * False for a draft or opted-out profile its owner is entitled to edit. A
+     * client that reads the profile back to confirm a write needs this to tell
+     * "there is deliberately no public page" apart from "the write did not
+     * surface", which otherwise look identical from a 404.
+     */
+    publiclyViewable: z.boolean(),
   })
   .meta({
-    description: "Updated profile identifiers and public path.",
+    description: "Saved profile identifiers, public path, and whether that path is readable.",
     id: "ApiProfileWriteResponse",
   });
 

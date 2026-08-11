@@ -118,6 +118,9 @@ function toApiProfileWriteResponse(profile: Doc<"profiles">) {
     slug: profile.slug,
     profileType: profile.profileType,
     profilePath: profile.profileType === "person" ? `/p/${profile.slug}` : `/c/${profile.slug}`,
+    // Computed here rather than by each caller, so no write path can report a
+    // public path it did not check is actually readable.
+    publiclyViewable: canReadProfile("public", profile),
   };
 }
 
@@ -903,10 +906,7 @@ export const updateProfileForMcpActor = internalMutation({
       });
 
       changedFields = applied.changedFields;
-      result = {
-        ...toApiProfileWriteResponse(applied.profile),
-        publiclyViewable: canReadProfile("public", applied.profile),
-      };
+      result = toApiProfileWriteResponse(applied.profile);
     } catch (error) {
       throw asMcpProfileWriteError(error);
     }
@@ -1091,7 +1091,7 @@ export const submitCommunityProfileForApiUser = internalMutation({
         // profile would be worse than refusing.
         throw new ConvexError({
           code: "IDEMPOTENCY_KEY_REUSED",
-          message: "This Idempotency-Key was already used for a different profile submission.",
+          message: "This key was already used for a different profile submission.",
         });
       }
 
