@@ -31,9 +31,10 @@ export function EntityBackendNotice() {
           <h1 className="mt-4 text-4xl font-semibold tracking-[-0.04em]">
             This page could not be loaded
           </h1>
+          {/* Approved by BASIC on 2026-08-11, this exact wording. */}
           <p className="mt-4 max-w-2xl text-sm leading-7 text-muted">
-            Something went wrong on our end, so we could not load this page. Nothing is
-            missing or deleted. Try again in a moment.
+            Something went wrong on our end, so we could not load this page. Try again in a
+            moment.
           </p>
           <Link
             className={cn(buttonVariants({ size: "lg", variant: "secondary" }), "mt-6")}

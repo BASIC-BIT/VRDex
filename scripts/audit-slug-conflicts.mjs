@@ -77,14 +77,23 @@ lines.push(
 if (report.duplicates.length === 0) {
   lines.push("", "No slug is held by more than one entity.");
 } else {
-  lines.push("", `${report.duplicates.length} slug(s) held by more than one entity:`);
+  lines.push(
+    "",
+    `${report.duplicates.length} slug(s) held by more than one entity. Only one can answer` +
+      " each, so pick which keeps the name and rename the rest:",
+  );
   for (const duplicate of report.duplicates) {
     lines.push(`  /${duplicate.slug}`);
-    // Resolution order, so the first line is the one that wins today and every
-    // other holder is currently unreachable.
-    for (const [index, holder] of duplicate.holders.entries()) {
-      const status = index === 0 ? "resolves" : "UNREACHABLE";
-      lines.push(`    ${status.padEnd(11)} ${holder.kind.padEnd(9)} ${holder.displayName} (${holder.id})`);
+    // No winner is named. The root route skips whatever each entity's own public
+    // projection hides, so a draft-private profile loses to a published world --
+    // labelling by table order would point at renaming the live row.
+    for (const holder of duplicate.holders) {
+      const visibility = [holder.publicationState, holder.publicSurfacingState]
+        .filter(Boolean)
+        .join("/");
+      lines.push(
+        `    ${holder.kind.padEnd(9)} ${visibility.padEnd(26)} ${holder.displayName} (${holder.id})`,
+      );
     }
   }
 }

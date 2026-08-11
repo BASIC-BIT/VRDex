@@ -69,11 +69,17 @@ describe("slug conflict audit", () => {
     assert.deepEqual(report.checked, { profiles: 1, worlds: 2, events: 0 });
     assert.equal(report.duplicates.length, 1);
     assert.equal(report.duplicates[0]?.slug, "neon-harbor");
-    // Profile first, because that is the order the root route resolves in, so the
-    // world is the one that is currently unreachable.
     assert.deepEqual(
       report.duplicates[0]?.holders.map((holder) => holder.kind),
       ["person", "world"],
+    );
+    // Both holders carry their visibility, and neither is labelled the winner.
+    // Table order does not decide it: the root route skips whatever each entity's
+    // own public projection hides, so a draft-private profile loses to a published
+    // world, and naming a winner here would point at renaming the live row.
+    assert.deepEqual(
+      report.duplicates[0]?.holders.map((holder) => holder.publicationState),
+      ["published", "published"],
     );
     assert.equal(report.shadowedByRoute.length, 0);
   });

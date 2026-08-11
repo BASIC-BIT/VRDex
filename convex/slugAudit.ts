@@ -27,7 +27,27 @@ export const conflicts = internalQuery({
       ctx.db.query("events").collect(),
     ]);
 
-    type Holder = { kind: string; id: string; slug: string; displayName: string };
+    type Holder = {
+      kind: string;
+      id: string;
+      slug: string;
+      displayName: string;
+      /**
+       * Reported instead of a winner.
+       *
+       * Table order does not decide which entity the root route serves: each
+       * fetcher returns null for anything its own public projection hides, so a
+       * draft-private profile colliding with a published world loses to the
+       * world. Calling the profile the winner because profiles are read first
+       * would point an operator at renaming the live row.
+       *
+       * Re-deriving those three visibility predicates here would be a fourth copy
+       * to keep in sync, so the audit states what each row is and leaves the
+       * choice where it already belonged.
+       */
+      publicationState: string;
+      publicSurfacingState?: string;
+    };
 
     const holders: Holder[] = [
       ...profiles.map((profile) => ({
@@ -35,19 +55,30 @@ export const conflicts = internalQuery({
         id: profile._id as string,
         slug: profile.slug,
         displayName: profile.displayName,
+        publicationState: profile.publicationState,
+        publicSurfacingState: profile.publicSurfacingState,
       })),
       ...worlds.map((world) => ({
         kind: "world",
         id: world._id as string,
         slug: world.slug,
         displayName: world.displayName,
+        publicationState: world.publicationState,
       })),
       // Events carry an optional slug, and one without a slug has no public page to
       // collide over.
       ...events.flatMap((event) =>
         event.slug === undefined
           ? []
-          : [{ kind: "event", id: event._id as string, slug: event.slug, displayName: event.title }],
+          : [
+              {
+                kind: "event",
+                id: event._id as string,
+                slug: event.slug,
+                displayName: event.title,
+                publicationState: event.publicationState,
+              },
+            ],
       ),
     ];
 
@@ -56,9 +87,9 @@ export const conflicts = internalQuery({
       bySlug.set(holder.slug, [...(bySlug.get(holder.slug) ?? []), holder]);
     }
 
-    // Two entities holding one name. The root route resolves profile, then world,
-    // then event, so everything after the first is unreachable: its canonical
-    // links, its search results, and its short links all render the winner's page.
+    // Two entities holding one name. Only one can answer `/<slug>`, and the other's
+    // canonical links, search results, and short links all render it instead.
+    // Which one wins is left to the operator: see the note on `Holder`.
     const duplicates = [...bySlug.entries()]
       .filter(([, held]) => held.length > 1)
       .map(([slug, held]) => ({ slug, holders: held }));

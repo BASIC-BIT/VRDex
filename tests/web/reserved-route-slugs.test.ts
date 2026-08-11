@@ -86,6 +86,28 @@ function servedRootSegments(directory: string): string[] {
     });
 }
 
+/**
+ * Whether anything under this directory matches `/<name>/<one-more-segment>`, and
+ * so would swallow an entity's `/<slug>/edit` or `/<slug>/calendar.ics`.
+ *
+ * A dynamic child with a page of its own does that: `handoff/[token]/page.tsx`
+ * answers `/handoff/edit` with the token read as "edit". A directory of static
+ * children does not, however many it has, because Next matches complete leaf
+ * patterns rather than claiming everything beneath a name.
+ */
+function interceptsEntitySubpath(directory: string): boolean {
+  return fs
+    .readdirSync(directory, { withFileTypes: true })
+    .some(
+      (entry) =>
+        entry.isDirectory() &&
+        entry.name.startsWith("[") &&
+        fs
+          .readdirSync(path.join(directory, entry.name))
+          .some((child) => /^(page|route)\.(tsx?|jsx?)$/.test(child)),
+    );
+}
+
 /** Every top-level directory, served or not. All of them stay unassignable. */
 function allRouteDirectories(directory: string): string[] {
   return fs
@@ -153,27 +175,35 @@ describe("reserved route slugs", () => {
     );
   });
 
-  it("catalogs every directory-only prefix as a route prefix", () => {
-    // These do not shadow `/<name>`, but a profile holding one loses its own
-    // `/<name>/edit` to that directory's routes. `slugAudit` reads this catalog to
-    // report exactly that, so a prefix missing here is a migration it stays quiet
-    // about.
-    const served = new Set(servedRootSegments(appRoot));
-    const directoryOnly = allRouteDirectories(appRoot).filter((segment) => !served.has(segment));
+  it("catalogs exactly the prefixes that intercept an entity subpath", () => {
+    // A directory does not own the paths below its name. Next matches whole leaf
+    // patterns, so `/developers/edit` falls through to `/[slug]/edit` -- verified
+    // against a running server -- while `handoff/[token]` genuinely matches it with
+    // the token read as "edit".
+    //
+    // Deriving this from "directory with no page of its own" reported six working
+    // names as broken and told operators to rename them, so it is derived from the
+    // one thing that matters: a child that matches any single extra segment.
+    const intercepting = allRouteDirectories(appRoot).filter((segment) =>
+      interceptsEntitySubpath(path.join(appRoot, segment)),
+    );
 
-    assert.ok(directoryOnly.length > 0, "expected some directory-only prefixes");
+    assert.ok(intercepting.length > 0, "expected some intercepting prefixes");
+
+    // `claim`, `sign-in` and `sign-up` intercept too, but they already shadow the
+    // root itself, so they are live rather than merely prefixes.
+    const liveNames = new Set<string>(LIVE_ROUTE_SLUGS);
 
     assert.deepEqual(
-      directoryOnly.filter((segment) => !isRoutePrefixSlug(segment)),
+      intercepting.filter((segment) => !liveNames.has(segment) && !isRoutePrefixSlug(segment)),
       [],
       "add these to ROUTE_PREFIX_SLUGS -- the audit reports nested-route collisions from that catalog",
     );
 
-    // And nothing claims to be a prefix that is not one.
     assert.deepEqual(
-      ROUTE_PREFIX_SLUGS.filter((slug) => !directoryOnly.includes(slug)),
+      ROUTE_PREFIX_SLUGS.filter((slug) => !intercepting.includes(slug)),
       [],
-      "remove these from ROUTE_PREFIX_SLUGS -- no directory owns their nested routes",
+      "remove these from ROUTE_PREFIX_SLUGS -- nothing under them matches /<name>/<sub>",
     );
   });
 

@@ -54,29 +54,34 @@ export const LIVE_ROUTE_SLUGS = [
  * own canonical URL.
  */
 /**
- * Directories that own everything *under* a name without serving the name itself.
+ * Directories whose own routes match an entity's subpaths.
  *
- * `/events` falls through to `[slug]` and renders a profile called `events` quite
- * happily. `/events/edit` does not: `app/events/[slug]/edit` matches it first, so
- * that profile's owner reaches the event editor for an event slugged `edit`. Same
- * for `/handoff/calendar.ics` and the rest.
+ * Narrow on purpose, and checked against a running server rather than inferred
+ * from the directory tree. Next matches whole leaf patterns, so `app/developers/`
+ * does *not* own `/developers/edit` -- it has no leaf at that depth, and the URL
+ * falls through to `/[slug]/edit` like any other. Cataloguing every directory here
+ * made `slugAudit` report working entities as broken and tell operators to rename
+ * them.
  *
- * Unassignable for that reason, and reported by `slugAudit` separately from live
- * routes, because the failure is different: the public page still works and only
- * the owner-facing subpaths are gone.
+ * `handoff/[token]/page.tsx` genuinely does match `/handoff/edit`, with the token
+ * read as "edit", and would shadow `/handoff/calendar.ics` the same way. `l/[code]`
+ * has the same shape.
+ *
+ * Reported by `slugAudit` separately from live routes because the failure differs:
+ * the public page still works and only the owner-facing subpaths are gone.
  */
 export const ROUTE_PREFIX_SLUGS = [
-  "api",
-  "developers",
-  "events",
   "handoff",
   "l",
-  "oauth",
-  "playwright",
-  "privacy",
 ] as const;
 
 export const HELD_ROUTE_SLUGS = [
+  "api",
+  "developers",
+  "events",
+  "oauth",
+  "playwright",
+  "privacy",
   "about",
   "admin",
   "ads",
