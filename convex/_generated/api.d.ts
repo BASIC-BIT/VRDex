@@ -108,6 +108,7 @@ import type * as seedAccess from "../seedAccess.js";
 import type * as seedHandoffs from "../seedHandoffs.js";
 import type * as seedImports from "../seedImports.js";
 import type * as shortLinks from "../shortLinks.js";
+import type * as slugAudit from "../slugAudit.js";
 import type * as supportRequestDigest from "../supportRequestDigest.js";
 import type * as supportRequests from "../supportRequests.js";
 import type * as suppressions from "../suppressions.js";
@@ -224,6 +225,7 @@ declare const fullApi: ApiFromModules<{
   seedHandoffs: typeof seedHandoffs;
   seedImports: typeof seedImports;
   shortLinks: typeof shortLinks;
+  slugAudit: typeof slugAudit;
   supportRequestDigest: typeof supportRequestDigest;
   supportRequests: typeof supportRequests;
   suppressions: typeof suppressions;

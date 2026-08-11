@@ -118,6 +118,17 @@ export async function findAvailableEventSlug(
     throw new Error("Event slug must be lowercase letters, numbers, and single hyphens.");
   }
 
+  // Refused rather than worked around. `toEventSlug` is shape-only so that lookups
+  // still resolve a granted reserved name, which leaves this gate to catch one
+  // being *asked for*: without it the reserved first candidate simply fails the
+  // availability check and the loop hands back `support-2`. A caller that named a
+  // slug gets that slug or an error, never a quietly different one -- and on an
+  // unrelated update to a legacy event, silently reslugging it would break its
+  // existing links.
+  if (preferred !== null && preferred.ok && isReservedSlug(preferred.slug)) {
+    throw new Error(`Event slug "${preferred.slug}" is reserved.`);
+  }
+
   const base = preferred?.ok ? preferred.slug : createEventSlugBase(input.title, input.startAt);
   const maxAttempts = options.maxAttempts ?? 50;
 
