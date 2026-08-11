@@ -1,5 +1,5 @@
 import { internalQuery } from "./_generated/server";
-import { LIVE_ROUTE_SLUGS, isLiveRouteSlug } from "./_globalSlugs";
+import { LIVE_ROUTE_SLUGS, isLiveRouteSlug, isRoutePrefixSlug } from "./_globalSlugs";
 
 /**
  * Slugs that stopped being reachable, or stopped being unique, when profiles,
@@ -68,11 +68,19 @@ export const conflicts = internalQuery({
     // one, and the prefixed pages that used to reach it are gone.
     const shadowedByRoute = holders.filter((holder) => isLiveRouteSlug(holder.slug));
 
+    // Milder, and easy to miss because the public page still works. A profile
+    // slugged `handoff` renders at `/handoff`, but `/handoff/edit` is matched by
+    // `app/handoff/[token]` rather than the profile editor, and an event's
+    // `/handoff/calendar.ics` is intercepted the same way. Reported so the audit
+    // cannot print "nothing to migrate" over a broken owner-facing route.
+    const nestedRoutesShadowed = holders.filter((holder) => isRoutePrefixSlug(holder.slug));
+
     return {
       checked: { profiles: profiles.length, worlds: worlds.length, events: events.length },
       liveRouteCount: LIVE_ROUTE_SLUGS.length,
       duplicates,
       shadowedByRoute,
+      nestedRoutesShadowed,
     };
   },
 });

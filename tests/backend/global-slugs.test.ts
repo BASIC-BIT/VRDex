@@ -159,6 +159,39 @@ describe("global slug namespace", () => {
     );
   });
 
+  it("lets an event keep a reserved slug it already holds", async () => {
+    // `updateCommunityEventRecord` passes the event's own slug as the preferred
+    // value on every edit, so refusing reserved names unconditionally locked an
+    // event that owns a granted premium name out of all editing, summary changes
+    // included. Reserved means "not handed out", not "cannot be kept".
+    const db = createSlugTestDb({ events: [{ _id: "event1", slug: "club" }] });
+
+    assert.equal(isReservedSlug("club"), true);
+    assert.equal(
+      await findAvailableEventSlug(
+        db,
+        { title: "Club Night", preferredSlug: "club" },
+        { excludingEventId: "event1" as never },
+      ),
+      "club",
+    );
+
+    // Still refused for anyone who does not already hold it.
+    await assert.rejects(
+      () => findAvailableEventSlug(db, { title: "Club Night", preferredSlug: "club" }),
+      /reserved/,
+    );
+    await assert.rejects(
+      () =>
+        findAvailableEventSlug(
+          db,
+          { title: "Club Night", preferredSlug: "club" },
+          { excludingEventId: "event2" as never },
+        ),
+      /reserved/,
+    );
+  });
+
   it("lets an event keep its own slug through an update", async () => {
     // `events.ts` passes the event's current slug as the preferred value on every
     // update, so excluding itself is what stops an unrelated edit from throwing.

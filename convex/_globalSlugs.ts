@@ -53,11 +53,33 @@ export const LIVE_ROUTE_SLUGS = [
  * a real profile, and treating it as a route made the support intake reject its
  * own canonical URL.
  */
+/**
+ * Directories that own everything *under* a name without serving the name itself.
+ *
+ * `/events` falls through to `[slug]` and renders a profile called `events` quite
+ * happily. `/events/edit` does not: `app/events/[slug]/edit` matches it first, so
+ * that profile's owner reaches the event editor for an event slugged `edit`. Same
+ * for `/handoff/calendar.ics` and the rest.
+ *
+ * Unassignable for that reason, and reported by `slugAudit` separately from live
+ * routes, because the failure is different: the public page still works and only
+ * the owner-facing subpaths are gone.
+ */
+export const ROUTE_PREFIX_SLUGS = [
+  "api",
+  "developers",
+  "events",
+  "handoff",
+  "l",
+  "oauth",
+  "playwright",
+  "privacy",
+] as const;
+
 export const HELD_ROUTE_SLUGS = [
   "about",
   "admin",
   "ads",
-  "api",
   "analytics",
   "app",
   "apps",
@@ -73,7 +95,6 @@ export const HELD_ROUTE_SLUGS = [
   "community",
   "contact",
   "cookies",
-  "developers",
   "dashboard",
   "deployment",
   "developer",
@@ -82,7 +103,6 @@ export const HELD_ROUTE_SLUGS = [
   "download",
   "downloads",
   "embed",
-  "events",
   "event",
   "explore",
   "faq",
@@ -93,7 +113,6 @@ export const HELD_ROUTE_SLUGS = [
   "followers",
   "following",
   "forgot-password",
-  "handoff",
   "guidelines",
   "health",
   "help",
@@ -103,7 +122,6 @@ export const HELD_ROUTE_SLUGS = [
   "integrations",
   "invite",
   "jobs",
-  "l",
   "legal",
   "library",
   "login",
@@ -115,16 +133,13 @@ export const HELD_ROUTE_SLUGS = [
   "new",
   "news",
   "notifications",
-  "oauth",
   "onboarding",
   "opensearch",
   "org",
   "partners",
   "people",
   "person",
-  "playwright",
   "plans",
-  "privacy",
   "press",
   "pricing",
   "profile",
@@ -226,8 +241,10 @@ export const RESERVED_PREMIUM_SLUGS = [
 ] as const;
 
 const LIVE_ROUTE_SLUG_SET = new Set<string>(LIVE_ROUTE_SLUGS);
+const ROUTE_PREFIX_SLUG_SET = new Set<string>(ROUTE_PREFIX_SLUGS);
 const RESERVED_SLUG_SET = new Set<string>([
   ...LIVE_ROUTE_SLUGS,
+  ...ROUTE_PREFIX_SLUGS,
   ...HELD_ROUTE_SLUGS,
   ...RESERVED_PREMIUM_SLUGS,
 ]);
@@ -244,6 +261,11 @@ export function isReservedSlug(slug: string): boolean {
  * and `pricing` is a page we have not built -- so refusing those when *reading* a
  * URL threw away identifiers for profiles that exist.
  */
+/** Owns `/<slug>/...` without owning `/<slug>`, so the nested routes collide. */
+export function isRoutePrefixSlug(slug: string): boolean {
+  return ROUTE_PREFIX_SLUG_SET.has(slug);
+}
+
 export function isLiveRouteSlug(slug: string): boolean {
   return LIVE_ROUTE_SLUG_SET.has(slug);
 }

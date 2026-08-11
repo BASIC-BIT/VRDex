@@ -101,7 +101,26 @@ if (report.shadowedByRoute.length === 0) {
   }
 }
 
-const clean = report.duplicates.length === 0 && report.shadowedByRoute.length === 0;
+if (report.nestedRoutesShadowed.length === 0) {
+  lines.push("", "No entity holds a route prefix.");
+} else {
+  lines.push(
+    "",
+    `${report.nestedRoutesShadowed.length} entit(y/ies) hold a route prefix. The public page` +
+      " still works; the owner-facing subpaths under it do not:",
+  );
+  for (const holder of report.nestedRoutesShadowed) {
+    lines.push(
+      `  /${holder.slug}  ${holder.kind.padEnd(9)} ${holder.displayName} (${holder.id})` +
+        `  -- /${holder.slug}/edit goes to the ${holder.slug} routes`,
+    );
+  }
+}
+
+const clean =
+  report.duplicates.length === 0 &&
+  report.shadowedByRoute.length === 0 &&
+  report.nestedRoutesShadowed.length === 0;
 
 lines.push("", clean ? "Nothing to migrate." : "Rename the losing rows before the root routes ship.");
 

@@ -3,7 +3,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
 
-import { HELD_ROUTE_SLUGS, LIVE_ROUTE_SLUGS, isLiveRouteSlug, isReservedSlug } from "../../convex/_globalSlugs";
+import {
+  HELD_ROUTE_SLUGS,
+  LIVE_ROUTE_SLUGS,
+  ROUTE_PREFIX_SLUGS,
+  isLiveRouteSlug,
+  isReservedSlug,
+  isRoutePrefixSlug,
+} from "../../convex/_globalSlugs";
 import { isProtectedRoute } from "../../apps/web/src/lib/protected-route-redirect";
 
 const appRoot = path.join(process.cwd(), "apps", "web", "src", "app");
@@ -139,12 +146,34 @@ describe("reserved route slugs", () => {
   });
 
   it("keeps every route directory unassignable, served or not", () => {
-    // A directory-only prefix does not shadow `/<name>`, but a profile holding it
-    // would find its own `/<name>/edit` swallowed by that directory's routes.
     assert.deepEqual(
       allRouteDirectories(appRoot).filter((segment) => !isReservedSlug(segment)),
       [],
-      "add these to LIVE_ROUTE_SLUGS or HELD_ROUTE_SLUGS",
+      "add these to LIVE_ROUTE_SLUGS, ROUTE_PREFIX_SLUGS, or HELD_ROUTE_SLUGS",
+    );
+  });
+
+  it("catalogs every directory-only prefix as a route prefix", () => {
+    // These do not shadow `/<name>`, but a profile holding one loses its own
+    // `/<name>/edit` to that directory's routes. `slugAudit` reads this catalog to
+    // report exactly that, so a prefix missing here is a migration it stays quiet
+    // about.
+    const served = new Set(servedRootSegments(appRoot));
+    const directoryOnly = allRouteDirectories(appRoot).filter((segment) => !served.has(segment));
+
+    assert.ok(directoryOnly.length > 0, "expected some directory-only prefixes");
+
+    assert.deepEqual(
+      directoryOnly.filter((segment) => !isRoutePrefixSlug(segment)),
+      [],
+      "add these to ROUTE_PREFIX_SLUGS -- the audit reports nested-route collisions from that catalog",
+    );
+
+    // And nothing claims to be a prefix that is not one.
+    assert.deepEqual(
+      ROUTE_PREFIX_SLUGS.filter((slug) => !directoryOnly.includes(slug)),
+      [],
+      "remove these from ROUTE_PREFIX_SLUGS -- no directory owns their nested routes",
     );
   });
 

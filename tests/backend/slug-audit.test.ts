@@ -98,6 +98,25 @@ describe("slug conflict audit", () => {
     );
   });
 
+  it("finds an entity holding a route prefix, whose public page still works", async () => {
+    const t = convexTest({ schema, modules });
+
+    await t.run(async (ctx) => {
+      // `/handoff` falls through to `[slug]` and renders this profile fine, which
+      // is exactly why it is easy to miss: `/handoff/edit` is matched by
+      // `app/handoff/[token]` instead of the profile editor.
+      await ctx.db.insert("profiles", profileRow("handoff", "Handoff"));
+    });
+
+    const report = await t.query(internal.slugAudit.conflicts, {});
+
+    assert.equal(report.shadowedByRoute.length, 0);
+    assert.deepEqual(
+      report.nestedRoutesShadowed.map((holder) => holder.slug),
+      ["handoff"],
+    );
+  });
+
   it("ignores events that have no slug to collide with", async () => {
     const t = convexTest({ schema, modules });
 

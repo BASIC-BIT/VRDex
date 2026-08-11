@@ -24,7 +24,8 @@ Reservations live in `convex/_globalSlugs.ts` as three catalogs, because a name 
 All three live in `convex/_globalSlugs.ts`.
 
 - `LIVE_ROUTE_SLUGS`: `/<name>` itself resolves to something other than `[slug]` -- a page, an optional catch-all, a middleware redirect, or a `beforeFiles` rewrite. An entity holding one has no reachable page. This is the only catalog a *read* path consults, via `isLiveRouteSlug`.
-- `HELD_ROUTE_SLUGS`: unassignable, but nothing shadows `/<name>`, so a link to one still names whoever holds it. Two kinds: directory prefixes such as `developers` and `events`, which have routes beneath them but no page of their own (Next falls through to `[slug]`, though a profile holding one would find its own `/<name>/edit` swallowed by that directory), and names for pages we may add.
+- `ROUTE_PREFIX_SLUGS`: a directory owns everything under the name without serving the name itself. `/events` falls through to `[slug]`, but `/events/edit` is matched by `app/events/[slug]/edit`, so an entity holding one keeps its public page and loses its owner-facing subpaths. `slugAudit` reports these separately for that reason.
+- `HELD_ROUTE_SLUGS`: nothing serves them at all. Held for pages we may add.
 - `RESERVED_PREMIUM_SLUGS`: short, generic, or otherwise valuable names withheld from self-serve so they can be granted or sold later. `basicbit` and `vrdex` are here. Slugs under three characters are already unassignable, which reserves that whole space without listing it.
 
 `isReservedSlug` unions all three and gates *assignment*. `isLiveRouteSlug` covers only the first and gates *reading*: refusing a held name when parsing a pasted URL threw away the identifier on disputes about profiles that exist, `basicbit` among them.

@@ -121,12 +121,28 @@ export async function findAvailableEventSlug(
   // Refused rather than worked around. `toEventSlug` is shape-only so that lookups
   // still resolve a granted reserved name, which leaves this gate to catch one
   // being *asked for*: without it the reserved first candidate simply fails the
-  // availability check and the loop hands back `support-2`. A caller that named a
-  // slug gets that slug or an error, never a quietly different one -- and on an
-  // unrelated update to a legacy event, silently reslugging it would break its
-  // existing links.
+  // availability check and the loop hands back `support-2`, quietly moving a live
+  // URL.
+  //
+  // Unless the event already holds it. `updateCommunityEventRecord` passes the
+  // event's own slug as the preferred value on every edit, so an unconditional
+  // refusal locked an event that owns a granted premium name out of *all* editing,
+  // summary changes included. Reserved means "not handed out", not "cannot be
+  // kept": creates and real slug changes are still refused.
   if (preferred !== null && preferred.ok && isReservedSlug(preferred.slug)) {
-    throw new Error(`Event slug "${preferred.slug}" is reserved.`);
+    const holder = await getEventBySlug(db, preferred.slug);
+    const alreadyOwnsIt =
+      options.excludingEventId !== undefined && holder?._id === options.excludingEventId;
+
+    if (!alreadyOwnsIt) {
+      throw new Error(`Event slug "${preferred.slug}" is reserved.`);
+    }
+
+    // Returned here rather than fed to the loop below: `checkEventSlugAvailability`
+    // is the assignment gate and refuses reserved names whoever is asking, which is
+    // right for a create and wrong for an event that already holds one. Keeping a
+    // slug allocates nothing.
+    return preferred.slug;
   }
 
   const base = preferred?.ok ? preferred.slug : createEventSlugBase(input.title, input.startAt);
