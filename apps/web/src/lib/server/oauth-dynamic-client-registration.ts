@@ -12,7 +12,6 @@ import {
   type ApiRateLimitIdentity,
 } from "./api-rate-limit";
 import { recordApiRateLimitBlockedEvent } from "./api-rate-limit-events";
-import { hostedMcpEventWritesEnabled } from "./hosted-mcp-policy";
 import {
   oauthIssuerUrl,
   oauthMcpResourceUri,
@@ -113,7 +112,6 @@ export async function dynamicMcpClientRegistrationResponse(
   request: Request,
   dependencies: DynamicMcpClientRegistrationDependencies = {},
 ) {
-  const allowEventWrites = hostedMcpEventWritesEnabled();
   const checkRateLimit = dependencies.checkRateLimit ?? checkApiRateLimit;
   const createClientId = dependencies.createClientId ?? createOAuthClientId;
   const recordRateLimitBlockedEvent = dependencies.recordRateLimitBlockedEvent ?? recordApiRateLimitBlockedEvent;
@@ -165,7 +163,6 @@ export async function dynamicMcpClientRegistrationResponse(
 
   try {
     registration = normalizeDynamicMcpClientRegistration(body, {
-      allowEventWrites,
       // Some native clients copy the issuer-wide scope catalog into an MCP
       // DCR request. Persist and return only scopes valid for this MCP
       // resource; explicit CIMD scope declarations remain strict.
@@ -232,7 +229,6 @@ export async function dynamicMcpClientRegistrationResponse(
       ...(registration.softwareId === undefined ? {} : { softwareId: registration.softwareId }),
       ...(registration.softwareVersion === undefined ? {} : { softwareVersion: registration.softwareVersion }),
       allowedScopes: registration.allowedScopes,
-      ...(allowEventWrites ? { allowEventWrites: true } : {}),
       resource,
     });
   } catch {

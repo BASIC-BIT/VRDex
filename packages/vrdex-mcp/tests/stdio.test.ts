@@ -183,9 +183,23 @@ test("serves VRDex tools over stdio and calls the configured API base URL", asyn
         "vrdex_list_active_worlds",
         "vrdex_event_create",
         "vrdex_event_update",
+        "vrdex_profile_update",
+        "vrdex_profile_submit",
       ],
     );
     assert.equal(listedTools.every((tool) => !hasLegacySchemaId(tool.outputSchema)), true);
+    assert.deepEqual(listedTools.find((tool) => tool.name === "vrdex_profile_update")?.annotations, {
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: true,
+      readOnlyHint: false,
+    });
+    assert.deepEqual(listedTools.find((tool) => tool.name === "vrdex_profile_submit")?.annotations, {
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+      readOnlyHint: false,
+    });
     assert.deepEqual(listedTools.find((tool) => tool.name === "vrdex_event_create")?.annotations, {
       destructiveHint: false,
       idempotentHint: false,

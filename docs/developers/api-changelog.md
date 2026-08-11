@@ -12,11 +12,23 @@ docs update and a changelog entry so early consumers and agents can adapt.
 - documented avatar appearance and trust metadata on public search results,
   documented event-host avatar appearance, and allowed same-origin profile
   asset URLs on public event image fields
-- added a default-off hosted MCP OAuth event-write surface with per-user
-  `AuthInfo`, exact `mcp:write events:write` authorization, durable community
-  ownership checks, transactional idempotency receipts, public readback, and
-  sanitized audit/rate-limit attribution; production activation remains a
-  separate authorized rollout
+- added a hosted MCP OAuth event-write surface with per-user `AuthInfo`,
+  durable community ownership checks, transactional idempotency receipts,
+  public readback, and sanitized audit/rate-limit attribution
+- added `vrdex_profile_update` and `vrdex_profile_submit` to the hosted and
+  local stdio MCP servers, plus `POST /api/v0/profiles`, so outbound links and
+  community-sourced profiles can be written from an API token or an OAuth
+  session rather than only from the browser
+- **breaking**: `PATCH /api/v0/profiles/:slug` no longer requires ownership. A
+  caller without it edits an unclaimed profile as a community contributor, the
+  same authority the web editor grants; a profile claimed by someone else now
+  answers `403` rather than a generic failure
+- **breaking**: removed the `VRDEX_HOSTED_MCP_EVENT_WRITES` deployment switch.
+  Every hosted write tool is advertised and the connecting harness decides which
+  it exposes; writes stay bounded by granted scopes and per-resource permission
+  checks. Dynamic MCP clients now request `mcp:write` with at least one of
+  `events:write` or `profile:write` instead of the fixed `mcp:write
+  events:write` pair
 
 ## 2026-07-14
 

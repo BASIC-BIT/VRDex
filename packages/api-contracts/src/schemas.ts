@@ -588,8 +588,33 @@ export const ApiProfileUpdateRequestSchema = z
   })
   .meta({
     description:
-      "Update owner-editable metadata for a claimed profile owned by the current authenticated API user.",
+      "Update editable metadata for a profile the current authenticated API user owns, or for an unclaimed profile as a community correction.",
     id: "ApiProfileUpdateRequest",
+  });
+
+export const ApiProfileSubmitRequestSchema = z
+  .object({
+    profileType: ProfileTypeSchema,
+    displayName: z.string().min(2).max(80),
+    aliases: z.array(z.string().max(60)).max(8).optional(),
+    tags: z.array(z.string().max(32)).max(12).optional(),
+    person: z
+      .object({
+        roleTags: z.array(z.string().max(32)).max(12).optional(),
+      })
+      .optional(),
+    community: z
+      .object({
+        subtype: z.string().max(40).optional(),
+        categoryTags: z.array(z.string().max(32)).max(12).optional(),
+      })
+      .optional(),
+    outboundLinks: z.array(ApiProfileLinkInputSchema).max(20).optional(),
+  })
+  .meta({
+    description:
+      "Create a community-sourced profile. It publishes immediately as unclaimed and credited to the submitter, and whoever it describes can claim it later.",
+    id: "ApiProfileSubmitRequest",
   });
 
 export const ApiProfileWriteResponseSchema = z

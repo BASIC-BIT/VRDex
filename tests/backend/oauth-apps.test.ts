@@ -272,13 +272,14 @@ describe("OAuth application helpers", () => {
       "mcp:read",
       "public:read",
     ]);
-    assert.deepEqual(
-      normalizeDynamicMcpScopes(
-        ["mcp:write", "events:write"],
-        { allowEventWrites: true },
-      ),
-      ["mcp:write", "events:write"],
-    );
+    assert.deepEqual(normalizeDynamicMcpScopes(["mcp:write", "events:write"]), [
+      "mcp:write",
+      "events:write",
+    ]);
+    assert.deepEqual(normalizeDynamicMcpScopes(["mcp:write", "profile:write"]), [
+      "mcp:write",
+      "profile:write",
+    ]);
     assert.equal(normalizeOAuthRedirectHost("http://localhost:3456/callback"), "localhost:3456");
     assert.deepEqual(normalizeOAuthResponseTypes(undefined), ["code"]);
     assert.equal(normalizeOAuthTokenEndpointAuthMethod(undefined), "none");
@@ -287,11 +288,11 @@ describe("OAuth application helpers", () => {
     ]);
     assert.equal(normalizeOAuthSoftwareValue("  com.example.agent  ", "software_id"), "com.example.agent");
 
-    assert.throws(() => normalizeDynamicMcpScopes(["profile:read"]), /public:read and mcp:read/);
+    assert.throws(() => normalizeDynamicMcpScopes(["profile:read"]), /can only request public:read, mcp:read/);
     assert.throws(() => normalizeDynamicMcpScopes(["public:read"]), /mcp:read/);
     assert.throws(
-      () => normalizeDynamicMcpScopes(["mcp:write"], { allowEventWrites: true }),
-      /both mcp:write and events:write/,
+      () => normalizeDynamicMcpScopes(["mcp:write"]),
+      /at least one of events:write or profile:write/,
     );
     assert.throws(() => normalizeOAuthResponseTypes(["token"]), /response type/);
     assert.throws(() => normalizeOAuthTokenEndpointAuthMethod("client_secret_basic"), /token_endpoint_auth_method=none/);

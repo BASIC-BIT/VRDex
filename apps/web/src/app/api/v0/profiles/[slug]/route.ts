@@ -56,6 +56,16 @@ function profileUpdateErrorResponse(error: unknown) {
     );
   }
 
+  // A claimed profile is an authority answer, not a malformed request: the
+  // caller cannot fix it by correcting the body, and a 400 invites them to try.
+  if (data?.code === "PROFILE_CLAIMED") {
+    return problem(
+      403,
+      "Profile update authority is insufficient",
+      data.message ?? "This profile has been claimed, so only its owner can edit it.",
+    );
+  }
+
   if (data?.code === "IDENTITY_SUPPRESSED") {
     // Reuses the existing 400 title rather than introducing a 409 with a new one:
     // that would mean unapproved public copy, a wider status union in `problem`,

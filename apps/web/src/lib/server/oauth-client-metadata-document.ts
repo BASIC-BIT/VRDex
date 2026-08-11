@@ -5,7 +5,6 @@ import { Readable } from "node:stream";
 
 import {
   dynamicMcpClientScopes,
-  dynamicMcpEventWriteScopes,
   normalizeDynamicMcpClientRegistration,
   normalizeOAuthClientMetadataDocumentUrl,
   type DynamicMcpClientRegistration,
@@ -24,7 +23,6 @@ interface PinnedLookupCallback {
 }
 
 type FetchOAuthClientMetadataDocumentOptions = {
-  allowEventWrites?: boolean;
   deadlineMs?: number;
   requestDocument?: (url: URL, address: HostAddress, signal: AbortSignal) => Promise<Response>;
   resolveHostname?: (hostname: string) => Promise<HostAddress[]>;
@@ -306,18 +304,17 @@ export async function fetchOAuthClientMetadataDocument(
       throw new Error("OAuth client metadata document client_id must match the document URL.");
     }
 
-    const defaultScopes = options.allowEventWrites === true
-      ? [...dynamicMcpClientScopes, ...dynamicMcpEventWriteScopes]
-      : [...dynamicMcpClientScopes];
+    // Reads only. Write scopes are available to any client that asks for them,
+    // but a metadata document that states no scope at all has not asked, and
+    // inferring one from what the deployment permits would hand a client write
+    // capability its author never wrote down.
     const normalizedPayload = payload.scope === undefined
-      ? { ...payload, scope: defaultScopes.join(" ") }
+      ? { ...payload, scope: [...dynamicMcpClientScopes].join(" ") }
       : payload;
 
     return {
       clientId: normalizedClientId,
-      ...normalizeDynamicMcpClientRegistration(normalizedPayload, {
-        allowEventWrites: options.allowEventWrites === true,
-      }),
+      ...normalizeDynamicMcpClientRegistration(normalizedPayload),
     };
   } finally {
     clearTimeout(deadline);

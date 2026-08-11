@@ -34,6 +34,7 @@ import {
   ApiProfileAssetUploadIntentCreateRequestSchema,
   ApiProfileAssetUploadIntentCreateResponseSchema,
   ApiProfileAssetStorageProbeResponseSchema,
+  ApiProfileSubmitRequestSchema,
   ApiProfileUpdateRequestSchema,
   ApiProfileWriteResponseSchema,
   ApiRateLimitUsageResponseSchema,
@@ -634,9 +635,9 @@ export const openApiSource = {
       patch: {
         operationId: "updateCurrentUserProfile",
         tags: ["Profiles"],
-        summary: "Update a current user's profile",
+        summary: "Update a profile",
         description:
-          "Updates owner-editable metadata for a claimed profile owned by a bearer credential with user authority and profile:write scope.",
+          "Updates editable metadata, including outbound links, for a profile owned by a bearer credential with user authority and profile:write scope, or for an unclaimed profile as a community correction. Sending outboundLinks replaces the whole list.",
         security: profileWriteSecurity,
         requestParams: {
           path: SlugPathParamsSchema,
@@ -660,11 +661,45 @@ export const openApiSource = {
           },
           "403": {
             description:
-              "The bearer credential lacks profile:write scope, user authority, ownership, or claimed-owner field permission.",
+              "The bearer credential lacks profile:write scope or user authority, the profile is claimed by someone else, or the submitted fields are not editable by this writer.",
             content: jsonContent(ApiProblemSchema),
           },
           "404": {
             description: "The profile was not found.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "429": publicReadProblemResponses["429"],
+        },
+      },
+    },
+    "/api/v0/profiles": {
+      post: {
+        operationId: "submitCommunityProfile",
+        tags: ["Profiles"],
+        summary: "Submit a community-sourced profile",
+        description:
+          "Creates a profile for a person or community that has none. It publishes immediately as unclaimed and credited to the submitter, and whoever it describes can claim it later. Requires a bearer credential with user authority and profile:write scope.",
+        security: profileWriteSecurity,
+        requestBody: {
+          required: true,
+          content: jsonContent(ApiProfileSubmitRequestSchema),
+        },
+        responses: {
+          "201": {
+            description: "Created profile identifiers and public path.",
+            content: jsonContent(ApiProfileWriteResponseSchema),
+          },
+          "400": {
+            description:
+              "The profile submission was malformed, or the identity has asked not to be listed.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "401": {
+            description: "Bearer authentication is required or invalid.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "403": {
+            description: "The bearer credential lacks profile:write scope or user authority.",
             content: jsonContent(ApiProblemSchema),
           },
           "429": publicReadProblemResponses["429"],

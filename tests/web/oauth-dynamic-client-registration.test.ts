@@ -137,114 +137,97 @@ describe("OAuth dynamic client registration", () => {
     });
   });
 
-  it("accepts event-write scopes only while the hosted write feature is enabled", async () => {
-    const previous = process.env.VRDEX_HOSTED_MCP_EVENT_WRITES;
+  function registrationHarness(clientId: string) {
     const mutationInputs: DynamicMcpClientMutationInput[] = [];
 
-    try {
-      process.env.VRDEX_HOSTED_MCP_EVENT_WRITES = "true";
-      const response = await dynamicMcpClientRegistrationResponse(
-        registrationRequest({
-          client_name: "Codex",
-          redirect_uris: ["http://localhost:1455/callback"],
-          scope: "mcp:read mcp:write events:write",
-        }),
-        {
-          checkRateLimit: async () => allowedRateLimit,
-          createClientId: () => "vrdx_app_1123456789abcdef01234567",
-          registerDynamicMcpClient: async (input) => {
-            mutationInputs.push(input);
-            return { ...input, createdAt: 1_700_000_000_123 };
-          },
+    return {
+      mutationInputs,
+      dependencies: {
+        checkRateLimit: async () => allowedRateLimit,
+        createClientId: () => clientId,
+        registerDynamicMcpClient: async (input: DynamicMcpClientMutationInput) => {
+          mutationInputs.push(input);
+          return { ...input, createdAt: 1_700_000_000_123 };
         },
-      );
+      },
+    };
+  }
 
-      assert.equal(response.status, 201);
-      assert.deepEqual(mutationInputs[0]?.allowedScopes, [
-        "mcp:read",
-        "mcp:write",
-        "events:write",
-      ]);
-      assert.equal(mutationInputs[0]?.allowEventWrites, true);
-    } finally {
-      if (previous === undefined) {
-        delete process.env.VRDEX_HOSTED_MCP_EVENT_WRITES;
-      } else {
-        process.env.VRDEX_HOSTED_MCP_EVENT_WRITES = previous;
-      }
-    }
+  it("accepts event-write scopes with no deployment switch in front of them", async () => {
+    const harness = registrationHarness("vrdx_app_1123456789abcdef01234567");
+    const response = await dynamicMcpClientRegistrationResponse(
+      registrationRequest({
+        client_name: "Codex",
+        redirect_uris: ["http://localhost:1455/callback"],
+        scope: "mcp:read mcp:write events:write",
+      }),
+      harness.dependencies,
+    );
+
+    assert.equal(response.status, 201);
+    assert.deepEqual(harness.mutationInputs[0]?.allowedScopes, [
+      "mcp:read",
+      "mcp:write",
+      "events:write",
+    ]);
+  });
+
+  it("accepts profile writes without dragging event writes along", async () => {
+    const harness = registrationHarness("vrdx_app_4123456789abcdef01234567");
+    const response = await dynamicMcpClientRegistrationResponse(
+      registrationRequest({
+        client_name: "Set Link Agent",
+        redirect_uris: ["http://localhost:1455/callback"],
+        scope: "mcp:read mcp:write profile:write",
+      }),
+      harness.dependencies,
+    );
+
+    assert.equal(response.status, 201);
+    assert.deepEqual(harness.mutationInputs[0]?.allowedScopes, [
+      "mcp:read",
+      "mcp:write",
+      "profile:write",
+    ]);
   });
 
   it("narrows issuer-wide known scopes to the MCP resource during DCR", async () => {
-    const previous = process.env.VRDEX_HOSTED_MCP_EVENT_WRITES;
-    const mutationInputs: DynamicMcpClientMutationInput[] = [];
+    const harness = registrationHarness("vrdx_app_3123456789abcdef01234567");
+    const response = await dynamicMcpClientRegistrationResponse(
+      registrationRequest({
+        client_name: "Codex",
+        redirect_uris: ["http://localhost:1455/callback"],
+        scope: "public:read profile:read events:write mcp:read mcp:write time:parse",
+      }),
+      harness.dependencies,
+    );
 
-    try {
-      process.env.VRDEX_HOSTED_MCP_EVENT_WRITES = "true";
-      const response = await dynamicMcpClientRegistrationResponse(
-        registrationRequest({
-          client_name: "Codex",
-          redirect_uris: ["http://localhost:1455/callback"],
-          scope: "public:read profile:read events:write mcp:read mcp:write time:parse",
-        }),
-        {
-          checkRateLimit: async () => allowedRateLimit,
-          createClientId: () => "vrdx_app_3123456789abcdef01234567",
-          registerDynamicMcpClient: async (input) => {
-            mutationInputs.push(input);
-            return { ...input, createdAt: 1_700_000_000_123 };
-          },
-        },
-      );
-
-      assert.equal(response.status, 201);
-      assert.deepEqual(mutationInputs[0]?.allowedScopes, [
-        "public:read",
-        "events:write",
-        "mcp:read",
-        "mcp:write",
-      ]);
-      assert.equal((await response.json() as { scope: string }).scope, "public:read events:write mcp:read mcp:write");
-    } finally {
-      if (previous === undefined) {
-        delete process.env.VRDEX_HOSTED_MCP_EVENT_WRITES;
-      } else {
-        process.env.VRDEX_HOSTED_MCP_EVENT_WRITES = previous;
-      }
-    }
+    assert.equal(response.status, 201);
+    assert.deepEqual(harness.mutationInputs[0]?.allowedScopes, [
+      "public:read",
+      "events:write",
+      "mcp:read",
+      "mcp:write",
+    ]);
+    assert.equal(
+      (await response.json() as { scope: string }).scope,
+      "public:read events:write mcp:read mcp:write",
+    );
   });
 
   it("accepts the exact write-only scope pair advertised by hosted write tools", async () => {
-    const previous = process.env.VRDEX_HOSTED_MCP_EVENT_WRITES;
-    const mutationInputs: DynamicMcpClientMutationInput[] = [];
+    const harness = registrationHarness("vrdx_app_2123456789abcdef01234567");
+    const response = await dynamicMcpClientRegistrationResponse(
+      registrationRequest({
+        client_name: "OpenClaw",
+        redirect_uris: ["http://localhost:1455/callback"],
+        scope: "mcp:write events:write",
+      }),
+      harness.dependencies,
+    );
 
-    try {
-      process.env.VRDEX_HOSTED_MCP_EVENT_WRITES = "true";
-      const response = await dynamicMcpClientRegistrationResponse(
-        registrationRequest({
-          client_name: "OpenClaw",
-          redirect_uris: ["http://localhost:1455/callback"],
-          scope: "mcp:write events:write",
-        }),
-        {
-          checkRateLimit: async () => allowedRateLimit,
-          createClientId: () => "vrdx_app_2123456789abcdef01234567",
-          registerDynamicMcpClient: async (input) => {
-            mutationInputs.push(input);
-            return { ...input, createdAt: 1_700_000_000_123 };
-          },
-        },
-      );
-
-      assert.equal(response.status, 201);
-      assert.deepEqual(mutationInputs[0]?.allowedScopes, ["mcp:write", "events:write"]);
-    } finally {
-      if (previous === undefined) {
-        delete process.env.VRDEX_HOSTED_MCP_EVENT_WRITES;
-      } else {
-        process.env.VRDEX_HOSTED_MCP_EVENT_WRITES = previous;
-      }
-    }
+    assert.equal(response.status, 201);
+    assert.deepEqual(harness.mutationInputs[0]?.allowedScopes, ["mcp:write", "events:write"]);
   });
 
   it("blocks normalized client metadata before persisting a dynamic registration", async () => {
@@ -305,44 +288,59 @@ describe("OAuth dynamic client registration", () => {
     assert.equal(response.status, 400);
     assert.deepEqual(await response.json(), {
       error: "invalid_client_metadata",
-      error_description: "Dynamic MCP clients can only request public:read mcp:read.",
+      error_description: "Dynamic MCP clients can only request public:read mcp:read mcp:write events:write profile:write.",
     });
   });
 
-  it("rejects hosted event-write scopes while the feature is disabled", async () => {
-    const previous = process.env.VRDEX_HOSTED_MCP_EVENT_WRITES;
+  it("refuses a transport write scope with no resource to write", async () => {
     let mutationCalled = false;
-
-    try {
-      process.env.VRDEX_HOSTED_MCP_EVENT_WRITES = "false";
-      const response = await dynamicMcpClientRegistrationResponse(
-        registrationRequest({
-          client_name: "OpenClaw",
-          redirect_uris: ["http://localhost:18789/callback"],
-          scope: "mcp:read mcp:write events:write",
-        }),
-        {
-          checkRateLimit: async () => allowedRateLimit,
-          registerDynamicMcpClient: async (input) => {
-            mutationCalled = true;
-            return { ...input, createdAt: 1 };
-          },
+    const response = await dynamicMcpClientRegistrationResponse(
+      registrationRequest({
+        client_name: "OpenClaw",
+        redirect_uris: ["http://localhost:18789/callback"],
+        scope: "mcp:read mcp:write",
+      }),
+      {
+        checkRateLimit: async () => allowedRateLimit,
+        registerDynamicMcpClient: async (input) => {
+          mutationCalled = true;
+          return { ...input, createdAt: 1 };
         },
-      );
+      },
+    );
 
-      assert.equal(response.status, 400);
-      assert.equal(mutationCalled, false);
-      assert.deepEqual(await response.json(), {
-        error: "invalid_client_metadata",
-        error_description: "Dynamic MCP clients can only request public:read mcp:read.",
-      });
-    } finally {
-      if (previous === undefined) {
-        delete process.env.VRDEX_HOSTED_MCP_EVENT_WRITES;
-      } else {
-        process.env.VRDEX_HOSTED_MCP_EVENT_WRITES = previous;
-      }
-    }
+    assert.equal(response.status, 400);
+    assert.equal(mutationCalled, false);
+    assert.deepEqual(await response.json(), {
+      error: "invalid_client_metadata",
+      error_description:
+        "Dynamic MCP write clients must request mcp:write and at least one of events:write or profile:write.",
+    });
+  });
+
+  it("rejects a scope that is not an API scope at all", async () => {
+    let mutationCalled = false;
+    const response = await dynamicMcpClientRegistrationResponse(
+      registrationRequest({
+        client_name: "OpenClaw",
+        redirect_uris: ["http://localhost:18789/callback"],
+        scope: "mcp:read profiles:writeall",
+      }),
+      {
+        checkRateLimit: async () => allowedRateLimit,
+        registerDynamicMcpClient: async (input) => {
+          mutationCalled = true;
+          return { ...input, createdAt: 1 };
+        },
+      },
+    );
+
+    assert.equal(response.status, 400);
+    assert.equal(mutationCalled, false);
+    assert.deepEqual(await response.json(), {
+      error: "invalid_client_metadata",
+      error_description: "Unsupported OAuth scope: profiles:writeall",
+    });
   });
 
   it("returns OAuth rate-limit metadata when registration is temporarily unavailable", async () => {

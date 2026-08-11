@@ -1466,8 +1466,8 @@
         "tags": [
           "Profiles"
         ],
-        "summary": "Update a current user's profile",
-        "description": "Updates owner-editable metadata for a claimed profile owned by a bearer credential with user authority and profile:write scope.",
+        "summary": "Update a profile",
+        "description": "Updates editable metadata, including outbound links, for a profile owned by a bearer credential with user authority and profile:write scope, or for an unclaimed profile as a community correction. Sending outboundLinks replaces the whole list.",
         "security": [
           {
             "bearerAuth": []
@@ -1534,7 +1534,7 @@
             }
           },
           "403": {
-            "description": "The bearer credential lacks profile:write scope, user authority, ownership, or claimed-owner field permission.",
+            "description": "The bearer credential lacks profile:write scope or user authority, the profile is claimed by someone else, or the submitted fields are not editable by this writer.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1545,6 +1545,97 @@
           },
           "404": {
             "description": "The profile was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The request exceeded a rate limit.",
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v0/profiles": {
+      "post": {
+        "operationId": "submitCommunityProfile",
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Submit a community-sourced profile",
+        "description": "Creates a profile for a person or community that has none. It publishes immediately as unclaimed and credited to the submitter, and whoever it describes can claim it later. Requires a bearer credential with user authority and profile:write scope.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "oauth2": [
+              "profile:write"
+            ]
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApiProfileSubmitRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created profile identifiers and public path.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProfileWriteResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The profile submission was malformed, or the identity has asked not to be listed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Bearer authentication is required or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The bearer credential lacks profile:write scope or user authority.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5336,7 +5427,7 @@
             }
           }
         },
-        "description": "Update owner-editable metadata for a claimed profile owned by the current authenticated API user."
+        "description": "Update editable metadata for a profile the current authenticated API user owns, or for an unclaimed profile as a community correction."
       },
       "ApiProfileLinkInput": {
         "type": "object",
@@ -5399,6 +5490,82 @@
           "other"
         ],
         "description": "Outbound profile link provider."
+      },
+      "ApiProfileSubmitRequest": {
+        "type": "object",
+        "properties": {
+          "profileType": {
+            "type": "string",
+            "enum": [
+              "person",
+              "community"
+            ],
+            "description": "The public profile entity class."
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 80
+          },
+          "aliases": {
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 60
+            }
+          },
+          "tags": {
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 32
+            }
+          },
+          "person": {
+            "type": "object",
+            "properties": {
+              "roleTags": {
+                "maxItems": 12,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "maxLength": 32
+                }
+              }
+            }
+          },
+          "community": {
+            "type": "object",
+            "properties": {
+              "subtype": {
+                "type": "string",
+                "maxLength": 40
+              },
+              "categoryTags": {
+                "maxItems": 12,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "maxLength": 32
+                }
+              }
+            }
+          },
+          "outboundLinks": {
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ApiProfileLinkInput"
+            }
+          }
+        },
+        "required": [
+          "profileType",
+          "displayName"
+        ],
+        "description": "Create a community-sourced profile. It publishes immediately as unclaimed and credited to the submitter, and whoever it describes can claim it later."
       },
       "ApiProfileAssetUploadIntentCreateRequest": {
         "type": "object",

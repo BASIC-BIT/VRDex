@@ -81,7 +81,11 @@ function assertAuthenticatedReadSecuritySchemes(value: unknown) {
   ]);
 }
 
-function assertEventWriteSecuritySchemes(value: unknown) {
+function isWriteToolName(name: string | undefined) {
+  return name !== undefined && /^vrdex_(event|profile)_(create|update|submit)$/.test(name);
+}
+
+function assertWriteSecuritySchemes(value: unknown, resourceScope: string) {
   assert.equal(typeof value, "object");
   assert.notEqual(value, null);
 
@@ -93,7 +97,7 @@ function assertEventWriteSecuritySchemes(value: unknown) {
   };
 
   assert.deepEqual(metadata.securitySchemes, [
-    { scopes: ["mcp:write", "events:write"], type: "oauth2" },
+    { scopes: ["mcp:write", resourceScope], type: "oauth2" },
   ]);
 }
 
@@ -272,8 +276,52 @@ describe("VRDex MCP server", () => {
 
     assert.equal(tools.every((tool) => !hasLegacySchemaId(tool.outputSchema)), true);
 
-    for (const tool of tools) {
+    for (const tool of tools.filter((candidate) => !isWriteToolName(candidate.name))) {
       assertPublicReadSecuritySchemes(tool._meta);
+    }
+  });
+
+  it("advertises every write tool, scoped to the resource it writes", () => {
+    const output = runMcpProbe(`
+      import { createVrdexMcpHandler } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+
+      const handler = createVrdexMcpHandler();
+      const response = await handler.fetch(new Request("http://localhost:3000/mcp", {
+        method: "POST",
+        headers: {
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 4,
+          method: "tools/list",
+          params: {},
+        }),
+      }));
+
+      console.log(response.status);
+      console.log(await response.text());
+    `);
+    const tools = (jsonBodyFromProbe(output).result?.tools ?? []);
+    const writeTools = tools.filter((tool) => isWriteToolName(tool.name));
+
+    // No deployment switch: the write tools are always listed, and the harness
+    // connecting decides which of them it exposes.
+    assert.deepEqual(writeTools.map((tool) => tool.name), [
+      "vrdex_event_create",
+      "vrdex_event_update",
+      "vrdex_profile_update",
+      "vrdex_profile_submit",
+    ]);
+
+    // Per resource, not one blanket write scope: a token that may set a DJ's
+    // links must not thereby be able to publish events under their name.
+    for (const tool of writeTools) {
+      assertWriteSecuritySchemes(
+        tool._meta,
+        tool.name.startsWith("vrdex_event_") ? "events:write" : "profile:write",
+      );
     }
   });
 
@@ -301,55 +349,13 @@ describe("VRDex MCP server", () => {
     `);
     const body = jsonBodyFromProbe(output);
     const tools = body.result?.tools ?? [];
+    const readTools = tools.filter((tool) => !isWriteToolName(tool.name));
 
     assert.match(output, /^200/m);
-    assert.equal(tools.length, 8);
+    assert.equal(readTools.length, 8);
 
-    for (const tool of tools) {
+    for (const tool of readTools) {
       assertAuthenticatedReadSecuritySchemes(tool._meta);
-    }
-  });
-
-  it("keeps hosted event writes default-off and advertises scoped tools only when enabled", () => {
-    const output = runMcpProbe(`
-      import { createVrdexMcpHandler } from "./apps/web/src/lib/server/vrdex-mcp.ts";
-
-      async function list(eventWrites) {
-        const handler = createVrdexMcpHandler({ eventWrites });
-        const response = await handler.fetch(new Request("http://localhost:3000/mcp", {
-          method: "POST",
-          headers: {
-            accept: "application/json, text/event-stream",
-            "content-type": "application/json",
-          },
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            id: eventWrites ? 4 : 3,
-            method: "tools/list",
-            params: {},
-          }),
-        }));
-
-        return await response.text();
-      }
-
-      console.log(JSON.stringify({
-        disabled: await list(false),
-        enabled: await list(true),
-      }));
-    `);
-    const result = JSON.parse(output) as { disabled: string; enabled: string };
-    const disabled = jsonBodyFromProbe(`ignored\n${result.disabled}`);
-    const enabled = jsonBodyFromProbe(`ignored\n${result.enabled}`);
-    const disabledTools = disabled.result?.tools ?? [];
-    const enabledTools = enabled.result?.tools ?? [];
-
-    assert.equal(disabledTools.length, 8);
-    assert.equal(disabledTools.some((tool) => tool.name === "vrdex_event_create"), false);
-    assert.equal(enabledTools.length, 10);
-
-    for (const tool of enabledTools.filter((candidate) => candidate.name?.startsWith("vrdex_event_"))) {
-      assertEventWriteSecuritySchemes(tool._meta);
     }
   });
 
@@ -357,7 +363,6 @@ describe("VRDex MCP server", () => {
     const output = runMcpProbe(`
       import { authorizeHostedMcpRequest } from "./apps/web/src/lib/server/vrdex-mcp.ts";
 
-      process.env.VRDEX_HOSTED_MCP_EVENT_WRITES = "true";
       const authorization = await authorizeHostedMcpRequest(new Request("https://app.example.test/mcp", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -379,7 +384,7 @@ describe("VRDex MCP server", () => {
 
     assert.match(output, /^401/m);
     assert.match(output, /scope="mcp:write events:write"/);
-    assert.match(output, /OAuth bearer token is required for hosted MCP event writes/);
+    assert.match(output, /OAuth bearer token is required for hosted MCP writes/);
   });
 
   it("offers an explicit OAuth bootstrap without disabling canonical anonymous reads", () => {
@@ -445,7 +450,6 @@ describe("VRDex MCP server", () => {
       import { authorizeHostedMcpRequest } from "./apps/web/src/lib/server/vrdex-mcp.ts";
 
       const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
-      process.env.VRDEX_HOSTED_MCP_EVENT_WRITES = "true";
       process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY =
         privateKey.export({ format: "pem", type: "pkcs8" }).toString();
       process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID = "test-key";
@@ -493,7 +497,6 @@ describe("VRDex MCP server", () => {
       import { authorizeHostedMcpRequest } from "./apps/web/src/lib/server/vrdex-mcp.ts";
 
       const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
-      process.env.VRDEX_HOSTED_MCP_EVENT_WRITES = "true";
       process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY =
         privateKey.export({ format: "pem", type: "pkcs8" }).toString();
       process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID = "test-key";
@@ -541,14 +544,13 @@ describe("VRDex MCP server", () => {
     assert.match(output, /scope="mcp:read mcp:write events:write"/);
   });
 
-  it("rejects authenticated batches containing multiple hosted event writes", () => {
+  it("rejects authenticated batches containing multiple hosted writes", () => {
     const output = runMcpProbe(`
       import { generateKeyPairSync } from "node:crypto";
       import { createOAuthAccessTokenId, signOAuthAccessToken } from "./apps/web/src/lib/server/oauth-jwt.ts";
       import { authorizeHostedMcpRequest } from "./apps/web/src/lib/server/vrdex-mcp.ts";
 
       const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
-      process.env.VRDEX_HOSTED_MCP_EVENT_WRITES = "true";
       process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY =
         privateKey.export({ format: "pem", type: "pkcs8" }).toString();
       process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID = "test-key";
@@ -610,7 +612,7 @@ describe("VRDex MCP server", () => {
     `);
 
     assert.match(output, /^400/m);
-    assert.match(output, /MCP batches may contain at most one hosted event write/);
+    assert.match(output, /MCP batches may contain at most one hosted write/);
   });
 
   it("rejects declared oversized MCP bodies before parsing", () => {
@@ -660,7 +662,6 @@ describe("VRDex MCP server", () => {
       } from "./apps/web/src/lib/server/vrdex-mcp.ts";
 
       const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
-      process.env.VRDEX_HOSTED_MCP_EVENT_WRITES = "true";
       process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY =
         privateKey.export({ format: "pem", type: "pkcs8" }).toString();
       process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID = "test-key";
@@ -761,7 +762,6 @@ describe("VRDex MCP server", () => {
       } from "./apps/web/src/lib/server/vrdex-mcp.ts";
 
       const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
-      process.env.VRDEX_HOSTED_MCP_EVENT_WRITES = "true";
       process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY =
         privateKey.export({ format: "pem", type: "pkcs8" }).toString();
       process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID = "test-key";
@@ -1088,7 +1088,7 @@ describe("VRDex MCP server", () => {
         authInfo,
         adminConvex: {
           mutation: async () => {
-            throw new ConvexError({ code: "MCP_EVENT_WRITE_DENIED" });
+            throw new ConvexError({ code: "MCP_WRITE_DENIED" });
           },
         },
       }), 9);

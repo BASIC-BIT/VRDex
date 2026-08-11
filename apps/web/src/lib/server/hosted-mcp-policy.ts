@@ -1,41 +1,19 @@
-import type { ApiScope } from "@vrdex/api-contracts";
+import { dynamicMcpWriteScopes, type ApiScope } from "@vrdex/api-contracts";
 
 export const hostedMcpReadScopes = ["mcp:read"] as const satisfies readonly ApiScope[];
-export const hostedMcpEventWriteScopes = ["mcp:write", "events:write"] as const satisfies readonly ApiScope[];
-
-export function hostedMcpEventWritesEnabled(
-  value = process.env.VRDEX_HOSTED_MCP_EVENT_WRITES,
-) {
-  const normalized = value?.trim().toLowerCase();
-
-  if (normalized === undefined || normalized === "" || normalized === "0" || normalized === "false" || normalized === "no") {
-    return false;
-  }
-
-  if (normalized === "1" || normalized === "true" || normalized === "yes") {
-    return true;
-  }
-
-  throw new Error("VRDEX_HOSTED_MCP_EVENT_WRITES must be true or false when set.");
-}
+/**
+ * Every write scope a hosted MCP session can hold.
+ *
+ * There is deliberately no deployment switch in front of this. A gate here
+ * decided for every client what its operator was better placed to decide: the
+ * tools are advertised, and the harness connecting picks which of them it will
+ * expose or call. Self-hosters who want a read-only deployment still have
+ * `VRDEX_HOSTED_MCP_ANONYMOUS_READS`, and every write remains bounded by the
+ * scopes the user actually granted plus the per-profile permission checks the
+ * browser path enforces.
+ */
+export const hostedMcpWriteScopes = dynamicMcpWriteScopes;
 
 export function hostedMcpScopesAllowedForDynamicClient() {
-  return hostedMcpEventWritesEnabled()
-    ? [...hostedMcpReadScopes, ...hostedMcpEventWriteScopes]
-    : [...hostedMcpReadScopes];
-}
-
-export function requestUsesHostedMcpEventWriteScopes(scopes: readonly string[]) {
-  return hostedMcpEventWriteScopes.some((scope) => scopes.includes(scope));
-}
-
-export function hostedMcpEventWriteGrantAllowed(args: {
-  eventWritesEnabled?: boolean;
-  mcpResource: string;
-  requestedScopes: readonly string[];
-  resource: string;
-}) {
-  return args.resource !== args.mcpResource
-    || !requestUsesHostedMcpEventWriteScopes(args.requestedScopes)
-    || (args.eventWritesEnabled ?? hostedMcpEventWritesEnabled());
+  return [...hostedMcpReadScopes, ...hostedMcpWriteScopes];
 }

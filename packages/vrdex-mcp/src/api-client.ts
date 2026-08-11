@@ -3,6 +3,9 @@ import {
   ApiEventCreateRequestSchema,
   ApiEventUpdateRequestSchema,
   ApiEventWriteResponseSchema,
+  ApiProfileSubmitRequestSchema,
+  ApiProfileUpdateRequestSchema,
+  ApiProfileWriteResponseSchema,
   PublicActiveWorldsResponseSchema,
   PublicEventSchema,
   PublicEventsResponseSchema,
@@ -17,6 +20,8 @@ export type VrdexSearchType = "all" | "person" | "community" | "profile" | "worl
 export type VrdexProfileType = "person" | "community";
 export type VrdexEventCreateInput = z.infer<typeof ApiEventCreateRequestSchema>;
 export type VrdexEventUpdateInput = z.infer<typeof ApiEventUpdateRequestSchema>;
+export type VrdexProfileSubmitInput = z.infer<typeof ApiProfileSubmitRequestSchema>;
+export type VrdexProfileUpdateInput = z.infer<typeof ApiProfileUpdateRequestSchema>;
 
 export type VrdexApiSuccess<T> = {
   data: T;
@@ -206,9 +211,21 @@ export function createVrdexApiClient(options: ApiClientOptions) {
         type: input.type,
       });
     },
+    submitProfile(input: VrdexProfileSubmitInput) {
+      return request(ApiProfileWriteResponseSchema, "profiles", {
+        body: ApiProfileSubmitRequestSchema.parse(input),
+        method: "POST",
+      });
+    },
     updateEvent(slug: string, input: VrdexEventUpdateInput) {
       return request(ApiEventWriteResponseSchema, `events/${encodeURIComponent(slug)}`, {
         body: ApiEventUpdateRequestSchema.parse(input),
+        method: "PATCH",
+      });
+    },
+    updateProfile(slug: string, input: VrdexProfileUpdateInput) {
+      return request(ApiProfileWriteResponseSchema, `profiles/${encodeURIComponent(slug)}`, {
+        body: ApiProfileUpdateRequestSchema.parse(input),
         method: "PATCH",
       });
     },

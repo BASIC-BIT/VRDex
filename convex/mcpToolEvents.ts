@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 
 import { internalMutation } from "./_generated/server";
+import { mcpWriteToolNameValidator } from "./_apiWriteAuditEvents";
 import {
   mcpToolEventResultValidator,
   mcpToolEventRouteClassValidator,
@@ -41,10 +42,8 @@ export const recordWriteInvocation = internalMutation({
     requestId: v.string(),
     result: mcpToolEventResultValidator,
     targetEventId: v.optional(v.id("events")),
-    toolName: v.union(
-      v.literal("vrdex_event_create"),
-      v.literal("vrdex_event_update"),
-    ),
+    targetProfileId: v.optional(v.id("profiles")),
+    toolName: mcpWriteToolNameValidator,
   },
   handler: async (ctx, args) => {
     await ctx.db.insert("mcpToolEvents", {
@@ -58,6 +57,7 @@ export const recordWriteInvocation = internalMutation({
       requestId: args.requestId,
       idempotencyKeyHash: args.idempotencyKeyHash,
       ...(args.targetEventId === undefined ? {} : { targetEventId: args.targetEventId }),
+      ...(args.targetProfileId === undefined ? {} : { targetProfileId: args.targetProfileId }),
       createdAt: Date.now(),
     });
 

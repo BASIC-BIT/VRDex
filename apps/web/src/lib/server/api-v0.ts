@@ -491,8 +491,8 @@ export async function evaluateOptionalApiBearerRequest(
   };
 }
 
-export function apiJson(schema: ApiResponseSchema, value: unknown) {
-  return NextResponse.json(schema.parse(value));
+export function apiJson(schema: ApiResponseSchema, value: unknown, init?: { status?: number }) {
+  return NextResponse.json(schema.parse(value), init);
 }
 
 export function apiProblemResponse(problem: unknown) {

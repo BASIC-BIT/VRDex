@@ -51,13 +51,15 @@ const localReadTools = [
   "vrdex_get_world",
   "vrdex_list_active_worlds",
 ];
-const localExpectedTools = [
-  ...localReadTools,
-  "vrdex_event_create",
-  "vrdex_event_update",
-];
+const writeToolResourceScopes: Record<string, string> = {
+  vrdex_event_create: "events:write",
+  vrdex_event_update: "events:write",
+  vrdex_profile_update: "profile:write",
+  vrdex_profile_submit: "profile:write",
+};
+const writeToolNames = Object.keys(writeToolResourceScopes);
+const localExpectedTools = [...localReadTools, ...writeToolNames];
 const hostedExpectedTools = ["search", "fetch", ...localReadTools];
-const hostedEventWriteTools = new Set(["vrdex_event_create", "vrdex_event_update"]);
 
 function assertHostedToolSecuritySchemes(tool: HostedToolDescriptor) {
   assert.equal(typeof tool._meta, "object", `Hosted tool ${String(tool.name)} is missing _meta.`);
@@ -67,11 +69,13 @@ function assertHostedToolSecuritySchemes(tool: HostedToolDescriptor) {
     securitySchemes?: unknown;
   };
 
-  if (hostedEventWriteTools.has(String(tool.name))) {
+  const resourceScope = writeToolResourceScopes[String(tool.name)];
+
+  if (resourceScope !== undefined) {
     assert.deepEqual(
       metadata.securitySchemes,
-      [{ scopes: ["mcp:write", "events:write"], type: "oauth2" }],
-      `Hosted tool ${String(tool.name)} is missing event-write auth metadata.`,
+      [{ scopes: ["mcp:write", resourceScope], type: "oauth2" }],
+      `Hosted tool ${String(tool.name)} is missing write auth metadata.`,
     );
   } else {
     assert.deepEqual(
@@ -920,7 +924,7 @@ async function smokeHostedHttp(results: SmokeResult[], options: SmokeOptions) {
   }
 
   const listedToolNames = new Set((listedTools ?? []).map((tool) => String(tool.name)));
-  const eventWritesListed = [...hostedEventWriteTools].every((toolName) => listedToolNames.has(toolName));
+  const eventWritesListed = writeToolNames.every((toolName) => listedToolNames.has(toolName));
 
   const anonymousSearch = await postMcpJsonRpc(url, {
     jsonrpc: "2.0",

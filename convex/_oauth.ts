@@ -119,7 +119,10 @@ const oauthGrantTypes = new Set<OAuthGrantType>([
 ]);
 const oauthResponseTypes = new Set<OAuthResponseType>(["code"]);
 const dynamicMcpReadScopes = new Set<ApiScope>(["public:read", "mcp:read"]);
-const dynamicMcpEventWriteScopes = new Set<ApiScope>(["mcp:write", "events:write"]);
+// Mirrors `dynamicMcpResourceWriteScopes` / `dynamicMcpWriteScopes` in
+// @vrdex/api-contracts, which Convex functions cannot import. Keep both in step.
+const dynamicMcpResourceWriteScopes = new Set<ApiScope>(["events:write", "profile:write"]);
+const dynamicMcpWriteScopes = new Set<ApiScope>(["mcp:write", ...dynamicMcpResourceWriteScopes]);
 const clientMetadataDocumentMaxLength = 2048;
 const clientIdPattern = /^vrdx_app_[0-9a-f]{24}$/;
 const secretPrefixPattern = /^vrdx_secret_[0-9a-f]{16}$/;
@@ -459,38 +462,35 @@ export function normalizeOAuthSoftwareValue(value: string | undefined, label: st
   return normalized;
 }
 
-export function normalizeDynamicMcpScopes(
-  scopes: readonly string[] | undefined,
-  options: { allowEventWrites?: boolean } = {},
-) {
+export function normalizeDynamicMcpScopes(scopes: readonly string[] | undefined) {
   const normalizedScopes = normalizeOAuthScopes(scopes ?? ["public:read", "mcp:read"]);
   const unsupportedScopes = normalizedScopes.filter(
-    (scope) =>
-      !dynamicMcpReadScopes.has(scope)
-      && !(options.allowEventWrites === true && dynamicMcpEventWriteScopes.has(scope)),
+    (scope) => !dynamicMcpReadScopes.has(scope) && !dynamicMcpWriteScopes.has(scope),
   );
 
   if (unsupportedScopes.length > 0) {
-    const supportedScopes = options.allowEventWrites === true
-      ? "public:read, mcp:read, mcp:write, and events:write"
-      : "public:read and mcp:read";
-
-    throw new Error(`Dynamic MCP clients can only request ${supportedScopes}.`);
+    throw new Error(
+      "Dynamic MCP clients can only request public:read, mcp:read, mcp:write, events:write, and profile:write.",
+    );
   }
 
-  const writeScopesRequested = normalizedScopes.some((scope) =>
-    dynamicMcpEventWriteScopes.has(scope)
-  );
-  const completeWriteScopePair = [...dynamicMcpEventWriteScopes].every((scope) =>
-    normalizedScopes.includes(scope)
-  );
+  const writeScopesRequested = normalizedScopes.some((scope) => dynamicMcpWriteScopes.has(scope));
+  // `mcp:write` plus at least one resource. Either half alone is incoherent: the
+  // transport scope with nothing to write reaches no tool, and a resource scope
+  // without it cannot open a hosted write session to use.
+  const completeWriteScopes = normalizedScopes.includes("mcp:write")
+    && [...dynamicMcpResourceWriteScopes].some((scope) => normalizedScopes.includes(scope));
 
-  if (writeScopesRequested && !completeWriteScopePair) {
-    throw new Error("Dynamic MCP event-write clients must request both mcp:write and events:write.");
+  if (writeScopesRequested && !completeWriteScopes) {
+    throw new Error(
+      "Dynamic MCP write clients must request mcp:write and at least one of events:write or profile:write.",
+    );
   }
 
-  if (!normalizedScopes.includes("mcp:read") && !completeWriteScopePair) {
-    throw new Error("Dynamic MCP clients must request mcp:read or both mcp:write and events:write.");
+  if (!normalizedScopes.includes("mcp:read") && !completeWriteScopes) {
+    throw new Error(
+      "Dynamic MCP clients must request mcp:read, or mcp:write with at least one of events:write or profile:write.",
+    );
   }
 
   return normalizedScopes;

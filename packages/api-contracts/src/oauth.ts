@@ -16,7 +16,16 @@ export const oauthDynamicClientStatuses = ["active", "revoked", "promoted"] as c
 export const oauthResponseTypes = ["code"] as const;
 export const oauthTokenEndpointAuthMethods = ["none"] as const;
 export const dynamicMcpClientScopes = ["public:read", "mcp:read"] as const;
-export const dynamicMcpEventWriteScopes = ["mcp:write", "events:write"] as const;
+/**
+ * The resources a dynamic MCP client may write.
+ *
+ * `mcp:write` is the transport half and grants nothing on its own -- it says a
+ * hosted MCP session may call write tools at all, not which ones. A client pairs
+ * it with the resource it actually intends to write, so a set-link agent asks
+ * for `profile:write` without also being handed the ability to publish events.
+ */
+export const dynamicMcpResourceWriteScopes = ["events:write", "profile:write"] as const;
+export const dynamicMcpWriteScopes = ["mcp:write", ...dynamicMcpResourceWriteScopes] as const;
 export const OAUTH_CONSENT_TRANSACTION_TTL_MS = 30 * 60 * 1000;
 
 export type OAuthClientType = (typeof oauthClientTypes)[number];
@@ -375,11 +384,7 @@ function optionalString(value: unknown, label: string) {
   return value;
 }
 
-function allowedDynamicMcpScopes(allowEventWrites: boolean) {
-  return allowEventWrites
-    ? [...dynamicMcpClientScopes, ...dynamicMcpEventWriteScopes]
-    : [...dynamicMcpClientScopes];
-}
+const allowedDynamicMcpScopes = [...dynamicMcpClientScopes, ...dynamicMcpWriteScopes];
 
 function scopeValues(value: unknown) {
   if (value === undefined || value === null || value === "") {
@@ -396,7 +401,6 @@ function scopeValues(value: unknown) {
 export function normalizeDynamicMcpClientRegistration(
   input: Record<string, unknown>,
   options: {
-    allowEventWrites?: boolean;
     discardKnownNonMcpScopes?: boolean;
   } = {},
 ): DynamicMcpClientRegistration {
@@ -409,12 +413,9 @@ export function normalizeDynamicMcpClientRegistration(
   const tokenEndpointAuthMethod = normalizeOAuthTokenEndpointAuthMethod(
     optionalString(input.token_endpoint_auth_method, "token_endpoint_auth_method"),
   );
-  const supportedScopes = allowedDynamicMcpScopes(options.allowEventWrites === true);
+  const supportedScopes = allowedDynamicMcpScopes;
   const supportedScopeSet = new Set<ApiScope>(supportedScopes);
-  const recognizedMcpScopeSet = new Set<ApiScope>([
-    ...dynamicMcpClientScopes,
-    ...dynamicMcpEventWriteScopes,
-  ]);
+  const recognizedMcpScopeSet = supportedScopeSet;
   const requestedScopeValues = scopeValues(input.scope);
   const requestedScopes = options.discardKnownNonMcpScopes === true
     ? [...new Set(requestedScopeValues)].map((scope) => {
@@ -440,18 +441,24 @@ export function normalizeDynamicMcpClientRegistration(
 
   const allowedScopes = requestedMcpScopes;
   const writeScopesRequested = allowedScopes.some((scope) =>
-    (dynamicMcpEventWriteScopes as readonly ApiScope[]).includes(scope)
+    (dynamicMcpWriteScopes as readonly ApiScope[]).includes(scope)
   );
-  const completeWriteScopePair = dynamicMcpEventWriteScopes.every((scope) =>
-    allowedScopes.includes(scope)
-  );
+  // `mcp:write` plus at least one resource. Either half alone is incoherent: the
+  // transport scope with nothing to write reaches no tool, and a resource scope
+  // without it cannot open a hosted write session to use.
+  const completeWriteScopes = allowedScopes.includes("mcp:write")
+    && dynamicMcpResourceWriteScopes.some((scope) => allowedScopes.includes(scope));
 
-  if (writeScopesRequested && !completeWriteScopePair) {
-    throw new Error("Dynamic MCP event-write clients must request both mcp:write and events:write.");
+  if (writeScopesRequested && !completeWriteScopes) {
+    throw new Error(
+      "Dynamic MCP write clients must request mcp:write and at least one of events:write or profile:write.",
+    );
   }
 
-  if (!allowedScopes.includes("mcp:read") && !completeWriteScopePair) {
-    throw new Error("Dynamic MCP clients must request mcp:read or both mcp:write and events:write.");
+  if (!allowedScopes.includes("mcp:read") && !completeWriteScopes) {
+    throw new Error(
+      "Dynamic MCP clients must request mcp:read, or mcp:write with at least one of events:write or profile:write.",
+    );
   }
 
   if (!grantTypes.includes("authorization_code")) {

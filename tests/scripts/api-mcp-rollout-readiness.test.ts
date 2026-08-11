@@ -282,20 +282,19 @@ describe("API/MCP rollout readiness checker", () => {
     assert.doesNotMatch(baselineChecks, /Hosted MCP Preview Smoke/);
   });
 
-  it("keeps hosted MCP event writes explicit and staging-only", async () => {
-    const workflow = await readFile(".github/workflows/staging-deploy.yml", "utf8");
-
-    assert.match(workflow, /hosted_mcp_event_writes:/);
-    assert.match(workflow, /type: boolean/);
-    assert.match(workflow, /default: false/);
-    assert.match(
-      workflow,
-      /VRDEX_HOSTED_MCP_EVENT_WRITES: \$\{\{ inputs\.hosted_mcp_event_writes \|\| 'false' \}\}/,
-    );
-    assert.match(workflow, /--env "VRDEX_HOSTED_MCP_EVENT_WRITES=\$VRDEX_HOSTED_MCP_EVENT_WRITES"/);
-
-    const baseline = await readFile(".github/workflows/baseline-checks.yml", "utf8");
-    assert.doesNotMatch(baseline, /VRDEX_HOSTED_MCP_EVENT_WRITES=true/);
+  it("carries no deployment switch for hosted MCP writes", async () => {
+    // Every hosted write tool ships on, and the connecting harness decides which
+    // it exposes. A switch reintroduced in any of these would silently strand
+    // write clients on whichever environment forgot to set it.
+    for (
+      const path of [
+        ".github/workflows/staging-deploy.yml",
+        ".github/workflows/baseline-checks.yml",
+        "apps/web/.env.example",
+      ]
+    ) {
+      assert.doesNotMatch(await readFile(path, "utf8"), /HOSTED_MCP_EVENT_WRITES/);
+    }
   });
 
   it("requires external evidence to match the selected hosted target and revision", async () => {

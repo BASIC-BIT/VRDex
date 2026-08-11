@@ -33,7 +33,6 @@ describe("OAuth dynamic client authorization", () => {
       tokenEndpointAuthMethod: "none",
       contacts: [],
       allowedScopes: [...scopes],
-      allowEventWrites: true,
       resource,
     });
 
@@ -66,7 +65,6 @@ describe("OAuth dynamic client authorization", () => {
       tokenEndpointAuthMethod: "none",
       contacts: [],
       allowedScopes: ["mcp:read", "mcp:write", "events:write"],
-      allowEventWrites: true,
       resource,
     });
 
@@ -100,7 +98,6 @@ describe("OAuth dynamic client authorization", () => {
       tokenEndpointAuthMethod: "none",
       contacts: [],
       allowedScopes: [...scopes],
-      allowEventWrites: true,
       resource,
     });
 

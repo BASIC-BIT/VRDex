@@ -24,11 +24,13 @@ import {
   recordApiWriteAuditEvent,
 } from "./_apiWriteAuditEvents";
 import {
-  findMcpEventWriteReceipt,
+  findMcpWriteReceipt,
+  requireMcpAttributionText,
   type McpEventWriteResult,
-  recordMcpEventWriteReceipt,
+  mcpWriteAttributionArgs,
+  recordMcpWriteReceipt,
   requireSha256Hex,
-} from "./_mcpEventWriteReceipts";
+} from "./_mcpWriteReceipts";
 import { normalizeOAuthClientId } from "./_oauth";
 import {
   eventMediaCommandTypeValidator,
@@ -166,15 +168,6 @@ const eventDraftUpdateArgs = {
   posterImageUrl: v.optional(v.union(v.string(), v.null())),
   bannerImageUrl: v.optional(v.union(v.string(), v.null())),
   thumbnailImageUrl: v.optional(v.union(v.string(), v.null())),
-};
-
-const mcpEventWriteAttributionArgs = {
-  ownerUserId: v.id("users"),
-  oauthClientId: v.string(),
-  oauthTokenId: v.string(),
-  requestId: v.string(),
-  idempotencyKeyHash: v.string(),
-  requestFingerprint: v.string(),
 };
 
 const vrcdnOutputSetupArgs = {
@@ -716,16 +709,6 @@ async function requireApiOwnedPublishedCommunity(
   }
 
   return community;
-}
-
-function requireMcpAttributionText(input: string, fieldName: string, maxLength: number) {
-  const value = input.trim();
-
-  if (value.length === 0 || value.length > maxLength) {
-    throw new Error(`${fieldName} must be between 1 and ${maxLength} characters.`);
-  }
-
-  return value;
 }
 
 async function createCommunityEventForApiOwnerRecord(
@@ -1991,7 +1974,7 @@ export const createCommunityEventForApiOwner = internalMutation({
 
 export const createCommunityEventForMcpOwner = internalMutation({
   args: {
-    ...mcpEventWriteAttributionArgs,
+    ...mcpWriteAttributionArgs,
     ...eventDraftArgs,
   },
   handler: async (ctx, args) => {
@@ -2001,7 +1984,7 @@ export const createCommunityEventForMcpOwner = internalMutation({
     const idempotencyKeyHash = requireSha256Hex(args.idempotencyKeyHash, "Idempotency key hash");
     const requestFingerprint = requireSha256Hex(args.requestFingerprint, "Request fingerprint");
     const toolName = "vrdex_event_create" as const;
-    const existing = await findMcpEventWriteReceipt(ctx.db, {
+    const existing = await findMcpWriteReceipt(ctx.db, {
       ownerUserId: args.ownerUserId,
       oauthClientId,
       toolName,
@@ -2010,7 +1993,7 @@ export const createCommunityEventForMcpOwner = internalMutation({
     });
 
     if (existing !== null) {
-      return existing.result;
+      return existing.result as McpEventWriteResult;
     }
 
     let community: Doc<"profiles">;
@@ -2022,7 +2005,7 @@ export const createCommunityEventForMcpOwner = internalMutation({
         args,
       ));
     } catch {
-      throw new ConvexError({ code: "MCP_EVENT_WRITE_DENIED" });
+      throw new ConvexError({ code: "MCP_WRITE_DENIED" });
     }
     const now = Date.now();
     await recordApiWriteAuditEvent(ctx.db, {
@@ -2040,7 +2023,7 @@ export const createCommunityEventForMcpOwner = internalMutation({
       idempotencyKeyHash,
       now,
     });
-    await recordMcpEventWriteReceipt(ctx.db, {
+    await recordMcpWriteReceipt(ctx.db, {
       ownerUserId: args.ownerUserId,
       oauthClientId,
       toolName,
@@ -2083,7 +2066,7 @@ export const updateCommunityEventForApiOwner = internalMutation({
 
 export const updateCommunityEventForMcpOwner = internalMutation({
   args: {
-    ...mcpEventWriteAttributionArgs,
+    ...mcpWriteAttributionArgs,
     currentSlug: v.string(),
     ...eventDraftUpdateArgs,
   },
@@ -2094,7 +2077,7 @@ export const updateCommunityEventForMcpOwner = internalMutation({
     const idempotencyKeyHash = requireSha256Hex(args.idempotencyKeyHash, "Idempotency key hash");
     const requestFingerprint = requireSha256Hex(args.requestFingerprint, "Request fingerprint");
     const toolName = "vrdex_event_update" as const;
-    const existing = await findMcpEventWriteReceipt(ctx.db, {
+    const existing = await findMcpWriteReceipt(ctx.db, {
       ownerUserId: args.ownerUserId,
       oauthClientId,
       toolName,
@@ -2103,7 +2086,7 @@ export const updateCommunityEventForMcpOwner = internalMutation({
     });
 
     if (existing !== null) {
-      return existing.result;
+      return existing.result as McpEventWriteResult;
     }
 
     let community: Doc<"profiles">;
@@ -2116,7 +2099,7 @@ export const updateCommunityEventForMcpOwner = internalMutation({
         args,
       ));
     } catch {
-      throw new ConvexError({ code: "MCP_EVENT_WRITE_DENIED" });
+      throw new ConvexError({ code: "MCP_WRITE_DENIED" });
     }
     const now = Date.now();
     await recordApiWriteAuditEvent(ctx.db, {
@@ -2134,7 +2117,7 @@ export const updateCommunityEventForMcpOwner = internalMutation({
       idempotencyKeyHash,
       now,
     });
-    await recordMcpEventWriteReceipt(ctx.db, {
+    await recordMcpWriteReceipt(ctx.db, {
       ownerUserId: args.ownerUserId,
       oauthClientId,
       toolName,

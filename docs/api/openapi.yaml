@@ -685,9 +685,9 @@ paths:
       operationId: updateCurrentUserProfile
       tags:
         - Profiles
-      summary: Update a current user's profile
-      description: Updates owner-editable metadata for a claimed profile owned by a bearer credential with user authority and profile:write scope.
-      security:
+      summary: Update a profile
+      description: Updates editable metadata, including outbound links, for a profile owned by a bearer credential with user authority and profile:write scope, or for an unclaimed profile as a community correction. Sending outboundLinks replaces the whole list.
+      security: &a6
         - bearerAuth: []
         - oauth2:
             - profile:write
@@ -727,13 +727,53 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiProblem"
         "403":
-          description: The bearer credential lacks profile:write scope, user authority, ownership, or claimed-owner field permission.
+          description: The bearer credential lacks profile:write scope or user authority, the profile is claimed by someone else, or the submitted fields are not editable by this writer.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiProblem"
         "404":
           description: The profile was not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "429": *a1
+  /api/v0/profiles:
+    post:
+      operationId: submitCommunityProfile
+      tags:
+        - Profiles
+      summary: Submit a community-sourced profile
+      description: Creates a profile for a person or community that has none. It publishes immediately as unclaimed and credited to the submitter, and whoever it describes can claim it later. Requires a bearer credential with user authority and profile:write scope.
+      security: *a6
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApiProfileSubmitRequest"
+      responses:
+        "201":
+          description: Created profile identifiers and public path.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProfileWriteResponse"
+        "400":
+          description: The profile submission was malformed, or the identity has asked not to be listed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "401":
+          description: Bearer authentication is required or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "403":
+          description: The bearer credential lacks profile:write scope or user authority.
           content:
             application/json:
               schema:
@@ -795,15 +835,15 @@ paths:
           description: The stored public profile asset file.
           content:
             image/png:
-              schema: &a6
+              schema: &a7
                 type: string
                 format: binary
             image/jpeg:
-              schema: *a6
+              schema: *a7
             image/webp:
-              schema: *a6
+              schema: *a7
             image/svg+xml:
-              schema: *a6
+              schema: *a7
         "400": *a2
         "404":
           description: The profile asset or stored object was not found.
@@ -926,7 +966,7 @@ paths:
           description: A ZIP archive containing public profile logos.
           content:
             application/zip:
-              schema: *a6
+              schema: *a7
         "400": *a2
         "404":
           description: The profile, logos, or stored logo objects were not found.
@@ -974,7 +1014,7 @@ paths:
               required:
                 - file
               properties:
-                file: *a6
+                file: *a7
       responses:
         "200":
           description: Completed profile media upload result.
@@ -1068,7 +1108,7 @@ paths:
         - Assets
       summary: Probe profile asset upload storage
       description: Returns deployment health for the profile asset upload storage backend.
-      security: &a9
+      security: &a10
         - bearerAuth: []
         - oauth2:
             - public:read
@@ -1258,7 +1298,7 @@ paths:
         - Events
       summary: Update a current user's community event
       description: Updates a public event attached to a community profile owned by a bearer credential with user authority and events:write scope. Optional fields and relations omitted from the PATCH body are preserved.
-      security: &a7
+      security: &a8
         - bearerAuth: []
         - oauth2:
             - events:write
@@ -1317,7 +1357,7 @@ paths:
         - Events
       summary: Create a current user's community event
       description: Creates a public event attached to a community profile owned by a bearer credential with user authority and events:write scope.
-      security: *a7
+      security: *a8
       requestBody:
         required: true
         content:
@@ -1485,7 +1525,7 @@ paths:
         - Time
       summary: Parse a natural-language time expression
       description: Returns a canonical instant, range, clarification, or a 202 continuation while the scale-to-zero model warms. Closed beta requires a verified user-owned personal token with time:parse.
-      security: &a8
+      security: &a9
         - bearerAuth: []
       parameters:
         - in: header
@@ -2068,7 +2108,7 @@ paths:
       tags:
         - Time
       summary: Get an accepted temporal parse
-      security: *a8
+      security: *a9
       parameters:
         - in: path
           name: continuationToken
@@ -2611,7 +2651,7 @@ paths:
         - Usage
       summary: Get API and MCP rate-limit policy information
       description: Returns the default route-class policy table and the current request's effective API rate-limit window.
-      security: *a9
+      security: *a10
       responses:
         "200":
           description: Rate-limit policy and current caller window.
@@ -2879,7 +2919,7 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ApiProfileLinkInput"
-      description: Update owner-editable metadata for a claimed profile owned by the current authenticated API user.
+      description: Update editable metadata for a profile the current authenticated API user owns, or for an unclaimed profile as a community correction.
     ApiProfileLinkInput:
       type: object
       properties:
@@ -2931,6 +2971,61 @@ components:
         - generic_store
         - other
       description: Outbound profile link provider.
+    ApiProfileSubmitRequest:
+      type: object
+      properties:
+        profileType:
+          type: string
+          enum:
+            - person
+            - community
+          description: The public profile entity class.
+        displayName:
+          type: string
+          minLength: 2
+          maxLength: 80
+        aliases:
+          maxItems: 8
+          type: array
+          items:
+            type: string
+            maxLength: 60
+        tags:
+          maxItems: 12
+          type: array
+          items:
+            type: string
+            maxLength: 32
+        person:
+          type: object
+          properties:
+            roleTags:
+              maxItems: 12
+              type: array
+              items:
+                type: string
+                maxLength: 32
+        community:
+          type: object
+          properties:
+            subtype:
+              type: string
+              maxLength: 40
+            categoryTags:
+              maxItems: 12
+              type: array
+              items:
+                type: string
+                maxLength: 32
+        outboundLinks:
+          maxItems: 20
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiProfileLinkInput"
+      required:
+        - profileType
+        - displayName
+      description: Create a community-sourced profile. It publishes immediately as unclaimed and credited to the submitter, and whoever it describes can claim it later.
     ApiProfileAssetUploadIntentCreateRequest:
       type: object
       properties:

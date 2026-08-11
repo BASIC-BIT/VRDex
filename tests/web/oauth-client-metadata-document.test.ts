@@ -66,23 +66,34 @@ describe("OAuth client metadata documents", () => {
     const requestDocument = async () => responseWithoutScope();
     const resolveHostname = async () => [{ address: publicAddress }];
 
-    const readOnlyMetadata = await fetchOAuthClientMetadataDocument(clientId, {
-      requestDocument,
-      resolveHostname,
-    });
-    const writeEnabledMetadata = await fetchOAuthClientMetadataDocument(clientId, {
-      allowEventWrites: true,
+    const metadata = await fetchOAuthClientMetadataDocument(clientId, {
       requestDocument,
       resolveHostname,
     });
 
-    assert.deepEqual(readOnlyMetadata.allowedScopes, ["public:read", "mcp:read"]);
-    assert.deepEqual(writeEnabledMetadata.allowedScopes, [
-      "public:read",
-      "mcp:read",
-      "mcp:write",
-      "events:write",
-    ]);
+    // Reads, even though write scopes are available to any client that asks.
+    // A document with no scope field has not asked, and the deployment must not
+    // answer on its author's behalf.
+    assert.deepEqual(metadata.allowedScopes, ["public:read", "mcp:read"]);
+  });
+
+  it("honours a CIMD document that does ask for profile writes", async () => {
+    const requestDocument = async () =>
+      Response.json({
+        client_id: clientId,
+        client_name: "Set Link Agent",
+        redirect_uris: ["http://localhost/callback"],
+        grant_types: ["authorization_code", "refresh_token"],
+        response_types: ["code"],
+        token_endpoint_auth_method: "none",
+        scope: "mcp:read mcp:write profile:write",
+      });
+    const metadata = await fetchOAuthClientMetadataDocument(clientId, {
+      requestDocument,
+      resolveHostname: async () => [{ address: publicAddress }],
+    });
+
+    assert.deepEqual(metadata.allowedScopes, ["mcp:read", "mcp:write", "profile:write"]);
   });
 
   it("pins the first validated address without a second hostname resolution", async () => {

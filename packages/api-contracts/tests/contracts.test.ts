@@ -946,15 +946,22 @@ describe("@vrdex/api-contracts", () => {
       },
     );
     assert.deepEqual(
-      normalizeDynamicMcpClientRegistration(
-        {
-          client_name: "Write MCP",
-          redirect_uris: ["http://localhost:3333/callback"],
-          scope: "mcp:write events:write",
-        },
-        { allowEventWrites: true },
-      ).allowedScopes,
+      normalizeDynamicMcpClientRegistration({
+        client_name: "Write MCP",
+        redirect_uris: ["http://localhost:3333/callback"],
+        scope: "mcp:write events:write",
+      }).allowedScopes,
       ["mcp:write", "events:write"],
+    );
+    // Profile writes without event writes: a set-link agent has no business
+    // publishing events, and the scope pair rule must let it say so.
+    assert.deepEqual(
+      normalizeDynamicMcpClientRegistration({
+        client_name: "Profile Write MCP",
+        redirect_uris: ["http://localhost:3333/callback"],
+        scope: "mcp:read mcp:write profile:write",
+      }).allowedScopes,
+      ["mcp:read", "mcp:write", "profile:write"],
     );
     assert.deepEqual(
       normalizeDynamicMcpClientRegistration(
@@ -963,10 +970,7 @@ describe("@vrdex/api-contracts", () => {
           redirect_uris: ["http://localhost:1455/callback"],
           scope: "public:read profile:read events:write mcp:read mcp:write time:parse",
         },
-        {
-          allowEventWrites: true,
-          discardKnownNonMcpScopes: true,
-        },
+        { discardKnownNonMcpScopes: true },
       ).allowedScopes,
       ["public:read", "events:write", "mcp:read", "mcp:write"],
     );
@@ -982,15 +986,23 @@ describe("@vrdex/api-contracts", () => {
     );
     assert.throws(
       () =>
-        normalizeDynamicMcpClientRegistration(
-          {
-            client_name: "Write MCP",
-            redirect_uris: ["http://localhost:3333/callback"],
-            scope: "mcp:write",
-          },
-          { allowEventWrites: true },
-        ),
-      /both mcp:write and events:write/,
+        normalizeDynamicMcpClientRegistration({
+          client_name: "Write MCP",
+          redirect_uris: ["http://localhost:3333/callback"],
+          scope: "mcp:write",
+        }),
+      /at least one of events:write or profile:write/,
+    );
+    // The other half alone: a resource scope with no transport scope reaches no
+    // hosted write tool, so it is refused rather than silently downgraded.
+    assert.throws(
+      () =>
+        normalizeDynamicMcpClientRegistration({
+          client_name: "Profile Write MCP",
+          redirect_uris: ["http://localhost:3333/callback"],
+          scope: "profile:write",
+        }),
+      /at least one of events:write or profile:write/,
     );
     assert.throws(
       () =>

@@ -1,18 +1,13 @@
 import {
-  hostedMcpEventWriteScopes,
-  hostedMcpEventWritesEnabled,
   hostedMcpReadScopes,
+  hostedMcpWriteScopes,
 } from "@/lib/server/hosted-mcp-policy";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export function GET(request: Request) {
-  const scopes = [
-    ...hostedMcpReadScopes,
-    "public:read",
-    ...(hostedMcpEventWritesEnabled() ? hostedMcpEventWriteScopes : []),
-  ];
+  const scopes = [...hostedMcpReadScopes, "public:read", ...hostedMcpWriteScopes];
 
   return Response.json(
     {

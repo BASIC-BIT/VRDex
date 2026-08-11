@@ -1,7 +1,17 @@
-import { ConvexError, v } from "convex/values";
+import { ConvexError, type Infer, v } from "convex/values";
 
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
+import type { DatabaseReader, DatabaseWriter } from "./_generated/server";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import {
+  findMcpWriteReceipt,
+  type McpProfileWriteResult,
+  mcpWriteAttributionArgs,
+  recordMcpWriteReceipt,
+  requireMcpAttributionText,
+  requireSha256Hex,
+} from "./_mcpWriteReceipts";
+import { normalizeOAuthClientId } from "./_oauth";
 import { getPublicCommunityHostedEvents, getPublicPersonUpcomingEvents } from "./_eventPublic";
 import type { AuthSubject } from "./_communityAuthority";
 import {
@@ -120,6 +130,70 @@ function apiOwnerAuthSubject(userId: Doc<"users">["_id"]): AuthSubject {
   };
 }
 
+/**
+ * Refusals a hosted MCP tool should relay rather than flatten.
+ *
+ * The event write tools collapse every failure into one denial, which is right
+ * when the cause is ownership of something the caller cannot see. It is wrong
+ * for profiles, where most refusals name something the agent can act on -- a
+ * headline over its length, a `discord` link pointing at the wrong host, a
+ * profile that is claimed, an identity that asked not to be listed. Flattening
+ * those turns a fixable request into a retry loop.
+ */
+const RELAYED_PROFILE_WRITE_ERROR_CODES = new Set([
+  "IDENTITY_SUPPRESSED",
+  "INVALID_PROFILE_LINK",
+  "PROFILE_CLAIMED",
+  "PROFILE_INPUT_INVALID",
+]);
+
+function asMcpProfileWriteError(error: unknown) {
+  return error instanceof ConvexError
+      && typeof error.data?.code === "string"
+      && RELAYED_PROFILE_WRITE_ERROR_CODES.has(error.data.code)
+    ? error
+    : new ConvexError({ code: "MCP_WRITE_DENIED" });
+}
+
+/**
+ * The subject an editor acts as on this profile, plus the two refusals that
+ * come before any per-field check.
+ *
+ * Shared by the browser, API-token and hosted-MCP paths so they cannot drift.
+ * The API path used to require ownership outright, which made the community
+ * correction the browser already allows invisible to anyone driving VRDex from a
+ * tool -- and unclaimed profiles are most of them, so that was most of the
+ * value. One helper, because a permission rule copied into three callers is a
+ * rule that will be fixed in one of them.
+ */
+async function resolveProfileEditSubject(
+  db: DatabaseReader,
+  profile: Doc<"profiles">,
+  userId: Id<"users">,
+) {
+  const owns = await userOwnsProfile(db, profile._id, userId);
+  const editSubject = owns ? ("claimed_owner" as const) : ("community_submitter" as const);
+
+  // Readability first, and only then the claimed-profile message. The other
+  // order tells anyone who guesses the slug of a draft or opted-out claimed
+  // profile that it exists and is claimed -- a distinction the generic
+  // not-found is there to withhold from someone who cannot read it at all.
+  if (!canReadProfile(editSubject, profile)) {
+    throw new Error("Profile was not found.");
+  }
+
+  // Ahead of the per-field checks, so a claimed profile gives the reason
+  // rather than a field name the editor cannot act on.
+  if (!owns && profile.claimState !== "unclaimed") {
+    throw new ConvexError({
+      code: "PROFILE_CLAIMED",
+      message: "This profile has been claimed, so only its owner can edit it.",
+    });
+  }
+
+  return { owns, editSubject };
+}
+
 const profileAssetPlacement = v.union(
   v.literal("profile_image"),
   v.literal("banner"),
@@ -178,9 +252,15 @@ export const updateProfileForApiOwner = internalMutation({
       throw new Error("Profile was not found.");
     }
 
-    if (!(await userOwnsProfile(ctx.db, profile._id, args.ownerUserId))) {
-      throw new Error("You do not have permission to update this profile.");
-    }
+    const { owns, editSubject } = await resolveProfileEditSubject(
+      ctx.db,
+      profile,
+      args.ownerUserId,
+    );
+
+    // Permission first, before anything that answers differently for a value
+    // this writer may not read -- the same ordering the browser path documents.
+    assertSubmittedFieldsEditable(profile, args, editSubject);
 
     // Renaming is another way to reintroduce a retracted identity: an owner of some
     // other public profile could rename it to a name an accepted suppression
@@ -192,6 +272,7 @@ export const updateProfileForApiOwner = internalMutation({
     const { changedFields, profile: updatedProfile } = await applyApiProfileUpdate(ctx.db, {
       profile,
       input: args,
+      subject: editSubject,
       now,
     });
 
@@ -204,7 +285,12 @@ export const updateProfileForApiOwner = internalMutation({
         profileId: profile._id,
         action: "api_profile_updated",
         actor: apiOwnerAuthSubject(args.ownerUserId),
-        sourceType: "owner",
+        // The history says who this was, not which transport carried it. A
+        // contributor correcting an unclaimed profile through a token is the
+        // same act as doing it in the browser, and a claiming owner reading
+        // their history back should see that distinction rather than "owner"
+        // on every row because the write happened to arrive over the API.
+        sourceType: owns ? "owner" : "community",
         note: `Public API profile update: ${changedFields.join(", ")}.`,
         createdAt: now,
       });
@@ -323,28 +409,50 @@ export const lookupPeople = query({
   },
 });
 
-export const submitCommunityProfile = mutation({
-  args: {
-    profileType,
-    displayName: v.string(),
-    aliases: v.optional(v.array(v.string())),
-    tags: v.optional(v.array(v.string())),
-    person: v.optional(
-      v.object({
-        roleTags: v.optional(v.array(v.string())),
-      }),
-    ),
-    community: v.optional(
-      v.object({
-        subtype: v.optional(v.string()),
-        categoryTags: v.optional(v.array(v.string())),
-      }),
-    ),
-    outboundLinks: v.optional(v.array(profileLinkInputValidator)),
-    assets: v.optional(v.array(profileAssetUploadInput)),
-  },
-  handler: async (ctx, args) => {
-    const { subject } = await requireActiveBrowserSessionSubject(ctx);
+const communityProfileSubmissionArgs = {
+  profileType,
+  displayName: v.string(),
+  aliases: v.optional(v.array(v.string())),
+  tags: v.optional(v.array(v.string())),
+  person: v.optional(
+    v.object({
+      roleTags: v.optional(v.array(v.string())),
+    }),
+  ),
+  community: v.optional(
+    v.object({
+      subtype: v.optional(v.string()),
+      categoryTags: v.optional(v.array(v.string())),
+    }),
+  ),
+  outboundLinks: v.optional(v.array(profileLinkInputValidator)),
+};
+
+// Inferred from the validators rather than restated, so a field added to the
+// submission surface cannot compile here while silently missing from one caller.
+type CommunityProfileSubmissionInput = Infer<ReturnType<typeof communityProfileSubmissionObject>> & {
+  assets?: Infer<typeof profileAssetUploadInput>[];
+};
+
+function communityProfileSubmissionObject() {
+  return v.object(communityProfileSubmissionArgs);
+}
+
+/**
+ * Create a community-submitted profile, having already established who is
+ * submitting it.
+ *
+ * Split from the browser mutation so the hosted-MCP path creates profiles the
+ * same way rather than a similar way: the suppression check, the immediate
+ * publication, the `community_submitted` link provenance and the audit row are
+ * the parts that must not differ by transport.
+ */
+async function createCommunityProfileRecord(
+  ctx: { db: DatabaseWriter },
+  args: CommunityProfileSubmissionInput,
+  submitter: AuthSubject,
+) {
+  {
     // Community-submitted: the signed-in submitter is adding a profile for
     // someone else, so these links are not owner-authored.
     const input = sanitizeCommunitySubmissionProfileInput(args, {
@@ -369,7 +477,7 @@ export const submitCommunityProfile = mutation({
     });
     const sourceAttribution = {
       submittedAt: now,
-      submitter: subject,
+      submitter,
     };
 
     const sharedFields = {
@@ -478,6 +586,18 @@ export const submitCommunityProfile = mutation({
       shortLinkCode: shortLink.code,
       shortLinkPath: shortLink.shortLinkPath,
     };
+  }
+}
+
+export const submitCommunityProfile = mutation({
+  args: {
+    ...communityProfileSubmissionArgs,
+    assets: v.optional(v.array(profileAssetUploadInput)),
+  },
+  handler: async (ctx, args) => {
+    const { subject } = await requireActiveBrowserSessionSubject(ctx);
+
+    return await createCommunityProfileRecord(ctx, args, subject);
   },
 });
 
@@ -651,25 +771,7 @@ export const updateProfileFromBrowser = mutation({
       throw new Error("Profile was not found.");
     }
 
-    const owns = await userOwnsProfile(ctx.db, profile._id, user._id);
-    const editSubject = owns ? ("claimed_owner" as const) : ("community_submitter" as const);
-
-    // Readability first, and only then the claimed-profile message. The other
-    // order tells anyone who guesses the slug of a draft or opted-out claimed
-    // profile that it exists and is claimed -- a distinction the generic
-    // not-found is there to withhold from someone who cannot read it at all.
-    if (!canReadProfile(editSubject, profile)) {
-      throw new Error("Profile was not found.");
-    }
-
-    // Ahead of the per-field checks, so a claimed profile gives the reason
-    // rather than a field name the editor cannot act on.
-    if (!owns && profile.claimState !== "unclaimed") {
-      throw new ConvexError({
-        code: "PROFILE_CLAIMED",
-        message: "This profile has been claimed, so only its owner can edit it.",
-      });
-    }
+    const { owns, editSubject } = await resolveProfileEditSubject(ctx.db, profile, user._id);
 
     if (args.expectedUpdatedAt !== profile.updatedAt) {
       throw new ConvexError({
@@ -735,6 +837,233 @@ export const updateProfileFromBrowser = mutation({
       // is the public API's shape and has a schema and two OpenAPI artifacts
       // behind it.
       updatedAt: updatedProfile.updatedAt,
+    };
+  },
+});
+
+/**
+ * Edit a profile from a hosted MCP session.
+ *
+ * Same permission model as the browser and API-token paths -- own it, or it is
+ * unclaimed and you are correcting it as the community. What this adds is the
+ * replay guard the transport needs: an agent that retries a tool call after a
+ * timeout must not append the same link twice, so the first result is returned
+ * again rather than re-applied.
+ */
+export const updateProfileForMcpActor = internalMutation({
+  args: {
+    ...mcpWriteAttributionArgs,
+    currentSlug: v.string(),
+    ...apiProfileUpdateArgs,
+  },
+  handler: async (ctx, args) => {
+    const oauthClientId = normalizeOAuthClientId(args.oauthClientId);
+    const idempotencyKeyHash = requireSha256Hex(args.idempotencyKeyHash, "Idempotency key hash");
+    const requestFingerprint = requireSha256Hex(args.requestFingerprint, "Request fingerprint");
+    const toolName = "vrdex_profile_update" as const;
+    const existing = await findMcpWriteReceipt(ctx.db, {
+      ownerUserId: args.ownerUserId,
+      oauthClientId,
+      toolName,
+      idempotencyKeyHash,
+      requestFingerprint,
+    });
+
+    if (existing !== null) {
+      return existing.result as McpProfileWriteResult;
+    }
+
+    const validation = validateProfileSlug(args.currentSlug);
+
+    if (!validation.ok) {
+      throw new ConvexError({ code: "MCP_WRITE_DENIED" });
+    }
+
+    const profile = await getProfileBySlug(ctx.db, validation.slug);
+
+    if (profile === null) {
+      throw new ConvexError({ code: "MCP_WRITE_DENIED" });
+    }
+
+    let owns: boolean;
+    let result: McpProfileWriteResult;
+    let changedFields: string[];
+
+    try {
+      const authorization = await resolveProfileEditSubject(ctx.db, profile, args.ownerUserId);
+      owns = authorization.owns;
+      assertSubmittedFieldsEditable(profile, args, authorization.editSubject);
+      await assertProfileEditNotSuppressed(ctx.db, profile, args);
+
+      const applied = await applyApiProfileUpdate(ctx.db, {
+        profile,
+        input: args,
+        subject: authorization.editSubject,
+        now: Date.now(),
+      });
+
+      changedFields = applied.changedFields;
+      result = toApiProfileWriteResponse(applied.profile);
+    } catch (error) {
+      throw asMcpProfileWriteError(error);
+    }
+
+    const now = Date.now();
+
+    if (changedFields.length > 0) {
+      await ctx.db.insert("profileAuditEvents", {
+        profileId: profile._id,
+        action: "api_profile_updated",
+        actor: apiOwnerAuthSubject(args.ownerUserId),
+        sourceType: owns ? "owner" : "community",
+        note: `Hosted MCP profile update: ${changedFields.join(", ")}.`,
+        createdAt: now,
+      });
+    }
+
+    await recordApiWriteAuditEvent(ctx.db, {
+      action: "profile_updated",
+      actorKind: "user_delegated_oauth",
+      ownerUserId: args.ownerUserId,
+      resourceType: "profile",
+      routeClass: "authenticated_mcp_write",
+      targetProfileId: profile._id,
+      oauthClientId,
+      oauthTokenId: requireMcpAttributionText(args.oauthTokenId, "OAuth token id", 256),
+      requestId: requireMcpAttributionText(args.requestId, "Request id", 256),
+      mcpToolName: toolName,
+      idempotencyKeyHash,
+      now,
+    });
+    await recordMcpWriteReceipt(ctx.db, {
+      ownerUserId: args.ownerUserId,
+      oauthClientId,
+      toolName,
+      idempotencyKeyHash,
+      requestFingerprint,
+      result,
+      now,
+    });
+
+    return result;
+  },
+});
+
+/**
+ * Create a community-sourced profile from a hosted MCP session.
+ *
+ * No `assets` argument, matching the browser submission form: an upload intent
+ * needs ownership of a claimed profile, so there is no sequence by which an
+ * agent could satisfy one here.
+ */
+export const submitCommunityProfileForMcpActor = internalMutation({
+  args: {
+    ...mcpWriteAttributionArgs,
+    ...communityProfileSubmissionArgs,
+  },
+  handler: async (ctx, args) => {
+    const oauthClientId = normalizeOAuthClientId(args.oauthClientId);
+    const idempotencyKeyHash = requireSha256Hex(args.idempotencyKeyHash, "Idempotency key hash");
+    const requestFingerprint = requireSha256Hex(args.requestFingerprint, "Request fingerprint");
+    const toolName = "vrdex_profile_submit" as const;
+    const existing = await findMcpWriteReceipt(ctx.db, {
+      ownerUserId: args.ownerUserId,
+      oauthClientId,
+      toolName,
+      idempotencyKeyHash,
+      requestFingerprint,
+    });
+
+    // Load-bearing here in a way it is not for edits: without it a retried
+    // submission creates a second profile for the same person under a suffixed
+    // slug, and nothing later merges them.
+    if (existing !== null) {
+      return existing.result as McpProfileWriteResult;
+    }
+
+    let created: Awaited<ReturnType<typeof createCommunityProfileRecord>>;
+
+    try {
+      created = await createCommunityProfileRecord(
+        ctx,
+        args,
+        apiOwnerAuthSubject(args.ownerUserId),
+      );
+    } catch (error) {
+      throw asMcpProfileWriteError(error);
+    }
+
+    const now = Date.now();
+    const result: McpProfileWriteResult = {
+      profileId: created.profileId,
+      slug: created.slug,
+      profileType: created.profileType,
+      profilePath: created.profilePath,
+    };
+
+    await recordApiWriteAuditEvent(ctx.db, {
+      action: "profile_created",
+      actorKind: "user_delegated_oauth",
+      ownerUserId: args.ownerUserId,
+      resourceType: "profile",
+      routeClass: "authenticated_mcp_write",
+      targetProfileId: created.profileId,
+      oauthClientId,
+      oauthTokenId: requireMcpAttributionText(args.oauthTokenId, "OAuth token id", 256),
+      requestId: requireMcpAttributionText(args.requestId, "Request id", 256),
+      mcpToolName: toolName,
+      idempotencyKeyHash,
+      now,
+    });
+    await recordMcpWriteReceipt(ctx.db, {
+      ownerUserId: args.ownerUserId,
+      oauthClientId,
+      toolName,
+      idempotencyKeyHash,
+      requestFingerprint,
+      result,
+      now,
+    });
+
+    return { ...result, shortLinkCode: created.shortLinkCode, shortLinkPath: created.shortLinkPath };
+  },
+});
+
+/**
+ * Create a community-sourced profile from an API credential.
+ *
+ * No idempotency key, unlike the MCP tool: a hand-written HTTP call is not a
+ * tool loop retrying on a timeout, and inventing a key the caller never sent
+ * would silently coalesce two deliberate submissions.
+ */
+export const submitCommunityProfileForApiUser = internalMutation({
+  args: {
+    actorKind: apiWriteAuditActorKindValidator,
+    ownerUserId: v.id("users"),
+    ...communityProfileSubmissionArgs,
+  },
+  handler: async (ctx, args) => {
+    const created = await createCommunityProfileRecord(
+      ctx,
+      args,
+      apiOwnerAuthSubject(args.ownerUserId),
+    );
+
+    await recordApiWriteAuditEvent(ctx.db, {
+      action: "profile_created",
+      actorKind: args.actorKind,
+      ownerUserId: args.ownerUserId,
+      resourceType: "profile",
+      routeClass: "public_write",
+      targetProfileId: created.profileId,
+      now: Date.now(),
+    });
+
+    return {
+      profileId: created.profileId,
+      slug: created.slug,
+      profileType: created.profileType,
+      profilePath: created.profilePath,
     };
   },
 });

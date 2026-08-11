@@ -68,7 +68,8 @@ Implemented authenticated reads require a valid bearer credential:
 | `GET /api/v0/me/profiles` | List current user's owned profile summaries. |
 | `GET /api/v0/me/communities` | List current user's owned community profile summaries. |
 | `GET /api/v0/me/events` | List current user's community-managed event summaries. |
-| `PATCH /api/v0/profiles/:slug` | Update public metadata for a claimed profile the current user owns. |
+| `POST /api/v0/profiles` | Submit a community-sourced profile for a person or community that has none. |
+| `PATCH /api/v0/profiles/:slug` | Update public metadata and outbound links for a profile the current user owns, or for an unclaimed profile as a community correction. |
 | `POST /api/v0/profiles/:slug/assets/upload-intent` | Create a one-time media-kit upload intent for a claimed profile the current user owns. |
 | `POST /api/v0/events` | Create a public event attached to a community profile the current user owns. |
 | `PATCH /api/v0/events/:slug` | Update a public event attached to a community profile the current user owns. |
@@ -87,13 +88,29 @@ current event inventory covers events attached to community profiles the user
 owns. Submitter-only event inventory can be added after there is an efficient
 user/event index and authorization shape.
 
-`PATCH /api/v0/profiles/:slug` requires `profile:write`, user authority, active
-ownership of the target profile, and claimed-owner edit permission. The first
-write version updates owner-editable public metadata only: display name,
-aliases, tags, headline, bio, region, timezone, person pronouns and role tags,
-or community subtype and category tags. It does not change profile slugs,
-claims, publication state, field visibility, outbound links, media-kit assets,
-or page-builder settings.
+`PATCH /api/v0/profiles/:slug` requires `profile:write` and user authority. It
+writes display name, aliases, tags, headline, bio, region, timezone, outbound
+links, person pronouns and role tags, and community subtype and category tags.
+It does not change profile slugs, claims, publication state, field visibility,
+media-kit assets, or page-builder settings.
+
+Ownership is not required. A caller who owns the profile edits it as its owner;
+a caller who does not edits an **unclaimed** profile as a community
+contributor, which is the same authority the signed-in web editor grants and is
+the point of the route -- most profiles worth correcting are unclaimed. A
+profile claimed by someone else answers `403`. Community writers cannot change
+`slug`, and their links are recorded as community-submitted rather than
+owner-authored, which the public page renders as a trust signal.
+
+`outboundLinks` replaces the entire list rather than appending. Read the profile
+first and send back the full set, or an edit meant to add one link silently
+drops the rest. Branded link types are checked against their provider's hosts,
+so a `discord` link must point at a Discord domain.
+
+`POST /api/v0/profiles` requires `profile:write` and user authority, and creates
+a profile that publishes immediately as unclaimed, credited to the submitter.
+Whoever it describes can claim it later. Search first: a duplicate submission
+creates a second profile under a suffixed slug, and nothing merges them.
 
 `POST /api/v0/profiles/:slug/assets/upload-intent` requires `assets:write`,
 user authority, active ownership of the target profile, and a claimed profile.

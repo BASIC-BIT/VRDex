@@ -1,12 +1,44 @@
-# Hosted MCP OAuth event writes
+# Hosted MCP OAuth writes
 
 ## Status
 
-`Locked decision`: the implementation is one default-off feature behind
-`VRDEX_HOSTED_MCP_EVENT_WRITES=false`. Production activation and the first
-authorized Faceless create/update/readback proof remain a separate operational
-rollout. Anonymous hosted reads and the credentialed local stdio bridge remain
-available regardless of this flag.
+The hosted write tools ship on. There is no deployment switch in front of them:
+the tools are advertised, and the harness connecting decides which it exposes or
+calls. What bounds a write is the scope the user granted at consent plus the
+per-resource permission checks the browser path already enforces.
+
+Four tools: `vrdex_event_create`, `vrdex_event_update`, `vrdex_profile_update`,
+and `vrdex_profile_submit`. Anonymous hosted reads and the credentialed local
+stdio bridge are unaffected.
+
+## Scopes
+
+`mcp:write` is the transport half and grants nothing alone -- it says a hosted
+session may call write tools at all, not which ones. A client pairs it with the
+resource it means to write:
+
+| Tool | Required scopes |
+| --- | --- |
+| `vrdex_event_create`, `vrdex_event_update` | `mcp:write` + `events:write` |
+| `vrdex_profile_update`, `vrdex_profile_submit` | `mcp:write` + `profile:write` |
+
+A client that only sets DJ links asks for `mcp:read mcp:write profile:write` and
+is never able to publish an event under someone's name. Registration refuses
+`mcp:write` on its own, and refuses a resource scope with no `mcp:write`.
+
+## Profile write authority
+
+`vrdex_profile_update` writes a profile the session's user owns, or an unclaimed
+profile as a community correction -- the same rule the browser editor and the
+API token path apply, resolved in one shared helper so the three cannot drift. A
+profile claimed by somebody else is refused with a distinct message telling the
+agent to stop rather than retry.
+
+`vrdex_profile_submit` creates a profile that publishes immediately as unclaimed,
+credited to the submitter, with `community_submitted` link provenance. Its
+idempotency receipt is load-bearing in a way the edit path's is not: without it a
+retried submission creates a second profile under a suffixed slug, and nothing
+merges them.
 
 ## Authorization contract
 
@@ -101,9 +133,10 @@ retry automatically.
   wrong-resource, and under-scoped tokens.
 - Authorization-code exchange failures log only a bounded rejection category;
   client IDs, codes, verifiers, redirects, resources, and scopes are omitted.
-- Rollback is one setting: restore `VRDEX_HOSTED_MCP_EVENT_WRITES=false` and
-  redeploy. Reads and the local bridge are unaffected. Existing tokens remain
-  revocable but cannot reach a registered write tool.
+- Rollback is per credential, not per deployment: revoke the OAuth application
+  or the user's grant. There is deliberately no kill switch, because one that
+  defaults off strands every write client on any environment that forgets to set
+  it -- which is what the previous `VRDEX_HOSTED_MCP_EVENT_WRITES` flag did.
 
 ## Threat model
 
@@ -111,7 +144,8 @@ retry automatically.
 | --- | --- |
 | Stolen or replayed bearer | Short access-token lifetime, resource audience, durable revocation, header-only transport, token/client/user rate buckets |
 | Confused deputy or cross-community write | User-delegated subjects only and a durable owner lookup inside the transaction |
-| Scope downgrade or client overreach | Exact `mcp:write events:write` per-call check; DCR/CIMD write scopes unavailable while default-off |
+| Community edit used to hijack a claimed identity | Community writers are refused on claimed profiles and on `slug`; suppression is re-checked over the values actually being written |
+| Scope downgrade or client overreach | Per-call check of `mcp:write` plus the specific resource scope that tool writes, so an over-broad grant still cannot reach a tool the client did not ask for |
 | Duplicate mutation after timeout | Transactional user/client/tool/key receipt plus request fingerprint; no automatic retry |
 | Shared-secret blast radius | No master MCP credential and no bearer forwarding |
 | Secret/content disclosure | Sanitized errors and attribution-only logs; no token, raw idempotency key, or event body persistence |
@@ -121,7 +155,8 @@ retry automatically.
 
 Automated coverage must prove:
 
-- default-off tool and metadata omission;
+- every write tool listed with the exact scope pair it needs, and a client
+  registration that refuses a half write-scope set;
 - exact `401`/`403` scope challenges, wrong-resource/expired/revoked rejection,
   and client-credentials rejection;
 - conditional DCR and CIMD scope policy, including the advertised write-only
@@ -148,11 +183,8 @@ For explicit-login clients, configure the staged server URL as
 `mcp:read mcp:write events:write`, and confirm the resulting token
 is still issued for `https://staging.vrdex.net/mcp`.
 
-The `Staging Deploy` workflow keeps the feature off unless a manual dispatch
-explicitly selects `hosted_mcp_event_writes`. Use that staging-only switch for
-the client matrix, then dispatch the current `main` revision with the switch
-cleared to restore the default-off staging state. The switch is not read by
-production deployment workflows and does not authorize any tool call.
+Staging carries the write tools like every other environment, so the client
+matrix runs against a normal deployment with no dispatch input to set.
 
 | Client | Current preflight | Staged scoped-session evidence |
 | --- | --- | --- |

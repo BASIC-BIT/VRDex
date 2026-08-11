@@ -3,6 +3,9 @@ import {
   ApiEventCreateRequestSchema,
   ApiEventUpdateRequestSchema,
   ApiEventWriteResponseSchema,
+  ApiProfileSubmitRequestSchema,
+  ApiProfileUpdateRequestSchema,
+  ApiProfileWriteResponseSchema,
   mcpOutputJsonSchemaForZodSchema,
   PublicActiveWorldsResponseSchema,
   PublicEventSchema,
@@ -37,6 +40,18 @@ const mcpEventWriteResultSchema = ApiEventWriteResponseSchema.extend({
 }).meta({
   description: "Accepted event write plus the normalized public event read back from VRDex.",
   id: "McpEventWriteResult",
+});
+
+const mcpProfileUpdateInputSchema = z.object({
+  slug: mcpSlugSchema.describe("Current public profile slug."),
+  update: ApiProfileUpdateRequestSchema,
+});
+const mcpProfileWriteResultSchema = ApiProfileWriteResponseSchema.extend({
+  canonicalUrl: z.string().url(),
+  profile: PublicProfileSchema,
+}).meta({
+  description: "Accepted profile write plus the normalized public profile read back from VRDex.",
+  id: "McpProfileWriteResult",
 });
 
 function boundedLimit(value: number | undefined, fallback: number, max: number) {
@@ -127,6 +142,39 @@ function mcpEventWriteIndeterminate(operation: "create" | "update") {
   };
 }
 
+function mcpProfileReadbackError(
+  write: z.infer<typeof ApiProfileWriteResponseSchema>,
+  error?: VrdexApiFailure,
+) {
+  const parts = [
+    error === undefined
+      ? `VRDex accepted the profile write for slug "${write.slug}", but the required readback did not complete cleanly.`
+      : `VRDex accepted the profile write for slug "${write.slug}", but the required readback failed with ${error.status}: ${error.title}.`,
+    "Do not retry the mutation automatically; read the saved profile first.",
+  ];
+
+  if (error?.detail !== undefined) {
+    parts.push(error.detail);
+  }
+
+  return {
+    content: [{ type: "text" as const, text: parts.join(" ") }],
+    isError: true as const,
+  };
+}
+
+function mcpProfileWriteIndeterminate(operation: "update" | "submission") {
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: `The VRDex profile ${operation} request did not complete cleanly, and the server may already have accepted the mutation. Do not retry the mutation automatically; read the target profile first.`,
+      },
+    ],
+    isError: true as const,
+  };
+}
+
 export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
   const config = options.config ?? loadVrdexMcpConfig();
   const apiClient = options.apiClient ?? createVrdexApiClient(config);
@@ -380,6 +428,96 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
         );
       },
     );
+    server.registerTool(
+      "vrdex_profile_update",
+      {
+        title: "Update VRDex Profile",
+        description:
+          "Update a VRDex person or community profile, including its outbound links, through the authenticated VRDex API. Works on a profile the token's user owns, and on an unclaimed profile as a community correction. Omitted fields are preserved; sending outboundLinks replaces the whole list, so read the profile first and send back the full set. This changes public VRDex data and requires explicit operator approval.",
+        inputSchema: mcpProfileUpdateInputSchema,
+        outputSchema: mcpOutputSchema(mcpProfileWriteResultSchema),
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: true,
+          idempotentHint: false,
+          openWorldHint: true,
+        },
+      },
+      async ({ slug, update }) => {
+        let write: Awaited<ReturnType<typeof apiClient.updateProfile>>;
+
+        try {
+          write = await apiClient.updateProfile(slug, update);
+        } catch {
+          return mcpProfileWriteIndeterminate("update");
+        }
+
+        if (!write.ok) {
+          return write.status >= 500 ? mcpProfileWriteIndeterminate("update") : mcpApiError(write);
+        }
+
+        return await profileWriteReadback(write.data);
+      },
+    );
+
+    server.registerTool(
+      "vrdex_profile_submit",
+      {
+        title: "Submit VRDex Community Profile",
+        description:
+          "Create a community-sourced VRDex profile for a person or community that has none, including their outbound links. It publishes immediately as unclaimed, credited to the token's user, and whoever it describes can claim it later. Search first: submitting a duplicate creates a second profile that nothing merges. This changes public VRDex data and requires explicit operator approval.",
+        inputSchema: ApiProfileSubmitRequestSchema,
+        outputSchema: mcpOutputSchema(mcpProfileWriteResultSchema),
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: true,
+        },
+      },
+      async (input) => {
+        let write: Awaited<ReturnType<typeof apiClient.submitProfile>>;
+
+        try {
+          write = await apiClient.submitProfile(input);
+        } catch {
+          return mcpProfileWriteIndeterminate("submission");
+        }
+
+        if (!write.ok) {
+          return write.status >= 500
+            ? mcpProfileWriteIndeterminate("submission")
+            : mcpApiError(write);
+        }
+
+        return await profileWriteReadback(write.data);
+      },
+    );
+
+    async function profileWriteReadback(write: z.infer<typeof ApiProfileWriteResponseSchema>) {
+      let readback: Awaited<ReturnType<typeof apiClient.getProfile>>;
+
+      try {
+        readback = await apiClient.getProfile({ slug: write.slug });
+      } catch {
+        return mcpProfileReadbackError(write);
+      }
+
+      if (!readback.ok) {
+        return mcpProfileReadbackError(write, readback);
+      }
+
+      return mcpJsonResult(
+        mcpProfileWriteResultSchema,
+        {
+          ...write,
+          canonicalUrl: canonicalEventUrl(apiClient.apiBaseUrl, write.profilePath),
+          profile: readback.data,
+        },
+        config.outputMode,
+      );
+    }
+
   }
 
   return server;

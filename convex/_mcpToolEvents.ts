@@ -11,6 +11,8 @@ export const mcpToolNameValidator = v.union(
   v.literal("vrdex_list_active_worlds"),
   v.literal("vrdex_event_create"),
   v.literal("vrdex_event_update"),
+  v.literal("vrdex_profile_update"),
+  v.literal("vrdex_profile_submit"),
 );
 
 export const mcpToolEventRouteClassValidator = v.union(
