@@ -48,7 +48,8 @@ const mcpProfileUpdateInputSchema = z.object({
 });
 const mcpProfileWriteResultSchema = ApiProfileWriteResponseSchema.extend({
   canonicalUrl: z.string().url(),
-  profile: PublicProfileSchema,
+  // Absent exactly when the saved profile has no public surface to read back.
+  profile: PublicProfileSchema.optional(),
 }).meta({
   description: "Accepted profile write plus the normalized public profile read back from VRDex.",
   id: "McpProfileWriteResult",
@@ -503,8 +504,21 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
         return mcpProfileReadbackError(write);
       }
 
+      // A profile with no public surface reads back as 404, and that is the
+      // right outcome rather than a failure: an owner may edit a draft or
+      // opted-out profile, and the write did land. Only a readback that failed
+      // some other way is worth warning about.
       if (!readback.ok) {
-        return mcpProfileReadbackError(write, readback);
+        return readback.status === 404
+          ? mcpJsonResult(
+            mcpProfileWriteResultSchema,
+            {
+              ...write,
+              canonicalUrl: canonicalEventUrl(apiClient.apiBaseUrl, write.profilePath),
+            },
+            config.outputMode,
+          )
+          : mcpProfileReadbackError(write, readback);
       }
 
       return mcpJsonResult(

@@ -903,7 +903,10 @@ export const updateProfileForMcpActor = internalMutation({
       });
 
       changedFields = applied.changedFields;
-      result = toApiProfileWriteResponse(applied.profile);
+      result = {
+        ...toApiProfileWriteResponse(applied.profile),
+        publiclyViewable: canReadProfile("public", applied.profile),
+      };
     } catch (error) {
       throw asMcpProfileWriteError(error);
     }
@@ -999,6 +1002,10 @@ export const submitCommunityProfileForMcpActor = internalMutation({
       slug: created.slug,
       profileType: created.profileType,
       profilePath: created.profilePath,
+      // Community submissions publish immediately, so this is always true here.
+      // Stated rather than hardcoded so a future draft-submission path cannot
+      // quietly claim public visibility it does not have.
+      publiclyViewable: true,
     };
 
     await recordApiWriteAuditEvent(ctx.db, {

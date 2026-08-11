@@ -147,7 +147,11 @@ const mcpProfileSubmitInputSchema = ApiProfileSubmitRequestSchema.extend({
 });
 const mcpProfileWriteResultSchema = ApiProfileWriteResponseSchema.extend({
   canonicalUrl: z.string().url(),
-  profile: PublicProfileSchema,
+  publiclyViewable: z.boolean(),
+  // Absent exactly when the saved profile has no public surface. An owner may
+  // edit a draft or opted-out profile, and that write succeeded; there is simply
+  // nothing to read back.
+  profile: PublicProfileSchema.optional(),
 }).meta({
   description: "Accepted profile write plus the normalized public profile read back from VRDex.",
   id: "HostedMcpProfileWriteResult",
@@ -828,16 +832,6 @@ function mcpProfileClaimed() {
   };
 }
 
-function mcpProfileSuppressed() {
-  return {
-    content: [{
-      type: "text" as const,
-      text: "This profile cannot be created. Do not retry the mutation automatically.",
-    }],
-    isError: true as const,
-  };
-}
-
 function mcpProfileReadbackError(
   write: z.infer<typeof ApiProfileWriteResponseSchema>,
   detail?: string,
@@ -1384,10 +1378,29 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     idempotencyKeyHash: string;
     principal: HostedMcpPrincipal;
     toolName: "vrdex_profile_update" | "vrdex_profile_submit";
-    write: z.infer<typeof ApiProfileWriteResponseSchema>;
+    write: z.infer<typeof ApiProfileWriteResponseSchema> & { publiclyViewable: boolean };
   }) {
     const { idempotencyKeyHash, principal, toolName, write } = args;
     const targetProfileId = write.profileId as Id<"profiles">;
+
+    // Nothing to read back, and that is the correct outcome rather than a
+    // failure: an owner may edit a draft or opted-out profile, and demanding a
+    // public readback there answers a successful write with an error.
+    if (!write.publiclyViewable) {
+      await recordHostedMcpWriteInvocation({
+        idempotencyKeyHash,
+        principal,
+        result: "accepted",
+        targetProfileId,
+        toolName,
+      });
+
+      return mcpJsonResult(mcpProfileWriteResultSchema, {
+        ...write,
+        canonicalUrl: publicUrlForRoutePath(write.profilePath),
+      });
+    }
+
     let profile: PublicProfile | null;
 
     try {
@@ -1981,7 +1994,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
 
       const idempotencyKeyHash = sha256(idempotencyKey);
       const requestFingerprint = sha256(canonicalJson({ slug, update }));
-      let write: z.infer<typeof ApiProfileWriteResponseSchema>;
+      let write: z.infer<typeof ApiProfileWriteResponseSchema> & { publiclyViewable: boolean };
 
       try {
         write = await adminConvex().mutation(internal.profiles.updateProfileForMcpActor, {
@@ -2053,7 +2066,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
 
       const idempotencyKeyHash = sha256(idempotencyKey);
       const requestFingerprint = sha256(canonicalJson(input));
-      let write: z.infer<typeof ApiProfileWriteResponseSchema>;
+      let write: z.infer<typeof ApiProfileWriteResponseSchema> & { publiclyViewable: boolean };
 
       try {
         write = await adminConvex().mutation(internal.profiles.submitCommunityProfileForMcpActor, {
@@ -2077,10 +2090,6 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
 
         if (code === null) {
           return mcpProfileWriteIndeterminate("submission");
-        }
-
-        if (code === "IDENTITY_SUPPRESSED") {
-          return mcpProfileSuppressed();
         }
 
         return code === "MCP_WRITE_DENIED"

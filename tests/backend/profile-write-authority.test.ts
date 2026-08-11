@@ -137,6 +137,41 @@ describe("profile write authority", () => {
     assert.equal(audits.length, 1);
   });
 
+  it("reports a profile with no public surface as written but unviewable", async () => {
+    const t = convexTest(schema, modules);
+    const ownerUserId = await seedUser(t, "hidden");
+    const profileId = await seedProfile(t, "hidden", "unclaimed");
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(profileId as Id<"profiles">, { publicSurfacingState: "opted_out" });
+      await ctx.db.insert("profileOwners", {
+        profileId: profileId as Id<"profiles">,
+        userId: ownerUserId,
+        roleKey: "owner",
+        state: "active",
+        grantedAt: NOW,
+        updatedAt: NOW,
+      });
+      await ctx.db.patch(profileId as Id<"profiles">, { claimState: "claimed_verified" });
+    });
+
+    const result = await t.mutation(internal.profiles.updateProfileForMcpActor, {
+      ownerUserId,
+      oauthClientId: "vrdx_app_0123456789abcdef01234567",
+      oauthTokenId: "token-4",
+      requestId: "request-4",
+      idempotencyKeyHash: KEY_HASH,
+      requestFingerprint: FINGERPRINT,
+      currentSlug: "dj-hidden",
+      headline: "Back soon",
+    });
+
+    // The owner is entitled to edit a profile they have taken off public
+    // surfaces, and the write landed. The tool reads this flag rather than
+    // demanding a public readback that would answer a success with an error.
+    assert.equal(result.publiclyViewable, false);
+  });
+
   it("relays a fixable refusal instead of flattening it into a denial", async () => {
     const t = convexTest(schema, modules);
     const ownerUserId = await seedUser(t, "fixable");

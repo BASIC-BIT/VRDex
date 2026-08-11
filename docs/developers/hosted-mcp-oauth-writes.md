@@ -103,7 +103,11 @@ Create and update preserve the public API contract introduced with PR #190:
 - empty arrays clear supported collections;
 - deterministic validation, ownership, and idempotency conflicts return a
   sanitized rejection and may be corrected without implying a prior commit;
-- a successful mutation is read back through the public event query;
+- a successful mutation is read back through the public event or profile query;
+- a profile with no public surface is the one case where a readback is not
+  expected. An owner may edit a draft or opted-out profile, so the write result
+  carries `publiclyViewable` and the tool omits the read-back profile rather
+  than reporting a failure against a write that landed;
 - an accepted write whose public readback fails returns a warning and says not
   to retry automatically;
 - a transport/commit outcome that cannot be proven returns an indeterminate

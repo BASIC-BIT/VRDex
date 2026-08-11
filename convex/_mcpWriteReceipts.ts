@@ -22,6 +22,16 @@ const mcpProfileWriteResultValidator = v.object({
   slug: v.string(),
   profileType: v.union(v.literal("person"), v.literal("community")),
   profilePath: v.string(),
+  /**
+   * Whether the saved profile is readable on a public surface.
+   *
+   * Carried because the tool reads the profile back before reporting success,
+   * and a draft or opted-out profile its owner is perfectly entitled to edit
+   * reads back as nothing. Without this the tool cannot tell that apart from a
+   * readback that genuinely failed, and answers a successful write with an
+   * error.
+   */
+  publiclyViewable: v.boolean(),
 });
 
 /**
@@ -49,6 +59,7 @@ export type McpProfileWriteResult = {
   slug: string;
   profileType: "person" | "community";
   profilePath: string;
+  publiclyViewable: boolean;
 };
 
 export type McpWriteResult = McpEventWriteResult | McpProfileWriteResult;
