@@ -33,7 +33,7 @@ export function EntityBackendNotice() {
           </h1>
           <p className="mt-4 max-w-2xl text-sm leading-7 text-muted">
             Something went wrong on our end, so we could not load this page. Nothing is
-            missing or deleted — try again in a moment.
+            missing or deleted. Try again in a moment.
           </p>
           <Link
             className={cn(buttonVariants({ size: "lg", variant: "secondary" }), "mt-6")}

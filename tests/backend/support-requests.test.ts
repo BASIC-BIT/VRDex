@@ -7,7 +7,7 @@ import { api, internal } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import schemaModule from "../../convex/schema";
 import { readProfileReferenceFromInput, readProfileSlugFromInput } from "../../convex/_profileSlugs";
-import { isReservedRouteSlug, isReservedSlug } from "../../convex/_globalSlugs";
+import { isLiveRouteSlug, isReservedSlug } from "../../convex/_globalSlugs";
 import { clerkTestIdentity, newClerkUserId } from "./_clerkTestIdentity";
 import {
   MAX_ANONYMOUS_REQUESTS_PER_HOUR,
@@ -981,7 +981,7 @@ describe("support request review findings, fourth round", () => {
     // Refusing the whole reserved set here would drop the identifier off that
     // owner's dispute -- the failure this parser exists to prevent.
     assert.equal(isReservedSlug("basic"), true);
-    assert.equal(isReservedRouteSlug("basic"), false);
+    assert.equal(isLiveRouteSlug("basic"), false);
     assert.deepEqual(readProfileReferenceFromInput("https://vrdex.net/basic", "https://vrdex.net"), {
       slug: "basic",
       profileType: null,

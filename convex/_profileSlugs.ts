@@ -6,7 +6,7 @@ import {
   SLUG_PATTERN,
   findSlugOwner,
   getProfileBySlug,
-  isReservedRouteSlug,
+  isLiveRouteSlug,
   isReservedSlug,
   normalizeSlugInput,
   validateSlugFormat,
@@ -213,7 +213,7 @@ export function readProfileReferenceFromInput(
     //
     // A slug that simply holds no profile needs no check: `/neon-harbor` may be a
     // world, and getRequestedProfile resolves it to nothing when it reads the table.
-    if (prefixedPath === null && isReservedRouteSlug(decodeUrlSegment(profilePath[1] ?? ""))) {
+    if (prefixedPath === null && isLiveRouteSlug(decodeUrlSegment(profilePath[1] ?? ""))) {
       return none;
     }
 

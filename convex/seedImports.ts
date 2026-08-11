@@ -45,7 +45,7 @@ import {
   seedImportFieldVisibilityValidator,
   seedImportPublicationPolicyValidator,
 } from "./_seedImportValidators";
-import { isReservedSlug } from "./_globalSlugs";
+import { findSlugOwner, isReservedSlug } from "./_globalSlugs";
 import {
   createProfileSlugBase,
   findAvailableProfileSlug,
@@ -839,6 +839,11 @@ async function queueCandidate(ctx: MutationCtx, args: QueueCandidateArgs) {
     // findAvailableProfileSlug repairs are checked here too.
     const collisionSlug = validProposedSlug ?? createProfileSlugBase(candidate.proposedDisplayName);
     const slugCollisionProfile = await getProfileBySlug(ctx.db, collisionSlug);
+    // Worlds and events share the root namespace, so one of them holding the slug
+    // collides just as hard. Reported separately from `slugCollisionProfile`
+    // because that doubles as a merge target and these are not mergeable.
+    const slugOwnedByOtherEntity =
+      slugCollisionProfile === null && (await findSlugOwner(ctx.db, collisionSlug)) !== null;
     // The shared identity-aware check, not a slug-only lookup. A slug-only hit
     // would reject the legitimate current owner of a slug that some older
     // name-only request happened to record.
@@ -860,6 +865,7 @@ async function queueCandidate(ctx: MutationCtx, args: QueueCandidateArgs) {
       fields,
       matchedProfile,
       slugCollisionProfile,
+      slugOwnedByOtherEntity,
       hasInvalidProposedSlug: proposedSlugValidation !== undefined && !proposedSlugValidation.ok,
       hasAcceptedSuppressionRequest: suppressed,
       hasLiveHandoffInvitation: await hasLiveHandoffInvitation(
@@ -1077,6 +1083,10 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
     const collisionSlug = validProposedSlug ?? createProfileSlugBase(candidate.proposedDisplayName);
     const slugCollisionProfile =
       collisionSlug === undefined ? null : await getProfileBySlug(ctx.db, collisionSlug);
+    const slugOwnedByOtherEntity =
+      collisionSlug !== undefined &&
+      slugCollisionProfile === null &&
+      (await findSlugOwner(ctx.db, collisionSlug)) !== null;
     const targetSlug =
       matchedProfile?.slug ??
       (await findAvailableProfileSlug(ctx.db, validProposedSlug ?? candidate.proposedDisplayName));
@@ -1109,6 +1119,7 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
       fields,
       matchedProfile,
       slugCollisionProfile,
+      slugOwnedByOtherEntity,
       hasInvalidProposedSlug: proposedSlugValidation !== undefined && !proposedSlugValidation.ok,
       hasAcceptedSuppressionRequest: suppressed,
       // Rechecked here: an invitation can be created between queueing and publish.

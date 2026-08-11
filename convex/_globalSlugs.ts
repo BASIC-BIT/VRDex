@@ -8,17 +8,21 @@ export const SLUG_MIN_LENGTH = 3;
 export const SLUG_MAX_LENGTH = 64;
 export const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-// Every top-level path the site serves, plus room for pages it does not serve yet.
-// A slug that collides with one of these would be shadowed by the real route and
-// resolve to the wrong page, so they are never assignable.
-// `tests/web/reserved-route-slugs.test.ts` walks the app directory and fails when a
-// new top-level route lands without being added here.
-export const RESERVED_ROUTE_SLUGS = [
-  // Live routes.
+/**
+ * Segments a route actually serves today.
+ *
+ * These are the only names that *shadow* a slug: Next matches the static segment
+ * first, so a profile slugged `lookup` could never be reached. Kept separate from
+ * the merely-held names below because read paths need this narrower question --
+ * "is this URL some other page?" -- while assignment needs the broader one.
+ *
+ * `tests/web/reserved-route-slugs.test.ts` walks the app directory and the
+ * configured rewrites, and fails when a new one lands without being added here.
+ */
+export const LIVE_ROUTE_SLUGS = [
   "account",
   "api",
   "claim",
-  "deployment",
   "developers",
   "discover",
   "discovery",
@@ -34,22 +38,23 @@ export const RESERVED_ROUTE_SLUGS = [
   "sign-in",
   "sign-up",
   "submit",
+  "support",
   "time",
-  // Framework and well-known paths that never reach a page component.
-  "favicon",
-  "manifest",
-  "opensearch",
-  "robots",
-  "rss",
-  "sitemap",
-  "well-known",
-  // Retired prefixes. Nothing serves these now, but old links and muscle memory
-  // point at them, so they stay unassignable rather than resolving to a person.
-  "c",
-  "e",
-  "p",
-  "w",
-  // Pages we will plausibly want, held so a squatter cannot take the obvious name.
+  // Not a directory under `app`: `next.config.ts` installs a `beforeFiles` rewrite
+  // proxying `/ingest/:path*` to PostHog, which runs ahead of the filesystem. A
+  // profile slugged `ingest` would have its own subpaths swallowed by analytics.
+  "ingest",
+] as const;
+
+/**
+ * Names held for pages we may add, and for the ones that are ours.
+ *
+ * Unassignable, but nothing shadows them today, so a link to one is still a link
+ * to whatever holds it. That distinction is the point of the split: `basicbit` is
+ * a real profile, and treating it as a route made the support intake reject its
+ * own canonical URL.
+ */
+export const FUTURE_ROUTE_SLUGS = [
   "about",
   "admin",
   "ads",
@@ -69,6 +74,7 @@ export const RESERVED_ROUTE_SLUGS = [
   "contact",
   "cookies",
   "dashboard",
+  "deployment",
   "developer",
   "dmca",
   "docs",
@@ -78,6 +84,7 @@ export const RESERVED_ROUTE_SLUGS = [
   "event",
   "explore",
   "faq",
+  "favicon",
   "feed",
   "feedback",
   "files",
@@ -97,6 +104,7 @@ export const RESERVED_ROUTE_SLUGS = [
   "library",
   "login",
   "logout",
+  "manifest",
   "map",
   "media",
   "moderation",
@@ -104,6 +112,7 @@ export const RESERVED_ROUTE_SLUGS = [
   "news",
   "notifications",
   "onboarding",
+  "opensearch",
   "org",
   "partners",
   "people",
@@ -118,17 +127,19 @@ export const RESERVED_ROUTE_SLUGS = [
   "register",
   "reset-password",
   "roadmap",
+  "robots",
+  "rss",
   "security",
   "settings",
   "signin",
   "signout",
   "signup",
+  "sitemap",
   "sponsors",
   "static",
   "stats",
   "status",
   "store",
-  "support",
   "team",
   "terms",
   "tos",
@@ -136,25 +147,31 @@ export const RESERVED_ROUTE_SLUGS = [
   "upgrade",
   "upload",
   "verify",
+  "well-known",
   "widget",
   "world",
   "worlds",
-  // Ours regardless of who asks.
-  "basicbit",
-  "vrdex",
 ] as const;
 
-// Short, generic, obviously-desirable names held back so they can be granted or sold
-// later rather than going to whoever registers first. Unlike the route list these are
-// safe to hand out -- an operator writing the slug directly is how one gets claimed
-// today; a self-serve grant path can come with the paid feature.
-// Slugs under SLUG_MIN_LENGTH are already unassignable, which reserves the whole
-// one- and two-character space for the same purpose without listing it.
+/**
+ * Short, generic, obviously-desirable names held back so they can be granted or
+ * sold later rather than going to whoever registers first, plus the ones that are
+ * simply ours.
+ *
+ * Withheld from self-serve, not from existence: an operator writing the slug
+ * directly is how one gets claimed today, and a self-serve grant path can come
+ * with the paid feature. Once granted, the name behaves like any other slug --
+ * it resolves, and it parses out of a pasted link.
+ *
+ * Slugs under SLUG_MIN_LENGTH are already unassignable, which reserves the whole
+ * one- and two-character space for the same purpose without listing it.
+ */
 export const RESERVED_PREMIUM_SLUGS = [
   "art",
   "artist",
   "bar",
   "basic",
+  "basicbit",
   "beat",
   "beats",
   "chat",
@@ -198,31 +215,32 @@ export const RESERVED_PREMIUM_SLUGS = [
   "vr",
   "vrc",
   "vrchat",
+  "vrdex",
 ] as const;
 
-const RESERVED_ROUTE_SLUG_SET = new Set<string>(RESERVED_ROUTE_SLUGS);
+const LIVE_ROUTE_SLUG_SET = new Set<string>(LIVE_ROUTE_SLUGS);
 const RESERVED_SLUG_SET = new Set<string>([
-  ...RESERVED_ROUTE_SLUGS,
+  ...LIVE_ROUTE_SLUGS,
+  ...FUTURE_ROUTE_SLUGS,
   ...RESERVED_PREMIUM_SLUGS,
 ]);
 
-/** Not assignable to anyone, by either self-serve or an operator. */
+/** Not assignable by self-serve. Broader than what actually shadows a slug. */
 export function isReservedSlug(slug: string): boolean {
   return RESERVED_SLUG_SET.has(slug);
 }
 
 /**
- * Names a real page, so no profile can ever answer to it.
+ * A real page answers to this, so no profile can.
  *
- * Narrower than `isReservedSlug` on purpose, and the distinction matters wherever
- * a slug is *read* rather than assigned. A premium name is held back from
- * self-serve but an operator can still grant it, so once `basic` belongs to
- * somebody, `vrdex.net/basic` is a real profile link and has to be readable as
- * one. Only a route name can never be a profile.
+ * The check for read paths. A held name is not a route -- `basicbit` is a profile
+ * and `pricing` is a page we have not built -- so refusing those when *reading* a
+ * URL threw away identifiers for profiles that exist.
  */
-export function isReservedRouteSlug(slug: string): boolean {
-  return RESERVED_ROUTE_SLUG_SET.has(slug);
+export function isLiveRouteSlug(slug: string): boolean {
+  return LIVE_ROUTE_SLUG_SET.has(slug);
 }
+
 
 export function normalizeSlugInput(input: string): string {
   return input

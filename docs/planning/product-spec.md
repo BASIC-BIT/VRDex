@@ -408,7 +408,8 @@ Implementation status for the first event foundation slice:
 
 > **Update 2026-08-11:** superseded. Profiles, worlds, and events are now first-class root links at `/<slug>`, sharing one global slug namespace. The `/p/`, `/c/`, `/w/`, and `/e/` prefixes were removed outright with no redirect. The text below is kept as the record of what was planned at the time. See `docs/backend/profile-slugs.md` for the live contract.
 
-- events use editable readable slugs under `/e/<slug>`- generated durable `/l/<code>` short links are deferred to `#92`
+- events use editable readable slugs under `/e/<slug>`
+- generated durable `/l/<code>` short links are deferred to `#92`
 - public person pages derive upcoming events from confirmed `eventParticipants` links
 - public community pages derive hosted upcoming events from canonical event records
 - participant role labels are freeform text for now; reusable vocabulary memory is deferred to `#90`

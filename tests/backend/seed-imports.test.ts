@@ -511,6 +511,33 @@ describe("seed import review and publication guards", () => {
       }).includes("slug_collision_blocks_publication"),
     );
   });
+
+  it("blocks a slug a world or event already holds", () => {
+    // Worlds and events share the root namespace with profiles now. Resolving
+    // collisions with getProfileBySlug alone reported none, and publication then
+    // allocated a suffixed slug -- so the operator approved one name and a
+    // different one shipped. Not a merge target, so it arrives separately from
+    // slugCollisionProfile, which doubles as one.
+    assert.ok(
+      getSeedImportPublicationBlockers({
+        batch: approvedBatch,
+        candidate: acceptedCandidate,
+        fields: acceptedPublicFields,
+        slugCollisionProfile: null,
+        slugOwnedByOtherEntity: true,
+      }).includes("slug_collision_blocks_publication"),
+    );
+
+    assert.ok(
+      !getSeedImportPublicationBlockers({
+        batch: approvedBatch,
+        candidate: acceptedCandidate,
+        fields: acceptedPublicFields,
+        slugCollisionProfile: null,
+        slugOwnedByOtherEntity: false,
+      }).includes("slug_collision_blocks_publication"),
+    );
+  });
 });
 
 describe("seed import publish guards", () => {
