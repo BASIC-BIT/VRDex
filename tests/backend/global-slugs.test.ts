@@ -2,7 +2,13 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import type { DatabaseReader } from "../../convex/_generated/server";
-import { findSlugOwner, isReservedSlug, validateSlugFormat } from "../../convex/_globalSlugs";
+import {
+  findSlugOwner,
+  isReservedSlug,
+  isRoutePrefixSlug,
+  routePrefixSubpaths,
+  validateSlugFormat,
+} from "../../convex/_globalSlugs";
 import { checkEventSlugAvailability, findAvailableEventSlug } from "../../convex/_eventSlugs";
 import { checkProfileSlugAvailability } from "../../convex/_profileSlugs";
 import { checkWorldSlugAvailability } from "../../convex/_worldSlugs";
@@ -207,6 +213,23 @@ describe("global slug namespace", () => {
       ),
       "harbor-sessions",
     );
+  });
+
+  it("answers the prefix lookup safely for slugs that name Object members", () => {
+    // Slugs come from users, and `constructor` passes validation and is reserved by
+    // nothing. Keyed on a plain object this lookup returned `Object` rather than
+    // undefined, so the `?? []` fallback never fired and the caller's `.includes`
+    // threw -- inside the deployment audit, the one tool expected to work before a
+    // rollout.
+    for (const slug of ["constructor", "hasownproperty", "prototype", "tostring"]) {
+      assert.equal(validateSlugFormat(slug).ok, true, `${slug} is a legal slug`);
+      assert.deepEqual(routePrefixSubpaths(slug), []);
+      assert.equal(isRoutePrefixSlug(slug), false);
+      assert.equal(isReservedSlug(slug), false);
+    }
+
+    // Still correct for a real one.
+    assert.deepEqual([...routePrefixSubpaths("handoff")].sort(), ["calendar.ics", "edit"]);
   });
 
   it("resolves the owner across all three tables", async () => {

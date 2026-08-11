@@ -74,13 +74,18 @@ export const ENTITY_SUBPATHS = ["edit", "calendar.ics"] as const;
 
 export type EntitySubpath = (typeof ENTITY_SUBPATHS)[number];
 
-export const ROUTE_PREFIX_SUBPATHS: Record<string, readonly EntitySubpath[]> = {
+// A Map rather than an object, because the keys are slugs and slugs come from
+// users. `constructor` is a valid, unreserved slug, and a plain object would have
+// answered that lookup with `Object` -- not undefined, so the `?? []` fallback
+// never fires and the caller's `.includes` throws. That crash lands in the
+// deployment audit, which is the one tool expected to work before a rollout.
+const ROUTE_PREFIX_SUBPATHS = new Map<string, readonly EntitySubpath[]>([
   // Dynamic children, so they match any single segment and take both subpaths.
-  handoff: ["edit", "calendar.ics"],
-  l: ["edit", "calendar.ics"],
-};
+  ["handoff", ["edit", "calendar.ics"]],
+  ["l", ["edit", "calendar.ics"]],
+]);
 
-export const ROUTE_PREFIX_SLUGS = Object.keys(ROUTE_PREFIX_SUBPATHS);
+export const ROUTE_PREFIX_SLUGS = [...ROUTE_PREFIX_SUBPATHS.keys()];
 
 export const HELD_ROUTE_SLUGS = [
   "api",
@@ -286,7 +291,7 @@ export function isRoutePrefixSlug(slug: string): boolean {
  * flagged both, which would fail the audit over an event whose export still works.
  */
 export function routePrefixSubpaths(slug: string): readonly EntitySubpath[] {
-  return ROUTE_PREFIX_SUBPATHS[slug] ?? [];
+  return ROUTE_PREFIX_SUBPATHS.get(slug) ?? [];
 }
 
 export function isLiveRouteSlug(slug: string): boolean {
