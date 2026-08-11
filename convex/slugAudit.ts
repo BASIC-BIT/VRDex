@@ -104,7 +104,14 @@ export const conflicts = internalQuery({
     // `app/handoff/[token]` rather than the profile editor, and an event's
     // `/handoff/calendar.ics` is intercepted the same way. Reported so the audit
     // cannot print "nothing to migrate" over a broken owner-facing route.
-    const nestedRoutesShadowed = holders.filter((holder) => isRoutePrefixSlug(holder.slug));
+    //
+    // Worlds are exempt: only two subpaths exist under `[slug]`, and `edit` serves
+    // profiles while `calendar.ics` serves events. A world has nothing down there to
+    // lose, so flagging one would fail the audit and demand a rename that fixes
+    // nothing.
+    const nestedRoutesShadowed = holders.filter(
+      (holder) => holder.kind !== "world" && isRoutePrefixSlug(holder.slug),
+    );
 
     return {
       checked: { profiles: profiles.length, worlds: worlds.length, events: events.length },

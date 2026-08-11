@@ -123,6 +123,23 @@ describe("slug conflict audit", () => {
     );
   });
 
+  it("leaves a world holding a route prefix alone", async () => {
+    const t = convexTest({ schema, modules });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("worlds", worldRow("handoff", "Handoff World"));
+    });
+
+    const report = await t.query(internal.slugAudit.conflicts, {});
+
+    // Only `edit` and `calendar.ics` exist under `[slug]`, and they serve profiles
+    // and events. A world has nothing beneath its slug, so `/handoff` renders it and
+    // there is no subpath for `app/handoff/[token]` to take. Flagging it would fail
+    // the audit and demand a rename that fixes nothing.
+    assert.deepEqual(report.nestedRoutesShadowed, []);
+    assert.deepEqual(report.duplicates, []);
+  });
+
   it("ignores events that have no slug to collide with", async () => {
     const t = convexTest({ schema, modules });
 
