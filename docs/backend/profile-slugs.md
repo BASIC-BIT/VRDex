@@ -46,13 +46,15 @@ Initial slug generation starts from a display name or owner-provided text:
 
 ## Uniqueness
 
-Convex does not enforce unique indexes at the schema layer. Profile slug uniqueness is enforced by mutations using the `by_slug` index before insert or update.
+Convex does not enforce unique indexes at the schema layer. Slug uniqueness is enforced by mutations before insert or update, and it spans all three root-routed tables: a name a world or event holds is taken for a profile too, because only one of them could answer `/<slug>`.
+
+Use `findSlugOwner` from `convex/_globalSlugs.ts`, or the `check*SlugAvailability` helper for the entity being written, which calls it. A single `by_slug` query sees one third of the namespace. Convex mutations are transactional across tables, so a check followed by an insert in the same mutation cannot race.
 
 `profiles:submitCommunityProfile` now creates initial public slugs for authenticated community submissions. Mutations that create or update profiles must:
 
 - normalize and validate the candidate slug
 - reject invalid or reserved slugs
-- query `by_slug` to reject collisions outside the current profile
+- reject collisions across profiles, worlds, and events, excluding the row being updated
 - patch `updatedAt` with the slug write
 
 ## Out of Scope

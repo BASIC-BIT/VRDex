@@ -139,6 +139,21 @@ export async function findAvailableEventSlug(
     if (availability.available) {
       return availability.slug;
     }
+
+    // Suffixing is for slugs we derived from a title. A slug the caller named is
+    // a public address they chose, so a collision is an error rather than an
+    // invitation to pick a different one.
+    //
+    // This also catches a legacy cross-entity collision on an unrelated update:
+    // `events.ts` passes the event's own slug as the preferred value, which
+    // `excludingEventId` clears, so the only way to reach here is a *profile* or
+    // *world* holding the name. Silently moving the event to `<slug>-2` would
+    // change a live URL during an edit that never asked to.
+    if (preferred?.ok && attempt === 1) {
+      throw new Error(
+        `Event slug "${candidate}" is already taken. Choose another, or resolve the collision first.`,
+      );
+    }
   }
 
   throw new Error(`Unable to find an available event slug for "${base}".`);

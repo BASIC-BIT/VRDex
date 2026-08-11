@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 
 import type { DatabaseReader } from "../../convex/_generated/server";
 import { findSlugOwner, isReservedSlug, validateSlugFormat } from "../../convex/_globalSlugs";
-import { checkEventSlugAvailability } from "../../convex/_eventSlugs";
+import { checkEventSlugAvailability, findAvailableEventSlug } from "../../convex/_eventSlugs";
 import { checkProfileSlugAvailability } from "../../convex/_profileSlugs";
 import { checkWorldSlugAvailability } from "../../convex/_worldSlugs";
 
@@ -132,6 +132,48 @@ describe("global slug namespace", () => {
     const owner = await findSlugOwner(db, "basic");
 
     assert.equal(owner?.kind, "person");
+  });
+
+  it("refuses a named event slug rather than suffixing it", async () => {
+    const db = createSlugTestDb({
+      profiles: [{ _id: "profile1", slug: "afterglow", profileType: "community" }],
+    });
+
+    // Derived-from-title slugs may be suffixed; a slug the caller named is a public
+    // address they chose. Returning `afterglow-2` would hand back a different one
+    // and report success.
+    await assert.rejects(
+      () => findAvailableEventSlug(db, { title: "Afterglow", preferredSlug: "afterglow" }),
+      /already taken/,
+    );
+
+    await assert.rejects(
+      () => findAvailableEventSlug(db, { title: "Support", preferredSlug: "support" }),
+      /reserved/,
+    );
+
+    // Nothing named, so the allocator is free to pick around a collision.
+    assert.equal(
+      await findAvailableEventSlug(db, { title: "Afterglow" }),
+      "afterglow-2",
+    );
+  });
+
+  it("lets an event keep its own slug through an update", async () => {
+    // `events.ts` passes the event's current slug as the preferred value on every
+    // update, so excluding itself is what stops an unrelated edit from throwing.
+    const db = createSlugTestDb({
+      events: [{ _id: "event1", slug: "harbor-sessions" }],
+    });
+
+    assert.equal(
+      await findAvailableEventSlug(
+        db,
+        { title: "Harbor Sessions", preferredSlug: "harbor-sessions" },
+        { excludingEventId: "event1" as never },
+      ),
+      "harbor-sessions",
+    );
   });
 
   it("resolves the owner across all three tables", async () => {
