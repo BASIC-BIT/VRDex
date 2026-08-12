@@ -13,7 +13,7 @@ import { convexAdminHttpClient } from "@/lib/server/convex-http";
 
 export const dynamic = "force-dynamic";
 
-function problem(status: 400 | 409 | 500, title: string, detail: string) {
+function problem(status: 400 | 403 | 409 | 500, title: string, detail: string) {
   return apiProblemResponse({ type: "about:blank", title, status, detail });
 }
 
@@ -56,6 +56,14 @@ function profileSubmitErrorResponse(error: unknown) {
 
   if (data?.code === "PROFILE_INPUT_INVALID") {
     return problem(400, "Invalid profile submission", data.message ?? "The profile submission is invalid.");
+  }
+
+  if (data?.code === "PROFILE_FIELD_FORBIDDEN") {
+    return problem(
+      403,
+      "Profile submission authority is insufficient",
+      data.message ?? "That field cannot be edited by this writer.",
+    );
   }
 
   if (data?.code === "IDENTITY_SUPPRESSED") {
@@ -135,6 +143,9 @@ export async function POST(request: Request) {
       {
         actorKind: evaluation.source,
         ownerUserId: evaluation.ownerUserId as Id<"users">,
+        ...(evaluation.context.credential.kind === "oauth"
+          ? { oauthClientId: evaluation.context.credential.clientId }
+          : {}),
         ...idempotency,
         ...body.data,
       },

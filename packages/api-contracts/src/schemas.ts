@@ -561,7 +561,11 @@ export const ApiProfileLinkInputSchema = z
     handle: z.string().min(1).max(160).optional(),
     presentation: z.enum(["icon", "copy"]).optional(),
   })
-  .meta({ description: "Outbound profile link supplied by a profile owner.", id: "ApiProfileLinkInput" });
+  .meta({
+    description:
+      "Outbound profile link supplied by a profile owner or a community contributor. VRDex records which, and the public profile renders the distinction.",
+    id: "ApiProfileLinkInput",
+  });
 
 export const ApiProfileUpdateRequestSchema = z
   .object({

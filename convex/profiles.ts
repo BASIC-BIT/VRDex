@@ -148,6 +148,7 @@ function apiOwnerAuthSubject(userId: Doc<"users">["_id"]): AuthSubject {
  */
 const RELAYED_PROFILE_WRITE_ERROR_CODES = new Set([
   "IDENTITY_SUPPRESSED",
+  "PROFILE_FIELD_FORBIDDEN",
   "PROFILE_CONTRIBUTE_SCOPE_REQUIRED",
   "INVALID_PROFILE_LINK",
   "PROFILE_CLAIMED",
@@ -1097,14 +1098,24 @@ export const submitCommunityProfileForApiUser = internalMutation({
      */
     idempotencyKeyHash: v.optional(v.string()),
     requestFingerprint: v.optional(v.string()),
+    /**
+     * The OAuth client the credential belongs to, when it is one.
+     *
+     * Receipts key on it because two applications one user has authorized are
+     * two different callers: sharing a namespace let the second app replaying
+     * the same key receive the first app's profile, or take a 409 for a key it
+     * had never used. Personal tokens share one namespace deliberately, since
+     * a user's own tokens replaying a key is not worth splitting and merging
+     * them errs toward fewer duplicate profiles.
+     */
+    oauthClientId: v.optional(v.string()),
     ...communityProfileSubmissionArgs,
   },
   handler: async (ctx, args) => {
     const toolName = "vrdex_profile_submit" as const;
-    // Scoped to the user rather than the individual credential. Two of one
-    // user's tokens replaying one key is not a case worth splitting, and
-    // conflating them errs toward fewer duplicate profiles.
-    const receiptClientRef = `api:${args.actorKind}`;
+    const receiptClientRef = args.oauthClientId === undefined
+      ? `api:${args.actorKind}`
+      : `api:oauth:${normalizeOAuthClientId(args.oauthClientId)}`;
     const idempotencyKeyHash = args.idempotencyKeyHash === undefined
       ? undefined
       : requireSha256Hex(args.idempotencyKeyHash, "Idempotency key hash");

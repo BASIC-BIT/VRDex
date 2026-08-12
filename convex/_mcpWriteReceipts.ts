@@ -100,10 +100,13 @@ export async function withCurrentProfileWritePaths(
 ): Promise<McpProfileWriteResult> {
   const profile = await db.get(result.profileId);
 
-  // Deleted since. There is no current record to point at, so the stored slug
-  // stays and the caller is told it is not publicly viewable rather than being
-  // handed a path that resolves to nothing.
-  if (profile === null) {
+  // Deleted since, or no longer public. Either way there is nothing the caller
+  // may be told about where it lives now: resolving through a record they can
+  // no longer read would hand a former owner or prior submitter the profile's
+  // new slug, which is exactly the routing a rename plus an opt-out is meant to
+  // take away from them. The receipt's own identifiers are what they already
+  // hold, so replaying those discloses nothing new.
+  if (profile === null || !isPubliclyReadable(profile)) {
     return { ...result, profilePath: `/${result.slug}`, publiclyViewable: false };
   }
 
@@ -112,7 +115,7 @@ export async function withCurrentProfileWritePaths(
     slug: profile.slug,
     profileType: profile.profileType,
     profilePath: `/${profile.slug}`,
-    publiclyViewable: isPubliclyReadable(profile),
+    publiclyViewable: true,
   };
 }
 

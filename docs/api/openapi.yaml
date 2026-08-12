@@ -739,6 +739,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiProblem"
         "429": *a1
+        "500":
+          description: The profile update could not be completed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
   /api/v0/profiles:
     post:
       operationId: submitCommunityProfile
@@ -2971,7 +2977,7 @@ components:
       required:
         - type
         - url
-      description: Outbound profile link supplied by a profile owner.
+      description: Outbound profile link supplied by a profile owner or a community contributor. VRDex records which, and the public profile renders the distinction.
     ProfileLinkType:
       type: string
       enum:

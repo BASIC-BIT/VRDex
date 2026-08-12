@@ -334,6 +334,66 @@ describe("profile write authority", () => {
     assert.equal(replay.profilePath, "/dj-new-name");
   });
 
+  it("keeps a renamed but no-longer-public profile's new slug out of a replay", async () => {
+    const t = convexTest(schema, modules);
+    const ownerUserId = await seedUser(t, "gone-private");
+    const profileId = await seedProfile(t, "gone-private", "unclaimed");
+    const args = {
+      ownerUserId,
+      oauthClientId: "vrdx_app_0123456789abcdef01234567",
+      oauthTokenId: "token-6",
+      requestId: "request-6",
+      idempotencyKeyHash: KEY_HASH,
+      requestFingerprint: FINGERPRINT,
+      contributeGranted: true,
+      currentSlug: "dj-gone-private",
+      headline: "Quiet season",
+    };
+
+    await t.mutation(internal.profiles.updateProfileForMcpActor, args);
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(profileId as Id<"profiles">, {
+        slug: "dj-moved-and-hidden",
+        publicSurfacingState: "opted_out",
+      });
+    });
+
+    const replay = await t.mutation(internal.profiles.updateProfileForMcpActor, args);
+
+    // Resolving through the record would hand a prior submitter the profile's
+    // new address, which renaming and opting out is precisely what takes away.
+    assert.notEqual(replay.slug, "dj-moved-and-hidden");
+    assert.equal(replay.profilePath, "/dj-gone-private");
+    assert.equal(replay.publiclyViewable, false);
+  });
+
+  it("keeps one user's two OAuth apps in separate receipt namespaces", async () => {
+    const t = convexTest(schema, modules);
+    const ownerUserId = await seedUser(t, "two-apps");
+    const base = {
+      actorKind: "user_delegated_oauth" as const,
+      ownerUserId,
+      idempotencyKeyHash: KEY_HASH,
+      requestFingerprint: FINGERPRINT,
+      profileType: "person" as const,
+      displayName: "DJ Shared Key",
+    };
+
+    const first = await t.mutation(internal.profiles.submitCommunityProfileForApiUser, {
+      ...base,
+      oauthClientId: "vrdx_app_1111111111111111aaaaaaaa",
+    });
+    const second = await t.mutation(internal.profiles.submitCommunityProfileForApiUser, {
+      ...base,
+      oauthClientId: "vrdx_app_2222222222222222bbbbbbbb",
+    });
+
+    // Two applications one user authorized are two callers. Sharing a namespace
+    // handed the second app the first app's profile.
+    assert.notEqual(first.profileId, second.profileId);
+  });
+
   it("relays a fixable refusal instead of flattening it into a denial", async () => {
     const t = convexTest(schema, modules);
     const ownerUserId = await seedUser(t, "fixable");

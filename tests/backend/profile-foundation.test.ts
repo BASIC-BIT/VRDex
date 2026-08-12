@@ -1103,15 +1103,23 @@ describe("API profile update helpers", () => {
   // for a name the person could simply have lengthened. The structured payload
   // survives, which is how link errors already answered.
   it("rejects invalid input in a shape that survives production", () => {
-    const invalid: Array<[string, ApiProfileUpdateInput]> = [
-      ["display name too short", { displayName: "a" }],
-      ["too many aliases", { aliases: Array.from({ length: 40 }, (_u, i) => `alias-${i}`) }],
-      // The community may not edit a field the profile marks private.
-      ["field not editable", { headline: "Updated" }],
-      ["wrong profile type", { community: { subtype: "Club" } }],
+    const invalid: Array<[string, ApiProfileUpdateInput, string]> = [
+      ["display name too short", { displayName: "a" }, "PROFILE_INPUT_INVALID"],
+      [
+        "too many aliases",
+        { aliases: Array.from({ length: 40 }, (_u, i) => `alias-${i}`) },
+        "PROFILE_INPUT_INVALID",
+      ],
+      // The community may not edit a field the profile marks private. No value
+      // would be accepted, so this answers as an authority refusal rather than
+      // asking the caller to correct something.
+      ["field not editable", { headline: "Updated" }, "PROFILE_FIELD_FORBIDDEN"],
+      // Caught by shape validation before the permission check: a community
+      // field on a person profile is a malformed request, not an authority one.
+      ["wrong profile type", { community: { subtype: "Club" } }, "PROFILE_INPUT_INVALID"],
     ];
 
-    for (const [label, input] of invalid) {
+    for (const [label, input, expectedCode] of invalid) {
       assert.throws(
         () =>
           sanitizeApiProfileUpdateInput(
@@ -1128,7 +1136,7 @@ describe("API profile update helpers", () => {
         (error: unknown) => {
           const data = (error as { data?: { code?: string; message?: string } }).data;
 
-          assert.equal(data?.code, "PROFILE_INPUT_INVALID", label);
+          assert.equal(data?.code, expectedCode, label);
           assert.ok((data?.message ?? "").length > 0, label);
 
           return true;

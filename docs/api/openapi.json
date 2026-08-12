@@ -1571,6 +1571,16 @@
                 }
               }
             }
+          },
+          "500": {
+            "description": "The profile update could not be completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
           }
         }
       }
@@ -5497,7 +5507,7 @@
           "type",
           "url"
         ],
-        "description": "Outbound profile link supplied by a profile owner."
+        "description": "Outbound profile link supplied by a profile owner or a community contributor. VRDex records which, and the public profile renders the distinction."
       },
       "ProfileLinkType": {
         "type": "string",

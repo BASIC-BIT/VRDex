@@ -674,6 +674,10 @@ export const openApiSource = {
             content: jsonContent(ApiProblemSchema),
           },
           "429": publicReadProblemResponses["429"],
+          "500": {
+            description: "The profile update could not be completed.",
+            content: jsonContent(ApiProblemSchema),
+          },
         },
       },
     },

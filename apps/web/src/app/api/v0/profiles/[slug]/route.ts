@@ -69,6 +69,14 @@ function profileUpdateErrorResponse(error: unknown) {
     );
   }
 
+  if (data?.code === "PROFILE_FIELD_FORBIDDEN") {
+    return problem(
+      403,
+      "Profile update authority is insufficient",
+      data.message ?? "That field cannot be edited by this writer.",
+    );
+  }
+
   if (data?.code === "PROFILE_CLAIMED") {
     return problem(
       403,
@@ -95,7 +103,11 @@ function profileUpdateErrorResponse(error: unknown) {
     return problem(404, "Profile not found", "The requested profile was not found.");
   }
 
-  return problem(400, "Invalid profile update request", message);
+  // Nothing above recognized this, so there is no evidence the request was
+  // malformed. A 400 tells the caller to correct a body that may have been
+  // fine, and the stdio tool reads it as a client error rather than a write
+  // whose outcome it cannot prove.
+  return problem(500, "Profile update failed", "The profile update could not be completed.");
 }
 
 export async function GET(request: Request, context: RouteContext) {
