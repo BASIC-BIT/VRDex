@@ -204,6 +204,14 @@ export const PublicProfileSchema = z
     telemetry: PublicCommunityTelemetrySchema.optional(),
     trustLabel: TrustLabelSchema,
     upcomingEvents: z.array(z.unknown()).optional(),
+    /**
+     * The profile's current revision, to send back as `expectedUpdatedAt`.
+     *
+     * This is the read half of the write conflict check. Without it a caller had
+     * no revision to pin, so two contributors correcting the same unclaimed
+     * profile could only find out about each other by noticing their links gone.
+     */
+    updatedAt: timestampMs,
     worldCredits: z.array(z.unknown()).optional(),
   })
   .passthrough()
@@ -589,6 +597,15 @@ export const ApiProfileUpdateRequestSchema = z
       })
       .optional(),
     outboundLinks: z.array(ApiProfileLinkInputSchema).max(20).optional(),
+    /**
+     * The `updatedAt` the writer last read, pinning what they are editing.
+     *
+     * Optional, because a caller editing a profile only they can write does not
+     * need it. Send it whenever the profile is one others may also correct:
+     * `outboundLinks` replaces the whole list, so two contributors who both read
+     * before either wrote would otherwise silently drop each other's links.
+     */
+    expectedUpdatedAt: timestampMs.optional(),
   })
   .meta({
     description:

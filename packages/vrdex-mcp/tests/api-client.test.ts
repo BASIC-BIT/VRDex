@@ -85,6 +85,7 @@ async function handleFixtureRequest(request: IncomingMessage, response: ServerRe
         currentPopulation: { value: 42, activeInstanceCount: 2, observedAt: 1798761600000, coverage: "observed" },
       },
       trustLabel: "claimed_verified",
+      updatedAt: 1798761600000,
     });
 
     return;

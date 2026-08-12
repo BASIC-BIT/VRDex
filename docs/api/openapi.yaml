@@ -738,6 +738,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiProblem"
+        "409":
+          description: The profile changed after the revision sent as expectedUpdatedAt. Re-read the profile and send the update again.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
         "429": *a1
         "500":
           description: The profile update could not be completed.
@@ -2951,6 +2957,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ApiProfileLinkInput"
+        expectedUpdatedAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
       description: Update editable metadata for a profile the current authenticated API user owns, or for an unclaimed profile as a community correction.
     ApiProfileLinkInput:
       type: object
@@ -5093,6 +5103,10 @@ components:
         upcomingEvents:
           type: array
           items: {}
+        updatedAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
         worldCredits:
           type: array
           items: {}
@@ -5101,6 +5115,7 @@ components:
         - profileType
         - slug
         - trustLabel
+        - updatedAt
       additionalProperties: {}
       description: Public profile response. Unknown fields are preserved while the API is still stabilizing.
     ApiProfileWriteResponse:

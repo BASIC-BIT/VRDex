@@ -1553,6 +1553,16 @@
               }
             }
           },
+          "409": {
+            "description": "The profile changed after the revision sent as expectedUpdatedAt. Re-read the profile and send the update again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblem"
+                }
+              }
+            }
+          },
           "429": {
             "description": "The request exceeded a rate limit.",
             "headers": {
@@ -5470,6 +5480,11 @@
             "items": {
               "$ref": "#/components/schemas/ApiProfileLinkInput"
             }
+          },
+          "expectedUpdatedAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
           }
         },
         "description": "Update editable metadata for a profile the current authenticated API user owns, or for an unclaimed profile as a community correction."
@@ -8351,6 +8366,11 @@
             "type": "array",
             "items": {}
           },
+          "updatedAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
           "worldCredits": {
             "type": "array",
             "items": {}
@@ -8360,7 +8380,8 @@
           "displayName",
           "profileType",
           "slug",
-          "trustLabel"
+          "trustLabel",
+          "updatedAt"
         ],
         "additionalProperties": {},
         "description": "Public profile response. Unknown fields are preserved while the API is still stabilizing."

@@ -36,6 +36,10 @@ export function toPublicProfile(profile: Doc<"profiles">) {
     tags: visibleProfileList(profile, "tags", profile.tags, "profile_page"),
     genres: publicProfileGenres(profile),
     trustLabel: getProfileTrustLabel(profile.claimState, profile.creationSource),
+    // The revision a writer pins with `expectedUpdatedAt`. Without it exposed,
+    // two contributors correcting the same unclaimed profile had no way to
+    // notice the other, and `outboundLinks` replaces the whole list.
+    updatedAt: profile.updatedAt,
     ...optionalField("source", source),
     outboundLinks: visibleProfileList(
       profile,

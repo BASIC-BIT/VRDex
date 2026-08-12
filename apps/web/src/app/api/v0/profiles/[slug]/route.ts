@@ -26,7 +26,7 @@ type RouteContext = {
   }>;
 };
 
-function problem(status: 400 | 403 | 404 | 500, title: string, detail: string) {
+function problem(status: 400 | 403 | 404 | 409 | 500, title: string, detail: string) {
   return apiProblemResponse({
     type: "about:blank",
     title,
@@ -87,20 +87,30 @@ function profileUpdateErrorResponse(error: unknown) {
 
   if (data?.code === "IDENTITY_SUPPRESSED") {
     // Reuses the existing 400 title rather than introducing a 409 with a new one:
-    // that would mean unapproved public copy, a wider status union in `problem`,
-    // and a new response in both OpenAPI artifacts. The approved message still
-    // reaches the caller as the problem detail, which is the part that matters.
+    // that would mean unapproved public copy, and a new response in both OpenAPI
+    // artifacts. The approved message still reaches the caller as the problem
+    // detail, which is the part that matters.
     return problem(400, "Invalid profile update request", data.message ?? IDENTITY_SUPPRESSED_DETAIL);
   }
 
-  const message = error instanceof Error ? error.message : "The profile update request is invalid.";
-
-  if (message.includes("permission") || message.includes("Only a claimed profile owner")) {
-    return problem(403, "Profile update authority is insufficient", message);
+  // Structured, not matched out of `Error.message`. This branch used to read the
+  // text, which meant it never fired on a production deployment: Convex redacts
+  // those messages, so a hidden or missing profile fell past every branch and
+  // answered 500 -- reporting a backend failure for a request that was simply
+  // addressed at nothing this caller can read.
+  if (data?.code === "PROFILE_NOT_FOUND") {
+    return problem(404, "Profile not found", "The requested profile was not found.");
   }
 
-  if (message.includes("not found")) {
-    return problem(404, "Profile not found", "The requested profile was not found.");
+  // The caller pinned a revision and lost the race. 409 rather than 400: the
+  // body was fine, it was aimed at a version of the profile that has moved on,
+  // and the fix is to re-read and re-send rather than to correct a field.
+  if (data?.code === "PROFILE_CHANGED") {
+    return problem(
+      409,
+      "Profile changed",
+      data.message ?? "This profile changed while you were editing it. Reload to see the current version.",
+    );
   }
 
   // Nothing above recognized this, so there is no evidence the request was

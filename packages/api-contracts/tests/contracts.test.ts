@@ -137,16 +137,20 @@ describe("@vrdex/api-contracts", () => {
         currentPopulation: { value: 42, activeInstanceCount: 2, observedAt: 1784635200000, coverage: "observed" },
       },
       trustLabel: "claimed_verified",
+      updatedAt: 1784635200000,
     });
 
     assert.equal((profile as { futureField?: string }).futureField, "kept");
     assert.equal(profile.telemetry?.currentPopulation?.value, 42);
+    // Complete apart from the protocol-relative avatar URL, so this still fails
+    // for the reason it is testing rather than for a missing field.
     assert.throws(() => PublicProfileSchema.parse({
       avatarImageUrl: "//cdn.example.test/avatar.png",
       displayName: "VRDex",
       profileType: "community",
       slug: "vrdex",
       trustLabel: "claimed_verified",
+      updatedAt: 1784635200000,
     }));
   });
 

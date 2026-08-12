@@ -132,12 +132,117 @@ describe("profile write authority", () => {
           contributeGranted: false,
           headline: "probe",
         }),
-      (error: unknown) => {
-        assert.notEqual(errorCode(error), "PROFILE_CONTRIBUTE_SCOPE_REQUIRED");
-        assert.match(String((error as Error).message ?? ""), /not found/i);
-        return true;
-      },
+      (error: unknown) => errorCode(error) === "PROFILE_NOT_FOUND",
     );
+  });
+
+  it("answers a structured not-found the route can still read in production", async () => {
+    const t = convexTest(schema, modules);
+    const ownerUserId = await seedUser(t, "missing");
+
+    // The code, not the sentence. Convex redacts plain error messages on a
+    // production deployment, so the route's old `message.includes("not found")`
+    // branch never fired there and a missing profile answered 500.
+    await assert.rejects(
+      () =>
+        t.mutation(internal.profiles.updateProfileForApiOwner, {
+          actorKind: "personal_api_token",
+          ownerUserId,
+          currentSlug: "dj-nobody-has-this",
+          contributeGranted: true,
+          headline: "probe",
+        }),
+      (error: unknown) => errorCode(error) === "PROFILE_NOT_FOUND",
+    );
+
+    // A slug no profile could hold answers the same way, rather than complaining
+    // about the slug and telling a caller which addresses are even well-formed.
+    await assert.rejects(
+      () =>
+        t.mutation(internal.profiles.updateProfileForApiOwner, {
+          actorKind: "personal_api_token",
+          ownerUserId,
+          currentSlug: "Not A Slug",
+          contributeGranted: true,
+          headline: "probe",
+        }),
+      (error: unknown) => errorCode(error) === "PROFILE_NOT_FOUND",
+    );
+  });
+
+  it("refuses a second contributor whose links were written against an older revision", async () => {
+    const t = convexTest(schema, modules);
+    const firstUserId = await seedUser(t, "race-first");
+    const secondUserId = await seedUser(t, "race-second");
+    const profileId = await seedProfile(t, "race", "unclaimed");
+
+    // Both read the same revision. `outboundLinks` replaces the whole list, so
+    // without the pin the second write silently drops the first one's link.
+    const readAt = NOW;
+
+    await t.mutation(internal.profiles.updateProfileForApiOwner, {
+      actorKind: "personal_api_token",
+      ownerUserId: firstUserId,
+      currentSlug: "dj-race",
+      contributeGranted: true,
+      expectedUpdatedAt: readAt,
+      outboundLinks: [{ type: "soundcloud", url: "https://soundcloud.com/first-set" }],
+    });
+
+    await assert.rejects(
+      () =>
+        t.mutation(internal.profiles.updateProfileForApiOwner, {
+          actorKind: "personal_api_token",
+          ownerUserId: secondUserId,
+          currentSlug: "dj-race",
+          contributeGranted: true,
+          expectedUpdatedAt: readAt,
+          outboundLinks: [{ type: "soundcloud", url: "https://soundcloud.com/second-set" }],
+        }),
+      (error: unknown) => errorCode(error) === "PROFILE_CHANGED",
+    );
+
+    const stored = await t.run(async (ctx) => ctx.db.get(profileId as Id<"profiles">));
+
+    assert.equal(stored?.outboundLinks?.length, 1);
+    assert.equal(stored?.outboundLinks?.[0]?.url, "https://soundcloud.com/first-set");
+
+    // Re-reading and re-sending is the documented recovery, so it has to work.
+    await t.mutation(internal.profiles.updateProfileForApiOwner, {
+      actorKind: "personal_api_token",
+      ownerUserId: secondUserId,
+      currentSlug: "dj-race",
+      contributeGranted: true,
+      expectedUpdatedAt: stored?.updatedAt,
+      outboundLinks: [
+        { type: "soundcloud", url: "https://soundcloud.com/first-set" },
+        { type: "soundcloud", url: "https://soundcloud.com/second-set" },
+      ],
+    });
+
+    const merged = await t.run(async (ctx) => ctx.db.get(profileId as Id<"profiles">));
+
+    assert.equal(merged?.outboundLinks?.length, 2);
+  });
+
+  it("still applies an update that sends no pinned revision", async () => {
+    const t = convexTest(schema, modules);
+    const ownerUserId = await seedUser(t, "unpinned");
+    const profileId = await seedProfile(t, "unpinned", "unclaimed");
+
+    // Optional means optional. A caller editing a profile nobody else is
+    // touching should not have to read it first.
+    await t.mutation(internal.profiles.updateProfileForApiOwner, {
+      actorKind: "personal_api_token",
+      ownerUserId,
+      currentSlug: "dj-unpinned",
+      contributeGranted: true,
+      headline: "Bass, mostly",
+    });
+
+    const stored = await t.run(async (ctx) => ctx.db.get(profileId as Id<"profiles">));
+
+    assert.equal(stored?.headline, "Bass, mostly");
   });
 
   it("refuses an API credential on a profile somebody else claimed", async () => {

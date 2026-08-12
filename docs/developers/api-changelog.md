@@ -34,6 +34,13 @@ docs update and a changelog entry so early consumers and agents can adapt.
 - `ApiProfileWriteResponse` gained `publiclyViewable`, so a client reading a
   profile back after a write can tell a deliberately private page from one that
   failed to surface
+- `PublicProfile` gained `updatedAt`, and profile updates accept it back as an
+  optional `expectedUpdatedAt`. `outboundLinks` replaces the whole list, so two
+  contributors correcting the same unclaimed profile could silently drop each
+  other's links; a write pinned to a revision the profile has moved past now
+  answers `409` on `PATCH /api/v0/profiles/:slug` and is refused on
+  `vrdex_profile_update`. Omitting it keeps the previous last-writer-wins
+  behavior
 - **breaking**: removed the `VRDEX_HOSTED_MCP_EVENT_WRITES` deployment switch.
   Every hosted write tool is advertised and the connecting harness decides which
   it exposes; writes stay bounded by granted scopes and per-resource permission

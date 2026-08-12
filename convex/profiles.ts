@@ -90,6 +90,9 @@ const apiProfileUpdateArgs = {
     }),
   ),
   outboundLinks: v.optional(v.array(profileLinkInputValidator)),
+  // No `expectedUpdatedAt` here. Each caller declares its own, because the
+  // browser's is required and the two credential paths' are optional -- spreading
+  // one shared optional in would quietly relax the browser's.
 };
 
 function boundedLimit(value: number | undefined, fallback: number, max: number): number {
@@ -148,6 +151,8 @@ function apiOwnerAuthSubject(userId: Doc<"users">["_id"]): AuthSubject {
  */
 const RELAYED_PROFILE_WRITE_ERROR_CODES = new Set([
   "IDENTITY_SUPPRESSED",
+  "PROFILE_CHANGED",
+  "PROFILE_NOT_FOUND",
   "PROFILE_FIELD_FORBIDDEN",
   "PROFILE_CONTRIBUTE_SCOPE_REQUIRED",
   "INVALID_PROFILE_LINK",
@@ -202,7 +207,7 @@ async function resolveProfileEditSubject(
   // otherwise get a distinct 403 where an unknown slug gets 404, and learn the
   // profile exists from the difference.
   if (!canReadProfile(editSubject, profile)) {
-    throw new Error("Profile was not found.");
+    throw new ConvexError({ code: "PROFILE_NOT_FOUND", message: "Profile was not found." });
   }
 
   // Ahead of the per-field checks, so a claimed profile gives the reason
@@ -226,6 +231,27 @@ async function resolveProfileEditSubject(
   }
 
   return { owns, editSubject };
+}
+
+/**
+ * Refuse a write pinned to a revision the profile has already moved past.
+ *
+ * `outboundLinks` replaces the whole list rather than merging into it, so two
+ * contributors correcting the same unclaimed profile from a tool were silently
+ * dropping each other's links -- the second read, the first wrote, the second
+ * wrote its own list over the top.
+ *
+ * Call it after the permission checks and before the per-field ones. A caller
+ * who lost the race should be told to re-read, not told which of their fields
+ * was unacceptable against a version they were not looking at.
+ */
+function assertProfileRevision(profile: Doc<"profiles">, expectedUpdatedAt: number | undefined) {
+  if (expectedUpdatedAt !== undefined && expectedUpdatedAt !== profile.updatedAt) {
+    throw new ConvexError({
+      code: "PROFILE_CHANGED",
+      message: "This profile changed while you were editing it. Reload to see the current version.",
+    });
+  }
 }
 
 const profileAssetPlacement = v.union(
@@ -272,19 +298,23 @@ export const updateProfileForApiOwner = internalMutation({
     ownerUserId: v.id("users"),
     currentSlug: v.string(),
     contributeGranted: v.boolean(),
+    expectedUpdatedAt: v.optional(v.number()),
     ...apiProfileUpdateArgs,
   },
   handler: async (ctx, args) => {
     const validation = validateProfileSlug(args.currentSlug);
 
+    // Not-found, not a slug complaint. A slug no profile could have addresses no
+    // profile, and the browser path answers the same way -- so the two do not
+    // differ on a request neither can serve.
     if (!validation.ok) {
-      throw new Error("Current profile slug is invalid.");
+      throw new ConvexError({ code: "PROFILE_NOT_FOUND", message: "Profile was not found." });
     }
 
     const profile = await getProfileBySlug(ctx.db, validation.slug);
 
     if (profile === null) {
-      throw new Error("Profile was not found.");
+      throw new ConvexError({ code: "PROFILE_NOT_FOUND", message: "Profile was not found." });
     }
 
     const { owns, editSubject } = await resolveProfileEditSubject(
@@ -293,6 +323,8 @@ export const updateProfileForApiOwner = internalMutation({
       args.ownerUserId,
       args.contributeGranted,
     );
+
+    assertProfileRevision(profile, args.expectedUpdatedAt);
 
     // Permission first, before anything that answers differently for a value
     // this writer may not read -- the same ordering the browser path documents.
@@ -798,23 +830,18 @@ export const updateProfileFromBrowser = mutation({
     const validation = validateProfileSlug(args.slug);
 
     if (!validation.ok) {
-      throw new Error("Profile was not found.");
+      throw new ConvexError({ code: "PROFILE_NOT_FOUND", message: "Profile was not found." });
     }
 
     const profile = await getProfileBySlug(ctx.db, validation.slug);
 
     if (profile === null) {
-      throw new Error("Profile was not found.");
+      throw new ConvexError({ code: "PROFILE_NOT_FOUND", message: "Profile was not found." });
     }
 
     const { owns, editSubject } = await resolveProfileEditSubject(ctx.db, profile, user._id);
 
-    if (args.expectedUpdatedAt !== profile.updatedAt) {
-      throw new ConvexError({
-        code: "PROFILE_CHANGED",
-        message: "This profile changed while you were editing it. Reload to see the current version.",
-      });
-    }
+    assertProfileRevision(profile, args.expectedUpdatedAt);
 
     // Permission first, before anything that answers differently for a value
     // this writer may not read. The suppression lookup returns
@@ -891,6 +918,7 @@ export const updateProfileForMcpActor = internalMutation({
     ...mcpWriteAttributionArgs,
     currentSlug: v.string(),
     contributeGranted: v.boolean(),
+    expectedUpdatedAt: v.optional(v.number()),
     ...apiProfileUpdateArgs,
   },
   handler: async (ctx, args) => {
@@ -934,6 +962,7 @@ export const updateProfileForMcpActor = internalMutation({
         args.contributeGranted,
       );
       owns = authorization.owns;
+      assertProfileRevision(profile, args.expectedUpdatedAt);
       assertSubmittedFieldsEditable(profile, args, authorization.editSubject);
       await assertProfileEditNotSuppressed(ctx.db, profile, args);
 

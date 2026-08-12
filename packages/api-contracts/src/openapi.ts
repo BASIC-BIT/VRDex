@@ -673,6 +673,11 @@ export const openApiSource = {
             description: "The profile was not found.",
             content: jsonContent(ApiProblemSchema),
           },
+          "409": {
+            description:
+              "The profile changed after the revision sent as expectedUpdatedAt. Re-read the profile and send the update again.",
+            content: jsonContent(ApiProblemSchema),
+          },
           "429": publicReadProblemResponses["429"],
           "500": {
             description: "The profile update could not be completed.",
