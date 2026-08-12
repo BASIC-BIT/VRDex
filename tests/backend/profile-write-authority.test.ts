@@ -533,6 +533,57 @@ describe("profile write authority", () => {
     assert.equal(replay.publiclyViewable, false);
   });
 
+  it("replays the current slug of a renamed private profile to its own owner", async () => {
+    const t = convexTest(schema, modules);
+    const ownerUserId = await seedUser(t, "owner-rename");
+    const profileId = await seedProfile(t, "owner-rename", "claimed_verified");
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("profileOwners", {
+        profileId: profileId as Id<"profiles">,
+        userId: ownerUserId,
+        roleKey: "owner",
+        state: "active",
+        grantedAt: NOW,
+        updatedAt: NOW,
+      });
+    });
+
+    const args = {
+      ownerUserId,
+      oauthClientId: "vrdx_app_0123456789abcdef01234567",
+      oauthTokenId: "token-7",
+      requestId: "request-7",
+      idempotencyKeyHash: KEY_HASH,
+      requestFingerprint: FINGERPRINT,
+      contributeGranted: false,
+      currentSlug: "dj-owner-rename",
+      expectedUpdatedAt: NOW,
+      headline: "Booking closed",
+    };
+
+    await t.mutation(internal.profiles.updateProfileForMcpActor, args);
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(profileId as Id<"profiles">, {
+        slug: "dj-renamed-private",
+        publicSurfacingState: "opted_out",
+      });
+    });
+
+    const replay = await t.mutation(internal.profiles.updateProfileForMcpActor, args);
+
+    // The counterpart to the case above, and the distinction the owned-inventory
+    // read forced: this caller still owns the profile and reads its current slug
+    // through `vrdex_list_my_profiles` anyway, so replaying the old one hides
+    // nothing and points their next update at an address that is gone.
+    assert.equal(replay.slug, "dj-renamed-private");
+    assert.equal(replay.profilePath, "/dj-renamed-private");
+    // Still false. Who is asking decides which slug they are told, not whether
+    // the profile has a public page.
+    assert.equal(replay.publiclyViewable, false);
+  });
+
   it("keeps one user's two OAuth apps in separate receipt namespaces", async () => {
     const t = convexTest(schema, modules);
     const ownerUserId = await seedUser(t, "two-apps");

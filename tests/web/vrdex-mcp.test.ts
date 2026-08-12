@@ -516,6 +516,53 @@ describe("VRDex MCP server", () => {
     assert.match(output, /error="insufficient_scope"/);
   });
 
+  it("challenges an owned-inventory read before dispatch, not inside the tool", () => {
+    const output = runMcpProbe(`
+      import { generateKeyPairSync } from "node:crypto";
+      import { createOAuthAccessTokenId, signOAuthAccessToken } from "./apps/web/src/lib/server/oauth-jwt.ts";
+      import { authorizeHostedMcpRequest } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+
+      const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+      process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY =
+        privateKey.export({ format: "pem", type: "pkcs8" }).toString();
+      process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID = "test-key";
+      const now = Math.floor(Date.now() / 1000);
+      const accessToken = signOAuthAccessToken({
+        aud: "https://app.example.test/mcp",
+        client_id: "vrdx_app_0123456789abcdef01234567",
+        exp: now + 60,
+        iat: now,
+        iss: "https://app.example.test",
+        jti: createOAuthAccessTokenId(),
+        scope: "mcp:read",
+        sub: "user_123",
+      });
+      const authorization = await authorizeHostedMcpRequest(new Request("https://app.example.test/mcp", {
+        method: "POST",
+        headers: {
+          authorization: \`Bearer \${accessToken}\`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 2,
+          method: "tools/call",
+          params: { name: "vrdex_list_my_profiles", arguments: {} },
+        }),
+      }));
+
+      console.log(authorization.response?.status);
+      console.log(authorization.response?.headers.get("www-authenticate"));
+    `);
+
+    // Classified as an ordinary read, this token passed authorization, was
+    // counted as an accepted invocation, and was refused inside the tool -- so
+    // the caller never learned which grant to go and obtain.
+    assert.match(output, /^403/m);
+    assert.match(output, /scope="mcp:read profile:read"/);
+    assert.match(output, /error="insufficient_scope"/);
+  });
+
   it("requires the union of read and write scopes for mixed MCP batches", () => {
     const output = runMcpProbe(`
       import { generateKeyPairSync } from "node:crypto";

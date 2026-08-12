@@ -148,6 +148,7 @@ function mcpWriteSecuritySchemes(toolName: (typeof mcpWriteToolNames)[number]) {
 const hostedMcpMaxRequestBodyBytes = 1024 * 1024;
 const mcpToolNameSet = new Set<string>(mcpToolNames);
 const mcpWriteToolNameSet = new Set<string>(mcpWriteToolNames);
+const mcpOwnedReadToolNameSet = new Set<string>(mcpOwnedReadToolNames);
 const mcpDocumentIdSchema = z.string().min(1).max(260);
 const mcpSlugSchema = z.string().min(1).max(160);
 const mcpLimitSchema = z.number().int().min(1);
@@ -1268,13 +1269,25 @@ export async function authorizeHostedMcpRequest(
       ),
     ]
     : [];
+  // The owned-inventory reads need their resource scope named here, not only
+  // inside the tool. Classified as ordinary reads, a token holding `mcp:read`
+  // alone passed this gate, was counted as an accepted invocation, and was
+  // refused by the callback -- so the caller never got the insufficient-scope
+  // challenge that tells a client which grant to go and obtain.
+  const ownedReadScopes: readonly ApiScope[] = [
+    ...new Set(
+      toolNames
+        .filter((toolName) => mcpOwnedReadToolNameSet.has(toolName))
+        .map((toolName) => mcpOwnedReadToolScopes[toolName as (typeof mcpOwnedReadToolNames)[number]]),
+    ),
+  ];
   const requiredScopes: readonly ApiScope[] =
     writeRequested && readToolRequested
-      ? [...mcpRequiredScopes, ...writeScopes]
+      ? [...mcpRequiredScopes, ...ownedReadScopes, ...writeScopes]
       : writeRequested
-        ? writeScopes
+        ? [...writeScopes, ...ownedReadScopes]
         : readToolRequested || bearerToken === null || request.method !== "POST"
-          ? mcpRequiredScopes
+          ? [...mcpRequiredScopes, ...ownedReadScopes]
           : [];
   const authenticatedRouteClass = writeRequested
     ? "authenticated_mcp_write" as const

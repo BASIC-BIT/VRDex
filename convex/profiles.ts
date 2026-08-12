@@ -969,7 +969,12 @@ export const updateProfileForMcpActor = internalMutation({
     });
 
     if (existing !== null) {
-      return await withCurrentProfileWritePaths(ctx.db, existing.result as McpProfileWriteResult, (profile) => canReadProfile("public", profile));
+      return await withCurrentProfileWritePaths(
+        ctx.db,
+        existing.result as McpProfileWriteResult,
+        (profile) => canReadProfile("public", profile),
+        (profile) => userOwnsProfile(ctx.db, profile._id, args.ownerUserId),
+      );
     }
 
     const validation = validateProfileSlug(args.currentSlug);
@@ -1083,7 +1088,12 @@ export const submitCommunityProfileForMcpActor = internalMutation({
     // submission creates a second profile for the same person under a suffixed
     // slug, and nothing later merges them.
     if (existing !== null) {
-      return await withCurrentProfileWritePaths(ctx.db, existing.result as McpProfileWriteResult, (profile) => canReadProfile("public", profile));
+      return await withCurrentProfileWritePaths(
+        ctx.db,
+        existing.result as McpProfileWriteResult,
+        (profile) => canReadProfile("public", profile),
+        (profile) => userOwnsProfile(ctx.db, profile._id, args.ownerUserId),
+      );
     }
 
     let created: Awaited<ReturnType<typeof createCommunityProfileRecord>>;
@@ -1208,7 +1218,12 @@ export const submitCommunityProfileForApiUser = internalMutation({
       }
 
       if (existing !== null) {
-        return await withCurrentProfileWritePaths(ctx.db, existing.result as McpProfileWriteResult, (profile) => canReadProfile("public", profile));
+        return await withCurrentProfileWritePaths(
+        ctx.db,
+        existing.result as McpProfileWriteResult,
+        (profile) => canReadProfile("public", profile),
+        (profile) => userOwnsProfile(ctx.db, profile._id, args.ownerUserId),
+      );
       }
     }
 

@@ -97,26 +97,45 @@ export async function withCurrentProfileWritePaths(
   db: DatabaseReader,
   result: McpProfileWriteResult,
   isPubliclyReadable: (profile: Doc<"profiles">) => boolean,
+  /**
+   * Whether the caller replaying this receipt still owns the profile.
+   *
+   * A different question from public readability, and it became a different
+   * answer once `vrdex_list_my_profiles` existed: an owner reads their own
+   * drafts and opted-out profiles there, so withholding the current slug from
+   * them protects nothing. It just replays an address that no longer resolves
+   * and points their next update at a slug that is gone.
+   */
+  isCurrentOwner?: (profile: Doc<"profiles">) => Promise<boolean>,
 ): Promise<McpProfileWriteResult> {
   const profile = await db.get(result.profileId);
 
-  // Deleted since, or no longer public. Either way there is nothing the caller
-  // may be told about where it lives now: resolving through a record they can
-  // no longer read would hand a former owner or prior submitter the profile's
-  // new slug, which is exactly the routing a rename plus an opt-out is meant to
-  // take away from them. The receipt's own identifiers are what they already
-  // hold, so replaying those discloses nothing new.
-  if (profile === null || !isPubliclyReadable(profile)) {
+  // Deleted since. Nothing to resolve through, for anybody.
+  if (profile === null) {
     return { ...result, profilePath: `/${result.slug}`, publiclyViewable: false };
   }
 
-  return {
-    ...result,
-    slug: profile.slug,
-    profileType: profile.profileType,
-    profilePath: `/${profile.slug}`,
-    publiclyViewable: true,
-  };
+  const publiclyViewable = isPubliclyReadable(profile);
+
+  if (publiclyViewable || (isCurrentOwner !== undefined && await isCurrentOwner(profile))) {
+    return {
+      ...result,
+      slug: profile.slug,
+      profileType: profile.profileType,
+      profilePath: `/${profile.slug}`,
+      // Still keyed on public visibility rather than on who is asking, so an
+      // owner replaying a draft is told where it lives and that it has no
+      // public page.
+      publiclyViewable,
+    };
+  }
+
+  // Not public, and not theirs any more. Resolving through the record would hand
+  // a former owner or a prior submitter the profile's new slug, which is exactly
+  // the routing a rename plus an opt-out is meant to take away from them. The
+  // receipt's own identifiers are what they already hold, so replaying those
+  // discloses nothing new.
+  return { ...result, profilePath: `/${result.slug}`, publiclyViewable: false };
 }
 
 /**
