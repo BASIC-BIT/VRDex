@@ -408,6 +408,7 @@ describe("@vrdex/api-contracts", () => {
         pronouns: "they/them",
         roleTags: ["DJ", "Producer"],
       },
+      expectedUpdatedAt: 1784635200000,
     });
 
     ApiProfileUpdateRequestSchema.parse({
@@ -415,7 +416,16 @@ describe("@vrdex/api-contracts", () => {
         subtype: "Club night",
         categoryTags: ["Music", "Social"],
       },
+      expectedUpdatedAt: 1784635200000,
     });
+
+    // Required on every update, with no exemption for owning the profile: a
+    // guard the caller can decline by leaving the field out is not a guard.
+    assert.throws(() =>
+      ApiProfileUpdateRequestSchema.parse({
+        headline: "Late-night VRChat floors",
+      })
+    );
 
     ApiProfileWriteResponseSchema.parse({
       profileId: "profile123",

@@ -90,9 +90,9 @@ const apiProfileUpdateArgs = {
     }),
   ),
   outboundLinks: v.optional(v.array(profileLinkInputValidator)),
-  // No `expectedUpdatedAt` here. Each caller declares its own, because the
-  // browser's is required and the two credential paths' are optional -- spreading
-  // one shared optional in would quietly relax the browser's.
+  // No `expectedUpdatedAt` here. Every update mutation declares its own as
+  // `v.number()`, so the guard is enforced by the validator rather than by a
+  // branch a caller can route around by omitting the field.
 };
 
 function boundedLimit(value: number | undefined, fallback: number, max: number): number {
@@ -245,28 +245,15 @@ async function resolveProfileEditSubject(
  * who lost the race should be told to re-read, not told which of their fields
  * was unacceptable against a version they were not looking at.
  *
- * Required of a community contributor, optional for an owner. Optional in both
- * places would have been no check at all -- the caller who most needs it is the
- * one who can decline it by leaving the field out, and the contributor is the
- * one with somebody to race. An owner writing a profile only they can write has
- * nobody, so forcing a read before every write would buy nothing.
+ * Required of every update, with no ownership exemption. Owning a profile does
+ * not mean being its only writer: the same person can have the browser form
+ * open and an agent editing through a tool, and the agent replacing a stale
+ * link list deletes what they just added in the other window. The argument is
+ * required by the validators rather than checked for here, so a caller cannot
+ * decline the guard by leaving it out -- which is the whole reason the browser
+ * mutation has always demanded one.
  */
-function assertProfileRevision(
-  profile: Doc<"profiles">,
-  expectedUpdatedAt: number | undefined,
-  owns: boolean,
-) {
-  if (expectedUpdatedAt === undefined) {
-    if (!owns) {
-      throw new ConvexError({
-        code: "PROFILE_INPUT_INVALID",
-        message: "Correcting a profile you do not own requires expectedUpdatedAt from the profile you read.",
-      });
-    }
-
-    return;
-  }
-
+function assertProfileRevision(profile: Doc<"profiles">, expectedUpdatedAt: number) {
   if (expectedUpdatedAt !== profile.updatedAt) {
     throw new ConvexError({
       code: "PROFILE_CHANGED",
@@ -319,7 +306,7 @@ export const updateProfileForApiOwner = internalMutation({
     ownerUserId: v.id("users"),
     currentSlug: v.string(),
     contributeGranted: v.boolean(),
-    expectedUpdatedAt: v.optional(v.number()),
+    expectedUpdatedAt: v.number(),
     ...apiProfileUpdateArgs,
   },
   handler: async (ctx, args) => {
@@ -345,7 +332,7 @@ export const updateProfileForApiOwner = internalMutation({
       args.contributeGranted,
     );
 
-    assertProfileRevision(profile, args.expectedUpdatedAt, owns);
+    assertProfileRevision(profile, args.expectedUpdatedAt);
 
     // Permission first, before anything that answers differently for a value
     // this writer may not read -- the same ordering the browser path documents.
@@ -862,7 +849,7 @@ export const updateProfileFromBrowser = mutation({
 
     const { owns, editSubject } = await resolveProfileEditSubject(ctx.db, profile, user._id);
 
-    assertProfileRevision(profile, args.expectedUpdatedAt, owns);
+    assertProfileRevision(profile, args.expectedUpdatedAt);
 
     // Permission first, before anything that answers differently for a value
     // this writer may not read. The suppression lookup returns
@@ -939,7 +926,7 @@ export const updateProfileForMcpActor = internalMutation({
     ...mcpWriteAttributionArgs,
     currentSlug: v.string(),
     contributeGranted: v.boolean(),
-    expectedUpdatedAt: v.optional(v.number()),
+    expectedUpdatedAt: v.number(),
     ...apiProfileUpdateArgs,
   },
   handler: async (ctx, args) => {
@@ -983,7 +970,7 @@ export const updateProfileForMcpActor = internalMutation({
         args.contributeGranted,
       );
       owns = authorization.owns;
-      assertProfileRevision(profile, args.expectedUpdatedAt, owns);
+      assertProfileRevision(profile, args.expectedUpdatedAt);
       assertSubmittedFieldsEditable(profile, args, authorization.editSubject);
       await assertProfileEditNotSuppressed(ctx.db, profile, args);
 

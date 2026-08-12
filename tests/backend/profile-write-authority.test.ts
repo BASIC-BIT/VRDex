@@ -105,6 +105,7 @@ describe("profile write authority", () => {
           actorKind: "personal_api_token",
           ownerUserId,
           currentSlug: "dj-no-contribute",
+          expectedUpdatedAt: NOW,
           contributeGranted: false,
           outboundLinks: [{ type: "soundcloud", url: "https://soundcloud.com/nope" }],
         }),
@@ -130,6 +131,7 @@ describe("profile write authority", () => {
           actorKind: "personal_api_token",
           ownerUserId,
           currentSlug: "dj-hidden-leak",
+          expectedUpdatedAt: NOW,
           contributeGranted: false,
           headline: "probe",
         }),
@@ -150,6 +152,7 @@ describe("profile write authority", () => {
           actorKind: "personal_api_token",
           ownerUserId,
           currentSlug: "dj-nobody-has-this",
+          expectedUpdatedAt: NOW,
           contributeGranted: true,
           headline: "probe",
         }),
@@ -164,6 +167,7 @@ describe("profile write authority", () => {
           actorKind: "personal_api_token",
           ownerUserId,
           currentSlug: "Not A Slug",
+          expectedUpdatedAt: NOW,
           contributeGranted: true,
           headline: "probe",
         }),
@@ -226,10 +230,10 @@ describe("profile write authority", () => {
     assert.equal(merged?.outboundLinks?.length, 2);
   });
 
-  it("still applies an owner's update that sends no pinned revision", async () => {
+  it("refuses an owner's stale replacement, because owning is not writing alone", async () => {
     const t = convexTest(schema, modules);
-    const ownerUserId = await seedUser(t, "unpinned");
-    const profileId = await seedProfile(t, "unpinned", "claimed_verified");
+    const ownerUserId = await seedUser(t, "self-race");
+    const profileId = await seedProfile(t, "self-race", "claimed_verified");
 
     await t.run(async (ctx) => {
       await ctx.db.insert("profileOwners", {
@@ -242,39 +246,52 @@ describe("profile write authority", () => {
       });
     });
 
-    // An owner writing a profile only they can write has nobody to race, so
-    // forcing a read before every write would buy nothing.
+    // One person, two clients. Something else adds a link, then the agent posts
+    // the list it read before that -- the owner deleting their own edit rather
+    // than a stranger's, which the ownership exemption would have allowed.
     await t.mutation(internal.profiles.updateProfileForApiOwner, {
       actorKind: "personal_api_token",
       ownerUserId,
-      currentSlug: "dj-unpinned",
-      contributeGranted: true,
-      headline: "Bass, mostly",
+      currentSlug: "dj-self-race",
+      contributeGranted: false,
+      expectedUpdatedAt: NOW,
+      outboundLinks: [{ type: "soundcloud", url: "https://soundcloud.com/added-elsewhere" }],
     });
 
-    const stored = await t.run(async (ctx) => ctx.db.get(profileId as Id<"profiles">));
-
-    assert.equal(stored?.headline, "Bass, mostly");
-  });
-
-  it("refuses a community correction that pins no revision at all", async () => {
-    const t = convexTest(schema, modules);
-    const ownerUserId = await seedUser(t, "unpinned-contributor");
-    const profileId = await seedProfile(t, "unpinned-contributor", "unclaimed");
-
-    // The contributor is the caller with somebody to race, and an optional
-    // check they can decline by omitting the field is not a check. They have
-    // already read the profile -- that is how they know what to correct.
     await assert.rejects(
       () =>
         t.mutation(internal.profiles.updateProfileForApiOwner, {
           actorKind: "personal_api_token",
           ownerUserId,
-          currentSlug: "dj-unpinned-contributor",
-          contributeGranted: true,
-          outboundLinks: [{ type: "soundcloud", url: "https://soundcloud.com/replacement" }],
+          currentSlug: "dj-self-race",
+          contributeGranted: false,
+          expectedUpdatedAt: NOW,
+          outboundLinks: [],
         }),
-      (error: unknown) => errorCode(error) === "PROFILE_INPUT_INVALID",
+      (error: unknown) => errorCode(error) === "PROFILE_CHANGED",
+    );
+
+    const stored = await t.run(async (ctx) => ctx.db.get(profileId as Id<"profiles">));
+
+    assert.equal(stored?.outboundLinks?.length, 1);
+  });
+
+  it("refuses any update that pins no revision at all", async () => {
+    const t = convexTest(schema, modules);
+    const ownerUserId = await seedUser(t, "unpinned");
+    const profileId = await seedProfile(t, "unpinned", "unclaimed");
+
+    // The validators require the argument, so this is refused before any
+    // permission or field check runs. A guard a caller can decline by leaving
+    // the field out is not a guard, which is why it is not an optional one.
+    await assert.rejects(() =>
+      t.mutation(internal.profiles.updateProfileForApiOwner, {
+        actorKind: "personal_api_token",
+        ownerUserId,
+        currentSlug: "dj-unpinned",
+        contributeGranted: true,
+        outboundLinks: [{ type: "soundcloud", url: "https://soundcloud.com/replacement" }],
+      } as never)
     );
 
     const stored = await t.run(async (ctx) => ctx.db.get(profileId as Id<"profiles">));
@@ -294,6 +311,7 @@ describe("profile write authority", () => {
           ownerUserId,
           contributeGranted: true,
           currentSlug: "dj-claimed",
+          expectedUpdatedAt: NOW,
           outboundLinks: [{ type: "soundcloud", url: "https://soundcloud.com/hijack" }],
         }),
       (error: unknown) => errorCode(error) === "PROFILE_CLAIMED",
@@ -360,6 +378,7 @@ describe("profile write authority", () => {
       requestFingerprint: FINGERPRINT,
       contributeGranted: true,
       currentSlug: "dj-hidden",
+      expectedUpdatedAt: NOW,
       headline: "Back soon",
     });
 

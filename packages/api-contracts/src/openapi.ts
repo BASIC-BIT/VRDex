@@ -642,7 +642,7 @@ export const openApiSource = {
         tags: ["Profiles"],
         summary: "Update a profile",
         description:
-          "Updates editable metadata for a profile owned by a bearer credential with user authority and profile:write scope. Correcting an unclaimed profile the credential does not own additionally requires profile:contribute, and expectedUpdatedAt from the profile as it was read.",
+          "Updates editable metadata for a profile owned by a bearer credential with user authority and profile:write scope. Every update pins the revision it was written against through expectedUpdatedAt. Correcting an unclaimed profile the credential does not own additionally requires profile:contribute.",
         security: profileWriteSecurity,
         requestParams: {
           path: SlugPathParamsSchema,

@@ -39,9 +39,11 @@ docs update and a changelog entry so early consumers and agents can adapt.
   two contributors correcting the same unclaimed profile could silently drop each
   other's links; a write pinned to a revision the profile has moved past now
   answers `409` on `PATCH /api/v0/profiles/:slug` and is refused on
-  `vrdex_profile_update`. **breaking**: correcting a profile the credential does
-  not own requires the field, and answers `400` without it. An owner editing
-  their own profile may omit it
+  `vrdex_profile_update`. **breaking**: the field is required on every update,
+  including one to a profile the credential owns -- owning a profile does not
+  make you its only writer, since the same person can have the edit form open
+  while an agent writes through a tool. Submissions have no revision to pin and
+  do not take it
 - **breaking**: removed the `VRDEX_HOSTED_MCP_EVENT_WRITES` deployment switch.
   Every hosted write tool is advertised and the connecting harness decides which
   it exposes; writes stay bounded by granted scopes and per-resource permission

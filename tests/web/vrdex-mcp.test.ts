@@ -1203,7 +1203,7 @@ describe("VRDex MCP server", () => {
               arguments: {
                 idempotencyKey: "operator-key-123",
                 slug: "dj-readback",
-                update: { headline: "Bass, mostly" },
+                update: { expectedUpdatedAt: 7, headline: "Bass, mostly" },
               },
             },
           }),
