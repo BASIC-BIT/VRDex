@@ -4,6 +4,7 @@ import {
   ApiEventUpdateRequestSchema,
   ApiEventWriteResponseSchema,
   ApiIdempotencyKeySchema,
+  ApiMeProfilesResponseSchema,
   ApiProfileSubmitRequestSchema,
   ApiProfileUpdateRequestSchema,
   ApiProfileWriteResponseSchema,
@@ -333,6 +334,30 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
   );
 
   if (config.bearerToken !== undefined) {
+    // A read, but a credentialed one, so it registers here with the writes
+    // rather than above with the public reads.
+    server.registerTool(
+      "vrdex_list_my_profiles",
+      {
+        title: "List My VRDex Profiles",
+        description:
+          "List the profiles the authenticated VRDex user owns, including drafts and profiles kept off public pages. Each carries the updatedAt to send as expectedUpdatedAt when updating it.",
+        inputSchema: z.object({
+          limit: z.number().int().min(1).max(100).optional(),
+        }),
+        outputSchema: mcpOutputSchema(ApiMeProfilesResponseSchema),
+        annotations: { readOnlyHint: true, idempotentHint: true },
+      },
+      async ({ limit }) => {
+        const result = await apiClient.listMyProfiles({
+          ...(limit === undefined ? {} : { limit }),
+        });
+
+        return result.ok
+          ? mcpJsonResult(ApiMeProfilesResponseSchema, result.data, config.outputMode)
+          : mcpApiError(result);
+      },
+    );
     server.registerTool(
       "vrdex_event_create",
       {

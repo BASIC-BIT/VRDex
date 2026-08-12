@@ -211,16 +211,25 @@ OAuth token file can contain a plain access token or a JSON object with an
 tokens used here must be issued for the API resource. Hosted `/mcp` OAuth
 sessions use the MCP resource instead.
 
-When a bearer credential is configured, local stdio also registers four
-approval-gated write tools: `vrdex_event_create`, `vrdex_event_update`,
-`vrdex_profile_update`, and `vrdex_profile_submit`. They use the existing
+When a bearer credential is configured, local stdio also registers
+`vrdex_list_my_profiles`, which lists the profiles the authenticated user owns
+over `GET /api/v0/me/profiles` and needs `profile:read`. It is the only read that
+returns drafts and profiles kept off public pages, and each row carries the
+`updatedAt` that an update of that profile has to send back as
+`expectedUpdatedAt` -- the public reads cannot serve that for a profile they are
+right to hide.
+
+A configured credential also registers four approval-gated write tools:
+`vrdex_event_create`, `vrdex_event_update`, `vrdex_profile_update`, and
+`vrdex_profile_submit`. They use the existing
 `/api/v0` routes and read the saved record back after every accepted mutation.
 The event tools need `events:write`; profile updates need `profile:write`, plus
 `profile:contribute` to correct a profile the user does not own; submissions
 need `profile:contribute`. Registration does not inspect the token's scopes, so
-all four are listed whenever a credential is present and the route refuses the
-ones it is not entitled to. The hosted `/mcp` server registers the same four
-behind OAuth. See `docs/developers/vrdex-mcp-event-writes.md` and
+all five credentialed tools are listed whenever a credential is present and the
+route refuses the ones it is not entitled to. The hosted `/mcp` server registers
+the same five behind OAuth, where `vrdex_list_my_profiles` advertises `mcp:read`
+plus `profile:read`. See `docs/developers/vrdex-mcp-event-writes.md` and
 `docs/developers/hosted-mcp-oauth-writes.md` for the write contracts.
 
 Local workspace command:

@@ -181,12 +181,19 @@ test("serves VRDex tools over stdio and calls the configured API base URL", asyn
         "vrdex_list_upcoming_events",
         "vrdex_get_world",
         "vrdex_list_active_worlds",
+        "vrdex_list_my_profiles",
         "vrdex_event_create",
         "vrdex_event_update",
         "vrdex_profile_update",
         "vrdex_profile_submit",
       ],
     );
+    // A read, but credentialed, so it belongs to this list rather than the
+    // anonymous one the next test asserts.
+    assert.deepEqual(listedTools.find((tool) => tool.name === "vrdex_list_my_profiles")?.annotations, {
+      idempotentHint: true,
+      readOnlyHint: true,
+    });
     assert.equal(listedTools.every((tool) => !hasLegacySchemaId(tool.outputSchema)), true);
     assert.deepEqual(listedTools.find((tool) => tool.name === "vrdex_profile_update")?.annotations, {
       destructiveHint: true,

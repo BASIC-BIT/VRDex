@@ -203,15 +203,19 @@ describe("OAuth dynamic client registration", () => {
     );
 
     assert.equal(response.status, 201);
+    // `time:parse` is dropped and `profile:read` is kept: the first is an
+    // issuer-wide scope the MCP resource does not serve, the second is what the
+    // owned-inventory read tool asks for.
     assert.deepEqual(harness.mutationInputs[0]?.allowedScopes, [
       "public:read",
+      "profile:read",
       "events:write",
       "mcp:read",
       "mcp:write",
     ]);
     assert.equal(
       (await response.json() as { scope: string }).scope,
-      "public:read events:write mcp:read mcp:write",
+      "public:read profile:read events:write mcp:read mcp:write",
     );
   });
 
@@ -269,7 +273,10 @@ describe("OAuth dynamic client registration", () => {
       registrationRequest({
         client_name: "Bad MCP Client",
         redirect_uris: ["https://client.example.test/callback"],
-        scope: "profile:read",
+        // A real API scope the MCP resource does not serve. It used to be
+        // `profile:read`, which a dynamic client may now request for the
+        // owned-inventory read tool.
+        scope: "developer:write",
       }),
       {
         checkRateLimit: async () => allowedRateLimit,
@@ -288,7 +295,7 @@ describe("OAuth dynamic client registration", () => {
     assert.equal(response.status, 400);
     assert.deepEqual(await response.json(), {
       error: "invalid_client_metadata",
-      error_description: "Dynamic MCP clients can only request public:read mcp:read mcp:write events:write profile:write profile:contribute.",
+      error_description: "Dynamic MCP clients can only request public:read mcp:read profile:read mcp:write events:write profile:write profile:contribute.",
     });
   });
 

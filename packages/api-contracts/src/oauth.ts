@@ -15,7 +15,24 @@ export const oauthApplicationStatuses = ["active", "revoked"] as const;
 export const oauthDynamicClientStatuses = ["active", "revoked", "promoted"] as const;
 export const oauthResponseTypes = ["code"] as const;
 export const oauthTokenEndpointAuthMethods = ["none"] as const;
-export const dynamicMcpClientScopes = ["public:read", "mcp:read"] as const;
+/**
+ * What a dynamic MCP client gets when it names no scopes at all.
+ *
+ * Public reads only. A registration that did not ask has not asked, and the
+ * deployment must not answer on its author's behalf.
+ */
+export const dynamicMcpDefaultClientScopes = ["public:read", "mcp:read"] as const;
+/**
+ * The read scopes a dynamic MCP client may ask for.
+ *
+ * `profile:read` is requestable but not default, because `mcp:read` alone is
+ * the wrong shape for it: the transport scope says a hosted session may read at
+ * all, and must not also mean every such session can enumerate somebody's
+ * unpublished drafts. Asking for it gets the same resource scope
+ * `/api/v0/me/profiles` asks for, so there is one rule rather than two, and its
+ * consent line already says what it grants.
+ */
+export const dynamicMcpClientScopes = [...dynamicMcpDefaultClientScopes, "profile:read"] as const;
 /**
  * The resources a dynamic MCP client may write.
  *
@@ -393,7 +410,7 @@ const allowedDynamicMcpScopes = [...dynamicMcpClientScopes, ...dynamicMcpWriteSc
 
 function scopeValues(value: unknown) {
   if (value === undefined || value === null || value === "") {
-    return [...dynamicMcpClientScopes];
+    return [...dynamicMcpDefaultClientScopes];
   }
 
   if (typeof value !== "string") {

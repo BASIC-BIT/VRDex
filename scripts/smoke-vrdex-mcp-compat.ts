@@ -58,7 +58,13 @@ const writeToolResourceScopes: Record<string, string> = {
   vrdex_profile_submit: "profile:contribute",
 };
 const writeToolNames = Object.keys(writeToolResourceScopes);
-const localExpectedTools = [...localReadTools, ...writeToolNames];
+// Reads, but of the caller's own inventory, so they advertise a scope pair the
+// way the writes do rather than the anonymous public-read pair.
+const ownedReadToolScopes: Record<string, string> = {
+  vrdex_list_my_profiles: "profile:read",
+};
+const ownedReadToolNames = Object.keys(ownedReadToolScopes);
+const localExpectedTools = [...localReadTools, ...ownedReadToolNames, ...writeToolNames];
 const hostedExpectedTools = ["search", "fetch", ...localReadTools];
 
 function assertHostedToolSecuritySchemes(tool: HostedToolDescriptor) {
@@ -70,12 +76,19 @@ function assertHostedToolSecuritySchemes(tool: HostedToolDescriptor) {
   };
 
   const resourceScope = writeToolResourceScopes[String(tool.name)];
+  const ownedReadScope = ownedReadToolScopes[String(tool.name)];
 
   if (resourceScope !== undefined) {
     assert.deepEqual(
       metadata.securitySchemes,
       [{ scopes: ["mcp:write", resourceScope], type: "oauth2" }],
       `Hosted tool ${String(tool.name)} is missing write auth metadata.`,
+    );
+  } else if (ownedReadScope !== undefined) {
+    assert.deepEqual(
+      metadata.securitySchemes,
+      [{ scopes: ["mcp:read", ownedReadScope], type: "oauth2" }],
+      `Hosted tool ${String(tool.name)} is missing owned-read auth metadata.`,
     );
   } else {
     assert.deepEqual(
@@ -614,6 +627,10 @@ function requestedHostedOAuthScopes(metadata: HostedOAuthMetadata) {
   return [
     "mcp:read",
     "public:read",
+    // Same reasoning one scope down: without it a discovered client lists the
+    // owned-inventory tool and is refused by it, which is the shape that leaves
+    // an owner unable to read the revision their own update has to pin.
+    ...(metadata.scopes.includes("profile:read") ? ["profile:read"] : []),
     ...(metadata.scopes.includes("mcp:write") && resourceWrites.length > 0
       ? ["mcp:write", ...resourceWrites]
       : []),
@@ -940,6 +957,17 @@ async function smokeHostedHttp(results: SmokeResult[], options: SmokeOptions) {
       listedToolNames.has(toolName),
       true,
       `Hosted MCP did not list the ${toolName} write tool.`,
+    );
+  }
+
+  // Same rule for the owned-inventory reads. Without one of these an owner
+  // cannot read the revision every update has to pin, so a deployment missing
+  // it can still write nothing.
+  for (const toolName of ownedReadToolNames) {
+    assert.equal(
+      listedToolNames.has(toolName),
+      true,
+      `Hosted MCP did not list the ${toolName} owned-read tool.`,
     );
   }
   const writeToolsListed = true;

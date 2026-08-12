@@ -4,7 +4,7 @@ import { BlockList, isIP } from "node:net";
 import { Readable } from "node:stream";
 
 import {
-  dynamicMcpClientScopes,
+  dynamicMcpDefaultClientScopes,
   normalizeDynamicMcpClientRegistration,
   normalizeOAuthClientMetadataDocumentUrl,
   type DynamicMcpClientRegistration,
@@ -304,12 +304,13 @@ export async function fetchOAuthClientMetadataDocument(
       throw new Error("OAuth client metadata document client_id must match the document URL.");
     }
 
-    // Reads only. Write scopes are available to any client that asks for them,
-    // but a metadata document that states no scope at all has not asked, and
-    // inferring one from what the deployment permits would hand a client write
-    // capability its author never wrote down.
+    // Public reads only. Write scopes, and `profile:read` for somebody's own
+    // drafts, are available to any client that asks for them, but a metadata
+    // document that states no scope at all has not asked, and inferring one
+    // from what the deployment permits would hand a client capability its
+    // author never wrote down.
     const normalizedPayload = payload.scope === undefined
-      ? { ...payload, scope: [...dynamicMcpClientScopes].join(" ") }
+      ? { ...payload, scope: [...dynamicMcpDefaultClientScopes].join(" ") }
       : payload;
 
     return {

@@ -19,6 +19,11 @@ docs update and a changelog entry so early consumers and agents can adapt.
   local stdio MCP servers, plus `POST /api/v0/profiles`, so outbound links and
   community-sourced profiles can be written from an API token or an OAuth
   session rather than only from the browser
+- added `vrdex_list_my_profiles` to both MCP servers, over the existing
+  `GET /api/v0/me/profiles`. It needs `profile:read`, which dynamic MCP clients
+  may now request, and it is the only tool that returns drafts and profiles kept
+  off public pages -- without it an owner of one could not read the `updatedAt`
+  their own update has to pin
 - added the `profile:contribute` scope for writing a profile the credential
   does not own, whether by correcting an unclaimed one or submitting a new one.
   `profile:write` keeps meaning what its consent line says, "Edit your

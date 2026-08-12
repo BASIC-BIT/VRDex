@@ -1001,7 +1001,10 @@ describe("@vrdex/api-contracts", () => {
         },
         { discardKnownNonMcpScopes: true },
       ).allowedScopes,
-      ["public:read", "events:write", "mcp:read", "mcp:write"],
+      // `time:parse` is discarded and `profile:read` is kept: the first is an
+      // issuer-wide scope the MCP resource does not serve, the second is what
+      // the owned-inventory read tool asks for.
+      ["public:read", "profile:read", "events:write", "mcp:read", "mcp:write"],
     );
 
     assert.throws(

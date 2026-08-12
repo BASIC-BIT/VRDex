@@ -3,6 +3,7 @@ import {
   ApiEventCreateRequestSchema,
   ApiEventUpdateRequestSchema,
   ApiEventWriteResponseSchema,
+  ApiMeProfilesResponseSchema,
   ApiProfileSubmitRequestSchema,
   ApiProfileUpdateRequestSchema,
   ApiProfileWriteResponseSchema,
@@ -205,6 +206,13 @@ export function createVrdexApiClient(options: ApiClientOptions) {
     },
     listActiveWorlds(input: { limit?: number } = {}) {
       return get(PublicActiveWorldsResponseSchema, "worlds/active", { limit: input.limit });
+    },
+    // Authenticated, unlike its neighbours here: the point of it is the drafts
+    // and opted-out profiles a public read is right to withhold.
+    listMyProfiles(input: { limit?: number } = {}) {
+      return request(ApiMeProfilesResponseSchema, "me/profiles", {
+        searchParams: { limit: input.limit },
+      });
     },
     listUpcomingEvents(input: { limit?: number } = {}) {
       return get(PublicEventsResponseSchema, "events/upcoming", { limit: input.limit });

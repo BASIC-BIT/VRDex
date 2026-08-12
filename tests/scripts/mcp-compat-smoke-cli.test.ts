@@ -31,6 +31,12 @@ const writeToolScopes: Record<string, string> = {
   vrdex_profile_update: "profile:write",
   vrdex_profile_submit: "profile:contribute",
 };
+// Reads, but of the caller's own inventory, so they advertise a scope pair
+// rather than the anonymous public-read pair every other read carries.
+const expectedOwnedReadTools = ["vrdex_list_my_profiles"];
+const ownedReadToolScopes: Record<string, string> = {
+  vrdex_list_my_profiles: "profile:read",
+};
 
 function smokeEnv() {
   return {
@@ -131,7 +137,7 @@ async function startHostedFailureFixture() {
       writeJson(response, 200, {
         authorization_servers: [origin],
         resource: `${origin}/mcp`,
-        scopes_supported: ["mcp:read", "mcp:write", "events:write", "profile:write", "profile:contribute"],
+        scopes_supported: ["mcp:read", "profile:read", "mcp:write", "events:write", "profile:write", "profile:contribute"],
       });
       return;
     }
@@ -203,10 +209,12 @@ async function startHostedFailureFixture() {
           // one missing tools, so its inventory is otherwise correct. Leaving
           // the write tools out made the smoke abort on the tool list before it
           // reached the read failures this test is about.
-          tools: [...expectedTools, ...expectedWriteTools].map((name) => ({
+          tools: [...expectedTools, ...expectedOwnedReadTools, ...expectedWriteTools].map((name) => ({
             _meta: {
               securitySchemes: expectedWriteTools.includes(name)
                 ? [{ scopes: ["mcp:write", writeToolScopes[name]], type: "oauth2" }]
+                : expectedOwnedReadTools.includes(name)
+                ? [{ scopes: ["mcp:read", ownedReadToolScopes[name]], type: "oauth2" }]
                 : [
                   { type: "noauth" },
                   { scopes: ["mcp:read"], type: "oauth2" },
@@ -275,7 +283,7 @@ async function startHostedSuccessFixture() {
       writeJson(response, 200, {
         authorization_servers: [origin],
         resource: `${origin}/mcp`,
-        scopes_supported: ["mcp:read", "mcp:write", "events:write", "profile:write", "profile:contribute"],
+        scopes_supported: ["mcp:read", "profile:read", "mcp:write", "events:write", "profile:write", "profile:contribute"],
       });
       return;
     }
@@ -351,10 +359,12 @@ async function startHostedSuccessFixture() {
         id: body.id,
         jsonrpc: "2.0",
         result: {
-          tools: [...expectedTools, ...expectedWriteTools].map((name) => ({
+          tools: [...expectedTools, ...expectedOwnedReadTools, ...expectedWriteTools].map((name) => ({
             _meta: {
               securitySchemes: expectedWriteTools.includes(name)
                 ? [{ scopes: ["mcp:write", writeToolScopes[name]], type: "oauth2" }]
+                : expectedOwnedReadTools.includes(name)
+                ? [{ scopes: ["mcp:read", ownedReadToolScopes[name]], type: "oauth2" }]
                 : [
                     { type: "noauth" },
                     { scopes: ["mcp:read"], type: "oauth2" },

@@ -85,6 +85,12 @@ function isWriteToolName(name: string | undefined) {
   return name !== undefined && /^vrdex_(event|profile)_(create|update|submit)$/.test(name);
 }
 
+// A read, but of the caller's own inventory, so it carries a scope pair rather
+// than the public-read schemes every other read tool advertises.
+function isOwnedReadToolName(name: string | undefined) {
+  return name === "vrdex_list_my_profiles";
+}
+
 function assertWriteSecuritySchemes(value: unknown, resourceScope: string) {
   assert.equal(typeof value, "object");
   assert.notEqual(value, null);
@@ -276,9 +282,23 @@ describe("VRDex MCP server", () => {
 
     assert.equal(tools.every((tool) => !hasLegacySchemaId(tool.outputSchema)), true);
 
-    for (const tool of tools.filter((candidate) => !isWriteToolName(candidate.name))) {
+    for (
+      const tool of tools.filter((candidate) =>
+        !isWriteToolName(candidate.name) && !isOwnedReadToolName(candidate.name)
+      )
+    ) {
       assertPublicReadSecuritySchemes(tool._meta);
     }
+
+    // The owned-inventory read is listed anonymously like every other tool, but
+    // it must never advertise `noauth`: a session with no user behind it has no
+    // inventory to read.
+    const ownedRead = tools.find((candidate) => isOwnedReadToolName(candidate.name));
+
+    assert.notEqual(ownedRead, undefined);
+    assert.deepEqual((ownedRead?._meta as { securitySchemes?: unknown }).securitySchemes, [
+      { scopes: ["mcp:read", "profile:read"], type: "oauth2" },
+    ]);
   });
 
   it("advertises every write tool, scoped to the resource it writes", () => {
@@ -355,7 +375,7 @@ describe("VRDex MCP server", () => {
     `);
     const body = jsonBodyFromProbe(output);
     const tools = body.result?.tools ?? [];
-    const readTools = tools.filter((tool) => !isWriteToolName(tool.name));
+    const readTools = tools.filter((tool) => !isWriteToolName(tool.name) && !isOwnedReadToolName(tool.name));
 
     assert.match(output, /^200/m);
     assert.equal(readTools.length, 8);
@@ -1135,6 +1155,85 @@ describe("VRDex MCP server", () => {
     assert.match(result.mismatchedReadback, /accepted the event write/);
     assert.match(result.mismatchedReadback, /public event readback did not match the saved event/);
     assert.match(result.mismatchedReadback, /Do not retry the mutation automatically/);
+  });
+
+  it("serves an owner's own drafts and refuses a session without the scope", () => {
+    const output = runMcpProbe(`
+      import { createVrdexMcpHandler } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+
+      const inventory = {
+        profiles: [{
+          id: "profile_draft",
+          slug: "dj-draft",
+          profileType: "person",
+          displayName: "DJ Draft",
+          claimState: "claimed_verified",
+          publicationState: "draft_private",
+          publicSurfacingState: "opted_out",
+          creationSource: "community",
+          updatedAt: 7,
+        }],
+      };
+
+      function authInfo(scopes) {
+        return {
+          token: "never-print-this-token",
+          clientId: "vrdx_app_test",
+          scopes,
+          resource: new URL("https://app.example.test/mcp"),
+          extra: {
+            requestId: "request-123",
+            subjectType: "user",
+            tokenId: "token-123",
+            userId: "user_123",
+          },
+        };
+      }
+
+      async function call(options, id) {
+        const handler = createVrdexMcpHandler({
+          ...options,
+          adminConvex: { mutation: async () => ({}), query: async () => inventory.profiles },
+        });
+        const response = await handler.fetch(new Request("https://app.example.test/mcp", {
+          method: "POST",
+          headers: {
+            accept: "application/json, text/event-stream",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id,
+            method: "tools/call",
+            params: { name: "vrdex_list_my_profiles", arguments: {} },
+          }),
+        }));
+
+        return await response.text();
+      }
+
+      const granted = await call({ authInfo: authInfo(["mcp:read", "profile:read"]) }, 31);
+      const underScoped = await call({ authInfo: authInfo(["mcp:read"]) }, 32);
+      const anonymous = await call({}, 33);
+
+      console.log(JSON.stringify({ anonymous, granted, underScoped }));
+    `);
+    const result = JSON.parse(output) as {
+      anonymous: string;
+      granted: string;
+      underScoped: string;
+    };
+
+    // The whole point of the tool: a profile no public read will ever return,
+    // carrying the revision its owner's next update has to pin.
+    assert.match(result.granted, /dj-draft/);
+    assert.match(result.granted, /"updatedAt":7/);
+    // `mcp:read` alone must not reach it. That scope says a hosted session may
+    // read; it must not also mean any such session enumerates someone's drafts.
+    assert.match(result.underScoped, /user-delegated VRDex OAuth session/);
+    assert.doesNotMatch(result.underScoped, /dj-draft/);
+    assert.match(result.anonymous, /user-delegated VRDex OAuth session/);
+    assert.doesNotMatch(result.anonymous, /dj-draft|never-print-this-token/);
   });
 
   it("confirms a public profile write against the projection the API actually returns", () => {

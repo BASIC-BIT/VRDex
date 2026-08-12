@@ -11,6 +11,7 @@ import {
   ApiEventCreateRequestSchema,
   ApiEventUpdateRequestSchema,
   ApiEventWriteResponseSchema,
+  ApiMeProfilesResponseSchema,
   ApiProfileSubmitRequestSchema,
   ApiProfileUpdateRequestSchema,
   ApiProfileWriteResponseSchema,
@@ -57,7 +58,10 @@ import { vrcdnPlaybackHref } from "../../../../../convex/_vrcdnLinks";
 type ResponseSchema<T> = z.ZodType<T>;
 
 type VrdexMcpConvexClient = Pick<ReturnType<typeof convexHttpClient>, "query">;
-type VrdexMcpAdminConvexClient = Pick<ReturnType<typeof convexAdminHttpClient>, "mutation">;
+// `query` as well as `mutation` now: the owned-inventory read goes through an
+// internal query, because the profiles it exists to reach are the ones the
+// public query is right to hide.
+type VrdexMcpAdminConvexClient = Pick<ReturnType<typeof convexAdminHttpClient>, "mutation" | "query">;
 type AcceptedMcpRouteClass =
   | "anonymous_mcp_public_read"
   | "authenticated_mcp"
@@ -101,6 +105,17 @@ const mcpWriteToolResourceScopes: Record<(typeof mcpWriteToolNames)[number], Api
   // the contribution grant rather than the edit-your-own-profiles one.
   vrdex_profile_submit: "profile:contribute",
 };
+/**
+ * Reads of the caller's own inventory, which no anonymous session can serve.
+ *
+ * Separate from the public reads because the answer depends on who is asking:
+ * a draft or opted-out profile is invisible to `vrdex_get_profile` by design,
+ * and its owner still has to be able to read the revision every update pins.
+ */
+const mcpOwnedReadToolNames = ["vrdex_list_my_profiles"] as const;
+const mcpOwnedReadToolScopes: Record<(typeof mcpOwnedReadToolNames)[number], ApiScope> = {
+  vrdex_list_my_profiles: "profile:read",
+};
 const mcpToolNames = [
   "search",
   "fetch",
@@ -110,6 +125,7 @@ const mcpToolNames = [
   "vrdex_list_upcoming_events",
   "vrdex_get_world",
   "vrdex_list_active_worlds",
+  ...mcpOwnedReadToolNames,
   ...mcpWriteToolNames,
 ] as const;
 const mcpPublicReadSecuritySchemes = [
@@ -119,6 +135,11 @@ const mcpPublicReadSecuritySchemes = [
 const mcpAuthenticatedReadSecuritySchemes = [
   { scopes: [...mcpRequiredScopes], type: "oauth2" },
 ] satisfies Array<Record<string, unknown>>;
+function mcpOwnedReadSecuritySchemes(toolName: (typeof mcpOwnedReadToolNames)[number]) {
+  return [
+    { scopes: ["mcp:read", mcpOwnedReadToolScopes[toolName]], type: "oauth2" },
+  ] satisfies Array<Record<string, unknown>>;
+}
 function mcpWriteSecuritySchemes(toolName: (typeof mcpWriteToolNames)[number]) {
   return [
     { scopes: ["mcp:write", mcpWriteToolResourceScopes[toolName]], type: "oauth2" },
@@ -684,13 +705,18 @@ function sha256(value: string) {
 }
 
 /**
- * Resolved per write tool, not once per session: a token carrying
- * `mcp:write profile:write` is a principal for the profile tools and nobody at
- * all for the event tools.
+ * Resolved per tool against the scopes that tool needs, not once per session: a
+ * token carrying `mcp:write profile:write` is a principal for the profile
+ * update tool and nobody at all for the event tools.
+ *
+ * Takes the scope pair rather than a tool name so the owned-inventory read can
+ * use the same user-delegation check as the writes. The subject conditions are
+ * the part that must not be duplicated -- a read of somebody's own drafts is as
+ * much a user-delegated act as a write is.
  */
 function hostedMcpPrincipal(
   authInfo: AuthInfo | undefined,
-  toolName: (typeof mcpWriteToolNames)[number],
+  requiredScopes: readonly ApiScope[],
 ): HostedMcpPrincipal | null {
   const extra = authInfo?.extra;
 
@@ -701,7 +727,7 @@ function hostedMcpPrincipal(
     || typeof extra.userId !== "string"
     || typeof extra.tokenId !== "string"
     || typeof extra.requestId !== "string"
-    || !hasRequiredScopes(authInfo.scopes, ["mcp:write", mcpWriteToolResourceScopes[toolName]])
+    || !hasRequiredScopes(authInfo.scopes, [...requiredScopes])
   ) {
     return null;
   }
@@ -719,6 +745,16 @@ function mcpWriteUnauthorized(toolName: (typeof mcpWriteToolNames)[number]) {
     content: [{
       type: "text" as const,
       text: `A user-delegated VRDex OAuth session with mcp:write and ${mcpWriteToolResourceScopes[toolName]} is required.`,
+    }],
+    isError: true as const,
+  };
+}
+
+function mcpOwnedReadUnauthorized(toolName: (typeof mcpOwnedReadToolNames)[number]) {
+  return {
+    content: [{
+      type: "text" as const,
+      text: `A user-delegated VRDex OAuth session with mcp:read and ${mcpOwnedReadToolScopes[toolName]} is required.`,
     }],
     isError: true as const,
   };
@@ -1363,7 +1399,9 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
   const now = options.now ?? Date.now;
   const readToolMeta = mcpReadToolMeta(anonymousPublicReads);
   const principalFor = (toolName: (typeof mcpWriteToolNames)[number]) =>
-    hostedMcpPrincipal(options.authInfo, toolName);
+    hostedMcpPrincipal(options.authInfo, ["mcp:write", mcpWriteToolResourceScopes[toolName]]);
+  const ownedReadPrincipalFor = (toolName: (typeof mcpOwnedReadToolNames)[number]) =>
+    hostedMcpPrincipal(options.authInfo, ["mcp:read", mcpOwnedReadToolScopes[toolName]]);
   // Passed to the mutation rather than checked here: whether the wider grant is
   // needed depends on who owns the target, which only the write can answer.
   const contributeGranted = options.authInfo?.scopes?.includes("profile:contribute") === true;
@@ -1642,6 +1680,43 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       }
 
       return mcpJsonResult(PublicProfileSchema, profile);
+    },
+  );
+
+  server.registerTool(
+    "vrdex_list_my_profiles",
+    {
+      title: "List My VRDex Profiles",
+      description:
+        "List the profiles the signed-in VRDex user owns, including drafts and profiles kept off public pages. Each carries the updatedAt to send as expectedUpdatedAt when updating it.",
+      inputSchema: z.object({
+        limit: z.number().int().min(1).max(100).optional(),
+      }),
+      outputSchema: mcpOutputSchema(ApiMeProfilesResponseSchema),
+      annotations: { readOnlyHint: true, idempotentHint: true },
+      _meta: { securitySchemes: mcpOwnedReadSecuritySchemes("vrdex_list_my_profiles") },
+    },
+    async ({ limit }) => {
+      const principal = ownedReadPrincipalFor("vrdex_list_my_profiles");
+      if (principal === null) {
+        return mcpOwnedReadUnauthorized("vrdex_list_my_profiles");
+      }
+
+      let profiles;
+
+      try {
+        // The admin client and an owner-scoped internal query, not the public
+        // one: the profiles this exists to reach are exactly those the public
+        // query is right to hide.
+        profiles = await adminConvex().query(internal.profiles.listProfilesForApiOwner, {
+          ownerUserId: principal.userId,
+          ...(limit === undefined ? {} : { limit }),
+        });
+      } catch {
+        return mcpPublicReadUnavailable("profile inventory");
+      }
+
+      return mcpJsonResult(ApiMeProfilesResponseSchema, { profiles });
     },
   );
 

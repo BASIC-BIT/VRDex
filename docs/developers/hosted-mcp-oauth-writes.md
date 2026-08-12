@@ -47,7 +47,9 @@ profile claimed by somebody else is refused with a distinct message telling the
 agent to stop rather than retry.
 
 Every update sends `expectedUpdatedAt`, the `updatedAt` of the profile the agent
-read, including an update to a profile its user owns. `outboundLinks` replaces
+read, including an update to a profile its user owns. For a public profile that
+comes from `vrdex_get_profile`; for a draft or one kept off public pages it comes
+from `vrdex_list_my_profiles`, which needs `mcp:read` plus `profile:read`. `outboundLinks` replaces
 the whole list, so any two writers who each read before either wrote drop the
 other's links without either noticing -- and owning a profile does not make you
 its only writer, since the same person can have the edit form open in a browser
