@@ -31,9 +31,12 @@ consent line names that wider authority. `vrdex_profile_update` advertises only
 target, which the write discovers; a session without it is refused there with a
 message naming the missing scope.
 
-A client that only sets DJ links asks for `mcp:read mcp:write profile:write` and
-is never able to publish an event under someone's name. Registration refuses
-`mcp:write` on its own, and refuses a resource scope with no `mcp:write`.
+A client that only sets DJ links on profiles its user owns asks for `mcp:read
+mcp:write profile:write` and is never able to publish an event under someone's
+name. Add `profile:contribute` if it also corrects profiles the user does not
+own or submits new ones; without it that client can read every profile and write
+only its own. Registration refuses `mcp:write` on its own, and refuses a resource
+scope with no `mcp:write`.
 
 ## Profile write authority
 
@@ -84,7 +87,9 @@ Every write tool is registered, and each advertises OAuth-only security metadata
 naming `mcp:write` plus the one resource scope from the table above that it
 writes. Calling a tool requires a user-delegated token for the MCP resource
 carrying that exact pair, so a token holding `mcp:write profile:write` reaches
-the profile tools and receives `403` from the event tools. A missing token
+`vrdex_profile_update` and receives `403` from the event tools and from
+`vrdex_profile_submit`, which is advertised against `profile:contribute`. A
+missing token
 receives `401` plus an authoritative scope challenge; an invalid token receives
 `401`; insufficient scope or a client-credentials subject receives `403`.
 Anonymous public reads remain available, and authenticated read calls require
