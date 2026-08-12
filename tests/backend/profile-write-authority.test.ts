@@ -77,6 +77,7 @@ describe("profile write authority", () => {
       ownerUserId,
       contributeGranted: true,
       currentSlug: "dj-unclaimed",
+      expectedUpdatedAt: NOW,
       outboundLinks: [{ type: "soundcloud", url: "https://soundcloud.com/dj-unclaimed" }],
     });
 
@@ -225,13 +226,24 @@ describe("profile write authority", () => {
     assert.equal(merged?.outboundLinks?.length, 2);
   });
 
-  it("still applies an update that sends no pinned revision", async () => {
+  it("still applies an owner's update that sends no pinned revision", async () => {
     const t = convexTest(schema, modules);
     const ownerUserId = await seedUser(t, "unpinned");
-    const profileId = await seedProfile(t, "unpinned", "unclaimed");
+    const profileId = await seedProfile(t, "unpinned", "claimed_verified");
 
-    // Optional means optional. A caller editing a profile nobody else is
-    // touching should not have to read it first.
+    await t.run(async (ctx) => {
+      await ctx.db.insert("profileOwners", {
+        profileId: profileId as Id<"profiles">,
+        userId: ownerUserId,
+        roleKey: "owner",
+        state: "active",
+        grantedAt: NOW,
+        updatedAt: NOW,
+      });
+    });
+
+    // An owner writing a profile only they can write has nobody to race, so
+    // forcing a read before every write would buy nothing.
     await t.mutation(internal.profiles.updateProfileForApiOwner, {
       actorKind: "personal_api_token",
       ownerUserId,
@@ -243,6 +255,31 @@ describe("profile write authority", () => {
     const stored = await t.run(async (ctx) => ctx.db.get(profileId as Id<"profiles">));
 
     assert.equal(stored?.headline, "Bass, mostly");
+  });
+
+  it("refuses a community correction that pins no revision at all", async () => {
+    const t = convexTest(schema, modules);
+    const ownerUserId = await seedUser(t, "unpinned-contributor");
+    const profileId = await seedProfile(t, "unpinned-contributor", "unclaimed");
+
+    // The contributor is the caller with somebody to race, and an optional
+    // check they can decline by omitting the field is not a check. They have
+    // already read the profile -- that is how they know what to correct.
+    await assert.rejects(
+      () =>
+        t.mutation(internal.profiles.updateProfileForApiOwner, {
+          actorKind: "personal_api_token",
+          ownerUserId,
+          currentSlug: "dj-unpinned-contributor",
+          contributeGranted: true,
+          outboundLinks: [{ type: "soundcloud", url: "https://soundcloud.com/replacement" }],
+        }),
+      (error: unknown) => errorCode(error) === "PROFILE_INPUT_INVALID",
+    );
+
+    const stored = await t.run(async (ctx) => ctx.db.get(profileId as Id<"profiles">));
+
+    assert.equal(stored?.outboundLinks?.length, 0);
   });
 
   it("refuses an API credential on a profile somebody else claimed", async () => {
@@ -276,6 +313,7 @@ describe("profile write authority", () => {
       requestFingerprint: FINGERPRINT,
       contributeGranted: true,
       currentSlug: "dj-replay",
+      expectedUpdatedAt: NOW,
       outboundLinks: [{ type: "mixcloud" as const, url: "https://mixcloud.com/dj-replay" }],
     };
 
@@ -341,6 +379,7 @@ describe("profile write authority", () => {
       ownerUserId,
       contributeGranted: true,
       currentSlug: "dj-visible",
+      expectedUpdatedAt: NOW,
       headline: "Playing Friday",
     });
 
@@ -420,6 +459,7 @@ describe("profile write authority", () => {
       requestFingerprint: FINGERPRINT,
       contributeGranted: true,
       currentSlug: "dj-renamed",
+      expectedUpdatedAt: NOW,
       headline: "Touring",
     };
 
@@ -452,6 +492,7 @@ describe("profile write authority", () => {
       requestFingerprint: FINGERPRINT,
       contributeGranted: true,
       currentSlug: "dj-gone-private",
+      expectedUpdatedAt: NOW,
       headline: "Quiet season",
     };
 
@@ -518,6 +559,7 @@ describe("profile write authority", () => {
           requestFingerprint: FINGERPRINT,
           contributeGranted: true,
           currentSlug: "dj-fixable",
+          expectedUpdatedAt: NOW,
           outboundLinks: [{ type: "discord", url: "https://not-discord.example/invite" }],
         }),
       (error: unknown) => errorCode(error) === "INVALID_PROFILE_LINK",

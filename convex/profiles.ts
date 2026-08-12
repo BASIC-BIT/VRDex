@@ -244,9 +244,30 @@ async function resolveProfileEditSubject(
  * Call it after the permission checks and before the per-field ones. A caller
  * who lost the race should be told to re-read, not told which of their fields
  * was unacceptable against a version they were not looking at.
+ *
+ * Required of a community contributor, optional for an owner. Optional in both
+ * places would have been no check at all -- the caller who most needs it is the
+ * one who can decline it by leaving the field out, and the contributor is the
+ * one with somebody to race. An owner writing a profile only they can write has
+ * nobody, so forcing a read before every write would buy nothing.
  */
-function assertProfileRevision(profile: Doc<"profiles">, expectedUpdatedAt: number | undefined) {
-  if (expectedUpdatedAt !== undefined && expectedUpdatedAt !== profile.updatedAt) {
+function assertProfileRevision(
+  profile: Doc<"profiles">,
+  expectedUpdatedAt: number | undefined,
+  owns: boolean,
+) {
+  if (expectedUpdatedAt === undefined) {
+    if (!owns) {
+      throw new ConvexError({
+        code: "PROFILE_INPUT_INVALID",
+        message: "Correcting a profile you do not own requires expectedUpdatedAt from the profile you read.",
+      });
+    }
+
+    return;
+  }
+
+  if (expectedUpdatedAt !== profile.updatedAt) {
     throw new ConvexError({
       code: "PROFILE_CHANGED",
       message: "This profile changed while you were editing it. Reload to see the current version.",
@@ -324,7 +345,7 @@ export const updateProfileForApiOwner = internalMutation({
       args.contributeGranted,
     );
 
-    assertProfileRevision(profile, args.expectedUpdatedAt);
+    assertProfileRevision(profile, args.expectedUpdatedAt, owns);
 
     // Permission first, before anything that answers differently for a value
     // this writer may not read -- the same ordering the browser path documents.
@@ -841,7 +862,7 @@ export const updateProfileFromBrowser = mutation({
 
     const { owns, editSubject } = await resolveProfileEditSubject(ctx.db, profile, user._id);
 
-    assertProfileRevision(profile, args.expectedUpdatedAt);
+    assertProfileRevision(profile, args.expectedUpdatedAt, owns);
 
     // Permission first, before anything that answers differently for a value
     // this writer may not read. The suppression lookup returns
@@ -962,7 +983,7 @@ export const updateProfileForMcpActor = internalMutation({
         args.contributeGranted,
       );
       owns = authorization.owns;
-      assertProfileRevision(profile, args.expectedUpdatedAt);
+      assertProfileRevision(profile, args.expectedUpdatedAt, owns);
       assertSubmittedFieldsEditable(profile, args, authorization.editSubject);
       await assertProfileEditNotSuppressed(ctx.db, profile, args);
 

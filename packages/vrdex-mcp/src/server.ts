@@ -441,7 +441,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       {
         title: "Update VRDex Profile",
         description:
-          "Update a profile through the authenticated VRDex API, either one the user owns or an unclaimed profile as a community correction, which additionally requires profile:contribute. Omitted fields are preserved; sending outboundLinks replaces the whole list. This changes public VRDex data and requires explicit operator approval.",
+          "Update a profile through the authenticated VRDex API, either one the user owns or an unclaimed profile as a community correction, which additionally requires profile:contribute and expectedUpdatedAt from the profile as you read it. Omitted fields are preserved; sending outboundLinks replaces the whole list. This changes public VRDex data and requires explicit operator approval.",
         inputSchema: mcpProfileUpdateInputSchema,
         outputSchema: mcpOutputSchema(mcpProfileWriteResultSchema),
         annotations: {

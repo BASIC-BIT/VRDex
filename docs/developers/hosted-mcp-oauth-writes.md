@@ -43,11 +43,13 @@ API token path apply, resolved in one shared helper so the three cannot drift. A
 profile claimed by somebody else is refused with a distinct message telling the
 agent to stop rather than retry.
 
-Send `expectedUpdatedAt`, the `updatedAt` of the profile the agent read, on any
-correction to a profile it does not own. `outboundLinks` replaces the whole list,
-so two contributors who each read before either wrote would otherwise drop the
-other's links without either noticing. A stale pin is refused, and the recovery
-is to re-read and re-send; omitting it leaves the last writer winning.
+Correcting a profile the session's user does not own requires
+`expectedUpdatedAt`, the `updatedAt` of the profile the agent read.
+`outboundLinks` replaces the whole list, so two contributors who each read before
+either wrote would otherwise drop the other's links without either noticing --
+and a check the contributor can decline by leaving the field out is not a check.
+A stale pin is refused, and the recovery is to re-read and re-send. An owner
+editing their own profile may omit it, having nobody to race.
 
 `vrdex_profile_submit` creates a profile that publishes immediately as unclaimed,
 credited to the submitter, with `community_submitted` link provenance. Its

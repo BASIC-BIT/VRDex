@@ -602,10 +602,15 @@ export const ApiProfileUpdateRequestSchema = z
     /**
      * The `updatedAt` the writer last read, pinning what they are editing.
      *
-     * Optional, because a caller editing a profile only they can write does not
-     * need it. Send it whenever the profile is one others may also correct:
-     * `outboundLinks` replaces the whole list, so two contributors who both read
-     * before either wrote would otherwise silently drop each other's links.
+     * Required when correcting a profile the credential does not own, and
+     * optional when it does. `outboundLinks` replaces the whole list, so two
+     * contributors who each read before either wrote would silently drop the
+     * other's links -- and a check the caller with somebody to race can decline
+     * by leaving the field out is not a check. An owner writing a profile only
+     * they can write has nobody to race, so nothing forces a read there.
+     *
+     * Optional in the schema because ownership is what decides it, and only the
+     * write knows who owns the target.
      */
     expectedUpdatedAt: timestampMs.optional(),
   })
