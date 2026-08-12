@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import {
+  dynamicMcpClientScopes,
+  dynamicMcpWriteScopes,
+} from "../../packages/api-contracts/src/oauth";
 import type { Id } from "../../convex/_generated/dataModel";
 import { rotateRefreshToken } from "../../convex/oauthApps";
 import {
@@ -288,7 +292,14 @@ describe("OAuth application helpers", () => {
     ]);
     assert.equal(normalizeOAuthSoftwareValue("  com.example.agent  ", "software_id"), "com.example.agent");
 
-    assert.throws(() => normalizeDynamicMcpScopes(["profile:read"]), /can only request public:read, mcp:read/);
+    // `profile:read` is requestable now, for `vrdex_list_my_profiles`, but not
+    // on its own: it is a resource scope, and without `mcp:read` there is no
+    // hosted read session to use it in.
+    assert.deepEqual(normalizeDynamicMcpScopes(["mcp:read", "profile:read"]), [
+      "mcp:read",
+      "profile:read",
+    ]);
+    assert.throws(() => normalizeDynamicMcpScopes(["developer:write"]), /can only request public:read, mcp:read/);
     assert.throws(() => normalizeDynamicMcpScopes(["public:read"]), /mcp:read/);
     assert.throws(
       () => normalizeDynamicMcpScopes(["mcp:write"]),
@@ -296,6 +307,33 @@ describe("OAuth application helpers", () => {
     );
     assert.throws(() => normalizeOAuthResponseTypes(["token"]), /response type/);
     assert.throws(() => normalizeOAuthTokenEndpointAuthMethod("client_secret_basic"), /token_endpoint_auth_method=none/);
+  });
+
+  it("accepts every scope the contracts package lets a dynamic client request", () => {
+    // Convex functions cannot import `@vrdex/api-contracts`, so the catalog is
+    // mirrored by hand. Adding `profile:read` to the contracts side and not this
+    // one made the contracts normalizer accept a registration that then threw
+    // here -- a 500 from DCR, and a rejected CIMD document, for the one scope
+    // the new owned-inventory tool needs.
+    for (const scope of dynamicMcpClientScopes) {
+      const requested = scope === "mcp:read" ? [scope] : ["mcp:read", scope];
+
+      assert.deepEqual(
+        normalizeDynamicMcpScopes(requested).includes(scope),
+        true,
+        `Convex rejected ${scope}, which @vrdex/api-contracts accepts.`,
+      );
+    }
+
+    for (const scope of dynamicMcpWriteScopes) {
+      const requested = scope === "mcp:write" ? ["mcp:write", "events:write"] : ["mcp:write", scope];
+
+      assert.deepEqual(
+        normalizeDynamicMcpScopes(requested).includes(scope),
+        true,
+        `Convex rejected ${scope}, which @vrdex/api-contracts accepts.`,
+      );
+    }
   });
 
   it("rejects refresh rotation after a first-party application removes a granted scope", async () => {

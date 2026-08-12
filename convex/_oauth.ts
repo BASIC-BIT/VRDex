@@ -119,7 +119,11 @@ const oauthGrantTypes = new Set<OAuthGrantType>([
   "client_credentials",
 ]);
 const oauthResponseTypes = new Set<OAuthResponseType>(["code"]);
-const dynamicMcpReadScopes = new Set<ApiScope>(["public:read", "mcp:read"]);
+// Mirrors `dynamicMcpClientScopes` in @vrdex/api-contracts. `profile:read` is
+// requestable because `vrdex_list_my_profiles` needs it; what a client gets for
+// naming no scopes stays public-read only, and that default lives in the
+// contracts package rather than in this predicate.
+const dynamicMcpReadScopes = new Set<ApiScope>(["public:read", "mcp:read", "profile:read"]);
 // Mirrors `dynamicMcpResourceWriteScopes` / `dynamicMcpWriteScopes` in
 // @vrdex/api-contracts, which Convex functions cannot import. Keep both in step.
 const dynamicMcpResourceWriteScopes = new Set<ApiScope>([
@@ -129,6 +133,7 @@ const dynamicMcpResourceWriteScopes = new Set<ApiScope>([
 ]);
 const dynamicMcpWriteScopes = new Set<ApiScope>(["mcp:write", ...dynamicMcpResourceWriteScopes]);
 const resourceWriteScopeList = [...dynamicMcpResourceWriteScopes].join(", ");
+const dynamicMcpClientScopeList = [...dynamicMcpReadScopes, ...dynamicMcpWriteScopes].join(", ");
 const clientMetadataDocumentMaxLength = 2048;
 const clientIdPattern = /^vrdx_app_[0-9a-f]{24}$/;
 const secretPrefixPattern = /^vrdx_secret_[0-9a-f]{16}$/;
@@ -475,8 +480,11 @@ export function normalizeDynamicMcpScopes(scopes: readonly string[] | undefined)
   );
 
   if (unsupportedScopes.length > 0) {
+    // Listed from the sets rather than spelled out. The hand-written version had
+    // already fallen behind `profile:contribute` before `profile:read` was added
+    // to it, so it named scopes this function accepts and omitted others.
     throw new Error(
-      "Dynamic MCP clients can only request public:read, mcp:read, mcp:write, events:write, and profile:write.",
+      `Dynamic MCP clients can only request ${dynamicMcpClientScopeList}.`,
     );
   }
 

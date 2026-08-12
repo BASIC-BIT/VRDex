@@ -13,7 +13,18 @@ export const hostedMcpReadScopes = ["mcp:read"] as const satisfies readonly ApiS
  * browser path enforces.
  */
 export const hostedMcpWriteScopes = dynamicMcpWriteScopes;
+/**
+ * Read scopes a hosted session may hold beyond the transport one.
+ *
+ * Deliberately not folded into `hostedMcpReadScopes`, which is the pair every
+ * public read tool advertises: adding it there would tell an anonymous caller
+ * that reading a public profile needs `profile:read`. This is the discovery
+ * catalog, so a client deriving its registration from protected-resource
+ * metadata can ask for the owned-inventory tool instead of finding out after
+ * registering that it cannot call it.
+ */
+export const hostedMcpOwnedReadScopes = ["profile:read"] as const satisfies readonly ApiScope[];
 
 export function hostedMcpScopesAllowedForDynamicClient() {
-  return [...hostedMcpReadScopes, ...hostedMcpWriteScopes];
+  return [...hostedMcpReadScopes, ...hostedMcpOwnedReadScopes, ...hostedMcpWriteScopes];
 }

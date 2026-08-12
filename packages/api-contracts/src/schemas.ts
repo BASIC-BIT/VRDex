@@ -1012,9 +1012,37 @@ export const ApiMeProfileSummarySchema = z
     claimedAt: timestampMs.optional(),
     publishedAt: timestampMs.optional(),
     updatedAt: timestampMs,
+    /**
+     * The fields an update replaces wholesale rather than merges into.
+     *
+     * Present because a writer cannot safely send them without knowing what is
+     * there: an agent adding one link to a profile whose links it could not read
+     * would post a one-element array and delete the rest. The scalar fields are
+     * not here, and do not need to be -- omitting one from an update preserves
+     * it, so only the replace-not-merge fields are unsafe to write blind.
+     *
+     * `source` is absent by design. It is assigned by the server from who is
+     * writing, and echoing it back would invite a client to send it.
+     */
+    aliases: z.array(z.string()).optional(),
+    tags: z.array(z.string()).optional(),
+    outboundLinks: z.array(ApiProfileLinkInputSchema).optional(),
+    person: z
+      .object({
+        pronouns: z.string().optional(),
+        roleTags: z.array(z.string()).optional(),
+      })
+      .optional(),
+    community: z
+      .object({
+        subtype: z.string().optional(),
+        categoryTags: z.array(z.string()).optional(),
+      })
+      .optional(),
   })
   .meta({
-    description: "Compact profile summary for the current authenticated API user.",
+    description:
+      "Profile summary for the current authenticated API user, carrying the revision and the replace-not-merge fields an update has to send back.",
     id: "ApiMeProfileSummary",
   });
 

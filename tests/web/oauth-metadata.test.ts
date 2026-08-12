@@ -89,10 +89,12 @@ describe("OAuth metadata routes", () => {
     assert.match(output, /"resource":"https:\/\/app\.example\.test\/mcp"/);
     assert.match(output, /"authorization_servers":\["https:\/\/app\.example\.test"\]/);
     // Every write scope, so a client can request only the resource it means to
-    // write. There is no deployment switch that removes them.
+    // write. There is no deployment switch that removes them. `profile:read` is
+    // here too: a client that cannot discover it registers without it and is
+    // refused by the owned-inventory tool it can see listed.
     assert.match(
       output,
-      /"scopes_supported":\["mcp:read","mcp:write","events:write","profile:write","profile:contribute"\]/,
+      /"scopes_supported":\["mcp:read","profile:read","mcp:write","events:write","profile:write","profile:contribute"\]/,
     );
     assert.match(output, /"bearer_methods_supported":\["header"\]/);
     assert.match(output, /"resource_name":"VRDex MCP"/);

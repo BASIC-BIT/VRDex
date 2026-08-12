@@ -162,6 +162,10 @@ describe("OAuth edge security", () => {
   it("offers every hosted MCP scope to dynamic clients, with no deployment switch in front", () => {
     assert.deepEqual(hostedMcpScopesAllowedForDynamicClient(), [
       "mcp:read",
+      // Discoverable, so a client deriving its registration from this metadata
+      // can ask for the owned-inventory tool rather than registering without it
+      // and being refused at call time.
+      "profile:read",
       "mcp:write",
       "events:write",
       "profile:write",

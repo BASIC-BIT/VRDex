@@ -113,6 +113,32 @@ function toApiOwnedProfileSummary(profile: Doc<"profiles">) {
     claimedAt: profile.claimedAt,
     publishedAt: profile.publishedAt,
     updatedAt: profile.updatedAt,
+    // The replace-not-merge fields, so an owner reading their own profile can
+    // send one back without destroying the rest of it. An agent adding a link
+    // to a profile it could not read would otherwise post a one-element array.
+    //
+    // No visibility filtering here, unlike `toPublicProfile`: this answers only
+    // to the owner, over a route that already required `profile:read`, and a
+    // field they hid from the public page is still a field they are editing.
+    aliases: profile.aliases,
+    tags: profile.tags,
+    // `source` dropped rather than echoed. The server assigns it from who is
+    // writing, and returning it would invite a client to send it back.
+    outboundLinks: (profile.outboundLinks ?? []).map((link) => ({
+      type: link.type,
+      url: link.url,
+      ...(link.label === undefined ? {} : { label: link.label }),
+      ...(link.handle === undefined ? {} : { handle: link.handle }),
+      ...(link.presentation === undefined ? {} : { presentation: link.presentation }),
+    })),
+    // Narrowed on `profileType`: the document is a union and only one half of
+    // it carries each of these.
+    ...(profile.profileType === "person" && profile.person !== undefined
+      ? { person: profile.person }
+      : {}),
+    ...(profile.profileType === "community" && profile.community !== undefined
+      ? { community: profile.community }
+      : {}),
   };
 }
 
