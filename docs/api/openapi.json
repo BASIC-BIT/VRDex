@@ -7441,6 +7441,9 @@
             "type": "array",
             "items": {}
           },
+          "id": {
+            "type": "string"
+          },
           "mediaKit": {
             "type": "object",
             "properties": {
@@ -8378,6 +8381,7 @@
         },
         "required": [
           "displayName",
+          "id",
           "profileType",
           "slug",
           "trustLabel",

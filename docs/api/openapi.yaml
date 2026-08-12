@@ -4420,6 +4420,8 @@ components:
         hostedEvents:
           type: array
           items: {}
+        id:
+          type: string
         mediaKit:
           type: object
           properties:
@@ -5112,6 +5114,7 @@ components:
           items: {}
       required:
         - displayName
+        - id
         - profileType
         - slug
         - trustLabel

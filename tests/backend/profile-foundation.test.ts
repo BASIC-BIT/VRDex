@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { PublicProfileSchema } from "../../packages/api-contracts/src/schemas";
 import { isReservedSlug } from "../../convex/_globalSlugs";
 import type { Doc, Id } from "../../convex/_generated/dataModel";
 import {
@@ -1877,6 +1878,37 @@ describe("public profile projection", () => {
     ]);
     assert.equal(publicProfile.outboundLinks.length, 1);
     assert.equal(publicProfile.outboundLinks[0]?.url, "https://example.invalid/dj-celine-kofi");
+  });
+
+  it("satisfies the public contract the write tools read it back through", () => {
+    const profile = {
+      _id: "profile_abc" as Id<"profiles">,
+      profileType: "person",
+      slug: "dj-readback",
+      displayName: "DJ Readback",
+      sortName: "dj readback",
+      aliases: [],
+      tags: [],
+      outboundLinks: [],
+      claimState: "unclaimed",
+      publicationState: "published",
+      publicSurfacingState: "public",
+      creationSource: "community",
+      person: { roleTags: ["DJ"] },
+      publishedAt: 1,
+      updatedAt: 7,
+    } as unknown as Doc<"profiles">;
+
+    // Parsed through the contract, not spot-checked against it. `PublicProfile`
+    // is passthrough, so a field the schema declares and the projection forgets
+    // reads as `undefined` at every call site rather than failing to compile --
+    // which is how `id` came to be compared against `write.profileId` on a
+    // response that never carried it, turning every readback of a publicly
+    // viewable profile write into a warning.
+    const parsed = PublicProfileSchema.parse(toPublicProfile(profile));
+
+    assert.equal(parsed.id, "profile_abc");
+    assert.equal(parsed.updatedAt, 7);
   });
 
   it("projects DJ lookup rows with public links in operator priority order", () => {

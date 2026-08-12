@@ -113,6 +113,7 @@ describe("@vrdex/api-contracts", () => {
     const profile = PublicProfileSchema.parse({
       avatarImageUrl: "/api/v0/profiles/vrdex/assets/avatar/file",
       displayName: "VRDex",
+      id: "profile_vrdex",
       futureField: "kept",
       mediaKit: {
         additionalLogos: [],
@@ -147,6 +148,7 @@ describe("@vrdex/api-contracts", () => {
     assert.throws(() => PublicProfileSchema.parse({
       avatarImageUrl: "//cdn.example.test/avatar.png",
       displayName: "VRDex",
+      id: "profile_vrdex",
       profileType: "community",
       slug: "vrdex",
       trustLabel: "claimed_verified",

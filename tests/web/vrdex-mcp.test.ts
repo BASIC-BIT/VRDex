@@ -1137,6 +1137,98 @@ describe("VRDex MCP server", () => {
     assert.match(result.mismatchedReadback, /Do not retry the mutation automatically/);
   });
 
+  it("confirms a public profile write against the projection the API actually returns", () => {
+    const output = runMcpProbe(`
+      import { createVrdexMcpHandler } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+      import { toPublicProfile } from "./convex/_profilePublic.ts";
+
+      const authInfo = {
+        token: "never-print-this-token",
+        clientId: "vrdx_app_test",
+        scopes: ["mcp:write", "profile:write", "profile:contribute"],
+        resource: new URL("https://app.example.test/mcp"),
+        extra: {
+          requestId: "request-123",
+          subjectType: "user",
+          tokenId: "token-123",
+          userId: "user_123",
+        },
+      };
+      const write = {
+        profileId: "profile_abc",
+        slug: "dj-readback",
+        profileType: "person",
+        profilePath: "/dj-readback",
+        publiclyViewable: true,
+      };
+      // The real projection, not a stand-in shaped to the assertion: a stub with
+      // an id hand-written into it would have passed while every live write came
+      // back a warning.
+      const saved = toPublicProfile({
+        _id: "profile_abc",
+        profileType: "person",
+        slug: "dj-readback",
+        displayName: "DJ Readback",
+        sortName: "dj readback",
+        aliases: [],
+        tags: [],
+        outboundLinks: [],
+        claimState: "unclaimed",
+        publicationState: "published",
+        publicSurfacingState: "public",
+        creationSource: "community",
+        person: { roleTags: ["DJ"] },
+        publishedAt: 1,
+        updatedAt: 7,
+      });
+
+      async function call(query, id) {
+        const handler = createVrdexMcpHandler({
+          authInfo,
+          adminConvex: { mutation: async () => write },
+          convex: { query },
+        });
+        const response = await handler.fetch(new Request("https://app.example.test/mcp", {
+          method: "POST",
+          headers: {
+            accept: "application/json, text/event-stream",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id,
+            method: "tools/call",
+            params: {
+              name: "vrdex_profile_update",
+              arguments: {
+                idempotencyKey: "operator-key-123",
+                slug: "dj-readback",
+                update: { headline: "Bass, mostly" },
+              },
+            },
+          }),
+        }));
+
+        return await response.text();
+      }
+
+      const confirmed = await call(async () => saved, 21);
+      const mismatched = await call(async () => ({ ...saved, id: "profile_other" }), 22);
+
+      console.log(JSON.stringify({ confirmed, mismatched }));
+    `);
+    const result = JSON.parse(output) as { confirmed: string; mismatched: string };
+
+    // The bug this guards: `PublicProfile` is passthrough, so while the
+    // projection carried no `id` the identity check compared `undefined` against
+    // the saved id and every publicly viewable profile write came back a warning.
+    assert.doesNotMatch(result.confirmed, /readback did not complete cleanly/);
+    assert.match(result.confirmed, /dj-readback/);
+    assert.match(result.mismatched, /accepted the profile write/);
+    assert.match(result.mismatched, /did not match the saved profile/);
+    assert.match(result.mismatched, /Do not retry the mutation automatically/);
+  });
+
   it("rejects write callbacks without a user-delegated scoped principal", () => {
     const output = runMcpProbe(`
       import { createVrdexMcpHandler } from "./apps/web/src/lib/server/vrdex-mcp.ts";

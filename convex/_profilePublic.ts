@@ -29,6 +29,13 @@ export function toPublicProfile(profile: Doc<"profiles">) {
       }
     : undefined;
   const shared = {
+    // The stable identity behind the slug, the way `toPublicEvent` already
+    // exposes an event's. A slug can be reassigned, so a writer confirming its
+    // own write through a public read has nothing else to check it against.
+    // The stable identity behind the slug, the way `toPublicEvent` already
+    // exposes an event's. A slug can be reassigned, so a writer confirming its
+    // own write through a public read has nothing else to check it against.
+    id: profile._id,
     profileType: profile.profileType,
     slug: profile.slug,
     displayName: profile.displayName,

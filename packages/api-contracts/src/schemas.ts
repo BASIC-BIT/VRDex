@@ -195,6 +195,8 @@ export const PublicProfileSchema = z
     displayName: z.string().min(1),
     genres: z.array(PublicGenreSchema).optional(),
     hostedEvents: z.array(z.unknown()).optional(),
+    /** The stable profile identity, matching `PublicEvent.id`. */
+    id: z.string(),
     mediaKit: PublicProfileMediaKitSchema.optional(),
     outboundLinks: z.array(PublicOutboundLinkSchema).optional(),
     profileType: ProfileTypeSchema,

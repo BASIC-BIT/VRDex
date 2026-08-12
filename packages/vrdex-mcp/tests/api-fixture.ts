@@ -72,6 +72,7 @@ async function handleFixtureRequest(
   if (url.pathname.endsWith("/api/v0/communities/basic-bit")) {
     writeJson(response, 200, {
       displayName: "BASIC BIT",
+      id: "profile_basic_bit",
       profileType: "community",
       slug: "basic-bit",
       telemetry: {
