@@ -23,7 +23,7 @@ function isMcpWriteDenied(error: unknown) {
     && typeof error.data === "object"
     && error.data !== null
     && "code" in error.data
-    && error.data.code === "MCP_EVENT_WRITE_DENIED";
+    && error.data.code === "MCP_WRITE_DENIED";
 }
 
 async function seedCommunityOwner(t: ReturnType<typeof convexTest>, suffix: string) {

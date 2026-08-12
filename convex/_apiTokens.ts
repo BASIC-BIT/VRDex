@@ -10,6 +10,7 @@ export const apiScopeValidator = v.union(
   v.literal("profile:write"),
   v.literal("community:read"),
   v.literal("community:write"),
+  v.literal("profile:contribute"),
   v.literal("events:read"),
   v.literal("events:write"),
   v.literal("assets:read"),
@@ -66,6 +67,7 @@ export type ApiScope =
   | "profile:write"
   | "community:read"
   | "community:write"
+  | "profile:contribute"
   | "events:read"
   | "events:write"
   | "assets:read"
@@ -134,6 +136,7 @@ const apiScopes = new Set<ApiScope>([
   "profile:write",
   "community:read",
   "community:write",
+  "profile:contribute",
   "events:read",
   "events:write",
   "assets:read",

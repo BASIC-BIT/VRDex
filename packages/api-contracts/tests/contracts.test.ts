@@ -113,6 +113,7 @@ describe("@vrdex/api-contracts", () => {
     const profile = PublicProfileSchema.parse({
       avatarImageUrl: "/api/v0/profiles/vrdex/assets/avatar/file",
       displayName: "VRDex",
+      id: "profile_vrdex",
       futureField: "kept",
       mediaKit: {
         additionalLogos: [],
@@ -137,16 +138,21 @@ describe("@vrdex/api-contracts", () => {
         currentPopulation: { value: 42, activeInstanceCount: 2, observedAt: 1784635200000, coverage: "observed" },
       },
       trustLabel: "claimed_verified",
+      updatedAt: 1784635200000,
     });
 
     assert.equal((profile as { futureField?: string }).futureField, "kept");
     assert.equal(profile.telemetry?.currentPopulation?.value, 42);
+    // Complete apart from the protocol-relative avatar URL, so this still fails
+    // for the reason it is testing rather than for a missing field.
     assert.throws(() => PublicProfileSchema.parse({
       avatarImageUrl: "//cdn.example.test/avatar.png",
       displayName: "VRDex",
+      id: "profile_vrdex",
       profileType: "community",
       slug: "vrdex",
       trustLabel: "claimed_verified",
+      updatedAt: 1784635200000,
     }));
   });
 
@@ -402,6 +408,7 @@ describe("@vrdex/api-contracts", () => {
         pronouns: "they/them",
         roleTags: ["DJ", "Producer"],
       },
+      expectedUpdatedAt: 1784635200000,
     });
 
     ApiProfileUpdateRequestSchema.parse({
@@ -409,14 +416,36 @@ describe("@vrdex/api-contracts", () => {
         subtype: "Club night",
         categoryTags: ["Music", "Social"],
       },
+      expectedUpdatedAt: 1784635200000,
     });
+
+    // Required on every update, with no exemption for owning the profile: a
+    // guard the caller can decline by leaving the field out is not a guard.
+    assert.throws(() =>
+      ApiProfileUpdateRequestSchema.parse({
+        headline: "Late-night VRChat floors",
+      })
+    );
 
     ApiProfileWriteResponseSchema.parse({
       profileId: "profile123",
       slug: "artist-name",
       profileType: "person",
       profilePath: "/artist-name",
+      publiclyViewable: true,
     });
+
+    // Required, not optional. A client reading the profile back to confirm a
+    // write uses this to tell a deliberately private page from one that failed
+    // to surface, and an omitted field would silently read as "hidden".
+    assert.throws(() =>
+      ApiProfileWriteResponseSchema.parse({
+        profileId: "profile123",
+        slug: "artist-name",
+        profileType: "person",
+        profilePath: "/artist-name",
+      })
+    );
   });
 
   it("parses profile asset upload-intent contracts", () => {
@@ -946,15 +975,22 @@ describe("@vrdex/api-contracts", () => {
       },
     );
     assert.deepEqual(
-      normalizeDynamicMcpClientRegistration(
-        {
-          client_name: "Write MCP",
-          redirect_uris: ["http://localhost:3333/callback"],
-          scope: "mcp:write events:write",
-        },
-        { allowEventWrites: true },
-      ).allowedScopes,
+      normalizeDynamicMcpClientRegistration({
+        client_name: "Write MCP",
+        redirect_uris: ["http://localhost:3333/callback"],
+        scope: "mcp:write events:write",
+      }).allowedScopes,
       ["mcp:write", "events:write"],
+    );
+    // Profile writes without event writes: a set-link agent has no business
+    // publishing events, and the scope pair rule must let it say so.
+    assert.deepEqual(
+      normalizeDynamicMcpClientRegistration({
+        client_name: "Profile Write MCP",
+        redirect_uris: ["http://localhost:3333/callback"],
+        scope: "mcp:read mcp:write profile:write",
+      }).allowedScopes,
+      ["mcp:read", "mcp:write", "profile:write"],
     );
     assert.deepEqual(
       normalizeDynamicMcpClientRegistration(
@@ -963,12 +999,12 @@ describe("@vrdex/api-contracts", () => {
           redirect_uris: ["http://localhost:1455/callback"],
           scope: "public:read profile:read events:write mcp:read mcp:write time:parse",
         },
-        {
-          allowEventWrites: true,
-          discardKnownNonMcpScopes: true,
-        },
+        { discardKnownNonMcpScopes: true },
       ).allowedScopes,
-      ["public:read", "events:write", "mcp:read", "mcp:write"],
+      // `time:parse` is discarded and `profile:read` is kept: the first is an
+      // issuer-wide scope the MCP resource does not serve, the second is what
+      // the owned-inventory read tool asks for.
+      ["public:read", "profile:read", "events:write", "mcp:read", "mcp:write"],
     );
 
     assert.throws(
@@ -982,15 +1018,23 @@ describe("@vrdex/api-contracts", () => {
     );
     assert.throws(
       () =>
-        normalizeDynamicMcpClientRegistration(
-          {
-            client_name: "Write MCP",
-            redirect_uris: ["http://localhost:3333/callback"],
-            scope: "mcp:write",
-          },
-          { allowEventWrites: true },
-        ),
-      /both mcp:write and events:write/,
+        normalizeDynamicMcpClientRegistration({
+          client_name: "Write MCP",
+          redirect_uris: ["http://localhost:3333/callback"],
+          scope: "mcp:write",
+        }),
+      /at least one of events:write, profile:write, profile:contribute/,
+    );
+    // The other half alone: a resource scope with no transport scope reaches no
+    // hosted write tool, so it is refused rather than silently downgraded.
+    assert.throws(
+      () =>
+        normalizeDynamicMcpClientRegistration({
+          client_name: "Profile Write MCP",
+          redirect_uris: ["http://localhost:3333/callback"],
+          scope: "profile:write",
+        }),
+      /at least one of events:write, profile:write, profile:contribute/,
     );
     assert.throws(
       () =>

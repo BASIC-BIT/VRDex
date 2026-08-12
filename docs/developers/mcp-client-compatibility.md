@@ -878,10 +878,13 @@ pnpm ops:mcp-client-smokes -- \
    `VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS=true` is enabled alongside the
    already-present hosted auth-helper inputs.
 For local stdio rows, an anonymous session lists the six public read tools. A
-session configured with a bearer credential lists eight tools: those six reads
-plus `vrdex_event_create` and `vrdex_event_update`.
+session configured with a bearer credential lists eleven tools: those six reads,
+`vrdex_list_my_profiles`, and `vrdex_event_create`, `vrdex_event_update`,
+`vrdex_profile_update`, and `vrdex_profile_submit`. Registration does not inspect
+the token's scopes, so all five credentialed tools appear whenever a credential
+is present regardless of what that credential may actually read or write.
 
-1. Claude Desktop local stdio starts, lists six anonymous tools or eight
+1. Claude Desktop local stdio starts, lists six anonymous tools or eleven
    credentialed tools as appropriate, and calls `vrdex_search`.
 2. Claude Desktop hosted Custom Connector lists anonymous tools and completes
    OAuth for `mcp:read` when protected tools are enabled.
@@ -892,11 +895,11 @@ plus `vrdex_event_create` and `vrdex_event_update`.
    login`, uses reviewed OAuth app client credentials, or uses
    `VRDEX_CLAUDE_CODE_OAUTH_TOKEN` fallback for an authenticated smoke, paired
    with DCR and public-client CIMD protocol evidence.
-4. Gemini CLI local stdio lists six anonymous tools or eight credentialed
+4. Gemini CLI local stdio lists six anonymous tools or eleven credentialed
    tools through `/mcp`, hosted anonymous reads work through `httpUrl`, and
    hosted OAuth succeeds through automatic discovery or a documented static
    OAuth fallback.
-5. VS Code local stdio lists six anonymous tools or eight credentialed tools
+5. VS Code local stdio lists six anonymous tools or eleven credentialed tools
    and hosted HTTP anonymous reads work.
 6. Cursor local stdio and hosted HTTP read tools work in the current release.
 7. OpenAI or ChatGPT MCP-capable surfaces connect to hosted `/mcp` if the

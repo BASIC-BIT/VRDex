@@ -3,6 +3,10 @@ import {
   ApiEventCreateRequestSchema,
   ApiEventUpdateRequestSchema,
   ApiEventWriteResponseSchema,
+  ApiMeProfilesResponseSchema,
+  ApiProfileSubmitRequestSchema,
+  ApiProfileUpdateRequestSchema,
+  ApiProfileWriteResponseSchema,
   PublicActiveWorldsResponseSchema,
   PublicEventSchema,
   PublicEventsResponseSchema,
@@ -17,6 +21,8 @@ export type VrdexSearchType = "all" | "person" | "community" | "profile" | "worl
 export type VrdexProfileType = "person" | "community";
 export type VrdexEventCreateInput = z.infer<typeof ApiEventCreateRequestSchema>;
 export type VrdexEventUpdateInput = z.infer<typeof ApiEventUpdateRequestSchema>;
+export type VrdexProfileSubmitInput = z.infer<typeof ApiProfileSubmitRequestSchema>;
+export type VrdexProfileUpdateInput = z.infer<typeof ApiProfileUpdateRequestSchema>;
 
 export type VrdexApiSuccess<T> = {
   data: T;
@@ -116,6 +122,7 @@ export function createVrdexApiClient(options: ApiClientOptions) {
     requestOptions: {
       authenticate?: boolean;
       body?: unknown;
+      idempotencyKey?: string;
       method?: "GET" | "PATCH" | "POST";
       searchParams?: Record<string, number | string | undefined>;
     } = {},
@@ -132,6 +139,10 @@ export function createVrdexApiClient(options: ApiClientOptions) {
 
     if (requestOptions.body !== undefined) {
       headers.set("content-type", "application/json");
+    }
+
+    if (requestOptions.idempotencyKey !== undefined) {
+      headers.set("idempotency-key", requestOptions.idempotencyKey);
     }
 
     const response = await fetcher(url, {
@@ -196,6 +207,13 @@ export function createVrdexApiClient(options: ApiClientOptions) {
     listActiveWorlds(input: { limit?: number } = {}) {
       return get(PublicActiveWorldsResponseSchema, "worlds/active", { limit: input.limit });
     },
+    // Authenticated, unlike its neighbours here: the point of it is the drafts
+    // and opted-out profiles a public read is right to withhold.
+    listMyProfiles(input: { limit?: number } = {}) {
+      return request(ApiMeProfilesResponseSchema, "me/profiles", {
+        searchParams: { limit: input.limit },
+      });
+    },
     listUpcomingEvents(input: { limit?: number } = {}) {
       return get(PublicEventsResponseSchema, "events/upcoming", { limit: input.limit });
     },
@@ -206,9 +224,22 @@ export function createVrdexApiClient(options: ApiClientOptions) {
         type: input.type,
       });
     },
+    submitProfile(input: VrdexProfileSubmitInput, idempotencyKey: string) {
+      return request(ApiProfileWriteResponseSchema, "profiles", {
+        body: ApiProfileSubmitRequestSchema.parse(input),
+        idempotencyKey,
+        method: "POST",
+      });
+    },
     updateEvent(slug: string, input: VrdexEventUpdateInput) {
       return request(ApiEventWriteResponseSchema, `events/${encodeURIComponent(slug)}`, {
         body: ApiEventUpdateRequestSchema.parse(input),
+        method: "PATCH",
+      });
+    },
+    updateProfile(slug: string, input: VrdexProfileUpdateInput) {
+      return request(ApiProfileWriteResponseSchema, `profiles/${encodeURIComponent(slug)}`, {
+        body: ApiProfileUpdateRequestSchema.parse(input),
         method: "PATCH",
       });
     },

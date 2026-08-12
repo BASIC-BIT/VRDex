@@ -12,11 +12,49 @@ docs update and a changelog entry so early consumers and agents can adapt.
 - documented avatar appearance and trust metadata on public search results,
   documented event-host avatar appearance, and allowed same-origin profile
   asset URLs on public event image fields
-- added a default-off hosted MCP OAuth event-write surface with per-user
-  `AuthInfo`, exact `mcp:write events:write` authorization, durable community
-  ownership checks, transactional idempotency receipts, public readback, and
-  sanitized audit/rate-limit attribution; production activation remains a
-  separate authorized rollout
+- added a hosted MCP OAuth event-write surface with per-user `AuthInfo`,
+  durable community ownership checks, transactional idempotency receipts,
+  public readback, and sanitized audit/rate-limit attribution
+- added `vrdex_profile_update` and `vrdex_profile_submit` to the hosted and
+  local stdio MCP servers, plus `POST /api/v0/profiles`, so outbound links and
+  community-sourced profiles can be written from an API token or an OAuth
+  session rather than only from the browser
+- added `vrdex_list_my_profiles` to both MCP servers, over the existing
+  `GET /api/v0/me/profiles`. It needs `profile:read`, which dynamic MCP clients
+  may now request, and it is the only tool that returns drafts and profiles kept
+  off public pages -- without it an owner of one could not read the `updatedAt`
+  their own update has to pin
+- added the `profile:contribute` scope for writing a profile the credential
+  does not own, whether by correcting an unclaimed one or submitting a new one.
+  `profile:write` keeps meaning what its consent line says, "Edit your
+  profiles", so credentials issued before this change gain no new authority
+- **breaking**: `PATCH /api/v0/profiles/:slug` no longer requires ownership,
+  but a caller who does not own the target now needs `profile:contribute` as
+  well. With it, an unclaimed profile is edited as a community contributor, the
+  same authority the web editor grants; a profile claimed by someone else
+  answers `403`
+- **breaking**: `POST /api/v0/profiles` requires `profile:contribute` rather
+  than `profile:write`, and accepts an optional `Idempotency-Key` so a retried
+  submission replays the first result instead of publishing a second profile
+- `ApiProfileWriteResponse` gained `publiclyViewable`, so a client reading a
+  profile back after a write can tell a deliberately private page from one that
+  failed to surface
+- `PublicProfile` gained `id` and `updatedAt`, and profile updates accept the
+  latter back as `expectedUpdatedAt`. `outboundLinks` replaces the whole list, so
+  two contributors correcting the same unclaimed profile could silently drop each
+  other's links; a write pinned to a revision the profile has moved past now
+  answers `409` on `PATCH /api/v0/profiles/:slug` and is refused on
+  `vrdex_profile_update`. **breaking**: the field is required on every update,
+  including one to a profile the credential owns -- owning a profile does not
+  make you its only writer, since the same person can have the edit form open
+  while an agent writes through a tool. Submissions have no revision to pin and
+  do not take it
+- **breaking**: removed the `VRDEX_HOSTED_MCP_EVENT_WRITES` deployment switch.
+  Every hosted write tool is advertised and the connecting harness decides which
+  it exposes; writes stay bounded by granted scopes and per-resource permission
+  checks. Dynamic MCP clients now request `mcp:write` with at least one of
+  `events:write`, `profile:write`, or `profile:contribute` instead of the
+  fixed `mcp:write events:write` pair
 
 ## 2026-07-14
 

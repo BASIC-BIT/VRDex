@@ -16,9 +16,9 @@ import {
   apiWriteAuditActorKindValidator,
   apiWriteAuditResourceTypeValidator,
   apiWriteAuditResultValidator,
-  mcpEventWriteToolNameValidator,
+  mcpWriteToolNameValidator,
 } from "./_apiWriteAuditEvents";
-import { mcpEventWriteResultValidator } from "./_mcpEventWriteReceipts";
+import { mcpWriteResultValidator } from "./_mcpWriteReceipts";
 import {
   apiRateLimitEventIdentityKindValidator,
   apiRateLimitEventQuotaTierValidator,
@@ -1553,7 +1553,7 @@ export default defineSchema({
     action: apiWriteAuditActionValidator,
     actorKind: apiWriteAuditActorKindValidator,
     idempotencyKeyHash: v.optional(v.string()),
-    mcpToolName: v.optional(mcpEventWriteToolNameValidator),
+    mcpToolName: v.optional(mcpWriteToolNameValidator),
     oauthClientId: v.optional(v.string()),
     oauthTokenId: v.optional(v.string()),
     ownerUserId: v.optional(v.id("users")),
@@ -1573,10 +1573,10 @@ export default defineSchema({
   mcpEventWriteReceipts: defineTable({
     ownerUserId: v.id("users"),
     oauthClientId: v.string(),
-    toolName: mcpEventWriteToolNameValidator,
+    toolName: mcpWriteToolNameValidator,
     idempotencyKeyHash: v.string(),
     requestFingerprint: v.string(),
-    result: mcpEventWriteResultValidator,
+    result: mcpWriteResultValidator,
     createdAt: v.number(),
   }).index("by_owner_client_tool_key", [
     "ownerUserId",
@@ -1717,6 +1717,7 @@ export default defineSchema({
     requestId: v.optional(v.string()),
     idempotencyKeyHash: v.optional(v.string()),
     targetEventId: v.optional(v.id("events")),
+    targetProfileId: v.optional(v.id("profiles")),
     createdAt: v.number(),
   })
     .index("by_toolName_createdAt", ["toolName", "createdAt"])

@@ -25,6 +25,7 @@ const tokenScopes = [
   { value: "time:parse", label: "Time parsing" },
   { value: "profile:read", label: "Profile reads" },
   { value: "profile:write", label: "Profile writes" },
+  { value: "profile:contribute", label: "Community profile contributions" },
   { value: "community:read", label: "Community reads" },
   { value: "events:read", label: "Event reads" },
   { value: "events:write", label: "Event writes" },

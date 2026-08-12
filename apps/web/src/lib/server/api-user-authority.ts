@@ -122,6 +122,21 @@ export async function evaluateApiUserReadRequest(
   });
 }
 
+/**
+ * Whether the validated credential carries a scope, for authority a route must
+ * check beyond the one it required to get in.
+ *
+ * Profile writes need this because the authority depends on the target: editing
+ * your own profile is `profile:write`, and correcting somebody else's unclaimed
+ * one is a wider grant the user has to have made separately.
+ */
+export function apiCredentialHasScope(
+  context: { credential: { kind: string; scopes?: readonly string[] } },
+  scope: ApiScope,
+) {
+  return context.credential.scopes?.includes(scope) === true;
+}
+
 export async function evaluateApiUserWriteRequest(
   request: Request,
   options: {

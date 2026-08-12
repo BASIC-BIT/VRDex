@@ -34,6 +34,7 @@ import {
   ApiProfileAssetUploadIntentCreateRequestSchema,
   ApiProfileAssetUploadIntentCreateResponseSchema,
   ApiProfileAssetStorageProbeResponseSchema,
+  ApiProfileSubmitRequestSchema,
   ApiProfileUpdateRequestSchema,
   ApiProfileWriteResponseSchema,
   ApiRateLimitUsageResponseSchema,
@@ -56,6 +57,7 @@ import {
   type z,
 } from "./schemas";
 import {
+  ApiIdempotencyHeaderSchema,
   TemporalContinuationPathParamsSchema,
   TemporalIdempotencyHeaderSchema,
   TemporalParseCompletedResponseSchema,
@@ -123,6 +125,10 @@ const profileReadSecurity: Array<Record<string, string[]>> = [
 const profileWriteSecurity: Array<Record<string, string[]>> = [
   { bearerAuth: [] },
   { oauth2: ["profile:write"] },
+];
+const profileContributeSecurity: Array<Record<string, string[]>> = [
+  { bearerAuth: [] },
+  { oauth2: ["profile:contribute"] },
 ];
 const communityReadSecurity: Array<Record<string, string[]>> = [
   { bearerAuth: [] },
@@ -634,9 +640,9 @@ export const openApiSource = {
       patch: {
         operationId: "updateCurrentUserProfile",
         tags: ["Profiles"],
-        summary: "Update a current user's profile",
+        summary: "Update a profile",
         description:
-          "Updates owner-editable metadata for a claimed profile owned by a bearer credential with user authority and profile:write scope.",
+          "Updates editable metadata for a profile owned by a bearer credential with user authority and profile:write scope. Every update pins the revision it was written against through expectedUpdatedAt. Correcting an unclaimed profile the credential does not own additionally requires profile:contribute.",
         security: profileWriteSecurity,
         requestParams: {
           path: SlugPathParamsSchema,
@@ -660,14 +666,68 @@ export const openApiSource = {
           },
           "403": {
             description:
-              "The bearer credential lacks profile:write scope, user authority, ownership, or claimed-owner field permission.",
+              "The bearer credential lacks profile:write scope or user authority, lacks profile:contribute for a profile it does not own, the profile is claimed by someone else, or the submitted fields are not editable by this writer.",
             content: jsonContent(ApiProblemSchema),
           },
           "404": {
             description: "The profile was not found.",
             content: jsonContent(ApiProblemSchema),
           },
+          "409": {
+            description:
+              "The profile changed after the revision sent as expectedUpdatedAt. Re-read the profile and send the update again.",
+            content: jsonContent(ApiProblemSchema),
+          },
           "429": publicReadProblemResponses["429"],
+          "500": {
+            description: "The profile update could not be completed.",
+            content: jsonContent(ApiProblemSchema),
+          },
+        },
+      },
+    },
+    "/api/v0/profiles": {
+      post: {
+        operationId: "submitCommunityProfile",
+        tags: ["Profiles"],
+        summary: "Submit a community-sourced profile",
+        description:
+          "Creates an unclaimed community-sourced profile, submitted by a bearer credential with user authority and profile:contribute scope.",
+        security: profileContributeSecurity,
+        requestParams: {
+          header: ApiIdempotencyHeaderSchema,
+        },
+        requestBody: {
+          required: true,
+          content: jsonContent(ApiProfileSubmitRequestSchema),
+        },
+        responses: {
+          "201": {
+            description: "Created profile identifiers and public path.",
+            content: jsonContent(ApiProfileWriteResponseSchema),
+          },
+          "400": {
+            description:
+              "The profile submission was malformed, or the identity has asked not to be listed.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "401": {
+            description: "Bearer authentication is required or invalid.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "403": {
+            description: "The bearer credential lacks profile:contribute scope or user authority.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "409": {
+            description: "The Idempotency-Key was already used for a different request.",
+            content: jsonContent(ApiProblemSchema),
+          },
+          "429": publicReadProblemResponses["429"],
+          "500": {
+            description: "The profile submission could not be completed.",
+            content: jsonContent(ApiProblemSchema),
+          },
         },
       },
     },

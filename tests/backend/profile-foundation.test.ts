@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { PublicProfileSchema } from "../../packages/api-contracts/src/schemas";
 import { isReservedSlug } from "../../convex/_globalSlugs";
 import type { Doc, Id } from "../../convex/_generated/dataModel";
 import {
@@ -1103,15 +1104,23 @@ describe("API profile update helpers", () => {
   // for a name the person could simply have lengthened. The structured payload
   // survives, which is how link errors already answered.
   it("rejects invalid input in a shape that survives production", () => {
-    const invalid: Array<[string, ApiProfileUpdateInput]> = [
-      ["display name too short", { displayName: "a" }],
-      ["too many aliases", { aliases: Array.from({ length: 40 }, (_u, i) => `alias-${i}`) }],
-      // The community may not edit a field the profile marks private.
-      ["field not editable", { headline: "Updated" }],
-      ["wrong profile type", { community: { subtype: "Club" } }],
+    const invalid: Array<[string, ApiProfileUpdateInput, string]> = [
+      ["display name too short", { displayName: "a" }, "PROFILE_INPUT_INVALID"],
+      [
+        "too many aliases",
+        { aliases: Array.from({ length: 40 }, (_u, i) => `alias-${i}`) },
+        "PROFILE_INPUT_INVALID",
+      ],
+      // The community may not edit a field the profile marks private. No value
+      // would be accepted, so this answers as an authority refusal rather than
+      // asking the caller to correct something.
+      ["field not editable", { headline: "Updated" }, "PROFILE_FIELD_FORBIDDEN"],
+      // Caught by shape validation before the permission check: a community
+      // field on a person profile is a malformed request, not an authority one.
+      ["wrong profile type", { community: { subtype: "Club" } }, "PROFILE_INPUT_INVALID"],
     ];
 
-    for (const [label, input] of invalid) {
+    for (const [label, input, expectedCode] of invalid) {
       assert.throws(
         () =>
           sanitizeApiProfileUpdateInput(
@@ -1128,7 +1137,7 @@ describe("API profile update helpers", () => {
         (error: unknown) => {
           const data = (error as { data?: { code?: string; message?: string } }).data;
 
-          assert.equal(data?.code, "PROFILE_INPUT_INVALID", label);
+          assert.equal(data?.code, expectedCode, label);
           assert.ok((data?.message ?? "").length > 0, label);
 
           return true;
@@ -1869,6 +1878,37 @@ describe("public profile projection", () => {
     ]);
     assert.equal(publicProfile.outboundLinks.length, 1);
     assert.equal(publicProfile.outboundLinks[0]?.url, "https://example.invalid/dj-celine-kofi");
+  });
+
+  it("satisfies the public contract the write tools read it back through", () => {
+    const profile = {
+      _id: "profile_abc" as Id<"profiles">,
+      profileType: "person",
+      slug: "dj-readback",
+      displayName: "DJ Readback",
+      sortName: "dj readback",
+      aliases: [],
+      tags: [],
+      outboundLinks: [],
+      claimState: "unclaimed",
+      publicationState: "published",
+      publicSurfacingState: "public",
+      creationSource: "community",
+      person: { roleTags: ["DJ"] },
+      publishedAt: 1,
+      updatedAt: 7,
+    } as unknown as Doc<"profiles">;
+
+    // Parsed through the contract, not spot-checked against it. `PublicProfile`
+    // is passthrough, so a field the schema declares and the projection forgets
+    // reads as `undefined` at every call site rather than failing to compile --
+    // which is how `id` came to be compared against `write.profileId` on a
+    // response that never carried it, turning every readback of a publicly
+    // viewable profile write into a warning.
+    const parsed = PublicProfileSchema.parse(toPublicProfile(profile));
+
+    assert.equal(parsed.id, "profile_abc");
+    assert.equal(parsed.updatedAt, 7);
   });
 
   it("projects DJ lookup rows with public links in operator priority order", () => {

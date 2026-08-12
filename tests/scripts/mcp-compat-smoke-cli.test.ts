@@ -14,7 +14,29 @@ const expectedTools = [
   "vrdex_get_world",
   "vrdex_list_active_worlds",
 ];
-const expectedWriteTools = ["vrdex_event_create", "vrdex_event_update"];
+// A correct hosted deployment registers all four unconditionally, so the
+// success fixture has to model all four: the smoke now fails a deployment that
+// is missing one, which is the whole point of asserting rather than flagging.
+const expectedWriteTools = [
+  "vrdex_event_create",
+  "vrdex_event_update",
+  "vrdex_profile_update",
+  "vrdex_profile_submit",
+];
+// Per tool, mirroring the server. A fixture that gave every write tool the same
+// pair would keep passing a server that had stopped distinguishing them.
+const writeToolScopes: Record<string, string> = {
+  vrdex_event_create: "events:write",
+  vrdex_event_update: "events:write",
+  vrdex_profile_update: "profile:write",
+  vrdex_profile_submit: "profile:contribute",
+};
+// Reads, but of the caller's own inventory, so they advertise a scope pair
+// rather than the anonymous public-read pair every other read carries.
+const expectedOwnedReadTools = ["vrdex_list_my_profiles"];
+const ownedReadToolScopes: Record<string, string> = {
+  vrdex_list_my_profiles: "profile:read",
+};
 
 function smokeEnv() {
   return {
@@ -115,7 +137,7 @@ async function startHostedFailureFixture() {
       writeJson(response, 200, {
         authorization_servers: [origin],
         resource: `${origin}/mcp`,
-        scopes_supported: ["mcp:read"],
+        scopes_supported: ["mcp:read", "profile:read", "mcp:write", "events:write", "profile:write", "profile:contribute"],
       });
       return;
     }
@@ -183,12 +205,20 @@ async function startHostedFailureFixture() {
         id: body.id,
         jsonrpc: "2.0",
         result: {
-          tools: expectedTools.map((name) => ({
+          // This fixture models a deployment whose data-backed reads fail, not
+          // one missing tools, so its inventory is otherwise correct. Leaving
+          // the write tools out made the smoke abort on the tool list before it
+          // reached the read failures this test is about.
+          tools: [...expectedTools, ...expectedOwnedReadTools, ...expectedWriteTools].map((name) => ({
             _meta: {
-              securitySchemes: [
-                { type: "noauth" },
-                { scopes: ["mcp:read"], type: "oauth2" },
-              ],
+              securitySchemes: expectedWriteTools.includes(name)
+                ? [{ scopes: ["mcp:write", writeToolScopes[name]], type: "oauth2" }]
+                : expectedOwnedReadTools.includes(name)
+                ? [{ scopes: ["mcp:read", ownedReadToolScopes[name]], type: "oauth2" }]
+                : [
+                  { type: "noauth" },
+                  { scopes: ["mcp:read"], type: "oauth2" },
+                ],
             },
             name,
           })),
@@ -253,7 +283,7 @@ async function startHostedSuccessFixture() {
       writeJson(response, 200, {
         authorization_servers: [origin],
         resource: `${origin}/mcp`,
-        scopes_supported: ["mcp:read", "mcp:write", "events:write"],
+        scopes_supported: ["mcp:read", "profile:read", "mcp:write", "events:write", "profile:write", "profile:contribute"],
       });
       return;
     }
@@ -329,10 +359,12 @@ async function startHostedSuccessFixture() {
         id: body.id,
         jsonrpc: "2.0",
         result: {
-          tools: [...expectedTools, ...expectedWriteTools].map((name) => ({
+          tools: [...expectedTools, ...expectedOwnedReadTools, ...expectedWriteTools].map((name) => ({
             _meta: {
               securitySchemes: expectedWriteTools.includes(name)
-                ? [{ scopes: ["mcp:write", "events:write"], type: "oauth2" }]
+                ? [{ scopes: ["mcp:write", writeToolScopes[name]], type: "oauth2" }]
+                : expectedOwnedReadTools.includes(name)
+                ? [{ scopes: ["mcp:read", ownedReadToolScopes[name]], type: "oauth2" }]
                 : [
                     { type: "noauth" },
                     { scopes: ["mcp:read"], type: "oauth2" },

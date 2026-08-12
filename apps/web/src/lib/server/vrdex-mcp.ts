@@ -11,6 +11,10 @@ import {
   ApiEventCreateRequestSchema,
   ApiEventUpdateRequestSchema,
   ApiEventWriteResponseSchema,
+  ApiMeProfilesResponseSchema,
+  ApiProfileSubmitRequestSchema,
+  ApiProfileUpdateRequestSchema,
+  ApiProfileWriteResponseSchema,
   type ApiScope,
   getBearerTokenFromAuthorizationHeader,
   hasBearerTokenInUrl,
@@ -48,17 +52,16 @@ import {
   verifyOAuthAccessToken,
 } from "@/lib/server/oauth-jwt";
 import { publicSearchBackendFilters } from "@/lib/server/public-search-query";
-import {
-  hostedMcpEventWritesEnabled,
-  hostedMcpEventWriteScopes,
-  hostedMcpReadScopes,
-} from "@/lib/server/hosted-mcp-policy";
+import { hostedMcpReadScopes } from "@/lib/server/hosted-mcp-policy";
 import { vrcdnPlaybackHref } from "../../../../../convex/_vrcdnLinks";
 
 type ResponseSchema<T> = z.ZodType<T>;
 
 type VrdexMcpConvexClient = Pick<ReturnType<typeof convexHttpClient>, "query">;
-type VrdexMcpAdminConvexClient = Pick<ReturnType<typeof convexAdminHttpClient>, "mutation">;
+// `query` as well as `mutation` now: the owned-inventory read goes through an
+// internal query, because the profiles it exists to reach are the ones the
+// public query is right to hide.
+type VrdexMcpAdminConvexClient = Pick<ReturnType<typeof convexAdminHttpClient>, "mutation" | "query">;
 type AcceptedMcpRouteClass =
   | "anonymous_mcp_public_read"
   | "authenticated_mcp"
@@ -69,7 +72,6 @@ type VrdexMcpServerOptions = {
   authInfo?: AuthInfo;
   adminConvex?: VrdexMcpAdminConvexClient;
   convex?: VrdexMcpConvexClient;
-  eventWrites?: boolean;
   now?: () => number;
 };
 type PublicSearchResponse = z.infer<typeof PublicSearchResponseSchema>;
@@ -86,6 +88,34 @@ type McpDocumentDescriptor =
 const mcpSearchTypes = ["all", "person", "community", "profile", "world", "event"] as const;
 const mcpRequiredScopes = hostedMcpReadScopes;
 const mcpEventWriteToolNames = ["vrdex_event_create", "vrdex_event_update"] as const;
+const mcpProfileWriteToolNames = ["vrdex_profile_update", "vrdex_profile_submit"] as const;
+const mcpWriteToolNames = [...mcpEventWriteToolNames, ...mcpProfileWriteToolNames] as const;
+/**
+ * The resource scope each write tool needs alongside `mcp:write`.
+ *
+ * Per tool rather than per request, so a client holding `mcp:write profile:write`
+ * can set a DJ's links without also being able to publish events under their
+ * name. A request calling both kinds needs both scopes.
+ */
+const mcpWriteToolResourceScopes: Record<(typeof mcpWriteToolNames)[number], ApiScope> = {
+  vrdex_event_create: "events:write",
+  vrdex_event_update: "events:write",
+  vrdex_profile_update: "profile:write",
+  // Submitting is inherently a write to a profile nobody owns, so it asks for
+  // the contribution grant rather than the edit-your-own-profiles one.
+  vrdex_profile_submit: "profile:contribute",
+};
+/**
+ * Reads of the caller's own inventory, which no anonymous session can serve.
+ *
+ * Separate from the public reads because the answer depends on who is asking:
+ * a draft or opted-out profile is invisible to `vrdex_get_profile` by design,
+ * and its owner still has to be able to read the revision every update pins.
+ */
+const mcpOwnedReadToolNames = ["vrdex_list_my_profiles"] as const;
+const mcpOwnedReadToolScopes: Record<(typeof mcpOwnedReadToolNames)[number], ApiScope> = {
+  vrdex_list_my_profiles: "profile:read",
+};
 const mcpToolNames = [
   "search",
   "fetch",
@@ -95,7 +125,8 @@ const mcpToolNames = [
   "vrdex_list_upcoming_events",
   "vrdex_get_world",
   "vrdex_list_active_worlds",
-  ...mcpEventWriteToolNames,
+  ...mcpOwnedReadToolNames,
+  ...mcpWriteToolNames,
 ] as const;
 const mcpPublicReadSecuritySchemes = [
   { type: "noauth" },
@@ -104,12 +135,20 @@ const mcpPublicReadSecuritySchemes = [
 const mcpAuthenticatedReadSecuritySchemes = [
   { scopes: [...mcpRequiredScopes], type: "oauth2" },
 ] satisfies Array<Record<string, unknown>>;
-const mcpEventWriteSecuritySchemes = [
-  { scopes: [...hostedMcpEventWriteScopes], type: "oauth2" },
-] satisfies Array<Record<string, unknown>>;
+function mcpOwnedReadSecuritySchemes(toolName: (typeof mcpOwnedReadToolNames)[number]) {
+  return [
+    { scopes: ["mcp:read", mcpOwnedReadToolScopes[toolName]], type: "oauth2" },
+  ] satisfies Array<Record<string, unknown>>;
+}
+function mcpWriteSecuritySchemes(toolName: (typeof mcpWriteToolNames)[number]) {
+  return [
+    { scopes: ["mcp:write", mcpWriteToolResourceScopes[toolName]], type: "oauth2" },
+  ] satisfies Array<Record<string, unknown>>;
+}
 const hostedMcpMaxRequestBodyBytes = 1024 * 1024;
 const mcpToolNameSet = new Set<string>(mcpToolNames);
-const mcpEventWriteToolNameSet = new Set<string>(mcpEventWriteToolNames);
+const mcpWriteToolNameSet = new Set<string>(mcpWriteToolNames);
+const mcpOwnedReadToolNameSet = new Set<string>(mcpOwnedReadToolNames);
 const mcpDocumentIdSchema = z.string().min(1).max(260);
 const mcpSlugSchema = z.string().min(1).max(160);
 const mcpLimitSchema = z.number().int().min(1);
@@ -121,6 +160,24 @@ const mcpEventUpdateInputSchema = z.object({
 });
 const mcpEventCreateInputSchema = ApiEventCreateRequestSchema.extend({
   idempotencyKey: mcpIdempotencyKeySchema,
+});
+const mcpProfileUpdateInputSchema = z.object({
+  idempotencyKey: mcpIdempotencyKeySchema,
+  slug: mcpSlugSchema.describe("Current public profile slug."),
+  update: ApiProfileUpdateRequestSchema,
+});
+const mcpProfileSubmitInputSchema = ApiProfileSubmitRequestSchema.extend({
+  idempotencyKey: mcpIdempotencyKeySchema,
+});
+const mcpProfileWriteResultSchema = ApiProfileWriteResponseSchema.extend({
+  canonicalUrl: z.string().url(),
+  // Absent exactly when the saved profile has no public surface. An owner may
+  // edit a draft or opted-out profile, and that write succeeded; there is simply
+  // nothing to read back.
+  profile: PublicProfileSchema.optional(),
+}).meta({
+  description: "Accepted profile write plus the normalized public profile read back from VRDex.",
+  id: "HostedMcpProfileWriteResult",
 });
 const mcpEventWriteResultSchema = ApiEventWriteResponseSchema.extend({
   canonicalUrl: z.string().url(),
@@ -492,7 +549,7 @@ export function acceptedMcpRouteClassForRequest(request: Request): AcceptedMcpRo
 
 export async function recordAcceptedMcpToolInvocations(request: Request) {
   const toolNames = (await mcpToolCallNamesFromRequest(request))
-    .filter((toolName) => !mcpEventWriteToolNameSet.has(toolName));
+    .filter((toolName) => !mcpWriteToolNameSet.has(toolName));
 
   if (toolNames.length === 0) {
     return { recorded: 0 };
@@ -577,7 +634,8 @@ async function recordHostedMcpWriteInvocation(args: {
   principal: HostedMcpPrincipal;
   result: "accepted" | "denied" | "indeterminate" | "readback_warning";
   targetEventId?: Id<"events">;
-  toolName: (typeof mcpEventWriteToolNames)[number];
+  targetProfileId?: Id<"profiles">;
+  toolName: (typeof mcpWriteToolNames)[number];
 }) {
   try {
     await convexAdminHttpClient().mutation(internal.mcpToolEvents.recordWriteInvocation, {
@@ -589,6 +647,7 @@ async function recordHostedMcpWriteInvocation(args: {
       result: args.result,
       toolName: args.toolName,
       ...(args.targetEventId === undefined ? {} : { targetEventId: args.targetEventId }),
+      ...(args.targetProfileId === undefined ? {} : { targetProfileId: args.targetProfileId }),
     });
   } catch {
     // Observability must never turn an accepted or rejected write into a retry.
@@ -646,7 +705,20 @@ function sha256(value: string) {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function hostedMcpPrincipal(authInfo: AuthInfo | undefined): HostedMcpPrincipal | null {
+/**
+ * Resolved per tool against the scopes that tool needs, not once per session: a
+ * token carrying `mcp:write profile:write` is a principal for the profile
+ * update tool and nobody at all for the event tools.
+ *
+ * Takes the scope pair rather than a tool name so the owned-inventory read can
+ * use the same user-delegation check as the writes. The subject conditions are
+ * the part that must not be duplicated -- a read of somebody's own drafts is as
+ * much a user-delegated act as a write is.
+ */
+function hostedMcpPrincipal(
+  authInfo: AuthInfo | undefined,
+  requiredScopes: readonly ApiScope[],
+): HostedMcpPrincipal | null {
   const extra = authInfo?.extra;
 
   if (
@@ -656,7 +728,7 @@ function hostedMcpPrincipal(authInfo: AuthInfo | undefined): HostedMcpPrincipal 
     || typeof extra.userId !== "string"
     || typeof extra.tokenId !== "string"
     || typeof extra.requestId !== "string"
-    || !hasRequiredScopes(authInfo.scopes, hostedMcpEventWriteScopes)
+    || !hasRequiredScopes(authInfo.scopes, [...requiredScopes])
   ) {
     return null;
   }
@@ -669,11 +741,21 @@ function hostedMcpPrincipal(authInfo: AuthInfo | undefined): HostedMcpPrincipal 
   };
 }
 
-function mcpEventWriteUnauthorized() {
+function mcpWriteUnauthorized(toolName: (typeof mcpWriteToolNames)[number]) {
   return {
     content: [{
       type: "text" as const,
-      text: "A user-delegated VRDex OAuth session with mcp:write and events:write is required.",
+      text: `A user-delegated VRDex OAuth session with mcp:write and ${mcpWriteToolResourceScopes[toolName]} is required.`,
+    }],
+    isError: true as const,
+  };
+}
+
+function mcpOwnedReadUnauthorized(toolName: (typeof mcpOwnedReadToolNames)[number]) {
+  return {
+    content: [{
+      type: "text" as const,
+      text: `A user-delegated VRDex OAuth session with mcp:read and ${mcpOwnedReadToolScopes[toolName]} is required.`,
     }],
     isError: true as const,
   };
@@ -689,10 +771,42 @@ function mcpEventWriteIndeterminate(operation: "create" | "update") {
   };
 }
 
-function isMcpEventWriteDenied(error: unknown) {
-  return isRecord(error)
-    && isRecord(error.data)
-    && error.data.code === "MCP_EVENT_WRITE_DENIED";
+function isMcpWriteDenied(error: unknown) {
+  return isRecord(error) && isRecord(error.data) && error.data.code === "MCP_WRITE_DENIED";
+}
+
+function mcpConvexErrorCode(error: unknown) {
+  return isRecord(error) && isRecord(error.data) && typeof error.data.code === "string"
+    ? error.data.code
+    : null;
+}
+
+function mcpConvexErrorMessage(error: unknown) {
+  return isRecord(error) && isRecord(error.data) && typeof error.data.message === "string"
+    ? error.data.message
+    : null;
+}
+
+/**
+ * Relay a refusal the agent can act on.
+ *
+ * The backend already decided which codes are worth naming; anything else
+ * arrives as `MCP_WRITE_DENIED` and falls through to the generic text. Without
+ * this an over-length headline and an unwritable profile read identically, and
+ * the agent retries the one it could have fixed.
+ */
+function mcpProfileWriteRejected(error: unknown) {
+  const message = mcpConvexErrorMessage(error);
+
+  return {
+    content: [{
+      type: "text" as const,
+      text: message === null
+        ? "VRDex rejected the profile write. Do not retry the mutation automatically."
+        : `VRDex rejected the profile write. ${message} Correct the request before trying again.`,
+    }],
+    isError: true as const,
+  };
 }
 
 function mcpEventWriteDenied() {
@@ -715,6 +829,55 @@ function mcpEventReadbackError(
     content: [{
       type: "text" as const,
       text: `VRDex accepted the event write for slug "${write.slug}", but public readback did not complete cleanly.${suffix} Do not retry the mutation automatically; inspect the saved event first.`,
+    }],
+    isError: true as const,
+  };
+}
+
+function mcpProfileWriteIndeterminate(operation: "update" | "submission") {
+  return {
+    content: [{
+      type: "text" as const,
+      text: `The VRDex profile ${operation} request did not complete cleanly, and the server may already have accepted the mutation. Do not retry automatically; read the profile back or replay only with the same idempotency key after operator review.`,
+    }],
+    isError: true as const,
+  };
+}
+
+function mcpProfileWriteDenied() {
+  return {
+    content: [{
+      type: "text" as const,
+      text: "VRDex rejected the profile write. Confirm the slug, the field values, and that the profile is one you own or that is still unclaimed before trying a corrected request.",
+    }],
+    isError: true as const,
+  };
+}
+
+// The claimed and suppressed refusals reuse the sentences already approved for
+// the browser path verbatim, and add only the no-retry clause the event write
+// tools already carry. New public-facing sentences need sign-off; these are not
+// new ones.
+function mcpProfileClaimed() {
+  return {
+    content: [{
+      type: "text" as const,
+      text: "This profile has been claimed, so only its owner can edit it. Do not retry the mutation automatically.",
+    }],
+    isError: true as const,
+  };
+}
+
+function mcpProfileReadbackError(
+  write: z.infer<typeof ApiProfileWriteResponseSchema>,
+  detail?: string,
+) {
+  const suffix = detail === undefined ? "" : ` ${detail}`;
+
+  return {
+    content: [{
+      type: "text" as const,
+      text: `VRDex accepted the profile write for slug "${write.slug}", but public readback did not complete cleanly.${suffix} Do not retry the mutation automatically; read the saved profile first.`,
     }],
     isError: true as const,
   };
@@ -884,10 +1047,14 @@ async function authenticateMcpBearerToken(
         request,
         403,
         -32600,
-        "Hosted MCP event writes require a user-delegated OAuth token.",
+        "Hosted MCP writes require a user-delegated OAuth token.",
         {
           error: "insufficient_scope",
-          errorDescription: "Use an authorization-code session for a VRDex user who owns the target community.",
+          // Neutral about what is being written. Naming community ownership
+          // sent profile clients after the wrong authority model: a submission
+          // targets no community at all, and a profile correction needs the
+          // profile to be unclaimed rather than owned.
+          errorDescription: "Use an authorization-code session for a VRDex user.",
           requiredScopes,
         },
       ),
@@ -1073,7 +1240,6 @@ export async function authorizeHostedMcpRequest(
     };
   }
 
-  const eventWrites = hostedMcpEventWritesEnabled();
   const parsedRequest = await boundedMcpToolCallNamesFromRequest(request.clone());
 
   if ("tooLarge" in parsedRequest && parsedRequest.tooLarge) {
@@ -1086,32 +1252,55 @@ export async function authorizeHostedMcpRequest(
   }
 
   const toolNames = parsedRequest.toolNames;
-  const eventWriteCallCount =
-    eventWrites
-      ? toolNames.filter((toolName) => mcpEventWriteToolNameSet.has(toolName)).length
-      : 0;
-  const eventWriteRequested = eventWriteCallCount > 0;
-  const readToolRequested = toolNames.some((toolName) => !mcpEventWriteToolNameSet.has(toolName));
+  const writeToolsCalled = toolNames.filter((toolName) => mcpWriteToolNameSet.has(toolName));
+  const writeCallCount = writeToolsCalled.length;
+  const writeRequested = writeCallCount > 0;
+  const readToolRequested = toolNames.some((toolName) => !mcpWriteToolNameSet.has(toolName));
+  // Only the resources this request actually writes. Demanding the full write
+  // catalog would make a link-editing agent ask for `events:write` it will never
+  // use, which is the consent screen telling the user something untrue.
+  const writeScopes: readonly ApiScope[] = writeRequested
+    ? [
+      "mcp:write",
+      ...new Set(
+        writeToolsCalled.map(
+          (toolName) => mcpWriteToolResourceScopes[toolName as (typeof mcpWriteToolNames)[number]],
+        ),
+      ),
+    ]
+    : [];
+  // The owned-inventory reads need their resource scope named here, not only
+  // inside the tool. Classified as ordinary reads, a token holding `mcp:read`
+  // alone passed this gate, was counted as an accepted invocation, and was
+  // refused by the callback -- so the caller never got the insufficient-scope
+  // challenge that tells a client which grant to go and obtain.
+  const ownedReadScopes: readonly ApiScope[] = [
+    ...new Set(
+      toolNames
+        .filter((toolName) => mcpOwnedReadToolNameSet.has(toolName))
+        .map((toolName) => mcpOwnedReadToolScopes[toolName as (typeof mcpOwnedReadToolNames)[number]]),
+    ),
+  ];
   const requiredScopes: readonly ApiScope[] =
-    eventWriteRequested && readToolRequested
-      ? [...mcpRequiredScopes, ...hostedMcpEventWriteScopes]
-      : eventWriteRequested
-        ? hostedMcpEventWriteScopes
+    writeRequested && readToolRequested
+      ? [...mcpRequiredScopes, ...ownedReadScopes, ...writeScopes]
+      : writeRequested
+        ? [...writeScopes, ...ownedReadScopes]
         : readToolRequested || bearerToken === null || request.method !== "POST"
-          ? mcpRequiredScopes
+          ? [...mcpRequiredScopes, ...ownedReadScopes]
           : [];
-  const authenticatedRouteClass = eventWriteRequested
+  const authenticatedRouteClass = writeRequested
     ? "authenticated_mcp_write" as const
     : "authenticated_mcp" as const;
 
   if (
     bearerToken === null
-    && (eventWriteRequested || !anonymousPublicReads)
+    && (writeRequested || !anonymousPublicReads)
   ) {
     const response = await rateLimitMcpAuthenticationFailure(
       request,
-      mcpAuthenticationErrorResponse(request, 401, -32600, eventWriteRequested
-        ? "OAuth bearer token is required for hosted MCP event writes."
+      mcpAuthenticationErrorResponse(request, 401, -32600, writeRequested
+        ? "OAuth bearer token is required for hosted MCP writes."
         : "OAuth bearer token is required for this MCP deployment.", {
         requiredScopes,
       }),
@@ -1119,7 +1308,7 @@ export async function authorizeHostedMcpRequest(
 
     return {
       response,
-      routeClass: eventWriteRequested
+      routeClass: writeRequested
         ? "authenticated_mcp_write" as const
         : "anonymous_mcp_public_read" as const,
     };
@@ -1183,12 +1372,12 @@ export async function authorizeHostedMcpRequest(
   }
 
   if (rateLimit.allowed) {
-    if (eventWriteCallCount > 1) {
+    if (writeCallCount > 1) {
       return {
         response: mcpJsonRpcError(
           400,
           -32600,
-          "MCP batches may contain at most one hosted event write.",
+          "MCP batches may contain at most one hosted write.",
         ),
         routeClass,
       };
@@ -1218,16 +1407,122 @@ export async function rejectInvalidOrRateLimitedMcpRequest(request: Request) {
 
 export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
   const anonymousPublicReads = options.anonymousPublicReads ?? hostedMcpAnonymousPublicReadsEnabled();
-  const eventWrites = options.eventWrites ?? hostedMcpEventWritesEnabled();
   const convex = () => options.convex ?? convexHttpClient();
   const adminConvex = () => options.adminConvex ?? convexAdminHttpClient();
   const now = options.now ?? Date.now;
   const readToolMeta = mcpReadToolMeta(anonymousPublicReads);
-  const principal = hostedMcpPrincipal(options.authInfo);
+  const principalFor = (toolName: (typeof mcpWriteToolNames)[number]) =>
+    hostedMcpPrincipal(options.authInfo, ["mcp:write", mcpWriteToolResourceScopes[toolName]]);
+  const ownedReadPrincipalFor = (toolName: (typeof mcpOwnedReadToolNames)[number]) =>
+    hostedMcpPrincipal(options.authInfo, ["mcp:read", mcpOwnedReadToolScopes[toolName]]);
+  // Passed to the mutation rather than checked here: whether the wider grant is
+  // needed depends on who owns the target, which only the write can answer.
+  const contributeGranted = options.authInfo?.scopes?.includes("profile:contribute") === true;
   const server = new McpServer({
     name: "vrdex",
     version: "0.5.0",
   });
+
+  /**
+   * Read the saved profile back publicly before reporting success.
+   *
+   * Same contract the event tools hold themselves to: an agent that is told a
+   * write succeeded will move on, so "succeeded" has to mean the public surface
+   * actually shows it. A readback failure is reported as a warning rather than a
+   * failure, because the write itself did land and retrying would double it.
+   */
+  async function profileWriteResult(args: {
+    idempotencyKeyHash: string;
+    principal: HostedMcpPrincipal;
+    toolName: "vrdex_profile_update" | "vrdex_profile_submit";
+    write: z.infer<typeof ApiProfileWriteResponseSchema>;
+  }) {
+    const { idempotencyKeyHash, principal, toolName, write } = args;
+    const targetProfileId = write.profileId as Id<"profiles">;
+
+    // Nothing to read back, and that is the correct outcome rather than a
+    // failure: an owner may edit a draft or opted-out profile, and demanding a
+    // public readback there answers a successful write with an error.
+    if (!write.publiclyViewable) {
+      await recordHostedMcpWriteInvocation({
+        idempotencyKeyHash,
+        principal,
+        result: "accepted",
+        targetProfileId,
+        toolName,
+      });
+
+      return mcpJsonResult(mcpProfileWriteResultSchema, {
+        ...write,
+        canonicalUrl: publicUrlForRoutePath(write.profilePath),
+      });
+    }
+
+    let profile: PublicProfile | null;
+
+    try {
+      profile = await convex().query(api.profiles.getPublicBySlug, {
+        slug: write.slug,
+        now: now(),
+      });
+    } catch {
+      await recordHostedMcpWriteInvocation({
+        idempotencyKeyHash,
+        principal,
+        result: "readback_warning",
+        targetProfileId,
+        toolName,
+      });
+      return mcpProfileReadbackError(write);
+    }
+
+    if (profile === null || profile.id !== write.profileId) {
+      await recordHostedMcpWriteInvocation({
+        idempotencyKeyHash,
+        principal,
+        result: "readback_warning",
+        targetProfileId,
+        toolName,
+      });
+      return mcpProfileReadbackError(
+        write,
+        profile === null
+          ? "The saved profile is not publicly readable yet."
+          : "The public profile readback did not match the saved profile.",
+      );
+    }
+
+    let result: ReturnType<typeof mcpJsonResult<z.infer<typeof mcpProfileWriteResultSchema>>>;
+
+    try {
+      result = mcpJsonResult(mcpProfileWriteResultSchema, {
+        ...write,
+        canonicalUrl: publicUrlForRoutePath(write.profilePath),
+        profile,
+      });
+    } catch {
+      await recordHostedMcpWriteInvocation({
+        idempotencyKeyHash,
+        principal,
+        result: "readback_warning",
+        targetProfileId,
+        toolName,
+      });
+      return mcpProfileReadbackError(
+        write,
+        "The saved profile did not match the public response contract.",
+      );
+    }
+
+    await recordHostedMcpWriteInvocation({
+      idempotencyKeyHash,
+      principal,
+      result: "accepted",
+      targetProfileId,
+      toolName,
+    });
+    return result;
+  }
 
   async function readPublicSearch(options: {
     limit: number | undefined;
@@ -1402,6 +1697,43 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
   );
 
   server.registerTool(
+    "vrdex_list_my_profiles",
+    {
+      title: "List My VRDex Profiles",
+      description:
+        "List the profiles the signed-in VRDex user owns, including drafts and profiles kept off public pages. Each carries the updatedAt to send as expectedUpdatedAt when updating it.",
+      inputSchema: z.object({
+        limit: z.number().int().min(1).max(100).optional(),
+      }),
+      outputSchema: mcpOutputSchema(ApiMeProfilesResponseSchema),
+      annotations: { readOnlyHint: true, idempotentHint: true },
+      _meta: { securitySchemes: mcpOwnedReadSecuritySchemes("vrdex_list_my_profiles") },
+    },
+    async ({ limit }) => {
+      const principal = ownedReadPrincipalFor("vrdex_list_my_profiles");
+      if (principal === null) {
+        return mcpOwnedReadUnauthorized("vrdex_list_my_profiles");
+      }
+
+      let profiles;
+
+      try {
+        // The admin client and an owner-scoped internal query, not the public
+        // one: the profiles this exists to reach are exactly those the public
+        // query is right to hide.
+        profiles = await adminConvex().query(internal.profiles.listProfilesForApiOwner, {
+          ownerUserId: principal.userId,
+          ...(limit === undefined ? {} : { limit }),
+        });
+      } catch {
+        return mcpPublicReadUnavailable("profile inventory");
+      }
+
+      return mcpJsonResult(ApiMeProfilesResponseSchema, { profiles });
+    },
+  );
+
+  server.registerTool(
     "vrdex_get_event",
     {
       title: "Get VRDex Event",
@@ -1513,224 +1845,361 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     },
   );
 
-  if (eventWrites) {
-    server.registerTool(
-      "vrdex_event_create",
-      {
-        title: "Create VRDex Event",
-        description:
-          "Create and publish an event for a community owned by the signed-in VRDex user. This changes public data and requires explicit approval.",
-        inputSchema: mcpEventCreateInputSchema,
-        outputSchema: mcpOutputSchema(mcpEventWriteResultSchema),
-        annotations: {
-          readOnlyHint: false,
-          destructiveHint: false,
-          idempotentHint: false,
-          openWorldHint: true,
-        },
-        _meta: { securitySchemes: mcpEventWriteSecuritySchemes },
+  server.registerTool(
+    "vrdex_event_create",
+    {
+      title: "Create VRDex Event",
+      description:
+        "Create and publish an event for a community owned by the signed-in VRDex user. This changes public data and requires explicit approval.",
+      inputSchema: mcpEventCreateInputSchema,
+      outputSchema: mcpOutputSchema(mcpEventWriteResultSchema),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
       },
-      async ({ idempotencyKey, ...input }) => {
-        if (principal === null) {
-          return mcpEventWriteUnauthorized();
-        }
+      _meta: { securitySchemes: mcpWriteSecuritySchemes("vrdex_event_create") },
+    },
+    async ({ idempotencyKey, ...input }) => {
+      const principal = principalFor("vrdex_event_create");
+      if (principal === null) {
+        return mcpWriteUnauthorized("vrdex_event_create");
+      }
 
-        const idempotencyKeyHash = sha256(idempotencyKey);
-        const requestFingerprint = sha256(canonicalJson(input));
-        let write: z.infer<typeof ApiEventWriteResponseSchema>;
+      const idempotencyKeyHash = sha256(idempotencyKey);
+      const requestFingerprint = sha256(canonicalJson(input));
+      let write: z.infer<typeof ApiEventWriteResponseSchema>;
 
-        try {
-          write = await adminConvex().mutation(internal.events.createCommunityEventForMcpOwner, {
-            ...input,
-            idempotencyKeyHash,
-            oauthClientId: principal.clientId,
-            oauthTokenId: principal.tokenId,
-            ownerUserId: principal.userId,
-            requestFingerprint,
-            requestId: principal.requestId,
-          });
-        } catch (error) {
-          const denied = isMcpEventWriteDenied(error);
-
-          await recordHostedMcpWriteInvocation({
-            idempotencyKeyHash,
-            principal,
-            result: denied ? "denied" : "indeterminate",
-            toolName: "vrdex_event_create",
-          });
-          return denied ? mcpEventWriteDenied() : mcpEventWriteIndeterminate("create");
-        }
-
-        let event: PublicEvent | null;
-
-        try {
-          event = await convex().query(api.events.getPublicBySlug, { slug: write.slug });
-        } catch {
-          await recordHostedMcpWriteInvocation({
-            idempotencyKeyHash,
-            principal,
-            result: "readback_warning",
-            targetEventId: write.eventId as Id<"events">,
-            toolName: "vrdex_event_create",
-          });
-          return mcpEventReadbackError(write);
-        }
-
-        if (event === null || event.id !== write.eventId) {
-          await recordHostedMcpWriteInvocation({
-            idempotencyKeyHash,
-            principal,
-            result: "readback_warning",
-            targetEventId: write.eventId as Id<"events">,
-            toolName: "vrdex_event_create",
-          });
-          return mcpEventReadbackError(
-            write,
-            event === null
-              ? "The saved event is not publicly readable yet."
-              : "The public event readback did not match the saved event.",
-          );
-        }
-
-        let result: ReturnType<typeof mcpJsonResult<z.infer<typeof mcpEventWriteResultSchema>>>;
-
-        try {
-          result = mcpJsonResult(mcpEventWriteResultSchema, {
-            ...write,
-            canonicalUrl: publicUrlForRoutePath(write.eventPath),
-            event,
-          });
-        } catch {
-          await recordHostedMcpWriteInvocation({
-            idempotencyKeyHash,
-            principal,
-            result: "readback_warning",
-            targetEventId: write.eventId as Id<"events">,
-            toolName: "vrdex_event_create",
-          });
-          return mcpEventReadbackError(write, "The saved event did not match the public response contract.");
-        }
+      try {
+        write = await adminConvex().mutation(internal.events.createCommunityEventForMcpOwner, {
+          ...input,
+          idempotencyKeyHash,
+          oauthClientId: principal.clientId,
+          oauthTokenId: principal.tokenId,
+          ownerUserId: principal.userId,
+          requestFingerprint,
+          requestId: principal.requestId,
+        });
+      } catch (error) {
+        const denied = isMcpWriteDenied(error);
 
         await recordHostedMcpWriteInvocation({
           idempotencyKeyHash,
           principal,
-          result: "accepted",
+          result: denied ? "denied" : "indeterminate",
+          toolName: "vrdex_event_create",
+        });
+        return denied ? mcpEventWriteDenied() : mcpEventWriteIndeterminate("create");
+      }
+
+      let event: PublicEvent | null;
+
+      try {
+        event = await convex().query(api.events.getPublicBySlug, { slug: write.slug });
+      } catch {
+        await recordHostedMcpWriteInvocation({
+          idempotencyKeyHash,
+          principal,
+          result: "readback_warning",
           targetEventId: write.eventId as Id<"events">,
           toolName: "vrdex_event_create",
         });
-        return result;
+        return mcpEventReadbackError(write);
+      }
+
+      if (event === null || event.id !== write.eventId) {
+        await recordHostedMcpWriteInvocation({
+          idempotencyKeyHash,
+          principal,
+          result: "readback_warning",
+          targetEventId: write.eventId as Id<"events">,
+          toolName: "vrdex_event_create",
+        });
+        return mcpEventReadbackError(
+          write,
+          event === null
+            ? "The saved event is not publicly readable yet."
+            : "The public event readback did not match the saved event.",
+        );
+      }
+
+      let result: ReturnType<typeof mcpJsonResult<z.infer<typeof mcpEventWriteResultSchema>>>;
+
+      try {
+        result = mcpJsonResult(mcpEventWriteResultSchema, {
+          ...write,
+          canonicalUrl: publicUrlForRoutePath(write.eventPath),
+          event,
+        });
+      } catch {
+        await recordHostedMcpWriteInvocation({
+          idempotencyKeyHash,
+          principal,
+          result: "readback_warning",
+          targetEventId: write.eventId as Id<"events">,
+          toolName: "vrdex_event_create",
+        });
+        return mcpEventReadbackError(write, "The saved event did not match the public response contract.");
+      }
+
+      await recordHostedMcpWriteInvocation({
+        idempotencyKeyHash,
+        principal,
+        result: "accepted",
+        targetEventId: write.eventId as Id<"events">,
+        toolName: "vrdex_event_create",
+      });
+      return result;
+    },
+  );
+
+  server.registerTool(
+    "vrdex_event_update",
+    {
+      title: "Update VRDex Event",
+      description:
+        "Update an event owned through the signed-in VRDex user's community. Omitted fields are preserved; explicit nulls and empty arrays clear data. This changes public data and requires explicit approval.",
+      inputSchema: mcpEventUpdateInputSchema,
+      outputSchema: mcpOutputSchema(mcpEventWriteResultSchema),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: true,
       },
-    );
+      _meta: { securitySchemes: mcpWriteSecuritySchemes("vrdex_event_update") },
+    },
+    async ({ idempotencyKey, slug, update }) => {
+      const principal = principalFor("vrdex_event_update");
+      if (principal === null) {
+        return mcpWriteUnauthorized("vrdex_event_update");
+      }
 
-    server.registerTool(
-      "vrdex_event_update",
-      {
-        title: "Update VRDex Event",
-        description:
-          "Update an event owned through the signed-in VRDex user's community. Omitted fields are preserved; explicit nulls and empty arrays clear data. This changes public data and requires explicit approval.",
-        inputSchema: mcpEventUpdateInputSchema,
-        outputSchema: mcpOutputSchema(mcpEventWriteResultSchema),
-        annotations: {
-          readOnlyHint: false,
-          destructiveHint: true,
-          idempotentHint: false,
-          openWorldHint: true,
-        },
-        _meta: { securitySchemes: mcpEventWriteSecuritySchemes },
-      },
-      async ({ idempotencyKey, slug, update }) => {
-        if (principal === null) {
-          return mcpEventWriteUnauthorized();
-        }
+      const idempotencyKeyHash = sha256(idempotencyKey);
+      const requestFingerprint = sha256(canonicalJson({ slug, update }));
+      let write: z.infer<typeof ApiEventWriteResponseSchema>;
 
-        const idempotencyKeyHash = sha256(idempotencyKey);
-        const requestFingerprint = sha256(canonicalJson({ slug, update }));
-        let write: z.infer<typeof ApiEventWriteResponseSchema>;
-
-        try {
-          write = await adminConvex().mutation(internal.events.updateCommunityEventForMcpOwner, {
-            ...update,
-            currentSlug: slug,
-            idempotencyKeyHash,
-            oauthClientId: principal.clientId,
-            oauthTokenId: principal.tokenId,
-            ownerUserId: principal.userId,
-            requestFingerprint,
-            requestId: principal.requestId,
-          });
-        } catch (error) {
-          const denied = isMcpEventWriteDenied(error);
-
-          await recordHostedMcpWriteInvocation({
-            idempotencyKeyHash,
-            principal,
-            result: denied ? "denied" : "indeterminate",
-            toolName: "vrdex_event_update",
-          });
-          return denied ? mcpEventWriteDenied() : mcpEventWriteIndeterminate("update");
-        }
-
-        let event: PublicEvent | null;
-
-        try {
-          event = await convex().query(api.events.getPublicBySlug, { slug: write.slug });
-        } catch {
-          await recordHostedMcpWriteInvocation({
-            idempotencyKeyHash,
-            principal,
-            result: "readback_warning",
-            targetEventId: write.eventId as Id<"events">,
-            toolName: "vrdex_event_update",
-          });
-          return mcpEventReadbackError(write);
-        }
-
-        if (event === null || event.id !== write.eventId) {
-          await recordHostedMcpWriteInvocation({
-            idempotencyKeyHash,
-            principal,
-            result: "readback_warning",
-            targetEventId: write.eventId as Id<"events">,
-            toolName: "vrdex_event_update",
-          });
-          return mcpEventReadbackError(
-            write,
-            event === null
-              ? "The saved event is not publicly readable yet."
-              : "The public event readback did not match the saved event.",
-          );
-        }
-
-        let result: ReturnType<typeof mcpJsonResult<z.infer<typeof mcpEventWriteResultSchema>>>;
-
-        try {
-          result = mcpJsonResult(mcpEventWriteResultSchema, {
-            ...write,
-            canonicalUrl: publicUrlForRoutePath(write.eventPath),
-            event,
-          });
-        } catch {
-          await recordHostedMcpWriteInvocation({
-            idempotencyKeyHash,
-            principal,
-            result: "readback_warning",
-            targetEventId: write.eventId as Id<"events">,
-            toolName: "vrdex_event_update",
-          });
-          return mcpEventReadbackError(write, "The saved event did not match the public response contract.");
-        }
+      try {
+        write = await adminConvex().mutation(internal.events.updateCommunityEventForMcpOwner, {
+          ...update,
+          currentSlug: slug,
+          idempotencyKeyHash,
+          oauthClientId: principal.clientId,
+          oauthTokenId: principal.tokenId,
+          ownerUserId: principal.userId,
+          requestFingerprint,
+          requestId: principal.requestId,
+        });
+      } catch (error) {
+        const denied = isMcpWriteDenied(error);
 
         await recordHostedMcpWriteInvocation({
           idempotencyKeyHash,
           principal,
-          result: "accepted",
+          result: denied ? "denied" : "indeterminate",
+          toolName: "vrdex_event_update",
+        });
+        return denied ? mcpEventWriteDenied() : mcpEventWriteIndeterminate("update");
+      }
+
+      let event: PublicEvent | null;
+
+      try {
+        event = await convex().query(api.events.getPublicBySlug, { slug: write.slug });
+      } catch {
+        await recordHostedMcpWriteInvocation({
+          idempotencyKeyHash,
+          principal,
+          result: "readback_warning",
           targetEventId: write.eventId as Id<"events">,
           toolName: "vrdex_event_update",
         });
-        return result;
+        return mcpEventReadbackError(write);
+      }
+
+      if (event === null || event.id !== write.eventId) {
+        await recordHostedMcpWriteInvocation({
+          idempotencyKeyHash,
+          principal,
+          result: "readback_warning",
+          targetEventId: write.eventId as Id<"events">,
+          toolName: "vrdex_event_update",
+        });
+        return mcpEventReadbackError(
+          write,
+          event === null
+            ? "The saved event is not publicly readable yet."
+            : "The public event readback did not match the saved event.",
+        );
+      }
+
+      let result: ReturnType<typeof mcpJsonResult<z.infer<typeof mcpEventWriteResultSchema>>>;
+
+      try {
+        result = mcpJsonResult(mcpEventWriteResultSchema, {
+          ...write,
+          canonicalUrl: publicUrlForRoutePath(write.eventPath),
+          event,
+        });
+      } catch {
+        await recordHostedMcpWriteInvocation({
+          idempotencyKeyHash,
+          principal,
+          result: "readback_warning",
+          targetEventId: write.eventId as Id<"events">,
+          toolName: "vrdex_event_update",
+        });
+        return mcpEventReadbackError(write, "The saved event did not match the public response contract.");
+      }
+
+      await recordHostedMcpWriteInvocation({
+        idempotencyKeyHash,
+        principal,
+        result: "accepted",
+        targetEventId: write.eventId as Id<"events">,
+        toolName: "vrdex_event_update",
+      });
+      return result;
+    },
+  );
+
+  server.registerTool(
+    "vrdex_profile_update",
+    {
+      title: "Update VRDex Profile",
+      description:
+        "Update a profile owned by the signed-in VRDex user, or an unclaimed profile as a community correction, which additionally requires profile:contribute. Read the profile first and send its updatedAt as expectedUpdatedAt; a stale one is refused. Omitted fields are preserved; sending outboundLinks replaces the whole list. This changes public data and requires explicit approval.",
+      inputSchema: mcpProfileUpdateInputSchema,
+      outputSchema: mcpOutputSchema(mcpProfileWriteResultSchema),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: true,
       },
-    );
-  }
+      _meta: { securitySchemes: mcpWriteSecuritySchemes("vrdex_profile_update") },
+    },
+    async ({ idempotencyKey, slug, update }) => {
+      const principal = principalFor("vrdex_profile_update");
+      if (principal === null) {
+        return mcpWriteUnauthorized("vrdex_profile_update");
+      }
+
+      const idempotencyKeyHash = sha256(idempotencyKey);
+      const requestFingerprint = sha256(canonicalJson({ slug, update }));
+      let write: z.infer<typeof ApiProfileWriteResponseSchema>;
+
+      try {
+        write = await adminConvex().mutation(internal.profiles.updateProfileForMcpActor, {
+          ...update,
+          contributeGranted,
+          currentSlug: slug,
+          idempotencyKeyHash,
+          oauthClientId: principal.clientId,
+          oauthTokenId: principal.tokenId,
+          ownerUserId: principal.userId,
+          requestFingerprint,
+          requestId: principal.requestId,
+        });
+      } catch (error) {
+        const code = mcpConvexErrorCode(error);
+
+        await recordHostedMcpWriteInvocation({
+          idempotencyKeyHash,
+          principal,
+          // Any code at all means the mutation refused deliberately and wrote
+          // nothing. Only an error the backend never classified leaves the
+          // outcome unknown, and that is the one an agent must not retry.
+          result: code === null ? "indeterminate" : "denied",
+          toolName: "vrdex_profile_update",
+        });
+
+        if (code === null) {
+          return mcpProfileWriteIndeterminate("update");
+        }
+
+        if (code === "PROFILE_CLAIMED") {
+          return mcpProfileClaimed();
+        }
+
+        return code === "MCP_WRITE_DENIED"
+          ? mcpProfileWriteDenied()
+          : mcpProfileWriteRejected(error);
+      }
+
+      return await profileWriteResult({
+        idempotencyKeyHash,
+        principal,
+        toolName: "vrdex_profile_update",
+        write,
+      });
+    },
+  );
+
+  server.registerTool(
+    "vrdex_profile_submit",
+    {
+      title: "Submit VRDex Community Profile",
+      description:
+        "Create and publish a community-sourced profile, left unclaimed and credited to the signed-in VRDex user. Search first: a duplicate submission creates a second profile. This changes public data and requires explicit approval.",
+      inputSchema: mcpProfileSubmitInputSchema,
+      outputSchema: mcpOutputSchema(mcpProfileWriteResultSchema),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+      _meta: { securitySchemes: mcpWriteSecuritySchemes("vrdex_profile_submit") },
+    },
+    async ({ idempotencyKey, ...input }) => {
+      const principal = principalFor("vrdex_profile_submit");
+      if (principal === null) {
+        return mcpWriteUnauthorized("vrdex_profile_submit");
+      }
+
+      const idempotencyKeyHash = sha256(idempotencyKey);
+      const requestFingerprint = sha256(canonicalJson(input));
+      let write: z.infer<typeof ApiProfileWriteResponseSchema>;
+
+      try {
+        write = await adminConvex().mutation(internal.profiles.submitCommunityProfileForMcpActor, {
+          ...input,
+          idempotencyKeyHash,
+          oauthClientId: principal.clientId,
+          oauthTokenId: principal.tokenId,
+          ownerUserId: principal.userId,
+          requestFingerprint,
+          requestId: principal.requestId,
+        });
+      } catch (error) {
+        const code = mcpConvexErrorCode(error);
+
+        await recordHostedMcpWriteInvocation({
+          idempotencyKeyHash,
+          principal,
+          result: code === null ? "indeterminate" : "denied",
+          toolName: "vrdex_profile_submit",
+        });
+
+        if (code === null) {
+          return mcpProfileWriteIndeterminate("submission");
+        }
+
+        return code === "MCP_WRITE_DENIED"
+          ? mcpProfileWriteDenied()
+          : mcpProfileWriteRejected(error);
+      }
+
+      return await profileWriteResult({
+        idempotencyKeyHash,
+        principal,
+        toolName: "vrdex_profile_submit",
+        write,
+      });
+    },
+  );
 
   return server;
 }

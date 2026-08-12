@@ -42,7 +42,7 @@ type InspectorSearchResult = {
   type?: unknown;
 };
 
-const expectedTools = [
+const expectedPublicReadTools = [
   "search",
   "fetch",
   "vrdex_search",
@@ -51,6 +51,25 @@ const expectedTools = [
   "vrdex_list_upcoming_events",
   "vrdex_get_world",
   "vrdex_list_active_worlds",
+];
+// Registered unconditionally, so they appear in every hosted `tools/list`,
+// including an anonymous one. They advertise a scope pair rather than the
+// public-read schemes -- asserting the public pair against every listed tool
+// had this smoke failing before it could collect any transport or OAuth
+// evidence at all.
+const expectedOwnedReadToolScopes: Record<string, string> = {
+  vrdex_list_my_profiles: "profile:read",
+};
+const expectedWriteToolScopes: Record<string, string> = {
+  vrdex_event_create: "events:write",
+  vrdex_event_update: "events:write",
+  vrdex_profile_update: "profile:write",
+  vrdex_profile_submit: "profile:contribute",
+};
+const expectedTools = [
+  ...expectedPublicReadTools,
+  ...Object.keys(expectedOwnedReadToolScopes),
+  ...Object.keys(expectedWriteToolScopes),
 ];
 const searchTypes = new Set<InspectorOptions["search"]["type"]>([
   "all",
@@ -278,6 +297,29 @@ function inspectorSpawn(options: InspectorOptions, args: string[]) {
 }
 
 function assertPublicReadSecuritySchemes(tool: ToolDescriptor) {
+  const writeScope = expectedWriteToolScopes[String(tool.name)];
+  const ownedReadScope = expectedOwnedReadToolScopes[String(tool.name)];
+
+  if (writeScope !== undefined) {
+    assert.deepEqual(
+      tool._meta?.securitySchemes,
+      [{ scopes: ["mcp:write", writeScope], type: "oauth2" }],
+      `Hosted Inspector tool ${String(tool.name)} is missing write auth metadata.`,
+    );
+
+    return;
+  }
+
+  if (ownedReadScope !== undefined) {
+    assert.deepEqual(
+      tool._meta?.securitySchemes,
+      [{ scopes: ["mcp:read", ownedReadScope], type: "oauth2" }],
+      `Hosted Inspector tool ${String(tool.name)} is missing owned-read auth metadata.`,
+    );
+
+    return;
+  }
+
   assert.deepEqual(
     tool._meta?.securitySchemes,
     [

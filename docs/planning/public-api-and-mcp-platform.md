@@ -372,6 +372,7 @@ Candidate endpoints:
 - `POST /api/v0/events`
 - `PATCH /api/v0/events/:slug`
 - `POST /api/v0/events/:id/assets/upload-intent`
+- `POST /api/v0/profiles`
 - `PATCH /api/v0/profiles/:slug`
 - `POST /api/v0/profiles/:slug/assets/upload-intent`
 
@@ -384,11 +385,17 @@ Acceptance criteria:
 
 Implementation checkpoint:
 
-- `PATCH /api/v0/profiles/:slug` now updates claimed-owner profile metadata for
-  active owners with `profile:write`, refreshes search/vocabulary projections,
-  and writes a profile audit event. Slug changes, claims, publication state,
-  field visibility, outbound links, media-kit assets, and page-builder settings
-  remain out of this checkpoint.
+- `PATCH /api/v0/profiles/:slug` now updates profile metadata and outbound
+  links, refreshes search/vocabulary projections, and writes a profile audit
+  event. An owner writes with `profile:write`; a caller who does not own the
+  target needs `profile:contribute` as well and writes an unclaimed profile as
+  a community contributor, with `community_submitted` link provenance. Slug
+  changes, claims, publication state, field visibility, media-kit assets, and
+  page-builder settings remain out of this checkpoint.
+- `POST /api/v0/profiles` now creates a community-sourced profile with
+  `profile:contribute`. It publishes immediately as unclaimed, credited to the
+  submitter, and accepts an optional `Idempotency-Key` so a retried submission
+  replays the first result instead of publishing a second profile.
 - `POST /api/v0/profiles/:slug/assets/upload-intent` now creates one-time
   profile media upload intents for active claimed-profile owners with
   `assets:write`. Completed uploads are consumed into active public profile
@@ -654,6 +661,7 @@ Candidate initial scopes:
 - `public:read`
 - `profile:read`
 - `profile:write`
+- `profile:contribute`
 - `community:read`
 - `community:write`
 - `events:read`

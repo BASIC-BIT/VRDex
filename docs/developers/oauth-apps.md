@@ -65,6 +65,7 @@ Current public platform scopes include:
 - `public:read`
 - `profile:read`
 - `profile:write`
+- `profile:contribute`
 - `community:read`
 - `community:write`
 - `events:read`

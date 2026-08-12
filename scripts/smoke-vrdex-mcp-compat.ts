@@ -51,13 +51,21 @@ const localReadTools = [
   "vrdex_get_world",
   "vrdex_list_active_worlds",
 ];
-const localExpectedTools = [
-  ...localReadTools,
-  "vrdex_event_create",
-  "vrdex_event_update",
-];
+const writeToolResourceScopes: Record<string, string> = {
+  vrdex_event_create: "events:write",
+  vrdex_event_update: "events:write",
+  vrdex_profile_update: "profile:write",
+  vrdex_profile_submit: "profile:contribute",
+};
+const writeToolNames = Object.keys(writeToolResourceScopes);
+// Reads, but of the caller's own inventory, so they advertise a scope pair the
+// way the writes do rather than the anonymous public-read pair.
+const ownedReadToolScopes: Record<string, string> = {
+  vrdex_list_my_profiles: "profile:read",
+};
+const ownedReadToolNames = Object.keys(ownedReadToolScopes);
+const localExpectedTools = [...localReadTools, ...ownedReadToolNames, ...writeToolNames];
 const hostedExpectedTools = ["search", "fetch", ...localReadTools];
-const hostedEventWriteTools = new Set(["vrdex_event_create", "vrdex_event_update"]);
 
 function assertHostedToolSecuritySchemes(tool: HostedToolDescriptor) {
   assert.equal(typeof tool._meta, "object", `Hosted tool ${String(tool.name)} is missing _meta.`);
@@ -67,11 +75,20 @@ function assertHostedToolSecuritySchemes(tool: HostedToolDescriptor) {
     securitySchemes?: unknown;
   };
 
-  if (hostedEventWriteTools.has(String(tool.name))) {
+  const resourceScope = writeToolResourceScopes[String(tool.name)];
+  const ownedReadScope = ownedReadToolScopes[String(tool.name)];
+
+  if (resourceScope !== undefined) {
     assert.deepEqual(
       metadata.securitySchemes,
-      [{ scopes: ["mcp:write", "events:write"], type: "oauth2" }],
-      `Hosted tool ${String(tool.name)} is missing event-write auth metadata.`,
+      [{ scopes: ["mcp:write", resourceScope], type: "oauth2" }],
+      `Hosted tool ${String(tool.name)} is missing write auth metadata.`,
+    );
+  } else if (ownedReadScope !== undefined) {
+    assert.deepEqual(
+      metadata.securitySchemes,
+      [{ scopes: ["mcp:read", ownedReadScope], type: "oauth2" }],
+      `Hosted tool ${String(tool.name)} is missing owned-read auth metadata.`,
     );
   } else {
     assert.deepEqual(
@@ -600,11 +617,22 @@ async function smokeHostedOAuthMetadata(url: URL, results: SmokeResult[]): Promi
 }
 
 function requestedHostedOAuthScopes(metadata: HostedOAuthMetadata) {
+  // Every resource scope the deployment advertises, not a hardcoded pair. A
+  // registration that asked only for `events:write` would pass while
+  // `profile:write` was rejected, leaving the profile tools unreachable for
+  // discovered clients and the smoke none the wiser.
+  const resourceWrites = [...new Set(Object.values(writeToolResourceScopes))]
+    .filter((scope) => metadata.scopes.includes(scope));
+
   return [
     "mcp:read",
     "public:read",
-    ...(metadata.scopes.includes("mcp:write") && metadata.scopes.includes("events:write")
-      ? ["mcp:write", "events:write"]
+    // Same reasoning one scope down: without it a discovered client lists the
+    // owned-inventory tool and is refused by it, which is the shape that leaves
+    // an owner unable to read the revision their own update has to pin.
+    ...(metadata.scopes.includes("profile:read") ? ["profile:read"] : []),
+    ...(metadata.scopes.includes("mcp:write") && resourceWrites.length > 0
+      ? ["mcp:write", ...resourceWrites]
       : []),
   ];
 }
@@ -920,7 +948,29 @@ async function smokeHostedHttp(results: SmokeResult[], options: SmokeOptions) {
   }
 
   const listedToolNames = new Set((listedTools ?? []).map((tool) => String(tool.name)));
-  const eventWritesListed = [...hostedEventWriteTools].every((toolName) => listedToolNames.has(toolName));
+  // Asserted, not merely observed. Reading this as a flag meant a deployment
+  // that failed to register one write tool made the flag false, skipped every
+  // scope assertion below, and passed: the read-only `hostedExpectedTools`
+  // list was the only thing actually required.
+  for (const toolName of writeToolNames) {
+    assert.equal(
+      listedToolNames.has(toolName),
+      true,
+      `Hosted MCP did not list the ${toolName} write tool.`,
+    );
+  }
+
+  // Same rule for the owned-inventory reads. Without one of these an owner
+  // cannot read the revision every update has to pin, so a deployment missing
+  // it can still write nothing.
+  for (const toolName of ownedReadToolNames) {
+    assert.equal(
+      listedToolNames.has(toolName),
+      true,
+      `Hosted MCP did not list the ${toolName} owned-read tool.`,
+    );
+  }
+  const writeToolsListed = true;
 
   const anonymousSearch = await postMcpJsonRpc(url, {
     jsonrpc: "2.0",
@@ -980,9 +1030,22 @@ async function smokeHostedHttp(results: SmokeResult[], options: SmokeOptions) {
 
   const metadata = await smokeHostedOAuthMetadata(url, results);
 
-  if (eventWritesListed) {
+  if (writeToolsListed) {
     assert.equal(metadata.scopes.includes("mcp:write"), true);
-    assert.equal(metadata.scopes.includes("events:write"), true);
+
+    // Every resource scope a listed write tool needs. Asserting only the event
+    // pair let a deployment advertise the profile tools while omitting
+    // `profile:write` from its protected-resource metadata, which is exactly
+    // the shape that leaves a discovered client unable to call them.
+    for (const toolName of writeToolNames) {
+      const resourceScope = writeToolResourceScopes[toolName];
+
+      assert.equal(
+        metadata.scopes.includes(resourceScope),
+        true,
+        `Hosted protected-resource metadata omits ${resourceScope}, required by ${toolName}.`,
+      );
+    }
   }
 
   await runHostedDiagnosticStep(results, options, "Hosted Dynamic Client Registration", () =>

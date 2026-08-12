@@ -15,7 +15,7 @@ import {
   oauthConsentCompletionErrorDescription,
   oauthConsentOriginAllowed,
 } from "../../apps/web/src/lib/server/oauth-consent-transaction";
-import { hostedMcpEventWriteGrantAllowed } from "../../apps/web/src/lib/server/hosted-mcp-policy";
+import { hostedMcpScopesAllowedForDynamicClient } from "../../apps/web/src/lib/server/hosted-mcp-policy";
 import { oauthRateLimitResponse } from "../../apps/web/src/lib/server/oauth-route-rate-limit";
 
 function restoreEnv(name: string, value: string | undefined) {
@@ -159,19 +159,23 @@ describe("OAuth edge security", () => {
     }
   });
 
-  it("keeps hosted MCP write grants ineligible while the feature is default-off", () => {
-    const input = {
-      mcpResource: "https://app.example.test/mcp",
-      requestedScopes: ["mcp:write", "events:write"],
-      resource: "https://app.example.test/mcp",
-    };
+  it("offers every hosted MCP scope to dynamic clients, with no deployment switch in front", () => {
+    assert.deepEqual(hostedMcpScopesAllowedForDynamicClient(), [
+      "mcp:read",
+      // Discoverable, so a client deriving its registration from this metadata
+      // can ask for the owned-inventory tool rather than registering without it
+      // and being refused at call time.
+      "profile:read",
+      "mcp:write",
+      "events:write",
+      "profile:write",
+      "profile:contribute",
+    ]);
 
-    assert.equal(hostedMcpEventWriteGrantAllowed({ ...input, eventWritesEnabled: false }), false);
-    assert.equal(hostedMcpEventWriteGrantAllowed({ ...input, eventWritesEnabled: true }), true);
-
-    const authorize = readFileSync("apps/web/src/app/oauth/authorize/route.ts", "utf8");
-    assert.match(authorize, /if \(!hostedMcpEventWriteGrantAllowed\(\{/);
-    assert.match(authorize, /reason: "invalid_scope"/);
+    // The gate is gone, not merely defaulted on: a reintroduced env read here
+    // would silently strand every write client on deployments that never set it.
+    const policy = readFileSync("apps/web/src/lib/server/hosted-mcp-policy.ts", "utf8");
+    assert.doesNotMatch(policy, /process\.env/);
   });
 
   it("keeps opaque consent transactions valid for 30 minutes, then rejects expiry and cross-user use", async () => {

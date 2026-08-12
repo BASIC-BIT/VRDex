@@ -29,6 +29,13 @@ export function toPublicProfile(profile: Doc<"profiles">) {
       }
     : undefined;
   const shared = {
+    // The stable identity behind the slug, the way `toPublicEvent` already
+    // exposes an event's. A slug can be reassigned, so a writer confirming its
+    // own write through a public read has nothing else to check it against.
+    // The stable identity behind the slug, the way `toPublicEvent` already
+    // exposes an event's. A slug can be reassigned, so a writer confirming its
+    // own write through a public read has nothing else to check it against.
+    id: profile._id,
     profileType: profile.profileType,
     slug: profile.slug,
     displayName: profile.displayName,
@@ -36,6 +43,10 @@ export function toPublicProfile(profile: Doc<"profiles">) {
     tags: visibleProfileList(profile, "tags", profile.tags, "profile_page"),
     genres: publicProfileGenres(profile),
     trustLabel: getProfileTrustLabel(profile.claimState, profile.creationSource),
+    // The revision a writer pins with `expectedUpdatedAt`. Without it exposed,
+    // two contributors correcting the same unclaimed profile had no way to
+    // notice the other, and `outboundLinks` replaces the whole list.
+    updatedAt: profile.updatedAt,
     ...optionalField("source", source),
     outboundLinks: visibleProfileList(
       profile,

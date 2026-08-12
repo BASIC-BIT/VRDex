@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { type Infer, v } from "convex/values";
 
 export const mcpToolNameValidator = v.union(
   v.literal("search"),
@@ -9,8 +9,11 @@ export const mcpToolNameValidator = v.union(
   v.literal("vrdex_list_upcoming_events"),
   v.literal("vrdex_get_world"),
   v.literal("vrdex_list_active_worlds"),
+  v.literal("vrdex_list_my_profiles"),
   v.literal("vrdex_event_create"),
   v.literal("vrdex_event_update"),
+  v.literal("vrdex_profile_update"),
+  v.literal("vrdex_profile_submit"),
 );
 
 export const mcpToolEventRouteClassValidator = v.union(
@@ -27,17 +30,11 @@ export const mcpToolEventResultValidator = v.union(
   v.literal("readback_warning"),
 );
 
-export type McpToolName =
-  | "search"
-  | "fetch"
-  | "vrdex_search"
-  | "vrdex_get_profile"
-  | "vrdex_get_event"
-  | "vrdex_list_upcoming_events"
-  | "vrdex_get_world"
-  | "vrdex_list_active_worlds"
-  | "vrdex_event_create"
-  | "vrdex_event_update";
+// Inferred from the validator rather than restated. Restated is how it came to
+// stop at `vrdex_event_update` while the validator, the schema and the rows in
+// the table had moved on -- leaving anything typed against this unable to name
+// half the writes it would actually see.
+export type McpToolName = Infer<typeof mcpToolNameValidator>;
 
 export type McpToolEventRouteClass =
   | "anonymous_mcp_public_read"

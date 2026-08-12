@@ -685,8 +685,8 @@ paths:
       operationId: updateCurrentUserProfile
       tags:
         - Profiles
-      summary: Update a current user's profile
-      description: Updates owner-editable metadata for a claimed profile owned by a bearer credential with user authority and profile:write scope.
+      summary: Update a profile
+      description: Updates editable metadata for a profile owned by a bearer credential with user authority and profile:write scope. Every update pins the revision it was written against through expectedUpdatedAt. Correcting an unclaimed profile the credential does not own additionally requires profile:contribute.
       security:
         - bearerAuth: []
         - oauth2:
@@ -727,7 +727,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiProblem"
         "403":
-          description: The bearer credential lacks profile:write scope, user authority, ownership, or claimed-owner field permission.
+          description: The bearer credential lacks profile:write scope or user authority, lacks profile:contribute for a profile it does not own, the profile is claimed by someone else, or the submitted fields are not editable by this writer.
           content:
             application/json:
               schema:
@@ -738,7 +738,82 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiProblem"
+        "409":
+          description: The profile changed after the revision sent as expectedUpdatedAt. Re-read the profile and send the update again.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
         "429": *a1
+        "500":
+          description: The profile update could not be completed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+  /api/v0/profiles:
+    post:
+      operationId: submitCommunityProfile
+      tags:
+        - Profiles
+      summary: Submit a community-sourced profile
+      description: Creates an unclaimed community-sourced profile, submitted by a bearer credential with user authority and profile:contribute scope.
+      security:
+        - bearerAuth: []
+        - oauth2:
+            - profile:contribute
+      parameters:
+        - in: header
+          name: idempotency-key
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+            pattern: ^[A-Za-z0-9._:-]+$
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApiProfileSubmitRequest"
+      responses:
+        "201":
+          description: Created profile identifiers and public path.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProfileWriteResponse"
+        "400":
+          description: The profile submission was malformed, or the identity has asked not to be listed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "401":
+          description: Bearer authentication is required or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "403":
+          description: The bearer credential lacks profile:contribute scope or user authority.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "409":
+          description: The Idempotency-Key was already used for a different request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
+        "429": *a1
+        "500":
+          description: The profile submission could not be completed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiProblem"
   /api/v0/profiles/{slug}/assets:
     get:
       operationId: getPublicProfileAssets
@@ -2639,6 +2714,7 @@ components:
               - public:read
               - profile:read
               - profile:write
+              - profile:contribute
               - community:read
               - community:write
               - events:read
@@ -2710,6 +2786,7 @@ components:
               - public:read
               - profile:read
               - profile:write
+              - profile:contribute
               - community:read
               - community:write
               - events:read
@@ -2787,6 +2864,7 @@ components:
               - public:read
               - profile:read
               - profile:write
+              - profile:contribute
               - community:read
               - community:write
               - events:read
@@ -2879,7 +2957,13 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ApiProfileLinkInput"
-      description: Update owner-editable metadata for a claimed profile owned by the current authenticated API user.
+        expectedUpdatedAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+      required:
+        - expectedUpdatedAt
+      description: Update editable metadata for a profile the current authenticated API user owns, or for an unclaimed profile as a community correction.
     ApiProfileLinkInput:
       type: object
       properties:
@@ -2905,7 +2989,7 @@ components:
       required:
         - type
         - url
-      description: Outbound profile link supplied by a profile owner.
+      description: Outbound profile link supplied by a profile owner or a community contributor. VRDex records which, and the public profile renders the distinction.
     ProfileLinkType:
       type: string
       enum:
@@ -2931,6 +3015,61 @@ components:
         - generic_store
         - other
       description: Outbound profile link provider.
+    ApiProfileSubmitRequest:
+      type: object
+      properties:
+        profileType:
+          type: string
+          enum:
+            - person
+            - community
+          description: The public profile entity class.
+        displayName:
+          type: string
+          minLength: 2
+          maxLength: 80
+        aliases:
+          maxItems: 8
+          type: array
+          items:
+            type: string
+            maxLength: 60
+        tags:
+          maxItems: 12
+          type: array
+          items:
+            type: string
+            maxLength: 32
+        person:
+          type: object
+          properties:
+            roleTags:
+              maxItems: 12
+              type: array
+              items:
+                type: string
+                maxLength: 32
+        community:
+          type: object
+          properties:
+            subtype:
+              type: string
+              maxLength: 40
+            categoryTags:
+              maxItems: 12
+              type: array
+              items:
+                type: string
+                maxLength: 32
+        outboundLinks:
+          maxItems: 20
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiProfileLinkInput"
+      required:
+        - profileType
+        - displayName
+      description: Create an unclaimed community-sourced profile credited to the current authenticated API user.
     ApiProfileAssetUploadIntentCreateRequest:
       type: object
       properties:
@@ -3357,6 +3496,7 @@ components:
                   - public:read
                   - profile:read
                   - profile:write
+                  - profile:contribute
                   - community:read
                   - community:write
                   - events:read
@@ -3412,6 +3552,7 @@ components:
                   - public:read
                   - profile:read
                   - profile:write
+                  - profile:contribute
                   - community:read
                   - community:write
                   - events:read
@@ -3591,6 +3732,38 @@ components:
           type: integer
           minimum: 0
           maximum: 9007199254740991
+        aliases:
+          type: array
+          items:
+            type: string
+        tags:
+          type: array
+          items:
+            type: string
+        outboundLinks:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiProfileLinkInputOutput"
+        person:
+          type: object
+          properties:
+            pronouns:
+              type: string
+            roleTags:
+              type: array
+              items:
+                type: string
+          additionalProperties: false
+        community:
+          type: object
+          properties:
+            subtype:
+              type: string
+            categoryTags:
+              type: array
+              items:
+                type: string
+          additionalProperties: false
       required:
         - id
         - slug
@@ -3602,7 +3775,7 @@ components:
         - creationSource
         - updatedAt
       additionalProperties: false
-      description: Compact profile summary for the current authenticated API user.
+      description: Profile summary for the current authenticated API user, carrying the revision and the replace-not-merge fields an update has to send back.
     ApiMeCommunitiesResponse:
       type: object
       properties:
@@ -3674,6 +3847,38 @@ components:
           type: integer
           minimum: 0
           maximum: 9007199254740991
+        aliases:
+          type: array
+          items:
+            type: string
+        tags:
+          type: array
+          items:
+            type: string
+        outboundLinks:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiProfileLinkInputOutput"
+        person:
+          type: object
+          properties:
+            pronouns:
+              type: string
+            roleTags:
+              type: array
+              items:
+                type: string
+          additionalProperties: false
+        community:
+          type: object
+          properties:
+            subtype:
+              type: string
+            categoryTags:
+              type: array
+              items:
+                type: string
+          additionalProperties: false
       required:
         - id
         - slug
@@ -3821,6 +4026,7 @@ components:
               - public:read
               - profile:read
               - profile:write
+              - profile:contribute
               - community:read
               - community:write
               - events:read
@@ -3996,6 +4202,7 @@ components:
               - public:read
               - profile:read
               - profile:write
+              - profile:contribute
               - community:read
               - community:write
               - events:read
@@ -4279,6 +4486,8 @@ components:
         hostedEvents:
           type: array
           items: {}
+        id:
+          type: string
         mediaKit:
           type: object
           properties:
@@ -4962,14 +5171,20 @@ components:
         upcomingEvents:
           type: array
           items: {}
+        updatedAt:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
         worldCredits:
           type: array
           items: {}
       required:
         - displayName
+        - id
         - profileType
         - slug
         - trustLabel
+        - updatedAt
       additionalProperties: {}
       description: Public profile response. Unknown fields are preserved while the API is still stabilizing.
     ApiProfileWriteResponse:
@@ -4991,13 +5206,16 @@ components:
         profilePath:
           type: string
           minLength: 1
+        publiclyViewable:
+          type: boolean
       required:
         - profileId
         - slug
         - profileType
         - profilePath
+        - publiclyViewable
       additionalProperties: false
-      description: Updated profile identifiers and public path.
+      description: Saved profile identifiers, public path, and whether that path is readable.
     PublicProfileAssetsResponse:
       type: object
       properties:
@@ -6627,6 +6845,33 @@ components:
         - windowMs
       additionalProperties: false
       description: Default fixed-window quota policy for a route class.
+    ApiProfileLinkInputOutput:
+      type: object
+      properties:
+        type:
+          $ref: "#/components/schemas/ProfileLinkType"
+        url:
+          type: string
+          minLength: 1
+          maxLength: 2048
+        label:
+          type: string
+          minLength: 1
+          maxLength: 120
+        handle:
+          type: string
+          minLength: 1
+          maxLength: 160
+        presentation:
+          type: string
+          enum:
+            - icon
+            - copy
+      required:
+        - type
+        - url
+      additionalProperties: false
+      description: Outbound profile link supplied by a profile owner or a community contributor. VRDex records which, and the public profile renders the distinction.
   securitySchemes:
     bearerAuth:
       type: http
@@ -6643,6 +6888,7 @@ components:
             public:read: public:read
             profile:read: profile:read
             profile:write: profile:write
+            profile:contribute: profile:contribute
             community:read: community:read
             community:write: community:write
             events:read: events:read

@@ -4,7 +4,6 @@ import type { ClientCredentialsMutationInput } from "./oauth-token";
 
 export type DynamicMcpClientMutationInput = {
   allowedScopes: ApiScope[];
-  allowEventWrites?: boolean;
   clientId: string;
   clientName: string;
   clientUri?: string;

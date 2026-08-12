@@ -1,3 +1,5 @@
+import { ConvexError } from "convex/values";
+
 import type { Doc } from "./_generated/dataModel";
 import type { DatabaseWriter } from "./_generated/server";
 import { getProfileFieldVisibility } from "./_profileFieldVisibility";
@@ -287,11 +289,16 @@ function requireEditableFields(
 ) {
   for (const field of changedFields) {
     if (!canEditProfileField(subject, profile, field)) {
-      throw profileInputError(
-        subject === "claimed_owner"
+      // Its own code, because no value the caller could send would be accepted.
+      // Reported as a validation failure it reached the API as a 400, telling a
+      // client to repair a field that was never the problem, and the generated
+      // contract has always classified a non-editable field as 403.
+      throw new ConvexError({
+        code: "PROFILE_FIELD_FORBIDDEN",
+        message: subject === "claimed_owner"
           ? `Only a claimed profile owner can update the ${field} field.`
           : `The ${field} field cannot be edited on a profile you do not own.`,
-      );
+      });
     }
   }
 }

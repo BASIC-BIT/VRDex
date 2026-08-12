@@ -5,6 +5,7 @@ import type { Id } from "./_generated/dataModel";
 import { apiRouteClassValidator, type ApiRouteClass } from "./_apiTokens";
 
 export const apiWriteAuditActionValidator = v.union(
+  v.literal("profile_created"),
   v.literal("profile_updated"),
   v.literal("event_created"),
   v.literal("event_updated"),
@@ -28,6 +29,7 @@ export const apiWriteAuditResourceTypeValidator = v.union(
 export const apiWriteAuditResultValidator = v.literal("accepted");
 
 export type ApiWriteAuditAction =
+  | "profile_created"
   | "profile_updated"
   | "event_created"
   | "event_updated"
@@ -45,14 +47,18 @@ export type ApiWriteAuditResourceType =
   | "profile_asset_upload_intent"
   | "profile_asset";
 
-export const mcpEventWriteToolNameValidator = v.union(
+export const mcpWriteToolNameValidator = v.union(
   v.literal("vrdex_event_create"),
   v.literal("vrdex_event_update"),
+  v.literal("vrdex_profile_update"),
+  v.literal("vrdex_profile_submit"),
 );
 
-export type McpEventWriteToolName =
+export type McpWriteToolName =
   | "vrdex_event_create"
-  | "vrdex_event_update";
+  | "vrdex_event_update"
+  | "vrdex_profile_update"
+  | "vrdex_profile_submit";
 
 export async function recordApiWriteAuditEvent(
   db: DatabaseWriter,
@@ -61,7 +67,7 @@ export async function recordApiWriteAuditEvent(
     actorKind: ApiWriteAuditActorKind;
     assetIds?: Id<"profileAssets">[];
     idempotencyKeyHash?: string;
-    mcpToolName?: McpEventWriteToolName;
+    mcpToolName?: McpWriteToolName;
     oauthClientId?: string;
     oauthTokenId?: string;
     ownerUserId?: Id<"users">;

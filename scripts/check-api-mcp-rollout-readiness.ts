@@ -71,6 +71,7 @@ const requiredOpenApiPaths = [
   "/api/v0/developer/oauth-apps/{clientId}",
   "/api/v0/developer/oauth-apps/{clientId}/secrets",
   "/api/v0/search",
+  "/api/v0/profiles",
   "/api/v0/profiles/{slug}",
   "/api/v0/profiles/{slug}/assets",
   "/api/v0/profiles/{slug}/assets/{assetId}/file",

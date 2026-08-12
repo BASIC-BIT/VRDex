@@ -81,7 +81,17 @@ function assertAuthenticatedReadSecuritySchemes(value: unknown) {
   ]);
 }
 
-function assertEventWriteSecuritySchemes(value: unknown) {
+function isWriteToolName(name: string | undefined) {
+  return name !== undefined && /^vrdex_(event|profile)_(create|update|submit)$/.test(name);
+}
+
+// A read, but of the caller's own inventory, so it carries a scope pair rather
+// than the public-read schemes every other read tool advertises.
+function isOwnedReadToolName(name: string | undefined) {
+  return name === "vrdex_list_my_profiles";
+}
+
+function assertWriteSecuritySchemes(value: unknown, resourceScope: string) {
   assert.equal(typeof value, "object");
   assert.notEqual(value, null);
 
@@ -93,7 +103,7 @@ function assertEventWriteSecuritySchemes(value: unknown) {
   };
 
   assert.deepEqual(metadata.securitySchemes, [
-    { scopes: ["mcp:write", "events:write"], type: "oauth2" },
+    { scopes: ["mcp:write", resourceScope], type: "oauth2" },
   ]);
 }
 
@@ -272,8 +282,72 @@ describe("VRDex MCP server", () => {
 
     assert.equal(tools.every((tool) => !hasLegacySchemaId(tool.outputSchema)), true);
 
-    for (const tool of tools) {
+    for (
+      const tool of tools.filter((candidate) =>
+        !isWriteToolName(candidate.name) && !isOwnedReadToolName(candidate.name)
+      )
+    ) {
       assertPublicReadSecuritySchemes(tool._meta);
+    }
+
+    // The owned-inventory read is listed anonymously like every other tool, but
+    // it must never advertise `noauth`: a session with no user behind it has no
+    // inventory to read.
+    const ownedRead = tools.find((candidate) => isOwnedReadToolName(candidate.name));
+
+    assert.notEqual(ownedRead, undefined);
+    assert.deepEqual((ownedRead?._meta as { securitySchemes?: unknown }).securitySchemes, [
+      { scopes: ["mcp:read", "profile:read"], type: "oauth2" },
+    ]);
+  });
+
+  it("advertises every write tool, scoped to the resource it writes", () => {
+    const output = runMcpProbe(`
+      import { createVrdexMcpHandler } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+
+      const handler = createVrdexMcpHandler();
+      const response = await handler.fetch(new Request("http://localhost:3000/mcp", {
+        method: "POST",
+        headers: {
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 4,
+          method: "tools/list",
+          params: {},
+        }),
+      }));
+
+      console.log(response.status);
+      console.log(await response.text());
+    `);
+    const tools = (jsonBodyFromProbe(output).result?.tools ?? []);
+    const writeTools = tools.filter((tool) => isWriteToolName(tool.name));
+
+    // No deployment switch: the write tools are always listed, and the harness
+    // connecting decides which of them it exposes.
+    assert.deepEqual(writeTools.map((tool) => tool.name), [
+      "vrdex_event_create",
+      "vrdex_event_update",
+      "vrdex_profile_update",
+      "vrdex_profile_submit",
+    ]);
+
+    // Per resource, not one blanket write scope: a token that may set a DJ's
+    // links must not thereby be able to publish events under their name.
+    // Submitting is the outlier: it writes a profile nobody owns, so it asks for
+    // the contribution grant rather than the edit-your-own-profiles one.
+    const expectedResourceScope: Record<string, string> = {
+      vrdex_event_create: "events:write",
+      vrdex_event_update: "events:write",
+      vrdex_profile_update: "profile:write",
+      vrdex_profile_submit: "profile:contribute",
+    };
+
+    for (const tool of writeTools) {
+      assertWriteSecuritySchemes(tool._meta, expectedResourceScope[tool.name ?? ""] ?? "");
     }
   });
 
@@ -301,55 +375,13 @@ describe("VRDex MCP server", () => {
     `);
     const body = jsonBodyFromProbe(output);
     const tools = body.result?.tools ?? [];
+    const readTools = tools.filter((tool) => !isWriteToolName(tool.name) && !isOwnedReadToolName(tool.name));
 
     assert.match(output, /^200/m);
-    assert.equal(tools.length, 8);
+    assert.equal(readTools.length, 8);
 
-    for (const tool of tools) {
+    for (const tool of readTools) {
       assertAuthenticatedReadSecuritySchemes(tool._meta);
-    }
-  });
-
-  it("keeps hosted event writes default-off and advertises scoped tools only when enabled", () => {
-    const output = runMcpProbe(`
-      import { createVrdexMcpHandler } from "./apps/web/src/lib/server/vrdex-mcp.ts";
-
-      async function list(eventWrites) {
-        const handler = createVrdexMcpHandler({ eventWrites });
-        const response = await handler.fetch(new Request("http://localhost:3000/mcp", {
-          method: "POST",
-          headers: {
-            accept: "application/json, text/event-stream",
-            "content-type": "application/json",
-          },
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            id: eventWrites ? 4 : 3,
-            method: "tools/list",
-            params: {},
-          }),
-        }));
-
-        return await response.text();
-      }
-
-      console.log(JSON.stringify({
-        disabled: await list(false),
-        enabled: await list(true),
-      }));
-    `);
-    const result = JSON.parse(output) as { disabled: string; enabled: string };
-    const disabled = jsonBodyFromProbe(`ignored\n${result.disabled}`);
-    const enabled = jsonBodyFromProbe(`ignored\n${result.enabled}`);
-    const disabledTools = disabled.result?.tools ?? [];
-    const enabledTools = enabled.result?.tools ?? [];
-
-    assert.equal(disabledTools.length, 8);
-    assert.equal(disabledTools.some((tool) => tool.name === "vrdex_event_create"), false);
-    assert.equal(enabledTools.length, 10);
-
-    for (const tool of enabledTools.filter((candidate) => candidate.name?.startsWith("vrdex_event_"))) {
-      assertEventWriteSecuritySchemes(tool._meta);
     }
   });
 
@@ -357,7 +389,6 @@ describe("VRDex MCP server", () => {
     const output = runMcpProbe(`
       import { authorizeHostedMcpRequest } from "./apps/web/src/lib/server/vrdex-mcp.ts";
 
-      process.env.VRDEX_HOSTED_MCP_EVENT_WRITES = "true";
       const authorization = await authorizeHostedMcpRequest(new Request("https://app.example.test/mcp", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -379,7 +410,7 @@ describe("VRDex MCP server", () => {
 
     assert.match(output, /^401/m);
     assert.match(output, /scope="mcp:write events:write"/);
-    assert.match(output, /OAuth bearer token is required for hosted MCP event writes/);
+    assert.match(output, /OAuth bearer token is required for hosted MCP writes/);
   });
 
   it("offers an explicit OAuth bootstrap without disabling canonical anonymous reads", () => {
@@ -445,7 +476,6 @@ describe("VRDex MCP server", () => {
       import { authorizeHostedMcpRequest } from "./apps/web/src/lib/server/vrdex-mcp.ts";
 
       const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
-      process.env.VRDEX_HOSTED_MCP_EVENT_WRITES = "true";
       process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY =
         privateKey.export({ format: "pem", type: "pkcs8" }).toString();
       process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID = "test-key";
@@ -486,6 +516,53 @@ describe("VRDex MCP server", () => {
     assert.match(output, /error="insufficient_scope"/);
   });
 
+  it("challenges an owned-inventory read before dispatch, not inside the tool", () => {
+    const output = runMcpProbe(`
+      import { generateKeyPairSync } from "node:crypto";
+      import { createOAuthAccessTokenId, signOAuthAccessToken } from "./apps/web/src/lib/server/oauth-jwt.ts";
+      import { authorizeHostedMcpRequest } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+
+      const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+      process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY =
+        privateKey.export({ format: "pem", type: "pkcs8" }).toString();
+      process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID = "test-key";
+      const now = Math.floor(Date.now() / 1000);
+      const accessToken = signOAuthAccessToken({
+        aud: "https://app.example.test/mcp",
+        client_id: "vrdx_app_0123456789abcdef01234567",
+        exp: now + 60,
+        iat: now,
+        iss: "https://app.example.test",
+        jti: createOAuthAccessTokenId(),
+        scope: "mcp:read",
+        sub: "user_123",
+      });
+      const authorization = await authorizeHostedMcpRequest(new Request("https://app.example.test/mcp", {
+        method: "POST",
+        headers: {
+          authorization: \`Bearer \${accessToken}\`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 2,
+          method: "tools/call",
+          params: { name: "vrdex_list_my_profiles", arguments: {} },
+        }),
+      }));
+
+      console.log(authorization.response?.status);
+      console.log(authorization.response?.headers.get("www-authenticate"));
+    `);
+
+    // Classified as an ordinary read, this token passed authorization, was
+    // counted as an accepted invocation, and was refused inside the tool -- so
+    // the caller never learned which grant to go and obtain.
+    assert.match(output, /^403/m);
+    assert.match(output, /scope="mcp:read profile:read"/);
+    assert.match(output, /error="insufficient_scope"/);
+  });
+
   it("requires the union of read and write scopes for mixed MCP batches", () => {
     const output = runMcpProbe(`
       import { generateKeyPairSync } from "node:crypto";
@@ -493,7 +570,6 @@ describe("VRDex MCP server", () => {
       import { authorizeHostedMcpRequest } from "./apps/web/src/lib/server/vrdex-mcp.ts";
 
       const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
-      process.env.VRDEX_HOSTED_MCP_EVENT_WRITES = "true";
       process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY =
         privateKey.export({ format: "pem", type: "pkcs8" }).toString();
       process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID = "test-key";
@@ -541,14 +617,13 @@ describe("VRDex MCP server", () => {
     assert.match(output, /scope="mcp:read mcp:write events:write"/);
   });
 
-  it("rejects authenticated batches containing multiple hosted event writes", () => {
+  it("rejects authenticated batches containing multiple hosted writes", () => {
     const output = runMcpProbe(`
       import { generateKeyPairSync } from "node:crypto";
       import { createOAuthAccessTokenId, signOAuthAccessToken } from "./apps/web/src/lib/server/oauth-jwt.ts";
       import { authorizeHostedMcpRequest } from "./apps/web/src/lib/server/vrdex-mcp.ts";
 
       const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
-      process.env.VRDEX_HOSTED_MCP_EVENT_WRITES = "true";
       process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY =
         privateKey.export({ format: "pem", type: "pkcs8" }).toString();
       process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID = "test-key";
@@ -610,7 +685,7 @@ describe("VRDex MCP server", () => {
     `);
 
     assert.match(output, /^400/m);
-    assert.match(output, /MCP batches may contain at most one hosted event write/);
+    assert.match(output, /MCP batches may contain at most one hosted write/);
   });
 
   it("rejects declared oversized MCP bodies before parsing", () => {
@@ -660,7 +735,6 @@ describe("VRDex MCP server", () => {
       } from "./apps/web/src/lib/server/vrdex-mcp.ts";
 
       const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
-      process.env.VRDEX_HOSTED_MCP_EVENT_WRITES = "true";
       process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY =
         privateKey.export({ format: "pem", type: "pkcs8" }).toString();
       process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID = "test-key";
@@ -761,7 +835,6 @@ describe("VRDex MCP server", () => {
       } from "./apps/web/src/lib/server/vrdex-mcp.ts";
 
       const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
-      process.env.VRDEX_HOSTED_MCP_EVENT_WRITES = "true";
       process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY =
         privateKey.export({ format: "pem", type: "pkcs8" }).toString();
       process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID = "test-key";
@@ -1088,7 +1161,7 @@ describe("VRDex MCP server", () => {
         authInfo,
         adminConvex: {
           mutation: async () => {
-            throw new ConvexError({ code: "MCP_EVENT_WRITE_DENIED" });
+            throw new ConvexError({ code: "MCP_WRITE_DENIED" });
           },
         },
       }), 9);
@@ -1129,6 +1202,177 @@ describe("VRDex MCP server", () => {
     assert.match(result.mismatchedReadback, /accepted the event write/);
     assert.match(result.mismatchedReadback, /public event readback did not match the saved event/);
     assert.match(result.mismatchedReadback, /Do not retry the mutation automatically/);
+  });
+
+  it("serves an owner's own drafts and refuses a session without the scope", () => {
+    const output = runMcpProbe(`
+      import { createVrdexMcpHandler } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+
+      const inventory = {
+        profiles: [{
+          id: "profile_draft",
+          slug: "dj-draft",
+          profileType: "person",
+          displayName: "DJ Draft",
+          claimState: "claimed_verified",
+          publicationState: "draft_private",
+          publicSurfacingState: "opted_out",
+          creationSource: "community",
+          updatedAt: 7,
+        }],
+      };
+
+      function authInfo(scopes) {
+        return {
+          token: "never-print-this-token",
+          clientId: "vrdx_app_test",
+          scopes,
+          resource: new URL("https://app.example.test/mcp"),
+          extra: {
+            requestId: "request-123",
+            subjectType: "user",
+            tokenId: "token-123",
+            userId: "user_123",
+          },
+        };
+      }
+
+      async function call(options, id) {
+        const handler = createVrdexMcpHandler({
+          ...options,
+          adminConvex: { mutation: async () => ({}), query: async () => inventory.profiles },
+        });
+        const response = await handler.fetch(new Request("https://app.example.test/mcp", {
+          method: "POST",
+          headers: {
+            accept: "application/json, text/event-stream",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id,
+            method: "tools/call",
+            params: { name: "vrdex_list_my_profiles", arguments: {} },
+          }),
+        }));
+
+        return await response.text();
+      }
+
+      const granted = await call({ authInfo: authInfo(["mcp:read", "profile:read"]) }, 31);
+      const underScoped = await call({ authInfo: authInfo(["mcp:read"]) }, 32);
+      const anonymous = await call({}, 33);
+
+      console.log(JSON.stringify({ anonymous, granted, underScoped }));
+    `);
+    const result = JSON.parse(output) as {
+      anonymous: string;
+      granted: string;
+      underScoped: string;
+    };
+
+    // The whole point of the tool: a profile no public read will ever return,
+    // carrying the revision its owner's next update has to pin.
+    assert.match(result.granted, /dj-draft/);
+    assert.match(result.granted, /"updatedAt":7/);
+    // `mcp:read` alone must not reach it. That scope says a hosted session may
+    // read; it must not also mean any such session enumerates someone's drafts.
+    assert.match(result.underScoped, /user-delegated VRDex OAuth session/);
+    assert.doesNotMatch(result.underScoped, /dj-draft/);
+    assert.match(result.anonymous, /user-delegated VRDex OAuth session/);
+    assert.doesNotMatch(result.anonymous, /dj-draft|never-print-this-token/);
+  });
+
+  it("confirms a public profile write against the projection the API actually returns", () => {
+    const output = runMcpProbe(`
+      import { createVrdexMcpHandler } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+      import { toPublicProfile } from "./convex/_profilePublic.ts";
+
+      const authInfo = {
+        token: "never-print-this-token",
+        clientId: "vrdx_app_test",
+        scopes: ["mcp:write", "profile:write", "profile:contribute"],
+        resource: new URL("https://app.example.test/mcp"),
+        extra: {
+          requestId: "request-123",
+          subjectType: "user",
+          tokenId: "token-123",
+          userId: "user_123",
+        },
+      };
+      const write = {
+        profileId: "profile_abc",
+        slug: "dj-readback",
+        profileType: "person",
+        profilePath: "/dj-readback",
+        publiclyViewable: true,
+      };
+      // The real projection, not a stand-in shaped to the assertion: a stub with
+      // an id hand-written into it would have passed while every live write came
+      // back a warning.
+      const saved = toPublicProfile({
+        _id: "profile_abc",
+        profileType: "person",
+        slug: "dj-readback",
+        displayName: "DJ Readback",
+        sortName: "dj readback",
+        aliases: [],
+        tags: [],
+        outboundLinks: [],
+        claimState: "unclaimed",
+        publicationState: "published",
+        publicSurfacingState: "public",
+        creationSource: "community",
+        person: { roleTags: ["DJ"] },
+        publishedAt: 1,
+        updatedAt: 7,
+      });
+
+      async function call(query, id) {
+        const handler = createVrdexMcpHandler({
+          authInfo,
+          adminConvex: { mutation: async () => write },
+          convex: { query },
+        });
+        const response = await handler.fetch(new Request("https://app.example.test/mcp", {
+          method: "POST",
+          headers: {
+            accept: "application/json, text/event-stream",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id,
+            method: "tools/call",
+            params: {
+              name: "vrdex_profile_update",
+              arguments: {
+                idempotencyKey: "operator-key-123",
+                slug: "dj-readback",
+                update: { expectedUpdatedAt: 7, headline: "Bass, mostly" },
+              },
+            },
+          }),
+        }));
+
+        return await response.text();
+      }
+
+      const confirmed = await call(async () => saved, 21);
+      const mismatched = await call(async () => ({ ...saved, id: "profile_other" }), 22);
+
+      console.log(JSON.stringify({ confirmed, mismatched }));
+    `);
+    const result = JSON.parse(output) as { confirmed: string; mismatched: string };
+
+    // The bug this guards: `PublicProfile` is passthrough, so while the
+    // projection carried no `id` the identity check compared `undefined` against
+    // the saved id and every publicly viewable profile write came back a warning.
+    assert.doesNotMatch(result.confirmed, /readback did not complete cleanly/);
+    assert.match(result.confirmed, /dj-readback/);
+    assert.match(result.mismatched, /accepted the profile write/);
+    assert.match(result.mismatched, /did not match the saved profile/);
+    assert.match(result.mismatched, /Do not retry the mutation automatically/);
   });
 
   it("rejects write callbacks without a user-delegated scoped principal", () => {

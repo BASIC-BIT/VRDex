@@ -88,24 +88,17 @@ describe("OAuth metadata routes", () => {
     assert.match(output, /^200/m);
     assert.match(output, /"resource":"https:\/\/app\.example\.test\/mcp"/);
     assert.match(output, /"authorization_servers":\["https:\/\/app\.example\.test"\]/);
-    assert.match(output, /"scopes_supported":\["mcp:read"\]/);
+    // Every write scope, so a client can request only the resource it means to
+    // write. There is no deployment switch that removes them. `profile:read` is
+    // here too: a client that cannot discover it registers without it and is
+    // refused by the owned-inventory tool it can see listed.
+    assert.match(
+      output,
+      /"scopes_supported":\["mcp:read","profile:read","mcp:write","events:write","profile:write","profile:contribute"\]/,
+    );
     assert.match(output, /"bearer_methods_supported":\["header"\]/);
     assert.match(output, /"resource_name":"VRDex MCP"/);
     assert.match(output, /"resource_documentation":"https:\/\/app\.example\.test\/developers\/api"/);
-  });
-
-  it("advertises MCP event-write scopes only while the feature is enabled", () => {
-    const output = runRouteProbe(
-      `
-        import { GET } from "./apps/web/src/app/.well-known/oauth-protected-resource/mcp/route.ts";
-
-        const response = GET(new Request("https://app.example.test/.well-known/oauth-protected-resource/mcp"));
-        console.log(JSON.stringify(await response.json()));
-      `,
-      { VRDEX_HOSTED_MCP_EVENT_WRITES: "true" },
-    );
-
-    assert.match(output, /"scopes_supported":\["mcp:read","mcp:write","events:write"\]/);
   });
 
   it("serves constrained public MCP client metadata for CIMD smoke tests", () => {

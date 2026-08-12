@@ -68,7 +68,8 @@ Implemented authenticated reads require a valid bearer credential:
 | `GET /api/v0/me/profiles` | List current user's owned profile summaries. |
 | `GET /api/v0/me/communities` | List current user's owned community profile summaries. |
 | `GET /api/v0/me/events` | List current user's community-managed event summaries. |
-| `PATCH /api/v0/profiles/:slug` | Update public metadata for a claimed profile the current user owns. |
+| `POST /api/v0/profiles` | Submit a community-sourced profile for a person or community that has none. Needs `profile:contribute`. |
+| `PATCH /api/v0/profiles/:slug` | Update public metadata and outbound links for a profile the current user owns, or for an unclaimed profile as a community correction. |
 | `POST /api/v0/profiles/:slug/assets/upload-intent` | Create a one-time media-kit upload intent for a claimed profile the current user owns. |
 | `POST /api/v0/events` | Create a public event attached to a community profile the current user owns. |
 | `PATCH /api/v0/events/:slug` | Update a public event attached to a community profile the current user owns. |
@@ -87,13 +88,33 @@ current event inventory covers events attached to community profiles the user
 owns. Submitter-only event inventory can be added after there is an efficient
 user/event index and authorization shape.
 
-`PATCH /api/v0/profiles/:slug` requires `profile:write`, user authority, active
-ownership of the target profile, and claimed-owner edit permission. The first
-write version updates owner-editable public metadata only: display name,
-aliases, tags, headline, bio, region, timezone, person pronouns and role tags,
-or community subtype and category tags. It does not change profile slugs,
-claims, publication state, field visibility, outbound links, media-kit assets,
-or page-builder settings.
+`PATCH /api/v0/profiles/:slug` requires `profile:write` and user authority, plus
+`profile:contribute` when the target is not the caller's own profile. It
+writes display name, aliases, tags, headline, bio, region, timezone, outbound
+links, person pronouns and role tags, and community subtype and category tags.
+It does not change profile slugs, claims, publication state, field visibility,
+media-kit assets, or page-builder settings.
+
+Ownership is not required, but the wider grant is. A caller who owns the profile
+edits it as its owner under `profile:write` alone, which is what that scope's
+consent line promises: "Edit your profiles". A caller who does not own it edits
+an **unclaimed** profile as a community contributor, the same authority the
+signed-in web editor grants, and that needs `profile:contribute` as well. A
+credential without it answers `403`, as does any caller against a profile
+somebody else has claimed. Community writers cannot change
+`slug`, and their links are recorded as community-submitted rather than
+owner-authored, which the public page renders as a trust signal.
+
+`outboundLinks` replaces the entire list rather than appending. Read the profile
+first and send back the full set, or an edit meant to add one link silently
+drops the rest. Branded link types are checked against their provider's hosts,
+so a `discord` link must point at a Discord domain.
+
+`POST /api/v0/profiles` requires `profile:contribute` and user authority, and
+creates a profile that publishes immediately as unclaimed, credited to the
+submitter.
+Whoever it describes can claim it later. Search first: a duplicate submission
+creates a second profile under a suffixed slug, and nothing merges them.
 
 `POST /api/v0/profiles/:slug/assets/upload-intent` requires `assets:write`,
 user authority, active ownership of the target profile, and a claimed profile.
@@ -213,8 +234,13 @@ Current OAuth issuer routes:
 `POST /oauth/register` is not the normal developer-app creation path. It creates
 separate public dynamic MCP clients with exact redirect URIs, `authorization_code`
 grant metadata, `code` response type metadata, `token_endpoint_auth_method=none`,
-the MCP resource, and only `mcp:read` plus optional `public:read` scope. These
-clients are for hosted MCP OAuth compatibility.
+and the MCP resource. These clients are for hosted MCP OAuth compatibility.
+
+A dynamic client may request `mcp:read` and optional `public:read` for reads, and
+`mcp:write` paired with at least one of `events:write`, `profile:write`, or
+`profile:contribute` for writes. Either half of a write pair on its own is
+rejected: `mcp:write` reaches no tool without a resource scope, and a resource
+scope opens no hosted write session without `mcp:write`.
 
 Hosted MCP OAuth also supports Client ID Metadata Documents for public clients
 that use an HTTPS URL as `client_id`. Accepted CIMD metadata is fetched during

@@ -195,6 +195,8 @@ export const PublicProfileSchema = z
     displayName: z.string().min(1),
     genres: z.array(PublicGenreSchema).optional(),
     hostedEvents: z.array(z.unknown()).optional(),
+    /** The stable profile identity, matching `PublicEvent.id`. */
+    id: z.string(),
     mediaKit: PublicProfileMediaKitSchema.optional(),
     outboundLinks: z.array(PublicOutboundLinkSchema).optional(),
     profileType: ProfileTypeSchema,
@@ -204,6 +206,14 @@ export const PublicProfileSchema = z
     telemetry: PublicCommunityTelemetrySchema.optional(),
     trustLabel: TrustLabelSchema,
     upcomingEvents: z.array(z.unknown()).optional(),
+    /**
+     * The profile's current revision, to send back as `expectedUpdatedAt`.
+     *
+     * This is the read half of the write conflict check. Without it a caller had
+     * no revision to pin, so two contributors correcting the same unclaimed
+     * profile could only find out about each other by noticing their links gone.
+     */
+    updatedAt: timestampMs,
     worldCredits: z.array(z.unknown()).optional(),
   })
   .passthrough()
@@ -561,7 +571,11 @@ export const ApiProfileLinkInputSchema = z
     handle: z.string().min(1).max(160).optional(),
     presentation: z.enum(["icon", "copy"]).optional(),
   })
-  .meta({ description: "Outbound profile link supplied by a profile owner.", id: "ApiProfileLinkInput" });
+  .meta({
+    description:
+      "Outbound profile link supplied by a profile owner or a community contributor. VRDex records which, and the public profile renders the distinction.",
+    id: "ApiProfileLinkInput",
+  });
 
 export const ApiProfileUpdateRequestSchema = z
   .object({
@@ -585,11 +599,50 @@ export const ApiProfileUpdateRequestSchema = z
       })
       .optional(),
     outboundLinks: z.array(ApiProfileLinkInputSchema).max(20).optional(),
+    /**
+     * The `updatedAt` the writer last read, pinning what they are editing.
+     *
+     * Required, not optional, and with no exemption for owning the profile.
+     * `outboundLinks` replaces the whole list, so any two writers who each read
+     * before either wrote silently drop the other's links -- and owning a
+     * profile does not make you its only writer, since the same person can have
+     * the edit form open while an agent writes through a tool. A guard the
+     * caller can decline by leaving the field out is not a guard.
+     *
+     * Read it from the profile's `updatedAt`. A pin the profile has moved past
+     * answers 409; re-read and send again.
+     */
+    expectedUpdatedAt: timestampMs,
   })
   .meta({
     description:
-      "Update owner-editable metadata for a claimed profile owned by the current authenticated API user.",
+      "Update editable metadata for a profile the current authenticated API user owns, or for an unclaimed profile as a community correction.",
     id: "ApiProfileUpdateRequest",
+  });
+
+export const ApiProfileSubmitRequestSchema = z
+  .object({
+    profileType: ProfileTypeSchema,
+    displayName: z.string().min(2).max(80),
+    aliases: z.array(z.string().max(60)).max(8).optional(),
+    tags: z.array(z.string().max(32)).max(12).optional(),
+    person: z
+      .object({
+        roleTags: z.array(z.string().max(32)).max(12).optional(),
+      })
+      .optional(),
+    community: z
+      .object({
+        subtype: z.string().max(40).optional(),
+        categoryTags: z.array(z.string().max(32)).max(12).optional(),
+      })
+      .optional(),
+    outboundLinks: z.array(ApiProfileLinkInputSchema).max(20).optional(),
+  })
+  .meta({
+    description:
+      "Create an unclaimed community-sourced profile credited to the current authenticated API user.",
+    id: "ApiProfileSubmitRequest",
   });
 
 export const ApiProfileWriteResponseSchema = z
@@ -598,9 +651,18 @@ export const ApiProfileWriteResponseSchema = z
     slug,
     profileType: ProfileTypeSchema,
     profilePath: z.string().min(1),
+    /**
+     * Whether the saved profile is readable at `profilePath`.
+     *
+     * False for a draft or opted-out profile its owner is entitled to edit. A
+     * client that reads the profile back to confirm a write needs this to tell
+     * "there is deliberately no public page" apart from "the write did not
+     * surface", which otherwise look identical from a 404.
+     */
+    publiclyViewable: z.boolean(),
   })
   .meta({
-    description: "Updated profile identifiers and public path.",
+    description: "Saved profile identifiers, public path, and whether that path is readable.",
     id: "ApiProfileWriteResponse",
   });
 
@@ -950,9 +1012,37 @@ export const ApiMeProfileSummarySchema = z
     claimedAt: timestampMs.optional(),
     publishedAt: timestampMs.optional(),
     updatedAt: timestampMs,
+    /**
+     * The fields an update replaces wholesale rather than merges into.
+     *
+     * Present because a writer cannot safely send them without knowing what is
+     * there: an agent adding one link to a profile whose links it could not read
+     * would post a one-element array and delete the rest. The scalar fields are
+     * not here, and do not need to be -- omitting one from an update preserves
+     * it, so only the replace-not-merge fields are unsafe to write blind.
+     *
+     * `source` is absent by design. It is assigned by the server from who is
+     * writing, and echoing it back would invite a client to send it.
+     */
+    aliases: z.array(z.string()).optional(),
+    tags: z.array(z.string()).optional(),
+    outboundLinks: z.array(ApiProfileLinkInputSchema).optional(),
+    person: z
+      .object({
+        pronouns: z.string().optional(),
+        roleTags: z.array(z.string()).optional(),
+      })
+      .optional(),
+    community: z
+      .object({
+        subtype: z.string().optional(),
+        categoryTags: z.array(z.string()).optional(),
+      })
+      .optional(),
   })
   .meta({
-    description: "Compact profile summary for the current authenticated API user.",
+    description:
+      "Profile summary for the current authenticated API user, carrying the revision and the replace-not-merge fields an update has to send back.",
     id: "ApiMeProfileSummary",
   });
 
