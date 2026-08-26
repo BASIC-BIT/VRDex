@@ -428,6 +428,45 @@ export function createEventSearchDocument(
   };
 }
 
+export async function reindexEventSearchDocument(
+  db: DatabaseWriter,
+  event: Doc<"events">,
+  context: { community?: Doc<"profiles">; world?: Doc<"worlds">; roleLabels?: string[] } = {},
+  now: number,
+) {
+  const existingDocument = await db
+    .query("searchDocuments")
+    .withIndex("by_eventId", (query) => query.eq("eventId", event._id))
+    .unique();
+  const nextDocument = createEventSearchDocument(event, context);
+  const beforeKeys = new Set(
+    existingDocument?.publicState === "public" ? (existingDocument.vocabularyKeys ?? []) : [],
+  );
+  const afterKeys = new Set(
+    nextDocument.publicState === "public" ? (nextDocument.vocabularyKeys ?? []) : [],
+  );
+
+  await upsertSearchDocument(db, nextDocument);
+
+  const addedCandidates = new Map<string, VocabularyCandidate>();
+  const retainedCandidates = new Map<string, VocabularyCandidate>();
+  if (nextDocument.publicState === "public") {
+    for (const candidate of vocabularyForEvent(event, context.roleLabels ?? [])) {
+      const scopedKey = `${candidate.scope}:${createVocabularyKey(candidate.label ?? "")}`;
+      const into = beforeKeys.has(scopedKey) ? retainedCandidates : addedCandidates;
+      if (!into.has(scopedKey)) into.set(scopedKey, candidate);
+    }
+  }
+
+  await recordVocabularyTerms(db, [...addedCandidates.values()], now);
+  await recordVocabularyTerms(db, [...retainedCandidates.values()], now, {
+    incrementUsage: false,
+  });
+
+  const removedKeys = [...beforeKeys].filter((key) => !afterKeys.has(key));
+  if (removedKeys.length > 0) await releaseVocabularyKeys(db, removedKeys, now);
+}
+
 export function toPublicSearchResult(
   document: Doc<"searchDocuments">,
   query: string | undefined,

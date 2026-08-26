@@ -410,15 +410,15 @@ function SignInRequiredEventEditorPanel() {
 function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
   const createEvent = useMutation(api.events.createCommunityEvent);
   const updateEvent = useMutation(api.events.updateCommunityEvent);
-  const setEventPublished = useMutation(api.events.setCommunityEventPublished);
   const setEventCancelled = useMutation(api.events.setCommunityEventCancelled);
   const configureVrcdnOutput = useMutation(api.events.configureVrcdnOutput);
   const managedCommunities = useQuery(api.events.listManagedCommunities, {});
   const vrcdnOutputAccounts = useQuery(api.events.listVrcdnOutputAccounts, {});
-  const eventMediaControlStatus = useQuery(api.events.getEventMediaControlStatus, event === undefined ? "skip" : { currentSlug: event.slug });
+  const [currentSlug, setCurrentSlug] = useState(event?.slug);
+  const eventMediaControlStatus = useQuery(api.events.getEventMediaControlStatus, currentSlug === undefined ? "skip" : { currentSlug });
   const eventAudit = useQuery(
     api.events.listEventAudit,
-    event === undefined ? "skip" : { currentSlug: event.slug, limit: 40 },
+    currentSlug === undefined ? "skip" : { currentSlug, limit: 40 },
   );
   const [status, setStatus] = useState<EventEditorStatus>({ kind: "idle" });
   const [vrcdnOutputStatus, setVrcdnOutputStatus] = useState<VrcdnOutputStatus>({ kind: "idle" });
@@ -500,7 +500,7 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
       }
 
       await configureVrcdnOutput({
-        currentSlug: event.slug,
+        currentSlug: currentSlug!,
         key: "main-vrcdn",
         label,
         outputAccountKey: outputAccount,
@@ -558,7 +558,7 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
       const intent = stringField(formData.get("intent"));
       const result = event
         ? await updateEvent({
-            currentSlug: event.slug,
+            currentSlug: currentSlug!,
             ...(intent === "publish"
               ? { published: true }
               : intent === "draft"
@@ -566,15 +566,12 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
                 : {}),
             ...payload,
           })
-        : await createEvent(payload);
-
-      if (event === undefined && intent === "publish") {
-        await setEventPublished({ currentSlug: result.slug, published: true });
-      }
+        : await createEvent({ ...payload, published: intent === "publish" });
 
       if (event !== undefined && (intent === "publish" || intent === "draft")) {
         setIsPublished(intent === "publish");
       }
+      if (event !== undefined) setCurrentSlug(result.slug);
 
       startTransition(() =>
         setStatus({
@@ -598,7 +595,7 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
     setStatus({ kind: "submitting" });
     try {
       const result = await setEventCancelled({
-        currentSlug: event.slug,
+        currentSlug: currentSlug!,
         cancelled,
         ...(cancelled ? { reason: cancellationReason } : {}),
       });
@@ -606,7 +603,7 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
       startTransition(() =>
         setStatus({
           kind: "success",
-          result: { eventPath: `/${event.slug}`, slug: event.slug },
+          result: { eventPath: `/${currentSlug}`, slug: currentSlug! },
         }),
       );
     } catch (error) {

@@ -117,6 +117,58 @@ describe("API-created event ownership", () => {
     assert.equal("tokenIdentifier" in (history[0] ?? {}), false);
   });
 
+  it("does not add private draft fields to public discovery vocabulary", async () => {
+    const t = convexTest({ schema, modules });
+    const { identity } = await seedOwnedCommunity(t);
+    const created = await t.withIdentity(identity).mutation(api.events.createCommunityEvent, {
+      title: "Private vocabulary draft",
+      communitySlug: "faceless",
+      startAt: NOW + 86_400_000,
+    });
+    await t.withIdentity(identity).mutation(api.events.updateCommunityEvent, {
+      currentSlug: created.slug,
+      title: "Private vocabulary draft",
+      communitySlug: "faceless",
+      startAt: NOW + 86_400_000,
+      timezone: "Pacific/Honolulu",
+    });
+    const privateTimezoneVocabulary = await t.run((ctx) =>
+      ctx.db
+        .query("vocabularyTerms")
+        .withIndex("by_scope_key", (query) =>
+          query.eq("scope", "event_tag").eq("key", "pacific_honolulu"),
+        )
+        .unique(),
+    );
+    assert.equal(privateTimezoneVocabulary, null);
+  });
+
+  it("creates a published browser event atomically", async () => {
+    const t = convexTest({ schema, modules });
+    const { identity } = await seedOwnedCommunity(t);
+
+    const created = await t.withIdentity(identity).mutation(api.events.createCommunityEvent, {
+      title: "Published at creation",
+      communitySlug: "faceless",
+      startAt: NOW + 86_400_000,
+      timezone: "Europe/Berlin",
+      published: true,
+    });
+    const stored = await t.run((ctx) => ctx.db.get(created.eventId));
+
+    assert.equal(stored?.publicationState, "published");
+    assert.equal((await t.query(api.events.getPublicBySlug, { slug: created.slug }))?.title, "Published at creation");
+    const timezoneVocabulary = await t.run((ctx) =>
+      ctx.db
+        .query("vocabularyTerms")
+        .withIndex("by_scope_key", (query) =>
+          query.eq("scope", "event_tag").eq("key", "europe_berlin"),
+        )
+        .unique(),
+    );
+    assert.equal(timezoneVocabulary?.usageCount, 1);
+  });
+
   it("publishes, cancels, and restores an authorized draft without leaking cancelled discovery", async () => {
     const t = convexTest({ schema, modules });
     const { identity } = await seedOwnedCommunity(t);
@@ -181,6 +233,12 @@ describe("API-created event ownership", () => {
         .unique(),
     );
     assert.equal(cancelledSearchDocument?.publicState, "hidden");
+    assert.equal((await t.run((ctx) =>
+      ctx.db
+        .query("vocabularyTerms")
+        .withIndex("by_scope_key", (query) => query.eq("scope", "event_tag").eq("key", "utc"))
+        .unique(),
+    ))?.usageCount, 0);
 
     await t.withIdentity(identity).mutation(api.events.setCommunityEventCancelled, {
       currentSlug: created.slug,
@@ -196,6 +254,110 @@ describe("API-created event ownership", () => {
         .unique(),
     );
     assert.equal(restoredSearchDocument?.publicState, "public");
+    assert.equal((await t.run((ctx) =>
+      ctx.db
+        .query("vocabularyTerms")
+        .withIndex("by_scope_key", (query) => query.eq("scope", "event_tag").eq("key", "utc"))
+        .unique(),
+    ))?.usageCount, 1);
+  });
+
+  it("cancels scheduled media work and requests a stop for active media", async () => {
+    const t = convexTest({ schema, modules });
+    const { identity } = await seedOwnedCommunity(t);
+    const createMediaEvent = async (title: string) => {
+      const created = await t.withIdentity(identity).mutation(api.events.createCommunityEvent, {
+        title,
+        communitySlug: "faceless",
+        startAt: NOW + 86_400_000,
+      });
+      await t.withIdentity(identity).mutation(api.events.configureVrcdnOutput, {
+        currentSlug: created.slug,
+        key: "main",
+        label: "Main output",
+        credentialRef: "vrcdn/main",
+        sourceConsentAccepted: true,
+        destinationAuthorityAccepted: true,
+        providerRulesAccepted: true,
+        rightsClearedMediaAccepted: true,
+        playbackLinks: [{ platform: "browser", label: "Watch", url: "https://example.com/watch" }],
+      });
+      const scheduled = await t.withIdentity(identity).mutation(api.events.scheduleEventMediaWorker, {
+        currentSlug: created.slug,
+      });
+      return { ...created, ...scheduled };
+    };
+
+    const queued = await createMediaEvent("Queued media event");
+    await t.withIdentity(identity).mutation(api.events.setCommunityEventCancelled, {
+      currentSlug: queued.slug,
+      cancelled: true,
+      reason: "Cancelled for test coverage.",
+    });
+    const queuedState = await t.run(async (ctx) => ({
+      program: await ctx.db.get(queued.programId),
+      session: await ctx.db.get(queued.sessionId),
+      command: queued.startCommandId === undefined ? null : await ctx.db.get(queued.startCommandId),
+    }));
+    assert.equal(queuedState.program?.state, "ended");
+    assert.deepEqual(queuedState.program?.publicLinks, []);
+    assert.equal(queuedState.session?.status, "ended");
+    assert.equal(queuedState.session?.workerTaskStatus, "stopped");
+    assert.equal(queuedState.command?.status, "cancelled");
+    await assert.rejects(
+      t.withIdentity(identity).mutation(api.events.scheduleEventMediaWorker, {
+        currentSlug: queued.slug,
+      }),
+      /cancelled event cannot schedule/i,
+    );
+
+    const active = await createMediaEvent("Active media event");
+    await t.run(async (ctx) => {
+      await ctx.db.patch(active.sessionId, {
+        status: "live",
+        workerTaskStatus: "running",
+        startedAt: NOW,
+        updatedAt: NOW,
+      });
+      await ctx.db.patch(active.programId, {
+        state: "live",
+        activeSessionId: active.sessionId,
+        updatedAt: NOW,
+      });
+      if (active.startCommandId !== undefined) {
+        await ctx.db.patch(active.startCommandId, {
+          status: "claimed",
+          claimedByWorkerId: "worker-1",
+          claimedAt: NOW,
+          updatedAt: NOW,
+        });
+      }
+    });
+    await t.withIdentity(identity).mutation(api.events.setCommunityEventCancelled, {
+      currentSlug: active.slug,
+      cancelled: true,
+      reason: "Cancelled while live.",
+    });
+    const activeState = await t.run(async (ctx) => ({
+      program: await ctx.db.get(active.programId),
+      session: await ctx.db.get(active.sessionId),
+      commands: await ctx.db
+        .query("eventMediaCommands")
+        .withIndex("by_eventId_createdAt", (query) => query.eq("eventId", active.eventId))
+        .collect(),
+    }));
+    assert.equal(activeState.program?.state, "stopping");
+    assert.deepEqual(activeState.program?.publicLinks, []);
+    assert.equal(activeState.session?.status, "stopping");
+    assert.equal(activeState.session?.workerTaskStatus, "stopping");
+    assert.equal(
+      activeState.commands.find((command) => command.commandType === "start_program")?.status,
+      "cancelled",
+    );
+    assert.equal(
+      activeState.commands.find((command) => command.commandType === "stop_program")?.status,
+      "queued",
+    );
   });
 
   it("fills the requested discovery limit after excluding cancelled events", async () => {

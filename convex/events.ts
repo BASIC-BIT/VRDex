@@ -64,9 +64,8 @@ import { findAvailableEventSlug, getEventBySlug, validateEventSlug } from "./_ev
 import { canReadProfile } from "./_profilePermissions";
 import { userOwnsProfile } from "./_profileOwnership";
 import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
-import { createEventSearchDocument, upsertSearchDocument, vocabularyForEvent } from "./_searchDocuments";
+import { reindexEventSearchDocument } from "./_searchDocuments";
 import { ensureShortLinkForTarget } from "./_shortLinks";
-import { recordVocabularyTerms } from "./_vocabulary";
 import { getVrcdnOutputAccount, listPublicVrcdnOutputAccounts } from "./_vrcdnOutputAccounts";
 import { getWorldBySlug, validateWorldSlug } from "./_worldSlugs";
 
@@ -975,13 +974,7 @@ async function insertCommunityEventRecord(
   const event = await db.get(eventId);
   if (event !== null && publicationState === "published") {
     const roleLabels = participantLinks.map((participant) => participant.roleLabel);
-    await Promise.all([
-      upsertSearchDocument(
-        db,
-        createEventSearchDocument(event, { community, world, roleLabels }),
-      ),
-      recordVocabularyTerms(db, vocabularyForEvent(event, roleLabels), now),
-    ]);
+    await reindexEventSearchDocument(db, event, { community, world, roleLabels }, now);
   }
 
   return {
@@ -1073,13 +1066,12 @@ async function updateCommunityEventRecord(
   const updatedEvent = await db.get(event._id);
   if (updatedEvent !== null) {
     const roleLabels = await eventParticipantRoleLabels(db, event._id);
-    await Promise.all([
-      upsertSearchDocument(
-        db,
-        createEventSearchDocument(updatedEvent, { community, world, roleLabels }),
-      ),
-      recordVocabularyTerms(db, vocabularyForEvent(updatedEvent, roleLabels), now),
-    ]);
+    await reindexEventSearchDocument(
+      db,
+      updatedEvent,
+      { community, world, roleLabels },
+      now,
+    );
   }
 
   return {
@@ -1413,6 +1405,108 @@ async function settleEventMediaSessionCommands(
         }),
       ),
   );
+}
+
+async function settleEventMediaForCancellation(
+  db: DatabaseWriter,
+  event: Doc<"events">,
+  actor: AuthSubject,
+  now: number,
+) {
+  const program = await getLatestEventMediaProgram(db, event._id);
+  if (program === null) return;
+
+  const session = await getOpenEventMediaSession(db, program._id);
+  if (session === null) {
+    if (program.publicLinks.length > 0) {
+      await db.patch(program._id, { publicLinks: [], updatedAt: now });
+    }
+    return;
+  }
+
+  const claimedStarts = await db
+    .query("eventMediaCommands")
+    .withIndex("by_sessionId_status_createdAt", (query) =>
+      query.eq("sessionId", session._id).eq("status", "claimed"),
+    )
+    .filter((query) => query.eq(query.field("commandType"), "start_program"))
+    .take(1);
+  await settleEventMediaSessionCommands(db, {
+    sessionId: session._id,
+    commandTypes: ["start_program"],
+    status: "cancelled",
+    errorSummary: "Event cancelled before media startup completed.",
+    now,
+  });
+
+  if (session.status === "scheduled" && claimedStarts.length === 0) {
+    await Promise.all([
+      db.patch(session._id, {
+        status: "ended",
+        workerTaskStatus: "stopped",
+        stoppedAt: now,
+        updatedAt: now,
+      }),
+      db.patch(program._id, {
+        state: "ended",
+        activeSessionId: undefined,
+        publicLinks: [],
+        updatedAt: now,
+      }),
+    ]);
+    await recordEventMediaAuditEvent(db, {
+      programId: program._id,
+      eventId: event._id,
+      sessionId: session._id,
+      actor,
+      action: "worker_schedule_cancelled_with_event",
+      publicSummary: "Event media worker schedule cancelled with the event.",
+      createdAt: now,
+    });
+    return;
+  }
+
+  if (session.status !== "stopping") {
+    await Promise.all([
+      db.patch(session._id, {
+        status: "stopping",
+        workerTaskStatus: session.workerTaskStatus === "failed" ? "failed" : "stopping",
+        stopRequestedAt: now,
+        updatedAt: now,
+      }),
+      db.patch(program._id, {
+        state: "stopping",
+        activeSessionId: session._id,
+        publicLinks: [],
+        updatedAt: now,
+      }),
+    ]);
+    const commandId = await insertEventMediaCommand(db, {
+      program,
+      commandType: "stop_program",
+      sessionId: session._id,
+      outputId: session.outputId,
+      actor,
+      idempotencyKey: `cancel-stop:${session._id}:${now}`,
+      note: "Stop the event media worker because the event was cancelled.",
+      now,
+    });
+    await recordEventMediaAuditEvent(db, {
+      programId: program._id,
+      eventId: event._id,
+      sessionId: session._id,
+      commandId,
+      actor,
+      action: "worker_stop_requested_for_cancelled_event",
+      publicSummary: "Event media worker stop requested with event cancellation.",
+      createdAt: now,
+    });
+    return;
+  }
+
+  if (program.publicLinks.length > 0) {
+    await db.patch(program._id, { publicLinks: [], updatedAt: now });
+  }
 }
 
 function workerSessionStatus(session: Doc<"eventMediaSessions">) {
@@ -2034,7 +2128,10 @@ export const recordEventMediaWorkerBridgeTaskStatus = mutation({
 });
 
 export const createCommunityEvent = mutation({
-  args: eventDraftArgs,
+  args: {
+    published: v.optional(v.boolean()),
+    ...eventDraftArgs,
+  },
   handler: async (ctx, args) => {
     const subject = await requireAuthenticatedSubject(ctx);
     const { userId } = await requireUser(ctx);
@@ -2052,7 +2149,7 @@ export const createCommunityEvent = mutation({
       community,
       world,
       submitter: subject,
-      publicationState: "draft_private",
+      publicationState: args.published ? "published" : "draft_private",
       actorSurface: "browser",
     });
   },
@@ -2498,17 +2595,16 @@ export const setCommunityEventPublished = mutation({
         linkedPublishedEventWorld(ctx.db, updated._id),
         eventParticipantRoleLabels(ctx.db, updated._id),
       ]);
-      await Promise.all([
-        upsertSearchDocument(
-          ctx.db,
-          createEventSearchDocument(updated, {
-            community: community?.profileType === "community" ? community : undefined,
-            world,
-            roleLabels,
-          }),
-        ),
-        recordVocabularyTerms(ctx.db, vocabularyForEvent(updated, roleLabels), now),
-      ]);
+      await reindexEventSearchDocument(
+        ctx.db,
+        updated,
+        {
+          community: community?.profileType === "community" ? community : undefined,
+          world,
+          roleLabels,
+        },
+        now,
+      );
     }
     await recordEventAuditEvent(ctx.db, {
       eventId: event._id,
@@ -2552,6 +2648,9 @@ export const setCommunityEventCancelled = mutation({
 
     const now = Date.now();
     await ctx.db.patch(event._id, { eventStatus, updatedAt: now });
+    if (args.cancelled) {
+      await settleEventMediaForCancellation(ctx.db, event, subject, now);
+    }
     const updated = await ctx.db.get(event._id);
     if (updated !== null) {
       const [community, world, roleLabels] = await Promise.all([
@@ -2561,13 +2660,15 @@ export const setCommunityEventCancelled = mutation({
         linkedPublishedEventWorld(ctx.db, updated._id),
         eventParticipantRoleLabels(ctx.db, updated._id),
       ]);
-      await upsertSearchDocument(
+      await reindexEventSearchDocument(
         ctx.db,
-        createEventSearchDocument(updated, {
+        updated,
+        {
           community: community?.profileType === "community" ? community : undefined,
           world,
           roleLabels,
-        }),
+        },
+        now,
       );
     }
     await recordEventAuditEvent(ctx.db, {
@@ -2661,6 +2762,9 @@ export const scheduleEventMediaWorker = mutation({
   handler: async (ctx, args) => {
     const subject = await requireAuthenticatedSubject(ctx);
     const { event, slug } = await getMediaManageableEventBySlug(ctx, args.currentSlug, subject);
+    if (event.eventStatus !== "scheduled") {
+      throw new Error("A cancelled event cannot schedule a media worker.");
+    }
     const program = await getLatestEventMediaProgram(ctx.db, event._id);
 
     if (program === null) {

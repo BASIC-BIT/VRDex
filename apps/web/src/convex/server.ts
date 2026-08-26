@@ -314,10 +314,13 @@ export async function fetchDiscovery() {
   }
 
   try {
-    const [data, eventSchedule] = await Promise.all([
-      fetchQuery(api.search.listDiscovery, { now }),
-      fetchQuery(api.events.listPublicUpcoming, { now, limit: 12 }),
-    ]);
+    const data = await fetchQuery(api.search.listDiscovery, { now });
+    const eventSchedule = await fetchQuery(api.events.listPublicUpcoming, { now, limit: 12 })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`Server-side Convex event schedule fetch failed: ${message}`);
+        return [];
+      });
 
     return {
       kind: "live" as const,

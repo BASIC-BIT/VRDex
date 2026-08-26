@@ -725,6 +725,23 @@ export async function consumeProfileAssetUploads(
             db.patch(current._id, { state: "deleted", updatedAt: input.now }),
           ),
         );
+        for (const replacedAssetId of new Set(existing.map((current) => current.assetId))) {
+          const remainingPlacement = await db
+            .query("profileAssetPlacements")
+            .withIndex("by_assetId", (query) => query.eq("assetId", replacedAssetId))
+            .filter((query) => query.eq(query.field("state"), "active"))
+            .first();
+          if (remainingPlacement === null) {
+            const replacedAsset = await db.get(replacedAssetId);
+            if (replacedAsset?.state === "active") {
+              await db.patch(replacedAssetId, {
+                state: "deleted",
+                deletedAt: input.now,
+                updatedAt: input.now,
+              });
+            }
+          }
+        }
       }
       let position = 0;
       if (orderedMultiPlacement) {

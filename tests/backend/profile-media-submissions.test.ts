@@ -303,6 +303,26 @@ describe("unclaimed-profile media submissions", () => {
     );
   });
 
+  it("rejects a review decision after the proposal expires", async () => {
+    const t = convexTest({ schema, modules });
+    const seeded = await seed(t);
+    const { intent } = await createAndUpload(t, seeded);
+    await t.run((ctx) =>
+      ctx.db.patch(intent.submissionId, { expiresAt: Date.now() - 1 }),
+    );
+
+    await assert.rejects(
+      t.withIdentity(seeded.moderatorIdentity).mutation(api.profileMediaSubmissions.decide, {
+        submissionId: intent.submissionId,
+        decision: "approve",
+        expectedProfileUpdatedAt: NOW,
+        privateReason: "This should be too late.",
+      }),
+      /has expired/i,
+    );
+    assert.equal((await t.run((ctx) => ctx.db.query("profileAssets").collect())).length, 0);
+  });
+
   it("does not let an unrelated contributor review or approve a proposal", async () => {
     const t = convexTest({ schema, modules });
     const seeded = await seed(t);
@@ -595,6 +615,62 @@ describe("unclaimed-profile media submissions", () => {
     );
   });
 
+  it("retires the replaced singleton asset instead of exposing it as unplaced media", async () => {
+    const t = convexTest({ schema, modules });
+    const seeded = await seed(t);
+    const oldAssetId = await t.run(async (ctx) => {
+      await ctx.db.patch(seeded.profileId, {
+        fieldVisibility: { avatarImageUrl: "private" },
+      });
+      const assetId = await ctx.db.insert("profileAssets", {
+        profileId: seeded.profileId,
+        storageKey: "profile-assets/community/old-private.webp",
+        mimeType: "image/webp",
+        byteSize: 512,
+        contentSha256: "old-private-image",
+        visibility: "public",
+        source: "community_submitted",
+        uploadedBy: {
+          tokenIdentifier: "moderator:old-image",
+          issuer: "test",
+          subject: "moderator",
+        },
+        uploadedAt: NOW - 1,
+        state: "active",
+        updatedAt: NOW - 1,
+      });
+      await ctx.db.insert("profileAssetPlacements", {
+        profileId: seeded.profileId,
+        assetId,
+        placement: "profile_image",
+        position: 0,
+        state: "active",
+        updatedAt: NOW - 1,
+      });
+      return assetId;
+    });
+    const { intent } = await createAndUpload(t, seeded, "replacement-image");
+
+    const decision = await t.withIdentity(seeded.moderatorIdentity).mutation(
+      api.profileMediaSubmissions.decide,
+      {
+        submissionId: intent.submissionId,
+        decision: "approve",
+        expectedProfileUpdatedAt: NOW,
+        privateReason: "Replacement approved.",
+      },
+    );
+    assert.equal(decision.status, "approved");
+    assert.equal((await t.run((ctx) => ctx.db.get(oldAssetId)))?.state, "deleted");
+    assert.equal(
+      await t.query(api.profileAssets.getPublicAssetForStorage, {
+        slug: "community-dj",
+        assetId: oldAssetId,
+      }),
+      null,
+    );
+  });
+
   it("cleans terminal candidate files after retention and skips a legal hold", async () => {
     const t = convexTest({ schema, modules });
     const seeded = await seed(t);
@@ -606,6 +682,27 @@ describe("unclaimed-profile media submissions", () => {
     await t.run((ctx) =>
       ctx.db.patch(intent.submissionId, { blobDeleteAfter: Date.now() - 1 }),
     );
+    await t.run(async (ctx) => {
+      for (let index = 0; index < 201; index += 1) {
+        await ctx.db.insert("profileMediaSubmissions", {
+          profileId: seeded.profileId,
+          submitterUserId: seeded.contributorUserId,
+          submitter: {
+            tokenIdentifier: seeded.contributorIdentity.tokenIdentifier,
+            issuer: seeded.contributorIdentity.issuer,
+            subject: seeded.contributorIdentity.subject,
+          },
+          requestedPlacement: "profile_image",
+          sourceUrl: `https://artist.example/published-${index}`,
+          credit: "Artist",
+          status: "approved",
+          targetProfileUpdatedAt: NOW,
+          expiresAt: Date.now() + 86_400_000,
+          createdAt: NOW + index,
+          updatedAt: NOW + index,
+        });
+      }
+    });
     const protectedSubmissionId = await t.run((ctx) =>
       ctx.db.insert("profileMediaSubmissions", {
         profileId: seeded.profileId,

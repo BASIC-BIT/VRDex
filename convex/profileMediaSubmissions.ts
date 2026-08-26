@@ -496,6 +496,9 @@ export const startReview = mutation({
     if (submission === null || submission.status !== "submitted") {
       throw new Error("This media contribution is not awaiting review.");
     }
+    if (submission.expiresAt <= Date.now()) {
+      throw new Error("This media contribution has expired.");
+    }
     const profile = await ctx.db.get(submission.profileId);
     if (profile === null) throw new Error("The target profile no longer exists.");
     const { subject, user } = await reviewerContext(ctx, profile);
@@ -529,6 +532,10 @@ export const decide = mutation({
     ) {
       throw new Error("This media contribution is not awaiting a decision.");
     }
+    const now = Date.now();
+    if (submission.expiresAt <= now) {
+      throw new Error("This media contribution has expired.");
+    }
     const profile = await ctx.db.get(submission.profileId);
     if (
       profile === null ||
@@ -547,8 +554,6 @@ export const decide = mutation({
     const privateReason = sanitizeNote(args.privateReason, 1_000);
     if (privateReason === undefined) throw new Error("A private review reason is required.");
     const publicDisposition = sanitizeNote(args.publicDisposition, 240);
-    const now = Date.now();
-
     if (args.decision === "reject") {
       if (publicDisposition === undefined) {
         throw new Error("A contributor-visible rejection reason is required.");
@@ -723,7 +728,9 @@ export const prepareDueBlobCleanup = mutation({
 
     const due = await ctx.db
       .query("profileMediaSubmissions")
-      .withIndex("by_blobDeleteAfter", (query) => query.lte("blobDeleteAfter", now))
+      .withIndex("by_blobDeleteAfter", (query) =>
+        query.gt("blobDeleteAfter", 0).lte("blobDeleteAfter", now),
+      )
       .take(200);
     const eligible = due
       .filter((submission) =>

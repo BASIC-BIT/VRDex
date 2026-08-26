@@ -30,6 +30,14 @@ describe("event authoring time zones", () => {
       parseZonedDateTimeInput("2026-11-01T01:30", "America/New_York", "Event start time"),
       Date.parse("2026-11-01T05:30:00.000Z"),
     );
+    assert.equal(
+      parseZonedDateTimeInput("2026-10-25T02:30", "Europe/Berlin", "Event start time"),
+      Date.parse("2026-10-25T00:30:00.000Z"),
+    );
+    assert.equal(
+      parseZonedDateTimeInput("2026-04-05T01:45", "Australia/Lord_Howe", "Event start time"),
+      Date.parse("2026-04-04T14:45:00.000Z"),
+    );
   });
 
   it("formats stored instants back in the event authoring time zone", () => {
