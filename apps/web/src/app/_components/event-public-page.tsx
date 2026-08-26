@@ -57,6 +57,7 @@ export type PublicEventPreview = {
   doorsOpenAt?: number;
   endAt?: number;
   timezone?: string;
+  status?: "scheduled" | "cancelled";
   communityName?: string;
   communitySlug?: string;
   summary?: string;
@@ -76,6 +77,16 @@ export type PublicEventPreview = {
   }>;
   participantCount: number;
   slotCount: number;
+  nextSlots?: Array<{
+    startAt: number;
+    endAt?: number;
+    displayLabel: string;
+    roleLabel: string;
+    performer?: {
+      slug: string;
+      displayName: string;
+    };
+  }>;
 };
 
 export type PublicEvent = Omit<PublicEventPreview, "worlds"> & {
@@ -305,6 +316,9 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
           >
             <div className="flex min-h-44 flex-col justify-end">
               <div className="max-w-4xl">
+                {event.status === "cancelled" ? (
+                  <p className="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-white">Cancelled</p>
+                ) : null}
                 <ViewerLocalEventDateTime className="text-sm uppercase tracking-[0.24em] text-white/70" timestamp={event.startAt} />
                 <h1 className="mt-4 text-5xl leading-none font-semibold tracking-[-0.05em] sm:text-7xl">
                   {event.title}
@@ -336,7 +350,7 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
             <EventWatchSurface
               doorsOpenAt={event.doorsOpenAt}
               endAt={event.endAt}
-              enabled={event.watchSurfaceEnabled}
+              enabled={event.watchSurfaceEnabled && event.status !== "cancelled"}
               mediaLinks={event.mediaLinks}
               startAt={event.startAt}
             />

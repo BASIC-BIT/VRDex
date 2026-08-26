@@ -59,6 +59,7 @@ export type PublicEventPreview = {
   doorsOpenAt?: number;
   endAt?: number;
   timezone?: string;
+  status: "scheduled" | "cancelled";
   communityName?: string;
   communitySlug?: string;
   summary?: string;
@@ -78,6 +79,16 @@ export type PublicEventPreview = {
   }>;
   participantCount: number;
   slotCount: number;
+  nextSlots: Array<{
+    startAt: number;
+    endAt?: number;
+    displayLabel: string;
+    roleLabel: string;
+    performer?: {
+      slug: string;
+      displayName: string;
+    };
+  }>;
 };
 
 export type PublicEvent = PublicEventPreview & {
@@ -229,7 +240,10 @@ function createPublicEventMediaLinks(
   });
 }
 
-export function toPublicEventPreviewFromRecord(record: PublicEventRecord): PublicEventPreview {
+export function toPublicEventPreviewFromRecord(
+  record: PublicEventRecord,
+  options: { now?: number } = {},
+): PublicEventPreview {
   const { community, event, participants, slots, worlds } = record;
   const sourceUrl = safeHttpsUrl(event.sourceUrl);
   const posterImageUrl = safeHttpsUrl(event.posterImageUrl);
@@ -243,6 +257,7 @@ export function toPublicEventPreviewFromRecord(record: PublicEventRecord): Publi
     ...optionalField("slug", event.slug),
     title: event.title,
     startAt: event.startAt,
+    status: event.eventStatus,
     source: {
       sourceType: event.sourceType,
       label: event.sourceLabel,
@@ -254,6 +269,31 @@ export function toPublicEventPreviewFromRecord(record: PublicEventRecord): Publi
     })),
     participantCount: participants.length,
     slotCount: slots.length,
+    nextSlots: [...slots]
+      .filter(
+        ({ slot }) =>
+          options.now === undefined || (slot.endAt ?? slot.startAt) >= options.now,
+      )
+      .sort(
+        (first, second) =>
+          first.slot.startAt - second.slot.startAt ||
+          first.slot.position - second.slot.position,
+      )
+      .slice(0, 3)
+      .map(({ profile, slot }) => ({
+        startAt: slot.startAt,
+        ...optionalField("endAt", slot.endAt),
+        displayLabel: slot.displayLabel,
+        roleLabel: slot.roleLabel,
+        ...(profile === undefined
+          ? {}
+          : {
+              performer: {
+                slug: profile.slug,
+                displayName: profile.displayName,
+              },
+            }),
+      })),
     ...optionalField("doorsOpenAt", event.doorsOpenAt),
     ...optionalField("endAt", event.endAt),
     ...optionalField("timezone", event.timezone),
@@ -545,9 +585,12 @@ async function getPublicEventMediaRecord(db: DatabaseReader, event: Doc<"events"
 async function getPublicEventRecord(
   db: DatabaseReader,
   event: Doc<"events">,
-  options: { includeAssociationMediaKits?: boolean } = {},
+  options: {
+    includeAssociationMediaKits?: boolean;
+    includeUnpublished?: boolean;
+  } = {},
 ): Promise<PublicEventRecord | null> {
-  if (event.publicationState !== "published") {
+  if (event.publicationState !== "published" && options.includeUnpublished !== true) {
     return null;
   }
 
@@ -565,7 +608,9 @@ async function getPublicEventRecord(
 
   const communityMediaKit = community === undefined
     ? undefined
-    : await getPublicProfileMediaKit(db, community);
+    : await getPublicProfileMediaKit(db, community, {
+        surface: options.includeAssociationMediaKits === false ? "discovery" : "profile_page",
+      });
 
   return {
     event,
@@ -596,6 +641,21 @@ export async function getPublicEventBySlug(
   return record === null ? null : toPublicEvent(record);
 }
 
+export async function getEventForEditor(
+  db: DatabaseReader,
+  event: Doc<"events">,
+) {
+  const record = await getPublicEventRecord(db, event, { includeUnpublished: true });
+  const projected = record === null ? null : toPublicEvent(record);
+
+  return projected === null
+    ? null
+    : {
+        ...projected,
+        publicationState: event.publicationState,
+      };
+}
+
 export async function getPublicEventPreviews(
   db: DatabaseReader,
   events: Doc<"events">[],
@@ -610,6 +670,7 @@ export async function getPublicEventPreviews(
     .filter(
       (event) =>
         event.publicationState === "published" &&
+        event.eventStatus === "scheduled" &&
         (now === undefined || eventEndsAt(event) >= now),
     )
     .sort((first, second) => first.startAt - second.startAt)
@@ -622,8 +683,7 @@ export async function getPublicEventPreviews(
     )
   ).filter((record): record is PublicEventRecord => record !== null);
 
-  return records
-    .map(toPublicEventPreviewFromRecord);
+  return records.map((record) => toPublicEventPreviewFromRecord(record, { now }));
 }
 
 export async function getPublicCommunityHostedEvents(
@@ -632,12 +692,22 @@ export async function getPublicCommunityHostedEvents(
   now: number,
   limit = EVENT_PREVIEW_DEFAULT_LIMIT,
 ): Promise<PublicEventPreview[]> {
-  const events = await db
-    .query("events")
-    .withIndex("by_communityProfileId_startAt", (query) =>
-      query.eq("communityProfileId", communityProfileId).gte("startAt", now),
-    )
-    .take(EVENT_ASSOCIATION_LIMIT);
+  const [started, upcoming] = await Promise.all([
+    db
+      .query("events")
+      .withIndex("by_communityProfileId_startAt", (query) =>
+        query.eq("communityProfileId", communityProfileId).lt("startAt", now),
+      )
+      .order("desc")
+      .take(EVENT_ASSOCIATION_LIMIT),
+    db
+      .query("events")
+      .withIndex("by_communityProfileId_startAt", (query) =>
+        query.eq("communityProfileId", communityProfileId).gte("startAt", now),
+      )
+      .take(EVENT_ASSOCIATION_LIMIT),
+  ]);
+  const events = [...started, ...upcoming];
 
   return getPublicEventPreviews(db, events, { now, limit });
 }
@@ -648,15 +718,28 @@ export async function getPublicPersonUpcomingEvents(
   now: number,
   limit = EVENT_PREVIEW_DEFAULT_LIMIT,
 ): Promise<PublicEventPreview[]> {
-  const participantLinks = await db
-    .query("eventParticipants")
-    .withIndex("by_personProfileId_confirmationState_eventStartAt", (query) =>
-      query
-        .eq("personProfileId", personProfileId)
-        .eq("confirmationState", "confirmed")
-        .gte("eventStartAt", now),
-    )
-    .take(EVENT_ASSOCIATION_LIMIT);
+  const [startedLinks, upcomingLinks] = await Promise.all([
+    db
+      .query("eventParticipants")
+      .withIndex("by_personProfileId_confirmationState_eventStartAt", (query) =>
+        query
+          .eq("personProfileId", personProfileId)
+          .eq("confirmationState", "confirmed")
+          .lt("eventStartAt", now),
+      )
+      .order("desc")
+      .take(EVENT_ASSOCIATION_LIMIT),
+    db
+      .query("eventParticipants")
+      .withIndex("by_personProfileId_confirmationState_eventStartAt", (query) =>
+        query
+          .eq("personProfileId", personProfileId)
+          .eq("confirmationState", "confirmed")
+          .gte("eventStartAt", now),
+      )
+      .take(EVENT_ASSOCIATION_LIMIT),
+  ]);
+  const participantLinks = [...startedLinks, ...upcomingLinks];
   const events = (
     await Promise.all(participantLinks.map((link) => db.get(link.eventId)))
   ).filter((event): event is Doc<"events"> => event !== null);

@@ -25,6 +25,7 @@ import {
 type MediaAsset = {
   assetId: string;
   state: "active" | "deleted";
+  source?: "owner_authored" | "community_submitted" | "partner_provided" | "moderator" | "import" | "concierge";
   label?: string;
   caption?: string;
   altText?: string;
@@ -305,6 +306,9 @@ function AssetEditor({
                     ? ` · ${asset.downloadMimeType.replace("image/", "").toUpperCase()} download · ${formatBytes(asset.downloadByteSize ?? asset.byteSize)}`
                     : ""}
                 </p>
+                {asset.source === "community_submitted" ? (
+                  <p className="mt-1 text-xs text-muted">Community contribution</p>
+                ) : null}
               </div>
               <div className="flex gap-1">
                 <Button aria-label={`Move ${assetName} up`} disabled={cardBusy || index === 0} onClick={() => void move(-1)} size="sm" type="button" variant="ghost">
@@ -433,6 +437,9 @@ function OtherAsset({
         <p className="mt-1 text-xs text-muted">
           {asset.mimeType.replace("image/", "").toUpperCase()} · {formatBytes(asset.byteSize)}
         </p>
+        {asset.source === "community_submitted" ? (
+          <p className="mt-1 text-xs text-muted">Community contribution</p>
+        ) : null}
         <ActionStatusMessage className="mt-2" status={status} />
       </div>
       <Button aria-label={`Remove ${asset.label || "Untitled image"}`} className="col-span-2 justify-self-end sm:col-span-1" disabled={operationBusy} onClick={() => void remove()} type="button" variant="ghost">

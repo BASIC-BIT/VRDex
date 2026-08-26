@@ -389,7 +389,12 @@ export function createEventSearchDocument(
 
   return {
     entityType: "event",
-    publicState: event.publicationState === "published" && event.slug !== undefined ? "public" : "hidden",
+    publicState:
+      event.publicationState === "published" &&
+      event.eventStatus === "scheduled" &&
+      event.slug !== undefined
+        ? "public"
+        : "hidden",
     eventId: event._id,
     slug: event.slug ?? String(event._id),
     routePath,

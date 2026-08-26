@@ -594,6 +594,14 @@ async function createCommunityProfileRecord(
       publicSurfacingState: "public" as const,
       publicSurfacingUpdatedAt: now,
       creationSource: "community" as const,
+      // New community-submitted profiles start with coarse location unlisted
+      // and exact timezone private. The values are usually absent at creation,
+      // but writing the defaults now prevents a later community correction from
+      // silently turning them into discovery data.
+      fieldVisibility: {
+        region: "unlisted" as const,
+        timezone: "private" as const,
+      },
       publishedAt: now,
       updatedAt: now,
       sourceAttribution,

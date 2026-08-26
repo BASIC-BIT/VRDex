@@ -6,6 +6,7 @@ export type PublicCalendarEvent = {
   endAt?: number;
   summary?: string;
   communityName?: string;
+  status?: "scheduled" | "cancelled";
   worlds: Array<{
     displayName: string;
   }>;
@@ -110,7 +111,7 @@ export function createPublicEventIcs(event: PublicCalendarEvent, options: Create
     property("DTSTAMP", formatIcsUtcTimestamp(options.now ?? Date.now()), { escapeValue: false }),
     property("DTSTART", formatIcsUtcTimestamp(event.startAt), { escapeValue: false }),
     ...optionalEndAtLine(event),
-    "STATUS:CONFIRMED",
+    event.status === "cancelled" ? "STATUS:CANCELLED" : "STATUS:CONFIRMED",
     property("SUMMARY", event.title),
     property("DESCRIPTION", description),
     ...optionalTextProperty("LOCATION", location),
@@ -164,7 +165,7 @@ function publicEventLines(event: PublicCalendarEvent, rawCanonicalUrl: string, n
     property("DTSTAMP", formatIcsUtcTimestamp(now), { escapeValue: false }),
     property("DTSTART", formatIcsUtcTimestamp(event.startAt), { escapeValue: false }),
     ...optionalEndAtLine(event),
-    "STATUS:CONFIRMED",
+    event.status === "cancelled" ? "STATUS:CANCELLED" : "STATUS:CONFIRMED",
     property("SUMMARY", event.title),
     property("DESCRIPTION", description),
     ...optionalTextProperty("LOCATION", location),

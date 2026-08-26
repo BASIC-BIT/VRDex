@@ -18,6 +18,7 @@ This directory holds the initial Convex backend slice for `VRDex`.
 - `_inputValidation.ts` contains the shared untrusted-input primitives used by seed imports and profile link normalization
 - `profileClaims.ts` exposes claim request, Discord, and VRChat proof-code flows
 - `profiles.ts` exposes public profile reads and authenticated community submission mutations
+- `profileMediaSubmissions.ts` keeps community-proposed profile media private until an authorized review decision
 - `_worldIds.ts` contains VRChat world id and canonical URL helpers
 - `_worldSlugs.ts` contains pure world slug validation, generation, and lookup helpers
 - `_worldPublic.ts` contains public world projection helpers

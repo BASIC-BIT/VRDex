@@ -205,6 +205,69 @@ describe("profile media-kit owner management", () => {
     assert.equal(otherAsset, null);
   });
 
+  it("blocks direct public asset URLs when every placement is private", async () => {
+    const seeded = await seedOwnedProfile(1);
+    const assetId = seeded.assetIds[0]!;
+
+    await seeded.t.run(async (ctx) => {
+      await ctx.db.patch(seeded.profileId, {
+        fieldVisibility: { mediaKit: "private" },
+      });
+    });
+    assert.equal(
+      await seeded.t.query(api.profileAssets.getPublicAssetForStorage, {
+        slug: "media-owner",
+        assetId,
+      }),
+      null,
+    );
+
+    await seeded.t.run(async (ctx) => {
+      await ctx.db.patch(seeded.profileId, {
+        fieldVisibility: { mediaKit: "unlisted" },
+      });
+    });
+    assert.notEqual(
+      await seeded.t.query(api.profileAssets.getPublicAssetForStorage, {
+        slug: "media-owner",
+        assetId,
+      }),
+      null,
+    );
+
+    await seeded.t.run(async (ctx) => {
+      const placement = await ctx.db
+        .query("profileAssetPlacements")
+        .withIndex("by_assetId", (query) => query.eq("assetId", assetId))
+        .unique();
+      assert.notEqual(placement, null);
+      await ctx.db.patch(placement!._id, { placement: "profile_image" });
+      await ctx.db.patch(seeded.profileId, {
+        fieldVisibility: { avatarImageUrl: "public", mediaKit: "private" },
+      });
+    });
+    assert.notEqual(
+      await seeded.t.query(api.profileAssets.getPublicAssetForStorage, {
+        slug: "media-owner",
+        assetId,
+      }),
+      null,
+    );
+
+    await seeded.t.run(async (ctx) => {
+      await ctx.db.patch(seeded.profileId, {
+        fieldVisibility: { avatarImageUrl: "private", mediaKit: "private" },
+      });
+    });
+    assert.equal(
+      await seeded.t.query(api.profileAssets.getPublicAssetForStorage, {
+        slug: "media-owner",
+        assetId,
+      }),
+      null,
+    );
+  });
+
   it("releases a failed owner upload reservation for an immediate retry", async () => {
     const seeded = await seedOwnedProfile(11);
     const owner = seeded.t.withIdentity(seeded.ownerIdentity);

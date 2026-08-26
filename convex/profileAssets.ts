@@ -15,6 +15,7 @@ import {
 import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 import { userOwnsProfile } from "./_profileOwnership";
 import { canReadProfile } from "./_profilePermissions";
+import { isProfileFieldVisible } from "./_profileFieldVisibility";
 import {
   PROFILE_ASSET_MAX_ACTIVE_COUNT,
   PROFILE_ASSET_UPLOAD_PROCESSING_MAX_ATTEMPTS,
@@ -188,6 +189,7 @@ export const createUploadIntent = internalMutation({
     return await createProfileAssetUploadIntentRecord(ctx.db, {
       requestedBy: subject,
       ...args,
+      purpose: "owner_publish",
       now,
     });
   },
@@ -223,6 +225,7 @@ export const createUploadIntentForApiProfileOwner = internalMutation({
       placements: args.placements,
       position: args.position,
       source: "owner_authored",
+      purpose: "owner_publish",
       now,
     });
     await recordApiWriteAuditEvent(ctx.db, {
@@ -307,6 +310,7 @@ export const createUploadIntentForOwnedProfile = mutation({
       placements: args.placements ?? ["gallery"],
       position: args.position,
       source: "owner_authored",
+      purpose: "owner_publish",
       now,
     });
 
@@ -725,6 +729,7 @@ export const listOwnedMediaKitProfiles = query({
           .map((asset) => ({
             assetId: asset._id,
             state: asset.state,
+            source: asset.source,
             label: asset.label,
             caption: asset.caption,
             altText: asset.altText,
@@ -1165,6 +1170,28 @@ export const getPublicAssetForStorage = query({
       asset.state !== "active" ||
       asset.visibility !== "public"
     ) {
+      return null;
+    }
+
+    const placements = await ctx.db
+      .query("profileAssetPlacements")
+      .withIndex("by_assetId", (query) => query.eq("assetId", asset._id))
+      .collect();
+    const activePlacements = placements.filter((placement) => placement.state === "active");
+    const visibleOnProfile =
+      activePlacements.length === 0
+        ? isProfileFieldVisible(profile, "mediaKit", "profile_page")
+        : activePlacements.some((placement) => {
+            if (placement.placement === "profile_image") {
+              return isProfileFieldVisible(profile, "avatarImageUrl", "profile_page");
+            }
+            if (placement.placement === "banner") {
+              return isProfileFieldVisible(profile, "bannerImageUrl", "profile_page");
+            }
+            return isProfileFieldVisible(profile, "mediaKit", "profile_page");
+          });
+
+    if (!visibleOnProfile) {
       return null;
     }
 

@@ -151,6 +151,14 @@ describe("browser auth-session authorization boundary", () => {
         "api.vrclinkingCredentials.reserveCredential",
       ],
       [
+        "apps/web/src/app/api/account/media-review/cleanup/route.ts",
+        "api.profileMediaSubmissions.prepareDueBlobCleanup",
+      ],
+      [
+        "apps/web/src/app/api/account/media-review/submissions/[submissionId]/file/route.ts",
+        "api.profileMediaSubmissions.getCandidateForStorage",
+      ],
+      [
         "apps/web/src/app/api/developer/oauth-apps/route.ts",
         "api.oauthApps.createPersonalApplication",
       ],

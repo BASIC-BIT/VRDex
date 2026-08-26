@@ -3,6 +3,10 @@ import { ConvexError, type GenericId } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader, DatabaseWriter } from "./_generated/server";
 import { recordApiWriteAuditEvent } from "./_apiWriteAuditEvents";
+import {
+  isProfileFieldVisible,
+  type ProfileVisibilitySurface,
+} from "./_profileFieldVisibility";
 import { userOwnsProfile } from "./_profileOwnership";
 
 export const PROFILE_ASSET_UPLOAD_MAX_BYTES = 12 * 1024 * 1024;
@@ -103,6 +107,8 @@ export type ProfileAssetUploadIntentCreateInput = {
   placements?: ProfileAssetPlacement[];
   position?: number;
   source?: Doc<"profileAssets">["source"];
+  purpose: Doc<"profileAssetUploadIntents">["purpose"];
+  targetSubmissionId?: Id<"profileMediaSubmissions">;
   now: number;
 };
 
@@ -433,6 +439,10 @@ export async function createProfileAssetUploadIntentRecord(
     ...(input.placements !== undefined ? { placements: input.placements } : {}),
     ...(position !== undefined ? { position } : {}),
     ...(input.source !== undefined ? { source: input.source } : {}),
+    purpose: input.purpose,
+    ...(input.targetSubmissionId !== undefined
+      ? { targetSubmissionId: input.targetSubmissionId }
+      : {}),
     state: "pending",
     processingAttempts: 0,
     createdAt: input.now,
@@ -512,8 +522,12 @@ function placedAssets(
 export async function getPublicProfileMediaKit(
   db: DatabaseReader,
   profile: Doc<"profiles">,
-  options: { preference?: ProfileAssetDisplayPreference | null } = {},
+  options: {
+    preference?: ProfileAssetDisplayPreference | null;
+    surface?: ProfileVisibilitySurface;
+  } = {},
 ): Promise<PublicProfileMediaKit> {
+  const surface = options.surface ?? "profile_page";
   const preferencePromise =
     "preference" in options
       ? Promise.resolve(options.preference ?? null)
@@ -533,25 +547,38 @@ export async function getPublicProfileMediaKit(
   ]);
   const assetsById = new Map(assets.map((asset) => [asset._id, asset]));
   const sortedPlacements = [...placements].sort((first, second) => first.position - second.position);
-  const profileImageAsset = firstPlacedAsset(assetsById, sortedPlacements, "profile_image");
-  const bannerAsset = firstPlacedAsset(assetsById, sortedPlacements, "banner");
-  const primaryLogoAsset = firstPlacedAsset(assetsById, sortedPlacements, "primary_logo");
+  const avatarVisible = isProfileFieldVisible(profile, "avatarImageUrl", surface);
+  const bannerVisible = isProfileFieldVisible(profile, "bannerImageUrl", surface);
+  const mediaKitVisible = isProfileFieldVisible(profile, "mediaKit", surface);
+  const profileImageAsset = avatarVisible
+    ? firstPlacedAsset(assetsById, sortedPlacements, "profile_image")
+    : undefined;
+  const bannerAsset = bannerVisible
+    ? firstPlacedAsset(assetsById, sortedPlacements, "banner")
+    : undefined;
+  const primaryLogoAsset = mediaKitVisible
+    ? firstPlacedAsset(assetsById, sortedPlacements, "primary_logo")
+    : undefined;
   const additionalLogoAssets = placedAssets(assetsById, sortedPlacements, "additional_logo").filter(
-    (asset) => asset._id !== primaryLogoAsset?._id,
+    (asset) => mediaKitVisible && asset._id !== primaryLogoAsset?._id,
   );
   const profileImage = profileImageAsset ? toPublicAsset(profile, profileImageAsset) : undefined;
   const primaryLogo = primaryLogoAsset ? toPublicAsset(profile, primaryLogoAsset) : undefined;
   const additionalLogos = additionalLogoAssets.map((asset) => toPublicAsset(profile, asset));
   const logos = primaryLogo ? [primaryLogo, ...additionalLogos] : additionalLogos;
-  const galleryAssets = placedAssets(assetsById, sortedPlacements, "gallery").filter(
-    (asset) => sanitizeProfileAssetLabel(asset.label) !== undefined,
-  );
+  const galleryAssets = mediaKitVisible
+    ? placedAssets(assetsById, sortedPlacements, "gallery").filter(
+        (asset) => sanitizeProfileAssetLabel(asset.label) !== undefined,
+      )
+    : [];
   const featuredCandidate = firstPlacedAsset(assetsById, sortedPlacements, "featured");
   const featuredAsset = galleryAssets.find((asset) => asset._id === featuredCandidate?._id);
-  const orderedAssets = [
-    ...galleryAssets,
-    ...assets.filter((asset) => !galleryAssets.some((galleryAsset) => galleryAsset._id === asset._id)),
-  ];
+  const orderedAssets = mediaKitVisible
+    ? [
+        ...galleryAssets,
+        ...assets.filter((asset) => !galleryAssets.some((galleryAsset) => galleryAsset._id === asset._id)),
+      ]
+    : [];
   const compactDisplay =
     preference?.compactDisplay === "logo" || (!profileImage && primaryLogo)
       ? "logo"
@@ -586,6 +613,7 @@ export async function consumeProfileAssetUploads(
     requestedBy: ProfileAssetAuthSubject;
     uploads: ProfileAssetUploadInput[];
     source: Doc<"profileAssets">["source"];
+    approvedSubmissionId?: Id<"profileMediaSubmissions">;
     now: number;
   },
 ): Promise<Id<"profileAssets">[]> {
@@ -604,7 +632,18 @@ export async function consumeProfileAssetUploads(
       throw new Error("Profile media upload intent belongs to another user.");
     }
 
-    if (intent.state !== "uploaded" || intent.expiresAt < input.now) {
+    const isCommunityProposal = intent.purpose === "community_proposal";
+    if (
+      isCommunityProposal !== (input.approvedSubmissionId !== undefined) ||
+      (isCommunityProposal && intent.targetSubmissionId !== input.approvedSubmissionId)
+    ) {
+      throw new Error("Community-proposed media requires an approved submission.");
+    }
+
+    if (
+      intent.state !== "uploaded" ||
+      (!isCommunityProposal && intent.expiresAt < input.now)
+    ) {
       throw new Error("Profile media upload intent is not ready to attach.");
     }
 
@@ -761,6 +800,7 @@ export async function finalizeProfileAssetUploadIntentUpload(
 
   if (
     intent.targetProfileId !== undefined &&
+    intent.purpose !== "community_proposal" &&
     (intent.requestedBy.issuer !== "vrdex:api" ||
       !(await userOwnsProfile(
         db,
@@ -799,6 +839,45 @@ export async function finalizeProfileAssetUploadIntentUpload(
     uploadedAt: input.now,
     updatedAt: input.now,
   });
+
+  if (intent.purpose === "community_proposal") {
+    if (intent.targetSubmissionId === undefined || intent.targetProfileId === undefined) {
+      throw new ConvexError("Community proposal upload target is invalid.");
+    }
+    const submission = await db.get(intent.targetSubmissionId);
+    if (
+      submission === null ||
+      submission.profileId !== intent.targetProfileId ||
+      submission.uploadIntentId !== intent._id ||
+      submission.status !== "upload_pending"
+    ) {
+      throw new ConvexError("Community proposal is no longer accepting this upload.");
+    }
+    if (input.contentSha256 !== undefined) {
+      const matchingSubmissions = await db
+        .query("profileMediaSubmissions")
+        .withIndex("by_contentSha256", (query) => query.eq("contentSha256", input.contentSha256))
+        .collect();
+      if (
+        matchingSubmissions.some(
+          (candidate) =>
+            candidate._id !== submission._id &&
+            candidate.profileId === submission.profileId &&
+            (candidate.status === "submitted" ||
+              candidate.status === "under_review" ||
+              candidate.status === "approved"),
+        )
+      ) {
+        throw new ConvexError("This image was already proposed for the profile.");
+      }
+    }
+    await db.patch(submission._id, {
+      status: "submitted",
+      ...(input.contentSha256 !== undefined ? { contentSha256: input.contentSha256 } : {}),
+      updatedAt: input.now,
+    });
+    return { ok: true as const, assetIds: [] as Id<"profileAssets">[] };
+  }
 
   if (intent.targetProfileId === undefined) {
     return { ok: true as const, assetIds: [] as Id<"profileAssets">[] };

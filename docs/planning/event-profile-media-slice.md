@@ -115,10 +115,10 @@ without treating public rendering alone as proof of write readiness.
 - event cancellation, suppression, and audit behavior
 - an explicit public-profile field and media visibility contract
 - private media proposals for public unclaimed profiles
-- rights and consent evidence, moderation review, approval, rejection,
-  withdrawal, retention, and claim transition
+- source and credit context, moderation review, approval, rejection, withdrawal,
+  retention, and claim transition
 - owner and moderator visibility into appropriate contribution history
-- documentation, migration, observability, API-contract consistency, security
+- documentation, rollout, observability, API-contract consistency, security
   tests, browser tests, and visual verification
 
 ### Out of scope
@@ -180,8 +180,8 @@ canonical records. Continue to store:
 
 Current recommendation:
 
-- Add `eventStatus: "scheduled" | "cancelled"`. Treat a missing value as
-  `scheduled` during migration.
+- Add required `eventStatus: "scheduled" | "cancelled"` and write it from every
+  event constructor. There is no missing-value compatibility state.
 - Add `eventAuditEvents` for create, update, slot replacement, publish,
   unpublish, cancel, restore, and moderator suppression. Store actor, source,
   action, changed field names, reason where appropriate, and timestamp without
@@ -248,8 +248,6 @@ Add a private `profileMediaSubmissions` table with:
 - MIME type, byte size, dimensions, original filename, and private storage keys
 - label, alt text, credit, and credit URL
 - exact source URL or evidence reference
-- `rightsBasis` and `consentBasis`
-- attestation version and acceptance timestamp
 - optional contributor note
 - status: `upload_pending`, `submitted`, `under_review`, `approved`, `rejected`,
   `withdrawn`, or `superseded`
@@ -278,7 +276,7 @@ The schema and handlers enforce the discriminated target. The flow is:
 5. Run the existing source-import or direct-upload quarantine pipeline.
 6. Move the submission to `submitted` only after safe processing succeeds.
 7. Let the contributor view its status or withdraw before a decision.
-8. Let an authorized reviewer inspect the candidate and evidence privately.
+8. Let an authorized reviewer inspect the candidate, source, credit, and note privately.
 9. Revalidate target state, claim state, profile version, quota, duplication,
    visibility, and placement conflict in the approval transaction.
 10. Create the active asset, placement, audit records, and disposition
@@ -288,26 +286,25 @@ Current recommendation:
 
 - First-release targets are `profile_image` for people and `primary_logo` for
   communities. Banner, additional logo, gallery, and featured placement remain
-  owner-only until review volume and rights handling are proven.
+  owner-only until review volume and moderation patterns are proven.
 - Allow one file per proposal, at most three pending proposals per user and two
   per profile, while retaining existing file-size and active-asset limits.
 - Delete candidate blobs 30 days after rejection, withdrawal, expiry, or
   supersession unless an abuse or legal hold is recorded. Retain metadata and
   decision audit without retaining the image indefinitely.
+- Keep cleanup operator-driven in the first slice: a super-admin runs one
+  bounded action from the review queue. Do not add a cron or worker for this
+  low-volume path.
 
-### Rights, consent, and takedown
+### Moderation and takedown
 
-Current recommendation pending BASIC approval:
+Locked decision:
 
-- Accept `subject_permission`, `rights_holder_permission`, or
-  `official_subject_source` as first-release rights bases.
-- For a person's likeness, require direct subject permission or an asset from a
-  subject-controlled official profile or press source. A public third-party URL
-  alone is not consent.
-- Do not accept candid photography, flyers, fan art, or third-party promotional
-  artwork with ambiguous rights in the first release.
-- Require source, credit, and explicit attestation, but do not present the
-  attestation publicly as legal proof.
+- Do not add rights categories, likeness categories, evidence taxonomies, or an
+  attestation checkbox. A checkbox does not stop a bad actor and would add
+  ceremony without changing the moderation boundary.
+- Keep the submission useful to a reviewer: uploader identity, source URL,
+  credit, optional note, file hash, decision, and audit history remain durable.
 - Route disputes and takedowns through existing support with profile, asset,
   and submission IDs. Moderators need an immediate suppress/remove action that
   preserves audit history.
@@ -337,11 +334,11 @@ Current recommendation:
   featured media.
 - Make media-kit `profile_image` obey `avatarImageUrl` visibility and media-kit
   `banner` obey `bannerImageUrl` visibility so placement cannot bypass privacy.
-- Preserve existing output by treating absent new keys as public for existing
-  profiles.
+- Preserve the existing profile-visibility default: a field with no explicit
+  visibility override is public.
 - For newly community-submitted profiles, explicitly default region to
-  `unlisted` and exact timezone to `private`; do not retroactively hide existing
-  profiles without a separate migration decision.
+  `unlisted` and exact timezone to `private`. Existing profiles keep the
+  established missing-visibility behavior; this slice does not retrofit them.
 - Keep `about` owner-authored. Resolve bio/about rendering drift rather than
   exposing two competing narrative fields.
 - Keep `searchAliases`, ownership internals, raw submitter/reviewer identity,
@@ -370,8 +367,8 @@ Current recommendation:
 ### Media contributor
 
 - A public unclaimed profile exposes one concise media-contribution action.
-- The form accepts one image, requested use, source, credit, rights basis,
-  consent basis, alt text, and attestation.
+- The form accepts one image, requested use, source, credit, alt text, and an
+  optional reviewer note.
 - The contributor receives a private status view. The image is never implied
   to be public before approval.
 - Validation errors are specific and recoverable. Rejection has a concise
@@ -382,7 +379,7 @@ Current recommendation:
 - The queue is bounded and filterable by state, age, target, submitter, and
   duplicate hash.
 - Review shows current profile/asset, candidate preview, source and credit,
-  rights/consent basis, profile changes since submission, and prior proposals.
+  profile changes since submission, and prior proposals.
 - Approval chooses final placement and public metadata. Rejection requires a
   disposition.
 - A new owner sees pending and previously approved community contributions but
@@ -394,11 +391,68 @@ No new substantive public sentence is approved by this plan. Before merge,
 BASIC must review the exact rendered copy for:
 
 - the unclaimed-profile media action
-- submission attestation and consent language
 - pending, approved, rejected, and withdrawn states
 - cancellation presentation
 - discovery empty state, if changed
 - public moderation or takedown guidance
+
+### Exact proposed copy awaiting BASIC approval
+
+Status: **not approved for release**. These are the substantive new rendered
+strings in the implementation branch; short field names and mechanical action
+labels are included so approval can happen against one durable inventory.
+
+Public profile and contribution:
+
+- `Add profile media`
+- `Add media for {profile display name}`
+- `Sign in with a verified email to contribute media.`
+- `Use the page that establishes where the image came from.`
+- `Submitted for review.`
+- `View contributions`
+- `My media contributions`
+- `No media contributions yet.`
+- `Community contribution`
+
+Contributor states and errors:
+
+- `Upload pending`, `Submitted`, `Under review`, `Approved`, `Rejected`,
+  `Withdrawn`, and `Superseded`
+- `Choose one image to submit.`
+- `Choose a PNG, JPEG, WebP, or SVG image.`
+- `The media contribution could not be submitted. Try again.`
+- `A verified email address is required to contribute media.`
+- `This profile changed. Refresh it before contributing media.`
+- `Media contribution limit reached. Try again tomorrow.`
+- `This profile is receiving too many media contributions right now.`
+- `Wait a moment before submitting another media contribution.`
+
+Review and ownership:
+
+- `Media review`
+- `No media contributions match this queue.`
+- `Profile media review access is required.`
+- `Profile changed after submission.`
+- `Prior matching proposals`
+- `Contributor-visible disposition`
+- `Private review reason`
+- `Suppression reason`, `Suppress media`, and `Clean due files`
+- `You cannot review your own media contribution.`
+- `You cannot decide your own media contribution.`
+
+Events:
+
+- `Create a draft with a community host, event time, and ordered lineup. Publish when the schedule is ready.`
+- `Set times`
+- `Select a community`
+- `You do not manage events for a public community.`
+- `Add event`, `Loading events…`, and `No events to manage.`
+- `Start offset`, `Duration`, `Person profile`, `Lineup name`, and `Role or style`
+- `Cancel event`, `Restore event`, and `Cancellation reason`
+- `Save changes`, `Save and publish`, `Save draft`, and `Unpublish and save draft`
+- `Cancelled`
+- `No upcoming events are public yet.`
+- `Change history`, `Loading history…`, and `No recorded changes.`
 
 ## Single-PR Implementation Sequence
 
@@ -478,12 +532,14 @@ A partially complete checkpoint is not a shippable product claim.
 - `docs/planning/profile-media-kit-launch.md`
 - deployment and self-hosting media configuration docs
 
-## Migration And Rollout
+## Data And Rollout
 
-### Data migration
+### Data rollout
 
-- Read missing `eventStatus` as `scheduled`, deploy compatibility code, then
-  backfill in bounded batches. Do not rewrite event or slot timestamps.
+- There is no deployed event-status, media-submission, or upload-purpose data
+  to migrate. Make `eventStatus` and upload-intent `purpose` required and write
+  them explicitly from every constructor. Do not add compatibility reads or
+  backfill jobs for rows that do not exist.
 - Start event audit history at rollout. Do not fabricate historical actors.
 - Add media-submission tables and indexes additively. Existing `profileAssets`
   remain published and are not auto-reviewed.
@@ -545,12 +601,12 @@ Current recommendation:
 
 - Record counts and latency for submission creation, processing failures,
   review age, decisions, cleanup, event publication failures, and discovery.
-- Alert on stuck processing, overdue cleanup, failed approval transactions, and
-  event-query bounds.
+- Keep stuck processing, overdue cleanup, and failed decisions visible in the
+  bounded review/operator surfaces before introducing alerting infrastructure.
 - Logs use IDs and error classes, not image URLs, filenames, captions, private
   notes, or auth tokens.
-- The review queue makes stale profile versions, duplicate assets, and missing
-  rights evidence obvious before approval.
+- The review queue makes stale profile versions, duplicate assets, source URLs,
+  and contributor credit visible before approval.
 
 ## Test And Verification Strategy
 
@@ -631,27 +687,28 @@ Current recommendation:
 These may be made while implementation proceeds, but dependent behavior cannot
 be publishable until they are locked.
 
-1. **Rights threshold.** Current recommendation: explicit subject or rights-
-   holder permission, or an official subject-controlled source. Contributor
-   attestation alone is insufficient.
-2. **Likeness consent.** Current recommendation: a person's photo requires
-   direct permission or an official subject-controlled source; a random public
-   URL is insufficient.
-3. **Initial placements.** Current recommendation: person profile image and
+1. **Initial placements.** Current recommendation: person profile image and
    community primary logo only.
-4. **New-profile visibility defaults.** Current recommendation: region
+2. **New-profile visibility defaults.** Current recommendation: region
    unlisted, exact timezone private, deliberately supplied pronouns public,
    approved avatar/logo public, gallery owner-controlled.
-5. **Review authority.** Current recommendation: `super_admin` plus the owner
+3. **Review authority.** Current recommendation: `super_admin` plus the owner
    after claim; defer trusted-partner approval grants.
-6. **Rejected-blob retention.** Current recommendation: 30 days unless an abuse
-   or legal hold applies.
-7. **Lineup consent semantics.** Current recommendation: authorized organizers
+4. **Lineup semantics.** Current recommendation: authorized organizers
    may publish an announced lineup from their source without separate performer
    approval; confirmation describes the schedule source, not endorsement.
-8. **Cancellation presentation.** Current recommendation: keep a published
+5. **Cancellation presentation.** Current recommendation: keep a published
    direct page and cancelled ICS, but remove the event from upcoming discovery
    and profile lists.
+
+Locked decisions:
+
+- Community submission uses moderation and audit, without rights/likeness
+  categories or an attestation checkbox.
+- Rejected, withdrawn, expired, and superseded candidate files are deleted
+  after 30 days unless held for an abuse or legal matter.
+- New event-status, media-submission, and upload-purpose data starts clean;
+  there are no compatibility readers or backfill jobs.
 
 ## Research Disposition
 
@@ -663,7 +720,7 @@ be publishable until they are locked.
 | Are live upload/accessibility flags enabled? | `UNKNOWN`; verify before rollout | Deliberate unknown |
 | Does browser event creation enforce community authority? | No; API owner paths are stricter | High, code verified |
 | Should proposals reuse `profileAssets` state? | No; use private staging | High recommendation |
-| Are public third-party images safe without consent? | No general conclusion; use strict MVP rule | Decision required |
+| Should submissions collect rights/likeness claims? | No; moderate the submission itself | Locked by BASIC |
 | Is a broader moderator role needed? | Not initially if `super_admin` volume is manageable | Validate after usage |
 
 ## PR Framing

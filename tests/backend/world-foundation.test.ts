@@ -196,6 +196,7 @@ describe("public world event context", () => {
       sourceType: "manual",
       sourceLabel: "Fixture event listing",
       sourceUrl: "https://example.invalid/events/afterglow-harbor-sessions",
+      eventStatus: "scheduled",
       publicationState: "published",
       updatedAt: now,
     } as unknown as Doc<"events">;
@@ -209,6 +210,7 @@ describe("public world event context", () => {
       sourceType: "community",
       sourceLabel: "Community-submitted event",
       sourceUrl: "http://example.invalid/unsafe-event",
+      eventStatus: "scheduled",
       publicationState: "published",
       updatedAt: now,
     } as unknown as Doc<"events">;
@@ -246,6 +248,7 @@ describe("public world event context", () => {
       startAt: now + 86_400_000,
       sourceType: "manual",
       sourceLabel: "Fixture event listing",
+      eventStatus: "scheduled",
       publicationState: "published",
       updatedAt: now,
     } as unknown as Doc<"events">;
@@ -284,6 +287,7 @@ describe("public world event context", () => {
       startAt: now + 86_400_000,
       sourceType: "ai_suggested",
       sourceLabel: "AI-suggested match",
+      eventStatus: "scheduled",
       publicationState: "published",
       updatedAt: now,
     } as unknown as Doc<"events">;
@@ -353,6 +357,7 @@ describe("public active world previews", () => {
       startAt: now + 172_800_000,
       sourceType: "manual",
       sourceLabel: "Fixture event listing",
+      eventStatus: "scheduled",
       publicationState: "published",
       updatedAt: now,
     } as unknown as Doc<"events">;
@@ -407,6 +412,7 @@ describe("public active world previews", () => {
       startAt: now + 86_400_000,
       sourceType: "manual",
       sourceLabel: "Fixture event listing",
+      eventStatus: "scheduled",
       publicationState: "published",
       updatedAt: now,
     } as unknown as Doc<"events">;
@@ -460,6 +466,7 @@ describe("public active world previews", () => {
       startAt: now + 86_400_000,
       sourceType: "ai_suggested",
       sourceLabel: "AI-suggested match",
+      eventStatus: "scheduled",
       publicationState: "published",
       updatedAt: now,
     } as unknown as Doc<"events">;

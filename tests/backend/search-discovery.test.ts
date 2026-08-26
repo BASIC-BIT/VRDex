@@ -345,6 +345,7 @@ describe("search document projection", () => {
       summary: "A poster-forward fixture event.",
       sourceType: "manual",
       sourceLabel: "Fixture event listing",
+      eventStatus: "scheduled",
       publicationState: "published",
       updatedAt: 1,
     } as unknown as Doc<"events">;

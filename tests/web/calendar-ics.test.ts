@@ -95,6 +95,26 @@ describe("public event ICS serialization", () => {
     assert.equal(feed.includes("operatorNotes"), false);
   });
 
+  it("marks a cancelled public event as cancelled in calendar exports", () => {
+    const calendar = createPublicEventIcs(
+      {
+        id: "event_cancelled",
+        slug: "cancelled-night",
+        title: "Cancelled Night",
+        startAt: Date.UTC(2026, 8, 1, 2, 0, 0),
+        status: "cancelled",
+        worlds: [],
+      },
+      {
+        canonicalUrl: "https://vrdex.example/cancelled-night",
+        now: Date.UTC(2026, 7, 26, 12, 0, 0),
+      },
+    );
+
+    assert.match(calendar, /STATUS:CANCELLED\r\n/);
+    assert.equal(calendar.includes("STATUS:CONFIRMED"), false);
+  });
+
   it("omits missing or invalid end times and ignores fields outside the public export contract", () => {
     const calendar = createPublicEventIcs(
       {

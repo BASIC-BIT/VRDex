@@ -97,8 +97,24 @@ Headline, bio, region and timezone are information about the person and are
 editable there; appearance choices and the slug are not. `timezone` and the
 focus items carry one extra condition, because the profile page does not render
 them in every state and editing a field means being shown its current value
-first — the same section says which. Media is not editable by the community
-either, for want of an upload path rather than by the rule.
+first — the same section says which.
+
+Media is proposed through a separate reviewed path rather than edited directly.
+For the first release, a verified-email contributor can offer one person profile
+image or one community primary logo for an unclaimed public profile. Processing
+keeps the candidate private; only a superadmin decision, or the active owner
+after a claim transition, can create a normal public asset.
+
+The contribution form records an HTTPS source, credit, accessibility text, and
+an optional reviewer note. Moderation and audit are the trust boundary; VRDex
+does not collect rights or likeness categories or a performative attestation
+checkbox. Pending and rejected media never appears in public profile, event,
+search, or asset routes.
+
+New community-submitted profiles explicitly start with region `unlisted` and
+exact timezone `private`. Existing profiles keep their current effective public
+defaults unless an owner changes them; this slice does not retroactively hide
+fields.
 
 ## Implementation Boundaries
 

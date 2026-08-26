@@ -132,7 +132,31 @@ const eventPreview = {
   slotCount: 2,
 };
 
+const discoveryScheduleEvent = {
+  ...eventPreview,
+  nextSlots: [
+    {
+      startAt: eventStartAt,
+      endAt: firstSlotEndAt,
+      displayLabel: "DJ Aurora",
+      roleLabel: "House",
+      performer: {
+        slug: personSlug,
+        displayName: "DJ Aurora",
+        trustLabel: "community_submitted" as const,
+      },
+    },
+    {
+      startAt: secondSlotStartAt,
+      endAt: secondSlotEndAt,
+      displayLabel: "DJ Lumen",
+      roleLabel: "Trance",
+    },
+  ],
+};
+
 const personProfile: FixturePersonProfile = {
+  id: "fixture-profile-dj-aurora",
   profileType: "person",
   slug: personSlug,
   displayName: "DJ Aurora",
@@ -151,6 +175,7 @@ const personProfile: FixturePersonProfile = {
   timezone: "UTC+1",
   avatarImageUrl: auroraProfileImage.imageUrl,
   trustLabel: "community_submitted",
+  updatedAt: Date.UTC(2026, 7, 26, 12, 0, 0),
   source: {
     sourceType: "community",
     label: "Community submitted",
@@ -684,6 +709,7 @@ const personProfiles = [
 ];
 
 const communityProfile: PublicProfile = {
+  id: "fixture-profile-afterglow",
   profileType: "community",
   slug: communitySlug,
   displayName: "Afterglow Social",
@@ -697,6 +723,7 @@ const communityProfile: PublicProfile = {
   timezone: "UTC",
   avatarImageUrl: "/api/e2e/fixture-assets/fixture-afterglow-event-poster",
   trustLabel: "community_submitted",
+  updatedAt: Date.UTC(2026, 7, 26, 12, 0, 0),
   source: {
     sourceType: "community",
     label: "Community submitted",
@@ -1159,6 +1186,7 @@ const discoveryResults: PublicSearchResult[] = [
 const discoveryData: PublicDiscoveryData = {
   featured: [discoveryResults[0]!, discoveryResults[5]!],
   upcomingEvents: [discoveryResults[0]!],
+  eventSchedule: [discoveryScheduleEvent],
   people: [discoveryResults[1]!, discoveryResults[2]!, discoveryResults[3]!],
   communities: [discoveryResults[4]!],
   worlds: [discoveryResults[5]!],

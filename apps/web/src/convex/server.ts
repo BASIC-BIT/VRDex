@@ -298,25 +298,31 @@ export async function fetchHomeActiveWorlds() {
 }
 
 export async function fetchDiscovery() {
+  const now = Date.now();
   const fixtureDiscovery = getPlaywrightDiscoveryFixture();
 
   if (fixtureDiscovery !== null) {
     return {
       kind: "live" as const,
-      data: fixtureDiscovery,
+      data: { ...fixtureDiscovery, eventSchedule: fixtureDiscovery.eventSchedule ?? [] },
+      now: Date.UTC(2025, 0, 1, 12, 0, 0),
     };
   }
 
   if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
-    return { kind: "missing-url" as const, data: emptyDiscoveryData() };
+    return { kind: "missing-url" as const, data: emptyDiscoveryData(), now };
   }
 
   try {
-    const data = await fetchQuery(api.search.listDiscovery, { now: Date.now() });
+    const [data, eventSchedule] = await Promise.all([
+      fetchQuery(api.search.listDiscovery, { now }),
+      fetchQuery(api.events.listPublicUpcoming, { now, limit: 12 }),
+    ]);
 
     return {
       kind: "live" as const,
-      data,
+      data: { ...data, eventSchedule },
+      now,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -326,6 +332,7 @@ export async function fetchDiscovery() {
     return {
       kind: "error" as const,
       data: emptyDiscoveryData(),
+      now,
     };
   }
 }
@@ -466,5 +473,26 @@ function emptyDiscoveryData() {
     communities: [],
     worlds: [],
     terms: [],
+    eventSchedule: [],
   };
+}
+
+export async function fetchEditableEventBySlug(slug: string) {
+  if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
+    return { kind: "missing-url" as const, event: null };
+  }
+
+  try {
+    const event = await fetchQuery(
+      api.events.getEditableBySlug,
+      { slug },
+      { token: await convexAuthToken() },
+    );
+
+    return { kind: "live" as const, event };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Server-side Convex editable event fetch failed: ${message}`);
+    return { kind: "error" as const, event: null };
+  }
 }

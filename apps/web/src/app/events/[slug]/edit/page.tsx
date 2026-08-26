@@ -8,7 +8,7 @@ import { EventBackendNotice } from "../../../_components/event-public-page";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, Eyebrow } from "@/components/ui/card";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
-import { fetchPublicEventBySlug } from "@/convex/server";
+import { fetchEditableEventBySlug } from "@/convex/server";
 import { formatDiscordEventPost } from "../../../../../../../convex/_eventDiscordExport";
 
 export const dynamic = "force-dynamic";
@@ -56,7 +56,7 @@ function getCanonicalEventUrl(slug: string, requestHeaders: Headers): string {
 
 export default async function EditEventPage({ params }: EditEventPageProps) {
   const { slug } = await params;
-  const result = await fetchPublicEventBySlug(slug);
+  const result = await fetchEditableEventBySlug(slug);
 
   if (result.kind === "missing-url" || result.kind === "error") {
     return <EventBackendNotice kind={result.kind} />;
@@ -77,9 +77,11 @@ export default async function EditEventPage({ params }: EditEventPageProps) {
       <PageContainer max="5xl">
         <PageNav>
           <BrandLink />
-          <Link className={buttonVariants({ variant: "secondary" })} href={`/${result.event.slug}`}>
-            View event
-          </Link>
+          {result.event.publicationState === "published" ? (
+            <Link className={buttonVariants({ variant: "secondary" })} href={`/${result.event.slug}`}>
+              View event
+            </Link>
+          ) : null}
         </PageNav>
 
         <section className="overflow-hidden rounded-hero border border-border bg-surface shadow-hero backdrop-blur">

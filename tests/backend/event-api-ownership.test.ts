@@ -47,6 +47,7 @@ async function seedOwnedCommunity(t: ReturnType<typeof convexTest>) {
     });
 
     return {
+      profileId,
       userId,
       identity: {
         subject: clerkUserId, emailVerified: true,
@@ -57,7 +58,295 @@ async function seedOwnedCommunity(t: ReturnType<typeof convexTest>) {
   });
 }
 
+async function seedUser(t: ReturnType<typeof convexTest>, name: string) {
+  return t.run(async (ctx) => {
+    const clerkUserId = newClerkUserId();
+    const userId = await ctx.db.insert("users", {
+      clerkUserId,
+      name,
+      email: `${name.toLowerCase().replace(/\s+/g, "-")}@example.com`,
+      emailVerificationTime: NOW,
+    });
+
+    return {
+      userId,
+      identity: {
+        subject: clerkUserId,
+        emailVerified: true,
+        issuer: "test",
+        tokenIdentifier: `test|${userId}`,
+      },
+    };
+  });
+}
+
 describe("API-created event ownership", () => {
+  it("lets a current community owner create a private draft with an audit record", async () => {
+    const t = convexTest({ schema, modules });
+    const { identity } = await seedOwnedCommunity(t);
+
+    const created = await t.withIdentity(identity).mutation(api.events.createCommunityEvent, {
+      title: "Faceless Friday",
+      communitySlug: "faceless",
+      startAt: NOW + 86_400_000,
+      summary: "Browser-authored draft.",
+    });
+    const managed = await t.withIdentity(identity).query(api.events.listManagedCommunities, {});
+    assert.deepEqual(managed.map((community) => community.slug), ["faceless"]);
+    const managedEvents = await t.withIdentity(identity).query(api.events.listManagedEvents, {});
+    assert.equal(managedEvents[0]?.title, "Faceless Friday");
+    assert.equal(managedEvents[0]?.publicationState, "draft_private");
+    const result = await t.run(async (ctx) => ({
+      event: await ctx.db.get(created.eventId),
+      audits: await ctx.db
+        .query("eventAuditEvents")
+        .withIndex("by_eventId_createdAt", (query) => query.eq("eventId", created.eventId))
+        .collect(),
+    }));
+
+    assert.equal(result.event?.publicationState, "draft_private");
+    assert.equal(result.event?.eventStatus, "scheduled");
+    assert.equal(result.event?.publishedAt, undefined);
+    assert.equal(result.audits.length, 1);
+    assert.equal(result.audits[0]?.action, "created");
+    assert.equal(result.audits[0]?.actorSurface, "browser");
+    const history = await t.withIdentity(identity).query(api.events.listEventAudit, {
+      currentSlug: created.slug,
+    });
+    assert.equal(history[0]?.action, "created");
+    assert.equal("tokenIdentifier" in (history[0] ?? {}), false);
+  });
+
+  it("publishes, cancels, and restores an authorized draft without leaking cancelled discovery", async () => {
+    const t = convexTest({ schema, modules });
+    const { identity } = await seedOwnedCommunity(t);
+    const startAt = NOW + 86_400_000;
+    const created = await t.withIdentity(identity).mutation(api.events.createCommunityEvent, {
+      title: "Faceless Saturday",
+      communitySlug: "faceless",
+      startAt,
+      endAt: startAt + 3_600_000,
+    });
+    const managed = await t.withIdentity(identity).query(api.events.listManagedCommunities, {});
+    assert.deepEqual(managed.map((community) => community.slug), ["faceless"]);
+
+    assert.equal(
+      await t.query(api.events.getPublicBySlug, { slug: created.slug }),
+      null,
+    );
+    const editable = await t.withIdentity(identity).query(api.events.getEditableBySlug, {
+      slug: created.slug,
+    });
+    assert.equal(editable?.publicationState, "draft_private");
+
+    await t.withIdentity(identity).mutation(api.events.setCommunityEventPublished, {
+      currentSlug: created.slug,
+      published: true,
+    });
+    const published = await t.query(api.events.getPublicBySlug, { slug: created.slug });
+    assert.equal(published?.status, "scheduled");
+
+    await assert.rejects(
+      t.withIdentity(identity).mutation(api.events.setCommunityEventCancelled, {
+        currentSlug: created.slug,
+        cancelled: true,
+      }),
+      /cancellation reason is required/i,
+    );
+    await t.withIdentity(identity).mutation(api.events.setCommunityEventCancelled, {
+      currentSlug: created.slug,
+      cancelled: true,
+      reason: "The venue is unavailable.",
+    });
+    assert.equal(
+      (await t.query(api.events.getPublicBySlug, { slug: created.slug }))?.status,
+      "cancelled",
+    );
+    assert.deepEqual(
+      await t.query(api.events.listPublicUpcoming, { now: NOW, limit: 8 }),
+      [],
+    );
+    const cancelledSearchDocument = await t.run((ctx) =>
+      ctx.db
+        .query("searchDocuments")
+        .withIndex("by_eventId", (query) => query.eq("eventId", created.eventId))
+        .unique(),
+    );
+    assert.equal(cancelledSearchDocument?.publicState, "hidden");
+
+    await t.withIdentity(identity).mutation(api.events.setCommunityEventCancelled, {
+      currentSlug: created.slug,
+      cancelled: false,
+    });
+    const upcoming = await t.query(api.events.listPublicUpcoming, { now: NOW, limit: 8 });
+    assert.equal(upcoming[0]?.slug, created.slug);
+    assert.equal(upcoming[0]?.status, "scheduled");
+    const restoredSearchDocument = await t.run((ctx) =>
+      ctx.db
+        .query("searchDocuments")
+        .withIndex("by_eventId", (query) => query.eq("eventId", created.eventId))
+        .unique(),
+    );
+    assert.equal(restoredSearchDocument?.publicState, "public");
+  });
+
+  it("refuses an authenticated user without current community authority", async () => {
+    const t = convexTest({ schema, modules });
+    const { identity: ownerIdentity } = await seedOwnedCommunity(t);
+    const { identity } = await seedUser(t, "Unrelated User");
+
+    const owned = await t.withIdentity(ownerIdentity).mutation(api.events.createCommunityEvent, {
+      title: "Owner Event",
+      communitySlug: "faceless",
+      startAt: NOW + 86_400_000,
+    });
+
+    await assert.rejects(
+      t.withIdentity(identity).mutation(api.events.createCommunityEvent, {
+        title: "Impersonated Event",
+        communitySlug: "faceless",
+        startAt: NOW + 86_400_000,
+      }),
+      /do not have permission to create events for this community/,
+    );
+    await assert.rejects(
+      t.withIdentity(identity).query(api.events.listEventAudit, {
+        currentSlug: owned.slug,
+      }),
+      /do not have permission/i,
+    );
+  });
+
+  it("lets active manage_events staff create a draft and refuses them after revocation", async () => {
+    const t = convexTest({ schema, modules });
+    const { profileId } = await seedOwnedCommunity(t);
+    const { identity } = await seedUser(t, "Event Staff");
+    const authorityId = await t.run((ctx) =>
+      ctx.db.insert("communityAuthorities", {
+        communityProfileId: profileId,
+        subjectTokenIdentifier: identity.tokenIdentifier,
+        subject: {
+          tokenIdentifier: identity.tokenIdentifier,
+          issuer: identity.issuer,
+          subject: identity.subject,
+        },
+        roleKey: "event_staff",
+        roleLabel: "Event staff",
+        capabilities: ["manage_events"],
+        state: "active",
+        grantedAt: NOW,
+        updatedAt: NOW,
+      }),
+    );
+    assert.deepEqual(
+      (await t.withIdentity(identity).query(api.events.listManagedCommunities, {})).map(
+        (community) => community.slug,
+      ),
+      ["faceless"],
+    );
+    const created = await t.withIdentity(identity).mutation(api.events.createCommunityEvent, {
+      title: "Staff Programmed Night",
+      communitySlug: "faceless",
+      startAt: NOW + 86_400_000,
+    });
+    assert.equal(
+      (await t.run((ctx) => ctx.db.get(created.eventId)))?.publicationState,
+      "draft_private",
+    );
+    assert.equal(
+      (await t.withIdentity(identity).query(api.events.listManagedEvents, {}))[0]?.eventId,
+      created.eventId,
+    );
+
+    await t.run((ctx) =>
+      ctx.db.patch(authorityId, { state: "revoked", revokedAt: NOW + 1, updatedAt: NOW + 1 }),
+    );
+    assert.deepEqual(
+      await t.withIdentity(identity).query(api.events.listManagedCommunities, {}),
+      [],
+    );
+    assert.deepEqual(
+      await t.withIdentity(identity).query(api.events.listManagedEvents, {}),
+      [],
+    );
+    await assert.rejects(
+      t.withIdentity(identity).mutation(api.events.setCommunityEventPublished, {
+        currentSlug: created.slug,
+        published: true,
+      }),
+      /do not have permission/i,
+    );
+  });
+
+  it("does not preserve submitter authority on a community-linked event", async () => {
+    const t = convexTest({ schema, modules });
+    const { profileId } = await seedOwnedCommunity(t);
+    const { identity, userId } = await seedUser(t, "Former Submitter");
+    const eventId = await t.run((ctx) =>
+      ctx.db.insert("events", {
+        slug: "former-submitter-event",
+        title: "Former Submitter Event",
+        sortTitle: "former submitter event",
+        startAt: NOW + 86_400_000,
+        communityProfileId: profileId,
+        communityName: "The Faceless",
+        sourceType: "community",
+        sourceLabel: "Community submitted",
+        submitter: {
+          tokenIdentifier: `test|${userId}`,
+          issuer: "test",
+          subject: identity.subject,
+        },
+        eventStatus: "scheduled",
+        publicationState: "published",
+        publishedAt: NOW,
+        updatedAt: NOW,
+      }),
+    );
+
+    await assert.rejects(
+      t.withIdentity(identity).mutation(api.events.updateCommunityEvent, {
+        currentSlug: "former-submitter-event",
+        title: "Changed by Former Submitter",
+        communitySlug: "faceless",
+        startAt: NOW + 86_400_000,
+      }),
+      /do not have permission to update this event/,
+    );
+    const event = await t.run((ctx) => ctx.db.get(eventId));
+    assert.equal(event?.title, "Former Submitter Event");
+  });
+
+  it("keeps an in-progress event in the public upcoming query", async () => {
+    const t = convexTest({ schema, modules });
+    const { userId } = await seedOwnedCommunity(t);
+    const created = await t.mutation(internal.events.createCommunityEventForApiOwner, {
+      actorKind: "personal_api_token",
+      ownerUserId: userId,
+      title: "Faceless In Progress",
+      communitySlug: "faceless",
+      startAt: NOW - 3_600_000,
+      endAt: NOW + 3_600_000,
+      timezone: "UTC",
+      slotLinks: [
+        {
+          displayLabel: "Finished DJ",
+          startAt: NOW - 3_600_000,
+          endAt: NOW - 60_000,
+        },
+        {
+          displayLabel: "Current DJ",
+          startAt: NOW,
+          endAt: NOW + 3_600_000,
+        },
+      ],
+    });
+
+    const upcoming = await t.query(api.events.listPublicUpcoming, { now: NOW, limit: 8 });
+    assert.equal(upcoming[0]?.slug, created.slug);
+    assert.deepEqual(upcoming[0]?.nextSlots.map((slot) => slot.displayLabel), ["Current DJ"]);
+  });
+
   it("lets the durable community owner edit and manage media from a normal session", async () => {
     const t = convexTest({ schema, modules });
     const { identity, userId } = await seedOwnedCommunity(t);

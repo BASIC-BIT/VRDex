@@ -220,6 +220,10 @@ function profileFieldValues(
       return profile.profileType === "community" ? compact([profile.community.subtype]) : [];
     case "communityCategoryTags":
       return profile.profileType === "community" ? compact(profile.community.categoryTags) : [];
+    case "mediaKit":
+      // Media records live in profileAssets rather than on the profile row.
+      // Their private owner/operator projection is assembled separately.
+      return [];
   }
 }
 

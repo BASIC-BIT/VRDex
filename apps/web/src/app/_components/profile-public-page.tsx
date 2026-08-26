@@ -117,6 +117,7 @@ type PublicProfileAppearance = {
 };
 
 type PublicProfileBase = {
+  id?: string;
   profileType: "person" | "community";
   slug: string;
   displayName: string;
@@ -131,6 +132,7 @@ type PublicProfileBase = {
   region?: string;
   timezone?: string;
   trustLabel: ProfileTrustLabel;
+  updatedAt?: number;
   source?: {
     sourceType: "community";
     label: string;
@@ -381,7 +383,14 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
   const avatarAppearance = mediaKit.avatarAppearance ?? defaultAvatarAppearance;
   const avatarStyle: CSSProperties = avatarFrameStyle(avatarImageStyle, avatarAppearance);
   const eventPreviews = isPerson ? profile.upcomingEvents : profile.hostedEvents;
-  const aboutCopy = profile.bio?.trim();
+  const canClaim = profile.trustLabel === "community_submitted" || profile.trustLabel === "unclaimed";
+  // Owner-authored personalization wins when present; the factual/community
+  // bio remains the fallback instead of rendering two competing About blocks.
+  // An unclaimed record has no owner yet, so its longer community narrative is
+  // not treated as owner-authored personalization.
+  const aboutCopy = canClaim
+    ? profile.bio?.trim()
+    : profile.about?.trim() || profile.bio?.trim();
   const focusItems = Array.from(new Set(
     isPerson
       ? [...profile.person.roleTags, ...profile.tags]
@@ -455,7 +464,12 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
     hasPrimaryLogo: mediaKit.primaryLogo !== undefined,
     logoCount: mediaKit.logos.length,
   });
-  const canClaim = profile.trustLabel === "community_submitted" || profile.trustLabel === "unclaimed";
+  const canContributeMedia =
+    canClaim &&
+    profile.id !== undefined &&
+    profile.updatedAt !== undefined &&
+    (process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED === "true" ||
+      process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES === "true");
   const profileBasePath = `/${profile.slug}`;
   const secondaryOrder = normalizeProfileSectionOrder(profile.appearance?.sectionOrder).filter((section) =>
     ["events", "media_kit", "worlds"].includes(section),
@@ -639,6 +653,14 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
                 >
                   Suggest an edit
                 </Link>
+                {canContributeMedia ? (
+                  <Link
+                    className={cn(buttonVariants({ size: "sm", variant: "ghost" }), "shrink-0 whitespace-nowrap")}
+                    href={`/${profile.slug}/contribute-media`}
+                  >
+                    Add profile media
+                  </Link>
+                ) : null}
               </div>
             ) : null}
           </aside>

@@ -127,6 +127,11 @@ const publicationState = v.union(
   v.literal("published"),
 );
 
+const eventStatus = v.union(
+  v.literal("scheduled"),
+  v.literal("cancelled"),
+);
+
 // `archived` is its own state rather than a reuse of `suppressed`, which carries
 // a specific meaning: somebody asked to be hidden, and the audit trail says a
 // moderator agreed. Archival is the operator saying this row should not exist --
@@ -291,6 +296,21 @@ const profileAssetUploadIntentState = v.union(
   v.literal("uploaded"),
   v.literal("consumed"),
   v.literal("expired"),
+);
+
+const profileAssetUploadIntentPurpose = v.union(
+  v.literal("owner_publish"),
+  v.literal("community_proposal"),
+);
+
+const profileMediaSubmissionStatus = v.union(
+  v.literal("upload_pending"),
+  v.literal("submitted"),
+  v.literal("under_review"),
+  v.literal("approved"),
+  v.literal("rejected"),
+  v.literal("withdrawn"),
+  v.literal("superseded"),
 );
 
 const profileAssetPlacement = v.union(
@@ -608,6 +628,7 @@ const fieldVisibility = v.object({
   personRoleTags: v.optional(fieldVisibilityState),
   communitySubtype: v.optional(fieldVisibilityState),
   communityCategoryTags: v.optional(fieldVisibilityState),
+  mediaKit: v.optional(fieldVisibilityState),
 });
 
 const sharedProfileFields = {
@@ -752,6 +773,8 @@ export default defineSchema({
     placements: v.optional(v.array(profileAssetPlacement)),
     position: v.optional(v.number()),
     source: v.optional(profileAssetSource),
+    purpose: profileAssetUploadIntentPurpose,
+    targetSubmissionId: v.optional(v.id("profileMediaSubmissions")),
     state: profileAssetUploadIntentState,
     processingToken: v.optional(v.string()),
     processingStartedAt: v.optional(v.number()),
@@ -765,7 +788,44 @@ export default defineSchema({
     .index("by_uploadToken", ["uploadToken"])
     .index("by_state_expiresAt", ["state", "expiresAt"])
     .index("by_targetProfileId_state_expiresAt", ["targetProfileId", "state", "expiresAt"])
+    .index("by_targetSubmissionId", ["targetSubmissionId"])
     .index("by_requestedBy", ["requestedBy.tokenIdentifier"]),
+  profileMediaSubmissions: defineTable({
+    profileId: v.id("profiles"),
+    submitterUserId: v.id("users"),
+    submitter: authSubject,
+    uploadIntentId: v.optional(v.id("profileAssetUploadIntents")),
+    requestedPlacement: profileAssetPlacement,
+    originalFileName: v.optional(v.string()),
+    sourceUrl: v.string(),
+    label: v.optional(v.string()),
+    altText: v.optional(v.string()),
+    credit: v.string(),
+    creditUrl: v.optional(v.string()),
+    contributorNote: v.optional(v.string()),
+    status: profileMediaSubmissionStatus,
+    targetProfileUpdatedAt: v.number(),
+    decisionProfileUpdatedAt: v.optional(v.number()),
+    reviewer: v.optional(authSubject),
+    reviewedAt: v.optional(v.number()),
+    publicDisposition: v.optional(v.string()),
+    privateReason: v.optional(v.string()),
+    approvedAssetId: v.optional(v.id("profileAssets")),
+    contentSha256: v.optional(v.string()),
+    expiresAt: v.number(),
+    blobDeleteAfter: v.optional(v.number()),
+    blobDeletedAt: v.optional(v.number()),
+    legalHoldAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_profileId_status_createdAt", ["profileId", "status", "createdAt"])
+    .index("by_profileId_createdAt", ["profileId", "createdAt"])
+    .index("by_submitterUserId_status_createdAt", ["submitterUserId", "status", "createdAt"])
+    .index("by_submitterUserId_createdAt", ["submitterUserId", "createdAt"])
+    .index("by_status_createdAt", ["status", "createdAt"])
+    .index("by_blobDeleteAfter", ["blobDeleteAfter"])
+    .index("by_contentSha256", ["contentSha256"]),
   profileAssets: defineTable({
     profileId: v.id("profiles"),
     storageKey: v.string(),
@@ -925,6 +985,7 @@ export default defineSchema({
     sourceLabel: v.string(),
     sourceUrl: v.optional(v.string()),
     submitter: v.optional(authSubject),
+    eventStatus,
     publicationState,
     publishedAt: v.optional(v.number()),
     createdAt: v.optional(v.number()),
@@ -1007,6 +1068,32 @@ export default defineSchema({
       "reviewState",
       "startAt",
     ]),
+  eventAuditEvents: defineTable({
+    eventId: v.id("events"),
+    actor: v.optional(authSubject),
+    actorSurface: v.union(
+      v.literal("browser"),
+      v.literal("api"),
+      v.literal("mcp"),
+      v.literal("operator"),
+      v.literal("system"),
+    ),
+    action: v.union(
+      v.literal("created"),
+      v.literal("updated"),
+      v.literal("slots_replaced"),
+      v.literal("published"),
+      v.literal("unpublished"),
+      v.literal("cancelled"),
+      v.literal("restored"),
+      v.literal("suppressed"),
+    ),
+    changedFields: v.optional(v.array(v.string())),
+    reason: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_eventId_createdAt", ["eventId", "createdAt"])
+    .index("by_action_createdAt", ["action", "createdAt"]),
   eventImportBatches: defineTable({
     externalBatchId: v.string(),
     provider: eventImportProviderValidator,

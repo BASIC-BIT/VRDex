@@ -8,7 +8,7 @@ export type EventScheduleStatus = "now" | "soon" | "later" | "past";
 
 export type EventScheduleRowProps = Omit<ComponentPropsWithoutRef<"article">, "title"> &
   VariantProps<typeof scheduleItemVariants> & {
-  time: string;
+  time: ReactNode;
   title: ReactNode;
   href?: string;
   statusLabel?: ReactNode;

@@ -12,6 +12,7 @@ import { Field, FieldText, Input, Select, Textarea } from "@/components/ui/field
 import { Notice } from "@/components/ui/notice";
 import { BACKEND_ERROR_COPY } from "@/lib/error-copy";
 import { VrcdnMediaLinkAssistant } from "../_components/vrcdn-media-link-assistant";
+import { ViewerLocalEventDateTime } from "../_components/viewer-local-event-times";
 import { parseVrcdnStreamLinks } from "../../../../../convex/_vrcdnLinks";
 
 type EventMediaLinkType = PublicEvent["mediaLinks"][number]["type"];
@@ -39,6 +40,19 @@ type VrcdnOutputFormState = {
   authorized: boolean;
 };
 
+type EditableEvent = PublicEvent & {
+  publicationState?: "draft_private" | "published";
+};
+
+type SlotFormRow = {
+  id: string;
+  offsetMinutes: string;
+  durationMinutes: string;
+  personSlug: string;
+  displayLabel: string;
+  roleLabel: string;
+};
+
 type VrcdnOutputAccountOption = {
   key: string;
   label: string;
@@ -48,6 +62,45 @@ type VrcdnOutputAccountOption = {
     url: string;
   }>;
 };
+
+function PersonProfileInput({
+  inputId,
+  onChange,
+  value,
+}: {
+  inputId: string;
+  onChange: (value: string, displayName?: string) => void;
+  value: string;
+}) {
+  const query = value.trim();
+  const matches = useQuery(
+    api.search.searchUniversal,
+    query.length >= 2
+      ? { query, entityType: "profile", profileType: "person", limit: 6 }
+      : "skip",
+  );
+  const listId = `${inputId}-matches`;
+  return (
+    <>
+      <Input
+        id={inputId}
+        list={listId}
+        onChange={(changeEvent) => {
+          const nextValue = eventTargetValue(changeEvent);
+          const selected = matches?.find((match) => match.slug === nextValue);
+          onChange(nextValue, selected?.title);
+        }}
+        placeholder="Search name or slug"
+        value={value}
+      />
+      <datalist id={listId}>
+        {matches?.map((match) => (
+          <option key={match.routePath} label={match.title} value={match.slug} />
+        ))}
+      </datalist>
+    </>
+  );
+}
 
 const userSafeErrorPatterns = [
   /Event changes require a signed-in user\./,
@@ -328,23 +381,21 @@ function parseParticipantLinks(value: string) {
     });
 }
 
-function parseSlotLinks(value: string, eventStartAt: number) {
-  return value
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line, index) => {
-      const [offsetInput = "", durationInput = "", personSlugInput = "", displayLabelInput = "", roleLabelInput = "Performer"] = line
-        .split("|")
-        .map((part) => part.trim());
-      const offsetMinutes = parseInteger(offsetInput, "Slot offset minutes");
-      const durationMinutes = optionalString(durationInput) === undefined ? undefined : parseInteger(durationInput, "Slot duration minutes");
+function parseSlotRows(rows: SlotFormRow[], eventStartAt: number) {
+  return rows.map((row, index) => {
+      const offsetMinutes = parseInteger(row.offsetMinutes, "Slot offset minutes");
+      const durationMinutes = optionalString(row.durationMinutes) === undefined
+        ? undefined
+        : parseInteger(row.durationMinutes, "Slot duration minutes");
       const startAt = eventStartAt + offsetMinutes * 60_000;
 
       return {
-        personSlug: optionalString(personSlugInput),
-        displayLabel: optionalString(displayLabelInput) ?? optionalString(personSlugInput) ?? `Slot ${index + 1}`,
-        roleLabel: optionalString(roleLabelInput) ?? "Performer",
+        personSlug: optionalString(row.personSlug),
+        displayLabel:
+          optionalString(row.displayLabel) ??
+          optionalString(row.personSlug) ??
+          `Slot ${index + 1}`,
+        roleLabel: optionalString(row.roleLabel) ?? "Performer",
         startAt,
         ...(durationMinutes === undefined ? {} : { endAt: startAt + durationMinutes * 60_000 }),
       };
@@ -363,28 +414,40 @@ function serializeParticipants(event: PublicEvent | undefined): string {
     .join("\n");
 }
 
-function serializeSlots(event: PublicEvent | undefined): string {
-  return (event?.slots ?? [])
-    .map((slot) => {
-      const offsetMinutes = Math.round((slot.startAt - event!.startAt) / 60_000);
-      const durationMinutes = slot.endAt === undefined ? "" : String(Math.round((slot.endAt - slot.startAt) / 60_000));
+function initialSlotRows(event: EditableEvent | undefined): SlotFormRow[] {
+  if (event === undefined) {
+    return [];
+  }
 
-      return [
-        offsetMinutes,
-        durationMinutes,
-        slot.performer?.slug ?? "",
-        slot.displayLabel,
-        slot.roleLabel,
-      ].join(" | ");
-    })
-    .join("\n");
+  return event.slots.map((slot, index) => ({
+    id: `stored-${slot.position}-${slot.startAt}-${index}`,
+    offsetMinutes: String(Math.round((slot.startAt - event.startAt) / 60_000)),
+    durationMinutes:
+      slot.endAt === undefined
+        ? ""
+        : String(Math.round((slot.endAt - slot.startAt) / 60_000)),
+    personSlug: slot.performer?.slug ?? "",
+    displayLabel: slot.displayLabel,
+    roleLabel: slot.roleLabel,
+  }));
 }
 
-function createGeneratedSlotText(count: number, durationMinutes: number, breakMinutes: number): string {
+function createGeneratedSlotRows(
+  count: number,
+  durationMinutes: number,
+  breakMinutes: number,
+): SlotFormRow[] {
   return Array.from({ length: count }, (_, index) => {
     const offsetMinutes = index * (durationMinutes + breakMinutes);
-    return `${offsetMinutes} | ${durationMinutes} |  | Slot ${index + 1} | DJ set`;
-  }).join("\n");
+    return {
+      id: `generated-${Date.now()}-${index}`,
+      offsetMinutes: String(offsetMinutes),
+      durationMinutes: String(durationMinutes),
+      personSlug: "",
+      displayLabel: `Slot ${index + 1}`,
+      roleLabel: "DJ set",
+    };
+  });
 }
 
 function eventTargetValue(changeEvent: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>): string {
@@ -447,19 +510,27 @@ function SignInRequiredEventEditorPanel() {
   );
 }
 
-function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
+function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
   const createEvent = useMutation(api.events.createCommunityEvent);
   const updateEvent = useMutation(api.events.updateCommunityEvent);
+  const setEventPublished = useMutation(api.events.setCommunityEventPublished);
+  const setEventCancelled = useMutation(api.events.setCommunityEventCancelled);
   const configureVrcdnOutput = useMutation(api.events.configureVrcdnOutput);
+  const managedCommunities = useQuery(api.events.listManagedCommunities, {});
   const vrcdnOutputAccounts = useQuery(api.events.listVrcdnOutputAccounts, {});
   const eventMediaControlStatus = useQuery(api.events.getEventMediaControlStatus, event === undefined ? "skip" : { currentSlug: event.slug });
+  const eventAudit = useQuery(
+    api.events.listEventAudit,
+    event === undefined ? "skip" : { currentSlug: event.slug, limit: 40 },
+  );
   const [status, setStatus] = useState<EventEditorStatus>({ kind: "idle" });
   const [vrcdnOutputStatus, setVrcdnOutputStatus] = useState<VrcdnOutputStatus>({ kind: "idle" });
   const [timezone, setTimezone] = useState(event?.timezone ?? "UTC");
   const [mediaLinksText, setMediaLinksText] = useState(() => serializeMediaLinks(event));
   const [vrcdnOutput, setVrcdnOutput] = useState<VrcdnOutputFormState>(() => createInitialVrcdnOutputForm(event));
-  const [slotText, setSlotText] = useState(() => serializeSlots(event));
+  const [slotRows, setSlotRows] = useState(() => initialSlotRows(event));
   const [slotTemplate, setSlotTemplate] = useState({ count: "4", duration: "45", break: "0" });
+  const [cancellationReason, setCancellationReason] = useState("");
   const [, startTransition] = useTransition();
 
   useEffect(() => {
@@ -493,7 +564,7 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
         return;
       }
 
-      setSlotText(createGeneratedSlotText(count, duration, breakDuration));
+      setSlotRows(createGeneratedSlotRows(count, duration, breakDuration));
     } catch (error) {
       setStatus({ kind: "error", message: eventEditorErrorMessage(error) });
     }
@@ -583,13 +654,54 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
         watchSurfaceEnabled: formData.get("watchSurfaceEnabled") === "on",
         mediaLinks: parseMediaLinks(mediaLinksText),
         participantLinks: parseParticipantLinks(stringField(formData.get("participantLinks"))),
-        slotLinks: parseSlotLinks(slotText, startAt),
+        slotLinks: parseSlotRows(slotRows, startAt),
       };
+      const intent = stringField(formData.get("intent"));
+      if (intent === "draft" && event?.publicationState === "published") {
+        // Fail safe: remove the old public version before applying edits that
+        // the organizer explicitly asked to keep as a draft.
+        await setEventPublished({ currentSlug: event.slug, published: false });
+      }
       const result = event
         ? await updateEvent({ currentSlug: event.slug, ...payload })
         : await createEvent(payload);
 
-      startTransition(() => setStatus({ kind: "success", result }));
+      if (intent === "publish") {
+        await setEventPublished({ currentSlug: result.slug, published: true });
+      }
+
+      startTransition(() =>
+        setStatus({
+          kind: "success",
+          result: {
+            ...result,
+            eventPath: intent === "publish" ? `/${result.slug}` : `/events/${result.slug}/edit`,
+          },
+        }),
+      );
+    } catch (error) {
+      startTransition(() => setStatus({ kind: "error", message: eventEditorErrorMessage(error) }));
+    }
+  }
+
+  async function onSetCancelled(cancelled: boolean) {
+    if (event === undefined) {
+      return;
+    }
+
+    setStatus({ kind: "submitting" });
+    try {
+      await setEventCancelled({
+        currentSlug: event.slug,
+        cancelled,
+        ...(cancelled ? { reason: cancellationReason } : {}),
+      });
+      startTransition(() =>
+        setStatus({
+          kind: "success",
+          result: { eventPath: `/${event.slug}`, slug: event.slug },
+        }),
+      );
     } catch (error) {
       startTransition(() => setStatus({ kind: "error", message: eventEditorErrorMessage(error) }));
     }
@@ -630,8 +742,27 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Field>
-          Community slug
-          <Input defaultValue={event?.communitySlug} name="communitySlug" placeholder="afterglow-social" />
+          Community
+          {event ? (
+            <>
+              <Input disabled value={event.communityName ?? event.communitySlug ?? ""} />
+              <input name="communitySlug" type="hidden" value={event.communitySlug ?? ""} />
+            </>
+          ) : (
+            <>
+              <Select disabled={managedCommunities === undefined || managedCommunities.length === 0} name="communitySlug" required>
+                <option value="">Select a community</option>
+                {managedCommunities?.map((community) => (
+                  <option key={community.profileId} value={community.slug}>
+                    {community.displayName} · {community.roleLabel}
+                  </option>
+                ))}
+              </Select>
+              {managedCommunities?.length === 0 ? (
+                <FieldText>You do not manage events for a public community.</FieldText>
+              ) : null}
+            </>
+          )}
         </Field>
         <Field>
           Optional world slug
@@ -931,10 +1062,7 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
       <Card className="grid gap-4" padding="sm" surface="strong">
         <div>
           <Eyebrow>DJ slots</Eyebrow>
-          <h3 className="mt-3 text-xl font-semibold tracking-[-0.03em]">Generate a set-time scaffold</h3>
-          <p className="mt-2 text-xs leading-5 text-muted">
-            Slots use minute offsets from the event start, so changing the event start keeps the lineup shape intact. Save requires a valid IANA time zone such as <code>America/New_York</code> or <code>UTC</code>.
-          </p>
+          <h3 className="mt-3 text-xl font-semibold tracking-[-0.03em]">Set times</h3>
         </div>
         <div className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end">
           <Field className="text-xs text-muted">
@@ -977,20 +1105,199 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
             Generate
           </Button>
         </div>
-        <Field>
-          Slot rows
-          <Textarea className="min-h-36 bg-surface-strong" name="slotLinks" onChange={(changeEvent) => setSlotText(changeEvent.currentTarget.value)} placeholder="0 | 45 | dj-aurora | DJ Aurora | House&#10;45 | 45 | dj-lumen | DJ Lumen | Trance" value={slotText} />
-          <FieldText>One per line: start offset minutes | duration minutes | optional person slug | billing name | style or role. Linked slot performers are also deduped into event participants.</FieldText>
-        </Field>
+        <div className="grid gap-3">
+          {slotRows.map((slot, index) => (
+            <Card className="grid gap-3" key={slot.id} padding="sm" surface="dashed">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                <Field className="text-xs text-muted">
+                  Start offset
+                  <Input
+                    inputMode="numeric"
+                    onChange={(changeEvent) => {
+                      const value = eventTargetValue(changeEvent);
+                      setSlotRows((rows) => rows.map((row) => row.id === slot.id ? { ...row, offsetMinutes: value } : row));
+                    }}
+                    value={slot.offsetMinutes}
+                  />
+                </Field>
+                <Field className="text-xs text-muted">
+                  Duration
+                  <Input
+                    inputMode="numeric"
+                    onChange={(changeEvent) => {
+                      const value = eventTargetValue(changeEvent);
+                      setSlotRows((rows) => rows.map((row) => row.id === slot.id ? { ...row, durationMinutes: value } : row));
+                    }}
+                    value={slot.durationMinutes}
+                  />
+                </Field>
+                <Field className="text-xs text-muted">
+                  Person profile
+                  <PersonProfileInput
+                    inputId={`slot-person-${slot.id}`}
+                    onChange={(value, displayName) => {
+                      setSlotRows((rows) => rows.map((row) => row.id === slot.id
+                        ? {
+                            ...row,
+                            personSlug: value,
+                            ...(displayName !== undefined && row.displayLabel.trim() === ""
+                              ? { displayLabel: displayName }
+                              : {}),
+                          }
+                        : row));
+                    }}
+                    value={slot.personSlug}
+                  />
+                </Field>
+                <Field className="text-xs text-muted">
+                  Lineup name
+                  <Input
+                    onChange={(changeEvent) => {
+                      const value = eventTargetValue(changeEvent);
+                      setSlotRows((rows) => rows.map((row) => row.id === slot.id ? { ...row, displayLabel: value } : row));
+                    }}
+                    required
+                    value={slot.displayLabel}
+                  />
+                </Field>
+                <Field className="text-xs text-muted">
+                  Role or style
+                  <Input
+                    onChange={(changeEvent) => {
+                      const value = eventTargetValue(changeEvent);
+                      setSlotRows((rows) => rows.map((row) => row.id === slot.id ? { ...row, roleLabel: value } : row));
+                    }}
+                    value={slot.roleLabel}
+                  />
+                </Field>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  disabled={index === 0}
+                  onClick={() => setSlotRows((rows) => {
+                    const next = [...rows];
+                    [next[index - 1], next[index]] = [next[index]!, next[index - 1]!];
+                    return next;
+                  })}
+                  size="sm"
+                  type="button"
+                  variant="secondary"
+                >
+                  Move up
+                </Button>
+                <Button
+                  disabled={index === slotRows.length - 1}
+                  onClick={() => setSlotRows((rows) => {
+                    const next = [...rows];
+                    [next[index], next[index + 1]] = [next[index + 1]!, next[index]!];
+                    return next;
+                  })}
+                  size="sm"
+                  type="button"
+                  variant="secondary"
+                >
+                  Move down
+                </Button>
+                <Button
+                  onClick={() => setSlotRows((rows) => rows.filter((row) => row.id !== slot.id))}
+                  size="sm"
+                  type="button"
+                  variant="secondary"
+                >
+                  Remove
+                </Button>
+              </div>
+            </Card>
+          ))}
+          <Button
+            onClick={() => setSlotRows((rows) => [
+              ...rows,
+              {
+                id: `manual-${Date.now()}-${rows.length}`,
+                offsetMinutes: "0",
+                durationMinutes: "45",
+                personSlug: "",
+                displayLabel: "",
+                roleLabel: "DJ set",
+              },
+            ])}
+            type="button"
+            variant="secondary"
+          >
+            Add slot
+          </Button>
+        </div>
       </Card>
 
-      <Notice>
-        Event links publish immediately when saved. Approval, disputes, RSVP/interested state, recurring events, and friend-aware discovery are tracked as follow-on issues.
-      </Notice>
+      {event === undefined ? null : (
+        <Card className="grid gap-3" padding="sm" surface="dashed">
+          <Field>
+            Cancellation reason
+            <Input
+              onChange={(changeEvent) => setCancellationReason(changeEvent.currentTarget.value)}
+              value={cancellationReason}
+            />
+          </Field>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              disabled={isSubmitting || event.status === "cancelled"}
+              onClick={() => void onSetCancelled(true)}
+              type="button"
+              variant="secondary"
+            >
+              Cancel event
+            </Button>
+            <Button
+              disabled={isSubmitting || event.status !== "cancelled"}
+              onClick={() => void onSetCancelled(false)}
+              type="button"
+              variant="secondary"
+            >
+              Restore event
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {event === undefined ? null : (
+        <Card className="grid gap-3" padding="sm" surface="dashed">
+          <h3 className="text-lg font-semibold">Change history</h3>
+          {eventAudit === undefined ? (
+            <p className="text-sm text-muted">Loading history…</p>
+          ) : eventAudit.length === 0 ? (
+            <p className="text-sm text-muted">No recorded changes.</p>
+          ) : (
+            <ol className="grid gap-3">
+              {eventAudit.map((row, index) => (
+                <li className="border-t border-border pt-3 first:border-t-0 first:pt-0" key={`${row.createdAt}:${row.action}:${index}`}>
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <span className="font-medium capitalize">{formatMachineValue(row.action)}</span>
+                    <ViewerLocalEventDateTime className="text-xs text-muted" timestamp={row.createdAt} />
+                  </div>
+                  <p className="mt-1 text-xs text-muted">
+                    {row.actorDisplayName ?? formatMachineValue(row.actorSurface)}
+                    {row.changedFields.length > 0 ? ` · ${row.changedFields.join(", ")}` : ""}
+                  </p>
+                  {row.reason ? <p className="mt-1 text-sm">{row.reason}</p> : null}
+                </li>
+              ))}
+            </ol>
+          )}
+        </Card>
+      )}
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <Button disabled={isSubmitting} size="lg" type="submit" variant="primary">
-          {isSubmitting ? "Saving..." : event ? "Update event" : "Create event"}
+        <Button disabled={isSubmitting} name="intent" size="lg" type="submit" value="publish" variant="primary">
+          {isSubmitting
+            ? "Saving..."
+            : event?.publicationState === "published"
+              ? "Save changes"
+              : event
+                ? "Save and publish"
+                : "Publish event"}
+        </Button>
+        <Button disabled={isSubmitting} name="intent" size="lg" type="submit" value="draft" variant="secondary">
+          {event?.publicationState === "published" ? "Unpublish and save draft" : "Save draft"}
         </Button>
         {status.kind === "success" ? (
           <Link className={buttonVariants({ size: "lg", variant: "secondary" })} href={status.result.eventPath}>
@@ -1008,7 +1315,7 @@ function ConnectedEventEditorForm({ event }: { event?: PublicEvent }) {
   );
 }
 
-export function EventEditorForm({ event }: { event?: PublicEvent }) {
+export function EventEditorForm({ event }: { event?: EditableEvent }) {
   if (!convexUrl) {
     return <DisabledEventEditorPanel />;
   }
@@ -1016,7 +1323,7 @@ export function EventEditorForm({ event }: { event?: PublicEvent }) {
   return <AuthenticatedEventEditorForm event={event} />;
 }
 
-function AuthenticatedEventEditorForm({ event }: { event?: PublicEvent }) {
+function AuthenticatedEventEditorForm({ event }: { event?: EditableEvent }) {
   const { isAuthenticated, isLoading } = useConvexAuth();
 
   if (isLoading) {

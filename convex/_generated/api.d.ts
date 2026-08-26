@@ -101,6 +101,7 @@ import type * as profileAssets from "../profileAssets.js";
 import type * as profileClaims from "../profileClaims.js";
 import type * as profileConnections from "../profileConnections.js";
 import type * as profileIdentity from "../profileIdentity.js";
+import type * as profileMediaSubmissions from "../profileMediaSubmissions.js";
 import type * as profilePrivacy from "../profilePrivacy.js";
 import type * as profiles from "../profiles.js";
 import type * as search from "../search.js";
@@ -218,6 +219,7 @@ declare const fullApi: ApiFromModules<{
   profileClaims: typeof profileClaims;
   profileConnections: typeof profileConnections;
   profileIdentity: typeof profileIdentity;
+  profileMediaSubmissions: typeof profileMediaSubmissions;
   profilePrivacy: typeof profilePrivacy;
   profiles: typeof profiles;
   search: typeof search;

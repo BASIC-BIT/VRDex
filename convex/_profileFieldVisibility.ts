@@ -16,6 +16,7 @@ export const PROFILE_FIELD_VISIBILITY_KEYS = [
   "personRoleTags",
   "communitySubtype",
   "communityCategoryTags",
+  "mediaKit",
 ] as const;
 
 export const PROFILE_FIELD_VISIBILITY_STATES = [

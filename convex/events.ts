@@ -56,6 +56,7 @@ import {
 } from "./_eventInputs";
 import { findEventOperationSlots } from "./_eventOperations";
 import {
+  getEventForEditor,
   getPublicCommunityHostedEvents,
   getPublicEventBySlug,
   getPublicEventPreviews,
@@ -394,12 +395,8 @@ async function canUpdateEvent(
   subject: AuthSubject,
   userId?: Id<"users"> | null,
 ): Promise<boolean> {
-  if (isSameAuthSubject(event.submitter, subject)) {
-    return true;
-  }
-
   if (event.communityProfileId === undefined) {
-    return false;
+    return isSameAuthSubject(event.submitter, subject);
   }
 
   if (
@@ -419,12 +416,8 @@ async function canManageEventMedia(
   subject: AuthSubject,
   userId?: Id<"users"> | null,
 ): Promise<boolean> {
-  if (isSameAuthSubject(event.submitter, subject)) {
-    return true;
-  }
-
   if (event.communityProfileId === undefined) {
-    return false;
+    return isSameAuthSubject(event.submitter, subject);
   }
 
   if (
@@ -444,12 +437,8 @@ async function canViewEventOperations(
   subject: AuthSubject,
   userId?: Id<"users"> | null,
 ): Promise<boolean> {
-  if (isSameAuthSubject(event.submitter, subject)) {
-    return true;
-  }
-
   if (event.communityProfileId === undefined) {
-    return false;
+    return isSameAuthSubject(event.submitter, subject);
   }
 
   if (
@@ -465,6 +454,62 @@ async function canViewEventOperations(
     "manage_events",
     "manage_event_media",
   ]);
+}
+
+async function canManageCommunityEvents(
+  db: DatabaseReader,
+  communityProfileId: Id<"profiles">,
+  subject: AuthSubject,
+  userId: Id<"users">,
+): Promise<boolean> {
+  return (
+    await userOwnsProfile(db, communityProfileId, userId)
+  ) || subjectHasCommunityCapability(db, communityProfileId, subject, "manage_events");
+}
+
+async function requireBrowserManagedCommunity(
+  db: DatabaseReader,
+  communitySlug: string | undefined,
+  subject: AuthSubject,
+  userId: Id<"users">,
+) {
+  if (communitySlug === undefined) {
+    throw new Error("Community slug is required for event creation.");
+  }
+
+  const community = await getPublishedCommunityBySlug(db, communitySlug);
+
+  if (
+    community === undefined ||
+    !(await canManageCommunityEvents(db, community._id, subject, userId))
+  ) {
+    throw new Error("You do not have permission to create events for this community.");
+  }
+
+  return community;
+}
+
+async function recordEventAuditEvent(
+  db: DatabaseWriter,
+  input: {
+    eventId: Id<"events">;
+    actor?: AuthSubject;
+    actorSurface: Doc<"eventAuditEvents">["actorSurface"];
+    action: Doc<"eventAuditEvents">["action"];
+    changedFields?: string[];
+    reason?: string;
+    now: number;
+  },
+) {
+  await db.insert("eventAuditEvents", {
+    eventId: input.eventId,
+    ...(input.actor === undefined ? {} : { actor: input.actor }),
+    actorSurface: input.actorSurface,
+    action: input.action,
+    ...(input.changedFields === undefined ? {} : { changedFields: input.changedFields }),
+    ...(input.reason === undefined ? {} : { reason: input.reason }),
+    createdAt: input.now,
+  });
 }
 
 async function replaceEventWorldLink(
@@ -714,7 +759,10 @@ async function requireApiOwnedPublishedCommunity(
 
 async function createCommunityEventForApiOwnerRecord(
   db: DatabaseWriter,
-  args: EventDraftInput & { ownerUserId: Id<"users"> },
+  args: EventDraftInput & {
+    ownerUserId: Id<"users">;
+    actorSurface?: "api" | "mcp";
+  },
 ) {
   const input = sanitizeEventDraftInput(args);
   const community = await requireApiOwnedPublishedCommunity(db, input.communitySlug, args.ownerUserId);
@@ -724,6 +772,7 @@ async function createCommunityEventForApiOwnerRecord(
     community,
     world,
     submitter: apiOwnerAuthSubject(args.ownerUserId),
+    actorSurface: args.actorSurface ?? "api",
   });
 
   return { community, result };
@@ -734,6 +783,7 @@ async function updateCommunityEventForApiOwnerRecord(
   args: EventDraftUpdateInput & {
     currentSlug: string;
     ownerUserId: Id<"users">;
+    actorSurface?: "api" | "mcp";
   },
 ) {
   const validation = validateEventSlug(args.currentSlug);
@@ -803,6 +853,14 @@ async function updateCommunityEventForApiOwnerRecord(
     ? await getPublishedWorldBySlug(db, input.worldSlug)
     : await linkedPublishedEventWorld(db, event._id);
   const result = await updateCommunityEventRecord(db, { event, input, community, world, updateFields });
+  await recordEventAuditEvent(db, {
+    eventId: event._id,
+    actor: apiOwnerAuthSubject(args.ownerUserId),
+    actorSurface: args.actorSurface ?? "api",
+    action: "updated",
+    changedFields: [...updateFields],
+    now: Date.now(),
+  });
 
   return { community, event, result };
 }
@@ -856,10 +914,13 @@ async function insertCommunityEventRecord(
     community?: Doc<"profiles">;
     world?: Doc<"worlds">;
     submitter: AuthSubject;
+    publicationState?: Doc<"events">["publicationState"];
+    actorSurface?: Doc<"eventAuditEvents">["actorSurface"];
   },
 ) {
   const { community, input, submitter, world } = options;
   const now = Date.now();
+  const publicationState = options.publicationState ?? "published";
   const slug = await findAvailableEventSlug(db, {
     title: input.title,
     startAt: input.startAt,
@@ -886,8 +947,9 @@ async function insertCommunityEventRecord(
     sourceLabel: input.sourceLabel,
     ...optionalValue("sourceUrl", input.sourceUrl),
     submitter,
-    publicationState: "published",
-    publishedAt: now,
+    eventStatus: "scheduled",
+    publicationState,
+    ...(publicationState === "published" ? { publishedAt: now } : {}),
     createdAt: now,
     updatedAt: now,
   });
@@ -902,8 +964,17 @@ async function insertCommunityEventRecord(
   const participantLinks = participantLinksWithSlotPerformers(input);
   await replaceEventParticipants(db, eventId, input.startAt, participantLinks, now);
 
+  await recordEventAuditEvent(db, {
+    eventId,
+    actor: submitter,
+    actorSurface: options.actorSurface ?? "api",
+    action: "created",
+    changedFields: ["event", "slots", "participants", "world"],
+    now,
+  });
+
   const event = await db.get(eventId);
-  if (event !== null) {
+  if (event !== null && publicationState === "published") {
     const roleLabels = participantLinks.map((participant) => participant.roleLabel);
     await Promise.all([
       upsertSearchDocument(
@@ -1560,12 +1631,27 @@ export const listPublicUpcoming = query({
   },
   handler: async (ctx, args) => {
     const limit = boundedLimit(args.limit, 8, 24);
-    const events = await ctx.db
-      .query("events")
-      .withIndex("by_publicationState_startAt", (index) =>
-        index.eq("publicationState", "published").gte("startAt", args.now),
-      )
-      .take(limit);
+    const [ongoingCandidates, upcoming] = await Promise.all([
+      ctx.db
+        .query("events")
+        .withIndex("by_publicationState_startAt", (index) =>
+          index.eq("publicationState", "published").lt("startAt", args.now),
+        )
+        .order("desc")
+        .take(80),
+      ctx.db
+        .query("events")
+        .withIndex("by_publicationState_startAt", (index) =>
+          index.eq("publicationState", "published").gte("startAt", args.now),
+        )
+        .take(limit),
+    ]);
+    const ongoing = ongoingCandidates.filter(
+      (event) =>
+        event.eventStatus === "scheduled" &&
+        (event.endAt ?? event.startAt) >= args.now,
+    );
+    const events = [...ongoing, ...upcoming];
 
     return await getPublicEventPreviews(ctx.db, events, { now: args.now, limit });
   },
@@ -1939,11 +2025,121 @@ export const createCommunityEvent = mutation({
   args: eventDraftArgs,
   handler: async (ctx, args) => {
     const subject = await requireAuthenticatedSubject(ctx);
+    const { userId } = await requireUser(ctx);
     const input = sanitizeEventDraftInput(args);
-    const community = await getPublishedCommunityBySlug(ctx.db, input.communitySlug);
+    const community = await requireBrowserManagedCommunity(
+      ctx.db,
+      input.communitySlug,
+      subject,
+      userId,
+    );
     const world = await getPublishedWorldBySlug(ctx.db, input.worldSlug);
 
-    return await insertCommunityEventRecord(ctx.db, { input, community, world, submitter: subject });
+    return await insertCommunityEventRecord(ctx.db, {
+      input,
+      community,
+      world,
+      submitter: subject,
+      publicationState: "draft_private",
+      actorSurface: "browser",
+    });
+  },
+});
+
+async function managedCommunitiesForBrowser(ctx: QueryCtx) {
+  const { subject, user } = await requireActiveBrowserSessionSubject(ctx);
+  const [owners, authorities] = await Promise.all([
+    ctx.db
+        .query("profileOwners")
+        .withIndex("by_userId_state", (query) =>
+          query.eq("userId", user._id).eq("state", "active"),
+        )
+        .take(100),
+    ctx.db
+        .query("communityAuthorities")
+        .withIndex("by_subjectTokenIdentifier_state", (query) =>
+          query.eq("subjectTokenIdentifier", subject.tokenIdentifier).eq("state", "active"),
+        )
+        .take(100),
+  ]);
+  const roleByProfileId = new Map<Id<"profiles">, string>();
+  for (const owner of owners) roleByProfileId.set(owner.profileId, "Owner");
+  for (const authority of authorities) {
+    if (
+      authority.capabilities.includes("manage_events") &&
+      !roleByProfileId.has(authority.communityProfileId)
+    ) {
+      roleByProfileId.set(authority.communityProfileId, authority.roleLabel);
+    }
+  }
+  const profiles = await Promise.all(
+    [...roleByProfileId.keys()].map((profileId) => ctx.db.get(profileId)),
+  );
+
+  return profiles
+    .filter(
+      (profile): profile is Doc<"profiles"> =>
+        profile !== null &&
+        profile.profileType === "community" &&
+        canReadProfile("public", profile),
+    )
+    .map((profile) => ({
+      profile,
+      roleLabel: roleByProfileId.get(profile._id) ?? "Event staff",
+    }))
+    .sort((first, second) => first.profile.displayName.localeCompare(second.profile.displayName));
+}
+
+export const listManagedCommunities = query({
+  args: {},
+  handler: async (ctx) => {
+    return (await managedCommunitiesForBrowser(ctx)).map(({ profile, roleLabel }) => ({
+      profileId: profile._id,
+      slug: profile.slug,
+      displayName: profile.displayName,
+      roleLabel,
+    }));
+  },
+});
+
+export const listManagedEvents = query({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const limit = boundedLimit(args.limit, 50, 100);
+    const communities = await managedCommunitiesForBrowser(ctx);
+    const records = (
+      await Promise.all(
+        communities.map(async ({ profile }) => {
+          const events = await ctx.db
+            .query("events")
+            .withIndex("by_communityProfileId_startAt", (query) =>
+              query.eq("communityProfileId", profile._id),
+            )
+            .order("desc")
+            .take(limit);
+          return events.map((event) => ({ event, profile }));
+        }),
+      )
+    ).flat();
+
+    return records
+      .sort(
+        (first, second) =>
+          second.event.startAt - first.event.startAt ||
+          second.event.updatedAt - first.event.updatedAt,
+      )
+      .slice(0, limit)
+      .map(({ event, profile }) => ({
+        eventId: event._id,
+        slug: event.slug,
+        title: event.title,
+        startAt: event.startAt,
+        endAt: event.endAt,
+        publicationState: event.publicationState,
+        status: event.eventStatus,
+        communitySlug: profile.slug,
+        communityDisplayName: profile.displayName,
+      }));
   },
 });
 
@@ -2003,7 +2199,7 @@ export const createCommunityEventForMcpOwner = internalMutation({
     try {
       ({ community, result } = await createCommunityEventForApiOwnerRecord(
         ctx.db,
-        args,
+        { ...args, actorSurface: "mcp" },
       ));
     } catch {
       throw new ConvexError({ code: "MCP_WRITE_DENIED" });
@@ -2097,7 +2293,7 @@ export const updateCommunityEventForMcpOwner = internalMutation({
     try {
       ({ community, event, result } = await updateCommunityEventForApiOwnerRecord(
         ctx.db,
-        args,
+        { ...args, actorSurface: "mcp" },
       ));
     } catch {
       throw new ConvexError({ code: "MCP_WRITE_DENIED" });
@@ -2152,8 +2348,6 @@ export const updateCommunityEvent = mutation({
       throw new Error("Event was not found.");
     }
 
-    const isSubmitter = isSameAuthSubject(event.submitter, subject);
-
     if (!(await canUpdateEvent(ctx.db, event, subject, userId))) {
       throw new Error("You do not have permission to update this event.");
     }
@@ -2161,13 +2355,192 @@ export const updateCommunityEvent = mutation({
     const input = sanitizeEventDraftInput(args);
     const community = await getPublishedCommunityBySlug(ctx.db, input.communitySlug);
 
-    if (!isSubmitter && community?._id !== event.communityProfileId) {
+    if (community?._id !== event.communityProfileId) {
       throw new Error("You do not have permission to move this event to another community.");
     }
 
     const world = await getPublishedWorldBySlug(ctx.db, input.worldSlug);
 
-    return await updateCommunityEventRecord(ctx.db, { event, input, community, world });
+    const result = await updateCommunityEventRecord(ctx.db, { event, input, community, world });
+    await recordEventAuditEvent(ctx.db, {
+      eventId: event._id,
+      actor: subject,
+      actorSurface: "browser",
+      action: "updated",
+      changedFields: ["event", "slots", "participants", "world"],
+      now: Date.now(),
+    });
+    return result;
+  },
+});
+
+export const getEditableBySlug = query({
+  args: {
+    slug: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const subject = await requireAuthenticatedSubject(ctx);
+    const { event } = await getEditableEventBySlug(ctx, args.slug, subject);
+    return getEventForEditor(ctx.db, event);
+  },
+});
+
+export const listEventAudit = query({
+  args: {
+    currentSlug: v.string(),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const subject = await requireAuthenticatedSubject(ctx);
+    const { event } = await getEditableEventBySlug(ctx, args.currentSlug, subject);
+    const limit = boundedLimit(args.limit, 40, 100);
+    const rows = await ctx.db
+      .query("eventAuditEvents")
+      .withIndex("by_eventId_createdAt", (query) => query.eq("eventId", event._id))
+      .order("desc")
+      .take(limit);
+
+    return rows.map((row) => ({
+      action: row.action,
+      actorSurface: row.actorSurface,
+      actorDisplayName: row.actor?.displayName,
+      changedFields: row.changedFields ?? [],
+      reason: row.reason,
+      createdAt: row.createdAt,
+    }));
+  },
+});
+
+export const setCommunityEventPublished = mutation({
+  args: {
+    currentSlug: v.string(),
+    published: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const subject = await requireAuthenticatedSubject(ctx);
+    const { event } = await getEditableEventBySlug(ctx, args.currentSlug, subject);
+    const now = Date.now();
+    const publicationState = args.published
+      ? ("published" as const)
+      : ("draft_private" as const);
+
+    if (event.publicationState === publicationState) {
+      return {
+        eventId: event._id,
+        slug: event.slug,
+        publicationState,
+        changed: false as const,
+      };
+    }
+
+    if (args.published) {
+      if (event.communityProfileId === undefined) {
+        throw new Error("A community is required before publishing this event.");
+      }
+      const community = await ctx.db.get(event.communityProfileId);
+      if (
+        community === null ||
+        community.profileType !== "community" ||
+        !canReadProfile("public", community)
+      ) {
+        throw new Error("The event community must be public before publishing.");
+      }
+    }
+
+    await ctx.db.patch(event._id, {
+      publicationState,
+      ...(args.published ? { publishedAt: event.publishedAt ?? now } : {}),
+      updatedAt: now,
+    });
+    const updated = await ctx.db.get(event._id);
+    if (updated !== null) {
+      const [community, world, roleLabels] = await Promise.all([
+        updated.communityProfileId === undefined
+          ? undefined
+          : ctx.db.get(updated.communityProfileId),
+        linkedPublishedEventWorld(ctx.db, updated._id),
+        eventParticipantRoleLabels(ctx.db, updated._id),
+      ]);
+      await upsertSearchDocument(
+        ctx.db,
+        createEventSearchDocument(updated, {
+          community: community?.profileType === "community" ? community : undefined,
+          world,
+          roleLabels,
+        }),
+      );
+    }
+    await recordEventAuditEvent(ctx.db, {
+      eventId: event._id,
+      actor: subject,
+      actorSurface: "browser",
+      action: args.published ? "published" : "unpublished",
+      changedFields: ["publicationState"],
+      now,
+    });
+
+    return {
+      eventId: event._id,
+      slug: event.slug,
+      publicationState,
+      changed: true as const,
+    };
+  },
+});
+
+export const setCommunityEventCancelled = mutation({
+  args: {
+    currentSlug: v.string(),
+    cancelled: v.boolean(),
+    reason: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const subject = await requireAuthenticatedSubject(ctx);
+    const { event } = await getEditableEventBySlug(ctx, args.currentSlug, subject);
+    const eventStatus = args.cancelled
+      ? ("cancelled" as const)
+      : ("scheduled" as const);
+    const reason = optionalTrimmedText(args.reason, "Cancellation reason", 500);
+
+    if (args.cancelled && reason === undefined) {
+      throw new Error("A cancellation reason is required.");
+    }
+
+    if (event.eventStatus === eventStatus) {
+      return { eventId: event._id, eventStatus, changed: false as const };
+    }
+
+    const now = Date.now();
+    await ctx.db.patch(event._id, { eventStatus, updatedAt: now });
+    const updated = await ctx.db.get(event._id);
+    if (updated !== null) {
+      const [community, world, roleLabels] = await Promise.all([
+        updated.communityProfileId === undefined
+          ? undefined
+          : ctx.db.get(updated.communityProfileId),
+        linkedPublishedEventWorld(ctx.db, updated._id),
+        eventParticipantRoleLabels(ctx.db, updated._id),
+      ]);
+      await upsertSearchDocument(
+        ctx.db,
+        createEventSearchDocument(updated, {
+          community: community?.profileType === "community" ? community : undefined,
+          world,
+          roleLabels,
+        }),
+      );
+    }
+    await recordEventAuditEvent(ctx.db, {
+      eventId: event._id,
+      actor: subject,
+      actorSurface: "browser",
+      action: args.cancelled ? "cancelled" : "restored",
+      changedFields: ["eventStatus"],
+      ...(reason === undefined ? {} : { reason }),
+      now,
+    });
+
+    return { eventId: event._id, eventStatus, changed: true as const };
   },
 });
 

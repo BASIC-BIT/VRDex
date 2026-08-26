@@ -389,6 +389,42 @@ test.describe("account surfaces @visual @flow @account-visual", () => {
     });
   });
 
+  test("managed events", async ({ page }, testInfo) => {
+    await page.goto("/account/events");
+    await expect(page.getByRole("heading", { name: "Events" })).toBeVisible(hostedExpectOptions);
+    await expect(page.getByText("No events to manage.")).toBeVisible(hostedExpectOptions);
+    await waitForVisualReady(page);
+    await captureRouteScreenshot(page, testInfo, "managed-events-empty", {
+      mask: unstableSignedInRegions(page, account?.email),
+    });
+  });
+
+  test("media contributions", async ({ page }, testInfo) => {
+    await page.goto("/account/media-contributions");
+    await expect(page.getByRole("heading", { name: "My media contributions" })).toBeVisible(
+      hostedExpectOptions,
+    );
+    await expect(page.getByText("No media contributions yet.")).toBeVisible(hostedExpectOptions);
+    await waitForVisualReady(page);
+    await captureRouteScreenshot(page, testInfo, "media-contributions-empty", {
+      mask: unstableSignedInRegions(page, account?.email),
+    });
+  });
+
+  test("media review access", async ({ page }, testInfo) => {
+    await page.goto("/account/media-review");
+    await expect(page.getByRole("heading", { name: "Media review" })).toBeVisible(
+      hostedExpectOptions,
+    );
+    await expect(page.getByText("Profile media review access is required.")).toBeVisible(
+      hostedExpectOptions,
+    );
+    await waitForVisualReady(page);
+    await captureRouteScreenshot(page, testInfo, "media-review-no-access", {
+      mask: unstableSignedInRegions(page, account?.email),
+    });
+  });
+
   test("developer tokens", async ({ page }, testInfo) => {
     await page.goto("/developers/tokens");
     // `DeveloperTokensPanel` renders "Sign in required" until its Convex query

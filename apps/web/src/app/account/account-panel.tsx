@@ -19,6 +19,7 @@ const clerkConfigured = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
 function ConnectedAccountPanel() {
   const viewer = useQuery(api.accounts.viewer);
   const ownedProfiles = useQuery(api.profilePrivacy.listOwnedPrivacyProfilesForAccount);
+  const mediaReviewAccess = useQuery(api.profileMediaSubmissions.getReviewAccess);
   const { openUserProfile } = useClerk();
 
   if (viewer === undefined || ownedProfiles === undefined) {
@@ -67,6 +68,17 @@ function ConnectedAccountPanel() {
               actually made in. */}
           <div className="mt-5 flex flex-wrap gap-2">
             <AccountSignOutControl />
+            <Link className={buttonVariants({ variant: "secondary" })} href="/account/media-contributions">
+              Media contributions
+            </Link>
+            <Link className={buttonVariants({ variant: "secondary" })} href="/account/events">
+              Events
+            </Link>
+            {mediaReviewAccess && (mediaReviewAccess.superAdmin || mediaReviewAccess.profiles.length > 0) ? (
+              <Link className={buttonVariants({ variant: "secondary" })} href="/account/media-review">
+                Media review
+              </Link>
+            ) : null}
           </div>
         </div>
 

@@ -1,0 +1,626 @@
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+
+import { convexTest } from "convex-test";
+
+import { api, internal } from "../../convex/_generated/api";
+import type { Id } from "../../convex/_generated/dataModel";
+import schemaModule from "../../convex/schema";
+import { newClerkUserId } from "./_clerkTestIdentity";
+
+process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED = "true";
+process.env.VRDEX_PROFILE_MEDIA_DIRECT_UPLOAD_ENABLED = "true";
+process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "true";
+
+const modules = {
+  "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
+  "../../convex/profileAssets.ts": () => import("../../convex/profileAssets"),
+  "../../convex/profileMediaSubmissions.ts": () => import("../../convex/profileMediaSubmissions"),
+};
+const schema = (schemaModule as unknown as { default?: typeof schemaModule }).default ?? schemaModule;
+const NOW = Date.parse("2026-08-26T12:00:00.000Z");
+
+async function seed(t: ReturnType<typeof convexTest>, profileType: "person" | "community" = "person") {
+  return await t.run(async (ctx) => {
+    const profileId = await ctx.db.insert("profiles", {
+      profileType,
+      slug: profileType === "person" ? "community-dj" : "community-club",
+      displayName: profileType === "person" ? "Community DJ" : "Community Club",
+      sortName: profileType === "person" ? "community dj" : "community club",
+      aliases: [],
+      tags: [],
+      claimState: "unclaimed",
+      publicationState: "published",
+      publicSurfacingState: "public",
+      creationSource: "community",
+      ...(profileType === "person"
+        ? { person: { roleTags: ["DJ"] } }
+        : { community: { categoryTags: [] } }),
+      updatedAt: NOW,
+    });
+    const contributorClerkId = newClerkUserId();
+    const contributorUserId = await ctx.db.insert("users", {
+      clerkUserId: contributorClerkId,
+      email: "contributor@example.test",
+      emailVerificationTime: NOW,
+    });
+    const moderatorClerkId = newClerkUserId();
+    const moderatorUserId = await ctx.db.insert("users", {
+      clerkUserId: moderatorClerkId,
+      email: "moderator@example.test",
+      emailVerificationTime: NOW,
+    });
+    await ctx.db.insert("accountFeatureGrants", {
+      userId: moderatorUserId,
+      feature: "super_admin",
+      state: "active",
+      grantedBy: { tokenIdentifier: "test:operator", issuer: "test", subject: "operator" },
+      grantedAt: NOW,
+      updatedAt: NOW,
+    });
+    return {
+      profileId,
+      contributorUserId,
+      moderatorUserId,
+      contributorIdentity: {
+        subject: contributorClerkId,
+        email: "contributor@example.test",
+        emailVerified: true,
+        issuer: "test",
+        tokenIdentifier: `test|${contributorUserId}`,
+      },
+      moderatorIdentity: {
+        subject: moderatorClerkId,
+        email: "moderator@example.test",
+        emailVerified: true,
+        issuer: "test",
+        tokenIdentifier: `test|${moderatorUserId}`,
+      },
+    };
+  });
+}
+
+async function createAndUpload(
+  t: ReturnType<typeof convexTest>,
+  seeded: Awaited<ReturnType<typeof seed>>,
+  hash = "proposal-hash",
+) {
+  const intent = await t.withIdentity(seeded.contributorIdentity).mutation(
+    api.profileMediaSubmissions.createUploadIntent,
+    {
+      profileId: seeded.profileId,
+      requestedPlacement: "profile_image",
+      originalFileName: "artist.webp",
+      mimeType: "image/webp",
+      byteSize: 512,
+      sourceUrl: "https://artist.example/press",
+      altText: "Portrait of Community DJ.",
+      credit: "Community DJ press kit",
+      expectedProfileUpdatedAt: NOW,
+    },
+  );
+  const processingToken = `processing-${crypto.randomUUID()}`;
+  const claim = await t.mutation(internal.profileAssets.claimUploadIntentForStorage, {
+    intentId: intent.intentId,
+    uploadToken: intent.uploadToken,
+    processingToken,
+  });
+  assert.equal(claim.status, "claimed");
+  const completed = await t.mutation(internal.profileAssets.markUploadIntentUploaded, {
+    intentId: intent.intentId,
+    uploadToken: intent.uploadToken,
+    processingToken,
+    mimeType: "image/webp",
+    byteSize: 512,
+    contentSha256: hash,
+    width: 800,
+    height: 800,
+  });
+  return { intent, completed };
+}
+
+describe("unclaimed-profile media submissions", () => {
+  it("does not revive a contribution withdrawn while its upload is processing", async () => {
+    const t = convexTest({ schema, modules });
+    const seeded = await seed(t);
+    const intent = await t.withIdentity(seeded.contributorIdentity).mutation(
+      api.profileMediaSubmissions.createUploadIntent,
+      {
+        profileId: seeded.profileId,
+        requestedPlacement: "profile_image",
+        originalFileName: "artist.webp",
+        mimeType: "image/webp",
+        byteSize: 512,
+        sourceUrl: "https://artist.example/press",
+        credit: "Community DJ press kit",
+        expectedProfileUpdatedAt: NOW,
+      },
+    );
+    const processingToken = `processing-${crypto.randomUUID()}`;
+    assert.equal(
+      (
+        await t.mutation(internal.profileAssets.claimUploadIntentForStorage, {
+          intentId: intent.intentId,
+          uploadToken: intent.uploadToken,
+          processingToken,
+        })
+      ).status,
+      "claimed",
+    );
+    await t.withIdentity(seeded.contributorIdentity).mutation(
+      api.profileMediaSubmissions.withdraw,
+      { submissionId: intent.submissionId },
+    );
+
+    await assert.rejects(
+      t.mutation(internal.profileAssets.markUploadIntentUploaded, {
+        intentId: intent.intentId,
+        uploadToken: intent.uploadToken,
+        processingToken,
+        mimeType: "image/webp",
+        byteSize: 512,
+        contentSha256: "withdrawn-upload-hash",
+        width: 800,
+        height: 800,
+      }),
+      /no longer accepting this upload/i,
+    );
+    const stored = await t.run((ctx) => ctx.db.get(intent.submissionId));
+    assert.equal(stored?.status, "withdrawn");
+  });
+
+  it("keeps a processed proposal private until a moderator approves it", async () => {
+    const t = convexTest({ schema, modules });
+    const seeded = await seed(t);
+    const { intent, completed } = await createAndUpload(t, seeded);
+
+    assert.deepEqual(completed.assetIds, []);
+    const before = await t.run(async (ctx) => ({
+      assets: await ctx.db.query("profileAssets").collect(),
+      submission: await ctx.db.get(intent.submissionId),
+    }));
+    assert.equal(before.assets.length, 0);
+    assert.equal(before.submission?.status, "submitted");
+    assert.equal(before.submission?.contentSha256, "proposal-hash");
+
+    const queue = await t.withIdentity(seeded.moderatorIdentity).query(
+      api.profileMediaSubmissions.listForReview,
+      {},
+    );
+    assert.equal(queue.length, 1);
+    assert.equal(queue[0]?.profileDisplayName, "Community DJ");
+    assert.equal(queue[0]?.submitterEmail, "contributor@example.test");
+    assert.equal(queue[0]?.priorProposalCount, 0);
+    assert.equal("privateReason" in (queue[0] ?? {}), false);
+    const candidate = await t.withIdentity(seeded.moderatorIdentity).query(
+      api.profileMediaSubmissions.getCandidateForStorage,
+      { submissionId: intent.submissionId },
+    );
+    assert.equal(candidate?.mimeType, "image/webp");
+    assert.match(candidate?.storageKey ?? "", /profile-assets\//);
+
+    const decision = await t.withIdentity(seeded.moderatorIdentity).mutation(
+      api.profileMediaSubmissions.decide,
+      {
+        submissionId: intent.submissionId,
+        decision: "approve",
+        expectedProfileUpdatedAt: NOW,
+        privateReason: "Official artist-controlled press source verified.",
+      },
+    );
+    assert.equal(decision.status, "approved");
+    const after = await t.run(async (ctx) => ({
+      asset: await ctx.db.get(decision.assetId),
+      placements: await ctx.db
+        .query("profileAssetPlacements")
+        .withIndex("by_profileId_state", (query) =>
+          query.eq("profileId", seeded.profileId).eq("state", "active"),
+        )
+        .collect(),
+      submission: await ctx.db.get(intent.submissionId),
+    }));
+    assert.equal(after.asset?.source, "community_submitted");
+    assert.equal(after.asset?.visibility, "public");
+    assert.equal(after.placements[0]?.placement, "profile_image");
+    assert.equal(after.submission?.approvedAssetId, decision.assetId);
+
+    const publicProfile = await t.query(api.profileAssets.listPublicBySlug, {
+      slug: "community-dj",
+    });
+    assert.equal(publicProfile?.mediaKit.profileImage?.assetId, decision.assetId);
+    assert.notEqual(
+      await t.query(api.profileAssets.getPublicAssetForStorage, {
+        slug: "community-dj",
+        assetId: decision.assetId,
+      }),
+      null,
+    );
+
+    const unrelatedClerkId = newClerkUserId();
+    const unrelatedUserId = await t.run((ctx) =>
+      ctx.db.insert("users", {
+        clerkUserId: unrelatedClerkId,
+        email: "unrelated@example.test",
+        emailVerificationTime: NOW,
+      }),
+    );
+    await assert.rejects(
+      t.withIdentity({
+        subject: unrelatedClerkId,
+        email: "unrelated@example.test",
+        emailVerified: true,
+        issuer: "test",
+        tokenIdentifier: `test|${unrelatedUserId}`,
+      }).mutation(api.profileMediaSubmissions.suppressApprovedAsset, {
+        submissionId: intent.submissionId,
+        reason: "Trying to remove media without moderator access.",
+      }),
+      /super admin access is required/i,
+    );
+
+    const ownerClerkId = newClerkUserId();
+    const ownerUserId = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        clerkUserId: ownerClerkId,
+        email: "claiming-owner@example.test",
+        emailVerificationTime: NOW,
+      });
+      await ctx.db.patch(seeded.profileId, {
+        claimState: "claimed_verified",
+        updatedAt: NOW + 1,
+      });
+      await ctx.db.insert("profileOwners", {
+        profileId: seeded.profileId,
+        userId,
+        roleKey: "owner",
+        state: "active",
+        grantedAt: NOW + 1,
+        updatedAt: NOW + 1,
+      });
+      return userId;
+    });
+    const owner = t.withIdentity({
+      subject: ownerClerkId,
+      email: "claiming-owner@example.test",
+      emailVerified: true,
+      issuer: "test",
+      tokenIdentifier: `test|${ownerUserId}`,
+    });
+    const ownedProfiles = await owner.query(api.profileAssets.listOwnedMediaKitProfiles, {});
+    assert.equal(ownedProfiles?.[0]?.assets[0]?.source, "community_submitted");
+    await owner.mutation(api.profileAssets.setOwnedAssetDeleted, {
+      profileId: seeded.profileId,
+      assetId: decision.assetId,
+      deleted: true,
+    });
+    assert.equal(
+      await t.query(api.profileAssets.getPublicAssetForStorage, {
+        slug: "community-dj",
+        assetId: decision.assetId,
+      }),
+      null,
+    );
+  });
+
+  it("does not let an unrelated contributor review or approve a proposal", async () => {
+    const t = convexTest({ schema, modules });
+    const seeded = await seed(t);
+    const { intent } = await createAndUpload(t, seeded);
+
+    await assert.rejects(
+      t.withIdentity(seeded.contributorIdentity).query(api.profileMediaSubmissions.listForReview, {
+        profileId: seeded.profileId,
+      }),
+      /review access is required/i,
+    );
+    await assert.rejects(
+      t.withIdentity(seeded.contributorIdentity).query(
+        api.profileMediaSubmissions.getCandidateForStorage,
+        { submissionId: intent.submissionId },
+      ),
+      /review access is required/i,
+    );
+    await assert.rejects(
+      t.withIdentity(seeded.contributorIdentity).mutation(api.profileMediaSubmissions.decide, {
+        submissionId: intent.submissionId,
+        decision: "approve",
+        expectedProfileUpdatedAt: NOW,
+        privateReason: "Trying to self-approve.",
+      }),
+      /review access is required/i,
+    );
+    await t.run((ctx) =>
+      ctx.db.insert("accountFeatureGrants", {
+        userId: seeded.contributorUserId,
+        feature: "super_admin",
+        state: "active",
+        grantedBy: { tokenIdentifier: "test:operator", issuer: "test", subject: "operator" },
+        grantedAt: NOW,
+        updatedAt: NOW,
+      }),
+    );
+    await assert.rejects(
+      t.withIdentity(seeded.contributorIdentity).mutation(api.profileMediaSubmissions.decide, {
+        submissionId: intent.submissionId,
+        decision: "approve",
+        expectedProfileUpdatedAt: NOW,
+        privateReason: "Trying again with moderator access.",
+      }),
+      /cannot decide your own/i,
+    );
+  });
+
+  it("lets a super admin suppress approved contributed media without erasing the audit trail", async () => {
+    const t = convexTest({ schema, modules });
+    const seeded = await seed(t);
+    const { intent } = await createAndUpload(t, seeded);
+    const decision = await t.withIdentity(seeded.moderatorIdentity).mutation(
+      api.profileMediaSubmissions.decide,
+      {
+        submissionId: intent.submissionId,
+        decision: "approve",
+        expectedProfileUpdatedAt: NOW,
+        privateReason: "Approved for the profile.",
+      },
+    );
+    assert.equal(decision.status, "approved");
+    const approvedQueue = await t.withIdentity(seeded.moderatorIdentity).query(
+      api.profileMediaSubmissions.listForReview,
+      { status: "approved" },
+    );
+    assert.equal(approvedQueue[0]?.canSuppress, true);
+    assert.notEqual(
+      await t.query(api.profileAssets.getPublicAssetForStorage, {
+        slug: "community-dj",
+        assetId: decision.assetId,
+      }),
+      null,
+    );
+
+    assert.deepEqual(
+      await t.withIdentity(seeded.moderatorIdentity).mutation(
+        api.profileMediaSubmissions.suppressApprovedAsset,
+        {
+          submissionId: intent.submissionId,
+          reason: "Disputed community contribution.",
+        },
+      ),
+      { suppressed: true },
+    );
+    assert.equal(
+      await t.query(api.profileAssets.getPublicAssetForStorage, {
+        slug: "community-dj",
+        assetId: decision.assetId,
+      }),
+      null,
+    );
+    const audit = await t.run((ctx) =>
+      ctx.db
+        .query("profileAuditEvents")
+        .withIndex("by_profileId_createdAt", (query) => query.eq("profileId", seeded.profileId))
+        .collect(),
+    );
+    assert.equal(audit.at(-1)?.action, "profile_media_submission_asset_suppressed");
+    assert.equal(audit.at(-1)?.note, "Disputed community contribution.");
+  });
+
+  it("lets the new owner decide a still-pending submission after claim", async () => {
+    const t = convexTest({ schema, modules });
+    const seeded = await seed(t);
+    const { intent } = await createAndUpload(t, seeded);
+    const ownerClerkId = newClerkUserId();
+    const ownerUserId = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        clerkUserId: ownerClerkId,
+        email: "owner@example.test",
+        emailVerificationTime: NOW,
+      });
+      await ctx.db.patch(seeded.profileId, {
+        claimState: "claimed_verified",
+        updatedAt: NOW + 1,
+      });
+      await ctx.db.insert("profileOwners", {
+        profileId: seeded.profileId,
+        userId,
+        roleKey: "owner",
+        state: "active",
+        grantedAt: NOW + 1,
+        updatedAt: NOW + 1,
+      });
+      return userId;
+    });
+    const ownerIdentity = {
+      subject: ownerClerkId,
+      email: "owner@example.test",
+      emailVerified: true,
+      issuer: "test",
+      tokenIdentifier: `test|${ownerUserId}`,
+    };
+
+    const queue = await t.withIdentity(ownerIdentity).query(
+      api.profileMediaSubmissions.listForReview,
+      { profileId: seeded.profileId },
+    );
+    assert.equal(queue.length, 1);
+    assert.equal("submitterEmail" in (queue[0] ?? {}), false);
+    assert.equal("submitterTokenIdentifier" in (queue[0] ?? {}), false);
+    await t.withIdentity(ownerIdentity).mutation(api.profileMediaSubmissions.decide, {
+      submissionId: intent.submissionId,
+      decision: "reject",
+      expectedProfileUpdatedAt: NOW + 1,
+      publicDisposition: "Please coordinate directly with the profile owner.",
+      privateReason: "Owner declined this community contribution.",
+    });
+    const mine = await t.withIdentity(seeded.contributorIdentity).query(
+      api.profileMediaSubmissions.listMine,
+      {},
+    );
+    assert.equal(mine[0]?.status, "rejected");
+    assert.equal(mine[0]?.publicDisposition, "Please coordinate directly with the profile owner.");
+    assert.equal("privateReason" in (mine[0] ?? {}), false);
+  });
+
+  it("cleans terminal candidate files after retention and skips a legal hold", async () => {
+    const t = convexTest({ schema, modules });
+    const seeded = await seed(t);
+    const { intent } = await createAndUpload(t, seeded);
+    await t.withIdentity(seeded.contributorIdentity).mutation(
+      api.profileMediaSubmissions.withdraw,
+      { submissionId: intent.submissionId },
+    );
+    await t.run((ctx) =>
+      ctx.db.patch(intent.submissionId, { blobDeleteAfter: Date.now() - 1 }),
+    );
+    const protectedSubmissionId = await t.run((ctx) =>
+      ctx.db.insert("profileMediaSubmissions", {
+        profileId: seeded.profileId,
+        submitterUserId: seeded.contributorUserId,
+        submitter: {
+          tokenIdentifier: seeded.contributorIdentity.tokenIdentifier,
+          issuer: seeded.contributorIdentity.issuer,
+          subject: seeded.contributorIdentity.subject,
+        },
+        requestedPlacement: "profile_image",
+        sourceUrl: "https://artist.example/new",
+        credit: "Artist",
+        status: "submitted",
+        targetProfileUpdatedAt: NOW,
+        expiresAt: Date.now() + 86_400_000,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }),
+    );
+    await t.withIdentity(seeded.moderatorIdentity).mutation(
+      api.profileMediaSubmissions.setBlobLegalHold,
+      {
+        submissionId: intent.submissionId,
+        held: true,
+        reason: "Dispute under review.",
+      },
+    );
+    assert.deepEqual(
+      await t.withIdentity(seeded.moderatorIdentity).mutation(
+        api.profileMediaSubmissions.prepareDueBlobCleanup,
+        {},
+      ),
+      [],
+    );
+    await t.withIdentity(seeded.moderatorIdentity).mutation(
+      api.profileMediaSubmissions.setBlobLegalHold,
+      {
+        submissionId: intent.submissionId,
+        held: false,
+        reason: "Dispute resolved.",
+      },
+    );
+    const due = await t.withIdentity(seeded.moderatorIdentity).mutation(
+      api.profileMediaSubmissions.prepareDueBlobCleanup,
+      {},
+    );
+    assert.equal(due[0]?.submissionId, intent.submissionId);
+    assert.match(due[0]?.storageKeys[0] ?? "", /profile-assets\//);
+    assert.deepEqual(
+      await t.withIdentity(seeded.moderatorIdentity).mutation(
+        api.profileMediaSubmissions.markBlobCleanupComplete,
+        { submissionIds: [intent.submissionId] },
+      ),
+      { completed: 1 },
+    );
+    const stored = await t.run((ctx) => ctx.db.get(intent.submissionId));
+    assert.equal(typeof stored?.blobDeletedAt, "number");
+    const protectedSubmission = await t.run((ctx) => ctx.db.get(protectedSubmissionId));
+    assert.equal(protectedSubmission?.blobDeletedAt, undefined);
+  });
+
+  it("requires a verified email", async () => {
+    const t = convexTest({ schema, modules });
+    const seeded = await seed(t);
+    const base = {
+      profileId: seeded.profileId,
+      requestedPlacement: "profile_image" as const,
+      originalFileName: "artist.webp",
+      mimeType: "image/webp",
+      byteSize: 512,
+      sourceUrl: "https://artist.example/press",
+      credit: "Artist press kit",
+      expectedProfileUpdatedAt: NOW,
+    };
+    await assert.rejects(
+      t.withIdentity({ ...seeded.contributorIdentity, emailVerified: false }).mutation(
+        api.profileMediaSubmissions.createUploadIntent,
+        base,
+      ),
+      /verified email address is required/i,
+    );
+  });
+
+  it("bounds repeated submissions even after earlier rows are withdrawn", async () => {
+    const t = convexTest({ schema, modules });
+    const seeded = await seed(t);
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      for (let index = 0; index < 6; index += 1) {
+        await ctx.db.insert("profileMediaSubmissions", {
+          profileId: seeded.profileId,
+          submitterUserId: seeded.contributorUserId,
+          submitter: {
+            tokenIdentifier: seeded.contributorIdentity.tokenIdentifier,
+            issuer: seeded.contributorIdentity.issuer,
+            subject: seeded.contributorIdentity.subject,
+          },
+          requestedPlacement: "profile_image",
+          sourceUrl: "https://artist.example/press",
+          credit: "Artist press kit",
+          status: "withdrawn",
+          targetProfileUpdatedAt: NOW,
+          expiresAt: now + 30 * 24 * 60 * 60 * 1_000,
+          createdAt: now - index * 1_000,
+          updatedAt: now - index * 1_000,
+        });
+      }
+    });
+
+    await assert.rejects(
+      t.withIdentity(seeded.contributorIdentity).mutation(
+        api.profileMediaSubmissions.createUploadIntent,
+        {
+          profileId: seeded.profileId,
+          requestedPlacement: "profile_image",
+          originalFileName: "artist.webp",
+          mimeType: "image/webp",
+          byteSize: 512,
+          sourceUrl: "https://artist.example/press",
+          credit: "Artist press kit",
+          expectedProfileUpdatedAt: NOW,
+        },
+      ),
+      /limit reached/i,
+    );
+  });
+
+  it("cannot attach a purpose-bound proposal through the ordinary asset consumer", async () => {
+    const t = convexTest({ schema, modules });
+    const seeded = await seed(t);
+    const { intent } = await createAndUpload(t, seeded);
+    const storedIntent = await t.run((ctx) => ctx.db.get(intent.intentId));
+    assert(storedIntent !== null);
+
+    await assert.rejects(
+      t.run(async (ctx) => {
+        const { consumeProfileAssetUploads } = await import("../../convex/_profileAssets");
+        await consumeProfileAssetUploads(ctx.db, {
+          profileId: seeded.profileId,
+          requestedBy: storedIntent.requestedBy,
+          uploads: [{
+            intentId: intent.intentId as Id<"profileAssetUploadIntents">,
+            uploadToken: intent.uploadToken,
+            placements: ["profile_image"],
+          }],
+          source: "community_submitted",
+          now: NOW,
+        });
+      }),
+      /requires an approved submission/i,
+    );
+  });
+});

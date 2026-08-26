@@ -152,6 +152,7 @@ describe("slug conflict audit", () => {
         timezone: "UTC",
         sourceType: "manual" as const,
         sourceLabel: "Fixture",
+        eventStatus: "scheduled" as const,
         publicationState: "draft_private" as const,
         updatedAt: 1,
       });
