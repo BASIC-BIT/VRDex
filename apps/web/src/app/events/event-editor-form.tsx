@@ -14,6 +14,11 @@ import { BACKEND_ERROR_COPY } from "@/lib/error-copy";
 import { VrcdnMediaLinkAssistant } from "../_components/vrcdn-media-link-assistant";
 import { ViewerLocalEventDateTime } from "../_components/viewer-local-event-times";
 import { parseVrcdnStreamLinks } from "../../../../../convex/_vrcdnLinks";
+import {
+  browserTimeZone,
+  formatZonedDateTimeInput,
+  parseZonedDateTimeInput,
+} from "@/lib/calendar/zoned-date-time";
 
 type EventMediaLinkType = PublicEvent["mediaLinks"][number]["type"];
 
@@ -202,114 +207,6 @@ function applyVrcdnOutputAccountDefaults(
     standaloneUrl: standaloneLink?.url ?? current.standaloneUrl,
     pcUrl: pcLink?.url ?? current.pcUrl,
   };
-}
-
-type DateTimeLocalParts = {
-  year: number;
-  month: number;
-  day: number;
-  hour: number;
-  minute: number;
-};
-
-function padDatePart(value: number): string {
-  return String(value).padStart(2, "0");
-}
-
-function parseDateTimeLocalParts(value: string, fieldName: string): DateTimeLocalParts {
-  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/);
-
-  if (match === null) {
-    throw new Error(`${fieldName} must be a valid timestamp.`);
-  }
-
-  return {
-    year: Number(match[1]),
-    month: Number(match[2]),
-    day: Number(match[3]),
-    hour: Number(match[4]),
-    minute: Number(match[5]),
-  };
-}
-
-function formatDateTimeLocalParts(parts: DateTimeLocalParts): string {
-  return `${parts.year}-${padDatePart(parts.month)}-${padDatePart(parts.day)}T${padDatePart(parts.hour)}:${padDatePart(parts.minute)}`;
-}
-
-function getZonedDateTimeParts(timestamp: number, timeZone: string): DateTimeLocalParts {
-  let parts: Intl.DateTimeFormatPart[];
-
-  try {
-    parts = new Intl.DateTimeFormat("en-US", {
-      timeZone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      hourCycle: "h23",
-    }).formatToParts(new Date(timestamp));
-  } catch {
-    throw new Error("Time zone must be a valid IANA time zone.");
-  }
-
-  const valueByType = new Map(parts.map((part) => [part.type, part.value]));
-
-  return {
-    year: Number(valueByType.get("year")),
-    month: Number(valueByType.get("month")),
-    day: Number(valueByType.get("day")),
-    hour: Number(valueByType.get("hour")),
-    minute: Number(valueByType.get("minute")),
-  };
-}
-
-function toZonedInputValue(timestamp: number | undefined, timeZone: string | undefined): string {
-  if (timestamp === undefined) {
-    return "";
-  }
-
-  return formatDateTimeLocalParts(getZonedDateTimeParts(timestamp, timeZone ?? getBrowserTimezone()));
-}
-
-function dateTimePartsToUtc(parts: DateTimeLocalParts): number {
-  return Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute);
-}
-
-function fromZonedInputValue(value: string, timeZone: string, fieldName: string): number {
-  const parts = parseDateTimeLocalParts(value, fieldName);
-  const wallTimeUtc = dateTimePartsToUtc(parts);
-  let timestamp = wallTimeUtc;
-
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const zonedParts = getZonedDateTimeParts(timestamp, timeZone);
-    const zonedWallTimeUtc = dateTimePartsToUtc(zonedParts);
-    const nextTimestamp = timestamp + wallTimeUtc - zonedWallTimeUtc;
-
-    if (nextTimestamp === timestamp) {
-      break;
-    }
-
-    timestamp = nextTimestamp;
-  }
-
-  if (!Number.isFinite(timestamp)) {
-    throw new Error(`${fieldName} must be a valid timestamp.`);
-  }
-
-  if (formatDateTimeLocalParts(getZonedDateTimeParts(timestamp, timeZone)) !== formatDateTimeLocalParts(parts)) {
-    throw new Error(`${fieldName} must be a valid local time in ${timeZone}.`);
-  }
-
-  return timestamp;
-}
-
-function getBrowserTimezone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone;
-  } catch {
-    return "UTC";
-  }
 }
 
 function parseInteger(value: string, fieldName: string): number {
@@ -535,7 +432,7 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
 
   useEffect(() => {
     if (event === undefined) {
-      setTimezone(getBrowserTimezone());
+      setTimezone(browserTimeZone());
     }
   }, [event]);
 
@@ -633,16 +530,16 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
 
     try {
       const submittedTimezone = optionalString(stringField(formData.get("timezone")));
-      const timeZoneForParsing = submittedTimezone ?? getBrowserTimezone();
-      const startAt = fromZonedInputValue(stringField(formData.get("startAt")), timeZoneForParsing, "Event start time");
+      const timeZoneForParsing = submittedTimezone ?? browserTimeZone();
+      const startAt = parseZonedDateTimeInput(stringField(formData.get("startAt")), timeZoneForParsing, "Event start time");
       const payload = {
         title: stringField(formData.get("title")),
         preferredSlug: optionalString(stringField(formData.get("preferredSlug"))),
         communitySlug: optionalString(stringField(formData.get("communitySlug"))),
         worldSlug: optionalString(stringField(formData.get("worldSlug"))),
         startAt,
-        ...(doorsOpenAtInput ? { doorsOpenAt: fromZonedInputValue(doorsOpenAtInput, timeZoneForParsing, "Doors-open time") } : {}),
-        ...(endAtInput ? { endAt: fromZonedInputValue(endAtInput, timeZoneForParsing, "Event end time") } : {}),
+        ...(doorsOpenAtInput ? { doorsOpenAt: parseZonedDateTimeInput(doorsOpenAtInput, timeZoneForParsing, "Doors-open time") } : {}),
+        ...(endAtInput ? { endAt: parseZonedDateTimeInput(endAtInput, timeZoneForParsing, "Event end time") } : {}),
         timezone: submittedTimezone,
         summary: optionalString(stringField(formData.get("summary"))),
         notes: optionalString(stringField(formData.get("notes"))),
@@ -773,16 +670,16 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Field>
           Doors open
-          <Input defaultValue={toZonedInputValue(event?.doorsOpenAt, event?.timezone)} name="doorsOpenAt" type="datetime-local" />
+          <Input defaultValue={formatZonedDateTimeInput(event?.doorsOpenAt, event?.timezone)} name="doorsOpenAt" type="datetime-local" />
           <FieldText>Optional public time, at or before event start.</FieldText>
         </Field>
         <Field>
           Start
-          <Input defaultValue={toZonedInputValue(event?.startAt, event?.timezone)} name="startAt" required type="datetime-local" />
+          <Input defaultValue={formatZonedDateTimeInput(event?.startAt, event?.timezone)} name="startAt" required type="datetime-local" />
         </Field>
         <Field>
           End
-          <Input defaultValue={toZonedInputValue(event?.endAt, event?.timezone)} name="endAt" type="datetime-local" />
+          <Input defaultValue={formatZonedDateTimeInput(event?.endAt, event?.timezone)} name="endAt" type="datetime-local" />
         </Field>
         <Field>
           Time zone

@@ -541,11 +541,10 @@ A partially complete checkpoint is not a shippable product claim.
   them explicitly from every constructor. Do not add compatibility reads or
   backfill jobs for rows that do not exist.
 - Start event audit history at rollout. Do not fabricate historical actors.
-- Add media-submission tables and indexes additively. Existing `profileAssets`
-  remain published and are not auto-reviewed.
-- Treat missing `mediaKit` visibility as public for compatibility. Apply safer
-  defaults only during new profile creation unless BASIC approves a retroactive
-  migration.
+- Add media-submission tables and indexes with no seed, import, or migration
+  path. Existing owner-managed `profileAssets` are outside the submission queue.
+- `mediaKit` uses the existing sparse profile-visibility contract: omitted keys
+  mean public. Do not add a special fallback, backfill, or migration for it.
 - Revalidate pending submissions against the current target profile version at
   decision time rather than assuming the snapshot is current.
 

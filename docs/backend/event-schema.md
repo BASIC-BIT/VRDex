@@ -31,13 +31,13 @@ Event `startAt`, `doorsOpenAt`, and `endAt` are stored as timestamps. The option
 
 `doorsOpenAt` is public and optional. When provided, it must be at or before `startAt`; it does not change the event start, slot offsets, participant associations, or event-world association timestamps.
 
-The editor parses event date/time inputs in the named event timezone. Public event cards, pages, and set times render directly in the viewer's local timezone; they do not repeat a canonical-timezone line.
+The editor parses event date/time inputs in the named event timezone. A local time skipped by a daylight-saving transition is invalid; for a repeated local time, the editor consistently chooses the earlier occurrence. Public event cards, pages, and set times render directly in the viewer's local timezone; they do not repeat a canonical-timezone line.
 
 Slot rows remain canonical event-time schedule rows. The first slot editor template still uses relative minute offsets from `startAt`, not `doorsOpenAt`, so set-time storage and Discord timestamp generation remain tied to the canonical event/slot timestamps.
 
 ## Community Authority
 
-Community-linked event writes require the current community owner or an active authority carrying `manage_events`. The original submitter is provenance only and loses no special authority when community ownership changes. Legacy standalone events without a linked community retain their existing submitter path until they are migrated or retired.
+Event writes require the current community owner or an active authority carrying `manage_events`. The original submitter is provenance only and has no lasting authority when community ownership changes. An event without a linked community has no browser management path; there is no legacy-data migration or compatibility path because no such deployed data exists.
 
 The browser editor obtains its community choices from
 `events:listManagedCommunities`, which combines active ownership and active
@@ -302,7 +302,7 @@ Automatic rules must never bypass an operator-level hold, consent gate, destinat
 
 ### Authorization And Tokens
 
-Interactive controls require a signed-in editor with event authority, such as the event submitter in the first slice or a later community `manage_events` / `manage_event_media` capability. Worker, bridge, Discord, or external command surfaces use scoped event tokens rather than broad user sessions.
+Interactive controls require a signed-in current community owner or active authority carrying `manage_events` / `manage_event_media`. Worker, bridge, Discord, or external command surfaces use scoped event tokens rather than broad user sessions.
 
 Scoped tokens should carry:
 

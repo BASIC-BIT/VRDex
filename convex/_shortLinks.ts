@@ -1,7 +1,6 @@
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader, DatabaseWriter } from "./_generated/server";
 import {
-  isSameAuthSubject,
   subjectHasCommunityCapability,
   type AuthSubject,
 } from "./_communityAuthority";
@@ -278,15 +277,15 @@ async function actorCanReserveEventShortLink(
   event: Doc<"events">,
   actor: ShortLinkReservationActor,
 ) {
-  if (
-    actor.subject !== undefined &&
-    event.submitter !== undefined &&
-    isSameAuthSubject(event.submitter, actor.subject)
-  ) {
+  if (event.communityProfileId === undefined) {
+    return false;
+  }
+
+  if (await userOwnsProfile(db, event.communityProfileId, actor.userId)) {
     return true;
   }
 
-  if (actor.subject === undefined || event.communityProfileId === undefined) {
+  if (actor.subject === undefined) {
     return false;
   }
 

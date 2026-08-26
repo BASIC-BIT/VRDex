@@ -12,7 +12,6 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import {
-  isSameAuthSubject,
   subjectHasAnyCommunityCapability,
   subjectHasCommunityCapability,
   type AuthSubject,
@@ -396,7 +395,7 @@ async function canUpdateEvent(
   userId?: Id<"users"> | null,
 ): Promise<boolean> {
   if (event.communityProfileId === undefined) {
-    return isSameAuthSubject(event.submitter, subject);
+    return false;
   }
 
   if (
@@ -417,7 +416,7 @@ async function canManageEventMedia(
   userId?: Id<"users"> | null,
 ): Promise<boolean> {
   if (event.communityProfileId === undefined) {
-    return isSameAuthSubject(event.submitter, subject);
+    return false;
   }
 
   if (
@@ -438,7 +437,7 @@ async function canViewEventOperations(
   userId?: Id<"users"> | null,
 ): Promise<boolean> {
   if (event.communityProfileId === undefined) {
-    return isSameAuthSubject(event.submitter, subject);
+    return false;
   }
 
   if (
