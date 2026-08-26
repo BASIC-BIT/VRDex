@@ -1633,15 +1633,21 @@ export const listPublicUpcoming = query({
     const [ongoingCandidates, upcoming] = await Promise.all([
       ctx.db
         .query("events")
-        .withIndex("by_publicationState_startAt", (index) =>
-          index.eq("publicationState", "published").lt("startAt", args.now),
+        .withIndex("by_publicationState_eventStatus_startAt", (index) =>
+          index
+            .eq("publicationState", "published")
+            .eq("eventStatus", "scheduled")
+            .lt("startAt", args.now),
         )
         .order("desc")
         .take(80),
       ctx.db
         .query("events")
-        .withIndex("by_publicationState_startAt", (index) =>
-          index.eq("publicationState", "published").gte("startAt", args.now),
+        .withIndex("by_publicationState_eventStatus_startAt", (index) =>
+          index
+            .eq("publicationState", "published")
+            .eq("eventStatus", "scheduled")
+            .gte("startAt", args.now),
         )
         .take(limit),
     ]);
@@ -2127,6 +2133,7 @@ export const listManagedEvents = query({
           second.event.startAt - first.event.startAt ||
           second.event.updatedAt - first.event.updatedAt,
       )
+      .filter(({ event }) => event.slug !== undefined)
       .slice(0, limit)
       .map(({ event, profile }) => ({
         eventId: event._id,
@@ -2460,14 +2467,17 @@ export const setCommunityEventPublished = mutation({
         linkedPublishedEventWorld(ctx.db, updated._id),
         eventParticipantRoleLabels(ctx.db, updated._id),
       ]);
-      await upsertSearchDocument(
-        ctx.db,
-        createEventSearchDocument(updated, {
-          community: community?.profileType === "community" ? community : undefined,
-          world,
-          roleLabels,
-        }),
-      );
+      await Promise.all([
+        upsertSearchDocument(
+          ctx.db,
+          createEventSearchDocument(updated, {
+            community: community?.profileType === "community" ? community : undefined,
+            world,
+            roleLabels,
+          }),
+        ),
+        recordVocabularyTerms(ctx.db, vocabularyForEvent(updated, roleLabels), now),
+      ]);
     }
     await recordEventAuditEvent(ctx.db, {
       eventId: event._id,

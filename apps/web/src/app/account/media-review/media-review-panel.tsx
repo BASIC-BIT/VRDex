@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import type { Id } from "../../../../../../convex/_generated/dataModel";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@convex-generated-api";
@@ -12,7 +12,7 @@ import { Card, SectionTitle } from "@/components/ui/card";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 
-type ReviewRow = FunctionReturnType<typeof api.profileMediaSubmissions.listForReview>[number];
+type ReviewRow = FunctionReturnType<typeof api.profileMediaSubmissions.listForReview>["page"][number];
 
 function ReviewCard({ row }: { row: ReviewRow }) {
   const decide = useMutation(api.profileMediaSubmissions.decide);
@@ -78,7 +78,7 @@ function ReviewCard({ row }: { row: ReviewRow }) {
       />
       <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
         <div><dt className="text-muted">Credit</dt><dd>{row.credit}</dd></div>
-        <div><dt className="text-muted">Alt text</dt><dd>{row.altText || "—"}</dd></div>
+        <div><dt className="text-muted">Alt text</dt><dd>{row.altText || "Not provided"}</dd></div>
         <div><dt className="text-muted">Prior matching proposals</dt><dd>{row.priorProposalCount}</dd></div>
         {row.submitterDisplayName || row.submitterEmail ? (
           <div>
@@ -132,18 +132,25 @@ export function MediaReviewPanel() {
   const effectiveProfileId = profileId || (
     access && !access.superAdmin ? access.profiles[0]?.profileId ?? "" : ""
   );
-  const submissions = useQuery(
-    api.profileMediaSubmissions.listForReview,
+  const reviewQueryArgs =
     access === undefined
       ? "skip"
       : access.superAdmin && profileId === ""
         ? { status: queueStatus }
         : effectiveProfileId
           ? { profileId: effectiveProfileId as Id<"profiles">, status: queueStatus }
-          : "skip",
+          : "skip";
+  const {
+    results: submissions,
+    status: paginationStatus,
+    loadMore,
+  } = usePaginatedQuery(
+    api.profileMediaSubmissions.listForReview,
+    reviewQueryArgs,
+    { initialNumItems: 40 },
   );
   const normalizedSubmitterSearch = submitterSearch.trim().toLowerCase();
-  const filteredSubmissions = submissions?.filter((row) => {
+  const filteredSubmissions = submissions.filter((row) => {
     if (ageCutoff !== undefined && row.createdAt < ageCutoff) return false;
     if (duplicatesOnly && row.priorProposalCount === 0) return false;
     if (normalizedSubmitterSearch !== "") {
@@ -215,12 +222,15 @@ export function MediaReviewPanel() {
         </div>
       ) : null}
       {cleanupStatus ? <Notice role="status">{cleanupStatus}</Notice> : null}
-      {access === undefined || submissions === undefined ? <p aria-busy="true" className="text-sm text-muted">Loading…</p> : null}
+      {access === undefined || paginationStatus === "LoadingFirstPage" ? <p aria-busy="true" className="text-sm text-muted">Loading…</p> : null}
       {access && !access.superAdmin && access.profiles.length === 0 ? <Notice variant="warning">Profile media review access is required.</Notice> : null}
-      {filteredSubmissions?.length === 0 ? <Notice>No media contributions match this queue.</Notice> : null}
+      {filteredSubmissions.length === 0 && paginationStatus === "Exhausted" ? <Notice>No media contributions match this queue.</Notice> : null}
       <div className="grid gap-4">
-        {filteredSubmissions?.map((row) => <ReviewCard key={row.submissionId} row={row} />)}
+        {filteredSubmissions.map((row) => <ReviewCard key={row.submissionId} row={row} />)}
       </div>
+      {paginationStatus === "CanLoadMore" ? (
+        <Button onClick={() => loadMore(40)} type="button" variant="ghost">Load more</Button>
+      ) : null}
     </main>
   );
 }

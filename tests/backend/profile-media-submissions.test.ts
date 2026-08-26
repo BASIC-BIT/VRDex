@@ -19,6 +19,7 @@ const modules = {
 };
 const schema = (schemaModule as unknown as { default?: typeof schemaModule }).default ?? schemaModule;
 const NOW = Date.parse("2026-08-26T12:00:00.000Z");
+const FIRST_REVIEW_PAGE = { paginationOpts: { numItems: 40, cursor: null } } as const;
 
 async function seed(t: ReturnType<typeof convexTest>, profileType: "person" | "community" = "person") {
   return await t.run(async (ctx) => {
@@ -185,13 +186,13 @@ describe("unclaimed-profile media submissions", () => {
 
     const queue = await t.withIdentity(seeded.moderatorIdentity).query(
       api.profileMediaSubmissions.listForReview,
-      {},
+      FIRST_REVIEW_PAGE,
     );
-    assert.equal(queue.length, 1);
-    assert.equal(queue[0]?.profileDisplayName, "Community DJ");
-    assert.equal(queue[0]?.submitterEmail, "contributor@example.test");
-    assert.equal(queue[0]?.priorProposalCount, 0);
-    assert.equal("privateReason" in (queue[0] ?? {}), false);
+    assert.equal(queue.page.length, 1);
+    assert.equal(queue.page[0]?.profileDisplayName, "Community DJ");
+    assert.equal(queue.page[0]?.submitterEmail, "contributor@example.test");
+    assert.equal(queue.page[0]?.priorProposalCount, 0);
+    assert.equal("privateReason" in (queue.page[0] ?? {}), false);
     const candidate = await t.withIdentity(seeded.moderatorIdentity).query(
       api.profileMediaSubmissions.getCandidateForStorage,
       { submissionId: intent.submissionId },
@@ -310,6 +311,7 @@ describe("unclaimed-profile media submissions", () => {
     await assert.rejects(
       t.withIdentity(seeded.contributorIdentity).query(api.profileMediaSubmissions.listForReview, {
         profileId: seeded.profileId,
+        ...FIRST_REVIEW_PAGE,
       }),
       /review access is required/i,
     );
@@ -366,9 +368,9 @@ describe("unclaimed-profile media submissions", () => {
     assert.equal(decision.status, "approved");
     const approvedQueue = await t.withIdentity(seeded.moderatorIdentity).query(
       api.profileMediaSubmissions.listForReview,
-      { status: "approved" },
+      { status: "approved", ...FIRST_REVIEW_PAGE },
     );
-    assert.equal(approvedQueue[0]?.canSuppress, true);
+    assert.equal(approvedQueue.page[0]?.canSuppress, true);
     assert.notEqual(
       await t.query(api.profileAssets.getPublicAssetForStorage, {
         slug: "community-dj",
@@ -439,11 +441,11 @@ describe("unclaimed-profile media submissions", () => {
 
     const queue = await t.withIdentity(ownerIdentity).query(
       api.profileMediaSubmissions.listForReview,
-      { profileId: seeded.profileId },
+      { profileId: seeded.profileId, ...FIRST_REVIEW_PAGE },
     );
-    assert.equal(queue.length, 1);
-    assert.equal("submitterEmail" in (queue[0] ?? {}), false);
-    assert.equal("submitterTokenIdentifier" in (queue[0] ?? {}), false);
+    assert.equal(queue.page.length, 1);
+    assert.equal("submitterEmail" in (queue.page[0] ?? {}), false);
+    assert.equal("submitterTokenIdentifier" in (queue.page[0] ?? {}), false);
     await t.withIdentity(ownerIdentity).mutation(api.profileMediaSubmissions.decide, {
       submissionId: intent.submissionId,
       decision: "reject",

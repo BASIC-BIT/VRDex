@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 
 import {
   cleanupClerkTestAccountData,
@@ -105,6 +105,13 @@ function unstableSignedInRegions(page: Page, email: string | undefined) {
     page.getByText(email ?? "", { exact: false }),
     page.getByRole("link", { name: "Account" }),
   ];
+}
+
+async function skipUntilHostedTargetRunsCurrentRevision(request: APIRequestContext) {
+  test.skip(
+    !(await hostedTargetRunsCurrentRevision(request)),
+    "Shared staging does not carry this feature-branch route yet; post-merge staging covers it.",
+  );
 }
 
 test.skip(
@@ -389,7 +396,8 @@ test.describe("account surfaces @visual @flow @account-visual", () => {
     });
   });
 
-  test("managed events", async ({ page }, testInfo) => {
+  test("managed events", async ({ page, request }, testInfo) => {
+    await skipUntilHostedTargetRunsCurrentRevision(request);
     await page.goto("/account/events");
     await expect(page.getByRole("heading", { name: "Events" })).toBeVisible(hostedExpectOptions);
     await expect(page.getByText("No events to manage.")).toBeVisible(hostedExpectOptions);
@@ -399,7 +407,8 @@ test.describe("account surfaces @visual @flow @account-visual", () => {
     });
   });
 
-  test("media contributions", async ({ page }, testInfo) => {
+  test("media contributions", async ({ page, request }, testInfo) => {
+    await skipUntilHostedTargetRunsCurrentRevision(request);
     await page.goto("/account/media-contributions");
     await expect(page.getByRole("heading", { name: "My media contributions" })).toBeVisible(
       hostedExpectOptions,
@@ -411,7 +420,8 @@ test.describe("account surfaces @visual @flow @account-visual", () => {
     });
   });
 
-  test("media review access", async ({ page }, testInfo) => {
+  test("media review access", async ({ page, request }, testInfo) => {
+    await skipUntilHostedTargetRunsCurrentRevision(request);
     await page.goto("/account/media-review");
     await expect(page.getByRole("heading", { name: "Media review" })).toBeVisible(
       hostedExpectOptions,

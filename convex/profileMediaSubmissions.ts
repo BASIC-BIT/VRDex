@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { paginationOptsValidator } from "convex/server";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
@@ -408,44 +409,46 @@ export const listForReview = query({
   args: {
     profileId: v.optional(v.id("profiles")),
     status: v.optional(reviewQueueStatus),
-    limit: v.optional(v.number()),
+    paginationOpts: paginationOptsValidator,
   },
   handler: async (ctx, args) => {
-    const limit = Math.max(1, Math.min(Math.floor(args.limit ?? 40), 100));
     const status = args.status ?? "submitted";
-    let submissions: Doc<"profileMediaSubmissions">[];
+    let submissionsPage;
     let includeModeratorEvidence = false;
     if (args.profileId !== undefined) {
       const profile = await ctx.db.get(args.profileId);
-      if (profile === null) return [];
+      if (profile === null) {
+        return { page: [], isDone: true, continueCursor: "" };
+      }
       const reviewAccess = await reviewerContext(ctx, profile);
       includeModeratorEvidence = reviewAccess.access.superAdmin;
-      submissions = await ctx.db
+      submissionsPage = await ctx.db
         .query("profileMediaSubmissions")
         .withIndex("by_profileId_status_createdAt", (query) =>
           query.eq("profileId", profile._id).eq("status", status),
         )
         .order("asc")
-        .take(limit);
+        .paginate(args.paginationOpts);
     } else {
       const { user } = await requireActiveBrowserSessionSubject(ctx);
       const access = await getAccountFeatureAccess(ctx.db, user._id);
       if (!access.superAdmin) throw new Error("Super admin access is required.");
       includeModeratorEvidence = true;
-      submissions = await ctx.db
+      submissionsPage = await ctx.db
         .query("profileMediaSubmissions")
         .withIndex("by_status_createdAt", (query) => query.eq("status", status))
         .order("asc")
-        .take(limit);
+        .paginate(args.paginationOpts);
     }
-    return await Promise.all(
-      submissions.map(async (submission) => {
+    const page = await Promise.all(
+      submissionsPage.page.map(async (submission) => {
         const profile = await ctx.db.get(submission.profileId);
         return profile === null
           ? null
           : await reviewSubmission(ctx, submission, profile, includeModeratorEvidence);
       }),
     ).then((items) => items.filter((item) => item !== null));
+    return { ...submissionsPage, page };
   },
 });
 

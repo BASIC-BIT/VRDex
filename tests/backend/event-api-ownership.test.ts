@@ -126,6 +126,7 @@ describe("API-created event ownership", () => {
       communitySlug: "faceless",
       startAt,
       endAt: startAt + 3_600_000,
+      timezone: "UTC",
     });
     const managed = await t.withIdentity(identity).query(api.events.listManagedCommunities, {});
     assert.deepEqual(managed.map((community) => community.slug), ["faceless"]);
@@ -145,6 +146,13 @@ describe("API-created event ownership", () => {
     });
     const published = await t.query(api.events.getPublicBySlug, { slug: created.slug });
     assert.equal(published?.status, "scheduled");
+    const timezoneVocabulary = await t.run((ctx) =>
+      ctx.db
+        .query("vocabularyTerms")
+        .withIndex("by_scope_key", (query) => query.eq("scope", "event_tag").eq("key", "utc"))
+        .unique(),
+    );
+    assert.equal(timezoneVocabulary?.label, "UTC");
 
     await assert.rejects(
       t.withIdentity(identity).mutation(api.events.setCommunityEventCancelled, {
@@ -188,6 +196,37 @@ describe("API-created event ownership", () => {
         .unique(),
     );
     assert.equal(restoredSearchDocument?.publicState, "public");
+  });
+
+  it("fills the requested discovery limit after excluding cancelled events", async () => {
+    const t = convexTest({ schema, modules });
+    const { identity } = await seedOwnedCommunity(t);
+    const first = await t.withIdentity(identity).mutation(api.events.createCommunityEvent, {
+      title: "Cancelled opener",
+      communitySlug: "faceless",
+      startAt: NOW + 3_600_000,
+    });
+    const second = await t.withIdentity(identity).mutation(api.events.createCommunityEvent, {
+      title: "Scheduled headliner",
+      communitySlug: "faceless",
+      startAt: NOW + 7_200_000,
+    });
+    await t.withIdentity(identity).mutation(api.events.setCommunityEventPublished, {
+      currentSlug: first.slug,
+      published: true,
+    });
+    await t.withIdentity(identity).mutation(api.events.setCommunityEventPublished, {
+      currentSlug: second.slug,
+      published: true,
+    });
+    await t.withIdentity(identity).mutation(api.events.setCommunityEventCancelled, {
+      currentSlug: first.slug,
+      cancelled: true,
+      reason: "Cancelled for test coverage.",
+    });
+
+    const upcoming = await t.query(api.events.listPublicUpcoming, { now: NOW, limit: 1 });
+    assert.deepEqual(upcoming.map((event) => event.slug), [second.slug]);
   });
 
   it("refuses an authenticated user without current community authority", async () => {

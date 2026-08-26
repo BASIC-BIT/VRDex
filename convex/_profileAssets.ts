@@ -856,13 +856,16 @@ export async function finalizeProfileAssetUploadIntentUpload(
     if (input.contentSha256 !== undefined) {
       const matchingSubmissions = await db
         .query("profileMediaSubmissions")
-        .withIndex("by_contentSha256", (query) => query.eq("contentSha256", input.contentSha256))
-        .collect();
+        .withIndex("by_profileId_contentSha256", (query) =>
+          query
+            .eq("profileId", submission.profileId)
+            .eq("contentSha256", input.contentSha256),
+        )
+        .take(2);
       if (
         matchingSubmissions.some(
           (candidate) =>
             candidate._id !== submission._id &&
-            candidate.profileId === submission.profileId &&
             (candidate.status === "submitted" ||
               candidate.status === "under_review" ||
               candidate.status === "approved"),

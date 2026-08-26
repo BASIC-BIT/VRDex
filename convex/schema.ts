@@ -825,6 +825,7 @@ export default defineSchema({
     .index("by_submitterUserId_createdAt", ["submitterUserId", "createdAt"])
     .index("by_status_createdAt", ["status", "createdAt"])
     .index("by_blobDeleteAfter", ["blobDeleteAfter"])
+    .index("by_profileId_contentSha256", ["profileId", "contentSha256"])
     .index("by_contentSha256", ["contentSha256"]),
   profileAssets: defineTable({
     profileId: v.id("profiles"),
@@ -993,6 +994,11 @@ export default defineSchema({
   })
     .index("by_slug", ["slug"])
     .index("by_publicationState_startAt", ["publicationState", "startAt"])
+    .index("by_publicationState_eventStatus_startAt", [
+      "publicationState",
+      "eventStatus",
+      "startAt",
+    ])
     .index("by_communityProfileId_startAt", ["communityProfileId", "startAt"]),
   eventWorlds: defineTable({
     eventId: v.id("events"),

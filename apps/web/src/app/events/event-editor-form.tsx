@@ -428,6 +428,7 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
   const [slotRows, setSlotRows] = useState(() => initialSlotRows(event));
   const [slotTemplate, setSlotTemplate] = useState({ count: "4", duration: "45", break: "0" });
   const [cancellationReason, setCancellationReason] = useState("");
+  const [eventStatus, setEventStatus] = useState(event?.status);
   const [, startTransition] = useTransition();
 
   useEffect(() => {
@@ -588,11 +589,12 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
 
     setStatus({ kind: "submitting" });
     try {
-      await setEventCancelled({
+      const result = await setEventCancelled({
         currentSlug: event.slug,
         cancelled,
         ...(cancelled ? { reason: cancellationReason } : {}),
       });
+      setEventStatus(result.eventStatus);
       startTransition(() =>
         setStatus({
           kind: "success",
@@ -1137,7 +1139,7 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
           </Field>
           <div className="flex flex-wrap gap-2">
             <Button
-              disabled={isSubmitting || event.status === "cancelled"}
+              disabled={isSubmitting || eventStatus === "cancelled"}
               onClick={() => void onSetCancelled(true)}
               type="button"
               variant="secondary"
@@ -1145,7 +1147,7 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
               Cancel event
             </Button>
             <Button
-              disabled={isSubmitting || event.status !== "cancelled"}
+              disabled={isSubmitting || eventStatus !== "cancelled"}
               onClick={() => void onSetCancelled(false)}
               type="button"
               variant="secondary"
