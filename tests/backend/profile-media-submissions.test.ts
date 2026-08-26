@@ -462,6 +462,49 @@ describe("unclaimed-profile media submissions", () => {
     assert.equal("privateReason" in (mine[0] ?? {}), false);
   });
 
+  it("does not let approval replace a newer singleton placement", async () => {
+    const t = convexTest({ schema, modules });
+    const seeded = await seed(t);
+    const { intent } = await createAndUpload(t, seeded);
+    await t.run(async (ctx) => {
+      const assetId = await ctx.db.insert("profileAssets", {
+        profileId: seeded.profileId,
+        storageKey: "profile-assets/owner/newer.webp",
+        mimeType: "image/webp",
+        byteSize: 512,
+        contentSha256: "newer-owner-image",
+        visibility: "public",
+        source: "owner_authored",
+        uploadedBy: {
+          tokenIdentifier: "owner:newer-image",
+          issuer: "test",
+          subject: "owner",
+        },
+        uploadedAt: NOW + 1,
+        state: "active",
+        updatedAt: NOW + 1,
+      });
+      await ctx.db.insert("profileAssetPlacements", {
+        profileId: seeded.profileId,
+        assetId,
+        placement: "profile_image",
+        position: 0,
+        state: "active",
+        updatedAt: NOW + 1,
+      });
+    });
+
+    await assert.rejects(
+      t.withIdentity(seeded.moderatorIdentity).mutation(api.profileMediaSubmissions.decide, {
+        submissionId: intent.submissionId,
+        decision: "approve",
+        expectedProfileUpdatedAt: NOW,
+        privateReason: "Would replace newer owner media.",
+      }),
+      /media placement changed/i,
+    );
+  });
+
   it("cleans terminal candidate files after retention and skips a legal hold", async () => {
     const t = convexTest({ schema, modules });
     const seeded = await seed(t);
@@ -521,15 +564,47 @@ describe("unclaimed-profile media submissions", () => {
     );
     assert.equal(due[0]?.submissionId, intent.submissionId);
     assert.match(due[0]?.storageKeys[0] ?? "", /profile-assets\//);
+    assert.equal(typeof due[0]?.cleanupToken, "string");
+    const retriedDue = await t.withIdentity(seeded.moderatorIdentity).mutation(
+      api.profileMediaSubmissions.prepareDueBlobCleanup,
+      {},
+    );
+    assert.equal(retriedDue[0]?.cleanupToken, due[0]?.cleanupToken);
+    await assert.rejects(
+      t.withIdentity(seeded.moderatorIdentity).mutation(
+        api.profileMediaSubmissions.setBlobLegalHold,
+        {
+          submissionId: intent.submissionId,
+          held: true,
+          reason: "Too late to hold this reserved cleanup.",
+        },
+      ),
+      /cleanup is already in progress/i,
+    );
     assert.deepEqual(
       await t.withIdentity(seeded.moderatorIdentity).mutation(
         api.profileMediaSubmissions.markBlobCleanupComplete,
-        { submissionIds: [intent.submissionId] },
+        {
+          items: [{ submissionId: intent.submissionId, cleanupToken: "wrong-token" }],
+        },
+      ),
+      { completed: 0 },
+    );
+    assert.deepEqual(
+      await t.withIdentity(seeded.moderatorIdentity).mutation(
+        api.profileMediaSubmissions.markBlobCleanupComplete,
+        {
+          items: [{
+            submissionId: intent.submissionId,
+            cleanupToken: due[0]!.cleanupToken,
+          }],
+        },
       ),
       { completed: 1 },
     );
     const stored = await t.run((ctx) => ctx.db.get(intent.submissionId));
     assert.equal(typeof stored?.blobDeletedAt, "number");
+    assert.equal(stored?.blobCleanupToken, undefined);
     const protectedSubmission = await t.run((ctx) => ctx.db.get(protectedSubmissionId));
     assert.equal(protectedSubmission?.blobDeletedAt, undefined);
   });
@@ -597,6 +672,67 @@ describe("unclaimed-profile media submissions", () => {
         },
       ),
       /limit reached/i,
+    );
+  });
+
+  it("finds a live duplicate after older terminal rows with the same hash", async () => {
+    const t = convexTest({ schema, modules });
+    const seeded = await seed(t);
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      for (const status of ["rejected", "withdrawn", "submitted"] as const) {
+        await ctx.db.insert("profileMediaSubmissions", {
+          profileId: seeded.profileId,
+          submitterUserId: seeded.contributorUserId,
+          submitter: {
+            tokenIdentifier: seeded.contributorIdentity.tokenIdentifier,
+            issuer: seeded.contributorIdentity.issuer,
+            subject: seeded.contributorIdentity.subject,
+          },
+          requestedPlacement: "profile_image",
+          sourceUrl: "https://artist.example/press",
+          credit: "Artist press kit",
+          status,
+          targetProfileUpdatedAt: NOW,
+          contentSha256: "reused-hash",
+          expiresAt: now + 30 * 24 * 60 * 60 * 1_000,
+          createdAt: now - 60_000,
+          updatedAt: now - 60_000,
+        });
+      }
+    });
+    const intent = await t.withIdentity(seeded.contributorIdentity).mutation(
+      api.profileMediaSubmissions.createUploadIntent,
+      {
+        profileId: seeded.profileId,
+        requestedPlacement: "profile_image",
+        originalFileName: "duplicate.webp",
+        mimeType: "image/webp",
+        byteSize: 512,
+        sourceUrl: "https://artist.example/press",
+        credit: "Artist press kit",
+        expectedProfileUpdatedAt: NOW,
+      },
+    );
+    const processingToken = `processing-${crypto.randomUUID()}`;
+    await t.mutation(internal.profileAssets.claimUploadIntentForStorage, {
+      intentId: intent.intentId,
+      uploadToken: intent.uploadToken,
+      processingToken,
+    });
+
+    await assert.rejects(
+      t.mutation(internal.profileAssets.markUploadIntentUploaded, {
+        intentId: intent.intentId,
+        uploadToken: intent.uploadToken,
+        processingToken,
+        mimeType: "image/webp",
+        byteSize: 512,
+        contentSha256: "reused-hash",
+        width: 800,
+        height: 800,
+      }),
+      /already proposed/i,
     );
   });
 

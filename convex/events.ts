@@ -1000,10 +1000,11 @@ async function updateCommunityEventRecord(
     input: SanitizedEventDraftInput;
     community?: Doc<"profiles">;
     world?: Doc<"worlds">;
+    publicationState?: Doc<"events">["publicationState"];
     updateFields?: ReadonlySet<keyof EventDraftInput>;
   },
 ) {
-  const { community, event, input, updateFields, world } = options;
+  const { community, event, input, publicationState, updateFields, world } = options;
   const now = Date.now();
   const shouldUpdate = (field: keyof EventDraftInput) => updateFields === undefined || updateFields.has(field);
   const slug = await findAvailableEventSlug(
@@ -1035,6 +1036,12 @@ async function updateCommunityEventRecord(
     ...(shouldUpdate("mediaLinks") ? { mediaLinks: input.mediaLinks } : {}),
     ...(shouldUpdate("sourceLabel") ? { sourceLabel: input.sourceLabel } : {}),
     ...(shouldUpdate("sourceUrl") ? { sourceUrl: input.sourceUrl } : {}),
+    ...(publicationState === undefined
+      ? {}
+      : {
+          publicationState,
+          ...(publicationState === "published" ? { publishedAt: event.publishedAt ?? now } : {}),
+        }),
     updatedAt: now,
   });
 
@@ -2337,6 +2344,7 @@ export const updateCommunityEventForMcpOwner = internalMutation({
 export const updateCommunityEvent = mutation({
   args: {
     currentSlug: v.string(),
+    published: v.optional(v.boolean()),
     ...eventDraftArgs,
   },
   handler: async (ctx, args) => {
@@ -2367,13 +2375,36 @@ export const updateCommunityEvent = mutation({
 
     const world = await getPublishedWorldBySlug(ctx.db, input.worldSlug);
 
-    const result = await updateCommunityEventRecord(ctx.db, { event, input, community, world });
+    const publicationState = args.published === undefined
+      ? undefined
+      : args.published
+        ? ("published" as const)
+        : ("draft_private" as const);
+    const publicationChanged =
+      publicationState !== undefined && publicationState !== event.publicationState;
+    const result = await updateCommunityEventRecord(ctx.db, {
+      event,
+      input,
+      community,
+      world,
+      publicationState,
+    });
     await recordEventAuditEvent(ctx.db, {
       eventId: event._id,
       actor: subject,
       actorSurface: "browser",
-      action: "updated",
-      changedFields: ["event", "slots", "participants", "world"],
+      action: publicationChanged
+        ? publicationState === "published"
+          ? "published"
+          : "unpublished"
+        : "updated",
+      changedFields: [
+        "event",
+        "slots",
+        "participants",
+        "world",
+        ...(publicationChanged ? ["publicationState"] : []),
+      ],
       now: Date.now(),
     });
     return result;

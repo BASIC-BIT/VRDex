@@ -229,6 +229,51 @@ describe("API-created event ownership", () => {
     assert.deepEqual(upcoming.map((event) => event.slug), [second.slug]);
   });
 
+  it("keeps a published event online when an atomic unpublish-and-save fails", async () => {
+    const t = convexTest({ schema, modules });
+    const { identity } = await seedOwnedCommunity(t);
+    const startAt = NOW + 86_400_000;
+    const created = await t.withIdentity(identity).mutation(api.events.createCommunityEvent, {
+      title: "Atomic event",
+      communitySlug: "faceless",
+      startAt,
+    });
+    await t.withIdentity(identity).mutation(api.events.setCommunityEventPublished, {
+      currentSlug: created.slug,
+      published: true,
+    });
+
+    await assert.rejects(
+      t.withIdentity(identity).mutation(api.events.updateCommunityEvent, {
+        currentSlug: created.slug,
+        published: false,
+        title: "Broken draft edit",
+        communitySlug: "faceless",
+        startAt,
+        participantLinks: [{ personSlug: "missing-performer" }],
+      }),
+      /person profile/i,
+    );
+    assert.equal(
+      (await t.query(api.events.getPublicBySlug, { slug: created.slug }))?.title,
+      "Atomic event",
+    );
+
+    await t.withIdentity(identity).mutation(api.events.updateCommunityEvent, {
+      currentSlug: created.slug,
+      published: false,
+      title: "Saved private draft",
+      communitySlug: "faceless",
+      startAt,
+    });
+    assert.equal(await t.query(api.events.getPublicBySlug, { slug: created.slug }), null);
+    assert.equal(
+      (await t.withIdentity(identity).query(api.events.getEditableBySlug, { slug: created.slug }))
+        ?.title,
+      "Saved private draft",
+    );
+  });
+
   it("refuses an authenticated user without current community authority", async () => {
     const t = convexTest({ schema, modules });
     const { identity: ownerIdentity } = await seedOwnedCommunity(t);

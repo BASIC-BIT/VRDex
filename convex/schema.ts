@@ -805,6 +805,7 @@ export default defineSchema({
     contributorNote: v.optional(v.string()),
     status: profileMediaSubmissionStatus,
     targetProfileUpdatedAt: v.number(),
+    targetPlacementAssetId: v.optional(v.id("profileAssets")),
     decisionProfileUpdatedAt: v.optional(v.number()),
     reviewer: v.optional(authSubject),
     reviewedAt: v.optional(v.number()),
@@ -815,6 +816,8 @@ export default defineSchema({
     expiresAt: v.number(),
     blobDeleteAfter: v.optional(v.number()),
     blobDeletedAt: v.optional(v.number()),
+    blobCleanupToken: v.optional(v.string()),
+    blobCleanupReservedAt: v.optional(v.number()),
     legalHoldAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -825,7 +828,7 @@ export default defineSchema({
     .index("by_submitterUserId_createdAt", ["submitterUserId", "createdAt"])
     .index("by_status_createdAt", ["status", "createdAt"])
     .index("by_blobDeleteAfter", ["blobDeleteAfter"])
-    .index("by_profileId_contentSha256", ["profileId", "contentSha256"])
+    .index("by_profileId_contentSha256_status", ["profileId", "contentSha256", "status"])
     .index("by_contentSha256", ["contentSha256"]),
   profileAssets: defineTable({
     profileId: v.id("profiles"),

@@ -555,16 +555,19 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
         slotLinks: parseSlotRows(slotRows, startAt),
       };
       const intent = stringField(formData.get("intent"));
-      if (intent === "draft" && event?.publicationState === "published") {
-        // Fail safe: remove the old public version before applying edits that
-        // the organizer explicitly asked to keep as a draft.
-        await setEventPublished({ currentSlug: event.slug, published: false });
-      }
       const result = event
-        ? await updateEvent({ currentSlug: event.slug, ...payload })
+        ? await updateEvent({
+            currentSlug: event.slug,
+            ...(intent === "publish"
+              ? { published: true }
+              : intent === "draft"
+                ? { published: false }
+                : {}),
+            ...payload,
+          })
         : await createEvent(payload);
 
-      if (intent === "publish") {
+      if (event === undefined && intent === "publish") {
         await setEventPublished({ currentSlug: result.slug, published: true });
       }
 

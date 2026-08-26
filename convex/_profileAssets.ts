@@ -550,6 +550,21 @@ export async function getPublicProfileMediaKit(
   const avatarVisible = isProfileFieldVisible(profile, "avatarImageUrl", surface);
   const bannerVisible = isProfileFieldVisible(profile, "bannerImageUrl", surface);
   const mediaKitVisible = isProfileFieldVisible(profile, "mediaKit", surface);
+  const placementsByAssetId = new Map<Id<"profileAssets">, Doc<"profileAssetPlacements">[]>();
+  for (const placement of sortedPlacements) {
+    const current = placementsByAssetId.get(placement.assetId) ?? [];
+    current.push(placement);
+    placementsByAssetId.set(placement.assetId, current);
+  }
+  const visibleAssets = assets.filter((asset) => {
+    const assetPlacements = placementsByAssetId.get(asset._id) ?? [];
+    if (assetPlacements.length === 0) return mediaKitVisible;
+    return assetPlacements.some((placement) => {
+      if (placement.placement === "profile_image") return avatarVisible;
+      if (placement.placement === "banner") return bannerVisible;
+      return mediaKitVisible;
+    });
+  });
   const profileImageAsset = avatarVisible
     ? firstPlacedAsset(assetsById, sortedPlacements, "profile_image")
     : undefined;
@@ -576,7 +591,9 @@ export async function getPublicProfileMediaKit(
   const orderedAssets = mediaKitVisible
     ? [
         ...galleryAssets,
-        ...assets.filter((asset) => !galleryAssets.some((galleryAsset) => galleryAsset._id === asset._id)),
+        ...visibleAssets.filter(
+          (asset) => !galleryAssets.some((galleryAsset) => galleryAsset._id === asset._id),
+        ),
       ]
     : [];
   const compactDisplay =
@@ -854,23 +871,20 @@ export async function finalizeProfileAssetUploadIntentUpload(
       throw new ConvexError("Community proposal is no longer accepting this upload.");
     }
     if (input.contentSha256 !== undefined) {
-      const matchingSubmissions = await db
-        .query("profileMediaSubmissions")
-        .withIndex("by_profileId_contentSha256", (query) =>
-          query
-            .eq("profileId", submission.profileId)
-            .eq("contentSha256", input.contentSha256),
-        )
-        .take(2);
-      if (
-        matchingSubmissions.some(
-          (candidate) =>
-            candidate._id !== submission._id &&
-            (candidate.status === "submitted" ||
-              candidate.status === "under_review" ||
-              candidate.status === "approved"),
-        )
-      ) {
+      const matchingSubmissions = await Promise.all(
+        (["submitted", "under_review", "approved"] as const).map((status) =>
+          db
+            .query("profileMediaSubmissions")
+            .withIndex("by_profileId_contentSha256_status", (query) =>
+              query
+                .eq("profileId", submission.profileId)
+                .eq("contentSha256", input.contentSha256)
+                .eq("status", status),
+            )
+            .first(),
+        ),
+      );
+      if (matchingSubmissions.some((candidate) => candidate !== null)) {
         throw new ConvexError("This image was already proposed for the profile.");
       }
     }

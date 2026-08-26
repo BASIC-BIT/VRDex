@@ -262,6 +262,15 @@ export const createUploadIntent = mutation({
     const altText = sanitizeProfileAssetAltText(args.altText);
     const creditUrl = sanitizeProfileAssetCreditUrl(args.creditUrl);
     const contributorNote = sanitizeNote(args.contributorNote, 500);
+    const targetPlacement = await ctx.db
+      .query("profileAssetPlacements")
+      .withIndex("by_profileId_placement_state_position", (query) =>
+        query
+          .eq("profileId", profile._id)
+          .eq("placement", args.requestedPlacement)
+          .eq("state", "active"),
+      )
+      .first();
     const submissionId = await ctx.db.insert("profileMediaSubmissions", {
       profileId: profile._id,
       submitterUserId: user._id,
@@ -276,6 +285,7 @@ export const createUploadIntent = mutation({
       ...(contributorNote !== undefined ? { contributorNote } : {}),
       status: "upload_pending",
       targetProfileUpdatedAt: profile.updatedAt,
+      ...(targetPlacement === null ? {} : { targetPlacementAssetId: targetPlacement.assetId }),
       expiresAt: now + SUBMISSION_RETENTION_MS,
       createdAt: now,
       updatedAt: now,
@@ -576,6 +586,18 @@ export const decide = mutation({
     ) {
       throw new Error("The submitted media upload is not ready for approval.");
     }
+    const currentPlacement = await ctx.db
+      .query("profileAssetPlacements")
+      .withIndex("by_profileId_placement_state_position", (query) =>
+        query
+          .eq("profileId", profile._id)
+          .eq("placement", submission.requestedPlacement)
+          .eq("state", "active"),
+      )
+      .first();
+    if ((currentPlacement?.assetId ?? undefined) !== submission.targetPlacementAssetId) {
+      throw new Error("The profile media placement changed. Refresh before deciding.");
+    }
     await assertProfileAssetCapacity(ctx.db, profile._id, 1);
     if (intent.contentSha256 !== undefined) {
       const existing = await ctx.db
@@ -712,11 +734,20 @@ export const prepareDueBlobCleanup = mutation({
       .slice(0, 20);
     return await Promise.all(
       eligible.map(async (submission) => {
+        const cleanupToken = submission.blobCleanupToken ?? `${submission._id}:${now}`;
+        if (submission.blobCleanupToken === undefined) {
+          await ctx.db.patch(submission._id, {
+            blobCleanupToken: cleanupToken,
+            blobCleanupReservedAt: now,
+            updatedAt: now,
+          });
+        }
         const intent = submission.uploadIntentId === undefined
           ? null
           : await ctx.db.get(submission.uploadIntentId);
         return {
           submissionId: submission._id,
+          cleanupToken,
           storageKeys: intent === null
             ? []
             : [
@@ -732,18 +763,22 @@ export const prepareDueBlobCleanup = mutation({
 });
 
 export const markBlobCleanupComplete = mutation({
-  args: { submissionIds: v.array(submissionId) },
+  args: {
+    items: v.array(v.object({ submissionId, cleanupToken: v.string() })),
+  },
   handler: async (ctx, args) => {
     const { user, subject } = await requireActiveBrowserSessionSubject(ctx);
     const access = await getAccountFeatureAccess(ctx.db, user._id);
     if (!access.superAdmin) throw new Error("Super admin access is required.");
-    if (args.submissionIds.length > 20) throw new Error("Cleanup batch is too large.");
+    if (args.items.length > 20) throw new Error("Cleanup batch is too large.");
     const now = Date.now();
     let completed = 0;
-    for (const id of new Set(args.submissionIds)) {
+    const items = new Map(args.items.map((item) => [item.submissionId, item.cleanupToken]));
+    for (const [id, cleanupToken] of items) {
       const submission = await ctx.db.get(id);
       if (
         submission === null ||
+        submission.blobCleanupToken !== cleanupToken ||
         submission.blobDeleteAfter === undefined ||
         submission.blobDeleteAfter > now ||
         submission.legalHoldAt !== undefined ||
@@ -751,7 +786,12 @@ export const markBlobCleanupComplete = mutation({
       ) {
         continue;
       }
-      await ctx.db.patch(id, { blobDeletedAt: now, updatedAt: now });
+      await ctx.db.patch(id, {
+        blobDeletedAt: now,
+        blobCleanupToken: undefined,
+        blobCleanupReservedAt: undefined,
+        updatedAt: now,
+      });
       await ctx.db.insert("profileAuditEvents", {
         profileId: submission.profileId,
         action: "profile_media_submission_blob_deleted",
@@ -779,6 +819,9 @@ export const setBlobLegalHold = mutation({
     if (reason === undefined) throw new Error("A legal-hold reason is required.");
     const submission = await ctx.db.get(args.submissionId);
     if (submission === null) throw new Error("Media contribution not found.");
+    if (args.held && submission.blobCleanupToken !== undefined) {
+      throw new Error("Candidate file cleanup is already in progress.");
+    }
     const now = Date.now();
     await ctx.db.patch(submission._id, {
       legalHoldAt: args.held ? now : undefined,

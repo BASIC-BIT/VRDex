@@ -268,6 +268,30 @@ describe("profile media-kit owner management", () => {
     );
   });
 
+  it("omits privately placed asset metadata from the public media-kit list", async () => {
+    const seeded = await seedOwnedProfile(2);
+    await seeded.t.run(async (ctx) => {
+      const profileImagePlacement = await ctx.db
+        .query("profileAssetPlacements")
+        .withIndex("by_assetId", (query) => query.eq("assetId", seeded.assetIds[0]!))
+        .unique();
+      assert.notEqual(profileImagePlacement, null);
+      await ctx.db.patch(profileImagePlacement!._id, { placement: "profile_image" });
+      await ctx.db.patch(seeded.profileId, {
+        fieldVisibility: { avatarImageUrl: "private", mediaKit: "public" },
+      });
+    });
+
+    const result = await seeded.t.query(api.profileAssets.listPublicBySlug, {
+      slug: "media-owner",
+    });
+    assert.equal(result?.mediaKit.profileImage, undefined);
+    assert.deepEqual(
+      result?.mediaKit.assets.map((asset) => asset.assetId),
+      [seeded.assetIds[1]],
+    );
+  });
+
   it("releases a failed owner upload reservation for an immediate retry", async () => {
     const seeded = await seedOwnedProfile(11);
     const owner = seeded.t.withIdentity(seeded.ownerIdentity);

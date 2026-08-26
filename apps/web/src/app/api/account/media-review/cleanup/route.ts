@@ -32,13 +32,16 @@ export async function POST(request: Request) {
   const convex = convexHttpClient();
   convex.setAuth(authToken);
   const due = await convex.mutation(api.profileMediaSubmissions.prepareDueBlobCleanup, {});
-  const completed: Id<"profileMediaSubmissions">[] = [];
+  const completed: Array<{
+    submissionId: Id<"profileMediaSubmissions">;
+    cleanupToken: string;
+  }> = [];
   for (const item of due) {
     await deleteProfileAssetObjects(item.storageKeys);
-    completed.push(item.submissionId);
+    completed.push({ submissionId: item.submissionId, cleanupToken: item.cleanupToken });
   }
   const result = await convex.mutation(api.profileMediaSubmissions.markBlobCleanupComplete, {
-    submissionIds: completed,
+    items: completed,
   });
   return Response.json(result, { headers: { "cache-control": "private, no-store" } });
 }
