@@ -28,8 +28,6 @@ function safeMessage(error: unknown) {
     /A signed-in account is required\./,
     /A verified email address is required to contribute media\./,
     /This profile (?:is not accepting media contributions|has been claimed|changed\.)/,
-    /You already have three media contributions awaiting a decision\./,
-    /This profile already has two media contributions awaiting a decision\./,
     /A source URL, file name, and credit are required\./,
     /Profile media assets must .+\./,
     /Profile media asset imports must .+\./,
