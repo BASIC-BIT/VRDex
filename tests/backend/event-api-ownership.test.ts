@@ -332,6 +332,17 @@ describe("API-created event ownership", () => {
           updatedAt: NOW,
         });
       }
+      for (let index = 0; index < 60; index += 1) {
+        await ctx.db.insert("eventMediaSessions", {
+          programId: active.programId,
+          eventId: active.eventId,
+          status: "ended",
+          workerTaskStatus: "stopped",
+          artifactLinks: [],
+          createdAt: NOW - index - 1,
+          updatedAt: NOW - index - 1,
+        });
+      }
     });
     await t.withIdentity(identity).mutation(api.events.setCommunityEventCancelled, {
       currentSlug: active.slug,
@@ -389,6 +400,44 @@ describe("API-created event ownership", () => {
 
     const upcoming = await t.query(api.events.listPublicUpcoming, { now: NOW, limit: 1 });
     assert.deepEqual(upcoming.map((event) => event.slug), [second.slug]);
+  });
+
+  it("keeps a long-running event after more than 80 newer events have ended", async () => {
+    const t = convexTest({ schema, modules });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("events", {
+        slug: "weeklong-festival",
+        title: "Weeklong Festival",
+        sortTitle: "weeklong festival",
+        startAt: NOW - 7 * 86_400_000,
+        endAt: NOW + 3_600_000,
+        sourceType: "manual",
+        sourceLabel: "Test",
+        eventStatus: "scheduled",
+        publicationState: "published",
+        publishedAt: NOW - 7 * 86_400_000,
+        updatedAt: NOW,
+      });
+      for (let index = 0; index < 81; index += 1) {
+        const startAt = NOW - (index + 1) * 60_000;
+        await ctx.db.insert("events", {
+          slug: `ended-event-${index}`,
+          title: `Ended Event ${index}`,
+          sortTitle: `ended event ${index}`,
+          startAt,
+          endAt: startAt + 30_000,
+          sourceType: "manual",
+          sourceLabel: "Test",
+          eventStatus: "scheduled",
+          publicationState: "published",
+          publishedAt: startAt,
+          updatedAt: startAt,
+        });
+      }
+    });
+
+    const upcoming = await t.query(api.events.listPublicUpcoming, { now: NOW, limit: 1 });
+    assert.deepEqual(upcoming.map((event) => event.slug), ["weeklong-festival"]);
   });
 
   it("keeps a published event online when an atomic unpublish-and-save fails", async () => {

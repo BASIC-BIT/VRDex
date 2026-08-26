@@ -823,11 +823,14 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_profileId_status_createdAt", ["profileId", "status", "createdAt"])
+    .index("by_profileId_status_expiresAt", ["profileId", "status", "expiresAt"])
     .index("by_profileId_createdAt", ["profileId", "createdAt"])
     .index("by_submitterUserId_status_createdAt", ["submitterUserId", "status", "createdAt"])
+    .index("by_submitterUserId_status_expiresAt", ["submitterUserId", "status", "expiresAt"])
     .index("by_submitterUserId_createdAt", ["submitterUserId", "createdAt"])
     .index("by_status_createdAt", ["status", "createdAt"])
     .index("by_blobDeleteAfter", ["blobDeleteAfter"])
+    .index("by_cleanupEligibility_blobDeleteAfter", ["blobDeletedAt", "legalHoldAt", "blobDeleteAfter"])
     .index("by_profileId_contentSha256_status", ["profileId", "contentSha256", "status"])
     .index("by_contentSha256", ["contentSha256"]),
   profileAssets: defineTable({
@@ -1002,6 +1005,11 @@ export default defineSchema({
       "publicationState",
       "eventStatus",
       "startAt",
+    ])
+    .index("by_publicationState_eventStatus_endAt", [
+      "publicationState",
+      "eventStatus",
+      "endAt",
     ])
     .index("by_communityProfileId_startAt", ["communityProfileId", "startAt"]),
   eventWorlds: defineTable({

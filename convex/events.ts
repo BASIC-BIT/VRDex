@@ -1228,16 +1228,33 @@ async function getWritableEventMediaSession(
 
 async function getOpenEventMediaSession(
   db: DatabaseReader,
-  programId: Id<"eventMediaPrograms">,
+  program: Doc<"eventMediaPrograms">,
 ): Promise<Doc<"eventMediaSessions"> | null> {
-  const sessions = await db
-    .query("eventMediaSessions")
-    .withIndex("by_programId_status", (query) => query.eq("programId", programId))
-    .take(50);
-  const openStatuses = new Set(["scheduled", "starting", "live", "hold", "fallback", "stopping"]);
+  const openStatuses = ["scheduled", "starting", "live", "hold", "fallback", "stopping"] as const;
+  if (program.activeSessionId !== undefined) {
+    const active = await db.get(program.activeSessionId);
+    if (
+      active !== null &&
+      active.programId === program._id &&
+      openStatuses.includes(active.status as (typeof openStatuses)[number])
+    ) {
+      return active;
+    }
+  }
+  const sessions = await Promise.all(
+    openStatuses.map((status) =>
+      db
+        .query("eventMediaSessions")
+        .withIndex("by_programId_status", (query) =>
+          query.eq("programId", program._id).eq("status", status),
+        )
+        .order("desc")
+        .first(),
+    ),
+  );
 
   return sessions
-    .filter((session) => openStatuses.has(session.status))
+    .filter((session): session is Doc<"eventMediaSessions"> => session !== null)
     .sort((first, second) => second.updatedAt - first.updatedAt)[0] ?? null;
 }
 
@@ -1416,7 +1433,7 @@ async function settleEventMediaForCancellation(
   const program = await getLatestEventMediaProgram(db, event._id);
   if (program === null) return;
 
-  const session = await getOpenEventMediaSession(db, program._id);
+  const session = await getOpenEventMediaSession(db, program);
   if (session === null) {
     if (program.publicLinks.length > 0) {
       await db.patch(program._id, { publicLinks: [], updatedAt: now });
@@ -1731,17 +1748,16 @@ export const listPublicUpcoming = query({
   },
   handler: async (ctx, args) => {
     const limit = boundedLimit(args.limit, 8, 24);
-    const [ongoingCandidates, upcoming] = await Promise.all([
+    const [ongoing, upcoming] = await Promise.all([
       ctx.db
         .query("events")
-        .withIndex("by_publicationState_eventStatus_startAt", (index) =>
+        .withIndex("by_publicationState_eventStatus_endAt", (index) =>
           index
             .eq("publicationState", "published")
             .eq("eventStatus", "scheduled")
-            .lt("startAt", args.now),
+            .gte("endAt", args.now),
         )
-        .order("desc")
-        .take(80),
+        .take(limit),
       ctx.db
         .query("events")
         .withIndex("by_publicationState_eventStatus_startAt", (index) =>
@@ -1752,11 +1768,6 @@ export const listPublicUpcoming = query({
         )
         .take(limit),
     ]);
-    const ongoing = ongoingCandidates.filter(
-      (event) =>
-        event.eventStatus === "scheduled" &&
-        (event.endAt ?? event.startAt) >= args.now,
-    );
     const events = [...ongoing, ...upcoming];
 
     return await getPublicEventPreviews(ctx.db, events, { now: args.now, limit });
@@ -2784,7 +2795,7 @@ export const scheduleEventMediaWorker = mutation({
     const workerTaskId = optionalTrimmedText(args.workerTaskId, "Worker task id", 512);
     const workerTaskStatusReason = optionalTrimmedText(args.workerTaskStatusReason, "Worker task status reason", 500);
     const artifactLinks = sanitizeEventMediaWorkerArtifactLinks(args.artifactLinks);
-    const openSession = await getOpenEventMediaSession(ctx.db, program._id);
+    const openSession = await getOpenEventMediaSession(ctx.db, program);
 
     if (openSession !== null && openSession.status !== "scheduled") {
       throw new Error("An event media worker session is already active for this event.");

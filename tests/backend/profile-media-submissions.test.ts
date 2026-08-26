@@ -683,6 +683,29 @@ describe("unclaimed-profile media submissions", () => {
       ctx.db.patch(intent.submissionId, { blobDeleteAfter: Date.now() - 1 }),
     );
     await t.run(async (ctx) => {
+      for (let index = 0; index < 200; index += 1) {
+        await ctx.db.insert("profileMediaSubmissions", {
+          profileId: seeded.profileId,
+          submitterUserId: seeded.contributorUserId,
+          submitter: {
+            tokenIdentifier: seeded.contributorIdentity.tokenIdentifier,
+            issuer: seeded.contributorIdentity.issuer,
+            subject: seeded.contributorIdentity.subject,
+          },
+          requestedPlacement: "profile_image",
+          sourceUrl: `https://artist.example/cleanup-blocker-${index}`,
+          credit: "Artist",
+          status: "withdrawn",
+          targetProfileUpdatedAt: NOW,
+          expiresAt: Date.now() - 86_400_000,
+          blobDeleteAfter: Date.now() - 60_000,
+          ...(index < 100
+            ? { blobDeletedAt: Date.now() - 30_000 }
+            : { legalHoldAt: Date.now() - 30_000 }),
+          createdAt: NOW - index,
+          updatedAt: NOW - index,
+        });
+      }
       for (let index = 0; index < 201; index += 1) {
         await ctx.db.insert("profileMediaSubmissions", {
           profileId: seeded.profileId,
@@ -791,6 +814,7 @@ describe("unclaimed-profile media submissions", () => {
     );
     const stored = await t.run((ctx) => ctx.db.get(intent.submissionId));
     assert.equal(typeof stored?.blobDeletedAt, "number");
+    assert.equal(stored?.blobDeleteAfter, undefined);
     assert.equal(stored?.blobCleanupToken, undefined);
     const protectedSubmission = await t.run((ctx) => ctx.db.get(protectedSubmissionId));
     assert.equal(protectedSubmission?.blobDeletedAt, undefined);
@@ -816,6 +840,47 @@ describe("unclaimed-profile media submissions", () => {
       ),
       /verified email address is required/i,
     );
+  });
+
+  it("does not count expired proposals against open submission slots", async () => {
+    const t = convexTest({ schema, modules });
+    const seeded = await seed(t);
+    await t.run(async (ctx) => {
+      for (let index = 0; index < 2; index += 1) {
+        await ctx.db.insert("profileMediaSubmissions", {
+          profileId: seeded.profileId,
+          submitterUserId: seeded.contributorUserId,
+          submitter: {
+            tokenIdentifier: seeded.contributorIdentity.tokenIdentifier,
+            issuer: seeded.contributorIdentity.issuer,
+            subject: seeded.contributorIdentity.subject,
+          },
+          requestedPlacement: "profile_image",
+          sourceUrl: `https://artist.example/expired-${index}`,
+          credit: "Artist",
+          status: "submitted",
+          targetProfileUpdatedAt: NOW,
+          expiresAt: Date.now() - 1,
+          createdAt: NOW - index,
+          updatedAt: NOW - index,
+        });
+      }
+    });
+
+    const created = await t.withIdentity(seeded.contributorIdentity).mutation(
+      api.profileMediaSubmissions.createUploadIntent,
+      {
+        profileId: seeded.profileId,
+        requestedPlacement: "profile_image",
+        originalFileName: "fresh.webp",
+        mimeType: "image/webp",
+        byteSize: 512,
+        sourceUrl: "https://artist.example/fresh",
+        credit: "Artist",
+        expectedProfileUpdatedAt: NOW,
+      },
+    );
+    assert.equal(typeof created.submissionId, "string");
   });
 
   it("bounds repeated submissions even after earlier rows are withdrawn", async () => {

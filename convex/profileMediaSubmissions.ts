@@ -49,13 +49,14 @@ function sanitizeNote(value: string | undefined, maxLength: number): string | un
 async function openSubmissionCountForUser(
   ctx: Pick<QueryCtx, "db">,
   userId: Id<"users">,
+  now: number,
 ) {
   const groups = await Promise.all(
     OPEN_SUBMISSION_STATUSES.map((status) =>
       ctx.db
         .query("profileMediaSubmissions")
-        .withIndex("by_submitterUserId_status_createdAt", (query) =>
-          query.eq("submitterUserId", userId).eq("status", status),
+        .withIndex("by_submitterUserId_status_expiresAt", (query) =>
+          query.eq("submitterUserId", userId).eq("status", status).gt("expiresAt", now),
         )
         .take(MAX_OPEN_PER_USER + 1),
     ),
@@ -66,13 +67,14 @@ async function openSubmissionCountForUser(
 async function openSubmissionCountForProfile(
   ctx: Pick<QueryCtx, "db">,
   profileId: Id<"profiles">,
+  now: number,
 ) {
   const groups = await Promise.all(
     OPEN_SUBMISSION_STATUSES.map((status) =>
       ctx.db
         .query("profileMediaSubmissions")
-        .withIndex("by_profileId_status_createdAt", (query) =>
-          query.eq("profileId", profileId).eq("status", status),
+        .withIndex("by_profileId_status_expiresAt", (query) =>
+          query.eq("profileId", profileId).eq("status", status).gt("expiresAt", now),
         )
         .take(MAX_OPEN_PER_PROFILE + 1),
     ),
@@ -243,14 +245,14 @@ export const createUploadIntent = mutation({
     if (profile.updatedAt !== args.expectedProfileUpdatedAt) {
       throw new Error("This profile changed. Refresh it before contributing media.");
     }
-    if (await openSubmissionCountForUser(ctx, user._id) >= MAX_OPEN_PER_USER) {
+    const now = Date.now();
+    if (await openSubmissionCountForUser(ctx, user._id, now) >= MAX_OPEN_PER_USER) {
       throw new Error("You already have three media contributions awaiting a decision.");
     }
-    if (await openSubmissionCountForProfile(ctx, profile._id) >= MAX_OPEN_PER_PROFILE) {
+    if (await openSubmissionCountForProfile(ctx, profile._id, now) >= MAX_OPEN_PER_PROFILE) {
       throw new Error("This profile already has two media contributions awaiting a decision.");
     }
 
-    const now = Date.now();
     await assertSubmissionRateLimits(ctx, user._id, profile._id, now);
     const sourceUrl = normalizeProfileAssetSourceUrl(args.sourceUrl);
     const originalFileName = normalizeProfileAssetFileName(args.originalFileName);
@@ -728,8 +730,12 @@ export const prepareDueBlobCleanup = mutation({
 
     const due = await ctx.db
       .query("profileMediaSubmissions")
-      .withIndex("by_blobDeleteAfter", (query) =>
-        query.gt("blobDeleteAfter", 0).lte("blobDeleteAfter", now),
+      .withIndex("by_cleanupEligibility_blobDeleteAfter", (query) =>
+        query
+          .eq("blobDeletedAt", undefined)
+          .eq("legalHoldAt", undefined)
+          .gt("blobDeleteAfter", 0)
+          .lte("blobDeleteAfter", now),
       )
       .take(200);
     const eligible = due
@@ -796,6 +802,7 @@ export const markBlobCleanupComplete = mutation({
       }
       await ctx.db.patch(id, {
         blobDeletedAt: now,
+        blobDeleteAfter: undefined,
         blobCleanupToken: undefined,
         blobCleanupReservedAt: undefined,
         updatedAt: now,
