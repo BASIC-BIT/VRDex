@@ -956,6 +956,9 @@ export const setOwnedAssetDeleted = mutation({
       .collect();
     const wasGalleryAsset = assetPlacements.some((placement) => placement.placement === "gallery");
     if (!args.deleted && asset.state !== "active") {
+      if (asset.moderatorSuppressedAt !== undefined) {
+        throw new Error("Moderator-suppressed media cannot be restored by a profile owner.");
+      }
       if (
         wasGalleryAsset &&
         sanitizeProfileAssetLabel(asset.label) === undefined

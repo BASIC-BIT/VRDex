@@ -396,6 +396,41 @@ describe("unclaimed-profile media submissions", () => {
       }),
       null,
     );
+    const ownerClerkId = newClerkUserId();
+    const ownerUserId = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        clerkUserId: ownerClerkId,
+        email: "owner-after-suppression@example.test",
+        emailVerificationTime: NOW,
+      });
+      await ctx.db.patch(seeded.profileId, {
+        claimState: "claimed_verified",
+        updatedAt: NOW + 1,
+      });
+      await ctx.db.insert("profileOwners", {
+        profileId: seeded.profileId,
+        userId,
+        roleKey: "owner",
+        state: "active",
+        grantedAt: NOW + 1,
+        updatedAt: NOW + 1,
+      });
+      return userId;
+    });
+    await assert.rejects(
+      t.withIdentity({
+        subject: ownerClerkId,
+        email: "owner-after-suppression@example.test",
+        emailVerified: true,
+        issuer: "test",
+        tokenIdentifier: `test|${ownerUserId}`,
+      }).mutation(api.profileAssets.setOwnedAssetDeleted, {
+        profileId: seeded.profileId,
+        assetId: decision.assetId,
+        deleted: false,
+      }),
+      /moderator-suppressed media cannot be restored/i,
+    );
     const audit = await t.run((ctx) =>
       ctx.db
         .query("profileAuditEvents")
@@ -404,6 +439,61 @@ describe("unclaimed-profile media submissions", () => {
     );
     assert.equal(audit.at(-1)?.action, "profile_media_submission_asset_suppressed");
     assert.equal(audit.at(-1)?.note, "Disputed community contribution.");
+  });
+
+  it("scopes duplicate review evidence to the profile before applying its bound", async () => {
+    const t = convexTest({ schema, modules });
+    const seeded = await seed(t);
+    const now = Date.now();
+    const targetSubmissionId = await t.run(async (ctx) => {
+      const unrelatedProfileId = await ctx.db.insert("profiles", {
+        profileType: "person",
+        slug: "unrelated-dj",
+        displayName: "Unrelated DJ",
+        sortName: "unrelated dj",
+        aliases: [],
+        tags: [],
+        claimState: "unclaimed",
+        publicationState: "published",
+        publicSurfacingState: "public",
+        creationSource: "community",
+        person: { roleTags: ["DJ"] },
+        updatedAt: NOW,
+      });
+      const insertSubmission = (profileId: Id<"profiles">, createdAt: number) =>
+        ctx.db.insert("profileMediaSubmissions", {
+          profileId,
+          submitterUserId: seeded.contributorUserId,
+          submitter: {
+            tokenIdentifier: seeded.contributorIdentity.tokenIdentifier,
+            issuer: seeded.contributorIdentity.issuer,
+            subject: seeded.contributorIdentity.subject,
+          },
+          requestedPlacement: "profile_image",
+          sourceUrl: "https://artist.example/press",
+          credit: "Artist press kit",
+          status: "submitted",
+          targetProfileUpdatedAt: NOW,
+          contentSha256: "widely-reused-hash",
+          expiresAt: now + 30 * 24 * 60 * 60 * 1_000,
+          createdAt,
+          updatedAt: createdAt,
+        });
+      for (let index = 0; index < 21; index += 1) {
+        await insertSubmission(unrelatedProfileId, now - 30_000 + index);
+      }
+      await insertSubmission(seeded.profileId, now - 1_000);
+      return await insertSubmission(seeded.profileId, now);
+    });
+
+    const queue = await t.withIdentity(seeded.moderatorIdentity).query(
+      api.profileMediaSubmissions.listForReview,
+      { profileId: seeded.profileId, ...FIRST_REVIEW_PAGE },
+    );
+    assert.equal(
+      queue.page.find((row) => row.submissionId === targetSubmissionId)?.priorProposalCount,
+      1,
+    );
   });
 
   it("lets the new owner decide a still-pending submission after claim", async () => {

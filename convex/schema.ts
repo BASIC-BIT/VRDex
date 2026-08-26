@@ -859,6 +859,7 @@ export default defineSchema({
     uploadedAt: v.number(),
     state: profileAssetState,
     deletedAt: v.optional(v.number()),
+    moderatorSuppressedAt: v.optional(v.number()),
     updatedAt: v.number(),
   })
     .index("by_profileId", ["profileId"])

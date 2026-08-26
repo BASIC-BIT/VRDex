@@ -429,6 +429,7 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
   const [slotTemplate, setSlotTemplate] = useState({ count: "4", duration: "45", break: "0" });
   const [cancellationReason, setCancellationReason] = useState("");
   const [eventStatus, setEventStatus] = useState(event?.status);
+  const [isPublished, setIsPublished] = useState(event?.publicationState === "published");
   const [, startTransition] = useTransition();
 
   useEffect(() => {
@@ -569,6 +570,10 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
 
       if (event === undefined && intent === "publish") {
         await setEventPublished({ currentSlug: result.slug, published: true });
+      }
+
+      if (event !== undefined && (intent === "publish" || intent === "draft")) {
+        setIsPublished(intent === "publish");
       }
 
       startTransition(() =>
@@ -1192,14 +1197,14 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
         <Button disabled={isSubmitting} name="intent" size="lg" type="submit" value="publish" variant="primary">
           {isSubmitting
             ? "Saving..."
-            : event?.publicationState === "published"
+            : isPublished
               ? "Save changes"
               : event
                 ? "Save and publish"
                 : "Publish event"}
         </Button>
         <Button disabled={isSubmitting} name="intent" size="lg" type="submit" value="draft" variant="secondary">
-          {event?.publicationState === "published" ? "Unpublish and save draft" : "Save draft"}
+          {isPublished ? "Unpublish and save draft" : "Save draft"}
         </Button>
         {status.kind === "success" ? (
           <Link className={buttonVariants({ size: "lg", variant: "secondary" })} href={status.result.eventPath}>

@@ -187,12 +187,12 @@ async function reviewSubmission(
     ? []
     : await ctx.db
         .query("profileMediaSubmissions")
-        .withIndex("by_contentSha256", (query) =>
-          query.eq("contentSha256", submission.contentSha256),
+        .withIndex("by_profileId_contentSha256_status", (query) =>
+          query.eq("profileId", profile._id).eq("contentSha256", submission.contentSha256),
         )
         .take(20);
   const priorProposalCount = duplicates.filter(
-    (candidate) => candidate._id !== submission._id && candidate.profileId === profile._id,
+    (candidate) => candidate._id !== submission._id,
   ).length;
   const submitter = includeModeratorEvidence
     ? await ctx.db.get(submission.submitterUserId)
@@ -670,11 +670,12 @@ export const suppressApprovedAsset = mutation({
     ) {
       throw new Error("The approved contribution asset no longer matches this submission.");
     }
-    if (asset.state === "deleted") return { suppressed: false };
+    if (asset.moderatorSuppressedAt !== undefined) return { suppressed: false };
     const now = Date.now();
     await ctx.db.patch(asset._id, {
       state: "deleted",
       deletedAt: now,
+      moderatorSuppressedAt: now,
       updatedAt: now,
     });
     await ctx.db.insert("profileAuditEvents", {

@@ -423,9 +423,6 @@ Contributor states and errors:
 - `The media contribution could not be submitted. Try again.`
 - `A verified email address is required to contribute media.`
 - `This profile changed. Refresh it before contributing media.`
-- `Media contribution limit reached. Try again tomorrow.`
-- `This profile is receiving too many media contributions right now.`
-- `Wait a moment before submitting another media contribution.`
 
 Review and ownership:
 
