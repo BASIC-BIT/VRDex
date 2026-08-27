@@ -331,6 +331,8 @@ the public display name, prefers the public headline over the public bio, and ma
 banner media. Because an unfurl is a card surface rather than the direct profile page, fields marked
 `unlisted` or `private` do not enter its summary or controlled profile/banner image slots. A public primary
 logo may still act as the compact fallback because logo assets do not use the avatar visibility field.
+The projection also carries the existing public trust state so generated cards can label unclaimed and
+community-submitted records with the same wording already used on public profile surfaces.
 
 The owner privacy mutation currently accepts these field keys: `aliases`, `tags`, `genres`, `headline`, `bio`, `about`, `avatarImageUrl`, `bannerImageUrl`, `outboundLinks`, `region`, `timezone`, `personPronouns`, `personRoleTags`, `communitySubtype`, and `communityCategoryTags`.
 

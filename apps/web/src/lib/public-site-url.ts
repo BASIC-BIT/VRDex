@@ -20,6 +20,11 @@ function parsedHttpUrl(value: string | undefined): URL | null {
  * their generated share image on the same deployment as the page data.
  */
 export function publicSiteUrl(): URL {
+  const configuredPublicUrl = parsedHttpUrl(process.env.VRDEX_PUBLIC_SITE_URL);
+  if (configuredPublicUrl) {
+    return configuredPublicUrl;
+  }
+
   if (process.env.VERCEL_ENV === "production") {
     return new URL(PRODUCTION_SITE_URL);
   }

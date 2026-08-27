@@ -22,6 +22,23 @@ export function profileShareDescription(card: Pick<PublicProfileShareCard, "summ
   return compactText(card.summary, 200) ?? DEFAULT_SHARE_DESCRIPTION;
 }
 
+export function profileShareTrustNote(
+  card: Pick<PublicProfileShareCard, "trustLabel">,
+): string | undefined {
+  if (card.trustLabel === "community_submitted") return "Community submitted";
+  if (card.trustLabel === "unclaimed") return "Unclaimed";
+  return undefined;
+}
+
+export function profileShareNameFontSize(displayName: string): number {
+  const length = Array.from(displayName).length;
+  if (length > 64) return 28;
+  if (length > 48) return 36;
+  if (length > 34) return 46;
+  if (length > 22) return 66;
+  return 76;
+}
+
 export function profileShareMetadata(card: PublicProfileShareCard): Metadata {
   const title = `${card.displayName} | VRDex`;
   const description = profileShareDescription(card);
@@ -52,7 +69,7 @@ export function profileInitials(displayName: string): string {
     .split(/\s+/)
     .filter(Boolean)
     .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
+    .map((part) => Array.from(part)[0]?.toUpperCase())
     .join("");
 
   return initials || "VR";

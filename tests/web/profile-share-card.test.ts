@@ -6,7 +6,32 @@ import {
   profileInitials,
   profileShareDescription,
   profileShareMetadata,
+  profileShareNameFontSize,
+  profileShareTrustNote,
 } from "../../apps/web/src/lib/profile-share-card";
+import { publicSiteUrl } from "../../apps/web/src/lib/public-site-url";
+
+function withEnvironment(
+  values: Record<string, string | undefined>,
+  run: () => void,
+): void {
+  const previous = Object.fromEntries(
+    Object.keys(values).map((key) => [key, process.env[key]]),
+  );
+
+  try {
+    for (const [key, value] of Object.entries(values)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    run();
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
 
 describe("profile share metadata", () => {
   it("uses the canonical root slug and approved profile title format", () => {
@@ -14,6 +39,7 @@ describe("profile share metadata", () => {
       profileType: "person",
       slug: "dj-aurora",
       displayName: "DJ Aurora",
+      trustLabel: "claimed_verified",
       summary: "Melodic house sets for late-night VRChat floors.",
     });
 
@@ -37,6 +63,54 @@ describe("profile share metadata", () => {
   it("builds restrained initials when no public image is available", () => {
     assert.equal(profileInitials("DJ Aurora"), "DA");
     assert.equal(profileInitials("BASICBIT"), "B");
+    assert.equal(profileInitials("🎧 Aurora"), "🎧A");
     assert.equal(profileInitials("   "), "VR");
+  });
+
+  it("uses existing public trust wording only for unclaimed profiles", () => {
+    assert.equal(profileShareTrustNote({ trustLabel: "community_submitted" }), "Community submitted");
+    assert.equal(profileShareTrustNote({ trustLabel: "unclaimed" }), "Unclaimed");
+    assert.equal(profileShareTrustNote({ trustLabel: "claimed_unverified" }), undefined);
+    assert.equal(profileShareTrustNote({ trustLabel: "claimed_verified" }), undefined);
+  });
+
+  it("scales valid maximum-length names into the generated image", () => {
+    assert.equal(profileShareNameFontSize("A".repeat(80)), 28);
+    assert.equal(profileShareNameFontSize("A".repeat(50)), 36);
+    assert.equal(profileShareNameFontSize("DJ Aurora"), 76);
+  });
+
+  it("lets self-hosted production override the BASIC BIT origin", () => {
+    withEnvironment(
+      {
+        VRDEX_PUBLIC_SITE_URL: "https://profiles.example.test",
+        VERCEL_ENV: "production",
+        VERCEL_URL: "vrdex-fork.vercel.app",
+        SITE_URL: "https://legacy.example.test",
+      },
+      () => assert.equal(publicSiteUrl().href, "https://profiles.example.test/"),
+    );
+  });
+
+  it("keeps official production and preview origins deterministic", () => {
+    withEnvironment(
+      {
+        VRDEX_PUBLIC_SITE_URL: undefined,
+        VERCEL_ENV: "production",
+        VERCEL_URL: "ignored.vercel.app",
+        SITE_URL: "https://ignored.example.test",
+      },
+      () => assert.equal(publicSiteUrl().href, "https://vrdex.net/"),
+    );
+
+    withEnvironment(
+      {
+        VRDEX_PUBLIC_SITE_URL: undefined,
+        VERCEL_ENV: "preview",
+        VERCEL_URL: "preview-vrdex.vercel.app",
+        SITE_URL: "https://ignored.example.test",
+      },
+      () => assert.equal(publicSiteUrl().href, "https://preview-vrdex.vercel.app/"),
+    );
   });
 });

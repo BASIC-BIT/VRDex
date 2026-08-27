@@ -2,11 +2,13 @@ import type { Doc } from "./_generated/dataModel";
 import type { PublicProfileMediaKit } from "./_profileAssets";
 import { visibleProfileField } from "./_profileFieldVisibility";
 import { safeHttpsUrl } from "./_publicFields";
+import { getProfileTrustLabel, type ProfileTrustLabel } from "./_profileStates";
 
 export type PublicProfileShareCard = {
   profileType: "person" | "community";
   slug: string;
   displayName: string;
+  trustLabel: ProfileTrustLabel;
   summary?: string;
   avatarImageUrl?: string;
   avatarImageKind?: "profile" | "logo";
@@ -62,6 +64,7 @@ export function toPublicProfileShareCard(
     profileType: profile.profileType,
     slug: profile.slug,
     displayName: profile.displayName,
+    trustLabel: getProfileTrustLabel(profile.claimState, profile.creationSource),
     ...((headline ?? bio) ? { summary: headline ?? bio } : {}),
     ...(avatarImageUrl ? { avatarImageUrl } : {}),
     ...(avatarImageKind ? { avatarImageKind } : {}),

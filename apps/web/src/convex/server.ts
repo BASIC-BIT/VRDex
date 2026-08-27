@@ -114,6 +114,7 @@ function fixtureProfileShareCard(slug: string): PublicProfileShareCard | null {
     profileType: profile.profileType,
     slug: profile.slug,
     displayName: profile.displayName,
+    trustLabel: profile.trustLabel,
     ...((profile.headline ?? profile.bio) ? { summary: profile.headline ?? profile.bio } : {}),
     ...(avatarImageUrl ? { avatarImageUrl } : {}),
     ...(avatarImageKind ? { avatarImageKind } : {}),

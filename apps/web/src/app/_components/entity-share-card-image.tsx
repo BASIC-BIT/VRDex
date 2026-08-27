@@ -1,18 +1,18 @@
 import type { PublicProfileShareCard } from "../../../../../convex/_profileShareCard";
 import { absolutePublicUrl } from "@/lib/public-site-url";
-import { profileInitials, profileShareDescription } from "@/lib/profile-share-card";
+import {
+  profileInitials,
+  profileShareDescription,
+  profileShareNameFontSize,
+  profileShareTrustNote,
+} from "@/lib/profile-share-card";
 
 export const entityShareImageSize = { width: 1200, height: 630 } as const;
-
-function profileNameFontSize(displayName: string): number {
-  if (displayName.length > 34) return 56;
-  if (displayName.length > 22) return 66;
-  return 76;
-}
 
 export function EntityShareCardImage({ profile }: { profile: PublicProfileShareCard | null }) {
   const displayName = profile?.displayName ?? "VRDex";
   const summary = profile ? profileShareDescription(profile) : undefined;
+  const trustNote = profile ? profileShareTrustNote(profile) : undefined;
   const avatarImageUrl = profile?.avatarImageUrl
     ? absolutePublicUrl(profile.avatarImageUrl)
     : undefined;
@@ -123,11 +123,12 @@ export function EntityShareCardImage({ profile }: { profile: PublicProfileShareC
             <div
               style={{
                 display: "flex",
-                fontSize: profileNameFontSize(displayName),
+                fontSize: profileShareNameFontSize(displayName),
                 fontWeight: 650,
                 letterSpacing: "-0.045em",
                 lineHeight: 1.02,
                 maxWidth: 780,
+                wordBreak: "break-all",
               }}
             >
               {displayName}
@@ -144,6 +145,18 @@ export function EntityShareCardImage({ profile }: { profile: PublicProfileShareC
                 }}
               >
                 {summary}
+              </div>
+            ) : null}
+            {trustNote ? (
+              <div
+                style={{
+                  color: "#8e99a8",
+                  display: "flex",
+                  fontSize: 20,
+                  marginTop: 14,
+                }}
+              >
+                {trustNote}
               </div>
             ) : null}
           </div>
