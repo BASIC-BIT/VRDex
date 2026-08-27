@@ -18,6 +18,7 @@ import {
   searchPlaywrightDiscoveryFixture,
 } from "./playwright-fixtures";
 import { profileClaimPath } from "@/lib/profile-claim";
+import type { PublicProfileShareCard } from "../../../../convex/_profileShareCard";
 
 const seedAccessApi = (api as unknown as {
   seedAccess: {
@@ -85,6 +86,61 @@ export async function fetchPublicProfileBySlug(slug: string, profileType?: Publi
     return {
       kind: "error" as const,
     };
+  }
+}
+
+function fixtureProfileShareCard(slug: string): PublicProfileShareCard | null {
+  const profile =
+    getPlaywrightPublicProfileFixture(slug, "person") ??
+    getPlaywrightPublicProfileFixture(slug, "community");
+
+  if (profile === null) {
+    return null;
+  }
+
+  const profileImage = profile.mediaKit?.profileImage;
+  const logoImage = profile.mediaKit?.primaryLogo;
+  const prefersLogo = profile.mediaKit?.compactDisplay === "logo";
+  const avatarImageUrl = prefersLogo
+    ? logoImage?.imageUrl ?? profileImage?.imageUrl ?? profile.avatarImageUrl
+    : profileImage?.imageUrl ?? profile.avatarImageUrl ?? logoImage?.imageUrl;
+  const avatarImageKind = avatarImageUrl === undefined
+    ? undefined
+    : avatarImageUrl === logoImage?.imageUrl && logoImage?.imageUrl !== profileImage?.imageUrl
+      ? "logo" as const
+      : "profile" as const;
+
+  return {
+    profileType: profile.profileType,
+    slug: profile.slug,
+    displayName: profile.displayName,
+    ...((profile.headline ?? profile.bio) ? { summary: profile.headline ?? profile.bio } : {}),
+    ...(avatarImageUrl ? { avatarImageUrl } : {}),
+    ...(avatarImageKind ? { avatarImageKind } : {}),
+    ...(profile.mediaKit?.banner?.imageUrl || profile.bannerImageUrl
+      ? { bannerImageUrl: profile.mediaKit?.banner?.imageUrl ?? profile.bannerImageUrl }
+      : {}),
+  };
+}
+
+export async function fetchPublicProfileShareCardBySlug(slug: string) {
+  const fixtureProfile = fixtureProfileShareCard(slug);
+
+  if (fixtureProfile !== null) {
+    return { kind: "live" as const, profile: fixtureProfile };
+  }
+
+  if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
+    return { kind: "missing-url" as const, profile: null };
+  }
+
+  try {
+    const profile = await fetchQuery(api.profiles.getPublicShareCardBySlug, { slug });
+    return { kind: "live" as const, profile };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Server-side Convex profile share-card fetch failed: ${message}`);
+    return { kind: "error" as const, profile: null };
   }
 }
 

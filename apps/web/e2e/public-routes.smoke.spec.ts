@@ -83,6 +83,39 @@ test("OpenAPI YAML document is served", async ({ page }) => {
   expect(body).toContain("/api/v0/openapi.yaml:");
 });
 
+test("profile links expose Discord-ready metadata and a generated image", async ({ page }, testInfo) => {
+  test.skip(isHostedRun, "The deterministic profile metadata fixture is local-only.");
+
+  await page.goto("/playwright-dj-aurora");
+
+  await expect(page).toHaveTitle("DJ Aurora | VRDex");
+  await expect(page.locator('meta[property="og:title"]')).toHaveAttribute(
+    "content",
+    "DJ Aurora | VRDex",
+  );
+  await expect(page.locator('meta[property="og:description"]')).toHaveAttribute(
+    "content",
+    "Melodic house sets for late-night VRChat floors.",
+  );
+  await expect(page.locator('meta[property="og:url"]')).toHaveAttribute(
+    "content",
+    /\/playwright-dj-aurora$/,
+  );
+
+  const imageUrl = await page.locator('meta[property="og:image"]').getAttribute("content");
+  expect(imageUrl).not.toBeNull();
+
+  const imageResponse = await page.request.get(imageUrl!);
+  expect(imageResponse.ok()).toBe(true);
+  expect(imageResponse.headers()["content-type"]).toContain("image/png");
+  const imageBody = await imageResponse.body();
+  expect(imageBody.byteLength).toBeGreaterThan(1_000);
+  await testInfo.attach("profile-open-graph-image", {
+    body: imageBody,
+    contentType: "image/png",
+  });
+});
+
 test("public API supports browser CORS and preflight", async ({ page }) => {
   const origin = "https://developer.example.test";
   const response = await page.request.get("/api/v0/openapi.json", {

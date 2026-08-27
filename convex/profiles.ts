@@ -38,6 +38,7 @@ import {
 } from "./_profilePermissions";
 import { profileLinkInputValidator } from "./_profileLinks";
 import { toPublicProfile } from "./_profilePublic";
+import { toPublicProfileShareCard } from "./_profileShareCard";
 import {
   createProfileSlugBase,
   findAvailableProfileSlug,
@@ -483,6 +484,30 @@ export const getPublicBySlug = query({
       ...eventContext,
       ...(telemetry ? { telemetry } : {}),
     };
+  },
+});
+
+export const getPublicShareCardBySlug = query({
+  args: {
+    slug: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const validation = validateProfileSlug(args.slug);
+
+    if (!validation.ok) {
+      return null;
+    }
+
+    const profile = await getProfileBySlug(ctx.db, validation.slug);
+
+    if (profile === null || !canReadProfile("public", profile)) {
+      return null;
+    }
+
+    return toPublicProfileShareCard(
+      profile,
+      await getPublicProfileMediaKit(ctx.db, profile),
+    );
   },
 });
 

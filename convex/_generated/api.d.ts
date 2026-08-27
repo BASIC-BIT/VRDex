@@ -51,6 +51,7 @@ import type * as _profileOwnership from "../_profileOwnership.js";
 import type * as _profilePermissions from "../_profilePermissions.js";
 import type * as _profilePrivacy from "../_profilePrivacy.js";
 import type * as _profilePublic from "../_profilePublic.js";
+import type * as _profileShareCard from "../_profileShareCard.js";
 import type * as _profileSlugs from "../_profileSlugs.js";
 import type * as _profileStates from "../_profileStates.js";
 import type * as _profileSubmissions from "../_profileSubmissions.js";
@@ -168,6 +169,7 @@ declare const fullApi: ApiFromModules<{
   _profilePermissions: typeof _profilePermissions;
   _profilePrivacy: typeof _profilePrivacy;
   _profilePublic: typeof _profilePublic;
+  _profileShareCard: typeof _profileShareCard;
   _profileSlugs: typeof _profileSlugs;
   _profileStates: typeof _profileStates;
   _profileSubmissions: typeof _profileSubmissions;

@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { validateSlugFormat } from "../../../../../convex/_globalSlugs";
@@ -5,7 +6,8 @@ import { EntityBackendNotice } from "./entity-backend-notice";
 import { EventPublicPage } from "../_components/event-public-page";
 import { ProfilePublicPage } from "../_components/profile-public-page";
 import { WorldPublicPage } from "../_components/world-public-page";
-import { fetchPublicEntityBySlug } from "@/convex/server";
+import { fetchPublicEntityBySlug, fetchPublicProfileShareCardBySlug } from "@/convex/server";
+import { profileShareMetadata } from "@/lib/profile-share-card";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +16,20 @@ type EntityPageProps = {
     slug: string;
   }>;
 };
+
+export async function generateMetadata({ params }: EntityPageProps): Promise<Metadata> {
+  const { slug } = await params;
+
+  if (!validateSlugFormat(slug).ok) {
+    return {};
+  }
+
+  const result = await fetchPublicProfileShareCardBySlug(slug);
+
+  return result.kind === "live" && result.profile !== null
+    ? profileShareMetadata(result.profile)
+    : {};
+}
 
 // Profiles, worlds, and events are all first-class root links -- vrdex.net/basicbit --
 // so they share one slug namespace and one route. Static segments win over this
