@@ -1,0 +1,90 @@
+name: Claude Review Control
+
+on:
+  pull_request_target:
+    types: [labeled, converted_to_draft, closed, edited]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ ((github.event.action == 'labeled' && github.event.label.name == 'skip-claude-review') || github.event.action == 'converted_to_draft' || github.event.action == 'closed' || (github.event.action == 'edited' && github.event.changes.base != null)) && format('claude-review-{0}', github.event.pull_request.number) || format('claude-review-control-noop-{0}', github.run_id) }}
+  cancel-in-progress: ${{ (github.event.action == 'labeled' && github.event.label.name == 'skip-claude-review') || github.event.action == 'converted_to_draft' || github.event.action == 'closed' || (github.event.action == 'edited' && github.event.changes.base != null) }}
+
+jobs:
+  mark-unavailable:
+    name: Mark Claude review unavailable
+    if: >-
+      !github.event.pull_request.head.repo.fork &&
+      github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name &&
+      !endsWith(github.event.pull_request.user.login, '[bot]') &&
+      ((github.event.action == 'labeled' && github.event.label.name == 'skip-claude-review') ||
+      github.event.action == 'converted_to_draft' ||
+      github.event.action == 'closed' ||
+      (github.event.action == 'edited' && github.event.changes.base != null))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - name: Upsert unavailable sticky comment
+        env:
+          ACTION: ${{ github.event.action }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          GH_TOKEN: ${{ github.token }}
+          IS_MERGED: ${{ github.event.pull_request.merged }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          STICKY_MARKER: '<!-- claude-pr-review -->'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          case "$ACTION" in
+            labeled) reason='the `skip-claude-review` label is applied' ;;
+            converted_to_draft) reason='the pull request became a draft' ;;
+            closed)
+              if [ "$IS_MERGED" = "true" ]; then reason='the pull request was merged';
+              else reason='the pull request was closed'; fi
+              ;;
+            edited) reason="the pull request base changed to \`${BASE_REF}\`" ;;
+            *) echo "::error::Unsupported control event."; exit 1 ;;
+          esac
+
+          body_file="${RUNNER_TEMP}/claude-review-comment.md"
+          json_file="${RUNNER_TEMP}/claude-review-comment.json"
+          cat > "$body_file" <<EOF
+          ${STICKY_MARKER}
+          [AGENT]
+
+          ## Claude Review
+
+          Claude review for commit `${PR_HEAD_SHA}` is unavailable because ${reason}.
+
+          This is not a current review or approval.
+          EOF
+
+          node - "$body_file" "$json_file" <<'NODE'
+          const fs = require("node:fs");
+          fs.writeFileSync(process.argv[3], JSON.stringify({
+            body: fs.readFileSync(process.argv[2], "utf8"),
+          }));
+          NODE
+
+          comment_id="$(
+            gh api --paginate \
+              "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+              --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- claude-pr-review -->"))) | .id' |
+              tail -n 1
+          )"
+          if [ -n "$comment_id" ]; then
+            gh api --method PATCH \
+              "repos/${GITHUB_REPOSITORY}/issues/comments/${comment_id}" \
+              --input "$json_file" > /dev/null
+          else
+            gh api --method POST \
+              "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+              --input "$json_file" > /dev/null
+          fi

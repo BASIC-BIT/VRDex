@@ -4,6 +4,7 @@
 
 - `docs/agentic/contributor-workflow.md` - canonical contributor-friendly, agent-compatible workflow contract
 - `docs/agentic/codex.md` - Codex-specific MCP, skill, and protected-worktree notes
+- `docs/agentic/claude-pr-review.md` - Claude reviewer trust, cost, publication, and recycler contract
 - `docs/agentic/definition-of-done.md` - canonical closeout checklist for non-trivial feature work
 - `docs/agentic/definition-of-ready.md` - canonical readiness checklist for non-trivial feature work
 - `docs/agentic/feature-design-loop.md` - repeatable product/UX/infrastructure/cost/security planning loop for large features
