@@ -43,6 +43,7 @@ function ReviewCard({ row }: { row: ReviewRow }) {
   }
 
   async function suppressAsset() {
+    if (!window.confirm("Suppress media")) return;
     setBusy(true);
     setStatus(null);
     try {

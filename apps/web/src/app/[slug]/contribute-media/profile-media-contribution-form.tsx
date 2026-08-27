@@ -61,7 +61,7 @@ export function ProfileMediaContributionForm({ profile }: { profile: Contributio
   if (!isAuthenticated) {
     return (
       <main className="grid gap-6">
-        <SectionTitle>Add media for {profile.displayName}</SectionTitle>
+        <SectionTitle>{profile.displayName}</SectionTitle>
         <Card className="grid gap-4">
           <Link className={buttonVariants({ variant: "primary" })} href={`/sign-in?returnTo=${encodeURIComponent(`/${profile.slug}/contribute-media`)}`}>
             Sign in
@@ -126,7 +126,7 @@ export function ProfileMediaContributionForm({ profile }: { profile: Contributio
   return (
     <main className="grid gap-6">
       <div>
-        <SectionTitle>Add media for {profile.displayName}</SectionTitle>
+        <SectionTitle>{profile.displayName}</SectionTitle>
         <Link className="mt-3 inline-block text-sm text-muted underline" href={`/${profile.slug}`}>
           Back to profile
         </Link>

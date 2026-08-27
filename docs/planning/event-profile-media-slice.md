@@ -415,7 +415,6 @@ labels are included so approval can happen against one durable inventory.
 Public profile and contribution:
 
 - `Add profile media`
-- `Add media for {profile display name}`
 - `My media contributions`
 - `Community contribution`
 

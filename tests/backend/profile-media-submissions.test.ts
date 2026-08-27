@@ -560,6 +560,13 @@ describe("unclaimed-profile media submissions", () => {
     assert.equal(queue.page.length, 1);
     assert.equal("submitterEmail" in (queue.page[0] ?? {}), false);
     assert.equal("submitterTokenIdentifier" in (queue.page[0] ?? {}), false);
+    assert.notEqual(
+      await t.withIdentity(ownerIdentity).query(
+        api.profileMediaSubmissions.getCandidateForStorage,
+        { submissionId: intent.submissionId },
+      ),
+      null,
+    );
     await t.withIdentity(ownerIdentity).mutation(api.profileMediaSubmissions.decide, {
       submissionId: intent.submissionId,
       decision: "reject",
@@ -567,6 +574,13 @@ describe("unclaimed-profile media submissions", () => {
       publicDisposition: "Please coordinate directly with the profile owner.",
       privateReason: "Owner declined this community contribution.",
     });
+    assert.equal(
+      await t.withIdentity(ownerIdentity).query(
+        api.profileMediaSubmissions.getCandidateForStorage,
+        { submissionId: intent.submissionId },
+      ),
+      null,
+    );
     const mine = await t.withIdentity(seeded.contributorIdentity).query(
       api.profileMediaSubmissions.listMine,
       {},

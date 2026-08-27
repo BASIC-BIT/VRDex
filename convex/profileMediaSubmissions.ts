@@ -397,7 +397,15 @@ export const getCandidateForStorage = query({
     if (submission === null || submission.uploadIntentId === undefined) return null;
     const profile = await ctx.db.get(submission.profileId);
     if (profile === null) return null;
-    await reviewerContext(ctx, profile);
+    const reviewAccess = await reviewerContext(ctx, profile);
+    if (
+      !reviewAccess.access.superAdmin &&
+      submission.status !== "submitted" &&
+      submission.status !== "under_review" &&
+      submission.status !== "approved"
+    ) {
+      return null;
+    }
     const intent = await ctx.db.get(submission.uploadIntentId);
     if (
       intent === null ||

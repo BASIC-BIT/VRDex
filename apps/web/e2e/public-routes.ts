@@ -453,7 +453,7 @@ export async function expectPersonProfilePage(page: Page) {
 }
 
 export async function expectMediaContributionPage(page: Page) {
-  await expect(page.getByRole("heading", { name: "Add media for DJ Aurora" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "DJ Aurora" })).toBeVisible();
   await expect(
     page.locator('a[href="/sign-in?returnTo=%2Fplaywright-dj-aurora%2Fcontribute-media"]'),
   ).toHaveText("Sign in");
