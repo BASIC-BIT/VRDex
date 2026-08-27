@@ -45,7 +45,10 @@ import {
   getProfileBySlug,
   validateProfileSlug,
 } from "./_profileSlugs";
-import { findSlugOwner } from "./_globalSlugs";
+import {
+  getEventBySlug as getGlobalEventBySlug,
+  getWorldBySlug as getGlobalWorldBySlug,
+} from "./_globalSlugs";
 import { getProfileFieldVisibility } from "./_profileFieldVisibility";
 import {
   createProfileSortName,
@@ -503,36 +506,28 @@ export const getPublicShareCardBySlug = query({
       return null;
     }
 
-    const owner = await findSlugOwner(ctx.db, validation.slug);
+    const [profile, world, event] = await Promise.all([
+      getProfileBySlug(ctx.db, validation.slug),
+      getGlobalWorldBySlug(ctx.db, validation.slug),
+      getGlobalEventBySlug(ctx.db, validation.slug),
+    ]);
 
-    if (owner === null) {
-      return null;
-    }
-
-    if (owner.kind === "person" || owner.kind === "community") {
-      if (!canReadProfile("public", owner.profile)) {
-        return null;
-      }
-
+    if (profile !== null && canReadProfile("public", profile)) {
       return {
         entityType: "profile" as const,
         profile: toPublicProfileShareCard(
-          owner.profile,
-          await getPublicProfileMediaKit(ctx.db, owner.profile),
+          profile,
+          await getPublicProfileMediaKit(ctx.db, profile),
         ),
       };
     }
 
-    if (owner.kind === "world") {
-      return owner.world.publicationState === "published"
-        ? { entityType: "world" as const, profile: null }
-        : null;
+    if (world?.publicationState === "published") {
+      return { entityType: "world" as const, profile: null };
     }
 
-    if (owner.kind === "event") {
-      return owner.event.publicationState === "published"
-        ? { entityType: "event" as const, profile: null }
-        : null;
+    if (event?.publicationState === "published") {
+      return { entityType: "event" as const, profile: null };
     }
 
     return null;

@@ -9,7 +9,7 @@ import { PROFILE_ASSET_MAX_STORED_BYTES } from "@/lib/profile-asset-limits";
 import { inlineableProfileShareAssetUrl } from "@/lib/profile-share-media";
 import { publicSiteUrl } from "@/lib/public-site-url";
 
-export const alt = "VRDex profile";
+export const alt = "VRDex public page";
 export const size = entityShareImageSize;
 export const contentType = "image/png";
 

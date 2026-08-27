@@ -1,4 +1,5 @@
 const PRODUCTION_SITE_URL = "https://vrdex.net";
+const STAGING_SITE_URL = "https://staging.vrdex.net";
 const LOCAL_SITE_URL = "http://127.0.0.1:3000";
 
 function parsedHttpUrl(value: string | undefined): URL | null {
@@ -16,8 +17,8 @@ function parsedHttpUrl(value: string | undefined): URL | null {
 
 /**
  * Absolute metadata URLs must follow the deployment being previewed. Production
- * stays on the canonical host; Vercel previews and local Playwright runs keep
- * their generated share image on the same deployment as the page data.
+ * and shared staging stay on their canonical hosts; branch previews and local
+ * Playwright runs keep generated share images on the same deployment as the page.
  */
 export function publicSiteUrl(): URL {
   const configuredPublicUrl = parsedHttpUrl(process.env.VRDEX_PUBLIC_SITE_URL);
@@ -27,6 +28,10 @@ export function publicSiteUrl(): URL {
 
   if (process.env.VERCEL_ENV === "production") {
     return new URL(PRODUCTION_SITE_URL);
+  }
+
+  if (process.env.VRDEX_DEPLOYMENT_ENV?.trim().toLowerCase() === "staging") {
+    return new URL(STAGING_SITE_URL);
   }
 
   const vercelUrl = process.env.VERCEL_URL?.trim();

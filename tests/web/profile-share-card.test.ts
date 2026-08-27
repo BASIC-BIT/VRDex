@@ -115,11 +115,24 @@ describe("profile share metadata", () => {
     withEnvironment(
       {
         VRDEX_PUBLIC_SITE_URL: undefined,
+        VRDEX_DEPLOYMENT_ENV: undefined,
         VERCEL_ENV: "preview",
         VERCEL_URL: "preview-vrdex.vercel.app",
         SITE_URL: "https://ignored.example.test",
       },
       () => assert.equal(publicSiteUrl().href, "https://preview-vrdex.vercel.app/"),
+    );
+  });
+
+  it("keeps staging metadata on its stable custom domain", () => {
+    withEnvironment(
+      {
+        VRDEX_PUBLIC_SITE_URL: undefined,
+        VRDEX_DEPLOYMENT_ENV: "staging",
+        VERCEL_ENV: "preview",
+        VERCEL_URL: "changing-deployment.vercel.app",
+      },
+      () => assert.equal(publicSiteUrl().href, "https://staging.vrdex.net/"),
     );
   });
 
