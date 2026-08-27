@@ -411,8 +411,6 @@ Public profile and contribution:
 
 - `Add profile media`
 - `Add media for {profile display name}`
-- `Sign in with a verified email to contribute media.`
-- `Use the page that establishes where the image came from.`
 - `Submitted for review.`
 - `View contributions`
 - `My media contributions`

@@ -9,7 +9,7 @@ import { api } from "@convex-generated-api";
 import { prepareProfileMediaMultipartFallback } from "@/app/account/media-kit/prepare-profile-media-upload";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, SectionTitle } from "@/components/ui/card";
-import { Field, FieldText, Input, Textarea } from "@/components/ui/field";
+import { Field, Input, Textarea } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { profileMediaMimeType } from "@/lib/profile-media-kit";
 
@@ -61,7 +61,6 @@ export function ProfileMediaContributionForm({ profile }: { profile: Contributio
       <main className="grid gap-6">
         <SectionTitle>Add media for {profile.displayName}</SectionTitle>
         <Card className="grid gap-4">
-          <p className="text-sm text-muted">Sign in with a verified email to contribute media.</p>
           <Link className={buttonVariants({ variant: "primary" })} href={`/sign-in?returnTo=${encodeURIComponent(`/${profile.slug}/contribute-media`)}`}>
             Sign in
           </Link>
@@ -140,7 +139,6 @@ export function ProfileMediaContributionForm({ profile }: { profile: Contributio
             <Field>
               Source URL
               <Input name="sourceUrl" placeholder="https://" required type="url" />
-              <FieldText>Use the page that establishes where the image came from.</FieldText>
             </Field>
             <Field>
               Credit
