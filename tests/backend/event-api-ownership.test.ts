@@ -840,6 +840,111 @@ describe("API-created event ownership", () => {
     ]);
   });
 
+  it("sorts bounded ongoing association candidates before the public result cap", async () => {
+    const t = convexTest({ schema, modules });
+    const { personProfileId, worldId } = await t.run(async (ctx) => {
+      const personProfileId = await ctx.db.insert("profiles", {
+        slug: "ongoing-order-dj",
+        displayName: "Ongoing Order DJ",
+        sortName: "ongoing order dj",
+        aliases: [],
+        tags: [],
+        claimState: "unclaimed",
+        publicationState: "published",
+        publicSurfacingState: "public",
+        creationSource: "community",
+        updatedAt: NOW,
+        profileType: "person",
+        person: { roleTags: ["DJ"] },
+      });
+      const worldId = await ctx.db.insert("worlds", {
+        slug: "ongoing-order-world",
+        displayName: "Ongoing Order World",
+        sortName: "ongoing order world",
+        tags: [],
+        visibilityStatus: "public",
+        platformCompatibility: [],
+        media: [],
+        creatorAttributions: [],
+        outboundLinks: [],
+        publicationState: "published",
+        creationSource: "community",
+        updatedAt: NOW,
+      });
+      const insertLinkedEvent = async (
+        slug: string,
+        title: string,
+        startAt: number,
+        endAt: number,
+      ) => {
+        const eventId = await ctx.db.insert("events", {
+          slug,
+          title,
+          sortTitle: title.toLowerCase(),
+          startAt,
+          endAt,
+          sourceType: "manual",
+          sourceLabel: "Test",
+          eventStatus: "scheduled",
+          publicationState: "published",
+          publishedAt: startAt,
+          updatedAt: startAt,
+        });
+        await ctx.db.insert("eventParticipants", {
+          eventId,
+          personProfileId,
+          eventStartAt: startAt,
+          eventEndAt: endAt,
+          eventPublicationState: "published",
+          eventStatus: "scheduled",
+          roleLabel: "DJ",
+          sourceType: "manual",
+          sourceLabel: "Test",
+          confirmationState: "confirmed",
+          confirmedAt: startAt,
+          updatedAt: startAt,
+        });
+        await ctx.db.insert("eventWorlds", {
+          eventId,
+          worldId,
+          eventStartAt: startAt,
+          eventEndAt: endAt,
+          eventPublicationState: "published",
+          eventStatus: "scheduled",
+          sourceType: "manual",
+          confidence: 1,
+          confirmationState: "confirmed",
+          confirmedAt: startAt,
+          updatedAt: startAt,
+        });
+      };
+
+      await insertLinkedEvent(
+        "earliest-ongoing-event",
+        "Earliest Ongoing Event",
+        NOW - 7 * 86_400_000,
+        NOW + 3_600_000,
+      );
+      for (let index = 0; index < 81; index += 1) {
+        await insertLinkedEvent(
+          `later-ongoing-event-${index}`,
+          `Later Ongoing Event ${index}`,
+          NOW - (index + 1) * 60_000,
+          NOW + 30 * 60_000,
+        );
+      }
+
+      return { personProfileId, worldId };
+    });
+
+    const associations = await t.run(async (ctx) => ({
+      participant: await getPublicPersonUpcomingEvents(ctx.db, personProfileId, NOW, 1),
+      world: await getPublicWorldEventContext(ctx.db, worldId, NOW),
+    }));
+    assert.equal(associations.participant[0]?.slug, "earliest-ongoing-event");
+    assert.equal(associations.world.upcoming[0]?.slug, "earliest-ongoing-event");
+  });
+
   it("deduplicates future events with end times before applying the limit", async () => {
     const t = convexTest({ schema, modules });
     const { identity } = await seedOwnedCommunity(t);

@@ -427,6 +427,9 @@ Contributor states and errors:
 - `A verified email address is required to contribute media.`
 - `This profile changed. Refresh it before contributing media.`
 
+Rate limits reuse the generic submission failure above. They do not get custom
+public copy.
+
 Review and ownership:
 
 - `Media review`

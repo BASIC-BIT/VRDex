@@ -4,6 +4,7 @@ import { firstSafeHttpsUrl, optionalField, safeHttpsUrl } from "./_publicFields"
 import { safePublicLinkUrl } from "./_vrcdnLinks";
 
 const WORLD_EVENT_SECTION_LIMIT = 4;
+const WORLD_EVENT_ONGOING_SCAN_LIMIT = 160;
 const ACTIVE_WORLD_QUERY_EVENT_LIMIT = 50;
 const ACTIVE_WORLD_ASSOCIATION_LIMIT = 20;
 const ACTIVE_WORLD_MAX_LIMIT = 6;
@@ -238,7 +239,7 @@ export async function getPublicWorldEventContext(
   worldId: Id<"worlds">,
   now: number,
 ): Promise<PublicWorldEventContext> {
-  const [futureAssociations, ongoingAssociations, previousAssociations] = await Promise.all([
+  const [futureAssociations, ongoingCandidates, previousAssociations] = await Promise.all([
     db
       .query("eventWorlds")
       .withIndex("by_world_confirmation_publication_status_start", (query) =>
@@ -260,8 +261,7 @@ export async function getPublicWorldEventContext(
           .eq("eventStatus", "scheduled")
           .gte("eventEndAt", now),
       )
-      .filter((query) => query.lt(query.field("eventStartAt"), now))
-      .take(WORLD_EVENT_SECTION_LIMIT),
+      .take(WORLD_EVENT_ONGOING_SCAN_LIMIT),
     db
       .query("eventWorlds")
       .withIndex("by_world_confirmation_publication_status_end", (query) =>
@@ -275,6 +275,10 @@ export async function getPublicWorldEventContext(
       .order("desc")
       .take(WORLD_EVENT_SECTION_LIMIT),
   ]);
+  const ongoingAssociations = ongoingCandidates
+    .filter((association) => association.eventStartAt < now)
+    .sort((first, second) => first.eventStartAt - second.eventStartAt)
+    .slice(0, WORLD_EVENT_SECTION_LIMIT);
   const associations = [...futureAssociations, ...ongoingAssociations, ...previousAssociations];
 
   const records = (

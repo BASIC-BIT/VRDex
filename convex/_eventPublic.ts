@@ -13,6 +13,7 @@ import {
 
 const EVENT_PREVIEW_DEFAULT_LIMIT = 6;
 const EVENT_ASSOCIATION_LIMIT = 80;
+const EVENT_ONGOING_ASSOCIATION_SCAN_LIMIT = EVENT_ASSOCIATION_LIMIT * 2;
 const EVENT_PREVIEW_MAX_LIMIT = EVENT_ASSOCIATION_LIMIT;
 
 type PublicEventSourceType = "manual" | "community" | "partner" | "import" | "ai_suggested";
@@ -729,7 +730,7 @@ export async function getPublicPersonUpcomingEvents(
   now: number,
   limit = EVENT_PREVIEW_DEFAULT_LIMIT,
 ): Promise<PublicEventPreview[]> {
-  const [ongoingLinks, upcomingLinks] = await Promise.all([
+  const [ongoingCandidates, upcomingLinks] = await Promise.all([
     db
       .query("eventParticipants")
       .withIndex("by_person_confirmation_publication_status_end", (query) =>
@@ -740,8 +741,7 @@ export async function getPublicPersonUpcomingEvents(
           .eq("eventStatus", "scheduled")
           .gte("eventEndAt", now),
       )
-      .filter((query) => query.lt(query.field("eventStartAt"), now))
-      .take(EVENT_ASSOCIATION_LIMIT),
+      .take(EVENT_ONGOING_ASSOCIATION_SCAN_LIMIT),
     db
       .query("eventParticipants")
       .withIndex("by_person_confirmation_publication_status_start", (query) =>
@@ -754,6 +754,10 @@ export async function getPublicPersonUpcomingEvents(
       )
       .take(EVENT_ASSOCIATION_LIMIT),
   ]);
+  const ongoingLinks = ongoingCandidates
+    .filter((link) => link.eventStartAt < now)
+    .sort((first, second) => first.eventStartAt - second.eventStartAt)
+    .slice(0, EVENT_ASSOCIATION_LIMIT);
   const participantLinks = [...ongoingLinks, ...upcomingLinks];
   const events = (
     await Promise.all(participantLinks.map((link) => db.get(link.eventId)))
