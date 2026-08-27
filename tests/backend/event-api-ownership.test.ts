@@ -1103,7 +1103,7 @@ describe("API-created event ownership", () => {
 
   it("keeps hidden associations private and preserves them across editor saves", async () => {
     const t = convexTest({ schema, modules });
-    const { identity, userId } = await seedOwnedCommunity(t);
+    const { identity, profileId, userId } = await seedOwnedCommunity(t);
     const startAt = NOW + 3_600_000;
     const { personId, worldId } = await t.run(async (ctx) => ({
       personId: await ctx.db.insert("profiles", {
@@ -1154,6 +1154,7 @@ describe("API-created event ownership", () => {
     });
 
     await t.run(async (ctx) => {
+      await ctx.db.patch(profileId, { publicSurfacingState: "opted_out" });
       await ctx.db.patch(personId, { publicSurfacingState: "opted_out" });
       await ctx.db.patch(worldId, { publicationState: "draft_private" });
     });
@@ -1162,6 +1163,7 @@ describe("API-created event ownership", () => {
     assert.deepEqual(publicEvent?.worlds, []);
     assert.deepEqual(publicEvent?.participants, []);
     assert.equal(publicEvent?.slots[0]?.performer, undefined);
+    assert.equal(publicEvent?.communitySlug, undefined);
 
     const editable = await t.withIdentity(identity).query(api.events.getEditableBySlug, {
       slug: created.slug,
@@ -1169,12 +1171,12 @@ describe("API-created event ownership", () => {
     assert.deepEqual(editable?.worlds, []);
     assert.deepEqual(editable?.participants, []);
     assert.equal(editable?.slots[0]?.performer, undefined);
+    assert.equal(editable?.communitySlug, undefined);
 
     const shiftedStartAt = startAt + 60_000;
     await t.withIdentity(identity).mutation(api.events.updateCommunityEvent, {
       currentSlug: created.slug,
       title: "Updated hidden association event",
-      communitySlug: "faceless",
       startAt: shiftedStartAt,
       timezone: "UTC",
       participantLinks: [],
@@ -1202,6 +1204,7 @@ describe("API-created event ownership", () => {
         .collect(),
     }));
     assert.equal(stored.event?.title, "Updated hidden association event");
+    assert.equal(stored.event?.communityProfileId, profileId);
     assert.equal(stored.worlds[0]?.worldId, worldId);
     assert.equal(stored.worlds[0]?.eventStartAt, shiftedStartAt);
     assert.equal(stored.participants[0]?.personProfileId, personId);

@@ -27,16 +27,17 @@ function safeMessage(error: unknown) {
   const normalized = message.replace(/^.*?Uncaught Error:\s*/s, "").split("\n")[0] ?? "";
   const safePatterns = [
     /A signed-in account is required\./,
-    /A verified email address is required to contribute media\./,
-    /This profile (?:is not accepting media contributions|has been claimed|changed\.)/,
+    /Verify email/,
+    /Refresh profile/,
+    /This profile (?:is not accepting media contributions|has been claimed)/,
     /A source URL, file name, and credit are required\./,
     /Profile media assets must .+\./,
     /Profile media asset imports must .+\./,
     /Asset (?:labels|credits) must be \d+ characters or fewer\./,
     /Accessibility descriptions must be \d+ characters or fewer\./,
     /Credit links must .+\./,
-    /Choose one image to submit\./,
-    /Choose a PNG, JPEG, WebP, or SVG image\./,
+    /Image required/,
+    /Unsupported image/,
     /This image (?:already exists in the profile media kit|was already proposed for the profile)\./,
     /The image upload failed\./,
   ];
@@ -81,10 +82,10 @@ export function ProfileMediaContributionForm({ profile }: { profile: Contributio
       const data = new FormData(form);
       const selectedFile = data.get("file");
       if (!(selectedFile instanceof File) || selectedFile.size === 0) {
-        throw new Error("Choose one image to submit.");
+        throw new Error("Image required");
       }
       const mimeType = profileMediaMimeType(selectedFile.type, selectedFile.name);
-      if (mimeType === null) throw new Error("Choose a PNG, JPEG, WebP, or SVG image.");
+      if (mimeType === null) throw new Error("Unsupported image");
       const prepared = await prepareProfileMediaMultipartFallback(selectedFile);
       const file = prepared.file;
       const intent = await createUploadIntent({

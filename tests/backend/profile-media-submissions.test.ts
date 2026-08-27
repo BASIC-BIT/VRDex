@@ -997,7 +997,7 @@ describe("unclaimed-profile media submissions", () => {
         api.profileMediaSubmissions.createUploadIntent,
         base,
       ),
-      /verified email address is required/i,
+      /verify email/i,
     );
   });
 

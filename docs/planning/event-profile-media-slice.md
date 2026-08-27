@@ -423,13 +423,9 @@ Contributor states and errors:
 
 - `Upload pending`, `Submitted`, `Under review`, `Approved`, `Rejected`,
   `Withdrawn`, and `Superseded`
-- `Choose one image to submit.`
-- `Choose a PNG, JPEG, WebP, or SVG image.`
-- `A verified email address is required to contribute media.`
-- `This profile changed. Refresh it before contributing media.`
 
-Rate limits reuse the generic submission failure above. They do not get custom
-public copy.
+Rate limits use the generic `Submission failed` utility label. They do not get
+custom public copy.
 
 Review and ownership:
 

@@ -239,11 +239,11 @@ export const createUploadIntent = mutation({
     assertContributionsEnabled();
     const { user, subject } = await requireActiveBrowserSessionSubject(ctx);
     if (!(await identityEmailVerified(ctx)) || user.email === undefined) {
-      throw new Error("A verified email address is required to contribute media.");
+      throw new Error("Verify email");
     }
     const profile = assertEligibleTarget(await ctx.db.get(args.profileId), args.requestedPlacement);
     if (profile.updatedAt !== args.expectedProfileUpdatedAt) {
-      throw new Error("This profile changed. Refresh it before contributing media.");
+      throw new Error("Refresh profile");
     }
     const now = Date.now();
     if (await openSubmissionCountForUser(ctx, user._id, now) >= MAX_OPEN_PER_USER) {

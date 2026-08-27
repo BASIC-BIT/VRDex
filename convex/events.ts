@@ -2663,7 +2663,17 @@ export const updateCommunityEvent = mutation({
     }
 
     const input = sanitizeEventDraftInput(args);
-    const community = await getPublishedCommunityBySlug(ctx.db, input.communitySlug);
+    const currentCommunity = event.communityProfileId === undefined
+      ? null
+      : await ctx.db.get(event.communityProfileId);
+    const preserveHiddenCommunity =
+      input.communitySlug === undefined &&
+      currentCommunity !== null &&
+      currentCommunity.profileType === "community" &&
+      !canReadProfile("public", currentCommunity);
+    const community = preserveHiddenCommunity
+      ? currentCommunity
+      : await getPublishedCommunityBySlug(ctx.db, input.communitySlug);
 
     if (community?._id !== event.communityProfileId) {
       throw new Error("You do not have permission to move this event to another community.");
