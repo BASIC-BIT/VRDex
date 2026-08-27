@@ -18,11 +18,9 @@ jobs:
       !github.event.pull_request.head.repo.fork &&
       github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name &&
       !endsWith(github.event.pull_request.user.login, '[bot]') &&
-      (github.event.pull_request.base.ref == 'main' ||
-      (github.event.action == 'edited' && github.event.changes.base.ref.from == 'main')) &&
-      ((github.event.action == 'labeled' && github.event.label.name == 'skip-claude-review') ||
-      github.event.action == 'converted_to_draft' ||
-      github.event.action == 'closed' ||
+      (((github.event.action == 'labeled' && github.event.label.name == 'skip-claude-review') ||
+      github.event.action == 'converted_to_draft' || github.event.action == 'closed') &&
+      github.event.pull_request.base.ref == 'main' ||
       (github.event.action == 'edited' && github.event.changes.base != null &&
       github.event.pull_request.base.ref != 'main'))
     runs-on: ubuntu-latest
@@ -36,9 +34,9 @@ jobs:
       - name: Upsert unavailable sticky comment
         env:
           ACTION: ${{ github.event.action }}
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
           GH_TOKEN: ${{ github.token }}
           IS_MERGED: ${{ github.event.pull_request.merged }}
+          PREVIOUS_BASE_REF: ${{ github.event.changes.base.ref.from }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           STICKY_MARKER: '<!-- claude-pr-review -->'
         shell: bash
@@ -52,7 +50,7 @@ jobs:
               if [ "$IS_MERGED" = "true" ]; then reason='the pull request was merged';
               else reason='the pull request was closed'; fi
               ;;
-            edited) reason="the pull request base changed to \`${BASE_REF}\`" ;;
+            edited) reason='' ;;
             *) echo "::error::Unsupported control event."; exit 1 ;;
           esac
 
@@ -63,11 +61,25 @@ jobs:
             gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
               --jq '[.state, .head.sha, .base.ref, .draft, (.labels | map(.name) | index("skip-claude-review") != null)] | @tsv'
           )"
+          comment_id="$(
+            gh api --paginate \
+              "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+              --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- claude-pr-review -->"))) | .id' |
+              tail -n 1
+          )"
           case "$ACTION" in
             labeled) still_applies="$live_skipped" ;;
             converted_to_draft) still_applies="$live_draft" ;;
             closed) if [ "$live_state" = "open" ]; then still_applies=false; else still_applies=true; fi ;;
-            edited) if [ "$live_base" != "main" ] && [ "$live_base" = "$BASE_REF" ]; then still_applies=true; else still_applies=false; fi ;;
+            edited)
+              if [ "$live_base" != "main" ] &&
+                { [ "$PREVIOUS_BASE_REF" = "main" ] || [ -n "$comment_id" ]; }; then
+                still_applies=true
+                reason="the pull request base changed to \`${live_base}\`"
+              else
+                still_applies=false
+              fi
+              ;;
           esac
           if [ "$still_applies" != "true" ]; then
             echo "::notice::The invalidating condition no longer applies to the live PR."
@@ -92,12 +104,6 @@ jobs:
           }));
           NODE
 
-          comment_id="$(
-            gh api --paginate \
-              "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
-              --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- claude-pr-review -->"))) | .id' |
-              tail -n 1
-          )"
           if [ -n "$comment_id" ]; then
             gh api --method PATCH \
               "repos/${GITHUB_REPOSITORY}/issues/comments/${comment_id}" \
