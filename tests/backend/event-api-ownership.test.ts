@@ -719,6 +719,36 @@ describe("API-created event ownership", () => {
     assert.deepEqual(upcoming.map((event) => event.slug), ["weeklong-festival"]);
   });
 
+  it("orders current events by effective end before future events", async () => {
+    const t = convexTest({ schema, modules });
+    await t.run(async (ctx) => {
+      for (const event of [
+        { slug: "long-current", startAt: NOW - 7_200_000, endAt: NOW + 7_200_000 },
+        { slug: "short-current", startAt: NOW - 3_600_000, endAt: NOW + 3_600_000 },
+        { slug: "future-event", startAt: NOW + 1_800_000, endAt: NOW + 10_800_000 },
+      ]) {
+        await ctx.db.insert("events", {
+          ...event,
+          title: event.slug,
+          sortTitle: event.slug,
+          sourceType: "manual",
+          sourceLabel: "Test",
+          eventStatus: "scheduled",
+          publicationState: "published",
+          publishedAt: NOW,
+          updatedAt: NOW,
+        });
+      }
+    });
+
+    const upcoming = await t.query(api.events.listPublicUpcoming, { now: NOW, limit: 3 });
+    assert.deepEqual(upcoming.map((event) => event.slug), [
+      "short-current",
+      "long-current",
+      "future-event",
+    ]);
+  });
+
   it("keeps eligible profile events bounded and orders compact sections by end time", async () => {
     const t = convexTest({ schema, modules });
     const { profileId: communityProfileId } = await seedOwnedCommunity(t);
@@ -884,6 +914,43 @@ describe("API-created event ownership", () => {
 
     const upcoming = await t.query(api.events.listPublicUpcoming, { now: NOW, limit: 2 });
     assert.deepEqual(upcoming.map((event) => event.slug), [first.slug, second.slug]);
+  });
+
+  it("uses a community primary logo on event cards", async () => {
+    const t = convexTest({ schema, modules });
+    const { identity, profileId } = await seedOwnedCommunity(t);
+    const created = await t.withIdentity(identity).mutation(api.events.createCommunityEvent, {
+      title: "Logo event",
+      communitySlug: "faceless",
+      startAt: NOW + 3_600_000,
+      published: true,
+    });
+    await t.run(async (ctx) => {
+      const assetId = await ctx.db.insert("profileAssets", {
+        profileId,
+        storageKey: "profile-assets/community-logo.webp",
+        mimeType: "image/webp",
+        byteSize: 512,
+        visibility: "public",
+        source: "community_submitted",
+        uploadedBy: { tokenIdentifier: "test:contributor", issuer: "test", subject: "contributor" },
+        uploadedAt: NOW,
+        state: "active",
+        updatedAt: NOW,
+      });
+      await ctx.db.insert("profileAssetPlacements", {
+        profileId,
+        assetId,
+        placement: "primary_logo",
+        position: 0,
+        state: "active",
+        updatedAt: NOW,
+      });
+    });
+
+    const profile = await t.query(api.profileAssets.listPublicBySlug, { slug: "faceless" });
+    const event = await t.query(api.events.getPublicBySlug, { slug: created.slug });
+    assert.equal(event?.communityImageUrl, profile?.mediaKit.primaryLogo?.imageUrl);
   });
 
   it("keeps unlisted profile media off event host and lineup cards", async () => {

@@ -609,6 +609,11 @@ async function getPublicEventRecord(
   const communityMediaKit = community === undefined
     ? undefined
     : await getPublicProfileMediaKit(db, community, { surface: "discovery" });
+  const communityProfileImageUrl = communityMediaKit?.profileImage?.imageUrl;
+  const communityLogoImageUrl = communityMediaKit?.primaryLogo?.imageUrl;
+  const communityImageUrl = communityMediaKit?.compactDisplay === "logo"
+    ? communityLogoImageUrl ?? communityProfileImageUrl
+    : communityProfileImageUrl ?? communityLogoImageUrl;
 
   return {
     event,
@@ -619,8 +624,7 @@ async function getPublicEventRecord(
     ...optionalField("community", community),
     ...optionalField(
       "communityImageUrl",
-      communityMediaKit?.profileImage?.imageUrl ??
-        (community === undefined ? undefined : publicProfileCardImage(community)),
+      communityImageUrl ?? (community === undefined ? undefined : publicProfileCardImage(community)),
     ),
     ...optionalField("communityAvatarAppearance", communityMediaKit?.avatarAppearance),
   };
@@ -657,26 +661,26 @@ export async function getEventForEditor(
 export async function getPublicEventPreviews(
   db: DatabaseReader,
   events: Doc<"events">[],
-  options: { now?: number; limit?: number; order?: "start" | "end" } = {},
+  options: { now?: number; limit?: number; order?: "start" | "end" | "input" } = {},
 ): Promise<PublicEventPreview[]> {
   const now = options.now;
   const limit = Math.max(
     1,
     Math.min(options.limit ?? EVENT_PREVIEW_DEFAULT_LIMIT, EVENT_PREVIEW_MAX_LIMIT),
   );
-  const selectedEvents = events
-    .filter(
-      (event) =>
-        event.publicationState === "published" &&
-        event.eventStatus === "scheduled" &&
-        (now === undefined || eventEndsAt(event) >= now),
-    )
-    .sort((first, second) =>
-      options.order === "end"
-        ? eventEndsAt(first) - eventEndsAt(second) || first.startAt - second.startAt
-        : first.startAt - second.startAt,
-    )
-    .slice(0, limit);
+  const eligibleEvents = events.filter(
+    (event) =>
+      event.publicationState === "published" &&
+      event.eventStatus === "scheduled" &&
+      (now === undefined || eventEndsAt(event) >= now),
+  );
+  const selectedEvents = (options.order === "input"
+    ? eligibleEvents
+    : eligibleEvents.sort((first, second) =>
+        options.order === "end"
+          ? eventEndsAt(first) - eventEndsAt(second) || first.startAt - second.startAt
+          : first.startAt - second.startAt,
+      )).slice(0, limit);
   const records = (
     await Promise.all(
       selectedEvents.map((event) =>

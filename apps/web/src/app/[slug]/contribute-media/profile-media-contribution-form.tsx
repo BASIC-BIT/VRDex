@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { useConvexAuth, useMutation } from "convex/react";
 import type { Id } from "../../../../../../convex/_generated/dataModel";
@@ -46,11 +47,12 @@ function safeMessage(error: unknown) {
 }
 
 export function ProfileMediaContributionForm({ profile }: { profile: ContributionProfile }) {
+  const router = useRouter();
   const { isAuthenticated, isLoading } = useConvexAuth();
   const createUploadIntent = useMutation(api.profileMediaSubmissions.createUploadIntent);
   const withdraw = useMutation(api.profileMediaSubmissions.withdraw);
   const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState<{ kind: "error" | "success"; message: string } | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
 
   if (isLoading) {
     return <p aria-busy="true" className="text-sm text-muted">Loading sign-in state…</p>;
@@ -110,12 +112,12 @@ export function ProfileMediaContributionForm({ profile }: { profile: Contributio
       const body = (await response.json().catch(() => null)) as { error?: string } | null;
       if (!response.ok) throw new Error(body?.error || "The image upload failed.");
       form.reset();
-      setStatus({ kind: "success", message: "Submitted for review." });
+      router.push("/account/media-contributions");
     } catch (error) {
       if (submissionId !== undefined) {
         await withdraw({ submissionId }).catch(() => false);
       }
-      setStatus({ kind: "error", message: safeMessage(error) });
+      setStatus(safeMessage(error));
     } finally {
       setBusy(false);
     }
@@ -161,14 +163,7 @@ export function ProfileMediaContributionForm({ profile }: { profile: Contributio
             Note for reviewer
             <Textarea maxLength={500} name="contributorNote" rows={3} />
           </Field>
-          {status ? (
-            <Notice role="status" variant={status.kind === "success" ? "success" : "error"}>
-              {status.message}{" "}
-              {status.kind === "success" ? (
-                <Link className="underline" href="/account/media-contributions">View contributions</Link>
-              ) : null}
-            </Notice>
-          ) : null}
+          {status ? <Notice role="status" variant="error">{status}</Notice> : null}
           <Button disabled={busy} type="submit" variant="primary">
             {busy ? "Submitting…" : "Submit for review"}
           </Button>

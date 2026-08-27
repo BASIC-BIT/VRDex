@@ -9,7 +9,7 @@ import { api } from "@convex-generated-api";
 
 import { Button } from "@/components/ui/button";
 import { Card, SectionTitle } from "@/components/ui/card";
-import { Field, Input, Select, Textarea } from "@/components/ui/field";
+import { Field, Select, Textarea } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 
 type ReviewRow = FunctionReturnType<typeof api.profileMediaSubmissions.listForReview>["page"][number];
@@ -124,10 +124,6 @@ export function MediaReviewPanel() {
   const access = useQuery(api.profileMediaSubmissions.getReviewAccess);
   const [profileId, setProfileId] = useState("");
   const [queueStatus, setQueueStatus] = useState<"submitted" | "under_review" | "approved">("submitted");
-  const [age, setAge] = useState<"all" | "7" | "30">("all");
-  const [ageCutoff, setAgeCutoff] = useState<number | undefined>();
-  const [submitterSearch, setSubmitterSearch] = useState("");
-  const [duplicatesOnly, setDuplicatesOnly] = useState(false);
   const [cleanupStatus, setCleanupStatus] = useState<string | null>(null);
   const effectiveProfileId = profileId || (
     access && !access.superAdmin ? access.profiles[0]?.profileId ?? "" : ""
@@ -149,16 +145,6 @@ export function MediaReviewPanel() {
     reviewQueryArgs,
     { initialNumItems: 40 },
   );
-  const normalizedSubmitterSearch = submitterSearch.trim().toLowerCase();
-  const filteredSubmissions = submissions.filter((row) => {
-    if (ageCutoff !== undefined && row.createdAt < ageCutoff) return false;
-    if (duplicatesOnly && row.priorProposalCount === 0) return false;
-    if (normalizedSubmitterSearch !== "") {
-      const haystack = `${row.submitterDisplayName ?? ""} ${row.submitterEmail ?? ""}`.toLowerCase();
-      if (!haystack.includes(normalizedSubmitterSearch)) return false;
-    }
-    return true;
-  });
 
   async function cleanDueFiles() {
     setCleanupStatus(null);
@@ -191,42 +177,15 @@ export function MediaReviewPanel() {
               <option value="approved">Approved</option>
             </Select>
           </Field>
-          <Field>
-            Age
-            <Select
-              onChange={(event) => {
-                const value = event.target.value as "all" | "7" | "30";
-                setAge(value);
-                setAgeCutoff(value === "all" ? undefined : Date.now() - Number(value) * 24 * 60 * 60 * 1_000);
-              }}
-              value={age}
-            >
-              <option value="all">Any age</option>
-              <option value="7">Last 7 days</option>
-              <option value="30">Last 30 days</option>
-            </Select>
-          </Field>
+          {access?.superAdmin ? <Button onClick={() => void cleanDueFiles()} type="button" variant="ghost">Clean due files</Button> : null}
         </div>
       </div>
-      {access?.superAdmin ? (
-        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-end">
-          <Field>
-            Submitter
-            <Input onChange={(event) => setSubmitterSearch(event.target.value)} placeholder="Name or email" value={submitterSearch} />
-          </Field>
-          <label className="flex min-h-10 items-center gap-2 text-sm">
-            <input checked={duplicatesOnly} onChange={(event) => setDuplicatesOnly(event.target.checked)} type="checkbox" />
-            Matching proposals only
-          </label>
-          <Button onClick={() => void cleanDueFiles()} type="button" variant="ghost">Clean due files</Button>
-        </div>
-      ) : null}
       {cleanupStatus ? <Notice role="status">{cleanupStatus}</Notice> : null}
       {access === undefined || paginationStatus === "LoadingFirstPage" ? <p aria-busy="true" className="text-sm text-muted">Loading…</p> : null}
       {access && !access.superAdmin && access.profiles.length === 0 ? <Notice variant="warning">Profile media review access is required.</Notice> : null}
-      {filteredSubmissions.length === 0 && paginationStatus === "Exhausted" ? <Notice>No media contributions match this queue.</Notice> : null}
+      {submissions.length === 0 && paginationStatus === "Exhausted" ? <Notice>No media contributions match this queue.</Notice> : null}
       <div className="grid gap-4">
-        {filteredSubmissions.map((row) => <ReviewCard key={row.submissionId} row={row} />)}
+        {submissions.map((row) => <ReviewCard key={row.submissionId} row={row} />)}
       </div>
       {paginationStatus === "CanLoadMore" ? (
         <Button onClick={() => loadMore(40)} type="button" variant="ghost">Load more</Button>

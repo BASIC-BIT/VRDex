@@ -1852,9 +1852,9 @@ export const listPublicUpcoming = query({
         )
         .take(limit),
     ]);
-    const events = [...new Map([...ongoing, ...upcoming].map((event) => [event._id, event])).values()];
+    const events = [...ongoing, ...upcoming].slice(0, limit);
 
-    return await getPublicEventPreviews(ctx.db, events, { now: args.now, limit });
+    return await getPublicEventPreviews(ctx.db, events, { now: args.now, limit, order: "input" });
   },
 });
 

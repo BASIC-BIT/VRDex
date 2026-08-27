@@ -226,8 +226,10 @@ Current recommendation:
   effective end is after `now`.
 - Extend public previews with at most three relevant confirmed slots, each
   carrying time, display label, optional linked profile summary, and role.
-- Prefer current/soon ordering, then event start time. Do not add popularity,
-  attendance, recommendation, or hidden-personalization claims.
+- Show current events first by soonest effective end, then future events by
+  start time. This keeps discovery bounded on the same indexed order it shows.
+  Do not add popularity, attendance, recommendation, or hidden-personalization
+  claims.
 - Render cards, pages, profile associations, and slots in the viewer's local
   timezone. Show event timezone only in authoring or debugging context.
 
@@ -381,8 +383,9 @@ Current recommendation:
 
 ### Reviewer and claiming owner
 
-- The queue is bounded and filterable by state, age, target, submitter, and
-  duplicate hash.
+- The queue is bounded and filterable by state and target. It shows submitter
+  and prior-matching-proposal evidence on each loaded row without pretending a
+  client-only filter covers unloaded pages.
 - Review shows current profile/asset, candidate preview, source and credit,
   profile changes since submission, and prior proposals.
 - Approval chooses final placement and public metadata. Rejection requires a
@@ -411,8 +414,6 @@ Public profile and contribution:
 
 - `Add profile media`
 - `Add media for {profile display name}`
-- `Submitted for review.`
-- `View contributions`
 - `My media contributions`
 - `No media contributions yet.`
 - `Community contribution`
