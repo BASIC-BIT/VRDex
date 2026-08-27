@@ -22,7 +22,7 @@ jobs:
     permissions:
       contents: read
       issues: write
-      pull-requests: read
+      pull-requests: write
     uses: ./.github/workflows/claude-review-reconcile-pr.yml
     with:
       pr_number: ${{ matrix.pr_number }}

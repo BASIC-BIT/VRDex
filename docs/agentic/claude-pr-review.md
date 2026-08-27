@@ -75,10 +75,14 @@ commit; a pull request can propose changes to it but cannot weaken its own revie
 contract.
 
 The model job has repository read permissions plus `id-token: write`. It cannot
-comment. A separate five-minute publisher has comment permission, no checkout,
-and re-reads the live pull request before and after publishing. It refuses stale
-head or base results, converges a concurrent invalidation to unavailable, and
-does not replace a completed exact-head review with a failed replay.
+comment. Only the publisher, control, and existing-sticky reconciliation lane
+receive `pull-requests: write`; the two reusable reconciliation callers propagate
+that permission because nested workflows cannot elevate it. These jobs have no
+checkout and use the grant only to create, update, or remove the workflow-owned
+sticky comment. The five-minute publisher re-reads the live pull request before
+and after publishing. It refuses stale head or base results, converges a
+concurrent invalidation to unavailable, and does not replace a completed
+exact-head review with a failed replay.
 
 ## Credential and infrastructure
 
