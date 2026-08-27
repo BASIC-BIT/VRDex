@@ -1,0 +1,68 @@
+name: Claude Review Reconcile
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: claude-review-reconcile-main
+  cancel-in-progress: false
+
+jobs:
+  list-open-prs:
+    name: List open pull requests
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      batches: ${{ steps.list.outputs.batches }}
+
+    steps:
+      - name: Build bounded reconciliation batches
+        id: list
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          batches="$(
+            gh api --paginate \
+              "repos/${GITHUB_REPOSITORY}/pulls?state=open&base=main&per_page=100" \
+              --jq '.[] | select(
+                .draft == false and
+                .head.repo.full_name == .base.repo.full_name and
+                (.user.login | endswith("[bot]") | not) and
+                (.labels | map(.name) | index("skip-claude-review") == null)
+              ) | .number' |
+              jq -Rsc '
+                split("\n") |
+                map(select(length > 0) | tonumber) as $numbers |
+                {include: [
+                  range(0; ($numbers | length); 200) as $start |
+                  {numbers_json: ($numbers[$start:$start + 200] | tojson)}
+                ]}
+              '
+          )"
+          echo "batches=$(printf '%s' "$batches" | jq -c .)" >> "$GITHUB_OUTPUT"
+
+  reconcile-batches:
+    name: Reconcile batch
+    needs: list-open-prs
+    if: needs.list-open-prs.outputs.batches != '{"include":[]}'
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix: ${{ fromJSON(needs.list-open-prs.outputs.batches) }}
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+    uses: ./.github/workflows/claude-review-reconcile-worker.yml
+    with:
+      numbers_json: ${{ matrix.numbers_json }}
