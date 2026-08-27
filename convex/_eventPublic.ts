@@ -660,11 +660,13 @@ export async function getEventForEditor(
 ) {
   const record = await getPublicEventRecord(db, event, { includeUnpublished: true });
   const projected = record === null ? null : toPublicEvent(record);
+  const authoredMediaLinks = (event.mediaLinks ?? []).flatMap(safePublicEventMediaLink);
 
   return projected === null
     ? null
     : {
         ...projected,
+        authoredMediaLinks,
         publicationState: event.publicationState,
       };
 }
@@ -734,10 +736,15 @@ export async function getPublicCommunityHostedEvents(
       )
       .take(EVENT_ASSOCIATION_LIMIT),
   ]);
-  const started = startedCandidates.filter((event) => eventEndsAt(event) >= now);
+  const started = startedCandidates
+    .filter((event) => eventEndsAt(event) >= now)
+    .sort(
+      (first, second) =>
+        eventEndsAt(first) - eventEndsAt(second) || first.startAt - second.startAt,
+    );
   const events = [...started, ...upcoming];
 
-  return getPublicEventPreviews(db, events, { now, limit });
+  return getPublicEventPreviews(db, events, { now, limit, order: "input" });
 }
 
 export async function getPublicPersonUpcomingEvents(

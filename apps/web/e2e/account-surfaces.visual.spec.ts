@@ -413,7 +413,6 @@ test.describe("account surfaces @visual @flow @account-visual", () => {
     await expect(page.getByRole("heading", { name: "My media contributions" })).toBeVisible(
       hostedExpectOptions,
     );
-    await expect(page.getByText("No media contributions yet.")).toBeVisible(hostedExpectOptions);
     await waitForVisualReady(page);
     await captureRouteScreenshot(page, testInfo, "media-contributions-empty", {
       mask: unstableSignedInRegions(page, account?.email),

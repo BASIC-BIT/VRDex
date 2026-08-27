@@ -26,7 +26,6 @@ export function MediaContributionsPanel() {
     <main className="grid gap-6">
       <SectionTitle>My media contributions</SectionTitle>
       {submissions === undefined ? <p aria-busy="true" className="text-sm text-muted">Loading…</p> : null}
-      {submissions?.length === 0 ? <Notice>No media contributions yet.</Notice> : null}
       <div className="grid gap-4">
         {submissions?.map((submission) => (
           <Card key={submission.submissionId}>

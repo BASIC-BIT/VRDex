@@ -522,9 +522,13 @@ describe("API-created event ownership", () => {
     });
 
     const publicEvent = await t.query(api.events.getPublicBySlug, { slug: created.slug });
+    const editableEvent = await t.withIdentity(identity).query(api.events.getEditableBySlug, {
+      slug: created.slug,
+    });
     assert.equal(publicEvent?.status, "cancelled");
     assert.deepEqual(publicEvent?.authoredMediaLinks.map((link) => link.type), ["ticket"]);
     assert.deepEqual(publicEvent?.mediaLinks.map((link) => link.type), ["ticket"]);
+    assert.deepEqual(editableEvent?.authoredMediaLinks.map((link) => link.type), ["watch", "ticket"]);
   });
 
   it("does not reschedule a worker after its start command has been claimed", async () => {
@@ -930,8 +934,8 @@ describe("API-created event ownership", () => {
       activeWorlds: await getPublicActiveWorlds(ctx.db, NOW, 3),
     }));
     assert.deepEqual(associations.hosted.map((event) => event.slug), [
-      "profile-weeklong-festival",
       "profile-short-ongoing-event",
+      "profile-weeklong-festival",
       "profile-future-festival",
     ]);
     assert.deepEqual(associations.participant.map((event) => event.slug), [

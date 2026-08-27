@@ -417,7 +417,6 @@ Public profile and contribution:
 - `Add profile media`
 - `Add media for {profile display name}`
 - `My media contributions`
-- `No media contributions yet.`
 - `Community contribution`
 
 Contributor states and errors:
