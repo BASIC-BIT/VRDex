@@ -45,6 +45,7 @@ import {
   getProfileBySlug,
   validateProfileSlug,
 } from "./_profileSlugs";
+import { findSlugOwner } from "./_globalSlugs";
 import { getProfileFieldVisibility } from "./_profileFieldVisibility";
 import {
   createProfileSortName,
@@ -502,16 +503,39 @@ export const getPublicShareCardBySlug = query({
       return null;
     }
 
-    const profile = await getProfileBySlug(ctx.db, validation.slug);
+    const owner = await findSlugOwner(ctx.db, validation.slug);
 
-    if (profile === null || !canReadProfile("public", profile)) {
+    if (owner === null) {
       return null;
     }
 
-    return toPublicProfileShareCard(
-      profile,
-      await getPublicProfileMediaKit(ctx.db, profile),
-    );
+    if (owner.kind === "person" || owner.kind === "community") {
+      if (!canReadProfile("public", owner.profile)) {
+        return null;
+      }
+
+      return {
+        entityType: "profile" as const,
+        profile: toPublicProfileShareCard(
+          owner.profile,
+          await getPublicProfileMediaKit(ctx.db, owner.profile),
+        ),
+      };
+    }
+
+    if (owner.kind === "world") {
+      return owner.world.publicationState === "published"
+        ? { entityType: "world" as const, profile: null }
+        : null;
+    }
+
+    if (owner.kind === "event") {
+      return owner.event.publicationState === "published"
+        ? { entityType: "event" as const, profile: null }
+        : null;
+    }
+
+    return null;
   },
 });
 

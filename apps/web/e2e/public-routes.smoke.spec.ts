@@ -120,6 +120,15 @@ test("profile links expose Discord-ready metadata and a generated image", async 
 
   const missingSlugImage = await page.request.get("/scanner-unique-123/opengraph-image");
   expect(missingSlugImage.status()).toBe(404);
+
+  for (const entitySlug of [
+    "playwright-neon-harbor",
+    "playwright-afterglow-harbor-sessions",
+  ]) {
+    const entityImage = await page.request.get(`/${entitySlug}/opengraph-image`);
+    expect(entityImage.status()).toBe(200);
+    expect(entityImage.headers()["content-type"]).toContain("image/png");
+  }
 });
 
 test("public API supports browser CORS and preflight", async ({ page }) => {

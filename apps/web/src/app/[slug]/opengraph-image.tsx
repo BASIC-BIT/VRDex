@@ -65,7 +65,7 @@ export default async function EntityShareImage({ params }: EntityShareImageProps
 
   const result = await fetchPublicProfileShareCardBySlug(slug);
 
-  if (result.kind === "live" && result.profile === null) {
+  if (result.kind === "live" && result.entityType === null) {
     notFound();
   }
 

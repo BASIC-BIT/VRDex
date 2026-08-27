@@ -139,20 +139,32 @@ export async function fetchPublicProfileShareCardBySlug(slug: string) {
   const fixtureProfile = fixtureProfileShareCard(slug);
 
   if (fixtureProfile !== null) {
-    return { kind: "live" as const, profile: fixtureProfile };
+    return { kind: "live" as const, entityType: "profile" as const, profile: fixtureProfile };
+  }
+
+  if (getPlaywrightPublicWorldFixture(slug) !== null) {
+    return { kind: "live" as const, entityType: "world" as const, profile: null };
+  }
+
+  if (getPlaywrightPublicEventFixture(slug) !== null) {
+    return { kind: "live" as const, entityType: "event" as const, profile: null };
   }
 
   if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
-    return { kind: "missing-url" as const, profile: null };
+    return { kind: "missing-url" as const, entityType: null, profile: null };
   }
 
   try {
-    const profile = await fetchQuery(api.profiles.getPublicShareCardBySlug, { slug });
-    return { kind: "live" as const, profile };
+    const result = await fetchQuery(api.profiles.getPublicShareCardBySlug, { slug });
+    return {
+      kind: "live" as const,
+      entityType: result?.entityType ?? null,
+      profile: result?.profile ?? null,
+    };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`Server-side Convex profile share-card fetch failed: ${message}`);
-    return { kind: "error" as const, profile: null };
+    return { kind: "error" as const, entityType: null, profile: null };
   }
 }
 
