@@ -45,6 +45,14 @@ unavailable. Draft conversion, closure, and base retargeting also invalidate
 the sticky result. A small reconciliation workflow invalidates completed
 reviews when `main` advances; it does not automatically spend quota on reruns.
 
+Create or recover the cost-control label with the checked-in command below.
+`--force` makes the description and color reproducible without failing when the
+label already exists:
+
+```powershell
+gh label create skip-claude-review --repo BASIC-BIT/VRDex --color 6E7781 --description "Skip the bounded Claude PR review" --force
+```
+
 ## Trust and permissions
 
 `.github/workflows/claude-review.yml` uses `pull_request_target`, so its workflow

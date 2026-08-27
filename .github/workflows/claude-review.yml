@@ -9,14 +9,15 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ (github.event.action != 'unlabeled' || github.event.label.name == 'skip-claude-review') && (github.event.action != 'edited' || github.event.changes.base != null) && format('claude-review-{0}', github.event.pull_request.number) || format('claude-review-noop-{0}', github.run_id) }}
-  cancel-in-progress: ${{ (github.event.action != 'unlabeled' || github.event.label.name == 'skip-claude-review') && (github.event.action != 'edited' || github.event.changes.base != null) }}
+  group: ${{ (!github.event.pull_request.draft && !contains(github.event.pull_request.labels.*.name, 'skip-claude-review') && (github.event.action != 'unlabeled' || github.event.label.name == 'skip-claude-review') && (github.event.action != 'edited' || github.event.changes.base != null)) && format('claude-review-{0}', github.event.pull_request.number) || format('claude-review-noop-{0}', github.run_id) }}
+  cancel-in-progress: ${{ !github.event.pull_request.draft && !contains(github.event.pull_request.labels.*.name, 'skip-claude-review') && (github.event.action != 'unlabeled' || github.event.label.name == 'skip-claude-review') && (github.event.action != 'edited' || github.event.changes.base != null) }}
 
 jobs:
   review:
     name: Generate Claude PR review
     if: >-
       !github.event.pull_request.draft &&
+      github.event.pull_request.state == 'open' &&
       !github.event.pull_request.head.repo.fork &&
       github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name &&
       !endsWith(github.event.pull_request.user.login, '[bot]') &&
@@ -337,6 +338,7 @@ jobs:
             if [ -n "$comment_id" ]; then
               existing="$(gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${comment_id}" --jq '.body')"
               if printf '%s' "$existing" | grep -qF "<!-- claude-pr-review-head:${PR_HEAD_SHA} -->" && \
+                 printf '%s' "$existing" | grep -qF "<!-- claude-pr-review-base:${PR_BASE_SHA} -->" && \
                  printf '%s' "$existing" | grep -qF '<!-- claude-pr-review-complete -->'; then
                 echo "::notice::Keeping the completed review for this head after a failed replay."
                 exit 0
