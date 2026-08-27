@@ -12,104 +12,17 @@ permissions:
   contents: read
 
 jobs:
-  invalidate-old-base-review:
-    name: Invalidate old base review for PR ${{ matrix.pr_number }}
+  reconcile-pull-request:
+    name: Reconcile PR ${{ matrix.pr_number }}
     strategy:
       fail-fast: false
       max-parallel: 1
       matrix:
         pr_number: ${{ fromJSON(inputs.numbers_json) }}
-    concurrency:
-      group: claude-review-mutation-${{ matrix.pr_number }}
-      cancel-in-progress: false
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
     permissions:
       contents: read
       issues: write
       pull-requests: read
-
-    steps:
-      - name: Reconcile pull request sticky comment
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ matrix.pr_number }}
-          STICKY_MARKER: '<!-- claude-pr-review -->'
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          IFS=$'\t' read -r state head_sha base_ref base_sha draft skipped <<< "$(
-            gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
-              --jq '[.state, .head.sha, .base.ref, .base.sha, .draft, (.labels | map(.name) | index("skip-claude-review") != null)] | @tsv'
-          )"
-
-          comment_id="$(
-            gh api --paginate \
-              "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
-              --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- claude-pr-review -->"))) | .id' |
-              tail -n 1
-          )"
-          existing_body=''
-          if [ -n "$comment_id" ]; then
-            existing_body="$(gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${comment_id}" --jq '.body')"
-          fi
-          if [ "$state" != "open" ] || [ "$base_ref" != "main" ] || \
-             [ "$draft" = "true" ] || [ "$skipped" = "true" ]; then
-            reason='the pull request is no longer eligible for this review'
-          else
-            [ -n "$comment_id" ] || exit 0
-            if ! printf '%s' "$existing_body" | grep -qF '<!-- claude-pr-review-complete -->'; then
-              exit 0
-            fi
-            reviewed_head="$(
-              printf '%s\n' "$existing_body" |
-                sed -n 's/^<!-- claude-pr-review-head:\([0-9a-f]*\) -->$/\1/p' |
-                tail -n 1
-            )"
-            reviewed_base="$(
-              printf '%s\n' "$existing_body" |
-                sed -n 's/^<!-- claude-pr-review-base:\([0-9a-f]*\) -->$/\1/p' |
-                tail -n 1
-            )"
-            if [ "$reviewed_head" = "$head_sha" ] && [ "$reviewed_base" = "$base_sha" ]; then
-              exit 0
-            fi
-
-            if [ -z "$reviewed_head" ] || [ "$reviewed_head" != "$head_sha" ]; then
-              reason="the completed result covers commit \`${reviewed_head:-unknown}\`, not this head"
-            elif [ -z "$reviewed_base" ]; then
-              reason='the completed result has no usable base marker'
-            else
-              reason="\`main\` advanced from \`${reviewed_base}\` to \`${base_sha}\`"
-            fi
-          fi
-
-          body_file="${RUNNER_TEMP}/claude-review-${PR_NUMBER}.md"
-          json_file="${RUNNER_TEMP}/claude-review-${PR_NUMBER}.json"
-          cat > "$body_file" <<EOF
-          ${STICKY_MARKER}
-          [AGENT]
-
-          ## Claude Review
-
-          Claude review for commit \`${head_sha}\` is unavailable because ${reason}.
-
-          This is not a current review or approval. Update the branch or trigger another eligible pull request event for a fresh review.
-          EOF
-          node - "$body_file" "$json_file" <<'NODE'
-          const fs = require("node:fs");
-          fs.writeFileSync(process.argv[3], JSON.stringify({
-            body: fs.readFileSync(process.argv[2], "utf8"),
-          }));
-          NODE
-
-          if [ -n "$comment_id" ]; then
-            gh api --method PATCH \
-              "repos/${GITHUB_REPOSITORY}/issues/comments/${comment_id}" \
-              --input "$json_file" > /dev/null
-          else
-            gh api --method POST \
-              "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
-              --input "$json_file" > /dev/null
-          fi
+    uses: ./.github/workflows/claude-review-reconcile-pr.yml
+    with:
+      pr_number: ${{ matrix.pr_number }}

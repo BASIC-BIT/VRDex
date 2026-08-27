@@ -41,12 +41,14 @@ bot-authored pull requests do not receive the shared credential.
 
 One review workflow may run per pull request. Eligible events serialize, then a
 live preflight drops stale or ineligible work before checkout, credential access,
-or inference. The `skip-claude-review` label records that the review is
+or inference. The `skip-claude-review` label records that an in-scope review is
 unavailable. A generation already running may finish, but its publisher refuses
 the now-ineligible result. Draft conversion, closure, and base retargeting also
-invalidate the sticky result. A small reconciliation workflow invalidates
-completed reviews when `main` advances; it does not automatically spend quota
-on reruns.
+invalidate an existing or pending sticky result. A small reconciliation
+workflow snapshots eligible pull requests and invalidates their completed
+reviews when `main` advances; it does not create comments on pull requests that
+were already drafts or skipped at that snapshot, and it does not automatically
+spend quota on reruns.
 
 Create or recover the cost-control label with the checked-in command below.
 `--force` makes the description and color reproducible without failing when the
@@ -102,7 +104,8 @@ repository setting.
   also recheck after mutating the sticky
 - the `main`-push coordinator splits eligible pull requests into sequential
   200-item reusable-workflow batches, avoiding GitHub's 256-job matrix limit
-  while pacing sticky updates through one worker at a time
+  while pacing sticky checks through one worker at a time; a per-pull-request
+  preflight enters the mutation lane only when a workflow sticky already exists
 - the job is limited to 25 minutes and 60 Claude turns
 - the prompt starts from the diff and may read only trusted-base source for
   additional local context
@@ -147,8 +150,9 @@ itself. Before merge, parse the YAML, run `actionlint` across
 `.github/workflows/claude-review.yml`,
 `.github/workflows/claude-review-control.yml`,
 `.github/workflows/claude-review-reconcile.yml`, and
-`.github/workflows/claude-review-reconcile-worker.yml`, lint and build the docs,
-and confirm the basic-infra trust change is reviewable.
+`.github/workflows/claude-review-reconcile-worker.yml`, and
+`.github/workflows/claude-review-reconcile-pr.yml`, lint and build the docs, and
+confirm the basic-infra trust change is reviewable.
 
 After both changes reach their default branches, prove one eligible pull request
 end to end: role assumption, secret retrieval, Claude inference, exact-head/base
