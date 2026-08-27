@@ -36,13 +36,14 @@ surface without replacing the repository's existing exact-head recycle gate.
 The trusted default-branch workflow reviews same-repository, non-draft,
 human-authored pull requests targeting `main` when they are opened, reopened,
 marked ready, or synchronized. Removing `skip-claude-review` also triggers a
-fresh review. Forks and bot-authored pull requests do not receive the shared
-credential.
+fresh review, as does retargeting a pull request into `main`. Forks and
+bot-authored pull requests do not receive the shared credential.
 
 One review may run per pull request. A newer eligible event cancels the older
 run. The `skip-claude-review` label cancels work and records that the review is
 unavailable. Draft conversion, closure, and base retargeting also invalidate
-the sticky result.
+the sticky result. A small reconciliation workflow invalidates completed
+reviews when `main` advances; it does not automatically spend quota on reruns.
 
 ## Trust and permissions
 
@@ -85,6 +86,7 @@ repository setting.
 - per-pull-request concurrency cancels superseded work
 - the job is limited to 25 minutes and 60 Claude turns
 - the prompt starts from the diff and opens source only for needed local context
+- review input stops at 250 changed files or a 500,000-byte textual diff
 - web, shell, write, and delegation tools are unavailable
 - output and previous-review context are byte-bounded
 
@@ -99,7 +101,9 @@ The publisher owns one comment marked `<!-- claude-pr-review -->`. A completed
 comment records the exact reviewed head and base in hidden markers, begins with
 `[AGENT]`, lists source-linked findings by priority, and ends with an explicit
 Important-finding status. Failures and invalidations say that they are not an
-approval. Publication failure fails the workflow.
+approval. Hidden comments are removed, angle brackets are escaped, mentions are
+neutralized, and duplicate workflow-owned comments are removed. Publication
+failure fails the workflow.
 
 Each synchronize event supplies the previous completed sticky review as bounded
 context so Claude can avoid repeating resolved findings. The workflow never
@@ -119,10 +123,12 @@ Recycler work stays with the implementing human or agent:
 
 Because `pull_request_target` loads its workflow from the default branch, the
 pull request that first adds this workflow cannot run the new reviewer against
-itself. Before merge, parse the YAML, run `actionlint`, lint and build the docs,
-and confirm the basic-infra trust change is reviewable.
+itself. Before merge, parse the YAML, run `actionlint` across all three reviewer
+workflows, lint and build the docs, and confirm the basic-infra trust change is
+reviewable.
 
 After both changes reach their default branches, prove one eligible pull request
 end to end: role assumption, secret retrieval, Claude inference, exact-head/base
 markers, sticky update, synchronize rerun, skip cancellation, and stale-result
-refusal. Treat any missing proof as `UNKNOWN`, not as a passing review.
+refusal. Also prove that a later `main` push invalidates the old-base result.
+Treat any missing proof as `UNKNOWN`, not as a passing review.

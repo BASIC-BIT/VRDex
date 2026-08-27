@@ -3,14 +3,14 @@ name: Claude Review
 on:
   pull_request_target:
     branches: [main]
-    types: [opened, reopened, ready_for_review, synchronize, unlabeled]
+    types: [opened, reopened, ready_for_review, synchronize, edited, unlabeled]
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ (github.event.action != 'unlabeled' || github.event.label.name == 'skip-claude-review') && format('claude-review-{0}', github.event.pull_request.number) || format('claude-review-noop-{0}', github.run_id) }}
-  cancel-in-progress: ${{ github.event.action != 'unlabeled' || github.event.label.name == 'skip-claude-review' }}
+  group: ${{ (github.event.action != 'unlabeled' || github.event.label.name == 'skip-claude-review') && (github.event.action != 'edited' || github.event.changes.base != null) && format('claude-review-{0}', github.event.pull_request.number) || format('claude-review-noop-{0}', github.run_id) }}
+  cancel-in-progress: ${{ (github.event.action != 'unlabeled' || github.event.label.name == 'skip-claude-review') && (github.event.action != 'edited' || github.event.changes.base != null) }}
 
 jobs:
   review:
@@ -21,6 +21,7 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name &&
       !endsWith(github.event.pull_request.user.login, '[bot]') &&
       !contains(github.event.pull_request.labels.*.name, 'skip-claude-review') &&
+      (github.event.action != 'edited' || github.event.changes.base != null) &&
       (github.event.action != 'unlabeled' || github.event.label.name == 'skip-claude-review')
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -86,6 +87,13 @@ jobs:
             "${BASE_SHA}...${HEAD_SHA}" > "${context_dir}/pr-stat.txt"
           git -C pr-head diff --find-renames --find-copies --no-ext-diff \
             "${BASE_SHA}...${HEAD_SHA}" > "${context_dir}/pr-diff.patch"
+
+          changed_files="$(git -C pr-head diff --name-only "${BASE_SHA}...${HEAD_SHA}" | wc -l)"
+          diff_bytes="$(wc -c < "${context_dir}/pr-diff.patch")"
+          if [ "$changed_files" -gt 250 ] || [ "$diff_bytes" -gt 500000 ]; then
+            echo "::error::PR review input exceeds the 250-file or 500,000-byte safety limit."
+            exit 1
+          fi
 
           previous_file="${context_dir}/previous-review.md"
           : > "$previous_file"
@@ -246,7 +254,14 @@ jobs:
           const assistant = messages.findLast((message) => message.type === "assistant");
           const markdown = text(result.result) || text(assistant?.message?.content ?? assistant?.content);
           if (!markdown) throw new Error("Claude returned no Markdown review.");
-          fs.writeFileSync(process.argv[3], `${markdown}\n`);
+          const withoutComments = markdown.replace(/<!--[\s\S]*?-->/g, "").trim();
+          const finalLine = withoutComments.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).at(-1);
+          if (finalLine !== "Important findings found." && finalLine !== "No Important findings.") {
+            throw new Error("Claude review is missing the required terminal finding status.");
+          }
+          const withoutRawHtml = withoutComments.replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+          const safeMarkdown = withoutRawHtml.replace(/@(?=[A-Za-z0-9_-])/g, "@\u200b");
+          fs.writeFileSync(process.argv[3], `${safeMarkdown}\n`);
           NODE
 
           if [ "$(wc -c < "$review_file")" -gt 58000 ]; then
@@ -354,3 +369,16 @@ jobs:
               "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
               --input "$json_file" > /dev/null
           fi
+
+          all_comment_ids="$(
+            gh api --paginate \
+              "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+              --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- claude-pr-review -->"))) | .id'
+          )"
+          keep_comment_id="$(printf '%s\n' "$all_comment_ids" | tail -n 1)"
+          while IFS= read -r duplicate_id; do
+            if [ -n "$duplicate_id" ] && [ "$duplicate_id" != "$keep_comment_id" ]; then
+              gh api --method DELETE \
+                "repos/${GITHUB_REPOSITORY}/issues/comments/${duplicate_id}" > /dev/null
+            fi
+          done <<< "$all_comment_ids"
