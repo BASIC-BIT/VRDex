@@ -710,6 +710,12 @@ export async function getPublicCommunityHostedEvents(
       .withIndex("by_communityProfileId_startAt", (query) =>
         query.eq("communityProfileId", communityProfileId).gte("startAt", now),
       )
+      .filter((query) =>
+        query.and(
+          query.eq(query.field("publicationState"), "published"),
+          query.eq(query.field("eventStatus"), "scheduled"),
+        ),
+      )
       .take(EVENT_ASSOCIATION_LIMIT),
   ]);
   const events = [...started, ...upcoming];
@@ -742,7 +748,7 @@ export async function getPublicPersonUpcomingEvents(
           .eq("confirmationState", "confirmed")
           .gte("eventStartAt", now),
       )
-      .take(EVENT_ASSOCIATION_LIMIT),
+      .collect(),
   ]);
   const participantLinks = [...startedLinks, ...upcomingLinks];
   const events = (

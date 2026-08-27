@@ -278,7 +278,7 @@ describe("public world event context", () => {
     assert.equal(context.upcoming[0]?.title, "Afterglow Harbor Sessions");
   });
 
-  it("omits unconfirmed associations and unpublished events from public world pages", () => {
+  it("omits unconfirmed associations, unpublished events, and cancelled events from public world pages", () => {
     const now = Date.UTC(2026, 4, 24, 12, 0, 0);
     const publishedEvent = {
       _id: "event123",
@@ -314,6 +314,10 @@ describe("public world event context", () => {
       [
         { event: publishedEvent, association: unconfirmedAssociation },
         { event: draftEvent, association: confirmedAssociation },
+        {
+          event: { ...publishedEvent, eventStatus: "cancelled" } as unknown as Doc<"events">,
+          association: confirmedAssociation,
+        },
       ],
       now,
     );
@@ -443,7 +447,7 @@ describe("public active world previews", () => {
     assert.equal(previews[0]?.upcomingEventCount, 1);
   });
 
-  it("excludes draft worlds, draft events, past events, and unconfirmed associations", () => {
+  it("excludes draft worlds, draft events, cancelled events, past events, and unconfirmed associations", () => {
     const now = Date.UTC(2026, 4, 24, 12, 0, 0);
     const world = {
       slug: "neon-harbor",
@@ -494,6 +498,11 @@ describe("public active world previews", () => {
         {
           association: confirmedAssociation,
           event: { ...event, startAt: now - 86_400_000 } as unknown as Doc<"events">,
+          world,
+        },
+        {
+          association: confirmedAssociation,
+          event: { ...event, eventStatus: "cancelled" } as unknown as Doc<"events">,
           world,
         },
         {
