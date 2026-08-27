@@ -8,7 +8,7 @@ import {
   getPublicCommunityHostedEvents,
   getPublicPersonUpcomingEvents,
 } from "../../convex/_eventPublic";
-import { getPublicWorldEventContext } from "../../convex/_worldEvents";
+import { getPublicActiveWorlds, getPublicWorldEventContext } from "../../convex/_worldEvents";
 import schemaModule from "../../convex/schema";
 
 import { newClerkUserId } from "./_clerkTestIdentity";
@@ -483,6 +483,10 @@ describe("API-created event ownership", () => {
       title: "Cancelled stale output",
       communitySlug: "faceless",
       startAt: NOW + 86_400_000,
+      mediaLinks: [
+        { type: "watch", label: "Watch", url: "https://example.com/authored-watch" },
+        { type: "ticket", label: "Tickets", url: "https://example.com/tickets" },
+      ],
       published: true,
     });
     await t.withIdentity(identity).mutation(api.events.setCommunityEventCancelled, {
@@ -519,7 +523,8 @@ describe("API-created event ownership", () => {
 
     const publicEvent = await t.query(api.events.getPublicBySlug, { slug: created.slug });
     assert.equal(publicEvent?.status, "cancelled");
-    assert.deepEqual(publicEvent?.mediaLinks, []);
+    assert.deepEqual(publicEvent?.authoredMediaLinks.map((link) => link.type), ["ticket"]);
+    assert.deepEqual(publicEvent?.mediaLinks.map((link) => link.type), ["ticket"]);
   });
 
   it("does not reschedule a worker after its start command has been claimed", async () => {
@@ -922,6 +927,7 @@ describe("API-created event ownership", () => {
       hosted: await getPublicCommunityHostedEvents(ctx.db, communityProfileId, NOW, 3),
       participant: await getPublicPersonUpcomingEvents(ctx.db, personProfileId, NOW, 3),
       world: await getPublicWorldEventContext(ctx.db, worldId, NOW),
+      activeWorlds: await getPublicActiveWorlds(ctx.db, NOW, 3),
     }));
     assert.deepEqual(associations.hosted.map((event) => event.slug), [
       "profile-weeklong-festival",
@@ -937,6 +943,9 @@ describe("API-created event ownership", () => {
       "profile-short-ongoing-event",
       "profile-weeklong-festival",
       "profile-future-festival",
+    ]);
+    assert.deepEqual(associations.activeWorlds.map((world) => world.slug), [
+      "long-running-world",
     ]);
   });
 

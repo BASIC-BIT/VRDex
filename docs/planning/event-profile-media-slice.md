@@ -227,10 +227,11 @@ Current recommendation:
 - Extend public previews with at most three relevant confirmed slots, each
   carrying time, display label, optional linked profile summary, and role.
 - Show current events first by soonest effective end, then future events by
-  start time. Current-event lookup inspects the 128 most recently started
-  published events; if measured volume can hide a valid multi-day event, replace
-  that explicit ceiling with indexed active-event state. Do not add popularity,
-  attendance, recommendation, or hidden-personalization claims.
+  start time. Current-event reads on discovery, community profiles, and active
+  world surfaces inspect the 128 most recently started published events; if
+  measured volume can hide a valid multi-day event, replace that explicit
+  ceiling with indexed active-event state. Do not add popularity, attendance,
+  recommendation, or hidden-personalization claims.
 - Render cards, pages, profile associations, and slots in the viewer's local
   timezone. Show event timezone only in authoring or debugging context.
 

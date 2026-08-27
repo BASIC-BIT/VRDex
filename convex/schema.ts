@@ -1012,7 +1012,13 @@ export default defineSchema({
       "eventStatus",
       "endAt",
     ])
-    .index("by_communityProfileId_startAt", ["communityProfileId", "startAt"]),
+    .index("by_communityProfileId_startAt", ["communityProfileId", "startAt"])
+    .index("by_communityProfileId_publicationState_eventStatus_startAt", [
+      "communityProfileId",
+      "publicationState",
+      "eventStatus",
+      "startAt",
+    ]),
   eventWorlds: defineTable({
     eventId: v.id("events"),
     worldId: v.id("worlds"),

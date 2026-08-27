@@ -5,6 +5,7 @@ import { safePublicLinkUrl } from "./_vrcdnLinks";
 
 const WORLD_EVENT_SECTION_LIMIT = 4;
 const ACTIVE_WORLD_QUERY_EVENT_LIMIT = 50;
+const ACTIVE_WORLD_CURRENT_EVENT_CANDIDATE_LIMIT = 128;
 const ACTIVE_WORLD_ASSOCIATION_LIMIT = 20;
 const ACTIVE_WORLD_MAX_LIMIT = 6;
 
@@ -299,16 +300,21 @@ export async function getPublicActiveWorlds(
         .gte("startAt", now),
     )
     .take(ACTIVE_WORLD_QUERY_EVENT_LIMIT);
-  const currentEventCandidates = await db
+  // ponytail: Current events use a fixed recent-start window. If real volume
+  // can hide a valid multi-day event, replace this with indexed active state.
+  const startedEventCandidates = await db
     .query("events")
-    .withIndex("by_publicationState_eventStatus_endAt", (query) =>
+    .withIndex("by_publicationState_eventStatus_startAt", (query) =>
       query
         .eq("publicationState", "published")
         .eq("eventStatus", "scheduled")
-        .gte("endAt", now),
+        .lt("startAt", now),
     )
-    .filter((query) => query.lt(query.field("startAt"), now))
-    .take(ACTIVE_WORLD_QUERY_EVENT_LIMIT);
+    .order("desc")
+    .take(ACTIVE_WORLD_CURRENT_EVENT_CANDIDATE_LIMIT);
+  const currentEventCandidates = startedEventCandidates.filter(
+    (event) => (event.endAt ?? event.startAt) >= now,
+  );
   const events = [...futureEvents, ...currentEventCandidates];
 
   const recordGroups = await Promise.all(

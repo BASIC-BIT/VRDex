@@ -14,6 +14,7 @@ import {
 const EVENT_PREVIEW_DEFAULT_LIMIT = 6;
 const EVENT_ASSOCIATION_LIMIT = 80;
 const EVENT_PREVIEW_MAX_LIMIT = EVENT_ASSOCIATION_LIMIT;
+const CURRENT_EVENT_CANDIDATE_LIMIT = 128;
 
 type PublicEventSourceType = "manual" | "community" | "partner" | "import" | "ai_suggested";
 type PublicEventMediaLinkType =
@@ -314,7 +315,13 @@ export function toPublicEvent(record: PublicEventRecord): PublicEvent | null {
   }
 
   const preview = toPublicEventPreviewFromRecord(record);
-  const authoredMediaLinks = (record.event.mediaLinks ?? []).flatMap(safePublicEventMediaLink);
+  const authoredMediaLinks = (record.event.mediaLinks ?? [])
+    .flatMap(safePublicEventMediaLink)
+    .filter(
+      (link) =>
+        record.event.eventStatus !== "cancelled" ||
+        !new Set(["watch", "stream", "vrcdn"]).has(link.type),
+    );
   const authoredBannerImageUrl = safeHttpsUrl(record.event.bannerImageUrl);
   const authoredThumbnailImageUrl = safeHttpsUrl(record.event.thumbnailImageUrl);
 
@@ -702,34 +709,32 @@ export async function getPublicCommunityHostedEvents(
   now: number,
   limit = EVENT_PREVIEW_DEFAULT_LIMIT,
 ): Promise<PublicEventPreview[]> {
-  const [started, upcoming] = await Promise.all([
+  // ponytail: Current events use a fixed recent-start window. If real volume
+  // can hide a valid multi-day event, replace this with indexed active state.
+  const [startedCandidates, upcoming] = await Promise.all([
     db
       .query("events")
-      .withIndex("by_communityProfileId_startAt", (query) =>
-        query.eq("communityProfileId", communityProfileId).lt("startAt", now),
-      )
-      .filter((query) =>
-        query.and(
-          query.eq(query.field("publicationState"), "published"),
-          query.eq(query.field("eventStatus"), "scheduled"),
-          query.gte(query.field("endAt"), now),
-        ),
+      .withIndex("by_communityProfileId_publicationState_eventStatus_startAt", (query) =>
+        query
+          .eq("communityProfileId", communityProfileId)
+          .eq("publicationState", "published")
+          .eq("eventStatus", "scheduled")
+          .lt("startAt", now),
       )
       .order("desc")
-      .take(EVENT_ASSOCIATION_LIMIT),
+      .take(CURRENT_EVENT_CANDIDATE_LIMIT),
     db
       .query("events")
-      .withIndex("by_communityProfileId_startAt", (query) =>
-        query.eq("communityProfileId", communityProfileId).gte("startAt", now),
-      )
-      .filter((query) =>
-        query.and(
-          query.eq(query.field("publicationState"), "published"),
-          query.eq(query.field("eventStatus"), "scheduled"),
-        ),
+      .withIndex("by_communityProfileId_publicationState_eventStatus_startAt", (query) =>
+        query
+          .eq("communityProfileId", communityProfileId)
+          .eq("publicationState", "published")
+          .eq("eventStatus", "scheduled")
+          .gte("startAt", now),
       )
       .take(EVENT_ASSOCIATION_LIMIT),
   ]);
+  const started = startedCandidates.filter((event) => eventEndsAt(event) >= now);
   const events = [...started, ...upcoming];
 
   return getPublicEventPreviews(db, events, { now, limit });
