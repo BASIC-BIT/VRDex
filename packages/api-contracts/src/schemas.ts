@@ -1086,6 +1086,7 @@ export const ApiMeEventSummarySchema = z
     sourceType: PublicEventSourceTypeSchema,
     sourceLabel: z.string().min(1),
     publicationState: ProfilePublicationStateSchema,
+    status: z.enum(["scheduled", "cancelled"]),
     watchSurfaceEnabled: z.boolean(),
     createdAt: timestampMs.optional(),
     publishedAt: timestampMs.optional(),

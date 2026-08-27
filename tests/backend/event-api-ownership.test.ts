@@ -10,6 +10,7 @@ import { newClerkUserId } from "./_clerkTestIdentity";
 const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
   "../../convex/events.ts": () => import("../../convex/events"),
+  "../../convex/profileAssets.ts": () => import("../../convex/profileAssets"),
 };
 const schema = (schemaModule as unknown as { default?: typeof schemaModule }).default ?? schemaModule;
 const NOW = Date.parse("2026-07-24T12:00:00.000Z");
@@ -264,7 +265,7 @@ describe("API-created event ownership", () => {
 
   it("cancels scheduled media work and requests a stop for active media", async () => {
     const t = convexTest({ schema, modules });
-    const { identity } = await seedOwnedCommunity(t);
+    const { identity, userId } = await seedOwnedCommunity(t);
     const createMediaEvent = async (title: string) => {
       const created = await t.withIdentity(identity).mutation(api.events.createCommunityEvent, {
         title,
@@ -304,6 +305,10 @@ describe("API-created event ownership", () => {
     assert.equal(queuedState.session?.status, "ended");
     assert.equal(queuedState.session?.workerTaskStatus, "stopped");
     assert.equal(queuedState.command?.status, "cancelled");
+    assert.equal(
+      (await t.query(internal.events.listCommunityManagedEventsForApiOwner, { ownerUserId: userId }))[0]?.status,
+      "cancelled",
+    );
     await assert.rejects(
       t.withIdentity(identity).mutation(api.events.scheduleEventMediaWorker, {
         currentSlug: queued.slug,
@@ -314,13 +319,13 @@ describe("API-created event ownership", () => {
     const active = await createMediaEvent("Active media event");
     await t.run(async (ctx) => {
       await ctx.db.patch(active.sessionId, {
-        status: "live",
-        workerTaskStatus: "running",
+        status: "starting",
+        workerTaskStatus: "starting",
         startedAt: NOW,
         updatedAt: NOW,
       });
       await ctx.db.patch(active.programId, {
-        state: "live",
+        state: "starting",
         activeSessionId: active.sessionId,
         updatedAt: NOW,
       });
@@ -367,8 +372,85 @@ describe("API-created event ownership", () => {
     );
     assert.equal(
       activeState.commands.find((command) => command.commandType === "stop_program")?.status,
+      undefined,
+    );
+
+    const previousBridgeToken = process.env.VRDEX_EVENT_MEDIA_BRIDGE_TOKEN;
+    process.env.VRDEX_EVENT_MEDIA_BRIDGE_TOKEN = "test-event-media-bridge-token";
+    try {
+      await t.mutation(api.events.recordEventMediaWorkerBridgeTaskStatus, {
+        bridgeToken: "test-event-media-bridge-token",
+        workerId: "worker-1",
+        sessionId: active.sessionId,
+        status: "starting",
+        workerProvider: "aws_ecs",
+        workerTaskId: "arn:aws:ecs:us-east-1:123456789012:task/cluster/task-after-cancel",
+        workerTaskStatus: "starting",
+      });
+    } finally {
+      if (previousBridgeToken === undefined) {
+        delete process.env.VRDEX_EVENT_MEDIA_BRIDGE_TOKEN;
+      } else {
+        process.env.VRDEX_EVENT_MEDIA_BRIDGE_TOKEN = previousBridgeToken;
+      }
+    }
+    const reportedState = await t.run(async (ctx) => ({
+      session: await ctx.db.get(active.sessionId),
+      commands: await ctx.db
+        .query("eventMediaCommands")
+        .withIndex("by_eventId_createdAt", (query) => query.eq("eventId", active.eventId))
+        .collect(),
+    }));
+    assert.equal(reportedState.session?.status, "stopping");
+    assert.equal(reportedState.session?.workerTaskStatus, "stopping");
+    assert.equal(
+      reportedState.commands.find((command) => command.commandType === "stop_program")?.status,
       "queued",
     );
+  });
+
+  it("does not reschedule a worker after its start command has been claimed", async () => {
+    const t = convexTest({ schema, modules });
+    const { identity } = await seedOwnedCommunity(t);
+    const created = await t.withIdentity(identity).mutation(api.events.createCommunityEvent, {
+      title: "Claimed worker start",
+      communitySlug: "faceless",
+      startAt: NOW + 86_400_000,
+    });
+    await t.withIdentity(identity).mutation(api.events.configureVrcdnOutput, {
+      currentSlug: created.slug,
+      key: "main",
+      label: "Main output",
+      credentialRef: "vrcdn/main",
+      sourceConsentAccepted: true,
+      destinationAuthorityAccepted: true,
+      providerRulesAccepted: true,
+      rightsClearedMediaAccepted: true,
+      playbackLinks: [],
+    });
+    const scheduled = await t.withIdentity(identity).mutation(api.events.scheduleEventMediaWorker, {
+      currentSlug: created.slug,
+    });
+    assert.ok(scheduled.startCommandId);
+    await t.run((ctx) =>
+      ctx.db.patch(scheduled.startCommandId!, {
+        status: "claimed",
+        claimedByWorkerId: "worker-1",
+        claimedAt: NOW,
+        updatedAt: NOW,
+      }),
+    );
+    const before = await t.run((ctx) => ctx.db.get(scheduled.sessionId));
+
+    await assert.rejects(
+      t.withIdentity(identity).mutation(api.events.scheduleEventMediaWorker, {
+        currentSlug: created.slug,
+        scheduledStartAt: (before?.scheduledStartAt ?? NOW) + 60_000,
+      }),
+      /start is already in progress/i,
+    );
+    const after = await t.run((ctx) => ctx.db.get(scheduled.sessionId));
+    assert.equal(after?.scheduledStartAt, before?.scheduledStartAt);
   });
 
   it("claims only due lifecycle commands and lets a restarted bridge reconcile prior tasks", async () => {
@@ -549,6 +631,21 @@ describe("API-created event ownership", () => {
           updatedAt: startAt,
         });
       }
+      for (let index = 0; index < 3; index += 1) {
+        await ctx.db.insert("events", {
+          slug: `future-short-event-${index}`,
+          title: `Future Short Event ${index}`,
+          sortTitle: `future short event ${index}`,
+          startAt: NOW + (index + 1) * 60_000,
+          endAt: NOW + (index + 4) * 60_000,
+          sourceType: "manual",
+          sourceLabel: "Test",
+          eventStatus: "scheduled",
+          publicationState: "published",
+          publishedAt: NOW,
+          updatedAt: NOW,
+        });
+      }
     });
 
     const upcoming = await t.query(api.events.listPublicUpcoming, { now: NOW, limit: 1 });
@@ -575,6 +672,92 @@ describe("API-created event ownership", () => {
 
     const upcoming = await t.query(api.events.listPublicUpcoming, { now: NOW, limit: 2 });
     assert.deepEqual(upcoming.map((event) => event.slug), [first.slug, second.slug]);
+  });
+
+  it("keeps unlisted profile media off event host and lineup cards", async () => {
+    const t = convexTest({ schema, modules });
+    const { identity, profileId } = await seedOwnedCommunity(t);
+    const startAt = NOW + 3_600_000;
+    const created = await t.withIdentity(identity).mutation(api.events.createCommunityEvent, {
+      title: "Unlisted media event",
+      communitySlug: "faceless",
+      startAt,
+      endAt: startAt + 3_600_000,
+      published: true,
+    });
+    const personId = await t.run(async (ctx) => {
+      await ctx.db.patch(profileId, { fieldVisibility: { avatarImageUrl: "unlisted" } });
+      const id = await ctx.db.insert("profiles", {
+        profileType: "person",
+        slug: "unlisted-dj",
+        displayName: "Unlisted DJ",
+        sortName: "unlisted dj",
+        aliases: [],
+        tags: [],
+        claimState: "unclaimed",
+        publicationState: "published",
+        publicSurfacingState: "public",
+        creationSource: "community",
+        fieldVisibility: { avatarImageUrl: "unlisted" },
+        person: { roleTags: ["DJ"] },
+        updatedAt: NOW,
+      });
+      for (const [targetProfileId, key] of [[profileId, "host"], [id, "dj"]] as const) {
+        const assetId = await ctx.db.insert("profileAssets", {
+          profileId: targetProfileId,
+          storageKey: `profile-assets/${key}.webp`,
+          mimeType: "image/webp",
+          byteSize: 512,
+          visibility: "public",
+          source: "owner_authored",
+          uploadedBy: { tokenIdentifier: "test:owner", issuer: "test", subject: "owner" },
+          uploadedAt: NOW,
+          state: "active",
+          updatedAt: NOW,
+        });
+        await ctx.db.insert("profileAssetPlacements", {
+          profileId: targetProfileId,
+          assetId,
+          placement: "profile_image",
+          position: 0,
+          state: "active",
+          updatedAt: NOW,
+        });
+      }
+      await ctx.db.insert("eventParticipants", {
+        eventId: created.eventId,
+        personProfileId: id,
+        eventStartAt: startAt,
+        roleLabel: "Performer",
+        sourceType: "community",
+        sourceLabel: "Test lineup",
+        confirmationState: "confirmed",
+        updatedAt: NOW,
+      });
+      await ctx.db.insert("eventSlots", {
+        eventId: created.eventId,
+        eventStartAt: startAt,
+        position: 0,
+        startAt,
+        endAt: startAt + 3_600_000,
+        personProfileId: id,
+        displayLabel: "Unlisted DJ",
+        roleLabel: "DJ",
+        sourceType: "community",
+        sourceLabel: "Test lineup",
+        confidence: 1,
+        reviewState: "confirmed",
+        updatedAt: NOW,
+      });
+      return id;
+    });
+
+    assert.ok((await t.query(api.profileAssets.listPublicBySlug, { slug: "faceless" }))?.mediaKit.profileImage);
+    assert.ok((await t.query(api.profileAssets.listPublicBySlug, { slug: "unlisted-dj" }))?.mediaKit.profileImage);
+    const publicEvent = await t.query(api.events.getPublicBySlug, { slug: created.slug });
+    assert.equal(publicEvent?.communityImageUrl, undefined);
+    assert.equal(publicEvent?.participants.find((participant) => participant.profileId === personId)?.imageUrl, undefined);
+    assert.equal(publicEvent?.slots[0]?.performer?.imageUrl, undefined);
   });
 
   it("keeps a published event online when an atomic unpublish-and-save fails", async () => {

@@ -721,6 +721,7 @@ function toApiManagedEventSummary(event: Doc<"events">, community: Doc<"profiles
     sourceType: event.sourceType,
     sourceLabel: event.sourceLabel,
     publicationState: event.publicationState,
+    status: event.eventStatus,
     watchSurfaceEnabled: event.watchSurfaceEnabled ?? false,
     createdAt: event.createdAt,
     publishedAt: event.publishedAt,
@@ -1365,7 +1366,8 @@ async function insertEventMediaCommand(
     commandType: "start_program" | "stop_program";
     sessionId: Id<"eventMediaSessions">;
     outputId?: Id<"eventMediaOutputs">;
-    actor: AuthSubject;
+    actor?: AuthSubject;
+    actorSurface?: "web" | "discord" | "worker" | "system";
     idempotencyKey: string;
     availableAt?: number;
     note?: string;
@@ -1378,8 +1380,8 @@ async function insertEventMediaCommand(
     sessionId: input.sessionId,
     commandType: input.commandType,
     status: "queued",
-    actor: input.actor,
-    actorSurface: "web",
+    ...(input.actor === undefined ? {} : { actor: input.actor }),
+    actorSurface: input.actorSurface ?? "web",
     ...(input.outputId === undefined ? {} : { targetOutputId: input.outputId }),
     publicFallbackLinks: [],
     ...(input.note === undefined ? {} : { note: input.note }),
@@ -1500,6 +1502,10 @@ async function settleEventMediaForCancellation(
         updatedAt: now,
       }),
     ]);
+    if (claimedStarts.length > 0 && session.workerTaskId === undefined) {
+      return;
+    }
+
     const commandId = await insertEventMediaCommand(db, {
       program,
       commandType: "stop_program",
@@ -1636,7 +1642,14 @@ async function applyBridgeWorkerTaskStatus(
     now: number;
   },
 ) {
-  const status = input.status ?? input.session.status;
+  const requestedStatus = input.status ?? input.session.status;
+  const cancellationPending =
+    input.session.stopRequestedAt !== undefined && !["ended", "error"].includes(requestedStatus);
+  const status = cancellationPending ? "stopping" : requestedStatus;
+  const workerTaskStatus =
+    cancellationPending && input.workerTaskStatus !== "stopped" && input.workerTaskStatus !== "failed"
+      ? "stopping"
+      : input.workerTaskStatus;
   const shouldSetStartedAt =
     input.session.startedAt === undefined && ["starting", "live", "hold", "fallback"].includes(status);
   const shouldSetStoppedAt = input.session.stoppedAt === undefined && ["ended", "error"].includes(status);
@@ -1648,7 +1661,7 @@ async function applyBridgeWorkerTaskStatus(
     ...(input.workerProvider === undefined ? {} : { workerProvider: input.workerProvider }),
     ...(input.workerTaskDefinitionArn === undefined ? {} : { workerTaskDefinitionArn: input.workerTaskDefinitionArn }),
     ...(input.workerTaskId === undefined ? {} : { workerTaskId: input.workerTaskId }),
-    ...(input.workerTaskStatus === undefined ? {} : { workerTaskStatus: input.workerTaskStatus }),
+    ...(workerTaskStatus === undefined ? {} : { workerTaskStatus }),
     ...(input.workerTaskStatusReason === undefined ? {} : { workerTaskStatusReason: input.workerTaskStatusReason }),
     ...(input.leaseExpiresAt === undefined ? {} : { leaseExpiresAt: input.leaseExpiresAt }),
     ...(input.artifactLinks === undefined ? {} : { artifactLinks: input.artifactLinks }),
@@ -1682,6 +1695,43 @@ async function applyBridgeWorkerTaskStatus(
       activeSessionId: ["ended", "error"].includes(status) ? undefined : input.session._id,
       updatedAt: input.now,
     });
+  }
+
+  const workerTaskId = input.workerTaskId ?? input.session.workerTaskId;
+  if (cancellationPending && workerTaskId !== undefined) {
+    const pendingStops = await Promise.all(
+      (["queued", "claimed"] as const).map((commandStatus) =>
+        db
+          .query("eventMediaCommands")
+          .withIndex("by_sessionId_status_createdAt", (query) =>
+            query.eq("sessionId", input.session._id).eq("status", commandStatus),
+          )
+          .filter((query) => query.eq(query.field("commandType"), "stop_program"))
+          .first(),
+      ),
+    );
+    if (pendingStops.every((command) => command === null)) {
+      const commandId = await insertEventMediaCommand(db, {
+        program: input.program,
+        commandType: "stop_program",
+        sessionId: input.session._id,
+        outputId: input.session.outputId,
+        actorSurface: "worker",
+        idempotencyKey: `cancel-stop:${input.session._id}:${input.session.stopRequestedAt}`,
+        note: "Stop the event media worker because the event was cancelled.",
+        now: input.now,
+      });
+      await recordEventMediaAuditEvent(db, {
+        programId: input.program._id,
+        eventId: input.session.eventId,
+        sessionId: input.session._id,
+        commandId,
+        actorSurface: "worker",
+        action: "worker_stop_requested_for_cancelled_event",
+        publicSummary: "Event media worker stop requested with event cancellation.",
+        createdAt: input.now,
+      });
+    }
   }
 
   if (status === "live" && input.session.outputId !== undefined) {
@@ -1759,6 +1809,7 @@ export const listPublicUpcoming = query({
             .eq("eventStatus", "scheduled")
             .gte("endAt", args.now),
         )
+        .filter((query) => query.lt(query.field("startAt"), args.now))
         .take(limit),
       ctx.db
         .query("events")
@@ -2816,6 +2867,19 @@ export const scheduleEventMediaWorker = mutation({
 
     if (openSession !== null && openSession.status !== "scheduled") {
       throw new Error("An event media worker session is already active for this event.");
+    }
+
+    if (openSession !== null) {
+      const claimedStartCommand = await ctx.db
+        .query("eventMediaCommands")
+        .withIndex("by_sessionId_status_createdAt", (query) =>
+          query.eq("sessionId", openSession._id).eq("status", "claimed"),
+        )
+        .filter((query) => query.eq(query.field("commandType"), "start_program"))
+        .first();
+      if (claimedStartCommand !== null) {
+        throw new Error("An event media worker start is already in progress.");
+      }
     }
 
     const sessionRecord = {

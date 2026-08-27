@@ -7,11 +7,12 @@ import { getAccountFeatureAccess } from "./_accountFeatures";
 import { requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
 import { identityEmailVerified } from "./_identity";
 import {
-  assertProfileAssetCapacity,
   consumeProfileAssetUploads,
   createProfileAssetUploadIntentRecord,
   normalizeProfileAssetFileName,
   normalizeProfileAssetSourceUrl,
+  PROFILE_ASSET_UPLOAD_INTENT_TTL_MS,
+  PROFILE_MEDIA_SUBMISSION_RETENTION_MS,
   sanitizeProfileAssetAltText,
   sanitizeProfileAssetCredit,
   sanitizeProfileAssetCreditUrl,
@@ -20,7 +21,6 @@ import {
 import { userOwnsProfile } from "./_profileOwnership";
 
 const OPEN_SUBMISSION_STATUSES = ["upload_pending", "submitted", "under_review"] as const;
-const SUBMISSION_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
 const MAX_OPEN_PER_USER = 3;
 const MAX_OPEN_PER_PROFILE = 2;
 const MAX_CREATED_PER_USER_PER_DAY = 6;
@@ -288,7 +288,7 @@ export const createUploadIntent = mutation({
       status: "upload_pending",
       targetProfileUpdatedAt: profile.updatedAt,
       ...(targetPlacement === null ? {} : { targetPlacementAssetId: targetPlacement.assetId }),
-      expiresAt: now + SUBMISSION_RETENTION_MS,
+      expiresAt: now + PROFILE_ASSET_UPLOAD_INTENT_TTL_MS,
       createdAt: now,
       updatedAt: now,
     });
@@ -476,7 +476,7 @@ export const withdraw = mutation({
     const now = Date.now();
     await ctx.db.patch(submission._id, {
       status: "withdrawn",
-      blobDeleteAfter: now + SUBMISSION_RETENTION_MS,
+      blobDeleteAfter: now + PROFILE_MEDIA_SUBMISSION_RETENTION_MS,
       updatedAt: now,
     });
     await ctx.db.insert("profileAuditEvents", {
@@ -567,7 +567,7 @@ export const decide = mutation({
         publicDisposition,
         privateReason,
         decisionProfileUpdatedAt: profile.updatedAt,
-        blobDeleteAfter: now + SUBMISSION_RETENTION_MS,
+        blobDeleteAfter: now + PROFILE_MEDIA_SUBMISSION_RETENTION_MS,
         updatedAt: now,
       });
       await ctx.db.insert("profileAuditEvents", {
@@ -605,7 +605,6 @@ export const decide = mutation({
     if ((currentPlacement?.assetId ?? undefined) !== submission.targetPlacementAssetId) {
       throw new Error("The profile media placement changed. Refresh before deciding.");
     }
-    await assertProfileAssetCapacity(ctx.db, profile._id, 1);
     if (intent.contentSha256 !== undefined) {
       const existing = await ctx.db
         .query("profileAssets")
@@ -715,7 +714,7 @@ export const prepareDueBlobCleanup = mutation({
         if (submission.expiresAt > now || submission.blobDeleteAfter !== undefined) continue;
         await ctx.db.patch(submission._id, {
           status: "superseded",
-          blobDeleteAfter: submission.expiresAt + SUBMISSION_RETENTION_MS,
+          blobDeleteAfter: submission.expiresAt + PROFILE_MEDIA_SUBMISSION_RETENTION_MS,
           updatedAt: now,
         });
         await ctx.db.insert("profileAuditEvents", {
@@ -834,6 +833,9 @@ export const setBlobLegalHold = mutation({
     if (reason === undefined) throw new Error("A legal-hold reason is required.");
     const submission = await ctx.db.get(args.submissionId);
     if (submission === null) throw new Error("Media contribution not found.");
+    if (args.held && submission.blobDeletedAt !== undefined) {
+      throw new Error("Candidate file has already been deleted.");
+    }
     if (args.held && submission.blobCleanupToken !== undefined) {
       throw new Error("Candidate file cleanup is already in progress.");
     }

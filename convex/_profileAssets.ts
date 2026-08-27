@@ -11,6 +11,7 @@ import { userOwnsProfile } from "./_profileOwnership";
 
 export const PROFILE_ASSET_UPLOAD_MAX_BYTES = 12 * 1024 * 1024;
 export const PROFILE_ASSET_UPLOAD_INTENT_TTL_MS = 30 * 60 * 1000;
+export const PROFILE_MEDIA_SUBMISSION_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 export const PROFILE_ASSET_UPLOAD_PROCESSING_LEASE_MS = 10 * 60 * 1000;
 export const PROFILE_ASSET_UPLOAD_PROCESSING_MAX_ATTEMPTS = 3;
 export const PROFILE_ASSET_LABEL_MAX_LENGTH = 80;
@@ -634,7 +635,6 @@ export async function consumeProfileAssetUploads(
     now: number;
   },
 ): Promise<Id<"profileAssets">[]> {
-  await assertProfileAssetCapacity(db, input.profileId, input.uploads.length);
   const assetIds: Id<"profileAssets">[] = [];
   const seenPlacementKeys = new Set<string>();
 
@@ -796,6 +796,7 @@ export async function consumeProfileAssetUploads(
     assetIds.push(assetId);
   }
 
+  await assertProfileAssetCapacity(db, input.profileId, 0);
   return assetIds;
 }
 
@@ -909,6 +910,7 @@ export async function finalizeProfileAssetUploadIntentUpload(
     await db.patch(submission._id, {
       status: "submitted",
       ...(input.contentSha256 !== undefined ? { contentSha256: input.contentSha256 } : {}),
+      expiresAt: input.now + PROFILE_MEDIA_SUBMISSION_RETENTION_MS,
       updatedAt: input.now,
     });
     return { ok: true as const, assetIds: [] as Id<"profileAssets">[] };

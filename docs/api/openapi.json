@@ -6846,6 +6846,13 @@
             ],
             "description": "Profile or event publication state for an authenticated owner inventory."
           },
+          "status": {
+            "type": "string",
+            "enum": [
+              "scheduled",
+              "cancelled"
+            ]
+          },
           "watchSurfaceEnabled": {
             "type": "boolean"
           },
@@ -6872,6 +6879,7 @@
           "sourceType",
           "sourceLabel",
           "publicationState",
+          "status",
           "watchSurfaceEnabled",
           "updatedAt"
         ],

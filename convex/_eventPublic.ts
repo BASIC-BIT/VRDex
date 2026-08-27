@@ -471,7 +471,7 @@ async function getPublicEventParticipantRecords(
         };
       }
 
-      const mediaKit = await getPublicProfileMediaKit(db, profile);
+      const mediaKit = await getPublicProfileMediaKit(db, profile, { surface: "discovery" });
       return {
         association,
         profile,
@@ -520,7 +520,7 @@ async function getPublicEventSlotRecords(
         };
       }
 
-      const mediaKit = await getPublicProfileMediaKit(db, profile);
+      const mediaKit = await getPublicProfileMediaKit(db, profile, { surface: "discovery" });
       return {
         slot,
         profile,
@@ -608,9 +608,7 @@ async function getPublicEventRecord(
 
   const communityMediaKit = community === undefined
     ? undefined
-    : await getPublicProfileMediaKit(db, community, {
-        surface: options.includeAssociationMediaKits === false ? "discovery" : "profile_page",
-      });
+    : await getPublicProfileMediaKit(db, community, { surface: "discovery" });
 
   return {
     event,

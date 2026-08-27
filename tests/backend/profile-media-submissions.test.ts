@@ -100,6 +100,7 @@ async function createAndUpload(
       expectedProfileUpdatedAt: NOW,
     },
   );
+  const pendingSubmission = await t.run((ctx) => ctx.db.get(intent.submissionId));
   const processingToken = `processing-${crypto.randomUUID()}`;
   const claim = await t.mutation(internal.profileAssets.claimUploadIntentForStorage, {
     intentId: intent.intentId,
@@ -117,7 +118,7 @@ async function createAndUpload(
     width: 800,
     height: 800,
   });
-  return { intent, completed };
+  return { intent, completed, pendingExpiresAt: pendingSubmission?.expiresAt };
 }
 
 describe("unclaimed-profile media submissions", () => {
@@ -173,7 +174,7 @@ describe("unclaimed-profile media submissions", () => {
   it("keeps a processed proposal private until a moderator approves it", async () => {
     const t = convexTest({ schema, modules });
     const seeded = await seed(t);
-    const { intent, completed } = await createAndUpload(t, seeded);
+    const { intent, completed, pendingExpiresAt } = await createAndUpload(t, seeded);
 
     assert.deepEqual(completed.assetIds, []);
     const before = await t.run(async (ctx) => ({
@@ -183,6 +184,8 @@ describe("unclaimed-profile media submissions", () => {
     assert.equal(before.assets.length, 0);
     assert.equal(before.submission?.status, "submitted");
     assert.equal(before.submission?.contentSha256, "proposal-hash");
+    assert.equal(pendingExpiresAt, intent.expiresAt);
+    assert.ok((before.submission?.expiresAt ?? 0) - intent.expiresAt > 29 * 24 * 60 * 60 * 1_000);
 
     const queue = await t.withIdentity(seeded.moderatorIdentity).query(
       api.profileMediaSubmissions.listForReview,
@@ -744,6 +747,56 @@ describe("unclaimed-profile media submissions", () => {
     );
   });
 
+  it("approves a singleton replacement when the profile already has twelve active assets", async () => {
+    const t = convexTest({ schema, modules });
+    const seeded = await seed(t);
+    await t.run(async (ctx) => {
+      for (let index = 0; index < 12; index += 1) {
+        const assetId = await ctx.db.insert("profileAssets", {
+          profileId: seeded.profileId,
+          storageKey: `profile-assets/existing-${index}.webp`,
+          mimeType: "image/webp",
+          byteSize: 512,
+          contentSha256: `existing-${index}`,
+          visibility: "public",
+          source: "community_submitted",
+          uploadedBy: { tokenIdentifier: "test:moderator", issuer: "test", subject: "moderator" },
+          uploadedAt: NOW - 1,
+          state: "active",
+          updatedAt: NOW - 1,
+        });
+        if (index === 0) {
+          await ctx.db.insert("profileAssetPlacements", {
+            profileId: seeded.profileId,
+            assetId,
+            placement: "profile_image",
+            position: 0,
+            state: "active",
+            updatedAt: NOW - 1,
+          });
+        }
+      }
+    });
+    const { intent } = await createAndUpload(t, seeded, "twelfth-slot-replacement");
+
+    await t.withIdentity(seeded.moderatorIdentity).mutation(api.profileMediaSubmissions.decide, {
+      submissionId: intent.submissionId,
+      decision: "approve",
+      expectedProfileUpdatedAt: NOW,
+      privateReason: "Replacement approved.",
+    });
+
+    const activeAssets = await t.run((ctx) =>
+      ctx.db
+        .query("profileAssets")
+        .withIndex("by_profileId_state_visibility", (query) =>
+          query.eq("profileId", seeded.profileId).eq("state", "active").eq("visibility", "public"),
+        )
+        .collect(),
+    );
+    assert.equal(activeAssets.length, 12);
+  });
+
   it("cleans terminal candidate files after retention and skips a legal hold", async () => {
     const t = convexTest({ schema, modules });
     const seeded = await seed(t);
@@ -891,6 +944,17 @@ describe("unclaimed-profile media submissions", () => {
     assert.equal(stored?.blobCleanupToken, undefined);
     const protectedSubmission = await t.run((ctx) => ctx.db.get(protectedSubmissionId));
     assert.equal(protectedSubmission?.blobDeletedAt, undefined);
+    await assert.rejects(
+      t.withIdentity(seeded.moderatorIdentity).mutation(
+        api.profileMediaSubmissions.setBlobLegalHold,
+        {
+          submissionId: intent.submissionId,
+          held: true,
+          reason: "The file is already gone.",
+        },
+      ),
+      /already been deleted/i,
+    );
   });
 
   it("requires a verified email", async () => {
@@ -931,7 +995,7 @@ describe("unclaimed-profile media submissions", () => {
           requestedPlacement: "profile_image",
           sourceUrl: `https://artist.example/expired-${index}`,
           credit: "Artist",
-          status: "submitted",
+          status: "upload_pending",
           targetProfileUpdatedAt: NOW,
           expiresAt: Date.now() - 1,
           createdAt: NOW - index,
