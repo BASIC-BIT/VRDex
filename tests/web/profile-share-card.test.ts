@@ -10,6 +10,7 @@ import {
   profileShareTrustNote,
 } from "../../apps/web/src/lib/profile-share-card";
 import { publicSiteUrl } from "../../apps/web/src/lib/public-site-url";
+import { inlineableProfileShareAssetUrl } from "../../apps/web/src/lib/profile-share-media";
 
 function withEnvironment(
   values: Record<string, string | undefined>,
@@ -119,6 +120,30 @@ describe("profile share metadata", () => {
         SITE_URL: "https://ignored.example.test",
       },
       () => assert.equal(publicSiteUrl().href, "https://preview-vrdex.vercel.app/"),
+    );
+  });
+
+  it("inlines only known same-origin profile asset routes", () => {
+    const siteUrl = new URL("https://profiles.example.test");
+
+    assert.equal(
+      inlineableProfileShareAssetUrl(
+        "/api/v0/profiles/dj-aurora/assets/asset-123/file",
+        siteUrl,
+      )?.href,
+      "https://profiles.example.test/api/v0/profiles/dj-aurora/assets/asset-123/file",
+    );
+    assert.equal(
+      inlineableProfileShareAssetUrl("/api/e2e/fixture-assets/avatar", siteUrl)?.href,
+      "https://profiles.example.test/api/e2e/fixture-assets/avatar",
+    );
+    assert.equal(inlineableProfileShareAssetUrl("/dj-aurora/opengraph-image", siteUrl), null);
+    assert.equal(
+      inlineableProfileShareAssetUrl(
+        "https://images.example.test/api/v0/profiles/dj-aurora/assets/asset-123/file",
+        siteUrl,
+      ),
+      null,
     );
   });
 });
