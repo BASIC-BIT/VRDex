@@ -421,6 +421,7 @@ export const getPublicBySlug = query({
     profileType: v.optional(profileType),
     now: v.optional(v.number()),
     includeTelemetry: v.optional(v.boolean()),
+    includeShareCard: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const validation = validateProfileSlug(args.slug);
@@ -477,6 +478,9 @@ export const getPublicBySlug = query({
       mediaKit,
       avatarImageUrl: mediaKit.profileImage?.imageUrl ?? legacyAvatarImageUrl,
       bannerImageUrl: mediaKit.banner?.imageUrl ?? legacyBannerImageUrl,
+      ...(args.includeShareCard
+        ? { shareCard: toPublicProfileShareCard(profile, mediaKit) }
+        : {}),
       worldCredits: await getPublicProfileWorldCredits(ctx.db, {
         profileType: profile.profileType,
         slug: profile.slug,

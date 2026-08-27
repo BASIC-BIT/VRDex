@@ -117,6 +117,9 @@ test("profile links expose Discord-ready metadata and a generated image", async 
 
   const invalidSlugImage = await page.request.get("/not_valid/opengraph-image");
   expect(invalidSlugImage.status()).toBe(404);
+
+  const missingSlugImage = await page.request.get("/scanner-unique-123/opengraph-image");
+  expect(missingSlugImage.status()).toBe(404);
 });
 
 test("public API supports browser CORS and preflight", async ({ page }) => {

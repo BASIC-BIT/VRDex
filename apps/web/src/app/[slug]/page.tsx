@@ -6,7 +6,7 @@ import { EntityBackendNotice } from "./entity-backend-notice";
 import { EventPublicPage } from "../_components/event-public-page";
 import { ProfilePublicPage } from "../_components/profile-public-page";
 import { WorldPublicPage } from "../_components/world-public-page";
-import { fetchPublicEntityBySlug, fetchPublicProfileShareCardBySlug } from "@/convex/server";
+import { fetchPublicEntityBySlug } from "@/convex/server";
 import { profileShareMetadata } from "@/lib/profile-share-card";
 
 export const dynamic = "force-dynamic";
@@ -24,10 +24,12 @@ export async function generateMetadata({ params }: EntityPageProps): Promise<Met
     return {};
   }
 
-  const result = await fetchPublicProfileShareCardBySlug(slug);
+  const result = await fetchPublicEntityBySlug(slug);
 
-  return result.kind === "live" && result.profile !== null
-    ? profileShareMetadata(result.profile)
+  return result.kind === "live"
+    && result.entity?.type === "profile"
+    && result.entity.shareCard !== null
+    ? profileShareMetadata(result.entity.shareCard)
     : {};
 }
 

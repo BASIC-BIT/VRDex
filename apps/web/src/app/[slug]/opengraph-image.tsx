@@ -64,6 +64,11 @@ export default async function EntityShareImage({ params }: EntityShareImageProps
   }
 
   const result = await fetchPublicProfileShareCardBySlug(slug);
+
+  if (result.kind === "live" && result.profile === null) {
+    notFound();
+  }
+
   const profile = await withInlineManagedImages(result.kind === "live" ? result.profile : null);
 
   return new ImageResponse(<EntityShareCardImage profile={profile} />, size);
