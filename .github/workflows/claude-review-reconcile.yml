@@ -7,64 +7,95 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: claude-review-reconcile-main
-  cancel-in-progress: true
-
 jobs:
-  invalidate-old-base-reviews:
-    name: Invalidate reviews of an old base
+  list-open-prs:
+    name: List open pull requests
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 2
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      numbers: ${{ steps.list.outputs.numbers }}
+
+    steps:
+      - name: List eligible pull requests
+        id: list
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          numbers="$(
+            gh api --paginate \
+              "repos/${GITHUB_REPOSITORY}/pulls?state=open&base=main&per_page=100" |
+              jq -cs '[.[][] | select(.head.repo.full_name == .base.repo.full_name and (.user.login | endswith("[bot]") | not)) | .number]'
+          )"
+          echo "numbers=${numbers}" >> "$GITHUB_OUTPUT"
+
+  invalidate-old-base-review:
+    name: Invalidate old base review for PR ${{ matrix.pr_number }}
+    needs: list-open-prs
+    if: needs.list-open-prs.outputs.numbers != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        pr_number: ${{ fromJSON(needs.list-open-prs.outputs.numbers) }}
+    concurrency:
+      group: claude-review-${{ matrix.pr_number }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
     permissions:
       contents: read
       issues: write
       pull-requests: read
 
     steps:
-      - name: Reconcile open pull request sticky comments
+      - name: Reconcile pull request sticky comment
         env:
           GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ matrix.pr_number }}
           STICKY_MARKER: '<!-- claude-pr-review -->'
         shell: bash
         run: |
           set -euo pipefail
 
-          gh api --paginate \
-            "repos/${GITHUB_REPOSITORY}/pulls?state=open&base=main&per_page=100" \
-            --jq '.[] | select(.head.repo.full_name == .base.repo.full_name and (.user.login | endswith("[bot]") | not)) | .number' |
-          while IFS= read -r pr_number; do
-            [ -n "$pr_number" ] || continue
+          IFS=$'\t' read -r state head_sha base_ref base_sha <<< "$(
+            gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
+              --jq '[.state, .head.sha, .base.ref, .base.sha] | @tsv'
+          )"
+          if [ "$state" != "open" ] || [ "$base_ref" != "main" ]; then
+            exit 0
+          fi
 
-            IFS=$'\t' read -r state head_sha base_ref base_sha <<< "$(
-              gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}" \
-                --jq '[.state, .head.sha, .base.ref, .base.sha] | @tsv'
-            )"
-            if [ "$state" != "open" ] || [ "$base_ref" != "main" ]; then
-              continue
-            fi
+          comment_id="$(
+            gh api --paginate \
+              "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+              --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- claude-pr-review-complete -->"))) | .id' |
+              tail -n 1
+          )"
+          [ -n "$comment_id" ] || exit 0
 
-            comment_id="$(
-              gh api --paginate \
-                "repos/${GITHUB_REPOSITORY}/issues/${pr_number}/comments" \
-                --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- claude-pr-review-complete -->"))) | .id' |
-                tail -n 1
-            )"
-            [ -n "$comment_id" ] || continue
+          existing_body="$(gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${comment_id}" --jq '.body')"
+          reviewed_head="$(
+            printf '%s\n' "$existing_body" |
+              sed -n 's/^<!-- claude-pr-review-head:\([0-9a-f]*\) -->$/\1/p' |
+              tail -n 1
+          )"
+          reviewed_base="$(
+            printf '%s\n' "$existing_body" |
+              sed -n 's/^<!-- claude-pr-review-base:\([0-9a-f]*\) -->$/\1/p' |
+              tail -n 1
+          )"
+          if [ "$reviewed_head" != "$head_sha" ] || [ -z "$reviewed_base" ] || [ "$reviewed_base" = "$base_sha" ]; then
+            exit 0
+          fi
 
-            existing_body="$(gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${comment_id}" --jq '.body')"
-            reviewed_base="$(
-              printf '%s\n' "$existing_body" |
-                sed -n 's/^<!-- claude-pr-review-base:\([0-9a-f]*\) -->$/\1/p' |
-                tail -n 1
-            )"
-            if [ -z "$reviewed_base" ] || [ "$reviewed_base" = "$base_sha" ]; then
-              continue
-            fi
-
-            body_file="${RUNNER_TEMP}/claude-review-${pr_number}.md"
-            json_file="${RUNNER_TEMP}/claude-review-${pr_number}.json"
-            cat > "$body_file" <<EOF
+          body_file="${RUNNER_TEMP}/claude-review-${PR_NUMBER}.md"
+          json_file="${RUNNER_TEMP}/claude-review-${PR_NUMBER}.json"
+          cat > "$body_file" <<EOF
           ${STICKY_MARKER}
           [AGENT]
 
@@ -74,28 +105,13 @@ jobs:
 
           This is not a current review or approval. Update the branch or trigger another eligible pull request event for a fresh review.
           EOF
-            node - "$body_file" "$json_file" <<'NODE'
-            const fs = require("node:fs");
-            fs.writeFileSync(process.argv[3], JSON.stringify({
-              body: fs.readFileSync(process.argv[2], "utf8"),
-            }));
-            NODE
+          node - "$body_file" "$json_file" <<'NODE'
+          const fs = require("node:fs");
+          fs.writeFileSync(process.argv[3], JSON.stringify({
+            body: fs.readFileSync(process.argv[2], "utf8"),
+          }));
+          NODE
 
-            IFS=$'\t' read -r live_state live_head live_base_ref live_base_sha <<< "$(
-              gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}" \
-                --jq '[.state, .head.sha, .base.ref, .base.sha] | @tsv'
-            )"
-            latest_body="$(gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${comment_id}" --jq '.body')"
-            if [ "$live_state" != "open" ] || [ "$live_head" != "$head_sha" ] || \
-               [ "$live_base_ref" != "main" ] || [ "$live_base_sha" != "$base_sha" ] || \
-               ! printf '%s' "$latest_body" | grep -qF '<!-- claude-pr-review-complete -->' || \
-               ! printf '%s' "$latest_body" | grep -qF "<!-- claude-pr-review-head:${head_sha} -->" || \
-               ! printf '%s' "$latest_body" | grep -qF "<!-- claude-pr-review-base:${reviewed_base} -->"; then
-              echo "::notice::Skipping stale reconciliation for PR ${pr_number}."
-              continue
-            fi
-
-            gh api --method PATCH \
-              "repos/${GITHUB_REPOSITORY}/issues/comments/${comment_id}" \
-              --input "$json_file" > /dev/null
-          done
+          gh api --method PATCH \
+            "repos/${GITHUB_REPOSITORY}/issues/comments/${comment_id}" \
+            --input "$json_file" > /dev/null
