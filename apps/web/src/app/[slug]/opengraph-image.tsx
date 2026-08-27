@@ -3,6 +3,7 @@ import { ImageResponse } from "next/og";
 import type { PublicProfileShareCard } from "../../../../../convex/_profileShareCard";
 import { EntityShareCardImage, entityShareImageSize } from "../_components/entity-share-card-image";
 import { fetchPublicProfileShareCardBySlug } from "@/convex/server";
+import { PROFILE_ASSET_MAX_STORED_BYTES } from "@/lib/profile-asset-limits";
 import { absolutePublicUrl, publicSiteUrl } from "@/lib/public-site-url";
 
 export const alt = "VRDex profile";
@@ -27,7 +28,7 @@ async function inlineManagedImage(imageUrl: string | undefined): Promise<string 
     if (!response.ok || !contentType || !supportedImageTypes.has(contentType)) return undefined;
 
     const body = await response.arrayBuffer();
-    if (body.byteLength > 5_000_000) return undefined;
+    if (body.byteLength > PROFILE_ASSET_MAX_STORED_BYTES) return undefined;
 
     return `data:${contentType};base64,${Buffer.from(body).toString("base64")}`;
   } catch {
