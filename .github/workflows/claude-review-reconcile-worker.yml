@@ -1,0 +1,28 @@
+name: Claude Review Reconcile Worker
+
+on:
+  workflow_call:
+    inputs:
+      numbers_json:
+        description: JSON array of pull request numbers to reconcile
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  reconcile-pull-request:
+    name: Reconcile PR ${{ matrix.pr_number }}
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        pr_number: ${{ fromJSON(inputs.numbers_json) }}
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+    uses: ./.github/workflows/claude-review-reconcile-pr.yml
+    with:
+      pr_number: ${{ matrix.pr_number }}
