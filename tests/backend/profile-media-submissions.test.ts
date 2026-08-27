@@ -572,6 +572,38 @@ describe("unclaimed-profile media submissions", () => {
     assert.equal("privateReason" in (mine[0] ?? {}), false);
   });
 
+  it("returns up to forty contributions from one status", async () => {
+    const t = convexTest({ schema, modules });
+    const seeded = await seed(t);
+    await t.run(async (ctx) => {
+      for (let index = 0; index < 30; index += 1) {
+        await ctx.db.insert("profileMediaSubmissions", {
+          profileId: seeded.profileId,
+          submitterUserId: seeded.contributorUserId,
+          submitter: {
+            tokenIdentifier: seeded.contributorIdentity.tokenIdentifier,
+            issuer: seeded.contributorIdentity.issuer,
+            subject: seeded.contributorIdentity.subject,
+          },
+          requestedPlacement: "profile_image",
+          sourceUrl: "https://artist.example/press",
+          credit: "Artist press kit",
+          status: "approved",
+          targetProfileUpdatedAt: NOW,
+          expiresAt: NOW + 30 * 24 * 60 * 60 * 1_000,
+          createdAt: NOW + index,
+          updatedAt: NOW + index,
+        });
+      }
+    });
+
+    const mine = await t.withIdentity(seeded.contributorIdentity).query(
+      api.profileMediaSubmissions.listMine,
+      {},
+    );
+    assert.equal(mine.length, 30);
+  });
+
   it("does not let approval replace a newer singleton placement", async () => {
     const t = convexTest({ schema, modules });
     const seeded = await seed(t);
@@ -661,13 +693,54 @@ describe("unclaimed-profile media submissions", () => {
       },
     );
     assert.equal(decision.status, "approved");
-    assert.equal((await t.run((ctx) => ctx.db.get(oldAssetId)))?.state, "deleted");
+    const retiredAsset = await t.run((ctx) => ctx.db.get(oldAssetId));
+    assert.equal(retiredAsset?.state, "deleted");
+    assert.equal(retiredAsset?.retiredAt !== undefined, true);
     assert.equal(
       await t.query(api.profileAssets.getPublicAssetForStorage, {
         slug: "community-dj",
         assetId: oldAssetId,
       }),
       null,
+    );
+
+    const ownerClerkId = newClerkUserId();
+    const ownerUserId = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        clerkUserId: ownerClerkId,
+        email: "owner@example.test",
+        emailVerificationTime: NOW,
+      });
+      await ctx.db.patch(seeded.profileId, { claimState: "claimed_verified", updatedAt: NOW + 1 });
+      await ctx.db.insert("profileOwners", {
+        profileId: seeded.profileId,
+        userId,
+        roleKey: "owner",
+        state: "active",
+        grantedAt: NOW + 1,
+        updatedAt: NOW + 1,
+      });
+      return userId;
+    });
+    const owner = t.withIdentity({
+      subject: ownerClerkId,
+      email: "owner@example.test",
+      emailVerified: true,
+      issuer: "test",
+      tokenIdentifier: `test|${ownerUserId}`,
+    });
+    const ownedProfiles = await owner.query(api.profileAssets.listOwnedMediaKitProfiles, {});
+    assert.equal(
+      ownedProfiles?.[0]?.assets.some((asset) => asset.assetId === oldAssetId),
+      false,
+    );
+    await assert.rejects(
+      owner.mutation(api.profileAssets.setOwnedAssetDeleted, {
+        profileId: seeded.profileId,
+        assetId: oldAssetId,
+        deleted: false,
+      }),
+      /not found/i,
     );
   });
 
@@ -923,7 +996,7 @@ describe("unclaimed-profile media submissions", () => {
           expectedProfileUpdatedAt: NOW,
         },
       ),
-      /limit reached/i,
+      /could not be submitted/i,
     );
   });
 

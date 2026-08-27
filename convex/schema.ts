@@ -862,6 +862,7 @@ export default defineSchema({
     uploadedAt: v.number(),
     state: profileAssetState,
     deletedAt: v.optional(v.number()),
+    retiredAt: v.optional(v.number()),
     moderatorSuppressedAt: v.optional(v.number()),
     updatedAt: v.number(),
   })
@@ -1273,6 +1274,7 @@ export default defineSchema({
     publicFallbackLinks: v.array(eventMediaPublicLinkValidator),
     note: v.optional(v.string()),
     idempotencyKey: v.optional(v.string()),
+    availableAt: v.optional(v.number()),
     claimedByWorkerId: v.optional(v.string()),
     errorSummary: v.optional(v.string()),
     createdAt: v.number(),
@@ -1281,6 +1283,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_status_createdAt", ["status", "createdAt"])
+    .index("by_status_commandType_availableAt_createdAt", ["status", "commandType", "availableAt", "createdAt"])
     .index("by_programId_status_createdAt", ["programId", "status", "createdAt"])
     .index("by_sessionId_status_createdAt", ["sessionId", "status", "createdAt"])
     .index("by_eventId_createdAt", ["eventId", "createdAt"])

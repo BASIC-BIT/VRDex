@@ -718,7 +718,7 @@ export const listOwnedMediaKitProfiles = query({
           (asset) => asset.state === "active" && asset.visibility === "public",
         ).length,
         assets: assets
-          .filter((asset) => asset.visibility === "public")
+          .filter((asset) => asset.visibility === "public" && asset.retiredAt === undefined)
           .sort((first, second) => {
             if (first.state !== second.state) {
               return first.state === "active" ? -1 : 1;
@@ -956,6 +956,9 @@ export const setOwnedAssetDeleted = mutation({
       .collect();
     const wasGalleryAsset = assetPlacements.some((placement) => placement.placement === "gallery");
     if (!args.deleted && asset.state !== "active") {
+      if (asset.retiredAt !== undefined) {
+        throw new Error("Profile media item was not found.");
+      }
       if (asset.moderatorSuppressedAt !== undefined) {
         throw new Error("Moderator-suppressed media cannot be restored by a profile owner.");
       }

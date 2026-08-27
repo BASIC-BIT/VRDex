@@ -371,6 +371,121 @@ describe("API-created event ownership", () => {
     );
   });
 
+  it("claims only due lifecycle commands and lets a restarted bridge reconcile prior tasks", async () => {
+    const previousBridgeToken = process.env.VRDEX_EVENT_MEDIA_BRIDGE_TOKEN;
+    process.env.VRDEX_EVENT_MEDIA_BRIDGE_TOKEN = "test-event-media-bridge-token";
+
+    try {
+      const t = convexTest({ schema, modules });
+      const { identity } = await seedOwnedCommunity(t);
+      const created = await t.withIdentity(identity).mutation(api.events.createCommunityEvent, {
+        title: "Future media event",
+        communitySlug: "faceless",
+        startAt: Date.now() + 86_400_000,
+      });
+      await t.withIdentity(identity).mutation(api.events.configureVrcdnOutput, {
+        currentSlug: created.slug,
+        key: "main",
+        label: "Main output",
+        credentialRef: "vrcdn/main",
+        sourceConsentAccepted: true,
+        destinationAuthorityAccepted: true,
+        providerRulesAccepted: true,
+        rightsClearedMediaAccepted: true,
+        playbackLinks: [{ platform: "browser", label: "Watch", url: "https://example.com/watch" }],
+      });
+      const scheduled = await t.withIdentity(identity).mutation(api.events.scheduleEventMediaWorker, {
+        currentSlug: created.slug,
+      });
+      assert.ok(scheduled.startCommandId);
+      const now = Date.now();
+
+      await t.run(async (ctx) => {
+        for (let index = 0; index < 50; index += 1) {
+          await ctx.db.insert("eventMediaCommands", {
+            programId: scheduled.programId,
+            eventId: created.eventId,
+            commandType: "switch_next",
+            status: "queued",
+            actorSurface: "web",
+            publicFallbackLinks: [],
+            availableAt: now - 1_000,
+            createdAt: now - 1_000 + index,
+            updatedAt: now - 1_000 + index,
+          });
+        }
+      });
+
+      assert.equal(
+        await t.mutation(api.events.claimEventMediaWorkerCommand, {
+          bridgeToken: "test-event-media-bridge-token",
+          workerId: "new-bridge",
+        }),
+        null,
+      );
+
+      const stopCommandId = await t.run((ctx) =>
+        ctx.db.insert("eventMediaCommands", {
+          programId: scheduled.programId,
+          eventId: created.eventId,
+          sessionId: scheduled.sessionId,
+          commandType: "stop_program",
+          status: "queued",
+          actorSurface: "worker",
+          publicFallbackLinks: [],
+          availableAt: now - 1,
+          createdAt: now,
+          updatedAt: now,
+        }),
+      );
+      const claimedStop = await t.mutation(api.events.claimEventMediaWorkerCommand, {
+        bridgeToken: "test-event-media-bridge-token",
+        workerId: "new-bridge",
+      });
+      assert.equal(claimedStop?.commandId, stopCommandId);
+      assert.equal(claimedStop?.commandType, "stop_program");
+      assert.equal(
+        await t.mutation(api.events.claimEventMediaWorkerCommand, {
+          bridgeToken: "test-event-media-bridge-token",
+          workerId: "new-bridge",
+        }),
+        null,
+      );
+
+      await t.run(async (ctx) => {
+        await ctx.db.patch(scheduled.startCommandId!, { availableAt: now - 1 });
+        await ctx.db.patch(scheduled.sessionId, {
+          status: "starting",
+          workerId: "old-bridge",
+          workerProvider: "aws_ecs",
+          workerTaskId: "arn:aws:ecs:us-east-1:123456789012:task/cluster/task-1",
+          workerTaskDefinitionArn: "arn:aws:ecs:us-east-1:123456789012:task-definition/vrdex-worker:1",
+          workerTaskStatus: "starting",
+          updatedAt: now,
+        });
+      });
+
+      const sessions = await t.query(api.events.listEventMediaWorkerBridgeSessions, {
+        bridgeToken: "test-event-media-bridge-token",
+        workerId: "new-bridge",
+      });
+      assert.deepEqual(sessions.map((session) => session.sessionId), [scheduled.sessionId]);
+
+      const claimedStart = await t.mutation(api.events.claimEventMediaWorkerCommand, {
+        bridgeToken: "test-event-media-bridge-token",
+        workerId: "new-bridge",
+      });
+      assert.equal(claimedStart?.commandId, scheduled.startCommandId);
+      assert.equal(claimedStart?.commandType, "start_program");
+    } finally {
+      if (previousBridgeToken === undefined) {
+        delete process.env.VRDEX_EVENT_MEDIA_BRIDGE_TOKEN;
+      } else {
+        process.env.VRDEX_EVENT_MEDIA_BRIDGE_TOKEN = previousBridgeToken;
+      }
+    }
+  });
+
   it("fills the requested discovery limit after excluding cancelled events", async () => {
     const t = convexTest({ schema, modules });
     const { identity } = await seedOwnedCommunity(t);
@@ -438,6 +553,28 @@ describe("API-created event ownership", () => {
 
     const upcoming = await t.query(api.events.listPublicUpcoming, { now: NOW, limit: 1 });
     assert.deepEqual(upcoming.map((event) => event.slug), ["weeklong-festival"]);
+  });
+
+  it("deduplicates future events with end times before applying the limit", async () => {
+    const t = convexTest({ schema, modules });
+    const { identity } = await seedOwnedCommunity(t);
+    const first = await t.withIdentity(identity).mutation(api.events.createCommunityEvent, {
+      title: "Future opener",
+      communitySlug: "faceless",
+      startAt: NOW + 3_600_000,
+      endAt: NOW + 7_200_000,
+      published: true,
+    });
+    const second = await t.withIdentity(identity).mutation(api.events.createCommunityEvent, {
+      title: "Future closer",
+      communitySlug: "faceless",
+      startAt: NOW + 10_800_000,
+      endAt: NOW + 14_400_000,
+      published: true,
+    });
+
+    const upcoming = await t.query(api.events.listPublicUpcoming, { now: NOW, limit: 2 });
+    assert.deepEqual(upcoming.map((event) => event.slug), [first.slug, second.slug]);
   });
 
   it("keeps a published event online when an atomic unpublish-and-save fails", async () => {

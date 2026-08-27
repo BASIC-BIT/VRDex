@@ -1367,6 +1367,7 @@ async function insertEventMediaCommand(
     outputId?: Id<"eventMediaOutputs">;
     actor: AuthSubject;
     idempotencyKey: string;
+    availableAt?: number;
     note?: string;
     now: number;
   },
@@ -1383,6 +1384,7 @@ async function insertEventMediaCommand(
     publicFallbackLinks: [],
     ...(input.note === undefined ? {} : { note: input.note }),
     idempotencyKey: input.idempotencyKey,
+    availableAt: input.availableAt ?? input.now,
     createdAt: input.now,
     updatedAt: input.now,
   });
@@ -1768,7 +1770,7 @@ export const listPublicUpcoming = query({
         )
         .take(limit),
     ]);
-    const events = [...ongoing, ...upcoming];
+    const events = [...new Map([...ongoing, ...upcoming].map((event) => [event._id, event])).values()];
 
     return await getPublicEventPreviews(ctx.db, events, { now: args.now, limit });
   },
@@ -1976,6 +1978,7 @@ export const queueEventMediaCommand = mutation({
       ...(command.targetOutputKey === undefined ? {} : { targetOutputKey: command.targetOutputKey }),
       publicFallbackLinks: command.publicFallbackLinks,
       ...(command.note === undefined ? {} : { note: command.note }),
+      availableAt: now,
       createdAt: now,
       updatedAt: now,
     });
@@ -2010,10 +2013,24 @@ export const claimEventMediaWorkerCommand = mutation({
     requireEventMediaBridgeToken(args.bridgeToken);
     const workerId = requireBridgeWorkerId(args.workerId);
     const now = Date.now();
-    const queuedCommands = await ctx.db
-      .query("eventMediaCommands")
-      .withIndex("by_status_createdAt", (query) => query.eq("status", "queued"))
-      .take(50);
+    const workerCommandTypes = ["start_program", "stop_program"] as const;
+    const queuedCommands = (
+      await Promise.all(
+        workerCommandTypes.map((commandType) =>
+          ctx.db
+            .query("eventMediaCommands")
+            .withIndex("by_status_commandType_availableAt_createdAt", (query) =>
+              query
+                .eq("status", "queued")
+                .eq("commandType", commandType)
+                .lte("availableAt", now),
+            )
+            .take(50),
+        ),
+      )
+    )
+      .flat()
+      .sort((first, second) => first.createdAt - second.createdAt);
 
     for (const command of queuedCommands) {
       if (!isWorkerCommandType(command.commandType) || command.sessionId === undefined) {
@@ -2050,7 +2067,7 @@ export const listEventMediaWorkerBridgeSessions = query({
   args: eventMediaWorkerBridgeArgs,
   handler: async (ctx, args) => {
     requireEventMediaBridgeToken(args.bridgeToken);
-    const workerId = requireBridgeWorkerId(args.workerId);
+    requireBridgeWorkerId(args.workerId);
     const statuses: Array<"scheduled" | "starting" | "live" | "hold" | "fallback" | "stopping"> = [
       "scheduled",
       "starting",
@@ -2070,7 +2087,7 @@ export const listEventMediaWorkerBridgeSessions = query({
 
     return sessionGroups
       .flat()
-      .filter((session) => session.workerId === workerId && session.workerProvider === "aws_ecs" && session.workerTaskId !== undefined)
+      .filter((session) => session.workerProvider === "aws_ecs" && session.workerTaskId !== undefined)
       .sort((first, second) => second.updatedAt - first.updatedAt)
       .map(workerSessionStatus);
   },
@@ -2824,6 +2841,20 @@ export const scheduleEventMediaWorker = mutation({
 
     if (openSession !== null) {
       await ctx.db.patch(openSession._id, sessionRecord);
+      const queuedStartCommand = await ctx.db
+        .query("eventMediaCommands")
+        .withIndex("by_sessionId_status_createdAt", (query) =>
+          query.eq("sessionId", openSession._id).eq("status", "queued"),
+        )
+        .filter((query) => query.eq(query.field("commandType"), "start_program"))
+        .first();
+
+      if (queuedStartCommand !== null) {
+        await ctx.db.patch(queuedStartCommand._id, {
+          availableAt: schedule.scheduledStartAt,
+          updatedAt: now,
+        });
+      }
     }
 
     const startCommandId =
@@ -2835,6 +2866,7 @@ export const scheduleEventMediaWorker = mutation({
             outputId: output._id,
             actor: subject,
             idempotencyKey: `start:${sessionId}`,
+            availableAt: schedule.scheduledStartAt,
             note: "Start the event media worker at the scheduled start time.",
             now,
           })

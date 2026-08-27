@@ -737,6 +737,7 @@ export async function consumeProfileAssetUploads(
               await db.patch(replacedAssetId, {
                 state: "deleted",
                 deletedAt: input.now,
+                retiredAt: input.now,
                 updatedAt: input.now,
               });
             }
@@ -953,6 +954,7 @@ export async function finalizeProfileAssetUploadIntentUpload(
     await db.patch(replacedAsset._id, {
       state: "deleted",
       deletedAt: input.now,
+      retiredAt: input.now,
       updatedAt: input.now,
     });
   }

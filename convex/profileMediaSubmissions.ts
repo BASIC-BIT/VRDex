@@ -106,13 +106,13 @@ async function assertSubmissionRateLimits(
       .take(MAX_CREATED_PER_PROFILE_PER_DAY + 1),
   ]);
   if (recentForUser.length >= MAX_CREATED_PER_USER_PER_DAY) {
-    throw new Error("Media contribution limit reached. Try again tomorrow.");
+    throw new Error("Media contribution could not be submitted.");
   }
   if (recentForProfile.length >= MAX_CREATED_PER_PROFILE_PER_DAY) {
-    throw new Error("This profile is receiving too many media contributions right now.");
+    throw new Error("Media contribution could not be submitted.");
   }
   if ((recentForUser[0]?.createdAt ?? 0) > now - CREATE_COOLDOWN_MS) {
-    throw new Error("Wait a moment before submitting another media contribution.");
+    throw new Error("Media contribution could not be submitted.");
   }
 }
 
@@ -350,7 +350,7 @@ export const listMine = query({
             query.eq("submitterUserId", user._id).eq("status", status as Doc<"profileMediaSubmissions">["status"]),
           )
           .order("desc")
-          .take(20),
+          .take(40),
       ),
     );
     const rows = groups.flat().sort((a, b) => b.createdAt - a.createdAt).slice(0, 40);
