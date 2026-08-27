@@ -41,8 +41,9 @@ bot-authored pull requests do not receive the shared credential.
 
 One review workflow may run per pull request. Eligible events serialize, then a
 live preflight drops stale or ineligible work before checkout, credential access,
-or inference. The `skip-claude-review` label cancels active work and records that
-the review is unavailable. Draft conversion, closure, and base retargeting also
+or inference. The `skip-claude-review` label records that the review is
+unavailable. A generation already running may finish, but its publisher refuses
+the now-ineligible result. Draft conversion, closure, and base retargeting also
 invalidate the sticky result. A small reconciliation workflow invalidates
 completed reviews when `main` advances; it does not automatically spend quota
 on reruns.
@@ -59,15 +60,17 @@ gh label create skip-claude-review --repo BASIC-BIT/VRDex --color 6E7781 --descr
 
 `.github/workflows/claude-review.yml` uses `pull_request_target`, so its workflow
 definition comes from the trusted default branch. The review job checks out the
-trusted base and the exact pull request head into separate directories. It does
-not run project scripts, dependency installers, builds, tests, or hooks from the
-pull request.
+trusted base and the exact pull request head into separate directories only long
+enough to build bounded context. It deletes the head checkout before credential
+retrieval or inference. It does not run project scripts, dependency installers,
+builds, tests, or hooks from the pull request.
 
-Claude receives only the Read tool. Repository hooks are disabled, setting
-sources are restricted to the workflow's user settings, and head-owned agent
-instructions are denied as instruction sources. `REVIEW.md` is loaded from the
-base commit; a pull request can propose changes to it but cannot weaken its own
-review contract.
+Claude receives only the Read tool, the trusted base checkout, and generated
+diff, metadata, contract, and prior-review files. Repository hooks are disabled
+and setting sources are restricted to the workflow's user settings. Head-owned
+agent memory is absent during inference. `REVIEW.md` is loaded from the base
+commit; a pull request can propose changes to it but cannot weaken its own review
+contract.
 
 The model job has repository read permissions plus `id-token: write`. It cannot
 comment. A separate five-minute publisher has comment permission, no checkout,
@@ -93,14 +96,15 @@ repository setting.
 ## Cost controls
 
 - draft, fork, bot, skipped, and stale queued runs do not spend review quota
-- per-pull-request concurrency serializes review, control, and reconciliation
-  workers; invalidating control events may cancel active work, and a worker that
-  displaces pending publication converges the sticky to an unavailable state
+- per-pull-request concurrency serializes review and reconciliation workers;
+  control events converge independently so a later queued review cannot
+  displace an invalidation, and every publisher rechecks live eligibility
 - the `main`-push coordinator splits eligible pull requests into sequential
   200-item reusable-workflow batches, avoiding GitHub's 256-job matrix limit
   while pacing sticky updates through one worker at a time
 - the job is limited to 25 minutes and 60 Claude turns
-- the prompt starts from the diff and opens source only for needed local context
+- the prompt starts from the diff and may read only trusted-base source for
+  additional local context
 - review input stops at 250 changed files or a 500,000-byte textual diff
 - web, shell, write, and delegation tools are unavailable
 - output and previous-review context are byte-bounded

@@ -8,8 +8,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ ((github.event.action == 'labeled' && github.event.label.name == 'skip-claude-review') || github.event.action == 'converted_to_draft' || github.event.action == 'closed' || (github.event.action == 'edited' && github.event.changes.base != null && github.event.pull_request.base.ref != 'main')) && format('claude-review-{0}', github.event.pull_request.number) || format('claude-review-control-noop-{0}', github.run_id) }}
-  cancel-in-progress: ${{ (github.event.action == 'labeled' && github.event.label.name == 'skip-claude-review') || github.event.action == 'converted_to_draft' || github.event.action == 'closed' || (github.event.action == 'edited' && github.event.changes.base != null && github.event.pull_request.base.ref != 'main') }}
+  group: ${{ ((github.event.action == 'labeled' && github.event.label.name == 'skip-claude-review') || github.event.action == 'converted_to_draft' || github.event.action == 'closed' || (github.event.action == 'edited' && github.event.changes.base != null)) && format('claude-review-control-{0}', github.event.pull_request.number) || format('claude-review-control-noop-{0}', github.run_id) }}
+  cancel-in-progress: ${{ (github.event.action == 'labeled' && github.event.label.name == 'skip-claude-review') || github.event.action == 'converted_to_draft' || github.event.action == 'closed' || (github.event.action == 'edited' && github.event.changes.base != null) }}
 
 jobs:
   mark-unavailable:
@@ -21,8 +21,7 @@ jobs:
       (((github.event.action == 'labeled' && github.event.label.name == 'skip-claude-review') ||
       github.event.action == 'converted_to_draft' || github.event.action == 'closed') &&
       github.event.pull_request.base.ref == 'main' ||
-      (github.event.action == 'edited' && github.event.changes.base != null &&
-      github.event.pull_request.base.ref != 'main'))
+      (github.event.action == 'edited' && github.event.changes.base != null))
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -72,7 +71,13 @@ jobs:
             converted_to_draft) still_applies="$live_draft" ;;
             closed) if [ "$live_state" = "open" ]; then still_applies=false; else still_applies=true; fi ;;
             edited)
-              if [ "$live_base" != "main" ] &&
+              if [ "$live_base" = "main" ] && [ "$live_skipped" = "true" ]; then
+                still_applies=true
+                reason='the `skip-claude-review` label is applied'
+              elif [ "$live_base" = "main" ] && [ "$live_draft" = "true" ]; then
+                still_applies=true
+                reason='the pull request is a draft'
+              elif [ "$live_base" != "main" ] &&
                 { [ "$PREVIOUS_BASE_REF" = "main" ] || [ -n "$comment_id" ]; }; then
                 still_applies=true
                 reason="the pull request base changed to \`${live_base}\`"
