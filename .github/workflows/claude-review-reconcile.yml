@@ -7,6 +7,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: claude-review-reconcile-main
+  cancel-in-progress: false
+
 jobs:
   list-open-prs:
     name: List open pull requests
@@ -16,10 +20,10 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
-      numbers: ${{ steps.list.outputs.numbers }}
+      batches: ${{ steps.list.outputs.batches }}
 
     steps:
-      - name: List eligible pull requests
+      - name: Build bounded reconciliation batches
         id: list
         env:
           GH_TOKEN: ${{ github.token }}
@@ -27,91 +31,33 @@ jobs:
         run: |
           set -euo pipefail
 
-          numbers="$(
+          batches="$(
             gh api --paginate \
-              "repos/${GITHUB_REPOSITORY}/pulls?state=open&base=main&per_page=100" |
-              jq -cs '[.[][] | select(.head.repo.full_name == .base.repo.full_name and (.user.login | endswith("[bot]") | not)) | .number]'
+              "repos/${GITHUB_REPOSITORY}/pulls?state=open&base=main&per_page=100" \
+              --jq '.[] | select(.head.repo.full_name == .base.repo.full_name and (.user.login | endswith("[bot]") | not)) | .number' |
+              jq -Rsc '
+                split("\n") |
+                map(select(length > 0) | tonumber) as $numbers |
+                {include: [
+                  range(0; ($numbers | length); 200) as $start |
+                  {numbers_json: ($numbers[$start:$start + 200] | tojson)}
+                ]}
+              '
           )"
-          echo "numbers=${numbers}" >> "$GITHUB_OUTPUT"
+          echo "batches=$(printf '%s' "$batches" | jq -c .)" >> "$GITHUB_OUTPUT"
 
-  invalidate-old-base-review:
-    name: Invalidate old base review for PR ${{ matrix.pr_number }}
+  reconcile-batches:
+    name: Reconcile batch
     needs: list-open-prs
-    if: needs.list-open-prs.outputs.numbers != '[]'
+    if: needs.list-open-prs.outputs.batches != '{"include":[]}'
     strategy:
       fail-fast: false
-      matrix:
-        pr_number: ${{ fromJSON(needs.list-open-prs.outputs.numbers) }}
-    concurrency:
-      group: claude-review-${{ matrix.pr_number }}
-      cancel-in-progress: false
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
+      max-parallel: 1
+      matrix: ${{ fromJSON(needs.list-open-prs.outputs.batches) }}
     permissions:
       contents: read
       issues: write
       pull-requests: read
-
-    steps:
-      - name: Reconcile pull request sticky comment
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ matrix.pr_number }}
-          STICKY_MARKER: '<!-- claude-pr-review -->'
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          IFS=$'\t' read -r state head_sha base_ref base_sha <<< "$(
-            gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
-              --jq '[.state, .head.sha, .base.ref, .base.sha] | @tsv'
-          )"
-          if [ "$state" != "open" ] || [ "$base_ref" != "main" ]; then
-            exit 0
-          fi
-
-          comment_id="$(
-            gh api --paginate \
-              "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
-              --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- claude-pr-review-complete -->"))) | .id' |
-              tail -n 1
-          )"
-          [ -n "$comment_id" ] || exit 0
-
-          existing_body="$(gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${comment_id}" --jq '.body')"
-          reviewed_head="$(
-            printf '%s\n' "$existing_body" |
-              sed -n 's/^<!-- claude-pr-review-head:\([0-9a-f]*\) -->$/\1/p' |
-              tail -n 1
-          )"
-          reviewed_base="$(
-            printf '%s\n' "$existing_body" |
-              sed -n 's/^<!-- claude-pr-review-base:\([0-9a-f]*\) -->$/\1/p' |
-              tail -n 1
-          )"
-          if [ "$reviewed_head" != "$head_sha" ] || [ -z "$reviewed_base" ] || [ "$reviewed_base" = "$base_sha" ]; then
-            exit 0
-          fi
-
-          body_file="${RUNNER_TEMP}/claude-review-${PR_NUMBER}.md"
-          json_file="${RUNNER_TEMP}/claude-review-${PR_NUMBER}.json"
-          cat > "$body_file" <<EOF
-          ${STICKY_MARKER}
-          [AGENT]
-
-          ## Claude Review
-
-          Claude review for commit \`${head_sha}\` is unavailable because \`main\` advanced from \`${reviewed_base}\` to \`${base_sha}\`.
-
-          This is not a current review or approval. Update the branch or trigger another eligible pull request event for a fresh review.
-          EOF
-          node - "$body_file" "$json_file" <<'NODE'
-          const fs = require("node:fs");
-          fs.writeFileSync(process.argv[3], JSON.stringify({
-            body: fs.readFileSync(process.argv[2], "utf8"),
-          }));
-          NODE
-
-          gh api --method PATCH \
-            "repos/${GITHUB_REPOSITORY}/issues/comments/${comment_id}" \
-            --input "$json_file" > /dev/null
+    uses: ./.github/workflows/claude-review-reconcile-worker.yml
+    with:
+      numbers_json: ${{ matrix.numbers_json }}

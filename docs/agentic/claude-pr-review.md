@@ -93,8 +93,12 @@ repository setting.
 ## Cost controls
 
 - draft, fork, bot, skipped, and stale queued runs do not spend review quota
-- per-pull-request concurrency serializes reviewers and sticky-comment writers;
-  invalidating control events may cancel active work
+- per-pull-request concurrency serializes review, control, and reconciliation
+  workers; invalidating control events may cancel active work, and a worker that
+  displaces pending publication converges the sticky to an unavailable state
+- the `main`-push coordinator splits eligible pull requests into sequential
+  200-item reusable-workflow batches, avoiding GitHub's 256-job matrix limit
+  while pacing sticky updates through one worker at a time
 - the job is limited to 25 minutes and 60 Claude turns
 - the prompt starts from the diff and opens source only for needed local context
 - review input stops at 250 changed files or a 500,000-byte textual diff
