@@ -4,7 +4,6 @@ import { firstSafeHttpsUrl, optionalField, safeHttpsUrl } from "./_publicFields"
 import { safePublicLinkUrl } from "./_vrcdnLinks";
 
 const WORLD_EVENT_SECTION_LIMIT = 4;
-const WORLD_EVENT_ONGOING_SCAN_LIMIT = 160;
 const ACTIVE_WORLD_QUERY_EVENT_LIMIT = 50;
 const ACTIVE_WORLD_ASSOCIATION_LIMIT = 20;
 const ACTIVE_WORLD_MAX_LIMIT = 6;
@@ -157,7 +156,10 @@ export function createPublicWorldEventContext(
 
   const upcoming = previews
     .filter((event) => eventEndsAt(event) >= now)
-    .sort((first, second) => first.startAt - second.startAt)
+    .sort(
+      (first, second) =>
+        eventEndsAt(first) - eventEndsAt(second) || first.startAt - second.startAt,
+    )
     .slice(0, WORLD_EVENT_SECTION_LIMIT);
 
   const recent = previews
@@ -239,18 +241,7 @@ export async function getPublicWorldEventContext(
   worldId: Id<"worlds">,
   now: number,
 ): Promise<PublicWorldEventContext> {
-  const [futureAssociations, ongoingCandidates, previousAssociations] = await Promise.all([
-    db
-      .query("eventWorlds")
-      .withIndex("by_world_confirmation_publication_status_start", (query) =>
-        query
-          .eq("worldId", worldId)
-          .eq("confirmationState", "confirmed")
-          .eq("eventPublicationState", "published")
-          .eq("eventStatus", "scheduled")
-          .gte("eventStartAt", now),
-      )
-      .take(WORLD_EVENT_SECTION_LIMIT),
+  const [currentAssociations, previousAssociations] = await Promise.all([
     db
       .query("eventWorlds")
       .withIndex("by_world_confirmation_publication_status_end", (query) =>
@@ -261,7 +252,7 @@ export async function getPublicWorldEventContext(
           .eq("eventStatus", "scheduled")
           .gte("eventEndAt", now),
       )
-      .take(WORLD_EVENT_ONGOING_SCAN_LIMIT),
+      .take(WORLD_EVENT_SECTION_LIMIT),
     db
       .query("eventWorlds")
       .withIndex("by_world_confirmation_publication_status_end", (query) =>
@@ -275,11 +266,7 @@ export async function getPublicWorldEventContext(
       .order("desc")
       .take(WORLD_EVENT_SECTION_LIMIT),
   ]);
-  const ongoingAssociations = ongoingCandidates
-    .filter((association) => association.eventStartAt < now)
-    .sort((first, second) => first.eventStartAt - second.eventStartAt)
-    .slice(0, WORLD_EVENT_SECTION_LIMIT);
-  const associations = [...futureAssociations, ...ongoingAssociations, ...previousAssociations];
+  const associations = [...currentAssociations, ...previousAssociations];
 
   const records = (
     await Promise.all(

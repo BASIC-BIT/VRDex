@@ -13,7 +13,6 @@ import {
 
 const EVENT_PREVIEW_DEFAULT_LIMIT = 6;
 const EVENT_ASSOCIATION_LIMIT = 80;
-const EVENT_ONGOING_ASSOCIATION_SCAN_LIMIT = EVENT_ASSOCIATION_LIMIT * 2;
 const EVENT_PREVIEW_MAX_LIMIT = EVENT_ASSOCIATION_LIMIT;
 
 type PublicEventSourceType = "manual" | "community" | "partner" | "import" | "ai_suggested";
@@ -658,7 +657,7 @@ export async function getEventForEditor(
 export async function getPublicEventPreviews(
   db: DatabaseReader,
   events: Doc<"events">[],
-  options: { now?: number; limit?: number } = {},
+  options: { now?: number; limit?: number; order?: "start" | "end" } = {},
 ): Promise<PublicEventPreview[]> {
   const now = options.now;
   const limit = Math.max(
@@ -672,7 +671,11 @@ export async function getPublicEventPreviews(
         event.eventStatus === "scheduled" &&
         (now === undefined || eventEndsAt(event) >= now),
     )
-    .sort((first, second) => first.startAt - second.startAt)
+    .sort((first, second) =>
+      options.order === "end"
+        ? eventEndsAt(first) - eventEndsAt(second) || first.startAt - second.startAt
+        : first.startAt - second.startAt,
+    )
     .slice(0, limit);
   const records = (
     await Promise.all(
@@ -730,38 +733,20 @@ export async function getPublicPersonUpcomingEvents(
   now: number,
   limit = EVENT_PREVIEW_DEFAULT_LIMIT,
 ): Promise<PublicEventPreview[]> {
-  const [ongoingCandidates, upcomingLinks] = await Promise.all([
-    db
-      .query("eventParticipants")
-      .withIndex("by_person_confirmation_publication_status_end", (query) =>
-        query
-          .eq("personProfileId", personProfileId)
-          .eq("confirmationState", "confirmed")
-          .eq("eventPublicationState", "published")
-          .eq("eventStatus", "scheduled")
-          .gte("eventEndAt", now),
-      )
-      .take(EVENT_ONGOING_ASSOCIATION_SCAN_LIMIT),
-    db
-      .query("eventParticipants")
-      .withIndex("by_person_confirmation_publication_status_start", (query) =>
-        query
-          .eq("personProfileId", personProfileId)
-          .eq("confirmationState", "confirmed")
-          .eq("eventPublicationState", "published")
-          .eq("eventStatus", "scheduled")
-          .gte("eventStartAt", now),
-      )
-      .take(EVENT_ASSOCIATION_LIMIT),
-  ]);
-  const ongoingLinks = ongoingCandidates
-    .filter((link) => link.eventStartAt < now)
-    .sort((first, second) => first.eventStartAt - second.eventStartAt)
-    .slice(0, EVENT_ASSOCIATION_LIMIT);
-  const participantLinks = [...ongoingLinks, ...upcomingLinks];
+  const participantLinks = await db
+    .query("eventParticipants")
+    .withIndex("by_person_confirmation_publication_status_end", (query) =>
+      query
+        .eq("personProfileId", personProfileId)
+        .eq("confirmationState", "confirmed")
+        .eq("eventPublicationState", "published")
+        .eq("eventStatus", "scheduled")
+        .gte("eventEndAt", now),
+    )
+    .take(EVENT_ASSOCIATION_LIMIT);
   const events = (
     await Promise.all(participantLinks.map((link) => db.get(link.eventId)))
   ).filter((event): event is Doc<"events"> => event !== null);
 
-  return getPublicEventPreviews(db, events, { now, limit });
+  return getPublicEventPreviews(db, events, { now, limit, order: "end" });
 }

@@ -325,6 +325,21 @@ describe("API-created event ownership", () => {
     assert.deepEqual(configuredState.program?.publicLinks, []);
     assert.equal(configuredState.output?.state, "disabled");
     assert.deepEqual((await t.query(api.events.getPublicBySlug, { slug: configured.slug }))?.mediaLinks, []);
+    await assert.rejects(
+      t.withIdentity(identity).mutation(api.events.configureVrcdnOutput, {
+        currentSlug: configured.slug,
+        key: "reopened",
+        label: "Reopened output",
+        credentialRef: "vrcdn/main",
+        sourceConsentAccepted: true,
+        destinationAuthorityAccepted: true,
+        providerRulesAccepted: true,
+        rightsClearedMediaAccepted: true,
+        playbackLinks: [{ platform: "browser", label: "Watch", url: "https://example.com/watch" }],
+      }),
+      /cancelled event cannot configure/i,
+    );
+    assert.deepEqual((await t.query(api.events.getPublicBySlug, { slug: configured.slug }))?.mediaLinks, []);
 
     const queued = await createMediaEvent("Queued media event");
     await t.withIdentity(identity).mutation(api.events.setCommunityEventCancelled, {
@@ -704,7 +719,7 @@ describe("API-created event ownership", () => {
     assert.deepEqual(upcoming.map((event) => event.slug), ["weeklong-festival"]);
   });
 
-  it("keeps eligible profile events behind 80 ended or cancelled associations", async () => {
+  it("keeps eligible profile events bounded and orders compact sections by end time", async () => {
     const t = convexTest({ schema, modules });
     const { profileId: communityProfileId } = await seedOwnedCommunity(t);
     const { personProfileId, worldId } = await t.run(async (ctx) => {
@@ -792,6 +807,12 @@ describe("API-created event ownership", () => {
         NOW - 7 * 86_400_000,
         NOW + 3_600_000,
       );
+      await insertEvent(
+        "profile-short-ongoing-event",
+        "Profile Short Ongoing Event",
+        NOW - 3_600_000,
+        NOW + 30 * 60_000,
+      );
       for (let index = 0; index < 81; index += 1) {
         const startAt = NOW - (index + 1) * 60_000;
         await insertEvent(
@@ -822,127 +843,25 @@ describe("API-created event ownership", () => {
     });
 
     const associations = await t.run(async (ctx) => ({
-      hosted: await getPublicCommunityHostedEvents(ctx.db, communityProfileId, NOW, 2),
-      participant: await getPublicPersonUpcomingEvents(ctx.db, personProfileId, NOW, 2),
+      hosted: await getPublicCommunityHostedEvents(ctx.db, communityProfileId, NOW, 3),
+      participant: await getPublicPersonUpcomingEvents(ctx.db, personProfileId, NOW, 3),
       world: await getPublicWorldEventContext(ctx.db, worldId, NOW),
     }));
     assert.deepEqual(associations.hosted.map((event) => event.slug), [
       "profile-weeklong-festival",
+      "profile-short-ongoing-event",
       "profile-future-festival",
     ]);
     assert.deepEqual(associations.participant.map((event) => event.slug), [
+      "profile-short-ongoing-event",
       "profile-weeklong-festival",
       "profile-future-festival",
     ]);
     assert.deepEqual(associations.world.upcoming.map((event) => event.slug), [
+      "profile-short-ongoing-event",
       "profile-weeklong-festival",
       "profile-future-festival",
     ]);
-  });
-
-  it("sorts bounded ongoing association candidates before the public result cap", async () => {
-    const t = convexTest({ schema, modules });
-    const { personProfileId, worldId } = await t.run(async (ctx) => {
-      const personProfileId = await ctx.db.insert("profiles", {
-        slug: "ongoing-order-dj",
-        displayName: "Ongoing Order DJ",
-        sortName: "ongoing order dj",
-        aliases: [],
-        tags: [],
-        claimState: "unclaimed",
-        publicationState: "published",
-        publicSurfacingState: "public",
-        creationSource: "community",
-        updatedAt: NOW,
-        profileType: "person",
-        person: { roleTags: ["DJ"] },
-      });
-      const worldId = await ctx.db.insert("worlds", {
-        slug: "ongoing-order-world",
-        displayName: "Ongoing Order World",
-        sortName: "ongoing order world",
-        tags: [],
-        visibilityStatus: "public",
-        platformCompatibility: [],
-        media: [],
-        creatorAttributions: [],
-        outboundLinks: [],
-        publicationState: "published",
-        creationSource: "community",
-        updatedAt: NOW,
-      });
-      const insertLinkedEvent = async (
-        slug: string,
-        title: string,
-        startAt: number,
-        endAt: number,
-      ) => {
-        const eventId = await ctx.db.insert("events", {
-          slug,
-          title,
-          sortTitle: title.toLowerCase(),
-          startAt,
-          endAt,
-          sourceType: "manual",
-          sourceLabel: "Test",
-          eventStatus: "scheduled",
-          publicationState: "published",
-          publishedAt: startAt,
-          updatedAt: startAt,
-        });
-        await ctx.db.insert("eventParticipants", {
-          eventId,
-          personProfileId,
-          eventStartAt: startAt,
-          eventEndAt: endAt,
-          eventPublicationState: "published",
-          eventStatus: "scheduled",
-          roleLabel: "DJ",
-          sourceType: "manual",
-          sourceLabel: "Test",
-          confirmationState: "confirmed",
-          confirmedAt: startAt,
-          updatedAt: startAt,
-        });
-        await ctx.db.insert("eventWorlds", {
-          eventId,
-          worldId,
-          eventStartAt: startAt,
-          eventEndAt: endAt,
-          eventPublicationState: "published",
-          eventStatus: "scheduled",
-          sourceType: "manual",
-          confidence: 1,
-          confirmationState: "confirmed",
-          confirmedAt: startAt,
-          updatedAt: startAt,
-        });
-      };
-
-      await insertLinkedEvent(
-        "earliest-ongoing-event",
-        "Earliest Ongoing Event",
-        NOW - 7 * 86_400_000,
-        NOW + 3_600_000,
-      );
-      for (let index = 0; index < 81; index += 1) {
-        await insertLinkedEvent(
-          `later-ongoing-event-${index}`,
-          `Later Ongoing Event ${index}`,
-          NOW - (index + 1) * 60_000,
-          NOW + 30 * 60_000,
-        );
-      }
-
-      return { personProfileId, worldId };
-    });
-
-    const associations = await t.run(async (ctx) => ({
-      participant: await getPublicPersonUpcomingEvents(ctx.db, personProfileId, NOW, 1),
-      world: await getPublicWorldEventContext(ctx.db, worldId, NOW),
-    }));
-    assert.equal(associations.participant[0]?.slug, "earliest-ongoing-event");
-    assert.equal(associations.world.upcoming[0]?.slug, "earliest-ongoing-event");
   });
 
   it("deduplicates future events with end times before applying the limit", async () => {

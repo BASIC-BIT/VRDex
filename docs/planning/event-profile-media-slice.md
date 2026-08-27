@@ -177,7 +177,9 @@ canonical records. Continue to store:
 - source type, label, URL, and review or confirmation state
 - `eventStartAt`, `eventEndAt`, `eventPublicationState`, and `eventStatus` on
   world and participant associations so public profile/world queries can use
-  bounded eligibility indexes; event writes keep these projections in sync
+  bounded eligibility indexes; event writes keep these projections in sync,
+  and those compact association sections order qualifying events by effective
+  end time to match the index without an unbounded scan
 
 ### Additions and corrections
 

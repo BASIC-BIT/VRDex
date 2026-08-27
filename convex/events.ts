@@ -2810,6 +2810,9 @@ export const configureVrcdnOutput = mutation({
   handler: async (ctx, args) => {
     const subject = await requireAuthenticatedSubject(ctx);
     const { event, slug } = await getMediaManageableEventBySlug(ctx, args.currentSlug, subject);
+    if (event.eventStatus !== "scheduled") {
+      throw new Error("A cancelled event cannot configure a media output.");
+    }
 
     const account = args.outputAccountKey === undefined ? undefined : getVrcdnOutputAccount(args.outputAccountKey);
 
