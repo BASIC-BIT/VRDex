@@ -39,7 +39,6 @@ jobs:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           GH_TOKEN: ${{ github.token }}
           IS_MERGED: ${{ github.event.pull_request.merged }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           STICKY_MARKER: '<!-- claude-pr-review -->'
         shell: bash
@@ -64,10 +63,6 @@ jobs:
             gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
               --jq '[.state, .head.sha, .base.ref, .draft, (.labels | map(.name) | index("skip-claude-review") != null)] | @tsv'
           )"
-          if [ "$live_head" != "$PR_HEAD_SHA" ]; then
-            echo "::notice::Ignoring stale control event for an older head."
-            exit 0
-          fi
           case "$ACTION" in
             labeled) still_applies="$live_skipped" ;;
             converted_to_draft) still_applies="$live_draft" ;;
@@ -85,7 +80,7 @@ jobs:
 
           ## Claude Review
 
-          Claude review for commit \`${PR_HEAD_SHA}\` is unavailable because ${reason}.
+          Claude review for commit \`${live_head}\` is unavailable because ${reason}.
 
           This is not a current review or approval.
           EOF

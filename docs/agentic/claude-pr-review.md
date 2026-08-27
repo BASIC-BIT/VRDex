@@ -138,9 +138,12 @@ Recycler work stays with the implementing human or agent:
 
 Because `pull_request_target` loads its workflow from the default branch, the
 pull request that first adds this workflow cannot run the new reviewer against
-itself. Before merge, parse the YAML, run `actionlint` across all three reviewer
-workflows, lint and build the docs, and confirm the basic-infra trust change is
-reviewable.
+itself. Before merge, parse the YAML, run `actionlint` across
+`.github/workflows/claude-review.yml`,
+`.github/workflows/claude-review-control.yml`,
+`.github/workflows/claude-review-reconcile.yml`, and
+`.github/workflows/claude-review-reconcile-worker.yml`, lint and build the docs,
+and confirm the basic-infra trust change is reviewable.
 
 After both changes reach their default branches, prove one eligible pull request
 end to end: role assumption, secret retrieval, Claude inference, exact-head/base
