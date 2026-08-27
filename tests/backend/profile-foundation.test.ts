@@ -1906,6 +1906,43 @@ describe("public profile projection", () => {
     });
   });
 
+  it("uses a managed logo before an external legacy avatar in share cards", () => {
+    const profile = {
+      profileType: "person",
+      slug: "legacy-avatar",
+      displayName: "Legacy Avatar",
+      sortName: "legacy avatar",
+      aliases: [],
+      tags: [],
+      avatarImageUrl: "https://images.example.invalid/avatar.png",
+      outboundLinks: [],
+      claimState: "claimed_unverified",
+      publicationState: "published",
+      publicSurfacingState: "public",
+      creationSource: "self",
+      publishedAt: 1,
+      updatedAt: 1,
+      person: { roleTags: [] },
+    } as Doc<"profiles">;
+    const mediaKit = {
+      primaryLogo: { imageUrl: "/api/primary-logo" },
+      additionalLogos: [],
+      logos: [],
+      assets: [],
+      galleryAssets: [],
+      compactDisplay: "profile_image",
+    } as unknown as Awaited<ReturnType<typeof getPublicProfileMediaKit>>;
+
+    assert.deepEqual(toPublicProfileShareCard(profile, mediaKit), {
+      profileType: "person",
+      slug: "legacy-avatar",
+      displayName: "Legacy Avatar",
+      trustLabel: "claimed_unverified",
+      avatarImageUrl: "/api/primary-logo",
+      avatarImageKind: "logo",
+    });
+  });
+
   it("omits source attribution identifiers from public profile results", () => {
     const profile = {
       profileType: "person",

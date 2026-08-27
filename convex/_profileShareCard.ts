@@ -37,12 +37,13 @@ export function toPublicProfileShareCard(
 ): PublicProfileShareCard {
   const headline = visibleProfileField(profile, "headline", profile.headline, "discovery");
   const bio = visibleProfileField(profile, "bio", profile.bio, "discovery");
-  const profileImage = visibleProfileField(
+  const managedProfileImage = visibleProfileField(
     profile,
     "avatarImageUrl",
-    mediaKit.profileImage?.imageUrl ?? visibleLegacyImage(profile, "avatarImageUrl"),
+    mediaKit.profileImage?.imageUrl,
     "discovery",
   );
+  const legacyProfileImage = visibleLegacyImage(profile, "avatarImageUrl");
   const bannerImage = visibleProfileField(
     profile,
     "bannerImageUrl",
@@ -51,14 +52,21 @@ export function toPublicProfileShareCard(
   );
   const logoImage = mediaKit.primaryLogo?.imageUrl;
   const prefersLogo = mediaKit.compactDisplay === "logo";
-  const avatarImageUrl = prefersLogo
-    ? logoImage ?? profileImage
-    : profileImage ?? logoImage;
-  const avatarImageKind = avatarImageUrl === undefined
-    ? undefined
-    : avatarImageUrl === logoImage && logoImage !== profileImage
-      ? "logo" as const
-      : "profile" as const;
+  const avatarImage = prefersLogo
+    ? logoImage
+      ? { imageUrl: logoImage, kind: "logo" as const }
+      : managedProfileImage
+        ? { imageUrl: managedProfileImage, kind: "profile" as const }
+        : legacyProfileImage
+          ? { imageUrl: legacyProfileImage, kind: "profile" as const }
+          : undefined
+    : managedProfileImage
+      ? { imageUrl: managedProfileImage, kind: "profile" as const }
+      : logoImage
+        ? { imageUrl: logoImage, kind: "logo" as const }
+        : legacyProfileImage
+          ? { imageUrl: legacyProfileImage, kind: "profile" as const }
+          : undefined;
 
   return {
     profileType: profile.profileType,
@@ -66,8 +74,7 @@ export function toPublicProfileShareCard(
     displayName: profile.displayName,
     trustLabel: getProfileTrustLabel(profile.claimState, profile.creationSource),
     ...((headline ?? bio) ? { summary: headline ?? bio } : {}),
-    ...(avatarImageUrl ? { avatarImageUrl } : {}),
-    ...(avatarImageKind ? { avatarImageKind } : {}),
+    ...(avatarImage ? { avatarImageUrl: avatarImage.imageUrl, avatarImageKind: avatarImage.kind } : {}),
     ...(bannerImage ? { bannerImageUrl: bannerImage } : {}),
   };
 }

@@ -103,7 +103,7 @@ function fixtureProfileShareCard(slug: string): PublicProfileShareCard | null {
   const prefersLogo = profile.mediaKit?.compactDisplay === "logo";
   const avatarImageUrl = prefersLogo
     ? logoImage?.imageUrl ?? profileImage?.imageUrl ?? profile.avatarImageUrl
-    : profileImage?.imageUrl ?? profile.avatarImageUrl ?? logoImage?.imageUrl;
+    : profileImage?.imageUrl ?? logoImage?.imageUrl ?? profile.avatarImageUrl;
   const avatarImageKind = avatarImageUrl === undefined
     ? undefined
     : avatarImageUrl === logoImage?.imageUrl && logoImage?.imageUrl !== profileImage?.imageUrl

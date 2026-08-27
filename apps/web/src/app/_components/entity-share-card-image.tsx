@@ -142,6 +142,7 @@ export function EntityShareCardImage({ profile }: { profile: PublicProfileShareC
                   lineHeight: 1.32,
                   marginTop: 22,
                   maxWidth: 760,
+                  wordBreak: "break-all",
                 }}
               >
                 {summary}

@@ -331,6 +331,8 @@ the public display name, prefers the public headline over the public bio, and ma
 banner media. Because an unfurl is a card surface rather than the direct profile page, fields marked
 `unlisted` or `private` do not enter its summary or controlled profile/banner image slots. A public primary
 logo may still act as the compact fallback because logo assets do not use the avatar visibility field.
+Generated share cards prefer a managed profile image or primary logo before a legacy external avatar URL
+so the image route can embed a supported same-origin asset instead of dropping to initials.
 The projection also carries the existing public trust state so generated cards can label unclaimed and
 community-submitted records with the same wording already used on public profile surfaces.
 
