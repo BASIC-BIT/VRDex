@@ -1617,10 +1617,10 @@ async function createWorkerBridgeCommandPayload(
   };
 }
 
-async function applyBridgeWorkerTaskStatus(
+async function applyEventMediaWorkerTaskStatus(
   db: DatabaseWriter,
   input: {
-    workerId: string;
+    workerId?: string;
     session: Doc<"eventMediaSessions">;
     program: Doc<"eventMediaPrograms">;
     commandId?: Id<"eventMediaCommands">;
@@ -1656,7 +1656,7 @@ async function applyBridgeWorkerTaskStatus(
 
   await db.patch(input.session._id, {
     status,
-    workerId: input.workerId,
+    ...(input.workerId === undefined ? {} : { workerId: input.workerId }),
     ...(input.workerRuntime === undefined ? {} : { workerRuntime: input.workerRuntime }),
     ...(input.workerProvider === undefined ? {} : { workerProvider: input.workerProvider }),
     ...(input.workerTaskDefinitionArn === undefined ? {} : { workerTaskDefinitionArn: input.workerTaskDefinitionArn }),
@@ -1776,6 +1776,8 @@ async function applyBridgeWorkerTaskStatus(
       await db.patch(command._id, { status: "succeeded", completedAt: input.now, updatedAt: input.now });
     }
   }
+
+  return status;
 }
 
 export const getPublicBySlug = query({
@@ -2169,7 +2171,7 @@ export const recordEventMediaWorkerBridgeTaskStatus = mutation({
     const leaseExpiresAt = optionalPositiveTimestamp(args.leaseExpiresAt, "Worker lease expiration");
     const artifactLinks = args.artifactLinks === undefined ? undefined : sanitizeEventMediaWorkerArtifactLinks(args.artifactLinks);
 
-    await applyBridgeWorkerTaskStatus(ctx.db, {
+    await applyEventMediaWorkerTaskStatus(ctx.db, {
       workerId,
       session,
       program,
@@ -2985,7 +2987,6 @@ export const recordEventMediaWorkerTaskStatus = mutation({
 
     const session = await getWritableEventMediaSession(ctx.db, program, args.sessionId);
     const now = Date.now();
-    const status = args.status ?? session.status;
     const workerId = optionalTrimmedText(args.workerId, "Worker id", 128);
     const workerRuntime = optionalTrimmedText(args.workerRuntime, "Worker runtime", 80);
     const workerTaskDefinitionArn = optionalTrimmedText(args.workerTaskDefinitionArn, "Worker task definition ARN", 512);
@@ -2993,91 +2994,22 @@ export const recordEventMediaWorkerTaskStatus = mutation({
     const workerTaskStatusReason = optionalTrimmedText(args.workerTaskStatusReason, "Worker task status reason", 500);
     const leaseExpiresAt = optionalPositiveTimestamp(args.leaseExpiresAt, "Worker lease expiration");
     const artifactLinks = args.artifactLinks === undefined ? undefined : sanitizeEventMediaWorkerArtifactLinks(args.artifactLinks);
-    const shouldSetStartedAt =
-      session.startedAt === undefined && ["starting", "live", "hold", "fallback"].includes(status);
-    const shouldSetStoppedAt = session.stoppedAt === undefined && ["ended", "error"].includes(status);
-
-    await ctx.db.patch(session._id, {
-      status,
+    const status = await applyEventMediaWorkerTaskStatus(ctx.db, {
+      session,
+      program,
       ...(workerId === undefined ? {} : { workerId }),
       ...(workerRuntime === undefined ? {} : { workerRuntime }),
       ...(args.workerProvider === undefined ? {} : { workerProvider: args.workerProvider }),
       ...(workerTaskDefinitionArn === undefined ? {} : { workerTaskDefinitionArn }),
       ...(workerTaskId === undefined ? {} : { workerTaskId }),
+      ...(args.status === undefined ? {} : { status: args.status }),
       ...(args.workerTaskStatus === undefined ? {} : { workerTaskStatus: args.workerTaskStatus }),
       ...(workerTaskStatusReason === undefined ? {} : { workerTaskStatusReason }),
       ...(leaseExpiresAt === undefined ? {} : { leaseExpiresAt }),
       ...(artifactLinks === undefined ? {} : { artifactLinks }),
-      ...(args.health === undefined
-        ? {}
-        : {
-            health: {
-              lastHeartbeatAt: now,
-              ...(args.health.outputBitrateKbps === undefined ? {} : { outputBitrateKbps: args.health.outputBitrateKbps }),
-              ...(args.health.audioPresent === undefined ? {} : { audioPresent: args.health.audioPresent }),
-              ...(args.health.droppedSegmentCount === undefined
-                ? {}
-                : { droppedSegmentCount: args.health.droppedSegmentCount }),
-              ...(args.health.commandFailureCount === undefined
-                ? {}
-                : { commandFailureCount: args.health.commandFailureCount }),
-            },
-          }),
-      ...(shouldSetStartedAt ? { startedAt: now } : {}),
-      ...(shouldSetStoppedAt ? { stoppedAt: now } : {}),
-      updatedAt: now,
+      ...(args.health === undefined ? {} : { health: args.health }),
+      now,
     });
-
-    if (
-      status === "starting" ||
-      status === "live" ||
-      status === "hold" ||
-      status === "fallback" ||
-      status === "stopping" ||
-      status === "ended" ||
-      status === "error"
-    ) {
-      await ctx.db.patch(program._id, {
-        state: status,
-        activeSessionId: ["ended", "error"].includes(status) ? undefined : session._id,
-        updatedAt: now,
-      });
-    }
-
-    if (status === "live" && session.outputId !== undefined) {
-      const output = await ctx.db.get(session.outputId);
-
-      if (output !== null) {
-        await Promise.all([
-          ctx.db.patch(output._id, { state: "active", updatedAt: now }),
-          ctx.db.patch(program._id, { currentOutputId: output._id, publicLinks: output.playbackLinks, updatedAt: now }),
-          settleEventMediaSessionCommands(ctx.db, {
-            sessionId: session._id,
-            commandTypes: ["start_program"],
-            status: "succeeded",
-            now,
-          }),
-        ]);
-      }
-    }
-
-    if (["ended", "error"].includes(status) && session.outputId !== undefined) {
-      const output = await ctx.db.get(session.outputId);
-
-      if (output !== null && output.state === "active") {
-        await ctx.db.patch(output._id, { state: "ready", updatedAt: now });
-      }
-    }
-
-    if (["ended", "error"].includes(status)) {
-      await settleEventMediaSessionCommands(ctx.db, {
-        sessionId: session._id,
-        commandTypes: ["start_program", "stop_program"],
-        status: status === "error" ? "failed" : "succeeded",
-        ...(status === "error" ? { errorSummary: workerTaskStatusReason ?? "Worker ended with an error." } : {}),
-        now,
-      });
-    }
 
     await recordEventMediaAuditEvent(ctx.db, {
       programId: program._id,

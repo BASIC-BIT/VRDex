@@ -696,6 +696,13 @@ export async function getPublicCommunityHostedEvents(
       .withIndex("by_communityProfileId_startAt", (query) =>
         query.eq("communityProfileId", communityProfileId).lt("startAt", now),
       )
+      .filter((query) =>
+        query.and(
+          query.eq(query.field("publicationState"), "published"),
+          query.eq(query.field("eventStatus"), "scheduled"),
+          query.gte(query.field("endAt"), now),
+        ),
+      )
       .order("desc")
       .take(EVENT_ASSOCIATION_LIMIT),
     db
@@ -726,7 +733,7 @@ export async function getPublicPersonUpcomingEvents(
           .lt("eventStartAt", now),
       )
       .order("desc")
-      .take(EVENT_ASSOCIATION_LIMIT),
+      .collect(),
     db
       .query("eventParticipants")
       .withIndex("by_personProfileId_confirmationState_eventStartAt", (query) =>

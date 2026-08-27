@@ -13,6 +13,7 @@ function createPublicEvent(overrides: Partial<PublicEvent> = {}): PublicEvent {
     slug: "afterglow-harbor-sessions-2026-06-14",
     title: "Afterglow Harbor Sessions",
     startAt,
+    status: "scheduled",
     source: {
       sourceType: "community",
       label: "Community listing",
@@ -30,6 +31,16 @@ function createPublicEvent(overrides: Partial<PublicEvent> = {}): PublicEvent {
 }
 
 describe("Discord event post export", () => {
+  it("does not generate a promotional post for a cancelled event", () => {
+    assert.equal(
+      formatDiscordEventPost({
+        canonicalUrl: "https://vrdex.net/e/afterglow-harbor-sessions-2026-06-14",
+        event: createPublicEvent({ status: "cancelled" }),
+      }),
+      null,
+    );
+  });
+
   it("formats a public event with event time, slots, host, world, and safe projected links", () => {
     const startAt = Date.UTC(2026, 5, 14, 22, 0, 0);
     const event = createPublicEvent({

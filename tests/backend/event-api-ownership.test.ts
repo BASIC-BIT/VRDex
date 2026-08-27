@@ -4,6 +4,10 @@ import { describe, it } from "node:test";
 import { convexTest } from "convex-test";
 
 import { api, internal } from "../../convex/_generated/api";
+import {
+  getPublicCommunityHostedEvents,
+  getPublicPersonUpcomingEvents,
+} from "../../convex/_eventPublic";
 import schemaModule from "../../convex/schema";
 
 import { newClerkUserId } from "./_clerkTestIdentity";
@@ -407,6 +411,21 @@ describe("API-created event ownership", () => {
       reportedState.commands.find((command) => command.commandType === "stop_program")?.status,
       "queued",
     );
+
+    await t.withIdentity(identity).mutation(api.events.recordEventMediaWorkerTaskStatus, {
+      currentSlug: active.slug,
+      sessionId: active.sessionId,
+      status: "live",
+      workerTaskStatus: "running",
+    });
+    const operatorReportedState = await t.run(async (ctx) => ({
+      program: await ctx.db.get(active.programId),
+      session: await ctx.db.get(active.sessionId),
+    }));
+    assert.equal(operatorReportedState.program?.state, "stopping");
+    assert.deepEqual(operatorReportedState.program?.publicLinks, []);
+    assert.equal(operatorReportedState.session?.status, "stopping");
+    assert.equal(operatorReportedState.session?.workerTaskStatus, "stopping");
   });
 
   it("does not reschedule a worker after its start command has been claimed", async () => {
@@ -650,6 +669,79 @@ describe("API-created event ownership", () => {
 
     const upcoming = await t.query(api.events.listPublicUpcoming, { now: NOW, limit: 1 });
     assert.deepEqual(upcoming.map((event) => event.slug), ["weeklong-festival"]);
+  });
+
+  it("keeps a long-running event on host and participant profiles after 80 newer events have ended", async () => {
+    const t = convexTest({ schema, modules });
+    const { profileId: communityProfileId } = await seedOwnedCommunity(t);
+    const personProfileId = await t.run(async (ctx) => {
+      const personProfileId = await ctx.db.insert("profiles", {
+        slug: "long-running-dj",
+        displayName: "Long Running DJ",
+        sortName: "long running dj",
+        aliases: [],
+        tags: [],
+        claimState: "unclaimed",
+        publicationState: "published",
+        publicSurfacingState: "public",
+        creationSource: "community",
+        updatedAt: NOW,
+        profileType: "person",
+        person: { roleTags: ["DJ"] },
+      });
+      const insertEvent = async (slug: string, title: string, startAt: number, endAt: number) => {
+        const eventId = await ctx.db.insert("events", {
+          slug,
+          title,
+          sortTitle: title.toLowerCase(),
+          communityProfileId,
+          startAt,
+          endAt,
+          sourceType: "manual",
+          sourceLabel: "Test",
+          eventStatus: "scheduled",
+          publicationState: "published",
+          publishedAt: startAt,
+          updatedAt: startAt,
+        });
+        await ctx.db.insert("eventParticipants", {
+          eventId,
+          personProfileId,
+          eventStartAt: startAt,
+          roleLabel: "DJ",
+          sourceType: "manual",
+          sourceLabel: "Test",
+          confirmationState: "confirmed",
+          confirmedAt: startAt,
+          updatedAt: startAt,
+        });
+      };
+
+      await insertEvent(
+        "profile-weeklong-festival",
+        "Profile Weeklong Festival",
+        NOW - 7 * 86_400_000,
+        NOW + 3_600_000,
+      );
+      for (let index = 0; index < 81; index += 1) {
+        const startAt = NOW - (index + 1) * 60_000;
+        await insertEvent(
+          `profile-ended-event-${index}`,
+          `Profile Ended Event ${index}`,
+          startAt,
+          startAt + 30_000,
+        );
+      }
+
+      return personProfileId;
+    });
+
+    const associations = await t.run(async (ctx) => ({
+      hosted: await getPublicCommunityHostedEvents(ctx.db, communityProfileId, NOW, 1),
+      participant: await getPublicPersonUpcomingEvents(ctx.db, personProfileId, NOW, 1),
+    }));
+    assert.deepEqual(associations.hosted.map((event) => event.slug), ["profile-weeklong-festival"]);
+    assert.deepEqual(associations.participant.map((event) => event.slug), ["profile-weeklong-festival"]);
   });
 
   it("deduplicates future events with end times before applying the limit", async () => {

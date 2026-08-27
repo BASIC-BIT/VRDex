@@ -102,7 +102,7 @@ export default async function EditEventPage({ params }: EditEventPageProps) {
               <Card surface="glass">
                 <EventEditorForm event={result.event} />
               </Card>
-              <EventDiscordExportPanel text={discordPostText} />
+              {discordPostText === null ? null : <EventDiscordExportPanel text={discordPostText} />}
             </div>
           </div>
         </section>
