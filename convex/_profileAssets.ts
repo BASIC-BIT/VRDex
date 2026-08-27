@@ -164,7 +164,9 @@ export async function assertProfileAssetIntentCapacity(
       query.eq("targetProfileId", profileId).eq("state", "pending").gt("expiresAt", now),
     )
     .collect();
-  const reservedAdditions = openIntents.filter((intent) => intent.replacesAssetId === undefined).length;
+  const reservedAdditions = openIntents.filter(
+    (intent) => intent.purpose === "owner_publish" && intent.replacesAssetId === undefined,
+  ).length;
   await assertProfileAssetCapacity(db, profileId, reservedAdditions + additionalCount);
 }
 

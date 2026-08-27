@@ -5,6 +5,7 @@ import { convexTest } from "convex-test";
 
 import { api, internal } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
+import { assertProfileAssetIntentCapacity } from "../../convex/_profileAssets";
 import schemaModule from "../../convex/schema";
 import { newClerkUserId } from "./_clerkTestIdentity";
 
@@ -1149,5 +1150,38 @@ describe("unclaimed-profile media submissions", () => {
       }),
       /requires an approved submission/i,
     );
+  });
+
+  it("does not reserve owner capacity for pending community proposals", async () => {
+    const t = convexTest({ schema, modules });
+    const seeded = await seed(t);
+    await t.withIdentity(seeded.contributorIdentity).mutation(api.profileMediaSubmissions.createUploadIntent, {
+      profileId: seeded.profileId,
+      requestedPlacement: "profile_image",
+      originalFileName: "proposal.webp",
+      mimeType: "image/webp",
+      byteSize: 512,
+      sourceUrl: "https://artist.example/press",
+      credit: "Artist press kit",
+      expectedProfileUpdatedAt: NOW,
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(seeded.profileId, { claimState: "claimed_verified" });
+      for (let index = 0; index < 12; index += 1) {
+        await ctx.db.insert("profileAssets", {
+          profileId: seeded.profileId,
+          storageKey: `profile-assets/claimed-${index}.webp`,
+          mimeType: "image/webp",
+          byteSize: 512,
+          visibility: "public",
+          source: "owner_authored",
+          uploadedBy: { tokenIdentifier: "test:owner", issuer: "test", subject: "owner" },
+          uploadedAt: NOW,
+          state: "active",
+          updatedAt: NOW,
+        });
+      }
+      await assertProfileAssetIntentCapacity(ctx.db, seeded.profileId, Date.now(), 0);
+    });
   });
 });

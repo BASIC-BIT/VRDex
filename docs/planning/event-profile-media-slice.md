@@ -175,6 +175,9 @@ canonical records. Continue to store:
 - optional linked published community, world, and person profiles
 - a display label when a person profile does not exist or should not be linked
 - source type, label, URL, and review or confirmation state
+- `eventStartAt`, `eventEndAt`, `eventPublicationState`, and `eventStatus` on
+  world and participant associations so public profile/world queries can use
+  bounded eligibility indexes; event writes keep these projections in sync
 
 ### Additions and corrections
 
@@ -533,10 +536,11 @@ A partially complete checkpoint is not a shippable product claim.
 
 ### Data rollout
 
-- There is no deployed event-status, media-submission, or upload-purpose data
-  to migrate. Make `eventStatus` and upload-intent `purpose` required and write
-  them explicitly from every constructor. Do not add compatibility reads or
-  backfill jobs for rows that do not exist.
+- There is no deployed event-status, event-association projection,
+  media-submission, or upload-purpose data to migrate. Make `eventStatus`, the
+  association eligibility fields, and upload-intent `purpose` required and
+  write them explicitly from every constructor. Do not add compatibility reads
+  or backfill jobs for rows that do not exist.
 - Start event audit history at rollout. Do not fabricate historical actors.
 - Add media-submission tables and indexes with no seed, import, or migration
   path. Existing owner-managed `profileAssets` are outside the submission queue.

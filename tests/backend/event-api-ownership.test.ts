@@ -8,6 +8,7 @@ import {
   getPublicCommunityHostedEvents,
   getPublicPersonUpcomingEvents,
 } from "../../convex/_eventPublic";
+import { getPublicWorldEventContext } from "../../convex/_worldEvents";
 import schemaModule from "../../convex/schema";
 
 import { newClerkUserId } from "./_clerkTestIdentity";
@@ -292,6 +293,38 @@ describe("API-created event ownership", () => {
       });
       return { ...created, ...scheduled };
     };
+
+    const configured = await t.withIdentity(identity).mutation(api.events.createCommunityEvent, {
+      title: "Configured media event",
+      communitySlug: "faceless",
+      startAt: NOW + 86_400_000,
+      published: true,
+    });
+    const configuredOutput = await t.withIdentity(identity).mutation(api.events.configureVrcdnOutput, {
+      currentSlug: configured.slug,
+      key: "main",
+      label: "Main output",
+      credentialRef: "vrcdn/main",
+      sourceConsentAccepted: true,
+      destinationAuthorityAccepted: true,
+      providerRulesAccepted: true,
+      rightsClearedMediaAccepted: true,
+      playbackLinks: [{ platform: "browser", label: "Watch", url: "https://example.com/watch" }],
+    });
+    await t.withIdentity(identity).mutation(api.events.setCommunityEventCancelled, {
+      currentSlug: configured.slug,
+      cancelled: true,
+      reason: "Cancelled before scheduling.",
+    });
+    const configuredState = await t.run(async (ctx) => ({
+      program: await ctx.db.get(configuredOutput.programId),
+      output: await ctx.db.get(configuredOutput.outputId),
+    }));
+    assert.equal(configuredState.program?.state, "ended");
+    assert.equal(configuredState.program?.currentOutputId, undefined);
+    assert.deepEqual(configuredState.program?.publicLinks, []);
+    assert.equal(configuredState.output?.state, "disabled");
+    assert.deepEqual((await t.query(api.events.getPublicBySlug, { slug: configured.slug }))?.mediaLinks, []);
 
     const queued = await createMediaEvent("Queued media event");
     await t.withIdentity(identity).mutation(api.events.setCommunityEventCancelled, {
@@ -674,7 +707,7 @@ describe("API-created event ownership", () => {
   it("keeps eligible profile events behind 80 ended or cancelled associations", async () => {
     const t = convexTest({ schema, modules });
     const { profileId: communityProfileId } = await seedOwnedCommunity(t);
-    const personProfileId = await t.run(async (ctx) => {
+    const { personProfileId, worldId } = await t.run(async (ctx) => {
       const personProfileId = await ctx.db.insert("profiles", {
         slug: "long-running-dj",
         displayName: "Long Running DJ",
@@ -688,6 +721,20 @@ describe("API-created event ownership", () => {
         updatedAt: NOW,
         profileType: "person",
         person: { roleTags: ["DJ"] },
+      });
+      const worldId = await ctx.db.insert("worlds", {
+        slug: "long-running-world",
+        displayName: "Long Running World",
+        sortName: "long running world",
+        tags: [],
+        visibilityStatus: "public",
+        platformCompatibility: [],
+        media: [],
+        creatorAttributions: [],
+        outboundLinks: [],
+        publicationState: "published",
+        creationSource: "community",
+        updatedAt: NOW,
       });
       const insertEvent = async (
         slug: string,
@@ -714,9 +761,25 @@ describe("API-created event ownership", () => {
           eventId,
           personProfileId,
           eventStartAt: startAt,
+          eventEndAt: endAt,
+          eventPublicationState: "published",
+          eventStatus,
           roleLabel: "DJ",
           sourceType: "manual",
           sourceLabel: "Test",
+          confirmationState: "confirmed",
+          confirmedAt: startAt,
+          updatedAt: startAt,
+        });
+        await ctx.db.insert("eventWorlds", {
+          eventId,
+          worldId,
+          eventStartAt: startAt,
+          eventEndAt: endAt,
+          eventPublicationState: "published",
+          eventStatus,
+          sourceType: "manual",
+          confidence: 1,
           confirmationState: "confirmed",
           confirmedAt: startAt,
           updatedAt: startAt,
@@ -755,18 +818,23 @@ describe("API-created event ownership", () => {
         );
       }
 
-      return personProfileId;
+      return { personProfileId, worldId };
     });
 
     const associations = await t.run(async (ctx) => ({
       hosted: await getPublicCommunityHostedEvents(ctx.db, communityProfileId, NOW, 2),
       participant: await getPublicPersonUpcomingEvents(ctx.db, personProfileId, NOW, 2),
+      world: await getPublicWorldEventContext(ctx.db, worldId, NOW),
     }));
     assert.deepEqual(associations.hosted.map((event) => event.slug), [
       "profile-weeklong-festival",
       "profile-future-festival",
     ]);
     assert.deepEqual(associations.participant.map((event) => event.slug), [
+      "profile-weeklong-festival",
+      "profile-future-festival",
+    ]);
+    assert.deepEqual(associations.world.upcoming.map((event) => event.slug), [
       "profile-weeklong-festival",
       "profile-future-festival",
     ]);
@@ -848,6 +916,9 @@ describe("API-created event ownership", () => {
         eventId: created.eventId,
         personProfileId: id,
         eventStartAt: startAt,
+        eventEndAt: startAt + 3_600_000,
+        eventPublicationState: "published",
+        eventStatus: "scheduled",
         roleLabel: "Performer",
         sourceType: "community",
         sourceLabel: "Test lineup",

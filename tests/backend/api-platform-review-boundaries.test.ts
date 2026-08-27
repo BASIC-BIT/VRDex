@@ -46,7 +46,7 @@ describe("API platform review boundaries", () => {
     assert.match(events, /const replaceWorld = shouldUpdate\("worldSlug"\)/);
     assert.match(events, /const replaceSlots = shouldUpdate\("slotLinks"\)/);
     assert.match(events, /const replaceParticipants = shouldUpdate\("participantLinks"\)/);
-    assert.match(events, /syncPreservedEventAssociationStartAt/);
+    assert.match(events, /syncPreservedEventAssociations/);
   });
 
   it("authorizes normal event sessions through durable profile ownership", () => {

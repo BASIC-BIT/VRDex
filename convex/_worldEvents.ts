@@ -238,20 +238,44 @@ export async function getPublicWorldEventContext(
   worldId: Id<"worlds">,
   now: number,
 ): Promise<PublicWorldEventContext> {
-  const futureAssociations = await db
-    .query("eventWorlds")
-    .withIndex("by_worldId_confirmationState_eventStartAt", (query) =>
-      query.eq("worldId", worldId).eq("confirmationState", "confirmed").gte("eventStartAt", now),
-    )
-    .collect();
-  const previousAssociations = await db
-    .query("eventWorlds")
-    .withIndex("by_worldId_confirmationState_eventStartAt", (query) =>
-      query.eq("worldId", worldId).eq("confirmationState", "confirmed").lt("eventStartAt", now),
-    )
-    .order("desc")
-    .collect();
-  const associations = [...futureAssociations, ...previousAssociations];
+  const [futureAssociations, ongoingAssociations, previousAssociations] = await Promise.all([
+    db
+      .query("eventWorlds")
+      .withIndex("by_world_confirmation_publication_status_start", (query) =>
+        query
+          .eq("worldId", worldId)
+          .eq("confirmationState", "confirmed")
+          .eq("eventPublicationState", "published")
+          .eq("eventStatus", "scheduled")
+          .gte("eventStartAt", now),
+      )
+      .take(WORLD_EVENT_SECTION_LIMIT),
+    db
+      .query("eventWorlds")
+      .withIndex("by_world_confirmation_publication_status_end", (query) =>
+        query
+          .eq("worldId", worldId)
+          .eq("confirmationState", "confirmed")
+          .eq("eventPublicationState", "published")
+          .eq("eventStatus", "scheduled")
+          .gte("eventEndAt", now),
+      )
+      .filter((query) => query.lt(query.field("eventStartAt"), now))
+      .take(WORLD_EVENT_SECTION_LIMIT),
+    db
+      .query("eventWorlds")
+      .withIndex("by_world_confirmation_publication_status_end", (query) =>
+        query
+          .eq("worldId", worldId)
+          .eq("confirmationState", "confirmed")
+          .eq("eventPublicationState", "published")
+          .eq("eventStatus", "scheduled")
+          .lt("eventEndAt", now),
+      )
+      .order("desc")
+      .take(WORLD_EVENT_SECTION_LIMIT),
+  ]);
+  const associations = [...futureAssociations, ...ongoingAssociations, ...previousAssociations];
 
   const records = (
     await Promise.all(

@@ -512,14 +512,13 @@ async function recordEventAuditEvent(
 
 async function replaceEventWorldLink(
   db: DatabaseWriter,
-  eventId: Id<"events">,
-  startAt: number,
+  event: Doc<"events">,
   world: Doc<"worlds"> | undefined,
   now: number,
 ) {
   const existing = await db
     .query("eventWorlds")
-    .withIndex("by_eventId", (query) => query.eq("eventId", eventId))
+    .withIndex("by_eventId", (query) => query.eq("eventId", event._id))
     .take(20);
 
   await Promise.all(existing.map((association) => db.delete(association._id)));
@@ -529,9 +528,12 @@ async function replaceEventWorldLink(
   }
 
   await db.insert("eventWorlds", {
-    eventId,
+    eventId: event._id,
     worldId: world._id,
-    eventStartAt: startAt,
+    eventStartAt: event.startAt,
+    eventEndAt: event.endAt ?? event.startAt,
+    eventPublicationState: event.publicationState,
+    eventStatus: event.eventStatus,
     sourceType: "community",
     confidence: 1,
     confirmationState: "confirmed",
@@ -542,14 +544,13 @@ async function replaceEventWorldLink(
 
 async function replaceEventParticipants(
   db: DatabaseWriter,
-  eventId: Id<"events">,
-  startAt: number,
+  event: Doc<"events">,
   participants: ReturnType<typeof sanitizeEventDraftInput>["participantLinks"],
   now: number,
 ) {
   const existing = await db
     .query("eventParticipants")
-    .withIndex("by_eventId", (query) => query.eq("eventId", eventId))
+    .withIndex("by_eventId", (query) => query.eq("eventId", event._id))
     .collect();
 
   await Promise.all(existing.map((participant) => db.delete(participant._id)));
@@ -558,9 +559,12 @@ async function replaceEventParticipants(
     const profile = await getPublishedPersonBySlug(db, participant.personSlug);
 
     await db.insert("eventParticipants", {
-      eventId,
+      eventId: event._id,
       personProfileId: profile._id,
-      eventStartAt: startAt,
+      eventStartAt: event.startAt,
+      eventEndAt: event.endAt ?? event.startAt,
+      eventPublicationState: event.publicationState,
+      eventStatus: event.eventStatus,
       roleLabel: participant.roleLabel,
       sourceType: "community",
       sourceLabel: participant.sourceLabel,
@@ -638,10 +642,9 @@ function participantLinksWithSlotPerformers(input: ReturnType<typeof sanitizeEve
   return links;
 }
 
-async function syncPreservedEventAssociationStartAt(
+async function syncPreservedEventAssociations(
   db: DatabaseWriter,
-  eventId: Id<"events">,
-  startAt: number,
+  event: Doc<"events">,
   now: number,
   options: {
     preserveParticipants: boolean;
@@ -651,20 +654,27 @@ async function syncPreservedEventAssociationStartAt(
 ) {
   const [worlds, participants, slots] = await Promise.all([
     options.preserveWorld
-      ? db.query("eventWorlds").withIndex("by_eventId", (query) => query.eq("eventId", eventId)).collect()
+      ? db.query("eventWorlds").withIndex("by_eventId", (query) => query.eq("eventId", event._id)).collect()
       : Promise.resolve([]),
     options.preserveParticipants
-      ? db.query("eventParticipants").withIndex("by_eventId", (query) => query.eq("eventId", eventId)).collect()
+      ? db.query("eventParticipants").withIndex("by_eventId", (query) => query.eq("eventId", event._id)).collect()
       : Promise.resolve([]),
     options.preserveSlots
-      ? db.query("eventSlots").withIndex("by_eventId", (query) => query.eq("eventId", eventId)).collect()
+      ? db.query("eventSlots").withIndex("by_eventId", (query) => query.eq("eventId", event._id)).collect()
       : Promise.resolve([]),
   ]);
 
+  const eventAssociationPatch = {
+    eventStartAt: event.startAt,
+    eventEndAt: event.endAt ?? event.startAt,
+    eventPublicationState: event.publicationState,
+    eventStatus: event.eventStatus,
+    updatedAt: now,
+  };
   await Promise.all([
-    ...worlds.map((association) => db.patch(association._id, { eventStartAt: startAt, updatedAt: now })),
-    ...participants.map((participant) => db.patch(participant._id, { eventStartAt: startAt, updatedAt: now })),
-    ...slots.map((slot) => db.patch(slot._id, { eventStartAt: startAt, updatedAt: now })),
+    ...worlds.map((association) => db.patch(association._id, eventAssociationPatch)),
+    ...participants.map((participant) => db.patch(participant._id, eventAssociationPatch)),
+    ...slots.map((slot) => db.patch(slot._id, { eventStartAt: event.startAt, updatedAt: now })),
   ]);
 }
 
@@ -957,11 +967,15 @@ async function insertCommunityEventRecord(
     { targetType: "event", targetId: eventId },
     now,
   );
+  const event = await db.get(eventId);
+  if (event === null) {
+    throw new Error("Event creation did not persist.");
+  }
 
-  await replaceEventWorldLink(db, eventId, input.startAt, world, now);
+  await replaceEventWorldLink(db, event, world, now);
   await replaceEventSlots(db, eventId, input.startAt, input.slotLinks, now);
   const participantLinks = participantLinksWithSlotPerformers(input);
-  await replaceEventParticipants(db, eventId, input.startAt, participantLinks, now);
+  await replaceEventParticipants(db, event, participantLinks, now);
 
   await recordEventAuditEvent(db, {
     eventId,
@@ -972,8 +986,7 @@ async function insertCommunityEventRecord(
     now,
   });
 
-  const event = await db.get(eventId);
-  if (event !== null && publicationState === "published") {
+  if (publicationState === "published") {
     const roleLabels = participantLinks.map((participant) => participant.roleLabel);
     await reindexEventSearchDocument(db, event, { community, world, roleLabels }, now);
   }
@@ -1038,13 +1051,17 @@ async function updateCommunityEventRecord(
         }),
     updatedAt: now,
   });
+  const updatedEvent = await db.get(event._id);
+  if (updatedEvent === null) {
+    throw new Error("Event update did not persist.");
+  }
 
   const replaceWorld = shouldUpdate("worldSlug");
   const replaceSlots = shouldUpdate("slotLinks");
   const replaceParticipants = shouldUpdate("participantLinks");
 
   if (replaceWorld) {
-    await replaceEventWorldLink(db, event._id, input.startAt, world, now);
+    await replaceEventWorldLink(db, updatedEvent, world, now);
   }
 
   if (replaceSlots) {
@@ -1053,27 +1070,22 @@ async function updateCommunityEventRecord(
 
   if (replaceParticipants) {
     const participantLinks = participantLinksWithSlotPerformers(input);
-    await replaceEventParticipants(db, event._id, input.startAt, participantLinks, now);
+    await replaceEventParticipants(db, updatedEvent, participantLinks, now);
   }
 
-  if (event.startAt !== input.startAt) {
-    await syncPreservedEventAssociationStartAt(db, event._id, input.startAt, now, {
-      preserveParticipants: !replaceParticipants,
-      preserveSlots: !replaceSlots,
-      preserveWorld: !replaceWorld,
-    });
-  }
+  await syncPreservedEventAssociations(db, updatedEvent, now, {
+    preserveParticipants: !replaceParticipants,
+    preserveSlots: !replaceSlots,
+    preserveWorld: !replaceWorld,
+  });
 
-  const updatedEvent = await db.get(event._id);
-  if (updatedEvent !== null) {
-    const roleLabels = await eventParticipantRoleLabels(db, event._id);
-    await reindexEventSearchDocument(
-      db,
-      updatedEvent,
-      { community, world, roleLabels },
-      now,
-    );
-  }
+  const roleLabels = await eventParticipantRoleLabels(db, event._id);
+  await reindexEventSearchDocument(
+    db,
+    updatedEvent,
+    { community, world, roleLabels },
+    now,
+  );
 
   return {
     eventId: event._id,
@@ -1439,9 +1451,26 @@ async function settleEventMediaForCancellation(
 
   const session = await getOpenEventMediaSession(db, program);
   if (session === null) {
-    if (program.publicLinks.length > 0) {
-      await db.patch(program._id, { publicLinks: [], updatedAt: now });
-    }
+    const [readyOutputs, activeOutputs] = await Promise.all([
+      db
+        .query("eventMediaOutputs")
+        .withIndex("by_programId_state", (query) => query.eq("programId", program._id).eq("state", "ready"))
+        .take(50),
+      db
+        .query("eventMediaOutputs")
+        .withIndex("by_programId_state", (query) => query.eq("programId", program._id).eq("state", "active"))
+        .take(50),
+    ]);
+    await Promise.all([
+      ...readyOutputs.map((output) => db.patch(output._id, { state: "disabled", updatedAt: now })),
+      ...activeOutputs.map((output) => db.patch(output._id, { state: "disabled", updatedAt: now })),
+      db.patch(program._id, {
+        state: "ended",
+        currentOutputId: undefined,
+        publicLinks: [],
+        updatedAt: now,
+      }),
+    ]);
     return;
   }
 
@@ -2669,6 +2698,11 @@ export const setCommunityEventPublished = mutation({
     });
     const updated = await ctx.db.get(event._id);
     if (updated !== null) {
+      await syncPreservedEventAssociations(ctx.db, updated, now, {
+        preserveParticipants: true,
+        preserveSlots: false,
+        preserveWorld: true,
+      });
       const [community, world, roleLabels] = await Promise.all([
         updated.communityProfileId === undefined
           ? undefined
@@ -2734,6 +2768,11 @@ export const setCommunityEventCancelled = mutation({
     }
     const updated = await ctx.db.get(event._id);
     if (updated !== null) {
+      await syncPreservedEventAssociations(ctx.db, updated, now, {
+        preserveParticipants: true,
+        preserveSlots: false,
+        preserveWorld: true,
+      });
       const [community, world, roleLabels] = await Promise.all([
         updated.communityProfileId === undefined
           ? undefined

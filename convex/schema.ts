@@ -1017,6 +1017,9 @@ export default defineSchema({
     eventId: v.id("events"),
     worldId: v.id("worlds"),
     eventStartAt: v.number(),
+    eventEndAt: v.number(),
+    eventPublicationState: publicationState,
+    eventStatus,
     sourceType: eventSourceType,
     confidence: v.number(),
     confirmationState: eventWorldConfirmationState,
@@ -1027,10 +1030,19 @@ export default defineSchema({
     .index("by_worldId", ["worldId"])
     .index("by_eventId", ["eventId"])
     .index("by_worldId_confirmationState", ["worldId", "confirmationState"])
-    .index("by_worldId_confirmationState_eventStartAt", [
+    .index("by_world_confirmation_publication_status_start", [
       "worldId",
       "confirmationState",
+      "eventPublicationState",
+      "eventStatus",
       "eventStartAt",
+    ])
+    .index("by_world_confirmation_publication_status_end", [
+      "worldId",
+      "confirmationState",
+      "eventPublicationState",
+      "eventStatus",
+      "eventEndAt",
     ]),
   worldProfileCredits: defineTable({
     worldId: v.id("worlds"),
@@ -1046,6 +1058,9 @@ export default defineSchema({
     eventId: v.id("events"),
     personProfileId: v.id("profiles"),
     eventStartAt: v.number(),
+    eventEndAt: v.number(),
+    eventPublicationState: publicationState,
+    eventStatus,
     roleLabel: v.string(),
     sourceType: eventSourceType,
     sourceLabel: v.string(),
@@ -1056,10 +1071,19 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_eventId", ["eventId"])
-    .index("by_personProfileId_confirmationState_eventStartAt", [
+    .index("by_person_confirmation_publication_status_start", [
       "personProfileId",
       "confirmationState",
+      "eventPublicationState",
+      "eventStatus",
       "eventStartAt",
+    ])
+    .index("by_person_confirmation_publication_status_end", [
+      "personProfileId",
+      "confirmationState",
+      "eventPublicationState",
+      "eventStatus",
+      "eventEndAt",
     ]),
   eventSlots: defineTable({
     eventId: v.id("events"),

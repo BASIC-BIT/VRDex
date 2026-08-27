@@ -729,28 +729,32 @@ export async function getPublicPersonUpcomingEvents(
   now: number,
   limit = EVENT_PREVIEW_DEFAULT_LIMIT,
 ): Promise<PublicEventPreview[]> {
-  const [startedLinks, upcomingLinks] = await Promise.all([
+  const [ongoingLinks, upcomingLinks] = await Promise.all([
     db
       .query("eventParticipants")
-      .withIndex("by_personProfileId_confirmationState_eventStartAt", (query) =>
+      .withIndex("by_person_confirmation_publication_status_end", (query) =>
         query
           .eq("personProfileId", personProfileId)
           .eq("confirmationState", "confirmed")
-          .lt("eventStartAt", now),
+          .eq("eventPublicationState", "published")
+          .eq("eventStatus", "scheduled")
+          .gte("eventEndAt", now),
       )
-      .order("desc")
-      .collect(),
+      .filter((query) => query.lt(query.field("eventStartAt"), now))
+      .take(EVENT_ASSOCIATION_LIMIT),
     db
       .query("eventParticipants")
-      .withIndex("by_personProfileId_confirmationState_eventStartAt", (query) =>
+      .withIndex("by_person_confirmation_publication_status_start", (query) =>
         query
           .eq("personProfileId", personProfileId)
           .eq("confirmationState", "confirmed")
+          .eq("eventPublicationState", "published")
+          .eq("eventStatus", "scheduled")
           .gte("eventStartAt", now),
       )
-      .collect(),
+      .take(EVENT_ASSOCIATION_LIMIT),
   ]);
-  const participantLinks = [...startedLinks, ...upcomingLinks];
+  const participantLinks = [...ongoingLinks, ...upcomingLinks];
   const events = (
     await Promise.all(participantLinks.map((link) => db.get(link.eventId)))
   ).filter((event): event is Doc<"events"> => event !== null);
