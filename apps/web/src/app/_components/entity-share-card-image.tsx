@@ -49,7 +49,7 @@ export function EntityShareCardImage({ profile }: { profile: PublicProfileShareC
         style={{
           background: bannerImageUrl
             ? "linear-gradient(90deg, rgba(8,9,13,0.98) 0%, rgba(8,9,13,0.88) 48%, rgba(8,9,13,0.42) 100%)"
-            : "radial-gradient(circle at 82% 18%, rgba(142,216,255,0.19), transparent 34%), linear-gradient(145deg, #08090d 0%, #0f1722 100%)",
+            : "#08090d",
           display: "flex",
           height: "100%",
           position: "absolute",
