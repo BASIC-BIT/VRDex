@@ -43,7 +43,7 @@ function safeMessage(error: unknown) {
 
   return safePatterns.some((pattern) => pattern.test(normalized))
     ? normalized
-    : "The media contribution could not be submitted. Try again.";
+    : "Submission failed";
 }
 
 export function ProfileMediaContributionForm({ profile }: { profile: ContributionProfile }) {

@@ -362,7 +362,8 @@ Current recommendation:
   and role/style.
 - Slot authoring uses event timezone. Public previews render viewer-local time.
 - Draft, publish, cancel, and unpublish actions are explicit and authorized.
-  Destructive or suppressive actions require a reason and confirmation.
+  Cancellation and moderator suppression require a reason and confirmation.
+  Reversible unpublish requires confirmation.
 
 ### Public discovery and event pages
 
@@ -424,7 +425,6 @@ Contributor states and errors:
   `Withdrawn`, and `Superseded`
 - `Choose one image to submit.`
 - `Choose a PNG, JPEG, WebP, or SVG image.`
-- `The media contribution could not be submitted. Try again.`
 - `A verified email address is required to contribute media.`
 - `This profile changed. Refresh it before contributing media.`
 

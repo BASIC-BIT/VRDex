@@ -527,6 +527,11 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
     const formData = new FormData(form);
     const doorsOpenAtInput = optionalString(stringField(formData.get("doorsOpenAt")));
     const endAtInput = optionalString(stringField(formData.get("endAt")));
+    const intent = stringField(formData.get("intent"));
+
+    if (event !== undefined && isPublished && intent === "draft" && !window.confirm("Unpublish and save draft")) {
+      return;
+    }
 
     setStatus({ kind: "submitting" });
 
@@ -555,7 +560,6 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
         participantLinks: parseParticipantLinks(stringField(formData.get("participantLinks"))),
         slotLinks: parseSlotRows(slotRows, startAt),
       };
-      const intent = stringField(formData.get("intent"));
       const result = event
         ? await updateEvent({
             currentSlug: currentSlug!,

@@ -1101,6 +1101,76 @@ describe("API-created event ownership", () => {
     assert.equal(publicEvent?.slots[0]?.performer?.imageUrl, undefined);
   });
 
+  it("keeps hidden confirmed associations in the authorized event editor", async () => {
+    const t = convexTest({ schema, modules });
+    const { identity, userId } = await seedOwnedCommunity(t);
+    const startAt = NOW + 3_600_000;
+    const { personId, worldId } = await t.run(async (ctx) => ({
+      personId: await ctx.db.insert("profiles", {
+        profileType: "person",
+        slug: "hidden-dj",
+        displayName: "Hidden DJ",
+        sortName: "hidden dj",
+        aliases: [],
+        tags: [],
+        claimState: "unclaimed",
+        publicationState: "published",
+        publicSurfacingState: "public",
+        creationSource: "community",
+        person: { roleTags: ["DJ"] },
+        updatedAt: NOW,
+      }),
+      worldId: await ctx.db.insert("worlds", {
+        slug: "hidden-club",
+        displayName: "Hidden Club",
+        sortName: "hidden club",
+        tags: [],
+        visibilityStatus: "public",
+        platformCompatibility: [],
+        media: [],
+        creatorAttributions: [],
+        outboundLinks: [],
+        publicationState: "published",
+        creationSource: "community",
+        updatedAt: NOW,
+      }),
+    }));
+    const created = await t.mutation(internal.events.createCommunityEventForApiOwner, {
+      actorKind: "personal_api_token",
+      ownerUserId: userId,
+      title: "Hidden association event",
+      communitySlug: "faceless",
+      worldSlug: "hidden-club",
+      startAt,
+      timezone: "UTC",
+      participantLinks: [{ personSlug: "hidden-dj", roleLabel: "Performer" }],
+      slotLinks: [{
+        personSlug: "hidden-dj",
+        displayLabel: "Hidden DJ",
+        roleLabel: "DJ",
+        startAt,
+        endAt: startAt + 3_600_000,
+      }],
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(personId, { publicSurfacingState: "opted_out" });
+      await ctx.db.patch(worldId, { publicationState: "draft_private" });
+    });
+
+    const publicEvent = await t.query(api.events.getPublicBySlug, { slug: created.slug });
+    assert.deepEqual(publicEvent?.worlds, []);
+    assert.deepEqual(publicEvent?.participants, []);
+    assert.equal(publicEvent?.slots[0]?.performer, undefined);
+
+    const editable = await t.withIdentity(identity).query(api.events.getEditableBySlug, {
+      slug: created.slug,
+    });
+    assert.equal(editable?.worlds[0]?.slug, "hidden-club");
+    assert.equal(editable?.participants[0]?.slug, "hidden-dj");
+    assert.equal(editable?.slots[0]?.performer?.slug, "hidden-dj");
+  });
+
   it("keeps a published event online when an atomic unpublish-and-save fails", async () => {
     const t = convexTest({ schema, modules });
     const { identity } = await seedOwnedCommunity(t);
