@@ -318,6 +318,9 @@ jobs:
     name: Publish Claude PR review
     needs: review
     if: always() && needs.review.result != 'skipped'
+    concurrency:
+      group: claude-review-mutation-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -347,13 +350,6 @@ jobs:
             gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
               --jq '[.state, .head.sha, .base.ref, .base.sha, .draft, (.labels | map(.name) | index("skip-claude-review") != null)] | @tsv'
           )"
-          if [ "$state" != "open" ] || [ "$head_sha" != "$PR_HEAD_SHA" ] || \
-             [ "$base_ref" != "$PR_BASE_REF" ] || [ "$base_sha" != "$PR_BASE_SHA" ] || \
-             [ "$draft" = "true" ] || [ "$skipped" = "true" ]; then
-            echo "::notice::Not publishing a stale or ineligible Claude review."
-            exit 0
-          fi
-
           comment_id="$(
             gh api --paginate \
               "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
@@ -361,7 +357,25 @@ jobs:
               tail -n 1
           )"
 
-          if [ "$REVIEW_RESULT" = "success" ] && [ -n "$REVIEW_MARKDOWN_B64" ]; then
+          eligible=true
+          if [ "$state" != "open" ] || [ "$head_sha" != "$PR_HEAD_SHA" ] || \
+             [ "$base_ref" != "$PR_BASE_REF" ] || [ "$base_sha" != "$PR_BASE_SHA" ] || \
+             [ "$draft" = "true" ] || [ "$skipped" = "true" ]; then
+            eligible=false
+          fi
+
+          if [ "$eligible" != "true" ]; then
+            cat > "$body_file" <<EOF
+          ${STICKY_MARKER}
+          [AGENT]
+
+          ## Claude Review
+
+          Claude review for commit \`${head_sha}\` is unavailable because the pull request is no longer eligible for this review.
+
+          This is not a current review or approval.
+          EOF
+          elif [ "$REVIEW_RESULT" = "success" ] && [ -n "$REVIEW_MARKDOWN_B64" ]; then
             printf '%s' "$REVIEW_MARKDOWN_B64" | base64 -d > "$review_file"
             {
               echo "$STICKY_MARKER"
@@ -422,3 +436,35 @@ jobs:
                 "repos/${GITHUB_REPOSITORY}/issues/comments/${duplicate_id}" > /dev/null
             fi
           done <<< "$all_comment_ids"
+
+          IFS=$'\t' read -r final_state final_head final_base_ref final_base_sha final_draft final_skipped <<< "$(
+            gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
+              --jq '[.state, .head.sha, .base.ref, .base.sha, .draft, (.labels | map(.name) | index("skip-claude-review") != null)] | @tsv'
+          )"
+          if [ "$final_state" != "open" ] || [ "$final_head" != "$PR_HEAD_SHA" ] || \
+             [ "$final_base_ref" != "$PR_BASE_REF" ] || [ "$final_base_sha" != "$PR_BASE_SHA" ] || \
+             [ "$final_draft" = "true" ] || [ "$final_skipped" = "true" ]; then
+            cat > "$body_file" <<EOF
+          ${STICKY_MARKER}
+          [AGENT]
+
+          ## Claude Review
+
+          Claude review for commit \`${final_head}\` is unavailable because the pull request is no longer eligible for this review.
+
+          This is not a current review or approval.
+          EOF
+            node - "$body_file" "$json_file" <<'NODE'
+          const fs = require("node:fs");
+          fs.writeFileSync(process.argv[3], JSON.stringify({
+            body: fs.readFileSync(process.argv[2], "utf8"),
+          }));
+          NODE
+            if [ -z "$keep_comment_id" ]; then
+              echo "::error::Claude review sticky disappeared before final eligibility convergence."
+              exit 1
+            fi
+            gh api --method PATCH \
+              "repos/${GITHUB_REPOSITORY}/issues/comments/${keep_comment_id}" \
+              --input "$json_file" > /dev/null
+          fi

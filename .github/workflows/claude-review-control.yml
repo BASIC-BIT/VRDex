@@ -22,6 +22,9 @@ jobs:
       github.event.action == 'converted_to_draft' || github.event.action == 'closed') &&
       github.event.pull_request.base.ref == 'main' ||
       (github.event.action == 'edited' && github.event.changes.base != null))
+    concurrency:
+      group: claude-review-mutation-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -32,9 +35,8 @@ jobs:
     steps:
       - name: Upsert unavailable sticky comment
         env:
-          ACTION: ${{ github.event.action }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
           GH_TOKEN: ${{ github.token }}
-          IS_MERGED: ${{ github.event.pull_request.merged }}
           PREVIOUS_BASE_REF: ${{ github.event.changes.base.ref.from }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           STICKY_MARKER: '<!-- claude-pr-review -->'
@@ -42,23 +44,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          case "$ACTION" in
-            labeled) reason='the `skip-claude-review` label is applied' ;;
-            converted_to_draft) reason='the pull request became a draft' ;;
-            closed)
-              if [ "$IS_MERGED" = "true" ]; then reason='the pull request was merged';
-              else reason='the pull request was closed'; fi
-              ;;
-            edited) reason='' ;;
-            *) echo "::error::Unsupported control event."; exit 1 ;;
-          esac
-
           body_file="${RUNNER_TEMP}/claude-review-comment.md"
           json_file="${RUNNER_TEMP}/claude-review-comment.json"
 
-          IFS=$'\t' read -r live_state live_head live_base live_draft live_skipped <<< "$(
+          IFS=$'\t' read -r live_state live_head live_base live_base_sha live_draft live_skipped live_merged <<< "$(
             gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
-              --jq '[.state, .head.sha, .base.ref, .draft, (.labels | map(.name) | index("skip-claude-review") != null)] | @tsv'
+              --jq '[.state, .head.sha, .base.ref, .base.sha, .draft, (.labels | map(.name) | index("skip-claude-review") != null), .merged] | @tsv'
           )"
           comment_id="$(
             gh api --paginate \
@@ -66,29 +57,43 @@ jobs:
               --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- claude-pr-review -->"))) | .id' |
               tail -n 1
           )"
-          case "$ACTION" in
-            labeled) still_applies="$live_skipped" ;;
-            converted_to_draft) still_applies="$live_draft" ;;
-            closed) if [ "$live_state" = "open" ]; then still_applies=false; else still_applies=true; fi ;;
-            edited)
-              if [ "$live_base" = "main" ] && [ "$live_skipped" = "true" ]; then
-                still_applies=true
-                reason='the `skip-claude-review` label is applied'
-              elif [ "$live_base" = "main" ] && [ "$live_draft" = "true" ]; then
-                still_applies=true
-                reason='the pull request is a draft'
-              elif [ "$live_base" != "main" ] &&
-                { [ "$PREVIOUS_BASE_REF" = "main" ] || [ -n "$comment_id" ]; }; then
-                still_applies=true
-                reason="the pull request base changed to \`${live_base}\`"
-              else
-                still_applies=false
-              fi
-              ;;
-          esac
-          if [ "$still_applies" != "true" ]; then
-            echo "::notice::The invalidating condition no longer applies to the live PR."
+          in_scope=false
+          if [ "$live_base" = "main" ] || [ "$EVENT_BASE_REF" = "main" ] || \
+             [ "$PREVIOUS_BASE_REF" = "main" ] || [ -n "$comment_id" ]; then
+            in_scope=true
+          fi
+          if [ "$in_scope" != "true" ]; then
+            echo "::notice::The pull request has never entered Claude review scope."
             exit 0
+          fi
+
+          if [ "$live_state" != "open" ]; then
+            if [ "$live_merged" = "true" ]; then reason='the pull request was merged';
+            else reason='the pull request was closed'; fi
+          elif [ "$live_base" != "main" ]; then
+            reason="the pull request base changed to \`${live_base}\`"
+          elif [ "$live_skipped" = "true" ]; then
+            reason='the `skip-claude-review` label is applied'
+          elif [ "$live_draft" = "true" ]; then
+            reason='the pull request is a draft'
+          else
+            [ -n "$comment_id" ] || exit 0
+            existing_body="$(gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${comment_id}" --jq '.body')"
+            reviewed_head="$(
+              printf '%s\n' "$existing_body" |
+                sed -n 's/^<!-- claude-pr-review-head:\([0-9a-f]*\) -->$/\1/p' |
+                tail -n 1
+            )"
+            reviewed_base="$(
+              printf '%s\n' "$existing_body" |
+                sed -n 's/^<!-- claude-pr-review-base:\([0-9a-f]*\) -->$/\1/p' |
+                tail -n 1
+            )"
+            if printf '%s' "$existing_body" | grep -qF '<!-- claude-pr-review-complete -->' && \
+               [ "$reviewed_head" = "$live_head" ] && [ "$reviewed_base" = "$live_base_sha" ]; then
+              exit 0
+            fi
+            reason='no completed result covers the live head and base'
           fi
 
           cat > "$body_file" <<EOF

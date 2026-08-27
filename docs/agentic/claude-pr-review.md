@@ -74,9 +74,9 @@ contract.
 
 The model job has repository read permissions plus `id-token: write`. It cannot
 comment. A separate five-minute publisher has comment permission, no checkout,
-and re-reads the live pull request before publishing. It refuses stale head or
-base results and does not replace a completed exact-head review with a failed
-replay.
+and re-reads the live pull request before and after publishing. It refuses stale
+head or base results, converges a concurrent invalidation to unavailable, and
+does not replace a completed exact-head review with a failed replay.
 
 ## Credential and infrastructure
 
@@ -96,9 +96,10 @@ repository setting.
 ## Cost controls
 
 - draft, fork, bot, skipped, and stale queued runs do not spend review quota
-- per-pull-request concurrency serializes review and reconciliation workers;
-  control events converge independently so a later queued review cannot
-  displace an invalidation, and every publisher rechecks live eligibility
+- review generation serializes per pull request outside the sticky mutation
+  lane; publisher, control, and reconciliation jobs share a separate per-pull-
+  request mutation lane and converge from live eligibility, while publishers
+  also recheck after mutating the sticky
 - the `main`-push coordinator splits eligible pull requests into sequential
   200-item reusable-workflow batches, avoiding GitHub's 256-job matrix limit
   while pacing sticky updates through one worker at a time
