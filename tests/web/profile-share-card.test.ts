@@ -74,6 +74,14 @@ describe("profile share metadata", () => {
     assert.equal(profileShareTrustNote({ trustLabel: "claimed_verified" }), undefined);
   });
 
+  it("does not split Unicode characters when truncating a summary", () => {
+    const summary = `${"A".repeat(198)}🎧BC`;
+    const description = profileShareDescription({ summary });
+
+    assert.equal(description, `${"A".repeat(198)}🎧…`);
+    assert.equal(description.includes("�"), false);
+  });
+
   it("scales valid maximum-length names into the generated image", () => {
     assert.equal(profileShareNameFontSize("A".repeat(80)), 28);
     assert.equal(profileShareNameFontSize("A".repeat(50)), 36);

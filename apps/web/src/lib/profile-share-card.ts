@@ -11,11 +11,13 @@ function compactText(value: string | undefined, maximumLength: number): string |
     return undefined;
   }
 
-  if (compact.length <= maximumLength) {
+  const characters = Array.from(compact);
+
+  if (characters.length <= maximumLength) {
     return compact;
   }
 
-  return `${compact.slice(0, maximumLength - 1).trimEnd()}…`;
+  return `${characters.slice(0, maximumLength - 1).join("").trimEnd()}…`;
 }
 
 export function profileShareDescription(card: Pick<PublicProfileShareCard, "summary">): string {
