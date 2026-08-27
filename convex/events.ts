@@ -515,13 +515,32 @@ async function replaceEventWorldLink(
   event: Doc<"events">,
   world: Doc<"worlds"> | undefined,
   now: number,
+  options: { preserveNonPublic?: boolean } = {},
 ) {
   const existing = await db
     .query("eventWorlds")
     .withIndex("by_eventId", (query) => query.eq("eventId", event._id))
     .take(20);
+  const preserved = options.preserveNonPublic === true && world === undefined
+    ? (await Promise.all(existing.map(async (association) => ({
+        association,
+        world: await db.get(association.worldId),
+      })))).filter(({ world: linkedWorld }) => linkedWorld?.publicationState !== "published")
+    : [];
+  const preservedIds = new Set(preserved.map(({ association }) => association._id));
 
-  await Promise.all(existing.map((association) => db.delete(association._id)));
+  await Promise.all([
+    ...existing
+      .filter((association) => !preservedIds.has(association._id))
+      .map((association) => db.delete(association._id)),
+    ...preserved.map(({ association }) => db.patch(association._id, {
+      eventStartAt: event.startAt,
+      eventEndAt: event.endAt ?? event.startAt,
+      eventPublicationState: event.publicationState,
+      eventStatus: event.eventStatus,
+      updatedAt: now,
+    })),
+  ]);
 
   if (world === undefined) {
     return;
@@ -547,13 +566,32 @@ async function replaceEventParticipants(
   event: Doc<"events">,
   participants: ReturnType<typeof sanitizeEventDraftInput>["participantLinks"],
   now: number,
+  options: { preserveNonPublic?: boolean } = {},
 ) {
   const existing = await db
     .query("eventParticipants")
     .withIndex("by_eventId", (query) => query.eq("eventId", event._id))
     .collect();
+  const preserved = options.preserveNonPublic === true
+    ? (await Promise.all(existing.map(async (association) => ({
+        association,
+        profile: await db.get(association.personProfileId),
+      })))).filter(({ profile }) => profile === null || !canReadProfile("public", profile))
+    : [];
+  const preservedIds = new Set(preserved.map(({ association }) => association._id));
 
-  await Promise.all(existing.map((participant) => db.delete(participant._id)));
+  await Promise.all([
+    ...existing
+      .filter((participant) => !preservedIds.has(participant._id))
+      .map((participant) => db.delete(participant._id)),
+    ...preserved.map(({ association }) => db.patch(association._id, {
+      eventStartAt: event.startAt,
+      eventEndAt: event.endAt ?? event.startAt,
+      eventPublicationState: event.publicationState,
+      eventStatus: event.eventStatus,
+      updatedAt: now,
+    })),
+  ]);
 
   for (const participant of participants) {
     const profile = await getPublishedPersonBySlug(db, participant.personSlug);
@@ -583,16 +621,39 @@ async function replaceEventSlots(
   eventStartAt: number,
   slots: ReturnType<typeof sanitizeEventDraftInput>["slotLinks"],
   now: number,
+  options: {
+    preserveNonPublic?: boolean;
+    previousEventStartAt?: number;
+  } = {},
 ) {
   const existing = await db
     .query("eventSlots")
     .withIndex("by_eventId", (query) => query.eq("eventId", eventId))
     .collect();
+  const nonPublicExisting = options.preserveNonPublic === true
+    ? (await Promise.all(existing.map(async (slot) => ({
+        slot,
+        profile: slot.personProfileId === undefined ? null : await db.get(slot.personProfileId),
+      })))).filter(({ slot, profile }) =>
+        slot.personProfileId !== undefined &&
+        (profile === null || !canReadProfile("public", profile)),
+      )
+    : [];
 
   await Promise.all(existing.map((slot) => db.delete(slot._id)));
 
   for (const slot of slots) {
     const profile = slot.personSlug === undefined ? undefined : await getPublishedPersonBySlug(db, slot.personSlug);
+    const preservedProfileId = slot.personSlug === undefined
+      ? nonPublicExisting.find(({ slot: existingSlot }) =>
+          existingSlot.position === slot.position &&
+          existingSlot.startAt - (options.previousEventStartAt ?? eventStartAt) === slot.startAt - eventStartAt &&
+          (existingSlot.endAt === undefined ? undefined : existingSlot.endAt - existingSlot.startAt) ===
+            (slot.endAt === undefined ? undefined : slot.endAt - slot.startAt) &&
+          existingSlot.displayLabel === slot.displayLabel &&
+          existingSlot.roleLabel === slot.roleLabel,
+        )?.slot.personProfileId
+      : undefined;
 
     await db.insert("eventSlots", {
       eventId,
@@ -600,7 +661,7 @@ async function replaceEventSlots(
       position: slot.position,
       startAt: slot.startAt,
       ...optionalValue("endAt", slot.endAt),
-      ...optionalValue("personProfileId", profile?._id),
+      ...optionalValue("personProfileId", profile?._id ?? preservedProfileId),
       displayLabel: slot.displayLabel,
       roleLabel: slot.roleLabel,
       sourceType: "community",
@@ -1008,10 +1069,19 @@ async function updateCommunityEventRecord(
     community?: Doc<"profiles">;
     world?: Doc<"worlds">;
     publicationState?: Doc<"events">["publicationState"];
+    preserveNonPublicAssociations?: boolean;
     updateFields?: ReadonlySet<keyof EventDraftInput>;
   },
 ) {
-  const { community, event, input, publicationState, updateFields, world } = options;
+  const {
+    community,
+    event,
+    input,
+    preserveNonPublicAssociations,
+    publicationState,
+    updateFields,
+    world,
+  } = options;
   const now = Date.now();
   const shouldUpdate = (field: keyof EventDraftInput) => updateFields === undefined || updateFields.has(field);
   const slug = await findAvailableEventSlug(
@@ -1061,16 +1131,23 @@ async function updateCommunityEventRecord(
   const replaceParticipants = shouldUpdate("participantLinks");
 
   if (replaceWorld) {
-    await replaceEventWorldLink(db, updatedEvent, world, now);
+    await replaceEventWorldLink(db, updatedEvent, world, now, {
+      preserveNonPublic: preserveNonPublicAssociations,
+    });
   }
 
   if (replaceSlots) {
-    await replaceEventSlots(db, event._id, input.startAt, input.slotLinks, now);
+    await replaceEventSlots(db, event._id, input.startAt, input.slotLinks, now, {
+      preserveNonPublic: preserveNonPublicAssociations,
+      previousEventStartAt: event.startAt,
+    });
   }
 
   if (replaceParticipants) {
     const participantLinks = participantLinksWithSlotPerformers(input);
-    await replaceEventParticipants(db, updatedEvent, participantLinks, now);
+    await replaceEventParticipants(db, updatedEvent, participantLinks, now, {
+      preserveNonPublic: preserveNonPublicAssociations,
+    });
   }
 
   await syncPreservedEventAssociations(db, updatedEvent, now, {
@@ -2606,6 +2683,7 @@ export const updateCommunityEvent = mutation({
       input,
       community,
       world,
+      preserveNonPublicAssociations: true,
       publicationState,
     });
     await recordEventAuditEvent(ctx.db, {

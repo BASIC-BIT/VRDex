@@ -524,7 +524,7 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
   async function onSubmit(submitEvent: FormEvent<HTMLFormElement>) {
     submitEvent.preventDefault();
     const form = submitEvent.currentTarget;
-    const formData = new FormData(form);
+    const formData = new FormData(form, (submitEvent.nativeEvent as SubmitEvent).submitter);
     const doorsOpenAtInput = optionalString(stringField(formData.get("doorsOpenAt")));
     const endAtInput = optionalString(stringField(formData.get("endAt")));
     const intent = stringField(formData.get("intent"));

@@ -405,11 +405,7 @@ export function toPublicEvent(record: PublicEventRecord): PublicEvent | null {
   };
 }
 
-async function getPublishedCommunity(
-  db: DatabaseReader,
-  event: Doc<"events">,
-  options: { includeNonPublic?: boolean } = {},
-) {
+async function getPublishedCommunity(db: DatabaseReader, event: Doc<"events">) {
   if (event.communityProfileId === undefined) {
     return undefined;
   }
@@ -419,7 +415,7 @@ async function getPublishedCommunity(
   if (
     community === null ||
     community.profileType !== "community" ||
-    (options.includeNonPublic !== true && !canReadProfile("public", community))
+    !canReadProfile("public", community)
   ) {
     return undefined;
   }
@@ -427,11 +423,7 @@ async function getPublishedCommunity(
   return community;
 }
 
-async function getPublicEventWorldRecords(
-  db: DatabaseReader,
-  event: Doc<"events">,
-  options: { includeNonPublic?: boolean } = {},
-) {
+async function getPublicEventWorldRecords(db: DatabaseReader, event: Doc<"events">) {
   const associations = await db
     .query("eventWorlds")
     .withIndex("by_eventId", (query) => query.eq("eventId", event._id))
@@ -442,10 +434,7 @@ async function getPublicEventWorldRecords(
     associations.map(async (association) => {
       const world = await db.get(association.worldId);
 
-      if (
-        world === null ||
-        (options.includeNonPublic !== true && world.publicationState !== "published")
-      ) {
+      if (world === null || world.publicationState !== "published") {
         return null;
       }
 
@@ -461,7 +450,7 @@ async function getPublicEventWorldRecords(
 async function getPublicEventParticipantRecords(
   db: DatabaseReader,
   event: Doc<"events">,
-  options: { includeMediaKit?: boolean; includeNonPublic?: boolean } = {},
+  options: { includeMediaKit?: boolean } = {},
 ) {
   const associations = await db
     .query("eventParticipants")
@@ -476,7 +465,7 @@ async function getPublicEventParticipantRecords(
       if (
         profile === null ||
         profile.profileType !== "person" ||
-        (options.includeNonPublic !== true && !canReadProfile("public", profile))
+        !canReadProfile("public", profile)
       ) {
         return null;
       }
@@ -505,7 +494,7 @@ async function getPublicEventParticipantRecords(
 async function getPublicEventSlotRecords(
   db: DatabaseReader,
   event: Doc<"events">,
-  options: { includeMediaKit?: boolean; includeNonPublic?: boolean } = {},
+  options: { includeMediaKit?: boolean } = {},
 ) {
   const slots = await db
     .query("eventSlots")
@@ -525,7 +514,7 @@ async function getPublicEventSlotRecords(
       if (
         profile === null ||
         profile.profileType !== "person" ||
-        (options.includeNonPublic !== true && !canReadProfile("public", profile))
+        !canReadProfile("public", profile)
       ) {
         return { slot };
       }
@@ -609,7 +598,6 @@ async function getPublicEventRecord(
   event: Doc<"events">,
   options: {
     includeAssociationMediaKits?: boolean;
-    includeNonPublicAssociations?: boolean;
     includeUnpublished?: boolean;
   } = {},
 ): Promise<PublicEventRecord | null> {
@@ -618,24 +606,18 @@ async function getPublicEventRecord(
   }
 
   const [community, worlds, participants, slots, media] = await Promise.all([
-    getPublishedCommunity(db, event, {
-      includeNonPublic: options.includeNonPublicAssociations,
-    }),
-    getPublicEventWorldRecords(db, event, {
-      includeNonPublic: options.includeNonPublicAssociations,
-    }),
+    getPublishedCommunity(db, event),
+    getPublicEventWorldRecords(db, event),
     getPublicEventParticipantRecords(db, event, {
       includeMediaKit: options.includeAssociationMediaKits,
-      includeNonPublic: options.includeNonPublicAssociations,
     }),
     getPublicEventSlotRecords(db, event, {
       includeMediaKit: options.includeAssociationMediaKits,
-      includeNonPublic: options.includeNonPublicAssociations,
     }),
     getPublicEventMediaRecord(db, event),
   ]);
 
-  const communityMediaKit = community === undefined || options.includeNonPublicAssociations === true
+  const communityMediaKit = community === undefined
     ? undefined
     : await getPublicProfileMediaKit(db, community, { surface: "discovery" });
   const communityProfileImageUrl = communityMediaKit?.profileImage?.imageUrl;
@@ -678,7 +660,6 @@ export async function getEventForEditor(
 ) {
   const record = await getPublicEventRecord(db, event, {
     includeAssociationMediaKits: false,
-    includeNonPublicAssociations: true,
     includeUnpublished: true,
   });
   const projected = record === null ? null : toPublicEvent(record);

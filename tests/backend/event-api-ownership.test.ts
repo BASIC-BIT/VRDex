@@ -1101,7 +1101,7 @@ describe("API-created event ownership", () => {
     assert.equal(publicEvent?.slots[0]?.performer?.imageUrl, undefined);
   });
 
-  it("keeps hidden confirmed associations in the authorized event editor", async () => {
+  it("keeps hidden associations private and preserves them across editor saves", async () => {
     const t = convexTest({ schema, modules });
     const { identity, userId } = await seedOwnedCommunity(t);
     const startAt = NOW + 3_600_000;
@@ -1166,9 +1166,48 @@ describe("API-created event ownership", () => {
     const editable = await t.withIdentity(identity).query(api.events.getEditableBySlug, {
       slug: created.slug,
     });
-    assert.equal(editable?.worlds[0]?.slug, "hidden-club");
-    assert.equal(editable?.participants[0]?.slug, "hidden-dj");
-    assert.equal(editable?.slots[0]?.performer?.slug, "hidden-dj");
+    assert.deepEqual(editable?.worlds, []);
+    assert.deepEqual(editable?.participants, []);
+    assert.equal(editable?.slots[0]?.performer, undefined);
+
+    const shiftedStartAt = startAt + 60_000;
+    await t.withIdentity(identity).mutation(api.events.updateCommunityEvent, {
+      currentSlug: created.slug,
+      title: "Updated hidden association event",
+      communitySlug: "faceless",
+      startAt: shiftedStartAt,
+      timezone: "UTC",
+      participantLinks: [],
+      slotLinks: [{
+        displayLabel: "Hidden DJ",
+        roleLabel: "DJ",
+        startAt: shiftedStartAt,
+        endAt: shiftedStartAt + 3_600_000,
+      }],
+    });
+
+    const stored = await t.run(async (ctx) => ({
+      event: await ctx.db.get(created.eventId),
+      worlds: await ctx.db
+        .query("eventWorlds")
+        .withIndex("by_eventId", (query) => query.eq("eventId", created.eventId))
+        .collect(),
+      participants: await ctx.db
+        .query("eventParticipants")
+        .withIndex("by_eventId", (query) => query.eq("eventId", created.eventId))
+        .collect(),
+      slots: await ctx.db
+        .query("eventSlots")
+        .withIndex("by_eventId", (query) => query.eq("eventId", created.eventId))
+        .collect(),
+    }));
+    assert.equal(stored.event?.title, "Updated hidden association event");
+    assert.equal(stored.worlds[0]?.worldId, worldId);
+    assert.equal(stored.worlds[0]?.eventStartAt, shiftedStartAt);
+    assert.equal(stored.participants[0]?.personProfileId, personId);
+    assert.equal(stored.participants[0]?.eventStartAt, shiftedStartAt);
+    assert.equal(stored.slots[0]?.personProfileId, personId);
+    assert.equal(stored.slots[0]?.startAt, shiftedStartAt);
   });
 
   it("keeps a published event online when an atomic unpublish-and-save fails", async () => {
