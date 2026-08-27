@@ -85,7 +85,7 @@ jobs:
 
           ## Claude Review
 
-          Claude review for commit `${PR_HEAD_SHA}` is unavailable because ${reason}.
+          Claude review for commit \`${PR_HEAD_SHA}\` is unavailable because ${reason}.
 
           This is not a current review or approval.
           EOF

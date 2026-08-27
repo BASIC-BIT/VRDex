@@ -9,8 +9,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ (!github.event.pull_request.draft && !contains(github.event.pull_request.labels.*.name, 'skip-claude-review') && (github.event.action != 'unlabeled' || github.event.label.name == 'skip-claude-review') && (github.event.action != 'edited' || github.event.changes.base != null)) && format('claude-review-{0}', github.event.pull_request.number) || format('claude-review-noop-{0}', github.run_id) }}
-  cancel-in-progress: ${{ !github.event.pull_request.draft && !contains(github.event.pull_request.labels.*.name, 'skip-claude-review') && (github.event.action != 'unlabeled' || github.event.label.name == 'skip-claude-review') && (github.event.action != 'edited' || github.event.changes.base != null) }}
+  group: ${{ (!github.event.pull_request.draft && github.event.pull_request.state == 'open' && !github.event.pull_request.head.repo.fork && github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name && !endsWith(github.event.pull_request.user.login, '[bot]') && !contains(github.event.pull_request.labels.*.name, 'skip-claude-review') && (github.event.action != 'unlabeled' || github.event.label.name == 'skip-claude-review') && (github.event.action != 'edited' || github.event.changes.base != null)) && format('claude-review-{0}', github.event.pull_request.number) || format('claude-review-noop-{0}', github.run_id) }}
+  cancel-in-progress: false
 
 jobs:
   review:
@@ -35,7 +35,34 @@ jobs:
       review_markdown_b64: ${{ steps.extract_review.outputs.review_markdown_b64 }}
 
     steps:
+      - name: Confirm live review eligibility
+        id: live_eligibility
+        env:
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          IFS=$'\t' read -r state head_sha base_ref base_sha draft skipped <<< "$(
+            gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
+              --jq '[.state, .head.sha, .base.ref, .base.sha, .draft, (.labels | map(.name) | index("skip-claude-review") != null)] | @tsv'
+          )"
+          eligible=false
+          if [ "$state" = "open" ] && [ "$head_sha" = "$EVENT_HEAD_SHA" ] && \
+             [ "$base_ref" = "main" ] && [ "$base_sha" = "$EVENT_BASE_SHA" ] && \
+             [ "$draft" = "false" ] && [ "$skipped" = "false" ]; then
+            eligible=true
+          fi
+          echo "eligible=${eligible}" >> "$GITHUB_OUTPUT"
+          if [ "$eligible" != "true" ]; then
+            echo "::notice::Skipping stale or ineligible Claude review before checkout and inference."
+          fi
+
       - name: Check out trusted base
+        if: steps.live_eligibility.outputs.eligible == 'true'
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ github.event.pull_request.base.sha }}
@@ -43,6 +70,7 @@ jobs:
           persist-credentials: false
 
       - name: Check out isolated PR head
+        if: steps.live_eligibility.outputs.eligible == 'true'
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ github.event.pull_request.head.sha }}
@@ -51,6 +79,7 @@ jobs:
           path: pr-head
 
       - name: Build bounded review context
+        if: steps.live_eligibility.outputs.eligible == 'true'
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -84,15 +113,25 @@ jobs:
           } > "${context_dir}/pr-context.md"
 
           git show "${BASE_SHA}:REVIEW.md" > "${context_dir}/trusted-review-contract.md"
+          changed_files="$(
+            git -C pr-head diff --name-only "${BASE_SHA}...${HEAD_SHA}" |
+              { head -n 251; cat > /dev/null; } |
+              wc -l
+          )"
+          if [ "$changed_files" -gt 250 ]; then
+            echo "::error::PR review input exceeds the 250-file safety limit."
+            exit 1
+          fi
+
           git -C pr-head diff --find-renames --find-copies --no-ext-diff --stat \
             "${BASE_SHA}...${HEAD_SHA}" > "${context_dir}/pr-stat.txt"
           git -C pr-head diff --find-renames --find-copies --no-ext-diff \
-            "${BASE_SHA}...${HEAD_SHA}" > "${context_dir}/pr-diff.patch"
+            "${BASE_SHA}...${HEAD_SHA}" |
+            { head -c 500001; cat > /dev/null; } > "${context_dir}/pr-diff.patch"
 
-          changed_files="$(git -C pr-head diff --name-only "${BASE_SHA}...${HEAD_SHA}" | wc -l)"
           diff_bytes="$(wc -c < "${context_dir}/pr-diff.patch")"
-          if [ "$changed_files" -gt 250 ] || [ "$diff_bytes" -gt 500000 ]; then
-            echo "::error::PR review input exceeds the 250-file or 500,000-byte safety limit."
+          if [ "$diff_bytes" -gt 500000 ]; then
+            echo "::error::PR review input exceeds the 500,000-byte safety limit."
             exit 1
           fi
 
@@ -127,6 +166,7 @@ jobs:
           NODE
 
       - name: Assume the shared Claude review role
+        if: steps.live_eligibility.outputs.eligible == 'true'
         id: aws_credentials
         uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
         with:
@@ -139,6 +179,7 @@ jobs:
           output-env-credentials: false
 
       - name: Load the shared Claude OAuth token
+        if: steps.live_eligibility.outputs.eligible == 'true'
         id: claude_auth
         env:
           AWS_ACCESS_KEY_ID: ${{ steps.aws_credentials.outputs.aws-access-key-id }}
@@ -160,6 +201,7 @@ jobs:
           printf 'token=%s\n' "$token" >> "$GITHUB_OUTPUT"
 
       - name: Review with Claude
+        if: steps.live_eligibility.outputs.eligible == 'true'
         id: claude_review
         uses: anthropics/claude-code-action@0fe28cdb64e23015219b0e478100b7105fd7dfa1 # v1.0.167
         with:
@@ -228,6 +270,7 @@ jobs:
             --add-dir "${{ github.workspace }}/pr-head"
 
       - name: Extract bounded Claude review Markdown
+        if: steps.live_eligibility.outputs.eligible == 'true'
         id: extract_review
         env:
           EXECUTION_FILE: ${{ steps.claude_review.outputs.execution_file }}
@@ -350,9 +393,9 @@ jobs:
 
           ## Claude Review
 
-          Claude review did not complete for commit `${PR_HEAD_SHA}`.
+          Claude review did not complete for commit \`${PR_HEAD_SHA}\`.
 
-          Workflow result: `${REVIEW_RESULT}`. This is not an approval. Check the workflow logs before retrying.
+          Workflow result: \`${REVIEW_RESULT}\`. This is not an approval. Check the workflow logs before retrying.
           EOF
           fi
 

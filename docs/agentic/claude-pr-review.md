@@ -39,11 +39,13 @@ marked ready, or synchronized. Removing `skip-claude-review` also triggers a
 fresh review, as does retargeting a pull request into `main`. Forks and
 bot-authored pull requests do not receive the shared credential.
 
-One review may run per pull request. A newer eligible event cancels the older
-run. The `skip-claude-review` label cancels work and records that the review is
-unavailable. Draft conversion, closure, and base retargeting also invalidate
-the sticky result. A small reconciliation workflow invalidates completed
-reviews when `main` advances; it does not automatically spend quota on reruns.
+One review workflow may run per pull request. Eligible events serialize, then a
+live preflight drops stale or ineligible work before checkout, credential access,
+or inference. The `skip-claude-review` label cancels active work and records that
+the review is unavailable. Draft conversion, closure, and base retargeting also
+invalidate the sticky result. A small reconciliation workflow invalidates
+completed reviews when `main` advances; it does not automatically spend quota
+on reruns.
 
 Create or recover the cost-control label with the checked-in command below.
 `--force` makes the description and color reproducible without failing when the
@@ -90,8 +92,9 @@ repository setting.
 
 ## Cost controls
 
-- draft, fork, bot, skipped, and superseded runs do not spend review quota
-- per-pull-request concurrency cancels superseded work
+- draft, fork, bot, skipped, and stale queued runs do not spend review quota
+- per-pull-request concurrency serializes reviewers and sticky-comment writers;
+  invalidating control events may cancel active work
 - the job is limited to 25 minutes and 60 Claude turns
 - the prompt starts from the diff and opens source only for needed local context
 - review input stops at 250 changed files or a 500,000-byte textual diff
