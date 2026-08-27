@@ -591,6 +591,7 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
     if (event === undefined) {
       return;
     }
+    if (cancelled && !window.confirm("Cancel event")) return;
 
     setStatus({ kind: "submitting" });
     try {
@@ -662,9 +663,6 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
                   </option>
                 ))}
               </Select>
-              {managedCommunities?.length === 0 ? (
-                <FieldText>You do not manage events for a public community.</FieldText>
-              ) : null}
             </>
           )}
         </Field>

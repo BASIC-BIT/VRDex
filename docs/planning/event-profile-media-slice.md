@@ -448,7 +448,6 @@ Events:
 
 - `Set times`
 - `Select a community`
-- `You do not manage events for a public community.`
 - `Add event`, `Loading events…`, and `No events to manage.`
 - `Start offset`, `Duration`, `Person profile`, `Lineup name`, and `Role or style`
 - `Cancel event`, `Restore event`, and `Cancellation reason`
