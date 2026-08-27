@@ -62,7 +62,7 @@ jobs:
     permissions:
       contents: read
       issues: write
-      pull-requests: read
+      pull-requests: write
     uses: ./.github/workflows/claude-review-reconcile-worker.yml
     with:
       numbers_json: ${{ matrix.numbers_json }}
