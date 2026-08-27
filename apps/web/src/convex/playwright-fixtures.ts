@@ -675,11 +675,27 @@ const sparseImportedProfile: FixturePersonProfile = {
     roleTags: [],
   },
 };
+const maxShareCardProfile: FixturePersonProfile = {
+  profileType: "person",
+  slug: "playwright-max-share-card",
+  displayName: "W".repeat(80),
+  aliases: [],
+  tags: [],
+  genres: [],
+  headline: "W".repeat(200),
+  trustLabel: "unclaimed",
+  outboundLinks: [],
+  worldCredits: [],
+  upcomingEvents: [],
+  hostedEvents: [],
+  person: { roleTags: [] },
+};
 const personProfiles = [
   personProfile,
   basicBitProfile,
   longNameProfile,
   sparseImportedProfile,
+  maxShareCardProfile,
   ...generatedFixtureProfiles,
 ];
 

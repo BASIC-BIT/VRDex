@@ -118,12 +118,12 @@ describe("slug conflict audit", () => {
 
     assert.equal(report.shadowedByRoute.length, 0);
     assert.deepEqual(
-      report.nestedRoutesShadowed.map((holder) => holder.slug),
-      ["handoff"],
+      report.nestedRoutesShadowed.map(({ slug, lostSubpaths }) => ({ slug, lostSubpaths })),
+      [{ slug: "handoff", lostSubpaths: ["edit", "opengraph-image"] }],
     );
   });
 
-  it("leaves a world holding a route prefix alone", async () => {
+  it("reports a world whose share image is intercepted by a route prefix", async () => {
     const t = convexTest({ schema, modules });
 
     await t.run(async (ctx) => {
@@ -132,11 +132,10 @@ describe("slug conflict audit", () => {
 
     const report = await t.query(internal.slugAudit.conflicts, {});
 
-    // Only `edit` and `calendar.ics` exist under `[slug]`, and they serve profiles
-    // and events. A world has nothing beneath its slug, so `/handoff` renders it and
-    // there is no subpath for `app/handoff/[token]` to take. Flagging it would fail
-    // the audit and demand a rename that fixes nothing.
-    assert.deepEqual(report.nestedRoutesShadowed, []);
+    assert.deepEqual(
+      report.nestedRoutesShadowed.map(({ slug, lostSubpaths }) => ({ slug, lostSubpaths })),
+      [{ slug: "handoff", lostSubpaths: ["opengraph-image"] }],
+    );
     assert.deepEqual(report.duplicates, []);
   });
 

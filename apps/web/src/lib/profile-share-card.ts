@@ -24,6 +24,12 @@ export function profileShareDescription(card: Pick<PublicProfileShareCard, "summ
   return compactText(card.summary, 200) ?? DEFAULT_SHARE_DESCRIPTION;
 }
 
+export function profileShareImageDescription(
+  card: Pick<PublicProfileShareCard, "summary">,
+): string {
+  return compactText(card.summary, 120) ?? DEFAULT_SHARE_DESCRIPTION;
+}
+
 export function profileShareTrustNote(
   card: Pick<PublicProfileShareCard, "trustLabel">,
 ): string | undefined {

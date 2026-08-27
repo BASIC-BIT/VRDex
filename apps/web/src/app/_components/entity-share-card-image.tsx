@@ -2,7 +2,7 @@ import type { PublicProfileShareCard } from "../../../../../convex/_profileShare
 import { absolutePublicUrl } from "@/lib/public-site-url";
 import {
   profileInitials,
-  profileShareDescription,
+  profileShareImageDescription,
   profileShareNameFontSize,
   profileShareTrustNote,
 } from "@/lib/profile-share-card";
@@ -11,7 +11,7 @@ export const entityShareImageSize = { width: 1200, height: 630 } as const;
 
 export function EntityShareCardImage({ profile }: { profile: PublicProfileShareCard | null }) {
   const displayName = profile?.displayName ?? "VRDex";
-  const summary = profile ? profileShareDescription(profile) : undefined;
+  const summary = profile ? profileShareImageDescription(profile) : undefined;
   const trustNote = profile ? profileShareTrustNote(profile) : undefined;
   const avatarImageUrl = profile?.avatarImageUrl
     ? absolutePublicUrl(profile.avatarImageUrl)

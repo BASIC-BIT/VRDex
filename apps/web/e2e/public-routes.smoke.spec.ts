@@ -115,6 +115,13 @@ test("profile links expose Discord-ready metadata and a generated image", async 
     contentType: "image/png",
   });
 
+  const maxContentImage = await page.request.get("/playwright-max-share-card/opengraph-image");
+  expect(maxContentImage.ok()).toBe(true);
+  await testInfo.attach("profile-open-graph-image-max-content", {
+    body: await maxContentImage.body(),
+    contentType: "image/png",
+  });
+
   const invalidSlugImage = await page.request.get("/not_valid/opengraph-image");
   expect(invalidSlugImage.status()).toBe(404);
 

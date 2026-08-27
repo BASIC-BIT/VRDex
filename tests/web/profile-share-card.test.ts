@@ -5,6 +5,7 @@ import {
   DEFAULT_SHARE_DESCRIPTION,
   profileInitials,
   profileShareDescription,
+  profileShareImageDescription,
   profileShareMetadata,
   profileShareNameFontSize,
   profileShareTrustNote,
@@ -81,6 +82,14 @@ describe("profile share metadata", () => {
 
     assert.equal(description, `${"A".repeat(198)}🎧…`);
     assert.equal(description.includes("�"), false);
+  });
+
+  it("bounds the image summary separately from Discord metadata", () => {
+    const summary = "W".repeat(200);
+
+    assert.equal(Array.from(profileShareDescription({ summary })).length, 200);
+    assert.equal(Array.from(profileShareImageDescription({ summary })).length, 120);
+    assert.ok(profileShareImageDescription({ summary }).endsWith("…"));
   });
 
   it("scales valid maximum-length names into the generated image", () => {
