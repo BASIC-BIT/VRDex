@@ -1831,17 +1831,21 @@ export const listPublicUpcoming = query({
   },
   handler: async (ctx, args) => {
     const limit = boundedLimit(args.limit, 8, 24);
-    const [ongoing, upcoming] = await Promise.all([
+    // ponytail: This deliberately inspects only the 128 most recently started
+    // events. If real volume can hide a valid multi-day event, add indexed
+    // active-event state instead of growing this window indefinitely.
+    const ongoingCandidateLimit = 128;
+    const [started, upcoming] = await Promise.all([
       ctx.db
         .query("events")
-        .withIndex("by_publicationState_eventStatus_endAt", (index) =>
+        .withIndex("by_publicationState_eventStatus_startAt", (index) =>
           index
             .eq("publicationState", "published")
             .eq("eventStatus", "scheduled")
-            .gte("endAt", args.now),
+            .lt("startAt", args.now),
         )
-        .filter((query) => query.lt(query.field("startAt"), args.now))
-        .take(limit),
+        .order("desc")
+        .take(ongoingCandidateLimit),
       ctx.db
         .query("events")
         .withIndex("by_publicationState_eventStatus_startAt", (index) =>
@@ -1852,6 +1856,14 @@ export const listPublicUpcoming = query({
         )
         .take(limit),
     ]);
+    const ongoing = started
+      .filter((event) => (event.endAt ?? event.startAt) >= args.now)
+      .sort(
+        (first, second) =>
+          (first.endAt ?? first.startAt) - (second.endAt ?? second.startAt) ||
+          first.startAt - second.startAt,
+      )
+      .slice(0, limit);
     const events = [...ongoing, ...upcoming].slice(0, limit);
 
     return await getPublicEventPreviews(ctx.db, events, { now: args.now, limit, order: "input" });

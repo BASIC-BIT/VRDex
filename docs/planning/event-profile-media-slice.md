@@ -227,9 +227,10 @@ Current recommendation:
 - Extend public previews with at most three relevant confirmed slots, each
   carrying time, display label, optional linked profile summary, and role.
 - Show current events first by soonest effective end, then future events by
-  start time. This keeps discovery bounded on the same indexed order it shows.
-  Do not add popularity, attendance, recommendation, or hidden-personalization
-  claims.
+  start time. Current-event lookup inspects the 128 most recently started
+  published events; if measured volume can hide a valid multi-day event, replace
+  that explicit ceiling with indexed active-event state. Do not add popularity,
+  attendance, recommendation, or hidden-personalization claims.
 - Render cards, pages, profile associations, and slots in the viewer's local
   timezone. Show event timezone only in authoring or debugging context.
 
@@ -446,7 +447,6 @@ Review and ownership:
 
 Events:
 
-- `Create a draft with a community host, event time, and ordered lineup. Publish when the schedule is ready.`
 - `Set times`
 - `Select a community`
 - `You do not manage events for a public community.`

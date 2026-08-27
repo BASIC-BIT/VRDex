@@ -476,6 +476,52 @@ describe("API-created event ownership", () => {
     assert.equal(operatorReportedState.session?.workerTaskStatus, "stopping");
   });
 
+  it("never publishes stale media outputs for a cancelled event", async () => {
+    const t = convexTest({ schema, modules });
+    const { identity } = await seedOwnedCommunity(t);
+    const created = await t.withIdentity(identity).mutation(api.events.createCommunityEvent, {
+      title: "Cancelled stale output",
+      communitySlug: "faceless",
+      startAt: NOW + 86_400_000,
+      published: true,
+    });
+    await t.withIdentity(identity).mutation(api.events.setCommunityEventCancelled, {
+      currentSlug: created.slug,
+      cancelled: true,
+      reason: "Cancelled for test coverage.",
+    });
+    await t.run(async (ctx) => {
+      const playbackLinks = [
+        { platform: "browser" as const, label: "Watch", url: "https://example.com/stale" },
+      ];
+      const programId = await ctx.db.insert("eventMediaPrograms", {
+        eventId: created.eventId,
+        state: "ready",
+        publicLinks: playbackLinks,
+        directFallbackLinks: [],
+        createdAt: NOW,
+        updatedAt: NOW,
+      });
+      const outputId = await ctx.db.insert("eventMediaOutputs", {
+        programId,
+        eventId: created.eventId,
+        key: "stale",
+        type: "vrcdn",
+        accountModel: "operator_owned",
+        state: "ready",
+        label: "Stale output",
+        playbackLinks,
+        createdAt: NOW,
+        updatedAt: NOW,
+      });
+      await ctx.db.patch(programId, { currentOutputId: outputId });
+    });
+
+    const publicEvent = await t.query(api.events.getPublicBySlug, { slug: created.slug });
+    assert.equal(publicEvent?.status, "cancelled");
+    assert.deepEqual(publicEvent?.mediaLinks, []);
+  });
+
   it("does not reschedule a worker after its start command has been claimed", async () => {
     const t = convexTest({ schema, modules });
     const { identity } = await seedOwnedCommunity(t);

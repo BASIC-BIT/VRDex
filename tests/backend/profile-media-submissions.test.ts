@@ -686,6 +686,13 @@ describe("unclaimed-profile media submissions", () => {
       return assetId;
     });
     const { intent } = await createAndUpload(t, seeded, "replacement-image");
+    await t.run((ctx) =>
+      ctx.db.patch(oldAssetId, {
+        state: "deleted",
+        deletedAt: NOW,
+        updatedAt: NOW,
+      }),
+    );
 
     const decision = await t.withIdentity(seeded.moderatorIdentity).mutation(
       api.profileMediaSubmissions.decide,

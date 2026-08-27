@@ -735,10 +735,10 @@ export async function consumeProfileAssetUploads(
             .first();
           if (remainingPlacement === null) {
             const replacedAsset = await db.get(replacedAssetId);
-            if (replacedAsset?.state === "active") {
+            if (replacedAsset !== null && replacedAsset.retiredAt === undefined) {
               await db.patch(replacedAssetId, {
                 state: "deleted",
-                deletedAt: input.now,
+                deletedAt: replacedAsset.deletedAt ?? input.now,
                 retiredAt: input.now,
                 updatedAt: input.now,
               });

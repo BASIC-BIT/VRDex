@@ -534,6 +534,10 @@ async function getPublicEventSlotRecords(
 }
 
 async function getPublicEventMediaRecord(db: DatabaseReader, event: Doc<"events">) {
+  if (event.eventStatus === "cancelled") {
+    return { mediaOutputs: [] };
+  }
+
   const programs = await db
     .query("eventMediaPrograms")
     .withIndex("by_eventId", (query) => query.eq("eventId", event._id))

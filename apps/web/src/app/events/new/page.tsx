@@ -24,9 +24,6 @@ export default function NewEventPage() {
                 <h1 className="mt-5 text-4xl leading-none font-semibold tracking-[-0.04em] sm:text-6xl">
                   Add a VRDex event.
                 </h1>
-                <p className="mt-5 max-w-xl text-base leading-7 text-muted sm:text-lg">
-                  Create a draft with a community host, event time, and ordered lineup. Publish when the schedule is ready.
-                </p>
               </div>
             </div>
 
