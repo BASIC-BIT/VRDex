@@ -419,6 +419,21 @@ test.describe("account surfaces @visual @flow @account-visual", () => {
     });
   });
 
+  test("profile media contribution editor", async ({ page, request }, testInfo) => {
+    await skipUntilHostedTargetRunsCurrentRevision(request);
+    await page.goto("/playwright-dj-aurora/edit?section=media#media-contributions");
+
+    const mediaSection = page.locator("#media-contributions");
+    await expect(mediaSection).toBeVisible(hostedExpectOptions);
+    await expect(
+      mediaSection.getByRole("heading", { name: "Media contributions" }),
+    ).toBeVisible(hostedExpectOptions);
+    await waitForVisualReady(page);
+    await captureRouteScreenshot(page, testInfo, "profile-media-contribution-editor", {
+      mask: unstableSignedInRegions(page, account?.email),
+    });
+  });
+
   test("media review access", async ({ page, request }, testInfo) => {
     await skipUntilHostedTargetRunsCurrentRevision(request);
     await page.goto("/account/media-review");
