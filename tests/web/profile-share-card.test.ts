@@ -11,7 +11,10 @@ import {
   profileShareTrustNote,
 } from "../../apps/web/src/lib/profile-share-card";
 import { publicSiteUrl } from "../../apps/web/src/lib/public-site-url";
-import { inlineableProfileShareAssetUrl } from "../../apps/web/src/lib/profile-share-media";
+import {
+  inlineableProfileShareAssetUrl,
+  isInlineableProfileShareAssetContentType,
+} from "../../apps/web/src/lib/profile-share-media";
 
 function withEnvironment(
   values: Record<string, string | undefined>,
@@ -167,5 +170,12 @@ describe("profile share metadata", () => {
       ),
       null,
     );
+  });
+
+  it("inlines raster media but rejects SVG before generated-image rendering", () => {
+    assert.equal(isInlineableProfileShareAssetContentType("image/png"), true);
+    assert.equal(isInlineableProfileShareAssetContentType("image/jpeg"), true);
+    assert.equal(isInlineableProfileShareAssetContentType("image/webp"), true);
+    assert.equal(isInlineableProfileShareAssetContentType("image/svg+xml"), false);
   });
 });

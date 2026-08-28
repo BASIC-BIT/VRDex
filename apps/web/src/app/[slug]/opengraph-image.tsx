@@ -6,7 +6,10 @@ import type { PublicProfileShareCard } from "../../../../../convex/_profileShare
 import { EntityShareCardImage, entityShareImageSize } from "../_components/entity-share-card-image";
 import { fetchPublicProfileShareCardBySlug } from "@/convex/server";
 import { PROFILE_ASSET_MAX_STORED_BYTES } from "@/lib/profile-asset-limits";
-import { inlineableProfileShareAssetUrl } from "@/lib/profile-share-media";
+import {
+  inlineableProfileShareAssetUrl,
+  isInlineableProfileShareAssetContentType,
+} from "@/lib/profile-share-media";
 import { publicSiteUrl } from "@/lib/public-site-url";
 
 export const alt = "VRDex public page";
@@ -17,8 +20,6 @@ type EntityShareImageProps = {
   params: Promise<{ slug: string }>;
 };
 
-const supportedImageTypes = new Set(["image/jpeg", "image/png", "image/svg+xml", "image/webp"]);
-
 async function inlineManagedImage(imageUrl: string | undefined): Promise<string | undefined> {
   if (!imageUrl) return undefined;
 
@@ -28,7 +29,9 @@ async function inlineManagedImage(imageUrl: string | undefined): Promise<string 
   try {
     const response = await fetch(absoluteUrl, { cache: "force-cache", redirect: "error" });
     const contentType = response.headers.get("content-type")?.split(";", 1)[0];
-    if (!response.ok || !contentType || !supportedImageTypes.has(contentType)) return undefined;
+    if (!response.ok || !contentType || !isInlineableProfileShareAssetContentType(contentType)) {
+      return undefined;
+    }
 
     const body = await response.arrayBuffer();
     if (body.byteLength > PROFILE_ASSET_MAX_STORED_BYTES) return undefined;
