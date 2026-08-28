@@ -43,6 +43,7 @@ import {
 } from "../../convex/_profileSlugs";
 import { canEditProfileField, canReadProfile } from "../../convex/_profilePermissions";
 import { toPublicProfile } from "../../convex/_profilePublic";
+import { toPublicProfileShareCard } from "../../convex/_profileShareCard";
 import {
   createProfileSortName,
   PROFILE_ALIAS_MAX_COUNT,
@@ -1802,6 +1803,163 @@ describe("API profile update helpers", () => {
 });
 
 describe("public profile projection", () => {
+  it("uses only discovery-visible profile fields in share cards", () => {
+    const profile = {
+      profileType: "person",
+      slug: "dj-card",
+      displayName: "DJ Card",
+      sortName: "dj card",
+      aliases: [],
+      tags: [],
+      headline: "Unlisted headline",
+      bio: "Public bio",
+      avatarImageUrl: "https://legacy.example.invalid/avatar.png",
+      bannerImageUrl: "https://legacy.example.invalid/banner.png",
+      outboundLinks: [],
+      claimState: "claimed_unverified",
+      publicationState: "published",
+      publicSurfacingState: "public",
+      creationSource: "self",
+      publishedAt: 1,
+      updatedAt: 1,
+      fieldVisibility: {
+        headline: "unlisted",
+        avatarImageUrl: "private",
+        bannerImageUrl: "unlisted",
+      },
+      person: { roleTags: [] },
+    } as Doc<"profiles">;
+    const mediaKit = {
+      profileImage: { imageUrl: "/api/profile-image", mimeType: "image/png" },
+      banner: { imageUrl: "/api/banner-image", mimeType: "image/png" },
+      primaryLogo: { imageUrl: "/api/primary-logo", mimeType: "image/png" },
+      additionalLogos: [],
+      logos: [],
+      assets: [],
+      galleryAssets: [],
+      compactDisplay: "profile_image",
+      avatarAppearance: {
+        borderEnabled: true,
+        borderColor: "#ffffff",
+        borderWidthPx: 3,
+        borderSoftnessPx: 0,
+        radiusPercent: 18,
+      },
+    } as unknown as Awaited<ReturnType<typeof getPublicProfileMediaKit>>;
+
+    assert.deepEqual(toPublicProfileShareCard(profile, mediaKit), {
+      profileType: "person",
+      slug: "dj-card",
+      displayName: "DJ Card",
+      trustLabel: "claimed_unverified",
+      summary: "Public bio",
+      avatarImageUrl: "/api/primary-logo",
+      avatarImageKind: "logo",
+    });
+  });
+
+  it("prefers public managed profile media and headline in share cards", () => {
+    const profile = {
+      profileType: "community",
+      slug: "night-shift",
+      displayName: "Night Shift",
+      sortName: "night shift",
+      aliases: [],
+      tags: [],
+      headline: "Late-night VRChat events.",
+      bio: "Longer profile biography.",
+      outboundLinks: [],
+      claimState: "claimed_verified",
+      publicationState: "published",
+      publicSurfacingState: "public",
+      creationSource: "self",
+      publishedAt: 1,
+      updatedAt: 1,
+      community: { categoryTags: [] },
+    } as Doc<"profiles">;
+    const mediaKit = {
+      profileImage: { imageUrl: "/api/profile-image", mimeType: "image/png" },
+      banner: { imageUrl: "/api/banner-image", mimeType: "image/png" },
+      additionalLogos: [],
+      logos: [],
+      assets: [],
+      galleryAssets: [],
+      compactDisplay: "profile_image",
+      avatarAppearance: {
+        borderEnabled: true,
+        borderColor: "#ffffff",
+        borderWidthPx: 3,
+        borderSoftnessPx: 0,
+        radiusPercent: 18,
+      },
+    } as unknown as Awaited<ReturnType<typeof getPublicProfileMediaKit>>;
+
+    assert.deepEqual(toPublicProfileShareCard(profile, mediaKit), {
+      profileType: "community",
+      slug: "night-shift",
+      displayName: "Night Shift",
+      trustLabel: "claimed_verified",
+      summary: "Late-night VRChat events.",
+      avatarImageUrl: "/api/profile-image",
+      avatarImageKind: "profile",
+      bannerImageUrl: "/api/banner-image",
+    });
+  });
+
+  it("keeps a raster avatar fallback when the preferred managed asset is SVG", () => {
+    const profile = {
+      profileType: "person",
+      slug: "legacy-avatar",
+      displayName: "Legacy Avatar",
+      sortName: "legacy avatar",
+      aliases: [],
+      tags: [],
+      avatarImageUrl: "https://images.example.invalid/avatar.png",
+      outboundLinks: [],
+      claimState: "claimed_unverified",
+      publicationState: "published",
+      publicSurfacingState: "public",
+      creationSource: "self",
+      publishedAt: 1,
+      updatedAt: 1,
+      person: { roleTags: [] },
+    } as Doc<"profiles">;
+    const mediaKit = {
+      profileImage: { imageUrl: "/api/profile-image.svg", mimeType: "image/svg+xml" },
+      primaryLogo: { imageUrl: "/api/primary-logo", mimeType: "image/png" },
+      additionalLogos: [],
+      logos: [],
+      assets: [],
+      galleryAssets: [],
+      compactDisplay: "profile_image",
+    } as unknown as Awaited<ReturnType<typeof getPublicProfileMediaKit>>;
+
+    assert.deepEqual(toPublicProfileShareCard(profile, mediaKit), {
+      profileType: "person",
+      slug: "legacy-avatar",
+      displayName: "Legacy Avatar",
+      trustLabel: "claimed_unverified",
+      avatarImageUrl: "/api/primary-logo",
+      avatarImageKind: "logo",
+    });
+
+    const logoPreferredMediaKit = {
+      ...mediaKit,
+      profileImage: { imageUrl: "/api/profile-image", mimeType: "image/webp" },
+      primaryLogo: { imageUrl: "/api/primary-logo.svg", mimeType: "image/svg+xml" },
+      compactDisplay: "logo",
+    } as unknown as Awaited<ReturnType<typeof getPublicProfileMediaKit>>;
+
+    assert.deepEqual(toPublicProfileShareCard(profile, logoPreferredMediaKit), {
+      profileType: "person",
+      slug: "legacy-avatar",
+      displayName: "Legacy Avatar",
+      trustLabel: "claimed_unverified",
+      avatarImageUrl: "/api/profile-image",
+      avatarImageKind: "profile",
+    });
+  });
+
   it("omits source attribution identifiers from public profile results", () => {
     const profile = {
       profileType: "person",

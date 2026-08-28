@@ -4,6 +4,7 @@ import { IBM_Plex_Mono, Space_Grotesk } from "next/font/google";
 import { ConvexClientProvider } from "./ConvexClientProvider";
 import { PostHogProvider } from "./PostHogProvider";
 import { SiteFooter } from "@/components/ui/site-footer";
+import { publicSiteUrl } from "@/lib/public-site-url";
 import "./globals.css";
 
 const spaceGrotesk = Space_Grotesk({
@@ -18,6 +19,7 @@ const ibmPlexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: publicSiteUrl(),
   title: "VRDex",
   description: "A VRChat-first identity, profile, and events platform.",
 };

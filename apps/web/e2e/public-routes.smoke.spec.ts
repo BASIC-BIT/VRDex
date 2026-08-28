@@ -1,4 +1,6 @@
 import { expect, test } from "@playwright/test";
+import { writeFile } from "node:fs/promises";
+import sharp from "sharp";
 
 import {
   capturedRoutes,
@@ -81,6 +83,86 @@ test("OpenAPI YAML document is served", async ({ page }) => {
 
   expect(body).toContain("openapi: 3.1.0");
   expect(body).toContain("/api/v0/openapi.yaml:");
+});
+
+test("profile links expose Discord-ready metadata and a generated image", async ({ page }, testInfo) => {
+  test.skip(isHostedRun, "The deterministic profile metadata fixture is local-only.");
+
+  await page.goto("/playwright-dj-aurora");
+
+  await expect(page).toHaveTitle("DJ Aurora | VRDex");
+  await expect(page.locator('meta[property="og:title"]')).toHaveAttribute(
+    "content",
+    "DJ Aurora | VRDex",
+  );
+  await expect(page.locator('meta[property="og:description"]')).toHaveAttribute(
+    "content",
+    "Melodic house sets for late-night VRChat floors.",
+  );
+  await expect(page.locator('meta[property="og:url"]')).toHaveAttribute(
+    "content",
+    /\/playwright-dj-aurora$/,
+  );
+
+  const imageUrl = await page.locator('meta[property="og:image"]').getAttribute("content");
+  expect(imageUrl).not.toBeNull();
+
+  const rasterFixture = await page.request.get(
+    "/api/e2e/fixture-assets/fixture-aurora-profile-image-raster",
+  );
+  expect(rasterFixture.ok()).toBe(true);
+  expect(rasterFixture.headers()["content-type"]).toContain("image/jpeg");
+  expect(Array.from((await rasterFixture.body()).subarray(0, 3))).toEqual([
+    0xff, 0xd8, 0xff,
+  ]);
+
+  const imageRequestUrl = new URL(imageUrl!);
+  imageRequestUrl.searchParams.set("fixture", "raster-avatar");
+  const imageResponse = await page.request.get(imageRequestUrl.href);
+  expect(imageResponse.ok()).toBe(true);
+  expect(imageResponse.headers()["content-type"]).toContain("image/png");
+  const imageBody = await imageResponse.body();
+  expect(imageBody.byteLength).toBeGreaterThan(1_000);
+  const profileOpenGraphImagePath = testInfo.outputPath("profile-open-graph-image.png");
+  await writeFile(profileOpenGraphImagePath, imageBody);
+  await testInfo.attach("profile-open-graph-image", {
+    path: profileOpenGraphImagePath,
+    contentType: "image/png",
+  });
+  const renderedPixels = await sharp(imageBody).ensureAlpha().raw().toBuffer();
+  let rasterFixturePixelCount = 0;
+  for (let offset = 0; offset < renderedPixels.length; offset += 4) {
+    if (
+      Math.abs(renderedPixels[offset]! - 0xd6) <= 12 &&
+      Math.abs(renderedPixels[offset + 1]! - 0x6a) <= 12 &&
+      Math.abs(renderedPixels[offset + 2]! - 0x4d) <= 12
+    ) {
+      rasterFixturePixelCount += 1;
+    }
+  }
+  expect(rasterFixturePixelCount).toBeGreaterThan(1_000);
+
+  const maxContentImage = await page.request.get("/playwright-max-share-card/opengraph-image");
+  expect(maxContentImage.ok()).toBe(true);
+  await testInfo.attach("profile-open-graph-image-max-content", {
+    body: await maxContentImage.body(),
+    contentType: "image/png",
+  });
+
+  const invalidSlugImage = await page.request.get("/not_valid/opengraph-image");
+  expect(invalidSlugImage.status()).toBe(404);
+
+  const missingSlugImage = await page.request.get("/scanner-unique-123/opengraph-image");
+  expect(missingSlugImage.status()).toBe(404);
+
+  for (const entitySlug of [
+    "playwright-neon-harbor",
+    "playwright-afterglow-harbor-sessions",
+  ]) {
+    const entityImage = await page.request.get(`/${entitySlug}/opengraph-image`);
+    expect(entityImage.status()).toBe(200);
+    expect(entityImage.headers()["content-type"]).toContain("image/png");
+  }
 });
 
 test("public API supports browser CORS and preflight", async ({ page }) => {

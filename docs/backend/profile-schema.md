@@ -337,6 +337,19 @@ as owner-authored personalization. The page does not render both narratives as
 competing sections. Each field still obeys its own visibility projection before
 the page receives it.
 
+Profile link previews use a separate card projection at the canonical `/<slug>`
+route. The projection keeps the public display name, prefers the public headline
+over the public bio, and may use managed profile or banner media. Because an
+unfurl is a card surface rather than the direct profile page, fields marked
+`unlisted` or `private` do not enter its summary or controlled profile/banner
+image slots. A public primary logo may still act as the compact fallback because
+logo assets do not use the avatar visibility field. Generated share cards prefer
+a managed profile image or primary logo before a legacy external avatar URL so
+the image route can embed a supported same-origin asset instead of dropping to
+initials. The projection also carries the existing public trust state so
+generated cards can label unclaimed and community-submitted records with the
+same wording already used on public profile surfaces.
+
 The owner privacy mutation currently accepts these field keys: `aliases`, `tags`, `genres`, `headline`, `bio`, `about`, `avatarImageUrl`, `bannerImageUrl`, `mediaKit`, `outboundLinks`, `region`, `timezone`, `personPronouns`, `personRoleTags`, `communitySubtype`, and `communityCategoryTags`.
 
 `profileMediaSubmissions` is the private moderation boundary for unclaimed-profile media. It stores target and submitter IDs, a purpose-bound upload-intent reference, requested placement, source and public metadata, optional reviewer context, status, target-profile revisions, review disposition, approved asset link, retention timestamps, and audit-relevant decision metadata. Indexed reads are bounded by profile/status, profile/time, submitter/status, submitter/time, status/creation time, and content hash.

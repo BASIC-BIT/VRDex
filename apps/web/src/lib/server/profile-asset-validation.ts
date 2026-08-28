@@ -3,9 +3,12 @@ import { createHash } from "node:crypto";
 import { XMLValidator } from "fast-xml-parser";
 import sharp from "sharp";
 
+import { PROFILE_ASSET_MAX_STORED_BYTES } from "../profile-asset-limits";
+
+export { PROFILE_ASSET_MAX_STORED_BYTES } from "../profile-asset-limits";
+
 export const PROFILE_ASSET_MAX_SOURCE_DIMENSION = 8_192;
 export const PROFILE_ASSET_MAX_STORED_DIMENSION = 4_096;
-export const PROFILE_ASSET_MAX_STORED_BYTES = 12 * 1024 * 1024;
 
 export function profileAssetUploadSource(
   contentType: string | null,

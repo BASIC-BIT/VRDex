@@ -40,11 +40,10 @@ export const LIVE_ROUTE_SLUGS = [
 /**
  * The only paths that exist beneath an entity's own slug.
  *
- * `app/[slug]/edit` is the profile editor and `app/[slug]/calendar.ics` is the
- * event export. A world has neither, which is why it can hold a route prefix
- * without losing anything.
+ * `app/[slug]/edit` is the profile editor, `app/[slug]/calendar.ics` is the
+ * event export, and `app/[slug]/opengraph-image` serves every public entity.
  */
-export const ENTITY_SUBPATHS = ["edit", "calendar.ics"] as const;
+export const ENTITY_SUBPATHS = ["edit", "calendar.ics", "opengraph-image"] as const;
 
 export type EntitySubpath = (typeof ENTITY_SUBPATHS)[number];
 
@@ -59,12 +58,12 @@ export type EntitySubpath = (typeof ENTITY_SUBPATHS)[number];
  * them.
  *
  * `handoff/[token]/page.tsx` genuinely does match `/handoff/edit`, with the token
- * read as "edit", and shadows `/handoff/calendar.ics` the same way. `l/[code]` has
+ * read as "edit", and shadows the calendar and image paths the same way. `l/[code]` has
  * the same shape. Which subpaths each takes is recorded rather than assumed,
  * because a static `edit` child would take one and strand only profiles.
  *
  * Reported by `slugAudit` separately from live routes because the failure differs:
- * the public page still works and only the owner-facing subpaths are gone.
+ * the public page still works and only nested entity subpaths are gone.
  */
 // A Map rather than an object, because the keys are slugs and slugs come from
 // users. `constructor` is a valid, unreserved slug, and a plain object would have
@@ -72,9 +71,9 @@ export type EntitySubpath = (typeof ENTITY_SUBPATHS)[number];
 // never fires and the caller's `.includes` throws. That crash lands in the
 // deployment audit, which is the one tool expected to work before a rollout.
 const ROUTE_PREFIX_SUBPATHS = new Map<string, readonly EntitySubpath[]>([
-  // Dynamic children, so they match any single segment and take both subpaths.
-  ["handoff", ["edit", "calendar.ics"]],
-  ["l", ["edit", "calendar.ics"]],
+  // Dynamic children, so they match any single segment and take every subpath.
+  ["handoff", ["edit", "calendar.ics", "opengraph-image"]],
+  ["l", ["edit", "calendar.ics", "opengraph-image"]],
 ]);
 
 export const ROUTE_PREFIX_SLUGS = [...ROUTE_PREFIX_SUBPATHS.keys()];
@@ -285,9 +284,8 @@ export function isRoutePrefixSlug(slug: string): boolean {
 /**
  * The entity subpaths a prefix takes, or an empty list when it takes none.
  *
- * `edit` belongs to profiles and `calendar.ics` to events, so a prefix that takes
- * only one of them strands only one kind. Answering "is this a prefix at all"
- * flagged both, which would fail the audit over an event whose export still works.
+ * `edit` belongs to profiles, `calendar.ics` to events, and `opengraph-image` to
+ * every entity, so the audit needs the exact set each prefix takes.
  */
 export function routePrefixSubpaths(slug: string): readonly EntitySubpath[] {
   return ROUTE_PREFIX_SUBPATHS.get(slug) ?? [];

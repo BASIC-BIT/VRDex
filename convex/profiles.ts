@@ -38,12 +38,17 @@ import {
 } from "./_profilePermissions";
 import { profileLinkInputValidator } from "./_profileLinks";
 import { toPublicProfile } from "./_profilePublic";
+import { toPublicProfileShareCard } from "./_profileShareCard";
 import {
   createProfileSlugBase,
   findAvailableProfileSlug,
   getProfileBySlug,
   validateProfileSlug,
 } from "./_profileSlugs";
+import {
+  getEventBySlug as getGlobalEventBySlug,
+  getWorldBySlug as getGlobalWorldBySlug,
+} from "./_globalSlugs";
 import { getProfileFieldVisibility } from "./_profileFieldVisibility";
 import {
   createProfileSortName,
@@ -420,6 +425,7 @@ export const getPublicBySlug = query({
     profileType: v.optional(profileType),
     now: v.optional(v.number()),
     includeTelemetry: v.optional(v.boolean()),
+    includeShareCard: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const validation = validateProfileSlug(args.slug);
@@ -476,6 +482,9 @@ export const getPublicBySlug = query({
       mediaKit,
       avatarImageUrl: mediaKit.profileImage?.imageUrl ?? legacyAvatarImageUrl,
       bannerImageUrl: mediaKit.banner?.imageUrl ?? legacyBannerImageUrl,
+      ...(args.includeShareCard
+        ? { shareCard: toPublicProfileShareCard(profile, mediaKit) }
+        : {}),
       worldCredits: await getPublicProfileWorldCredits(ctx.db, {
         profileType: profile.profileType,
         slug: profile.slug,
@@ -483,6 +492,45 @@ export const getPublicBySlug = query({
       ...eventContext,
       ...(telemetry ? { telemetry } : {}),
     };
+  },
+});
+
+export const getPublicShareCardBySlug = query({
+  args: {
+    slug: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const validation = validateProfileSlug(args.slug);
+
+    if (!validation.ok) {
+      return null;
+    }
+
+    const [profile, world, event] = await Promise.all([
+      getProfileBySlug(ctx.db, validation.slug),
+      getGlobalWorldBySlug(ctx.db, validation.slug),
+      getGlobalEventBySlug(ctx.db, validation.slug),
+    ]);
+
+    if (profile !== null && canReadProfile("public", profile)) {
+      return {
+        entityType: "profile" as const,
+        profile: toPublicProfileShareCard(
+          profile,
+          await getPublicProfileMediaKit(ctx.db, profile),
+        ),
+      };
+    }
+
+    if (world?.publicationState === "published") {
+      return { entityType: "world" as const, profile: null };
+    }
+
+    if (event?.publicationState === "published") {
+      return { entityType: "event" as const, profile: null };
+    }
+
+    return null;
   },
 });
 

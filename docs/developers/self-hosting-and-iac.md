@@ -80,6 +80,7 @@ Current API/MCP variables read by the web app:
 | `VRDEX_OAUTH_ISSUER_URL` | Public URL config | Optional in single-origin deployments. | Overrides issuer origin for metadata and tokens. |
 | `VRDEX_PUBLIC_API_BASE_URL` | Public URL config | Optional in single-origin deployments. | Defines the API resource/audience origin. |
 | `VRDEX_MCP_RESOURCE_URI` | Public URL config | Optional in single-origin deployments. | Defaults to `<issuer>/mcp`. |
+| `VRDEX_PUBLIC_SITE_URL` | Public URL config | Self-hosted production uses a domain other than `vrdex.net`. | Canonical origin for page metadata and generated share-card media. Set this explicitly on production forks so links never point at BASIC BIT infrastructure. |
 | `VRDEX_HOSTED_MCP_ANONYMOUS_READS` | Web server config | Optional. | Defaults to `true`. Set to `false` for an OAuth-only hosted MCP; anonymous requests receive a protected-resource challenge and tool descriptors advertise only `oauth2` with `mcp:read`. Invalid values fail configuration instead of silently enabling public access. |
 | `VRDEX_RATE_LIMIT_STORE` | Web server config | Required in production. | Production accepts only `redis-rest` or `upstash`; previews and local development may use `memory`; `disabled` is local diagnostics only. |
 | `VRDEX_DEPLOYMENT_ENV` | Web server config | Optional outside Vercel. | `development`, `preview`, `staging`, or `production`; defaults from `NODE_ENV`. Production rate limiting fails closed unless a shared store is configured. |

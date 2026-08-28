@@ -1,4 +1,5 @@
 import { fetchQuery } from "convex/nextjs";
+import { cache } from "react";
 import { convexAuthToken } from "@/lib/server/auth";
 import type { FunctionReference } from "convex/server";
 import { api } from "@convex-generated-api";
@@ -18,6 +19,7 @@ import {
   searchPlaywrightDiscoveryFixture,
 } from "./playwright-fixtures";
 import { profileClaimPath } from "@/lib/profile-claim";
+import type { PublicProfileShareCard } from "../../../../convex/_profileShareCard";
 
 const seedAccessApi = (api as unknown as {
   seedAccess: {
@@ -48,6 +50,7 @@ export async function fetchPublicProfileBySlug(slug: string, profileType?: Publi
     return {
       kind: "live" as const,
       profile: fixtureProfile,
+      shareCard: fixtureProfileShareCard(slug),
     };
   }
 
@@ -60,22 +63,31 @@ export async function fetchPublicProfileBySlug(slug: string, profileType?: Publi
       slug,
       ...(profileType === undefined ? {} : { profileType }),
       now: Date.now(),
+      includeShareCard: true,
     });
+
+    const { publicProfile, shareCard } = profile === null
+      ? { publicProfile: null, shareCard: null }
+      : (({ shareCard: projectedShareCard, ...rest }) => ({
+          publicProfile: rest,
+          shareCard: projectedShareCard ?? null,
+        }))(profile);
 
     // Together rather than in sequence: a profile that streams to both would
     // otherwise pay for two provider round trips before rendering anything.
-    const [twitchLive, vrcdnLive] = profile
+    const [twitchLive, vrcdnLive] = publicProfile
       ? await Promise.all([
-          getTwitchLiveState(profile.outboundLinks),
-          getVrcdnLiveStates(profile.outboundLinks),
+          getTwitchLiveState(publicProfile.outboundLinks),
+          getVrcdnLiveStates(publicProfile.outboundLinks),
         ])
       : [undefined, undefined];
 
     return {
       kind: "live" as const,
-      profile: profile
-        ? { ...profile, ...(twitchLive ? { twitchLive } : {}), ...(vrcdnLive ? { vrcdnLive } : {}) }
+      profile: publicProfile
+        ? { ...publicProfile, ...(twitchLive ? { twitchLive } : {}), ...(vrcdnLive ? { vrcdnLive } : {}) }
         : null,
+      shareCard,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -85,6 +97,82 @@ export async function fetchPublicProfileBySlug(slug: string, profileType?: Publi
     return {
       kind: "error" as const,
     };
+  }
+}
+
+function fixtureProfileShareCard(slug: string): PublicProfileShareCard | null {
+  const profile =
+    getPlaywrightPublicProfileFixture(slug, "person") ??
+    getPlaywrightPublicProfileFixture(slug, "community");
+
+  if (profile === null) {
+    return null;
+  }
+
+  const profileImage = profile.mediaKit?.profileImage;
+  const logoImage = profile.mediaKit?.primaryLogo;
+  const rasterImageUrl = (asset: typeof profileImage) =>
+    asset?.mimeType === "image/png" ||
+    asset?.mimeType === "image/jpeg" ||
+    asset?.mimeType === "image/webp"
+      ? asset.imageUrl
+      : undefined;
+  const profileImageUrl = rasterImageUrl(profileImage);
+  const logoImageUrl = rasterImageUrl(logoImage);
+  const prefersLogo = profile.mediaKit?.compactDisplay === "logo";
+  const avatarImageUrl = prefersLogo
+    ? logoImageUrl ?? profileImageUrl ?? profile.avatarImageUrl
+    : profileImageUrl ?? logoImageUrl ?? profile.avatarImageUrl;
+  const avatarImageKind = avatarImageUrl === undefined
+    ? undefined
+    : avatarImageUrl === logoImageUrl && logoImageUrl !== profileImageUrl
+      ? "logo" as const
+      : "profile" as const;
+
+  return {
+    profileType: profile.profileType,
+    slug: profile.slug,
+    displayName: profile.displayName,
+    trustLabel: profile.trustLabel,
+    ...((profile.headline ?? profile.bio) ? { summary: profile.headline ?? profile.bio } : {}),
+    ...(avatarImageUrl ? { avatarImageUrl } : {}),
+    ...(avatarImageKind ? { avatarImageKind } : {}),
+    ...(rasterImageUrl(profile.mediaKit?.banner) || profile.bannerImageUrl
+      ? { bannerImageUrl: rasterImageUrl(profile.mediaKit?.banner) ?? profile.bannerImageUrl }
+      : {}),
+  };
+}
+
+export async function fetchPublicProfileShareCardBySlug(slug: string) {
+  const fixtureProfile = fixtureProfileShareCard(slug);
+
+  if (fixtureProfile !== null) {
+    return { kind: "live" as const, entityType: "profile" as const, profile: fixtureProfile };
+  }
+
+  if (getPlaywrightPublicWorldFixture(slug) !== null) {
+    return { kind: "live" as const, entityType: "world" as const, profile: null };
+  }
+
+  if (getPlaywrightPublicEventFixture(slug) !== null) {
+    return { kind: "live" as const, entityType: "event" as const, profile: null };
+  }
+
+  if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
+    return { kind: "missing-url" as const, entityType: null, profile: null };
+  }
+
+  try {
+    const result = await fetchQuery(api.profiles.getPublicShareCardBySlug, { slug });
+    return {
+      kind: "live" as const,
+      entityType: result?.entityType ?? null,
+      profile: result?.profile ?? null,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Server-side Convex profile share-card fetch failed: ${message}`);
+    return { kind: "error" as const, entityType: null, profile: null };
   }
 }
 
@@ -181,7 +269,11 @@ export async function fetchPublicWorldBySlug(slug: string) {
 }
 
 type PublicEntity =
-  | { type: "profile"; profile: NonNullable<Awaited<ReturnType<typeof fetchPublicProfileBySlug>>["profile"]> }
+  | {
+      type: "profile";
+      profile: NonNullable<Awaited<ReturnType<typeof fetchPublicProfileBySlug>>["profile"]>;
+      shareCard: PublicProfileShareCard | null;
+    }
   | { type: "world"; world: NonNullable<Awaited<ReturnType<typeof fetchPublicWorldBySlug>>["world"]> }
   | { type: "event"; event: NonNullable<Awaited<ReturnType<typeof fetchPublicEventBySlug>>["event"]> };
 
@@ -191,7 +283,7 @@ type PublicEntity =
 // Fanned out rather than resolved in a single backend query on purpose: each fetcher
 // already layers Playwright fixtures and (for profiles) Twitch live state over its
 // Convex call, and running them concurrently costs one round of latency, not three.
-export async function fetchPublicEntityBySlug(
+async function fetchPublicEntityBySlugUncached(
   slug: string,
 ): Promise<
   | { kind: "missing-url" }
@@ -205,7 +297,14 @@ export async function fetchPublicEntityBySlug(
   ]);
 
   if (profileResult.kind === "live" && profileResult.profile !== null) {
-    return { kind: "live", entity: { type: "profile", profile: profileResult.profile } };
+    return {
+      kind: "live",
+      entity: {
+        type: "profile",
+        profile: profileResult.profile,
+        shareCard: profileResult.shareCard,
+      },
+    };
   }
 
   if (worldResult.kind === "live" && worldResult.world !== null) {
@@ -230,6 +329,11 @@ export async function fetchPublicEntityBySlug(
 
   return { kind: "live", entity: null };
 }
+
+// `generateMetadata` and the page body both resolve this route. React's request
+// cache keeps those callers on one root lookup without persisting data between
+// visitors or changing the direct Open Graph image route's lightweight query.
+export const fetchPublicEntityBySlug = cache(fetchPublicEntityBySlugUncached);
 
 export async function fetchPublicShortLinkTargetByCode(code: string) {
   const fixtureTarget = getPlaywrightPublicShortLinkFixture(code);
