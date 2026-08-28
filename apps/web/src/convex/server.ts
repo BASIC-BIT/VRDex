@@ -111,13 +111,21 @@ function fixtureProfileShareCard(slug: string): PublicProfileShareCard | null {
 
   const profileImage = profile.mediaKit?.profileImage;
   const logoImage = profile.mediaKit?.primaryLogo;
+  const rasterImageUrl = (asset: typeof profileImage) =>
+    asset?.mimeType === "image/png" ||
+    asset?.mimeType === "image/jpeg" ||
+    asset?.mimeType === "image/webp"
+      ? asset.imageUrl
+      : undefined;
+  const profileImageUrl = rasterImageUrl(profileImage);
+  const logoImageUrl = rasterImageUrl(logoImage);
   const prefersLogo = profile.mediaKit?.compactDisplay === "logo";
   const avatarImageUrl = prefersLogo
-    ? logoImage?.imageUrl ?? profileImage?.imageUrl ?? profile.avatarImageUrl
-    : profileImage?.imageUrl ?? logoImage?.imageUrl ?? profile.avatarImageUrl;
+    ? logoImageUrl ?? profileImageUrl ?? profile.avatarImageUrl
+    : profileImageUrl ?? logoImageUrl ?? profile.avatarImageUrl;
   const avatarImageKind = avatarImageUrl === undefined
     ? undefined
-    : avatarImageUrl === logoImage?.imageUrl && logoImage?.imageUrl !== profileImage?.imageUrl
+    : avatarImageUrl === logoImageUrl && logoImageUrl !== profileImageUrl
       ? "logo" as const
       : "profile" as const;
 
@@ -129,8 +137,8 @@ function fixtureProfileShareCard(slug: string): PublicProfileShareCard | null {
     ...((profile.headline ?? profile.bio) ? { summary: profile.headline ?? profile.bio } : {}),
     ...(avatarImageUrl ? { avatarImageUrl } : {}),
     ...(avatarImageKind ? { avatarImageKind } : {}),
-    ...(profile.mediaKit?.banner?.imageUrl || profile.bannerImageUrl
-      ? { bannerImageUrl: profile.mediaKit?.banner?.imageUrl ?? profile.bannerImageUrl }
+    ...(rasterImageUrl(profile.mediaKit?.banner) || profile.bannerImageUrl
+      ? { bannerImageUrl: rasterImageUrl(profile.mediaKit?.banner) ?? profile.bannerImageUrl }
       : {}),
   };
 }

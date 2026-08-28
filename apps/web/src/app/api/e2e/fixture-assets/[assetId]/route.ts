@@ -21,6 +21,16 @@ type FixtureAsset = {
 };
 
 const fixtureAssets: Record<string, FixtureAsset> = {
+  "fixture-aurora-profile-image-raster": {
+    title: "DJ Aurora",
+    subtitle: "Raster profile image",
+    initials: "DA",
+    width: 64,
+    height: 64,
+    from: "#d66a4d",
+    to: "#d66a4d",
+    accent: "#d66a4d",
+  },
   "fixture-aurora-profile-image": {
     title: "DJ Aurora",
     subtitle: "Melodic house",
@@ -85,6 +95,11 @@ const fixtureAssets: Record<string, FixtureAsset> = {
   },
 };
 
+const fixtureAuroraProfileImageJpeg = Buffer.from(
+  "/9j/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMDAsKCwsNDhIQDQ4RDgsLEBYQERMUFRUVDA8XGBYUGBIUFRT/2wBDAQMEBAUEBQkFBQkUDQsNFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBT/wAARCABAAEADASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAX/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFgEBAQEAAAAAAAAAAAAAAAAAAAcI/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8ApgJO0qAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/9k=",
+  "base64",
+);
+
 function fixtureError(message: string, status = 403) {
   return NextResponse.json({ error: message }, { status });
 }
@@ -142,9 +157,19 @@ export async function GET(_request: Request, { params }: FixtureAssetRouteProps)
     return fixtureError("Fixture assets are not enabled for this request.");
   }
 
-  const asset = fixtureAssets[(await params).assetId];
+  const assetId = (await params).assetId;
+  const asset = fixtureAssets[assetId];
   if (!asset) {
     return fixtureError("Unknown fixture asset.", 404);
+  }
+
+  if (assetId === "fixture-aurora-profile-image-raster") {
+    return new NextResponse(fixtureAuroraProfileImageJpeg, {
+      headers: {
+        "Cache-Control": "no-store",
+        "Content-Type": "image/jpeg",
+      },
+    });
   }
 
   return new NextResponse(renderSvg(asset), {

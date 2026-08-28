@@ -47,12 +47,12 @@ const auroraProfileImage = {
   altText: "DJ Aurora framed by violet light and a warm orange glow.",
   credit: "Artwork by Afterglow Studio",
   creditUrl: "https://example.invalid/afterglow-studio",
-  mimeType: "image/webp",
+  mimeType: "image/jpeg",
   byteSize: 92_000,
   downloadMimeType: "image/png",
   downloadByteSize: 184_000,
   sourcePreserved: true,
-  imageUrl: "/api/e2e/fixture-assets/fixture-aurora-profile-image",
+  imageUrl: "/api/e2e/fixture-assets/fixture-aurora-profile-image-raster",
   downloadUrl: "/api/v0/profiles/playwright-dj-aurora/assets/fixture-aurora-profile-image/file?download=1",
 };
 

@@ -27,7 +27,10 @@ async function inlineManagedImage(imageUrl: string | undefined): Promise<string 
   if (!absoluteUrl) return undefined;
 
   try {
-    const response = await fetch(absoluteUrl, { cache: "force-cache", redirect: "error" });
+    const response = await fetch(absoluteUrl, {
+      cache: absoluteUrl.pathname.startsWith("/api/e2e/fixture-assets/") ? "no-store" : "force-cache",
+      redirect: "error",
+    });
     const contentType = response.headers.get("content-type")?.split(";", 1)[0];
     if (!response.ok || !contentType || !isInlineableProfileShareAssetContentType(contentType)) {
       return undefined;

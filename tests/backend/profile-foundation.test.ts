@@ -1830,9 +1830,9 @@ describe("public profile projection", () => {
       person: { roleTags: [] },
     } as Doc<"profiles">;
     const mediaKit = {
-      profileImage: { imageUrl: "/api/profile-image" },
-      banner: { imageUrl: "/api/banner-image" },
-      primaryLogo: { imageUrl: "/api/primary-logo" },
+      profileImage: { imageUrl: "/api/profile-image", mimeType: "image/png" },
+      banner: { imageUrl: "/api/banner-image", mimeType: "image/png" },
+      primaryLogo: { imageUrl: "/api/primary-logo", mimeType: "image/png" },
       additionalLogos: [],
       logos: [],
       assets: [],
@@ -1878,8 +1878,8 @@ describe("public profile projection", () => {
       community: { categoryTags: [] },
     } as Doc<"profiles">;
     const mediaKit = {
-      profileImage: { imageUrl: "/api/profile-image" },
-      banner: { imageUrl: "/api/banner-image" },
+      profileImage: { imageUrl: "/api/profile-image", mimeType: "image/png" },
+      banner: { imageUrl: "/api/banner-image", mimeType: "image/png" },
       additionalLogos: [],
       logos: [],
       assets: [],
@@ -1906,7 +1906,7 @@ describe("public profile projection", () => {
     });
   });
 
-  it("uses a managed logo before an external legacy avatar in share cards", () => {
+  it("keeps a raster avatar fallback when the preferred managed asset is SVG", () => {
     const profile = {
       profileType: "person",
       slug: "legacy-avatar",
@@ -1925,7 +1925,8 @@ describe("public profile projection", () => {
       person: { roleTags: [] },
     } as Doc<"profiles">;
     const mediaKit = {
-      primaryLogo: { imageUrl: "/api/primary-logo" },
+      profileImage: { imageUrl: "/api/profile-image.svg", mimeType: "image/svg+xml" },
+      primaryLogo: { imageUrl: "/api/primary-logo", mimeType: "image/png" },
       additionalLogos: [],
       logos: [],
       assets: [],
@@ -1940,6 +1941,22 @@ describe("public profile projection", () => {
       trustLabel: "claimed_unverified",
       avatarImageUrl: "/api/primary-logo",
       avatarImageKind: "logo",
+    });
+
+    const logoPreferredMediaKit = {
+      ...mediaKit,
+      profileImage: { imageUrl: "/api/profile-image", mimeType: "image/webp" },
+      primaryLogo: { imageUrl: "/api/primary-logo.svg", mimeType: "image/svg+xml" },
+      compactDisplay: "logo",
+    } as unknown as Awaited<ReturnType<typeof getPublicProfileMediaKit>>;
+
+    assert.deepEqual(toPublicProfileShareCard(profile, logoPreferredMediaKit), {
+      profileType: "person",
+      slug: "legacy-avatar",
+      displayName: "Legacy Avatar",
+      trustLabel: "claimed_unverified",
+      avatarImageUrl: "/api/profile-image",
+      avatarImageKind: "profile",
     });
   });
 

@@ -1,4 +1,6 @@
 import { expect, test } from "@playwright/test";
+import { writeFile } from "node:fs/promises";
+import sharp from "sharp";
 
 import {
   capturedRoutes,
@@ -105,15 +107,40 @@ test("profile links expose Discord-ready metadata and a generated image", async 
   const imageUrl = await page.locator('meta[property="og:image"]').getAttribute("content");
   expect(imageUrl).not.toBeNull();
 
-  const imageResponse = await page.request.get(imageUrl!);
+  const rasterFixture = await page.request.get(
+    "/api/e2e/fixture-assets/fixture-aurora-profile-image-raster",
+  );
+  expect(rasterFixture.ok()).toBe(true);
+  expect(rasterFixture.headers()["content-type"]).toContain("image/jpeg");
+  expect(Array.from((await rasterFixture.body()).subarray(0, 3))).toEqual([
+    0xff, 0xd8, 0xff,
+  ]);
+
+  const imageRequestUrl = new URL(imageUrl!);
+  imageRequestUrl.searchParams.set("fixture", "raster-avatar");
+  const imageResponse = await page.request.get(imageRequestUrl.href);
   expect(imageResponse.ok()).toBe(true);
   expect(imageResponse.headers()["content-type"]).toContain("image/png");
   const imageBody = await imageResponse.body();
   expect(imageBody.byteLength).toBeGreaterThan(1_000);
+  const profileOpenGraphImagePath = testInfo.outputPath("profile-open-graph-image.png");
+  await writeFile(profileOpenGraphImagePath, imageBody);
   await testInfo.attach("profile-open-graph-image", {
-    body: imageBody,
+    path: profileOpenGraphImagePath,
     contentType: "image/png",
   });
+  const renderedPixels = await sharp(imageBody).ensureAlpha().raw().toBuffer();
+  let rasterFixturePixelCount = 0;
+  for (let offset = 0; offset < renderedPixels.length; offset += 4) {
+    if (
+      Math.abs(renderedPixels[offset]! - 0xd6) <= 12 &&
+      Math.abs(renderedPixels[offset + 1]! - 0x6a) <= 12 &&
+      Math.abs(renderedPixels[offset + 2]! - 0x4d) <= 12
+    ) {
+      rasterFixturePixelCount += 1;
+    }
+  }
+  expect(rasterFixturePixelCount).toBeGreaterThan(1_000);
 
   const maxContentImage = await page.request.get("/playwright-max-share-card/opengraph-image");
   expect(maxContentImage.ok()).toBe(true);

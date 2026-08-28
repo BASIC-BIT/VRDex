@@ -22,6 +22,16 @@ function visibleLegacyImage(
   return safeHttpsUrl(visibleProfileField(profile, key, profile[key], "discovery"));
 }
 
+function rasterManagedImageUrl(
+  asset: PublicProfileMediaKit["profileImage"],
+): string | undefined {
+  return asset?.mimeType === "image/png" ||
+    asset?.mimeType === "image/jpeg" ||
+    asset?.mimeType === "image/webp"
+    ? asset.imageUrl
+    : undefined;
+}
+
 /**
  * The intentionally small projection used outside the profile page itself.
  *
@@ -40,17 +50,17 @@ export function toPublicProfileShareCard(
   const managedProfileImage = visibleProfileField(
     profile,
     "avatarImageUrl",
-    mediaKit.profileImage?.imageUrl,
+    rasterManagedImageUrl(mediaKit.profileImage),
     "discovery",
   );
   const legacyProfileImage = visibleLegacyImage(profile, "avatarImageUrl");
   const bannerImage = visibleProfileField(
     profile,
     "bannerImageUrl",
-    mediaKit.banner?.imageUrl ?? visibleLegacyImage(profile, "bannerImageUrl"),
+    rasterManagedImageUrl(mediaKit.banner) ?? visibleLegacyImage(profile, "bannerImageUrl"),
     "discovery",
   );
-  const logoImage = mediaKit.primaryLogo?.imageUrl;
+  const logoImage = rasterManagedImageUrl(mediaKit.primaryLogo);
   const prefersLogo = mediaKit.compactDisplay === "logo";
   const avatarImage = prefersLogo
     ? logoImage
