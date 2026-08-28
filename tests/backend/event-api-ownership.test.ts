@@ -1184,11 +1184,13 @@ describe("API-created event ownership", () => {
     assert.deepEqual(editable?.participants, []);
     assert.equal(editable?.slots[0]?.performer, undefined);
     assert.equal(editable?.communitySlug, undefined);
+    assert.equal(editable?.preservedCommunityProfileId, profileId);
     assert.equal(editable?.preservedParticipantAssociationIds.length, 1);
     assert.equal(editable?.preservedSlotAssociationIds.length, 1);
     assert.equal(editable?.preservedWorldAssociationIds.length, 1);
 
     await t.run(async (ctx) => {
+      await ctx.db.patch(profileId, { publicSurfacingState: "public" });
       await ctx.db.patch(personId, { publicSurfacingState: "public" });
       await ctx.db.patch(worldId, { publicationState: "published" });
     });
@@ -1198,6 +1200,7 @@ describe("API-created event ownership", () => {
       currentSlug: created.slug,
       title: "Updated hidden association event",
       published: false,
+      preservedCommunityProfileId: editable!.preservedCommunityProfileId,
       preservedParticipantAssociationIds: editable!.preservedParticipantAssociationIds,
       preservedSlotAssociationIds: editable!.preservedSlotAssociationIds,
       preservedWorldAssociationIds: editable!.preservedWorldAssociationIds,
@@ -1237,6 +1240,34 @@ describe("API-created event ownership", () => {
     assert.equal(stored.participants[0]?.eventStartAt, shiftedStartAt);
     assert.equal(stored.slots[0]?.personProfileId, personId);
     assert.equal(stored.slots[0]?.startAt, shiftedStartAt);
+    assert.equal(stored.slots[0]?._id, editable!.preservedSlotAssociationIds[0]);
+
+    await t.withIdentity(identity).mutation(api.events.updateCommunityEvent, {
+      currentSlug: created.slug,
+      title: "Updated hidden association event twice",
+      published: false,
+      preservedCommunityProfileId: editable!.preservedCommunityProfileId,
+      preservedParticipantAssociationIds: editable!.preservedParticipantAssociationIds,
+      preservedSlotAssociationIds: editable!.preservedSlotAssociationIds,
+      preservedWorldAssociationIds: editable!.preservedWorldAssociationIds,
+      startAt: shiftedStartAt,
+      timezone: "UTC",
+      participantLinks: [],
+      slotLinks: [{
+        displayLabel: "Hidden DJ",
+        roleLabel: "DJ",
+        startAt: shiftedStartAt,
+        endAt: shiftedStartAt + 3_600_000,
+      }],
+    });
+    const repeatedSaveSlot = await t.run((ctx) => ctx.db
+      .query("eventSlots")
+      .withIndex("by_eventId", (query) => query.eq("eventId", created.eventId))
+      .first());
+    assert.equal(repeatedSaveSlot?._id, editable!.preservedSlotAssociationIds[0]);
+    assert.equal(repeatedSaveSlot?.personProfileId, personId);
+
+    await t.run((ctx) => ctx.db.patch(profileId, { publicSurfacingState: "opted_out" }));
 
     await assert.rejects(
       t.withIdentity(identity).mutation(api.events.updateCommunityEvent, {

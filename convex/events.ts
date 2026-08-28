@@ -679,20 +679,48 @@ async function replaceEventSlots(
         )
       : [];
 
-  await Promise.all(existing.map((slot) => db.delete(slot._id)));
+  const preservedSlotFor = (slot: (typeof slots)[number]) => slot.personSlug === undefined
+    ? nonPublicExisting.find(({ slot: existingSlot }) =>
+        existingSlot.position === slot.position &&
+        existingSlot.startAt - (options.previousEventStartAt ?? eventStartAt) === slot.startAt - eventStartAt &&
+        (existingSlot.endAt === undefined ? undefined : existingSlot.endAt - existingSlot.startAt) ===
+          (slot.endAt === undefined ? undefined : slot.endAt - slot.startAt) &&
+        existingSlot.displayLabel === slot.displayLabel &&
+        existingSlot.roleLabel === slot.roleLabel,
+      )?.slot
+    : undefined;
+  const retainedIds = new Set(slots.flatMap((slot) => {
+    const preservedSlot = preservedSlotFor(slot);
+    return preservedSlot === undefined ? [] : [preservedSlot._id];
+  }));
+
+  await Promise.all(existing
+    .filter((slot) => !retainedIds.has(slot._id))
+    .map((slot) => db.delete(slot._id)));
 
   for (const slot of slots) {
     const profile = slot.personSlug === undefined ? undefined : await getPublishedPersonBySlug(db, slot.personSlug);
-    const preservedProfileId = slot.personSlug === undefined
-      ? nonPublicExisting.find(({ slot: existingSlot }) =>
-          existingSlot.position === slot.position &&
-          existingSlot.startAt - (options.previousEventStartAt ?? eventStartAt) === slot.startAt - eventStartAt &&
-          (existingSlot.endAt === undefined ? undefined : existingSlot.endAt - existingSlot.startAt) ===
-            (slot.endAt === undefined ? undefined : slot.endAt - slot.startAt) &&
-          existingSlot.displayLabel === slot.displayLabel &&
-          existingSlot.roleLabel === slot.roleLabel,
-        )?.slot.personProfileId
-      : undefined;
+    const preservedSlot = preservedSlotFor(slot);
+
+    if (preservedSlot !== undefined) {
+      await db.patch(preservedSlot._id, {
+        eventStartAt,
+        position: slot.position,
+        startAt: slot.startAt,
+        endAt: slot.endAt,
+        personProfileId: preservedSlot.personProfileId,
+        displayLabel: slot.displayLabel,
+        roleLabel: slot.roleLabel,
+        sourceType: "community",
+        sourceLabel: slot.sourceLabel,
+        sourceUrl: slot.sourceUrl,
+        confidence: 1,
+        reviewState: "confirmed",
+        notes: slot.notes,
+        updatedAt: now,
+      });
+      continue;
+    }
 
     await db.insert("eventSlots", {
       eventId,
@@ -700,7 +728,7 @@ async function replaceEventSlots(
       position: slot.position,
       startAt: slot.startAt,
       ...optionalValue("endAt", slot.endAt),
-      ...optionalValue("personProfileId", profile?._id ?? preservedProfileId),
+      ...optionalValue("personProfileId", profile?._id),
       displayLabel: slot.displayLabel,
       roleLabel: slot.roleLabel,
       sourceType: "community",
@@ -1109,6 +1137,7 @@ async function updateCommunityEventRecord(
     world?: Doc<"worlds">;
     publicationState?: Doc<"events">["publicationState"];
     preserveNonPublicAssociations?: boolean;
+    preserveCommunityName?: boolean;
     preserveParticipantAssociationIds?: Id<"eventParticipants">[];
     preserveSlotAssociationIds?: Id<"eventSlots">[];
     preserveWorldAssociationIds?: Id<"eventWorlds">[];
@@ -1119,6 +1148,7 @@ async function updateCommunityEventRecord(
     community,
     event,
     input,
+    preserveCommunityName,
     preserveNonPublicAssociations,
     preserveParticipantAssociationIds,
     preserveSlotAssociationIds,
@@ -1149,10 +1179,9 @@ async function updateCommunityEventRecord(
     ...(shouldUpdate("timezone") ? { timezone: input.timezone } : {}),
     communityProfileId: community?._id,
     communityName:
-      preserveNonPublicAssociations === true &&
+      preserveCommunityName === true &&
       community !== undefined &&
-      community._id === event.communityProfileId &&
-      !canReadProfile("public", community)
+      community._id === event.communityProfileId
         ? event.communityName
         : community?.displayName,
     ...(shouldUpdate("summary") ? { summary: input.summary } : {}),
@@ -2699,6 +2728,7 @@ export const updateCommunityEvent = mutation({
   args: {
     currentSlug: v.string(),
     published: v.optional(v.boolean()),
+    preservedCommunityProfileId: v.optional(v.id("profiles")),
     preservedParticipantAssociationIds: v.optional(v.array(v.id("eventParticipants"))),
     preservedSlotAssociationIds: v.optional(v.array(v.id("eventSlots"))),
     preservedWorldAssociationIds: v.optional(v.array(v.id("eventWorlds"))),
@@ -2739,12 +2769,12 @@ export const updateCommunityEvent = mutation({
     ) {
       throw new Error("The event community must be public before publishing.");
     }
-    const preserveHiddenCommunity =
+    const preserveLoadedCommunity =
       input.communitySlug === undefined &&
+      args.preservedCommunityProfileId === event.communityProfileId &&
       currentCommunity !== null &&
-      currentCommunity.profileType === "community" &&
-      !canReadProfile("public", currentCommunity);
-    const community = preserveHiddenCommunity
+      currentCommunity.profileType === "community";
+    const community = preserveLoadedCommunity
       ? currentCommunity
       : await getPublishedCommunityBySlug(ctx.db, input.communitySlug);
 
@@ -2766,6 +2796,7 @@ export const updateCommunityEvent = mutation({
       input,
       community,
       world,
+      preserveCommunityName: preserveLoadedCommunity,
       preserveNonPublicAssociations: true,
       preserveParticipantAssociationIds: args.preservedParticipantAssociationIds,
       preserveSlotAssociationIds: args.preservedSlotAssociationIds,

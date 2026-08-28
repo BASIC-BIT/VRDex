@@ -47,6 +47,7 @@ type VrcdnOutputFormState = {
 };
 
 type EditableEvent = PublicEvent & {
+  preservedCommunityProfileId?: Id<"profiles">;
   preservedParticipantAssociationIds: Id<"eventParticipants">[];
   preservedSlotAssociationIds: Id<"eventSlots">[];
   preservedWorldAssociationIds: Id<"eventWorlds">[];
@@ -567,6 +568,7 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
       const result = event
           ? await updateEvent({
             currentSlug: currentSlug!,
+            preservedCommunityProfileId: event.preservedCommunityProfileId,
             preservedParticipantAssociationIds: event.preservedParticipantAssociationIds,
             preservedSlotAssociationIds: event.preservedSlotAssociationIds,
             preservedWorldAssociationIds: event.preservedWorldAssociationIds,
