@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 
+import { AccountSessionBoundary } from "./account-session-boundary";
+
 /**
  * Blocks every `/account` surface from session replay.
  *
@@ -19,7 +21,7 @@ import type { ReactNode } from "react";
 export default function AccountLayout({ children }: { children: ReactNode }) {
   return (
     <div className="ph-no-capture" data-ph-no-capture>
-      {children}
+      <AccountSessionBoundary>{children}</AccountSessionBoundary>
     </div>
   );
 }

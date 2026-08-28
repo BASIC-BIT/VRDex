@@ -1,4 +1,4 @@
-import { AccountSessionBoundary } from "./account-session-boundary";
+import { AccountPanel } from "./account-panel";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 import { redirect } from "next/navigation";
 import { profileClaimPath, profileClaimSlugFromInput } from "@/lib/profile-claim";
@@ -29,7 +29,7 @@ export default async function AccountPage({
           <h1 className="text-3xl font-semibold sm:text-4xl">Account</h1>
         </header>
 
-        <AccountSessionBoundary />
+        <AccountPanel />
       </PageContainer>
     </PageShell>
   );
