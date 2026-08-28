@@ -415,6 +415,11 @@ export async function expectPersonProfilePage(page: Page) {
   const claimLink = ownershipAction.getByRole("link", { name: "Claim profile" });
   await expect(ownershipAction.getByText("Is this your profile?", { exact: true })).toBeVisible();
   await expect(claimLink).toHaveAttribute("href", "/claim/playwright-dj-aurora?source=profile");
+  await expect(ownershipAction.getByRole("link", { name: "Suggest an edit" })).toHaveAttribute(
+    "href",
+    "/playwright-dj-aurora/edit",
+  );
+  await expect(ownershipAction.getByRole("link", { name: "Add media" })).toHaveCount(0);
   await expect(profileCard.getByRole("link", { name: "Claim profile" })).toHaveCount(0);
   expect(await claimLink.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
   await expect(page.getByText("Melodic house DJ playing warm, vocal-led sets across VRChat club nights.")).toBeVisible();
@@ -452,10 +457,11 @@ export async function expectPersonProfilePage(page: Page) {
   await expect(page.getByRole("link", { name: /Neon Harbor/i })).toBeVisible();
 }
 
-export async function expectMediaContributionPage(page: Page) {
-  await expect(page.getByRole("heading", { name: "DJ Aurora" })).toBeVisible();
+export async function expectProfileEditSignedOutPage(page: Page) {
+  await expect(page.getByRole("heading", { name: "Edit profile" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Sign-in required" })).toBeVisible();
   await expect(
-    page.locator('a[href="/sign-in?returnTo=%2Fplaywright-dj-aurora%2Fcontribute-media"]'),
+    page.locator('a[href="/sign-in?returnTo=%2Fplaywright-dj-aurora%2Fedit"]'),
   ).toHaveText("Sign in");
 }
 

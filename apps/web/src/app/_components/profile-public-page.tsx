@@ -464,12 +464,6 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
     hasPrimaryLogo: mediaKit.primaryLogo !== undefined,
     logoCount: mediaKit.logos.length,
   });
-  const canContributeMedia =
-    canClaim &&
-    profile.id !== undefined &&
-    profile.updatedAt !== undefined &&
-    (process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED === "true" ||
-      process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES === "true");
   const profileBasePath = `/${profile.slug}`;
   const secondaryOrder = normalizeProfileSectionOrder(profile.appearance?.sectionOrder).filter((section) =>
     ["events", "media_kit", "worlds"].includes(section),
@@ -653,14 +647,6 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
                 >
                   Suggest an edit
                 </Link>
-                {canContributeMedia ? (
-                  <Link
-                    className={cn(buttonVariants({ size: "sm", variant: "ghost" }), "shrink-0 whitespace-nowrap")}
-                    href={`/${profile.slug}/contribute-media`}
-                  >
-                    Add media
-                  </Link>
-                ) : null}
               </div>
             ) : null}
           </aside>

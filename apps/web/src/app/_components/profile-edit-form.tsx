@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { FormEvent, useRef, useState, useTransition, type ReactNode } from "react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
@@ -13,6 +14,10 @@ import { BACKEND_ERROR_COPY } from "@/lib/error-copy";
 import { protectedRouteSignInPath } from "@/lib/protected-route-redirect";
 import { ProfileFields } from "./profile-fields";
 import { profileFieldsPayload } from "./profile-fields-model";
+
+const ProfileMediaContributionEditor = dynamic(() =>
+  import("./profile-media-contribution-editor").then((module) => module.ProfileMediaContributionEditor),
+);
 
 /**
  * One editor for a profile's owner and for a community contributor.
@@ -69,6 +74,7 @@ function editErrorMessage(error: unknown): string {
 }
 
 type ProfileEditFormProps = {
+  mediaContributionsEnabled: boolean;
   profilePath: string;
   slug: string;
 };
@@ -82,7 +88,11 @@ function EditPanel({ children, title }: { children: ReactNode; title: string }) 
   );
 }
 
-function ConnectedProfileEditForm({ profilePath, slug }: ProfileEditFormProps) {
+function ConnectedProfileEditForm({
+  mediaContributionsEnabled,
+  profilePath,
+  slug,
+}: ProfileEditFormProps) {
   const router = useRouter();
   // No route type to pass. Profiles are served from the site root, so the slug is
   // the whole identifier and there is no `/p/<community-slug>/edit` mismatch left
@@ -186,73 +196,88 @@ function ConnectedProfileEditForm({ profilePath, slug }: ProfileEditFormProps) {
 
   const isSaving = status.kind === "saving";
 
+  // Masked for the same reason the record panel is, and the finding that named
+  // that one applies here too: the editor hydrates stored values, so an owner
+  // correcting a bio the public cannot see would put it in a replay. Nobody
+  // reviewing a session recording needs the field contents to see that
+  // somebody used the form.
   return (
-    // Masked for the same reason the record panel is, and the finding that named
-    // that one applies here too: the editor hydrates stored values, so an owner
-    // correcting a bio the public cannot see would put it in a replay. Nobody
-    // reviewing a session recording needs the field contents to see that
-    // somebody used the form.
-    <form className="grid gap-5 ph-no-capture" data-ph-no-capture onSubmit={onSubmit}>
-      {profile.subject === "community_submitter" ? (
-        <Notice variant="info">
-          Nobody has claimed this profile. Your edits go live right away, and may be reviewed
-          later by platform staff.
-        </Notice>
-      ) : null}
+    <>
+      <form className="grid gap-5 ph-no-capture" data-ph-no-capture onSubmit={onSubmit}>
+        {profile.subject === "community_submitter" ? (
+          <Notice variant="info">
+            Nobody has claimed this profile. Your edits go live right away, and may be reviewed
+            later by platform staff.
+          </Notice>
+        ) : null}
 
-      <ProfileFields
-        defaults={{
-          displayName: profile.displayName,
-          aliases: profile.aliases,
-          tags: profile.tags,
-          headline: profile.headline ?? "",
-          bio: profile.bio ?? "",
-          region: profile.region ?? "",
-          timezone: profile.timezone ?? "",
-          roleTags: profile.person?.roleTags ?? [],
-          pronouns: profile.person?.pronouns ?? "",
-          subtype: profile.community?.subtype ?? "",
-          categoryTags: profile.community?.categoryTags ?? [],
-          links: profile.outboundLinks,
-        }}
-        editableFields={profile.editableFields}
-        profileType={profile.profileType}
-        showNarrativeFields
-      />
+        <ProfileFields
+          defaults={{
+            displayName: profile.displayName,
+            aliases: profile.aliases,
+            tags: profile.tags,
+            headline: profile.headline ?? "",
+            bio: profile.bio ?? "",
+            region: profile.region ?? "",
+            timezone: profile.timezone ?? "",
+            roleTags: profile.person?.roleTags ?? [],
+            pronouns: profile.person?.pronouns ?? "",
+            subtype: profile.community?.subtype ?? "",
+            categoryTags: profile.community?.categoryTags ?? [],
+            links: profile.outboundLinks,
+          }}
+          editableFields={profile.editableFields}
+          profileType={profile.profileType}
+          showNarrativeFields
+        />
 
-      <div className="flex flex-col gap-3 border-t border-border pt-6 sm:flex-row sm:items-center">
-        <Button className="sm:min-w-40" disabled={isSaving} size="lg" type="submit" variant="primary">
-          {isSaving ? "Saving..." : "Save changes"}
-        </Button>
+        <div className="flex flex-col gap-3 border-t border-border pt-6 sm:flex-row sm:items-center">
+          <Button className="sm:min-w-40" disabled={isSaving} size="lg" type="submit" variant="primary">
+            {isSaving ? "Saving..." : "Save changes"}
+          </Button>
+          {/*
+            Same landing question the save path answers, and it has to answer it
+            too: `/p/<slug>` and `/c/<slug>` 404 for a draft-private, opted-out or
+            suppressed profile, so cancelling out of the one editor those owners
+            can reach dropped them on a not-found. Sent to the account workspace
+            instead, which is where an owner manages profiles and is reachable
+            whatever this one's publication state is.
+          */}
+          <Link
+            className={cn(buttonVariants({ size: "lg", variant: "secondary" }), "sm:min-w-32")}
+            href={profile.publiclyViewable ? profilePath : "/account"}
+          >
+            Cancel
+          </Link>
+        </div>
+
         {/*
-          Same landing question the save path answers, and it has to answer it
-          too: `/p/<slug>` and `/c/<slug>` 404 for a draft-private, opted-out or
-          suppressed profile, so cancelling out of the one editor those owners
-          can reach dropped them on a not-found. Sent to the account workspace
-          instead, which is where an owner manages profiles and is reachable
-          whatever this one's publication state is.
+          Only reached when the save did not navigate away, which is the profiles
+          with no public page to navigate to. `Saved.` is the wording the media kit
+          panel already uses for the same event rather than a new sentence.
         */}
-        <Link
-          className={cn(buttonVariants({ size: "lg", variant: "secondary" }), "sm:min-w-32")}
-          href={profile.publiclyViewable ? profilePath : "/account"}
-        >
-          Cancel
-        </Link>
-      </div>
+        {status.kind === "saved" ? <Notice variant="info">Saved.</Notice> : null}
 
-      {/*
-        Only reached when the save did not navigate away, which is the profiles
-        with no public page to navigate to. `Saved.` is the wording the media kit
-        panel already uses for the same event rather than a new sentence.
-      */}
-      {status.kind === "saved" ? <Notice variant="info">Saved.</Notice> : null}
-
-      {status.kind === "error" ? <Notice variant="error">{status.message}</Notice> : null}
-    </form>
+        {status.kind === "error" ? <Notice variant="error">{status.message}</Notice> : null}
+      </form>
+      {mediaContributionsEnabled && profile.subject === "community_submitter" ? (
+        <ProfileMediaContributionEditor
+          profile={{
+            id: profile.id,
+            profileType: profile.profileType,
+            updatedAt: profile.updatedAt,
+          }}
+        />
+      ) : null}
+    </>
   );
 }
 
-function AuthenticatedProfileEditForm({ profilePath, slug }: ProfileEditFormProps) {
+function AuthenticatedProfileEditForm({
+  mediaContributionsEnabled,
+  profilePath,
+  slug,
+}: ProfileEditFormProps) {
   const { isAuthenticated, isLoading } = useConvexAuth();
 
   if (isLoading) {
@@ -278,10 +303,20 @@ function AuthenticatedProfileEditForm({ profilePath, slug }: ProfileEditFormProp
     );
   }
 
-  return <ConnectedProfileEditForm profilePath={profilePath} slug={slug} />;
+  return (
+    <ConnectedProfileEditForm
+      mediaContributionsEnabled={mediaContributionsEnabled}
+      profilePath={profilePath}
+      slug={slug}
+    />
+  );
 }
 
-export function ProfileEditForm({ profilePath, slug }: ProfileEditFormProps) {
+export function ProfileEditForm({
+  mediaContributionsEnabled,
+  profilePath,
+  slug,
+}: ProfileEditFormProps) {
   // Ahead of every Convex hook, not beside them. `ConvexClientProvider` renders
   // no provider when the URL is unset, so `useConvexAuth` throws on mount there
   // and the fallback below is never reached -- the same shape as the fixture
@@ -296,6 +331,10 @@ export function ProfileEditForm({ profilePath, slug }: ProfileEditFormProps) {
   }
 
   return (
-    <AuthenticatedProfileEditForm profilePath={profilePath} slug={slug} />
+    <AuthenticatedProfileEditForm
+      mediaContributionsEnabled={mediaContributionsEnabled}
+      profilePath={profilePath}
+      slug={slug}
+    />
   );
 }

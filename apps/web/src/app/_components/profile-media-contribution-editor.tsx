@@ -1,24 +1,21 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
-import { useConvexAuth, useMutation } from "convex/react";
+import { useMutation } from "convex/react";
 import { ConvexError } from "convex/values";
-import type { Id } from "../../../../../../convex/_generated/dataModel";
+import type { Id } from "../../../../../convex/_generated/dataModel";
 import { api } from "@convex-generated-api";
 
 import { prepareProfileMediaMultipartFallback } from "@/app/account/media-kit/prepare-profile-media-upload";
-import { Button, buttonVariants } from "@/components/ui/button";
-import { Card, SectionTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { Field, Input, Textarea } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { profileMediaMimeType } from "@/lib/profile-media-kit";
 
 type ContributionProfile = {
-  id: string;
-  slug: string;
-  displayName: string;
+  id: Id<"profiles">;
   profileType: "person" | "community";
   updatedAt: number;
 };
@@ -67,30 +64,12 @@ function safeMessage(error: unknown) {
     : "Submission failed";
 }
 
-export function ProfileMediaContributionForm({ profile }: { profile: ContributionProfile }) {
+export function ProfileMediaContributionEditor({ profile }: { profile: ContributionProfile }) {
   const router = useRouter();
-  const { isAuthenticated, isLoading } = useConvexAuth();
   const createUploadIntent = useMutation(api.profileMediaSubmissions.createUploadIntent);
   const withdraw = useMutation(api.profileMediaSubmissions.withdraw);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
-
-  if (isLoading) {
-    return <p aria-busy="true" className="text-sm text-muted">Loading...</p>;
-  }
-
-  if (!isAuthenticated) {
-    return (
-      <main className="grid gap-6">
-        <SectionTitle>{profile.displayName}</SectionTitle>
-        <Card className="grid gap-4">
-          <Link className={buttonVariants({ variant: "primary" })} href={`/sign-in?returnTo=${encodeURIComponent(`/${profile.slug}/contribute-media`)}`}>
-            Sign in
-          </Link>
-        </Card>
-      </main>
-    );
-  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -109,7 +88,7 @@ export function ProfileMediaContributionForm({ profile }: { profile: Contributio
       const prepared = await prepareProfileMediaMultipartFallback(selectedFile);
       const file = prepared.file;
       const intent = await createUploadIntent({
-        profileId: profile.id as Id<"profiles">,
+        profileId: profile.id,
         requestedPlacement: profile.profileType === "person" ? "profile_image" : "primary_logo",
         originalFileName: file.name,
         mimeType: profileMediaMimeType(file.type, file.name) ?? file.type,
@@ -145,14 +124,9 @@ export function ProfileMediaContributionForm({ profile }: { profile: Contributio
   }
 
   return (
-    <main className="grid gap-6">
-      <div>
-        <SectionTitle>{profile.displayName}</SectionTitle>
-        <Link className="mt-3 inline-block text-sm text-muted underline" href={`/${profile.slug}`}>
-          Back to profile
-        </Link>
-      </div>
-      <Card>
+    <section className="border-t border-border py-6" id="media-contributions">
+      <h2 className="text-lg font-semibold">Media contributions</h2>
+      <Card className="mt-4">
         <form className="grid gap-5" onSubmit={submit}>
           <Field>
             Image
@@ -190,9 +164,6 @@ export function ProfileMediaContributionForm({ profile }: { profile: Contributio
           </Button>
         </form>
       </Card>
-      <Link className={buttonVariants({ variant: "ghost" })} href="/account/media-contributions">
-        Media contributions
-      </Link>
-    </main>
+    </section>
   );
 }

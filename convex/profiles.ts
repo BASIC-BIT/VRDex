@@ -831,6 +831,7 @@ export const editableProfile = query({
       editable.has(field) ? value : undefined;
 
     return {
+      id: profile._id,
       slug: profile.slug,
       profileType: profile.profileType,
       // Whether the public profile route can render this at all, answered by the

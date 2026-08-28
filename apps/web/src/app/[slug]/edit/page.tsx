@@ -20,6 +20,9 @@ type ProfileEditPageProps = {
 export default async function ProfileEditPage({ params }: ProfileEditPageProps) {
   const { slug } = await params;
   const profilePath = `/${slug}`;
+  const mediaContributionsEnabled =
+    process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED === "true" ||
+    process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES === "true";
 
   return (
     <PageShell>
@@ -32,7 +35,11 @@ export default async function ProfileEditPage({ params }: ProfileEditPageProps) 
           <h1 className="text-3xl leading-tight font-semibold sm:text-4xl">Edit profile</h1>
 
           <div className="mt-8">
-            <ProfileEditForm profilePath={profilePath} slug={slug} />
+            <ProfileEditForm
+              mediaContributionsEnabled={mediaContributionsEnabled}
+              profilePath={profilePath}
+              slug={slug}
+            />
           </div>
         </section>
 
