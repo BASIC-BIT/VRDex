@@ -834,6 +834,7 @@ export default defineSchema({
     .index("by_blobDeleteAfter", ["blobDeleteAfter"])
     .index("by_cleanupEligibility_blobDeleteAfter", ["blobDeletedAt", "legalHoldAt", "blobDeleteAfter"])
     .index("by_profileId_contentSha256_status", ["profileId", "contentSha256", "status"])
+    .index("by_profileId_contentSha256_createdAt", ["profileId", "contentSha256", "createdAt"])
     .index("by_contentSha256", ["contentSha256"]),
   profileAssets: defineTable({
     profileId: v.id("profiles"),

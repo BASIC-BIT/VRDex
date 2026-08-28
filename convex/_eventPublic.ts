@@ -702,10 +702,6 @@ export async function getEventForEditor(
       return profile === null || !canReadProfile("public", profile) ? association._id : null;
     }))
   ).filter((associationId): associationId is Id<"eventSlots"> => associationId !== null);
-  const community = event.communityProfileId === undefined
-    ? null
-    : await db.get(event.communityProfileId);
-
   return projected === null
     ? null
     : {
@@ -714,10 +710,7 @@ export async function getEventForEditor(
         preservedParticipantAssociationIds,
         preservedSlotAssociationIds,
         preservedWorldAssociationIds,
-        preservedCommunityProfileId:
-          community !== null && !canReadProfile("public", community)
-            ? community._id
-            : undefined,
+        preservedCommunityProfileId: event.communityProfileId,
         publicationState: event.publicationState,
       };
 }

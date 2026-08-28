@@ -804,7 +804,7 @@ describe("API-created event ownership", () => {
     ]);
   });
 
-  it("keeps eligible profile events bounded and orders compact sections by end time", async () => {
+  it("keeps eligible profile and world events bounded and current-first", async () => {
     const t = convexTest({ schema, modules });
     const { profileId: communityProfileId } = await seedOwnedCommunity(t);
     const { personProfileId, worldId } = await t.run(async (ctx) => {
@@ -898,6 +898,15 @@ describe("API-created event ownership", () => {
         NOW - 3_600_000,
         NOW + 30 * 60_000,
       );
+      for (let index = 0; index < 4; index += 1) {
+        const startAt = NOW + (index + 1) * 5 * 60_000;
+        await insertEvent(
+          `profile-near-future-event-${index}`,
+          `Profile Near Future Event ${index}`,
+          startAt,
+          startAt + 60_000,
+        );
+      }
       for (let index = 0; index < 81; index += 1) {
         const startAt = NOW - (index + 1) * 60_000;
         await insertEvent(
@@ -936,17 +945,18 @@ describe("API-created event ownership", () => {
     assert.deepEqual(associations.hosted.map((event) => event.slug), [
       "profile-short-ongoing-event",
       "profile-weeklong-festival",
-      "profile-future-festival",
+      "profile-near-future-event-0",
     ]);
     assert.deepEqual(associations.participant.map((event) => event.slug), [
       "profile-short-ongoing-event",
       "profile-weeklong-festival",
-      "profile-future-festival",
+      "profile-near-future-event-0",
     ]);
     assert.deepEqual(associations.world.upcoming.map((event) => event.slug), [
       "profile-short-ongoing-event",
       "profile-weeklong-festival",
-      "profile-future-festival",
+      "profile-near-future-event-0",
+      "profile-near-future-event-1",
     ]);
     assert.deepEqual(associations.activeWorlds.map((world) => world.slug), [
       "long-running-world",
@@ -1153,6 +1163,12 @@ describe("API-created event ownership", () => {
       }],
     });
 
+    const editableWhilePublic = await t.withIdentity(identity).query(api.events.getEditableBySlug, {
+      slug: created.slug,
+    });
+    assert.equal(editableWhilePublic?.communitySlug, "faceless");
+    assert.equal(editableWhilePublic?.preservedCommunityProfileId, profileId);
+
     await t.run(async (ctx) => {
       await ctx.db.patch(profileId, {
         displayName: "Private Host Rename",
@@ -1189,18 +1205,13 @@ describe("API-created event ownership", () => {
     assert.equal(editable?.preservedSlotAssociationIds.length, 1);
     assert.equal(editable?.preservedWorldAssociationIds.length, 1);
 
-    await t.run(async (ctx) => {
-      await ctx.db.patch(profileId, { publicSurfacingState: "public" });
-      await ctx.db.patch(personId, { publicSurfacingState: "public" });
-      await ctx.db.patch(worldId, { publicationState: "published" });
-    });
-
     const shiftedStartAt = startAt + 60_000;
     await t.withIdentity(identity).mutation(api.events.updateCommunityEvent, {
       currentSlug: created.slug,
       title: "Updated hidden association event",
       published: false,
-      preservedCommunityProfileId: editable!.preservedCommunityProfileId,
+      communitySlug: editableWhilePublic!.communitySlug,
+      preservedCommunityProfileId: editableWhilePublic!.preservedCommunityProfileId,
       preservedParticipantAssociationIds: editable!.preservedParticipantAssociationIds,
       preservedSlotAssociationIds: editable!.preservedSlotAssociationIds,
       preservedWorldAssociationIds: editable!.preservedWorldAssociationIds,

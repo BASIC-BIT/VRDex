@@ -178,8 +178,8 @@ canonical records. Continue to store:
 - `eventStartAt`, `eventEndAt`, `eventPublicationState`, and `eventStatus` on
   world and participant associations so public profile/world queries can use
   bounded eligibility indexes; event writes keep these projections in sync,
-  and those compact association sections order qualifying events by effective
-  end time to match the index without an unbounded scan
+  and current and future candidates are queried separately before applying the
+  compact section limit
 
 ### Additions and corrections
 
@@ -393,7 +393,8 @@ Current recommendation:
 
 - The queue is bounded and filterable by state and target. It shows submitter
   and prior-matching-proposal evidence on each loaded row without pretending a
-  client-only filter covers unloaded pages.
+  client-only filter covers unloaded pages. `Prior` means created before the
+  submission being reviewed.
 - Review shows current profile/asset, candidate preview, source and credit,
   profile changes since submission, and prior proposals.
 - Approval chooses final placement and public metadata. Rejection requires a

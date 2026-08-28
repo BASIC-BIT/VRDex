@@ -56,7 +56,7 @@ export function ProfileMediaContributionForm({ profile }: { profile: Contributio
   const [status, setStatus] = useState<string | null>(null);
 
   if (isLoading) {
-    return <p aria-busy="true" className="text-sm text-muted">Loading sign-in state…</p>;
+    return <p aria-busy="true" className="text-sm text-muted">Loading...</p>;
   }
 
   if (!isAuthenticated) {

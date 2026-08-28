@@ -202,13 +202,15 @@ async function reviewSubmission(
     ? []
     : await ctx.db
         .query("profileMediaSubmissions")
-        .withIndex("by_profileId_contentSha256_status", (query) =>
-          query.eq("profileId", profile._id).eq("contentSha256", submission.contentSha256),
+        .withIndex("by_profileId_contentSha256_createdAt", (query) =>
+          query
+            .eq("profileId", profile._id)
+            .eq("contentSha256", submission.contentSha256)
+            .lt("createdAt", submission.createdAt),
         )
-        .take(22);
-  const priorProposals = duplicates.filter((candidate) => candidate._id !== submission._id);
-  const priorProposalCount = Math.min(priorProposals.length, 20);
-  const priorProposalCountTruncated = priorProposals.length > priorProposalCount;
+        .take(21);
+  const priorProposalCount = Math.min(duplicates.length, 20);
+  const priorProposalCountTruncated = duplicates.length > priorProposalCount;
   const submitter = includeModeratorEvidence
     ? await ctx.db.get(submission.submitterUserId)
     : null;

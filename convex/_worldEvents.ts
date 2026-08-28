@@ -4,6 +4,7 @@ import { firstSafeHttpsUrl, optionalField, safeHttpsUrl } from "./_publicFields"
 import { safePublicLinkUrl } from "./_vrcdnLinks";
 
 const WORLD_EVENT_SECTION_LIMIT = 4;
+const WORLD_EVENT_CURRENT_CANDIDATE_LIMIT = 128;
 const ACTIVE_WORLD_QUERY_EVENT_LIMIT = 50;
 const ACTIVE_WORLD_CURRENT_EVENT_CANDIDATE_LIMIT = 128;
 const ACTIVE_WORLD_ASSOCIATION_LIMIT = 20;
@@ -253,16 +254,28 @@ export async function getPublicWorldEventContext(
   worldId: Id<"worlds">,
   now: number,
 ): Promise<PublicWorldEventContext> {
-  const [currentAssociations, previousAssociations] = await Promise.all([
+  const [startedAssociations, futureAssociations, previousAssociations] = await Promise.all([
     db
       .query("eventWorlds")
-      .withIndex("by_world_confirmation_publication_status_end", (query) =>
+      .withIndex("by_world_confirmation_publication_status_start", (query) =>
         query
           .eq("worldId", worldId)
           .eq("confirmationState", "confirmed")
           .eq("eventPublicationState", "published")
           .eq("eventStatus", "scheduled")
-          .gte("eventEndAt", now),
+          .lt("eventStartAt", now),
+      )
+      .order("desc")
+      .take(WORLD_EVENT_CURRENT_CANDIDATE_LIMIT),
+    db
+      .query("eventWorlds")
+      .withIndex("by_world_confirmation_publication_status_start", (query) =>
+        query
+          .eq("worldId", worldId)
+          .eq("confirmationState", "confirmed")
+          .eq("eventPublicationState", "published")
+          .eq("eventStatus", "scheduled")
+          .gte("eventStartAt", now),
       )
       .take(WORLD_EVENT_SECTION_LIMIT),
     db
@@ -278,7 +291,10 @@ export async function getPublicWorldEventContext(
       .order("desc")
       .take(WORLD_EVENT_SECTION_LIMIT),
   ]);
-  const associations = [...currentAssociations, ...previousAssociations];
+  const currentAssociations = startedAssociations.filter(
+    (association) => association.eventEndAt >= now,
+  );
+  const associations = [...currentAssociations, ...futureAssociations, ...previousAssociations];
 
   const records = (
     await Promise.all(

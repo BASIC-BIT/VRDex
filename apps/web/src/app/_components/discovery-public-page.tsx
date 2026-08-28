@@ -241,7 +241,6 @@ function DiscoveryEventSchedule({ events, now }: { events: PublicEventPreview[];
               event.communityName,
               event.worlds[0]?.displayName,
             ].filter(Boolean).join(" · ") || undefined}
-            href={event.slug ? `/${event.slug}` : undefined}
             key={event.slug ?? `${event.title}:${event.startAt}`}
             metadata={event.nextSlots && event.nextSlots.length > 0 ? (
               <ul className="grid gap-1.5 text-sm text-muted">
@@ -263,7 +262,16 @@ function DiscoveryEventSchedule({ events, now }: { events: PublicEventPreview[];
             status={publicScheduleStatus(event, now)}
             summary={event.summary}
             time={<ViewerLocalEventDateTime timestamp={event.startAt} />}
-            title={event.title}
+            title={event.slug ? (
+              <TrackedDiscoveryLink
+                className="rounded-control text-section text-foreground underline decoration-transparent underline-offset-4 transition hover:text-accent-strong hover:decoration-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                eventName="event_card_clicked"
+                href={`/${event.slug}`}
+                properties={{ entity_type: "event", surface: "upcoming_events" }}
+              >
+                {event.title}
+              </TrackedDiscoveryLink>
+            ) : event.title}
           />
         ))}
       </EventSchedule>

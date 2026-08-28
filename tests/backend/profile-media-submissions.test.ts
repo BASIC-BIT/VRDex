@@ -593,6 +593,47 @@ describe("unclaimed-profile media submissions", () => {
     assert.equal(row?.priorProposalCountTruncated, true);
   });
 
+  it("does not count later matching submissions as prior evidence", async () => {
+    const t = convexTest({ schema, modules });
+    const seeded = await seed(t);
+    const now = Date.now();
+    const targetSubmissionId = await t.run(async (ctx) => {
+      const insertSubmission = (createdAt: number) =>
+        ctx.db.insert("profileMediaSubmissions", {
+          profileId: seeded.profileId,
+          ...TARGET_PROFILE_SNAPSHOT,
+          submitterUserId: seeded.contributorUserId,
+          submitter: {
+            tokenIdentifier: seeded.contributorIdentity.tokenIdentifier,
+            issuer: seeded.contributorIdentity.issuer,
+            subject: seeded.contributorIdentity.subject,
+          },
+          requestedPlacement: "profile_image",
+          sourceUrl: "https://artist.example/press",
+          credit: "Artist press kit",
+          status: "submitted" as const,
+          targetProfileUpdatedAt: NOW,
+          contentSha256: "later-duplicates-hash",
+          expiresAt: now + 30 * 24 * 60 * 60 * 1_000,
+          createdAt,
+          updatedAt: createdAt,
+        });
+      const submissionId = await insertSubmission(now);
+      for (let index = 0; index < 21; index += 1) {
+        await insertSubmission(now + index + 1);
+      }
+      return submissionId;
+    });
+
+    const queue = await t.withIdentity(seeded.moderatorIdentity).query(
+      api.profileMediaSubmissions.listForReview,
+      { profileId: seeded.profileId, ...FIRST_REVIEW_PAGE },
+    );
+    const row = queue.page.find((candidate) => candidate.submissionId === targetSubmissionId);
+    assert.equal(row?.priorProposalCount, 0);
+    assert.equal(row?.priorProposalCountTruncated, false);
+  });
+
   it("lets the new owner decide a still-pending submission after claim", async () => {
     const t = convexTest({ schema, modules });
     const seeded = await seed(t);

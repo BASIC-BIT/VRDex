@@ -2770,10 +2770,13 @@ export const updateCommunityEvent = mutation({
       throw new Error("The event community must be public before publishing.");
     }
     const preserveLoadedCommunity =
-      input.communitySlug === undefined &&
       args.preservedCommunityProfileId === event.communityProfileId &&
       currentCommunity !== null &&
-      currentCommunity.profileType === "community";
+      currentCommunity.profileType === "community" &&
+      (
+        input.communitySlug === undefined ||
+        input.communitySlug === currentCommunity.slug
+      );
     const community = preserveLoadedCommunity
       ? currentCommunity
       : await getPublishedCommunityBySlug(ctx.db, input.communitySlug);
