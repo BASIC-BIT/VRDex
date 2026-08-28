@@ -54,6 +54,13 @@ type EditableEvent = PublicEvent & {
   publicationState?: "draft_private" | "published";
 };
 
+type EventAssociationSnapshot = Pick<
+  EditableEvent,
+  | "preservedParticipantAssociationIds"
+  | "preservedSlotAssociationIds"
+  | "preservedWorldAssociationIds"
+>;
+
 type SlotFormRow = {
   id: string;
   offsetMinutes: string;
@@ -435,6 +442,11 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
   const [cancellationReason, setCancellationReason] = useState("");
   const [eventStatus, setEventStatus] = useState(event?.status);
   const [isPublished, setIsPublished] = useState(event?.publicationState === "published");
+  const [associationSnapshot, setAssociationSnapshot] = useState<EventAssociationSnapshot>({
+    preservedParticipantAssociationIds: event?.preservedParticipantAssociationIds ?? [],
+    preservedSlotAssociationIds: event?.preservedSlotAssociationIds ?? [],
+    preservedWorldAssociationIds: event?.preservedWorldAssociationIds ?? [],
+  });
   const [, startTransition] = useTransition();
 
   useEffect(() => {
@@ -569,9 +581,7 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
           ? await updateEvent({
             currentSlug: currentSlug!,
             preservedCommunityProfileId: event.preservedCommunityProfileId,
-            preservedParticipantAssociationIds: event.preservedParticipantAssociationIds,
-            preservedSlotAssociationIds: event.preservedSlotAssociationIds,
-            preservedWorldAssociationIds: event.preservedWorldAssociationIds,
+            ...associationSnapshot,
             ...(intent === "publish"
               ? { published: true }
               : intent === "draft"
@@ -584,7 +594,16 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
       if (event !== undefined && (intent === "publish" || intent === "draft")) {
         setIsPublished(intent === "publish");
       }
-      if (event !== undefined) setCurrentSlug(result.slug);
+      if (event !== undefined) {
+        setCurrentSlug(result.slug);
+        if ("preservedParticipantAssociationIds" in result) {
+          setAssociationSnapshot({
+            preservedParticipantAssociationIds: result.preservedParticipantAssociationIds,
+            preservedSlotAssociationIds: result.preservedSlotAssociationIds,
+            preservedWorldAssociationIds: result.preservedWorldAssociationIds,
+          });
+        }
+      }
 
       startTransition(() =>
         setStatus({

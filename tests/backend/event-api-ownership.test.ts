@@ -1164,17 +1164,8 @@ describe("API-created event ownership", () => {
       ownerUserId: userId,
       title: "Hidden association event",
       communitySlug: "faceless",
-      worldSlug: "hidden-club",
       startAt,
       timezone: "UTC",
-      participantLinks: [{ personSlug: "hidden-dj", roleLabel: "Performer" }],
-      slotLinks: [{
-        personSlug: "hidden-dj",
-        displayLabel: "Hidden DJ",
-        roleLabel: "DJ",
-        startAt,
-        endAt: startAt + 3_600_000,
-      }],
     });
 
     const editableWhilePublic = await t.withIdentity(identity).query(api.events.getEditableBySlug, {
@@ -1182,9 +1173,36 @@ describe("API-created event ownership", () => {
     });
     assert.equal(editableWhilePublic?.communitySlug, "faceless");
     assert.equal(editableWhilePublic?.preservedCommunityProfileId, profileId);
-    assert.equal(editableWhilePublic?.preservedParticipantAssociationIds.length, 1);
-    assert.equal(editableWhilePublic?.preservedSlotAssociationIds.length, 1);
-    assert.equal(editableWhilePublic?.preservedWorldAssociationIds.length, 1);
+    assert.equal(editableWhilePublic?.preservedParticipantAssociationIds.length, 0);
+    assert.equal(editableWhilePublic?.preservedSlotAssociationIds.length, 0);
+    assert.equal(editableWhilePublic?.preservedWorldAssociationIds.length, 0);
+
+    const savedWithAssociations = await t.withIdentity(identity).mutation(
+      api.events.updateCommunityEvent,
+      {
+        currentSlug: created.slug,
+        title: "Added associations in the open editor",
+        communitySlug: editableWhilePublic!.communitySlug,
+        preservedCommunityProfileId: editableWhilePublic!.preservedCommunityProfileId,
+        preservedParticipantAssociationIds: editableWhilePublic!.preservedParticipantAssociationIds,
+        preservedSlotAssociationIds: editableWhilePublic!.preservedSlotAssociationIds,
+        preservedWorldAssociationIds: editableWhilePublic!.preservedWorldAssociationIds,
+        worldSlug: "hidden-club",
+        startAt,
+        timezone: "UTC",
+        participantLinks: [{ personSlug: "hidden-dj", roleLabel: "Performer" }],
+        slotLinks: [{
+          personSlug: "hidden-dj",
+          displayLabel: "Hidden DJ",
+          roleLabel: "DJ",
+          startAt,
+          endAt: startAt + 3_600_000,
+        }],
+      },
+    );
+    assert.equal(savedWithAssociations.preservedParticipantAssociationIds.length, 1);
+    assert.equal(savedWithAssociations.preservedSlotAssociationIds.length, 1);
+    assert.equal(savedWithAssociations.preservedWorldAssociationIds.length, 1);
 
     await t.run(async (ctx) => {
       await ctx.db.patch(profileId, {
@@ -1201,10 +1219,10 @@ describe("API-created event ownership", () => {
       title: "Saved after associations became hidden",
       communitySlug: editableWhilePublic!.communitySlug,
       preservedCommunityProfileId: editableWhilePublic!.preservedCommunityProfileId,
-      preservedParticipantAssociationIds: editableWhilePublic!.preservedParticipantAssociationIds,
-      preservedSlotAssociationIds: editableWhilePublic!.preservedSlotAssociationIds,
-      preservedWorldAssociationIds: editableWhilePublic!.preservedWorldAssociationIds,
-      worldSlug: editableWhilePublic!.worlds[0]!.slug,
+      preservedParticipantAssociationIds: savedWithAssociations.preservedParticipantAssociationIds,
+      preservedSlotAssociationIds: savedWithAssociations.preservedSlotAssociationIds,
+      preservedWorldAssociationIds: savedWithAssociations.preservedWorldAssociationIds,
+      worldSlug: "hidden-club",
       startAt,
       timezone: "UTC",
       participantLinks: [{ personSlug: "hidden-dj", roleLabel: "Performer" }],
@@ -1455,6 +1473,12 @@ describe("API-created event ownership", () => {
         startAt: NOW + 86_400_000,
       }),
       /do not have permission to create events for this community/,
+    );
+    assert.equal(
+      await t.withIdentity(identity).query(api.events.getEditableBySlug, {
+        slug: owned.slug,
+      }),
+      null,
     );
     await assert.rejects(
       t.withIdentity(identity).query(api.events.listEventAudit, {

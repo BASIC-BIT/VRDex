@@ -2888,7 +2888,28 @@ export const updateCommunityEvent = mutation({
       ],
       now: Date.now(),
     });
-    return result;
+    const [participantAssociations, slotAssociations, worldAssociations] = await Promise.all([
+      ctx.db
+        .query("eventParticipants")
+        .withIndex("by_eventId", (query) => query.eq("eventId", event._id))
+        .collect(),
+      ctx.db
+        .query("eventSlots")
+        .withIndex("by_eventId", (query) => query.eq("eventId", event._id))
+        .collect(),
+      ctx.db
+        .query("eventWorlds")
+        .withIndex("by_eventId", (query) => query.eq("eventId", event._id))
+        .collect(),
+    ]);
+    return {
+      ...result,
+      preservedParticipantAssociationIds: participantAssociations.map(
+        (association) => association._id,
+      ),
+      preservedSlotAssociationIds: slotAssociations.map((association) => association._id),
+      preservedWorldAssociationIds: worldAssociations.map((association) => association._id),
+    };
   },
 });
 
@@ -2898,7 +2919,17 @@ export const getEditableBySlug = query({
   },
   handler: async (ctx, args) => {
     const subject = await requireAuthenticatedSubject(ctx);
-    const { event } = await getEditableEventBySlug(ctx, args.slug, subject);
+    const validation = validateEventSlug(args.slug);
+    if (!validation.ok) {
+      return null;
+    }
+    const event = await getEventBySlug(ctx.db, validation.slug);
+    if (
+      event === null ||
+      !(await canUpdateEvent(ctx.db, event, subject, (await requireUser(ctx)).userId))
+    ) {
+      return null;
+    }
     return getEventForEditor(ctx.db, event);
   },
 });
