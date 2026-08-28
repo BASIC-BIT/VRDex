@@ -75,6 +75,7 @@ export function ProfileMediaContributionEditor({
   const router = useRouter();
   const createUploadIntent = useMutation(api.profileMediaSubmissions.createUploadIntent);
   const withdraw = useMutation(api.profileMediaSubmissions.withdraw);
+  const expectedProfileUpdatedAt = useRef(profile.updatedAt).current;
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
 
@@ -106,7 +107,7 @@ export function ProfileMediaContributionEditor({
         credit: String(data.get("credit") ?? ""),
         creditUrl: String(data.get("creditUrl") ?? "") || undefined,
         contributorNote: String(data.get("contributorNote") ?? "") || undefined,
-        expectedProfileUpdatedAt: profile.updatedAt,
+        expectedProfileUpdatedAt,
       });
       submissionId = intent.submissionId;
       const uploadData = new FormData();
