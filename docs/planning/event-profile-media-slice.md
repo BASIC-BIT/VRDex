@@ -383,7 +383,8 @@ Current recommendation:
 
 ### Media contributor
 
-- A public unclaimed profile exposes one concise media-contribution action.
+- A public unclaimed profile exposes `Suggest an edit`; media contributions
+  live inline on that edit page.
 - The form accepts one image, requested use, source, credit, alt text, and an
   optional reviewer note.
 - The contributor receives a private status view. The image is never implied

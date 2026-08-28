@@ -8,6 +8,7 @@ import {
   expectSearchPage,
   prepareVisualPage,
   productionSmokeRoutes,
+  visualProfilePaths,
 } from "./public-routes";
 
 const routes = process.env.PLAYWRIGHT_BASE_URL ? productionSmokeRoutes : capturedRoutes;
@@ -53,6 +54,14 @@ test("legacy discovery query redirects to search", async ({ page }) => {
   }
 
   await expectSearchPage(page);
+});
+
+test("legacy media contribution route rejects claimed profiles", async ({ page }) => {
+  test.skip(isHostedRun, "The Playwright-only media contribution flag is local-only.");
+
+  const response = await page.goto(`${visualProfilePaths.verifiedPersonPath}/contribute-media`);
+
+  expect(response?.status()).toBe(404);
 });
 
 test("private profile claim actions stay on owner-aware routes", async ({ page }) => {
