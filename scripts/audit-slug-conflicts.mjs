@@ -116,15 +116,15 @@ if (report.nestedRoutesShadowed.length === 0) {
   lines.push(
     "",
     `${report.nestedRoutesShadowed.length} entit(y/ies) hold a route prefix. The public page` +
-      " still works; the owner-facing subpaths under it do not:",
+      " still works; nested entity subpaths under it do not:",
   );
   for (const holder of report.nestedRoutesShadowed) {
-    // The audit says which subpath each holder lost rather than this re-deriving it
+    // The audit says which subpaths each holder lost rather than this re-deriving them
     // from the kind, so the two cannot disagree.
-    lines.push(
-      `  /${holder.slug}  ${holder.kind.padEnd(9)} ${holder.displayName} (${holder.id})` +
-        `  -- /${holder.slug}/${holder.lostSubpath} goes to the ${holder.slug} routes instead`,
-    );
+    lines.push(`  /${holder.slug}  ${holder.kind.padEnd(9)} ${holder.displayName} (${holder.id})`);
+    for (const subpath of holder.lostSubpaths) {
+      lines.push(`    -- /${holder.slug}/${subpath} goes to the ${holder.slug} routes instead`);
+    }
   }
 }
 

@@ -6,18 +6,13 @@ import {
   type EntitySubpath,
 } from "./_globalSlugs";
 
-/**
- * The one subpath under `/<slug>` that this kind of entity uses.
- *
- * `app/[slug]/edit` is the profile editor and `app/[slug]/calendar.ics` is the
- * event export. Worlds have neither, so they can lose neither.
- */
-function entitySubpathFor(kind: string): EntitySubpath | null {
+/** The subpaths under `/<slug>` that this kind of entity uses. */
+function entitySubpathsFor(kind: string): readonly EntitySubpath[] {
   if (kind === "event") {
-    return "calendar.ics";
+    return ["calendar.ics", "opengraph-image"];
   }
 
-  return kind === "world" ? null : "edit";
+  return kind === "world" ? ["opengraph-image"] : ["edit", "opengraph-image"];
 }
 
 /**
@@ -120,24 +115,24 @@ export const conflicts = internalQuery({
 
     // Milder, and easy to miss because the public page still works. A profile
     // slugged `handoff` renders at `/handoff`, but `/handoff/edit` is matched by
-    // `app/handoff/[token]` rather than the profile editor, and an event's
-    // `/handoff/calendar.ics` is intercepted the same way. Reported so the audit
-    // cannot print "nothing to migrate" over a broken owner-facing route.
+    // `app/handoff/[token]` rather than the profile editor. Calendar exports and
+    // generated share images are intercepted the same way. Reported so the audit
+    // cannot print "nothing to migrate" over a broken nested route.
     //
-    // Matched per kind against the subpath that kind actually uses. `edit` serves
-    // profiles and `calendar.ics` serves events, and a world uses neither, so it has
-    // nothing down there to lose.
+    // Matched per kind against every subpath that kind uses. Share images belong to
+    // profiles, worlds, and events, while edit and calendar remain kind-specific.
     //
     // Both of today's prefixes take both subpaths, having dynamic children. Asking
     // only "is this a prefix" would still have been right for them and wrong for a
     // future static `edit` child, which takes one subpath while the audit told an
     // operator to rename an event whose export still worked.
     const nestedRoutesShadowed = holders.flatMap((holder) => {
-      const subpath = entitySubpathFor(holder.kind);
+      const intercepted = routePrefixSubpaths(holder.slug);
+      const lostSubpaths = entitySubpathsFor(holder.kind).filter((subpath) =>
+        intercepted.includes(subpath),
+      );
 
-      return subpath !== null && routePrefixSubpaths(holder.slug).includes(subpath)
-        ? [{ ...holder, lostSubpath: subpath }]
-        : [];
+      return lostSubpaths.length > 0 ? [{ ...holder, lostSubpaths }] : [];
     });
 
     return {

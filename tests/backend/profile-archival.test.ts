@@ -74,6 +74,36 @@ async function signIn(t: ReturnType<typeof convexTest>, { superAdmin }: { superA
 }
 
 describe("superadmin profile archival", () => {
+  it("continues past a hidden legacy profile when a published world shares its slug", async () => {
+    const t = convexTest({ schema, modules });
+    await seedProfile(t, {
+      slug: "legacy-duplicate",
+      publicSurfacingState: "archived",
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("worlds", {
+        slug: "legacy-duplicate",
+        displayName: "Legacy Duplicate World",
+        sortName: "legacy duplicate world",
+        tags: [],
+        visibilityStatus: "public",
+        platformCompatibility: ["pc"],
+        media: [],
+        creatorAttributions: [],
+        outboundLinks: [],
+        publicationState: "published",
+        creationSource: "self",
+        updatedAt: NOW,
+      });
+    });
+
+    assert.deepEqual(
+      await t.query(api.profiles.getPublicShareCardBySlug, { slug: "legacy-duplicate" }),
+      { entityType: "world", profile: null },
+    );
+  });
+
   it("hides an archived profile from every public read", async () => {
     const t = convexTest({ schema, modules });
     const profileId = await seedProfile(t);

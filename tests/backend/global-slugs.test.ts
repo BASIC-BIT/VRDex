@@ -299,7 +299,11 @@ describe("global slug namespace", () => {
     }
 
     // Still correct for a real one.
-    assert.deepEqual([...routePrefixSubpaths("handoff")].sort(), ["calendar.ics", "edit"]);
+    assert.deepEqual([...routePrefixSubpaths("handoff")].sort(), [
+      "calendar.ics",
+      "edit",
+      "opengraph-image",
+    ]);
   });
 
   it("resolves the owner across all three tables", async () => {
