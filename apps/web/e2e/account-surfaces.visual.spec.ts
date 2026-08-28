@@ -410,7 +410,7 @@ test.describe("account surfaces @visual @flow @account-visual", () => {
   test("media contributions", async ({ page, request }, testInfo) => {
     await skipUntilHostedTargetRunsCurrentRevision(request);
     await page.goto("/account/media-contributions");
-    await expect(page.getByRole("heading", { name: "My media contributions" })).toBeVisible(
+    await expect(page.getByRole("heading", { name: "Media contributions" })).toBeVisible(
       hostedExpectOptions,
     );
     await waitForVisualReady(page);

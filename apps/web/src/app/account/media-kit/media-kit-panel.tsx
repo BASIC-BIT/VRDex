@@ -307,7 +307,7 @@ function AssetEditor({
                     : ""}
                 </p>
                 {asset.source === "community_submitted" ? (
-                  <p className="mt-1 text-xs text-muted">Community contribution</p>
+                  <p className="mt-1 text-xs text-muted">Community submitted</p>
                 ) : null}
               </div>
               <div className="flex gap-1">
@@ -438,7 +438,7 @@ function OtherAsset({
           {asset.mimeType.replace("image/", "").toUpperCase()} · {formatBytes(asset.byteSize)}
         </p>
         {asset.source === "community_submitted" ? (
-          <p className="mt-1 text-xs text-muted">Community contribution</p>
+          <p className="mt-1 text-xs text-muted">Community submitted</p>
         ) : null}
         <ActionStatusMessage className="mt-2" status={status} />
       </div>

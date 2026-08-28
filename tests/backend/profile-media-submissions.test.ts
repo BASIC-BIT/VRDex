@@ -21,6 +21,10 @@ const modules = {
 const schema = (schemaModule as unknown as { default?: typeof schemaModule }).default ?? schemaModule;
 const NOW = Date.parse("2026-08-26T12:00:00.000Z");
 const FIRST_REVIEW_PAGE = { paginationOpts: { numItems: 40, cursor: null } } as const;
+const TARGET_PROFILE_SNAPSHOT = {
+  targetProfileSlug: "community-dj",
+  targetProfileDisplayName: "Community DJ",
+} as const;
 
 async function seed(t: ReturnType<typeof convexTest>, profileType: "person" | "community" = "person") {
   return await t.run(async (ctx) => {
@@ -307,6 +311,25 @@ describe("unclaimed-profile media submissions", () => {
     );
   });
 
+  it("moves a submitted proposal into the browser review queue", async () => {
+    const t = convexTest({ schema, modules });
+    const seeded = await seed(t);
+    const { intent } = await createAndUpload(t, seeded);
+
+    assert.equal(
+      await t.withIdentity(seeded.moderatorIdentity).mutation(
+        api.profileMediaSubmissions.startReview,
+        { submissionId: intent.submissionId },
+      ),
+      true,
+    );
+    const queue = await t.withIdentity(seeded.moderatorIdentity).query(
+      api.profileMediaSubmissions.listForReview,
+      { status: "under_review", ...FIRST_REVIEW_PAGE },
+    );
+    assert.deepEqual(queue.page.map((row) => row.submissionId), [intent.submissionId]);
+  });
+
   it("rejects a review decision after the proposal expires", async () => {
     const t = convexTest({ schema, modules });
     const seeded = await seed(t);
@@ -487,6 +510,12 @@ describe("unclaimed-profile media submissions", () => {
       const insertSubmission = (profileId: Id<"profiles">, createdAt: number) =>
         ctx.db.insert("profileMediaSubmissions", {
           profileId,
+          ...(profileId === seeded.profileId
+            ? TARGET_PROFILE_SNAPSHOT
+            : {
+                targetProfileSlug: "unrelated-dj",
+                targetProfileDisplayName: "Unrelated DJ",
+              }),
           submitterUserId: seeded.contributorUserId,
           submitter: {
             tokenIdentifier: seeded.contributorIdentity.tokenIdentifier,
@@ -518,6 +547,50 @@ describe("unclaimed-profile media submissions", () => {
       queue.page.find((row) => row.submissionId === targetSubmissionId)?.priorProposalCount,
       1,
     );
+    assert.equal(
+      queue.page.find((row) => row.submissionId === targetSubmissionId)?.priorProposalCountTruncated,
+      false,
+    );
+  });
+
+  it("marks saturated duplicate evidence instead of presenting a capped count as exact", async () => {
+    const t = convexTest({ schema, modules });
+    const seeded = await seed(t);
+    const now = Date.now();
+    const targetSubmissionId = await t.run(async (ctx) => {
+      const insertSubmission = (createdAt: number) =>
+        ctx.db.insert("profileMediaSubmissions", {
+          profileId: seeded.profileId,
+          ...TARGET_PROFILE_SNAPSHOT,
+          submitterUserId: seeded.contributorUserId,
+          submitter: {
+            tokenIdentifier: seeded.contributorIdentity.tokenIdentifier,
+            issuer: seeded.contributorIdentity.issuer,
+            subject: seeded.contributorIdentity.subject,
+          },
+          requestedPlacement: "profile_image",
+          sourceUrl: "https://artist.example/press",
+          credit: "Artist press kit",
+          status: "submitted" as const,
+          targetProfileUpdatedAt: NOW,
+          contentSha256: "saturated-hash",
+          expiresAt: now + 30 * 24 * 60 * 60 * 1_000,
+          createdAt,
+          updatedAt: createdAt,
+        });
+      for (let index = 0; index < 21; index += 1) {
+        await insertSubmission(now - 30_000 + index);
+      }
+      return await insertSubmission(now);
+    });
+
+    const queue = await t.withIdentity(seeded.moderatorIdentity).query(
+      api.profileMediaSubmissions.listForReview,
+      { profileId: seeded.profileId, ...FIRST_REVIEW_PAGE },
+    );
+    const row = queue.page.find((candidate) => candidate.submissionId === targetSubmissionId);
+    assert.equal(row?.priorProposalCount, 20);
+    assert.equal(row?.priorProposalCountTruncated, true);
   });
 
   it("lets the new owner decide a still-pending submission after claim", async () => {
@@ -574,6 +647,13 @@ describe("unclaimed-profile media submissions", () => {
       publicDisposition: "Please coordinate directly with the profile owner.",
       privateReason: "Owner declined this community contribution.",
     });
+    const rejectedQueue = await t.withIdentity(ownerIdentity).query(
+      api.profileMediaSubmissions.listForReview,
+      { profileId: seeded.profileId, status: "rejected", ...FIRST_REVIEW_PAGE },
+    );
+    assert.equal(rejectedQueue.page.length, 1);
+    assert.equal(rejectedQueue.page[0]?.canViewCandidate, false);
+    assert.equal("submitterEmail" in (rejectedQueue.page[0] ?? {}), false);
     assert.equal(
       await t.withIdentity(ownerIdentity).query(
         api.profileMediaSubmissions.getCandidateForStorage,
@@ -597,6 +677,7 @@ describe("unclaimed-profile media submissions", () => {
       for (let index = 0; index < 30; index += 1) {
         await ctx.db.insert("profileMediaSubmissions", {
           profileId: seeded.profileId,
+          ...TARGET_PROFILE_SNAPSHOT,
           submitterUserId: seeded.contributorUserId,
           submitter: {
             tokenIdentifier: seeded.contributorIdentity.tokenIdentifier,
@@ -620,6 +701,29 @@ describe("unclaimed-profile media submissions", () => {
       {},
     );
     assert.equal(mine.length, 30);
+  });
+
+  it("keeps the public target name shown at submission time after a private rename", async () => {
+    const t = convexTest({ schema, modules });
+    const seeded = await seed(t);
+    await createAndUpload(t, seeded);
+    await t.run((ctx) =>
+      ctx.db.patch(seeded.profileId, {
+        slug: "private-rename",
+        displayName: "Private Rename",
+        publicationState: "draft_private",
+        publicSurfacingState: "suppressed",
+        updatedAt: NOW + 1,
+      }),
+    );
+
+    const mine = await t.withIdentity(seeded.contributorIdentity).query(
+      api.profileMediaSubmissions.listMine,
+      {},
+    );
+    assert.equal(mine[0]?.profileSlug, "community-dj");
+    assert.equal(mine[0]?.profileDisplayName, "Community DJ");
+    assert.equal(mine[0]?.profileIsPublic, false);
   });
 
   it("does not let approval replace a newer singleton placement", async () => {
@@ -834,6 +938,7 @@ describe("unclaimed-profile media submissions", () => {
       for (let index = 0; index < 200; index += 1) {
         await ctx.db.insert("profileMediaSubmissions", {
           profileId: seeded.profileId,
+          ...TARGET_PROFILE_SNAPSHOT,
           submitterUserId: seeded.contributorUserId,
           submitter: {
             tokenIdentifier: seeded.contributorIdentity.tokenIdentifier,
@@ -857,6 +962,7 @@ describe("unclaimed-profile media submissions", () => {
       for (let index = 0; index < 201; index += 1) {
         await ctx.db.insert("profileMediaSubmissions", {
           profileId: seeded.profileId,
+          ...TARGET_PROFILE_SNAPSHOT,
           submitterUserId: seeded.contributorUserId,
           submitter: {
             tokenIdentifier: seeded.contributorIdentity.tokenIdentifier,
@@ -877,6 +983,7 @@ describe("unclaimed-profile media submissions", () => {
     const protectedSubmissionId = await t.run((ctx) =>
       ctx.db.insert("profileMediaSubmissions", {
         profileId: seeded.profileId,
+        ...TARGET_PROFILE_SNAPSHOT,
         submitterUserId: seeded.contributorUserId,
         submitter: {
           tokenIdentifier: seeded.contributorIdentity.tokenIdentifier,
@@ -1008,6 +1115,7 @@ describe("unclaimed-profile media submissions", () => {
       for (let index = 0; index < 2; index += 1) {
         await ctx.db.insert("profileMediaSubmissions", {
           profileId: seeded.profileId,
+          ...TARGET_PROFILE_SNAPSHOT,
           submitterUserId: seeded.contributorUserId,
           submitter: {
             tokenIdentifier: seeded.contributorIdentity.tokenIdentifier,
@@ -1050,6 +1158,7 @@ describe("unclaimed-profile media submissions", () => {
       for (let index = 0; index < 6; index += 1) {
         await ctx.db.insert("profileMediaSubmissions", {
           profileId: seeded.profileId,
+          ...TARGET_PROFILE_SNAPSHOT,
           submitterUserId: seeded.contributorUserId,
           submitter: {
             tokenIdentifier: seeded.contributorIdentity.tokenIdentifier,
@@ -1094,6 +1203,7 @@ describe("unclaimed-profile media submissions", () => {
       for (const status of ["rejected", "withdrawn", "submitted"] as const) {
         await ctx.db.insert("profileMediaSubmissions", {
           profileId: seeded.profileId,
+          ...TARGET_PROFILE_SNAPSHOT,
           submitterUserId: seeded.contributorUserId,
           submitter: {
             tokenIdentifier: seeded.contributorIdentity.tokenIdentifier,

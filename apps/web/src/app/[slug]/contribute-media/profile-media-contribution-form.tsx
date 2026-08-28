@@ -171,7 +171,7 @@ export function ProfileMediaContributionForm({ profile }: { profile: Contributio
         </form>
       </Card>
       <Link className={buttonVariants({ variant: "ghost" })} href="/account/media-contributions">
-        My media contributions
+        Media contributions
       </Link>
     </main>
   );

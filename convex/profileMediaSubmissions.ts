@@ -33,6 +33,7 @@ const reviewQueueStatus = v.union(
   v.literal("submitted"),
   v.literal("under_review"),
   v.literal("approved"),
+  v.literal("rejected"),
 );
 
 function assertContributionsEnabled() {
@@ -155,12 +156,24 @@ async function reviewerContext(
   return { user, subject, access, ownsProfile };
 }
 
-function publicSubmission(submission: Doc<"profileMediaSubmissions">, profile: Doc<"profiles">) {
+function publicSubmission(
+  submission: Doc<"profileMediaSubmissions">,
+  profile: Doc<"profiles">,
+  usePublicProfileIdentity = false,
+) {
+  const profileIsPublic =
+    profile.publicationState === "published" && profile.publicSurfacingState === "public";
+
   return {
     submissionId: submission._id,
     profileId: profile._id,
-    profileSlug: profile.slug,
-    profileDisplayName: profile.displayName,
+    profileSlug: usePublicProfileIdentity && !profileIsPublic
+      ? submission.targetProfileSlug
+      : profile.slug,
+    profileDisplayName: usePublicProfileIdentity && !profileIsPublic
+      ? submission.targetProfileDisplayName
+      : profile.displayName,
+    profileIsPublic,
     profileType: profile.profileType,
     requestedPlacement: submission.requestedPlacement,
     status: submission.status,
@@ -192,10 +205,10 @@ async function reviewSubmission(
         .withIndex("by_profileId_contentSha256_status", (query) =>
           query.eq("profileId", profile._id).eq("contentSha256", submission.contentSha256),
         )
-        .take(20);
-  const priorProposalCount = duplicates.filter(
-    (candidate) => candidate._id !== submission._id,
-  ).length;
+        .take(22);
+  const priorProposals = duplicates.filter((candidate) => candidate._id !== submission._id);
+  const priorProposalCount = Math.min(priorProposals.length, 20);
+  const priorProposalCountTruncated = priorProposals.length > priorProposalCount;
   const submitter = includeModeratorEvidence
     ? await ctx.db.get(submission.submitterUserId)
     : null;
@@ -203,6 +216,12 @@ async function reviewSubmission(
   return {
     ...publicSubmission(submission, profile),
     priorProposalCount,
+    priorProposalCountTruncated,
+    canViewCandidate:
+      includeModeratorEvidence ||
+      submission.status === "submitted" ||
+      submission.status === "under_review" ||
+      submission.status === "approved",
     canSuppress: includeModeratorEvidence && submission.status === "approved",
     ...(includeModeratorEvidence
       ? {
@@ -275,6 +294,8 @@ export const createUploadIntent = mutation({
       .first();
     const submissionId = await ctx.db.insert("profileMediaSubmissions", {
       profileId: profile._id,
+      targetProfileSlug: profile.slug,
+      targetProfileDisplayName: profile.displayName,
       submitterUserId: user._id,
       submitter: subject,
       requestedPlacement: args.requestedPlacement,
@@ -357,7 +378,7 @@ export const listMine = query({
     return await Promise.all(
       rows.map(async (submission) => {
         const profile = await ctx.db.get(submission.profileId);
-        return profile === null ? null : publicSubmission(submission, profile);
+        return profile === null ? null : publicSubmission(submission, profile, true);
       }),
     ).then((items) => items.filter((item) => item !== null));
   },

@@ -171,10 +171,7 @@ export function createPublicWorldEventContext(
 
   const upcoming = previews
     .filter((event) => eventEndsAt(event) >= now)
-    .sort(
-      (first, second) =>
-        eventEndsAt(first) - eventEndsAt(second) || first.startAt - second.startAt,
-    )
+    .sort((first, second) => compareActiveEvents(first, second, now))
     .slice(0, WORLD_EVENT_SECTION_LIMIT);
 
   const recent = previews

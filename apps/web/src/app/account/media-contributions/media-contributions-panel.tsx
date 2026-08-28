@@ -24,16 +24,18 @@ export function MediaContributionsPanel() {
 
   return (
     <main className="grid gap-6">
-      <SectionTitle>My media contributions</SectionTitle>
+      <SectionTitle>Media contributions</SectionTitle>
       {submissions === undefined ? <p aria-busy="true" className="text-sm text-muted">Loading…</p> : null}
       <div className="grid gap-4">
         {submissions?.map((submission) => (
           <Card key={submission.submissionId}>
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
-                <Link className="text-lg font-semibold hover:underline" href={`/${submission.profileSlug}`}>
-                  {submission.profileDisplayName}
-                </Link>
+                {submission.profileIsPublic ? (
+                  <Link className="text-lg font-semibold hover:underline" href={`/${submission.profileSlug}`}>
+                    {submission.profileDisplayName}
+                  </Link>
+                ) : <p className="text-lg font-semibold">{submission.profileDisplayName}</p>}
                 <p className="mt-1 text-sm text-muted">{statusLabel[submission.status]}</p>
               </div>
               {submission.status === "upload_pending" ||

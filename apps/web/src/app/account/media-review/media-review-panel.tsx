@@ -15,6 +15,7 @@ import { Notice } from "@/components/ui/notice";
 type ReviewRow = FunctionReturnType<typeof api.profileMediaSubmissions.listForReview>["page"][number];
 
 function ReviewCard({ row }: { row: ReviewRow }) {
+  const startReview = useMutation(api.profileMediaSubmissions.startReview);
   const decide = useMutation(api.profileMediaSubmissions.decide);
   const suppress = useMutation(api.profileMediaSubmissions.suppressApprovedAsset);
   const [busy, setBusy] = useState(false);
@@ -22,6 +23,19 @@ function ReviewCard({ row }: { row: ReviewRow }) {
   const [privateReason, setPrivateReason] = useState("");
   const [suppressionReason, setSuppressionReason] = useState("");
   const [status, setStatus] = useState<string | null>(null);
+
+  async function beginReview() {
+    setBusy(true);
+    setStatus(null);
+    try {
+      await startReview({ submissionId: row.submissionId });
+      setStatus("Under review.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message.split("\n")[0] : "Review failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function submit(decision: "approve" | "reject") {
     setBusy(true);
@@ -63,24 +77,28 @@ function ReviewCard({ row }: { row: ReviewRow }) {
     <Card>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <Link className="text-xl font-semibold hover:underline" href={`/${row.profileSlug}`}>
-            {row.profileDisplayName}
-          </Link>
+          {row.profileIsPublic ? (
+            <Link className="text-xl font-semibold hover:underline" href={`/${row.profileSlug}`}>
+              {row.profileDisplayName}
+            </Link>
+          ) : <p className="text-xl font-semibold">{row.profileDisplayName}</p>}
           <p className="mt-1 text-sm text-muted">{row.requestedPlacement === "profile_image" ? "Profile image" : "Primary logo"}</p>
         </div>
         <a className="text-sm underline" href={row.sourceUrl} rel="noreferrer" target="_blank">Open source</a>
       </div>
-      {/* The authenticated no-store route must be loaded directly by the browser. */}
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        alt={row.altText || `Candidate for ${row.profileDisplayName}`}
-        className="mt-5 max-h-96 w-full rounded-lg bg-surface-raised object-contain"
-        src={`/api/account/media-review/submissions/${row.submissionId}/file`}
-      />
+      {row.canViewCandidate ? (
+        // The authenticated no-store route must be loaded directly by the browser.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          alt={row.altText || `Candidate for ${row.profileDisplayName}`}
+          className="mt-5 max-h-96 w-full rounded-lg bg-surface-raised object-contain"
+          src={`/api/account/media-review/submissions/${row.submissionId}/file`}
+        />
+      ) : null}
       <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
         <div><dt className="text-muted">Credit</dt><dd>{row.credit}</dd></div>
         <div><dt className="text-muted">Alt text</dt><dd>{row.altText || "Not provided"}</dd></div>
-        <div><dt className="text-muted">Prior matching proposals</dt><dd>{row.priorProposalCount}</dd></div>
+        <div><dt className="text-muted">Prior matching proposals</dt><dd>{row.priorProposalCount}{row.priorProposalCountTruncated ? "+" : ""}</dd></div>
         {row.submitterDisplayName || row.submitterEmail ? (
           <div>
             <dt className="text-muted">Submitter</dt>
@@ -93,7 +111,12 @@ function ReviewCard({ row }: { row: ReviewRow }) {
       {row.targetProfileUpdatedAt !== row.currentProfileUpdatedAt ? (
         <Notice className="mt-5" variant="warning">Profile changed after submission.</Notice>
       ) : null}
-      {row.status === "approved" && row.canSuppress ? (
+      {row.status === "submitted" ? (
+        <div className="mt-5 grid gap-4">
+          <Button disabled={busy} onClick={() => void beginReview()} type="button" variant="primary">Start review</Button>
+          {status ? <Notice role="status">{status}</Notice> : null}
+        </div>
+      ) : row.status === "approved" && row.canSuppress ? (
         <div className="mt-5 grid gap-4">
           <Field>
             Suppression reason
@@ -102,7 +125,7 @@ function ReviewCard({ row }: { row: ReviewRow }) {
           <Button disabled={busy || suppressionReason.trim() === ""} onClick={() => void suppressAsset()} type="button" variant="dangerGhost">Suppress media</Button>
           {status ? <Notice role="status">{status}</Notice> : null}
         </div>
-      ) : row.status !== "approved" ? <div className="mt-5 grid gap-4">
+      ) : row.status === "under_review" ? <div className="mt-5 grid gap-4">
         <Field>
           Contributor-visible disposition
           <Textarea maxLength={240} onChange={(event) => setPublicDisposition(event.target.value)} rows={2} value={publicDisposition} />
@@ -124,7 +147,7 @@ function ReviewCard({ row }: { row: ReviewRow }) {
 export function MediaReviewPanel() {
   const access = useQuery(api.profileMediaSubmissions.getReviewAccess);
   const [profileId, setProfileId] = useState("");
-  const [queueStatus, setQueueStatus] = useState<"submitted" | "under_review" | "approved">("submitted");
+  const [queueStatus, setQueueStatus] = useState<"submitted" | "under_review" | "approved" | "rejected">("submitted");
   const [cleanupStatus, setCleanupStatus] = useState<string | null>(null);
   const effectiveProfileId = profileId || (
     access && !access.superAdmin ? access.profiles[0]?.profileId ?? "" : ""
@@ -172,10 +195,11 @@ export function MediaReviewPanel() {
           ) : null}
           <Field>
             Status
-            <Select onChange={(event) => setQueueStatus(event.target.value as "submitted" | "under_review" | "approved")} value={queueStatus}>
+            <Select onChange={(event) => setQueueStatus(event.target.value as "submitted" | "under_review" | "approved" | "rejected")} value={queueStatus}>
               <option value="submitted">Submitted</option>
               <option value="under_review">Under review</option>
               <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
             </Select>
           </Field>
           {access?.superAdmin ? <Button onClick={() => void cleanDueFiles()} type="button" variant="ghost">Clean due files</Button> : null}

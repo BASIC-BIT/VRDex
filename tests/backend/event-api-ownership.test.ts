@@ -910,8 +910,8 @@ describe("API-created event ownership", () => {
       await insertEvent(
         "profile-future-festival",
         "Profile Future Festival",
-        NOW + 10 * 86_400_000,
-        NOW + 10 * 86_400_000 + 3_600_000,
+        NOW + 45 * 60_000,
+        NOW + 50 * 60_000,
       );
       for (let index = 0; index < 81; index += 1) {
         const startAt = NOW + (index + 1) * 60_000;

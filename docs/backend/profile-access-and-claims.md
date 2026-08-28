@@ -122,17 +122,20 @@ it does not create a `profileAssets` row. The ordinary asset consumer rejects a
 submission. This keeps pending, rejected, and withdrawn media unreachable from
 public asset projections.
 
-An unclaimed target requires a `super_admin` reviewer. If the target is claimed
-while the proposal waits, the new active owner can review it. Approval rechecks
+An unclaimed target requires a `super_admin` reviewer. A browser reviewer moves
+a submitted proposal to `under_review` before deciding it. If the target is claimed
+while the proposal waits, the new active owner can review it and see rejected
+target history. Approval rechecks
 the current public profile state and revision, active-asset quota, upload purpose,
 content hash, and target identity, then atomically creates a public asset with
 `source: "community_submitted"`. Claiming never rewrites that provenance.
 
-Contributors can list and withdraw only their own open submissions. They see a
-short public disposition after rejection, never the reviewer's identity or
-private reason. A claiming owner can see the source, credit, reviewer note, and
-matching-proposal count but not the submitter identity or confidential moderator
-notes; `super_admin` reviewers receive that additional evidence. The candidate-preview
+Contributors can list only their own submissions and withdraw only open ones.
+They see the target's submission-time public name if it is later hidden and
+privately renamed, plus a short public disposition after rejection, never the
+reviewer's identity or private reason. A claiming owner can see the source,
+credit, reviewer note, and matching-proposal count but not the submitter identity
+or confidential moderator notes; `super_admin` reviewers receive that additional evidence. The candidate-preview
 route must repeat this review authorization and remain private/no-store rather
 than reusing a public asset route.
 

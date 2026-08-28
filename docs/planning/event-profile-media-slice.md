@@ -251,6 +251,7 @@ Locked decision:
 Add a private `profileMediaSubmissions` table with:
 
 - `profileId`
+- submission-time public profile slug and display name
 - immutable submitter subject and user ID
 - candidate upload/source references and content hash
 - requested placement
@@ -266,6 +267,10 @@ Add a private `profileMediaSubmissions` table with:
 
 Indexes should support bounded queries by profile and status, submitter and
 status, status and creation time, and content hash.
+
+The submission-time profile name is the contributor-safe fallback if the target
+is later hidden and privately renamed. There is no compatibility or backfill
+path because this table has no deployed rows.
 
 ### Upload lifecycle
 
@@ -398,25 +403,25 @@ Current recommendation:
 
 ### Public-copy approval inventory
 
-No new substantive public sentence is approved by this plan. Before merge,
-BASIC must review the exact rendered copy for:
+BASIC reviewed the rendered-copy inventory for this slice. Public surfaces use
+existing approved patterns or short utility labels except for the four exact
+sentences approved below.
 
-- the unclaimed-profile media action
-- pending, approved, rejected, and withdrawn states
-- cancellation presentation
-- discovery empty state, if changed
-- public moderation or takedown guidance
+### Exact rendered copy
 
-### Exact proposed copy awaiting BASIC approval
+Locked decision: BASIC approved these substantive sentences on 2026-08-28:
 
-Status: **not approved for release**. These are the substantive new rendered
-strings in the implementation branch; short field names and mechanical action
-labels are included so approval can happen against one durable inventory.
+- `Profile media review access is required.`
+- `Profile changed after submission.`
+- `You cannot review your own media contribution.`
+- `You cannot decide your own media contribution.`
+
+The remaining entries are short utility labels or existing approved patterns.
 
 Public profile and contribution:
 
-- `My media contributions`
-- `Community contribution`
+- `Media contributions`
+- `Community submitted`
 
 Contributor states and errors:
 
@@ -428,15 +433,11 @@ custom public copy.
 
 Review and ownership:
 
-- `Media review`
-- `Profile media review access is required.`
-- `Profile changed after submission.`
+- `Media review` and `Start review`
 - `Prior matching proposals`
 - `Contributor-visible disposition`
 - `Private review reason`
 - `Suppression reason`, `Suppress media`, and `Clean due files`
-- `You cannot review your own media contribution.`
-- `You cannot decide your own media contribution.`
 
 Events:
 
@@ -672,7 +673,7 @@ Current recommendation:
 - [ ] Backend, contract, browser, security, accessibility, and policy checks are
       green for the exact head.
 - [ ] Desktop and mobile screenshots have been visually reviewed.
-- [ ] BASIC has approved the exact new public copy.
+- [x] BASIC has approved the exact new public copy.
 - [ ] Docs and checked-in environment expectations match implementation.
 - [ ] The PR completes the post-push review window and final exact-head feedback
       refresh before being called merge-ready.

@@ -162,6 +162,20 @@ function eventEndsAt(event: Pick<Doc<"events">, "startAt" | "endAt">): number {
   return event.endAt ?? event.startAt;
 }
 
+function compareCurrentFirstEvents(
+  first: Pick<Doc<"events">, "startAt" | "endAt">,
+  second: Pick<Doc<"events">, "startAt" | "endAt">,
+  now: number,
+): number {
+  const firstIsCurrent = first.startAt <= now;
+  const secondIsCurrent = second.startAt <= now;
+
+  if (firstIsCurrent !== secondIsCurrent) return firstIsCurrent ? -1 : 1;
+  return firstIsCurrent
+    ? eventEndsAt(first) - eventEndsAt(second) || first.startAt - second.startAt
+    : first.startAt - second.startAt;
+}
+
 function publicMediaLinkKey(link: PublicEvent["mediaLinks"][number]) {
   return `${link.type}:${link.url.toLowerCase()}`;
 }
@@ -711,7 +725,7 @@ export async function getEventForEditor(
 export async function getPublicEventPreviews(
   db: DatabaseReader,
   events: Doc<"events">[],
-  options: { now?: number; limit?: number; order?: "start" | "end" | "input" } = {},
+  options: { now?: number; limit?: number; order?: "start" | "input" } = {},
 ): Promise<PublicEventPreview[]> {
   const now = options.now;
   const limit = Math.max(
@@ -726,11 +740,7 @@ export async function getPublicEventPreviews(
   );
   const selectedEvents = (options.order === "input"
     ? eligibleEvents
-    : eligibleEvents.sort((first, second) =>
-        options.order === "end"
-          ? eventEndsAt(first) - eventEndsAt(second) || first.startAt - second.startAt
-          : first.startAt - second.startAt,
-      )).slice(0, limit);
+    : eligibleEvents.sort((first, second) => first.startAt - second.startAt)).slice(0, limit);
   const records = (
     await Promise.all(
       selectedEvents.map((event) =>
@@ -775,10 +785,7 @@ export async function getPublicCommunityHostedEvents(
   ]);
   const started = startedCandidates
     .filter((event) => eventEndsAt(event) >= now)
-    .sort(
-      (first, second) =>
-        eventEndsAt(first) - eventEndsAt(second) || first.startAt - second.startAt,
-    );
+    .sort((first, second) => compareCurrentFirstEvents(first, second, now));
   const events = [...started, ...upcoming];
 
   return getPublicEventPreviews(db, events, { now, limit, order: "input" });
@@ -803,7 +810,9 @@ export async function getPublicPersonUpcomingEvents(
     .take(EVENT_ASSOCIATION_LIMIT);
   const events = (
     await Promise.all(participantLinks.map((link) => db.get(link.eventId)))
-  ).filter((event): event is Doc<"events"> => event !== null);
+  )
+    .filter((event): event is Doc<"events"> => event !== null)
+    .sort((first, second) => compareCurrentFirstEvents(first, second, now));
 
-  return getPublicEventPreviews(db, events, { now, limit, order: "end" });
+  return getPublicEventPreviews(db, events, { now, limit, order: "input" });
 }

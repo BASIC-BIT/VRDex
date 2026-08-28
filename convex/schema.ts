@@ -792,6 +792,8 @@ export default defineSchema({
     .index("by_requestedBy", ["requestedBy.tokenIdentifier"]),
   profileMediaSubmissions: defineTable({
     profileId: v.id("profiles"),
+    targetProfileSlug: v.string(),
+    targetProfileDisplayName: v.string(),
     submitterUserId: v.id("users"),
     submitter: authSubject,
     uploadIntentId: v.optional(v.id("profileAssetUploadIntents")),
