@@ -19,6 +19,7 @@ process.env.VRDEX_PROFILE_MEDIA_ACCESSIBILITY_GENERATION_ENABLED = "true";
 const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
   "../../convex/profileAssets.ts": () => import("../../convex/profileAssets"),
+  "../../convex/profiles.ts": () => import("../../convex/profiles"),
 };
 const schema = (schemaModule as unknown as { default?: typeof schemaModule }).default ?? schemaModule;
 
@@ -266,6 +267,37 @@ describe("profile media-kit owner management", () => {
       }),
       null,
     );
+  });
+
+  it("keeps unlisted managed media on the profile page and out of share cards", async () => {
+    const seeded = await seedOwnedProfile(1);
+    const assetId = seeded.assetIds[0]!;
+
+    await seeded.t.run(async (ctx) => {
+      const placement = await ctx.db
+        .query("profileAssetPlacements")
+        .withIndex("by_assetId", (query) => query.eq("assetId", assetId))
+        .unique();
+      assert.notEqual(placement, null);
+      await ctx.db.patch(placement!._id, { placement: "primary_logo" });
+      await ctx.db.patch(seeded.profileId, {
+        fieldVisibility: { mediaKit: "unlisted" },
+      });
+    });
+
+    const publicProfile = await seeded.t.query(api.profiles.getPublicBySlug, {
+      slug: "media-owner",
+      includeShareCard: true,
+      includeTelemetry: false,
+    });
+    assert.equal(publicProfile?.mediaKit.primaryLogo?.assetId, assetId);
+    assert.equal(publicProfile?.shareCard?.avatarImageUrl, undefined);
+
+    const shareCard = await seeded.t.query(api.profiles.getPublicShareCardBySlug, {
+      slug: "media-owner",
+    });
+    assert.equal(shareCard?.entityType, "profile");
+    assert.equal(shareCard?.profile?.avatarImageUrl, undefined);
   });
 
   it("omits privately placed asset metadata from the public media-kit list", async () => {

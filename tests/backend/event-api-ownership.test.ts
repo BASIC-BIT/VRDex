@@ -177,7 +177,7 @@ describe("API-created event ownership", () => {
 
   it("publishes, cancels, and restores an authorized draft without leaking cancelled discovery", async () => {
     const t = convexTest({ schema, modules });
-    const { identity } = await seedOwnedCommunity(t);
+    const { identity, profileId } = await seedOwnedCommunity(t);
     const startAt = NOW + 86_400_000;
     const created = await t.withIdentity(identity).mutation(api.events.createCommunityEvent, {
       title: "Faceless Saturday",
@@ -245,6 +245,20 @@ describe("API-created event ownership", () => {
         .withIndex("by_scope_key", (query) => query.eq("scope", "event_tag").eq("key", "utc"))
         .unique(),
     ))?.usageCount, 0);
+
+    await t.run((ctx) => ctx.db.patch(profileId, { publicSurfacingState: "opted_out" }));
+    await assert.rejects(
+      t.withIdentity(identity).mutation(api.events.setCommunityEventCancelled, {
+        currentSlug: created.slug,
+        cancelled: false,
+      }),
+      /event community must be public/i,
+    );
+    assert.deepEqual(
+      await t.query(api.events.listPublicUpcoming, { now: NOW, limit: 8 }),
+      [],
+    );
+    await t.run((ctx) => ctx.db.patch(profileId, { publicSurfacingState: "public" }));
 
     await t.withIdentity(identity).mutation(api.events.setCommunityEventCancelled, {
       currentSlug: created.slug,
@@ -898,13 +912,13 @@ describe("API-created event ownership", () => {
         NOW - 3_600_000,
         NOW + 30 * 60_000,
       );
-      for (let index = 0; index < 4; index += 1) {
-        const startAt = NOW + (index + 1) * 5 * 60_000;
+      for (let index = 0; index < 81; index += 1) {
+        const startAt = NOW + (index + 1) * 1_000;
         await insertEvent(
           `profile-near-future-event-${index}`,
           `Profile Near Future Event ${index}`,
           startAt,
-          startAt + 60_000,
+          startAt + 500,
         );
       }
       for (let index = 0; index < 81; index += 1) {

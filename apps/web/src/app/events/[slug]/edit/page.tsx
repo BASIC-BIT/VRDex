@@ -67,10 +67,12 @@ export default async function EditEventPage({ params }: EditEventPageProps) {
   }
 
   const requestHeaders = await headers();
-  const discordPostText = formatDiscordEventPost({
-    canonicalUrl: getCanonicalEventUrl(result.event.slug, requestHeaders),
-    event: result.event,
-  });
+  const discordPostText = result.event.publicationState === "published"
+    ? formatDiscordEventPost({
+        canonicalUrl: getCanonicalEventUrl(result.event.slug, requestHeaders),
+        event: result.event,
+      })
+    : null;
 
   return (
     <PageShell className="py-10">

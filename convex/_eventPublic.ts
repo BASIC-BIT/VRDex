@@ -790,17 +790,37 @@ export async function getPublicPersonUpcomingEvents(
   now: number,
   limit = EVENT_PREVIEW_DEFAULT_LIMIT,
 ): Promise<PublicEventPreview[]> {
-  const participantLinks = await db
-    .query("eventParticipants")
-    .withIndex("by_person_confirmation_publication_status_end", (query) =>
-      query
-        .eq("personProfileId", personProfileId)
-        .eq("confirmationState", "confirmed")
-        .eq("eventPublicationState", "published")
-        .eq("eventStatus", "scheduled")
-        .gte("eventEndAt", now),
-    )
-    .take(EVENT_ASSOCIATION_LIMIT);
+  // ponytail: Current events use a fixed recent-start window. If real volume
+  // can hide a valid multi-day event, replace this with indexed active state.
+  const [startedCandidates, upcoming] = await Promise.all([
+    db
+      .query("eventParticipants")
+      .withIndex("by_person_confirmation_publication_status_start", (query) =>
+        query
+          .eq("personProfileId", personProfileId)
+          .eq("confirmationState", "confirmed")
+          .eq("eventPublicationState", "published")
+          .eq("eventStatus", "scheduled")
+          .lt("eventStartAt", now),
+      )
+      .order("desc")
+      .take(CURRENT_EVENT_CANDIDATE_LIMIT),
+    db
+      .query("eventParticipants")
+      .withIndex("by_person_confirmation_publication_status_start", (query) =>
+        query
+          .eq("personProfileId", personProfileId)
+          .eq("confirmationState", "confirmed")
+          .eq("eventPublicationState", "published")
+          .eq("eventStatus", "scheduled")
+          .gte("eventStartAt", now),
+      )
+      .take(EVENT_ASSOCIATION_LIMIT),
+  ]);
+  const participantLinks = [
+    ...startedCandidates.filter((link) => link.eventEndAt >= now),
+    ...upcoming,
+  ];
   const events = (
     await Promise.all(participantLinks.map((link) => db.get(link.eventId)))
   )

@@ -2971,6 +2971,20 @@ export const setCommunityEventCancelled = mutation({
       return { eventId: event._id, eventStatus, changed: false as const };
     }
 
+    if (!args.cancelled && event.publicationState === "published") {
+      if (event.communityProfileId === undefined) {
+        throw new Error("A community is required before publishing this event.");
+      }
+      const community = await ctx.db.get(event.communityProfileId);
+      if (
+        community === null ||
+        community.profileType !== "community" ||
+        !canReadProfile("public", community)
+      ) {
+        throw new Error("The event community must be public before publishing.");
+      }
+    }
+
     const now = Date.now();
     await ctx.db.patch(event._id, { eventStatus, updatedAt: now });
     if (args.cancelled) {

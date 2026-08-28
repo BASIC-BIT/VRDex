@@ -463,6 +463,12 @@ export const getPublicBySlug = query({
     const publicProfile = toPublicProfile(profile);
     const preference = await getProfileAssetDisplayPreference(ctx.db, profile._id);
     const mediaKit = await getPublicProfileMediaKit(ctx.db, profile, { preference });
+    const shareCardMediaKit = args.includeShareCard
+      ? await getPublicProfileMediaKit(ctx.db, profile, {
+          preference,
+          surface: "discovery",
+        })
+      : mediaKit;
     const appearance = toPublicProfileAppearance(preference);
     const legacyAvatarImageUrl =
       "avatarImageUrl" in publicProfile && typeof publicProfile.avatarImageUrl === "string"
@@ -483,7 +489,7 @@ export const getPublicBySlug = query({
       avatarImageUrl: mediaKit.profileImage?.imageUrl ?? legacyAvatarImageUrl,
       bannerImageUrl: mediaKit.banner?.imageUrl ?? legacyBannerImageUrl,
       ...(args.includeShareCard
-        ? { shareCard: toPublicProfileShareCard(profile, mediaKit) }
+        ? { shareCard: toPublicProfileShareCard(profile, shareCardMediaKit) }
         : {}),
       worldCredits: await getPublicProfileWorldCredits(ctx.db, {
         profileType: profile.profileType,
@@ -517,7 +523,7 @@ export const getPublicShareCardBySlug = query({
         entityType: "profile" as const,
         profile: toPublicProfileShareCard(
           profile,
-          await getPublicProfileMediaKit(ctx.db, profile),
+          await getPublicProfileMediaKit(ctx.db, profile, { surface: "discovery" }),
         ),
       };
     }
