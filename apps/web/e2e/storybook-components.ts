@@ -17,6 +17,7 @@ export const componentStories = [
   { id: "design-system-primitives--shell-and-actions", name: "shell-and-actions" },
   { id: "features-temporal-parser--resolved", name: "temporal-parser-resolved" },
   { id: "features-temporal-parser--retention-unavailable", name: "temporal-parser-retention-unavailable" },
+  { id: "profiles-media-contribution-editor--inline", name: "profile-media-contribution-editor-inline" },
   // The live player's control strip. Captured here because it is unreachable
   // anywhere else: it renders only once a VRCDN stream is actually connected,
   // which the Playwright fixtures cannot do -- the fixture stream id resolves

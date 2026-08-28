@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useMutation } from "convex/react";
@@ -8,7 +9,7 @@ import type { Id } from "../../../../../convex/_generated/dataModel";
 import { api } from "@convex-generated-api";
 
 import { prepareProfileMediaMultipartFallback } from "@/app/account/media-kit/prepare-profile-media-upload";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Field, Input, Textarea } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
@@ -72,15 +73,10 @@ export function ProfileMediaContributionEditor({
   profile: ContributionProfile;
 }) {
   const router = useRouter();
-  const sectionRef = useRef<HTMLElement>(null);
   const createUploadIntent = useMutation(api.profileMediaSubmissions.createUploadIntent);
   const withdraw = useMutation(api.profileMediaSubmissions.withdraw);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (autoFocus) sectionRef.current?.scrollIntoView({ block: "start" });
-  }, [autoFocus]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -134,11 +130,31 @@ export function ProfileMediaContributionEditor({
     }
   }
 
+  return <ProfileMediaContributionEditorView autoFocus={autoFocus} busy={busy} onSubmit={submit} status={status} />;
+}
+
+export function ProfileMediaContributionEditorView({
+  autoFocus = false,
+  busy = false,
+  onSubmit,
+  status = null,
+}: {
+  autoFocus?: boolean;
+  busy?: boolean;
+  onSubmit?: (event: FormEvent<HTMLFormElement>) => void;
+  status?: string | null;
+}) {
+  const sectionRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (autoFocus) sectionRef.current?.scrollIntoView({ block: "start" });
+  }, [autoFocus]);
+
   return (
     <section className="border-t border-border py-6" id="media-contributions" ref={sectionRef}>
       <h2 className="text-lg font-semibold">Media contributions</h2>
       <Card className="mt-4">
-        <form className="grid gap-5" onSubmit={submit}>
+        <form className="grid gap-5" onSubmit={onSubmit}>
           <Field>
             Image
             <Input accept=".png,.jpg,.jpeg,.webp,.svg,image/png,image/jpeg,image/webp,image/svg+xml" name="file" required type="file" />
@@ -175,6 +191,9 @@ export function ProfileMediaContributionEditor({
           </Button>
         </form>
       </Card>
+      <Link className={buttonVariants({ variant: "ghost" })} href="/account/media-contributions">
+        Media contributions
+      </Link>
     </section>
   );
 }
