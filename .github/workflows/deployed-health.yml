@@ -648,7 +648,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          origin=$(printf '%s' "$SMOKE_URL" | sed -E 's#(https?://[^/]+).*##')
+          origin=$(printf '%s' "$SMOKE_URL" | sed -E 's#(https?://[^/]+).*#\1#')
           status=$(curl -sS -o /tmp/mcp-oauth-teardown.json -w '%{http_code}'             -X DELETE "$origin/api/e2e/auth"             -H "x-vrdex-e2e-token: $E2E_BROWSER_TOKEN"             -H 'content-type: application/json'             --data "{\"email\":\"$VRDEX_MCP_OAUTH_SMOKE_ACCOUNT_EMAIL\"}")
 
           if [ "$status" != "200" ]; then

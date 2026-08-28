@@ -108,7 +108,7 @@ export type ProfileAssetUploadIntentCreateInput = {
   placements?: ProfileAssetPlacement[];
   position?: number;
   source?: Doc<"profileAssets">["source"];
-  purpose: Doc<"profileAssetUploadIntents">["purpose"];
+  purpose: "owner_publish" | "community_proposal";
   targetSubmissionId?: Id<"profileMediaSubmissions">;
   now: number;
 };
@@ -165,7 +165,7 @@ export async function assertProfileAssetIntentCapacity(
     )
     .collect();
   const reservedAdditions = openIntents.filter(
-    (intent) => intent.purpose === "owner_publish" && intent.replacesAssetId === undefined,
+    (intent) => intent.purpose !== "community_proposal" && intent.replacesAssetId === undefined,
   ).length;
   await assertProfileAssetCapacity(db, profileId, reservedAdditions + additionalCount);
 }

@@ -1369,7 +1369,7 @@ describe("unclaimed-profile media submissions", () => {
     );
   });
 
-  it("does not reserve owner capacity for pending community proposals", async () => {
+  it("excludes community proposals from owner capacity but includes legacy owner intents", async () => {
     const t = convexTest({ schema, modules });
     const seeded = await seed(t);
     await t.withIdentity(seeded.contributorIdentity).mutation(api.profileMediaSubmissions.createUploadIntent, {
@@ -1399,6 +1399,27 @@ describe("unclaimed-profile media submissions", () => {
         });
       }
       await assertProfileAssetIntentCapacity(ctx.db, seeded.profileId, Date.now(), 0);
+      const now = Date.now();
+      await ctx.db.insert("profileAssetUploadIntents", {
+        uploadToken: "legacy-owner-upload",
+        requestedBy: {
+          tokenIdentifier: "test:owner",
+          issuer: "test",
+          subject: "owner",
+        },
+        targetProfileId: seeded.profileId,
+        mimeType: "image/webp",
+        byteSize: 512,
+        storageKey: "profile-assets/legacy-owner-upload.webp",
+        state: "pending",
+        createdAt: now,
+        expiresAt: now + 60_000,
+        updatedAt: now,
+      });
+      await assert.rejects(
+        () => assertProfileAssetIntentCapacity(ctx.db, seeded.profileId, now, 0),
+        /up to 12 active media items/i,
+      );
     });
   });
 });

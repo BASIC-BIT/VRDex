@@ -2386,7 +2386,7 @@ describe("profile media kit asset helpers", () => {
     );
   });
 
-  it("consumes API-targeted upload intents into active profile assets", async () => {
+  it("writes upload purposes and consumes legacy owner upload intents", async () => {
     type AssetTable =
       | "profileAssetUploadIntents"
       | "profileAssets"
@@ -2505,6 +2505,11 @@ describe("profile media kit asset helpers", () => {
     assert.equal(tables.profileAssetUploadIntents[0]?.targetProfileId, "profile123");
     assert.equal(tables.profileAssetUploadIntents[0]?.label, "Primary logo");
     assert.deepEqual(tables.profileAssetUploadIntents[0]?.placements, ["primary_logo"]);
+    assert.equal(tables.profileAssetUploadIntents[0]?.purpose, "owner_publish");
+
+    // Intents created before community proposals existed had no discriminator.
+    // They were all owner uploads, so absence preserves that original behavior.
+    delete tables.profileAssetUploadIntents[0]?.purpose;
 
     const completed = await finalizeProfileAssetUploadIntentUpload(db as never, {
       intentId: intent.intentId,

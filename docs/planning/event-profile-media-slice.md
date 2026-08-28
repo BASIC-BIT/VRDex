@@ -535,11 +535,11 @@ A partially complete checkpoint is not a shippable product claim.
 
 ### Data rollout
 
-- There is no deployed event-status, event-association projection,
-  media-submission, or upload-purpose data to migrate. Make `eventStatus`, the
-  association eligibility fields, and upload-intent `purpose` required and
-  write them explicitly from every constructor. Do not add compatibility reads
-  or backfill jobs for rows that do not exist.
+- There is no deployed event-status, event-association projection, or
+  media-submission data to migrate. Production does contain older owner-upload
+  intents without a purpose, so permit that field to be absent in storage while
+  writing it explicitly from every current constructor. Do not add a backfill
+  job or broader compatibility layer.
 - Start event audit history at rollout. Do not fabricate historical actors.
 - Add media-submission tables and indexes with no seed, import, or migration
   path. Existing owner-managed `profileAssets` are outside the submission queue.
@@ -706,8 +706,10 @@ Locked decisions:
   categories or an attestation checkbox.
 - Rejected, withdrawn, expired, and superseded candidate files are deleted
   after 30 days unless held for an abuse or legal matter.
-- New event-status, media-submission, and upload-purpose data starts clean;
-  there are no compatibility readers or backfill jobs.
+- New event-status and media-submission data starts clean. New upload intents
+  always write a purpose, while older owner-upload rows may omit it;
+  absent purpose is treated as owner upload, with no backfill job or broader
+  compatibility layer.
 
 ## Research Disposition
 
