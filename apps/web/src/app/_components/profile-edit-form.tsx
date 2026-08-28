@@ -74,6 +74,7 @@ function editErrorMessage(error: unknown): string {
 }
 
 type ProfileEditFormProps = {
+  mediaContributionFocus: boolean;
   mediaContributionsEnabled: boolean;
   profilePath: string;
   slug: string;
@@ -89,6 +90,7 @@ function EditPanel({ children, title }: { children: ReactNode; title: string }) 
 }
 
 function ConnectedProfileEditForm({
+  mediaContributionFocus,
   mediaContributionsEnabled,
   profilePath,
   slug,
@@ -262,6 +264,7 @@ function ConnectedProfileEditForm({
       </form>
       {mediaContributionsEnabled && profile.subject === "community_submitter" ? (
         <ProfileMediaContributionEditor
+          autoFocus={mediaContributionFocus}
           profile={{
             id: profile.id,
             profileType: profile.profileType,
@@ -274,6 +277,7 @@ function ConnectedProfileEditForm({
 }
 
 function AuthenticatedProfileEditForm({
+  mediaContributionFocus,
   mediaContributionsEnabled,
   profilePath,
   slug,
@@ -295,7 +299,9 @@ function AuthenticatedProfileEditForm({
             helper the protected routes use, so it stays one format. */}
         <Link
           className={buttonVariants({ size: "lg", variant: "primary" })}
-          href={protectedRouteSignInPath(`${profilePath}/edit`)}
+          href={protectedRouteSignInPath(
+            `${profilePath}/edit${mediaContributionFocus ? "?section=media#media-contributions" : ""}`,
+          )}
         >
           Sign in
         </Link>
@@ -305,6 +311,7 @@ function AuthenticatedProfileEditForm({
 
   return (
     <ConnectedProfileEditForm
+      mediaContributionFocus={mediaContributionFocus}
       mediaContributionsEnabled={mediaContributionsEnabled}
       profilePath={profilePath}
       slug={slug}
@@ -313,6 +320,7 @@ function AuthenticatedProfileEditForm({
 }
 
 export function ProfileEditForm({
+  mediaContributionFocus,
   mediaContributionsEnabled,
   profilePath,
   slug,
@@ -332,6 +340,7 @@ export function ProfileEditForm({
 
   return (
     <AuthenticatedProfileEditForm
+      mediaContributionFocus={mediaContributionFocus}
       mediaContributionsEnabled={mediaContributionsEnabled}
       profilePath={profilePath}
       slug={slug}

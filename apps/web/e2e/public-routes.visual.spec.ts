@@ -39,7 +39,7 @@ test("home dark theme @visual", async ({ page }, testInfo) => {
 
 test("profile edit signed out @visual", async ({ page }, testInfo) => {
   await page.goto(`${visualProfilePaths.personPath}/contribute-media`);
-  await expect(page).toHaveURL(`${visualProfilePaths.personPath}/edit#media-contributions`);
+  await expect(page).toHaveURL(`${visualProfilePaths.personPath}/edit?section=media#media-contributions`);
   await expectProfileEditSignedOutPage(page);
   await captureRouteScreenshot(page, testInfo, "profile-edit-signed-out");
 });

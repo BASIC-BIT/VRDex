@@ -8,6 +8,9 @@ type ProfileEditPageProps = {
   params: Promise<{
     slug: string;
   }>;
+  searchParams: Promise<{
+    section?: string | string[];
+  }>;
 };
 
 // One route for both profile kinds, because the slug already decides which one it
@@ -17,9 +20,10 @@ type ProfileEditPageProps = {
 // served from the root there is no route-claimed type left to disagree with the
 // record, so the type is simply read off the profile and both queries are called
 // without one.
-export default async function ProfileEditPage({ params }: ProfileEditPageProps) {
-  const { slug } = await params;
+export default async function ProfileEditPage({ params, searchParams }: ProfileEditPageProps) {
+  const [{ slug }, query] = await Promise.all([params, searchParams]);
   const profilePath = `/${slug}`;
+  const mediaContributionFocus = query.section === "media";
   const mediaContributionsEnabled =
     process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED === "true" ||
     process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES === "true";
@@ -36,6 +40,7 @@ export default async function ProfileEditPage({ params }: ProfileEditPageProps) 
 
           <div className="mt-8">
             <ProfileEditForm
+              mediaContributionFocus={mediaContributionFocus}
               mediaContributionsEnabled={mediaContributionsEnabled}
               profilePath={profilePath}
               slug={slug}

@@ -14,5 +14,5 @@ export default async function ProfileMediaContributionPage({
     notFound();
   }
   const { slug } = await params;
-  redirect(`/${encodeURIComponent(slug)}/edit#media-contributions`);
+  redirect(`/${encodeURIComponent(slug)}/edit?section=media#media-contributions`);
 }

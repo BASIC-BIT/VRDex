@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useMutation } from "convex/react";
 import { ConvexError } from "convex/values";
 import type { Id } from "../../../../../convex/_generated/dataModel";
@@ -64,12 +64,23 @@ function safeMessage(error: unknown) {
     : "Submission failed";
 }
 
-export function ProfileMediaContributionEditor({ profile }: { profile: ContributionProfile }) {
+export function ProfileMediaContributionEditor({
+  autoFocus = false,
+  profile,
+}: {
+  autoFocus?: boolean;
+  profile: ContributionProfile;
+}) {
   const router = useRouter();
+  const sectionRef = useRef<HTMLElement>(null);
   const createUploadIntent = useMutation(api.profileMediaSubmissions.createUploadIntent);
   const withdraw = useMutation(api.profileMediaSubmissions.withdraw);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (autoFocus) sectionRef.current?.scrollIntoView({ block: "start" });
+  }, [autoFocus]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -124,7 +135,7 @@ export function ProfileMediaContributionEditor({ profile }: { profile: Contribut
   }
 
   return (
-    <section className="border-t border-border py-6" id="media-contributions">
+    <section className="border-t border-border py-6" id="media-contributions" ref={sectionRef}>
       <h2 className="text-lg font-semibold">Media contributions</h2>
       <Card className="mt-4">
         <form className="grid gap-5" onSubmit={submit}>

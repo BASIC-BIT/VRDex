@@ -461,7 +461,9 @@ export async function expectProfileEditSignedOutPage(page: Page) {
   await expect(page.getByRole("heading", { name: "Edit profile" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Sign-in required" })).toBeVisible();
   await expect(
-    page.locator('a[href="/sign-in?returnTo=%2Fplaywright-dj-aurora%2Fedit"]'),
+    page.locator(
+      'a[href="/sign-in?returnTo=%2Fplaywright-dj-aurora%2Fedit%3Fsection%3Dmedia%23media-contributions"]',
+    ),
   ).toHaveText("Sign in");
 }
 
