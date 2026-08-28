@@ -48,6 +48,8 @@ type VrcdnOutputFormState = {
 
 type EditableEvent = PublicEvent & {
   preservedParticipantAssociationIds: Id<"eventParticipants">[];
+  preservedSlotAssociationIds: Id<"eventSlots">[];
+  preservedWorldAssociationIds: Id<"eventWorlds">[];
   publicationState?: "draft_private" | "published";
 };
 
@@ -566,6 +568,8 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
           ? await updateEvent({
             currentSlug: currentSlug!,
             preservedParticipantAssociationIds: event.preservedParticipantAssociationIds,
+            preservedSlotAssociationIds: event.preservedSlotAssociationIds,
+            preservedWorldAssociationIds: event.preservedWorldAssociationIds,
             ...(intent === "publish"
               ? { published: true }
               : intent === "draft"
@@ -1174,7 +1178,7 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
           {eventAudit === undefined ? (
             <p className="text-sm text-muted">Loading history…</p>
           ) : eventAudit.length === 0 ? (
-            <p className="text-sm text-muted">No recorded changes.</p>
+            <p className="text-sm text-muted">No history</p>
           ) : (
             <ol className="grid gap-3">
               {eventAudit.map((row, index) => (

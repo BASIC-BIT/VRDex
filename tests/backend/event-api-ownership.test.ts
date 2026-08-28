@@ -1154,7 +1154,11 @@ describe("API-created event ownership", () => {
     });
 
     await t.run(async (ctx) => {
-      await ctx.db.patch(profileId, { publicSurfacingState: "opted_out" });
+      await ctx.db.patch(profileId, {
+        displayName: "Private Host Rename",
+        sortName: "private host rename",
+        publicSurfacingState: "opted_out",
+      });
       await ctx.db.patch(personId, { publicSurfacingState: "opted_out" });
       await ctx.db.patch(worldId, { publicationState: "draft_private" });
     });
@@ -1180,12 +1184,23 @@ describe("API-created event ownership", () => {
     assert.deepEqual(editable?.participants, []);
     assert.equal(editable?.slots[0]?.performer, undefined);
     assert.equal(editable?.communitySlug, undefined);
+    assert.equal(editable?.preservedParticipantAssociationIds.length, 1);
+    assert.equal(editable?.preservedSlotAssociationIds.length, 1);
+    assert.equal(editable?.preservedWorldAssociationIds.length, 1);
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(personId, { publicSurfacingState: "public" });
+      await ctx.db.patch(worldId, { publicationState: "published" });
+    });
 
     const shiftedStartAt = startAt + 60_000;
     await t.withIdentity(identity).mutation(api.events.updateCommunityEvent, {
       currentSlug: created.slug,
       title: "Updated hidden association event",
       published: false,
+      preservedParticipantAssociationIds: editable!.preservedParticipantAssociationIds,
+      preservedSlotAssociationIds: editable!.preservedSlotAssociationIds,
+      preservedWorldAssociationIds: editable!.preservedWorldAssociationIds,
       startAt: shiftedStartAt,
       timezone: "UTC",
       participantLinks: [],
@@ -1215,6 +1230,7 @@ describe("API-created event ownership", () => {
     assert.equal(stored.event?.title, "Updated hidden association event");
     assert.equal(stored.event?.publicationState, "draft_private");
     assert.equal(stored.event?.communityProfileId, profileId);
+    assert.equal(stored.event?.communityName, "The Faceless");
     assert.equal(stored.worlds[0]?.worldId, worldId);
     assert.equal(stored.worlds[0]?.eventStartAt, shiftedStartAt);
     assert.equal(stored.participants[0]?.personProfileId, personId);
@@ -1239,55 +1255,6 @@ describe("API-created event ownership", () => {
       }),
       /event community must be public/i,
     );
-  });
-
-  it("preserves a participant hidden when the editor loaded if it becomes public before save", async () => {
-    const t = convexTest({ schema, modules });
-    const { identity } = await seedOwnedCommunity(t);
-    const startAt = NOW + 3_600_000;
-    const personId = await t.run((ctx) => ctx.db.insert("profiles", {
-      profileType: "person",
-      slug: "visibility-flip-dj",
-      displayName: "Visibility Flip DJ",
-      sortName: "visibility flip dj",
-      aliases: [],
-      tags: [],
-      claimState: "unclaimed",
-      publicationState: "published",
-      publicSurfacingState: "public",
-      creationSource: "community",
-      person: { roleTags: ["DJ"] },
-      updatedAt: NOW,
-    }));
-    const created = await t.withIdentity(identity).mutation(api.events.createCommunityEvent, {
-      title: "Visibility flip event",
-      communitySlug: "faceless",
-      startAt,
-      participantLinks: [{ personSlug: "visibility-flip-dj", roleLabel: "DJ" }],
-    });
-    await t.run((ctx) => ctx.db.patch(personId, { publicSurfacingState: "opted_out" }));
-    const editable = await t.withIdentity(identity).query(api.events.getEditableBySlug, {
-      slug: created.slug,
-    });
-    assert.deepEqual(editable?.participants, []);
-    assert.equal(editable?.preservedParticipantAssociationIds.length, 1);
-
-    await t.run((ctx) => ctx.db.patch(personId, { publicSurfacingState: "public" }));
-    await t.withIdentity(identity).mutation(api.events.updateCommunityEvent, {
-      currentSlug: created.slug,
-      title: "Visibility flip event updated",
-      communitySlug: "faceless",
-      startAt,
-      participantLinks: [],
-      preservedParticipantAssociationIds: editable!.preservedParticipantAssociationIds,
-    });
-
-    const stored = await t.run((ctx) => ctx.db
-      .query("eventParticipants")
-      .withIndex("by_eventId", (query) => query.eq("eventId", created.eventId))
-      .collect());
-    assert.equal(stored.length, 1);
-    assert.equal(stored[0]?.personProfileId, personId);
   });
 
   it("counts preserved hidden participants against the event cap", async () => {

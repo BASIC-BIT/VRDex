@@ -415,7 +415,6 @@ labels are included so approval can happen against one durable inventory.
 
 Public profile and contribution:
 
-- `Add profile media`
 - `My media contributions`
 - `Community contribution`
 
@@ -443,12 +442,12 @@ Events:
 
 - `Set times`
 - `Select a community`
-- `Add event`, `Loading events…`, and `No events to manage.`
+- `Add event` and `Loading events…`
 - `Start offset`, `Duration`, `Person profile`, `Lineup name`, and `Role or style`
 - `Cancel event`, `Restore event`, and `Cancellation reason`
 - `Save changes`, `Save and publish`, `Save draft`, and `Unpublish and save draft`
 - `Cancelled`
-- `Change history`, `Loading history…`, and `No recorded changes.`
+- `Change history` and `Loading history…`
 
 ## Single-PR Implementation Sequence
 

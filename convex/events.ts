@@ -516,18 +516,28 @@ async function replaceEventWorldLink(
   event: Doc<"events">,
   world: Doc<"worlds"> | undefined,
   now: number,
-  options: { preserveNonPublic?: boolean } = {},
+  options: {
+    preserveNonPublic?: boolean;
+    preserveAssociationIds?: Id<"eventWorlds">[];
+  } = {},
 ) {
   const existing = await db
     .query("eventWorlds")
     .withIndex("by_eventId", (query) => query.eq("eventId", event._id))
     .take(20);
-  const preserved = options.preserveNonPublic === true && world === undefined
-    ? (await Promise.all(existing.map(async (association) => ({
-        association,
-        world: await db.get(association.worldId),
-      })))).filter(({ world: linkedWorld }) => linkedWorld?.publicationState !== "published")
-    : [];
+  const preserveAssociationIds = new Set(options.preserveAssociationIds);
+  const preserved = world !== undefined
+    ? []
+    : options.preserveAssociationIds !== undefined
+      ? existing
+          .filter((association) => preserveAssociationIds.has(association._id))
+          .map((association) => ({ association }))
+      : options.preserveNonPublic === true
+        ? (await Promise.all(existing.map(async (association) => ({
+            association,
+            world: await db.get(association.worldId),
+          })))).filter(({ world: linkedWorld }) => linkedWorld?.publicationState !== "published")
+        : [];
   const preservedIds = new Set(preserved.map(({ association }) => association._id));
 
   await Promise.all([
@@ -646,6 +656,7 @@ async function replaceEventSlots(
   now: number,
   options: {
     preserveNonPublic?: boolean;
+    preserveAssociationIds?: Id<"eventSlots">[];
     previousEventStartAt?: number;
   } = {},
 ) {
@@ -653,15 +664,20 @@ async function replaceEventSlots(
     .query("eventSlots")
     .withIndex("by_eventId", (query) => query.eq("eventId", eventId))
     .collect();
-  const nonPublicExisting = options.preserveNonPublic === true
-    ? (await Promise.all(existing.map(async (slot) => ({
-        slot,
-        profile: slot.personProfileId === undefined ? null : await db.get(slot.personProfileId),
-      })))).filter(({ slot, profile }) =>
-        slot.personProfileId !== undefined &&
-        (profile === null || !canReadProfile("public", profile)),
-      )
-    : [];
+  const preserveAssociationIds = new Set(options.preserveAssociationIds);
+  const nonPublicExisting = options.preserveAssociationIds !== undefined
+    ? existing
+        .filter((slot) => preserveAssociationIds.has(slot._id))
+        .map((slot) => ({ slot }))
+    : options.preserveNonPublic === true
+      ? (await Promise.all(existing.map(async (slot) => ({
+          slot,
+          profile: slot.personProfileId === undefined ? null : await db.get(slot.personProfileId),
+        })))).filter(({ slot, profile }) =>
+          slot.personProfileId !== undefined &&
+          (profile === null || !canReadProfile("public", profile)),
+        )
+      : [];
 
   await Promise.all(existing.map((slot) => db.delete(slot._id)));
 
@@ -1094,6 +1110,8 @@ async function updateCommunityEventRecord(
     publicationState?: Doc<"events">["publicationState"];
     preserveNonPublicAssociations?: boolean;
     preserveParticipantAssociationIds?: Id<"eventParticipants">[];
+    preserveSlotAssociationIds?: Id<"eventSlots">[];
+    preserveWorldAssociationIds?: Id<"eventWorlds">[];
     updateFields?: ReadonlySet<keyof EventDraftInput>;
   },
 ) {
@@ -1103,6 +1121,8 @@ async function updateCommunityEventRecord(
     input,
     preserveNonPublicAssociations,
     preserveParticipantAssociationIds,
+    preserveSlotAssociationIds,
+    preserveWorldAssociationIds,
     publicationState,
     updateFields,
     world,
@@ -1128,7 +1148,13 @@ async function updateCommunityEventRecord(
     ...(shouldUpdate("endAt") ? { endAt: input.endAt } : {}),
     ...(shouldUpdate("timezone") ? { timezone: input.timezone } : {}),
     communityProfileId: community?._id,
-    communityName: community?.displayName,
+    communityName:
+      preserveNonPublicAssociations === true &&
+      community !== undefined &&
+      community._id === event.communityProfileId &&
+      !canReadProfile("public", community)
+        ? event.communityName
+        : community?.displayName,
     ...(shouldUpdate("summary") ? { summary: input.summary } : {}),
     ...(shouldUpdate("notes") ? { notes: input.notes } : {}),
     ...(shouldUpdate("posterImageUrl") ? { posterImageUrl: input.posterImageUrl } : {}),
@@ -1158,12 +1184,14 @@ async function updateCommunityEventRecord(
   if (replaceWorld) {
     await replaceEventWorldLink(db, updatedEvent, world, now, {
       preserveNonPublic: preserveNonPublicAssociations,
+      preserveAssociationIds: preserveWorldAssociationIds,
     });
   }
 
   if (replaceSlots) {
     await replaceEventSlots(db, event._id, input.startAt, input.slotLinks, now, {
       preserveNonPublic: preserveNonPublicAssociations,
+      preserveAssociationIds: preserveSlotAssociationIds,
       previousEventStartAt: event.startAt,
     });
   }
@@ -2442,6 +2470,7 @@ export const listManagedCommunities = query({
 export const listManagedEvents = query({
   args: { limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
+    // ponytail: Keep the MVP inventory bounded. Add cursor pagination when real event volume approaches this cap.
     const limit = boundedLimit(args.limit, 50, 100);
     const communities = await managedCommunitiesForBrowser(ctx, { includeNonPublic: true });
     const records = (
@@ -2671,6 +2700,8 @@ export const updateCommunityEvent = mutation({
     currentSlug: v.string(),
     published: v.optional(v.boolean()),
     preservedParticipantAssociationIds: v.optional(v.array(v.id("eventParticipants"))),
+    preservedSlotAssociationIds: v.optional(v.array(v.id("eventSlots"))),
+    preservedWorldAssociationIds: v.optional(v.array(v.id("eventWorlds"))),
     ...eventDraftArgs,
   },
   handler: async (ctx, args) => {
@@ -2737,6 +2768,8 @@ export const updateCommunityEvent = mutation({
       world,
       preserveNonPublicAssociations: true,
       preserveParticipantAssociationIds: args.preservedParticipantAssociationIds,
+      preserveSlotAssociationIds: args.preservedSlotAssociationIds,
+      preserveWorldAssociationIds: args.preservedWorldAssociationIds,
       publicationState,
     });
     await recordEventAuditEvent(ctx.db, {

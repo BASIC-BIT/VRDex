@@ -658,7 +658,7 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
                     className={cn(buttonVariants({ size: "sm", variant: "ghost" }), "shrink-0 whitespace-nowrap")}
                     href={`/${profile.slug}/contribute-media`}
                   >
-                    Add profile media
+                    Add media
                   </Link>
                 ) : null}
               </div>

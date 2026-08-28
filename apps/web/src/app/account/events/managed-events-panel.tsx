@@ -27,7 +27,7 @@ export function ManagedEventsPanel() {
         <Link className={buttonVariants({ variant: "primary" })} href="/events/new">Add event</Link>
       </div>
       {events === undefined ? <p aria-busy="true" className="text-sm text-muted">Loading events…</p> : null}
-      {events?.length === 0 ? <Notice>No events to manage.</Notice> : null}
+      {events?.length === 0 ? <Notice>No events</Notice> : null}
       <div className="grid gap-3">
         {events?.map((event) => (
           <Card className="flex flex-wrap items-center justify-between gap-4" key={event.eventId} padding="sm">

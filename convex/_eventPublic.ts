@@ -664,16 +664,30 @@ export async function getEventForEditor(
   });
   const projected = record === null ? null : toPublicEvent(record);
   const authoredMediaLinks = (event.mediaLinks ?? []).flatMap(safePublicEventMediaLink);
-  const participantAssociations = await db
-    .query("eventParticipants")
-    .withIndex("by_eventId", (query) => query.eq("eventId", event._id))
-    .collect();
+  const [worldAssociations, participantAssociations, slotAssociations] = await Promise.all([
+    db.query("eventWorlds").withIndex("by_eventId", (query) => query.eq("eventId", event._id)).collect(),
+    db.query("eventParticipants").withIndex("by_eventId", (query) => query.eq("eventId", event._id)).collect(),
+    db.query("eventSlots").withIndex("by_eventId", (query) => query.eq("eventId", event._id)).collect(),
+  ]);
+  const preservedWorldAssociationIds = (
+    await Promise.all(worldAssociations.map(async (association) => {
+      const world = await db.get(association.worldId);
+      return world?.publicationState !== "published" ? association._id : null;
+    }))
+  ).filter((associationId): associationId is Id<"eventWorlds"> => associationId !== null);
   const preservedParticipantAssociationIds = (
     await Promise.all(participantAssociations.map(async (association) => {
       const profile = await db.get(association.personProfileId);
       return profile === null || !canReadProfile("public", profile) ? association._id : null;
     }))
   ).filter((associationId): associationId is Id<"eventParticipants"> => associationId !== null);
+  const preservedSlotAssociationIds = (
+    await Promise.all(slotAssociations.map(async (association) => {
+      if (association.personProfileId === undefined) return null;
+      const profile = await db.get(association.personProfileId);
+      return profile === null || !canReadProfile("public", profile) ? association._id : null;
+    }))
+  ).filter((associationId): associationId is Id<"eventSlots"> => associationId !== null);
 
   return projected === null
     ? null
@@ -681,6 +695,8 @@ export async function getEventForEditor(
         ...projected,
         authoredMediaLinks,
         preservedParticipantAssociationIds,
+        preservedSlotAssociationIds,
+        preservedWorldAssociationIds,
         publicationState: event.publicationState,
       };
 }
