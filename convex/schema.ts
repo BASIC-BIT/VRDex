@@ -773,7 +773,9 @@ export default defineSchema({
     placements: v.optional(v.array(profileAssetPlacement)),
     position: v.optional(v.number()),
     source: v.optional(profileAssetSource),
-    purpose: profileAssetUploadIntentPurpose,
+    // Upload intents created before community proposals existed have no purpose.
+    // New constructors still require and write one explicitly.
+    purpose: v.optional(profileAssetUploadIntentPurpose),
     targetSubmissionId: v.optional(v.id("profileMediaSubmissions")),
     state: profileAssetUploadIntentState,
     processingToken: v.optional(v.string()),

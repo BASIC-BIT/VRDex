@@ -108,7 +108,7 @@ export type ProfileAssetUploadIntentCreateInput = {
   placements?: ProfileAssetPlacement[];
   position?: number;
   source?: Doc<"profileAssets">["source"];
-  purpose: Doc<"profileAssetUploadIntents">["purpose"];
+  purpose: "owner_publish" | "community_proposal";
   targetSubmissionId?: Id<"profileMediaSubmissions">;
   now: number;
 };

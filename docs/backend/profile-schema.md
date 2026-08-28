@@ -354,7 +354,7 @@ The owner privacy mutation currently accepts these field keys: `aliases`, `tags`
 
 `profileMediaSubmissions` is the private moderation boundary for unclaimed-profile media. It stores target and submitter IDs, the target's public slug and display name at submission time, a purpose-bound upload-intent reference, requested placement, source and public metadata, optional reviewer context, status, target-profile revisions, review disposition, approved asset link, retention timestamps, and audit-relevant decision metadata. The submission-time target identity remains the contributor-safe fallback if the profile is later hidden and privately renamed. Indexed reads are bounded by profile/status, profile/time, submitter/status, submitter/time, status/creation time, and content hash.
 
-`profileAssetUploadIntents.purpose` is required and is either `owner_publish` or `community_proposal`; every constructor writes it explicitly. There is no legacy compatibility branch or backfill because this purpose field has no deployed rows to migrate. A community proposal also pins `targetSubmissionId`, and upload finalization cannot consume it into a public asset.
+`profileAssetUploadIntents.purpose` is either `owner_publish` or `community_proposal`, and every current constructor writes it explicitly. The field remains optional in storage because production already contained consumed owner-upload intents created before the discriminator existed; an absent value retains owner-upload behavior. No backfill or migration job is required. A community proposal must explicitly use `community_proposal` and also pins `targetSubmissionId`, so upload finalization cannot consume it into a public asset without approval.
 
 ## Mutation Contracts
 
