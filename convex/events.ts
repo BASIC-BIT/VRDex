@@ -46,6 +46,7 @@ import {
   sanitizeVrcdnOperatorOwnedOutputSetup,
 } from "./_eventMediaControl";
 import {
+  EVENT_PARTICIPANT_MAX_COUNT,
   normalizeEventDraftUpdateInput,
   preserveOmittedEventDraftFields,
   sanitizeEventDraftInput,
@@ -579,6 +580,18 @@ async function replaceEventParticipants(
       })))).filter(({ profile }) => profile === null || !canReadProfile("public", profile))
     : [];
   const preservedIds = new Set(preserved.map(({ association }) => association._id));
+  const resolvedParticipants = await Promise.all(participants.map(async (participant) => ({
+    participant,
+    profile: await getPublishedPersonBySlug(db, participant.personSlug),
+  })));
+  const personProfileIds = new Set([
+    ...preserved.map(({ association }) => association.personProfileId),
+    ...resolvedParticipants.map(({ profile }) => profile._id),
+  ]);
+
+  if (personProfileIds.size > EVENT_PARTICIPANT_MAX_COUNT) {
+    throw new Error(`Participant links can include at most ${EVENT_PARTICIPANT_MAX_COUNT} unique profiles including linked slot performers.`);
+  }
 
   await Promise.all([
     ...existing
@@ -593,9 +606,7 @@ async function replaceEventParticipants(
     })),
   ]);
 
-  for (const participant of participants) {
-    const profile = await getPublishedPersonBySlug(db, participant.personSlug);
-
+  for (const { participant, profile } of resolvedParticipants) {
     await db.insert("eventParticipants", {
       eventId: event._id,
       personProfileId: profile._id,
@@ -2388,8 +2399,7 @@ async function managedCommunitiesForBrowser(ctx: QueryCtx) {
     .filter(
       (profile): profile is Doc<"profiles"> =>
         profile !== null &&
-        profile.profileType === "community" &&
-        canReadProfile("public", profile),
+        profile.profileType === "community",
     )
     .map((profile) => ({
       profile,
@@ -2666,6 +2676,18 @@ export const updateCommunityEvent = mutation({
     const currentCommunity = event.communityProfileId === undefined
       ? null
       : await ctx.db.get(event.communityProfileId);
+    if (
+      args.published === true &&
+      event.publicationState !== "published" &&
+      event.communityProfileId !== undefined &&
+      (
+        currentCommunity === null ||
+        currentCommunity.profileType !== "community" ||
+        !canReadProfile("public", currentCommunity)
+      )
+    ) {
+      throw new Error("The event community must be public before publishing.");
+    }
     const preserveHiddenCommunity =
       input.communitySlug === undefined &&
       currentCommunity !== null &&

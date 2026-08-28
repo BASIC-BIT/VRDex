@@ -184,7 +184,7 @@ export function MediaReviewPanel() {
       {cleanupStatus ? <Notice role="status">{cleanupStatus}</Notice> : null}
       {access === undefined || paginationStatus === "LoadingFirstPage" ? <p aria-busy="true" className="text-sm text-muted">Loading…</p> : null}
       {access && !access.superAdmin && access.profiles.length === 0 ? <Notice variant="warning">Profile media review access is required.</Notice> : null}
-      {submissions.length === 0 && paginationStatus === "Exhausted" ? <Notice>No media contributions match this queue.</Notice> : null}
+      {submissions.length === 0 && paginationStatus === "Exhausted" ? <Notice>No results</Notice> : null}
       <div className="grid gap-4">
         {submissions.map((row) => <ReviewCard key={row.submissionId} row={row} />)}
       </div>

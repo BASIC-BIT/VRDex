@@ -83,8 +83,22 @@ function eventEndsAt(event: PublicWorldEventPreview): number {
   return event.endAt ?? event.startAt;
 }
 
-function eventRecordEndsAt(event: Doc<"events">): number {
+function eventRecordEndsAt(event: Pick<Doc<"events">, "startAt" | "endAt">): number {
   return event.endAt ?? event.startAt;
+}
+
+function compareActiveEvents(
+  first: Pick<Doc<"events">, "startAt" | "endAt">,
+  second: Pick<Doc<"events">, "startAt" | "endAt">,
+  now: number,
+): number {
+  const firstIsCurrent = first.startAt <= now;
+  const secondIsCurrent = second.startAt <= now;
+
+  if (firstIsCurrent !== secondIsCurrent) return firstIsCurrent ? -1 : 1;
+  return firstIsCurrent
+    ? eventRecordEndsAt(first) - eventRecordEndsAt(second) || first.startAt - second.startAt
+    : first.startAt - second.startAt;
 }
 
 function toPublicWorldEventPreview(
@@ -197,7 +211,7 @@ export function createPublicActiveWorldPreviews(
 
   return [...groups.values()]
     .flatMap(({ events, world }) => {
-      const sortedEvents = [...events.values()].sort((first, second) => first.startAt - second.startAt);
+      const sortedEvents = [...events.values()].sort((first, second) => compareActiveEvents(first, second, now));
       const nextEvent = sortedEvents[0];
 
       if (nextEvent === undefined) {
@@ -233,7 +247,7 @@ export function createPublicActiveWorldPreviews(
         },
       ];
     })
-    .sort((first, second) => first.nextEvent.startAt - second.nextEvent.startAt)
+    .sort((first, second) => compareActiveEvents(first.nextEvent, second.nextEvent, now))
     .slice(0, limitWithinBounds);
 }
 

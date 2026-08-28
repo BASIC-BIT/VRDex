@@ -430,7 +430,6 @@ custom public copy.
 Review and ownership:
 
 - `Media review`
-- `No media contributions match this queue.`
 - `Profile media review access is required.`
 - `Profile changed after submission.`
 - `Prior matching proposals`

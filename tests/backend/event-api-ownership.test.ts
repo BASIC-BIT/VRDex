@@ -1164,6 +1164,10 @@ describe("API-created event ownership", () => {
     assert.deepEqual(publicEvent?.participants, []);
     assert.equal(publicEvent?.slots[0]?.performer, undefined);
     assert.equal(publicEvent?.communitySlug, undefined);
+    assert.equal(
+      (await t.withIdentity(identity).query(api.events.listManagedEvents, {}))[0]?.eventId,
+      created.eventId,
+    );
 
     const editable = await t.withIdentity(identity).query(api.events.getEditableBySlug, {
       slug: created.slug,
@@ -1177,6 +1181,7 @@ describe("API-created event ownership", () => {
     await t.withIdentity(identity).mutation(api.events.updateCommunityEvent, {
       currentSlug: created.slug,
       title: "Updated hidden association event",
+      published: false,
       startAt: shiftedStartAt,
       timezone: "UTC",
       participantLinks: [],
@@ -1204,6 +1209,7 @@ describe("API-created event ownership", () => {
         .collect(),
     }));
     assert.equal(stored.event?.title, "Updated hidden association event");
+    assert.equal(stored.event?.publicationState, "draft_private");
     assert.equal(stored.event?.communityProfileId, profileId);
     assert.equal(stored.worlds[0]?.worldId, worldId);
     assert.equal(stored.worlds[0]?.eventStartAt, shiftedStartAt);
@@ -1211,6 +1217,79 @@ describe("API-created event ownership", () => {
     assert.equal(stored.participants[0]?.eventStartAt, shiftedStartAt);
     assert.equal(stored.slots[0]?.personProfileId, personId);
     assert.equal(stored.slots[0]?.startAt, shiftedStartAt);
+
+    await assert.rejects(
+      t.withIdentity(identity).mutation(api.events.updateCommunityEvent, {
+        currentSlug: created.slug,
+        title: "Updated hidden association event",
+        published: true,
+        startAt: shiftedStartAt,
+        timezone: "UTC",
+        participantLinks: [],
+        slotLinks: [{
+          displayLabel: "Hidden DJ",
+          roleLabel: "DJ",
+          startAt: shiftedStartAt,
+          endAt: shiftedStartAt + 3_600_000,
+        }],
+      }),
+      /event community must be public/i,
+    );
+  });
+
+  it("counts preserved hidden participants against the event cap", async () => {
+    const t = convexTest({ schema, modules });
+    const { identity } = await seedOwnedCommunity(t);
+    const startAt = NOW + 3_600_000;
+    const profiles = await t.run(async (ctx) => Promise.all(
+      Array.from({ length: 81 }, (_, index) => ctx.db.insert("profiles", {
+        profileType: "person",
+        slug: `cap-dj-${index}`,
+        displayName: `Cap DJ ${index}`,
+        sortName: `cap dj ${index}`,
+        aliases: [],
+        tags: [],
+        claimState: "unclaimed",
+        publicationState: "published",
+        publicSurfacingState: "public",
+        creationSource: "community",
+        person: { roleTags: ["DJ"] },
+        updatedAt: NOW,
+      })),
+    ));
+    const participantLinks = profiles.slice(0, 80).map((_, index) => ({
+      personSlug: `cap-dj-${index}`,
+      roleLabel: "DJ",
+    }));
+    const created = await t.withIdentity(identity).mutation(api.events.createCommunityEvent, {
+      title: "Participant cap event",
+      communitySlug: "faceless",
+      startAt,
+      participantLinks,
+    });
+
+    await t.run((ctx) => ctx.db.patch(profiles[0]!, { publicSurfacingState: "opted_out" }));
+
+    await assert.rejects(
+      t.withIdentity(identity).mutation(api.events.updateCommunityEvent, {
+        currentSlug: created.slug,
+        title: "Participant cap event",
+        communitySlug: "faceless",
+        startAt,
+        participantLinks: profiles.slice(1).map((_, index) => ({
+          personSlug: `cap-dj-${index + 1}`,
+          roleLabel: "DJ",
+        })),
+      }),
+      /at most 80 unique profiles/i,
+    );
+
+    const stored = await t.run((ctx) => ctx.db
+      .query("eventParticipants")
+      .withIndex("by_eventId", (query) => query.eq("eventId", created.eventId))
+      .collect());
+    assert.equal(stored.length, 80);
+    assert.equal(stored.some((row) => row.personProfileId === profiles[0]), true);
   });
 
   it("keeps a published event online when an atomic unpublish-and-save fails", async () => {
