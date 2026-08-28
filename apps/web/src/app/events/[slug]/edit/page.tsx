@@ -8,7 +8,7 @@ import { EventBackendNotice } from "../../../_components/event-public-page";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, Eyebrow } from "@/components/ui/card";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
-import { fetchPublicEventBySlug } from "@/convex/server";
+import { fetchEditableEventBySlug } from "@/convex/server";
 import { formatDiscordEventPost } from "../../../../../../../convex/_eventDiscordExport";
 
 export const dynamic = "force-dynamic";
@@ -56,7 +56,7 @@ function getCanonicalEventUrl(slug: string, requestHeaders: Headers): string {
 
 export default async function EditEventPage({ params }: EditEventPageProps) {
   const { slug } = await params;
-  const result = await fetchPublicEventBySlug(slug);
+  const result = await fetchEditableEventBySlug(slug);
 
   if (result.kind === "missing-url" || result.kind === "error") {
     return <EventBackendNotice kind={result.kind} />;
@@ -67,19 +67,23 @@ export default async function EditEventPage({ params }: EditEventPageProps) {
   }
 
   const requestHeaders = await headers();
-  const discordPostText = formatDiscordEventPost({
-    canonicalUrl: getCanonicalEventUrl(result.event.slug, requestHeaders),
-    event: result.event,
-  });
+  const discordPostText = result.event.publicationState === "published"
+    ? formatDiscordEventPost({
+        canonicalUrl: getCanonicalEventUrl(result.event.slug, requestHeaders),
+        event: result.event,
+      })
+    : null;
 
   return (
     <PageShell className="py-10">
       <PageContainer max="5xl">
         <PageNav>
           <BrandLink />
-          <Link className={buttonVariants({ variant: "secondary" })} href={`/${result.event.slug}`}>
-            View event
-          </Link>
+          {result.event.publicationState === "published" ? (
+            <Link className={buttonVariants({ variant: "secondary" })} href={`/${result.event.slug}`}>
+              View event
+            </Link>
+          ) : null}
         </PageNav>
 
         <section className="overflow-hidden rounded-hero border border-border bg-surface shadow-hero backdrop-blur">
@@ -100,7 +104,7 @@ export default async function EditEventPage({ params }: EditEventPageProps) {
               <Card surface="glass">
                 <EventEditorForm event={result.event} />
               </Card>
-              <EventDiscordExportPanel text={discordPostText} />
+              {discordPostText === null ? null : <EventDiscordExportPanel text={discordPostText} />}
             </div>
           </div>
         </section>

@@ -53,7 +53,7 @@ export async function projectPublicSearchResult(
     return null;
   }
 
-  const mediaKit = await getPublicProfileMediaKit(ctx.db, profile);
+  const mediaKit = await getPublicProfileMediaKit(ctx.db, profile, { surface: "discovery" });
   const result = toPublicSearchResult(document, searchText, mediaKit);
   const usesLogo = publicSearchLookupUsesLogo(result);
   const person = toProfileLookupResult(profile, {

@@ -53,7 +53,11 @@ function formatMediaLinkLine(link: PublicEvent["mediaLinks"][number]): string {
   return `- ${cleanPublicText(link.label)}: ${cleanPublicText(url)}`;
 }
 
-export function formatDiscordEventPost({ canonicalUrl, event }: DiscordEventPostInput): string {
+export function formatDiscordEventPost({ canonicalUrl, event }: DiscordEventPostInput): string | null {
+  if (event.status === "cancelled") {
+    return null;
+  }
+
   const eventTime = createDiscordTimestampSet(event.startAt);
   const lines = [
     `**${cleanPublicText(event.title)}**`,

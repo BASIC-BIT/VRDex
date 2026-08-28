@@ -376,11 +376,28 @@ export const PublicEventPreviewSchema = z
     doorsOpenAt: timestampMs.optional(),
     endAt: timestampMs.optional(),
     participantCount: z.number().int().nonnegative().optional(),
+    nextSlots: z
+      .array(
+        z.object({
+          displayLabel: z.string(),
+          endAt: timestampMs.optional(),
+          performer: z
+            .object({
+              displayName: z.string(),
+              slug,
+            })
+            .optional(),
+          roleLabel: z.string(),
+          startAt: timestampMs,
+        }),
+      )
+      .optional(),
     posterImageUrl: absoluteOrRootRelativeUrl.optional(),
     slug: slug.optional(),
     slotCount: z.number().int().nonnegative().optional(),
     source: PublicEventSourceSchema,
     startAt: timestampMs,
+    status: z.enum(["scheduled", "cancelled"]).optional(),
     summary: z.string().optional(),
     thumbnailImageUrl: absoluteOrRootRelativeUrl.optional(),
     timezone: z.string().optional(),
@@ -1069,6 +1086,7 @@ export const ApiMeEventSummarySchema = z
     sourceType: PublicEventSourceTypeSchema,
     sourceLabel: z.string().min(1),
     publicationState: ProfilePublicationStateSchema,
+    status: z.enum(["scheduled", "cancelled"]),
     watchSurfaceEnabled: z.boolean(),
     createdAt: timestampMs.optional(),
     publishedAt: timestampMs.optional(),

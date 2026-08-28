@@ -452,6 +452,13 @@ export async function expectPersonProfilePage(page: Page) {
   await expect(page.getByRole("link", { name: /Neon Harbor/i })).toBeVisible();
 }
 
+export async function expectMediaContributionPage(page: Page) {
+  await expect(page.getByRole("heading", { name: "DJ Aurora" })).toBeVisible();
+  await expect(
+    page.locator('a[href="/sign-in?returnTo=%2Fplaywright-dj-aurora%2Fcontribute-media"]'),
+  ).toHaveText("Sign in");
+}
+
 export async function expectVerifiedPersonProfilePage(page: Page) {
   await expect(page.getByRole("heading", { name: "BASICBIT" })).toBeVisible();
   await expect(page.getByRole("complementary", { name: "Profile ownership" })).toHaveCount(0);

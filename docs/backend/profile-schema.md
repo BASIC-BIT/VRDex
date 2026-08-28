@@ -117,13 +117,17 @@ Type-specific fields:
 - `community.subtype`: optional short subtype text such as venue, collective, brand, or agency
 - `community.categoryTags`: flexible category tags for community discovery and presentation
 
-## Follow-On Profile Media Kit Assets
+## Profile Media Kit Assets
 
 Current recommendation:
 
 - people and communities should share the same file-backed media-kit asset system
 - profile picture/avatar, banner, primary logo, additional ordered logos, and other public image placements should reference assets instead of becoming separate one-off URL fields over time
 - public profile images can be reused by event lineup and host cards when their field visibility allows the image on discovery surfaces
+- public asset-file reads apply the same placement-to-field visibility mapping,
+  so a previously known asset URL cannot bypass a private avatar, banner, logo,
+  or media-kit setting; an asset with multiple active placements remains
+  reachable when at least one placement is visible on the direct profile page
 - user-provided public HTTPS image URLs should be treated as import sources; VRDex should reject private/internal destinations, copy bounded PNG/SVG/JPEG/WebP responses into managed object storage such as S3, and serve the VRDex-owned object as the canonical asset
 - one uploaded asset can fill multiple placements, such as both profile picture and primary logo
 - public UX should say `primary logo` and `additional logos` instead of `non-primary` or defaulting to `alternative logo`
@@ -135,7 +139,7 @@ Current recommendation:
 - claimed owners can order up to 12 active public gallery images, select one
   featured image, and soft-delete or restore an item
 
-Candidate `profileAssets` fields:
+Implemented `profileAssets` fields:
 
 - `profileId`: owning person or community profile
 - `kind`: broad asset kind such as `image` or `logo`, kept flexible enough for later expansion
@@ -326,17 +330,31 @@ Current recommendation:
 
 `displayName`, `slug`, `profileType`, and trust labels remain public while the profile itself is public.
 
-Profile link previews use a separate card projection at the canonical `/<slug>` route. The projection keeps
-the public display name, prefers the public headline over the public bio, and may use managed profile or
-banner media. Because an unfurl is a card surface rather than the direct profile page, fields marked
-`unlisted` or `private` do not enter its summary or controlled profile/banner image slots. A public primary
-logo may still act as the compact fallback because logo assets do not use the avatar visibility field.
-Generated share cards prefer a managed profile image or primary logo before a legacy external avatar URL
-so the image route can embed a supported same-origin asset instead of dropping to initials.
-The projection also carries the existing public trust state so generated cards can label unclaimed and
-community-submitted records with the same wording already used on public profile surfaces.
+The public About section renders owner-authored `about` when present on a claimed
+profile and falls back to the factual/community `bio`; an unclaimed record has
+no owner, so it uses `bio` rather than presenting its longer community narrative
+as owner-authored personalization. The page does not render both narratives as
+competing sections. Each field still obeys its own visibility projection before
+the page receives it.
 
-The owner privacy mutation currently accepts these field keys: `aliases`, `tags`, `genres`, `headline`, `bio`, `about`, `avatarImageUrl`, `bannerImageUrl`, `outboundLinks`, `region`, `timezone`, `personPronouns`, `personRoleTags`, `communitySubtype`, and `communityCategoryTags`.
+Profile link previews use a separate card projection at the canonical `/<slug>`
+route. The projection keeps the public display name, prefers the public headline
+over the public bio, and may use managed profile or banner media. Because an
+unfurl is a card surface rather than the direct profile page, fields marked
+`unlisted` or `private` do not enter its summary or controlled profile/banner
+image slots. A public primary logo may still act as the compact fallback because
+logo assets do not use the avatar visibility field. Generated share cards prefer
+a managed profile image or primary logo before a legacy external avatar URL so
+the image route can embed a supported same-origin asset instead of dropping to
+initials. The projection also carries the existing public trust state so
+generated cards can label unclaimed and community-submitted records with the
+same wording already used on public profile surfaces.
+
+The owner privacy mutation currently accepts these field keys: `aliases`, `tags`, `genres`, `headline`, `bio`, `about`, `avatarImageUrl`, `bannerImageUrl`, `mediaKit`, `outboundLinks`, `region`, `timezone`, `personPronouns`, `personRoleTags`, `communitySubtype`, and `communityCategoryTags`.
+
+`profileMediaSubmissions` is the private moderation boundary for unclaimed-profile media. It stores target and submitter IDs, the target's public slug and display name at submission time, a purpose-bound upload-intent reference, requested placement, source and public metadata, optional reviewer context, status, target-profile revisions, review disposition, approved asset link, retention timestamps, and audit-relevant decision metadata. The submission-time target identity remains the contributor-safe fallback if the profile is later hidden and privately renamed. Indexed reads are bounded by profile/status, profile/time, submitter/status, submitter/time, status/creation time, and content hash.
+
+`profileAssetUploadIntents.purpose` is required and is either `owner_publish` or `community_proposal`; every constructor writes it explicitly. There is no legacy compatibility branch or backfill because this purpose field has no deployed rows to migrate. A community proposal also pins `targetSubmissionId`, and upload finalization cannot consume it into a public asset.
 
 ## Mutation Contracts
 

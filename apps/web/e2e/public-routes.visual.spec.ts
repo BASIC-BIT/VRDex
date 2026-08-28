@@ -4,7 +4,9 @@ import {
   capturedRoutes,
   captureRouteScreenshot,
   expectHomePage,
+  expectMediaContributionPage,
   prepareVisualPage,
+  visualProfilePaths,
 } from "./public-routes";
 
 test.beforeEach(async ({ page }) => {
@@ -33,6 +35,12 @@ test("home dark theme @visual", async ({ page }, testInfo) => {
   await expectHomePage(page);
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await captureRouteScreenshot(page, testInfo, "home-dark");
+});
+
+test("media contribution signed out @visual", async ({ page }, testInfo) => {
+  await page.goto(`${visualProfilePaths.personPath}/contribute-media`);
+  await expectMediaContributionPage(page);
+  await captureRouteScreenshot(page, testInfo, "media-contribution-signed-out");
 });
 
 test("unified BASICBIT search views @visual", async ({ page }, testInfo) => {

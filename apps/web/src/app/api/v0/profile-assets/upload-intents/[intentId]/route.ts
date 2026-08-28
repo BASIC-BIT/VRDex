@@ -20,6 +20,7 @@ import {
 import {
   PROFILE_ASSET_MAX_STORED_BYTES,
   profileAssetMimeTypeForFile,
+  profileAssetUploadSource,
   validateAndPrepareProfileAsset,
 } from "@/lib/server/profile-asset-validation";
 
@@ -453,10 +454,14 @@ export async function POST(request: NextRequest, context: RouteContext) {
   let finalizationAttempted = false;
 
   try {
-    const upload = intent.sourceUrl
-      ? await bodyFromSourceUrl(intent.sourceUrl)
-      : request.headers.get("content-type")?.toLowerCase().includes("multipart/form-data")
-        ? await bodyFromFileRequest(request)
+    const uploadSource = profileAssetUploadSource(
+      request.headers.get("content-type"),
+      intent.sourceUrl !== undefined,
+    );
+    const upload = uploadSource === "multipart"
+      ? await bodyFromFileRequest(request)
+      : uploadSource === "source_url"
+        ? await bodyFromSourceUrl(intent.sourceUrl!)
         : await bodyFromDirectUpload({
             storageKey: intent.quarantineStorageKey,
             mimeType: intent.mimeType,
@@ -464,7 +469,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
           });
 
     validateUploadBody(upload);
-    if (!intent.sourceUrl && upload.body.byteLength !== intent.byteSize) {
+    if (uploadSource !== "source_url" && upload.body.byteLength !== intent.byteSize) {
       throw new Error("The uploaded image size does not match the upload intent.");
     }
     const prepared = await validateAndPrepareProfileAsset(upload.body, intent.mimeType);

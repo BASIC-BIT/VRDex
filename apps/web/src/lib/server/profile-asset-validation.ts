@@ -10,6 +10,14 @@ export { PROFILE_ASSET_MAX_STORED_BYTES } from "../profile-asset-limits";
 export const PROFILE_ASSET_MAX_SOURCE_DIMENSION = 8_192;
 export const PROFILE_ASSET_MAX_STORED_DIMENSION = 4_096;
 
+export function profileAssetUploadSource(
+  contentType: string | null,
+  hasSourceUrl: boolean,
+): "multipart" | "source_url" | "direct" {
+  if (contentType?.toLowerCase().includes("multipart/form-data")) return "multipart";
+  return hasSourceUrl ? "source_url" : "direct";
+}
+
 export function profileAssetMimeTypeForFile(fileType: string, fileName: string): string {
   const contentType = fileType.split(";")[0]!.trim().toLowerCase();
 

@@ -425,6 +425,12 @@ describe("profile write authority", () => {
 
     assert.equal(first.profileId, second.profileId);
 
+    const created = await t.run((ctx) => ctx.db.get(first.profileId));
+    assert.deepEqual(created?.fieldVisibility, {
+      region: "unlisted",
+      timezone: "private",
+    });
+
     const profiles = await t.run(async (ctx) =>
       ctx.db
         .query("profiles")

@@ -34,7 +34,10 @@ describe("public search backend query boundaries", () => {
     assert.match(route, /api\.events\.listPublicUpcoming, \{ now: Date\.now\(\), limit \}/);
     assert.match(mcp, /api\.events\.listPublicUpcoming, \{ now: now\(\), limit: cappedLimit \}/);
     assert.match(events, /export const listPublicUpcoming = query\(/);
-    assert.match(events, /getPublicEventPreviews\(ctx\.db, events, \{ now: args\.now, limit \}\)/);
+    assert.match(
+      events,
+      /getPublicEventPreviews\(ctx\.db, events, \{ now: args\.now, limit, order: "input" \}\)/,
+    );
     assert.doesNotMatch(events, /toPublicSearchResult/);
   });
 });

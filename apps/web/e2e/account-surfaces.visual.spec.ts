@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 
 import {
   cleanupClerkTestAccountData,
@@ -105,6 +105,13 @@ function unstableSignedInRegions(page: Page, email: string | undefined) {
     page.getByText(email ?? "", { exact: false }),
     page.getByRole("link", { name: "Account" }),
   ];
+}
+
+async function skipUntilHostedTargetRunsCurrentRevision(request: APIRequestContext) {
+  test.skip(
+    !(await hostedTargetRunsCurrentRevision(request)),
+    "Shared staging does not carry this feature-branch route yet; post-merge staging covers it.",
+  );
 }
 
 test.skip(
@@ -385,6 +392,44 @@ test.describe("account surfaces @visual @flow @account-visual", () => {
     );
     await waitForVisualReady(page);
     await captureRouteScreenshot(page, testInfo, "account-privacy-signed-in", {
+      mask: unstableSignedInRegions(page, account?.email),
+    });
+  });
+
+  test("managed events", async ({ page, request }, testInfo) => {
+    await skipUntilHostedTargetRunsCurrentRevision(request);
+    await page.goto("/account/events");
+    await expect(page.getByRole("heading", { name: "Events" })).toBeVisible(hostedExpectOptions);
+    await expect(page.getByText("No events")).toBeVisible(hostedExpectOptions);
+    await waitForVisualReady(page);
+    await captureRouteScreenshot(page, testInfo, "managed-events-empty", {
+      mask: unstableSignedInRegions(page, account?.email),
+    });
+  });
+
+  test("media contributions", async ({ page, request }, testInfo) => {
+    await skipUntilHostedTargetRunsCurrentRevision(request);
+    await page.goto("/account/media-contributions");
+    await expect(page.getByRole("heading", { name: "Media contributions" })).toBeVisible(
+      hostedExpectOptions,
+    );
+    await waitForVisualReady(page);
+    await captureRouteScreenshot(page, testInfo, "media-contributions-empty", {
+      mask: unstableSignedInRegions(page, account?.email),
+    });
+  });
+
+  test("media review access", async ({ page, request }, testInfo) => {
+    await skipUntilHostedTargetRunsCurrentRevision(request);
+    await page.goto("/account/media-review");
+    await expect(page.getByRole("heading", { name: "Media review" })).toBeVisible(
+      hostedExpectOptions,
+    );
+    await expect(page.getByText("Profile media review access is required.")).toBeVisible(
+      hostedExpectOptions,
+    );
+    await waitForVisualReady(page);
+    await captureRouteScreenshot(page, testInfo, "media-review-no-access", {
       mask: unstableSignedInRegions(page, account?.email),
     });
   });

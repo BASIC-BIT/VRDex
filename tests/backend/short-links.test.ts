@@ -214,7 +214,7 @@ describe("short link code helpers", () => {
 });
 
 describe("short link target reservations", () => {
-  it("authorizes reservations for owned profiles, attributed worlds, and manageable events", async () => {
+  it("authorizes reservations for owned profiles, attributed worlds, and community-managed events", async () => {
     const userId = "user-owner" as Id<"users">;
     const profileId = "profile-owned" as Id<"profiles">;
     const communityProfileId = "profile-community" as Id<"profiles">;
@@ -281,6 +281,7 @@ describe("short link target reservations", () => {
         {
           _id: communityEventId,
           communityProfileId,
+          submitter,
         },
       ],
     });
@@ -315,7 +316,7 @@ describe("short link target reservations", () => {
         { targetType: "event", targetId: submittedEventId },
         { userId, subject: submitter },
       ),
-      true,
+      false,
     );
     assert.equal(
       await canReserveShortLinkForTarget(
@@ -324,6 +325,14 @@ describe("short link target reservations", () => {
         { userId: "user-manager" as Id<"users">, subject: manager },
       ),
       true,
+    );
+    assert.equal(
+      await canReserveShortLinkForTarget(
+        db,
+        { targetType: "event", targetId: communityEventId },
+        { userId, subject: submitter },
+      ),
+      false,
     );
   });
 

@@ -14,10 +14,15 @@ import {
 import { HomeActiveWorldsSection, type PublicActiveWorld } from "./home-active-worlds";
 import { searchHref, type SearchResultFilter } from "./search-view-state";
 import { SearchViewShell } from "./search-view-shell";
-import { ViewerLocalEventDateTime } from "./viewer-local-event-times";
+import type { PublicEventPreview } from "./event-public-page";
+import {
+  ViewerLocalEventDateTime,
+  ViewerLocalEventTime,
+} from "./viewer-local-event-times";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, SectionTitle } from "@/components/ui/card";
 import { EntityImage } from "@/components/ui/entity-image";
+import { EventSchedule, EventScheduleRow, type EventScheduleStatus } from "@/components/ui/event-schedule";
 import { ProfileAvatarImage } from "@/components/ui/profile-avatar-image";
 import type { AvatarAppearance } from "@/lib/avatar-appearance";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
@@ -74,6 +79,7 @@ export type PublicDiscoveryData = {
     label: string;
     usageCount: number;
   }>;
+  eventSchedule?: PublicEventPreview[];
 };
 
 type DiscoveryStatus = "live" | "missing-url" | "error";
@@ -213,6 +219,63 @@ function TopNav() {
     <PageNav>
       <BrandLink />
     </PageNav>
+  );
+}
+
+function publicScheduleStatus(event: PublicEventPreview, now: number): EventScheduleStatus {
+  if (event.startAt <= now && (event.endAt ?? event.startAt) >= now) {
+    return "now";
+  }
+
+  return event.startAt - now <= 2 * 60 * 60 * 1_000 ? "soon" : "later";
+}
+
+function DiscoveryEventSchedule({ events, now }: { events: PublicEventPreview[]; now: number }) {
+  return (
+    <section className="min-w-0 border-t border-border pt-6">
+      <SectionTitle>Upcoming events</SectionTitle>
+      <EventSchedule className="mt-5" empty="No events">
+        {events.map((event) => (
+          <EventScheduleRow
+            details={[
+              event.communityName,
+              event.worlds[0]?.displayName,
+            ].filter(Boolean).join(" · ") || undefined}
+            key={event.slug ?? `${event.title}:${event.startAt}`}
+            metadata={event.nextSlots && event.nextSlots.length > 0 ? (
+              <ul className="grid gap-1.5 text-sm text-muted">
+                {event.nextSlots.map((slot) => (
+                  <li className="flex flex-wrap items-baseline gap-x-2" key={`${slot.startAt}:${slot.displayLabel}`}>
+                    <ViewerLocalEventTime className="font-mono text-xs text-foreground" timestamp={slot.startAt} />
+                    {slot.performer ? (
+                      <Link className="font-medium text-foreground underline-offset-4 hover:underline" href={`/${slot.performer.slug}`}>
+                        {slot.performer.displayName}
+                      </Link>
+                    ) : (
+                      <span className="font-medium text-foreground">{slot.displayLabel}</span>
+                    )}
+                    <span>{slot.roleLabel}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : undefined}
+            status={publicScheduleStatus(event, now)}
+            summary={event.summary}
+            time={<ViewerLocalEventDateTime timestamp={event.startAt} />}
+            title={event.slug ? (
+              <TrackedDiscoveryLink
+                className="rounded-control text-section text-foreground underline decoration-transparent underline-offset-4 transition hover:text-accent-strong hover:decoration-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                eventName="event_card_clicked"
+                href={`/${event.slug}`}
+                properties={{ entity_type: "event", surface: "upcoming_events" }}
+              >
+                {event.title}
+              </TrackedDiscoveryLink>
+            ) : event.title}
+          />
+        ))}
+      </EventSchedule>
+    </section>
   );
 }
 
@@ -403,11 +466,13 @@ export function DiscoveryLandingPage({
   activeWorldStatus,
   activeWorlds,
   data,
+  now,
   status,
 }: {
   activeWorldStatus: DiscoveryStatus;
   activeWorlds: PublicActiveWorld[];
   data: PublicDiscoveryData;
+  now: number;
   status: DiscoveryStatus;
 }) {
   return (
@@ -426,12 +491,16 @@ export function DiscoveryLandingPage({
 
         {status === "live" ? null : <DiscoveryBackendNotice kind={status} />}
 
-        <DiscoverySection
-          empty="No upcoming events are public yet."
-          results={data.upcomingEvents}
-          surface="upcoming_events"
-          title="Upcoming events"
-        />
+        {data.eventSchedule && data.eventSchedule.length > 0 ? (
+          <DiscoveryEventSchedule events={data.eventSchedule} now={now} />
+        ) : (
+          <DiscoverySection
+            empty="No events"
+            results={data.upcomingEvents}
+            surface="upcoming_events"
+            title="Upcoming events"
+          />
+        )}
 
         <HomeActiveWorldsSection status={activeWorldStatus} worlds={activeWorlds} />
 

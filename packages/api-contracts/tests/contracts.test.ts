@@ -685,6 +685,7 @@ describe("@vrdex/api-contracts", () => {
           sourceType: "community",
           sourceLabel: "Owner",
           publicationState: "draft_private",
+          status: "scheduled",
           watchSurfaceEnabled: false,
           createdAt: 1770000000000,
           updatedAt: 1770000000000,

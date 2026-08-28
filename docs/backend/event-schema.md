@@ -20,7 +20,8 @@ Current event fields include:
 - source type, source label, and optional source URL
 - typed media links
 - publication state
-- submitter identity for first-slice edit authority
+- scheduled or cancelled event status
+- submitter identity for provenance, not lasting authority on a community-linked event
 
 Generated durable short links such as `/l/<code>` are tracked in [Generated Short Links](./generated-short-links.md). Event slugs are readable and may become owner-editable; short links remain stable after slug edits because they target the event id.
 
@@ -30,13 +31,22 @@ Event `startAt`, `doorsOpenAt`, and `endAt` are stored as timestamps. The option
 
 `doorsOpenAt` is public and optional. When provided, it must be at or before `startAt`; it does not change the event start, slot offsets, participant associations, or event-world association timestamps.
 
-Public event pages render the canonical event timezone first, then render viewer-local equivalents from the browser timezone when available. This keeps the operator schedule authoritative while making the event understandable to viewers outside the event timezone.
+The editor parses event date/time inputs in the named event timezone. A local time skipped by a daylight-saving transition is invalid; for a repeated local time, the editor consistently chooses the earlier occurrence. Public event cards, pages, and set times render directly in the viewer's local timezone; they do not repeat a canonical-timezone line.
 
 Slot rows remain canonical event-time schedule rows. The first slot editor template still uses relative minute offsets from `startAt`, not `doorsOpenAt`, so set-time storage and Discord timestamp generation remain tied to the canonical event/slot timestamps.
 
 ## Community Authority
 
-The first event editor supports submitter-owned edits so the event flow can work before full community ownership and staff roles land.
+Event writes require the current community owner or an active authority carrying `manage_events`. The original submitter is provenance only and has no lasting authority when community ownership changes. An event without a linked community has no browser management path; there is no legacy-data migration or compatibility path because no such deployed data exists.
+
+The browser editor obtains its community choices from
+`events:listManagedCommunities`, which combines active ownership and active
+`manage_events` grants and returns public community display data only. Revoking
+a grant removes the choice and blocks subsequent writes immediately.
+
+`events:listManagedEvents` applies the same live authority and backs the private
+account event list. It returns bounded editor links and schedule/publication
+status, not event-media secrets or raw actors.
 
 A small `communityAuthorities` table is reserved for the next authority layer:
 
@@ -59,7 +69,13 @@ Starter capabilities:
 
 Owner-only actions include ownership transfer, owner removal, destructive community deletion/suppression, capability policy changes that could remove owner control, and any final sensitive billing authority that can terminate or transfer the community's account-level relationship. Ownership transfer should require an explicit acceptance flow rather than a silent reassignment.
 
-Event writes should authorize the original submitter during the first slice, then prefer community authority when a host community is attached. Event media-control calls require `manage_event_media` or a scoped event token; read-only operator panels can use `view_event_operations`. The fuller ownership and staff-role foundation is tracked in `#93`.
+Event schedule writes use `manage_events`; event media-control calls use `manage_event_media` or a scoped event token; read-only operator panels can use `view_event_operations`. Creating a browser event always starts a `draft_private` record attached to an authorized community. Publish, unpublish, cancel, and restore actions recheck the same current authority.
+
+`eventAuditEvents` records creation, updates, slot replacement, publication, cancellation, and restoration with the actor, surface (`browser`, `api`, `mcp`, `operator`, or `system`), changed fields, optional reason, and timestamp. Existing events have no fabricated history before this table's rollout.
+
+`events:listEventAudit` rechecks current edit authority and returns a bounded,
+newest-first history without raw actor identifiers. The event editor presents
+that history to the current owner or active `manage_events` staff member.
 
 ## Event Participants
 
@@ -100,6 +116,8 @@ Canonical slot times are stored as timestamps. Discord timestamp tokens such as 
 
 The first slot editor uses relative minute offsets from the event start for operator-friendly sequential scheduling. Backend storage still receives absolute timestamps after the operator confirms the event start and a valid IANA timezone.
 
+Public previews include at most three ordered upcoming slot summaries. Discovery and profile queries include an event already in progress when `endAt` has not passed; a missing `endAt` means the event ends at `startAt` for this bounded query rule.
+
 ## Discord Event Export
 
 First `#121` slice: the event editor can preview and copy one deterministic Discord-ready post generated from the public event projection.
@@ -111,6 +129,8 @@ The export includes the event title, canonical `/<slug>` URL, host and world nam
 First `#138` slice: public calendar export is a safe serialization layer, and inbound Google Calendar import is a private staging layer.
 
 The shared ICS serializer supports a single public event export and selected public event feeds. Calendar output is derived from the public event projection and includes event title, UTC start/end timestamps, public summary, canonical VRDex URL, and public host/world location text. It must not include private operator notes, moderation fields, unreviewed imports, hidden profile/world data, or media-control internals.
+
+Published cancelled events remain reachable by direct URL and export `STATUS:CANCELLED`; ordinary discovery and profile event lists exclude them. A cancelled event never promotes a watch surface.
 
 Reviewed Google Calendar imports use staging tables rather than canonical event writes:
 
@@ -282,7 +302,7 @@ Automatic rules must never bypass an operator-level hold, consent gate, destinat
 
 ### Authorization And Tokens
 
-Interactive controls require a signed-in editor with event authority, such as the event submitter in the first slice or a later community `manage_events` / `manage_event_media` capability. Worker, bridge, Discord, or external command surfaces use scoped event tokens rather than broad user sessions.
+Interactive controls require a signed-in current community owner or active authority carrying `manage_events` / `manage_event_media`. Worker, bridge, Discord, or external command surfaces use scoped event tokens rather than broad user sessions.
 
 Scoped tokens should carry:
 

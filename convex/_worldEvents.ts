@@ -4,10 +4,11 @@ import { firstSafeHttpsUrl, optionalField, safeHttpsUrl } from "./_publicFields"
 import { safePublicLinkUrl } from "./_vrcdnLinks";
 
 const WORLD_EVENT_SECTION_LIMIT = 4;
+const WORLD_EVENT_CURRENT_CANDIDATE_LIMIT = 128;
 const ACTIVE_WORLD_QUERY_EVENT_LIMIT = 50;
+const ACTIVE_WORLD_CURRENT_EVENT_CANDIDATE_LIMIT = 128;
 const ACTIVE_WORLD_ASSOCIATION_LIMIT = 20;
 const ACTIVE_WORLD_MAX_LIMIT = 6;
-const WORLD_EVENT_QUERY_ASSOCIATION_LIMIT = 50;
 
 type PublicEventSourceType = "manual" | "community" | "partner" | "import" | "ai_suggested";
 
@@ -83,8 +84,22 @@ function eventEndsAt(event: PublicWorldEventPreview): number {
   return event.endAt ?? event.startAt;
 }
 
-function eventRecordEndsAt(event: Doc<"events">): number {
+function eventRecordEndsAt(event: Pick<Doc<"events">, "startAt" | "endAt">): number {
   return event.endAt ?? event.startAt;
+}
+
+function compareActiveEvents(
+  first: Pick<Doc<"events">, "startAt" | "endAt">,
+  second: Pick<Doc<"events">, "startAt" | "endAt">,
+  now: number,
+): number {
+  const firstIsCurrent = first.startAt <= now;
+  const secondIsCurrent = second.startAt <= now;
+
+  if (firstIsCurrent !== secondIsCurrent) return firstIsCurrent ? -1 : 1;
+  return firstIsCurrent
+    ? eventRecordEndsAt(first) - eventRecordEndsAt(second) || first.startAt - second.startAt
+    : first.startAt - second.startAt;
 }
 
 function toPublicWorldEventPreview(
@@ -92,7 +107,11 @@ function toPublicWorldEventPreview(
 ): PublicWorldEventPreview | null {
   const { association, event } = record;
 
-  if (event.publicationState !== "published" || association.confirmationState !== "confirmed") {
+  if (
+    event.publicationState !== "published" ||
+    event.eventStatus !== "scheduled" ||
+    association.confirmationState !== "confirmed"
+  ) {
     return null;
   }
 
@@ -153,7 +172,7 @@ export function createPublicWorldEventContext(
 
   const upcoming = previews
     .filter((event) => eventEndsAt(event) >= now)
-    .sort((first, second) => first.startAt - second.startAt)
+    .sort((first, second) => compareActiveEvents(first, second, now))
     .slice(0, WORLD_EVENT_SECTION_LIMIT);
 
   const recent = previews
@@ -176,6 +195,7 @@ export function createPublicActiveWorldPreviews(
     if (
       world.publicationState !== "published" ||
       event.publicationState !== "published" ||
+      event.eventStatus !== "scheduled" ||
       association.confirmationState !== "confirmed" ||
       eventRecordEndsAt(event) < now
     ) {
@@ -189,7 +209,7 @@ export function createPublicActiveWorldPreviews(
 
   return [...groups.values()]
     .flatMap(({ events, world }) => {
-      const sortedEvents = [...events.values()].sort((first, second) => first.startAt - second.startAt);
+      const sortedEvents = [...events.values()].sort((first, second) => compareActiveEvents(first, second, now));
       const nextEvent = sortedEvents[0];
 
       if (nextEvent === undefined) {
@@ -225,7 +245,7 @@ export function createPublicActiveWorldPreviews(
         },
       ];
     })
-    .sort((first, second) => first.nextEvent.startAt - second.nextEvent.startAt)
+    .sort((first, second) => compareActiveEvents(first.nextEvent, second.nextEvent, now))
     .slice(0, limitWithinBounds);
 }
 
@@ -234,20 +254,47 @@ export async function getPublicWorldEventContext(
   worldId: Id<"worlds">,
   now: number,
 ): Promise<PublicWorldEventContext> {
-  const futureAssociations = await db
-    .query("eventWorlds")
-    .withIndex("by_worldId_confirmationState_eventStartAt", (query) =>
-      query.eq("worldId", worldId).eq("confirmationState", "confirmed").gte("eventStartAt", now),
-    )
-    .take(WORLD_EVENT_QUERY_ASSOCIATION_LIMIT);
-  const previousAssociations = await db
-    .query("eventWorlds")
-    .withIndex("by_worldId_confirmationState_eventStartAt", (query) =>
-      query.eq("worldId", worldId).eq("confirmationState", "confirmed").lt("eventStartAt", now),
-    )
-    .order("desc")
-    .take(WORLD_EVENT_QUERY_ASSOCIATION_LIMIT);
-  const associations = [...futureAssociations, ...previousAssociations];
+  const [startedAssociations, futureAssociations, previousAssociations] = await Promise.all([
+    db
+      .query("eventWorlds")
+      .withIndex("by_world_confirmation_publication_status_start", (query) =>
+        query
+          .eq("worldId", worldId)
+          .eq("confirmationState", "confirmed")
+          .eq("eventPublicationState", "published")
+          .eq("eventStatus", "scheduled")
+          .lt("eventStartAt", now),
+      )
+      .order("desc")
+      .take(WORLD_EVENT_CURRENT_CANDIDATE_LIMIT),
+    db
+      .query("eventWorlds")
+      .withIndex("by_world_confirmation_publication_status_start", (query) =>
+        query
+          .eq("worldId", worldId)
+          .eq("confirmationState", "confirmed")
+          .eq("eventPublicationState", "published")
+          .eq("eventStatus", "scheduled")
+          .gte("eventStartAt", now),
+      )
+      .take(WORLD_EVENT_SECTION_LIMIT),
+    db
+      .query("eventWorlds")
+      .withIndex("by_world_confirmation_publication_status_end", (query) =>
+        query
+          .eq("worldId", worldId)
+          .eq("confirmationState", "confirmed")
+          .eq("eventPublicationState", "published")
+          .eq("eventStatus", "scheduled")
+          .lt("eventEndAt", now),
+      )
+      .order("desc")
+      .take(WORLD_EVENT_SECTION_LIMIT),
+  ]);
+  const currentAssociations = startedAssociations.filter(
+    (association) => association.eventEndAt >= now,
+  );
+  const associations = [...currentAssociations, ...futureAssociations, ...previousAssociations];
 
   const records = (
     await Promise.all(
@@ -273,21 +320,29 @@ export async function getPublicActiveWorlds(
 ): Promise<PublicActiveWorldPreview[]> {
   const futureEvents = await db
     .query("events")
-    .withIndex("by_publicationState_startAt", (query) =>
-      query.eq("publicationState", "published").gte("startAt", now),
+    .withIndex("by_publicationState_eventStatus_startAt", (query) =>
+      query
+        .eq("publicationState", "published")
+        .eq("eventStatus", "scheduled")
+        .gte("startAt", now),
     )
     .take(ACTIVE_WORLD_QUERY_EVENT_LIMIT);
-  const currentEventCandidates = await db
+  // ponytail: Current events use a fixed recent-start window. If real volume
+  // can hide a valid multi-day event, replace this with indexed active state.
+  const startedEventCandidates = await db
     .query("events")
-    .withIndex("by_publicationState_startAt", (query) =>
-      query.eq("publicationState", "published").lt("startAt", now),
+    .withIndex("by_publicationState_eventStatus_startAt", (query) =>
+      query
+        .eq("publicationState", "published")
+        .eq("eventStatus", "scheduled")
+        .lt("startAt", now),
     )
     .order("desc")
-    .take(ACTIVE_WORLD_QUERY_EVENT_LIMIT);
-  const events = [
-    ...futureEvents,
-    ...currentEventCandidates.filter((event) => eventRecordEndsAt(event) >= now),
-  ];
+    .take(ACTIVE_WORLD_CURRENT_EVENT_CANDIDATE_LIMIT);
+  const currentEventCandidates = startedEventCandidates.filter(
+    (event) => (event.endAt ?? event.startAt) >= now,
+  );
+  const events = [...futureEvents, ...currentEventCandidates];
 
   const recordGroups = await Promise.all(
     events.map(async (event) => {

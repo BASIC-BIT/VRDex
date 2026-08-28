@@ -196,6 +196,7 @@ describe("public world event context", () => {
       sourceType: "manual",
       sourceLabel: "Fixture event listing",
       sourceUrl: "https://example.invalid/events/afterglow-harbor-sessions",
+      eventStatus: "scheduled",
       publicationState: "published",
       updatedAt: now,
     } as unknown as Doc<"events">;
@@ -209,6 +210,7 @@ describe("public world event context", () => {
       sourceType: "community",
       sourceLabel: "Community-submitted event",
       sourceUrl: "http://example.invalid/unsafe-event",
+      eventStatus: "scheduled",
       publicationState: "published",
       updatedAt: now,
     } as unknown as Doc<"events">;
@@ -246,6 +248,7 @@ describe("public world event context", () => {
       startAt: now + 86_400_000,
       sourceType: "manual",
       sourceLabel: "Fixture event listing",
+      eventStatus: "scheduled",
       publicationState: "published",
       updatedAt: now,
     } as unknown as Doc<"events">;
@@ -275,7 +278,7 @@ describe("public world event context", () => {
     assert.equal(context.upcoming[0]?.title, "Afterglow Harbor Sessions");
   });
 
-  it("omits unconfirmed associations and unpublished events from public world pages", () => {
+  it("omits unconfirmed associations, unpublished events, and cancelled events from public world pages", () => {
     const now = Date.UTC(2026, 4, 24, 12, 0, 0);
     const publishedEvent = {
       _id: "event123",
@@ -284,6 +287,7 @@ describe("public world event context", () => {
       startAt: now + 86_400_000,
       sourceType: "ai_suggested",
       sourceLabel: "AI-suggested match",
+      eventStatus: "scheduled",
       publicationState: "published",
       updatedAt: now,
     } as unknown as Doc<"events">;
@@ -310,6 +314,10 @@ describe("public world event context", () => {
       [
         { event: publishedEvent, association: unconfirmedAssociation },
         { event: draftEvent, association: confirmedAssociation },
+        {
+          event: { ...publishedEvent, eventStatus: "cancelled" } as unknown as Doc<"events">,
+          association: confirmedAssociation,
+        },
       ],
       now,
     );
@@ -353,6 +361,7 @@ describe("public active world previews", () => {
       startAt: now + 172_800_000,
       sourceType: "manual",
       sourceLabel: "Fixture event listing",
+      eventStatus: "scheduled",
       publicationState: "published",
       updatedAt: now,
     } as unknown as Doc<"events">;
@@ -384,6 +393,70 @@ describe("public active world previews", () => {
     assert.equal("url" in previews[0]!.nextEvent.source, false);
   });
 
+  it("orders current world events by effective end before future events", () => {
+    const now = Date.UTC(2026, 4, 24, 12, 0, 0);
+    const world = {
+      slug: "neon-harbor",
+      displayName: "Neon Harbor",
+      sortName: "neon harbor",
+      tags: [],
+      visibilityStatus: "public",
+      platformCompatibility: ["pc"],
+      media: [],
+      creatorAttributions: [],
+      outboundLinks: [],
+      publicationState: "published",
+      creationSource: "self",
+      updatedAt: now,
+    } as unknown as Doc<"worlds">;
+    const association = {
+      eventId: "event123",
+      worldId: "world123",
+      sourceType: "manual",
+      confidence: 1,
+      confirmationState: "confirmed",
+      updatedAt: now,
+    } as unknown as Doc<"eventWorlds">;
+    const event = {
+      _id: "event123",
+      title: "Long-running event",
+      sortTitle: "long-running event",
+      startAt: now - 7_200_000,
+      endAt: now + 7_200_000,
+      sourceType: "manual",
+      sourceLabel: "Fixture event listing",
+      eventStatus: "scheduled",
+      publicationState: "published",
+      updatedAt: now,
+    } as unknown as Doc<"events">;
+    const endingSooner = {
+      ...event,
+      _id: "event456",
+      title: "Ending sooner",
+      startAt: now - 3_600_000,
+      endAt: now + 3_600_000,
+    } as unknown as Doc<"events">;
+    const future = {
+      ...event,
+      _id: "event789",
+      title: "Future event",
+      startAt: now + 60_000,
+      endAt: now + 10_800_000,
+    } as unknown as Doc<"events">;
+
+    const previews = createPublicActiveWorldPreviews(
+      [
+        { association, event, world },
+        { association, event: endingSooner, world },
+        { association, event: future, world },
+      ],
+      now,
+      3,
+    );
+
+    assert.equal(previews[0]?.nextEvent.title, "Ending sooner");
+  });
+
   it("deduplicates duplicate event-world association rows for the same event and world", () => {
     const now = Date.UTC(2026, 4, 24, 12, 0, 0);
     const world = {
@@ -407,6 +480,7 @@ describe("public active world previews", () => {
       startAt: now + 86_400_000,
       sourceType: "manual",
       sourceLabel: "Fixture event listing",
+      eventStatus: "scheduled",
       publicationState: "published",
       updatedAt: now,
     } as unknown as Doc<"events">;
@@ -437,7 +511,7 @@ describe("public active world previews", () => {
     assert.equal(previews[0]?.upcomingEventCount, 1);
   });
 
-  it("excludes draft worlds, draft events, past events, and unconfirmed associations", () => {
+  it("excludes draft worlds, draft events, cancelled events, past events, and unconfirmed associations", () => {
     const now = Date.UTC(2026, 4, 24, 12, 0, 0);
     const world = {
       slug: "neon-harbor",
@@ -460,6 +534,7 @@ describe("public active world previews", () => {
       startAt: now + 86_400_000,
       sourceType: "ai_suggested",
       sourceLabel: "AI-suggested match",
+      eventStatus: "scheduled",
       publicationState: "published",
       updatedAt: now,
     } as unknown as Doc<"events">;
@@ -487,6 +562,11 @@ describe("public active world previews", () => {
         {
           association: confirmedAssociation,
           event: { ...event, startAt: now - 86_400_000 } as unknown as Doc<"events">,
+          world,
+        },
+        {
+          association: confirmedAssociation,
+          event: { ...event, eventStatus: "cancelled" } as unknown as Doc<"events">,
           world,
         },
         {

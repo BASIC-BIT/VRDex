@@ -24,17 +24,7 @@ export default function NewEventPage() {
                 <h1 className="mt-5 text-4xl leading-none font-semibold tracking-[-0.04em] sm:text-6xl">
                   Add a VRDex event.
                 </h1>
-                <p className="mt-5 max-w-xl text-base leading-7 text-muted sm:text-lg">
-                  Create a source-aware event with a readable slug, community host, optional world link, media links, poster image, and published person associations.
-                </p>
               </div>
-
-              <Card surface="strong">
-                <Eyebrow>Scope guard</Eyebrow>
-                <p className="mt-3 text-sm leading-7 text-muted">
-                  This first editor keeps approval, disputes, RSVP, recurring events, short links, and social discovery in follow-up issues while preserving room for them in the data model.
-                </p>
-              </Card>
             </div>
 
             <Card surface="glass">

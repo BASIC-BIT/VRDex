@@ -507,6 +507,7 @@ describe("public event projection", () => {
       sourceType: "community",
       sourceLabel: "Community listing",
       sourceUrl: "http://example.invalid/source",
+      eventStatus: "scheduled",
       publicationState: "published",
       updatedAt: now,
     } as unknown as Doc<"events">;
@@ -656,6 +657,7 @@ describe("public event projection", () => {
       startAt: Date.UTC(2026, 5, 14, 22, 0, 0),
       sourceType: "community",
       sourceLabel: "Fixture event listing",
+      eventStatus: "scheduled",
       publicationState: "published",
       updatedAt: now,
     } as unknown as Doc<"events">;
@@ -721,6 +723,7 @@ describe("public event projection", () => {
       ],
       sourceType: "community",
       sourceLabel: "Fixture event listing",
+      eventStatus: "scheduled",
       publicationState: "published",
       updatedAt: now,
     } as unknown as Doc<"events">;
@@ -753,6 +756,7 @@ describe("public event projection", () => {
       sourceType: "community",
       sourceLabel: "Fixture event listing",
       watchSurfaceEnabled: true,
+      eventStatus: "scheduled",
       publicationState: "published",
       updatedAt: now,
     } as unknown as Doc<"events">;
@@ -789,6 +793,7 @@ describe("public event projection", () => {
       sourceType: "community",
       sourceLabel: "Fixture event listing",
       watchSurfaceEnabled: true,
+      eventStatus: "scheduled",
       publicationState: "published",
       updatedAt: now,
     } as unknown as Doc<"events">;
@@ -855,6 +860,7 @@ describe("public event projection", () => {
       startAt: Date.UTC(2026, 5, 14, 22, 0, 0),
       sourceType: "community",
       sourceLabel: "Fixture event listing",
+      eventStatus: "scheduled",
       publicationState: "published",
       updatedAt: now,
     } as unknown as Doc<"events">;
@@ -895,6 +901,7 @@ describe("public event projection", () => {
       doorsOpenAt: Date.UTC(2026, 5, 14, 21, 30, 0),
       sourceType: "community",
       sourceLabel: "Community listing",
+      eventStatus: "scheduled",
       publicationState: "published",
       updatedAt: 1,
     } as unknown as Doc<"events">;
@@ -918,6 +925,7 @@ describe("public event projection", () => {
           startAt: now + index * 3_600_000,
           sourceType: "community",
           sourceLabel: "Community listing",
+          eventStatus: "scheduled",
           publicationState: "published",
           updatedAt: now,
         }) as unknown as Doc<"events">,
@@ -948,6 +956,7 @@ describe("public event projection", () => {
       startAt: now + 3_600_000,
       sourceType: "community",
       sourceLabel: "Community listing",
+      eventStatus: "scheduled",
       publicationState: "published",
       updatedAt: now,
     } as unknown as Doc<"events">;

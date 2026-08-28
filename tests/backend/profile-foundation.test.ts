@@ -2498,6 +2498,7 @@ describe("profile media kit asset helpers", () => {
       caption: " Brand mark ",
       placements: ["primary_logo"],
       source: "owner_authored",
+      purpose: "owner_publish",
       now: 1000,
     });
 
@@ -2766,5 +2767,109 @@ describe("profile media kit asset helpers", () => {
     assert.equal(mediaKit.featuredAsset?.altText, "DJ Aurora under violet stage light.");
     assert.equal(mediaKit.featuredAsset?.credit, "Photo by Example");
     assert.equal(mediaKit.galleryAssets[0]?.altText, undefined);
+  });
+
+  it("does not let media-kit placements bypass profile field visibility", async () => {
+    const profile = {
+      _id: "profile-private-media",
+      slug: "dj-private",
+      fieldVisibility: {
+        avatarImageUrl: "private",
+        bannerImageUrl: "private",
+        mediaKit: "private",
+      },
+    } as Doc<"profiles">;
+    const asset = {
+      _id: "asset-private-media",
+      profileId: profile._id,
+      state: "active",
+      visibility: "public",
+      label: "Press image",
+      mimeType: "image/webp",
+      byteSize: 1_024,
+    } as Doc<"profileAssets">;
+    const placements = [
+      { assetId: asset._id, placement: "profile_image", position: 0, state: "active" },
+      { assetId: asset._id, placement: "banner", position: 0, state: "active" },
+      { assetId: asset._id, placement: "primary_logo", position: 0, state: "active" },
+      { assetId: asset._id, placement: "gallery", position: 0, state: "active" },
+      { assetId: asset._id, placement: "featured", position: 0, state: "active" },
+    ] as Doc<"profileAssetPlacements">[];
+    const db = {
+      query(tableName: string) {
+        return {
+          withIndex() {
+            return {
+              async collect() {
+                if (tableName === "profileAssets") return [asset];
+                if (tableName === "profileAssetPlacements") return placements;
+                return [];
+              },
+              async unique() {
+                return null;
+              },
+            };
+          },
+        };
+      },
+    };
+
+    const mediaKit = await getPublicProfileMediaKit(db as never, profile);
+
+    assert.equal(mediaKit.profileImage, undefined);
+    assert.equal(mediaKit.banner, undefined);
+    assert.equal(mediaKit.primaryLogo, undefined);
+    assert.equal(mediaKit.featuredAsset, undefined);
+    assert.deepEqual(mediaKit.additionalLogos, []);
+    assert.deepEqual(mediaKit.galleryAssets, []);
+    assert.deepEqual(mediaKit.assets, []);
+    assert.equal(mediaKit.logoZipUrl, undefined);
+  });
+
+  it("keeps unlisted media on direct profiles but out of discovery", async () => {
+    const profile = {
+      _id: "profile-unlisted-media",
+      slug: "dj-unlisted",
+      fieldVisibility: { mediaKit: "unlisted" },
+    } as Doc<"profiles">;
+    const asset = {
+      _id: "asset-unlisted-media",
+      profileId: profile._id,
+      state: "active",
+      visibility: "public",
+      label: "Logo",
+      mimeType: "image/webp",
+      byteSize: 1_024,
+    } as Doc<"profileAssets">;
+    const placements = [
+      { assetId: asset._id, placement: "primary_logo", position: 0, state: "active" },
+    ] as Doc<"profileAssetPlacements">[];
+    const db = {
+      query(tableName: string) {
+        return {
+          withIndex() {
+            return {
+              async collect() {
+                if (tableName === "profileAssets") return [asset];
+                if (tableName === "profileAssetPlacements") return placements;
+                return [];
+              },
+              async unique() {
+                return null;
+              },
+            };
+          },
+        };
+      },
+    };
+
+    const direct = await getPublicProfileMediaKit(db as never, profile);
+    const discovery = await getPublicProfileMediaKit(db as never, profile, {
+      surface: "discovery",
+    });
+
+    assert.equal(direct.primaryLogo?.assetId, asset._id);
+    assert.equal(discovery.primaryLogo, undefined);
+    assert.deepEqual(discovery.assets, []);
   });
 });

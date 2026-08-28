@@ -6846,6 +6846,13 @@
             ],
             "description": "Profile or event publication state for an authenticated owner inventory."
           },
+          "status": {
+            "type": "string",
+            "enum": [
+              "scheduled",
+              "cancelled"
+            ]
+          },
           "watchSurfaceEnabled": {
             "type": "boolean"
           },
@@ -6872,6 +6879,7 @@
           "sourceType",
           "sourceLabel",
           "publicationState",
+          "status",
           "watchSurfaceEnabled",
           "updatedAt"
         ],
@@ -9563,6 +9571,54 @@
             "minimum": 0,
             "maximum": 9007199254740991
           },
+          "nextSlots": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "displayLabel": {
+                  "type": "string"
+                },
+                "endAt": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "performer": {
+                  "type": "object",
+                  "properties": {
+                    "displayName": {
+                      "type": "string"
+                    },
+                    "slug": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 160
+                    }
+                  },
+                  "required": [
+                    "displayName",
+                    "slug"
+                  ],
+                  "additionalProperties": false
+                },
+                "roleLabel": {
+                  "type": "string"
+                },
+                "startAt": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "displayLabel",
+                "roleLabel",
+                "startAt"
+              ],
+              "additionalProperties": false
+            }
+          },
           "posterImageUrl": {
             "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
           },
@@ -9610,6 +9666,13 @@
             "type": "integer",
             "minimum": 0,
             "maximum": 9007199254740991
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "scheduled",
+              "cancelled"
+            ]
           },
           "summary": {
             "type": "string"
@@ -9723,6 +9786,54 @@
             "minimum": 0,
             "maximum": 9007199254740991
           },
+          "nextSlots": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "displayLabel": {
+                  "type": "string"
+                },
+                "endAt": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "performer": {
+                  "type": "object",
+                  "properties": {
+                    "displayName": {
+                      "type": "string"
+                    },
+                    "slug": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 160
+                    }
+                  },
+                  "required": [
+                    "displayName",
+                    "slug"
+                  ],
+                  "additionalProperties": false
+                },
+                "roleLabel": {
+                  "type": "string"
+                },
+                "startAt": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "displayLabel",
+                "roleLabel",
+                "startAt"
+              ],
+              "additionalProperties": false
+            }
+          },
           "posterImageUrl": {
             "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
           },
@@ -9770,6 +9881,13 @@
             "type": "integer",
             "minimum": 0,
             "maximum": 9007199254740991
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "scheduled",
+              "cancelled"
+            ]
           },
           "summary": {
             "type": "string"
@@ -10464,6 +10582,54 @@
                 "minimum": 0,
                 "maximum": 9007199254740991
               },
+              "nextSlots": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "displayLabel": {
+                      "type": "string"
+                    },
+                    "endAt": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "performer": {
+                      "type": "object",
+                      "properties": {
+                        "displayName": {
+                          "type": "string"
+                        },
+                        "slug": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 160
+                        }
+                      },
+                      "required": [
+                        "displayName",
+                        "slug"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "roleLabel": {
+                      "type": "string"
+                    },
+                    "startAt": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "displayLabel",
+                    "roleLabel",
+                    "startAt"
+                  ],
+                  "additionalProperties": false
+                }
+              },
               "slug": {
                 "type": "string",
                 "minLength": 1,
@@ -10503,6 +10669,13 @@
                 "type": "integer",
                 "minimum": 0,
                 "maximum": 9007199254740991
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "scheduled",
+                  "cancelled"
+                ]
               },
               "timezone": {
                 "type": "string"

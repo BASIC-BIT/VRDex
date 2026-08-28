@@ -14,6 +14,7 @@ export default async function DiscoveryPage() {
       activeWorldStatus={activeWorlds.kind}
       activeWorlds={activeWorlds.worlds}
       data={discovery.data}
+      now={discovery.now}
       status={discovery.kind}
     />
   );

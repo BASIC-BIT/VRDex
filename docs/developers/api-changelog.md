@@ -9,6 +9,9 @@ docs update and a changelog entry so early consumers and agents can adapt.
 
 ## Unreleased
 
+- public event previews now carry `status` and up to three relevant `nextSlots`;
+  cancelled events remain available by direct URL and calendar export but leave
+  discovery, while in-progress events remain discoverable until their end time
 - documented avatar appearance and trust metadata on public search results,
   documented event-host avatar appearance, and allowed same-origin profile
   asset URLs on public event image fields

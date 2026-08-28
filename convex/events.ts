@@ -12,7 +12,6 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import {
-  isSameAuthSubject,
   subjectHasAnyCommunityCapability,
   subjectHasCommunityCapability,
   type AuthSubject,
@@ -47,6 +46,7 @@ import {
   sanitizeVrcdnOperatorOwnedOutputSetup,
 } from "./_eventMediaControl";
 import {
+  EVENT_PARTICIPANT_MAX_COUNT,
   normalizeEventDraftUpdateInput,
   preserveOmittedEventDraftFields,
   sanitizeEventDraftInput,
@@ -56,6 +56,7 @@ import {
 } from "./_eventInputs";
 import { findEventOperationSlots } from "./_eventOperations";
 import {
+  getEventForEditor,
   getPublicCommunityHostedEvents,
   getPublicEventBySlug,
   getPublicEventPreviews,
@@ -64,9 +65,8 @@ import { findAvailableEventSlug, getEventBySlug, validateEventSlug } from "./_ev
 import { canReadProfile } from "./_profilePermissions";
 import { userOwnsProfile } from "./_profileOwnership";
 import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
-import { createEventSearchDocument, upsertSearchDocument, vocabularyForEvent } from "./_searchDocuments";
+import { reindexEventSearchDocument } from "./_searchDocuments";
 import { ensureShortLinkForTarget } from "./_shortLinks";
-import { recordVocabularyTerms } from "./_vocabulary";
 import { getVrcdnOutputAccount, listPublicVrcdnOutputAccounts } from "./_vrcdnOutputAccounts";
 import { getWorldBySlug, validateWorldSlug } from "./_worldSlugs";
 
@@ -394,10 +394,6 @@ async function canUpdateEvent(
   subject: AuthSubject,
   userId?: Id<"users"> | null,
 ): Promise<boolean> {
-  if (isSameAuthSubject(event.submitter, subject)) {
-    return true;
-  }
-
   if (event.communityProfileId === undefined) {
     return false;
   }
@@ -419,10 +415,6 @@ async function canManageEventMedia(
   subject: AuthSubject,
   userId?: Id<"users"> | null,
 ): Promise<boolean> {
-  if (isSameAuthSubject(event.submitter, subject)) {
-    return true;
-  }
-
   if (event.communityProfileId === undefined) {
     return false;
   }
@@ -444,10 +436,6 @@ async function canViewEventOperations(
   subject: AuthSubject,
   userId?: Id<"users"> | null,
 ): Promise<boolean> {
-  if (isSameAuthSubject(event.submitter, subject)) {
-    return true;
-  }
-
   if (event.communityProfileId === undefined) {
     return false;
   }
@@ -467,28 +455,115 @@ async function canViewEventOperations(
   ]);
 }
 
+async function canManageCommunityEvents(
+  db: DatabaseReader,
+  communityProfileId: Id<"profiles">,
+  subject: AuthSubject,
+  userId: Id<"users">,
+): Promise<boolean> {
+  return (
+    await userOwnsProfile(db, communityProfileId, userId)
+  ) || subjectHasCommunityCapability(db, communityProfileId, subject, "manage_events");
+}
+
+async function requireBrowserManagedCommunity(
+  db: DatabaseReader,
+  communitySlug: string | undefined,
+  subject: AuthSubject,
+  userId: Id<"users">,
+) {
+  if (communitySlug === undefined) {
+    throw new Error("Community slug is required for event creation.");
+  }
+
+  const community = await getPublishedCommunityBySlug(db, communitySlug);
+
+  if (
+    community === undefined ||
+    !(await canManageCommunityEvents(db, community._id, subject, userId))
+  ) {
+    throw new Error("You do not have permission to create events for this community.");
+  }
+
+  return community;
+}
+
+async function recordEventAuditEvent(
+  db: DatabaseWriter,
+  input: {
+    eventId: Id<"events">;
+    actor?: AuthSubject;
+    actorSurface: Doc<"eventAuditEvents">["actorSurface"];
+    action: Doc<"eventAuditEvents">["action"];
+    changedFields?: string[];
+    reason?: string;
+    now: number;
+  },
+) {
+  await db.insert("eventAuditEvents", {
+    eventId: input.eventId,
+    ...(input.actor === undefined ? {} : { actor: input.actor }),
+    actorSurface: input.actorSurface,
+    action: input.action,
+    ...(input.changedFields === undefined ? {} : { changedFields: input.changedFields }),
+    ...(input.reason === undefined ? {} : { reason: input.reason }),
+    createdAt: input.now,
+  });
+}
+
 async function replaceEventWorldLink(
   db: DatabaseWriter,
-  eventId: Id<"events">,
-  startAt: number,
+  event: Doc<"events">,
   world: Doc<"worlds"> | undefined,
   now: number,
+  options: {
+    preserveNonPublic?: boolean;
+    preserveAssociationIds?: Id<"eventWorlds">[];
+  } = {},
 ) {
   const existing = await db
     .query("eventWorlds")
-    .withIndex("by_eventId", (query) => query.eq("eventId", eventId))
+    .withIndex("by_eventId", (query) => query.eq("eventId", event._id))
     .take(20);
+  const preserveAssociationIds = new Set(options.preserveAssociationIds);
+  const preserved = world !== undefined
+    ? []
+    : options.preserveAssociationIds !== undefined
+      ? existing
+          .filter((association) => preserveAssociationIds.has(association._id))
+          .map((association) => ({ association }))
+      : options.preserveNonPublic === true
+        ? (await Promise.all(existing.map(async (association) => ({
+            association,
+            world: await db.get(association.worldId),
+          })))).filter(({ world: linkedWorld }) => linkedWorld?.publicationState !== "published")
+        : [];
+  const preservedIds = new Set(preserved.map(({ association }) => association._id));
 
-  await Promise.all(existing.map((association) => db.delete(association._id)));
+  await Promise.all([
+    ...existing
+      .filter((association) => !preservedIds.has(association._id))
+      .map((association) => db.delete(association._id)),
+    ...preserved.map(({ association }) => db.patch(association._id, {
+      eventStartAt: event.startAt,
+      eventEndAt: event.endAt ?? event.startAt,
+      eventPublicationState: event.publicationState,
+      eventStatus: event.eventStatus,
+      updatedAt: now,
+    })),
+  ]);
 
   if (world === undefined) {
     return;
   }
 
   await db.insert("eventWorlds", {
-    eventId,
+    eventId: event._id,
     worldId: world._id,
-    eventStartAt: startAt,
+    eventStartAt: event.startAt,
+    eventEndAt: event.endAt ?? event.startAt,
+    eventPublicationState: event.publicationState,
+    eventStatus: event.eventStatus,
     sourceType: "community",
     confidence: 1,
     confirmationState: "confirmed",
@@ -499,34 +574,100 @@ async function replaceEventWorldLink(
 
 async function replaceEventParticipants(
   db: DatabaseWriter,
-  eventId: Id<"events">,
-  startAt: number,
+  event: Doc<"events">,
   participants: ReturnType<typeof sanitizeEventDraftInput>["participantLinks"],
   now: number,
+  options: {
+    preserveNonPublic?: boolean;
+    preserveAssociationIds?: Id<"eventParticipants">[];
+  } = {},
 ) {
   const existing = await db
     .query("eventParticipants")
-    .withIndex("by_eventId", (query) => query.eq("eventId", eventId))
+    .withIndex("by_eventId", (query) => query.eq("eventId", event._id))
     .collect();
+  const preservedAssociationIds = new Set(options.preserveAssociationIds);
+  const loadedAssociations = await Promise.all(
+    existing
+      .filter((association) => preservedAssociationIds.has(association._id))
+      .map(async (association) => ({
+        association,
+        profile: await db.get(association.personProfileId),
+      })),
+  );
+  const resolvedParticipants = await Promise.all(participants.map(async (participant) => {
+    const loaded = loadedAssociations.find(
+      ({ profile }) => profile?.slug === participant.personSlug,
+    );
+    return loaded === undefined
+      ? {
+          participant,
+          profile: await getPublishedPersonBySlug(db, participant.personSlug),
+        }
+      : { participant, profile: loaded.profile!, association: loaded.association };
+  }));
+  const submittedProfileIds = new Set(resolvedParticipants.map(({ profile }) => profile._id));
+  const preserved = (options.preserveAssociationIds !== undefined
+    ? loadedAssociations
+    : options.preserveNonPublic === true
+      ? await Promise.all(existing.map(async (association) => ({
+          association,
+          profile: await db.get(association.personProfileId),
+        })))
+      : []
+  ).filter(({ association, profile }) =>
+    !submittedProfileIds.has(association.personProfileId) &&
+    (profile === null || !canReadProfile("public", profile)),
+  );
+  const preservedIds = new Set([
+    ...preserved.map(({ association }) => association._id),
+    ...resolvedParticipants.flatMap(({ association }) =>
+      association === undefined ? [] : [association._id]),
+  ]);
+  const personProfileIds = new Set([
+    ...preserved.map(({ association }) => association.personProfileId),
+    ...resolvedParticipants.map(({ profile }) => profile._id),
+  ]);
 
-  await Promise.all(existing.map((participant) => db.delete(participant._id)));
+  if (personProfileIds.size > EVENT_PARTICIPANT_MAX_COUNT) {
+    throw new Error(`Participant links can include at most ${EVENT_PARTICIPANT_MAX_COUNT} unique profiles including linked slot performers.`);
+  }
 
-  for (const participant of participants) {
-    const profile = await getPublishedPersonBySlug(db, participant.personSlug);
+  await Promise.all([
+    ...existing
+      .filter((participant) => !preservedIds.has(participant._id))
+      .map((participant) => db.delete(participant._id)),
+    ...preserved.map(({ association }) => db.patch(association._id, {
+      eventStartAt: event.startAt,
+      eventEndAt: event.endAt ?? event.startAt,
+      eventPublicationState: event.publicationState,
+      eventStatus: event.eventStatus,
+      updatedAt: now,
+    })),
+  ]);
 
-    await db.insert("eventParticipants", {
-      eventId,
+  for (const { participant, profile, association } of resolvedParticipants) {
+    const fields = {
+      eventId: event._id,
       personProfileId: profile._id,
-      eventStartAt: startAt,
+      eventStartAt: event.startAt,
+      eventEndAt: event.endAt ?? event.startAt,
+      eventPublicationState: event.publicationState,
+      eventStatus: event.eventStatus,
       roleLabel: participant.roleLabel,
-      sourceType: "community",
+      sourceType: "community" as const,
       sourceLabel: participant.sourceLabel,
       ...optionalValue("sourceUrl", participant.sourceUrl),
-      confirmationState: "confirmed",
+      confirmationState: "confirmed" as const,
       confirmedAt: now,
       ...optionalValue("notes", participant.notes),
       updatedAt: now,
-    });
+    };
+    if (association === undefined) {
+      await db.insert("eventParticipants", fields);
+    } else {
+      await db.patch(association._id, fields);
+    }
   }
 }
 
@@ -536,16 +677,86 @@ async function replaceEventSlots(
   eventStartAt: number,
   slots: ReturnType<typeof sanitizeEventDraftInput>["slotLinks"],
   now: number,
+  options: {
+    preserveNonPublic?: boolean;
+    preserveAssociationIds?: Id<"eventSlots">[];
+    previousEventStartAt?: number;
+  } = {},
 ) {
   const existing = await db
     .query("eventSlots")
     .withIndex("by_eventId", (query) => query.eq("eventId", eventId))
     .collect();
+  const preserveAssociationIds = new Set(options.preserveAssociationIds);
+  const loadedExisting = await Promise.all(
+    existing
+      .filter((slot) => preserveAssociationIds.has(slot._id))
+      .map(async (slot) => ({
+        slot,
+        profile: slot.personProfileId === undefined ? null : await db.get(slot.personProfileId),
+      })),
+  );
+  const nonPublicExisting = options.preserveAssociationIds !== undefined
+    ? loadedExisting.filter(({ slot, profile }) =>
+        slot.personProfileId !== undefined &&
+        (profile === null || !canReadProfile("public", profile)),
+      )
+    : options.preserveNonPublic === true
+      ? (await Promise.all(existing.map(async (slot) => ({
+          slot,
+          profile: slot.personProfileId === undefined ? null : await db.get(slot.personProfileId),
+        })))).filter(({ slot, profile }) =>
+          slot.personProfileId !== undefined &&
+          (profile === null || !canReadProfile("public", profile)),
+        )
+      : [];
 
-  await Promise.all(existing.map((slot) => db.delete(slot._id)));
+  const preservedSlotFor = (slot: (typeof slots)[number]) => slot.personSlug === undefined
+    ? nonPublicExisting.find(({ slot: existingSlot }) =>
+        existingSlot.position === slot.position &&
+        existingSlot.startAt - (options.previousEventStartAt ?? eventStartAt) === slot.startAt - eventStartAt &&
+        (existingSlot.endAt === undefined ? undefined : existingSlot.endAt - existingSlot.startAt) ===
+          (slot.endAt === undefined ? undefined : slot.endAt - slot.startAt) &&
+        existingSlot.displayLabel === slot.displayLabel &&
+        existingSlot.roleLabel === slot.roleLabel,
+      )?.slot
+    : loadedExisting.find(({ slot: existingSlot, profile }) =>
+        existingSlot.position === slot.position && profile?.slug === slot.personSlug,
+      )?.slot;
+  const retainedIds = new Set(slots.flatMap((slot) => {
+    const preservedSlot = preservedSlotFor(slot);
+    return preservedSlot === undefined ? [] : [preservedSlot._id];
+  }));
+
+  await Promise.all(existing
+    .filter((slot) => !retainedIds.has(slot._id))
+    .map((slot) => db.delete(slot._id)));
 
   for (const slot of slots) {
-    const profile = slot.personSlug === undefined ? undefined : await getPublishedPersonBySlug(db, slot.personSlug);
+    const preservedSlot = preservedSlotFor(slot);
+    const profile = slot.personSlug === undefined || preservedSlot !== undefined
+      ? undefined
+      : await getPublishedPersonBySlug(db, slot.personSlug);
+
+    if (preservedSlot !== undefined) {
+      await db.patch(preservedSlot._id, {
+        eventStartAt,
+        position: slot.position,
+        startAt: slot.startAt,
+        endAt: slot.endAt,
+        personProfileId: preservedSlot.personProfileId,
+        displayLabel: slot.displayLabel,
+        roleLabel: slot.roleLabel,
+        sourceType: "community",
+        sourceLabel: slot.sourceLabel,
+        sourceUrl: slot.sourceUrl,
+        confidence: 1,
+        reviewState: "confirmed",
+        notes: slot.notes,
+        updatedAt: now,
+      });
+      continue;
+    }
 
     await db.insert("eventSlots", {
       eventId,
@@ -595,10 +806,9 @@ function participantLinksWithSlotPerformers(input: ReturnType<typeof sanitizeEve
   return links;
 }
 
-async function syncPreservedEventAssociationStartAt(
+async function syncPreservedEventAssociations(
   db: DatabaseWriter,
-  eventId: Id<"events">,
-  startAt: number,
+  event: Doc<"events">,
   now: number,
   options: {
     preserveParticipants: boolean;
@@ -608,20 +818,27 @@ async function syncPreservedEventAssociationStartAt(
 ) {
   const [worlds, participants, slots] = await Promise.all([
     options.preserveWorld
-      ? db.query("eventWorlds").withIndex("by_eventId", (query) => query.eq("eventId", eventId)).collect()
+      ? db.query("eventWorlds").withIndex("by_eventId", (query) => query.eq("eventId", event._id)).collect()
       : Promise.resolve([]),
     options.preserveParticipants
-      ? db.query("eventParticipants").withIndex("by_eventId", (query) => query.eq("eventId", eventId)).collect()
+      ? db.query("eventParticipants").withIndex("by_eventId", (query) => query.eq("eventId", event._id)).collect()
       : Promise.resolve([]),
     options.preserveSlots
-      ? db.query("eventSlots").withIndex("by_eventId", (query) => query.eq("eventId", eventId)).collect()
+      ? db.query("eventSlots").withIndex("by_eventId", (query) => query.eq("eventId", event._id)).collect()
       : Promise.resolve([]),
   ]);
 
+  const eventAssociationPatch = {
+    eventStartAt: event.startAt,
+    eventEndAt: event.endAt ?? event.startAt,
+    eventPublicationState: event.publicationState,
+    eventStatus: event.eventStatus,
+    updatedAt: now,
+  };
   await Promise.all([
-    ...worlds.map((association) => db.patch(association._id, { eventStartAt: startAt, updatedAt: now })),
-    ...participants.map((participant) => db.patch(participant._id, { eventStartAt: startAt, updatedAt: now })),
-    ...slots.map((slot) => db.patch(slot._id, { eventStartAt: startAt, updatedAt: now })),
+    ...worlds.map((association) => db.patch(association._id, eventAssociationPatch)),
+    ...participants.map((participant) => db.patch(participant._id, eventAssociationPatch)),
+    ...slots.map((slot) => db.patch(slot._id, { eventStartAt: event.startAt, updatedAt: now })),
   ]);
 }
 
@@ -678,6 +895,7 @@ function toApiManagedEventSummary(event: Doc<"events">, community: Doc<"profiles
     sourceType: event.sourceType,
     sourceLabel: event.sourceLabel,
     publicationState: event.publicationState,
+    status: event.eventStatus,
     watchSurfaceEnabled: event.watchSurfaceEnabled ?? false,
     createdAt: event.createdAt,
     publishedAt: event.publishedAt,
@@ -714,7 +932,10 @@ async function requireApiOwnedPublishedCommunity(
 
 async function createCommunityEventForApiOwnerRecord(
   db: DatabaseWriter,
-  args: EventDraftInput & { ownerUserId: Id<"users"> },
+  args: EventDraftInput & {
+    ownerUserId: Id<"users">;
+    actorSurface?: "api" | "mcp";
+  },
 ) {
   const input = sanitizeEventDraftInput(args);
   const community = await requireApiOwnedPublishedCommunity(db, input.communitySlug, args.ownerUserId);
@@ -724,6 +945,7 @@ async function createCommunityEventForApiOwnerRecord(
     community,
     world,
     submitter: apiOwnerAuthSubject(args.ownerUserId),
+    actorSurface: args.actorSurface ?? "api",
   });
 
   return { community, result };
@@ -734,6 +956,7 @@ async function updateCommunityEventForApiOwnerRecord(
   args: EventDraftUpdateInput & {
     currentSlug: string;
     ownerUserId: Id<"users">;
+    actorSurface?: "api" | "mcp";
   },
 ) {
   const validation = validateEventSlug(args.currentSlug);
@@ -803,6 +1026,14 @@ async function updateCommunityEventForApiOwnerRecord(
     ? await getPublishedWorldBySlug(db, input.worldSlug)
     : await linkedPublishedEventWorld(db, event._id);
   const result = await updateCommunityEventRecord(db, { event, input, community, world, updateFields });
+  await recordEventAuditEvent(db, {
+    eventId: event._id,
+    actor: apiOwnerAuthSubject(args.ownerUserId),
+    actorSurface: args.actorSurface ?? "api",
+    action: "updated",
+    changedFields: [...updateFields],
+    now: Date.now(),
+  });
 
   return { community, event, result };
 }
@@ -856,10 +1087,13 @@ async function insertCommunityEventRecord(
     community?: Doc<"profiles">;
     world?: Doc<"worlds">;
     submitter: AuthSubject;
+    publicationState?: Doc<"events">["publicationState"];
+    actorSurface?: Doc<"eventAuditEvents">["actorSurface"];
   },
 ) {
   const { community, input, submitter, world } = options;
   const now = Date.now();
+  const publicationState = options.publicationState ?? "published";
   const slug = await findAvailableEventSlug(db, {
     title: input.title,
     startAt: input.startAt,
@@ -886,8 +1120,9 @@ async function insertCommunityEventRecord(
     sourceLabel: input.sourceLabel,
     ...optionalValue("sourceUrl", input.sourceUrl),
     submitter,
-    publicationState: "published",
-    publishedAt: now,
+    eventStatus: "scheduled",
+    publicationState,
+    ...(publicationState === "published" ? { publishedAt: now } : {}),
     createdAt: now,
     updatedAt: now,
   });
@@ -896,22 +1131,28 @@ async function insertCommunityEventRecord(
     { targetType: "event", targetId: eventId },
     now,
   );
+  const event = await db.get(eventId);
+  if (event === null) {
+    throw new Error("Event creation did not persist.");
+  }
 
-  await replaceEventWorldLink(db, eventId, input.startAt, world, now);
+  await replaceEventWorldLink(db, event, world, now);
   await replaceEventSlots(db, eventId, input.startAt, input.slotLinks, now);
   const participantLinks = participantLinksWithSlotPerformers(input);
-  await replaceEventParticipants(db, eventId, input.startAt, participantLinks, now);
+  await replaceEventParticipants(db, event, participantLinks, now);
 
-  const event = await db.get(eventId);
-  if (event !== null) {
+  await recordEventAuditEvent(db, {
+    eventId,
+    actor: submitter,
+    actorSurface: options.actorSurface ?? "api",
+    action: "created",
+    changedFields: ["event", "slots", "participants", "world"],
+    now,
+  });
+
+  if (publicationState === "published") {
     const roleLabels = participantLinks.map((participant) => participant.roleLabel);
-    await Promise.all([
-      upsertSearchDocument(
-        db,
-        createEventSearchDocument(event, { community, world, roleLabels }),
-      ),
-      recordVocabularyTerms(db, vocabularyForEvent(event, roleLabels), now),
-    ]);
+    await reindexEventSearchDocument(db, event, { community, world, roleLabels }, now);
   }
 
   return {
@@ -930,10 +1171,28 @@ async function updateCommunityEventRecord(
     input: SanitizedEventDraftInput;
     community?: Doc<"profiles">;
     world?: Doc<"worlds">;
+    publicationState?: Doc<"events">["publicationState"];
+    preserveNonPublicAssociations?: boolean;
+    preserveCommunityName?: boolean;
+    preserveParticipantAssociationIds?: Id<"eventParticipants">[];
+    preserveSlotAssociationIds?: Id<"eventSlots">[];
+    preserveWorldAssociationIds?: Id<"eventWorlds">[];
     updateFields?: ReadonlySet<keyof EventDraftInput>;
   },
 ) {
-  const { community, event, input, updateFields, world } = options;
+  const {
+    community,
+    event,
+    input,
+    preserveCommunityName,
+    preserveNonPublicAssociations,
+    preserveParticipantAssociationIds,
+    preserveSlotAssociationIds,
+    preserveWorldAssociationIds,
+    publicationState,
+    updateFields,
+    world,
+  } = options;
   const now = Date.now();
   const shouldUpdate = (field: keyof EventDraftInput) => updateFields === undefined || updateFields.has(field);
   const slug = await findAvailableEventSlug(
@@ -955,7 +1214,12 @@ async function updateCommunityEventRecord(
     ...(shouldUpdate("endAt") ? { endAt: input.endAt } : {}),
     ...(shouldUpdate("timezone") ? { timezone: input.timezone } : {}),
     communityProfileId: community?._id,
-    communityName: community?.displayName,
+    communityName:
+      preserveCommunityName === true &&
+      community !== undefined &&
+      community._id === event.communityProfileId
+        ? event.communityName
+        : community?.displayName,
     ...(shouldUpdate("summary") ? { summary: input.summary } : {}),
     ...(shouldUpdate("notes") ? { notes: input.notes } : {}),
     ...(shouldUpdate("posterImageUrl") ? { posterImageUrl: input.posterImageUrl } : {}),
@@ -965,45 +1229,62 @@ async function updateCommunityEventRecord(
     ...(shouldUpdate("mediaLinks") ? { mediaLinks: input.mediaLinks } : {}),
     ...(shouldUpdate("sourceLabel") ? { sourceLabel: input.sourceLabel } : {}),
     ...(shouldUpdate("sourceUrl") ? { sourceUrl: input.sourceUrl } : {}),
+    ...(publicationState === undefined
+      ? {}
+      : {
+          publicationState,
+          ...(publicationState === "published" ? { publishedAt: event.publishedAt ?? now } : {}),
+        }),
     updatedAt: now,
   });
+  const updatedEvent = await db.get(event._id);
+  if (updatedEvent === null) {
+    throw new Error("Event update did not persist.");
+  }
 
   const replaceWorld = shouldUpdate("worldSlug");
   const replaceSlots = shouldUpdate("slotLinks");
   const replaceParticipants = shouldUpdate("participantLinks");
 
   if (replaceWorld) {
-    await replaceEventWorldLink(db, event._id, input.startAt, world, now);
+    await replaceEventWorldLink(db, updatedEvent, world, now, {
+      preserveNonPublic: preserveNonPublicAssociations,
+      preserveAssociationIds: preserveWorldAssociationIds,
+    });
   }
 
   if (replaceSlots) {
-    await replaceEventSlots(db, event._id, input.startAt, input.slotLinks, now);
+    await replaceEventSlots(db, event._id, input.startAt, input.slotLinks, now, {
+      preserveNonPublic: preserveNonPublicAssociations,
+      preserveAssociationIds: preserveSlotAssociationIds,
+      previousEventStartAt: event.startAt,
+    });
   }
 
   if (replaceParticipants) {
     const participantLinks = participantLinksWithSlotPerformers(input);
-    await replaceEventParticipants(db, event._id, input.startAt, participantLinks, now);
-  }
-
-  if (event.startAt !== input.startAt) {
-    await syncPreservedEventAssociationStartAt(db, event._id, input.startAt, now, {
-      preserveParticipants: !replaceParticipants,
-      preserveSlots: !replaceSlots,
-      preserveWorld: !replaceWorld,
+    await replaceEventParticipants(db, updatedEvent, participantLinks, now, {
+      preserveNonPublic: preserveNonPublicAssociations,
+      preserveAssociationIds: preserveParticipantAssociationIds,
     });
   }
 
-  const updatedEvent = await db.get(event._id);
-  if (updatedEvent !== null) {
-    const roleLabels = await eventParticipantRoleLabels(db, event._id);
-    await Promise.all([
-      upsertSearchDocument(
-        db,
-        createEventSearchDocument(updatedEvent, { community, world, roleLabels }),
-      ),
-      recordVocabularyTerms(db, vocabularyForEvent(updatedEvent, roleLabels), now),
-    ]);
-  }
+  await syncPreservedEventAssociations(db, updatedEvent, now, {
+    preserveParticipants: !replaceParticipants,
+    preserveSlots: !replaceSlots,
+    preserveWorld: !replaceWorld,
+  });
+
+  const [roleLabels, indexedWorld] = await Promise.all([
+    eventParticipantRoleLabels(db, event._id),
+    linkedPublishedEventWorld(db, event._id),
+  ]);
+  await reindexEventSearchDocument(
+    db,
+    updatedEvent,
+    { community, world: indexedWorld, roleLabels },
+    now,
+  );
 
   return {
     eventId: event._id,
@@ -1159,16 +1440,33 @@ async function getWritableEventMediaSession(
 
 async function getOpenEventMediaSession(
   db: DatabaseReader,
-  programId: Id<"eventMediaPrograms">,
+  program: Doc<"eventMediaPrograms">,
 ): Promise<Doc<"eventMediaSessions"> | null> {
-  const sessions = await db
-    .query("eventMediaSessions")
-    .withIndex("by_programId_status", (query) => query.eq("programId", programId))
-    .take(50);
-  const openStatuses = new Set(["scheduled", "starting", "live", "hold", "fallback", "stopping"]);
+  const openStatuses = ["scheduled", "starting", "live", "hold", "fallback", "stopping"] as const;
+  if (program.activeSessionId !== undefined) {
+    const active = await db.get(program.activeSessionId);
+    if (
+      active !== null &&
+      active.programId === program._id &&
+      openStatuses.includes(active.status as (typeof openStatuses)[number])
+    ) {
+      return active;
+    }
+  }
+  const sessions = await Promise.all(
+    openStatuses.map((status) =>
+      db
+        .query("eventMediaSessions")
+        .withIndex("by_programId_status", (query) =>
+          query.eq("programId", program._id).eq("status", status),
+        )
+        .order("desc")
+        .first(),
+    ),
+  );
 
   return sessions
-    .filter((session) => openStatuses.has(session.status))
+    .filter((session): session is Doc<"eventMediaSessions"> => session !== null)
     .sort((first, second) => second.updatedAt - first.updatedAt)[0] ?? null;
 }
 
@@ -1279,8 +1577,10 @@ async function insertEventMediaCommand(
     commandType: "start_program" | "stop_program";
     sessionId: Id<"eventMediaSessions">;
     outputId?: Id<"eventMediaOutputs">;
-    actor: AuthSubject;
+    actor?: AuthSubject;
+    actorSurface?: "web" | "discord" | "worker" | "system";
     idempotencyKey: string;
+    availableAt?: number;
     note?: string;
     now: number;
   },
@@ -1291,12 +1591,13 @@ async function insertEventMediaCommand(
     sessionId: input.sessionId,
     commandType: input.commandType,
     status: "queued",
-    actor: input.actor,
-    actorSurface: "web",
+    ...(input.actor === undefined ? {} : { actor: input.actor }),
+    actorSurface: input.actorSurface ?? "web",
     ...(input.outputId === undefined ? {} : { targetOutputId: input.outputId }),
     publicFallbackLinks: [],
     ...(input.note === undefined ? {} : { note: input.note }),
     idempotencyKey: input.idempotencyKey,
+    availableAt: input.availableAt ?? input.now,
     createdAt: input.now,
     updatedAt: input.now,
   });
@@ -1336,6 +1637,129 @@ async function settleEventMediaSessionCommands(
         }),
       ),
   );
+}
+
+async function settleEventMediaForCancellation(
+  db: DatabaseWriter,
+  event: Doc<"events">,
+  actor: AuthSubject,
+  now: number,
+) {
+  const program = await getLatestEventMediaProgram(db, event._id);
+  if (program === null) return;
+
+  const session = await getOpenEventMediaSession(db, program);
+  if (session === null) {
+    const [readyOutputs, activeOutputs] = await Promise.all([
+      db
+        .query("eventMediaOutputs")
+        .withIndex("by_programId_state", (query) => query.eq("programId", program._id).eq("state", "ready"))
+        .take(50),
+      db
+        .query("eventMediaOutputs")
+        .withIndex("by_programId_state", (query) => query.eq("programId", program._id).eq("state", "active"))
+        .take(50),
+    ]);
+    await Promise.all([
+      ...readyOutputs.map((output) => db.patch(output._id, { state: "disabled", updatedAt: now })),
+      ...activeOutputs.map((output) => db.patch(output._id, { state: "disabled", updatedAt: now })),
+      db.patch(program._id, {
+        state: "ended",
+        currentOutputId: undefined,
+        publicLinks: [],
+        updatedAt: now,
+      }),
+    ]);
+    return;
+  }
+
+  const claimedStarts = await db
+    .query("eventMediaCommands")
+    .withIndex("by_sessionId_status_createdAt", (query) =>
+      query.eq("sessionId", session._id).eq("status", "claimed"),
+    )
+    .filter((query) => query.eq(query.field("commandType"), "start_program"))
+    .take(1);
+  await settleEventMediaSessionCommands(db, {
+    sessionId: session._id,
+    commandTypes: ["start_program"],
+    status: "cancelled",
+    errorSummary: "Event cancelled before media startup completed.",
+    now,
+  });
+
+  if (session.status === "scheduled" && claimedStarts.length === 0) {
+    await Promise.all([
+      db.patch(session._id, {
+        status: "ended",
+        workerTaskStatus: "stopped",
+        stoppedAt: now,
+        updatedAt: now,
+      }),
+      db.patch(program._id, {
+        state: "ended",
+        activeSessionId: undefined,
+        publicLinks: [],
+        updatedAt: now,
+      }),
+    ]);
+    await recordEventMediaAuditEvent(db, {
+      programId: program._id,
+      eventId: event._id,
+      sessionId: session._id,
+      actor,
+      action: "worker_schedule_cancelled_with_event",
+      publicSummary: "Event media worker schedule cancelled with the event.",
+      createdAt: now,
+    });
+    return;
+  }
+
+  if (session.status !== "stopping") {
+    await Promise.all([
+      db.patch(session._id, {
+        status: "stopping",
+        workerTaskStatus: session.workerTaskStatus === "failed" ? "failed" : "stopping",
+        stopRequestedAt: now,
+        updatedAt: now,
+      }),
+      db.patch(program._id, {
+        state: "stopping",
+        activeSessionId: session._id,
+        publicLinks: [],
+        updatedAt: now,
+      }),
+    ]);
+    if (claimedStarts.length > 0 && session.workerTaskId === undefined) {
+      return;
+    }
+
+    const commandId = await insertEventMediaCommand(db, {
+      program,
+      commandType: "stop_program",
+      sessionId: session._id,
+      outputId: session.outputId,
+      actor,
+      idempotencyKey: `cancel-stop:${session._id}:${now}`,
+      note: "Stop the event media worker because the event was cancelled.",
+      now,
+    });
+    await recordEventMediaAuditEvent(db, {
+      programId: program._id,
+      eventId: event._id,
+      sessionId: session._id,
+      commandId,
+      actor,
+      action: "worker_stop_requested_for_cancelled_event",
+      publicSummary: "Event media worker stop requested with event cancellation.",
+      createdAt: now,
+    });
+    return;
+  }
+
+  if (program.publicLinks.length > 0) {
+    await db.patch(program._id, { publicLinks: [], updatedAt: now });
+  }
 }
 
 function workerSessionStatus(session: Doc<"eventMediaSessions">) {
@@ -1421,10 +1845,10 @@ async function createWorkerBridgeCommandPayload(
   };
 }
 
-async function applyBridgeWorkerTaskStatus(
+async function applyEventMediaWorkerTaskStatus(
   db: DatabaseWriter,
   input: {
-    workerId: string;
+    workerId?: string;
     session: Doc<"eventMediaSessions">;
     program: Doc<"eventMediaPrograms">;
     commandId?: Id<"eventMediaCommands">;
@@ -1446,19 +1870,26 @@ async function applyBridgeWorkerTaskStatus(
     now: number;
   },
 ) {
-  const status = input.status ?? input.session.status;
+  const requestedStatus = input.status ?? input.session.status;
+  const cancellationPending =
+    input.session.stopRequestedAt !== undefined && !["ended", "error"].includes(requestedStatus);
+  const status = cancellationPending ? "stopping" : requestedStatus;
+  const workerTaskStatus =
+    cancellationPending && input.workerTaskStatus !== "stopped" && input.workerTaskStatus !== "failed"
+      ? "stopping"
+      : input.workerTaskStatus;
   const shouldSetStartedAt =
     input.session.startedAt === undefined && ["starting", "live", "hold", "fallback"].includes(status);
   const shouldSetStoppedAt = input.session.stoppedAt === undefined && ["ended", "error"].includes(status);
 
   await db.patch(input.session._id, {
     status,
-    workerId: input.workerId,
+    ...(input.workerId === undefined ? {} : { workerId: input.workerId }),
     ...(input.workerRuntime === undefined ? {} : { workerRuntime: input.workerRuntime }),
     ...(input.workerProvider === undefined ? {} : { workerProvider: input.workerProvider }),
     ...(input.workerTaskDefinitionArn === undefined ? {} : { workerTaskDefinitionArn: input.workerTaskDefinitionArn }),
     ...(input.workerTaskId === undefined ? {} : { workerTaskId: input.workerTaskId }),
-    ...(input.workerTaskStatus === undefined ? {} : { workerTaskStatus: input.workerTaskStatus }),
+    ...(workerTaskStatus === undefined ? {} : { workerTaskStatus }),
     ...(input.workerTaskStatusReason === undefined ? {} : { workerTaskStatusReason: input.workerTaskStatusReason }),
     ...(input.leaseExpiresAt === undefined ? {} : { leaseExpiresAt: input.leaseExpiresAt }),
     ...(input.artifactLinks === undefined ? {} : { artifactLinks: input.artifactLinks }),
@@ -1492,6 +1923,43 @@ async function applyBridgeWorkerTaskStatus(
       activeSessionId: ["ended", "error"].includes(status) ? undefined : input.session._id,
       updatedAt: input.now,
     });
+  }
+
+  const workerTaskId = input.workerTaskId ?? input.session.workerTaskId;
+  if (cancellationPending && workerTaskId !== undefined) {
+    const pendingStops = await Promise.all(
+      (["queued", "claimed"] as const).map((commandStatus) =>
+        db
+          .query("eventMediaCommands")
+          .withIndex("by_sessionId_status_createdAt", (query) =>
+            query.eq("sessionId", input.session._id).eq("status", commandStatus),
+          )
+          .filter((query) => query.eq(query.field("commandType"), "stop_program"))
+          .first(),
+      ),
+    );
+    if (pendingStops.every((command) => command === null)) {
+      const commandId = await insertEventMediaCommand(db, {
+        program: input.program,
+        commandType: "stop_program",
+        sessionId: input.session._id,
+        outputId: input.session.outputId,
+        actorSurface: "worker",
+        idempotencyKey: `cancel-stop:${input.session._id}:${input.session.stopRequestedAt}`,
+        note: "Stop the event media worker because the event was cancelled.",
+        now: input.now,
+      });
+      await recordEventMediaAuditEvent(db, {
+        programId: input.program._id,
+        eventId: input.session.eventId,
+        sessionId: input.session._id,
+        commandId,
+        actorSurface: "worker",
+        action: "worker_stop_requested_for_cancelled_event",
+        publicSummary: "Event media worker stop requested with event cancellation.",
+        createdAt: input.now,
+      });
+    }
   }
 
   if (status === "live" && input.session.outputId !== undefined) {
@@ -1536,6 +2004,8 @@ async function applyBridgeWorkerTaskStatus(
       await db.patch(command._id, { status: "succeeded", completedAt: input.now, updatedAt: input.now });
     }
   }
+
+  return status;
 }
 
 export const getPublicBySlug = query({
@@ -1560,14 +2030,42 @@ export const listPublicUpcoming = query({
   },
   handler: async (ctx, args) => {
     const limit = boundedLimit(args.limit, 8, 24);
-    const events = await ctx.db
-      .query("events")
-      .withIndex("by_publicationState_startAt", (index) =>
-        index.eq("publicationState", "published").gte("startAt", args.now),
+    // ponytail: This deliberately inspects only the 128 most recently started
+    // events. If real volume can hide a valid multi-day event, add indexed
+    // active-event state instead of growing this window indefinitely.
+    const ongoingCandidateLimit = 128;
+    const [started, upcoming] = await Promise.all([
+      ctx.db
+        .query("events")
+        .withIndex("by_publicationState_eventStatus_startAt", (index) =>
+          index
+            .eq("publicationState", "published")
+            .eq("eventStatus", "scheduled")
+            .lt("startAt", args.now),
+        )
+        .order("desc")
+        .take(ongoingCandidateLimit),
+      ctx.db
+        .query("events")
+        .withIndex("by_publicationState_eventStatus_startAt", (index) =>
+          index
+            .eq("publicationState", "published")
+            .eq("eventStatus", "scheduled")
+            .gte("startAt", args.now),
+        )
+        .take(limit),
+    ]);
+    const ongoing = started
+      .filter((event) => (event.endAt ?? event.startAt) >= args.now)
+      .sort(
+        (first, second) =>
+          (first.endAt ?? first.startAt) - (second.endAt ?? second.startAt) ||
+          first.startAt - second.startAt,
       )
-      .take(limit);
+      .slice(0, limit);
+    const events = [...ongoing, ...upcoming].slice(0, limit);
 
-    return await getPublicEventPreviews(ctx.db, events, { now: args.now, limit });
+    return await getPublicEventPreviews(ctx.db, events, { now: args.now, limit, order: "input" });
   },
 });
 
@@ -1773,6 +2271,7 @@ export const queueEventMediaCommand = mutation({
       ...(command.targetOutputKey === undefined ? {} : { targetOutputKey: command.targetOutputKey }),
       publicFallbackLinks: command.publicFallbackLinks,
       ...(command.note === undefined ? {} : { note: command.note }),
+      availableAt: now,
       createdAt: now,
       updatedAt: now,
     });
@@ -1807,10 +2306,24 @@ export const claimEventMediaWorkerCommand = mutation({
     requireEventMediaBridgeToken(args.bridgeToken);
     const workerId = requireBridgeWorkerId(args.workerId);
     const now = Date.now();
-    const queuedCommands = await ctx.db
-      .query("eventMediaCommands")
-      .withIndex("by_status_createdAt", (query) => query.eq("status", "queued"))
-      .take(50);
+    const workerCommandTypes = ["start_program", "stop_program"] as const;
+    const queuedCommands = (
+      await Promise.all(
+        workerCommandTypes.map((commandType) =>
+          ctx.db
+            .query("eventMediaCommands")
+            .withIndex("by_status_commandType_availableAt_createdAt", (query) =>
+              query
+                .eq("status", "queued")
+                .eq("commandType", commandType)
+                .lte("availableAt", now),
+            )
+            .take(50),
+        ),
+      )
+    )
+      .flat()
+      .sort((first, second) => first.createdAt - second.createdAt);
 
     for (const command of queuedCommands) {
       if (!isWorkerCommandType(command.commandType) || command.sessionId === undefined) {
@@ -1847,7 +2360,7 @@ export const listEventMediaWorkerBridgeSessions = query({
   args: eventMediaWorkerBridgeArgs,
   handler: async (ctx, args) => {
     requireEventMediaBridgeToken(args.bridgeToken);
-    const workerId = requireBridgeWorkerId(args.workerId);
+    requireBridgeWorkerId(args.workerId);
     const statuses: Array<"scheduled" | "starting" | "live" | "hold" | "fallback" | "stopping"> = [
       "scheduled",
       "starting",
@@ -1867,7 +2380,7 @@ export const listEventMediaWorkerBridgeSessions = query({
 
     return sessionGroups
       .flat()
-      .filter((session) => session.workerId === workerId && session.workerProvider === "aws_ecs" && session.workerTaskId !== undefined)
+      .filter((session) => session.workerProvider === "aws_ecs" && session.workerTaskId !== undefined)
       .sort((first, second) => second.updatedAt - first.updatedAt)
       .map(workerSessionStatus);
   },
@@ -1898,7 +2411,7 @@ export const recordEventMediaWorkerBridgeTaskStatus = mutation({
     const leaseExpiresAt = optionalPositiveTimestamp(args.leaseExpiresAt, "Worker lease expiration");
     const artifactLinks = args.artifactLinks === undefined ? undefined : sanitizeEventMediaWorkerArtifactLinks(args.artifactLinks);
 
-    await applyBridgeWorkerTaskStatus(ctx.db, {
+    await applyEventMediaWorkerTaskStatus(ctx.db, {
       workerId,
       session,
       program,
@@ -1936,14 +2449,132 @@ export const recordEventMediaWorkerBridgeTaskStatus = mutation({
 });
 
 export const createCommunityEvent = mutation({
-  args: eventDraftArgs,
+  args: {
+    published: v.optional(v.boolean()),
+    ...eventDraftArgs,
+  },
   handler: async (ctx, args) => {
     const subject = await requireAuthenticatedSubject(ctx);
+    const { userId } = await requireUser(ctx);
     const input = sanitizeEventDraftInput(args);
-    const community = await getPublishedCommunityBySlug(ctx.db, input.communitySlug);
+    const community = await requireBrowserManagedCommunity(
+      ctx.db,
+      input.communitySlug,
+      subject,
+      userId,
+    );
     const world = await getPublishedWorldBySlug(ctx.db, input.worldSlug);
 
-    return await insertCommunityEventRecord(ctx.db, { input, community, world, submitter: subject });
+    return await insertCommunityEventRecord(ctx.db, {
+      input,
+      community,
+      world,
+      submitter: subject,
+      publicationState: args.published ? "published" : "draft_private",
+      actorSurface: "browser",
+    });
+  },
+});
+
+async function managedCommunitiesForBrowser(
+  ctx: QueryCtx,
+  options: { includeNonPublic?: boolean } = {},
+) {
+  const { subject, user } = await requireActiveBrowserSessionSubject(ctx);
+  const [owners, authorities] = await Promise.all([
+    ctx.db
+        .query("profileOwners")
+        .withIndex("by_userId_state", (query) =>
+          query.eq("userId", user._id).eq("state", "active"),
+        )
+        .take(100),
+    ctx.db
+        .query("communityAuthorities")
+        .withIndex("by_subjectTokenIdentifier_state", (query) =>
+          query.eq("subjectTokenIdentifier", subject.tokenIdentifier).eq("state", "active"),
+        )
+        .take(100),
+  ]);
+  const roleByProfileId = new Map<Id<"profiles">, string>();
+  for (const owner of owners) roleByProfileId.set(owner.profileId, "Owner");
+  for (const authority of authorities) {
+    if (
+      authority.capabilities.includes("manage_events") &&
+      !roleByProfileId.has(authority.communityProfileId)
+    ) {
+      roleByProfileId.set(authority.communityProfileId, authority.roleLabel);
+    }
+  }
+  const profiles = await Promise.all(
+    [...roleByProfileId.keys()].map((profileId) => ctx.db.get(profileId)),
+  );
+
+  return profiles
+    .filter(
+      (profile): profile is Doc<"profiles"> =>
+        profile !== null &&
+        profile.profileType === "community" &&
+        (options.includeNonPublic === true || canReadProfile("public", profile)),
+    )
+    .map((profile) => ({
+      profile,
+      roleLabel: roleByProfileId.get(profile._id) ?? "Event staff",
+    }))
+    .sort((first, second) => first.profile.displayName.localeCompare(second.profile.displayName));
+}
+
+export const listManagedCommunities = query({
+  args: {},
+  handler: async (ctx) => {
+    return (await managedCommunitiesForBrowser(ctx)).map(({ profile, roleLabel }) => ({
+      profileId: profile._id,
+      slug: profile.slug,
+      displayName: profile.displayName,
+      roleLabel,
+    }));
+  },
+});
+
+export const listManagedEvents = query({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    // ponytail: Keep the MVP inventory bounded. Add cursor pagination when real event volume approaches this cap.
+    const limit = boundedLimit(args.limit, 50, 100);
+    const communities = await managedCommunitiesForBrowser(ctx, { includeNonPublic: true });
+    const records = (
+      await Promise.all(
+        communities.map(async ({ profile }) => {
+          const events = await ctx.db
+            .query("events")
+            .withIndex("by_communityProfileId_startAt", (query) =>
+              query.eq("communityProfileId", profile._id),
+            )
+            .order("desc")
+            .take(limit);
+          return events.map((event) => ({ event, profile }));
+        }),
+      )
+    ).flat();
+
+    return records
+      .sort(
+        (first, second) =>
+          second.event.startAt - first.event.startAt ||
+          second.event.updatedAt - first.event.updatedAt,
+      )
+      .filter(({ event }) => event.slug !== undefined)
+      .slice(0, limit)
+      .map(({ event, profile }) => ({
+        eventId: event._id,
+        slug: event.slug,
+        title: event.title,
+        startAt: event.startAt,
+        endAt: event.endAt,
+        publicationState: event.publicationState,
+        status: event.eventStatus,
+        communitySlug: profile.slug,
+        communityDisplayName: profile.displayName,
+      }));
   },
 });
 
@@ -2003,7 +2634,7 @@ export const createCommunityEventForMcpOwner = internalMutation({
     try {
       ({ community, result } = await createCommunityEventForApiOwnerRecord(
         ctx.db,
-        args,
+        { ...args, actorSurface: "mcp" },
       ));
     } catch {
       throw new ConvexError({ code: "MCP_WRITE_DENIED" });
@@ -2097,7 +2728,7 @@ export const updateCommunityEventForMcpOwner = internalMutation({
     try {
       ({ community, event, result } = await updateCommunityEventForApiOwnerRecord(
         ctx.db,
-        args,
+        { ...args, actorSurface: "mcp" },
       ));
     } catch {
       throw new ConvexError({ code: "MCP_WRITE_DENIED" });
@@ -2135,6 +2766,11 @@ export const updateCommunityEventForMcpOwner = internalMutation({
 export const updateCommunityEvent = mutation({
   args: {
     currentSlug: v.string(),
+    published: v.optional(v.boolean()),
+    preservedCommunityProfileId: v.optional(v.id("profiles")),
+    preservedParticipantAssociationIds: v.optional(v.array(v.id("eventParticipants"))),
+    preservedSlotAssociationIds: v.optional(v.array(v.id("eventSlots"))),
+    preservedWorldAssociationIds: v.optional(v.array(v.id("eventWorlds"))),
     ...eventDraftArgs,
   },
   handler: async (ctx, args) => {
@@ -2152,22 +2788,339 @@ export const updateCommunityEvent = mutation({
       throw new Error("Event was not found.");
     }
 
-    const isSubmitter = isSameAuthSubject(event.submitter, subject);
-
     if (!(await canUpdateEvent(ctx.db, event, subject, userId))) {
       throw new Error("You do not have permission to update this event.");
     }
 
     const input = sanitizeEventDraftInput(args);
-    const community = await getPublishedCommunityBySlug(ctx.db, input.communitySlug);
+    const currentCommunity = event.communityProfileId === undefined
+      ? null
+      : await ctx.db.get(event.communityProfileId);
+    if (
+      args.published === true &&
+      event.publicationState !== "published" &&
+      event.communityProfileId !== undefined &&
+      (
+        currentCommunity === null ||
+        currentCommunity.profileType !== "community" ||
+        !canReadProfile("public", currentCommunity)
+      )
+    ) {
+      throw new Error("The event community must be public before publishing.");
+    }
+    const preserveLoadedCommunity =
+      args.preservedCommunityProfileId === event.communityProfileId &&
+      currentCommunity !== null &&
+      currentCommunity.profileType === "community" &&
+      (
+        input.communitySlug === undefined ||
+        input.communitySlug === currentCommunity.slug
+      );
+    const community = preserveLoadedCommunity
+      ? currentCommunity
+      : await getPublishedCommunityBySlug(ctx.db, input.communitySlug);
 
-    if (!isSubmitter && community?._id !== event.communityProfileId) {
+    if (community?._id !== event.communityProfileId) {
       throw new Error("You do not have permission to move this event to another community.");
     }
 
-    const world = await getPublishedWorldBySlug(ctx.db, input.worldSlug);
+    const preservedWorldIds = new Set(args.preservedWorldAssociationIds);
+    const loadedWorldAssociations = await Promise.all(
+      (
+        await ctx.db
+          .query("eventWorlds")
+          .withIndex("by_eventId", (query) => query.eq("eventId", event._id))
+          .collect()
+      )
+        .filter((association) => preservedWorldIds.has(association._id))
+        .map(async (association) => ({
+          association,
+          world: await ctx.db.get(association.worldId),
+        })),
+    );
+    const preservedWorldAssociations = input.worldSlug === undefined
+      ? loadedWorldAssociations.filter(
+          ({ world: loadedWorld }) => loadedWorld?.publicationState !== "published",
+        )
+      : loadedWorldAssociations.filter(
+          ({ world: loadedWorld }) => loadedWorld?.slug === input.worldSlug,
+        );
+    const world = input.worldSlug === undefined || preservedWorldAssociations.length > 0
+      ? undefined
+      : await getPublishedWorldBySlug(ctx.db, input.worldSlug);
 
-    return await updateCommunityEventRecord(ctx.db, { event, input, community, world });
+    const publicationState = args.published === undefined
+      ? undefined
+      : args.published
+        ? ("published" as const)
+        : ("draft_private" as const);
+    const publicationChanged =
+      publicationState !== undefined && publicationState !== event.publicationState;
+    const result = await updateCommunityEventRecord(ctx.db, {
+      event,
+      input,
+      community,
+      world,
+      preserveCommunityName: preserveLoadedCommunity,
+      preserveNonPublicAssociations: true,
+      preserveParticipantAssociationIds: args.preservedParticipantAssociationIds,
+      preserveSlotAssociationIds: args.preservedSlotAssociationIds,
+      preserveWorldAssociationIds: preservedWorldAssociations.map(
+        ({ association }) => association._id,
+      ),
+      publicationState,
+    });
+    await recordEventAuditEvent(ctx.db, {
+      eventId: event._id,
+      actor: subject,
+      actorSurface: "browser",
+      action: publicationChanged
+        ? publicationState === "published"
+          ? "published"
+          : "unpublished"
+        : "updated",
+      changedFields: [
+        "event",
+        "slots",
+        "participants",
+        "world",
+        ...(publicationChanged ? ["publicationState"] : []),
+      ],
+      now: Date.now(),
+    });
+    const [participantAssociations, slotAssociations, worldAssociations] = await Promise.all([
+      ctx.db
+        .query("eventParticipants")
+        .withIndex("by_eventId", (query) => query.eq("eventId", event._id))
+        .collect(),
+      ctx.db
+        .query("eventSlots")
+        .withIndex("by_eventId", (query) => query.eq("eventId", event._id))
+        .collect(),
+      ctx.db
+        .query("eventWorlds")
+        .withIndex("by_eventId", (query) => query.eq("eventId", event._id))
+        .collect(),
+    ]);
+    return {
+      ...result,
+      preservedParticipantAssociationIds: participantAssociations.map(
+        (association) => association._id,
+      ),
+      preservedSlotAssociationIds: slotAssociations.map((association) => association._id),
+      preservedWorldAssociationIds: worldAssociations.map((association) => association._id),
+    };
+  },
+});
+
+export const getEditableBySlug = query({
+  args: {
+    slug: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const subject = await requireAuthenticatedSubject(ctx);
+    const validation = validateEventSlug(args.slug);
+    if (!validation.ok) {
+      return null;
+    }
+    const event = await getEventBySlug(ctx.db, validation.slug);
+    if (
+      event === null ||
+      !(await canUpdateEvent(ctx.db, event, subject, (await requireUser(ctx)).userId))
+    ) {
+      return null;
+    }
+    return getEventForEditor(ctx.db, event);
+  },
+});
+
+export const listEventAudit = query({
+  args: {
+    currentSlug: v.string(),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const subject = await requireAuthenticatedSubject(ctx);
+    const { event } = await getEditableEventBySlug(ctx, args.currentSlug, subject);
+    const limit = boundedLimit(args.limit, 40, 100);
+    const rows = await ctx.db
+      .query("eventAuditEvents")
+      .withIndex("by_eventId_createdAt", (query) => query.eq("eventId", event._id))
+      .order("desc")
+      .take(limit);
+
+    return rows.map((row) => ({
+      action: row.action,
+      actorSurface: row.actorSurface,
+      actorDisplayName: row.actor?.displayName,
+      changedFields: row.changedFields ?? [],
+      reason: row.reason,
+      createdAt: row.createdAt,
+    }));
+  },
+});
+
+export const setCommunityEventPublished = mutation({
+  args: {
+    currentSlug: v.string(),
+    published: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const subject = await requireAuthenticatedSubject(ctx);
+    const { event } = await getEditableEventBySlug(ctx, args.currentSlug, subject);
+    const now = Date.now();
+    const publicationState = args.published
+      ? ("published" as const)
+      : ("draft_private" as const);
+
+    if (event.publicationState === publicationState) {
+      return {
+        eventId: event._id,
+        slug: event.slug,
+        publicationState,
+        changed: false as const,
+      };
+    }
+
+    if (args.published) {
+      if (event.communityProfileId === undefined) {
+        throw new Error("A community is required before publishing this event.");
+      }
+      const community = await ctx.db.get(event.communityProfileId);
+      if (
+        community === null ||
+        community.profileType !== "community" ||
+        !canReadProfile("public", community)
+      ) {
+        throw new Error("The event community must be public before publishing.");
+      }
+    }
+
+    await ctx.db.patch(event._id, {
+      publicationState,
+      ...(args.published ? { publishedAt: event.publishedAt ?? now } : {}),
+      updatedAt: now,
+    });
+    const updated = await ctx.db.get(event._id);
+    if (updated !== null) {
+      await syncPreservedEventAssociations(ctx.db, updated, now, {
+        preserveParticipants: true,
+        preserveSlots: false,
+        preserveWorld: true,
+      });
+      const [community, world, roleLabels] = await Promise.all([
+        updated.communityProfileId === undefined
+          ? undefined
+          : ctx.db.get(updated.communityProfileId),
+        linkedPublishedEventWorld(ctx.db, updated._id),
+        eventParticipantRoleLabels(ctx.db, updated._id),
+      ]);
+      await reindexEventSearchDocument(
+        ctx.db,
+        updated,
+        {
+          community: community?.profileType === "community" ? community : undefined,
+          world,
+          roleLabels,
+        },
+        now,
+      );
+    }
+    await recordEventAuditEvent(ctx.db, {
+      eventId: event._id,
+      actor: subject,
+      actorSurface: "browser",
+      action: args.published ? "published" : "unpublished",
+      changedFields: ["publicationState"],
+      now,
+    });
+
+    return {
+      eventId: event._id,
+      slug: event.slug,
+      publicationState,
+      changed: true as const,
+    };
+  },
+});
+
+export const setCommunityEventCancelled = mutation({
+  args: {
+    currentSlug: v.string(),
+    cancelled: v.boolean(),
+    reason: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const subject = await requireAuthenticatedSubject(ctx);
+    const { event } = await getEditableEventBySlug(ctx, args.currentSlug, subject);
+    const eventStatus = args.cancelled
+      ? ("cancelled" as const)
+      : ("scheduled" as const);
+    const reason = optionalTrimmedText(args.reason, "Cancellation reason", 500);
+
+    if (args.cancelled && reason === undefined) {
+      throw new Error("A cancellation reason is required.");
+    }
+
+    if (event.eventStatus === eventStatus) {
+      return { eventId: event._id, eventStatus, changed: false as const };
+    }
+
+    if (!args.cancelled && event.publicationState === "published") {
+      if (event.communityProfileId === undefined) {
+        throw new Error("A community is required before publishing this event.");
+      }
+      const community = await ctx.db.get(event.communityProfileId);
+      if (
+        community === null ||
+        community.profileType !== "community" ||
+        !canReadProfile("public", community)
+      ) {
+        throw new Error("The event community must be public before publishing.");
+      }
+    }
+
+    const now = Date.now();
+    await ctx.db.patch(event._id, { eventStatus, updatedAt: now });
+    if (args.cancelled) {
+      await settleEventMediaForCancellation(ctx.db, event, subject, now);
+    }
+    const updated = await ctx.db.get(event._id);
+    if (updated !== null) {
+      await syncPreservedEventAssociations(ctx.db, updated, now, {
+        preserveParticipants: true,
+        preserveSlots: false,
+        preserveWorld: true,
+      });
+      const [community, world, roleLabels] = await Promise.all([
+        updated.communityProfileId === undefined
+          ? undefined
+          : ctx.db.get(updated.communityProfileId),
+        linkedPublishedEventWorld(ctx.db, updated._id),
+        eventParticipantRoleLabels(ctx.db, updated._id),
+      ]);
+      await reindexEventSearchDocument(
+        ctx.db,
+        updated,
+        {
+          community: community?.profileType === "community" ? community : undefined,
+          world,
+          roleLabels,
+        },
+        now,
+      );
+    }
+    await recordEventAuditEvent(ctx.db, {
+      eventId: event._id,
+      actor: subject,
+      actorSurface: "browser",
+      action: args.cancelled ? "cancelled" : "restored",
+      changedFields: ["eventStatus"],
+      ...(reason === undefined ? {} : { reason }),
+      now,
+    });
+
+    return { eventId: event._id, eventStatus, changed: true as const };
   },
 });
 
@@ -2176,6 +3129,9 @@ export const configureVrcdnOutput = mutation({
   handler: async (ctx, args) => {
     const subject = await requireAuthenticatedSubject(ctx);
     const { event, slug } = await getMediaManageableEventBySlug(ctx, args.currentSlug, subject);
+    if (event.eventStatus !== "scheduled") {
+      throw new Error("A cancelled event cannot configure a media output.");
+    }
 
     const account = args.outputAccountKey === undefined ? undefined : getVrcdnOutputAccount(args.outputAccountKey);
 
@@ -2248,6 +3204,9 @@ export const scheduleEventMediaWorker = mutation({
   handler: async (ctx, args) => {
     const subject = await requireAuthenticatedSubject(ctx);
     const { event, slug } = await getMediaManageableEventBySlug(ctx, args.currentSlug, subject);
+    if (event.eventStatus !== "scheduled") {
+      throw new Error("A cancelled event cannot schedule a media worker.");
+    }
     const program = await getLatestEventMediaProgram(ctx.db, event._id);
 
     if (program === null) {
@@ -2267,10 +3226,23 @@ export const scheduleEventMediaWorker = mutation({
     const workerTaskId = optionalTrimmedText(args.workerTaskId, "Worker task id", 512);
     const workerTaskStatusReason = optionalTrimmedText(args.workerTaskStatusReason, "Worker task status reason", 500);
     const artifactLinks = sanitizeEventMediaWorkerArtifactLinks(args.artifactLinks);
-    const openSession = await getOpenEventMediaSession(ctx.db, program._id);
+    const openSession = await getOpenEventMediaSession(ctx.db, program);
 
     if (openSession !== null && openSession.status !== "scheduled") {
       throw new Error("An event media worker session is already active for this event.");
+    }
+
+    if (openSession !== null) {
+      const claimedStartCommand = await ctx.db
+        .query("eventMediaCommands")
+        .withIndex("by_sessionId_status_createdAt", (query) =>
+          query.eq("sessionId", openSession._id).eq("status", "claimed"),
+        )
+        .filter((query) => query.eq(query.field("commandType"), "start_program"))
+        .first();
+      if (claimedStartCommand !== null) {
+        throw new Error("An event media worker start is already in progress.");
+      }
     }
 
     const sessionRecord = {
@@ -2296,6 +3268,20 @@ export const scheduleEventMediaWorker = mutation({
 
     if (openSession !== null) {
       await ctx.db.patch(openSession._id, sessionRecord);
+      const queuedStartCommand = await ctx.db
+        .query("eventMediaCommands")
+        .withIndex("by_sessionId_status_createdAt", (query) =>
+          query.eq("sessionId", openSession._id).eq("status", "queued"),
+        )
+        .filter((query) => query.eq(query.field("commandType"), "start_program"))
+        .first();
+
+      if (queuedStartCommand !== null) {
+        await ctx.db.patch(queuedStartCommand._id, {
+          availableAt: schedule.scheduledStartAt,
+          updatedAt: now,
+        });
+      }
     }
 
     const startCommandId =
@@ -2307,6 +3293,7 @@ export const scheduleEventMediaWorker = mutation({
             outputId: output._id,
             actor: subject,
             idempotencyKey: `start:${sessionId}`,
+            availableAt: schedule.scheduledStartAt,
             note: "Start the event media worker at the scheduled start time.",
             now,
           })
@@ -2361,7 +3348,6 @@ export const recordEventMediaWorkerTaskStatus = mutation({
 
     const session = await getWritableEventMediaSession(ctx.db, program, args.sessionId);
     const now = Date.now();
-    const status = args.status ?? session.status;
     const workerId = optionalTrimmedText(args.workerId, "Worker id", 128);
     const workerRuntime = optionalTrimmedText(args.workerRuntime, "Worker runtime", 80);
     const workerTaskDefinitionArn = optionalTrimmedText(args.workerTaskDefinitionArn, "Worker task definition ARN", 512);
@@ -2369,91 +3355,22 @@ export const recordEventMediaWorkerTaskStatus = mutation({
     const workerTaskStatusReason = optionalTrimmedText(args.workerTaskStatusReason, "Worker task status reason", 500);
     const leaseExpiresAt = optionalPositiveTimestamp(args.leaseExpiresAt, "Worker lease expiration");
     const artifactLinks = args.artifactLinks === undefined ? undefined : sanitizeEventMediaWorkerArtifactLinks(args.artifactLinks);
-    const shouldSetStartedAt =
-      session.startedAt === undefined && ["starting", "live", "hold", "fallback"].includes(status);
-    const shouldSetStoppedAt = session.stoppedAt === undefined && ["ended", "error"].includes(status);
-
-    await ctx.db.patch(session._id, {
-      status,
+    const status = await applyEventMediaWorkerTaskStatus(ctx.db, {
+      session,
+      program,
       ...(workerId === undefined ? {} : { workerId }),
       ...(workerRuntime === undefined ? {} : { workerRuntime }),
       ...(args.workerProvider === undefined ? {} : { workerProvider: args.workerProvider }),
       ...(workerTaskDefinitionArn === undefined ? {} : { workerTaskDefinitionArn }),
       ...(workerTaskId === undefined ? {} : { workerTaskId }),
+      ...(args.status === undefined ? {} : { status: args.status }),
       ...(args.workerTaskStatus === undefined ? {} : { workerTaskStatus: args.workerTaskStatus }),
       ...(workerTaskStatusReason === undefined ? {} : { workerTaskStatusReason }),
       ...(leaseExpiresAt === undefined ? {} : { leaseExpiresAt }),
       ...(artifactLinks === undefined ? {} : { artifactLinks }),
-      ...(args.health === undefined
-        ? {}
-        : {
-            health: {
-              lastHeartbeatAt: now,
-              ...(args.health.outputBitrateKbps === undefined ? {} : { outputBitrateKbps: args.health.outputBitrateKbps }),
-              ...(args.health.audioPresent === undefined ? {} : { audioPresent: args.health.audioPresent }),
-              ...(args.health.droppedSegmentCount === undefined
-                ? {}
-                : { droppedSegmentCount: args.health.droppedSegmentCount }),
-              ...(args.health.commandFailureCount === undefined
-                ? {}
-                : { commandFailureCount: args.health.commandFailureCount }),
-            },
-          }),
-      ...(shouldSetStartedAt ? { startedAt: now } : {}),
-      ...(shouldSetStoppedAt ? { stoppedAt: now } : {}),
-      updatedAt: now,
+      ...(args.health === undefined ? {} : { health: args.health }),
+      now,
     });
-
-    if (
-      status === "starting" ||
-      status === "live" ||
-      status === "hold" ||
-      status === "fallback" ||
-      status === "stopping" ||
-      status === "ended" ||
-      status === "error"
-    ) {
-      await ctx.db.patch(program._id, {
-        state: status,
-        activeSessionId: ["ended", "error"].includes(status) ? undefined : session._id,
-        updatedAt: now,
-      });
-    }
-
-    if (status === "live" && session.outputId !== undefined) {
-      const output = await ctx.db.get(session.outputId);
-
-      if (output !== null) {
-        await Promise.all([
-          ctx.db.patch(output._id, { state: "active", updatedAt: now }),
-          ctx.db.patch(program._id, { currentOutputId: output._id, publicLinks: output.playbackLinks, updatedAt: now }),
-          settleEventMediaSessionCommands(ctx.db, {
-            sessionId: session._id,
-            commandTypes: ["start_program"],
-            status: "succeeded",
-            now,
-          }),
-        ]);
-      }
-    }
-
-    if (["ended", "error"].includes(status) && session.outputId !== undefined) {
-      const output = await ctx.db.get(session.outputId);
-
-      if (output !== null && output.state === "active") {
-        await ctx.db.patch(output._id, { state: "ready", updatedAt: now });
-      }
-    }
-
-    if (["ended", "error"].includes(status)) {
-      await settleEventMediaSessionCommands(ctx.db, {
-        sessionId: session._id,
-        commandTypes: ["start_program", "stop_program"],
-        status: status === "error" ? "failed" : "succeeded",
-        ...(status === "error" ? { errorSummary: workerTaskStatusReason ?? "Worker ended with an error." } : {}),
-        now,
-      });
-    }
 
     await recordEventMediaAuditEvent(ctx.db, {
       programId: program._id,

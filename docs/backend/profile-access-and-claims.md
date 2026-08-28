@@ -109,15 +109,40 @@ deployment's bundle, or anything calling the mutation directly, would post the
 same whole-form payload and skip straight past it. Every browser save knows the
 version it loaded, because it had to read the profile to fill the form.
 
-**Media is out of scope for community editing.** A profile picture or logo is
-information about the person by the rule above, and it is the most visible thing
-missing from a seeded profile — but no path exists to supply one.
-`profileAssets:createUploadIntentForOwnedProfile` is the only browser route to an
-upload intent, and it requires ownership and refuses unclaimed profiles, so
-`updateProfileFromBrowser` deliberately takes no `assets` argument rather than
-declaring one no caller could satisfy. Letting any signed-in account attach
-images to somebody else's profile needs a moderation answer that does not exist
-yet; the field policy is the part that is ready.
+**Media contributions are proposals, not profile edits.** A verified-email user
+may create one purpose-bound upload for a published, publicly surfaced,
+unclaimed profile through `profileMediaSubmissions:createUploadIntent`. The MVP
+accepts a person `profile_image` or community `primary_logo` only. It requires a
+source URL and credit, with optional public metadata and a reviewer note. It
+does not collect rights or likeness categories or an attestation checkbox.
+
+Processing changes the private submission from `upload_pending` to `submitted`;
+it does not create a `profileAssets` row. The ordinary asset consumer rejects a
+`community_proposal` intent unless a matching approval transaction names the
+submission. This keeps pending, rejected, and withdrawn media unreachable from
+public asset projections.
+
+An unclaimed target requires a `super_admin` reviewer. A browser reviewer moves
+a submitted proposal to `under_review` before deciding it. If the target is claimed
+while the proposal waits, the new active owner can review it and see rejected
+target history. Approval rechecks
+the current public profile state and revision, active-asset quota, upload purpose,
+content hash, and target identity, then atomically creates a public asset with
+`source: "community_submitted"`. Claiming never rewrites that provenance.
+
+Contributors can list only their own submissions and withdraw only open ones.
+They see the target's submission-time public name if it is later hidden and
+privately renamed, plus a short public disposition after rejection, never the
+reviewer's identity or private reason. A claiming owner can see the source,
+credit, reviewer note, and matching-proposal count but not the submitter identity
+or confidential moderator notes; `super_admin` reviewers receive that additional evidence. The candidate-preview
+route must repeat this review authorization and remain private/no-store rather
+than reusing a public asset route.
+
+Admission is bounded to three open rows per contributor, two per profile, six
+new rows per contributor per day, twenty new rows per profile per day, and a
+short contributor cooldown. Withdrawn rows still count toward rolling creation
+limits, so withdraw/resubmit cannot bypass spam controls.
 
 `profiles:updateProfileFromBrowser` serves both subjects and resolves which one
 applies from ownership: the profile's owner edits as `claimed_owner`, anyone
@@ -214,7 +239,7 @@ Profile field visibility supports three states:
 - `unlisted`: visible on direct profile pages but omitted from discovery/search/card projections
 - `private`: omitted from all public projections
 
-`displayName`, `slug`, `profileType`, and trust labels remain public while the profile itself is public.
+`displayName`, `slug`, `profileType`, and trust labels remain public while the profile itself is public. `avatarImageUrl` governs an approved profile-image placement, `bannerImageUrl` governs a banner placement, and `mediaKit` governs primary/additional logos, gallery, and featured media. Missing visibility keys retain the existing public default.
 
 Claimed owners update supported field visibility through `profilePrivacy:updateFieldVisibility`. The mutation requires a signed-in account with an active `profileOwners` owner record for the claimed profile, rejects unknown field keys or states, stores public defaults compactly, and refreshes the profile search document after the profile row changes.
 

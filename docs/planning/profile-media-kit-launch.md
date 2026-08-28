@@ -16,6 +16,14 @@ and Convex runtimes. The source-preserving extension in
 [#211](https://github.com/BASIC-BIT/VRDex/issues/211) has separate direct-upload
 and accessibility-generation gates described below.
 
+The integrated event/profile-media slice adds a separate reviewed contribution
+path for public unclaimed profiles. A proposal never enters `profileAssets`
+until approval; an owner who later claims the target can review pending rows,
+and an approved asset keeps `community_submitted` provenance in the owner's
+media-kit editor. The contribution flag, private candidate preview, moderator
+suppression, and retained-object cleanup remain independent launch gates from
+the existing owner-authored upload flag.
+
 ## Smallest Coherent Launch Slice
 
 Locked decision:

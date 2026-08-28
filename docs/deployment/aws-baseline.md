@@ -139,6 +139,10 @@ Runtime environment/config names:
 - `VRDEX_PROFILE_MEDIA_DIRECT_UPLOAD_ENABLED=true` in both Vercel and Convex
   only after the S3 CORS/lifecycle Terraform change and synthetic staging
   source/display/download smoke pass
+- `VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED=true` in both Vercel and Convex only
+  after reviewer access, private candidate review, retention cleanup, and
+  contributor-to-approval staging smokes pass; disabling
+  it stops new submissions and decisions without hiding already-approved assets
 - `VRDEX_PROFILE_MEDIA_ACCESSIBILITY_GENERATION_ENABLED=true` in both Vercel
   and Convex only after the owner/rate/timeout staging smoke; `OPENAI_API_KEY`
   and optional `VRDEX_PROFILE_MEDIA_ACCESSIBILITY_MODEL` belong in Vercel only

@@ -1,8 +1,10 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
 
 import { MediaKitPanel } from "./media-kit-panel";
 import { DEMO_MEDIA_KIT_WORKSPACE_PROFILES, ProfileWorkspace } from "../profile-workspace";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
+import { buttonVariants } from "@/components/ui/button";
 import { profileClaimSlugFromInput } from "@/lib/profile-claim";
 
 export default async function MediaKitPage({
@@ -35,7 +37,12 @@ export default async function MediaKitPage({
           {/* The active tab already names this surface, but the panel still
               needs its own landmark heading — matching Privacy, Connections and
               Personalization. */}
-          <h2 className="text-xl font-semibold">Media kit</h2>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-xl font-semibold">Media kit</h2>
+            <Link className={buttonVariants({ size: "sm", variant: "secondary" })} href="/account/media-review">
+              Review contributions
+            </Link>
+          </div>
           <MediaKitPanel
             demoMode={demoMode}
             generationEnabled={

@@ -26,6 +26,7 @@ const fieldVisibility = v.object({
   personRoleTags: v.optional(fieldVisibilityState),
   communitySubtype: v.optional(fieldVisibilityState),
   communityCategoryTags: v.optional(fieldVisibilityState),
+  mediaKit: v.optional(fieldVisibilityState),
 });
 
 function optionalText(value: string | undefined, maxLength = 500) {

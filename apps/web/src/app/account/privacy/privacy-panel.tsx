@@ -23,6 +23,7 @@ const privacyFieldKeys = [
   "about",
   "avatarImageUrl",
   "bannerImageUrl",
+  "mediaKit",
   "outboundLinks",
   "region",
   "timezone",
@@ -83,6 +84,7 @@ const fieldGroups: FieldGroup[] = [
     fields: [
       { key: "avatarImageUrl", label: "Profile image URL" },
       { key: "bannerImageUrl", label: "Banner image URL" },
+      { key: "mediaKit", label: "Logos and media kit" },
       { key: "outboundLinks", label: "Outbound links" },
     ],
   },

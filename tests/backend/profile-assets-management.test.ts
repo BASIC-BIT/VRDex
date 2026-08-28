@@ -19,6 +19,7 @@ process.env.VRDEX_PROFILE_MEDIA_ACCESSIBILITY_GENERATION_ENABLED = "true";
 const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
   "../../convex/profileAssets.ts": () => import("../../convex/profileAssets"),
+  "../../convex/profiles.ts": () => import("../../convex/profiles"),
 };
 const schema = (schemaModule as unknown as { default?: typeof schemaModule }).default ?? schemaModule;
 
@@ -203,6 +204,124 @@ describe("profile media-kit owner management", () => {
     assert.equal("sourceMimeType" in (ownerAsset ?? {}), false);
     assert.equal("sourceByteSize" in (ownerAsset ?? {}), false);
     assert.equal(otherAsset, null);
+  });
+
+  it("blocks direct public asset URLs when every placement is private", async () => {
+    const seeded = await seedOwnedProfile(1);
+    const assetId = seeded.assetIds[0]!;
+
+    await seeded.t.run(async (ctx) => {
+      await ctx.db.patch(seeded.profileId, {
+        fieldVisibility: { mediaKit: "private" },
+      });
+    });
+    assert.equal(
+      await seeded.t.query(api.profileAssets.getPublicAssetForStorage, {
+        slug: "media-owner",
+        assetId,
+      }),
+      null,
+    );
+
+    await seeded.t.run(async (ctx) => {
+      await ctx.db.patch(seeded.profileId, {
+        fieldVisibility: { mediaKit: "unlisted" },
+      });
+    });
+    assert.notEqual(
+      await seeded.t.query(api.profileAssets.getPublicAssetForStorage, {
+        slug: "media-owner",
+        assetId,
+      }),
+      null,
+    );
+
+    await seeded.t.run(async (ctx) => {
+      const placement = await ctx.db
+        .query("profileAssetPlacements")
+        .withIndex("by_assetId", (query) => query.eq("assetId", assetId))
+        .unique();
+      assert.notEqual(placement, null);
+      await ctx.db.patch(placement!._id, { placement: "profile_image" });
+      await ctx.db.patch(seeded.profileId, {
+        fieldVisibility: { avatarImageUrl: "public", mediaKit: "private" },
+      });
+    });
+    assert.notEqual(
+      await seeded.t.query(api.profileAssets.getPublicAssetForStorage, {
+        slug: "media-owner",
+        assetId,
+      }),
+      null,
+    );
+
+    await seeded.t.run(async (ctx) => {
+      await ctx.db.patch(seeded.profileId, {
+        fieldVisibility: { avatarImageUrl: "private", mediaKit: "private" },
+      });
+    });
+    assert.equal(
+      await seeded.t.query(api.profileAssets.getPublicAssetForStorage, {
+        slug: "media-owner",
+        assetId,
+      }),
+      null,
+    );
+  });
+
+  it("keeps unlisted managed media on the profile page and out of share cards", async () => {
+    const seeded = await seedOwnedProfile(1);
+    const assetId = seeded.assetIds[0]!;
+
+    await seeded.t.run(async (ctx) => {
+      const placement = await ctx.db
+        .query("profileAssetPlacements")
+        .withIndex("by_assetId", (query) => query.eq("assetId", assetId))
+        .unique();
+      assert.notEqual(placement, null);
+      await ctx.db.patch(placement!._id, { placement: "primary_logo" });
+      await ctx.db.patch(seeded.profileId, {
+        fieldVisibility: { mediaKit: "unlisted" },
+      });
+    });
+
+    const publicProfile = await seeded.t.query(api.profiles.getPublicBySlug, {
+      slug: "media-owner",
+      includeShareCard: true,
+      includeTelemetry: false,
+    });
+    assert.equal(publicProfile?.mediaKit.primaryLogo?.assetId, assetId);
+    assert.equal(publicProfile?.shareCard?.avatarImageUrl, undefined);
+
+    const shareCard = await seeded.t.query(api.profiles.getPublicShareCardBySlug, {
+      slug: "media-owner",
+    });
+    assert.equal(shareCard?.entityType, "profile");
+    assert.equal(shareCard?.profile?.avatarImageUrl, undefined);
+  });
+
+  it("omits privately placed asset metadata from the public media-kit list", async () => {
+    const seeded = await seedOwnedProfile(2);
+    await seeded.t.run(async (ctx) => {
+      const profileImagePlacement = await ctx.db
+        .query("profileAssetPlacements")
+        .withIndex("by_assetId", (query) => query.eq("assetId", seeded.assetIds[0]!))
+        .unique();
+      assert.notEqual(profileImagePlacement, null);
+      await ctx.db.patch(profileImagePlacement!._id, { placement: "profile_image" });
+      await ctx.db.patch(seeded.profileId, {
+        fieldVisibility: { avatarImageUrl: "private", mediaKit: "public" },
+      });
+    });
+
+    const result = await seeded.t.query(api.profileAssets.listPublicBySlug, {
+      slug: "media-owner",
+    });
+    assert.equal(result?.mediaKit.profileImage, undefined);
+    assert.deepEqual(
+      result?.mediaKit.assets.map((asset) => asset.assetId),
+      [seeded.assetIds[1]],
+    );
   });
 
   it("releases a failed owner upload reservation for an immediate retry", async () => {
