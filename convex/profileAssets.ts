@@ -718,7 +718,11 @@ export const listOwnedMediaKitProfiles = query({
           (asset) => asset.state === "active" && asset.visibility === "public",
         ).length,
         assets: assets
-          .filter((asset) => asset.visibility === "public" && asset.retiredAt === undefined)
+          .filter((asset) =>
+            asset.visibility === "public" &&
+            asset.retiredAt === undefined &&
+            asset.moderatorSuppressedAt === undefined,
+          )
           .sort((first, second) => {
             if (first.state !== second.state) {
               return first.state === "active" ? -1 : 1;

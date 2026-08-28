@@ -587,25 +587,43 @@ async function replaceEventParticipants(
     .withIndex("by_eventId", (query) => query.eq("eventId", event._id))
     .collect();
   const preservedAssociationIds = new Set(options.preserveAssociationIds);
-  const loadedPreserved = options.preserveAssociationIds !== undefined
-    ? existing
-        .filter((association) => preservedAssociationIds.has(association._id))
-        .map((association) => ({ association }))
-    : options.preserveNonPublic === true
-      ? (await Promise.all(existing.map(async (association) => ({
+  const loadedAssociations = await Promise.all(
+    existing
+      .filter((association) => preservedAssociationIds.has(association._id))
+      .map(async (association) => ({
         association,
         profile: await db.get(association.personProfileId),
-      })))).filter(({ profile }) => profile === null || !canReadProfile("public", profile))
-      : [];
-  const resolvedParticipants = await Promise.all(participants.map(async (participant) => ({
-    participant,
-    profile: await getPublishedPersonBySlug(db, participant.personSlug),
-  })));
-  const submittedProfileIds = new Set(resolvedParticipants.map(({ profile }) => profile._id));
-  const preserved = loadedPreserved.filter(
-    ({ association }) => !submittedProfileIds.has(association.personProfileId),
+      })),
   );
-  const preservedIds = new Set(preserved.map(({ association }) => association._id));
+  const resolvedParticipants = await Promise.all(participants.map(async (participant) => {
+    const loaded = loadedAssociations.find(
+      ({ profile }) => profile?.slug === participant.personSlug,
+    );
+    return loaded === undefined
+      ? {
+          participant,
+          profile: await getPublishedPersonBySlug(db, participant.personSlug),
+        }
+      : { participant, profile: loaded.profile!, association: loaded.association };
+  }));
+  const submittedProfileIds = new Set(resolvedParticipants.map(({ profile }) => profile._id));
+  const preserved = (options.preserveAssociationIds !== undefined
+    ? loadedAssociations
+    : options.preserveNonPublic === true
+      ? await Promise.all(existing.map(async (association) => ({
+          association,
+          profile: await db.get(association.personProfileId),
+        })))
+      : []
+  ).filter(({ association, profile }) =>
+    !submittedProfileIds.has(association.personProfileId) &&
+    (profile === null || !canReadProfile("public", profile)),
+  );
+  const preservedIds = new Set([
+    ...preserved.map(({ association }) => association._id),
+    ...resolvedParticipants.flatMap(({ association }) =>
+      association === undefined ? [] : [association._id]),
+  ]);
   const personProfileIds = new Set([
     ...preserved.map(({ association }) => association.personProfileId),
     ...resolvedParticipants.map(({ profile }) => profile._id),
@@ -628,8 +646,8 @@ async function replaceEventParticipants(
     })),
   ]);
 
-  for (const { participant, profile } of resolvedParticipants) {
-    await db.insert("eventParticipants", {
+  for (const { participant, profile, association } of resolvedParticipants) {
+    const fields = {
       eventId: event._id,
       personProfileId: profile._id,
       eventStartAt: event.startAt,
@@ -637,14 +655,19 @@ async function replaceEventParticipants(
       eventPublicationState: event.publicationState,
       eventStatus: event.eventStatus,
       roleLabel: participant.roleLabel,
-      sourceType: "community",
+      sourceType: "community" as const,
       sourceLabel: participant.sourceLabel,
       ...optionalValue("sourceUrl", participant.sourceUrl),
-      confirmationState: "confirmed",
+      confirmationState: "confirmed" as const,
       confirmedAt: now,
       ...optionalValue("notes", participant.notes),
       updatedAt: now,
-    });
+    };
+    if (association === undefined) {
+      await db.insert("eventParticipants", fields);
+    } else {
+      await db.patch(association._id, fields);
+    }
   }
 }
 
@@ -665,10 +688,19 @@ async function replaceEventSlots(
     .withIndex("by_eventId", (query) => query.eq("eventId", eventId))
     .collect();
   const preserveAssociationIds = new Set(options.preserveAssociationIds);
+  const loadedExisting = await Promise.all(
+    existing
+      .filter((slot) => preserveAssociationIds.has(slot._id))
+      .map(async (slot) => ({
+        slot,
+        profile: slot.personProfileId === undefined ? null : await db.get(slot.personProfileId),
+      })),
+  );
   const nonPublicExisting = options.preserveAssociationIds !== undefined
-    ? existing
-        .filter((slot) => preserveAssociationIds.has(slot._id))
-        .map((slot) => ({ slot }))
+    ? loadedExisting.filter(({ slot, profile }) =>
+        slot.personProfileId !== undefined &&
+        (profile === null || !canReadProfile("public", profile)),
+      )
     : options.preserveNonPublic === true
       ? (await Promise.all(existing.map(async (slot) => ({
           slot,
@@ -688,7 +720,9 @@ async function replaceEventSlots(
         existingSlot.displayLabel === slot.displayLabel &&
         existingSlot.roleLabel === slot.roleLabel,
       )?.slot
-    : undefined;
+    : loadedExisting.find(({ slot: existingSlot, profile }) =>
+        existingSlot.position === slot.position && profile?.slug === slot.personSlug,
+      )?.slot;
   const retainedIds = new Set(slots.flatMap((slot) => {
     const preservedSlot = preservedSlotFor(slot);
     return preservedSlot === undefined ? [] : [preservedSlot._id];
@@ -699,8 +733,10 @@ async function replaceEventSlots(
     .map((slot) => db.delete(slot._id)));
 
   for (const slot of slots) {
-    const profile = slot.personSlug === undefined ? undefined : await getPublishedPersonBySlug(db, slot.personSlug);
     const preservedSlot = preservedSlotFor(slot);
+    const profile = slot.personSlug === undefined || preservedSlot !== undefined
+      ? undefined
+      : await getPublishedPersonBySlug(db, slot.personSlug);
 
     if (preservedSlot !== undefined) {
       await db.patch(preservedSlot._id, {
@@ -1239,11 +1275,14 @@ async function updateCommunityEventRecord(
     preserveWorld: !replaceWorld,
   });
 
-  const roleLabels = await eventParticipantRoleLabels(db, event._id);
+  const [roleLabels, indexedWorld] = await Promise.all([
+    eventParticipantRoleLabels(db, event._id),
+    linkedPublishedEventWorld(db, event._id),
+  ]);
   await reindexEventSearchDocument(
     db,
     updatedEvent,
-    { community, world, roleLabels },
+    { community, world: indexedWorld, roleLabels },
     now,
   );
 
@@ -2785,7 +2824,30 @@ export const updateCommunityEvent = mutation({
       throw new Error("You do not have permission to move this event to another community.");
     }
 
-    const world = await getPublishedWorldBySlug(ctx.db, input.worldSlug);
+    const preservedWorldIds = new Set(args.preservedWorldAssociationIds);
+    const loadedWorldAssociations = await Promise.all(
+      (
+        await ctx.db
+          .query("eventWorlds")
+          .withIndex("by_eventId", (query) => query.eq("eventId", event._id))
+          .collect()
+      )
+        .filter((association) => preservedWorldIds.has(association._id))
+        .map(async (association) => ({
+          association,
+          world: await ctx.db.get(association.worldId),
+        })),
+    );
+    const preservedWorldAssociations = input.worldSlug === undefined
+      ? loadedWorldAssociations.filter(
+          ({ world: loadedWorld }) => loadedWorld?.publicationState !== "published",
+        )
+      : loadedWorldAssociations.filter(
+          ({ world: loadedWorld }) => loadedWorld?.slug === input.worldSlug,
+        );
+    const world = input.worldSlug === undefined || preservedWorldAssociations.length > 0
+      ? undefined
+      : await getPublishedWorldBySlug(ctx.db, input.worldSlug);
 
     const publicationState = args.published === undefined
       ? undefined
@@ -2803,7 +2865,9 @@ export const updateCommunityEvent = mutation({
       preserveNonPublicAssociations: true,
       preserveParticipantAssociationIds: args.preservedParticipantAssociationIds,
       preserveSlotAssociationIds: args.preservedSlotAssociationIds,
-      preserveWorldAssociationIds: args.preservedWorldAssociationIds,
+      preserveWorldAssociationIds: preservedWorldAssociations.map(
+        ({ association }) => association._id,
+      ),
       publicationState,
     });
     await recordEventAuditEvent(ctx.db, {

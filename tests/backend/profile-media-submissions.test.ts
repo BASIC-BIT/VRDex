@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { convexTest } from "convex-test";
+import { ConvexError } from "convex/values";
 
 import { api, internal } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
@@ -214,6 +215,11 @@ describe("unclaimed-profile media submissions", () => {
         submissionId: intent.submissionId,
         decision: "approve",
         expectedProfileUpdatedAt: NOW,
+        finalPlacement: "profile_image",
+        label: "Reviewed portrait",
+        altText: "Reviewed portrait of Community DJ.",
+        credit: "Reviewed artist credit",
+        creditUrl: "https://artist.example/credits",
         privateReason: "Official artist-controlled press source verified.",
       },
     );
@@ -230,6 +236,10 @@ describe("unclaimed-profile media submissions", () => {
     }));
     assert.equal(after.asset?.source, "community_submitted");
     assert.equal(after.asset?.visibility, "public");
+    assert.equal(after.asset?.label, "Reviewed portrait");
+    assert.equal(after.asset?.altText, "Reviewed portrait of Community DJ.");
+    assert.equal(after.asset?.credit, "Reviewed artist credit");
+    assert.equal(after.asset?.creditUrl, "https://artist.example/credits");
     assert.equal(after.placements[0]?.placement, "profile_image");
     assert.equal(after.submission?.approvedAssetId, decision.assetId);
 
@@ -478,6 +488,14 @@ describe("unclaimed-profile media submissions", () => {
       }),
       /moderator-suppressed media cannot be restored/i,
     );
+    const ownerInventory = await t.withIdentity({
+      subject: ownerClerkId,
+      email: "owner-after-suppression@example.test",
+      emailVerified: true,
+      issuer: "test",
+      tokenIdentifier: `test|${ownerUserId}`,
+    }).query(api.profileAssets.listOwnedMediaKitProfiles, {});
+    assert.deepEqual(ownerInventory?.[0]?.assets, []);
     const audit = await t.run((ctx) =>
       ctx.db
         .query("profileAuditEvents")
@@ -1127,7 +1145,7 @@ describe("unclaimed-profile media submissions", () => {
     );
   });
 
-  it("requires a verified email", async () => {
+  it("returns structured errors for recoverable contribution validation", async () => {
     const t = convexTest({ schema, modules });
     const seeded = await seed(t);
     const base = {
@@ -1145,7 +1163,34 @@ describe("unclaimed-profile media submissions", () => {
         api.profileMediaSubmissions.createUploadIntent,
         base,
       ),
-      /verify email/i,
+      (error) => {
+        assert.ok(error instanceof ConvexError);
+        assert.equal((error.data as { code?: string }).code, "MEDIA_EMAIL_UNVERIFIED");
+        return true;
+      },
+    );
+    await assert.rejects(
+      t.withIdentity(seeded.contributorIdentity).mutation(
+        api.profileMediaSubmissions.createUploadIntent,
+        { ...base, expectedProfileUpdatedAt: NOW - 1 },
+      ),
+      (error) => {
+        assert.ok(error instanceof ConvexError);
+        assert.equal((error.data as { code?: string }).code, "MEDIA_PROFILE_CHANGED");
+        return true;
+      },
+    );
+    await t.run((ctx) => ctx.db.patch(seeded.profileId, { claimState: "claimed_verified" }));
+    await assert.rejects(
+      t.withIdentity(seeded.contributorIdentity).mutation(
+        api.profileMediaSubmissions.createUploadIntent,
+        base,
+      ),
+      (error) => {
+        assert.ok(error instanceof ConvexError);
+        assert.equal((error.data as { code?: string }).code, "MEDIA_TARGET_CLAIMED");
+        return true;
+      },
     );
   });
 

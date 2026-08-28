@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 
 import type { Doc, Id } from "./_generated/dataModel";
@@ -126,16 +126,25 @@ function assertEligibleTarget(
     profile.publicationState !== "published" ||
     profile.publicSurfacingState !== "public"
   ) {
-    throw new Error("This profile is not accepting media contributions.");
+    throw new ConvexError({
+      code: "MEDIA_TARGET_UNAVAILABLE",
+      message: "This profile is not accepting media contributions.",
+    });
   }
   if (profile.claimState !== "unclaimed") {
-    throw new Error("This profile has been claimed. Its owner manages its media.");
+    throw new ConvexError({
+      code: "MEDIA_TARGET_CLAIMED",
+      message: "This profile has been claimed. Its owner manages its media.",
+    });
   }
   if (
     (profile.profileType === "person" && placement !== "profile_image") ||
     (profile.profileType === "community" && placement !== "primary_logo")
   ) {
-    throw new Error("That media placement is not available for this profile type.");
+    throw new ConvexError({
+      code: "MEDIA_PLACEMENT_INVALID",
+      message: "That media placement is not available for this profile type.",
+    });
   }
   return profile;
 }
@@ -260,11 +269,11 @@ export const createUploadIntent = mutation({
     assertContributionsEnabled();
     const { user, subject } = await requireActiveBrowserSessionSubject(ctx);
     if (!(await identityEmailVerified(ctx)) || user.email === undefined) {
-      throw new Error("Verify email");
+      throw new ConvexError({ code: "MEDIA_EMAIL_UNVERIFIED", message: "Verify email" });
     }
     const profile = assertEligibleTarget(await ctx.db.get(args.profileId), args.requestedPlacement);
     if (profile.updatedAt !== args.expectedProfileUpdatedAt) {
-      throw new Error("Refresh profile");
+      throw new ConvexError({ code: "MEDIA_PROFILE_CHANGED", message: "Refresh profile" });
     }
     const now = Date.now();
     if (await openSubmissionCountForUser(ctx, user._id, now) >= MAX_OPEN_PER_USER) {
@@ -279,7 +288,10 @@ export const createUploadIntent = mutation({
     const originalFileName = normalizeProfileAssetFileName(args.originalFileName);
     const credit = sanitizeProfileAssetCredit(args.credit);
     if (sourceUrl === undefined || originalFileName === undefined || credit === undefined) {
-      throw new Error("A source URL, file name, and credit are required.");
+      throw new ConvexError({
+        code: "MEDIA_INPUT_INVALID",
+        message: "A source URL, file name, and credit are required.",
+      });
     }
     const label = sanitizeProfileAssetLabel(args.label);
     const altText = sanitizeProfileAssetAltText(args.altText);
@@ -553,6 +565,11 @@ export const decide = mutation({
     submissionId,
     decision: v.union(v.literal("approve"), v.literal("reject")),
     expectedProfileUpdatedAt: v.number(),
+    finalPlacement: v.optional(requestedPlacement),
+    label: v.optional(v.string()),
+    altText: v.optional(v.string()),
+    credit: v.optional(v.string()),
+    creditUrl: v.optional(v.string()),
     publicDisposition: v.optional(v.string()),
     privateReason: v.string(),
   },
@@ -645,6 +662,28 @@ export const decide = mutation({
         throw new Error("This image is already published on the profile.");
       }
     }
+    const finalPlacement = args.finalPlacement ?? submission.requestedPlacement;
+    if (
+      (profile.profileType === "person" && finalPlacement !== "profile_image") ||
+      (profile.profileType === "community" && finalPlacement !== "primary_logo")
+    ) {
+      throw new Error("That media placement is not available for this profile type.");
+    }
+    const finalLabel = "label" in args
+      ? sanitizeProfileAssetLabel(args.label)
+      : submission.label;
+    const finalAltText = "altText" in args
+      ? sanitizeProfileAssetAltText(args.altText)
+      : submission.altText;
+    const finalCredit = "credit" in args
+      ? sanitizeProfileAssetCredit(args.credit)
+      : submission.credit;
+    const finalCreditUrl = "creditUrl" in args
+      ? sanitizeProfileAssetCreditUrl(args.creditUrl)
+      : submission.creditUrl;
+    if (finalCredit === undefined) {
+      throw new Error("Asset credit is required before approval.");
+    }
     const assetIds = await consumeProfileAssetUploads(ctx.db, {
       profileId: profile._id,
       requestedBy: intent.requestedBy,
@@ -652,11 +691,11 @@ export const decide = mutation({
       uploads: [{
         intentId: intent._id,
         uploadToken: intent.uploadToken,
-        label: submission.label,
-        altText: submission.altText,
-        credit: submission.credit,
-        creditUrl: submission.creditUrl,
-        placements: [submission.requestedPlacement],
+        label: finalLabel,
+        altText: finalAltText,
+        credit: finalCredit,
+        creditUrl: finalCreditUrl,
+        placements: [finalPlacement],
       }],
       source: "community_submitted",
       now,

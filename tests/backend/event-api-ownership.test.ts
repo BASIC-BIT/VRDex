@@ -1182,6 +1182,9 @@ describe("API-created event ownership", () => {
     });
     assert.equal(editableWhilePublic?.communitySlug, "faceless");
     assert.equal(editableWhilePublic?.preservedCommunityProfileId, profileId);
+    assert.equal(editableWhilePublic?.preservedParticipantAssociationIds.length, 1);
+    assert.equal(editableWhilePublic?.preservedSlotAssociationIds.length, 1);
+    assert.equal(editableWhilePublic?.preservedWorldAssociationIds.length, 1);
 
     await t.run(async (ctx) => {
       await ctx.db.patch(profileId, {
@@ -1191,6 +1194,27 @@ describe("API-created event ownership", () => {
       });
       await ctx.db.patch(personId, { publicSurfacingState: "opted_out" });
       await ctx.db.patch(worldId, { publicationState: "draft_private" });
+    });
+
+    await t.withIdentity(identity).mutation(api.events.updateCommunityEvent, {
+      currentSlug: created.slug,
+      title: "Saved after associations became hidden",
+      communitySlug: editableWhilePublic!.communitySlug,
+      preservedCommunityProfileId: editableWhilePublic!.preservedCommunityProfileId,
+      preservedParticipantAssociationIds: editableWhilePublic!.preservedParticipantAssociationIds,
+      preservedSlotAssociationIds: editableWhilePublic!.preservedSlotAssociationIds,
+      preservedWorldAssociationIds: editableWhilePublic!.preservedWorldAssociationIds,
+      worldSlug: editableWhilePublic!.worlds[0]!.slug,
+      startAt,
+      timezone: "UTC",
+      participantLinks: [{ personSlug: "hidden-dj", roleLabel: "Performer" }],
+      slotLinks: [{
+        personSlug: "hidden-dj",
+        displayLabel: "Hidden DJ",
+        roleLabel: "DJ",
+        startAt,
+        endAt: startAt + 3_600_000,
+      }],
     });
 
     const publicEvent = await t.query(api.events.getPublicBySlug, { slug: created.slug });

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { useConvexAuth, useMutation } from "convex/react";
+import { ConvexError } from "convex/values";
 import type { Id } from "../../../../../../convex/_generated/dataModel";
 import { api } from "@convex-generated-api";
 
@@ -23,6 +24,25 @@ type ContributionProfile = {
 };
 
 function safeMessage(error: unknown) {
+  const data = error instanceof ConvexError && typeof error.data === "object"
+    ? error.data as { code?: unknown; message?: unknown }
+    : null;
+  const safeCodes = new Set([
+    "MEDIA_EMAIL_UNVERIFIED",
+    "MEDIA_INPUT_INVALID",
+    "MEDIA_PLACEMENT_INVALID",
+    "MEDIA_PROFILE_CHANGED",
+    "MEDIA_TARGET_CLAIMED",
+    "MEDIA_TARGET_UNAVAILABLE",
+  ]);
+  if (
+    typeof data?.code === "string" &&
+    safeCodes.has(data.code) &&
+    typeof data.message === "string"
+  ) {
+    return data.message;
+  }
+
   const message = error instanceof Error ? error.message : String(error);
   const normalized = message.replace(/^.*?Uncaught Error:\s*/s, "").split("\n")[0] ?? "";
   const safePatterns = [

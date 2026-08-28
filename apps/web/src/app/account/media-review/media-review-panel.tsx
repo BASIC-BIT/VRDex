@@ -9,7 +9,7 @@ import { api } from "@convex-generated-api";
 
 import { Button } from "@/components/ui/button";
 import { Card, SectionTitle } from "@/components/ui/card";
-import { Field, Select, Textarea } from "@/components/ui/field";
+import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 
 type ReviewRow = FunctionReturnType<typeof api.profileMediaSubmissions.listForReview>["page"][number];
@@ -21,6 +21,10 @@ function ReviewCard({ row }: { row: ReviewRow }) {
   const [busy, setBusy] = useState(false);
   const [publicDisposition, setPublicDisposition] = useState("");
   const [privateReason, setPrivateReason] = useState("");
+  const [label, setLabel] = useState(row.label ?? "");
+  const [altText, setAltText] = useState(row.altText ?? "");
+  const [credit, setCredit] = useState(row.credit);
+  const [creditUrl, setCreditUrl] = useState(row.creditUrl ?? "");
   const [suppressionReason, setSuppressionReason] = useState("");
   const [status, setStatus] = useState<string | null>(null);
 
@@ -41,10 +45,18 @@ function ReviewCard({ row }: { row: ReviewRow }) {
     setBusy(true);
     setStatus(null);
     try {
+      const finalPlacement = row.profileType === "person"
+        ? ("profile_image" as const)
+        : ("primary_logo" as const);
       await decide({
         submissionId: row.submissionId,
         decision,
         expectedProfileUpdatedAt: row.currentProfileUpdatedAt,
+        finalPlacement,
+        label,
+        altText,
+        credit,
+        creditUrl,
         publicDisposition: publicDisposition || undefined,
         privateReason,
       });
@@ -126,6 +138,24 @@ function ReviewCard({ row }: { row: ReviewRow }) {
           {status ? <Notice role="status">{status}</Notice> : null}
         </div>
       ) : row.status === "under_review" ? <div className="mt-5 grid gap-4">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field>
+            Public label
+            <Input maxLength={80} onChange={(event) => setLabel(event.target.value)} value={label} />
+          </Field>
+          <Field>
+            Alt text
+            <Input maxLength={180} onChange={(event) => setAltText(event.target.value)} value={altText} />
+          </Field>
+          <Field>
+            Credit
+            <Input onChange={(event) => setCredit(event.target.value)} required value={credit} />
+          </Field>
+          <Field>
+            Credit URL
+            <Input onChange={(event) => setCreditUrl(event.target.value)} type="url" value={creditUrl} />
+          </Field>
+        </div>
         <Field>
           Contributor-visible disposition
           <Textarea maxLength={240} onChange={(event) => setPublicDisposition(event.target.value)} rows={2} value={publicDisposition} />
@@ -135,7 +165,7 @@ function ReviewCard({ row }: { row: ReviewRow }) {
           <Textarea maxLength={1000} onChange={(event) => setPrivateReason(event.target.value)} required rows={3} value={privateReason} />
         </Field>
         <div className="flex flex-wrap gap-3">
-          <Button disabled={busy || privateReason.trim() === ""} onClick={() => void submit("approve")} type="button" variant="primary">Approve</Button>
+          <Button disabled={busy || credit.trim() === "" || privateReason.trim() === ""} onClick={() => void submit("approve")} type="button" variant="primary">Approve</Button>
           <Button disabled={busy || privateReason.trim() === "" || publicDisposition.trim() === ""} onClick={() => void submit("reject")} type="button" variant="dangerGhost">Reject</Button>
         </div>
         {status ? <Notice role="status">{status}</Notice> : null}

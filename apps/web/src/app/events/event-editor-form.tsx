@@ -617,7 +617,10 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
       startTransition(() =>
         setStatus({
           kind: "success",
-          result: { eventPath: `/${currentSlug}`, slug: currentSlug! },
+          result: {
+            eventPath: isPublished ? `/${currentSlug}` : `/events/${currentSlug}/edit`,
+            slug: currentSlug!,
+          },
         }),
       );
     } catch (error) {
