@@ -165,7 +165,7 @@ export async function assertProfileAssetIntentCapacity(
     )
     .collect();
   const reservedAdditions = openIntents.filter(
-    (intent) => intent.purpose === "owner_publish" && intent.replacesAssetId === undefined,
+    (intent) => intent.purpose !== "community_proposal" && intent.replacesAssetId === undefined,
   ).length;
   await assertProfileAssetCapacity(db, profileId, reservedAdditions + additionalCount);
 }

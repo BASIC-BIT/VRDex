@@ -708,7 +708,8 @@ Locked decisions:
   after 30 days unless held for an abuse or legal matter.
 - New event-status and media-submission data starts clean. New upload intents
   always write a purpose, while older owner-upload rows may omit it;
-  there are no compatibility readers or backfill jobs.
+  absent purpose is treated as owner upload, with no backfill job or broader
+  compatibility layer.
 
 ## Research Disposition
 
