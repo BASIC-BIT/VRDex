@@ -234,7 +234,7 @@ function DiscoveryEventSchedule({ events, now }: { events: PublicEventPreview[];
   return (
     <section className="min-w-0 border-t border-border pt-6">
       <SectionTitle>Upcoming events</SectionTitle>
-      <EventSchedule className="mt-5" empty="No upcoming events are public yet.">
+      <EventSchedule className="mt-5" empty="No events">
         {events.map((event) => (
           <EventScheduleRow
             details={[
@@ -487,7 +487,7 @@ export function DiscoveryLandingPage({
           <DiscoveryEventSchedule events={data.eventSchedule} now={now} />
         ) : (
           <DiscoverySection
-            empty="No upcoming events are public yet."
+            empty="No events"
             results={data.upcomingEvents}
             surface="upcoming_events"
             title="Upcoming events"

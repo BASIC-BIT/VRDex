@@ -664,12 +664,23 @@ export async function getEventForEditor(
   });
   const projected = record === null ? null : toPublicEvent(record);
   const authoredMediaLinks = (event.mediaLinks ?? []).flatMap(safePublicEventMediaLink);
+  const participantAssociations = await db
+    .query("eventParticipants")
+    .withIndex("by_eventId", (query) => query.eq("eventId", event._id))
+    .collect();
+  const preservedParticipantAssociationIds = (
+    await Promise.all(participantAssociations.map(async (association) => {
+      const profile = await db.get(association.personProfileId);
+      return profile === null || !canReadProfile("public", profile) ? association._id : null;
+    }))
+  ).filter((associationId): associationId is Id<"eventParticipants"> => associationId !== null);
 
   return projected === null
     ? null
     : {
         ...projected,
         authoredMediaLinks,
+        preservedParticipantAssociationIds,
         publicationState: event.publicationState,
       };
 }

@@ -448,7 +448,6 @@ Events:
 - `Cancel event`, `Restore event`, and `Cancellation reason`
 - `Save changes`, `Save and publish`, `Save draft`, and `Unpublish and save draft`
 - `Cancelled`
-- `No upcoming events are public yet.`
 - `Change history`, `Loading history…`, and `No recorded changes.`
 
 ## Single-PR Implementation Sequence

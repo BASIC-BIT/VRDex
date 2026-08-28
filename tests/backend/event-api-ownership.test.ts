@@ -1168,6 +1168,10 @@ describe("API-created event ownership", () => {
       (await t.withIdentity(identity).query(api.events.listManagedEvents, {}))[0]?.eventId,
       created.eventId,
     );
+    assert.deepEqual(
+      await t.withIdentity(identity).query(api.events.listManagedCommunities, {}),
+      [],
+    );
 
     const editable = await t.withIdentity(identity).query(api.events.getEditableBySlug, {
       slug: created.slug,
@@ -1235,6 +1239,55 @@ describe("API-created event ownership", () => {
       }),
       /event community must be public/i,
     );
+  });
+
+  it("preserves a participant hidden when the editor loaded if it becomes public before save", async () => {
+    const t = convexTest({ schema, modules });
+    const { identity } = await seedOwnedCommunity(t);
+    const startAt = NOW + 3_600_000;
+    const personId = await t.run((ctx) => ctx.db.insert("profiles", {
+      profileType: "person",
+      slug: "visibility-flip-dj",
+      displayName: "Visibility Flip DJ",
+      sortName: "visibility flip dj",
+      aliases: [],
+      tags: [],
+      claimState: "unclaimed",
+      publicationState: "published",
+      publicSurfacingState: "public",
+      creationSource: "community",
+      person: { roleTags: ["DJ"] },
+      updatedAt: NOW,
+    }));
+    const created = await t.withIdentity(identity).mutation(api.events.createCommunityEvent, {
+      title: "Visibility flip event",
+      communitySlug: "faceless",
+      startAt,
+      participantLinks: [{ personSlug: "visibility-flip-dj", roleLabel: "DJ" }],
+    });
+    await t.run((ctx) => ctx.db.patch(personId, { publicSurfacingState: "opted_out" }));
+    const editable = await t.withIdentity(identity).query(api.events.getEditableBySlug, {
+      slug: created.slug,
+    });
+    assert.deepEqual(editable?.participants, []);
+    assert.equal(editable?.preservedParticipantAssociationIds.length, 1);
+
+    await t.run((ctx) => ctx.db.patch(personId, { publicSurfacingState: "public" }));
+    await t.withIdentity(identity).mutation(api.events.updateCommunityEvent, {
+      currentSlug: created.slug,
+      title: "Visibility flip event updated",
+      communitySlug: "faceless",
+      startAt,
+      participantLinks: [],
+      preservedParticipantAssociationIds: editable!.preservedParticipantAssociationIds,
+    });
+
+    const stored = await t.run((ctx) => ctx.db
+      .query("eventParticipants")
+      .withIndex("by_eventId", (query) => query.eq("eventId", created.eventId))
+      .collect());
+    assert.equal(stored.length, 1);
+    assert.equal(stored[0]?.personProfileId, personId);
   });
 
   it("counts preserved hidden participants against the event cap", async () => {

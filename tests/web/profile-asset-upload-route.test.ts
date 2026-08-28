@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { profileAssetMimeTypeForFile } from "../../apps/web/src/lib/server/profile-asset-validation";
+import {
+  profileAssetMimeTypeForFile,
+  profileAssetUploadSource,
+} from "../../apps/web/src/lib/server/profile-asset-validation";
 
 describe("profile asset upload route MIME fallback", () => {
   it("infers every supported file type when multipart MIME is empty", () => {
@@ -17,5 +20,11 @@ describe("profile asset upload route MIME fallback", () => {
       profileAssetMimeTypeForFile("application/octet-stream", "image.svg"),
       "image/svg+xml",
     );
+  });
+
+  it("uses a submitted file before an evidence source URL", () => {
+    assert.equal(profileAssetUploadSource("multipart/form-data; boundary=test", true), "multipart");
+    assert.equal(profileAssetUploadSource("application/json", true), "source_url");
+    assert.equal(profileAssetUploadSource("application/octet-stream", false), "direct");
   });
 });

@@ -5,6 +5,7 @@ import type { ChangeEvent, FormEvent } from "react";
 import { useEffect, useState, useTransition } from "react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { api } from "@convex-generated-api";
+import type { Id } from "../../../../../convex/_generated/dataModel";
 import type { PublicEvent } from "../_components/event-public-page";
 import { buttonVariants, Button } from "@/components/ui/button";
 import { Card, Eyebrow, SectionTitle } from "@/components/ui/card";
@@ -46,6 +47,7 @@ type VrcdnOutputFormState = {
 };
 
 type EditableEvent = PublicEvent & {
+  preservedParticipantAssociationIds: Id<"eventParticipants">[];
   publicationState?: "draft_private" | "published";
 };
 
@@ -561,8 +563,9 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
         slotLinks: parseSlotRows(slotRows, startAt),
       };
       const result = event
-        ? await updateEvent({
+          ? await updateEvent({
             currentSlug: currentSlug!,
+            preservedParticipantAssociationIds: event.preservedParticipantAssociationIds,
             ...(intent === "publish"
               ? { published: true }
               : intent === "draft"

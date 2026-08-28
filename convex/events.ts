@@ -567,23 +567,35 @@ async function replaceEventParticipants(
   event: Doc<"events">,
   participants: ReturnType<typeof sanitizeEventDraftInput>["participantLinks"],
   now: number,
-  options: { preserveNonPublic?: boolean } = {},
+  options: {
+    preserveNonPublic?: boolean;
+    preserveAssociationIds?: Id<"eventParticipants">[];
+  } = {},
 ) {
   const existing = await db
     .query("eventParticipants")
     .withIndex("by_eventId", (query) => query.eq("eventId", event._id))
     .collect();
-  const preserved = options.preserveNonPublic === true
-    ? (await Promise.all(existing.map(async (association) => ({
+  const preservedAssociationIds = new Set(options.preserveAssociationIds);
+  const loadedPreserved = options.preserveAssociationIds !== undefined
+    ? existing
+        .filter((association) => preservedAssociationIds.has(association._id))
+        .map((association) => ({ association }))
+    : options.preserveNonPublic === true
+      ? (await Promise.all(existing.map(async (association) => ({
         association,
         profile: await db.get(association.personProfileId),
       })))).filter(({ profile }) => profile === null || !canReadProfile("public", profile))
-    : [];
-  const preservedIds = new Set(preserved.map(({ association }) => association._id));
+      : [];
   const resolvedParticipants = await Promise.all(participants.map(async (participant) => ({
     participant,
     profile: await getPublishedPersonBySlug(db, participant.personSlug),
   })));
+  const submittedProfileIds = new Set(resolvedParticipants.map(({ profile }) => profile._id));
+  const preserved = loadedPreserved.filter(
+    ({ association }) => !submittedProfileIds.has(association.personProfileId),
+  );
+  const preservedIds = new Set(preserved.map(({ association }) => association._id));
   const personProfileIds = new Set([
     ...preserved.map(({ association }) => association.personProfileId),
     ...resolvedParticipants.map(({ profile }) => profile._id),
@@ -1081,6 +1093,7 @@ async function updateCommunityEventRecord(
     world?: Doc<"worlds">;
     publicationState?: Doc<"events">["publicationState"];
     preserveNonPublicAssociations?: boolean;
+    preserveParticipantAssociationIds?: Id<"eventParticipants">[];
     updateFields?: ReadonlySet<keyof EventDraftInput>;
   },
 ) {
@@ -1089,6 +1102,7 @@ async function updateCommunityEventRecord(
     event,
     input,
     preserveNonPublicAssociations,
+    preserveParticipantAssociationIds,
     publicationState,
     updateFields,
     world,
@@ -1158,6 +1172,7 @@ async function updateCommunityEventRecord(
     const participantLinks = participantLinksWithSlotPerformers(input);
     await replaceEventParticipants(db, updatedEvent, participantLinks, now, {
       preserveNonPublic: preserveNonPublicAssociations,
+      preserveAssociationIds: preserveParticipantAssociationIds,
     });
   }
 
@@ -2365,7 +2380,10 @@ export const createCommunityEvent = mutation({
   },
 });
 
-async function managedCommunitiesForBrowser(ctx: QueryCtx) {
+async function managedCommunitiesForBrowser(
+  ctx: QueryCtx,
+  options: { includeNonPublic?: boolean } = {},
+) {
   const { subject, user } = await requireActiveBrowserSessionSubject(ctx);
   const [owners, authorities] = await Promise.all([
     ctx.db
@@ -2399,7 +2417,8 @@ async function managedCommunitiesForBrowser(ctx: QueryCtx) {
     .filter(
       (profile): profile is Doc<"profiles"> =>
         profile !== null &&
-        profile.profileType === "community",
+        profile.profileType === "community" &&
+        (options.includeNonPublic === true || canReadProfile("public", profile)),
     )
     .map((profile) => ({
       profile,
@@ -2424,7 +2443,7 @@ export const listManagedEvents = query({
   args: { limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
     const limit = boundedLimit(args.limit, 50, 100);
-    const communities = await managedCommunitiesForBrowser(ctx);
+    const communities = await managedCommunitiesForBrowser(ctx, { includeNonPublic: true });
     const records = (
       await Promise.all(
         communities.map(async ({ profile }) => {
@@ -2651,6 +2670,7 @@ export const updateCommunityEvent = mutation({
   args: {
     currentSlug: v.string(),
     published: v.optional(v.boolean()),
+    preservedParticipantAssociationIds: v.optional(v.array(v.id("eventParticipants"))),
     ...eventDraftArgs,
   },
   handler: async (ctx, args) => {
@@ -2716,6 +2736,7 @@ export const updateCommunityEvent = mutation({
       community,
       world,
       preserveNonPublicAssociations: true,
+      preserveParticipantAssociationIds: args.preservedParticipantAssociationIds,
       publicationState,
     });
     await recordEventAuditEvent(ctx.db, {
