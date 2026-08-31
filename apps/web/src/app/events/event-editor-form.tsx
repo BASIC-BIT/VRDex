@@ -360,6 +360,17 @@ function initialSlotTemplate(event: EditableEvent | undefined) {
   };
 }
 
+function isValidSlotTemplate(template: { count: string; duration: string }) {
+  try {
+    const count = parseInteger(template.count, "Slot count");
+    const duration = parseInteger(template.duration, "Slot duration minutes");
+
+    return count >= 0 && count <= EVENT_SLOT_MAX_COUNT && duration > 0;
+  } catch {
+    return false;
+  }
+}
+
 function createGeneratedSlotRows(
   count: number,
   durationMinutes: number,
@@ -492,6 +503,7 @@ function ConnectedEventEditorForm({
   const [slotRows, setSlotRows] = useState(() => initialSlotRows(event));
   const [slotRowsDirty, setSlotRowsDirty] = useState(Boolean(event?.slots.length));
   const [slotTemplate, setSlotTemplate] = useState(() => initialSlotTemplate(event));
+  const slotTemplateIsValid = isValidSlotTemplate(slotTemplate);
   const [cancellationReason, setCancellationReason] = useState("");
   const [eventStatus, setEventStatus] = useState(event?.status);
   const [isPublished, setIsPublished] = useState(event?.publicationState === "published");
@@ -606,6 +618,11 @@ function ConnectedEventEditorForm({
 
   async function onSubmit(submitEvent: FormEvent<HTMLFormElement>) {
     submitEvent.preventDefault();
+
+    if (!slotTemplateIsValid) {
+      return;
+    }
+
     const form = submitEvent.currentTarget;
     const formData = new FormData(form, (submitEvent.nativeEvent as SubmitEvent).submitter);
     const intent = stringField(formData.get("intent"));
@@ -981,7 +998,7 @@ function ConnectedEventEditorForm({
             <>
               <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <div className="rounded-control border border-border bg-surface-strong p-3">
-                  <dt className="text-xs text-muted">Program</dt>
+                  <dt className="text-xs text-muted">State</dt>
                   <dd className="mt-1 text-sm font-medium capitalize text-foreground">{formatMachineValue(eventMediaControlStatus.program.state)}</dd>
                 </div>
                 <div className="rounded-control border border-border bg-surface-strong p-3">
@@ -1078,6 +1095,8 @@ function ConnectedEventEditorForm({
                 onChange={(changeEvent) => {
                   onSlotTemplateChange("count", eventTargetValue(changeEvent));
                 }}
+                required
+                step={1}
                 type="number"
                 value={slotTemplate.count}
               />
@@ -1087,9 +1106,13 @@ function ConnectedEventEditorForm({
               <Input
                 className="bg-surface-strong text-foreground"
                 inputMode="numeric"
+                min={1}
                 onChange={(changeEvent) => {
                   onSlotTemplateChange("duration", eventTargetValue(changeEvent));
                 }}
+                required
+                step={1}
+                type="number"
                 value={slotTemplate.duration}
               />
             </Field>
@@ -1228,7 +1251,7 @@ function ConnectedEventEditorForm({
       )}
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <Button disabled={isSubmitting} name="intent" size="lg" type="submit" value="publish" variant="primary">
+        <Button disabled={isSubmitting || !slotTemplateIsValid} name="intent" size="lg" type="submit" value="publish" variant="primary">
           {isSubmitting
             ? "Saving..."
             : isPublished
@@ -1237,7 +1260,7 @@ function ConnectedEventEditorForm({
                 ? "Save and publish"
                 : "Publish event"}
         </Button>
-        <Button disabled={isSubmitting} name="intent" size="lg" type="submit" value="draft" variant="secondary">
+        <Button disabled={isSubmitting || !slotTemplateIsValid} name="intent" size="lg" type="submit" value="draft" variant="secondary">
           {isPublished ? "Unpublish and save draft" : "Save draft"}
         </Button>
         {status.kind === "success" ? (

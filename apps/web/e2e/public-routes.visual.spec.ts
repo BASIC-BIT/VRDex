@@ -87,6 +87,13 @@ test("event editor @visual", async ({ page }, testInfo) => {
   await expect(page.getByLabel("Sessions")).toHaveValue("80");
   await page.getByLabel("Sessions").fill("4");
   await expect(page.getByRole("heading", { name: /^Session [1-4]$/ })).toHaveCount(4);
+  await page.getByLabel("Minutes each").fill("");
+  await expect(page.getByRole("button", { name: "Publish event" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Save draft" })).toBeDisabled();
+  await page.getByLabel("Minutes each").fill("60.5");
+  await expect(page.getByRole("button", { name: "Publish event" })).toBeDisabled();
+  await page.getByLabel("Minutes each").fill("60");
+  await expect(page.getByRole("button", { name: "Publish event" })).toBeEnabled();
   await captureRouteScreenshot(page, testInfo, "event-editor");
 });
 
