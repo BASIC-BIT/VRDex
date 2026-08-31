@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery } from "convex/react";
-import { ArrowDown, ArrowUp, ImagePlus, RotateCcw, Star, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, CircleUserRound, ImagePlus, RotateCcw, Star, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 
@@ -53,12 +53,15 @@ type MediaProfile = {
   assets: MediaAsset[];
 };
 
+type UploadPlacement = "gallery" | "profile_image" | "primary_logo";
+
 type EditorActions = {
   upload: (
     profileId: string,
     file: File,
     metadata: Pick<MediaAsset, "label" | "caption" | "altText" | "credit" | "creditUrl">,
     onProgress: (value: number) => void,
+    placement: UploadPlacement,
   ) => Promise<void>;
   generate: (profileId: string, source: File | MediaAsset) => Promise<string>;
   replace: (
@@ -480,6 +483,7 @@ function MediaKitEditor({
   const [focusRestoreAssetId, setFocusRestoreAssetId] = useState<string | null>(null);
   const [focusActiveAssetId, setFocusActiveAssetId] = useState<string | null>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [pendingPlacement, setPendingPlacement] = useState<UploadPlacement>("gallery");
   const [preparedUpload, setPreparedUpload] = useState<PreparedProfileMediaUpload | null>(null);
   const [uploadMetadata, setUploadMetadata] = useState({
     label: "",
@@ -509,6 +513,7 @@ function MediaKitEditor({
     setGeneratingUpload(false);
     setUploading(false);
     setPendingFile(null);
+    setPendingPlacement("gallery");
     setPreparedUpload(null);
     setUploadMetadata({ label: "", caption: "", altText: "", credit: "", creditUrl: "" });
     setUploadStatus(null);
@@ -572,6 +577,7 @@ function MediaKitEditor({
     setUploading(false);
     setSelectedId(profileId);
     setPendingFile(null);
+    setPendingPlacement("gallery");
     setPreparedUpload(null);
     setUploadMetadata({ label: "", caption: "", altText: "", credit: "", creditUrl: "" });
     setUploadStatus(null);
@@ -608,7 +614,7 @@ function MediaKitEditor({
     if (restored) setFocusActiveAssetId(assetId);
   };
 
-  const chooseFile = (event: ChangeEvent<HTMLInputElement>) => {
+  const chooseFile = (event: ChangeEvent<HTMLInputElement>, placement: UploadPlacement) => {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file || !profile) return;
@@ -624,6 +630,7 @@ function MediaKitEditor({
     }
     setUploading(true);
     setPendingFile(null);
+    setPendingPlacement(placement);
     setPreparedUpload(null);
     setUploadStatus({ kind: "progress", message: "Preparing…" });
     const requestId = ++prepareRequestRef.current;
@@ -671,10 +678,12 @@ function MediaKitEditor({
         preparedUpload.file,
         uploadMetadata,
         setUploadProgress,
+        pendingPlacement,
       );
       if (uploadRequestRef.current !== requestId) return;
       setUploadStatus({ kind: "success", message: "Published." });
       setPendingFile(null);
+      setPendingPlacement("gallery");
       setPreparedUpload(null);
     } catch (error) {
       if (uploadRequestRef.current !== requestId) return;
@@ -763,7 +772,19 @@ function MediaKitEditor({
             <label className={cn(buttonVariants({ variant: "primary" }), "cursor-pointer focus-within:ring-2 focus-within:ring-focus focus-within:ring-offset-2", !selectedProfile || uploading || generatingUpload || profile.activePublicAssetCount >= 12 ? "pointer-events-none opacity-60" : "")}>
               <ImagePlus aria-hidden="true" className="mr-2 size-4" />
               {uploading ? (pendingFile ? "Uploading…" : "Preparing…") : "Add image"}
-              <input accept=".png,.jpg,.jpeg,.webp,.svg,image/png,image/jpeg,image/webp,image/svg+xml" className="sr-only" disabled={!selectedProfile || uploading || generatingUpload || profile.activePublicAssetCount >= 12} onChange={chooseFile} type="file" />
+              <input accept=".png,.jpg,.jpeg,.webp,.svg,image/png,image/jpeg,image/webp,image/svg+xml" className="sr-only" disabled={!selectedProfile || uploading || generatingUpload || profile.activePublicAssetCount >= 12} onChange={(event) => chooseFile(event, "gallery")} type="file" />
+            </label>
+            <label className={cn(buttonVariants({ variant: "secondary" }), "cursor-pointer focus-within:ring-2 focus-within:ring-focus focus-within:ring-offset-2", !selectedProfile || uploading || generatingUpload || profile.activePublicAssetCount >= 12 ? "pointer-events-none opacity-60" : "")}>
+              <CircleUserRound aria-hidden="true" className="mr-2 size-4" />
+              {profile.profileType === "person" ? "Profile image" : "Primary logo"}
+              <input
+                accept=".png,.jpg,.jpeg,.webp,.svg,image/png,image/jpeg,image/webp,image/svg+xml"
+                aria-label={profile.profileType === "person" ? "Profile image" : "Primary logo"}
+                className="sr-only"
+                disabled={!selectedProfile || uploading || generatingUpload || profile.activePublicAssetCount >= 12}
+                onChange={(event) => chooseFile(event, profile.profileType === "person" ? "profile_image" : "primary_logo")}
+                type="file"
+              />
             </label>
           </div>
         </div>
@@ -818,6 +839,7 @@ function MediaKitEditor({
               <Button disabled={uploading || generatingUpload} onClick={() => {
                 generationRequestRef.current += 1;
                 setPendingFile(null);
+                setPendingPlacement("gallery");
                 setPreparedUpload(null);
               }} type="button" variant="ghost">Cancel</Button>
             </div>
@@ -1034,7 +1056,7 @@ function DemoMediaKitPanel({ initialProfileSlug }: { initialProfileSlug?: string
     return () => window.removeEventListener("vrdex:toggle-media-profile", toggleProfile);
   }, []);
   const actions = useMemo<EditorActions>(() => ({
-    upload: async (_profileId, file, _metadata, onProgress) => {
+    upload: async (_profileId, file, _metadata, onProgress, placement) => {
       onProgress(0.5);
       const bitmap = file.name.endsWith(".webp") ? await createImageBitmap(file) : null;
       window.dispatchEvent(new CustomEvent("vrdex:media-upload-attempt", {
@@ -1042,6 +1064,7 @@ function DemoMediaKitPanel({ initialProfileSlug }: { initialProfileSlug?: string
           name: file.name,
           type: file.type,
           size: file.size,
+          placement,
           ...(bitmap ? { width: bitmap.width, height: bitmap.height } : {}),
         },
       }));
@@ -1138,7 +1161,7 @@ function ConnectedMediaKitPanel({
     file: File,
     metadata: Pick<MediaAsset, "label" | "caption" | "altText" | "credit" | "creditUrl">,
     onProgress: (value: number) => void,
-    placements: Array<"gallery" | "featured"> = ["gallery"],
+    placements: UploadPlacement[] = ["gallery"],
     position?: number,
     replacesAssetId?: string,
   ) => {
@@ -1222,8 +1245,8 @@ function ConnectedMediaKitPanel({
   if (profiles === null) return <Notice variant="warning">Sign in to manage profile media.</Notice>;
 
   const actions: EditorActions = {
-    upload: async (profileId, file, metadata, onProgress) => {
-      await uploadAsset(profileId, file, metadata, onProgress);
+    upload: async (profileId, file, metadata, onProgress, placement) => {
+      await uploadAsset(profileId, file, metadata, onProgress, [placement]);
     },
     replace: async (profileId, asset, file, position, onProgress) => {
       const replacementAssetId = await uploadAsset(

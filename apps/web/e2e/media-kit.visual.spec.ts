@@ -288,8 +288,59 @@ test("owner oversized raster stays in its original format before direct upload @
     () => (window as typeof window & { mediaUploadAttempt?: unknown }).mediaUploadAttempt,
   )).toMatchObject({
     name: "oversized-synthetic.png",
+    placement: "gallery",
     type: "image/png",
     size: image.length,
+  });
+});
+
+test("owner can publish a managed profile image outside the gallery @fixture", async ({ page }) => {
+  await page.goto("/account/media-kit");
+  await page.evaluate(() => {
+    window.addEventListener("vrdex:media-upload-attempt", (event) => {
+      (window as typeof window & { mediaUploadAttempt?: unknown }).mediaUploadAttempt =
+        (event as CustomEvent).detail;
+    });
+  });
+
+  await page.getByLabel("Profile image").setInputFiles({
+    name: "profile-image.png",
+    mimeType: "image/png",
+    buffer: await smallSyntheticPng(),
+  });
+  await page.getByRole("button", { name: "Publish" }).click();
+
+  await expect.poll(() => page.evaluate(
+    () => (window as typeof window & { mediaUploadAttempt?: unknown }).mediaUploadAttempt,
+  )).toMatchObject({
+    name: "profile-image.png",
+    placement: "profile_image",
+    type: "image/png",
+  });
+});
+
+test("community owner can publish a managed primary logo @fixture", async ({ page }) => {
+  await page.goto("/account/media-kit?profile=playwright-night-shift");
+  await page.evaluate(() => {
+    window.addEventListener("vrdex:media-upload-attempt", (event) => {
+      (window as typeof window & { mediaUploadAttempt?: unknown }).mediaUploadAttempt =
+        (event as CustomEvent).detail;
+    });
+  });
+
+  await page.getByLabel("Primary logo").setInputFiles({
+    name: "primary-logo.png",
+    mimeType: "image/png",
+    buffer: await smallSyntheticPng(),
+  });
+  await page.getByRole("button", { name: "Publish" }).click();
+
+  await expect.poll(() => page.evaluate(
+    () => (window as typeof window & { mediaUploadAttempt?: unknown }).mediaUploadAttempt,
+  )).toMatchObject({
+    name: "primary-logo.png",
+    placement: "primary_logo",
+    type: "image/png",
   });
 });
 
