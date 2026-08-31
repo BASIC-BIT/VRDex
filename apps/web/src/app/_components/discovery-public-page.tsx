@@ -28,6 +28,7 @@ import type { AvatarAppearance } from "@/lib/avatar-appearance";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 import { VerifiedTrustMark } from "@/components/ui/verified-trust-mark";
 import { cn } from "@/lib/cn";
+import { publicEventPath } from "@/lib/event-path";
 import {
   FEATURED_DISCOVERY_UI_FLAG,
   type DiscoveryAnalyticsSurface,
@@ -262,11 +263,11 @@ function DiscoveryEventSchedule({ events, now }: { events: PublicEventPreview[];
             status={publicScheduleStatus(event, now)}
             summary={event.summary}
             time={<ViewerLocalEventDateTime timestamp={event.startAt} />}
-            title={event.slug ? (
+            title={publicEventPath(event) ? (
               <TrackedDiscoveryLink
                 className="rounded-control text-section text-foreground underline decoration-transparent underline-offset-4 transition hover:text-accent-strong hover:decoration-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
                 eventName="event_card_clicked"
-                href={`/${event.slug}`}
+                href={publicEventPath(event)!}
                 properties={{ entity_type: "event", surface: "upcoming_events" }}
               >
                 {event.title}

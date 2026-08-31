@@ -1,6 +1,7 @@
 import type { Doc } from "./_generated/dataModel";
 import type { DatabaseReader, DatabaseWriter } from "./_generated/server";
 import type { PublicProfileMediaKit } from "./_profileAssets";
+import { eventPathForSlugs } from "./_eventPaths";
 import type { toProfileLookupResult } from "./_profileLookup";
 import { visibleProfileField, visibleProfileList } from "./_profileFieldVisibility";
 import { firstSafeHttpsUrl, optionalField, safeHttpsUrl } from "./_publicFields";
@@ -384,7 +385,9 @@ export function createEventSearchDocument(
   const sourceUrl = safeHttpsUrl(event.sourceUrl);
   const vocabulary = vocabularyForEvent(event, context.roleLabels ?? []);
   const worldTerms = context.world ? [context.world.displayName, ...context.world.tags] : [];
-  const routePath = event.slug === undefined ? "/" : `/${event.slug}`;
+  const routePath = event.slug === undefined
+    ? "/"
+    : eventPathForSlugs(context.community?.slug, event.slug);
   const isUpcoming = event.startAt >= Date.now();
 
   return {
@@ -498,15 +501,13 @@ export function toPublicSearchResult(
     entityType: document.entityType,
     ...optionalField("profileType", document.profileType),
     slug: document.slug,
-    // Derived, not read back from the row. `routePath` is persisted at index time,
-    // so every document written before profiles moved to the site root still holds
-    // a `/p/`, `/c/`, `/w/`, or `/e/` path -- and those routes are gone. Returning
-    // the stored value would send searchers to a 404 until each entity happened to
-    // be reindexed. The slug is the whole path now, so there is nothing to store.
+    // Profiles and worlds still derive their root path so documents indexed under
+    // retired prefixes do not keep dead links. Event paths carry community context,
+    // so their indexed route must be preserved.
     //
     // Slugless events keep `String(event._id)` as their slug, but the constructor
     // marks those `hidden`, so they never reach this public projection.
-    routePath: `/${document.slug}`,
+    routePath: document.entityType === "event" ? document.routePath : `/${document.slug}`,
     title: document.title,
     ...optionalField("subtitle", document.subtitle),
     ...optionalField("summary", document.summary),

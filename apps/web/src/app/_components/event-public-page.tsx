@@ -12,6 +12,7 @@ import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/pa
 import { Table, TableCell, TableFrame, TableHead, TableHeaderCell } from "@/components/ui/table";
 import { cn } from "@/lib/cn";
 import { safeImageBackground } from "@/lib/safe-image";
+import { publicEventPath } from "@/lib/event-path";
 import {
   avatarFrameStyle,
   type AvatarAppearance,
@@ -222,6 +223,7 @@ export function EventPreviewCard({ event }: { event: PublicEventPreview }) {
   const sourceUrl = safeHttpsUrl(event.source.url);
   const thumbnailStyle = safeImageBackground(event.thumbnailImageUrl, eventPosterOverlay);
   const details = event.worlds.map((world) => world.displayName);
+  const eventPath = publicEventPath(event);
 
   return (
     <article className="group overflow-hidden rounded-card border border-border bg-surface-strong text-sm transition hover:-translate-y-0.5">
@@ -235,7 +237,7 @@ export function EventPreviewCard({ event }: { event: PublicEventPreview }) {
           {event.communityName ? <span>/ {event.communityName}</span> : null}
         </div>
         <h3 className="mt-4 text-2xl font-semibold tracking-[-0.04em]">
-          {event.slug ? <Link href={`/${event.slug}`}>{event.title}</Link> : event.title}
+          {eventPath ? <Link href={eventPath}>{event.title}</Link> : event.title}
         </h3>
       </div>
       <div className="grid gap-3 px-4 py-4">
@@ -291,6 +293,7 @@ export function EventBackendNotice({ kind }: { kind: "missing-url" | "error" }) 
 export function EventPublicPage({ event, showEditLink = false }: { event: PublicEvent; showEditLink?: boolean }) {
   const bannerStyle = safeImageBackground(event.bannerImageUrl, eventPosterOverlay);
   const sourceUrl = safeHttpsUrl(event.source.url);
+  const eventPath = publicEventPath(event);
 
   return (
     <PageShell className="py-5 sm:py-6 lg:py-7" tone="event">
@@ -298,11 +301,13 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
         <PageNav>
           <BrandLink />
           <div className="flex flex-wrap gap-2">
-            <Link className={buttonVariants({ variant: "surface" })} href="/events/new">
-              Add event
-            </Link>
-            {showEditLink ? (
-              <Link className={buttonVariants({ variant: "surface" })} href={`/events/${event.slug}/edit`}>
+            {event.communitySlug ? (
+              <Link className={buttonVariants({ variant: "surface" })} href={`/${event.communitySlug}/events/create`}>
+                Add event
+              </Link>
+            ) : null}
+            {showEditLink && eventPath ? (
+              <Link className={buttonVariants({ variant: "surface" })} href={`${eventPath}/edit`}>
                 Edit event
               </Link>
             ) : null}
@@ -473,10 +478,10 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
           <Card surface="white">
             <Eyebrow>Links</Eyebrow>
             <div className="mt-4 grid gap-3">
-              <a className={actionCardVariants({ variant: "accent" })} href={`/${event.slug}/calendar.ics`}>
+              {eventPath ? <a className={actionCardVariants({ variant: "accent" })} href={`${eventPath}/calendar.ics`}>
                 <span className={actionLabelClassName}>Add to calendar</span>
                 <span className={actionMetaClassName}>Download .ics</span>
-              </a>
+              </a> : null}
               {sourceUrl ? (
                 <a className={actionCardVariants({ variant: "accent" })} href={sourceUrl} rel="noreferrer" target="_blank">
                   <span className={actionLabelClassName}>

@@ -15,6 +15,7 @@ type PublicEventSourceType = "manual" | "community" | "partner" | "import" | "ai
 type PublicWorldEventRecord = {
   event: Doc<"events">;
   association: Doc<"eventWorlds">;
+  community?: Doc<"profiles">;
 };
 
 type PublicActiveWorldRecord = PublicWorldEventRecord & {
@@ -23,6 +24,7 @@ type PublicActiveWorldRecord = PublicWorldEventRecord & {
 
 export type PublicWorldEventPreview = {
   slug?: string;
+  communitySlug?: string;
   title: string;
   startAt: number;
   doorsOpenAt?: number;
@@ -105,7 +107,7 @@ function compareActiveEvents(
 function toPublicWorldEventPreview(
   record: PublicWorldEventRecord,
 ): PublicWorldEventPreview | null {
-  const { association, event } = record;
+  const { association, community, event } = record;
 
   if (
     event.publicationState !== "published" ||
@@ -122,6 +124,7 @@ function toPublicWorldEventPreview(
 
   return {
     ...optionalField("slug", event.slug),
+    ...optionalField("communitySlug", community?.slug),
     title: event.title,
     startAt: event.startAt,
     mediaLinks: (event.mediaLinks ?? []).flatMap((link) => {
@@ -305,7 +308,15 @@ export async function getPublicWorldEventContext(
           return null;
         }
 
-        return { event, association };
+        const community = event.communityProfileId === undefined
+          ? null
+          : await db.get(event.communityProfileId);
+
+        return {
+          event,
+          association,
+          ...optionalField("community", community ?? undefined),
+        };
       }),
     )
   ).filter((record): record is PublicWorldEventRecord => record !== null);

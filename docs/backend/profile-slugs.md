@@ -4,7 +4,11 @@
 
 This doc captures the slug contract for `#10`.
 
-Profiles, worlds, and events share one global slug namespace and all render from the site root as `/<slug>`. This avoids ambiguous API, card, and search lookups, and it is what makes a bare `vrdex.net/basicbit` resolvable without a type prefix.
+Profiles and worlds render from the site root as `/<slug>`. Community events
+render below their community as `/<community>/events/<event>`, with
+`/events/<event>` retained only as a compatibility reader for events without
+community context. A bare `vrdex.net/basicbit` therefore resolves only a
+profile or world.
 
 Reservations live in `convex/_globalSlugs.ts` as four catalogs, because a name can be unavailable for four different reasons and read paths care about only one of them.
 
@@ -24,7 +28,7 @@ Reservations live in `convex/_globalSlugs.ts` as four catalogs, because a name c
 All four live in `convex/_globalSlugs.ts`.
 
 - `LIVE_ROUTE_SLUGS`: `/<name>` itself resolves to something other than `[slug]` -- a page, an optional catch-all, a middleware redirect, or a `beforeFiles` rewrite. An entity holding one has no reachable page. This is the only catalog a *read* path consults, via `isLiveRouteSlug`.
-- `ROUTE_PREFIX_SLUGS`: a route beneath the name matches an entity subpath. Next matches whole leaf patterns rather than claiming everything below a directory, so this is narrower than it looks: `app/developers/` has no leaf at that depth and `/developers/edit` falls through to `/[slug]/edit` like any other URL, while `handoff/[token]/page.tsx` does match `/handoff/edit` with the token read as "edit". `app/events/[slug]/edit` needs three segments, so `/events/edit` is *not* intercepted. Only `handoff` and `l` qualify today. An entity holding one keeps its public page and loses its owner-facing subpaths, which is why `slugAudit` reports these separately.
+- `ROUTE_PREFIX_SLUGS`: a route beneath the name matches an entity subpath. Next matches whole leaf patterns rather than claiming everything below a directory, so this is narrower than it looks: `app/developers/` has no leaf at that depth and `/developers/edit` falls through to `/[slug]/edit` like any other URL, while dynamic children under `handoff`, `l`, and the compatibility `events` reader intercept nested entity-shaped paths. An entity holding one keeps its public page and loses its owner-facing subpaths, which is why `slugAudit` reports these separately.
 - `HELD_ROUTE_SLUGS`: nothing serves them at all. Held for pages we may add.
 - `RESERVED_PREMIUM_SLUGS`: short, generic, or otherwise valuable names withheld from self-serve so they can be granted or sold later. `basicbit` and `vrdex` are here. Slugs under three characters are already unassignable, which reserves that whole space without listing it.
 
@@ -47,7 +51,11 @@ Initial slug generation starts from a display name or owner-provided text:
 
 ## Uniqueness
 
-Convex does not enforce unique indexes at the schema layer. Slug uniqueness is enforced by mutations before insert or update, and it spans all three root-routed tables: a name a world or event holds is taken for a profile too, because only one of them could answer `/<slug>`.
+Convex does not enforce unique indexes at the schema layer. Slug uniqueness is
+enforced by mutations before insert or update. The browser route namespaces are
+now separate, but availability remains conservatively global across profiles,
+worlds, and events until the event identifier contract is locked as readable
+slugs or generated public codes.
 
 Use `findSlugOwner` from `convex/_globalSlugs.ts`, or the `check*SlugAvailability` helper for the entity being written, which calls it. A single `by_slug` query sees one third of the namespace. Convex mutations are transactional across tables, so a check followed by an insert in the same mutation cannot race.
 

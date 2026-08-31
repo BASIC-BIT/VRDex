@@ -485,6 +485,14 @@ describe("public short link resolution", () => {
       publicationState: "published",
       publicSurfacingState: "public",
     } as Doc<"profiles">;
+    const community = {
+      _id: "profile-community",
+      slug: "afterglow",
+      displayName: "Afterglow",
+      profileType: "community",
+      publicationState: "published",
+      publicSurfacingState: "public",
+    } as Doc<"profiles">;
     const world = {
       _id: "world-public",
       slug: "neon-harbor",
@@ -498,11 +506,12 @@ describe("public short link resolution", () => {
       startAt: 5,
       sourceType: "community",
       sourceLabel: "Fixture",
+      communityProfileId: community._id,
       publicationState: "published",
       updatedAt: 5,
     } as Doc<"events">;
     const { db } = createShortLinkDb({
-      profiles: [profile],
+      profiles: [profile, community],
       worlds: [world],
       events: [event],
       shortLinks: [
@@ -543,7 +552,7 @@ describe("public short link resolution", () => {
     assert.deepEqual(await resolvePublicShortLinkTarget(db, "event1"), {
       code: "event1",
       targetType: "event",
-      path: "/afterglow-harbor",
+      path: "/afterglow/events/afterglow-harbor",
     });
   });
 

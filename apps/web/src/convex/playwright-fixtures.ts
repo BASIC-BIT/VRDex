@@ -1087,7 +1087,7 @@ const discoveryResults: PublicSearchResult[] = [
   {
     entityType: "event",
     slug: eventSlug,
-    routePath: `/${eventSlug}`,
+    routePath: `/${communitySlug}/events/${eventSlug}`,
     title: "Afterglow Harbor Sessions",
     subtitle: "Afterglow Social",
     summary: "Late-night harbor club session with house, trance, and warm social energy.",
@@ -1570,7 +1570,7 @@ export function getPlaywrightPublicShortLinkFixture(
     return {
       code: normalized,
       targetType: "event",
-      path: `/${eventSlug}`,
+      path: `/${communitySlug}/events/${eventSlug}`,
     };
   }
 
@@ -1592,6 +1592,6 @@ export const playwrightPublicProfilePaths = {
   personPath: `/${personSlug}`,
   communityPath: `/${communitySlug}`,
   worldPath: `/${worldSlug}`,
-  eventPath: `/${eventSlug}`,
-  eventWatchPath: `/${eventWatchSlug}`,
+  eventPath: `/${communitySlug}/events/${eventSlug}`,
+  eventWatchPath: `/${communitySlug}/events/${eventWatchSlug}`,
 };

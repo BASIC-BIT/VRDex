@@ -349,14 +349,19 @@ describe("search document projection", () => {
       publicationState: "published",
       updatedAt: 1,
     } as unknown as Doc<"events">;
+    const community = {
+      slug: "afterglow",
+      displayName: "Afterglow Social",
+    } as unknown as Doc<"profiles">;
 
     const worldDocument = createWorldSearchDocument(world);
-    const eventDocument = createEventSearchDocument(event, { world, roleLabels: ["House"] });
+    const eventDocument = createEventSearchDocument(event, { community, world, roleLabels: ["House"] });
 
     assert.equal(worldDocument.entityType, "world");
     assert.ok(worldDocument.searchText.includes("Afterglow Social"));
     assert.equal(eventDocument.entityType, "event");
     assert.equal(eventDocument.publicState, "public");
+    assert.equal(eventDocument.routePath, "/afterglow/events/afterglow-harbor-sessions");
     assert.ok(eventDocument.searchText.includes("Neon Harbor"));
     assert.deepEqual(eventDocument.vocabularyKeys, [
       "event_participant_role:house",
@@ -451,7 +456,7 @@ describe("search document projection", () => {
       ...weak,
       entityType: "event",
       slug: "house-night",
-      routePath: "/house-night",
+      routePath: "/afterglow/events/house-night",
       title: "House Night",
       exactTokens: ["house"],
       trustRank: 30,
@@ -465,6 +470,7 @@ describe("search document projection", () => {
     ]);
 
     assert.equal(results[0]?.slug, "house-night");
+    assert.equal(results[0]?.routePath, "/afterglow/events/house-night");
   });
 
   it("matches BASICBIT exact aliases without case-sensitive ranking drift", () => {
@@ -824,7 +830,7 @@ describe("search document projection", () => {
     const pastEvent = {
       entityType: "event",
       slug: "past-house-night",
-      routePath: "/past-house-night",
+      routePath: "/afterglow/events/past-house-night",
       title: "Past House Night",
       searchText: "House",
       exactTokens: ["house"],
@@ -838,7 +844,7 @@ describe("search document projection", () => {
     const upcomingEvent = {
       ...pastEvent,
       slug: "upcoming-house-night",
-      routePath: "/upcoming-house-night",
+      routePath: "/afterglow/events/upcoming-house-night",
       title: "Upcoming House Night",
       startsAt: Date.now() + 3_600_000,
     } as unknown as Doc<"searchDocuments">;

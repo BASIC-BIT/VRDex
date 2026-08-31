@@ -28,7 +28,7 @@ import {
   type McpEventWriteResult,
   mcpWriteAttributionArgs,
   recordMcpWriteReceipt,
-  withCurrentWritePaths,
+  withCurrentEventWritePaths,
   requireSha256Hex,
 } from "./_mcpWriteReceipts";
 import { normalizeOAuthClientId } from "./_oauth";
@@ -55,6 +55,7 @@ import {
   type SanitizedEventDraftInput,
 } from "./_eventInputs";
 import { findEventOperationSlots } from "./_eventOperations";
+import { eventPathForRecord, eventPathForSlugs } from "./_eventPaths";
 import {
   getEventForEditor,
   getPublicCommunityHostedEvents,
@@ -1158,7 +1159,7 @@ async function insertCommunityEventRecord(
   return {
     eventId,
     slug,
-    eventPath: `/${slug}`,
+    eventPath: eventPathForSlugs(community?.slug, slug),
     shortLinkCode: shortLink.code,
     shortLinkPath: shortLink.shortLinkPath,
   };
@@ -1289,7 +1290,7 @@ async function updateCommunityEventRecord(
   return {
     eventId: event._id,
     slug,
-    eventPath: `/${slug}`,
+    eventPath: eventPathForSlugs(community?.slug, slug),
   };
 }
 
@@ -2119,7 +2120,7 @@ export const getEventMediaControlStatus = query({
     if (program === null) {
       return {
         eventId: event._id,
-        eventPath: `/${slug}`,
+        eventPath: await eventPathForRecord(ctx.db, event, slug),
         program: null,
         sources: [],
         outputs: [],
@@ -2165,7 +2166,7 @@ export const getEventMediaControlStatus = query({
 
     return {
       eventId: event._id,
-      eventPath: `/${slug}`,
+      eventPath: await eventPathForRecord(ctx.db, event, slug),
       program: {
         programId: program._id,
         state: program.state,
@@ -2291,7 +2292,7 @@ export const queueEventMediaCommand = mutation({
 
     return {
       eventId: event._id,
-      eventPath: `/${slug}`,
+      eventPath: await eventPathForRecord(ctx.db, event, slug),
       programId: program._id,
       commandId,
       status: "queued" as const,
@@ -2625,7 +2626,7 @@ export const createCommunityEventForMcpOwner = internalMutation({
     });
 
     if (existing !== null) {
-      return withCurrentWritePaths(existing.result as McpEventWriteResult);
+      return await withCurrentEventWritePaths(ctx.db, existing.result as McpEventWriteResult);
     }
 
     let community: Doc<"profiles">;
@@ -2718,7 +2719,7 @@ export const updateCommunityEventForMcpOwner = internalMutation({
     });
 
     if (existing !== null) {
-      return withCurrentWritePaths(existing.result as McpEventWriteResult);
+      return await withCurrentEventWritePaths(ctx.db, existing.result as McpEventWriteResult);
     }
 
     let community: Doc<"profiles">;
@@ -3190,7 +3191,7 @@ export const configureVrcdnOutput = mutation({
 
     return {
       eventId: event._id,
-      eventPath: `/${slug}`,
+      eventPath: await eventPathForRecord(ctx.db, event, slug),
       programId,
       outputId,
       state: output.state,
@@ -3322,7 +3323,7 @@ export const scheduleEventMediaWorker = mutation({
 
     return {
       eventId: event._id,
-      eventPath: `/${slug}`,
+      eventPath: await eventPathForRecord(ctx.db, event, slug),
       programId: program._id,
       outputId: output._id,
       sessionId,
@@ -3388,7 +3389,7 @@ export const recordEventMediaWorkerTaskStatus = mutation({
 
     return {
       eventId: event._id,
-      eventPath: `/${slug}`,
+      eventPath: await eventPathForRecord(ctx.db, event, slug),
       programId: program._id,
       session: updatedSession === null ? workerSessionStatus(session) : workerSessionStatus(updatedSession),
     };
@@ -3445,7 +3446,7 @@ export const stopEventMediaWorker = mutation({
 
     return {
       eventId: event._id,
-      eventPath: `/${slug}`,
+      eventPath: await eventPathForRecord(ctx.db, event, slug),
       programId: program._id,
       sessionId: session._id,
       status: "stopping" as const,
@@ -3520,7 +3521,7 @@ export const markEventMediaWorkerEnded = mutation({
 
     return {
       eventId: event._id,
-      eventPath: `/${slug}`,
+      eventPath: await eventPathForRecord(ctx.db, event, slug),
       programId: program._id,
       sessionId: session._id,
       status,

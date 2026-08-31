@@ -52,7 +52,8 @@ const PRIVATE_ROUTE_GROUPS = [
  * review one surface at a time, and each fix covered only the surface reported.
  */
 const PUBLIC_ROUTE_GROUPS = [
-  // Public profile, world, and event pages, all resolved from one root slug.
+  // Public profiles and worlds use root slugs. Event display is nested below a
+  // community, while event authoring marks its private region directly.
   "[slug]",
   "auth",
   "deployment",
@@ -118,12 +119,27 @@ describe("session replay route blocking", () => {
   // drop it.
   const COMPONENT_BLOCKED = ["apps/web/src/app/_components/lookup-search-box.tsx"] as const;
 
+  const PAGE_BLOCKED = [
+    "apps/web/src/app/events/event-edit-page.tsx",
+    "apps/web/src/app/events/event-editor-page.tsx",
+  ] as const;
+
   for (const file of COMPONENT_BLOCKED) {
     it(`keeps the private region in ${file.split("/").pop()} blocked`, () => {
       assert.match(
         fs.readFileSync(path.join(process.cwd(), file), "utf8"),
         /data-ph-no-capture/,
         `${file} renders non-public data on a public route and must block it`,
+      );
+    });
+  }
+
+  for (const file of PAGE_BLOCKED) {
+    it(`keeps the private region in ${file.split("/").pop()} blocked`, () => {
+      assert.match(
+        fs.readFileSync(path.join(process.cwd(), file), "utf8"),
+        /data-ph-no-capture/,
+        `${file} renders private event-authoring data on a community route and must block it`,
       );
     });
   }

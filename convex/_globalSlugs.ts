@@ -1,9 +1,10 @@
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
 
-// Profiles, worlds, and events all render from the site root now -- vrdex.net/basicbit
-// rather than vrdex.net/p/basicbit -- so the three tables share one namespace. Every
-// slug rule lives here so the three entity modules cannot drift apart again.
+// Profiles and worlds render from the site root as vrdex.net/basicbit. Events
+// now render below their community, but availability remains conservatively
+// shared across all three tables until the event identifier contract is locked.
+// Every slug rule lives here so the entity modules cannot drift apart again.
 export const SLUG_MIN_LENGTH = 3;
 export const SLUG_MAX_LENGTH = 64;
 export const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -40,8 +41,9 @@ export const LIVE_ROUTE_SLUGS = [
 /**
  * The only paths that exist beneath an entity's own slug.
  *
- * `app/[slug]/edit` is the profile editor, `app/[slug]/calendar.ics` is the
- * event export, and `app/[slug]/opengraph-image` serves every public entity.
+ * `app/[slug]/edit` is the profile editor and `app/[slug]/opengraph-image`
+ * serves public root entities. `calendar.ics` remains catalogued while old
+ * route-shape audits and granted slugs are still supported.
  */
 export const ENTITY_SUBPATHS = ["edit", "calendar.ics", "opengraph-image"] as const;
 
@@ -58,9 +60,10 @@ export type EntitySubpath = (typeof ENTITY_SUBPATHS)[number];
  * them.
  *
  * `handoff/[token]/page.tsx` genuinely does match `/handoff/edit`, with the token
- * read as "edit", and shadows the calendar and image paths the same way. `l/[code]` has
- * the same shape. Which subpaths each takes is recorded rather than assumed,
- * because a static `edit` child would take one and strand only profiles.
+ * read as "edit", and shadows the calendar and image paths the same way.
+ * `l/[code]` and the compatibility reader at `events/[slug]` have the same
+ * shape. Which subpaths each takes is recorded rather than assumed, because a
+ * static `edit` child would take one and strand only profiles.
  *
  * Reported by `slugAudit` separately from live routes because the failure differs:
  * the public page still works and only nested entity subpaths are gone.
@@ -74,6 +77,7 @@ const ROUTE_PREFIX_SUBPATHS = new Map<string, readonly EntitySubpath[]>([
   // Dynamic children, so they match any single segment and take every subpath.
   ["handoff", ["edit", "calendar.ics", "opengraph-image"]],
   ["l", ["edit", "calendar.ics", "opengraph-image"]],
+  ["events", ["edit", "calendar.ics", "opengraph-image"]],
 ]);
 
 export const ROUTE_PREFIX_SLUGS = [...ROUTE_PREFIX_SUBPATHS.keys()];
@@ -441,8 +445,8 @@ export async function checkSlugAvailability(
     return { available: false, slug: validation.slug, reason: "reserved" };
   }
 
-  // Cross-table: profiles, worlds, and events all render from the site root, so a
-  // name a world already holds is taken for a profile too.
+  // Cross-table availability stays conservative until the event identifier
+  // contract is locked, even though events no longer render from the root.
   return remaining === null
     ? { available: true, slug: validation.slug }
     : { available: false, slug: validation.slug, reason: "taken" };

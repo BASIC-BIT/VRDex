@@ -559,8 +559,11 @@ function profileRoutePath(profile: Pick<PublicProfile, "profileType" | "slug">) 
   return `/${encodeURIComponent(profile.slug)}`;
 }
 
-function eventRoutePath(event: Pick<PublicEvent, "slug">) {
-  return `/${encodeURIComponent(event.slug)}`;
+function eventRoutePath(event: Pick<PublicEvent, "communitySlug" | "slug">) {
+  const eventSegment = encodeURIComponent(event.slug);
+  return event.communitySlug
+    ? `/${encodeURIComponent(event.communitySlug)}/events/${eventSegment}`
+    : `/events/${eventSegment}`;
 }
 
 function worldRoutePath(world: Pick<PublicWorld, "slug">) {

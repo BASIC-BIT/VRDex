@@ -1,5 +1,5 @@
-import { EventEditorPage } from "./event-editor-page";
+import { redirect } from "next/navigation";
 
 export default function NewEventPage() {
-  return <EventEditorPage />;
+  redirect("/account/events");
 }

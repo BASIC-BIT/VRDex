@@ -5,6 +5,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card, Eyebrow, SectionHeading, SectionTitle } from "@/components/ui/card";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 import { cn } from "@/lib/cn";
+import { publicEventPath } from "@/lib/event-path";
 import { safeImageBackground } from "@/lib/safe-image";
 import { ViewerLocalEventDateTime } from "./viewer-local-event-times";
 
@@ -34,6 +35,7 @@ type EventSourceType = "manual" | "community" | "partner" | "import" | "ai_sugge
 
 type PublicWorldEventPreview = {
   slug?: string;
+  communitySlug?: string;
   title: string;
   startAt: number;
   doorsOpenAt?: number;
@@ -212,6 +214,7 @@ function EventList({
     <div className="grid gap-3">
       {events.map((event) => {
         const sourceUrl = event.source.url ? safeHttpsUrl(event.source.url) : null;
+        const eventPath = publicEventPath(event);
         const posterStyle = safeImageBackground(event.thumbnailImageUrl, worldHeroOverlay);
         const posterTextClass = posterStyle ? "text-white/76" : "text-muted";
 
@@ -230,7 +233,7 @@ function EventList({
                 <span>Confirmed venue</span>
               </div>
               <h3 className={`mt-3 text-lg font-semibold tracking-[-0.03em] ${posterStyle ? "text-white" : ""}`}>
-                {event.slug ? <Link href={`/${event.slug}`}>{event.title}</Link> : event.title}
+                {eventPath ? <Link href={eventPath}>{event.title}</Link> : event.title}
               </h3>
               {event.communityName ? <p className={`mt-1 ${posterTextClass}`}>Hosted by {event.communityName}</p> : null}
             </div>

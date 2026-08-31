@@ -289,8 +289,9 @@ Candidate direction:
 
 ### Event Authoring
 
-- Anonymous `/events/new` and event edit routes redirect to sign-in with a
-  return destination.
+- Anonymous `/<community>/events/create` and
+  `/<community>/events/<event>/edit` routes redirect to sign-in with a return
+  destination.
 - Authenticated event editors show the form, not a paragraph about mutations
   or enabled adapters.
 

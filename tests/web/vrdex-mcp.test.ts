@@ -1041,7 +1041,7 @@ describe("VRDex MCP server", () => {
             return {
               eventId: "event_123",
               slug: "afterglow-night",
-              eventPath: "/afterglow-night",
+              eventPath: "/afterglow/events/afterglow-night",
               shortLinkCode: "abc123",
               shortLinkPath: "/s/abc123",
             };
@@ -1086,7 +1086,7 @@ describe("VRDex MCP server", () => {
     };
 
     assert.equal(result.status, 200);
-    assert.match(result.body, /"canonicalUrl":"https:\/\/app\.example\.test\/afterglow-night"/);
+    assert.match(result.body, /"canonicalUrl":"https:\/\/app\.example\.test\/afterglow\/events\/afterglow-night"/);
     assert.equal(result.mutationArgs.ownerUserId, "user_123");
     assert.equal(result.mutationArgs.oauthClientId, "vrdx_app_test");
     assert.equal(result.mutationArgs.oauthTokenId, "token-123");
@@ -1117,7 +1117,7 @@ describe("VRDex MCP server", () => {
       const write = {
         eventId: "event_123",
         slug: "afterglow-night",
-        eventPath: "/afterglow-night",
+        eventPath: "/afterglow/events/afterglow-night",
         shortLinkCode: "abc123",
         shortLinkPath: "/s/abc123",
       };
