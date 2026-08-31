@@ -122,7 +122,7 @@ Public previews include at most three ordered upcoming slot summaries. Discovery
 
 First `#121` slice: the event editor can preview and copy one deterministic Discord-ready post generated from the public event projection.
 
-The export includes the event title, canonical `/<slug>` URL, host and world names when projected, Discord timestamp tokens for the event time and slot times, slot lineup rows or public participant rows, and projected public media/watch links. It does not post to Discord, run a bot/Gateway flow, use arbitrary user-authored templates, depend on generated short links, or include private operator/media-control state.
+The export includes the event title, canonical `/<community>/events/<event-slug>` URL, host and world names when projected, Discord timestamp tokens for the event time and slot times, slot lineup rows or public participant rows, and projected public media/watch links. It does not post to Discord, run a bot/Gateway flow, use arbitrary user-authored templates, depend on generated short links, or include private operator/media-control state.
 
 ## Calendar Import And Export
 

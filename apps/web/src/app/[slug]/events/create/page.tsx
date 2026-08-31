@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 
+import { EventBackendNotice } from "../../../_components/event-public-page";
 import { EventEditorPage } from "../../../events/event-editor-page";
 import { fetchManagedCommunityBySlug } from "@/convex/server";
 
@@ -13,7 +14,11 @@ export default async function CommunityEventCreatePage({
   const { slug } = await params;
   const result = await fetchManagedCommunityBySlug(slug);
 
-  if (result.kind !== "live" || result.community === null) {
+  if (result.kind === "missing-url" || result.kind === "error") {
+    return <EventBackendNotice kind={result.kind} />;
+  }
+
+  if (result.community === null) {
     notFound();
   }
 

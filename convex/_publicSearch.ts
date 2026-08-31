@@ -43,6 +43,23 @@ export async function projectPublicSearchResult(
   document: Doc<"searchDocuments">,
   searchText: string | undefined,
 ): Promise<PublicSearchResult | null> {
+  if (document.entityType === "event" && document.eventId !== undefined) {
+    const event = await ctx.db.get(document.eventId);
+    const community = event?.communityProfileId === undefined
+      ? null
+      : await ctx.db.get(event.communityProfileId);
+
+    if (
+      community === null ||
+      community.profileType !== "community" ||
+      !canReadProfile("public", community)
+    ) {
+      return null;
+    }
+
+    return toPublicSearchResult(document, searchText);
+  }
+
   if (document.entityType !== "profile" || document.profileId === undefined) {
     return toPublicSearchResult(document, searchText);
   }

@@ -2,7 +2,6 @@ import type { Doc } from "./_generated/dataModel";
 import type { DatabaseWriter } from "./_generated/server";
 import {
   createProfileSearchDocument,
-  reindexEventSearchDocument,
   upsertSearchDocument,
   vocabularyForProfile,
 } from "./_searchDocuments";
@@ -36,58 +35,13 @@ export function isPubliclySurfaced(
   return profile.publicationState === "published" && profile.publicSurfacingState === "public";
 }
 
-async function reindexHostedEvents(
-  db: DatabaseWriter,
-  community: Doc<"profiles">,
-  now: number,
-) {
-  const events = await db
-    .query("events")
-    .withIndex("by_communityProfileId_startAt", (query) =>
-      query.eq("communityProfileId", community._id),
-    )
-    .collect();
-  const publicCommunity = isPubliclySurfaced(community) ? community : undefined;
-
-  for (const event of events) {
-    if (publicCommunity === undefined) {
-      await reindexEventSearchDocument(db, event, {}, now);
-      continue;
-    }
-
-    const participants = await db
-      .query("eventParticipants")
-      .withIndex("by_eventId", (query) => query.eq("eventId", event._id))
-      .filter((query) => query.eq(query.field("confirmationState"), "confirmed"))
-      .collect();
-    const worldAssociation = await db
-      .query("eventWorlds")
-      .withIndex("by_eventId", (query) => query.eq("eventId", event._id))
-      .filter((query) => query.eq(query.field("confirmationState"), "confirmed"))
-      .first();
-    const world = worldAssociation === null ? null : await db.get(worldAssociation.worldId);
-
-    await reindexEventSearchDocument(
-      db,
-      event,
-      {
-        community: publicCommunity,
-        world: world?.publicationState === "published" ? world : undefined,
-        roleLabels: participants.map((participant) => participant.roleLabel),
-      },
-      now,
-    );
-  }
-}
-
 /**
  * Take a profile off every public surface, or put it back.
  *
- * Hiding a profile is five things, not one: the state, the search document, the
+ * Hiding a profile is four things, not one: the state, the search document, the
  * vocabulary terms it contributed to discovery, and the worlds whose stored
- * search text still carries its display name. For communities, hosted event
- * search documents must follow the same transition. Suppression did the first
- * four; archival needs the identical four, and the fourth is the one that looks
+ * search text still carries its display name. Suppression did all four; archival
+ * needs the identical four, and the fourth is the one that looks
  * optional and leaves a retracted name searchable through its world credits
  * when skipped.
  *
@@ -138,10 +92,6 @@ export async function setProfileSurfacing(
     await recordVocabularyTerms(db, vocabularyForProfile(updated), next.now);
   } else {
     await releaseVocabularyTerms(db, vocabularyBefore, next.now);
-  }
-
-  if (updated.profileType === "community") {
-    await reindexHostedEvents(db, updated, next.now);
   }
 
   return { profileType: updated.profileType, profileSlug: updated.slug };

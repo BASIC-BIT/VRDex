@@ -343,6 +343,27 @@ function initialSlotRows(event: EditableEvent | undefined): SlotFormRow[] {
   }));
 }
 
+function initialSlotTemplate(event: EditableEvent | undefined) {
+  if (event === undefined) {
+    return { count: "4", duration: "60", break: "0" };
+  }
+
+  const firstSlot = event.slots[0];
+  const secondSlot = event.slots[1];
+  const duration = firstSlot?.endAt === undefined
+    ? 60
+    : Math.round((firstSlot.endAt - firstSlot.startAt) / 60_000);
+  const breakDuration = firstSlot?.endAt === undefined || secondSlot === undefined
+    ? 0
+    : Math.max(0, Math.round((secondSlot.startAt - firstSlot.endAt) / 60_000));
+
+  return {
+    count: String(event.slots.length),
+    duration: String(duration),
+    break: String(breakDuration),
+  };
+}
+
 function createGeneratedSlotRows(
   count: number,
   durationMinutes: number,
@@ -351,7 +372,7 @@ function createGeneratedSlotRows(
   return Array.from({ length: count }, (_, index) => {
     const offsetMinutes = index * (durationMinutes + breakMinutes);
     return {
-      id: `generated-${Date.now()}-${index}`,
+      id: `generated-${index}`,
       offsetMinutes: String(offsetMinutes),
       durationMinutes: String(durationMinutes),
       personSlug: "",
@@ -478,7 +499,7 @@ function ConnectedEventEditorForm({
   const [vrcdnOutput, setVrcdnOutput] = useState<VrcdnOutputFormState>(() => createInitialVrcdnOutputForm(event));
   const [slotRows, setSlotRows] = useState(() => initialSlotRows(event));
   const [slotRowsDirty, setSlotRowsDirty] = useState(Boolean(event?.slots.length));
-  const [slotTemplate, setSlotTemplate] = useState({ count: "4", duration: "60", break: "0" });
+  const [slotTemplate, setSlotTemplate] = useState(() => initialSlotTemplate(event));
   const [cancellationReason, setCancellationReason] = useState("");
   const [eventStatus, setEventStatus] = useState(event?.status);
   const [isPublished, setIsPublished] = useState(event?.publicationState === "published");
@@ -611,6 +632,9 @@ function ConnectedEventEditorForm({
       const derivedEndAt = slotLinks.length === 0 || slotLinks.some((slot) => slot.endAt === undefined)
         ? undefined
         : Math.max(...slotLinks.map((slot) => slot.endAt!));
+      const preservedEndAt = event?.endAt === undefined
+        ? undefined
+        : event.endAt + (startAt - event.startAt);
       const doorsOffsetMinutes = doorsOpenBefore
         ? parseInteger(doorsOpenMinutes, "Doors-open offset minutes")
         : undefined;
@@ -625,9 +649,9 @@ function ConnectedEventEditorForm({
         ...(doorsOffsetMinutes === undefined
           ? {}
           : { doorsOpenAt: startAt - doorsOffsetMinutes * 60_000 }),
-        ...(derivedEndAt === undefined && event?.endAt === undefined
+        ...(derivedEndAt === undefined && preservedEndAt === undefined
           ? {}
-          : { endAt: derivedEndAt ?? event?.endAt }),
+          : { endAt: derivedEndAt ?? preservedEndAt }),
         timezone: submittedTimezone,
         summary: optionalString(stringField(formData.get("summary"))),
         notes: optionalString(stringField(formData.get("notes"))),

@@ -541,6 +541,40 @@ describe("search document projection", () => {
     assert.equal(await projectPublicSearchResult(ctx, document, "BASICBIT"), null);
   });
 
+  it("drops an event when its community became non-public after indexing", async () => {
+    const event = {
+      _id: "event123",
+      communityProfileId: "community123",
+    } as unknown as Doc<"events">;
+    const community = {
+      _id: "community123",
+      profileType: "community",
+      publicationState: "published",
+      publicSurfacingState: "suppressed",
+    } as unknown as Doc<"profiles">;
+    const document = {
+      entityType: "event",
+      eventId: event._id,
+      slug: "harbor-sessions",
+      routePath: "/afterglow/events/harbor-sessions",
+      title: "Harbor Sessions",
+      searchText: "Harbor Sessions",
+      exactTokens: ["harbor sessions"],
+      vocabularyKeys: [],
+      trustRank: 10,
+      featuredRank: 20,
+      publicState: "public",
+      updatedAt: 1,
+    } as unknown as Doc<"searchDocuments">;
+    const ctx = {
+      db: {
+        get: async (id: string) => id === event._id ? event : community,
+      },
+    } as unknown as QueryCtx;
+
+    assert.equal(await projectPublicSearchResult(ctx, document, "Harbor"), null);
+  });
+
   it("projects profile verification without exposing it as provenance copy", async () => {
     const profile = {
       _id: "profile123",
