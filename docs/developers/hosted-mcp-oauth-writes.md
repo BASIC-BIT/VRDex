@@ -7,9 +7,10 @@ the tools are advertised, and the harness connecting decides which it exposes or
 calls. What bounds a write is the scope the user granted at consent plus the
 per-resource permission checks the browser path already enforces.
 
-Four tools: `vrdex_event_create`, `vrdex_event_update`, `vrdex_profile_update`,
-and `vrdex_profile_submit`. Anonymous hosted reads and the credentialed local
-stdio bridge are unaffected.
+Five tools: `vrdex_event_create`, `vrdex_event_update`, `vrdex_profile_update`,
+`vrdex_profile_submit`, and `vrdex_profile_media_manage`. Anonymous hosted reads
+and the credentialed local stdio bridge are unaffected. Profile media management
+is hosted-only in this slice.
 
 ## Scopes
 
@@ -22,6 +23,7 @@ resource it means to write:
 | `vrdex_event_create`, `vrdex_event_update` | `mcp:write` + `events:write` |
 | `vrdex_profile_update` | `mcp:write` + `profile:write` |
 | `vrdex_profile_submit` | `mcp:write` + `profile:contribute` |
+| `vrdex_profile_media_manage` | `mcp:write` + `assets:write` |
 
 `profile:write` is bounded by what its consent screen says: "Edit your profiles".
 Reaching a profile the user does not own, whether by correcting an unclaimed one
@@ -37,6 +39,11 @@ name. Add `profile:contribute` if it also corrects profiles the user does not
 own or submits new ones; without it that client can read every profile and write
 only its own. Registration refuses `mcp:write` on its own, and refuses a resource
 scope with no `mcp:write`.
+
+A client that only manages media for profiles its user owns asks for `mcp:read
+profile:read mcp:write assets:write`. The read pair supplies the owner inventory
+and its media revision; the write pair cannot edit profile fields, publish
+events, or contribute to unclaimed profiles.
 
 ## Profile write authority
 
@@ -60,6 +67,49 @@ credited to the submitter, with `community_submitted` link provenance. Its
 idempotency receipt is load-bearing in a way the edit path's is not: without it a
 retried submission creates a second profile under a suffixed slug, and nothing
 merges them.
+
+## Profile media authority and lifecycle
+
+`vrdex_list_my_profiles` accepts an optional `mediaSlug`. When present, it
+returns only that owned claimed profile plus its complete recoverable media
+inventory and opaque `mediaVersion`. The inventory includes active and
+soft-deleted public assets, owner-editable metadata, dimensions, byte sizes,
+placements, and placement positions. It omits source URLs, original filenames,
+storage keys, content hashes, upload intents, processing leases, and upload
+credentials.
+
+`vrdex_profile_media_manage` has two operations:
+
+- `add_from_url` imports one image from a public HTTPS URL. It requires
+  `expectedMediaVersion`, an operator-chosen `idempotencyKey`, at least one
+  placement, and a title when the asset enters the gallery. The URL cannot
+  contain credentials, a custom port, query parameters, or a fragment. Redirects
+  are revalidated and pinned to public addresses before bytes are read.
+- `update` atomically applies one asset metadata, placement, or active/deleted
+  state change and optionally replaces the complete gallery or additional-logo
+  order. It requires `expectedMediaVersion` but no idempotency key. Omitted
+  metadata fields stay unchanged; explicit `null` clears supported metadata.
+  Placement and order arrays are complete desired-state replacements.
+
+`featured` remains an ordinary placement value, not a separate tool or flag,
+and is valid only when the same asset is also in `gallery`. Soft delete and
+restore use `state: "deleted"` and `state: "active"` in the same update operation.
+Every mutation rechecks active ownership, claimed state, quotas, and the opaque
+media revision inside the transaction. A stale revision is a definite refusal:
+read the owner inventory again before proposing another change.
+
+The hosted server fetches, validates, sanitizes, stores, and finalizes URL
+imports without returning its internal upload intent or one-time upload token.
+Binary bytes never appear in MCP JSON. Local-file upload is deferred until a
+client can provide a trusted out-of-band binary bridge; the current MCP does not
+turn a local path into a server-readable path and does not add a second import
+tool.
+
+Unclaimed-profile media keeps its separate contribution and review workflow.
+The owner tool cannot target it, cannot self-review it, and has no direct-publish
+bypass. A later contributor tool should be considered only after owner import is
+operationally proven, and should create a private proposal for browser-only
+super-admin review rather than reuse owner publication authority.
 
 ## Authorization contract
 
@@ -118,12 +168,14 @@ mutations with the authenticated VRDex user ID, sharing the same normalization
 and authority helpers as `/api/v0`. Registration metadata, consent copy, or a
 client-supplied slug never grants authority.
 
-The two write kinds ask different authority questions, and the tools say so:
+The write kinds ask different authority questions, and the tools say so:
 
 - event writes require the user to own the durable published community record;
 - profile writes require the user to own the profile, or the profile to be
   unclaimed, in which case the write lands as a community correction with
   `community_submitted` link provenance. `slug` stays owner-only either way.
+- profile media writes require active ownership of a claimed profile. There is
+  no unclaimed-profile fallback.
 
 Create and update preserve the public API contract introduced with PR #190:
 
@@ -142,13 +194,15 @@ Create and update preserve the public API contract introduced with PR #190:
 - a transport/commit outcome that cannot be proven returns an indeterminate
   result and says not to retry automatically.
 
-Each call requires an operator-chosen `idempotencyKey`. VRDex stores only its
+Event creates and updates, profile updates and submissions, and profile media
+URL imports require an operator-chosen `idempotencyKey`. VRDex stores only its
 SHA-256 hash and a canonical request fingerprint. The receipt key is scoped by
 user, OAuth client, and tool. An exact replay returns the original accepted
-result without another event or audit; reusing the key for different input
-fails. Tool annotations deliberately keep `idempotentHint: false`: receipts
-make an intentional same-key recovery safe but do not authorize an agent to
-retry automatically.
+result without another mutation; reusing the key for different input fails.
+Profile media desired-state updates do not take an idempotency key because the
+required `mediaVersion` and atomic transaction already reject stale replays.
+Tool annotations deliberately keep `idempotentHint: false`: receipts make an
+intentional same-key recovery safe but do not authorize automatic retry.
 
 ## Controls and observability
 
@@ -158,7 +212,9 @@ retry automatically.
   of any kind, event or profile, so one accepted request cannot bypass the
   per-write throttle.
 - `apiWriteAuditEvents` records the accepted mutation, owner, client ID, token
-  ID, request ID, tool, idempotency hash, and target IDs.
+  ID, request ID, tool, target IDs, and an idempotency hash only where the
+  operation has one. Media audit rows do not contain metadata, source URLs,
+  filenames, hashes, storage keys, processing tokens, or upload credentials.
 - `mcpToolEvents` records accepted, denied, indeterminate, or readback-warning outcomes
   without request bodies, raw keys, tokens, event content, or network
   identities.
@@ -181,8 +237,9 @@ retry automatically.
 | Scope downgrade or client overreach | Per-call check of `mcp:write` plus the specific resource scope that tool writes, so an over-broad grant still cannot reach a tool the client did not ask for |
 | Duplicate mutation after timeout | Transactional user/client/tool/key receipt plus request fingerprint; no automatic retry |
 | Shared-secret blast radius | No master MCP credential and no bearer forwarding |
-| Secret/content disclosure | Sanitized errors and attribution-only logs; no token, raw idempotency key, or event body persistence |
+| Secret/content disclosure | Sanitized errors and attribution-only logs; no bearer, raw idempotency key, upload credential, storage identifier, or content body persistence in ordinary audit/tool history. The caller-provided source URL is necessarily part of the tool input but is omitted from audit rows and output. |
 | Metadata or redirect abuse | Exact HTTPS redirect matching; path/query-bound native loopback matching with PKCE; CIMD size/deadline/address restrictions; constrained DCR |
+| Source import SSRF or oversized payload | HTTPS-only public-address resolution and pinning on every redirect, MIME allowlist, timeout, streaming byte cap, decode validation, and private storage writes before transactional finalization |
 
 ## Verification and client compatibility
 
@@ -198,6 +255,8 @@ Automated coverage must prove:
 - durable ownership rejection;
 - create/update omission and null behavior;
 - exact replay, fingerprint conflict, and client namespace isolation;
+- owner media inventory redaction, URL-import replay, stale media revision,
+  soft delete/restore, complete placement order, and no-token import plumbing;
 - accepted public readback, readback warning, and indeterminate/no-retry text;
 - write rate policy, multi-write batch rejection, audit attribution,
   content-safe event records, and rollback to the anonymous-read-only surface.
@@ -218,6 +277,17 @@ is still issued for `https://staging.vrdex.net/mcp`.
 
 Staging carries the write tools like every other environment, so the client
 matrix runs against a normal deployment with no dispatch input to set.
+
+The first production media test must use a BASIC-owned disposable profile and a
+non-sensitive public image URL. After explicit approval, read the owner media
+inventory, import one titled gallery image, verify its public projection, update
+one metadata field, soft-delete it, verify it leaves the public projection, and
+restore it. Reuse the original import key once to prove replay and submit one
+stale update to prove refusal. Finish by soft-deleting the disposable asset and
+confirming it leaves the public projection, with no pending intent or stray
+object left behind. The recoverable asset object and consumed replay receipt
+follow their documented retention cleanup instead of being deleted by this
+smoke. Do not use an unclaimed profile or the community review queue.
 
 | Client | Current preflight | Staged scoped-session evidence |
 | --- | --- | --- |

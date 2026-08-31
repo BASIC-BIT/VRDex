@@ -15,6 +15,7 @@ import {
   ApiProfileSubmitRequestSchema,
   ApiProfileUpdateRequestSchema,
   ApiProfileWriteResponseSchema,
+  ProfileAssetPlacementSchema,
   type ApiScope,
   getBearerTokenFromAuthorizationHeader,
   hasBearerTokenInUrl,
@@ -52,6 +53,10 @@ import {
   verifyOAuthAccessToken,
 } from "@/lib/server/oauth-jwt";
 import { publicSearchBackendFilters } from "@/lib/server/public-search-query";
+import {
+  completeMcpProfileMediaImport,
+  McpProfileMediaImportError,
+} from "@/lib/server/profile-media-mcp-import";
 import { hostedMcpReadScopes } from "@/lib/server/hosted-mcp-policy";
 import { vrcdnPlaybackHref } from "../../../../../convex/_vrcdnLinks";
 
@@ -72,6 +77,7 @@ type VrdexMcpServerOptions = {
   authInfo?: AuthInfo;
   adminConvex?: VrdexMcpAdminConvexClient;
   convex?: VrdexMcpConvexClient;
+  completeProfileMediaImport?: typeof completeMcpProfileMediaImport;
   now?: () => number;
 };
 type PublicSearchResponse = z.infer<typeof PublicSearchResponseSchema>;
@@ -89,7 +95,12 @@ const mcpSearchTypes = ["all", "person", "community", "profile", "world", "event
 const mcpRequiredScopes = hostedMcpReadScopes;
 const mcpEventWriteToolNames = ["vrdex_event_create", "vrdex_event_update"] as const;
 const mcpProfileWriteToolNames = ["vrdex_profile_update", "vrdex_profile_submit"] as const;
-const mcpWriteToolNames = [...mcpEventWriteToolNames, ...mcpProfileWriteToolNames] as const;
+const mcpAssetWriteToolNames = ["vrdex_profile_media_manage"] as const;
+const mcpWriteToolNames = [
+  ...mcpEventWriteToolNames,
+  ...mcpProfileWriteToolNames,
+  ...mcpAssetWriteToolNames,
+] as const;
 /**
  * The resource scope each write tool needs alongside `mcp:write`.
  *
@@ -104,6 +115,7 @@ const mcpWriteToolResourceScopes: Record<(typeof mcpWriteToolNames)[number], Api
   // Submitting is inherently a write to a profile nobody owns, so it asks for
   // the contribution grant rather than the edit-your-own-profiles one.
   vrdex_profile_submit: "profile:contribute",
+  vrdex_profile_media_manage: "assets:write",
 };
 /**
  * Reads of the caller's own inventory, which no anonymous session can serve.
@@ -153,6 +165,160 @@ const mcpDocumentIdSchema = z.string().min(1).max(260);
 const mcpSlugSchema = z.string().min(1).max(160);
 const mcpLimitSchema = z.number().int().min(1);
 const mcpIdempotencyKeySchema = z.string().trim().min(8).max(128);
+const mcpMediaVersionSchema = z.string().regex(/^[a-f0-9]{64}$/u);
+function isCredentialFreeHttpUrl(value: string) {
+  try {
+    const url = new URL(value);
+
+    return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+}
+const mcpProfileMediaCreditUrlSchema = z
+  .string()
+  .url()
+  .max(2_048)
+  .refine(isCredentialFreeHttpUrl, {
+    message: "Credit URL must use HTTP or HTTPS without embedded credentials.",
+  });
+function isSafeMcpProfileMediaSourceUrl(value: string) {
+  try {
+    const url = new URL(value);
+
+    return (
+      url.protocol === "https:" &&
+      !url.username &&
+      !url.password &&
+      !url.port &&
+      !url.search &&
+      !url.hash
+    );
+  } catch {
+    return false;
+  }
+}
+const mcpProfileMediaMetadataSchema = z.object({
+  label: z.string().max(80).nullable().optional(),
+  caption: z.string().max(240).nullable().optional(),
+  altText: z.string().max(180).nullable().optional(),
+  credit: z.string().max(120).nullable().optional(),
+  creditUrl: mcpProfileMediaCreditUrlSchema.nullable().optional(),
+}).refine((value) => Object.keys(value).length > 0, {
+  message: "Metadata must include at least one field.",
+});
+const mcpProfileMediaAddInputSchema = z.object({
+  operation: z.literal("add_from_url"),
+  slug: mcpSlugSchema,
+  expectedMediaVersion: mcpMediaVersionSchema,
+  idempotencyKey: mcpIdempotencyKeySchema,
+  sourceUrl: z.string().url().max(2_048).refine(isSafeMcpProfileMediaSourceUrl, {
+    message: "Source URL must be public HTTPS without credentials, a custom port, query parameters, or a fragment.",
+  }),
+  metadata: z.object({
+    label: z.string().max(80).optional(),
+    caption: z.string().max(240).optional(),
+    altText: z.string().max(180).optional(),
+    credit: z.string().max(120).optional(),
+    creditUrl: mcpProfileMediaCreditUrlSchema.optional(),
+  }).optional(),
+  placements: z.array(ProfileAssetPlacementSchema).min(1).max(6),
+}).superRefine((value, context) => {
+  if (new Set(value.placements).size !== value.placements.length) {
+    context.addIssue({
+      code: "custom",
+      message: "Profile media placements must be unique.",
+      path: ["placements"],
+    });
+  }
+  if (value.placements.includes("featured") && !value.placements.includes("gallery")) {
+    context.addIssue({
+      code: "custom",
+      message: "Featured media must also be a gallery item.",
+      path: ["placements"],
+    });
+  }
+  if (value.placements.includes("gallery") && !value.metadata?.label?.trim()) {
+    context.addIssue({
+      code: "custom",
+      message: "Gallery images require a title.",
+      path: ["metadata", "label"],
+    });
+  }
+});
+const mcpProfileMediaUpdateInputSchema = z.object({
+  operation: z.literal("update"),
+  slug: mcpSlugSchema,
+  expectedMediaVersion: mcpMediaVersionSchema,
+  asset: z.object({
+    assetId: z.string().min(1),
+    metadata: mcpProfileMediaMetadataSchema.optional(),
+    placements: z.array(ProfileAssetPlacementSchema).max(6).optional(),
+    state: z.enum(["active", "deleted"]).optional(),
+  }).refine(
+    (value) =>
+      value.metadata !== undefined ||
+      value.placements !== undefined ||
+      value.state !== undefined,
+    { message: "Asset update must include metadata, placements, or state." },
+  ).optional(),
+  galleryOrder: z.array(z.string().min(1)).max(12).optional(),
+  additionalLogoOrder: z.array(z.string().min(1)).max(12).optional(),
+}).refine(
+  (value) =>
+    value.asset !== undefined ||
+    value.galleryOrder !== undefined ||
+    value.additionalLogoOrder !== undefined,
+  { message: "Profile media update must include at least one change." },
+);
+const mcpProfileMediaManageInputSchema = z.discriminatedUnion("operation", [
+  mcpProfileMediaAddInputSchema,
+  mcpProfileMediaUpdateInputSchema,
+]);
+const mcpOwnedProfileMediaSchema = z.object({
+  profileId: z.string().min(1),
+  profileType: z.enum(["person", "community"]),
+  slug: mcpSlugSchema,
+  displayName: z.string().min(1),
+  mediaVersion: mcpMediaVersionSchema,
+  activePublicAssetCount: z.number().int().nonnegative(),
+  assets: z.array(z.object({
+    assetId: z.string().min(1),
+    state: z.enum(["active", "deleted"]),
+    source: z.enum([
+      "owner_authored",
+      "community_submitted",
+      "partner_provided",
+      "moderator",
+      "import",
+      "concierge",
+    ]),
+    label: z.string().optional(),
+    caption: z.string().optional(),
+    altText: z.string().optional(),
+    credit: z.string().optional(),
+    creditUrl: z.string().url().optional(),
+    mimeType: z.string().min(1),
+    byteSize: z.number().int().positive(),
+    downloadMimeType: z.string().min(1).optional(),
+    downloadByteSize: z.number().int().positive().optional(),
+    sourcePreserved: z.boolean(),
+    width: z.number().positive().optional(),
+    height: z.number().positive().optional(),
+    placements: z.array(z.object({
+      placement: ProfileAssetPlacementSchema,
+      position: z.number().int().nonnegative(),
+    })),
+  })),
+});
+const mcpOwnedProfilesResponseSchema = ApiMeProfilesResponseSchema.extend({
+  media: mcpOwnedProfileMediaSchema.optional(),
+});
+const mcpProfileMediaManageResultSchema = z.object({
+  operation: z.enum(["add_from_url", "update"]),
+  assetIds: z.array(z.string().min(1)).optional(),
+  media: mcpOwnedProfileMediaSchema,
+});
 const mcpEventUpdateInputSchema = z.object({
   idempotencyKey: mcpIdempotencyKeySchema,
   slug: mcpSlugSchema.describe("Current public event slug."),
@@ -630,7 +796,7 @@ async function boundedMcpToolCallNamesFromRequest(request: Request) {
 }
 
 async function recordHostedMcpWriteInvocation(args: {
-  idempotencyKeyHash: string;
+  idempotencyKeyHash?: string;
   principal: HostedMcpPrincipal;
   result: "accepted" | "denied" | "indeterminate" | "readback_warning";
   targetEventId?: Id<"events">;
@@ -639,7 +805,9 @@ async function recordHostedMcpWriteInvocation(args: {
 }) {
   try {
     await convexAdminHttpClient().mutation(internal.mcpToolEvents.recordWriteInvocation, {
-      idempotencyKeyHash: args.idempotencyKeyHash,
+      ...(args.idempotencyKeyHash === undefined
+        ? {}
+        : { idempotencyKeyHash: args.idempotencyKeyHash }),
       oauthClientId: args.principal.clientId,
       oauthTokenId: args.principal.tokenId,
       ownerUserId: args.principal.userId,
@@ -1409,6 +1577,8 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
   const anonymousPublicReads = options.anonymousPublicReads ?? hostedMcpAnonymousPublicReadsEnabled();
   const convex = () => options.convex ?? convexHttpClient();
   const adminConvex = () => options.adminConvex ?? convexAdminHttpClient();
+  const completeProfileMediaImport =
+    options.completeProfileMediaImport ?? completeMcpProfileMediaImport;
   const now = options.now ?? Date.now;
   const readToolMeta = mcpReadToolMeta(anonymousPublicReads);
   const principalFor = (toolName: (typeof mcpWriteToolNames)[number]) =>
@@ -1701,35 +1871,61 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     {
       title: "List My VRDex Profiles",
       description:
-        "List the profiles the signed-in VRDex user owns, including drafts and profiles kept off public pages. Each carries the updatedAt to send as expectedUpdatedAt when updating it.",
+        "List the profiles the signed-in VRDex user owns, including drafts and profiles kept off public pages. Pass mediaSlug to include that owned profile's complete recoverable media inventory and mediaVersion.",
       inputSchema: z.object({
         limit: z.number().int().min(1).max(100).optional(),
+        mediaSlug: mcpSlugSchema.optional(),
       }),
-      outputSchema: mcpOutputSchema(ApiMeProfilesResponseSchema),
+      outputSchema: mcpOutputSchema(mcpOwnedProfilesResponseSchema),
       annotations: { readOnlyHint: true, idempotentHint: true },
       _meta: { securitySchemes: mcpOwnedReadSecuritySchemes("vrdex_list_my_profiles") },
     },
-    async ({ limit }) => {
+    async ({ limit, mediaSlug }) => {
       const principal = ownedReadPrincipalFor("vrdex_list_my_profiles");
       if (principal === null) {
         return mcpOwnedReadUnauthorized("vrdex_list_my_profiles");
       }
 
-      let profiles;
-
-      try {
-        // The admin client and an owner-scoped internal query, not the public
-        // one: the profiles this exists to reach are exactly those the public
-        // query is right to hide.
-        profiles = await adminConvex().query(internal.profiles.listProfilesForApiOwner, {
-          ownerUserId: principal.userId,
-          ...(limit === undefined ? {} : { limit }),
-        });
-      } catch {
-        return mcpPublicReadUnavailable("profile inventory");
+      if (mediaSlug === undefined) {
+        let profiles;
+        try {
+          // The admin client and an owner-scoped internal query, not the public
+          // one: the profiles this exists to reach are exactly those the public
+          // query is right to hide.
+          profiles = await adminConvex().query(internal.profiles.listProfilesForApiOwner, {
+            ownerUserId: principal.userId,
+            ...(limit === undefined ? {} : { limit }),
+          });
+        } catch {
+          return mcpPublicReadUnavailable("profile inventory");
+        }
+        return mcpJsonResult(mcpOwnedProfilesResponseSchema, { profiles });
       }
 
-      return mcpJsonResult(ApiMeProfilesResponseSchema, { profiles });
+      let profile;
+      let media;
+      try {
+        [profile, media] = await Promise.all([
+          adminConvex().query(internal.profiles.getProfileForApiOwnerBySlug, {
+            ownerUserId: principal.userId,
+            slug: mediaSlug,
+          }),
+          adminConvex().query(internal.profileAssets.getOwnedMediaForMcpActor, {
+            ownerUserId: principal.userId,
+            slug: mediaSlug,
+          }),
+        ]);
+      } catch {
+        return mcpPublicReadUnavailable("profile media inventory");
+      }
+      if (profile === null || media === null) {
+        return mcpNotFound("Owned profile", mediaSlug);
+      }
+
+      return mcpJsonResult(mcpOwnedProfilesResponseSchema, {
+        profiles: [profile],
+        media,
+      });
     },
   );
 
@@ -2197,6 +2393,294 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
         principal,
         toolName: "vrdex_profile_submit",
         write,
+      });
+    },
+  );
+
+  server.registerTool(
+    "vrdex_profile_media_manage",
+    {
+      title: "Manage VRDex Profile Media",
+      description:
+        "Import one public image URL or update media for a profile owned by the signed-in VRDex user. Read vrdex_list_my_profiles with mediaSlug first and send its mediaVersion as expectedMediaVersion. Placements and order arrays replace their complete current values. This changes public data and requires explicit approval.",
+      inputSchema: mcpProfileMediaManageInputSchema,
+      outputSchema: mcpOutputSchema(mcpProfileMediaManageResultSchema),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+      _meta: { securitySchemes: mcpWriteSecuritySchemes("vrdex_profile_media_manage") },
+    },
+    async (input) => {
+      const principal = principalFor("vrdex_profile_media_manage");
+      if (principal === null) {
+        return mcpWriteUnauthorized("vrdex_profile_media_manage");
+      }
+
+      if (input.operation === "add_from_url") {
+        const {
+          expectedMediaVersion,
+          idempotencyKey,
+          metadata,
+          placements,
+          slug,
+          sourceUrl,
+        } = input;
+        const request = {
+          expectedMediaVersion,
+          placements,
+          slug,
+          sourceUrl,
+        };
+        const idempotencyKeyHash = sha256(idempotencyKey);
+        const requestFingerprint = sha256(canonicalJson({
+          metadata,
+          operation: input.operation,
+          ...request,
+        }));
+        let intent;
+
+        try {
+          intent = await adminConvex().mutation(
+            internal.profileAssets.createImportIntentForMcpOwner,
+            {
+              ...request,
+              ...(metadata ?? {}),
+              idempotencyKeyHash,
+              requestFingerprint,
+              oauthClientId: principal.clientId,
+              oauthTokenId: principal.tokenId,
+              ownerUserId: principal.userId,
+              requestId: principal.requestId,
+            },
+          );
+        } catch (error) {
+          const code = mcpConvexErrorCode(error);
+          await recordHostedMcpWriteInvocation({
+            idempotencyKeyHash,
+            principal,
+            result: code === null ? "indeterminate" : "denied",
+            toolName: "vrdex_profile_media_manage",
+          });
+          if (code === "MCP_MEDIA_VERSION_CONFLICT") {
+            return {
+              content: [{
+                type: "text" as const,
+                text: "Profile media changed after it was read. Read the owner media inventory again and retry with its new mediaVersion and a new idempotency key.",
+              }],
+              isError: true as const,
+            };
+          }
+          return code === null
+            ? {
+                content: [{
+                  type: "text" as const,
+                  text: "The profile media import did not complete cleanly. Read the owner media inventory before deciding whether to replay the same idempotency key.",
+                }],
+                isError: true as const,
+              }
+            : {
+                content: [{
+                  type: "text" as const,
+                  text: "VRDex rejected the profile media import. Confirm ownership, mediaVersion, placements, metadata, and source URL before retrying.",
+                }],
+                isError: true as const,
+              };
+        }
+
+        if (intent.status === "expired") {
+          await recordHostedMcpWriteInvocation({
+            idempotencyKeyHash,
+            principal,
+            result: "denied",
+            toolName: "vrdex_profile_media_manage",
+          });
+          return {
+            content: [{
+              type: "text" as const,
+              text: "That profile media import expired. Read the owner media inventory and retry with its current mediaVersion and a new idempotency key.",
+            }],
+            isError: true as const,
+          };
+        }
+
+        if (intent.status === "completed") {
+          await recordHostedMcpWriteInvocation({
+            idempotencyKeyHash,
+            principal,
+            result: "accepted",
+            targetProfileId: intent.media.profileId as Id<"profiles">,
+            toolName: "vrdex_profile_media_manage",
+          });
+          return mcpJsonResult(mcpProfileMediaManageResultSchema, {
+            operation: input.operation,
+            assetIds: intent.assetIds,
+            media: intent.media,
+          });
+        }
+
+        let completed;
+        try {
+          completed = await completeProfileMediaImport(
+            intent.intentId as Id<"profileAssetUploadIntents">,
+          );
+        } catch (error) {
+          const code = mcpConvexErrorCode(error);
+          const knownImportError = error instanceof McpProfileMediaImportError;
+          const indeterminate = knownImportError
+            ? error.outcome === "indeterminate"
+            : code === null;
+          await recordHostedMcpWriteInvocation({
+            idempotencyKeyHash,
+            principal,
+            result: indeterminate ? "indeterminate" : "denied",
+            toolName: "vrdex_profile_media_manage",
+          });
+          if (code === "MCP_MEDIA_VERSION_CONFLICT") {
+            return {
+              content: [{
+                type: "text" as const,
+                text: "Profile media changed while the image was being imported. Read the owner media inventory and retry with its new mediaVersion and a new idempotency key.",
+              }],
+              isError: true as const,
+            };
+          }
+          return {
+            content: [{
+              type: "text" as const,
+              text: indeterminate
+                ? "The profile media import may have completed. Read the owner media inventory before replaying the same idempotency key."
+                : "VRDex rejected the profile media import. Correct the image, source URL, metadata, or placements before retrying the same idempotency key.",
+            }],
+            isError: true as const,
+          };
+        }
+
+        let media;
+        try {
+          media = await adminConvex().query(internal.profileAssets.getOwnedMediaForMcpActor, {
+            ownerUserId: principal.userId,
+            slug: input.slug,
+          });
+        } catch {
+          await recordHostedMcpWriteInvocation({
+            idempotencyKeyHash,
+            principal,
+            result: "readback_warning",
+            toolName: "vrdex_profile_media_manage",
+          });
+          return {
+            content: [{
+              type: "text" as const,
+              text: "VRDex accepted the profile media import, but owner inventory readback failed. Do not retry automatically; read the profile media inventory first.",
+            }],
+            isError: true as const,
+          };
+        }
+        if (media === null) {
+          await recordHostedMcpWriteInvocation({
+            idempotencyKeyHash,
+            principal,
+            result: "readback_warning",
+            toolName: "vrdex_profile_media_manage",
+          });
+          return {
+            content: [{
+              type: "text" as const,
+              text: "VRDex accepted the profile media import, but the owned profile is no longer readable. Do not retry automatically.",
+            }],
+            isError: true as const,
+          };
+        }
+
+        await recordHostedMcpWriteInvocation({
+          idempotencyKeyHash,
+          principal,
+          result: "accepted",
+          targetProfileId: media.profileId as Id<"profiles">,
+          toolName: "vrdex_profile_media_manage",
+        });
+        return mcpJsonResult(mcpProfileMediaManageResultSchema, {
+          operation: input.operation,
+          assetIds: completed.assetIds,
+          media,
+        });
+      }
+
+      let media;
+      try {
+        media = await adminConvex().mutation(
+          internal.profileAssets.manageOwnedMediaForMcpActor,
+          {
+            slug: input.slug,
+            expectedMediaVersion: input.expectedMediaVersion,
+            ...(input.asset === undefined
+              ? {}
+              : {
+                  asset: {
+                    ...input.asset,
+                    assetId: input.asset.assetId as Id<"profileAssets">,
+                  },
+                }),
+            ...(input.galleryOrder === undefined
+              ? {}
+              : { galleryOrder: input.galleryOrder as Id<"profileAssets">[] }),
+            ...(input.additionalLogoOrder === undefined
+              ? {}
+              : {
+                  additionalLogoOrder:
+                    input.additionalLogoOrder as Id<"profileAssets">[],
+                }),
+            oauthClientId: principal.clientId,
+            oauthTokenId: principal.tokenId,
+            ownerUserId: principal.userId,
+            requestId: principal.requestId,
+          },
+        );
+      } catch (error) {
+        const code = mcpConvexErrorCode(error);
+        await recordHostedMcpWriteInvocation({
+          principal,
+          result: code === null ? "indeterminate" : "denied",
+          toolName: "vrdex_profile_media_manage",
+        });
+        if (code === "MCP_MEDIA_VERSION_CONFLICT") {
+          return {
+            content: [{
+              type: "text" as const,
+              text: "Profile media changed after it was read. Read the owner media inventory again and retry with its new mediaVersion.",
+            }],
+            isError: true as const,
+          };
+        }
+        return code === null
+          ? {
+              content: [{
+                type: "text" as const,
+                text: "The profile media update did not complete cleanly. Read the owner media inventory before attempting another update.",
+              }],
+              isError: true as const,
+            }
+          : {
+              content: [{
+                type: "text" as const,
+                text: "VRDex rejected the profile media update. Confirm ownership, mediaVersion, asset state, placements, metadata, and complete order arrays before retrying.",
+              }],
+              isError: true as const,
+            };
+      }
+
+      await recordHostedMcpWriteInvocation({
+        principal,
+        result: "accepted",
+        targetProfileId: media.profileId as Id<"profiles">,
+        toolName: "vrdex_profile_media_manage",
+      });
+      return mcpJsonResult(mcpProfileMediaManageResultSchema, {
+        operation: input.operation,
+        media,
       });
     },
   );

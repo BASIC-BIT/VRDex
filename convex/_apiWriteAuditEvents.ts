@@ -11,6 +11,7 @@ export const apiWriteAuditActionValidator = v.union(
   v.literal("event_updated"),
   v.literal("profile_asset_upload_intent_created"),
   v.literal("profile_asset_upload_completed"),
+  v.literal("profile_asset_managed"),
 );
 
 export const apiWriteAuditActorKindValidator = v.union(
@@ -34,7 +35,8 @@ export type ApiWriteAuditAction =
   | "event_created"
   | "event_updated"
   | "profile_asset_upload_intent_created"
-  | "profile_asset_upload_completed";
+  | "profile_asset_upload_completed"
+  | "profile_asset_managed";
 
 export type ApiWriteAuditActorKind =
   | "personal_api_token"
@@ -52,13 +54,15 @@ export const mcpWriteToolNameValidator = v.union(
   v.literal("vrdex_event_update"),
   v.literal("vrdex_profile_update"),
   v.literal("vrdex_profile_submit"),
+  v.literal("vrdex_profile_media_manage"),
 );
 
 export type McpWriteToolName =
   | "vrdex_event_create"
   | "vrdex_event_update"
   | "vrdex_profile_update"
-  | "vrdex_profile_submit";
+  | "vrdex_profile_submit"
+  | "vrdex_profile_media_manage";
 
 export async function recordApiWriteAuditEvent(
   db: DatabaseWriter,

@@ -777,6 +777,14 @@ export default defineSchema({
     // New constructors still require and write one explicitly.
     purpose: v.optional(profileAssetUploadIntentPurpose),
     targetSubmissionId: v.optional(v.id("profileMediaSubmissions")),
+    mcpOwnerUserId: v.optional(v.id("users")),
+    mcpOauthClientId: v.optional(v.string()),
+    mcpOauthTokenId: v.optional(v.string()),
+    mcpRequestId: v.optional(v.string()),
+    mcpIdempotencyKeyHash: v.optional(v.string()),
+    mcpRequestFingerprint: v.optional(v.string()),
+    mcpExpectedMediaVersion: v.optional(v.string()),
+    mcpAssetIds: v.optional(v.array(v.id("profileAssets"))),
     state: profileAssetUploadIntentState,
     processingToken: v.optional(v.string()),
     processingStartedAt: v.optional(v.number()),
@@ -791,6 +799,11 @@ export default defineSchema({
     .index("by_state_expiresAt", ["state", "expiresAt"])
     .index("by_targetProfileId_state_expiresAt", ["targetProfileId", "state", "expiresAt"])
     .index("by_targetSubmissionId", ["targetSubmissionId"])
+    .index("by_mcp_owner_client_key", [
+      "mcpOwnerUserId",
+      "mcpOauthClientId",
+      "mcpIdempotencyKeyHash",
+    ])
     .index("by_requestedBy", ["requestedBy.tokenIdentifier"]),
   profileMediaSubmissions: defineTable({
     profileId: v.id("profiles"),

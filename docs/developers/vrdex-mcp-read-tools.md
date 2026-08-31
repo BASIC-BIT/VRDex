@@ -219,6 +219,13 @@ returns drafts and profiles kept off public pages, and each row carries the
 `expectedUpdatedAt` -- the public reads cannot serve that for a profile they are
 right to hide.
 
+On hosted MCP only, `vrdex_list_my_profiles` also accepts `mediaSlug`. That
+focused read returns the selected owned claimed profile's recoverable media and
+opaque `mediaVersion` for `vrdex_profile_media_manage`. It never returns source
+URLs, storage identifiers, content hashes, upload intents, or upload
+credentials. The local stdio package keeps its existing `/api/v0/me/profiles`
+contract and does not expose media management in this slice.
+
 A configured credential also registers four approval-gated write tools:
 `vrdex_event_create`, `vrdex_event_update`, `vrdex_profile_update`, and
 `vrdex_profile_submit`. They use the existing
@@ -228,8 +235,10 @@ The event tools need `events:write`; profile updates need `profile:write`, plus
 need `profile:contribute`. Registration does not inspect the token's scopes, so
 all five credentialed tools are listed whenever a credential is present and the
 route refuses the ones it is not entitled to. The hosted `/mcp` server registers
-the same five behind OAuth, where `vrdex_list_my_profiles` advertises `mcp:read`
-plus `profile:read`. See `docs/developers/vrdex-mcp-event-writes.md` and
+those five plus the hosted-only `vrdex_profile_media_manage`, where
+`vrdex_list_my_profiles` advertises `mcp:read` plus `profile:read` and the media
+write advertises `mcp:write` plus `assets:write`. See
+`docs/developers/vrdex-mcp-event-writes.md` and
 `docs/developers/hosted-mcp-oauth-writes.md` for the write contracts.
 
 Local workspace command:
