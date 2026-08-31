@@ -44,6 +44,15 @@ test("profile edit signed out @visual", async ({ page }, testInfo) => {
   await captureRouteScreenshot(page, testInfo, "profile-edit-signed-out");
 });
 
+test("event editor @visual", async ({ page }, testInfo) => {
+  await page.goto("/playwright/event-editor");
+  await expect(page.getByRole("heading", { name: "Add event" })).toBeVisible();
+  await expect(page.getByLabel("Start", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Publish event" })).toBeVisible();
+  await expect(page.locator("details").filter({ hasText: "Media and links" })).not.toHaveAttribute("open");
+  await captureRouteScreenshot(page, testInfo, "event-editor");
+});
+
 test("unified BASICBIT search views @visual", async ({ page }, testInfo) => {
   await page.goto("/search?q=BASICBIT");
   await expect(page.getByRole("heading", { name: "Search VRDex" })).toBeVisible();

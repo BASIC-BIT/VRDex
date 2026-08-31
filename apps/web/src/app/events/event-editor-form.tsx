@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import type { ChangeEvent, FormEvent } from "react";
+import type { ChangeEvent, FormEvent, ReactNode } from "react";
 import { useEffect, useState, useTransition } from "react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { api } from "@convex-generated-api";
@@ -398,6 +398,29 @@ function chooseVisibleWorkerSession<Session extends { status: string; updatedAt:
   return sessions.find((session) => ["starting", "live", "hold", "fallback", "stopping"].includes(session.status)) ?? sessions[0];
 }
 
+function EditorSection({ children, title }: { children: ReactNode; title: string }) {
+  return (
+    <section className="grid gap-5 border-b border-border pb-8">
+      <h2 className="text-2xl font-semibold tracking-[-0.03em]">{title}</h2>
+      {children}
+    </section>
+  );
+}
+
+function EditorDisclosure({ children, title }: { children: ReactNode; title: string }) {
+  return (
+    <details className="group border-b border-border pb-6">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-4 py-2 text-xl font-semibold tracking-[-0.02em] marker:hidden">
+        {title}
+        <span aria-hidden="true" className="text-muted transition group-open:rotate-45">+</span>
+      </summary>
+      <div className="mt-5 grid gap-5 rounded-panel border border-border bg-surface px-4 py-5 sm:px-6 sm:py-6">
+        {children}
+      </div>
+    </details>
+  );
+}
+
 function DisabledEventEditorPanel() {
   return (
     <Card surface="dashed">
@@ -419,13 +442,16 @@ function SignInRequiredEventEditorPanel() {
   );
 }
 
-function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
+function ConnectedEventEditorForm({ demoMode = false, event }: { demoMode?: boolean; event?: EditableEvent }) {
   const createEvent = useMutation(api.events.createCommunityEvent);
   const updateEvent = useMutation(api.events.updateCommunityEvent);
   const setEventCancelled = useMutation(api.events.setCommunityEventCancelled);
   const configureVrcdnOutput = useMutation(api.events.configureVrcdnOutput);
-  const managedCommunities = useQuery(api.events.listManagedCommunities, {});
-  const vrcdnOutputAccounts = useQuery(api.events.listVrcdnOutputAccounts, {});
+  const managedCommunitiesQuery = useQuery(api.events.listManagedCommunities, demoMode ? "skip" : {});
+  const vrcdnOutputAccounts = useQuery(api.events.listVrcdnOutputAccounts, demoMode ? "skip" : {});
+  const managedCommunities = demoMode
+    ? [{ profileId: "fixture-community" as Id<"profiles">, slug: "afterglow", displayName: "Afterglow", roleLabel: "owner" }]
+    : managedCommunitiesQuery;
   const [currentSlug, setCurrentSlug] = useState(event?.slug);
   const eventMediaControlStatus = useQuery(api.events.getEventMediaControlStatus, currentSlug === undefined ? "skip" : { currentSlug });
   const eventAudit = useQuery(
@@ -668,46 +694,59 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
   }
 
   return (
-    <form className="grid gap-5" onSubmit={onSubmit}>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field>
-          Event title
-          <Input defaultValue={event?.title} name="title" placeholder="Afterglow Harbor Sessions" required />
-        </Field>
-        <Field>
-          Optional slug
-          <Input defaultValue={event?.slug} name="preferredSlug" placeholder="afterglow-harbor-sessions" />
-        </Field>
-      </div>
+    <form className="grid gap-8" onSubmit={onSubmit}>
+      <EditorSection title="Details">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(14rem,1fr)]">
+          <Field>
+            Event title
+            <Input defaultValue={event?.title} name="title" placeholder="Afterglow Harbor Sessions" required />
+          </Field>
+          <Field>
+            Slug
+            <Input defaultValue={event?.slug} name="preferredSlug" placeholder="afterglow-harbor-sessions" />
+          </Field>
+        </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field>
-          Community
-          {event ? (
-            <>
-              <Input disabled value={event.communityName ?? event.communitySlug ?? ""} />
-              <input name="communitySlug" type="hidden" value={event.communitySlug ?? ""} />
-            </>
-          ) : (
-            <>
-              <Select disabled={managedCommunities === undefined || managedCommunities.length === 0} name="communitySlug" required>
-                <option value="">Select a community</option>
-                {managedCommunities?.map((community) => (
-                  <option key={community.profileId} value={community.slug}>
-                    {community.displayName} · {community.roleLabel}
-                  </option>
-                ))}
-              </Select>
-            </>
-          )}
-        </Field>
-        <Field>
-          Optional world slug
-          <Input defaultValue={event?.worlds[0]?.slug} name="worldSlug" placeholder="neon-harbor" />
-        </Field>
-      </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field>
+            Community
+            {event ? (
+              <>
+                <Input disabled value={event.communityName ?? event.communitySlug ?? ""} />
+                <input name="communitySlug" type="hidden" value={event.communitySlug ?? ""} />
+              </>
+            ) : (
+              <>
+                <Select disabled={managedCommunities === undefined || managedCommunities.length === 0} name="communitySlug" required>
+                  <option value="">Select a community</option>
+                  {managedCommunities?.map((community) => (
+                    <option key={community.profileId} value={community.slug}>
+                      {community.displayName} · {community.roleLabel}
+                    </option>
+                  ))}
+                </Select>
+              </>
+            )}
+          </Field>
+          <Field>
+            World
+            <Input defaultValue={event?.worlds[0]?.slug} name="worldSlug" placeholder="neon-harbor" />
+          </Field>
+        </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Field>
+          Summary
+          <Input defaultValue={event?.summary} name="summary" placeholder="Short public event summary" />
+        </Field>
+
+        <Field>
+          Public notes
+          <Textarea className="min-h-24" defaultValue={event?.notes} name="notes" placeholder="Door notes, schedule notes, or other public context" />
+        </Field>
+      </EditorSection>
+
+      <EditorSection title="Schedule">
+        <div className="grid gap-4 md:grid-cols-2">
         <Field>
           Doors open
           <Input defaultValue={formatZonedDateTimeInput(event?.doorsOpenAt, event?.timezone)} name="doorsOpenAt" type="datetime-local" />
@@ -725,19 +764,11 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
           Time zone
           <Input name="timezone" onChange={(changeEvent) => setTimezone(changeEvent.currentTarget.value)} placeholder="America/New_York" value={timezone} />
         </Field>
-      </div>
+        </div>
+      </EditorSection>
 
-      <Field>
-        Summary
-        <Input defaultValue={event?.summary} name="summary" placeholder="Short public event summary" />
-      </Field>
-
-      <Field>
-        Public notes
-        <Textarea className="min-h-28" defaultValue={event?.notes} name="notes" placeholder="Door notes, schedule notes, or other public context" />
-      </Field>
-
-      <div className="grid gap-4 sm:grid-cols-3">
+      <EditorDisclosure title="Media and links">
+        <div className="grid gap-4 sm:grid-cols-3">
         <Field className="sm:col-span-1">
           Source label
           <Input defaultValue={event?.source.label} name="sourceLabel" placeholder="Community event listing" />
@@ -750,9 +781,9 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
           Poster image URL
           <Input defaultValue={event?.posterImageUrl} name="posterImageUrl" placeholder="https://..." />
         </Field>
-      </div>
+        </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-2">
         <Field>
           Banner image URL
           <Input defaultValue={event?.authoredBannerImageUrl} name="bannerImageUrl" placeholder="https://..." />
@@ -763,7 +794,7 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
           <Input defaultValue={event?.authoredThumbnailImageUrl} name="thumbnailImageUrl" placeholder="https://..." />
           <FieldText>Compact event-card image. Falls back to the poster or banner image.</FieldText>
         </Field>
-      </div>
+        </div>
 
       <Field>
         Media links
@@ -989,18 +1020,23 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
           )}
         </Card>
       )}
+      </EditorDisclosure>
 
-      <Field>
-        Linked person profiles
-        <Textarea className="min-h-28" defaultValue={serializeParticipants(event)} name="participantLinks" placeholder="dj-aurora | Performer&#10;vj-lumen | Staff" />
-        <FieldText>One per line: person slug | freeform role label.</FieldText>
-      </Field>
+      <EditorSection title="Lineup">
+        <details className="group rounded-control border border-border bg-surface px-4 py-3">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-medium marker:hidden">
+            Additional people
+            <span aria-hidden="true" className="text-muted transition group-open:rotate-45">+</span>
+          </summary>
+          <Field className="mt-4">
+            Linked person profiles
+            <Textarea className="min-h-24" defaultValue={serializeParticipants(event)} name="participantLinks" placeholder="dj-aurora | Performer&#10;vj-lumen | Staff" />
+            <FieldText>One per line: person slug | freeform role label.</FieldText>
+          </Field>
+        </details>
 
-      <Card className="grid gap-4" padding="sm" surface="strong">
-        <div>
-          <Eyebrow>DJ slots</Eyebrow>
-          <h3 className="mt-3 text-xl font-semibold tracking-[-0.03em]">Set times</h3>
-        </div>
+        <div className="grid gap-5">
+          <h3 className="text-xl font-semibold tracking-[-0.03em]">Set times</h3>
         <div className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end">
           <Field className="text-xs text-muted">
             Slot count
@@ -1042,7 +1078,7 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
             Generate
           </Button>
         </div>
-        <div className="grid gap-3">
+          <div className="grid gap-3">
           {slotRows.map((slot, index) => (
             <Card className="grid gap-3" key={slot.id} padding="sm" surface="dashed">
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
@@ -1163,64 +1199,65 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
           >
             Add slot
           </Button>
-        </div>
-      </Card>
-
-      {event === undefined ? null : (
-        <Card className="grid gap-3" padding="sm" surface="dashed">
-          <Field>
-            Cancellation reason
-            <Input
-              onChange={(changeEvent) => setCancellationReason(changeEvent.currentTarget.value)}
-              value={cancellationReason}
-            />
-          </Field>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              disabled={isSubmitting || eventStatus === "cancelled"}
-              onClick={() => void onSetCancelled(true)}
-              type="button"
-              variant="secondary"
-            >
-              Cancel event
-            </Button>
-            <Button
-              disabled={isSubmitting || eventStatus !== "cancelled"}
-              onClick={() => void onSetCancelled(false)}
-              type="button"
-              variant="secondary"
-            >
-              Restore event
-            </Button>
           </div>
-        </Card>
-      )}
+        </div>
+      </EditorSection>
 
       {event === undefined ? null : (
-        <Card className="grid gap-3" padding="sm" surface="dashed">
-          <h3 className="text-lg font-semibold">Change history</h3>
-          {eventAudit === undefined ? (
-            <p className="text-sm text-muted">Loading history…</p>
-          ) : eventAudit.length === 0 ? (
-            <p className="text-sm text-muted">No history</p>
-          ) : (
-            <ol className="grid gap-3">
-              {eventAudit.map((row, index) => (
-                <li className="border-t border-border pt-3 first:border-t-0 first:pt-0" key={`${row.createdAt}:${row.action}:${index}`}>
-                  <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <span className="font-medium capitalize">{formatMachineValue(row.action)}</span>
-                    <ViewerLocalEventDateTime className="text-xs text-muted" timestamp={row.createdAt} />
-                  </div>
-                  <p className="mt-1 text-xs text-muted">
-                    {row.actorDisplayName ?? formatMachineValue(row.actorSurface)}
-                    {row.changedFields.length > 0 ? ` · ${row.changedFields.join(", ")}` : ""}
-                  </p>
-                  {row.reason ? <p className="mt-1 text-sm">{row.reason}</p> : null}
-                </li>
-              ))}
-            </ol>
-          )}
-        </Card>
+        <EditorDisclosure title="Operations">
+          <Card className="grid gap-3" padding="sm" surface="dashed">
+            <Field>
+              Cancellation reason
+              <Input
+                onChange={(changeEvent) => setCancellationReason(changeEvent.currentTarget.value)}
+                value={cancellationReason}
+              />
+            </Field>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                disabled={isSubmitting || eventStatus === "cancelled"}
+                onClick={() => void onSetCancelled(true)}
+                type="button"
+                variant="secondary"
+              >
+                Cancel event
+              </Button>
+              <Button
+                disabled={isSubmitting || eventStatus !== "cancelled"}
+                onClick={() => void onSetCancelled(false)}
+                type="button"
+                variant="secondary"
+              >
+                Restore event
+              </Button>
+            </div>
+          </Card>
+
+          <Card className="grid gap-3" padding="sm" surface="dashed">
+            <h3 className="text-lg font-semibold">Change history</h3>
+            {eventAudit === undefined ? (
+              <p className="text-sm text-muted">Loading history…</p>
+            ) : eventAudit.length === 0 ? (
+              <p className="text-sm text-muted">No history</p>
+            ) : (
+              <ol className="grid gap-3">
+                {eventAudit.map((row, index) => (
+                  <li className="border-t border-border pt-3 first:border-t-0 first:pt-0" key={`${row.createdAt}:${row.action}:${index}`}>
+                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                      <span className="font-medium capitalize">{formatMachineValue(row.action)}</span>
+                      <ViewerLocalEventDateTime className="text-xs text-muted" timestamp={row.createdAt} />
+                    </div>
+                    <p className="mt-1 text-xs text-muted">
+                      {row.actorDisplayName ?? formatMachineValue(row.actorSurface)}
+                      {row.changedFields.length > 0 ? ` · ${row.changedFields.join(", ")}` : ""}
+                    </p>
+                    {row.reason ? <p className="mt-1 text-sm">{row.reason}</p> : null}
+                  </li>
+                ))}
+              </ol>
+            )}
+          </Card>
+        </EditorDisclosure>
       )}
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -1252,7 +1289,11 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
   );
 }
 
-export function EventEditorForm({ event }: { event?: EditableEvent }) {
+export function EventEditorForm({ demoMode = false, event }: { demoMode?: boolean; event?: EditableEvent }) {
+  if (demoMode) {
+    return <ConnectedEventEditorForm demoMode event={event} />;
+  }
+
   if (!convexUrl) {
     return <DisabledEventEditorPanel />;
   }
