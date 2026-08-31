@@ -2420,9 +2420,26 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       }
 
       if (input.operation === "add_from_url") {
-        const { idempotencyKey, metadata, ...request } = input;
+        const {
+          expectedMediaVersion,
+          idempotencyKey,
+          metadata,
+          placements,
+          slug,
+          sourceUrl,
+        } = input;
+        const request = {
+          expectedMediaVersion,
+          placements,
+          slug,
+          sourceUrl,
+        };
         const idempotencyKeyHash = sha256(idempotencyKey);
-        const requestFingerprint = sha256(canonicalJson({ metadata, ...request }));
+        const requestFingerprint = sha256(canonicalJson({
+          metadata,
+          operation: input.operation,
+          ...request,
+        }));
         let intent;
 
         try {

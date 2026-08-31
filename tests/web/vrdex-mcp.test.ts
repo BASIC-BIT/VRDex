@@ -1491,6 +1491,7 @@ describe("VRDex MCP server", () => {
     assert.match(String(importMutation.idempotencyKeyHash), /^[0-9a-f]{64}$/);
     assert.match(String(importMutation.requestFingerprint), /^[0-9a-f]{64}$/);
     assert.equal(JSON.stringify(importMutation).includes("operator-key-123"), false);
+    assert.equal("operation" in importMutation, false);
     assert.equal("idempotencyKey" in updateMutation, false);
     assert.equal("idempotencyKeyHash" in updateMutation, false);
     assert.deepEqual(updateMutation.asset, {
