@@ -47,35 +47,37 @@ test("profile edit signed out @visual", async ({ page }, testInfo) => {
 test("event editor @visual", async ({ page }, testInfo) => {
   await page.goto("/playwright/event-editor");
   await expect(page.getByRole("heading", { name: "Add event" })).toBeVisible();
-  await expect(page.getByText("/afterglow/events/afterglow-harbor-sessions", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Start", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Community", { exact: true })).toHaveCount(0);
   await expect(page.getByLabel("World", { exact: true })).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: /^Set [1-4]$/ })).toHaveCount(4);
+  await expect(page.getByRole("heading", { name: /^Session [1-4]$/ })).toHaveCount(4);
   await expect(page.getByRole("button", { name: "Generate" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Customize" })).toHaveCount(0);
+  await expect(page.getByLabel("Slug", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Publish event" })).toBeVisible();
   await expect(page.locator("details").filter({ hasText: "Media and links" })).not.toHaveAttribute("open");
 
-  await page.getByLabel("Lineup name").first().fill("Aurora");
+  await page.getByText("Details", { exact: true }).first().click();
+  await page.getByLabel("Display name").first().fill("Aurora");
   page.once("dialog", async (dialog) => {
     expect(dialog.message()).toBe("Replace edited set times?");
     await dialog.dismiss();
   });
-  await page.getByLabel("Slot count").fill("5");
-  await expect(page.getByLabel("Lineup name").first()).toHaveValue("Aurora");
-  await expect(page.getByRole("heading", { name: /^Set [1-4]$/ })).toHaveCount(4);
+  await page.getByLabel("Sessions").fill("5");
+  await expect(page.getByLabel("Display name").first()).toHaveValue("Aurora");
+  await expect(page.getByRole("heading", { name: /^Session [1-4]$/ })).toHaveCount(4);
 
   page.once("dialog", (dialog) => dialog.accept());
-  await page.getByLabel("Slot count").fill("0");
-  await expect(page.getByRole("heading", { name: /^Set \d+$/ })).toHaveCount(0);
-  await page.getByLabel("Slot count").fill("4");
-  await expect(page.getByRole("heading", { name: /^Set [1-4]$/ })).toHaveCount(4);
+  await page.getByLabel("Sessions").fill("0");
+  await expect(page.getByRole("heading", { name: /^Session \d+$/ })).toHaveCount(0);
+  await page.getByLabel("Sessions").fill("4");
+  await expect(page.getByRole("heading", { name: /^Session [1-4]$/ })).toHaveCount(4);
 
   page.once("dialog", (dialog) => dialog.accept());
-  await page.getByLabel("Slot count").fill("5");
-  await expect(page.getByRole("heading", { name: /^Set [1-5]$/ })).toHaveCount(5);
-  await page.getByLabel("Slot count").fill("4");
-  await expect(page.getByRole("heading", { name: /^Set [1-4]$/ })).toHaveCount(4);
+  await page.getByLabel("Sessions").fill("5");
+  await expect(page.getByRole("heading", { name: /^Session [1-5]$/ })).toHaveCount(5);
+  await page.getByLabel("Sessions").fill("4");
+  await expect(page.getByRole("heading", { name: /^Session [1-4]$/ })).toHaveCount(4);
   await captureRouteScreenshot(page, testInfo, "event-editor");
 });
 

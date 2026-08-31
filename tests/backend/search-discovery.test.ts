@@ -371,6 +371,19 @@ describe("search document projection", () => {
       "event_tag:afterglow_social",
       "event_tag:upcoming",
     ]);
+
+    const hiddenCommunityDocument = createEventSearchDocument(event, {
+      community: {
+        ...community,
+        publicSurfacingState: "suppressed",
+      } as Doc<"profiles">,
+    });
+
+    assert.equal(hiddenCommunityDocument.publicState, "public");
+    assert.equal(
+      hiddenCommunityDocument.routePath,
+      "/afterglow/events/afterglow-harbor-sessions",
+    );
   });
 
   it("omits hidden linked profile attribution names from world search documents", () => {

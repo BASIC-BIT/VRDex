@@ -321,7 +321,7 @@ const mcpProfileMediaManageResultSchema = z.object({
 });
 const mcpEventUpdateInputSchema = z.object({
   idempotencyKey: mcpIdempotencyKeySchema,
-  slug: mcpSlugSchema.describe("Current public event slug."),
+  slug: mcpSlugSchema.describe("Current public event code."),
   update: ApiEventUpdateRequestSchema,
 });
 const mcpEventCreateInputSchema = ApiEventCreateRequestSchema.extend({

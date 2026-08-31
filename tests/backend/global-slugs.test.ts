@@ -9,7 +9,6 @@ import {
   routePrefixSubpaths,
   validateSlugFormat,
 } from "../../convex/_globalSlugs";
-import { checkEventSlugAvailability, findAvailableEventSlug } from "../../convex/_eventSlugs";
 import { checkProfileSlugAvailability } from "../../convex/_profileSlugs";
 import { checkWorldSlugAvailability } from "../../convex/_worldSlugs";
 
@@ -63,7 +62,6 @@ describe("global slug namespace", () => {
     const db = createSlugTestDb({
       profiles: [{ _id: "profile1", slug: "afterglow", profileType: "community" }],
       worlds: [{ _id: "world1", slug: "neon-harbor" }],
-      events: [{ _id: "event1", slug: "harbor-sessions" }],
     });
 
     // A world cannot take the community's name, and vice versa: both render from
@@ -78,17 +76,6 @@ describe("global slug namespace", () => {
       slug: "neon-harbor",
       reason: "taken",
     });
-    assert.deepEqual(await checkEventSlugAvailability(db, "afterglow"), {
-      available: false,
-      slug: "afterglow",
-      reason: "taken",
-    });
-    assert.deepEqual(await checkProfileSlugAvailability(db, "harbor-sessions"), {
-      available: false,
-      slug: "harbor-sessions",
-      reason: "taken",
-    });
-
     assert.deepEqual(await checkProfileSlugAvailability(db, "unclaimed-name"), {
       available: true,
       slug: "unclaimed-name",
@@ -112,11 +99,7 @@ describe("global slug namespace", () => {
     for (const reserved of ["lookup", "submit", "settings", "basic"]) {
       assert.equal(isReservedSlug(reserved), true, `${reserved} should be reserved`);
 
-      for (const check of [
-        checkProfileSlugAvailability,
-        checkWorldSlugAvailability,
-        checkEventSlugAvailability,
-      ]) {
+      for (const check of [checkProfileSlugAvailability, checkWorldSlugAvailability]) {
         assert.deepEqual(await check(db, reserved), {
           available: false,
           slug: reserved,
@@ -140,91 +123,13 @@ describe("global slug namespace", () => {
     assert.equal(owner?.kind, "person");
   });
 
-  it("refuses a named event slug rather than suffixing it", async () => {
-    const db = createSlugTestDb({
-      profiles: [{ _id: "profile1", slug: "afterglow", profileType: "community" }],
-    });
-
-    // Derived-from-title slugs may be suffixed; a slug the caller named is a public
-    // address they chose. Returning `afterglow-2` would hand back a different one
-    // and report success.
-    await assert.rejects(
-      () => findAvailableEventSlug(db, { title: "Afterglow", preferredSlug: "afterglow" }),
-      /already taken/,
-    );
-
-    await assert.rejects(
-      () => findAvailableEventSlug(db, { title: "Support", preferredSlug: "support" }),
-      /reserved/,
-    );
-
-    // Nothing named, so the allocator is free to pick around a collision.
-    assert.equal(
-      await findAvailableEventSlug(db, { title: "Afterglow" }),
-      "afterglow-2",
-    );
-  });
-
-  it("lets an event keep a reserved slug it already holds", async () => {
-    // `updateCommunityEventRecord` passes the event's own slug as the preferred
-    // value on every edit, so refusing reserved names unconditionally locked an
-    // event that owns a granted premium name out of all editing, summary changes
-    // included. Reserved means "not handed out", not "cannot be kept".
-    const db = createSlugTestDb({ events: [{ _id: "event1", slug: "club" }] });
-
-    assert.equal(isReservedSlug("club"), true);
-    assert.equal(
-      await findAvailableEventSlug(
-        db,
-        { title: "Club Night", preferredSlug: "club" },
-        { excludingEventId: "event1" as never },
-      ),
-      "club",
-    );
-
-    // Still refused for anyone who does not already hold it.
-    await assert.rejects(
-      () => findAvailableEventSlug(db, { title: "Club Night", preferredSlug: "club" }),
-      /reserved/,
-    );
-    await assert.rejects(
-      () =>
-        findAvailableEventSlug(
-          db,
-          { title: "Club Night", preferredSlug: "club" },
-          { excludingEventId: "event2" as never },
-        ),
-      /reserved/,
-    );
-  });
-
-  it("lets an event keep its own slug through an update", async () => {
-    // `events.ts` passes the event's current slug as the preferred value on every
-    // update, so excluding itself is what stops an unrelated edit from throwing.
-    const db = createSlugTestDb({
-      events: [{ _id: "event1", slug: "harbor-sessions" }],
-    });
-
-    assert.equal(
-      await findAvailableEventSlug(
-        db,
-        { title: "Harbor Sessions", preferredSlug: "harbor-sessions" },
-        { excludingEventId: "event1" as never },
-      ),
-      "harbor-sessions",
-    );
-  });
-
-  it("lets any entity keep a reserved slug it already holds", async () => {
+  it("lets either root entity keep a reserved slug it already holds", async () => {
     // `ops:profile-rename` passes the current slug back as `--new-slug`, so an
     // idempotent rename of the profile called `basic` failed on the reserved gate
-    // before the ownership check could see it was the same row. Events learned this
-    // in an earlier round and profiles did not, which is what sharing one
-    // implementation between the three now prevents.
+    // before the ownership check could see it was the same row.
     const db = createSlugTestDb({
       profiles: [{ _id: "profile1", slug: "basic", profileType: "person" }],
       worlds: [{ _id: "world1", slug: "club" }],
-      events: [{ _id: "event1", slug: "stage" }],
     });
 
     assert.deepEqual(await checkProfileSlugAvailability(db, "basic", "profile1" as never), {
@@ -235,11 +140,6 @@ describe("global slug namespace", () => {
       available: true,
       slug: "club",
     });
-    assert.deepEqual(await checkEventSlugAvailability(db, "stage", "event1" as never), {
-      available: true,
-      slug: "stage",
-    });
-
     // Nobody else may take them, and holding one row does not unlock another's.
     assert.deepEqual(await checkProfileSlugAvailability(db, "basic"), {
       available: false,
@@ -306,16 +206,14 @@ describe("global slug namespace", () => {
     ]);
   });
 
-  it("resolves the owner across all three tables", async () => {
+  it("resolves the owner across both root entity tables", async () => {
     const db = createSlugTestDb({
       profiles: [{ _id: "profile1", slug: "afterglow", profileType: "community" }],
       worlds: [{ _id: "world1", slug: "neon-harbor" }],
-      events: [{ _id: "event1", slug: "harbor-sessions" }],
     });
 
     assert.equal((await findSlugOwner(db, "afterglow"))?.kind, "community");
     assert.equal((await findSlugOwner(db, "neon-harbor"))?.kind, "world");
-    assert.equal((await findSlugOwner(db, "harbor-sessions"))?.kind, "event");
     assert.equal(await findSlugOwner(db, "nobody-here"), null);
   });
 });

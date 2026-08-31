@@ -385,12 +385,15 @@ export function createEventSearchDocument(
   const sourceUrl = safeHttpsUrl(event.sourceUrl);
   const vocabulary = vocabularyForEvent(event, context.roleLabels ?? []);
   const worldTerms = context.world ? [context.world.displayName, ...context.world.tags] : [];
-  const publicCommunity = context.community !== undefined && canReadProfile("public", context.community)
+  const indexedCommunity = context.community?.profileType === "community"
     ? context.community
     : undefined;
-  const routePath = event.slug === undefined || publicCommunity === undefined
+  // Keep published events eligible in the index across community visibility
+  // changes. Public search rechecks the live community before returning a row,
+  // so restoring a community works without an unbounded event reindex sweep.
+  const routePath = event.slug === undefined || indexedCommunity === undefined
     ? "/"
-    : eventPathForSlugs(publicCommunity.slug, event.slug);
+    : eventPathForSlugs(indexedCommunity.slug, event.slug);
   const isUpcoming = event.startAt >= Date.now();
 
   return {
@@ -399,19 +402,19 @@ export function createEventSearchDocument(
       event.publicationState === "published" &&
       event.eventStatus === "scheduled" &&
       event.slug !== undefined &&
-      publicCommunity !== undefined
+      indexedCommunity !== undefined
         ? "public"
         : "hidden",
     eventId: event._id,
     slug: event.slug ?? String(event._id),
     routePath,
     title: event.title,
-    subtitle: event.communityName ?? publicCommunity?.displayName ?? "Event",
+    subtitle: event.communityName ?? indexedCommunity?.displayName ?? "Event",
     ...optionalField("summary", event.summary),
     ...optionalField("imageUrl", firstSafeHttpsUrl(event.thumbnailImageUrl, event.posterImageUrl, event.bannerImageUrl)),
     searchText: weightedCorpus([
       { values: [event.title, event.slug], weight: 8 },
-      { values: [event.communityName, publicCommunity?.displayName], weight: 5 },
+      { values: [event.communityName, indexedCommunity?.displayName], weight: 5 },
       { values: worldTerms, weight: 4 },
       { values: context.roleLabels ?? [], weight: 3 },
       { values: [event.summary, event.notes, event.timezone, sourceUrl], weight: 1 },
@@ -420,7 +423,7 @@ export function createEventSearchDocument(
       event.title,
       event.slug,
       event.communityName,
-      publicCommunity?.displayName,
+      indexedCommunity?.displayName,
       ...worldTerms,
       ...(context.roleLabels ?? []),
     ]),

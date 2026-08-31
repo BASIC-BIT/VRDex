@@ -33,6 +33,8 @@ The first live implementation uses Convex full-text search. Convex supports rele
 
 Profile and event mutations update their own search documents. Worlds do not yet have a public write mutation, so `search.rebuildWorldSearchDocuments` is an internal backfill hook for keeping world search documents populated until that write path exists.
 
+Published event documents remain index-eligible across community visibility changes. Public search rechecks the event's live community before returning a result, so hiding takes effect immediately and restoring does not require an unbounded hosted-event reindex.
+
 Profile search documents always include public identity basics such as display name, slug, profile type, and route. Optional profile fields only participate when their `fieldVisibility` is `public`; `unlisted` fields remain visible on direct profile pages but are omitted from search text, exact tokens, vocabulary keys, summaries, and image cards.
 
 ## Semantic And Vector Search Seam

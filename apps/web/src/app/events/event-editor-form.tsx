@@ -20,7 +20,6 @@ import {
   formatZonedDateTimeInput,
   parseZonedDateTimeInput,
 } from "@/lib/calendar/zoned-date-time";
-import { createEventSlugBase } from "../../../../../convex/_eventSlugs";
 
 type EventMediaLinkType = PublicEvent["mediaLinks"][number]["type"];
 
@@ -148,7 +147,7 @@ const userSafeErrorPatterns = [
   /Person profile ".+" was not found\./,
   /You do not have permission to update this event\./,
   /You do not have permission to move this event to another community\./,
-  /Current event slug is invalid\./,
+  /Current event code is invalid\./,
   /Event was not found\./,
   /Output account is required\./,
   /Output account is not configured\./,
@@ -305,8 +304,8 @@ function parseSlotRows(rows: SlotFormRow[], eventStartAt: number) {
         displayLabel:
           optionalString(row.displayLabel) ??
           optionalString(row.personSlug) ??
-          `Slot ${index + 1}`,
-        roleLabel: optionalString(row.roleLabel) ?? "Performer",
+          `Session ${index + 1}`,
+        roleLabel: optionalString(row.roleLabel) ?? "Participant",
         startAt,
         ...(durationMinutes === undefined ? {} : { endAt: startAt + durationMinutes * 60_000 }),
       };
@@ -376,8 +375,8 @@ function createGeneratedSlotRows(
       offsetMinutes: String(offsetMinutes),
       durationMinutes: String(durationMinutes),
       personSlug: "",
-      displayLabel: `Slot ${index + 1}`,
-      roleLabel: "DJ set",
+      displayLabel: `Session ${index + 1}`,
+      roleLabel: "Participant",
     };
   });
 }
@@ -488,9 +487,6 @@ function ConnectedEventEditorForm({
   const [status, setStatus] = useState<EventEditorStatus>({ kind: "idle" });
   const [vrcdnOutputStatus, setVrcdnOutputStatus] = useState<VrcdnOutputStatus>({ kind: "idle" });
   const [timezone, setTimezone] = useState(event?.timezone ?? "UTC");
-  const [title, setTitle] = useState(event?.title ?? (demoMode ? "Afterglow Harbor Sessions" : ""));
-  const [slugOverride, setSlugOverride] = useState(event?.slug ?? "");
-  const [slugIsCustomized, setSlugIsCustomized] = useState(event !== undefined);
   const [doorsOpenBefore, setDoorsOpenBefore] = useState(event?.doorsOpenAt !== undefined);
   const [doorsOpenMinutes, setDoorsOpenMinutes] = useState(() => event?.doorsOpenAt === undefined
     ? "15"
@@ -643,7 +639,6 @@ function ConnectedEventEditorForm({
       }
       const payload = {
         title: stringField(formData.get("title")),
-        preferredSlug: optionalString(stringField(formData.get("preferredSlug"))),
         communitySlug,
         startAt,
         ...(doorsOffsetMinutes === undefined
@@ -746,10 +741,6 @@ function ConnectedEventEditorForm({
     vrcdnOutputStatus.kind !== "submitting" && !vrcdnOutputAccountsLoading && vrcdnOutputAccountOptions.length > 0;
   const visibleWorkerSession = chooseVisibleWorkerSession(eventMediaControlStatus?.sessions ?? []);
   const visibleWorkerOutput = eventMediaControlStatus?.outputs.find((output) => output.outputId === visibleWorkerSession?.outputId);
-  const generatedSlug = createEventSlugBase(title);
-  const displayedSlug = slugIsCustomized ? slugOverride : generatedSlug;
-  const preferredSlug = slugIsCustomized ? slugOverride : "";
-
   function onVrcdnOutputAccountChange(changeEvent: ChangeEvent<HTMLSelectElement>) {
     const value = eventTargetValue(changeEvent);
     const account = vrcdnOutputAccountOptions.find((option) => option.key === value);
@@ -768,47 +759,12 @@ function ConnectedEventEditorForm({
         <Field>
           Event title
           <Input
+            defaultValue={event?.title ?? (demoMode ? "Afterglow Harbor Sessions" : "")}
             name="title"
-            onChange={(changeEvent) => setTitle(eventTargetValue(changeEvent))}
             placeholder="Afterglow Harbor Sessions"
             required
-            value={title}
           />
         </Field>
-
-        <div className="flex flex-col gap-3 rounded-control border border-border bg-surface px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <code className="min-w-0 overflow-hidden text-ellipsis text-sm text-muted">
-            /{communitySlug}/events/{displayedSlug}
-          </code>
-          <Button
-            onClick={() => {
-              if (slugIsCustomized) {
-                setSlugIsCustomized(false);
-                setSlugOverride("");
-              } else {
-                setSlugIsCustomized(true);
-                setSlugOverride(generatedSlug);
-              }
-            }}
-            size="sm"
-            type="button"
-            variant="secondary"
-          >
-            {slugIsCustomized ? "Use automatic" : "Customize"}
-          </Button>
-        </div>
-
-        <input name="preferredSlug" type="hidden" value={preferredSlug} />
-        {slugIsCustomized ? (
-          <Field>
-            Slug
-            <Input
-              onChange={(changeEvent) => setSlugOverride(eventTargetValue(changeEvent))}
-              placeholder={generatedSlug}
-              value={slugOverride}
-            />
-          </Field>
-        ) : null}
 
         <Field>
           Summary
@@ -821,7 +777,7 @@ function ConnectedEventEditorForm({
         </Field>
       </EditorSection>
 
-      <EditorSection title="Schedule">
+      <EditorSection title="Timing">
         <div className="grid gap-4 md:grid-cols-2">
         <Field>
           Start
@@ -1110,54 +1066,53 @@ function ConnectedEventEditorForm({
       )}
       </EditorDisclosure>
 
-      <EditorSection title="Lineup">
-        <div className="grid gap-5">
-          <h3 className="text-xl font-semibold tracking-[-0.03em]">Set times</h3>
-        <div className="grid gap-3 sm:grid-cols-3 sm:items-end">
-          <Field className="text-xs text-muted">
-            Slot count
-            <Input
-              className="bg-surface-strong text-foreground"
-              inputMode="numeric"
-              onChange={(changeEvent) => {
-                onSlotTemplateChange("count", eventTargetValue(changeEvent));
-              }}
-              value={slotTemplate.count}
-            />
-          </Field>
-          <Field className="text-xs text-muted">
-            Duration minutes
-            <Input
-              className="bg-surface-strong text-foreground"
-              inputMode="numeric"
-              onChange={(changeEvent) => {
-                onSlotTemplateChange("duration", eventTargetValue(changeEvent));
-              }}
-              value={slotTemplate.duration}
-            />
-          </Field>
-          <Field className="text-xs text-muted">
-            Break minutes
-            <Input
-              className="bg-surface-strong text-foreground"
-              inputMode="numeric"
-              onChange={(changeEvent) => {
-                onSlotTemplateChange("break", eventTargetValue(changeEvent));
-              }}
-              value={slotTemplate.break}
-            />
-          </Field>
-        </div>
+      <EditorSection title="Program">
+        <div className="grid gap-4">
+          <div className="grid gap-3 sm:grid-cols-3 sm:items-end">
+            <Field className="text-xs text-muted">
+              Sessions
+              <Input
+                className="bg-surface-strong text-foreground"
+                inputMode="numeric"
+                onChange={(changeEvent) => {
+                  onSlotTemplateChange("count", eventTargetValue(changeEvent));
+                }}
+                value={slotTemplate.count}
+              />
+            </Field>
+            <Field className="text-xs text-muted">
+              Minutes each
+              <Input
+                className="bg-surface-strong text-foreground"
+                inputMode="numeric"
+                onChange={(changeEvent) => {
+                  onSlotTemplateChange("duration", eventTargetValue(changeEvent));
+                }}
+                value={slotTemplate.duration}
+              />
+            </Field>
+            <Field className="text-xs text-muted">
+              Break between
+              <Input
+                className="bg-surface-strong text-foreground"
+                inputMode="numeric"
+                onChange={(changeEvent) => {
+                  onSlotTemplateChange("break", eventTargetValue(changeEvent));
+                }}
+                value={slotTemplate.break}
+              />
+            </Field>
+          </div>
           <div className="grid gap-3">
-          {slotRows.map((slot, index) => (
-            <Card className="grid gap-4" key={slot.id} padding="sm" surface="dashed">
-              <div className="flex items-baseline justify-between gap-3">
-                <h4 className="font-semibold">Set {index + 1}</h4>
-                <span className="text-xs text-muted">+{slot.offsetMinutes} min · {slot.durationMinutes} min</span>
-              </div>
-              <div className="grid gap-3 md:grid-cols-3">
+            {slotRows.map((slot, index) => (
+            <Card className="grid gap-3" key={slot.id} padding="sm" surface="dashed">
+              <div className="grid gap-3 sm:grid-cols-[minmax(8rem,0.35fr)_minmax(0,1fr)] sm:items-end">
+                <div className="pb-2">
+                  <h4 className="font-semibold">Session {index + 1}</h4>
+                  <span className="text-xs text-muted">+{slot.offsetMinutes} min · {slot.durationMinutes} min</span>
+                </div>
                 <Field className="text-xs text-muted">
-                  Person profile
+                  Person
                   <PersonProfileInput
                     inputId={`slot-person-${slot.id}`}
                     onChange={(value, displayName) => {
@@ -1166,7 +1121,7 @@ function ConnectedEventEditorForm({
                             ...row,
                             personSlug: value,
                             ...(displayName !== undefined && (
-                              row.displayLabel.trim() === "" || row.displayLabel === `Slot ${index + 1}`
+                              row.displayLabel.trim() === "" || row.displayLabel === `Session ${index + 1}`
                             )
                               ? { displayLabel: displayName }
                               : {}),
@@ -1176,36 +1131,44 @@ function ConnectedEventEditorForm({
                     value={slot.personSlug}
                   />
                 </Field>
-                <Field className="text-xs text-muted">
-                  Lineup name
-                  <Input
-                    onChange={(changeEvent) => {
-                      const value = eventTargetValue(changeEvent);
-                      updateSlotRows((rows) => rows.map((row) => row.id === slot.id ? { ...row, displayLabel: value } : row));
-                    }}
-                    required
-                    value={slot.displayLabel}
-                  />
-                </Field>
-                <Field className="text-xs text-muted">
-                  Role or style
-                  <Input
-                    onChange={(changeEvent) => {
-                      const value = eventTargetValue(changeEvent);
-                      updateSlotRows((rows) => rows.map((row) => row.id === slot.id ? { ...row, roleLabel: value } : row));
-                    }}
-                    value={slot.roleLabel}
-                  />
-                </Field>
               </div>
+              <details className="group border-t border-border pt-3">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm font-medium marker:hidden">
+                  Details
+                  <span aria-hidden="true" className="text-muted transition group-open:rotate-45">+</span>
+                </summary>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <Field className="text-xs text-muted">
+                    Display name
+                    <Input
+                      onChange={(changeEvent) => {
+                        const value = eventTargetValue(changeEvent);
+                        updateSlotRows((rows) => rows.map((row) => row.id === slot.id ? { ...row, displayLabel: value } : row));
+                      }}
+                      required
+                      value={slot.displayLabel}
+                    />
+                  </Field>
+                  <Field className="text-xs text-muted">
+                    Role or style
+                    <Input
+                      onChange={(changeEvent) => {
+                        const value = eventTargetValue(changeEvent);
+                        updateSlotRows((rows) => rows.map((row) => row.id === slot.id ? { ...row, roleLabel: value } : row));
+                      }}
+                      value={slot.roleLabel}
+                    />
+                  </Field>
+                </div>
+              </details>
             </Card>
-          ))}
+            ))}
           </div>
         </div>
 
         <details className="group rounded-control border border-border bg-surface px-4 py-3">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-medium marker:hidden">
-            Additional people
+            Other participants
             <span aria-hidden="true" className="text-muted transition group-open:rotate-45">+</span>
           </summary>
           <Field className="mt-4">

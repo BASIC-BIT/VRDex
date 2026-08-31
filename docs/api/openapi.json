@@ -5770,11 +5770,6 @@
               }
             ]
           },
-          "preferredSlug": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 160
-          },
           "summary": {
             "anyOf": [
               {
@@ -6011,11 +6006,6 @@
             "maxLength": 64
           },
           "worldSlug": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 160
-          },
-          "preferredSlug": {
             "type": "string",
             "minLength": 1,
             "maxLength": 160

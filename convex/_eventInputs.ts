@@ -77,7 +77,6 @@ export type EventDraftInput = {
   participantLinks?: EventParticipantInput[];
   slotLinks?: EventSlotInput[];
   worldSlug?: string;
-  preferredSlug?: string;
 };
 
 export const eventDraftNullableFields = [
@@ -143,7 +142,6 @@ export type SanitizedEventDraftInput = {
   participantLinks: SanitizedEventParticipantInput[];
   slotLinks: SanitizedEventSlotInput[];
   worldSlug?: string;
-  preferredSlug?: string;
 };
 
 const eventMediaLinkTypes = new Set<EventMediaLinkType>([
@@ -435,7 +433,6 @@ export function sanitizeEventDraftInput(input: EventDraftInput): SanitizedEventD
     participantLinks,
     slotLinks,
     ...optionalObjectField("worldSlug", optionalBoundedText(input.worldSlug, "World slug", 64)),
-    ...optionalObjectField("preferredSlug", optionalBoundedText(input.preferredSlug, "Event slug", 64)),
   };
 }
 

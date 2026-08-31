@@ -97,8 +97,9 @@ describe("API-created event ownership", () => {
       startAt: NOW + 86_400_000,
       summary: "Browser-authored draft.",
     });
-    assert.equal(created.slug, "faceless-friday");
-    assert.equal(created.eventPath, "/faceless/events/faceless-friday");
+    assert.match(created.slug, /^[23456789abcdefghjkmnpqrstuvwxyz]{7}$/);
+    assert.equal(created.slug, created.shortLinkCode);
+    assert.equal(created.eventPath, `/faceless/events/${created.slug}`);
     const managed = await t.withIdentity(identity).query(api.events.listManagedCommunities, {});
     assert.deepEqual(managed.map((community) => community.slug), ["faceless"]);
     const managedEvents = await t.withIdentity(identity).query(api.events.listManagedEvents, {});

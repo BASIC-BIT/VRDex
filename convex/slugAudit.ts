@@ -8,16 +8,12 @@ import {
 
 /** The subpaths under `/<slug>` that this kind of entity uses. */
 function entitySubpathsFor(kind: string): readonly EntitySubpath[] {
-  if (kind === "event") {
-    return ["calendar.ics", "opengraph-image"];
-  }
-
   return kind === "world" ? ["opengraph-image"] : ["edit", "opengraph-image"];
 }
 
 /**
- * Slugs that stopped being reachable, or stopped being unique, when profiles,
- * worlds, and events moved to the site root.
+ * Slugs that stopped being reachable, or stopped being unique, when profiles and
+ * worlds moved to the site root.
  *
  * Read-only, and deliberately not a migration. Both failures need a human to pick
  * the winner: which of two entities keeps a name, and what an entity squatting a
@@ -35,10 +31,9 @@ function entitySubpathsFor(kind: string): readonly EntitySubpath[] {
 export const conflicts = internalQuery({
   args: {},
   handler: async (ctx) => {
-    const [profiles, worlds, events] = await Promise.all([
+    const [profiles, worlds] = await Promise.all([
       ctx.db.query("profiles").collect(),
       ctx.db.query("worlds").collect(),
-      ctx.db.query("events").collect(),
     ]);
 
     type Holder = {
@@ -79,21 +74,6 @@ export const conflicts = internalQuery({
         displayName: world.displayName,
         publicationState: world.publicationState,
       })),
-      // Events carry an optional slug, and one without a slug has no public page to
-      // collide over.
-      ...events.flatMap((event) =>
-        event.slug === undefined
-          ? []
-          : [
-              {
-                kind: "event",
-                id: event._id as string,
-                slug: event.slug,
-                displayName: event.title,
-                publicationState: event.publicationState,
-              },
-            ],
-      ),
     ];
 
     const bySlug = new Map<string, Holder[]>();
@@ -120,7 +100,7 @@ export const conflicts = internalQuery({
     // cannot print "nothing to migrate" over a broken nested route.
     //
     // Matched per kind against every subpath that kind uses. Share images belong to
-    // profiles, worlds, and events, while edit and calendar remain kind-specific.
+    // profiles and worlds, while edit remains profile-specific.
     //
     // Both of today's prefixes take both subpaths, having dynamic children. Asking
     // only "is this a prefix" would still have been right for them and wrong for a
@@ -136,7 +116,7 @@ export const conflicts = internalQuery({
     });
 
     return {
-      checked: { profiles: profiles.length, worlds: worlds.length, events: events.length },
+      checked: { profiles: profiles.length, worlds: worlds.length },
       liveRouteCount: LIVE_ROUTE_SLUGS.length,
       duplicates,
       shadowedByRoute,

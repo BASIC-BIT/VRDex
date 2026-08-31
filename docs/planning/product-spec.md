@@ -406,7 +406,7 @@ Current recommendation for initial event fields:
 
 Implementation status for the first event foundation slice:
 
-> **Update 2026-08-31:** superseded. Profiles and worlds are root links at `/<slug>`. Community events use `/<community>/events/<event-slug>`. See `docs/backend/profile-slugs.md` for the live contract.
+> **Update 2026-08-31:** superseded. Profiles and worlds are root links at `/<slug>`. Community events use generated codes at `/<community>/events/<event-code>`. See `docs/backend/profile-slugs.md` for the live contract.
 
 - events use editable readable slugs under `/e/<slug>`
 - generated durable `/l/<code>` short links are deferred to `#92`

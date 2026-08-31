@@ -446,7 +446,6 @@ export const ApiEventCreateRequestSchema = z
     endAt: timestampMs.optional(),
     timezone: z.string().max(64).optional(),
     worldSlug: slug.optional(),
-    preferredSlug: slug.optional(),
     summary: z.string().max(240).optional(),
     notes: z.string().max(1_200).optional(),
     sourceLabel: z.string().max(120).optional(),

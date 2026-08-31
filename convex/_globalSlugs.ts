@@ -2,8 +2,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
 
 // Profiles and worlds render from the site root as vrdex.net/basicbit. Events
-// now render below their community, but availability remains conservatively
-// shared across all three tables until the event identifier contract is locked.
+// use generated codes below their community and do not participate here.
 // Every slug rule lives here so the entity modules cannot drift apart again.
 export const SLUG_MIN_LENGTH = 3;
 export const SLUG_MAX_LENGTH = 64;
@@ -354,18 +353,13 @@ export async function getWorldBySlug(db: DatabaseReader, slug: string) {
   return await db.query("worlds").withIndex("by_slug", (q) => q.eq("slug", slug)).unique();
 }
 
-export async function getEventBySlug(db: DatabaseReader, slug: string) {
-  return await db.query("events").withIndex("by_slug", (q) => q.eq("slug", slug)).unique();
-}
-
 export type SlugOwner =
   | { kind: "person" | "community"; profile: Doc<"profiles"> }
-  | { kind: "world"; world: Doc<"worlds"> }
-  | { kind: "event"; event: Doc<"events"> };
+  | { kind: "world"; world: Doc<"worlds"> };
 
-export type SlugOwnerId = Id<"profiles"> | Id<"worlds"> | Id<"events">;
+export type SlugOwnerId = Id<"profiles"> | Id<"worlds">;
 
-// Whoever holds this slug across all three tables, ignoring visibility: an unpublished
+// Whoever holds this slug across both root entity tables, ignoring visibility: an unpublished
 // world still owns its name, so uniqueness has to see it. Callers that serve a page
 // apply their own public-visibility filter on top.
 //
@@ -386,11 +380,6 @@ export async function findSlugOwner(
     return { kind: "world", world };
   }
 
-  const event = await getEventBySlug(db, slug);
-  if (event !== null && event._id !== excluding) {
-    return { kind: "event", event };
-  }
-
   return null;
 }
 
@@ -399,7 +388,7 @@ export type SlugAvailability =
   | { available: false; slug: string; reason: "invalid" | "reserved" | "taken" };
 
 /**
- * Whether a slug can be assigned, shared by all three entity types.
+ * Whether a slug can be assigned, shared by profiles and worlds.
  *
  * The ownership check runs *before* the reserved gate, because keeping a name is
  * not taking one. A premium slug an operator granted is still reserved, and
@@ -418,7 +407,7 @@ export async function checkSlugAvailability(
     return { available: false, slug, reason: "invalid" };
   }
 
-  // Anyone *other than* the row being updated, across all three tables. Asked
+  // Anyone *other than* the row being updated, across both root entity tables. Asked
   // first because `findSlugOwner` reports only its first match: comparing an
   // unexcluded lookup against the excluded id instead would have seen a profile
   // keeping `afterglow` and never looked at the world also holding it, returning
@@ -443,8 +432,6 @@ export async function checkSlugAvailability(
     return { available: false, slug: validation.slug, reason: "reserved" };
   }
 
-  // Cross-table availability stays conservative until the event identifier
-  // contract is locked, even though events no longer render from the root.
   return remaining === null
     ? { available: true, slug: validation.slug }
     : { available: false, slug: validation.slug, reason: "taken" };

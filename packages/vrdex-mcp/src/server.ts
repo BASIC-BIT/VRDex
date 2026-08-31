@@ -33,7 +33,7 @@ const mcpSearchTypes = ["all", "person", "community", "profile", "world", "event
 const mcpSlugSchema = z.string().min(1).max(160);
 const mcpLimitSchema = z.number().int().min(1);
 const mcpEventUpdateInputSchema = z.object({
-  slug: mcpSlugSchema.describe("Current public event slug."),
+  slug: mcpSlugSchema.describe("Current public event code."),
   update: ApiEventUpdateRequestSchema,
 });
 const mcpEventWriteResultSchema = ApiEventWriteResponseSchema.extend({

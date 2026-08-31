@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { isReservedSlug } from "../../convex/_globalSlugs";
 import type { Doc } from "../../convex/_generated/dataModel";
 import type { DatabaseReader } from "../../convex/_generated/server";
 import { createDiscordTimestampSet, toDiscordTimestamp } from "../../convex/_discordTimestamps";
@@ -16,23 +15,11 @@ import {
   toPublicEvent,
   toPublicEventPreviewFromRecord,
 } from "../../convex/_eventPublic";
-import {
-  createEventSlugBase,
-  createEventSlugCandidate,
-  toEventSlug,
-  validateEventSlug,
-} from "../../convex/_eventSlugs";
+import { validateEventSlug } from "../../convex/_eventSlugs";
 import { generateSequentialEventSlots, sanitizeEventSlotInputs } from "../../convex/_eventSlots";
 
-describe("event slug helpers", () => {
-  it("normalizes event names into dated readable slugs", () => {
-    assert.equal(
-      createEventSlugBase(" Afterglow Harbor Sessions!! ", Date.UTC(2026, 5, 14, 22, 0, 0)),
-      "afterglow-harbor-sessions-2026-06-14",
-    );
-  });
-
-  it("validates canonical event slug rules", () => {
+describe("event code lookup", () => {
+  it("validates stored event codes before lookup", () => {
     assert.deepEqual(validateEventSlug("afterglow-harbor"), {
       ok: true,
       slug: "afterglow-harbor",
@@ -41,25 +28,9 @@ describe("event slug helpers", () => {
       ok: false,
       reason: "invalid_format",
     });
-    assert.deepEqual(validateEventSlug("events"), {
+    assert.deepEqual(validateEventSlug("7m2kp9q"), {
       ok: true,
-      slug: "events",
-    });
-    assert.equal(isReservedSlug("events"), true);
-  });
-
-  it("keeps retry candidates inside the maximum length", () => {
-    const base = "a".repeat(64);
-    const candidate = createEventSlugCandidate(base, 12);
-
-    assert.equal(candidate.length, 64);
-    assert.equal(candidate.endsWith("-12"), true);
-  });
-
-  it("turns freeform slug input into canonical event slugs", () => {
-    assert.deepEqual(toEventSlug("Afterglow Harbor"), {
-      ok: true,
-      slug: "afterglow-harbor",
+      slug: "7m2kp9q",
     });
   });
 });

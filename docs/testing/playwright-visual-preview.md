@@ -93,7 +93,6 @@ Profile screenshots use deterministic Next-server fixtures when `VRDEX_ENABLE_PL
 - `/support`
 - `/privacy/suppression` (redirects to `/support?topic=owner_opt_out`)
 - `/playwright/event-editor`
-- `/playwright-afterglow-social/events/playwright-afterglow-harbor-sessions/edit`
 - `/playwright-dj-aurora`
 - `/playwright-afterglow-social`
 - `/playwright-neon-harbor`

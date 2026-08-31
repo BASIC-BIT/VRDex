@@ -3166,10 +3166,6 @@ components:
               minLength: 1
               maxLength: 160
             - type: "null"
-        preferredSlug:
-          type: string
-          minLength: 1
-          maxLength: 160
         summary:
           anyOf:
             - type: string
@@ -3329,10 +3325,6 @@ components:
           type: string
           maxLength: 64
         worldSlug:
-          type: string
-          minLength: 1
-          maxLength: 160
-        preferredSlug:
           type: string
           minLength: 1
           maxLength: 160

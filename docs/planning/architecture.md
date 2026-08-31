@@ -283,7 +283,7 @@ Related policy recommendation:
 - likely fields: `slug`, `displayName`, `sortName`, `summary`, `description`, `vrchatWorldId`, `canonicalVrchatWorldUrl`, `sourceUrl`, `visibilityStatus`, `platformCompatibility`, `publicationState`, `creationSource`, `createdAt`, and `updatedAt`
 - supports public route `/w/<slug>`
 
-> **Update 2026-08-31:** superseded. Profiles and worlds are root links at `/<slug>`. Community events use `/<community>/events/<event-slug>`. See `docs/backend/profile-slugs.md` for the live contract.
+> **Update 2026-08-31:** superseded. Profiles and worlds are root links at `/<slug>`. Community events use generated codes at `/<community>/events/<event-code>`. See `docs/backend/profile-slugs.md` for the live contract.
 
 ### `world_media`
 
@@ -316,7 +316,7 @@ Related policy recommendation:
 
 Implementation status:
 
-> **Update 2026-08-31:** superseded. Profiles and worlds are root links at `/<slug>`. Community events use `/<community>/events/<event-slug>`. See `docs/backend/profile-slugs.md` for the live contract.
+> **Update 2026-08-31:** superseded. Profiles and worlds are root links at `/<slug>`. Community events use generated codes at `/<community>/events/<event-code>`. See `docs/backend/profile-slugs.md` for the live contract.
 
 - `events` stores canonical event data and readable `/e/<slug>` routing slugs
 - `eventParticipants` links published person profiles to events with source and confirmation metadata
@@ -762,7 +762,7 @@ AI should assist matching and extraction, not silently publish uncertain facts.
 
 ### Public web page
 
-> **Update 2026-08-31:** superseded. Profiles and worlds are root links at `/<slug>`. Community events use `/<community>/events/<event-slug>`. See `docs/backend/profile-slugs.md` for the live contract.
+> **Update 2026-08-31:** superseded. Profiles and worlds are root links at `/<slug>`. Community events use generated codes at `/<community>/events/<event-code>`. See `docs/backend/profile-slugs.md` for the live contract.
 
 - `/p/<slug>` for people
 - `/c/<slug>` for communities

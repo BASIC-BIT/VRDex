@@ -11,7 +11,8 @@ Generated short links are durable pointer records, not vanity slugs.
 Canonical public routes stay unchanged:
 
 - profiles and worlds use `/<slug>` from the site root
-- community events use `/<community>/events/<event-slug>`
+- community events use `/<community>/events/<event-code>` and reuse the same
+  code at `/l/<event-code>`
 - slug availability remains global until the event identifier contract is locked
 
 Generated short links use `/l/<code>` and redirect to the current canonical

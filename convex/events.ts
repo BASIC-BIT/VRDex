@@ -62,7 +62,7 @@ import {
   getPublicEventBySlug,
   getPublicEventPreviews,
 } from "./_eventPublic";
-import { findAvailableEventSlug, getEventBySlug, validateEventSlug } from "./_eventSlugs";
+import { getEventBySlug, validateEventSlug } from "./_eventSlugs";
 import { canReadProfile } from "./_profilePermissions";
 import { userOwnsProfile } from "./_profileOwnership";
 import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
@@ -153,7 +153,6 @@ const eventDraftArgs = {
     ),
   ),
   worldSlug: v.optional(v.string()),
-  preferredSlug: v.optional(v.string()),
 };
 
 const eventDraftUpdateArgs = {
@@ -963,7 +962,7 @@ async function updateCommunityEventForApiOwnerRecord(
   const validation = validateEventSlug(args.currentSlug);
 
   if (!validation.ok) {
-    throw new Error("Current event slug is invalid.");
+    throw new Error("Current event code is invalid.");
   }
 
   const event = await getEventBySlug(db, validation.slug);
@@ -1095,12 +1094,7 @@ async function insertCommunityEventRecord(
   const { community, input, submitter, world } = options;
   const now = Date.now();
   const publicationState = options.publicationState ?? "published";
-  const slug = await findAvailableEventSlug(db, {
-    title: input.title,
-    preferredSlug: input.preferredSlug,
-  });
   const eventId = await db.insert("events", {
-    slug,
     title: input.title,
     sortTitle: input.sortTitle,
     startAt: input.startAt,
@@ -1131,6 +1125,8 @@ async function insertCommunityEventRecord(
     { targetType: "event", targetId: eventId },
     now,
   );
+  const slug = shortLink.code;
+  await db.patch(eventId, { slug });
   const event = await db.get(eventId);
   if (event === null) {
     throw new Error("Event creation did not persist.");
@@ -1195,18 +1191,13 @@ async function updateCommunityEventRecord(
   } = options;
   const now = Date.now();
   const shouldUpdate = (field: keyof EventDraftInput) => updateFields === undefined || updateFields.has(field);
-  const slug = await findAvailableEventSlug(
-    db,
-    {
-      title: input.title,
-      startAt: input.startAt,
-      preferredSlug: input.preferredSlug ?? event.slug,
-    },
-    { excludingEventId: event._id },
-  );
+  const slug = event.slug;
+
+  if (slug === undefined) {
+    throw new Error("Event URL code is missing.");
+  }
 
   await db.patch(event._id, {
-    slug,
     title: input.title,
     sortTitle: input.sortTitle,
     startAt: input.startAt,
@@ -1338,7 +1329,7 @@ async function getEditableEventBySlug(
   const validation = validateEventSlug(currentSlug);
 
   if (!validation.ok) {
-    throw new Error("Current event slug is invalid.");
+    throw new Error("Current event code is invalid.");
   }
 
   const event = await getEventBySlug(ctx.db, validation.slug);
@@ -1362,7 +1353,7 @@ async function getMediaManageableEventBySlug(
   const validation = validateEventSlug(currentSlug);
 
   if (!validation.ok) {
-    throw new Error("Current event slug is invalid.");
+    throw new Error("Current event code is invalid.");
   }
 
   const event = await getEventBySlug(ctx.db, validation.slug);
@@ -1386,7 +1377,7 @@ async function getOperationsReadableEventBySlug(
   const validation = validateEventSlug(currentSlug);
 
   if (!validation.ok) {
-    throw new Error("Current event slug is invalid.");
+    throw new Error("Current event code is invalid.");
   }
 
   const event = await getEventBySlug(ctx.db, validation.slug);
@@ -2779,7 +2770,7 @@ export const updateCommunityEvent = mutation({
     const validation = validateEventSlug(args.currentSlug);
 
     if (!validation.ok) {
-      throw new Error("Current event slug is invalid.");
+      throw new Error("Current event code is invalid.");
     }
 
     const event = await getEventBySlug(ctx.db, validation.slug);
