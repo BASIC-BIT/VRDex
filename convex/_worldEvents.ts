@@ -7,6 +7,7 @@ import { safePublicLinkUrl } from "./_vrcdnLinks";
 const WORLD_EVENT_SECTION_LIMIT = 4;
 const WORLD_EVENT_CURRENT_CANDIDATE_LIMIT = 128;
 const ACTIVE_WORLD_QUERY_EVENT_LIMIT = 50;
+const ACTIVE_WORLD_QUERY_SCAN_LIMIT = 500;
 const ACTIVE_WORLD_CURRENT_EVENT_CANDIDATE_LIMIT = 128;
 const ACTIVE_WORLD_ASSOCIATION_LIMIT = 20;
 const ACTIVE_WORLD_MAX_LIMIT = 6;
@@ -82,6 +83,80 @@ export type PublicActiveWorldPreview = {
     };
   };
 };
+
+async function getVisibleFutureEventCandidates(
+  db: DatabaseReader,
+  now: number,
+): Promise<Doc<"events">[]> {
+  const visibleEvents: Doc<"events">[] = [];
+  let scannedEvents = 0;
+  let startAtCursor = now;
+  let creationTimeCursor: number | undefined;
+  let includeStartAtCursor = true;
+
+  while (
+    visibleEvents.length < ACTIVE_WORLD_QUERY_EVENT_LIMIT &&
+    scannedEvents < ACTIVE_WORLD_QUERY_SCAN_LIMIT
+  ) {
+    const pageSize = Math.min(
+      ACTIVE_WORLD_QUERY_EVENT_LIMIT,
+      ACTIVE_WORLD_QUERY_SCAN_LIMIT - scannedEvents,
+    );
+    const page = await db
+      .query("events")
+      .withIndex("by_publicationState_eventStatus_startAt", (query) => {
+        const scheduled = query
+          .eq("publicationState", "published")
+          .eq("eventStatus", "scheduled");
+
+        if (creationTimeCursor !== undefined) {
+          return scheduled
+            .eq("startAt", startAtCursor)
+            .gt("_creationTime", creationTimeCursor);
+        }
+
+        return includeStartAtCursor
+          ? scheduled.gte("startAt", startAtCursor)
+          : scheduled.gt("startAt", startAtCursor);
+      })
+      .take(pageSize);
+
+    if (page.length === 0) {
+      if (creationTimeCursor === undefined) {
+        break;
+      }
+      creationTimeCursor = undefined;
+      includeStartAtCursor = false;
+      continue;
+    }
+
+    scannedEvents += page.length;
+    const visibility = await Promise.all(
+      page.map(async (event) => {
+        if (event.communityProfileId === undefined) {
+          return true;
+        }
+        const community = await db.get(event.communityProfileId);
+        return community !== null && canReadProfile("public", community);
+      }),
+    );
+    for (const [index, event] of page.entries()) {
+      if (visibility[index]) {
+        visibleEvents.push(event);
+      }
+      if (visibleEvents.length === ACTIVE_WORLD_QUERY_EVENT_LIMIT) {
+        break;
+      }
+    }
+
+    const lastEvent = page[page.length - 1]!;
+    startAtCursor = lastEvent.startAt;
+    creationTimeCursor = lastEvent._creationTime;
+    includeStartAtCursor = true;
+  }
+
+  return visibleEvents;
+}
 
 function eventEndsAt(event: PublicWorldEventPreview): number {
   return event.endAt ?? event.startAt;
@@ -350,15 +425,7 @@ export async function getPublicActiveWorlds(
   now: number,
   limit: number,
 ): Promise<PublicActiveWorldPreview[]> {
-  const futureEvents = await db
-    .query("events")
-    .withIndex("by_publicationState_eventStatus_startAt", (query) =>
-      query
-        .eq("publicationState", "published")
-        .eq("eventStatus", "scheduled")
-        .gte("startAt", now),
-    )
-    .take(ACTIVE_WORLD_QUERY_EVENT_LIMIT);
+  const futureEvents = await getVisibleFutureEventCandidates(db, now);
   // ponytail: Current events use a fixed recent-start window. If real volume
   // can hide a valid multi-day event, replace this with indexed active state.
   const startedEventCandidates = await db

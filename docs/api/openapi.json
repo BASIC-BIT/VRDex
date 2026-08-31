@@ -5782,6 +5782,7 @@
             ]
           },
           "notes": {
+            "description": "Private notes visible only to authorized event managers.",
             "anyOf": [
               {
                 "type": "string",
@@ -6015,6 +6016,7 @@
             "maxLength": 240
           },
           "notes": {
+            "description": "Private notes visible only to authorized event managers.",
             "type": "string",
             "maxLength": 1200
           },
@@ -9984,9 +9986,6 @@
               "additionalProperties": {},
               "description": "Public event media or outbound link."
             }
-          },
-          "notes": {
-            "type": "string"
           },
           "participants": {
             "type": "array",

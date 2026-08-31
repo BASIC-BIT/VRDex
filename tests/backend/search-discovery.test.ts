@@ -343,6 +343,7 @@ describe("search document projection", () => {
       startAt: Date.now() + 86_400_000,
       communityName: "Afterglow Social",
       summary: "A poster-forward fixture event.",
+      notes: "private-manager-token",
       sourceType: "manual",
       sourceLabel: "Fixture event listing",
       eventStatus: "scheduled",
@@ -366,6 +367,7 @@ describe("search document projection", () => {
     assert.equal(eventDocument.publicState, "public");
     assert.equal(eventDocument.routePath, "/afterglow/events/afterglow-harbor-sessions");
     assert.ok(eventDocument.searchText.includes("Neon Harbor"));
+    assert.equal(eventDocument.searchText.includes("private-manager-token"), false);
     assert.deepEqual(eventDocument.vocabularyKeys, [
       "event_participant_role:house",
       "event_tag:afterglow_social",

@@ -907,7 +907,6 @@ const publicEvent: PublicEvent = {
   ...eventPreview,
   id: "event-playwright-afterglow-harbor-sessions",
   slug: eventSlug,
-  notes: "Doors open before the first set. Follow host announcements for instance details.",
   watchSurfaceEnabled: false,
   authoredMediaLinks: [
     {
@@ -1025,7 +1024,6 @@ const publicWatchEvent: PublicEvent = {
   doorsOpenAt: watchEventDoorsOpenAt,
   endAt: watchEventEndAt,
   summary: "Live room for the Afterglow set stream.",
-  notes: "Use the player during the event, or open the stream in a new tab.",
   bannerImageUrl: "/api/e2e/fixture-assets/fixture-afterglow-event-banner",
   thumbnailImageUrl: "/api/e2e/fixture-assets/fixture-afterglow-event-thumbnail",
   watchSurfaceEnabled: true,

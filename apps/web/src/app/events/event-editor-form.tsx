@@ -48,6 +48,7 @@ type VrcdnOutputFormState = {
 };
 
 type EditableEvent = PublicEvent & {
+  notes?: string;
   preservedCommunityProfileId?: Id<"profiles">;
   preservedParticipantAssociationIds: Id<"eventParticipants">[];
   preservedSlotAssociationIds: Id<"eventSlots">[];
@@ -327,7 +328,7 @@ function serializeParticipants(event: PublicEvent | undefined): string {
 
 function initialSlotRows(event: EditableEvent | undefined): SlotFormRow[] {
   if (event === undefined) {
-    return createGeneratedSlotRows(4, 60, 0);
+    return createGeneratedSlotRows(4, 60);
   }
 
   return event.slots.map((slot, index) => ({
@@ -345,32 +346,26 @@ function initialSlotRows(event: EditableEvent | undefined): SlotFormRow[] {
 
 function initialSlotTemplate(event: EditableEvent | undefined) {
   if (event === undefined) {
-    return { count: "4", duration: "60", break: "0" };
+    return { count: "4", duration: "60" };
   }
 
   const firstSlot = event.slots[0];
-  const secondSlot = event.slots[1];
   const duration = firstSlot?.endAt === undefined
     ? 60
     : Math.round((firstSlot.endAt - firstSlot.startAt) / 60_000);
-  const breakDuration = firstSlot?.endAt === undefined || secondSlot === undefined
-    ? 0
-    : Math.max(0, Math.round((secondSlot.startAt - firstSlot.endAt) / 60_000));
 
   return {
     count: String(event.slots.length),
     duration: String(duration),
-    break: String(breakDuration),
   };
 }
 
 function createGeneratedSlotRows(
   count: number,
   durationMinutes: number,
-  breakMinutes: number,
 ): SlotFormRow[] {
   return Array.from({ length: count }, (_, index) => {
-    const offsetMinutes = index * (durationMinutes + breakMinutes);
+    const offsetMinutes = index * durationMinutes;
     return {
       id: `generated-${index}`,
       offsetMinutes: String(offsetMinutes),
@@ -527,26 +522,25 @@ function ConnectedEventEditorForm({
     });
   }, [vrcdnOutputAccounts]);
 
-  function onSlotTemplateChange(field: "count" | "duration" | "break", value: string) {
+  function onSlotTemplateChange(field: "count" | "duration", value: string) {
     const nextTemplate = { ...slotTemplate, [field]: value };
 
     try {
       const count = parseInteger(nextTemplate.count, "Slot count");
       const duration = parseInteger(nextTemplate.duration, "Slot duration minutes");
-      const breakDuration = parseInteger(nextTemplate.break, "Break duration minutes");
 
-      if (count < 0 || duration <= 0 || breakDuration < 0) {
+      if (count < 0 || duration <= 0) {
         setSlotTemplate(nextTemplate);
         return;
       }
 
-      if (slotRowsDirty && !window.confirm("Replace edited set times?")) {
+      if (slotRowsDirty && !window.confirm("Replace edited schedule?")) {
         return;
       }
 
       const boundedCount = Math.min(count, EVENT_SLOT_MAX_COUNT);
       setSlotTemplate({ ...nextTemplate, count: String(boundedCount) });
-      setSlotRows(createGeneratedSlotRows(boundedCount, duration, breakDuration));
+      setSlotRows(createGeneratedSlotRows(boundedCount, duration));
       setSlotRowsDirty(false);
     } catch {
       setSlotTemplate(nextTemplate);
@@ -769,14 +763,17 @@ function ConnectedEventEditorForm({
         </Field>
 
         <Field>
-          Summary
-          <Input defaultValue={event?.summary} name="summary" placeholder="Short public event summary" />
+          Description
+          <Textarea className="min-h-24" defaultValue={event?.summary} name="summary" />
         </Field>
 
-        <Field>
-          Public notes
-          <Textarea className="min-h-24" defaultValue={event?.notes} name="notes" placeholder="Door notes, schedule notes, or other public context" />
-        </Field>
+        <details className="group rounded-control border border-border bg-surface px-4 py-3">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-medium marker:hidden">
+            Private notes
+            <span aria-hidden="true" className="text-muted transition group-open:rotate-45">+</span>
+          </summary>
+          <Textarea aria-label="Private notes" className="mt-4 min-h-24" defaultValue={event?.notes} name="notes" />
+        </details>
       </EditorSection>
 
       <EditorSection title="Timing">
@@ -1068,9 +1065,9 @@ function ConnectedEventEditorForm({
       )}
       </EditorDisclosure>
 
-      <EditorSection title="Program">
+      <EditorSection title="Schedule">
         <div className="grid gap-4">
-          <div className="grid gap-3 sm:grid-cols-3 sm:items-end">
+          <div className="grid gap-3 sm:grid-cols-2 sm:items-end">
             <Field className="text-xs text-muted">
               Sessions
               <Input
@@ -1094,17 +1091,6 @@ function ConnectedEventEditorForm({
                   onSlotTemplateChange("duration", eventTargetValue(changeEvent));
                 }}
                 value={slotTemplate.duration}
-              />
-            </Field>
-            <Field className="text-xs text-muted">
-              Break between
-              <Input
-                className="bg-surface-strong text-foreground"
-                inputMode="numeric"
-                onChange={(changeEvent) => {
-                  onSlotTemplateChange("break", eventTargetValue(changeEvent));
-                }}
-                value={slotTemplate.break}
               />
             </Field>
           </div>

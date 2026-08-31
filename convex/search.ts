@@ -84,8 +84,12 @@ export const listDiscovery = query({
     for (const document of upcomingEventDocuments) {
       eventDocuments.set(document._id, document);
     }
+    const projectedEvents = await Promise.all(
+      [...eventDocuments.values()].map((document) =>
+        projectPublicSearchResult(ctx, document, undefined)),
+    );
     const eventResults = sortSearchResults(
-      [...eventDocuments.values()].map((document) => toPublicSearchResult(document, undefined)),
+      projectedEvents.filter((result): result is NonNullable<typeof result> => result !== null),
     );
     const upcomingEvents = eventResults
       .filter((event) => event.startsAt !== undefined && event.startsAt >= now)

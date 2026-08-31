@@ -93,7 +93,6 @@ export type PublicEventPreview = {
 export type PublicEvent = Omit<PublicEventPreview, "worlds"> & {
   id: string;
   slug: string;
-  notes?: string;
   watchSurfaceEnabled: boolean;
   authoredBannerImageUrl?: string;
   authoredThumbnailImageUrl?: string;
@@ -385,12 +384,10 @@ export function EventPublicPage({ event }: { event: PublicEvent }) {
           </div>
         </section>
 
-        <Card surface="white">
-          <Eyebrow>Set times</Eyebrow>
-          <div className="mt-5">
-            {event.slots.length === 0 ? (
-              <p className="text-sm leading-6 text-muted">No set times yet.</p>
-            ) : (
+        {event.slots.length > 0 ? (
+          <Card surface="white">
+            <Eyebrow>Schedule</Eyebrow>
+            <div className="mt-5">
               <TableFrame>
                 <div className="grid divide-y divide-border text-sm sm:hidden">
                   {event.slots.map((slot) => (
@@ -413,8 +410,8 @@ export function EventPublicPage({ event }: { event: PublicEvent }) {
                   <TableHead>
                     <tr>
                       <TableHeaderCell>Time</TableHeaderCell>
-                      <TableHeaderCell>Artist</TableHeaderCell>
-                      <TableHeaderCell>Style(s)</TableHeaderCell>
+                      <TableHeaderCell>Session</TableHeaderCell>
+                      <TableHeaderCell>Details</TableHeaderCell>
                     </tr>
                   </TableHead>
                   <tbody className="divide-y divide-border">
@@ -436,17 +433,15 @@ export function EventPublicPage({ event }: { event: PublicEvent }) {
                   </tbody>
                 </Table>
               </TableFrame>
-            )}
-          </div>
-        </Card>
+            </div>
+          </Card>
+        ) : null}
 
-        <Card surface="white">
-          <Eyebrow>Lineup</Eyebrow>
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {event.participants.length === 0 ? (
-              <p className="text-sm leading-6 text-muted">No lineup yet.</p>
-            ) : (
-              event.participants.map((participant) => (
+        {event.participants.length > 0 ? (
+          <Card surface="white">
+            <Eyebrow>Participants</Eyebrow>
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {event.participants.map((participant) => (
                 <Link className={cn(actionCardVariants({ padding: "lg", variant: "accent" }), "flex items-center gap-3")} href={`/${participant.slug}`} key={participant.slug}>
                   <EntityImage appearance={participant.avatarAppearance} imageUrl={participant.imageUrl} label={participant.displayName} />
                   <span className="min-w-0">
@@ -457,15 +452,14 @@ export function EventPublicPage({ event }: { event: PublicEvent }) {
                     <span className={actionMetaClassName}>Profile</span>
                   </span>
                 </Link>
-              ))
-            )}
-          </div>
-        </Card>
+              ))}
+            </div>
+          </Card>
+        ) : null}
 
-        <section className="grid gap-4 lg:grid-cols-[1fr_1fr]">
-          <Card surface="white">
-            <Eyebrow>Links</Eyebrow>
-            <div className="mt-4 grid gap-3">
+        <Card surface="white">
+          <Eyebrow>Links</Eyebrow>
+          <div className="mt-4 grid gap-3">
               {eventPath ? <a className={actionCardVariants({ variant: "accent" })} href={`${eventPath}/calendar.ics`}>
                 <span className={actionLabelClassName}>Add to calendar</span>
                 <span className={actionMetaClassName}>Download .ics</span>
@@ -488,16 +482,8 @@ export function EventPublicPage({ event }: { event: PublicEvent }) {
                   </span>
                 </a>
               ))}
-            </div>
-          </Card>
-
-          <Card surface="white">
-            <Eyebrow>Notes</Eyebrow>
-            <div className="mt-4 space-y-4 text-sm leading-7 text-muted">
-              {event.notes ? <p>{event.notes}</p> : <p>No notes yet.</p>}
-            </div>
-          </Card>
-        </section>
+          </div>
+        </Card>
       </PageContainer>
     </PageShell>
   );

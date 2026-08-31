@@ -631,7 +631,6 @@ function eventToMcpDocument(event: PublicEvent): McpDocumentFetchResponse | null
   addMcpDocumentLine(lines, "End", formatTimestampMs(event.endAt));
   addMcpDocumentLine(lines, "Timezone", event.timezone);
   addMcpDocumentLine(lines, "Summary", event.summary);
-  addMcpDocumentLine(lines, "Notes", event.notes);
   addMcpDocumentLine(lines, "Worlds", formatNamedItems(event.worlds));
   addMcpDocumentLine(lines, "Media links", formatOutboundLinks(event.mediaLinks));
   addMcpDocumentLine(lines, "Source", formatSource(event.source));

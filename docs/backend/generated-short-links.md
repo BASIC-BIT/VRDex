@@ -13,7 +13,8 @@ Canonical public routes stay unchanged:
 - profiles and worlds use `/<slug>` from the site root
 - community events use `/<community>/events/<event-code>` and reuse the same
   code at `/l/<event-code>`
-- slug availability remains global until the event identifier contract is locked
+- profile and world slugs share the root namespace; event codes are scoped to
+  events and do not reserve root slugs
 
 Generated short links use `/l/<code>` and redirect to the current canonical
 route for the target. If a target slug changes later, the short link remains

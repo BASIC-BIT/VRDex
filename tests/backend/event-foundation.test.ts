@@ -606,6 +606,7 @@ describe("public event projection", () => {
     assert.equal(publicEvent?.communityImageUrl, "https://example.invalid/community-media-kit.png");
     assert.deepEqual(publicEvent?.communityAvatarAppearance, avatarAppearance);
     assert.equal(publicEvent?.watchSurfaceEnabled, true);
+    assert.equal("notes" in publicEvent!, false);
     assert.equal(publicEvent?.mediaLinks.length, 1);
     assert.equal(publicEvent?.worlds[0]?.heroImageUrl, "https://example.invalid/world-hero.png");
     assert.equal(publicEvent?.worlds[0]?.displayName, "Neon Harbor");

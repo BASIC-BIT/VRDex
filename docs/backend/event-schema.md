@@ -6,7 +6,7 @@ Current recommendation and implementation note for `#34`, `#35`, `#36`, `#93`, `
 
 ## Event Records
 
-Events are the primary scheduling object. They are not modeled as appearances or profile-page blocks. DJ/set-time slots are child schedule records under the canonical event.
+Events are the primary scheduling object. They are not modeled as appearances or profile-page blocks. Sessions are child schedule records under the canonical event.
 
 Current event fields include:
 
@@ -16,7 +16,8 @@ Current event fields include:
 - start time, optional doors-open time, and optional end time
 - optional canonical event time zone
 - optional linked community profile
-- optional public summary and notes
+- optional public description (stored as `summary`)
+- optional private manager notes (stored as `notes`)
 - optional primary poster image URL
 - source type, source label, and optional source URL
 - typed media links
@@ -34,7 +35,9 @@ Event `startAt`, `doorsOpenAt`, and `endAt` are stored as timestamps. The option
 
 The editor parses event date/time inputs in the named event timezone. A local time skipped by a daylight-saving transition is invalid; for a repeated local time, the editor consistently chooses the earlier occurrence. Public event cards, pages, and set times render directly in the viewer's local timezone; they do not repeat a canonical-timezone line.
 
-Slot rows remain canonical event-time schedule rows. The first slot editor template still uses relative minute offsets from `startAt`, not `doorsOpenAt`, so set-time storage and Discord timestamp generation remain tied to the canonical event/slot timestamps.
+Session rows remain canonical event-time schedule rows. The editor template uses relative minute offsets from `startAt`, not `doorsOpenAt`, so schedule storage and Discord timestamp generation remain tied to the canonical event/session timestamps.
+
+Private manager notes reuse the existing `notes` field. They are returned only by authorized event-management reads and accepted by authorized browser or API writes. They are excluded from public event pages, search documents, MCP documents, public API responses, calendar output, and Discord export. No migration or compatibility layer is needed because there is no existing deployed event data.
 
 ## Community Authority
 

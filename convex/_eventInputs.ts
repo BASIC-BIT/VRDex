@@ -422,7 +422,7 @@ export function sanitizeEventDraftInput(input: EventDraftInput): SanitizedEventD
     ...optionalObjectField("timezone", timezone),
     ...optionalObjectField("communitySlug", optionalBoundedText(input.communitySlug, "Community slug", 64)),
     ...optionalObjectField("summary", optionalBoundedText(input.summary, "Event summary", EVENT_SUMMARY_MAX_LENGTH)),
-    ...optionalObjectField("notes", optionalBoundedText(input.notes, "Event notes", EVENT_NOTES_MAX_LENGTH)),
+    ...optionalObjectField("notes", optionalBoundedText(input.notes, "Private event notes", EVENT_NOTES_MAX_LENGTH)),
     sourceLabel,
     ...optionalObjectField("sourceUrl", optionalHttpsUrl(input.sourceUrl, "Event source URL")),
     ...optionalObjectField("posterImageUrl", optionalHttpsUrl(input.posterImageUrl, "Poster image URL")),

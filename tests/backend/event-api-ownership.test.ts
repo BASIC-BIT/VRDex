@@ -16,6 +16,7 @@ const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
   "../../convex/events.ts": () => import("../../convex/events"),
   "../../convex/profileAssets.ts": () => import("../../convex/profileAssets"),
+  "../../convex/search.ts": () => import("../../convex/search"),
 };
 const schema = (schemaModule as unknown as { default?: typeof schemaModule }).default ?? schemaModule;
 const NOW = Date.parse("2026-07-24T12:00:00.000Z");
@@ -821,6 +822,91 @@ describe("API-created event ownership", () => {
     ]);
   });
 
+  it("refills active-world candidates after hidden communities consume the first page", async () => {
+    const t = convexTest({ schema, modules });
+    const { profileId: visibleCommunityId } = await seedOwnedCommunity(t);
+    await t.run(async (ctx) => {
+      const hiddenCommunityId = await ctx.db.insert("profiles", {
+        profileType: "community",
+        slug: "hidden-event-host",
+        displayName: "Hidden Event Host",
+        sortName: "hidden event host",
+        aliases: [],
+        tags: [],
+        claimState: "unclaimed",
+        publicationState: "published",
+        publicSurfacingState: "opted_out",
+        creationSource: "community",
+        community: { categoryTags: [] },
+        updatedAt: NOW,
+      });
+      for (let index = 0; index < 51; index += 1) {
+        await ctx.db.insert("events", {
+          slug: `hidden-future-event-${index}`,
+          title: `Hidden Future Event ${index}`,
+          sortTitle: `hidden future event ${index}`,
+          startAt: NOW + (index + 1) * 60_000,
+          communityProfileId: hiddenCommunityId,
+          communityName: "Hidden Event Host",
+          sourceType: "manual",
+          sourceLabel: "Test",
+          eventStatus: "scheduled",
+          publicationState: "published",
+          publishedAt: NOW,
+          updatedAt: NOW,
+        });
+      }
+      const visibleWorldId = await ctx.db.insert("worlds", {
+        slug: "visible-after-hidden-events",
+        displayName: "Visible After Hidden Events",
+        sortName: "visible after hidden events",
+        tags: [],
+        visibilityStatus: "public",
+        platformCompatibility: [],
+        media: [],
+        creatorAttributions: [],
+        outboundLinks: [],
+        publicationState: "published",
+        creationSource: "community",
+        updatedAt: NOW,
+      });
+      const startAt = NOW + 52 * 60_000;
+      const visibleEventId = await ctx.db.insert("events", {
+        slug: "visible-future-event",
+        title: "Visible Future Event",
+        sortTitle: "visible future event",
+        startAt,
+        endAt: startAt + 3_600_000,
+        communityProfileId: visibleCommunityId,
+        communityName: "The Faceless",
+        sourceType: "manual",
+        sourceLabel: "Test",
+        eventStatus: "scheduled",
+        publicationState: "published",
+        publishedAt: NOW,
+        updatedAt: NOW,
+      });
+      await ctx.db.insert("eventWorlds", {
+        eventId: visibleEventId,
+        worldId: visibleWorldId,
+        eventStartAt: startAt,
+        eventEndAt: startAt + 3_600_000,
+        eventPublicationState: "published",
+        eventStatus: "scheduled",
+        sourceType: "manual",
+        confidence: 1,
+        confirmationState: "confirmed",
+        confirmedAt: NOW,
+        updatedAt: NOW,
+      });
+    });
+
+    assert.deepEqual(
+      (await t.run((ctx) => getPublicActiveWorlds(ctx.db, NOW, 1))).map((world) => world.slug),
+      ["visible-after-hidden-events"],
+    );
+  });
+
   it("keeps eligible profile and world events bounded and current-first", async () => {
     const t = convexTest({ schema, modules });
     const { profileId: communityProfileId } = await seedOwnedCommunity(t);
@@ -1259,6 +1345,12 @@ describe("API-created event ownership", () => {
         .some((world) => world.slug === "hidden-club"),
       false,
     );
+    const hiddenCommunityDiscovery = await t.query(api.search.listDiscovery, { now: NOW });
+    assert.equal(
+      [...hiddenCommunityDiscovery.featured, ...hiddenCommunityDiscovery.upcomingEvents]
+        .some((event) => event.slug === created.slug),
+      false,
+    );
 
     await t.run(async (ctx) => {
       await ctx.db.patch(personId, { publicSurfacingState: "opted_out" });
@@ -1675,6 +1767,7 @@ describe("API-created event ownership", () => {
       communitySlug: "faceless",
       startAt: NOW + 86_400_000,
       summary: "Created through the public API.",
+      notes: "Private production note.",
     });
 
     await t.withIdentity(identity).mutation(api.events.updateCommunityEvent, {
@@ -1683,6 +1776,7 @@ describe("API-created event ownership", () => {
       communitySlug: "faceless",
       startAt: NOW + 86_400_000,
       summary: "Edited through the normal web session.",
+      notes: "Private production note.",
     });
     const media = await t.withIdentity(identity).mutation(api.events.configureVrcdnOutput, {
       currentSlug: created.slug,
@@ -1693,6 +1787,10 @@ describe("API-created event ownership", () => {
     assert.equal(media.state, "draft");
     const stored = await t.run(async (ctx) => ctx.db.get(created.eventId));
     assert.equal(stored?.summary, "Edited through the normal web session.");
+    const publicEvent = await t.query(api.events.getPublicBySlug, { slug: created.slug });
+    const editableEvent = await t.withIdentity(identity).query(api.events.getEditableBySlug, { slug: created.slug });
+    assert.equal("notes" in publicEvent!, false);
+    assert.equal(editableEvent?.notes, "Private production note.");
   });
 
   it("preserves omitted values and clears explicit nullable fields and the world relation", async () => {

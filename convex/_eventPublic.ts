@@ -95,7 +95,6 @@ export type PublicEventPreview = {
 export type PublicEvent = PublicEventPreview & {
   id: string;
   slug: string;
-  notes?: string;
   watchSurfaceEnabled: boolean;
   authoredBannerImageUrl?: string;
   authoredThumbnailImageUrl?: string;
@@ -415,7 +414,6 @@ export function toPublicEvent(record: PublicEventRecord): PublicEvent | null {
           },
         };
       }),
-    ...optionalField("notes", record.event.notes),
   };
 }
 
@@ -712,6 +710,7 @@ export async function getEventForEditor(
             }
           : {}),
         authoredMediaLinks,
+        ...optionalField("notes", event.notes),
         preservedParticipantAssociationIds,
         preservedSlotAssociationIds,
         preservedWorldAssociationIds,

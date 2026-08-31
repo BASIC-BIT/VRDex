@@ -8,12 +8,16 @@ Locked decisions from BASIC on 2026-08-31:
 - Events do not use the root profile and world slug namespace.
 - The freeform world field is removed. Searchable indexed world selection is deferred to #279.
 - Doors open is authored as minutes before the event start, not as a second timestamp.
-- New lineups start with four 60-minute slots.
-- Slot count, duration, and break changes update untouched generated slots without a Generate action.
+- New schedules start with four 60-minute sessions.
+- Session count and duration changes update untouched generated sessions without a Generate action.
 - Other participants appears after the session editor.
 - Event URLs use the automatically generated seven-character short-link code.
 - Event URL codes are not editable and do not occupy the root profile and world
   slug namespace.
+- The browser editor calls the session area `Schedule`, not `Program`, `Lineup`,
+  or `Set times`.
+- The browser editor has one public Description field. Private notes are visible
+  only to authorized event managers.
 
 Current recommendation:
 
@@ -21,15 +25,15 @@ Current recommendation:
   `/<community>/events/<event-code>/edit` as the editing route.
 - Keep the optional stored event end time for public/API compatibility, but do
   not ask browser authors for it in this slice. Derive the submitted end from
-  the final set when the lineup has complete durations.
-- When template controls would replace edited lineup data, require confirmation.
+  the final session when the schedule has complete durations.
+- When template controls would replace edited schedule data, require confirmation.
 
 ## Smallest Useful Flow
 
 1. Start from a managed community.
 2. Enter the event title and public details.
 3. Set the local start time, timezone, and optional doors-open offset.
-4. Fill the four generated 60-minute lineup rows or adjust the template.
+4. Fill the four generated 60-minute sessions or adjust the template.
 5. Publish or save a draft.
 
 The community slug comes from the route and is re-authorized by the existing
@@ -64,7 +68,11 @@ event mutation. The browser does not choose another community inside the form.
 - Public, calendar, API, MCP, search, and Discord URL consumers: update in the
   same delivery.
 - Searchable world selection: deferred to #279.
-- End-time authoring after lineup feedback: interview later.
+- End-time authoring after schedule feedback: interview later.
+- Typed schedule entries, including intentionally empty or freeform entries, are
+  a candidate direction after the basic editor gets real use.
+- Per-session support associations such as an optional VJ are a candidate
+  direction. Event-level participants remain the current place to credit a VJ.
 
 ## Verification
 
@@ -74,4 +82,4 @@ event mutation. The browser does not choose another community inside the form.
 - API and MCP results return community-scoped browser paths.
 - Desktop and mobile screenshots for the exact event editor.
 - Manual visual review of template regeneration, edited-data confirmation, and
-  responsive slot rows.
+  responsive session rows.
