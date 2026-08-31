@@ -560,10 +560,11 @@ function profileRoutePath(profile: Pick<PublicProfile, "profileType" | "slug">) 
 }
 
 function eventRoutePath(event: Pick<PublicEvent, "communitySlug" | "slug">) {
-  const eventSegment = encodeURIComponent(event.slug);
-  return event.communitySlug
-    ? `/${encodeURIComponent(event.communitySlug)}/events/${eventSegment}`
-    : `/events/${eventSegment}`;
+  if (event.communitySlug === undefined) {
+    return undefined;
+  }
+
+  return `/${encodeURIComponent(event.communitySlug)}/events/${encodeURIComponent(event.slug)}`;
 }
 
 function worldRoutePath(world: Pick<PublicWorld, "slug">) {
@@ -611,7 +612,13 @@ function profileToMcpDocument(profile: PublicProfile): McpDocumentFetchResponse 
   };
 }
 
-function eventToMcpDocument(event: PublicEvent): McpDocumentFetchResponse {
+function eventToMcpDocument(event: PublicEvent): McpDocumentFetchResponse | null {
+  const routePath = eventRoutePath(event);
+
+  if (routePath === undefined) {
+    return null;
+  }
+
   const lines: string[] = [];
 
   addMcpDocumentLine(lines, "Title", event.title);
@@ -639,7 +646,7 @@ function eventToMcpDocument(event: PublicEvent): McpDocumentFetchResponse {
     },
     text: lines.join("\n"),
     title: event.title,
-    url: publicUrlForRoutePath(eventRoutePath(event)),
+    url: publicUrlForRoutePath(routePath),
   };
 }
 

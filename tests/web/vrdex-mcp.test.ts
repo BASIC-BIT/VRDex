@@ -1838,6 +1838,50 @@ describe("VRDex MCP server", () => {
     assert.match(output, /"metadata":\{"entityType":"profile","profileType":"community","slug":"afterglow"/);
   });
 
+  it("does not fabricate a root URL for an event without a public community", () => {
+    const output = runMcpProbe(`
+      import { createVrdexMcpHandler } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+
+      const handler = createVrdexMcpHandler({
+        convex: {
+          query: async () => ({
+            id: "event_123",
+            slug: "hidden-host-night",
+            title: "Hidden Host Night",
+            startAt: 1780000000000,
+            source: { label: "Community submitted", sourceType: "community" },
+            watchSurfaceEnabled: false,
+            mediaLinks: [],
+            participantLinks: [],
+            slotLinks: [],
+            worlds: [],
+          }),
+        },
+      });
+      const response = await handler.fetch(new Request("http://localhost:3000/mcp", {
+        method: "POST",
+        headers: {
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 5,
+          method: "tools/call",
+          params: {
+            arguments: { id: "event:hidden-host-night" },
+            name: "fetch",
+          },
+        }),
+      }));
+
+      console.log(await response.text());
+    `);
+
+    assert.match(output, /Search result was not found/);
+    assert.doesNotMatch(output, /\/events\/hidden-host-night/);
+  });
+
   it("returns a public-safe tool error when hosted public data is unavailable", () => {
     const output = runMcpProbe(`
       import { createVrdexMcpHandler } from "./apps/web/src/lib/server/vrdex-mcp.ts";
