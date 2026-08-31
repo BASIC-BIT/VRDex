@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import { convexTest } from "convex-test";
 
 import { api, internal } from "../../convex/_generated/api";
+import { createEventSearchDocument } from "../../convex/_searchDocuments";
 import schemaModule from "../../convex/schema";
 
 import { newClerkUserId } from "./_clerkTestIdentity";
@@ -30,6 +31,7 @@ async function seedProfile(
   overrides: {
     slug?: string;
     claimState?: "unclaimed" | "claimed_verified";
+    profileType?: "person" | "community";
     publicSurfacingState?: "public" | "opted_out" | "suppressed" | "archived";
   } = {},
 ) {
@@ -38,7 +40,7 @@ async function seedProfile(
       displayName: "Junk Row",
       slug: overrides.slug ?? "junk-row",
       sortName: "junk row",
-      profileType: "person",
+      profileType: overrides.profileType ?? "person",
       claimState: overrides.claimState ?? "unclaimed",
       creationSource: "import",
       publicationState: "published",
@@ -48,7 +50,9 @@ async function seedProfile(
       updatedAt: NOW,
       aliases: [],
       tags: [],
-      person: { roleTags: ["DJ"] },
+      ...(overrides.profileType === "community"
+        ? { community: { categoryTags: [] } }
+        : { person: { roleTags: ["DJ"] } }),
     });
   });
 }
@@ -142,6 +146,69 @@ describe("superadmin profile archival", () => {
     assert.equal(restored?.publicSurfacingState, "public");
     assert.equal(restored?.publicSurfacingReason, undefined);
     assert.notEqual(await t.query(api.profiles.getPublicBySlug, { slug: "junk-row" }), null);
+  });
+
+  it("reindexes hosted event links when a community is hidden or restored", async () => {
+    const t = convexTest({ schema, modules });
+    const communityId = await seedProfile(t, {
+      slug: "afterglow",
+      profileType: "community",
+    });
+    const identity = await signIn(t, { superAdmin: true });
+
+    const eventId = await t.run(async (ctx) => {
+      const eventId = await ctx.db.insert("events", {
+        slug: "harbor-sessions",
+        title: "Harbor Sessions",
+        sortTitle: "harbor sessions",
+        startAt: NOW + 3_600_000,
+        communityProfileId: communityId,
+        communityName: "Afterglow",
+        sourceType: "community",
+        sourceLabel: "Afterglow",
+        eventStatus: "scheduled",
+        publicationState: "published",
+        publishedAt: NOW,
+        createdAt: NOW,
+        updatedAt: NOW,
+      });
+      const [event, community] = await Promise.all([
+        ctx.db.get(eventId),
+        ctx.db.get(communityId),
+      ]);
+
+      assert.notEqual(event, null);
+      assert.notEqual(community, null);
+      await ctx.db.insert(
+        "searchDocuments",
+        createEventSearchDocument(event!, { community: community! }),
+      );
+      return eventId;
+    });
+
+    const indexedEvent = async () =>
+      await t.run(async (ctx) =>
+        await ctx.db
+          .query("searchDocuments")
+          .withIndex("by_eventId", (query) => query.eq("eventId", eventId))
+          .unique(),
+      );
+
+    await t.withIdentity(identity).mutation(api.profileArchival.setProfileArchived, {
+      slug: "afterglow",
+      archived: true,
+      reason: REASON,
+    });
+    assert.equal((await indexedEvent())?.publicState, "hidden");
+    assert.equal((await indexedEvent())?.routePath, "/");
+
+    await t.withIdentity(identity).mutation(api.profileArchival.setProfileArchived, {
+      slug: "afterglow",
+      archived: false,
+      reason: "Archived in error; the community is active.",
+    });
+    assert.equal((await indexedEvent())?.publicState, "public");
+    assert.equal((await indexedEvent())?.routePath, "/afterglow/events/harbor-sessions");
   });
 
   it("refuses a caller without the super_admin grant", async () => {

@@ -525,10 +525,7 @@ export async function expectEventPage(page: Page) {
     "href",
     "/playwright-afterglow-social/events/playwright-afterglow-harbor-sessions/calendar.ics",
   );
-  await expect(page.getByRole("link", { name: "Edit event" })).toHaveAttribute(
-    "href",
-    "/playwright-afterglow-social/events/playwright-afterglow-harbor-sessions/edit",
-  );
+  await expect(page.getByRole("link", { name: "Edit event" })).toHaveCount(0);
   await expect(page.getByText("Afterglow watch link", { exact: true })).toBeVisible();
   await expect(
     page.locator('a[href="https://stream.vrcdn.live/live/playwright-afterglow-harbor-sessions.live.ts"]'),

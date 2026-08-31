@@ -352,6 +352,9 @@ describe("search document projection", () => {
     const community = {
       slug: "afterglow",
       displayName: "Afterglow Social",
+      profileType: "community",
+      publicationState: "published",
+      publicSurfacingState: "public",
     } as unknown as Doc<"profiles">;
 
     const worldDocument = createWorldSearchDocument(world);
