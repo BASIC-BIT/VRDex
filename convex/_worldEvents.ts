@@ -5,6 +5,7 @@ import { canReadProfile } from "./_profilePermissions";
 import { safePublicLinkUrl } from "./_vrcdnLinks";
 
 const WORLD_EVENT_SECTION_LIMIT = 4;
+const WORLD_EVENT_SECTION_SCAN_LIMIT = 500;
 const WORLD_EVENT_CURRENT_CANDIDATE_LIMIT = 128;
 const ACTIVE_WORLD_QUERY_EVENT_LIMIT = 50;
 const ACTIVE_WORLD_QUERY_SCAN_LIMIT = 500;
@@ -369,7 +370,7 @@ export async function getPublicWorldEventContext(
           .eq("eventStatus", "scheduled")
           .gte("eventStartAt", now),
       )
-      .take(WORLD_EVENT_SECTION_LIMIT),
+      .take(WORLD_EVENT_SECTION_SCAN_LIMIT),
     db
       .query("eventWorlds")
       .withIndex("by_world_confirmation_publication_status_end", (query) =>
@@ -381,7 +382,7 @@ export async function getPublicWorldEventContext(
           .lt("eventEndAt", now),
       )
       .order("desc")
-      .take(WORLD_EVENT_SECTION_LIMIT),
+      .take(WORLD_EVENT_SECTION_SCAN_LIMIT),
   ]);
   const currentAssociations = startedAssociations.filter(
     (association) => association.eventEndAt >= now,

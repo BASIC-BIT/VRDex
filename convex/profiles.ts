@@ -583,7 +583,6 @@ export const lookupPeople = query({
       {
         defaultLimit: PROFILE_LOOKUP_RESULT_LIMIT,
         maxLimit: 25,
-        takeMultiplier: 3,
       },
     );
     return rankedPeople.flatMap((result) => result.person ?? []);

@@ -2025,6 +2025,9 @@ export const listPublicUpcoming = query({
     // events. If real volume can hide a valid multi-day event, add indexed
     // active-event state instead of growing this window indefinitely.
     const ongoingCandidateLimit = 128;
+    // Keep this bounded, but scan past the requested result count so hidden
+    // communities cannot consume the whole public result window.
+    const upcomingCandidateLimit = 500;
     const [started, upcoming] = await Promise.all([
       ctx.db
         .query("events")
@@ -2044,7 +2047,7 @@ export const listPublicUpcoming = query({
             .eq("eventStatus", "scheduled")
             .gte("startAt", args.now),
         )
-        .take(limit),
+        .take(upcomingCandidateLimit),
     ]);
     const ongoing = started
       .filter((event) => (event.endAt ?? event.startAt) >= args.now)
@@ -2052,9 +2055,8 @@ export const listPublicUpcoming = query({
         (first, second) =>
           (first.endAt ?? first.startAt) - (second.endAt ?? second.startAt) ||
           first.startAt - second.startAt,
-      )
-      .slice(0, limit);
-    const events = [...ongoing, ...upcoming].slice(0, limit);
+      );
+    const events = [...ongoing, ...upcoming];
 
     return await getPublicEventPreviews(ctx.db, events, { now: args.now, limit, order: "input" });
   },

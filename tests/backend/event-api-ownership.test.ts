@@ -739,6 +739,152 @@ describe("API-created event ownership", () => {
     assert.deepEqual(upcoming.map((event) => event.slug), [second.slug]);
   });
 
+  it("refills public event surfaces after hidden communities consume the leading rows", async () => {
+    const t = convexTest({ schema, modules });
+    const { profileId: visibleCommunityId } = await seedOwnedCommunity(t);
+    const { worldId, visibleEventSlug } = await t.run(async (ctx) => {
+      const hiddenCommunityId = await ctx.db.insert("profiles", {
+        profileType: "community",
+        slug: "hidden-leading-host",
+        displayName: "Hidden Leading Host",
+        sortName: "hidden leading host",
+        aliases: [],
+        tags: [],
+        claimState: "unclaimed",
+        publicationState: "published",
+        publicSurfacingState: "opted_out",
+        creationSource: "community",
+        community: { categoryTags: [] },
+        updatedAt: NOW,
+      });
+      const worldId = await ctx.db.insert("worlds", {
+        slug: "refilled-world",
+        displayName: "Refilled World",
+        sortName: "refilled world",
+        tags: [],
+        visibilityStatus: "public",
+        platformCompatibility: [],
+        media: [],
+        creatorAttributions: [],
+        outboundLinks: [],
+        publicationState: "published",
+        creationSource: "community",
+        updatedAt: NOW,
+      });
+
+      for (let index = 0; index < 5; index += 1) {
+        const startAt = NOW + (index + 1) * 60_000;
+        const eventId = await ctx.db.insert("events", {
+          slug: `hidden-leading-event-${index}`,
+          title: `Hidden Leading Event ${index}`,
+          sortTitle: `hidden leading event ${index}`,
+          startAt,
+          endAt: startAt + 30_000,
+          communityProfileId: hiddenCommunityId,
+          communityName: "Hidden Leading Host",
+          sourceType: "manual",
+          sourceLabel: "Test",
+          eventStatus: "scheduled",
+          publicationState: "published",
+          publishedAt: NOW,
+          updatedAt: NOW,
+        });
+        await ctx.db.insert("eventWorlds", {
+          eventId,
+          worldId,
+          eventStartAt: startAt,
+          eventEndAt: startAt + 30_000,
+          eventPublicationState: "published",
+          eventStatus: "scheduled",
+          sourceType: "manual",
+          confidence: 1,
+          confirmationState: "confirmed",
+          confirmedAt: NOW,
+          updatedAt: NOW,
+        });
+
+        if (index === 0) {
+          await ctx.db.insert("searchDocuments", {
+            entityType: "event",
+            publicState: "public",
+            eventId,
+            slug: `hidden-leading-event-${index}`,
+            routePath: `/hidden-leading-host/events/hidden-leading-event-${index}`,
+            title: `Hidden Leading Event ${index}`,
+            searchText: "Hidden Leading Host",
+            exactTokens: ["hidden leading host"],
+            vocabularyKeys: ["event_tag:hidden_leading_host"],
+            trustRank: 10,
+            featuredRank: 100,
+            startsAt: startAt,
+            updatedAt: NOW,
+          });
+        }
+      }
+
+      await ctx.db.insert("vocabularyTerms", {
+        scope: "event_tag",
+        key: "hidden_leading_host",
+        label: "Hidden Leading Host",
+        aliases: [],
+        source: "user_created",
+        usageCount: 1,
+        rank: 100,
+        createdAt: NOW,
+        updatedAt: NOW,
+      });
+
+      const visibleStartAt = NOW + 6 * 60_000;
+      const visibleEventSlug = "visible-after-hidden-leading-events";
+      const visibleEventId = await ctx.db.insert("events", {
+        slug: visibleEventSlug,
+        title: "Visible After Hidden Leading Events",
+        sortTitle: "visible after hidden leading events",
+        startAt: visibleStartAt,
+        endAt: visibleStartAt + 30_000,
+        communityProfileId: visibleCommunityId,
+        communityName: "The Faceless",
+        sourceType: "manual",
+        sourceLabel: "Test",
+        eventStatus: "scheduled",
+        publicationState: "published",
+        publishedAt: NOW,
+        updatedAt: NOW,
+      });
+      await ctx.db.insert("eventWorlds", {
+        eventId: visibleEventId,
+        worldId,
+        eventStartAt: visibleStartAt,
+        eventEndAt: visibleStartAt + 30_000,
+        eventPublicationState: "published",
+        eventStatus: "scheduled",
+        sourceType: "manual",
+        confidence: 1,
+        confirmationState: "confirmed",
+        confirmedAt: NOW,
+        updatedAt: NOW,
+      });
+
+      return { worldId, visibleEventSlug };
+    });
+
+    assert.deepEqual(
+      (await t.query(api.events.listPublicUpcoming, { now: NOW, limit: 1 }))
+        .map((event) => event.slug),
+      [visibleEventSlug],
+    );
+    assert.deepEqual(
+      (await t.run((ctx) => getPublicWorldEventContext(ctx.db, worldId, NOW))).upcoming
+        .map((event) => event.slug),
+      [visibleEventSlug],
+    );
+    assert.equal(
+      (await t.query(api.search.listDiscovery, { now: NOW })).terms
+        .some((term) => term.key === "hidden_leading_host"),
+      false,
+    );
+  });
+
   it("keeps a long-running event after more than 80 newer events have ended", async () => {
     const t = convexTest({ schema, modules });
     await t.run(async (ctx) => {

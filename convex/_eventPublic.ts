@@ -735,9 +735,22 @@ export async function getPublicEventPreviews(
       event.eventStatus === "scheduled" &&
       (now === undefined || eventEndsAt(event) >= now),
   );
-  const selectedEvents = (options.order === "input"
+  const orderedEvents = options.order === "input"
     ? eligibleEvents
-    : eligibleEvents.sort((first, second) => first.startAt - second.startAt)).slice(0, limit);
+    : eligibleEvents.sort((first, second) => first.startAt - second.startAt);
+  const readableEvents = (
+    await Promise.all(
+      orderedEvents.map(async (event) => ({
+        event,
+        communityIsReadable:
+          event.communityProfileId === undefined ||
+          (await getPublishedCommunity(db, event)) !== undefined,
+      })),
+    )
+  )
+    .filter(({ communityIsReadable }) => communityIsReadable)
+    .map(({ event }) => event);
+  const selectedEvents = readableEvents.slice(0, limit);
   const records = (
     await Promise.all(
       selectedEvents.map((event) =>

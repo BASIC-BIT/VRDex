@@ -683,10 +683,10 @@ describe("search document projection", () => {
   });
 
   it("applies the result limit after dropping stale search documents", async () => {
-    const hiddenProfile = {
-      _id: "hiddenProfile",
-      slug: "hidden-house",
-      displayName: "House",
+    const hiddenProfiles = Array.from({ length: 3 }, (_, index) => ({
+      _id: `hiddenProfile${index}`,
+      slug: `hidden-house-${index}`,
+      displayName: `House ${index}`,
       aliases: [],
       tags: [],
       genres: [],
@@ -697,14 +697,14 @@ describe("search document projection", () => {
       profileType: "person",
       person: { roleTags: [] },
       updatedAt: 2,
-    } as unknown as Doc<"profiles">;
-    const hiddenDocument = {
+    })) as unknown as Doc<"profiles">[];
+    const hiddenDocuments = hiddenProfiles.map((profile) => ({
       entityType: "profile",
       profileType: "person",
-      profileId: hiddenProfile._id,
-      slug: hiddenProfile.slug,
-      routePath: `/${hiddenProfile.slug}`,
-      title: hiddenProfile.displayName,
+      profileId: profile._id,
+      slug: profile.slug,
+      routePath: `/${profile.slug}`,
+      title: profile.displayName,
       searchText: "House",
       exactTokens: ["house"],
       vocabularyKeys: [],
@@ -712,7 +712,7 @@ describe("search document projection", () => {
       featuredRank: 0,
       publicState: "public",
       updatedAt: 1,
-    } as unknown as Doc<"searchDocuments">;
+    })) as unknown as Doc<"searchDocuments">[];
     const visibleDocument = {
       entityType: "event",
       slug: "visible-house-night",
@@ -735,11 +735,11 @@ describe("search document projection", () => {
         configure(searchBuilder);
         return queryBuilder;
       },
-      take: async () => [hiddenDocument, visibleDocument],
+      take: async (count: number) => [...hiddenDocuments, visibleDocument].slice(0, count),
     };
     const ctx = {
       db: {
-        get: async () => hiddenProfile,
+        get: async (id: string) => hiddenProfiles.find((profile) => profile._id === id) ?? null,
         query: () => queryBuilder,
       },
     } as unknown as QueryCtx;
