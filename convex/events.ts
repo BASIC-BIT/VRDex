@@ -1097,7 +1097,6 @@ async function insertCommunityEventRecord(
   const publicationState = options.publicationState ?? "published";
   const slug = await findAvailableEventSlug(db, {
     title: input.title,
-    startAt: input.startAt,
     preferredSlug: input.preferredSlug,
   });
   const eventId = await db.insert("events", {

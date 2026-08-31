@@ -14,8 +14,8 @@ Locked decisions from BASIC on 2026-08-31:
 
 Current recommendation:
 
-- Generate a readable event slug from the title and start date, while allowing
-  an explicit override. Keep that field secondary to the event title.
+- Generate a readable event slug from the title, while allowing an explicit
+  override. Keep that field secondary to the event title.
 - Use `/<community>/events/<slug>` as the canonical public route and
   `/<community>/events/<slug>/edit` as the editing route.
 - Keep the optional stored event end time for public/API compatibility, but do
