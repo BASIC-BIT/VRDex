@@ -17,6 +17,7 @@ import { SEEDED_VOCABULARY_TERMS, recordVocabularyTerms } from "./_vocabulary";
 
 const SEARCH_RESULT_LIMIT = 24;
 const DISCOVERY_SECTION_LIMIT = 8;
+const DISCOVERY_EVENT_SCAN_LIMIT = 500;
 const DISCOVERY_EVENT_VOCABULARY_SCAN_LIMIT = 500;
 
 const searchEntityType = v.union(
@@ -46,14 +47,18 @@ export const searchUniversal = query({
   },
 });
 
-async function listDocumentsByType(ctx: QueryCtx, entityType: SearchEntityType) {
+async function listDocumentsByType(
+  ctx: QueryCtx,
+  entityType: SearchEntityType,
+  limit = 40,
+) {
   return await ctx.db
     .query("searchDocuments")
     .withIndex("by_publicState_entityType_featuredRank", (index) =>
       index.eq("publicState", "public").eq("entityType", entityType),
     )
     .order("desc")
-    .take(40);
+    .take(limit);
 }
 
 async function listUpcomingEventDocuments(ctx: QueryCtx, now: number) {
@@ -62,7 +67,7 @@ async function listUpcomingEventDocuments(ctx: QueryCtx, now: number) {
     .withIndex("by_publicState_startsAt", (index) => index.eq("publicState", "public").gte("startsAt", now))
     .filter((query) => query.eq(query.field("entityType"), "event"))
     .order("asc")
-    .take(40);
+    .take(DISCOVERY_EVENT_SCAN_LIMIT);
 }
 
 async function listEventVocabularyDocuments(ctx: QueryCtx) {
@@ -91,7 +96,7 @@ export const listDiscovery = query({
     ] = await Promise.all([
         listDocumentsByType(ctx, "profile"),
         listDocumentsByType(ctx, "world"),
-        listDocumentsByType(ctx, "event"),
+        listDocumentsByType(ctx, "event", DISCOVERY_EVENT_SCAN_LIMIT),
         listUpcomingEventDocuments(ctx, now),
         ctx.db.query("vocabularyTerms").take(60),
         listEventVocabularyDocuments(ctx),

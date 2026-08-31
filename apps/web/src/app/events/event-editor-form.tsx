@@ -361,6 +361,10 @@ function initialSlotTemplate(event: EditableEvent | undefined) {
 }
 
 function isValidSlotTemplate(template: { count: string; duration: string }) {
+  if (template.count.trim() === "" || template.duration.trim() === "") {
+    return false;
+  }
+
   try {
     const count = parseInteger(template.count, "Slot count");
     const duration = parseInteger(template.duration, "Slot duration minutes");
@@ -536,6 +540,11 @@ function ConnectedEventEditorForm({
 
   function onSlotTemplateChange(field: "count" | "duration", value: string) {
     const nextTemplate = { ...slotTemplate, [field]: value };
+
+    if (value.trim() === "") {
+      setSlotTemplate(nextTemplate);
+      return;
+    }
 
     try {
       const count = parseInteger(nextTemplate.count, "Slot count");

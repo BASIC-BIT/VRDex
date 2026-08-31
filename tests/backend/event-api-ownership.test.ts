@@ -772,7 +772,7 @@ describe("API-created event ownership", () => {
         updatedAt: NOW,
       });
 
-      for (let index = 0; index < 5; index += 1) {
+      for (let index = 0; index < 41; index += 1) {
         const startAt = NOW + (index + 1) * 60_000;
         const eventId = await ctx.db.insert("events", {
           slug: `hidden-leading-event-${index}`,
@@ -803,23 +803,21 @@ describe("API-created event ownership", () => {
           updatedAt: NOW,
         });
 
-        if (index === 0) {
-          await ctx.db.insert("searchDocuments", {
-            entityType: "event",
-            publicState: "public",
-            eventId,
-            slug: `hidden-leading-event-${index}`,
-            routePath: `/hidden-leading-host/events/hidden-leading-event-${index}`,
-            title: `Hidden Leading Event ${index}`,
-            searchText: "Hidden Leading Host",
-            exactTokens: ["hidden leading host"],
-            vocabularyKeys: ["event_tag:hidden_leading_host"],
-            trustRank: 10,
-            featuredRank: 100,
-            startsAt: startAt,
-            updatedAt: NOW,
-          });
-        }
+        await ctx.db.insert("searchDocuments", {
+          entityType: "event",
+          publicState: "public",
+          eventId,
+          slug: `hidden-leading-event-${index}`,
+          routePath: `/hidden-leading-host/events/hidden-leading-event-${index}`,
+          title: `Hidden Leading Event ${index}`,
+          searchText: "Hidden Leading Host",
+          exactTokens: ["hidden leading host"],
+          vocabularyKeys: ["event_tag:hidden_leading_host"],
+          trustRank: 10,
+          featuredRank: 200 - index,
+          startsAt: startAt,
+          updatedAt: NOW,
+        });
       }
 
       await ctx.db.insert("vocabularyTerms", {
@@ -834,7 +832,7 @@ describe("API-created event ownership", () => {
         updatedAt: NOW,
       });
 
-      const visibleStartAt = NOW + 6 * 60_000;
+      const visibleStartAt = NOW + 42 * 60_000;
       const visibleEventSlug = "visible-after-hidden-leading-events";
       const visibleEventId = await ctx.db.insert("events", {
         slug: visibleEventSlug,
@@ -864,6 +862,21 @@ describe("API-created event ownership", () => {
         confirmedAt: NOW,
         updatedAt: NOW,
       });
+      await ctx.db.insert("searchDocuments", {
+        entityType: "event",
+        publicState: "public",
+        eventId: visibleEventId,
+        slug: visibleEventSlug,
+        routePath: `/faceless/events/${visibleEventSlug}`,
+        title: "Visible After Hidden Leading Events",
+        searchText: "Visible After Hidden Leading Events The Faceless",
+        exactTokens: ["visible after hidden leading events"],
+        vocabularyKeys: [],
+        trustRank: 10,
+        featuredRank: 100,
+        startsAt: visibleStartAt,
+        updatedAt: NOW,
+      });
 
       return { worldId, visibleEventSlug };
     });
@@ -878,11 +891,10 @@ describe("API-created event ownership", () => {
         .map((event) => event.slug),
       [visibleEventSlug],
     );
-    assert.equal(
-      (await t.query(api.search.listDiscovery, { now: NOW })).terms
-        .some((term) => term.key === "hidden_leading_host"),
-      false,
-    );
+    const discovery = await t.query(api.search.listDiscovery, { now: NOW });
+    assert.equal(discovery.featured.some((event) => event.slug === visibleEventSlug), true);
+    assert.equal(discovery.upcomingEvents.some((event) => event.slug === visibleEventSlug), true);
+    assert.equal(discovery.terms.some((term) => term.key === "hidden_leading_host"), false);
   });
 
   it("keeps a long-running event after more than 80 newer events have ended", async () => {
