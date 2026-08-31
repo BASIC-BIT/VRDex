@@ -61,8 +61,7 @@ export type EntitySubpath = (typeof ENTITY_SUBPATHS)[number];
  *
  * `handoff/[token]/page.tsx` genuinely does match `/handoff/edit`, with the token
  * read as "edit", and shadows the calendar and image paths the same way.
- * `l/[code]` and the compatibility reader at `events/[slug]` have the same
- * shape. Which subpaths each takes is recorded rather than assumed, because a
+ * `l/[code]` has the same shape. Which subpaths it takes is recorded rather than assumed, because a
  * static `edit` child would take one and strand only profiles.
  *
  * Reported by `slugAudit` separately from live routes because the failure differs:
@@ -77,7 +76,6 @@ const ROUTE_PREFIX_SUBPATHS = new Map<string, readonly EntitySubpath[]>([
   // Dynamic children, so they match any single segment and take every subpath.
   ["handoff", ["edit", "calendar.ics", "opengraph-image"]],
   ["l", ["edit", "calendar.ics", "opengraph-image"]],
-  ["events", ["edit", "calendar.ics", "opengraph-image"]],
 ]);
 
 export const ROUTE_PREFIX_SLUGS = [...ROUTE_PREFIX_SUBPATHS.keys()];

@@ -25,8 +25,8 @@ const PRIVATE_ROUTE_GROUPS = [
   "account",
   "claim",
   "developers",
-  // Authoring only — `/events/new` and `/events/[slug]/edit`. The public event
-  // page is `/[slug]`.
+  // Shared authoring implementation and the old `/events/new` entry point. The
+  // live create and edit pages are community-scoped and mark themselves.
   "events",
   "handoff",
   "lookup",

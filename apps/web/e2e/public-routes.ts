@@ -9,8 +9,8 @@ export const visualProfilePaths = {
   verifiedPersonPath: "/basicbit",
   communityPath: "/playwright-afterglow-social",
   worldPath: "/playwright-neon-harbor",
-  eventPath: "/playwright-afterglow-harbor-sessions",
-  eventWatchPath: "/playwright-afterglow-watch-room",
+  eventPath: "/playwright-afterglow-social/events/playwright-afterglow-harbor-sessions",
+  eventWatchPath: "/playwright-afterglow-social/events/playwright-afterglow-watch-room",
   lookupPath: "/lookup?q=lineup",
 } as const;
 
@@ -377,10 +377,6 @@ export async function expectNewEventPage(page: Page) {
   await expectProtectedRouteRedirect(page, "/events/new");
 }
 
-export async function expectEditEventPage(page: Page) {
-  await expectProtectedRouteRedirect(page, "/events/playwright-afterglow-harbor-sessions/edit");
-}
-
 export async function expectDeveloperApiPage(page: Page) {
   await expect(page.getByRole("heading", { name: /VRDex Public API/i })).toBeVisible();
   await expect(page.getByRole("link", { name: "OpenAPI JSON" })).toBeVisible();
@@ -527,11 +523,11 @@ export async function expectEventPage(page: Page) {
   await expect(page.getByText("Neon Harbor", { exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: /Add to calendar/i })).toHaveAttribute(
     "href",
-    "/playwright-afterglow-harbor-sessions/calendar.ics",
+    "/playwright-afterglow-social/events/playwright-afterglow-harbor-sessions/calendar.ics",
   );
   await expect(page.getByRole("link", { name: "Edit event" })).toHaveAttribute(
     "href",
-    "/events/playwright-afterglow-harbor-sessions/edit",
+    "/playwright-afterglow-social/events/playwright-afterglow-harbor-sessions/edit",
   );
   await expect(page.getByText("Afterglow watch link", { exact: true })).toBeVisible();
   await expect(
@@ -677,11 +673,6 @@ export const capturedRoutes: CapturedRoute[] = [
     name: "event-new-signed-out",
     path: "/events/new",
     expectPage: expectNewEventPage,
-  },
-  {
-    name: "event-edit-signed-out",
-    path: "/events/playwright-afterglow-harbor-sessions/edit",
-    expectPage: expectEditEventPage,
   },
   {
     name: "developer-api",

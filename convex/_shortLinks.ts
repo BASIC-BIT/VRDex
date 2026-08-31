@@ -431,7 +431,9 @@ async function publicEventShortLinkPath(db: DatabaseReader, shortLink: Doc<"shor
     return null;
   }
 
-  return eventPathForSlugs(publicEvent.communitySlug, publicEvent.slug);
+  return publicEvent.communitySlug === undefined
+    ? null
+    : eventPathForSlugs(publicEvent.communitySlug, publicEvent.slug);
 }
 
 export async function resolvePublicShortLinkTarget(

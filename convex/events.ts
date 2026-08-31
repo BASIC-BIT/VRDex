@@ -1085,7 +1085,7 @@ async function insertCommunityEventRecord(
   db: DatabaseWriter,
   options: {
     input: SanitizedEventDraftInput;
-    community?: Doc<"profiles">;
+    community: Doc<"profiles">;
     world?: Doc<"worlds">;
     submitter: AuthSubject;
     publicationState?: Doc<"events">["publicationState"];
@@ -1107,8 +1107,8 @@ async function insertCommunityEventRecord(
     ...optionalValue("doorsOpenAt", input.doorsOpenAt),
     ...optionalValue("endAt", input.endAt),
     ...optionalValue("timezone", input.timezone),
-    ...optionalValue("communityProfileId", community?._id),
-    ...optionalValue("communityName", community?.displayName),
+    communityProfileId: community._id,
+    communityName: community.displayName,
     ...optionalValue("summary", input.summary),
     ...optionalValue("notes", input.notes),
     ...optionalValue("posterImageUrl", input.posterImageUrl),
@@ -1158,7 +1158,7 @@ async function insertCommunityEventRecord(
   return {
     eventId,
     slug,
-    eventPath: eventPathForSlugs(community?.slug, slug),
+    eventPath: eventPathForSlugs(community.slug, slug),
     shortLinkCode: shortLink.code,
     shortLinkPath: shortLink.shortLinkPath,
   };
@@ -1169,7 +1169,7 @@ async function updateCommunityEventRecord(
   options: {
     event: Doc<"events">;
     input: SanitizedEventDraftInput;
-    community?: Doc<"profiles">;
+    community: Doc<"profiles">;
     world?: Doc<"worlds">;
     publicationState?: Doc<"events">["publicationState"];
     preserveNonPublicAssociations?: boolean;
@@ -1289,7 +1289,7 @@ async function updateCommunityEventRecord(
   return {
     eventId: event._id,
     slug,
-    eventPath: eventPathForSlugs(community?.slug, slug),
+    eventPath: eventPathForSlugs(community.slug, slug),
   };
 }
 
@@ -2823,6 +2823,9 @@ export const updateCommunityEvent = mutation({
     if (community?._id !== event.communityProfileId) {
       throw new Error("You do not have permission to move this event to another community.");
     }
+    if (community === undefined || community === null) {
+      throw new Error("Event community was not found.");
+    }
 
     const preservedWorldIds = new Set(args.preservedWorldAssociationIds);
     const loadedWorldAssociations = await Promise.all(
@@ -2839,9 +2842,7 @@ export const updateCommunityEvent = mutation({
         })),
     );
     const preservedWorldAssociations = input.worldSlug === undefined
-      ? loadedWorldAssociations.filter(
-          ({ world: loadedWorld }) => loadedWorld?.publicationState !== "published",
-        )
+      ? loadedWorldAssociations
       : loadedWorldAssociations.filter(
           ({ world: loadedWorld }) => loadedWorld?.slug === input.worldSlug,
         );

@@ -5,10 +5,8 @@
 This doc captures the slug contract for `#10`.
 
 Profiles and worlds render from the site root as `/<slug>`. Community events
-render below their community as `/<community>/events/<event>`, with
-`/events/<event>` retained only as a compatibility reader for events without
-community context. A bare `vrdex.net/basicbit` therefore resolves only a
-profile or world.
+render below their community as `/<community>/events/<event>`. A bare
+`vrdex.net/basicbit` therefore resolves only a profile or world.
 
 Reservations live in `convex/_globalSlugs.ts` as four catalogs, because a name can be unavailable for four different reasons and read paths care about only one of them.
 

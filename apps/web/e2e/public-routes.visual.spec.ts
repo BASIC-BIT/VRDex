@@ -66,6 +66,12 @@ test("event editor @visual", async ({ page }, testInfo) => {
   await expect(page.getByRole("heading", { name: /^Set [1-4]$/ })).toHaveCount(4);
 
   page.once("dialog", (dialog) => dialog.accept());
+  await page.getByLabel("Slot count").fill("0");
+  await expect(page.getByRole("heading", { name: /^Set / })).toHaveCount(0);
+  await page.getByLabel("Slot count").fill("4");
+  await expect(page.getByRole("heading", { name: /^Set [1-4]$/ })).toHaveCount(4);
+
+  page.once("dialog", (dialog) => dialog.accept());
   await page.getByLabel("Slot count").fill("5");
   await expect(page.getByRole("heading", { name: /^Set [1-5]$/ })).toHaveCount(5);
   await page.getByLabel("Slot count").fill("4");

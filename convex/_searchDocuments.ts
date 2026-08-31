@@ -385,9 +385,9 @@ export function createEventSearchDocument(
   const sourceUrl = safeHttpsUrl(event.sourceUrl);
   const vocabulary = vocabularyForEvent(event, context.roleLabels ?? []);
   const worldTerms = context.world ? [context.world.displayName, ...context.world.tags] : [];
-  const routePath = event.slug === undefined
+  const routePath = event.slug === undefined || context.community === undefined
     ? "/"
-    : eventPathForSlugs(context.community?.slug, event.slug);
+    : eventPathForSlugs(context.community.slug, event.slug);
   const isUpcoming = event.startAt >= Date.now();
 
   return {
@@ -395,7 +395,8 @@ export function createEventSearchDocument(
     publicState:
       event.publicationState === "published" &&
       event.eventStatus === "scheduled" &&
-      event.slug !== undefined
+      event.slug !== undefined &&
+      context.community !== undefined
         ? "public"
         : "hidden",
     eventId: event._id,

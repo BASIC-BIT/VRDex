@@ -45,8 +45,7 @@ event mutation. The browser does not choose another community inside the form.
   the event belongs to that community before rendering.
 - API routes remain under `/api/v0/events/<slug>` because the resource prefix
   already disambiguates the identifier.
-- No event data migration is included. The legacy `/events/<slug>` reader
-  redirects community events to the canonical nested route.
+- No event data migration or legacy event-route compatibility is included.
 
 ## Authorization
 

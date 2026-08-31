@@ -21,5 +21,5 @@ export default async function CommunityEventPage({
     notFound();
   }
 
-  return <EventPublicPage event={result.event} showEditLink />;
+  return <EventPublicPage event={result.event} />;
 }

@@ -290,7 +290,7 @@ export function EventBackendNotice({ kind }: { kind: "missing-url" | "error" }) 
   );
 }
 
-export function EventPublicPage({ event, showEditLink = false }: { event: PublicEvent; showEditLink?: boolean }) {
+export function EventPublicPage({ event }: { event: PublicEvent }) {
   const bannerStyle = safeImageBackground(event.bannerImageUrl, eventPosterOverlay);
   const sourceUrl = safeHttpsUrl(event.source.url);
   const eventPath = publicEventPath(event);
@@ -300,18 +300,6 @@ export function EventPublicPage({ event, showEditLink = false }: { event: Public
       <PageContainer className="gap-5">
         <PageNav>
           <BrandLink />
-          <div className="flex flex-wrap gap-2">
-            {event.communitySlug ? (
-              <Link className={buttonVariants({ variant: "surface" })} href={`/${event.communitySlug}/events/create`}>
-                Add event
-              </Link>
-            ) : null}
-            {showEditLink && eventPath ? (
-              <Link className={buttonVariants({ variant: "surface" })} href={`${eventPath}/edit`}>
-                Edit event
-              </Link>
-            ) : null}
-          </div>
         </PageNav>
 
         <section className="overflow-hidden rounded-hero border border-border bg-media shadow-hero">

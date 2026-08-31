@@ -18,6 +18,11 @@ export const EVENT_SLUG_MIN_LENGTH = SLUG_MIN_LENGTH;
 export const EVENT_SLUG_MAX_LENGTH = SLUG_MAX_LENGTH;
 export const EVENT_SLUG_PATTERN = SLUG_PATTERN;
 export const EVENT_SLUG_FALLBACK_BASE = "event-page";
+const EVENT_ROUTE_RESERVED_SLUGS = new Set(["create"]);
+
+function isReservedEventSlug(slug: string): boolean {
+  return isReservedSlug(slug) || EVENT_ROUTE_RESERVED_SLUGS.has(slug);
+}
 
 export type EventSlugValidationReason = SlugFormatReason;
 
@@ -57,7 +62,7 @@ export function createEventSlugBase(title: string, startAt?: number): string {
   let slug = datedTitle;
 
   for (let attempt = 0; attempt < 5; attempt += 1) {
-    if (slug.length < EVENT_SLUG_MIN_LENGTH || isReservedSlug(slug)) {
+    if (slug.length < EVENT_SLUG_MIN_LENGTH || isReservedEventSlug(slug)) {
       slug = `${slug}-event`;
     }
 
@@ -66,7 +71,7 @@ export function createEventSlugBase(title: string, startAt?: number): string {
     }
 
     const validated = validateEventSlug(slug);
-    if (validated.ok && !isReservedSlug(validated.slug)) {
+    if (validated.ok && !isReservedEventSlug(validated.slug)) {
       return validated.slug;
     }
   }
@@ -113,7 +118,7 @@ export async function findAvailableEventSlug(
   // refusal locked an event that owns a granted premium name out of *all* editing,
   // summary changes included. Reserved means "not handed out", not "cannot be
   // kept": creates and real slug changes are still refused.
-  if (preferred !== null && preferred.ok && isReservedSlug(preferred.slug)) {
+  if (preferred !== null && preferred.ok && isReservedEventSlug(preferred.slug)) {
     const holder = await getEventBySlug(db, preferred.slug);
     const alreadyOwnsIt =
       options.excludingEventId !== undefined && holder?._id === options.excludingEventId;

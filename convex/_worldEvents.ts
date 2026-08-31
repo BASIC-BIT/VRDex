@@ -1,6 +1,7 @@
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
 import { firstSafeHttpsUrl, optionalField, safeHttpsUrl } from "./_publicFields";
+import { canReadProfile } from "./_profilePermissions";
 import { safePublicLinkUrl } from "./_vrcdnLinks";
 
 const WORLD_EVENT_SECTION_LIMIT = 4;
@@ -308,9 +309,12 @@ export async function getPublicWorldEventContext(
           return null;
         }
 
-        const community = event.communityProfileId === undefined
+        const communityDoc = event.communityProfileId === undefined
           ? null
           : await db.get(event.communityProfileId);
+        const community = communityDoc !== null && canReadProfile("public", communityDoc)
+          ? communityDoc
+          : null;
 
         return {
           event,

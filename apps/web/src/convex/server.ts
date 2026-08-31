@@ -594,3 +594,26 @@ export async function fetchEditableEventBySlug(slug: string) {
     return { kind: "error" as const, event: null };
   }
 }
+
+export async function fetchManagedCommunityBySlug(slug: string) {
+  if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
+    return { kind: "missing-url" as const, community: null };
+  }
+
+  try {
+    const communities = await fetchQuery(
+      api.events.listManagedCommunities,
+      {},
+      { token: await convexAuthToken() },
+    );
+
+    return {
+      kind: "live" as const,
+      community: communities.find((community) => community.slug === slug) ?? null,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Server-side Convex managed community fetch failed: ${message}`);
+    return { kind: "error" as const, community: null };
+  }
+}

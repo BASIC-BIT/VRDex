@@ -517,7 +517,7 @@ function ConnectedEventEditorForm({
       const duration = parseInteger(nextTemplate.duration, "Slot duration minutes");
       const breakDuration = parseInteger(nextTemplate.break, "Break duration minutes");
 
-      if (count <= 0 || duration <= 0 || breakDuration < 0) {
+      if (count < 0 || duration <= 0 || breakDuration < 0) {
         setSlotTemplate(nextTemplate);
         return;
       }
@@ -625,7 +625,9 @@ function ConnectedEventEditorForm({
         ...(doorsOffsetMinutes === undefined
           ? {}
           : { doorsOpenAt: startAt - doorsOffsetMinutes * 60_000 }),
-        ...(derivedEndAt === undefined ? {} : { endAt: derivedEndAt }),
+        ...(derivedEndAt === undefined && event?.endAt === undefined
+          ? {}
+          : { endAt: derivedEndAt ?? event?.endAt }),
         timezone: submittedTimezone,
         summary: optionalString(stringField(formData.get("summary"))),
         notes: optionalString(stringField(formData.get("notes"))),

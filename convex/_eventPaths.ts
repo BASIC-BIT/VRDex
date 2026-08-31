@@ -2,12 +2,10 @@ import type { Doc } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
 
 export function eventPathForSlugs(
-  communitySlug: string | undefined,
+  communitySlug: string,
   eventSlug: string,
 ): string {
-  return communitySlug
-    ? `/${communitySlug}/events/${eventSlug}`
-    : `/events/${eventSlug}`;
+  return `/${communitySlug}/events/${eventSlug}`;
 }
 
 export async function eventPathForRecord(
@@ -19,5 +17,9 @@ export async function eventPathForRecord(
     ? null
     : await db.get(event.communityProfileId);
 
-  return eventPathForSlugs(community?.slug, eventSlug ?? "event-page");
+  if (community?.profileType !== "community") {
+    throw new Error("Event community was not found.");
+  }
+
+  return eventPathForSlugs(community.slug, eventSlug ?? "event-page");
 }

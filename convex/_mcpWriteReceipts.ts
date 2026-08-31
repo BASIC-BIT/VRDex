@@ -79,17 +79,21 @@ export async function withCurrentEventWritePaths(
   const event = await db.get(result.eventId);
 
   if (event === null) {
-    return { ...result, eventPath: eventPathForSlugs(undefined, result.slug) };
+    return result;
   }
 
   const community = event.communityProfileId === undefined
     ? null
     : await db.get(event.communityProfileId);
 
+  if (community?.profileType !== "community") {
+    return result;
+  }
+
   return {
     ...result,
     slug: event.slug ?? result.slug,
-    eventPath: eventPathForSlugs(community?.slug, event.slug ?? result.slug),
+    eventPath: eventPathForSlugs(community.slug, event.slug ?? result.slug),
   };
 }
 

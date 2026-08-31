@@ -1206,6 +1206,33 @@ describe("API-created event ownership", () => {
     assert.equal(savedWithAssociations.preservedSlotAssociationIds.length, 1);
     assert.equal(savedWithAssociations.preservedWorldAssociationIds.length, 1);
 
+    await t.withIdentity(identity).mutation(api.events.updateCommunityEvent, {
+      currentSlug: created.slug,
+      title: "Saved without changing the world",
+      communitySlug: editableWhilePublic!.communitySlug,
+      preservedCommunityProfileId: editableWhilePublic!.preservedCommunityProfileId,
+      preservedParticipantAssociationIds: savedWithAssociations.preservedParticipantAssociationIds,
+      preservedSlotAssociationIds: savedWithAssociations.preservedSlotAssociationIds,
+      preservedWorldAssociationIds: savedWithAssociations.preservedWorldAssociationIds,
+      startAt,
+      timezone: "UTC",
+      participantLinks: [{ personSlug: "hidden-dj", roleLabel: "Performer" }],
+      slotLinks: [{
+        personSlug: "hidden-dj",
+        displayLabel: "Hidden DJ",
+        roleLabel: "DJ",
+        startAt,
+        endAt: startAt + 3_600_000,
+      }],
+    });
+    assert.equal(
+      (await t.run((ctx) => ctx.db
+        .query("eventWorlds")
+        .withIndex("by_eventId", (query) => query.eq("eventId", created.eventId))
+        .collect())).length,
+      1,
+    );
+
     await t.run(async (ctx) => {
       await ctx.db.patch(profileId, {
         displayName: "Private Host Rename",
@@ -1257,11 +1284,22 @@ describe("API-created event ownership", () => {
     assert.deepEqual(editable?.worlds, []);
     assert.deepEqual(editable?.participants, []);
     assert.equal(editable?.slots[0]?.performer, undefined);
-    assert.equal(editable?.communitySlug, undefined);
+    assert.equal(editable?.communitySlug, "faceless");
+    assert.equal(editable?.communityName, "Private Host Rename");
     assert.equal(editable?.preservedCommunityProfileId, profileId);
     assert.equal(editable?.preservedParticipantAssociationIds.length, 1);
     assert.equal(editable?.preservedSlotAssociationIds.length, 1);
     assert.equal(editable?.preservedWorldAssociationIds.length, 1);
+
+    const hiddenCommunityWorldContext = await t.run((ctx) =>
+      getPublicWorldEventContext(ctx.db, worldId, NOW),
+    );
+    assert.equal(
+      [...hiddenCommunityWorldContext.upcoming, ...hiddenCommunityWorldContext.recent]
+        .find((event) => event.slug === created.slug)
+        ?.communitySlug,
+      undefined,
+    );
 
     const shiftedStartAt = startAt + 60_000;
     await t.withIdentity(identity).mutation(api.events.updateCommunityEvent, {

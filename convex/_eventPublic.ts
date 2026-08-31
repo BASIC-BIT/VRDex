@@ -678,7 +678,8 @@ export async function getEventForEditor(
   });
   const projected = record === null ? null : toPublicEvent(record);
   const authoredMediaLinks = (event.mediaLinks ?? []).flatMap(safePublicEventMediaLink);
-  const [worldAssociations, participantAssociations, slotAssociations] = await Promise.all([
+  const [community, worldAssociations, participantAssociations, slotAssociations] = await Promise.all([
+    event.communityProfileId === undefined ? null : db.get(event.communityProfileId),
     db.query("eventWorlds").withIndex("by_eventId", (query) => query.eq("eventId", event._id)).collect(),
     db.query("eventParticipants").withIndex("by_eventId", (query) => query.eq("eventId", event._id)).collect(),
     db.query("eventSlots").withIndex("by_eventId", (query) => query.eq("eventId", event._id)).collect(),
@@ -696,6 +697,12 @@ export async function getEventForEditor(
     ? null
     : {
         ...projected,
+        ...(community?.profileType === "community"
+          ? {
+              communityName: community.displayName,
+              communitySlug: community.slug,
+            }
+          : {}),
         authoredMediaLinks,
         preservedParticipantAssociationIds,
         preservedSlotAssociationIds,
