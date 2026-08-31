@@ -2393,7 +2393,8 @@ describe("profile media kit asset helpers", () => {
       | "profileAssetPlacements"
       | "profileAuditEvents"
       | "apiWriteAuditEvents"
-      | "profileOwners";
+      | "profileOwners"
+      | "profiles";
     type AssetRow = Record<string, unknown> & {
       _id: string;
       _creationTime: number;
@@ -2404,6 +2405,13 @@ describe("profile media kit asset helpers", () => {
       profileAssetPlacements: [],
       profileAuditEvents: [],
       apiWriteAuditEvents: [],
+      profiles: [
+        {
+          _id: "profile123",
+          _creationTime: 1,
+          claimState: "claimed",
+        },
+      ],
       profileOwners: [
         {
           _id: "profileOwners:1",

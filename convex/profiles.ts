@@ -331,6 +331,30 @@ export const listProfilesForApiOwner = internalQuery({
   },
 });
 
+export const getProfileForApiOwnerBySlug = internalQuery({
+  args: {
+    ownerUserId: v.id("users"),
+    slug: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const validation = validateProfileSlug(args.slug);
+
+    if (!validation.ok) {
+      return null;
+    }
+    const profile = await getProfileBySlug(ctx.db, validation.slug);
+
+    if (
+      profile === null ||
+      !(await userOwnsProfile(ctx.db, profile._id, args.ownerUserId))
+    ) {
+      return null;
+    }
+
+    return toApiOwnedProfileSummary(profile);
+  },
+});
+
 export const updateProfileForApiOwner = internalMutation({
   args: {
     actorKind: apiWriteAuditActorKindValidator,

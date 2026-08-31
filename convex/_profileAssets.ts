@@ -20,6 +20,7 @@ export const PROFILE_ASSET_ALT_TEXT_MAX_LENGTH = 180;
 export const PROFILE_ASSET_CREDIT_MAX_LENGTH = 120;
 export const PROFILE_ASSET_CREDIT_URL_MAX_LENGTH = 2_048;
 export const PROFILE_ASSET_MAX_ACTIVE_COUNT = 12;
+const PROFILE_MEDIA_VERSION_PATTERN = /^[a-f0-9]{64}$/;
 
 export const DEFAULT_PROFILE_AVATAR_APPEARANCE = {
   borderEnabled: true,
@@ -78,6 +79,96 @@ export type PublicProfileMediaKit = {
 
 export type ProfileAssetDisplayPreference = Doc<"profileAssetDisplayPreferences">;
 
+function bytesToHex(bytes: ArrayBuffer): string {
+  return [...new Uint8Array(bytes)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+/**
+ * Derive the optimistic-concurrency token from owner-visible media state.
+ *
+ * A derived token keeps every browser, API, contribution, moderation, and MCP
+ * mutation in the same revision domain without relying on each path to bump a
+ * separate counter. Private storage identifiers, source URLs, filenames,
+ * hashes, and upload credentials are deliberately absent from the snapshot.
+ */
+export async function getProfileMediaVersion(
+  db: DatabaseReader,
+  profileId: Id<"profiles">,
+): Promise<string> {
+  const [assets, placements] = await Promise.all([
+    db
+      .query("profileAssets")
+      .withIndex("by_profileId", (query) => query.eq("profileId", profileId))
+      .collect(),
+    db
+      .query("profileAssetPlacements")
+      .withIndex("by_profileId_state", (query) =>
+        query.eq("profileId", profileId).eq("state", "active"),
+      )
+      .collect(),
+  ]);
+  const recoverableAssets = assets
+    .filter(
+      (asset) =>
+        asset.visibility === "public" &&
+        asset.retiredAt === undefined &&
+        asset.moderatorSuppressedAt === undefined,
+    )
+    .sort((first, second) => String(first._id).localeCompare(String(second._id)))
+    .map((asset) => ({
+      assetId: String(asset._id),
+      state: asset.state,
+      label: asset.label ?? null,
+      caption: asset.caption ?? null,
+      altText: asset.altText ?? null,
+      credit: asset.credit ?? null,
+      creditUrl: asset.creditUrl ?? null,
+      mimeType: asset.mimeType,
+      byteSize: asset.byteSize,
+      downloadMimeType: asset.downloadMimeType ?? null,
+      downloadByteSize: asset.downloadByteSize ?? null,
+      width: asset.width ?? null,
+      height: asset.height ?? null,
+      updatedAt: asset.updatedAt,
+    }));
+  const recoverableAssetIds = new Set(recoverableAssets.map((asset) => asset.assetId));
+  const activePlacements = placements
+    .filter((placement) => recoverableAssetIds.has(String(placement.assetId)))
+    .sort(
+      (first, second) =>
+        first.placement.localeCompare(second.placement) ||
+        first.position - second.position ||
+        String(first.assetId).localeCompare(String(second.assetId)),
+    )
+    .map((placement) => ({
+      assetId: String(placement.assetId),
+      placement: placement.placement,
+      position: placement.position,
+    }));
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(JSON.stringify({ assets: recoverableAssets, placements: activePlacements })),
+  );
+
+  return bytesToHex(digest);
+}
+
+export async function assertProfileMediaVersion(
+  db: DatabaseReader,
+  profileId: Id<"profiles">,
+  expectedMediaVersion: string,
+) {
+  if (!PROFILE_MEDIA_VERSION_PATTERN.test(expectedMediaVersion)) {
+    throw new Error("Expected media version must be a lowercase SHA-256 digest.");
+  }
+
+  if ((await getProfileMediaVersion(db, profileId)) !== expectedMediaVersion) {
+    throw new ConvexError({ code: "MCP_MEDIA_VERSION_CONFLICT" });
+  }
+}
+
 export type ProfileAssetUploadInput = {
   intentId: Id<"profileAssetUploadIntents">;
   uploadToken: string;
@@ -96,7 +187,7 @@ export type ProfileAssetUploadIntentCreateInput = {
   requestedBy: ProfileAssetAuthSubject;
   originalFileName?: string;
   sourceUrl?: string;
-  mimeType: string;
+  mimeType?: string;
   byteSize?: number;
   targetProfileId?: Id<"profiles">;
   replacesAssetId?: Id<"profileAssets">;
@@ -380,16 +471,18 @@ export function createProfileAssetStorageKey(input: {
 export function createProfileAssetVariantStorageKeys(input: {
   token: string;
   originalFileName?: string;
-  mimeType: string;
+  mimeType?: string;
   now: number;
 }) {
-  const extension = input.mimeType === "image/svg+xml" ? "svg" : input.mimeType.split("/")[1] ?? "bin";
+  const extension = input.mimeType === "image/svg+xml"
+    ? "svg"
+    : input.mimeType?.split("/")[1] ?? "bin";
   const name = safeStorageName(input.originalFileName).replace(/\.[a-z0-9]+$/i, "").replace(/-+$/g, "");
   const date = new Date(input.now).toISOString().slice(0, 10);
   const prefix = `profile-assets/${date}/${input.token.slice(0, 24)}/${name}`;
 
   return {
-    storageKey: `${prefix}/display.${input.mimeType === "image/svg+xml" ? "svg" : "webp"}`,
+    storageKey: `${prefix}/display.${input.mimeType === undefined ? "bin" : input.mimeType === "image/svg+xml" ? "svg" : "webp"}`,
     quarantineStorageKey: `profile-assets/quarantine/${date}/${input.token.slice(0, 24)}/source.${extension}`,
     sourceStorageKey: `${prefix}/source.${extension}`,
     downloadStorageKey: `${prefix}/download.${extension}`,
@@ -407,13 +500,18 @@ export async function createProfileAssetUploadIntentRecord(
     throw new Error("Profile media uploads require a file name or HTTPS source URL.");
   }
 
-  const mimeType = normalizeProfileAssetMimeType(input.mimeType);
+  if (originalFileName !== undefined && input.mimeType === undefined) {
+    throw new Error("File uploads require a declared image type.");
+  }
+  const mimeType = input.mimeType === undefined
+    ? "application/octet-stream"
+    : normalizeProfileAssetMimeType(input.mimeType);
   const byteSize = validateProfileAssetByteSize(input.byteSize ?? 1);
   const uploadToken = createUploadToken();
   const storageKeys = createProfileAssetVariantStorageKeys({
     token: uploadToken,
     originalFileName,
-    mimeType,
+    mimeType: input.mimeType,
     now: input.now,
   });
   const label = sanitizeProfileAssetLabel(input.label);
@@ -836,17 +934,20 @@ export async function finalizeProfileAssetUploadIntentUpload(
     throw new ConvexError("Profile media upload intent is no longer pending.");
   }
 
-  if (
-    intent.targetProfileId !== undefined &&
-    intent.purpose !== "community_proposal" &&
-    (intent.requestedBy.issuer !== "vrdex:api" ||
+  if (intent.targetProfileId !== undefined && intent.purpose !== "community_proposal") {
+    const profile = await db.get(intent.targetProfileId);
+    if (
+      intent.requestedBy.issuer !== "vrdex:api" ||
+      profile === null ||
+      profile.claimState === "unclaimed" ||
       !(await userOwnsProfile(
         db,
         intent.targetProfileId,
         intent.requestedBy.subject as Id<"users">,
-      )))
-  ) {
-    throw new ConvexError("You do not have permission to update this profile.");
+      ))
+    ) {
+      throw new ConvexError("You do not have permission to update this profile.");
+    }
   }
 
   if (intent.targetProfileId !== undefined && input.contentSha256 !== undefined) {
@@ -922,6 +1023,14 @@ export async function finalizeProfileAssetUploadIntentUpload(
     return { ok: true as const, assetIds: [] as Id<"profileAssets">[] };
   }
 
+  if (intent.mcpExpectedMediaVersion !== undefined) {
+    await assertProfileMediaVersion(
+      db,
+      intent.targetProfileId,
+      intent.mcpExpectedMediaVersion,
+    );
+  }
+
   let replacementPlacements: ProfileAssetPlacement[] | undefined;
   let replacementPosition: number | undefined;
   let replacementMetadata:
@@ -987,24 +1096,53 @@ export async function finalizeProfileAssetUploadIntentUpload(
   });
 
   if (assetIds.length > 0) {
+    if (intent.mcpIdempotencyKeyHash !== undefined) {
+      await db.patch(intent._id, { mcpAssetIds: assetIds });
+    }
     await db.insert("profileAuditEvents", {
       profileId: intent.targetProfileId,
       action: "api_profile_asset_uploaded",
       actor: intent.requestedBy,
       sourceType: "owner",
-      note: "Public API profile asset upload intent consumed.",
+      note: intent.mcpIdempotencyKeyHash === undefined
+        ? "Public API profile asset upload intent consumed."
+        : "Hosted MCP profile media import completed.",
       createdAt: input.now,
     });
 
     if (intent.requestedBy.issuer === "vrdex:api") {
       await recordApiWriteAuditEvent(db, {
         action: "profile_asset_upload_completed",
-        actorKind: "upload_token",
+        actorKind: intent.mcpIdempotencyKeyHash === undefined
+          ? "upload_token"
+          : "user_delegated_oauth",
         resourceType: "profile_asset",
-        routeClass: "asset_upload_intent",
+        routeClass: intent.mcpIdempotencyKeyHash === undefined
+          ? "asset_upload_intent"
+          : "authenticated_mcp_write",
         targetProfileId: intent.targetProfileId,
-        targetIntentId: intent._id,
+        ...(intent.mcpIdempotencyKeyHash === undefined
+          ? { targetIntentId: intent._id }
+          : {}),
         assetIds,
+        ...(intent.mcpOwnerUserId === undefined
+          ? {}
+          : { ownerUserId: intent.mcpOwnerUserId }),
+        ...(intent.mcpOauthClientId === undefined
+          ? {}
+          : { oauthClientId: intent.mcpOauthClientId }),
+        ...(intent.mcpOauthTokenId === undefined
+          ? {}
+          : { oauthTokenId: intent.mcpOauthTokenId }),
+        ...(intent.mcpRequestId === undefined
+          ? {}
+          : { requestId: intent.mcpRequestId }),
+        ...(intent.mcpIdempotencyKeyHash === undefined
+          ? {}
+          : {
+              idempotencyKeyHash: intent.mcpIdempotencyKeyHash,
+              mcpToolName: "vrdex_profile_media_manage" as const,
+            }),
         now: input.now,
       });
     }

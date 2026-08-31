@@ -82,7 +82,8 @@ function assertAuthenticatedReadSecuritySchemes(value: unknown) {
 }
 
 function isWriteToolName(name: string | undefined) {
-  return name !== undefined && /^vrdex_(event|profile)_(create|update|submit)$/.test(name);
+  return name === "vrdex_profile_media_manage" ||
+    (name !== undefined && /^vrdex_(event|profile)_(create|update|submit)$/.test(name));
 }
 
 // A read, but of the caller's own inventory, so it carries a scope pair rather
@@ -333,6 +334,7 @@ describe("VRDex MCP server", () => {
       "vrdex_event_update",
       "vrdex_profile_update",
       "vrdex_profile_submit",
+      "vrdex_profile_media_manage",
     ]);
 
     // Per resource, not one blanket write scope: a token that may set a DJ's
@@ -344,6 +346,7 @@ describe("VRDex MCP server", () => {
       vrdex_event_update: "events:write",
       vrdex_profile_update: "profile:write",
       vrdex_profile_submit: "profile:contribute",
+      vrdex_profile_media_manage: "assets:write",
     };
 
     for (const tool of writeTools) {
@@ -1281,6 +1284,296 @@ describe("VRDex MCP server", () => {
     assert.doesNotMatch(result.underScoped, /dj-draft/);
     assert.match(result.anonymous, /user-delegated VRDex OAuth session/);
     assert.doesNotMatch(result.anonymous, /dj-draft|never-print-this-token/);
+  });
+
+  it("returns owner media inventory without private storage or upload fields", () => {
+    const output = runMcpProbe(`
+      import { createVrdexMcpHandler } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+
+      const profile = {
+        id: "profile_media",
+        slug: "dj-media",
+        profileType: "person",
+        displayName: "DJ Media",
+        claimState: "claimed_verified",
+        publicationState: "published",
+        publicSurfacingState: "public",
+        creationSource: "self",
+        updatedAt: 7,
+      };
+      const media = {
+        profileId: "profile_media",
+        profileType: "person",
+        slug: "dj-media",
+        displayName: "DJ Media",
+        mediaVersion: "a".repeat(64),
+        activePublicAssetCount: 1,
+        assets: [{
+          assetId: "asset_123",
+          state: "active",
+          source: "owner_authored",
+          label: "Press photo",
+          mimeType: "image/webp",
+          byteSize: 1024,
+          sourcePreserved: true,
+          width: 1200,
+          height: 800,
+          placements: [{ placement: "gallery", position: 0 }],
+        }],
+      };
+      let queryCount = 0;
+      const handler = createVrdexMcpHandler({
+        authInfo: {
+          token: "never-print-this-token",
+          clientId: "vrdx_app_test",
+          scopes: ["mcp:read", "profile:read"],
+          resource: new URL("https://app.example.test/mcp"),
+          extra: {
+            requestId: "request-123",
+            subjectType: "user",
+            tokenId: "token-123",
+            userId: "user_123",
+          },
+        },
+        adminConvex: {
+          mutation: async () => ({}),
+          query: async () => ++queryCount === 1 ? profile : media,
+        },
+      });
+      const response = await handler.fetch(new Request("https://app.example.test/mcp", {
+        method: "POST",
+        headers: {
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 34,
+          method: "tools/call",
+          params: {
+            name: "vrdex_list_my_profiles",
+            arguments: { mediaSlug: "dj-media" },
+          },
+        }),
+      }));
+
+      console.log(JSON.stringify({ body: await response.text(), queryCount }));
+    `);
+    const result = JSON.parse(output) as { body: string; queryCount: number };
+
+    assert.equal(result.queryCount, 2);
+    assert.match(result.body, /mediaVersion.*a{64}/);
+    assert.match(result.body, /assetId.*asset_123/);
+    assert.doesNotMatch(
+      result.body,
+      /storageKey|sourceUrl|uploadToken|processingToken|contentSha256|originalFileName|never-print-this-token/,
+    );
+  });
+
+  it("imports and updates owner media through one scoped tool with minimal replay fields", () => {
+    const output = runMcpProbe(`
+      import { createVrdexMcpHandler } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+
+      const media = {
+        profileId: "profile_media",
+        profileType: "person",
+        slug: "dj-media",
+        displayName: "DJ Media",
+        mediaVersion: "b".repeat(64),
+        activePublicAssetCount: 1,
+        assets: [{
+          assetId: "asset_123",
+          state: "active",
+          source: "owner_authored",
+          label: "Press photo",
+          mimeType: "image/webp",
+          byteSize: 1024,
+          sourcePreserved: true,
+          placements: [{ placement: "gallery", position: 0 }],
+        }],
+      };
+      const mutationArgs = [];
+      const importedIntentIds = [];
+      const handler = createVrdexMcpHandler({
+        authInfo: {
+          token: "never-print-this-token",
+          clientId: "vrdx_app_test",
+          scopes: ["mcp:write", "assets:write"],
+          resource: new URL("https://app.example.test/mcp"),
+          extra: {
+            requestId: "request-123",
+            subjectType: "user",
+            tokenId: "token-123",
+            userId: "user_123",
+          },
+        },
+        adminConvex: {
+          mutation: async (_mutation, args) => {
+            mutationArgs.push(args);
+            if (args.sourceUrl) {
+              return { status: "pending", intentId: "intent_private_123" };
+            }
+            if (args.expectedMediaVersion) {
+              return media;
+            }
+            return {};
+          },
+          query: async () => media,
+        },
+        completeProfileMediaImport: async (intentId) => {
+          importedIntentIds.push(intentId);
+          return { assetIds: ["asset_123"] };
+        },
+      });
+
+      async function call(id, args) {
+        const response = await handler.fetch(new Request("https://app.example.test/mcp", {
+          method: "POST",
+          headers: {
+            accept: "application/json, text/event-stream",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id,
+            method: "tools/call",
+            params: { name: "vrdex_profile_media_manage", arguments: args },
+          }),
+        }));
+        return await response.text();
+      }
+
+      const added = await call(35, {
+        operation: "add_from_url",
+        slug: "dj-media",
+        expectedMediaVersion: "a".repeat(64),
+        idempotencyKey: "operator-key-123",
+        sourceUrl: "https://media.example.test/press.webp",
+        metadata: { label: "Press photo" },
+        placements: ["gallery"],
+      });
+      const updated = await call(36, {
+        operation: "update",
+        slug: "dj-media",
+        expectedMediaVersion: "b".repeat(64),
+        asset: {
+          assetId: "asset_123",
+          metadata: { caption: null },
+          placements: ["gallery", "featured"],
+        },
+        galleryOrder: ["asset_123"],
+      });
+      const invalidCredit = await call(37, {
+        operation: "update",
+        slug: "dj-media",
+        expectedMediaVersion: "b".repeat(64),
+        asset: {
+          assetId: "asset_123",
+          metadata: { creditUrl: "ftp://media.example.test/credit" },
+        },
+      });
+
+      console.log(JSON.stringify({ added, importedIntentIds, invalidCredit, mutationArgs, updated }));
+    `);
+    const result = JSON.parse(output) as {
+      added: string;
+      importedIntentIds: string[];
+      invalidCredit: string;
+      mutationArgs: Array<Record<string, unknown>>;
+      updated: string;
+    };
+    const importMutation = result.mutationArgs.find((args) => "sourceUrl" in args)!;
+    const updateMutation = result.mutationArgs.find(
+      (args) => "expectedMediaVersion" in args && "asset" in args,
+    )!;
+
+    assert.deepEqual(result.importedIntentIds, ["intent_private_123"]);
+    assert.match(String(importMutation.idempotencyKeyHash), /^[0-9a-f]{64}$/);
+    assert.match(String(importMutation.requestFingerprint), /^[0-9a-f]{64}$/);
+    assert.equal(JSON.stringify(importMutation).includes("operator-key-123"), false);
+    assert.equal("idempotencyKey" in updateMutation, false);
+    assert.equal("idempotencyKeyHash" in updateMutation, false);
+    assert.deepEqual(updateMutation.asset, {
+      assetId: "asset_123",
+      metadata: { caption: null },
+      placements: ["gallery", "featured"],
+    });
+    assert.match(result.added, /"operation":"add_from_url"/);
+    assert.match(result.updated, /"operation":"update"/);
+    assert.match(result.invalidCredit, /Credit URL must use HTTP or HTTPS/);
+    assert.equal(JSON.stringify(result.mutationArgs).includes("ftp://"), false);
+    assert.doesNotMatch(
+      result.added + result.updated,
+      /intent_private_123|uploadToken|processingToken|storageKey|never-print-this-token/,
+    );
+  });
+
+  it("rejects stale media updates definitively and does not invoke the importer", () => {
+    const output = runMcpProbe(`
+      import { ConvexError } from "convex/values";
+      import { createVrdexMcpHandler } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+
+      let importerCalled = false;
+      const handler = createVrdexMcpHandler({
+        authInfo: {
+          token: "never-print-this-token",
+          clientId: "vrdx_app_test",
+          scopes: ["mcp:write", "assets:write"],
+          resource: new URL("https://app.example.test/mcp"),
+          extra: {
+            requestId: "request-123",
+            subjectType: "user",
+            tokenId: "token-123",
+            userId: "user_123",
+          },
+        },
+        adminConvex: {
+          mutation: async (_mutation, args) => {
+            if (args.expectedMediaVersion) {
+              throw new ConvexError({ code: "MCP_MEDIA_VERSION_CONFLICT" });
+            }
+            return {};
+          },
+          query: async () => null,
+        },
+        completeProfileMediaImport: async () => {
+          importerCalled = true;
+          return { assetIds: [] };
+        },
+      });
+      const response = await handler.fetch(new Request("https://app.example.test/mcp", {
+        method: "POST",
+        headers: {
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 37,
+          method: "tools/call",
+          params: {
+            name: "vrdex_profile_media_manage",
+            arguments: {
+              operation: "add_from_url",
+              slug: "dj-media",
+              expectedMediaVersion: "a".repeat(64),
+              idempotencyKey: "operator-key-123",
+              sourceUrl: "https://media.example.test/press.webp",
+              metadata: { label: "Press photo" },
+              placements: ["gallery"],
+            },
+          },
+        }),
+      }));
+
+      console.log(JSON.stringify({ body: await response.text(), importerCalled }));
+    `);
+    const result = JSON.parse(output) as { body: string; importerCalled: boolean };
+
+    assert.equal(result.importerCalled, false);
+    assert.match(result.body, /Profile media changed after it was read/);
+    assert.match(result.body, /new idempotency key/);
+    assert.doesNotMatch(result.body, /may have completed|never-print-this-token/);
   });
 
   it("confirms a public profile write against the projection the API actually returns", () => {
