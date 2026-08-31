@@ -1,7 +1,15 @@
 import { ConvexError, v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
-import { internalMutation, internalQuery, query, mutation, type MutationCtx } from "./_generated/server";
+import {
+  internalMutation,
+  internalQuery,
+  query,
+  mutation,
+  type DatabaseReader,
+  type DatabaseWriter,
+  type MutationCtx,
+} from "./_generated/server";
 import type { AuthSubject } from "./_communityAuthority";
 import { requireUser } from "./_identity";
 import {
@@ -20,9 +28,11 @@ import {
   PROFILE_ASSET_MAX_ACTIVE_COUNT,
   PROFILE_ASSET_UPLOAD_PROCESSING_MAX_ATTEMPTS,
   PROFILE_ASSET_UPLOAD_PROCESSING_LEASE_MS,
+  assertProfileMediaVersion,
   assertProfileAssetIntentCapacity,
   createProfileAssetUploadIntentRecord,
   finalizeProfileAssetUploadIntentUpload,
+  getProfileMediaVersion,
   getProfileAssetDisplayPreference,
   getPublicProfileMediaKit,
   normalizeProfileAvatarAppearance,
@@ -32,11 +42,16 @@ import {
   sanitizeProfileAssetCredit,
   sanitizeProfileAssetCreditUrl,
   sanitizeProfileAssetLabel,
+  type ProfileAssetPlacement,
 } from "./_profileAssets";
 import {
   apiWriteAuditActorKindValidator,
   recordApiWriteAuditEvent,
 } from "./_apiWriteAuditEvents";
+import {
+  requireMcpAttributionText,
+  requireSha256Hex,
+} from "./_mcpWriteReceipts";
 
 const profileAssetUploadIntentId = v.id("profileAssetUploadIntents");
 const profileId = v.id("profiles");
@@ -71,6 +86,14 @@ const profileAssetAttachMetadataArgs = {
   placements: v.optional(v.array(profileAssetPlacement)),
   position: v.optional(v.number()),
 };
+const nullableMetadataValue = v.union(v.string(), v.null());
+const mcpProfileAssetMetadataPatch = v.object({
+  label: v.optional(nullableMetadataValue),
+  caption: v.optional(nullableMetadataValue),
+  altText: v.optional(nullableMetadataValue),
+  credit: v.optional(nullableMetadataValue),
+  creditUrl: v.optional(nullableMetadataValue),
+});
 const PROFILE_ASSET_ACCESSIBILITY_GENERATION_DAILY_LIMIT = 20;
 const PROFILE_ASSET_ACCESSIBILITY_GENERATION_COOLDOWN_MS = 5_000;
 const PROFILE_ASSET_ACCESSIBILITY_REQUEST_ID =
@@ -151,6 +174,34 @@ async function requireApiOwnedClaimedProfileBySlug(
   }
 
   return profile;
+}
+
+function rejectMcpMediaMutation(message: string): never {
+  throw new ConvexError({ code: "MCP_MEDIA_INVALID", message });
+}
+
+async function requireMcpOwnedClaimedProfileBySlug(
+  ctx: MutationCtx,
+  slug: string,
+  ownerUserId: Id<"users">,
+) {
+  try {
+    return await requireApiOwnedClaimedProfileBySlug(ctx, slug, ownerUserId);
+  } catch {
+    return rejectMcpMediaMutation("The owned claimed profile is unavailable.");
+  }
+}
+
+async function assertMcpProfileAssetIntentCapacity(
+  db: DatabaseReader,
+  profileId: Id<"profiles">,
+  now: number,
+) {
+  try {
+    await assertProfileAssetIntentCapacity(db, profileId, now);
+  } catch {
+    rejectMcpMediaMutation("The profile media quota is full.");
+  }
 }
 
 async function patchProfileDisplayPreference(
@@ -253,6 +304,138 @@ export const createUploadIntentForApiProfileOwner = internalMutation({
       uploadTokenHeader: "x-vrdex-upload-token",
       expiresAt: intent.expiresAt,
     };
+  },
+});
+
+export const createImportIntentForMcpOwner = internalMutation({
+  args: {
+    ownerUserId: v.id("users"),
+    oauthClientId: v.string(),
+    oauthTokenId: v.string(),
+    requestId: v.string(),
+    idempotencyKeyHash: v.string(),
+    requestFingerprint: v.string(),
+    slug: v.string(),
+    expectedMediaVersion: v.string(),
+    sourceUrl: v.string(),
+    label: v.optional(v.string()),
+    caption: v.optional(v.string()),
+    altText: v.optional(v.string()),
+    credit: v.optional(v.string()),
+    creditUrl: v.optional(v.string()),
+    placements: v.array(profileAssetPlacement),
+  },
+  handler: async (ctx, args) => {
+    assertProfileMediaKitEnabled();
+    const oauthClientId = requireMcpAttributionText(
+      args.oauthClientId,
+      "OAuth client id",
+      256,
+    );
+    const idempotencyKeyHash = requireSha256Hex(
+      args.idempotencyKeyHash,
+      "Idempotency key hash",
+    );
+    const requestFingerprint = requireSha256Hex(
+      args.requestFingerprint,
+      "Request fingerprint",
+    );
+    const existing = await ctx.db
+      .query("profileAssetUploadIntents")
+      .withIndex("by_mcp_owner_client_key", (query) =>
+        query
+          .eq("mcpOwnerUserId", args.ownerUserId)
+          .eq("mcpOauthClientId", oauthClientId)
+          .eq("mcpIdempotencyKeyHash", idempotencyKeyHash),
+      )
+      .unique();
+
+    if (existing !== null) {
+      if (existing.mcpRequestFingerprint !== requestFingerprint) {
+        throw new ConvexError({ code: "MCP_WRITE_DENIED" });
+      }
+      if (existing.targetProfileId === undefined) {
+        throw new ConvexError({ code: "MCP_WRITE_DENIED" });
+      }
+      const profile = await ctx.db.get(existing.targetProfileId);
+
+      if (
+        profile === null ||
+        profile.claimState === "unclaimed" ||
+        !(await userOwnsProfile(ctx.db, profile._id, args.ownerUserId))
+      ) {
+        throw new ConvexError({ code: "MCP_WRITE_DENIED" });
+      }
+      if (existing.state === "consumed" && existing.mcpAssetIds !== undefined) {
+        return {
+          status: "completed" as const,
+          assetIds: existing.mcpAssetIds,
+          media: await buildOwnedMediaInventory(ctx.db, profile),
+        };
+      }
+      if (existing.expiresAt < Date.now()) {
+        return { status: "expired" as const };
+      }
+
+      return { status: "pending" as const, intentId: existing._id };
+    }
+
+    if (args.placements.length === 0) {
+      rejectMcpMediaMutation("Imported profile media requires at least one placement.");
+    }
+    let sourceUrl: URL;
+    try {
+      sourceUrl = new URL(args.sourceUrl);
+    } catch {
+      return rejectMcpMediaMutation("Profile media source URL is invalid.");
+    }
+    if (sourceUrl.search || sourceUrl.hash) {
+      rejectMcpMediaMutation("Profile media source URLs must not contain query parameters or fragments.");
+    }
+
+    const profile = await requireMcpOwnedClaimedProfileBySlug(ctx, args.slug, args.ownerUserId);
+    await assertProfileMediaVersion(ctx.db, profile._id, args.expectedMediaVersion);
+    const now = Date.now();
+    await assertMcpProfileAssetIntentCapacity(ctx.db, profile._id, now);
+    const intent = await createProfileAssetUploadIntentRecord(ctx.db, {
+      requestedBy: apiOwnerAuthSubject(args.ownerUserId),
+      targetProfileId: profile._id,
+      sourceUrl: args.sourceUrl,
+      label: args.label,
+      caption: args.caption,
+      altText: args.altText,
+      credit: args.credit,
+      creditUrl: args.creditUrl,
+      placements: args.placements,
+      source: "owner_authored",
+      purpose: "owner_publish",
+      now,
+    });
+    await ctx.db.patch(intent.intentId, {
+      mcpOwnerUserId: args.ownerUserId,
+      mcpOauthClientId: oauthClientId,
+      mcpOauthTokenId: requireMcpAttributionText(args.oauthTokenId, "OAuth token id", 256),
+      mcpRequestId: requireMcpAttributionText(args.requestId, "Request id", 256),
+      mcpIdempotencyKeyHash: idempotencyKeyHash,
+      mcpRequestFingerprint: requestFingerprint,
+      mcpExpectedMediaVersion: args.expectedMediaVersion,
+    });
+    await recordApiWriteAuditEvent(ctx.db, {
+      action: "profile_asset_upload_intent_created",
+      actorKind: "user_delegated_oauth",
+      ownerUserId: args.ownerUserId,
+      oauthClientId,
+      oauthTokenId: args.oauthTokenId,
+      requestId: args.requestId,
+      idempotencyKeyHash,
+      mcpToolName: "vrdex_profile_media_manage",
+      resourceType: "profile_asset_upload_intent",
+      routeClass: "authenticated_mcp_write",
+      targetProfileId: profile._id,
+      now,
+    });
+
+    return { status: "pending" as const, intentId: intent.intentId };
   },
 });
 
@@ -372,19 +555,12 @@ export const cancelOwnedUploadIntent = mutation({
   },
 });
 
-export const claimUploadIntentForStorage = internalMutation({
-  args: {
-    intentId: profileAssetUploadIntentId,
-    uploadToken: v.string(),
-    processingToken: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const intent = await ctx.db.get(args.intentId);
+async function claimProfileAssetUploadIntentForStorage(
+  ctx: MutationCtx,
+  intent: Doc<"profileAssetUploadIntents">,
+  processingToken: string,
+) {
     const now = Date.now();
-
-    if (intent === null || intent.uploadToken !== args.uploadToken) {
-      return { status: "not_found" as const };
-    }
 
     if (intent.state !== "pending" || intent.expiresAt < now) {
       return { status: "not_found" as const };
@@ -414,7 +590,7 @@ export const claimUploadIntentForStorage = internalMutation({
     }
 
     await ctx.db.patch(intent._id, {
-      processingToken: args.processingToken,
+      processingToken,
       processingStartedAt: now,
       processingAttempts: processingAttempts + 1,
       updatedAt: now,
@@ -433,6 +609,44 @@ export const claimUploadIntentForStorage = internalMutation({
       downloadStorageKey: intent.downloadStorageKey,
       expiresAt: intent.expiresAt,
     };
+}
+
+export const claimUploadIntentForStorage = internalMutation({
+  args: {
+    intentId: profileAssetUploadIntentId,
+    uploadToken: v.string(),
+    processingToken: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const intent = await ctx.db.get(args.intentId);
+
+    if (intent === null || intent.uploadToken !== args.uploadToken) {
+      return { status: "not_found" as const };
+    }
+
+    return await claimProfileAssetUploadIntentForStorage(ctx, intent, args.processingToken);
+  },
+});
+
+export const claimMcpImportIntentForStorage = internalMutation({
+  args: {
+    intentId: profileAssetUploadIntentId,
+    processingToken: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const intent = await ctx.db.get(args.intentId);
+
+    if (
+      intent === null ||
+      intent.mcpOwnerUserId === undefined ||
+      intent.mcpOauthClientId === undefined ||
+      intent.mcpIdempotencyKeyHash === undefined ||
+      intent.sourceUrl === undefined
+    ) {
+      return { status: "not_found" as const };
+    }
+
+    return await claimProfileAssetUploadIntentForStorage(ctx, intent, args.processingToken);
   },
 });
 
@@ -672,6 +886,249 @@ export const hasDuplicateAssetForUpload = query({
   },
 });
 
+export const hasDuplicateAssetForMcpImport = internalQuery({
+  args: {
+    intentId: profileAssetUploadIntentId,
+    processingToken: v.string(),
+    contentSha256: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const intent = await ctx.db.get(args.intentId);
+    if (
+      intent === null ||
+      intent.mcpIdempotencyKeyHash === undefined ||
+      intent.processingToken !== args.processingToken ||
+      intent.targetProfileId === undefined ||
+      intent.state !== "pending" ||
+      intent.expiresAt < Date.now()
+    ) {
+      return false;
+    }
+
+    const assets = await ctx.db
+      .query("profileAssets")
+      .withIndex("by_profileId", (query) => query.eq("profileId", intent.targetProfileId!))
+      .collect();
+    return assets.some((asset) => asset.contentSha256 === args.contentSha256);
+  },
+});
+
+export const markMcpImportIntentUploaded = internalMutation({
+  args: {
+    intentId: profileAssetUploadIntentId,
+    processingToken: v.string(),
+    mimeType: v.string(),
+    byteSize: v.number(),
+    sourceMimeType: v.optional(v.string()),
+    sourceByteSize: v.optional(v.number()),
+    sourceContentSha256: v.optional(v.string()),
+    downloadMimeType: v.optional(v.string()),
+    downloadByteSize: v.optional(v.number()),
+    downloadContentSha256: v.optional(v.string()),
+    contentSha256: v.optional(v.string()),
+    width: v.optional(v.number()),
+    height: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const intent = await ctx.db.get(args.intentId);
+    if (
+      intent === null ||
+      intent.mcpIdempotencyKeyHash === undefined ||
+      intent.processingToken !== args.processingToken
+    ) {
+      throw new ConvexError("Profile media upload intent was not found.");
+    }
+    assertProfileMediaKitEnabled();
+
+    try {
+      return await finalizeProfileAssetUploadIntentUpload(ctx.db, {
+        ...args,
+        uploadToken: intent.uploadToken,
+        now: Date.now(),
+      });
+    } catch (error) {
+      if (error instanceof ConvexError) {
+        const data = error.data;
+        if (
+          typeof data === "object" &&
+          data !== null &&
+          "code" in data &&
+          typeof data.code === "string"
+        ) {
+          throw error;
+        }
+      }
+      throw new ConvexError({
+        code: "MCP_MEDIA_INVALID",
+        message: "Profile media import was rejected during finalization.",
+      });
+    }
+  },
+});
+
+export const releaseMcpImportIntentStorageClaim = internalMutation({
+  args: {
+    intentId: profileAssetUploadIntentId,
+    processingToken: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const intent = await ctx.db.get(args.intentId);
+    if (
+      intent === null ||
+      intent.mcpIdempotencyKeyHash === undefined ||
+      intent.processingToken !== args.processingToken ||
+      intent.state !== "pending"
+    ) {
+      return false;
+    }
+    await ctx.db.patch(intent._id, {
+      processingToken: undefined,
+      processingStartedAt: undefined,
+      updatedAt: Date.now(),
+    });
+    return true;
+  },
+});
+
+export const getMcpImportIntentStateForStorageCleanup = internalQuery({
+  args: {
+    intentId: profileAssetUploadIntentId,
+    processingToken: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const intent = await ctx.db.get(args.intentId);
+    if (intent === null || intent.mcpIdempotencyKeyHash === undefined) {
+      return null;
+    }
+    if (intent.state === "consumed") {
+      return { state: intent.state };
+    }
+    if (intent.processingToken !== args.processingToken) {
+      return null;
+    }
+    return { state: intent.state };
+  },
+});
+
+async function buildOwnedMediaInventory(
+  db: DatabaseReader,
+  profile: Doc<"profiles">,
+) {
+  const [assets, activePlacementRecords, mediaVersion] = await Promise.all([
+    db
+      .query("profileAssets")
+      .withIndex("by_profileId", (query) => query.eq("profileId", profile._id))
+      .collect(),
+    db
+      .query("profileAssetPlacements")
+      .withIndex("by_profileId_state", (query) =>
+        query.eq("profileId", profile._id).eq("state", "active"),
+      )
+      .collect(),
+    getProfileMediaVersion(db, profile._id),
+  ]);
+  const activePlacements = activePlacementRecords.sort(
+    (first, second) =>
+      first.placement.localeCompare(second.placement) ||
+      first.position - second.position ||
+      String(first.assetId).localeCompare(String(second.assetId)),
+  );
+  const placementsByAssetId = new Map<Id<"profileAssets">, typeof activePlacements>();
+
+  for (const placement of activePlacements) {
+    const current = placementsByAssetId.get(placement.assetId) ?? [];
+    current.push(placement);
+    placementsByAssetId.set(placement.assetId, current);
+  }
+
+  return {
+    profileId: profile._id,
+    profileType: profile.profileType,
+    slug: profile.slug,
+    displayName: profile.displayName,
+    mediaVersion,
+    activePublicAssetCount: assets.filter(
+      (asset) => asset.state === "active" && asset.visibility === "public",
+    ).length,
+    assets: assets
+      .filter(
+        (asset) =>
+          asset.visibility === "public" &&
+          asset.retiredAt === undefined &&
+          asset.moderatorSuppressedAt === undefined,
+      )
+      .sort((first, second) => {
+        if (first.state !== second.state) {
+          return first.state === "active" ? -1 : 1;
+        }
+
+        const firstGallery = placementsByAssetId
+          .get(first._id)
+          ?.find((placement) => placement.placement === "gallery")?.position;
+        const secondGallery = placementsByAssetId
+          .get(second._id)
+          ?.find((placement) => placement.placement === "gallery")?.position;
+        return (
+          (firstGallery ?? Number.MAX_SAFE_INTEGER) -
+            (secondGallery ?? Number.MAX_SAFE_INTEGER) ||
+          String(first._id).localeCompare(String(second._id))
+        );
+      })
+      .map((asset) => ({
+        assetId: asset._id,
+        state: asset.state,
+        source: asset.source,
+        ...(asset.label === undefined ? {} : { label: asset.label }),
+        ...(asset.caption === undefined ? {} : { caption: asset.caption }),
+        ...(asset.altText === undefined ? {} : { altText: asset.altText }),
+        ...(asset.credit === undefined ? {} : { credit: asset.credit }),
+        ...(asset.creditUrl === undefined ? {} : { creditUrl: asset.creditUrl }),
+        mimeType: asset.mimeType,
+        byteSize: asset.byteSize,
+        ...(asset.downloadMimeType === undefined
+          ? {}
+          : { downloadMimeType: asset.downloadMimeType }),
+        ...(asset.downloadByteSize === undefined
+          ? {}
+          : { downloadByteSize: asset.downloadByteSize }),
+        sourcePreserved: asset.sourceStorageKey !== undefined,
+        ...(asset.width === undefined ? {} : { width: asset.width }),
+        ...(asset.height === undefined ? {} : { height: asset.height }),
+        placements: (placementsByAssetId.get(asset._id) ?? []).map((placement) => ({
+          placement: placement.placement,
+          position: placement.position,
+        })),
+      })),
+  };
+}
+
+export const getOwnedMediaForMcpActor = internalQuery({
+  args: {
+    ownerUserId: v.id("users"),
+    slug: v.string(),
+  },
+  handler: async (ctx, args) => {
+    assertProfileMediaKitEnabled();
+    const validation = validateProfileSlug(args.slug);
+
+    if (!validation.ok) {
+      return null;
+    }
+
+    const profile = await getProfileBySlug(ctx.db, validation.slug);
+
+    if (
+      profile === null ||
+      profile.claimState === "unclaimed" ||
+      !(await userOwnsProfile(ctx.db, profile._id, args.ownerUserId))
+    ) {
+      return null;
+    }
+
+    return await buildOwnedMediaInventory(ctx.db, profile);
+  },
+});
+
 export const listOwnedMediaKitProfiles = query({
   args: {},
   handler: async (ctx) => {
@@ -772,6 +1229,382 @@ async function requireOwnedAsset(ctx: MutationCtx, requestedProfileId: Id<"profi
 
   return { profile, asset };
 }
+
+function hasOwn(object: object, key: string) {
+  return Object.prototype.hasOwnProperty.call(object, key);
+}
+
+async function replaceOwnedPlacementOrder(
+  db: DatabaseWriter,
+  profileId: Id<"profiles">,
+  placement: "gallery" | "additional_logo",
+  assetIds: Id<"profileAssets">[],
+  now: number,
+) {
+  const uniqueIds = [...new Set(assetIds)];
+
+  if (uniqueIds.length !== assetIds.length || uniqueIds.length > PROFILE_ASSET_MAX_ACTIVE_COUNT) {
+    rejectMcpMediaMutation("Profile media order is invalid.");
+  }
+
+  const requestedAssets = await Promise.all(uniqueIds.map((assetId) => db.get(assetId)));
+
+  if (
+    requestedAssets.some(
+      (asset) =>
+        asset === null ||
+        asset.profileId !== profileId ||
+        asset.state !== "active" ||
+        asset.retiredAt !== undefined ||
+        asset.moderatorSuppressedAt !== undefined,
+    )
+  ) {
+    rejectMcpMediaMutation("Profile media order includes an unavailable item.");
+  }
+
+  if (
+    placement === "gallery" &&
+    requestedAssets.some(
+      (asset) => asset === null || sanitizeProfileAssetLabel(asset.label) === undefined,
+    )
+  ) {
+    rejectMcpMediaMutation("Gallery images require a title.");
+  }
+
+  const existing = await db
+    .query("profileAssetPlacements")
+    .withIndex("by_profileId_placement_state_position", (query) =>
+      query.eq("profileId", profileId).eq("placement", placement).eq("state", "active"),
+    )
+    .collect();
+  const existingAssets = await Promise.all(existing.map((item) => db.get(item.assetId)));
+  const activeExistingIds = new Set(
+    existing
+      .filter((_, index) => existingAssets[index]?.state === "active")
+      .map((item) => item.assetId),
+  );
+
+  if (
+    activeExistingIds.size !== uniqueIds.length ||
+    uniqueIds.some((assetId) => !activeExistingIds.has(assetId))
+  ) {
+    throw new ConvexError({ code: "MCP_MEDIA_VERSION_CONFLICT" });
+  }
+
+  await Promise.all(
+    existing.map((item) => db.patch(item._id, { state: "deleted", updatedAt: now })),
+  );
+  await Promise.all(
+    uniqueIds.map((assetId, position) =>
+      db.insert("profileAssetPlacements", {
+        profileId,
+        assetId,
+        placement,
+        position,
+        state: "active",
+        updatedAt: now,
+      }),
+    ),
+  );
+}
+
+async function replaceOwnedAssetPlacements(
+  db: DatabaseWriter,
+  profileId: Id<"profiles">,
+  asset: Doc<"profileAssets">,
+  placements: ProfileAssetPlacement[],
+  now: number,
+) {
+  const uniquePlacements = [...new Set(placements)];
+
+  if (uniquePlacements.length !== placements.length) {
+    rejectMcpMediaMutation("Profile media placements must be unique.");
+  }
+  if (uniquePlacements.includes("featured") && !uniquePlacements.includes("gallery")) {
+    rejectMcpMediaMutation("Featured media must also be a gallery item.");
+  }
+  if (
+    uniquePlacements.includes("gallery") &&
+    sanitizeProfileAssetLabel(asset.label) === undefined
+  ) {
+    rejectMcpMediaMutation("Gallery images require a title.");
+  }
+
+  const current = await db
+    .query("profileAssetPlacements")
+    .withIndex("by_assetId", (query) => query.eq("assetId", asset._id))
+    .filter((query) => query.eq(query.field("state"), "active"))
+    .collect();
+  const desired = new Set(uniquePlacements);
+
+  await Promise.all(
+    current
+      .filter((item) => !desired.has(item.placement))
+      .map((item) => db.patch(item._id, { state: "deleted", updatedAt: now })),
+  );
+
+  for (const placement of uniquePlacements) {
+    if (current.some((item) => item.placement === placement)) {
+      continue;
+    }
+
+    const ordered = placement === "gallery" || placement === "additional_logo";
+
+    if (!ordered) {
+      const replaced = await db
+        .query("profileAssetPlacements")
+        .withIndex("by_profileId_placement_state_position", (query) =>
+          query.eq("profileId", profileId).eq("placement", placement).eq("state", "active"),
+        )
+        .collect();
+      await Promise.all(
+        replaced.map((item) => db.patch(item._id, { state: "deleted", updatedAt: now })),
+      );
+      for (const replacedAssetId of new Set(replaced.map((item) => item.assetId))) {
+        const remainingPlacement = await db
+          .query("profileAssetPlacements")
+          .withIndex("by_assetId", (query) => query.eq("assetId", replacedAssetId))
+          .filter((query) => query.eq(query.field("state"), "active"))
+          .first();
+        if (remainingPlacement === null) {
+          const displacedAsset = await db.get(replacedAssetId);
+          if (displacedAsset !== null && displacedAsset.retiredAt === undefined) {
+            await db.patch(replacedAssetId, {
+              state: "deleted",
+              deletedAt: displacedAsset.deletedAt ?? now,
+              retiredAt: now,
+              updatedAt: now,
+            });
+          }
+        }
+      }
+    }
+
+    let position = 0;
+    if (ordered) {
+      const existing = await db
+        .query("profileAssetPlacements")
+        .withIndex("by_profileId_placement_state_position", (query) =>
+          query.eq("profileId", profileId).eq("placement", placement).eq("state", "active"),
+        )
+        .collect();
+      position = existing.reduce((next, item) => Math.max(next, item.position + 1), 0);
+    }
+
+    await db.insert("profileAssetPlacements", {
+      profileId,
+      assetId: asset._id,
+      placement,
+      position,
+      state: "active",
+      updatedAt: now,
+    });
+  }
+}
+
+export const manageOwnedMediaForMcpActor = internalMutation({
+  args: {
+    ownerUserId: v.id("users"),
+    oauthClientId: v.string(),
+    oauthTokenId: v.string(),
+    requestId: v.string(),
+    slug: v.string(),
+    expectedMediaVersion: v.string(),
+    asset: v.optional(v.object({
+      assetId: v.id("profileAssets"),
+      metadata: v.optional(mcpProfileAssetMetadataPatch),
+      placements: v.optional(v.array(profileAssetPlacement)),
+      state: v.optional(v.union(v.literal("active"), v.literal("deleted"))),
+    })),
+    galleryOrder: v.optional(v.array(v.id("profileAssets"))),
+    additionalLogoOrder: v.optional(v.array(v.id("profileAssets"))),
+  },
+  handler: async (ctx, args) => {
+    assertProfileMediaKitEnabled();
+    const profile = await requireMcpOwnedClaimedProfileBySlug(ctx, args.slug, args.ownerUserId);
+    await assertProfileMediaVersion(ctx.db, profile._id, args.expectedMediaVersion);
+
+    if (
+      args.asset === undefined &&
+      args.galleryOrder === undefined &&
+      args.additionalLogoOrder === undefined
+    ) {
+      rejectMcpMediaMutation("Profile media updates must include at least one change.");
+    }
+
+    const now = Date.now();
+    if (args.asset !== undefined) {
+      const asset = await ctx.db.get(args.asset.assetId);
+
+      if (
+        asset === null ||
+        asset.profileId !== profile._id ||
+        asset.visibility !== "public" ||
+        asset.retiredAt !== undefined ||
+        asset.moderatorSuppressedAt !== undefined
+      ) {
+        rejectMcpMediaMutation("Profile media item was not found.");
+      }
+      if (args.asset.state === "deleted" && args.asset.placements !== undefined) {
+        rejectMcpMediaMutation("Delete media and change placements in separate updates.");
+      }
+
+      const metadata = args.asset.metadata;
+      if (metadata !== undefined) {
+        const patch: Partial<Pick<
+          Doc<"profileAssets">,
+          "label" | "caption" | "altText" | "credit" | "creditUrl"
+        >> & { updatedAt: number } = { updatedAt: now };
+
+        if (hasOwn(metadata, "label")) {
+          patch.label = sanitizeProfileAssetLabel(metadata.label ?? undefined);
+        }
+        if (hasOwn(metadata, "caption")) {
+          patch.caption = sanitizeProfileAssetCaption(metadata.caption ?? undefined);
+        }
+        if (hasOwn(metadata, "altText")) {
+          patch.altText = sanitizeProfileAssetAltText(metadata.altText ?? undefined);
+        }
+        if (hasOwn(metadata, "credit")) {
+          patch.credit = sanitizeProfileAssetCredit(metadata.credit ?? undefined);
+        }
+        if (hasOwn(metadata, "creditUrl")) {
+          patch.creditUrl = sanitizeProfileAssetCreditUrl(metadata.creditUrl ?? undefined);
+        }
+        await ctx.db.patch(asset._id, patch);
+      }
+
+      let currentAsset = (await ctx.db.get(asset._id))!;
+      if (args.asset.state !== undefined && args.asset.state !== currentAsset.state) {
+        if (args.asset.state === "active") {
+          await assertMcpProfileAssetIntentCapacity(ctx.db, profile._id, now);
+          const placements = await ctx.db
+            .query("profileAssetPlacements")
+            .withIndex("by_assetId", (query) => query.eq("assetId", currentAsset._id))
+            .collect();
+          const wasGalleryAsset = placements.some(
+            (placement) => placement.placement === "gallery",
+          );
+          if (
+            wasGalleryAsset &&
+            sanitizeProfileAssetLabel(currentAsset.label) === undefined
+          ) {
+            rejectMcpMediaMutation("Gallery images require a title.");
+          }
+          await ctx.db.patch(currentAsset._id, {
+            state: "active",
+            deletedAt: undefined,
+            updatedAt: now,
+          });
+          const hasActiveGalleryPlacement = placements.some(
+            (placement) =>
+              placement.placement === "gallery" && placement.state === "active",
+          );
+          if (wasGalleryAsset && !hasActiveGalleryPlacement) {
+            const activeGallery = await ctx.db
+              .query("profileAssetPlacements")
+              .withIndex("by_profileId_placement_state_position", (query) =>
+                query
+                  .eq("profileId", profile._id)
+                  .eq("placement", "gallery")
+                  .eq("state", "active"),
+              )
+              .collect();
+            const nextPosition = activeGallery.reduce(
+              (position, placement) => Math.max(position, placement.position + 1),
+              0,
+            );
+            await ctx.db.insert("profileAssetPlacements", {
+              profileId: profile._id,
+              assetId: currentAsset._id,
+              placement: "gallery",
+              position: nextPosition,
+              state: "active",
+              updatedAt: now,
+            });
+          }
+        } else {
+          await ctx.db.patch(currentAsset._id, {
+            state: "deleted",
+            deletedAt: now,
+            updatedAt: now,
+          });
+        }
+        currentAsset = (await ctx.db.get(currentAsset._id))!;
+      }
+
+      if (args.asset.placements !== undefined) {
+        if (currentAsset.state !== "active") {
+          rejectMcpMediaMutation("Only active profile media can receive placements.");
+        }
+        await replaceOwnedAssetPlacements(
+          ctx.db,
+          profile._id,
+          currentAsset,
+          args.asset.placements,
+          now,
+        );
+      }
+
+      const finalPlacements = await ctx.db
+        .query("profileAssetPlacements")
+        .withIndex("by_assetId", (query) => query.eq("assetId", currentAsset._id))
+        .filter((query) => query.eq(query.field("state"), "active"))
+        .collect();
+      if (
+        currentAsset.state === "active" &&
+        finalPlacements.some((placement) => placement.placement === "gallery") &&
+        sanitizeProfileAssetLabel(currentAsset.label) === undefined
+      ) {
+        rejectMcpMediaMutation("Gallery images require a title.");
+      }
+    }
+
+    if (args.galleryOrder !== undefined) {
+      await replaceOwnedPlacementOrder(
+        ctx.db,
+        profile._id,
+        "gallery",
+        args.galleryOrder,
+        now,
+      );
+    }
+    if (args.additionalLogoOrder !== undefined) {
+      await replaceOwnedPlacementOrder(
+        ctx.db,
+        profile._id,
+        "additional_logo",
+        args.additionalLogoOrder,
+        now,
+      );
+    }
+
+    await ctx.db.insert("profileAuditEvents", {
+      profileId: profile._id,
+      action: "profile_asset_managed",
+      actor: apiOwnerAuthSubject(args.ownerUserId),
+      sourceType: "owner",
+      note: "Owner managed profile media through hosted MCP.",
+      createdAt: now,
+    });
+    await recordApiWriteAuditEvent(ctx.db, {
+      action: "profile_asset_managed",
+      actorKind: "user_delegated_oauth",
+      ownerUserId: args.ownerUserId,
+      oauthClientId: args.oauthClientId,
+      oauthTokenId: args.oauthTokenId,
+      requestId: args.requestId,
+      mcpToolName: "vrdex_profile_media_manage",
+      resourceType: "profile_asset",
+      routeClass: "authenticated_mcp_write",
+      targetProfileId: profile._id,
+      ...(args.asset === undefined ? {} : { assetIds: [args.asset.assetId] }),
+      now,
+    });
+
+    return await buildOwnedMediaInventory(ctx.db, profile);
+  },
+});
 
 export const updateOwnedAssetMetadata = mutation({
   args: {

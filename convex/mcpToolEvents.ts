@@ -35,7 +35,7 @@ export const recordInvocations = internalMutation({
 
 export const recordWriteInvocation = internalMutation({
   args: {
-    idempotencyKeyHash: v.string(),
+    idempotencyKeyHash: v.optional(v.string()),
     oauthClientId: v.string(),
     oauthTokenId: v.string(),
     ownerUserId: v.id("users"),
@@ -55,7 +55,9 @@ export const recordWriteInvocation = internalMutation({
       oauthClientId: args.oauthClientId,
       oauthTokenId: args.oauthTokenId,
       requestId: args.requestId,
-      idempotencyKeyHash: args.idempotencyKeyHash,
+      ...(args.idempotencyKeyHash === undefined
+        ? {}
+        : { idempotencyKeyHash: args.idempotencyKeyHash }),
       ...(args.targetEventId === undefined ? {} : { targetEventId: args.targetEventId }),
       ...(args.targetProfileId === undefined ? {} : { targetProfileId: args.targetProfileId }),
       createdAt: Date.now(),

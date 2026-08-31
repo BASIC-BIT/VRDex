@@ -824,7 +824,9 @@ Current checkpoint:
 - implemented in the web app with `@modelcontextprotocol/server`
 - anonymous public read tools are served through the `anonymous_mcp_public_read` rate-limit class
 - OAuth access tokens issued for the MCP resource are accepted for the authenticated MCP rate-limit class
-- OAuth protected-resource metadata includes the required `mcp:read` scope; non-public OAuth-protected MCP tools remain a later checkpoint
+- OAuth protected-resource metadata and tool descriptors advertise the exact
+  read and per-resource write scopes required by the implemented protected
+  tools
 
 Required metadata:
 
@@ -852,7 +854,7 @@ Day-one client compatibility:
 - test anonymous hosted read tools, OAuth hosted tools, and local stdio token configuration separately
 - do not declare hosted MCP ready until the matrix covers the mainstream clients VRDex users and partner agents are likely to use
 
-First hosted tools:
+Current anonymous hosted tools:
 
 - `vrdex_search`
 - `vrdex_get_profile`
@@ -861,14 +863,21 @@ First hosted tools:
 - `vrdex_get_world`
 - `vrdex_list_active_worlds`
 
-Later hosted tools:
+Current protected hosted tools:
 
-- `vrdex_my_profiles`
-- `vrdex_my_events`
+- `vrdex_list_my_profiles`
 - `vrdex_event_create`
 - `vrdex_event_update`
 - `vrdex_profile_update`
-- `vrdex_asset_upload_intent_create`
+- `vrdex_profile_submit`
+- `vrdex_profile_media_manage`
+
+Deferred hosted tools:
+
+- owner event inventory beyond public reads
+- local-file media upload without a trusted out-of-band binary bridge
+- unclaimed-profile media contribution and review
+- direct upload-intent or one-time credential exposure to an MCP client
 
 Safety rules:
 

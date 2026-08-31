@@ -14,6 +14,7 @@ export const mcpToolNameValidator = v.union(
   v.literal("vrdex_event_update"),
   v.literal("vrdex_profile_update"),
   v.literal("vrdex_profile_submit"),
+  v.literal("vrdex_profile_media_manage"),
 );
 
 export const mcpToolEventRouteClassValidator = v.union(
