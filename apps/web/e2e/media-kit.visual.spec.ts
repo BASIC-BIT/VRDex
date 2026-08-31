@@ -713,7 +713,7 @@ test("removed profile upload cannot overwrite a new staged upload @fixture", asy
     "href",
     "/playwright-night-shift",
   );
-  await page.getByLabel("Add image").setInputFiles({
+  await page.getByLabel("Primary logo").setInputFiles({
     name: "replacement.png",
     mimeType: "image/png",
     buffer: await smallSyntheticPng(),
@@ -722,7 +722,7 @@ test("removed profile upload cannot overwrite a new staged upload @fixture", asy
   await expect.poll(() => page.evaluate(
     () => (window as typeof window & { mediaUploadSettled?: boolean }).mediaUploadSettled,
   )).toBe(true);
-  await expect(page.getByText("replacement.png", { exact: true })).toBeVisible();
+  await expect(page.getByText("Primary logo: replacement.png", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Publish" })).toBeVisible();
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
