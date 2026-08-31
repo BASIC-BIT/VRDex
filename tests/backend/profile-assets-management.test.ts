@@ -298,6 +298,68 @@ describe("profile media-kit owner management", () => {
     });
     assert.equal(shareCard?.entityType, "profile");
     assert.equal(shareCard?.profile?.avatarImageUrl, undefined);
+    const ownedProfiles = await seeded.t.withIdentity(seeded.ownerIdentity).query(
+      api.profileAssets.listOwnedMediaKitProfiles,
+      {},
+    );
+    assert.equal(ownedProfiles?.[0]?.assets[0]?.primaryLogo, true);
+    assert.equal(ownedProfiles?.[0]?.assets[0]?.profileImage, false);
+  });
+
+  it("uses a managed primary logo as a community profile identity", async () => {
+    const seeded = await seedOwnedProfile(0);
+    const assetId = await seeded.t.run(async (ctx) => {
+      const now = Date.now();
+      const profileId = await ctx.db.insert("profiles", {
+        profileType: "community",
+        slug: "managed-community",
+        displayName: "Managed Community",
+        sortName: "managed community",
+        aliases: [],
+        tags: [],
+        community: { categoryTags: [] },
+        avatarImageUrl: "https://legacy.example.test/community.png",
+        claimState: "claimed_verified",
+        publicationState: "published",
+        publicSurfacingState: "public",
+        creationSource: "self",
+        updatedAt: now,
+      });
+      const createdAssetId = await ctx.db.insert("profileAssets", {
+        profileId,
+        storageKey: "profile-assets/test/community-logo.png",
+        mimeType: "image/png",
+        byteSize: 128,
+        label: "Managed community logo",
+        visibility: "public",
+        source: "owner_authored",
+        uploadedBy: {
+          tokenIdentifier: `api:${seeded.userId}`,
+          issuer: "vrdex:api",
+          subject: String(seeded.userId),
+        },
+        uploadedAt: now,
+        state: "active",
+        updatedAt: now,
+      });
+      await ctx.db.insert("profileAssetPlacements", {
+        profileId,
+        assetId: createdAssetId,
+        placement: "primary_logo",
+        position: 0,
+        state: "active",
+        updatedAt: now,
+      });
+      return createdAssetId;
+    });
+
+    const publicProfile = await seeded.t.query(api.profiles.getPublicBySlug, {
+      slug: "managed-community",
+      includeTelemetry: false,
+    });
+    assert.equal(publicProfile?.mediaKit.primaryLogo?.assetId, assetId);
+    assert.equal(publicProfile?.avatarImageUrl, publicProfile?.mediaKit.primaryLogo?.imageUrl);
+    assert.notEqual(publicProfile?.avatarImageUrl, "https://legacy.example.test/community.png");
   });
 
   it("omits privately placed asset metadata from the public media-kit list", async () => {
@@ -869,6 +931,8 @@ describe("profile media-kit owner management", () => {
     assert.deepEqual(profiles?.[0]?.assets.map((asset) => asset.assetId), [...seeded.assetIds, unplacedAssetId]);
     assert.equal(profiles?.[0]?.activePublicAssetCount, 2);
     assert.equal(profiles?.[0]?.assets.find((asset) => asset.assetId === unplacedAssetId)?.gallery, false);
+    assert.equal(profiles?.[0]?.assets.find((asset) => asset.assetId === unplacedAssetId)?.profileImage, false);
+    assert.equal(profiles?.[0]?.assets.find((asset) => asset.assetId === unplacedAssetId)?.primaryLogo, false);
     await assert.rejects(
       owner.mutation(api.profileAssets.setOwnedFeaturedAsset, {
         profileId: seeded.profileId,

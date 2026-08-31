@@ -38,8 +38,9 @@ Locked decision:
 - the public profile shows a calm featured-media treatment, an ordered gallery,
   individual downloads, and the existing logo ZIP when logos are present
 - profile image, banner, and logo placements remain supported by the existing
-  asset model; the launch editor manages gallery/featured placement and exposes
-  other quota-consuming public assets for removal or restore
+  asset model; the launch editor manages gallery/featured placement, lets owners
+  upload a profile image or primary logo, and exposes other quota-consuming
+  public assets for removal or restore
 - video, audio, bulk DAM operations, collaborative roles, licensing workflows,
   automatic generation, and general-purpose agent behavior remain deferred;
   an explicit owner-triggered concise accessibility suggestion is the only

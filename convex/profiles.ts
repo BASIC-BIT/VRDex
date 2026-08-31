@@ -486,7 +486,9 @@ export const getPublicBySlug = query({
       ...publicProfile,
       appearance,
       mediaKit,
-      avatarImageUrl: mediaKit.profileImage?.imageUrl ?? legacyAvatarImageUrl,
+      avatarImageUrl: profile.profileType === "community"
+        ? mediaKit.primaryLogo?.imageUrl ?? mediaKit.profileImage?.imageUrl ?? legacyAvatarImageUrl
+        : mediaKit.profileImage?.imageUrl ?? legacyAvatarImageUrl,
       bannerImageUrl: mediaKit.banner?.imageUrl ?? legacyBannerImageUrl,
       ...(args.includeShareCard
         ? { shareCard: toPublicProfileShareCard(profile, shareCardMediaKit) }

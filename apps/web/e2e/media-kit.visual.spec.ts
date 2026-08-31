@@ -328,18 +328,25 @@ test("community owner can publish a managed primary logo @fixture", async ({ pag
     });
   });
 
+  await expect(page.getByLabel("Add image")).toBeDisabled();
+  await expect(page.getByLabel("Primary logo")).toBeEnabled();
   await page.getByLabel("Primary logo").setInputFiles({
-    name: "primary-logo.png",
+    name: "slow.png",
     mimeType: "image/png",
     buffer: await smallSyntheticPng(),
   });
-  await page.getByRole("button", { name: "Publish" }).click();
+  const publish = page.getByRole("button", { name: "Publish" });
+  await expect(publish.locator("xpath=ancestor::form")).toContainText("Primary logo: slow.png");
+  await publish.click();
+  await expect(page.getByText("Uploading…", { exact: true })).toBeVisible();
+  await expect(page.getByText("Add image", { exact: true })).toBeVisible();
 
   await expect.poll(() => page.evaluate(
     () => (window as typeof window & { mediaUploadAttempt?: unknown }).mediaUploadAttempt,
   )).toMatchObject({
-    name: "primary-logo.png",
+    name: "slow.png",
     placement: "primary_logo",
+    replacesAssetId: "night-shift-primary-logo",
     type: "image/png",
   });
 });
