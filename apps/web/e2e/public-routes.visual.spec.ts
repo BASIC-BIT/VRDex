@@ -57,7 +57,7 @@ test("event editor @visual", async ({ page }, testInfo) => {
   await expect(page.getByRole("button", { name: "Publish event" })).toBeVisible();
   await expect(page.locator("details").filter({ hasText: "Media and links" })).not.toHaveAttribute("open");
 
-  await page.getByText("Details", { exact: true }).first().click();
+  await page.locator("details").filter({ hasText: /^Details/ }).first().locator("summary").click();
   await page.getByLabel("Display name").first().fill("Aurora");
   page.once("dialog", async (dialog) => {
     expect(dialog.message()).toBe("Replace edited set times?");
@@ -76,6 +76,10 @@ test("event editor @visual", async ({ page }, testInfo) => {
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByLabel("Sessions").fill("5");
   await expect(page.getByRole("heading", { name: /^Session [1-5]$/ })).toHaveCount(5);
+  await page.getByLabel("Sessions").fill("4");
+  await expect(page.getByRole("heading", { name: /^Session [1-4]$/ })).toHaveCount(4);
+  await page.getByLabel("Sessions").fill("81");
+  await expect(page.getByLabel("Sessions")).toHaveValue("80");
   await page.getByLabel("Sessions").fill("4");
   await expect(page.getByRole("heading", { name: /^Session [1-4]$/ })).toHaveCount(4);
   await captureRouteScreenshot(page, testInfo, "event-editor");

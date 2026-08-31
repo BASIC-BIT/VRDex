@@ -312,7 +312,7 @@ export function toPublicEventPreviewFromRecord(
     ...optionalField("doorsOpenAt", event.doorsOpenAt),
     ...optionalField("endAt", event.endAt),
     ...optionalField("timezone", event.timezone),
-    ...optionalField("communityName", community?.displayName ?? event.communityName),
+    ...optionalField("communityName", community?.displayName),
     ...optionalField("communitySlug", community?.slug),
     ...optionalField("summary", event.summary),
     ...optionalField("posterImageUrl", posterImageUrl),
@@ -630,6 +630,14 @@ async function getPublicEventRecord(
     }),
     getPublicEventMediaRecord(db, event),
   ]);
+
+  if (
+    options.includeUnpublished !== true &&
+    event.communityProfileId !== undefined &&
+    community === undefined
+  ) {
+    return null;
+  }
 
   const communityMediaKit = community === undefined
     ? undefined

@@ -113,7 +113,8 @@ function toPublicWorldEventPreview(
   if (
     event.publicationState !== "published" ||
     event.eventStatus !== "scheduled" ||
-    association.confirmationState !== "confirmed"
+    association.confirmationState !== "confirmed" ||
+    (event.communityProfileId !== undefined && community === undefined)
   ) {
     return null;
   }
@@ -150,7 +151,7 @@ function toPublicWorldEventPreview(
     ...optionalField("doorsOpenAt", event.doorsOpenAt),
     ...optionalField("endAt", event.endAt),
     ...optionalField("timezone", event.timezone),
-    ...optionalField("communityName", event.communityName),
+    ...optionalField("communityName", community?.displayName),
     ...optionalField("summary", event.summary),
     ...optionalField("posterImageUrl", posterImageUrl),
     ...optionalField("bannerImageUrl", bannerImageUrl),
@@ -193,33 +194,45 @@ export function createPublicActiveWorldPreviews(
   limit: number,
 ): PublicActiveWorldPreview[] {
   const limitWithinBounds = Math.max(1, Math.min(limit, ACTIVE_WORLD_MAX_LIMIT));
-  const groups = new Map<string, { world: Doc<"worlds">; events: Map<string, Doc<"events">> }>();
+  const groups = new Map<
+    string,
+    {
+      world: Doc<"worlds">;
+      events: Map<string, { event: Doc<"events">; community?: Doc<"profiles"> }>;
+    }
+  >();
 
-  for (const { association, event, world } of records) {
+  for (const { association, community, event, world } of records) {
     if (
       world.publicationState !== "published" ||
       event.publicationState !== "published" ||
       event.eventStatus !== "scheduled" ||
       association.confirmationState !== "confirmed" ||
+      (event.communityProfileId !== undefined && community === undefined) ||
       eventRecordEndsAt(event) < now
     ) {
       continue;
     }
 
-    const current = groups.get(world.slug) ?? { world, events: new Map<string, Doc<"events">>() };
-    current.events.set(event._id, event);
+    const current = groups.get(world.slug) ?? {
+      world,
+      events: new Map<string, { event: Doc<"events">; community?: Doc<"profiles"> }>(),
+    };
+    current.events.set(event._id, { event, ...optionalField("community", community) });
     groups.set(world.slug, current);
   }
 
   return [...groups.values()]
     .flatMap(({ events, world }) => {
-      const sortedEvents = [...events.values()].sort((first, second) => compareActiveEvents(first, second, now));
-      const nextEvent = sortedEvents[0];
+      const sortedEvents = [...events.values()].sort((first, second) =>
+        compareActiveEvents(first.event, second.event, now));
+      const nextEventRecord = sortedEvents[0];
 
-      if (nextEvent === undefined) {
+      if (nextEventRecord === undefined) {
         return [];
       }
 
+      const { community, event: nextEvent } = nextEventRecord;
       const sourceUrl = safeHttpsUrl(nextEvent.sourceUrl);
       const heroImageUrl = safeHttpsUrl(world.heroImageUrl);
 
@@ -242,7 +255,7 @@ export function createPublicActiveWorldPreviews(
             ...optionalField("doorsOpenAt", nextEvent.doorsOpenAt),
             ...optionalField("endAt", nextEvent.endAt),
             ...optionalField("timezone", nextEvent.timezone),
-            ...optionalField("communityName", nextEvent.communityName),
+            ...optionalField("communityName", community?.displayName),
           },
           ...optionalField("summary", world.summary),
           ...optionalField("heroImageUrl", heroImageUrl),
@@ -316,6 +329,10 @@ export async function getPublicWorldEventContext(
           ? communityDoc
           : null;
 
+        if (event.communityProfileId !== undefined && community === null) {
+          return null;
+        }
+
         return {
           event,
           association,
@@ -361,6 +378,17 @@ export async function getPublicActiveWorlds(
 
   const recordGroups = await Promise.all(
     events.map(async (event) => {
+      const communityDoc = event.communityProfileId === undefined
+        ? null
+        : await db.get(event.communityProfileId);
+      const community = communityDoc !== null && canReadProfile("public", communityDoc)
+        ? communityDoc
+        : null;
+
+      if (event.communityProfileId !== undefined && community === null) {
+        return [];
+      }
+
       const associations = await db
         .query("eventWorlds")
         .withIndex("by_eventId", (query) => query.eq("eventId", event._id))
@@ -375,7 +403,12 @@ export async function getPublicActiveWorlds(
             return null;
           }
 
-          return { association, event, world };
+          return {
+            association,
+            event,
+            world,
+            ...optionalField("community", community ?? undefined),
+          };
         }),
       );
     }),

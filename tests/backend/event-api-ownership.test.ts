@@ -1240,6 +1240,27 @@ describe("API-created event ownership", () => {
         sortName: "private host rename",
         publicSurfacingState: "opted_out",
       });
+    });
+
+    assert.equal(
+      await t.query(api.events.getPublicBySlug, { slug: created.slug }),
+      null,
+    );
+    const hiddenCommunityWorldContext = await t.run((ctx) =>
+      getPublicWorldEventContext(ctx.db, worldId, NOW),
+    );
+    assert.equal(
+      [...hiddenCommunityWorldContext.upcoming, ...hiddenCommunityWorldContext.recent]
+        .some((event) => event.slug === created.slug),
+      false,
+    );
+    assert.equal(
+      (await t.run((ctx) => getPublicActiveWorlds(ctx.db, NOW, 3)))
+        .some((world) => world.slug === "hidden-club"),
+      false,
+    );
+
+    await t.run(async (ctx) => {
       await ctx.db.patch(personId, { publicSurfacingState: "opted_out" });
       await ctx.db.patch(worldId, { publicationState: "draft_private" });
     });
@@ -1265,11 +1286,6 @@ describe("API-created event ownership", () => {
       }],
     });
 
-    const publicEvent = await t.query(api.events.getPublicBySlug, { slug: created.slug });
-    assert.deepEqual(publicEvent?.worlds, []);
-    assert.deepEqual(publicEvent?.participants, []);
-    assert.equal(publicEvent?.slots[0]?.performer, undefined);
-    assert.equal(publicEvent?.communitySlug, undefined);
     assert.equal(
       (await t.withIdentity(identity).query(api.events.listManagedEvents, {}))[0]?.eventId,
       created.eventId,
@@ -1291,16 +1307,6 @@ describe("API-created event ownership", () => {
     assert.equal(editable?.preservedParticipantAssociationIds.length, 1);
     assert.equal(editable?.preservedSlotAssociationIds.length, 1);
     assert.equal(editable?.preservedWorldAssociationIds.length, 1);
-
-    const hiddenCommunityWorldContext = await t.run((ctx) =>
-      getPublicWorldEventContext(ctx.db, worldId, NOW),
-    );
-    assert.equal(
-      [...hiddenCommunityWorldContext.upcoming, ...hiddenCommunityWorldContext.recent]
-        .find((event) => event.slug === created.slug)
-        ?.communitySlug,
-      undefined,
-    );
 
     const shiftedStartAt = startAt + 60_000;
     await t.withIdentity(identity).mutation(api.events.updateCommunityEvent, {

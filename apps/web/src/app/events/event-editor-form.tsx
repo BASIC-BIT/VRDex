@@ -6,6 +6,7 @@ import { useEffect, useState, useTransition } from "react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { api } from "@convex-generated-api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
+import { EVENT_SLOT_MAX_COUNT } from "../../../../../convex/_eventSlots";
 import type { PublicEvent } from "../_components/event-public-page";
 import { buttonVariants, Button } from "@/components/ui/button";
 import { Card, Eyebrow, SectionTitle } from "@/components/ui/card";
@@ -543,8 +544,9 @@ function ConnectedEventEditorForm({
         return;
       }
 
-      setSlotTemplate(nextTemplate);
-      setSlotRows(createGeneratedSlotRows(count, duration, breakDuration));
+      const boundedCount = Math.min(count, EVENT_SLOT_MAX_COUNT);
+      setSlotTemplate({ ...nextTemplate, count: String(boundedCount) });
+      setSlotRows(createGeneratedSlotRows(boundedCount, duration, breakDuration));
       setSlotRowsDirty(false);
     } catch {
       setSlotTemplate(nextTemplate);
@@ -1074,9 +1076,12 @@ function ConnectedEventEditorForm({
               <Input
                 className="bg-surface-strong text-foreground"
                 inputMode="numeric"
+                max={EVENT_SLOT_MAX_COUNT}
+                min={0}
                 onChange={(changeEvent) => {
                   onSlotTemplateChange("count", eventTargetValue(changeEvent));
                 }}
+                type="number"
                 value={slotTemplate.count}
               />
             </Field>

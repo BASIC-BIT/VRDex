@@ -1,5 +1,6 @@
 import type { Doc } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
+import { eventPathForSlugs } from "./_eventPaths";
 import { getPublicProfileMediaKit } from "./_profileAssets";
 import { toProfileLookupResult } from "./_profileLookup";
 import { canReadProfile } from "./_profilePermissions";
@@ -50,6 +51,8 @@ export async function projectPublicSearchResult(
       : await ctx.db.get(event.communityProfileId);
 
     if (
+      event === null ||
+      event.slug === undefined ||
       community === null ||
       community.profileType !== "community" ||
       !canReadProfile("public", community)
@@ -57,7 +60,12 @@ export async function projectPublicSearchResult(
       return null;
     }
 
-    return toPublicSearchResult(document, searchText);
+    return {
+      ...toPublicSearchResult(document, searchText),
+      slug: event.slug,
+      routePath: eventPathForSlugs(community.slug, event.slug),
+      subtitle: community.displayName,
+    };
   }
 
   if (document.entityType !== "profile" || document.profileId === undefined) {

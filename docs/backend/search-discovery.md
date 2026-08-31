@@ -37,6 +37,8 @@ Published event documents remain index-eligible across community visibility chan
 
 Profile search documents always include public identity basics such as display name, slug, profile type, and route. Optional profile fields only participate when their `fieldVisibility` is `public`; `unlisted` fields remain visible on direct profile pages but are omitted from search text, exact tokens, vocabulary keys, summaries, and image cards.
 
+Event results recheck the live community before projection and rebuild the route from the current community slug and event code. Community visibility changes and reslugs therefore take effect without rewriting every hosted event document.
+
 ## Semantic And Vector Search Seam
 
 `searchEmbeddings` is a provider-neutral vector seam keyed to `searchDocuments`.

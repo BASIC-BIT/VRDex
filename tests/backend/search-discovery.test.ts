@@ -558,6 +558,7 @@ describe("search document projection", () => {
     const event = {
       _id: "event123",
       communityProfileId: "community123",
+      slug: "h4rb0r2",
     } as unknown as Doc<"events">;
     const community = {
       _id: "community123",
@@ -586,6 +587,47 @@ describe("search document projection", () => {
     } as unknown as QueryCtx;
 
     assert.equal(await projectPublicSearchResult(ctx, document, "Harbor"), null);
+  });
+
+  it("rebuilds event result routes from the live community slug", async () => {
+    const event = {
+      _id: "event123",
+      communityProfileId: "community123",
+      slug: "h4rb0r2",
+    } as unknown as Doc<"events">;
+    const community = {
+      _id: "community123",
+      slug: "afterglow-renamed",
+      displayName: "Afterglow Renamed",
+      profileType: "community",
+      publicationState: "published",
+      publicSurfacingState: "public",
+    } as unknown as Doc<"profiles">;
+    const document = {
+      entityType: "event",
+      eventId: event._id,
+      slug: event.slug,
+      routePath: "/afterglow/events/h4rb0r2",
+      title: "Harbor Sessions",
+      subtitle: "Afterglow",
+      searchText: "Harbor Sessions",
+      exactTokens: ["harbor sessions"],
+      vocabularyKeys: [],
+      trustRank: 10,
+      featuredRank: 20,
+      publicState: "public",
+      updatedAt: 1,
+    } as unknown as Doc<"searchDocuments">;
+    const ctx = {
+      db: {
+        get: async (id: string) => id === event._id ? event : community,
+      },
+    } as unknown as QueryCtx;
+
+    const result = await projectPublicSearchResult(ctx, document, "Harbor");
+
+    assert.equal(result?.routePath, "/afterglow-renamed/events/h4rb0r2");
+    assert.equal(result?.subtitle, "Afterglow Renamed");
   });
 
   it("projects profile verification without exposing it as provenance copy", async () => {
