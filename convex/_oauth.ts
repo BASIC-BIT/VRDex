@@ -127,6 +127,7 @@ const dynamicMcpReadScopes = new Set<ApiScope>(["public:read", "mcp:read", "prof
 // Mirrors `dynamicMcpResourceWriteScopes` / `dynamicMcpWriteScopes` in
 // @vrdex/api-contracts, which Convex functions cannot import. Keep both in step.
 const dynamicMcpResourceWriteScopes = new Set<ApiScope>([
+  "assets:write",
   "events:write",
   "profile:write",
   "profile:contribute",

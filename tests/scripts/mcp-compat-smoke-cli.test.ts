@@ -14,12 +14,13 @@ const expectedTools = [
   "vrdex_get_world",
   "vrdex_list_active_worlds",
 ];
-// A correct hosted deployment registers all four unconditionally, so the
-// success fixture has to model all four: the smoke now fails a deployment that
+// A correct hosted deployment registers all five unconditionally, so the
+// success fixture has to model all five: the smoke now fails a deployment that
 // is missing one, which is the whole point of asserting rather than flagging.
 const expectedWriteTools = [
   "vrdex_event_create",
   "vrdex_event_update",
+  "vrdex_profile_media_manage",
   "vrdex_profile_update",
   "vrdex_profile_submit",
 ];
@@ -28,6 +29,7 @@ const expectedWriteTools = [
 const writeToolScopes: Record<string, string> = {
   vrdex_event_create: "events:write",
   vrdex_event_update: "events:write",
+  vrdex_profile_media_manage: "assets:write",
   vrdex_profile_update: "profile:write",
   vrdex_profile_submit: "profile:contribute",
 };
@@ -137,7 +139,7 @@ async function startHostedFailureFixture() {
       writeJson(response, 200, {
         authorization_servers: [origin],
         resource: `${origin}/mcp`,
-        scopes_supported: ["mcp:read", "profile:read", "mcp:write", "events:write", "profile:write", "profile:contribute"],
+        scopes_supported: ["mcp:read", "profile:read", "mcp:write", "assets:write", "events:write", "profile:write", "profile:contribute"],
       });
       return;
     }
@@ -283,7 +285,7 @@ async function startHostedSuccessFixture() {
       writeJson(response, 200, {
         authorization_servers: [origin],
         resource: `${origin}/mcp`,
-        scopes_supported: ["mcp:read", "profile:read", "mcp:write", "events:write", "profile:write", "profile:contribute"],
+        scopes_supported: ["mcp:read", "profile:read", "mcp:write", "assets:write", "events:write", "profile:write", "profile:contribute"],
       });
       return;
     }

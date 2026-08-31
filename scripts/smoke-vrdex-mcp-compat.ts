@@ -54,17 +54,20 @@ const localReadTools = [
 const writeToolResourceScopes: Record<string, string> = {
   vrdex_event_create: "events:write",
   vrdex_event_update: "events:write",
+  vrdex_profile_media_manage: "assets:write",
   vrdex_profile_update: "profile:write",
   vrdex_profile_submit: "profile:contribute",
 };
 const writeToolNames = Object.keys(writeToolResourceScopes);
+const hostedOnlyWriteToolNames = new Set(["vrdex_profile_media_manage"]);
+const localWriteToolNames = writeToolNames.filter((toolName) => !hostedOnlyWriteToolNames.has(toolName));
 // Reads, but of the caller's own inventory, so they advertise a scope pair the
 // way the writes do rather than the anonymous public-read pair.
 const ownedReadToolScopes: Record<string, string> = {
   vrdex_list_my_profiles: "profile:read",
 };
 const ownedReadToolNames = Object.keys(ownedReadToolScopes);
-const localExpectedTools = [...localReadTools, ...ownedReadToolNames, ...writeToolNames];
+const localExpectedTools = [...localReadTools, ...ownedReadToolNames, ...localWriteToolNames];
 const hostedExpectedTools = ["search", "fetch", ...localReadTools];
 
 function assertHostedToolSecuritySchemes(tool: HostedToolDescriptor) {
