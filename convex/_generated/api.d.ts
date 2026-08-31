@@ -29,6 +29,7 @@ import type * as _eventDiscordExport from "../_eventDiscordExport.js";
 import type * as _eventInputs from "../_eventInputs.js";
 import type * as _eventMediaControl from "../_eventMediaControl.js";
 import type * as _eventOperations from "../_eventOperations.js";
+import type * as _eventPaths from "../_eventPaths.js";
 import type * as _eventPublic from "../_eventPublic.js";
 import type * as _eventSlots from "../_eventSlots.js";
 import type * as _eventSlugs from "../_eventSlugs.js";
@@ -148,6 +149,7 @@ declare const fullApi: ApiFromModules<{
   _eventInputs: typeof _eventInputs;
   _eventMediaControl: typeof _eventMediaControl;
   _eventOperations: typeof _eventOperations;
+  _eventPaths: typeof _eventPaths;
   _eventPublic: typeof _eventPublic;
   _eventSlots: typeof _eventSlots;
   _eventSlugs: typeof _eventSlugs;
