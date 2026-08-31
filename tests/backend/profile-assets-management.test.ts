@@ -308,7 +308,7 @@ describe("profile media-kit owner management", () => {
 
   it("uses a managed primary logo as a community profile identity", async () => {
     const seeded = await seedOwnedProfile(0);
-    const assetId = await seeded.t.run(async (ctx) => {
+    const { assetId, profileId } = await seeded.t.run(async (ctx) => {
       const now = Date.now();
       const profileId = await ctx.db.insert("profiles", {
         profileType: "community",
@@ -350,7 +350,7 @@ describe("profile media-kit owner management", () => {
         state: "active",
         updatedAt: now,
       });
-      return createdAssetId;
+      return { assetId: createdAssetId, profileId };
     });
 
     const publicProfile = await seeded.t.query(api.profiles.getPublicBySlug, {
@@ -360,6 +360,18 @@ describe("profile media-kit owner management", () => {
     assert.equal(publicProfile?.mediaKit.primaryLogo?.assetId, assetId);
     assert.equal(publicProfile?.avatarImageUrl, publicProfile?.mediaKit.primaryLogo?.imageUrl);
     assert.notEqual(publicProfile?.avatarImageUrl, "https://legacy.example.test/community.png");
+
+    await seeded.t.run(async (ctx) => {
+      await ctx.db.patch(profileId, {
+        fieldVisibility: { avatarImageUrl: "private", mediaKit: "public" },
+      });
+    });
+    const privateAvatarProfile = await seeded.t.query(api.profiles.getPublicBySlug, {
+      slug: "managed-community",
+      includeTelemetry: false,
+    });
+    assert.equal(privateAvatarProfile?.mediaKit.primaryLogo?.assetId, assetId);
+    assert.equal(privateAvatarProfile?.avatarImageUrl, undefined);
   });
 
   it("omits privately placed asset metadata from the public media-kit list", async () => {
@@ -1076,6 +1088,58 @@ describe("profile media-kit owner management", () => {
     assert.equal(replacement?.creditUrl, "https://example.com/current-credit");
     assert.equal(state.gallery.find((placement) => placement.position === 0)?.assetId, replacementId);
     assert.equal(state.featured[0]?.assetId, replacementId);
+  });
+
+  it("uses entered metadata when replacing explicitly placed identity media", async () => {
+    const seeded = await seedOwnedProfile(12);
+    const owner = seeded.t.withIdentity(seeded.ownerIdentity);
+    await seeded.t.run(async (ctx) => {
+      const placement = await ctx.db
+        .query("profileAssetPlacements")
+        .withIndex("by_assetId", (query) => query.eq("assetId", seeded.assetIds[0]!))
+        .unique();
+      assert.notEqual(placement, null);
+      await ctx.db.patch(placement!._id, { placement: "profile_image" });
+    });
+    const intent = await owner.mutation(api.profileAssets.createUploadIntentForOwnedProfile, {
+      profileId: seeded.profileId,
+      replacesAssetId: seeded.assetIds[0]!,
+      originalFileName: "new-profile-image.png",
+      mimeType: "image/png",
+      byteSize: 128,
+      label: "New profile image",
+      caption: "New caption",
+      altText: "New profile image description.",
+      credit: "New credit",
+      creditUrl: "https://example.com/new-credit",
+      placements: ["profile_image"],
+    });
+    await owner.mutation(api.profileAssets.updateOwnedAssetMetadata, {
+      profileId: seeded.profileId,
+      assetId: seeded.assetIds[0]!,
+      label: "Old title",
+      caption: "Old caption",
+      altText: "Old description.",
+      credit: "Old credit",
+      creditUrl: "https://example.com/old-credit",
+    });
+    const processingToken = await claimUploadIntent(seeded, intent);
+    const completed = await seeded.t.mutation(internal.profileAssets.markUploadIntentUploaded, {
+      intentId: intent.intentId,
+      uploadToken: intent.uploadToken,
+      processingToken,
+      mimeType: "image/webp",
+      byteSize: 96,
+      contentSha256: "identity-replacement-hash",
+      width: 20,
+      height: 20,
+    });
+    const replacement = await seeded.t.run(async (ctx) => ctx.db.get(completed.assetIds[0]!));
+    assert.equal(replacement?.label, "New profile image");
+    assert.equal(replacement?.caption, "New caption");
+    assert.equal(replacement?.altText, "New profile image description.");
+    assert.equal(replacement?.credit, "New credit");
+    assert.equal(replacement?.creditUrl, "https://example.com/new-credit");
   });
 
   it("rechecks the media-kit kill switch before finalizing a replacement", async () => {
