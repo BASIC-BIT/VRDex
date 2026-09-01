@@ -19,6 +19,7 @@ import {
 } from "./playwright-fixtures";
 import { profileClaimPath } from "@/lib/profile-claim";
 import type { PublicProfileShareCard } from "../../../../convex/_profileShareCard";
+import type { PublicEventShareCard } from "../../../../convex/_eventShareCard";
 
 const seedAccessApi = (api as unknown as {
   seedAccess: {
@@ -230,6 +231,93 @@ export async function fetchPublicEventBySlug(slug: string) {
     return {
       kind: "error" as const,
     };
+  }
+}
+
+function fixtureEventShareCard(
+  communitySlug: string,
+  eventSlug: string,
+): PublicEventShareCard | null {
+  if (
+    process.env.NODE_ENV === "production" ||
+    process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES !== "true"
+  ) {
+    return null;
+  }
+
+  if (communitySlug === "playwright-afterglow-social") {
+    if (eventSlug === "playwright-event-share-no-artwork") {
+      return {
+        slug: eventSlug,
+        communitySlug,
+        communityName: "Afterglow Social",
+        title: "Night Shift",
+        startAt: Date.UTC(2026, 5, 14, 22, 0, 0),
+        timezone: "America/New_York",
+        status: "scheduled",
+      };
+    }
+
+    if (eventSlug === "playwright-event-share-cancelled-long") {
+      return {
+        slug: eventSlug,
+        communitySlug,
+        communityName: "Afterglow Social",
+        title: "Afterglow Harbor Sessions Presents an Extra Long Community Showcase Night",
+        startAt: Date.UTC(2026, 5, 14, 22, 0, 0),
+        timezone: "America/New_York",
+        status: "cancelled",
+      };
+    }
+  }
+
+  const event = getPlaywrightPublicEventFixture(eventSlug);
+
+  if (event === null || event.communitySlug !== communitySlug) {
+    return null;
+  }
+
+  const artworkImageUrl = event.posterImageUrl ?? event.bannerImageUrl ?? event.thumbnailImageUrl;
+
+  return {
+    slug: event.slug,
+    communitySlug,
+    communityName: event.communityName ?? communitySlug,
+    title: event.title,
+    startAt: event.startAt,
+    status: event.status ?? "scheduled",
+    ...(event.endAt === undefined ? {} : { endAt: event.endAt }),
+    ...(event.timezone === undefined ? {} : { timezone: event.timezone }),
+    ...(event.summary === undefined ? {} : { summary: event.summary }),
+    ...(artworkImageUrl === undefined ? {} : { artworkImageUrl }),
+  };
+}
+
+export async function fetchPublicEventShareCard(
+  communitySlug: string,
+  eventSlug: string,
+) {
+  const fixture = fixtureEventShareCard(communitySlug, eventSlug);
+
+  if (fixture !== null) {
+    return { kind: "live" as const, event: fixture };
+  }
+
+  if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
+    return { kind: "missing-url" as const, event: null };
+  }
+
+  try {
+    const event = await fetchQuery(api.events.getPublicShareCardBySlug, {
+      communitySlug,
+      eventSlug,
+    });
+
+    return { kind: "live" as const, event };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Server-side Convex event share-card fetch failed: ${message}`);
+    return { kind: "error" as const, event: null };
   }
 }
 
