@@ -49,7 +49,7 @@ import {
   getEventBySlug as getGlobalEventBySlug,
   getWorldBySlug as getGlobalWorldBySlug,
 } from "./_globalSlugs";
-import { getProfileFieldVisibility } from "./_profileFieldVisibility";
+import { getProfileFieldVisibility, isProfileFieldVisible } from "./_profileFieldVisibility";
 import {
   createProfileSortName,
   sanitizeCommunitySubmissionProfileInput,
@@ -505,12 +505,21 @@ export const getPublicBySlug = query({
     const telemetry = profile.profileType === "community" && args.includeTelemetry !== false
       ? await getPublicCommunityTelemetry(ctx.db, profile._id, now)
       : null;
+    const avatarIdentityVisible = isProfileFieldVisible(
+      profile,
+      "avatarImageUrl",
+      "profile_page",
+    );
 
     return {
       ...publicProfile,
       appearance,
       mediaKit,
-      avatarImageUrl: mediaKit.profileImage?.imageUrl ?? legacyAvatarImageUrl,
+      avatarImageUrl: profile.profileType === "community"
+        ? (avatarIdentityVisible ? mediaKit.primaryLogo?.imageUrl : undefined)
+          ?? mediaKit.profileImage?.imageUrl
+          ?? legacyAvatarImageUrl
+        : mediaKit.profileImage?.imageUrl ?? legacyAvatarImageUrl,
       bannerImageUrl: mediaKit.banner?.imageUrl ?? legacyBannerImageUrl,
       ...(args.includeShareCard
         ? { shareCard: toPublicProfileShareCard(profile, shareCardMediaKit) }

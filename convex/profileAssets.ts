@@ -1161,6 +1161,8 @@ export const listOwnedMediaKitProfiles = query({
       ]);
       const activePlacements = activePlacementRecords.sort((first, second) => first.position - second.position);
       const featuredAssetId = activePlacements.find((placement) => placement.placement === "featured")?.assetId;
+      const profileImageAssetId = activePlacements.find((placement) => placement.placement === "profile_image")?.assetId;
+      const primaryLogoAssetId = activePlacements.find((placement) => placement.placement === "primary_logo")?.assetId;
       const galleryPosition = new Map(
         activePlacements
           .filter((placement) => placement.placement === "gallery")
@@ -1205,6 +1207,8 @@ export const listOwnedMediaKitProfiles = query({
             height: asset.height,
             gallery: galleryPosition.has(asset._id),
             featured: asset._id === featuredAssetId,
+            profileImage: asset._id === profileImageAssetId,
+            primaryLogo: asset._id === primaryLogoAssetId,
             imageUrl: `/api/account/media-kit/${encodeURIComponent(profile._id)}/assets/${encodeURIComponent(asset._id)}/file`,
             downloadUrl: `/api/account/media-kit/${encodeURIComponent(profile._id)}/assets/${encodeURIComponent(asset._id)}/file?download=1`,
           })),
@@ -1881,7 +1885,9 @@ export const listOwnedAppearanceProfiles = query({
         slug: profile.slug,
         displayName: profile.displayName,
         headline: profile.headline,
-        avatarImageUrl: mediaKit.profileImage?.imageUrl ?? profile.avatarImageUrl,
+        avatarImageUrl: profile.profileType === "community"
+          ? mediaKit.primaryLogo?.imageUrl ?? mediaKit.profileImage?.imageUrl ?? profile.avatarImageUrl
+          : mediaKit.profileImage?.imageUrl ?? profile.avatarImageUrl,
         compactDisplay: mediaKit.compactDisplay,
         avatarAppearance: mediaKit.avatarAppearance,
         sectionOrder: appearance.sectionOrder,

@@ -288,8 +288,66 @@ test("owner oversized raster stays in its original format before direct upload @
     () => (window as typeof window & { mediaUploadAttempt?: unknown }).mediaUploadAttempt,
   )).toMatchObject({
     name: "oversized-synthetic.png",
+    placement: "gallery",
     type: "image/png",
     size: image.length,
+  });
+});
+
+test("owner can publish a managed profile image outside the gallery @fixture", async ({ page }) => {
+  await page.goto("/account/media-kit");
+  await page.evaluate(() => {
+    window.addEventListener("vrdex:media-upload-attempt", (event) => {
+      (window as typeof window & { mediaUploadAttempt?: unknown }).mediaUploadAttempt =
+        (event as CustomEvent).detail;
+    });
+  });
+
+  await page.getByLabel("Profile image").setInputFiles({
+    name: "profile-image.png",
+    mimeType: "image/png",
+    buffer: await smallSyntheticPng(),
+  });
+  await page.getByRole("button", { name: "Publish" }).click();
+
+  await expect.poll(() => page.evaluate(
+    () => (window as typeof window & { mediaUploadAttempt?: unknown }).mediaUploadAttempt,
+  )).toMatchObject({
+    name: "profile-image.png",
+    placement: "profile_image",
+    type: "image/png",
+  });
+});
+
+test("community owner can publish a managed primary logo @fixture", async ({ page }) => {
+  await page.goto("/account/media-kit?profile=playwright-night-shift");
+  await page.evaluate(() => {
+    window.addEventListener("vrdex:media-upload-attempt", (event) => {
+      (window as typeof window & { mediaUploadAttempt?: unknown }).mediaUploadAttempt =
+        (event as CustomEvent).detail;
+    });
+  });
+
+  await expect(page.getByLabel("Add image")).toBeDisabled();
+  await expect(page.getByLabel("Primary logo")).toBeEnabled();
+  await page.getByLabel("Primary logo").setInputFiles({
+    name: "slow.png",
+    mimeType: "image/png",
+    buffer: await smallSyntheticPng(),
+  });
+  const publish = page.getByRole("button", { name: "Publish" });
+  await expect(publish.locator("xpath=ancestor::form")).toContainText("Primary logo: slow.png");
+  await publish.click();
+  await expect(page.getByText("Uploading…", { exact: true })).toBeVisible();
+  await expect(page.getByText("Add image", { exact: true })).toBeVisible();
+
+  await expect.poll(() => page.evaluate(
+    () => (window as typeof window & { mediaUploadAttempt?: unknown }).mediaUploadAttempt,
+  )).toMatchObject({
+    name: "slow.png",
+    placement: "primary_logo",
+    replacesAssetId: "night-shift-primary-logo",
+    type: "image/png",
   });
 });
 
@@ -655,7 +713,7 @@ test("removed profile upload cannot overwrite a new staged upload @fixture", asy
     "href",
     "/playwright-night-shift",
   );
-  await page.getByLabel("Add image").setInputFiles({
+  await page.getByLabel("Primary logo").setInputFiles({
     name: "replacement.png",
     mimeType: "image/png",
     buffer: await smallSyntheticPng(),
@@ -664,7 +722,7 @@ test("removed profile upload cannot overwrite a new staged upload @fixture", asy
   await expect.poll(() => page.evaluate(
     () => (window as typeof window & { mediaUploadSettled?: boolean }).mediaUploadSettled,
   )).toBe(true);
-  await expect(page.getByText("replacement.png", { exact: true })).toBeVisible();
+  await expect(page.getByText("Primary logo: replacement.png", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Publish" })).toBeVisible();
   await expect(page.getByRole("alert")).toHaveCount(0);
 });

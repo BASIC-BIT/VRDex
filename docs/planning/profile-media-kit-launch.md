@@ -38,8 +38,9 @@ Locked decision:
 - the public profile shows a calm featured-media treatment, an ordered gallery,
   individual downloads, and the existing logo ZIP when logos are present
 - profile image, banner, and logo placements remain supported by the existing
-  asset model; the launch editor manages gallery/featured placement and exposes
-  other quota-consuming public assets for removal or restore
+  asset model; the launch editor manages gallery/featured placement, lets owners
+  upload a profile image or primary logo, and exposes other quota-consuming
+  public assets for removal or restore
 - video, audio, bulk DAM operations, collaborative roles, licensing workflows,
   automatic generation, and general-purpose agent behavior remain deferred;
   an explicit owner-triggered concise accessibility suggestion is the only
@@ -95,7 +96,7 @@ Current recommendation:
 | Moderation/abuse | Profile suppression gates public reads | Asset-specific reports, malware scanning, and moderator asset quarantine remain follow-up work |
 | Telemetry/audit | Profile audit events exist for API upload | Record owner upload, metadata/order/featured, delete, and restore actions without filenames or private content |
 | Cost/egress | Private S3 is checked in; reads currently use `private, no-store` | CDN/variants and cache policy need a measured follow-up before high traffic |
-| Migration | Legacy avatar/banner URL fields remain supported as fallbacks | Existing URLs are not copied automatically; owner uploads can replace them deliberately |
+| Migration | Legacy avatar/banner URL fields remain supported as fallbacks | Owners can deliberately replace legacy avatars through the managed `Profile image` upload, while communities can use `Primary logo` |
 
 ## Complete Journey Map
 
@@ -107,10 +108,11 @@ Current recommendation:
 3. The editor lists gallery assets in public order, other quota-consuming
    public assets in a compact management section, and recoverable removed
    assets separately.
-4. They choose an image and can accept its filename-derived title or replace
-   it. Caption, credit name, credit link, and accessibility description are
-   optional. `Generate` can return a concise editable accessibility suggestion;
-   it never runs automatically and is not saved until Publish or Save.
+4. They choose a gallery image, profile image, or primary logo and can accept
+   its filename-derived title or replace it. Caption, credit name, credit link,
+   and accessibility description are optional. `Generate` can return a concise
+   editable accessibility suggestion; it never runs automatically and is not
+   saved until Publish or Save.
 5. The explicit Publish action creates an exact-size/type-bound direct-upload
    target, reports progress, and then asks the server to validate and publish
    the variants. A failed item remains available to retry without retaining an

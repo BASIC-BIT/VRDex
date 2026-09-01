@@ -1072,7 +1072,11 @@ export async function finalizeProfileAssetUploadIntentUpload(
     });
   }
 
-  const uploadMetadata = replacementMetadata ?? intent;
+  const preserveCurrentReplacementMetadata =
+    intent.replacesAssetId !== undefined && (intent.placements?.length ?? 0) === 0;
+  const uploadMetadata = preserveCurrentReplacementMetadata
+    ? replacementMetadata ?? intent
+    : intent;
   const assetIds = await consumeProfileAssetUploads(db, {
     profileId: intent.targetProfileId,
     requestedBy: intent.requestedBy,

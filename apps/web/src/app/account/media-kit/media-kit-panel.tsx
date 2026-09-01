@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery } from "convex/react";
-import { ArrowDown, ArrowUp, ImagePlus, RotateCcw, Star, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, CircleUserRound, ImagePlus, RotateCcw, Star, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 
@@ -40,6 +40,8 @@ type MediaAsset = {
   height?: number;
   gallery: boolean;
   featured: boolean;
+  profileImage: boolean;
+  primaryLogo: boolean;
   imageUrl?: string;
   downloadUrl?: string;
 };
@@ -53,12 +55,16 @@ type MediaProfile = {
   assets: MediaAsset[];
 };
 
+type UploadPlacement = "gallery" | "profile_image" | "primary_logo";
+
 type EditorActions = {
   upload: (
     profileId: string,
     file: File,
     metadata: Pick<MediaAsset, "label" | "caption" | "altText" | "credit" | "creditUrl">,
     onProgress: (value: number) => void,
+    placement: UploadPlacement,
+    replacesAssetId?: string,
   ) => Promise<void>;
   generate: (profileId: string, source: File | MediaAsset) => Promise<string>;
   replace: (
@@ -480,6 +486,7 @@ function MediaKitEditor({
   const [focusRestoreAssetId, setFocusRestoreAssetId] = useState<string | null>(null);
   const [focusActiveAssetId, setFocusActiveAssetId] = useState<string | null>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [pendingPlacement, setPendingPlacement] = useState<UploadPlacement>("gallery");
   const [preparedUpload, setPreparedUpload] = useState<PreparedProfileMediaUpload | null>(null);
   const [uploadMetadata, setUploadMetadata] = useState({
     label: "",
@@ -500,6 +507,12 @@ function MediaKitEditor({
   const deletedAssets = profile?.assets.filter((asset) => asset.state === "deleted") ?? [];
   const activeAssetIds = [...activeAssets, ...otherActiveAssets].map((asset) => asset.assetId).join(",");
   const deletedAssetIds = deletedAssets.map((asset) => asset.assetId).join(",");
+  const identityPlacement: Exclude<UploadPlacement, "gallery"> =
+    profile?.profileType === "community" ? "primary_logo" : "profile_image";
+  const identityAsset = profile?.assets.find((asset) =>
+    asset.state === "active" &&
+    (identityPlacement === "profile_image" ? asset.profileImage : asset.primaryLogo),
+  );
 
   useEffect(() => {
     if (selectedProfile) return;
@@ -509,6 +522,7 @@ function MediaKitEditor({
     setGeneratingUpload(false);
     setUploading(false);
     setPendingFile(null);
+    setPendingPlacement("gallery");
     setPreparedUpload(null);
     setUploadMetadata({ label: "", caption: "", altText: "", credit: "", creditUrl: "" });
     setUploadStatus(null);
@@ -572,6 +586,7 @@ function MediaKitEditor({
     setUploading(false);
     setSelectedId(profileId);
     setPendingFile(null);
+    setPendingPlacement("gallery");
     setPreparedUpload(null);
     setUploadMetadata({ label: "", caption: "", altText: "", credit: "", creditUrl: "" });
     setUploadStatus(null);
@@ -608,7 +623,7 @@ function MediaKitEditor({
     if (restored) setFocusActiveAssetId(assetId);
   };
 
-  const chooseFile = (event: ChangeEvent<HTMLInputElement>) => {
+  const chooseFile = (event: ChangeEvent<HTMLInputElement>, placement: UploadPlacement) => {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file || !profile) return;
@@ -624,6 +639,7 @@ function MediaKitEditor({
     }
     setUploading(true);
     setPendingFile(null);
+    setPendingPlacement(placement);
     setPreparedUpload(null);
     setUploadStatus({ kind: "progress", message: "Preparing…" });
     const requestId = ++prepareRequestRef.current;
@@ -671,10 +687,13 @@ function MediaKitEditor({
         preparedUpload.file,
         uploadMetadata,
         setUploadProgress,
+        pendingPlacement,
+        pendingPlacement === "gallery" ? undefined : identityAsset?.assetId,
       );
       if (uploadRequestRef.current !== requestId) return;
       setUploadStatus({ kind: "success", message: "Published." });
       setPendingFile(null);
+      setPendingPlacement("gallery");
       setPreparedUpload(null);
     } catch (error) {
       if (uploadRequestRef.current !== requestId) return;
@@ -762,14 +781,28 @@ function MediaKitEditor({
             </Link>
             <label className={cn(buttonVariants({ variant: "primary" }), "cursor-pointer focus-within:ring-2 focus-within:ring-focus focus-within:ring-offset-2", !selectedProfile || uploading || generatingUpload || profile.activePublicAssetCount >= 12 ? "pointer-events-none opacity-60" : "")}>
               <ImagePlus aria-hidden="true" className="mr-2 size-4" />
-              {uploading ? (pendingFile ? "Uploading…" : "Preparing…") : "Add image"}
-              <input accept=".png,.jpg,.jpeg,.webp,.svg,image/png,image/jpeg,image/webp,image/svg+xml" className="sr-only" disabled={!selectedProfile || uploading || generatingUpload || profile.activePublicAssetCount >= 12} onChange={chooseFile} type="file" />
+              {uploading && pendingPlacement === "gallery" ? (pendingFile ? "Uploading…" : "Preparing…") : "Add image"}
+              <input accept=".png,.jpg,.jpeg,.webp,.svg,image/png,image/jpeg,image/webp,image/svg+xml" className="sr-only" disabled={!selectedProfile || uploading || generatingUpload || profile.activePublicAssetCount >= 12} onChange={(event) => chooseFile(event, "gallery")} type="file" />
+            </label>
+            <label className={cn(buttonVariants({ variant: "secondary" }), "cursor-pointer focus-within:ring-2 focus-within:ring-focus focus-within:ring-offset-2", !selectedProfile || uploading || generatingUpload || (profile.activePublicAssetCount >= 12 && !identityAsset) ? "pointer-events-none opacity-60" : "")}>
+              <CircleUserRound aria-hidden="true" className="mr-2 size-4" />
+              {uploading && pendingPlacement === identityPlacement
+                ? (pendingFile ? "Uploading…" : "Preparing…")
+                : profile.profileType === "person" ? "Profile image" : "Primary logo"}
+              <input
+                accept=".png,.jpg,.jpeg,.webp,.svg,image/png,image/jpeg,image/webp,image/svg+xml"
+                aria-label={profile.profileType === "person" ? "Profile image" : "Primary logo"}
+                className="sr-only"
+                disabled={!selectedProfile || uploading || generatingUpload || (profile.activePublicAssetCount >= 12 && !identityAsset)}
+                onChange={(event) => chooseFile(event, identityPlacement)}
+                type="file"
+              />
             </label>
           </div>
         </div>
         {uploading ? (
           <progress
-            aria-label={pendingFile ? "Image upload in progress" : "Image preparation in progress"}
+            aria-label={`${pendingPlacement === "gallery" ? "Gallery image" : pendingPlacement === "profile_image" ? "Profile image" : "Primary logo"} ${pendingFile ? "upload" : "preparation"} in progress`}
             className="mt-5 w-full"
             {...(pendingFile ? { max: 1, value: uploadProgress } : {})}
           />
@@ -780,7 +813,7 @@ function MediaKitEditor({
             {/* A local filename can carry anything the uploader's disk does.
                 `maskAllInputs` covers the file input, not this rendered text. */}
             <p className="text-sm font-medium" data-ph-no-capture>
-              {pendingFile.name}
+              {pendingPlacement === "gallery" ? "Gallery image" : pendingPlacement === "profile_image" ? "Profile image" : "Primary logo"}: {pendingFile.name}
             </p>
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="text-sm font-medium">
@@ -818,6 +851,7 @@ function MediaKitEditor({
               <Button disabled={uploading || generatingUpload} onClick={() => {
                 generationRequestRef.current += 1;
                 setPendingFile(null);
+                setPendingPlacement("gallery");
                 setPreparedUpload(null);
               }} type="button" variant="ghost">Cancel</Button>
             </div>
@@ -938,6 +972,8 @@ const demoProfiles: MediaProfile[] = [
       height: 1200,
       gallery: true,
       featured: true,
+      profileImage: false,
+      primaryLogo: false,
       imageUrl: "/api/e2e/fixture-assets/fixture-aurora-profile-image",
       downloadUrl: "/api/e2e/fixture-assets/fixture-aurora-profile-image?download=1",
     },
@@ -955,6 +991,8 @@ const demoProfiles: MediaProfile[] = [
       height: 675,
       gallery: true,
       featured: false,
+      profileImage: false,
+      primaryLogo: false,
       imageUrl: "/api/e2e/fixture-assets/fixture-aurora-primary-logo",
       downloadUrl: "/api/e2e/fixture-assets/fixture-aurora-primary-logo?download=1",
     },
@@ -970,6 +1008,8 @@ const demoProfiles: MediaProfile[] = [
       height: 800,
       gallery: false,
       featured: false,
+      profileImage: true,
+      primaryLogo: false,
       imageUrl: "/api/e2e/fixture-assets/fixture-aurora-alt-logo",
       downloadUrl: "/api/e2e/fixture-assets/fixture-aurora-alt-logo?download=1",
     },
@@ -985,6 +1025,8 @@ const demoProfiles: MediaProfile[] = [
       height: 675,
       gallery: false,
       featured: false,
+      profileImage: false,
+      primaryLogo: false,
       imageUrl: "/api/e2e/fixture-assets/fixture-aurora-primary-logo",
       downloadUrl: "/api/e2e/fixture-assets/fixture-aurora-primary-logo?download=1",
     },
@@ -996,6 +1038,8 @@ const demoProfiles: MediaProfile[] = [
       byteSize: 210_000,
       gallery: true,
       featured: false,
+      profileImage: false,
+      primaryLogo: false,
     },
     {
       assetId: "aurora-removed-banner",
@@ -1005,6 +1049,8 @@ const demoProfiles: MediaProfile[] = [
       byteSize: 180_000,
       gallery: false,
       featured: false,
+      profileImage: false,
+      primaryLogo: false,
     },
     ],
   },
@@ -1013,8 +1059,23 @@ const demoProfiles: MediaProfile[] = [
     profileType: "community",
     slug: "playwright-night-shift",
     displayName: "Night Shift",
-    activePublicAssetCount: 0,
-    assets: [],
+    activePublicAssetCount: 12,
+    assets: [{
+      assetId: "night-shift-primary-logo",
+      state: "active",
+      label: "Night Shift logo",
+      mimeType: "image/png",
+      byteSize: 210_000,
+      sourcePreserved: true,
+      width: 800,
+      height: 800,
+      gallery: false,
+      featured: false,
+      profileImage: false,
+      primaryLogo: true,
+      imageUrl: "/api/e2e/fixture-assets/fixture-aurora-alt-logo",
+      downloadUrl: "/api/e2e/fixture-assets/fixture-aurora-alt-logo?download=1",
+    }],
   },
 ];
 
@@ -1034,7 +1095,7 @@ function DemoMediaKitPanel({ initialProfileSlug }: { initialProfileSlug?: string
     return () => window.removeEventListener("vrdex:toggle-media-profile", toggleProfile);
   }, []);
   const actions = useMemo<EditorActions>(() => ({
-    upload: async (_profileId, file, _metadata, onProgress) => {
+    upload: async (_profileId, file, _metadata, onProgress, placement, replacesAssetId) => {
       onProgress(0.5);
       const bitmap = file.name.endsWith(".webp") ? await createImageBitmap(file) : null;
       window.dispatchEvent(new CustomEvent("vrdex:media-upload-attempt", {
@@ -1042,6 +1103,8 @@ function DemoMediaKitPanel({ initialProfileSlug }: { initialProfileSlug?: string
           name: file.name,
           type: file.type,
           size: file.size,
+          placement,
+          replacesAssetId,
           ...(bitmap ? { width: bitmap.width, height: bitmap.height } : {}),
         },
       }));
@@ -1138,7 +1201,7 @@ function ConnectedMediaKitPanel({
     file: File,
     metadata: Pick<MediaAsset, "label" | "caption" | "altText" | "credit" | "creditUrl">,
     onProgress: (value: number) => void,
-    placements: Array<"gallery" | "featured"> = ["gallery"],
+    placements: UploadPlacement[] = ["gallery"],
     position?: number,
     replacesAssetId?: string,
   ) => {
@@ -1222,8 +1285,8 @@ function ConnectedMediaKitPanel({
   if (profiles === null) return <Notice variant="warning">Sign in to manage profile media.</Notice>;
 
   const actions: EditorActions = {
-    upload: async (profileId, file, metadata, onProgress) => {
-      await uploadAsset(profileId, file, metadata, onProgress);
+    upload: async (profileId, file, metadata, onProgress, placement, replacesAssetId) => {
+      await uploadAsset(profileId, file, metadata, onProgress, [placement], undefined, replacesAssetId);
     },
     replace: async (profileId, asset, file, position, onProgress) => {
       const replacementAssetId = await uploadAsset(
