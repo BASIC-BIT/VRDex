@@ -10,7 +10,14 @@ describe("event editor participants", () => {
         { slug: "scheduled-dj", roleLabel: "Performer" },
         { slug: "event-host", roleLabel: "Host" },
       ],
-      slots: [{ performer: { slug: "scheduled-dj" } }],
+      slots: [{ performer: { slug: "scheduled-dj" }, roleLabel: "Performer" }],
     }), "event-host | Host");
+  });
+
+  it("preserves an explicit role that differs from the scheduled role", () => {
+    assert.equal(serializeOtherEventParticipants({
+      participants: [{ slug: "scheduled-dj", roleLabel: "Organizer" }],
+      slots: [{ performer: { slug: "scheduled-dj" }, roleLabel: "DJ" }],
+    }), "scheduled-dj | Organizer");
   });
 });
