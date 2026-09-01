@@ -2524,6 +2524,34 @@ export const listManagedCommunities = query({
   },
 });
 
+export const getManagedCommunityBySlug = query({
+  args: { slug: v.string() },
+  handler: async (ctx, args) => {
+    const { subject, user } = await requireActiveBrowserSessionSubject(ctx);
+    const validation = validateProfileSlug(args.slug);
+
+    if (!validation.ok) {
+      return null;
+    }
+
+    const profile = await getProfileBySlug(ctx.db, validation.slug);
+    if (
+      profile === null ||
+      profile.profileType !== "community" ||
+      !canReadProfile("public", profile) ||
+      !(await canManageCommunityEvents(ctx.db, profile._id, subject, user._id))
+    ) {
+      return null;
+    }
+
+    return {
+      profileId: profile._id,
+      slug: profile.slug,
+      displayName: profile.displayName,
+    };
+  },
+});
+
 export const listManagedEvents = query({
   args: { limit: v.optional(v.number()) },
   handler: async (ctx, args) => {

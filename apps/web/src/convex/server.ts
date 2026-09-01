@@ -601,15 +601,15 @@ export async function fetchManagedCommunityBySlug(slug: string) {
   }
 
   try {
-    const communities = await fetchQuery(
-      api.events.listManagedCommunities,
-      {},
+    const community = await fetchQuery(
+      api.events.getManagedCommunityBySlug,
+      { slug },
       { token: await convexAuthToken() },
     );
 
     return {
       kind: "live" as const,
-      community: communities.find((community) => community.slug === slug) ?? null,
+      community,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

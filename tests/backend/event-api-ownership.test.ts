@@ -950,6 +950,66 @@ describe("API-created event ownership", () => {
     assert.deepEqual(upcoming.map((event) => event.slug), ["weeklong-festival"]);
   });
 
+  it("looks up an exact managed community beyond the bounded inventory", async () => {
+    const t = convexTest({ schema, modules });
+    const { identity, userId } = await seedUser(t, "Large Community Owner");
+    await t.run(async (ctx) => {
+      for (let index = 0; index < 100; index += 1) {
+        const profileId = await ctx.db.insert("profiles", {
+          profileType: "community",
+          slug: `managed-community-${index}`,
+          displayName: `Managed Community ${index}`,
+          sortName: `managed community ${index}`,
+          aliases: [],
+          tags: [],
+          claimState: "claimed_verified",
+          publicationState: "published",
+          publicSurfacingState: "public",
+          creationSource: "self",
+          community: { categoryTags: [] },
+          updatedAt: NOW,
+        });
+        await ctx.db.insert("profileOwners", {
+          profileId,
+          userId,
+          roleKey: "owner",
+          state: "active",
+          grantedAt: NOW,
+          updatedAt: NOW,
+        });
+      }
+      const profileId = await ctx.db.insert("profiles", {
+        profileType: "community",
+        slug: "managed-community-target",
+        displayName: "Managed Community Target",
+        sortName: "managed community target",
+        aliases: [],
+        tags: [],
+        claimState: "claimed_verified",
+        publicationState: "published",
+        publicSurfacingState: "public",
+        creationSource: "self",
+        community: { categoryTags: [] },
+        updatedAt: NOW,
+      });
+      await ctx.db.insert("profileOwners", {
+        profileId,
+        userId,
+        roleKey: "owner",
+        state: "active",
+        grantedAt: NOW,
+        updatedAt: NOW,
+      });
+    });
+
+    const inventory = await t.withIdentity(identity).query(api.events.listManagedCommunities, {});
+    assert.equal(inventory.some((community) => community.slug === "managed-community-target"), false);
+    const target = await t.withIdentity(identity).query(api.events.getManagedCommunityBySlug, {
+      slug: "managed-community-target",
+    });
+    assert.equal(target?.slug, "managed-community-target");
+  });
+
   it("refills ongoing events after hidden communities consume the old candidate window", async () => {
     const t = convexTest({ schema, modules });
     const { profileId: visibleCommunityId } = await seedOwnedCommunity(t);
@@ -1118,6 +1178,162 @@ describe("API-created event ownership", () => {
     assert.deepEqual(
       (await t.run((ctx) => getPublicActiveWorlds(ctx.db, NOW, 1))).map((world) => world.slug),
       ["visible-after-hidden-events"],
+    );
+  });
+
+  it("refills current world and person events after hidden communities consume old windows", async () => {
+    const t = convexTest({ schema, modules });
+    const { profileId: visibleCommunityId } = await seedOwnedCommunity(t);
+    const { personProfileId, worldId } = await t.run(async (ctx) => {
+      const hiddenCommunityId = await ctx.db.insert("profiles", {
+        profileType: "community",
+        slug: "hidden-associated-host",
+        displayName: "Hidden Associated Host",
+        sortName: "hidden associated host",
+        aliases: [],
+        tags: [],
+        claimState: "unclaimed",
+        publicationState: "published",
+        publicSurfacingState: "opted_out",
+        creationSource: "community",
+        community: { categoryTags: [] },
+        updatedAt: NOW,
+      });
+      const personProfileId = await ctx.db.insert("profiles", {
+        profileType: "person",
+        slug: "refill-dj",
+        displayName: "Refill DJ",
+        sortName: "refill dj",
+        aliases: [],
+        tags: [],
+        claimState: "unclaimed",
+        publicationState: "published",
+        publicSurfacingState: "public",
+        creationSource: "community",
+        person: { roleTags: ["DJ"] },
+        updatedAt: NOW,
+      });
+      const worldId = await ctx.db.insert("worlds", {
+        slug: "refill-current-world",
+        displayName: "Refill Current World",
+        sortName: "refill current world",
+        tags: [],
+        visibilityStatus: "public",
+        platformCompatibility: [],
+        media: [],
+        creatorAttributions: [],
+        outboundLinks: [],
+        publicationState: "published",
+        creationSource: "community",
+        updatedAt: NOW,
+      });
+      const insertAssociatedEvent = async ({
+        slug,
+        startAt,
+        endAt,
+        communityProfileId,
+        includeWorld,
+      }: {
+        slug: string;
+        startAt: number;
+        endAt: number;
+        communityProfileId: typeof hiddenCommunityId;
+        includeWorld: boolean;
+      }) => {
+        const eventId = await ctx.db.insert("events", {
+          slug,
+          title: slug,
+          sortTitle: slug,
+          startAt,
+          endAt,
+          communityProfileId,
+          sourceType: "manual",
+          sourceLabel: "Test",
+          eventStatus: "scheduled",
+          publicationState: "published",
+          publishedAt: NOW,
+          updatedAt: NOW,
+        });
+        await ctx.db.insert("eventParticipants", {
+          eventId,
+          personProfileId,
+          eventStartAt: startAt,
+          eventEndAt: endAt,
+          eventPublicationState: "published",
+          eventStatus: "scheduled",
+          roleLabel: "DJ",
+          sourceType: "manual",
+          sourceLabel: "Test",
+          confirmationState: "confirmed",
+          confirmedAt: NOW,
+          updatedAt: NOW,
+        });
+        if (includeWorld) {
+          await ctx.db.insert("eventWorlds", {
+            eventId,
+            worldId,
+            eventStartAt: startAt,
+            eventEndAt: endAt,
+            eventPublicationState: "published",
+            eventStatus: "scheduled",
+            sourceType: "manual",
+            confidence: 1,
+            confirmationState: "confirmed",
+            confirmedAt: NOW,
+            updatedAt: NOW,
+          });
+        }
+      };
+
+      for (let index = 0; index < 129; index += 1) {
+        await insertAssociatedEvent({
+          slug: `hidden-current-associated-${index}`,
+          startAt: NOW - (index + 1) * 60_000,
+          endAt: NOW + 60_000,
+          communityProfileId: hiddenCommunityId,
+          includeWorld: true,
+        });
+      }
+      await insertAssociatedEvent({
+        slug: "visible-current-associated",
+        startAt: NOW - 200 * 60_000,
+        endAt: NOW + 60_000,
+        communityProfileId: visibleCommunityId,
+        includeWorld: true,
+      });
+      for (let index = 0; index < 80; index += 1) {
+        await insertAssociatedEvent({
+          slug: `hidden-future-associated-${index}`,
+          startAt: NOW + (index + 1) * 60_000,
+          endAt: NOW + (index + 2) * 60_000,
+          communityProfileId: hiddenCommunityId,
+          includeWorld: false,
+        });
+      }
+      await insertAssociatedEvent({
+        slug: "visible-future-associated",
+        startAt: NOW + 81 * 60_000,
+        endAt: NOW + 82 * 60_000,
+        communityProfileId: visibleCommunityId,
+        includeWorld: false,
+      });
+
+      return { personProfileId, worldId };
+    });
+
+    assert.deepEqual(
+      (await t.run((ctx) => getPublicPersonUpcomingEvents(ctx.db, personProfileId, NOW, 2)))
+        .map((event) => event.slug),
+      ["visible-current-associated", "visible-future-associated"],
+    );
+    assert.equal(
+      (await t.run((ctx) => getPublicWorldEventContext(ctx.db, worldId, NOW)))
+        .upcoming[0]?.slug,
+      "visible-current-associated",
+    );
+    assert.deepEqual(
+      (await t.run((ctx) => getPublicActiveWorlds(ctx.db, NOW, 1))).map((world) => world.slug),
+      ["refill-current-world"],
     );
   });
 

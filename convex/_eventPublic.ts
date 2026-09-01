@@ -13,8 +13,8 @@ import {
 
 const EVENT_PREVIEW_DEFAULT_LIMIT = 6;
 const EVENT_ASSOCIATION_LIMIT = 80;
+const EVENT_ASSOCIATION_SCAN_LIMIT = 500;
 const EVENT_PREVIEW_MAX_LIMIT = EVENT_ASSOCIATION_LIMIT;
-const CURRENT_EVENT_CANDIDATE_LIMIT = 128;
 
 type PublicEventSourceType = "manual" | "community" | "partner" | "import" | "ai_suggested";
 type PublicEventMediaLinkType =
@@ -768,8 +768,6 @@ export async function getPublicCommunityHostedEvents(
   now: number,
   limit = EVENT_PREVIEW_DEFAULT_LIMIT,
 ): Promise<PublicEventPreview[]> {
-  // ponytail: Current events use a fixed recent-start window. If real volume
-  // can hide a valid multi-day event, replace this with indexed active state.
   const [startedCandidates, upcoming] = await Promise.all([
     db
       .query("events")
@@ -781,7 +779,7 @@ export async function getPublicCommunityHostedEvents(
           .lt("startAt", now),
       )
       .order("desc")
-      .take(CURRENT_EVENT_CANDIDATE_LIMIT),
+      .take(EVENT_ASSOCIATION_SCAN_LIMIT),
     db
       .query("events")
       .withIndex("by_communityProfileId_publicationState_eventStatus_startAt", (query) =>
@@ -791,7 +789,7 @@ export async function getPublicCommunityHostedEvents(
           .eq("eventStatus", "scheduled")
           .gte("startAt", now),
       )
-      .take(EVENT_ASSOCIATION_LIMIT),
+      .take(EVENT_ASSOCIATION_SCAN_LIMIT),
   ]);
   const started = startedCandidates
     .filter((event) => eventEndsAt(event) >= now)
@@ -821,7 +819,7 @@ export async function getPublicPersonUpcomingEvents(
           .lt("eventStartAt", now),
       )
       .order("desc")
-      .take(CURRENT_EVENT_CANDIDATE_LIMIT),
+      .take(EVENT_ASSOCIATION_SCAN_LIMIT),
     db
       .query("eventParticipants")
       .withIndex("by_person_confirmation_publication_status_start", (query) =>
@@ -832,7 +830,7 @@ export async function getPublicPersonUpcomingEvents(
           .eq("eventStatus", "scheduled")
           .gte("eventStartAt", now),
       )
-      .take(EVENT_ASSOCIATION_LIMIT),
+      .take(EVENT_ASSOCIATION_SCAN_LIMIT),
   ]);
   const participantLinks = [
     ...startedCandidates.filter((link) => link.eventEndAt >= now),
