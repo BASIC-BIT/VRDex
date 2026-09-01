@@ -18,7 +18,7 @@ type Options = {
   targetEnvironment: string;
 };
 
-type CheckId = "hosted-anonymous-read" | "hosted-oauth" | "local-stdio";
+type CheckId = "hosted-anonymous-read" | "hosted-oauth" | "hosted-oauth-cli-startup" | "local-stdio";
 
 type EvidenceTemplate = {
   check: CheckId;
@@ -343,7 +343,7 @@ function recorderCommandForMatrixClient(args: {
 
 function smokePrompt(mode: CheckId, query = "club") {
   const authPhrase =
-    mode === "hosted-oauth"
+    mode.startsWith("hosted-oauth")
       ? "If the client prompts for OAuth, complete the login before calling the tool."
       : "Do not add an Authorization header or token for this row.";
 
@@ -650,6 +650,60 @@ function manualEvidenceTemplates(options: Options): EvidenceTemplate[] {
       targetEnvironment,
     },
     {
+      check: "local-stdio",
+      clientName: "Codex desktop and CLI",
+      environment: "Windows / Codex project workspace / local stdio",
+      hosted: false,
+      matrixClient: "codex",
+      prompt: smokePrompt("local-stdio"),
+      recorder: recorderCommandForMatrixClient({
+        check: "local-stdio",
+        environment: "Windows / Codex project workspace / local stdio",
+        hosted: false,
+        matrixClient: "codex",
+        targetEnvironment,
+      }),
+      setup: `Add a project-scoped .codex/config.toml stdio server named vrdex using these command, args, and environment fields, then start a fresh Codex task: ${localDefinition}`,
+      setupLanguage: "txt",
+      targetEnvironment,
+    },
+    {
+      check: "hosted-anonymous-read",
+      clientName: "Codex desktop and CLI",
+      environment: `Windows / Codex project workspace / ${hostedUrl} / anonymous`,
+      hosted: true,
+      matrixClient: "codex",
+      prompt: smokePrompt("hosted-anonymous-read", options.hostedQuery),
+      recorder: recorderCommandForMatrixClient({
+        check: "hosted-anonymous-read",
+        environment: `Windows / Codex project workspace / ${hostedUrl} / anonymous`,
+        hosted: true,
+        matrixClient: "codex",
+        targetEnvironment,
+      }),
+      setup: `Add ${hostedUrl} as a project-scoped .codex/config.toml Streamable HTTP server named vrdex without forcing authentication, then start a fresh Codex task and verify the public read tools before login.`,
+      setupLanguage: "txt",
+      targetEnvironment,
+    },
+    {
+      check: "hosted-oauth-cli-startup",
+      clientName: "Codex CLI",
+      environment: `Windows / Codex CLI current version / ${hostedUrl} / hosted OAuth startup`,
+      hosted: true,
+      matrixClient: "codex",
+      prompt: smokePrompt("hosted-oauth-cli-startup", options.hostedQuery),
+      recorder: recorderCommandForMatrixClient({
+        check: "hosted-oauth-cli-startup",
+        environment: `Windows / Codex CLI current version / ${hostedUrl} / hosted OAuth startup`,
+        hosted: true,
+        matrixClient: "codex",
+        targetEnvironment,
+      }),
+      setup: `Configure ${hostedUrl} as the vrdex Streamable HTTP server, run codex mcp login vrdex with only the read scopes required for this smoke, then start an isolated Codex CLI session and record whether VRDex tools are exposed.`,
+      setupLanguage: "txt",
+      targetEnvironment,
+    },
+    {
       check: "hosted-anonymous-read",
       clientName: "OpenAI Responses API and ChatGPT MCP-capable surfaces",
       environment: `OpenAI Responses API or ChatGPT hosted MCP surface / ${hostedUrl}`,
@@ -789,7 +843,7 @@ async function writeEvidenceTemplate(outputPath: string, template: EvidenceTempl
     ? `Target environment: ${template.targetEnvironment}`
     : "Target environment: not applicable for local stdio";
   const evidenceFileRecorder = `pnpm record:mcp-client-smoke -- --evidence-file ${psSingleQuote(outputPath)}`;
-  const hostedOAuthPrereqSection = template.check === "hosted-oauth"
+  const hostedOAuthPrereqSection = template.check.startsWith("hosted-oauth")
     ? [
         "## Hosted OAuth Prerequisite Audit",
         "",

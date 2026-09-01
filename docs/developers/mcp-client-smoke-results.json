@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "lastReviewed": "2026-07-14",
+  "lastReviewed": "2026-09-01",
   "readinessMode": "same-branch-preview-representative-client-and-protocol-evidence-ready",
   "targetEnvironment": "same-branch Vercel and Convex preview https://vr-dex-eblguo5fy-basicbit.vercel.app/mcp, deployed revision 0dd64b2e78cc617a6aa6ec15f80ca81459ee72ac",
   "hostedReadiness": {
@@ -211,16 +211,16 @@
           "id": "local-stdio",
           "surface": "local_stdio",
           "requiredForExternalReadiness": false,
-          "manualStatus": "not_applicable",
-          "notes": "Not selected for the production operator workflow, which uses hosted OAuth rather than a local API-token bridge."
+          "manualStatus": "pending",
+          "notes": "Codex supports local stdio, but no real-client local stdio tool-list and vrdex_search call has been recorded yet."
         },
         {
           "id": "hosted-anonymous-read",
           "surface": "hosted_http_anonymous",
           "requiredForExternalReadiness": false,
           "repoEvidence": "pnpm smoke:mcp-compat -- --hosted-url https://vrdex.net/mcp --hosted-only --hosted-data",
-          "manualStatus": "not_applicable",
-          "notes": "Not selected for the authenticated operator workflow. Production anonymous reads remain covered by the protocol smoke."
+          "manualStatus": "pending",
+          "notes": "Production anonymous reads pass the protocol smoke, but a Codex real-client anonymous tool-list and vrdex_search call has not been recorded yet."
         },
         {
           "id": "hosted-oauth",
@@ -228,10 +228,18 @@
           "requiredForExternalReadiness": false,
           "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
           "manualStatus": "pass",
-          "notes": "Codex desktop completed a production contribution flow through the project-scoped hosted MCP. Codex CLI 0.145.0 later completed explicit OAuth with the expanded media scopes, but an isolated startup exposed no VRDex tools; that CLI startup gap remains open and does not negate the desktop proof.",
-          "environment": "Windows / Codex desktop project workspace / production https://vrdex.net/mcp",
+          "notes": "Codex desktop completed a production contribution flow through the project-scoped hosted MCP. The installed desktop package version was recorded with the evidence; CLI startup is tracked separately.",
+          "environment": "Windows / Codex desktop package 26.825.6671.0 / project workspace / production https://vrdex.net/mcp",
           "manualEvidence": "On 2026-08-31 Codex desktop completed native OAuth, submitted one unclaimed community profile through vrdex_profile_submit, and updated its display and outbound links through vrdex_profile_update. The public readback succeeded; no profile identifiers are retained in this evidence row.",
           "lastRunAt": "2026-08-31"
+        },
+        {
+          "id": "hosted-oauth-cli-startup",
+          "surface": "hosted_http_oauth",
+          "requiredForExternalReadiness": false,
+          "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
+          "manualStatus": "pending",
+          "notes": "Codex CLI 0.145.0 completed explicit OAuth with the expanded media scopes on 2026-09-01, but an isolated startup exposed no VRDex tools. Re-run after the client startup gap is resolved and record tools/list plus one authenticated read without retaining profile identifiers."
         }
       ]
     },
