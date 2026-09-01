@@ -18,7 +18,7 @@ type Options = {
   targetEnvironment: string;
 };
 
-type CheckId = "hosted-anonymous-read" | "hosted-oauth" | "local-stdio";
+type CheckId = "hosted-anonymous-read" | "hosted-oauth" | "hosted-oauth-cli-startup" | "local-stdio";
 
 type EvidenceTemplate = {
   check: CheckId;
@@ -326,7 +326,9 @@ function recorderCommandForMatrixClient(args: {
   targetEnvironment: string;
 }) {
   const evidencePlaceholder =
-    args.matrixClient === "openai-chatgpt"
+    args.matrixClient === "codex" && args.check === "hosted-oauth-cli-startup"
+      ? '<sanitized transcript showing tools/list and authenticated vrdex_list_my_profiles>'
+      : args.matrixClient === "openai-chatgpt"
       ? '<sanitized screenshot or transcript showing tools/list, search, and fetch>'
       : '<sanitized screenshot or transcript showing tools/list and vrdex_search>';
 
@@ -343,7 +345,7 @@ function recorderCommandForMatrixClient(args: {
 
 function smokePrompt(mode: CheckId, query = "club") {
   const authPhrase =
-    mode === "hosted-oauth"
+    mode.startsWith("hosted-oauth")
       ? "If the client prompts for OAuth, complete the login before calling the tool."
       : "Do not add an Authorization header or token for this row.";
 
@@ -650,6 +652,65 @@ function manualEvidenceTemplates(options: Options): EvidenceTemplate[] {
       targetEnvironment,
     },
     {
+      check: "local-stdio",
+      clientName: "Codex desktop and CLI",
+      environment: "Windows / Codex project workspace / local stdio",
+      hosted: false,
+      matrixClient: "codex",
+      prompt: smokePrompt("local-stdio"),
+      recorder: recorderCommandForMatrixClient({
+        check: "local-stdio",
+        environment: "Windows / Codex project workspace / local stdio",
+        hosted: false,
+        matrixClient: "codex",
+        targetEnvironment,
+      }),
+      setup: `Add a project-scoped .codex/config.toml stdio server named vrdex using these command, args, and environment fields, then start a fresh Codex task: ${localDefinition}`,
+      setupLanguage: "txt",
+      targetEnvironment,
+    },
+    {
+      check: "hosted-anonymous-read",
+      clientName: "Codex desktop and CLI",
+      environment: `Windows / Codex project workspace / ${hostedUrl} / anonymous`,
+      hosted: true,
+      matrixClient: "codex",
+      prompt: smokePrompt("hosted-anonymous-read", options.hostedQuery),
+      recorder: recorderCommandForMatrixClient({
+        check: "hosted-anonymous-read",
+        environment: `Windows / Codex project workspace / ${hostedUrl} / anonymous`,
+        hosted: true,
+        matrixClient: "codex",
+        targetEnvironment,
+      }),
+      setup: `Create a new task-specific empty Codex home and auth directory, do not copy any MCP credential or token store into it, and launch Codex with that directory as its home. Add ${hostedUrl} as a project-scoped .codex/config.toml Streamable HTTP server named vrdex without forcing authentication, then verify the public read tools and vrdex_search before any MCP login.`,
+      setupLanguage: "txt",
+      targetEnvironment,
+    },
+    {
+      check: "hosted-oauth-cli-startup",
+      clientName: "Codex CLI",
+      environment: `Windows / Codex CLI current version / ${hostedUrl} / hosted OAuth startup`,
+      hosted: true,
+      matrixClient: "codex",
+      prompt: [
+        "Use the VRDex MCP server named vrdex.",
+        "List the available VRDex tools.",
+        "After the scoped OAuth login, call the OAuth-only vrdex_list_my_profiles tool exactly once with no arguments.",
+        "Record whether the client displayed the authenticated tool call and whether it succeeded, without retaining profile identifiers.",
+      ].join(" "),
+      recorder: recorderCommandForMatrixClient({
+        check: "hosted-oauth-cli-startup",
+        environment: `Windows / Codex CLI current version / ${hostedUrl} / hosted OAuth startup`,
+        hosted: true,
+        matrixClient: "codex",
+        targetEnvironment,
+      }),
+      setup: `Configure ${hostedUrl} as the vrdex Streamable HTTP server in a task-specific Codex home, run codex mcp login vrdex with scopes mcp:read,profile:read, then start an isolated Codex CLI session in that same home. Record tools/list and call the OAuth-only vrdex_list_my_profiles tool exactly once; do not record profile identifiers.`,
+      setupLanguage: "txt",
+      targetEnvironment,
+    },
+    {
       check: "hosted-anonymous-read",
       clientName: "OpenAI Responses API and ChatGPT MCP-capable surfaces",
       environment: `OpenAI Responses API or ChatGPT hosted MCP surface / ${hostedUrl}`,
@@ -744,6 +805,10 @@ async function writeJson(pathname: string, value: unknown) {
 }
 
 function evidenceStatusLine(template: EvidenceTemplate) {
+  if (template.matrixClient === "codex" && template.check === "hosted-oauth-cli-startup") {
+    return "Status: pending until Codex CLI lists tools and calls the OAuth-only `vrdex_list_my_profiles` tool after scoped login.";
+  }
+
   return template.matrixClient === "openai-chatgpt"
     ? "Status: pending until a real client session lists tools and calls `search` plus `fetch`."
     : "Status: pending until a real client session lists tools and calls `vrdex_search`.";
@@ -764,6 +829,13 @@ function evidenceQuery(template: EvidenceTemplate) {
 }
 
 function evidenceToolChecklist(template: EvidenceTemplate) {
+  if (template.matrixClient === "codex" && template.check === "hosted-oauth-cli-startup") {
+    return [
+      "- [ ] Client calls the OAuth-only `vrdex_list_my_profiles` tool exactly once with no arguments.",
+      "- [ ] Client returns a non-error authenticated result without retaining profile identifiers.",
+    ];
+  }
+
   const query = evidenceQuery(template);
 
   return template.matrixClient === "openai-chatgpt"
@@ -779,6 +851,10 @@ function evidenceToolChecklist(template: EvidenceTemplate) {
 }
 
 function evidencePassGuidance(template: EvidenceTemplate) {
+  if (template.matrixClient === "codex" && template.check === "hosted-oauth-cli-startup") {
+    return "For `pass`, include the tool list and the authenticated `vrdex_list_my_profiles` call without profile identifiers. For `fail`, include the exact failed step, client-visible error, client version, auth mode, and any upstream issue link without credentials.";
+  }
+
   return template.matrixClient === "openai-chatgpt"
     ? "For `pass`, include the tool list, the `search` and `fetch` calls, and the first returned id. For `fail`, include the exact failed step, client-visible error, client version, auth mode, and any upstream issue link without including credentials."
     : "For `pass`, include the tool list, the `vrdex_search` call, and the first returned slug. For `fail`, include the exact failed step, client-visible error, client version, auth mode, and any upstream issue link without including credentials.";
@@ -789,7 +865,7 @@ async function writeEvidenceTemplate(outputPath: string, template: EvidenceTempl
     ? `Target environment: ${template.targetEnvironment}`
     : "Target environment: not applicable for local stdio";
   const evidenceFileRecorder = `pnpm record:mcp-client-smoke -- --evidence-file ${psSingleQuote(outputPath)}`;
-  const hostedOAuthPrereqSection = template.check === "hosted-oauth"
+  const hostedOAuthPrereqSection = template.check.startsWith("hosted-oauth")
     ? [
         "## Hosted OAuth Prerequisite Audit",
         "",

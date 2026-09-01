@@ -74,6 +74,7 @@ const blockerOrder = [
   "installed-app-oauth",
   "desktop-custom-connector",
   "hosted-product-surface",
+  "codex-client-evidence",
   "manual-client-evidence",
 ];
 
@@ -238,6 +239,10 @@ function hostedAddMcpDefinition(options: Options) {
 function repoPreflightCommand(client: ClientEntry, check: SmokeCheck, options: Options) {
   const target = hostedTarget(options);
 
+  if (client.id === "codex" && check.id === "hosted-oauth-cli-startup") {
+    return `pnpm smoke:mcp-compat -- --hosted-only --hosted-url ${target} ${hostedDataArgs(options)} --dcr --cimd`;
+  }
+
   if (client.id === "claude-code" && check.id === "local-stdio") {
     return "pnpm smoke:mcp-claude-code";
   }
@@ -286,6 +291,18 @@ function repoPreflightCommand(client: ClientEntry, check: SmokeCheck, options: O
 }
 
 function manualEvidencePrompt(client: ClientEntry, check: SmokeCheck) {
+  if (client.id === "codex" && check.id === "hosted-anonymous-read") {
+    return "Use a new empty Codex home and auth store, confirm no MCP credentials are present, then list tools and call vrdex_search without logging in.";
+  }
+
+  if (client.id === "codex" && check.id === "hosted-oauth-cli-startup") {
+    return "After scoped Codex MCP login, list tools and call the OAuth-only vrdex_list_my_profiles tool once. Record authenticated success without profile identifiers.";
+  }
+
+  if (client.id === "codex" && check.id === "local-stdio") {
+    return "Configure the project-scoped Codex stdio server, start a fresh task, list tools, and call vrdex_search.";
+  }
+
   if (client.id === "claude-code" && check.id === "hosted-oauth") {
     return "Run Claude Code with a reviewed OAuth app client-credentials token acquisition or a pre-minted MCP-resource token, then record the authenticated mcp:read result; pair with DCR/CIMD protocol evidence.";
   }
@@ -331,6 +348,18 @@ function manualEvidencePrompt(client: ClientEntry, check: SmokeCheck) {
 
 function setupHint(client: ClientEntry, check: SmokeCheck, options: Options) {
   const target = hostedTarget(options);
+
+  if (client.id === "codex" && check.id === "local-stdio") {
+    return `Add a project-scoped .codex/config.toml stdio server named vrdex using ${jsonInline(stdioAddMcpDefinition(options))}, start a fresh Codex task, then list tools and call vrdex_search.`;
+  }
+
+  if (client.id === "codex" && check.id === "hosted-anonymous-read") {
+    return `Create a new task-specific empty Codex home and auth store, do not copy MCP credentials into it, configure ${target} as the project-scoped vrdex Streamable HTTP server, start Codex with that isolated home, then list tools and call vrdex_search before any MCP login.`;
+  }
+
+  if (client.id === "codex" && check.id === "hosted-oauth-cli-startup") {
+    return `Configure ${target} as the vrdex Streamable HTTP server in a task-specific Codex home, run codex mcp login vrdex with scopes mcp:read,profile:read, then start Codex CLI in the same home, list tools, and call the OAuth-only vrdex_list_my_profiles tool once without retaining profile identifiers.`;
+  }
 
   if (client.id === "claude-code" && check.id === "hosted-oauth") {
     return `Set VRDEX_CLAUDE_CODE_OAUTH_CLIENT_ID and VRDEX_CLAUDE_CODE_OAUTH_CLIENT_SECRET for a reviewed client-credentials app, then run pnpm smoke:mcp-claude-code -- --mode hosted-http --hosted-url ${target} ${hostedDataArgs(options)}. As a fallback, set VRDEX_CLAUDE_CODE_OAUTH_TOKEN to a pre-minted MCP-resource token. For an interactive client-session check, use claude mcp add --transport http --callback-port 8765 vrdex ${target} followed by claude mcp login vrdex.`;
@@ -425,7 +454,7 @@ function setupHint(client: ClientEntry, check: SmokeCheck, options: Options) {
 function setupHintWithPrereqs(client: ClientEntry, check: SmokeCheck, options: Options) {
   const hint = setupHint(client, check, options);
 
-  return check.id === "hosted-oauth"
+  return check.id.startsWith("hosted-oauth")
     ? `Run pnpm ops:mcp-hosted-oauth-prereqs before the client session. ${hint}`
     : hint;
 }
@@ -481,6 +510,14 @@ function hostedReadinessRowKey(check: HostedReadinessCheck) {
 }
 
 function blockerForClientRow(client: ClientEntry, check: SmokeCheck): { id: string } & Omit<PendingBlocker, "rows"> {
+  if (client.id === "codex") {
+    return {
+      id: "codex-client-evidence",
+      label: "Codex real-client evidence",
+      nextAction: "Use the Codex-specific planner and generated worksheets. Isolate the anonymous auth store, and use explicit scoped login plus vrdex_list_my_profiles for the CLI OAuth startup row.",
+    };
+  }
+
   if (client.id === "gemini-cli") {
     if (check.id === "hosted-oauth") {
       return {

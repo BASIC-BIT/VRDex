@@ -35,6 +35,8 @@ describe("MCP client smoke planner", () => {
     assert.match(result.stdout, /`claude-desktop\/local-stdio`, `claude-desktop\/hosted-anonymous-read`, `claude-desktop\/hosted-oauth`/);
     assert.match(result.stdout, /OpenAI-compatible hosted target or product surface access/);
     assert.match(result.stdout, /`openai-chatgpt\/hosted-oauth`/);
+    assert.match(result.stdout, /Codex real-client evidence/);
+    assert.match(result.stdout, /`codex\/local-stdio`, `codex\/hosted-anonymous-read`, `codex\/hosted-oauth-cli-startup`/);
   });
 
   it("prints client-specific VS Code setup hints with the hosted origin for local stdio", () => {
@@ -148,5 +150,36 @@ describe("MCP client smoke planner", () => {
     assert.match(result.stdout, /pnpm smoke:mcp-inspector -- --hosted-url https:\/\/staging\.vrdex\.net\/mcp --hosted-data/);
     assert.match(result.stdout, /pnpm smoke:mcp-compat -- --hosted-only --hosted-url https:\/\/staging\.vrdex\.net\/mcp --hosted-data --hosted-query "club" --dcr --cimd/);
     assert.match(result.stdout, /ops:mcp-hosted-oauth-prereqs/);
+  });
+
+  it("prints isolated anonymous and authenticated CLI startup guidance for Codex", () => {
+    const anonymous = runPlan([
+      "--hosted-url",
+      "https://vrdex.net/mcp",
+      "--client",
+      "codex",
+      "--check",
+      "hosted-anonymous-read",
+    ]);
+
+    assert.equal(anonymous.status, 0, anonymous.stderr);
+    assert.match(anonymous.stdout, /new task-specific empty Codex home and auth store/);
+    assert.match(anonymous.stdout, /do not copy MCP credentials/);
+    assert.match(anonymous.stdout, /before any MCP login/);
+
+    const oauth = runPlan([
+      "--hosted-url",
+      "https://vrdex.net/mcp",
+      "--client",
+      "codex",
+      "--check",
+      "hosted-oauth-cli-startup",
+    ]);
+
+    assert.equal(oauth.status, 0, oauth.stderr);
+    assert.match(oauth.stdout, /smoke:mcp-compat -- --hosted-only --hosted-url https:\/\/vrdex\.net\/mcp .*--dcr --cimd/);
+    assert.match(oauth.stdout, /codex mcp login vrdex with scopes mcp:read,profile:read/);
+    assert.match(oauth.stdout, /OAuth-only vrdex_list_my_profiles/);
+    assert.doesNotMatch(oauth.stdout, /pnpm check:mcp-client-matrix/);
   });
 });

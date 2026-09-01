@@ -63,6 +63,7 @@ const requiredClientChecks = new Map<string, string[]>([
   ["gemini-cli", ["local-stdio", "hosted-anonymous-read", "hosted-oauth"]],
   ["vscode", ["local-stdio", "hosted-anonymous-read", "hosted-oauth"]],
   ["cursor", ["local-stdio", "hosted-anonymous-read", "hosted-oauth"]],
+  ["codex", ["local-stdio", "hosted-anonymous-read", "hosted-oauth", "hosted-oauth-cli-startup"]],
   ["openai-chatgpt", ["local-stdio", "hosted-anonymous-read", "hosted-oauth"]],
   ["devin-windsurf", ["local-stdio", "hosted-anonymous-read", "hosted-oauth"]],
   ["mcp-inspector", ["local-stdio", "hosted-anonymous-read", "hosted-oauth"]],
