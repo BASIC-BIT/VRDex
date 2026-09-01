@@ -117,13 +117,11 @@ test("profile links expose Discord-ready metadata and a generated image", async 
   expect(imageUrl).not.toBeNull();
 
   const rasterFixture = await page.request.get(
-    "/api/e2e/fixture-assets/fixture-aurora-profile-image-raster",
+    "/api/e2e/fixture-assets/fixture-aurora-profile-image-webp",
   );
   expect(rasterFixture.ok()).toBe(true);
-  expect(rasterFixture.headers()["content-type"]).toContain("image/jpeg");
-  expect(Array.from((await rasterFixture.body()).subarray(0, 3))).toEqual([
-    0xff, 0xd8, 0xff,
-  ]);
+  expect(rasterFixture.headers()["content-type"]).toContain("image/webp");
+  expect(Array.from((await rasterFixture.body()).subarray(0, 4))).toEqual([0x52, 0x49, 0x46, 0x46]);
 
   const imageRequestUrl = new URL(imageUrl!);
   imageRequestUrl.searchParams.set("fixture", "raster-avatar");
@@ -393,7 +391,7 @@ test.describe("fixture lookup smoke", () => {
     await expect(page.getByRole("link", { name: "Website: basicbit.net", exact: true })).toBeVisible();
     const djAvatar = page.locator(".lookup-avatar img").first();
     await expect(djAvatar).toBeVisible();
-    await expect(djAvatar).toHaveAttribute("src", /basicbit-avatar\.png/);
+    await expect(djAvatar).toHaveAttribute("src", /fixture-avatar-velvet-circuit\.svg/);
 
     await page.reload();
     await expect(page).toHaveURL(/\/search\?q=BASICBIT&view=dj$/);
