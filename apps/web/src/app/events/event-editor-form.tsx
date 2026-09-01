@@ -22,6 +22,7 @@ import {
   parseZonedDateTimeInput,
 } from "@/lib/calendar/zoned-date-time";
 import { resolveAuthoredEventEndAt } from "@/lib/calendar/event-end-time";
+import { serializeOtherEventParticipants } from "@/lib/calendar/event-participants";
 
 type EventMediaLinkType = PublicEvent["mediaLinks"][number]["type"];
 
@@ -323,12 +324,6 @@ function parseSlotRows(rows: SlotFormRow[], eventStartAt: number) {
 function serializeMediaLinks(event: PublicEvent | undefined): string {
   return (event?.authoredMediaLinks ?? event?.mediaLinks ?? [])
     .map((link) => `${link.type} | ${link.label} | ${link.url} | ${link.presentation}`)
-    .join("\n");
-}
-
-function serializeParticipants(event: PublicEvent | undefined): string {
-  return (event?.participants ?? [])
-    .map((participant) => `${participant.slug} | ${participant.roleLabel}`)
     .join("\n");
 }
 
@@ -1208,7 +1203,7 @@ function ConnectedEventEditorForm({
           </summary>
           <Field className="mt-4">
             Linked person profiles
-            <Textarea className="min-h-24" defaultValue={serializeParticipants(event)} name="participantLinks" placeholder="dj-aurora | Performer&#10;vj-lumen | Staff" />
+            <Textarea className="min-h-24" defaultValue={serializeOtherEventParticipants(event)} name="participantLinks" placeholder="dj-aurora | Performer&#10;vj-lumen | Staff" />
             <FieldText>One per line: person slug | freeform role label.</FieldText>
           </Field>
         </details>

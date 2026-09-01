@@ -98,7 +98,7 @@ export const listDiscovery = query({
         listDocumentsByType(ctx, "world"),
         listDocumentsByType(ctx, "event", DISCOVERY_EVENT_SCAN_LIMIT),
         listUpcomingEventDocuments(ctx, now),
-        ctx.db.query("vocabularyTerms").take(60),
+        ctx.db.query("vocabularyTerms").collect(),
         listEventVocabularyDocuments(ctx),
       ]);
     const projectedProfiles = await Promise.all(

@@ -832,6 +832,31 @@ describe("API-created event ownership", () => {
         updatedAt: NOW,
       });
 
+      for (let index = 0; index < 60; index += 1) {
+        await ctx.db.insert("vocabularyTerms", {
+          scope: "event_tag",
+          key: `hidden_leading_term_${index}`,
+          label: `Hidden Leading Term ${index}`,
+          aliases: [],
+          source: "user_created",
+          usageCount: 1,
+          rank: 90 - index,
+          createdAt: NOW,
+          updatedAt: NOW,
+        });
+      }
+      await ctx.db.insert("vocabularyTerms", {
+        scope: "profile_tag",
+        key: "visible_after_hidden_terms",
+        label: "Visible After Hidden Terms",
+        aliases: [],
+        source: "user_created",
+        usageCount: 1,
+        rank: 80,
+        createdAt: NOW,
+        updatedAt: NOW,
+      });
+
       const visibleStartAt = NOW + 42 * 60_000;
       const visibleEventSlug = "visible-after-hidden-leading-events";
       const visibleEventId = await ctx.db.insert("events", {
@@ -895,6 +920,7 @@ describe("API-created event ownership", () => {
     assert.equal(discovery.featured.some((event) => event.slug === visibleEventSlug), true);
     assert.equal(discovery.upcomingEvents.some((event) => event.slug === visibleEventSlug), true);
     assert.equal(discovery.terms.some((term) => term.key === "hidden_leading_host"), false);
+    assert.equal(discovery.terms.some((term) => term.key === "visible_after_hidden_terms"), true);
   });
 
   it("keeps a long-running event after more than 80 newer events have ended", async () => {
