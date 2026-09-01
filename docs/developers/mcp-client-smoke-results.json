@@ -204,6 +204,38 @@
       ]
     },
     {
+      "id": "codex",
+      "name": "Codex desktop and CLI",
+      "checks": [
+        {
+          "id": "local-stdio",
+          "surface": "local_stdio",
+          "requiredForExternalReadiness": false,
+          "manualStatus": "not_applicable",
+          "notes": "Not selected for the production operator workflow, which uses hosted OAuth rather than a local API-token bridge."
+        },
+        {
+          "id": "hosted-anonymous-read",
+          "surface": "hosted_http_anonymous",
+          "requiredForExternalReadiness": false,
+          "repoEvidence": "pnpm smoke:mcp-compat -- --hosted-url https://vrdex.net/mcp --hosted-only --hosted-data",
+          "manualStatus": "not_applicable",
+          "notes": "Not selected for the authenticated operator workflow. Production anonymous reads remain covered by the protocol smoke."
+        },
+        {
+          "id": "hosted-oauth",
+          "surface": "hosted_http_oauth",
+          "requiredForExternalReadiness": false,
+          "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
+          "manualStatus": "pass",
+          "notes": "Codex desktop completed a production contribution flow through the project-scoped hosted MCP. Codex CLI 0.145.0 later completed explicit OAuth with the expanded media scopes, but an isolated startup exposed no VRDex tools; that CLI startup gap remains open and does not negate the desktop proof.",
+          "environment": "Windows / Codex desktop project workspace / production https://vrdex.net/mcp",
+          "manualEvidence": "On 2026-08-31 Codex desktop completed native OAuth, submitted one unclaimed community profile through vrdex_profile_submit, and updated its display and outbound links through vrdex_profile_update. The public readback succeeded; no profile identifiers are retained in this evidence row.",
+          "lastRunAt": "2026-08-31"
+        }
+      ]
+    },
+    {
       "id": "openai-chatgpt",
       "name": "OpenAI and ChatGPT MCP-capable surfaces",
       "checks": [
