@@ -191,6 +191,26 @@ describe("OAuth dynamic client registration", () => {
     ]);
   });
 
+  it("accepts profile media writes without dragging other resource writes along", async () => {
+    const harness = registrationHarness("vrdx_app_5123456789abcdef01234567");
+    const response = await dynamicMcpClientRegistrationResponse(
+      registrationRequest({
+        client_name: "Profile Media Agent",
+        redirect_uris: ["http://localhost:1455/callback"],
+        scope: "mcp:read profile:read mcp:write assets:write",
+      }),
+      harness.dependencies,
+    );
+
+    assert.equal(response.status, 201);
+    assert.deepEqual(harness.mutationInputs[0]?.allowedScopes, [
+      "mcp:read",
+      "profile:read",
+      "mcp:write",
+      "assets:write",
+    ]);
+  });
+
   it("narrows issuer-wide known scopes to the MCP resource during DCR", async () => {
     const harness = registrationHarness("vrdx_app_3123456789abcdef01234567");
     const response = await dynamicMcpClientRegistrationResponse(
@@ -295,7 +315,7 @@ describe("OAuth dynamic client registration", () => {
     assert.equal(response.status, 400);
     assert.deepEqual(await response.json(), {
       error: "invalid_client_metadata",
-      error_description: "Dynamic MCP clients can only request public:read mcp:read profile:read mcp:write events:write profile:write profile:contribute.",
+      error_description: "Dynamic MCP clients can only request public:read mcp:read profile:read mcp:write assets:write events:write profile:write profile:contribute.",
     });
   });
 
@@ -321,7 +341,7 @@ describe("OAuth dynamic client registration", () => {
     assert.deepEqual(await response.json(), {
       error: "invalid_client_metadata",
       error_description:
-        "Dynamic MCP write clients must request mcp:write and at least one of events:write, profile:write, profile:contribute.",
+        "Dynamic MCP write clients must request mcp:write and at least one of assets:write, events:write, profile:write, profile:contribute.",
     });
   });
 

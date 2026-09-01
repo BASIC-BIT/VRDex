@@ -63,8 +63,8 @@ docs update and a changelog entry so early consumers and agents can adapt.
   Every hosted write tool is advertised and the connecting harness decides which
   it exposes; writes stay bounded by granted scopes and per-resource permission
   checks. Dynamic MCP clients now request `mcp:write` with at least one of
-  `events:write`, `profile:write`, or `profile:contribute` instead of the
-  fixed `mcp:write events:write` pair
+  `assets:write`, `events:write`, `profile:write`, or `profile:contribute`
+  instead of the fixed `mcp:write events:write` pair
 
 ## 2026-07-14
 

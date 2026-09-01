@@ -1024,7 +1024,7 @@ describe("@vrdex/api-contracts", () => {
           redirect_uris: ["http://localhost:3333/callback"],
           scope: "mcp:write",
         }),
-      /at least one of events:write, profile:write, profile:contribute/,
+      /at least one of assets:write, events:write, profile:write, profile:contribute/,
     );
     // The other half alone: a resource scope with no transport scope reaches no
     // hosted write tool, so it is refused rather than silently downgraded.
@@ -1035,7 +1035,7 @@ describe("@vrdex/api-contracts", () => {
           redirect_uris: ["http://localhost:3333/callback"],
           scope: "profile:write",
         }),
-      /at least one of events:write, profile:write, profile:contribute/,
+      /at least one of assets:write, events:write, profile:write, profile:contribute/,
     );
     assert.throws(
       () =>

@@ -237,10 +237,10 @@ grant metadata, `code` response type metadata, `token_endpoint_auth_method=none`
 and the MCP resource. These clients are for hosted MCP OAuth compatibility.
 
 A dynamic client may request `mcp:read` and optional `public:read` for reads, and
-`mcp:write` paired with at least one of `events:write`, `profile:write`, or
-`profile:contribute` for writes. Either half of a write pair on its own is
-rejected: `mcp:write` reaches no tool without a resource scope, and a resource
-scope opens no hosted write session without `mcp:write`.
+`mcp:write` paired with at least one of `assets:write`, `events:write`,
+`profile:write`, or `profile:contribute` for writes. Either half of a write pair
+on its own is rejected: `mcp:write` reaches no tool without a resource scope,
+and a resource scope opens no hosted write session without `mcp:write`.
 
 Hosted MCP OAuth also supports Client ID Metadata Documents for public clients
 that use an HTTPS URL as `client_id`. Accepted CIMD metadata is fetched during

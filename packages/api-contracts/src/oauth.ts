@@ -42,6 +42,7 @@ export const dynamicMcpClientScopes = [...dynamicMcpDefaultClientScopes, "profil
  * for `profile:write` without also being handed the ability to publish events.
  */
 export const dynamicMcpResourceWriteScopes = [
+  "assets:write",
   "events:write",
   "profile:write",
   "profile:contribute",
