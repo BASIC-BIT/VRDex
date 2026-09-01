@@ -574,7 +574,6 @@ function ConnectedEventEditorForm({
   function updateSlotRows(updater: (rows: SlotFormRow[]) => SlotFormRow[]) {
     setSlotRows((rows) => updater(rows));
     setSlotRowsDirty(true);
-    setScheduleChanged(true);
   }
 
   async function onSaveVrcdnOutput() {
