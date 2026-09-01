@@ -49,7 +49,7 @@ type VrcdnOutputFormState = {
   authorized: boolean;
 };
 
-type EditableEvent = PublicEvent & {
+export type EditableEvent = PublicEvent & {
   notes?: string;
   preservedCommunityProfileId?: Id<"profiles">;
   preservedParticipantAssociationIds: Id<"eventParticipants">[];

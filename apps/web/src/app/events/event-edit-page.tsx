@@ -1,12 +1,8 @@
-import Link from "next/link";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 
-import { EventDiscordExportPanel } from "../_components/event-discord-export-panel";
 import { EventBackendNotice } from "../_components/event-public-page";
-import { EventEditorForm } from "./event-editor-form";
-import { buttonVariants } from "@/components/ui/button";
-import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
+import { EventEditorPage } from "./event-editor-page";
 import { fetchEditableEventBySlug } from "@/convex/server";
 import { formatDiscordEventPost } from "../../../../../convex/_eventDiscordExport";
 
@@ -50,27 +46,11 @@ export async function EventEditPage({ communitySlug, eventSlug }: { communitySlu
     : null;
 
   return (
-    <div className="ph-no-capture" data-ph-no-capture>
-      <PageShell className="py-10">
-        <PageContainer max="6xl">
-          <PageNav>
-            <BrandLink />
-            {result.event.publicationState === "published" ? (
-              <Link className={buttonVariants({ variant: "secondary" })} href={routePath}>
-                View event
-              </Link>
-            ) : null}
-          </PageNav>
-
-          <header className="border-b border-border pb-6 pt-2">
-            <p className="text-sm font-medium text-muted">Edit event</p>
-            <h1 className="mt-2 text-4xl font-semibold tracking-[-0.04em] sm:text-5xl">{result.event.title}</h1>
-          </header>
-
-          <EventEditorForm communitySlug={communitySlug} event={result.event} />
-          {discordPostText === null ? null : <EventDiscordExportPanel text={discordPostText} />}
-        </PageContainer>
-      </PageShell>
-    </div>
+    <EventEditorPage
+      communityName={result.event.communityName ?? communitySlug}
+      communitySlug={communitySlug}
+      discordPostText={discordPostText}
+      event={result.event}
+    />
   );
 }
