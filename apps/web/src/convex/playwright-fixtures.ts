@@ -48,7 +48,7 @@ const auroraProfileImage = {
   altText: "DJ Aurora framed by violet light and a warm orange glow.",
   credit: "Artwork by Afterglow Studio",
   creditUrl: "https://example.invalid/afterglow-studio",
-  mimeType: "image/webp",
+  mimeType: "image/svg+xml",
   byteSize: 92_000,
   downloadMimeType: "image/png",
   downloadByteSize: 184_000,
