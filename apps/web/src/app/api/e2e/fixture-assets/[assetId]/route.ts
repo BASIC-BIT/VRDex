@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import sharp from "sharp";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +25,16 @@ const fixtureAssets: Record<string, FixtureAsset> = {
   "fixture-aurora-profile-image-raster": {
     title: "DJ Aurora",
     subtitle: "Raster profile image",
+    initials: "DA",
+    width: 64,
+    height: 64,
+    from: "#d66a4d",
+    to: "#d66a4d",
+    accent: "#d66a4d",
+  },
+  "fixture-aurora-profile-image-webp": {
+    title: "DJ Aurora",
+    subtitle: "WebP profile image",
     initials: "DA",
     width: 64,
     height: 64,
@@ -168,6 +179,16 @@ export async function GET(_request: Request, { params }: FixtureAssetRouteProps)
       headers: {
         "Cache-Control": "no-store",
         "Content-Type": "image/jpeg",
+      },
+    });
+  }
+
+  if (assetId === "fixture-aurora-profile-image-webp") {
+    const body = Uint8Array.from(await sharp(fixtureAuroraProfileImageJpeg).webp().toBuffer());
+    return new NextResponse(body, {
+      headers: {
+        "Cache-Control": "no-store",
+        "Content-Type": "image/webp",
       },
     });
   }

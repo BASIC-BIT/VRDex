@@ -38,6 +38,7 @@ type FixturePersonProfile = Extract<PublicProfile, { profileType: "person" }> & 
   accentColor?: string;
   secondaryColor?: string;
   searchAliases?: string[];
+  shareCardAvatarImageUrl?: string;
 };
 
 const auroraProfileImage = {
@@ -47,12 +48,12 @@ const auroraProfileImage = {
   altText: "DJ Aurora framed by violet light and a warm orange glow.",
   credit: "Artwork by Afterglow Studio",
   creditUrl: "https://example.invalid/afterglow-studio",
-  mimeType: "image/jpeg",
+  mimeType: "image/svg+xml",
   byteSize: 92_000,
   downloadMimeType: "image/png",
   downloadByteSize: 184_000,
   sourcePreserved: true,
-  imageUrl: "/api/e2e/fixture-assets/fixture-aurora-profile-image-raster",
+  imageUrl: "/api/e2e/fixture-assets/fixture-aurora-profile-image",
   downloadUrl: "/api/v0/profiles/playwright-dj-aurora/assets/fixture-aurora-profile-image/file?download=1",
 };
 
@@ -174,6 +175,7 @@ const personProfile: FixturePersonProfile = {
   region: "EU",
   timezone: "UTC+1",
   avatarImageUrl: auroraProfileImage.imageUrl,
+  shareCardAvatarImageUrl: "/api/e2e/fixture-assets/fixture-aurora-profile-image-raster",
   trustLabel: "community_submitted",
   updatedAt: Date.UTC(2026, 7, 26, 12, 0, 0),
   source: {
@@ -324,7 +326,7 @@ const basicBitProfile: FixturePersonProfile = {
   ],
   headline: "Software Dev | 3D Designer | VRDJ",
   bio: "Multigenre DJ but I really love DnB <3",
-  avatarImageUrl: "/seed/basicbit-avatar.png",
+  avatarImageUrl: "/seed/fixture-avatar-velvet-circuit.svg",
   trustLabel: "claimed_verified",
   outboundLinks: [
     {
@@ -708,6 +710,7 @@ const maxShareCardProfile: FixturePersonProfile = {
   tags: [],
   genres: [],
   headline: "W".repeat(200),
+  avatarImageUrl: "/api/e2e/fixture-assets/fixture-aurora-profile-image-webp",
   trustLabel: "unclaimed",
   outboundLinks: [],
   worldCredits: [],
@@ -1126,7 +1129,7 @@ const discoveryResults: PublicSearchResult[] = [
     title: "BASICBIT",
     subtitle: "Person profile",
     summary: "Software Dev | 3D Designer | VRDJ",
-    imageUrl: "/seed/basicbit-avatar.png",
+    imageUrl: "/seed/fixture-avatar-velvet-circuit.svg",
     avatarAppearance: basicBitProfile.mediaKit!.avatarAppearance,
     trustLabel: "claimed_verified",
     person: toProfileLookupFixture(basicBitProfile)!,

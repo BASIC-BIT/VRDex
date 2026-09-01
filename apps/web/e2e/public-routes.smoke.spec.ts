@@ -393,7 +393,7 @@ test.describe("fixture lookup smoke", () => {
     await expect(page.getByRole("link", { name: "Website: basicbit.net", exact: true })).toBeVisible();
     const djAvatar = page.locator(".lookup-avatar img").first();
     await expect(djAvatar).toBeVisible();
-    await expect(djAvatar).toHaveAttribute("src", /basicbit-avatar\.png/);
+    await expect(djAvatar).toHaveAttribute("src", /fixture-avatar-velvet-circuit\.svg/);
 
     await page.reload();
     await expect(page).toHaveURL(/\/search\?q=BASICBIT&view=dj$/);

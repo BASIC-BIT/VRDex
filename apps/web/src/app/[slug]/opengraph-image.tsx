@@ -1,5 +1,6 @@
 import { ImageResponse } from "next/og";
 import { notFound } from "next/navigation";
+import sharp from "sharp";
 
 import { validateSlugFormat } from "../../../../../convex/_globalSlugs";
 import type { PublicProfileShareCard } from "../../../../../convex/_profileShareCard";
@@ -15,12 +16,21 @@ import { publicSiteUrl } from "@/lib/public-site-url";
 export const alt = "VRDex public page";
 export const size = entityShareImageSize;
 export const contentType = "image/png";
+export const runtime = "nodejs";
 
 type EntityShareImageProps = {
   params: Promise<{ slug: string }>;
 };
 
-async function inlineManagedImage(imageUrl: string | undefined): Promise<string | undefined> {
+type InlineImageBounds = {
+  height: number;
+  width: number;
+};
+
+async function inlineManagedImage(
+  imageUrl: string | undefined,
+  bounds: InlineImageBounds,
+): Promise<string | undefined> {
   if (!imageUrl) return undefined;
 
   const absoluteUrl = inlineableProfileShareAssetUrl(imageUrl, publicSiteUrl());
@@ -36,10 +46,25 @@ async function inlineManagedImage(imageUrl: string | undefined): Promise<string 
       return undefined;
     }
 
-    const body = await response.arrayBuffer();
+    let body: Uint8Array<ArrayBufferLike> = new Uint8Array(await response.arrayBuffer());
     if (body.byteLength > PROFILE_ASSET_MAX_STORED_BYTES) return undefined;
 
-    return `data:${contentType};base64,${Buffer.from(body).toString("base64")}`;
+    let inlineContentType = contentType;
+    if (contentType === "image/webp") {
+      body = await sharp(body)
+        .resize({
+          fit: "inside",
+          height: bounds.height,
+          width: bounds.width,
+          withoutEnlargement: true,
+        })
+        .png()
+        .toBuffer();
+      inlineContentType = "image/png";
+      if (body.byteLength > PROFILE_ASSET_MAX_STORED_BYTES) return undefined;
+    }
+
+    return `data:${inlineContentType};base64,${Buffer.from(body).toString("base64")}`;
   } catch {
     return undefined;
   }
@@ -51,8 +76,8 @@ async function withInlineManagedImages(
   if (!profile) return null;
 
   const [avatarImageUrl, bannerImageUrl] = await Promise.all([
-    inlineManagedImage(profile.avatarImageUrl),
-    inlineManagedImage(profile.bannerImageUrl),
+    inlineManagedImage(profile.avatarImageUrl, { height: 184, width: 184 }),
+    inlineManagedImage(profile.bannerImageUrl, entityShareImageSize),
   ]);
 
   return {
