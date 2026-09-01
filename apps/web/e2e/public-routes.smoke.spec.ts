@@ -174,6 +174,85 @@ test("profile links expose Discord-ready metadata and a generated image", async 
   }
 });
 
+test("event links expose community-scoped metadata and a poster share image", async ({ page }, testInfo) => {
+  test.skip(isHostedRun, "The deterministic event metadata fixture is local-only.");
+
+  await page.goto(visualProfilePaths.eventPath);
+
+  await expect(page).toHaveTitle("Afterglow Harbor Sessions | VRDex");
+  await expect(page.locator('meta[property="og:title"]')).toHaveAttribute(
+    "content",
+    "Afterglow Harbor Sessions | VRDex",
+  );
+  await expect(page.locator('meta[property="og:description"]')).toHaveAttribute(
+    "content",
+    "Late-night harbor club session with house, trance, and warm social energy.",
+  );
+  await expect(page.locator('meta[property="og:url"]')).toHaveAttribute(
+    "content",
+    /\/playwright-afterglow-social\/events\/playwright-afterglow-harbor-sessions$/,
+  );
+
+  const imageUrl = await page.locator('meta[property="og:image"]').getAttribute("content");
+  expect(imageUrl).not.toBeNull();
+  expect(imageUrl).toMatch(/\/opengraph-image\?revision=[0-9a-f]{16}$/);
+
+  const imageResponse = await page.request.get(imageUrl!);
+  expect(imageResponse.ok()).toBe(true);
+  expect(imageResponse.headers()["content-type"]).toContain("image/png");
+  const imageBody = await imageResponse.body();
+  const metadata = await sharp(imageBody).metadata();
+  expect(metadata.width).toBe(1200);
+  expect(metadata.height).toBe(630);
+
+  const imagePath = testInfo.outputPath("event-open-graph-image.png");
+  await writeFile(imagePath, imageBody);
+  await testInfo.attach("event-open-graph-image", {
+    path: imagePath,
+    contentType: "image/png",
+  });
+
+  const renderedPixels = await sharp(imageBody).ensureAlpha().raw().toBuffer();
+  let posterPixelCount = 0;
+  for (let offset = 0; offset < renderedPixels.length; offset += 4) {
+    if (
+      renderedPixels[offset]! > 40 &&
+      renderedPixels[offset + 2]! > 80 &&
+      renderedPixels[offset + 2]! > renderedPixels[offset + 1]!
+    ) {
+      posterPixelCount += 1;
+    }
+  }
+  expect(posterPixelCount).toBeGreaterThan(1_000);
+
+  for (const fixture of [
+    ["event-open-graph-image-no-artwork", "playwright-event-share-no-artwork"],
+    ["event-open-graph-image-cancelled-long", "playwright-event-share-cancelled-long"],
+  ] as const) {
+    const fixtureResponse = await page.request.get(
+      `/playwright-afterglow-social/events/${fixture[1]}/opengraph-image`,
+    );
+    expect(fixtureResponse.ok()).toBe(true);
+    const fixtureBody = await fixtureResponse.body();
+    const fixturePath = testInfo.outputPath(`${fixture[0]}.png`);
+    await writeFile(fixturePath, fixtureBody);
+    await testInfo.attach(fixture[0], {
+      path: fixturePath,
+      contentType: "image/png",
+    });
+  }
+
+  const wrongCommunityImage = await page.request.get(
+    "/playwright-dj-aurora/events/playwright-afterglow-harbor-sessions/opengraph-image",
+  );
+  expect(wrongCommunityImage.status()).toBe(404);
+
+  const missingEventImage = await page.request.get(
+    "/playwright-afterglow-social/events/missing-event/opengraph-image",
+  );
+  expect(missingEventImage.status()).toBe(404);
+});
+
 test("public API supports browser CORS and preflight", async ({ page }) => {
   const origin = "https://developer.example.test";
   const response = await page.request.get("/api/v0/openapi.json", {

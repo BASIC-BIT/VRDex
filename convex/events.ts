@@ -56,6 +56,7 @@ import {
 } from "./_eventInputs";
 import { findEventOperationSlots } from "./_eventOperations";
 import { eventPathForRecord, eventPathForSlugs } from "./_eventPaths";
+import { toPublicEventShareCard } from "./_eventShareCard";
 import {
   getEventForEditor,
   getPublicCommunityHostedEvents,
@@ -2011,6 +2012,38 @@ export const getPublicBySlug = query({
     }
 
     return getPublicEventBySlug(ctx.db, await getEventBySlug(ctx.db, validation.slug));
+  },
+});
+
+export const getPublicShareCardBySlug = query({
+  args: {
+    communitySlug: v.string(),
+    eventSlug: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const communityValidation = validateProfileSlug(args.communitySlug);
+    const eventValidation = validateEventSlug(args.eventSlug);
+
+    if (!communityValidation.ok || !eventValidation.ok) {
+      return null;
+    }
+
+    const [community, event] = await Promise.all([
+      getProfileBySlug(ctx.db, communityValidation.slug),
+      getEventBySlug(ctx.db, eventValidation.slug),
+    ]);
+
+    if (
+      community === null ||
+      event === null ||
+      community.profileType !== "community" ||
+      !canReadProfile("public", community) ||
+      event.communityProfileId !== community._id
+    ) {
+      return null;
+    }
+
+    return toPublicEventShareCard(event, community);
   },
 });
 
