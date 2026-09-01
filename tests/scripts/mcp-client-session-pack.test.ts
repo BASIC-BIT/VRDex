@@ -226,6 +226,23 @@ describe("MCP client smoke session pack", () => {
       assert.match(openAiAnonymousEvidence, /Client calls `fetch` with the first returned result id/);
       assert.match(openAiAnonymousEvidence, /does not force login before the anonymous public-read call/);
       assert.match(openAiAnonymousEvidence, /No bearer tokens, OAuth client secrets/);
+
+      const codexAnonymousEvidence = await readFile(
+        join(outputDir, "evidence", "codex-hosted-anonymous-read.md"),
+        "utf8",
+      );
+
+      assert.match(codexAnonymousEvidence, /new task-specific empty Codex home and auth directory/);
+      assert.match(codexAnonymousEvidence, /do not copy any MCP credential or token store/);
+
+      const codexOauthEvidence = await readFile(
+        join(outputDir, "evidence", "codex-hosted-oauth-cli-startup.md"),
+        "utf8",
+      );
+
+      assert.match(codexOauthEvidence, /scopes mcp:read,profile:read/);
+      assert.match(codexOauthEvidence, /OAuth-only `vrdex_list_my_profiles`/);
+      assert.doesNotMatch(codexOauthEvidence, /call `vrdex_search`/);
     } finally {
       await rm(outputDir, { force: true, recursive: true });
     }

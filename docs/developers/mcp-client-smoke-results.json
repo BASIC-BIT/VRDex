@@ -239,7 +239,7 @@
           "requiredForExternalReadiness": false,
           "repoEvidence": "VRDEX_MCP_SMOKE_DCR and VRDEX_MCP_SMOKE_CIMD cover protocol paths when enabled",
           "manualStatus": "pending",
-          "notes": "Codex CLI 0.145.0 completed explicit OAuth with the expanded media scopes on 2026-09-01, but an isolated startup exposed no VRDex tools. Re-run after the client startup gap is resolved and record tools/list plus one authenticated read without retaining profile identifiers."
+          "notes": "Codex CLI 0.145.0 previously passed staged OAuth initialization and tools/list for the event-write configuration at c58f546e9. On 2026-09-01, explicit login against the production project-scoped server with the expanded profile and media scopes succeeded, but the subsequent isolated codex exec startup exposed no VRDex tools. Re-run this production configuration after the client startup gap is resolved and call the OAuth-only vrdex_list_my_profiles tool without retaining profile identifiers."
         }
       ]
     },
