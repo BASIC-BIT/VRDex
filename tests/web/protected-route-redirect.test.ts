@@ -17,7 +17,9 @@ describe("protected route redirects", () => {
       "/submit",
       "/events/new",
       "/afterglow/events/create",
+      "/afterglow/events/create/",
       "/afterglow/events/summer-social/edit",
+      "/afterglow/events/summer-social/edit/",
       "/developers/tokens",
       "/developers/apps",
     ]) {

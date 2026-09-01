@@ -225,7 +225,12 @@ function applyVrcdnOutputAccountDefaults(
 }
 
 function parseInteger(value: string, fieldName: string): number {
-  const parsed = Number(value.trim());
+  const normalized = value.trim();
+  if (normalized.length === 0) {
+    throw new Error(`${fieldName} is required.`);
+  }
+
+  const parsed = Number(normalized);
 
   if (!Number.isInteger(parsed)) {
     throw new Error(`${fieldName} must be a whole number.`);
@@ -828,6 +833,7 @@ function ConnectedEventEditorForm({
               inputMode="numeric"
               min="0"
               onChange={(changeEvent) => setDoorsOpenMinutes(eventTargetValue(changeEvent))}
+              required
               type="number"
               value={doorsOpenMinutes}
             />

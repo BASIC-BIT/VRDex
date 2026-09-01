@@ -61,6 +61,8 @@ test("event editor @visual", async ({ page }, testInfo) => {
   await expect(page.getByLabel("Slug", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Publish event" })).toBeVisible();
   await expect(page.locator("details").filter({ hasText: "Media and links" })).not.toHaveAttribute("open");
+  await page.getByLabel("Do doors open before?").check();
+  await expect(page.getByLabel("Minutes before start")).toHaveAttribute("required", "");
 
   await page.locator("details").filter({ hasText: /^Details/ }).first().locator("summary").click();
   await page.getByLabel("Display name").first().fill("Aurora");

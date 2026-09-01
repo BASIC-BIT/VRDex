@@ -50,10 +50,9 @@ Initial slug generation starts from a display name or owner-provided text:
 ## Uniqueness
 
 Convex does not enforce unique indexes at the schema layer. Slug uniqueness is
-enforced by mutations before insert or update. The browser route namespaces are
-now separate, but availability remains conservatively global across profiles,
-worlds, and events until the event identifier contract is locked as readable
-slugs or generated public codes.
+enforced by mutations before insert or update. Profiles and worlds share the
+root slug namespace. Community event codes use a separate namespace beneath
+each community route.
 
 Use `findSlugOwner` from `convex/_globalSlugs.ts`, or the `check*SlugAvailability` helper for the entity being written, which calls it. A single `by_slug` query sees one third of the namespace. Convex mutations are transactional across tables, so a check followed by an insert in the same mutation cannot race.
 
@@ -61,7 +60,7 @@ Use `findSlugOwner` from `convex/_globalSlugs.ts`, or the `check*SlugAvailabilit
 
 - normalize and validate the candidate slug
 - reject invalid or reserved slugs
-- reject collisions across profiles, worlds, and events, excluding the row being updated
+- reject collisions across profiles and worlds, excluding the row being updated
 - patch `updatedAt` with the slug write
 
 ## Out of Scope

@@ -29,8 +29,8 @@ export function isProtectedRoute(
     return true;
   }
 
-  return /^\/[^/]+\/events\/create$/.test(pathname)
-    || /^\/[^/]+\/events\/[^/]+\/edit$/.test(pathname);
+  return /^\/[^/]+\/events\/create\/?$/.test(pathname)
+    || /^\/[^/]+\/events\/[^/]+\/edit\/?$/.test(pathname);
 }
 
 export function protectedRouteSignInPath(pathname: string, search = ""): string {
