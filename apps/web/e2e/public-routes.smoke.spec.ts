@@ -117,11 +117,13 @@ test("profile links expose Discord-ready metadata and a generated image", async 
   expect(imageUrl).not.toBeNull();
 
   const rasterFixture = await page.request.get(
-    "/api/e2e/fixture-assets/fixture-aurora-profile-image-webp",
+    "/api/e2e/fixture-assets/fixture-aurora-profile-image-raster",
   );
   expect(rasterFixture.ok()).toBe(true);
-  expect(rasterFixture.headers()["content-type"]).toContain("image/webp");
-  expect(Array.from((await rasterFixture.body()).subarray(0, 4))).toEqual([0x52, 0x49, 0x46, 0x46]);
+  expect(rasterFixture.headers()["content-type"]).toContain("image/jpeg");
+  expect(Array.from((await rasterFixture.body()).subarray(0, 3))).toEqual([
+    0xff, 0xd8, 0xff,
+  ]);
 
   const imageRequestUrl = new URL(imageUrl!);
   imageRequestUrl.searchParams.set("fixture", "raster-avatar");

@@ -22,6 +22,16 @@ type FixtureAsset = {
 };
 
 const fixtureAssets: Record<string, FixtureAsset> = {
+  "fixture-aurora-profile-image-raster": {
+    title: "DJ Aurora",
+    subtitle: "Raster profile image",
+    initials: "DA",
+    width: 64,
+    height: 64,
+    from: "#d66a4d",
+    to: "#d66a4d",
+    accent: "#d66a4d",
+  },
   "fixture-aurora-profile-image-webp": {
     title: "DJ Aurora",
     subtitle: "WebP profile image",
@@ -162,6 +172,15 @@ export async function GET(_request: Request, { params }: FixtureAssetRouteProps)
   const asset = fixtureAssets[assetId];
   if (!asset) {
     return fixtureError("Unknown fixture asset.", 404);
+  }
+
+  if (assetId === "fixture-aurora-profile-image-raster") {
+    return new NextResponse(fixtureAuroraProfileImageJpeg, {
+      headers: {
+        "Cache-Control": "no-store",
+        "Content-Type": "image/jpeg",
+      },
+    });
   }
 
   if (assetId === "fixture-aurora-profile-image-webp") {
