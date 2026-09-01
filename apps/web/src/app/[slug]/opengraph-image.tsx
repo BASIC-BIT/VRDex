@@ -22,7 +22,15 @@ type EntityShareImageProps = {
   params: Promise<{ slug: string }>;
 };
 
-async function inlineManagedImage(imageUrl: string | undefined): Promise<string | undefined> {
+type InlineImageBounds = {
+  height: number;
+  width: number;
+};
+
+async function inlineManagedImage(
+  imageUrl: string | undefined,
+  bounds: InlineImageBounds,
+): Promise<string | undefined> {
   if (!imageUrl) return undefined;
 
   const absoluteUrl = inlineableProfileShareAssetUrl(imageUrl, publicSiteUrl());
@@ -43,7 +51,15 @@ async function inlineManagedImage(imageUrl: string | undefined): Promise<string 
 
     let inlineContentType = contentType;
     if (contentType === "image/webp") {
-      body = await sharp(body).png().toBuffer();
+      body = await sharp(body)
+        .resize({
+          fit: "inside",
+          height: bounds.height,
+          width: bounds.width,
+          withoutEnlargement: true,
+        })
+        .png()
+        .toBuffer();
       inlineContentType = "image/png";
       if (body.byteLength > PROFILE_ASSET_MAX_STORED_BYTES) return undefined;
     }
@@ -60,8 +76,8 @@ async function withInlineManagedImages(
   if (!profile) return null;
 
   const [avatarImageUrl, bannerImageUrl] = await Promise.all([
-    inlineManagedImage(profile.avatarImageUrl),
-    inlineManagedImage(profile.bannerImageUrl),
+    inlineManagedImage(profile.avatarImageUrl, { height: 184, width: 184 }),
+    inlineManagedImage(profile.bannerImageUrl, entityShareImageSize),
   ]);
 
   return {
