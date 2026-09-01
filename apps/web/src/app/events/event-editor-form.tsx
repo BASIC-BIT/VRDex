@@ -21,6 +21,7 @@ import {
   formatZonedDateTimeInput,
   parseZonedDateTimeInput,
 } from "@/lib/calendar/zoned-date-time";
+import { resolveAuthoredEventEndAt } from "@/lib/calendar/event-end-time";
 
 type EventMediaLinkType = PublicEvent["mediaLinks"][number]["type"];
 
@@ -511,6 +512,7 @@ function ConnectedEventEditorForm({
   const [vrcdnOutput, setVrcdnOutput] = useState<VrcdnOutputFormState>(() => createInitialVrcdnOutputForm(event));
   const [slotRows, setSlotRows] = useState(() => initialSlotRows(event));
   const [slotRowsDirty, setSlotRowsDirty] = useState(Boolean(event?.slots.length));
+  const [scheduleChanged, setScheduleChanged] = useState(false);
   const [slotTemplate, setSlotTemplate] = useState(() => initialSlotTemplate(event));
   const slotTemplateIsValid = isValidSlotTemplate(slotTemplate);
   const [cancellationReason, setCancellationReason] = useState("");
@@ -568,6 +570,7 @@ function ConnectedEventEditorForm({
       setSlotTemplate({ ...nextTemplate, count: String(boundedCount) });
       setSlotRows(createGeneratedSlotRows(boundedCount, duration));
       setSlotRowsDirty(false);
+      setScheduleChanged(true);
     } catch {
       setSlotTemplate(nextTemplate);
     }
@@ -576,6 +579,7 @@ function ConnectedEventEditorForm({
   function updateSlotRows(updater: (rows: SlotFormRow[]) => SlotFormRow[]) {
     setSlotRows((rows) => updater(rows));
     setSlotRowsDirty(true);
+    setScheduleChanged(true);
   }
 
   async function onSaveVrcdnOutput() {
@@ -655,9 +659,13 @@ function ConnectedEventEditorForm({
       const derivedEndAt = slotLinks.length === 0 || slotLinks.some((slot) => slot.endAt === undefined)
         ? undefined
         : Math.max(...slotLinks.map((slot) => slot.endAt!));
-      const preservedEndAt = event?.endAt === undefined
-        ? undefined
-        : event.endAt + (startAt - event.startAt);
+      const endAt = resolveAuthoredEventEndAt({
+        startAt,
+        derivedEndAt,
+        previousStartAt: event?.startAt,
+        previousEndAt: event?.endAt,
+        scheduleChanged,
+      });
       const doorsOffsetMinutes = doorsOpenBefore
         ? parseInteger(doorsOpenMinutes, "Doors-open offset minutes")
         : undefined;
@@ -671,9 +679,7 @@ function ConnectedEventEditorForm({
         ...(doorsOffsetMinutes === undefined
           ? {}
           : { doorsOpenAt: startAt - doorsOffsetMinutes * 60_000 }),
-        ...(derivedEndAt === undefined && preservedEndAt === undefined
-          ? {}
-          : { endAt: derivedEndAt ?? preservedEndAt }),
+        endAt,
         timezone: submittedTimezone,
         summary: optionalString(stringField(formData.get("summary"))),
         notes: optionalString(stringField(formData.get("notes"))),
