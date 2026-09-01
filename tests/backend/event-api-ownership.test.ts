@@ -950,6 +950,62 @@ describe("API-created event ownership", () => {
     assert.deepEqual(upcoming.map((event) => event.slug), ["weeklong-festival"]);
   });
 
+  it("refills ongoing events after hidden communities consume the old candidate window", async () => {
+    const t = convexTest({ schema, modules });
+    const { profileId: visibleCommunityId } = await seedOwnedCommunity(t);
+    await t.run(async (ctx) => {
+      const hiddenCommunityId = await ctx.db.insert("profiles", {
+        profileType: "community",
+        slug: "hidden-ongoing-host",
+        displayName: "Hidden Ongoing Host",
+        sortName: "hidden ongoing host",
+        aliases: [],
+        tags: [],
+        claimState: "unclaimed",
+        publicationState: "published",
+        publicSurfacingState: "opted_out",
+        creationSource: "community",
+        community: { categoryTags: [] },
+        updatedAt: NOW,
+      });
+      await ctx.db.insert("events", {
+        slug: "visible-long-running-event",
+        title: "Visible Long Running Event",
+        sortTitle: "visible long running event",
+        startAt: NOW - 200 * 60_000,
+        endAt: NOW + 60_000,
+        communityProfileId: visibleCommunityId,
+        communityName: "The Faceless",
+        sourceType: "manual",
+        sourceLabel: "Test",
+        eventStatus: "scheduled",
+        publicationState: "published",
+        publishedAt: NOW,
+        updatedAt: NOW,
+      });
+      for (let index = 0; index < 129; index += 1) {
+        await ctx.db.insert("events", {
+          slug: `hidden-ongoing-event-${index}`,
+          title: `Hidden Ongoing Event ${index}`,
+          sortTitle: `hidden ongoing event ${index}`,
+          startAt: NOW - (index + 1) * 60_000,
+          endAt: NOW + 60_000,
+          communityProfileId: hiddenCommunityId,
+          communityName: "Hidden Ongoing Host",
+          sourceType: "manual",
+          sourceLabel: "Test",
+          eventStatus: "scheduled",
+          publicationState: "published",
+          publishedAt: NOW,
+          updatedAt: NOW,
+        });
+      }
+    });
+
+    const upcoming = await t.query(api.events.listPublicUpcoming, { now: NOW, limit: 1 });
+    assert.deepEqual(upcoming.map((event) => event.slug), ["visible-long-running-event"]);
+  });
+
   it("orders current events by effective end before future events", async () => {
     const t = convexTest({ schema, modules });
     await t.run(async (ctx) => {

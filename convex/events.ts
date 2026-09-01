@@ -2021,13 +2021,9 @@ export const listPublicUpcoming = query({
   },
   handler: async (ctx, args) => {
     const limit = boundedLimit(args.limit, 8, 24);
-    // ponytail: This deliberately inspects only the 128 most recently started
-    // events. If real volume can hide a valid multi-day event, add indexed
-    // active-event state instead of growing this window indefinitely.
-    const ongoingCandidateLimit = 128;
-    // Keep this bounded, but scan past the requested result count so hidden
-    // communities cannot consume the whole public result window.
-    const upcomingCandidateLimit = 500;
+    // Keep both scans bounded, but inspect past the requested result count so
+    // hidden communities cannot consume the whole public result window.
+    const candidateScanLimit = 500;
     const [started, upcoming] = await Promise.all([
       ctx.db
         .query("events")
@@ -2038,7 +2034,7 @@ export const listPublicUpcoming = query({
             .lt("startAt", args.now),
         )
         .order("desc")
-        .take(ongoingCandidateLimit),
+        .take(candidateScanLimit),
       ctx.db
         .query("events")
         .withIndex("by_publicationState_eventStatus_startAt", (index) =>
@@ -2047,7 +2043,7 @@ export const listPublicUpcoming = query({
             .eq("eventStatus", "scheduled")
             .gte("startAt", args.now),
         )
-        .take(upcomingCandidateLimit),
+        .take(candidateScanLimit),
     ]);
     const ongoing = started
       .filter((event) => (event.endAt ?? event.startAt) >= args.now)
