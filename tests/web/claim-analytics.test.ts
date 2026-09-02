@@ -65,6 +65,7 @@ describe("claim analytics journey correlation", () => {
     );
     assert.match(source, /analyticsJourneyFinishedRef\.current\s*\) return/);
     assert.match(source, /lastObservedPendingJourneyRef/);
+    assert.match(source, /lastObservedPendingWorkRef/);
     assert.match(source, /preserveInitialDiscordReturnRef = useRef\(discordVerify != null\)/);
     assert.match(source, /preserveInitialDiscordReturnRef\.current = false/);
     assert.match(source, /const \{ isLoaded, sessionId \} = useAuth\(\)/);
@@ -96,11 +97,24 @@ describe("claim analytics journey correlation", () => {
       source,
       /previous !== null[\s\S]*staleStoredJourney[\s\S]*current === null[\s\S]*activeCollectorCompletion === null[\s\S]*finishAnalyticsJourney\(\)/,
     );
-    assert.match(source, /!result\.canceled[\s\S]*finishAnalyticsJourney\(\)/);
-    assert.match(source, /await adoptPendingProofAnalytics\(\{[\s\S]*analyticsJourneyId: journeyId/);
     assert.match(
       source,
-      /async function checkDiscord[\s\S]*await adoptPendingClaimRequestAnalytics\(\{[\s\S]*analyticsJourneyId: journeyId[\s\S]*await verifyDiscord/,
+      /previouslyHadPendingClaimWork === true && !hasPendingClaimWork/,
+    );
+    assert.match(
+      source,
+      /discordReturnJourneyActiveRef\.current && nextMethod !== "discord"[\s\S]*initialAnalyticsJourneyConsumedRef\.current = true[\s\S]*finishAnalyticsJourney\(\)/,
+    );
+    assert.match(source, /beginAnalyticsJourneyForMethod\(nextMethod\)/);
+    assert.match(source, /beginAnalyticsJourneyForMethod\(method\)/);
+    assert.match(source, /!result\.canceled[\s\S]*finishAnalyticsJourney\(\)/);
+    assert.match(
+      source,
+      /const adopted = await adoptPendingProofAnalytics\(\{[\s\S]*journeyId = adoptAnalyticsJourneyId\(adopted\.analyticsJourneyId\)[\s\S]*captureMethodSelection\(journeyId, proofMethod\)/,
+    );
+    assert.match(
+      source,
+      /async function checkDiscord[\s\S]*const adopted = await adoptPendingClaimRequestAnalytics\(\{[\s\S]*journeyId = adoptAnalyticsJourneyId\(adopted\.analyticsJourneyId\)[\s\S]*await verifyDiscord/,
     );
     assert.match(
       source,

@@ -188,7 +188,9 @@ export function ClaimFlowContent({
   const selectedMethodKeysRef = useRef(new Set<string>());
   const analyticsJourneyFinishedRef = useRef(false);
   const lastObservedPendingJourneyRef = useRef<string | null | undefined>(undefined);
+  const lastObservedPendingWorkRef = useRef<boolean | undefined>(undefined);
   const preserveInitialDiscordReturnRef = useRef(discordVerify != null);
+  const discordReturnJourneyActiveRef = useRef(discordVerify != null);
   const [selectedMethod, setMethod] = useState<ClaimMethod | null>(
     previewContext
       ? profile.profileType === "community"
@@ -325,6 +327,31 @@ export function ClaimFlowContent({
     return ensureAnalyticsJourneyId();
   }, [ensureAnalyticsJourneyId]);
 
+  const adoptAnalyticsJourneyId = useCallback((journeyId: string) => {
+    try {
+      window.sessionStorage.setItem(
+        claimJourneyStorageKey(profile.slug, analyticsSessionScope),
+        journeyId,
+      );
+    } catch {
+      // The in-memory ref still adopts the backend's canonical journey.
+    }
+    analyticsJourneyIdRef.current = journeyId;
+    return journeyId;
+  }, [analyticsSessionScope, profile.slug]);
+
+  const beginAnalyticsJourneyForMethod = useCallback((nextMethod: ClaimMethod) => {
+    if (discordReturnJourneyActiveRef.current && nextMethod !== "discord") {
+      discordReturnJourneyActiveRef.current = false;
+      // Discord already recorded the first provider check for its restored
+      // journey. A different method is a new attempt and needs fresh dedupe and
+      // latency milestones rather than inheriting the OAuth journey.
+      initialAnalyticsJourneyConsumedRef.current = true;
+      finishAnalyticsJourney();
+    }
+    return beginAnalyticsJourney();
+  }, [beginAnalyticsJourney, finishAnalyticsJourney]);
+
   useEffect(() => {
     if (context === undefined) return;
 
@@ -334,6 +361,8 @@ export function ClaimFlowContent({
     let staleStoredJourney = false;
     const hasPendingClaimWork =
       context?.pendingProof != null || context?.pendingClaimRequest != null;
+    const previouslyHadPendingClaimWork = lastObservedPendingWorkRef.current;
+    lastObservedPendingWorkRef.current = hasPendingClaimWork;
     if (previous === undefined && current === null && !hasPendingClaimWork) {
       try {
         staleStoredJourney = window.sessionStorage.getItem(
@@ -351,7 +380,9 @@ export function ClaimFlowContent({
     const preserveInitialDiscordReturn = preserveInitialDiscordReturnRef.current;
     preserveInitialDiscordReturnRef.current = false;
     if (
-      ((previous !== undefined && previous !== null) || staleStoredJourney) &&
+      ((previous !== undefined && previous !== null) ||
+        (previouslyHadPendingClaimWork === true && !hasPendingClaimWork) ||
+        staleStoredJourney) &&
       current === null &&
       activeCollectorCompletion === null &&
       !preserveInitialDiscordReturn
@@ -511,7 +542,7 @@ export function ClaimFlowContent({
   }, [activeCollectorCompletion, ensureAnalyticsJourneyId, finishAnalyticsJourney, posthog, profile.profileType]);
 
   function selectMethod(nextMethod: ClaimMethod) {
-    const journeyId = beginAnalyticsJourney();
+    const journeyId = beginAnalyticsJourneyForMethod(nextMethod);
     captureJourneyView(journeyId);
     setMethod(nextMethod);
     setStatus({ kind: "idle" });
@@ -525,7 +556,7 @@ export function ClaimFlowContent({
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const journeyId = beginAnalyticsJourney();
+    const journeyId = beginAnalyticsJourneyForMethod(method);
     captureJourneyView(journeyId);
     captureMethodSelection(journeyId, method);
     if (!isVerifiedViewer) {
@@ -654,18 +685,21 @@ export function ClaimFlowContent({
     proofMethod: ClaimAnalyticsMethod = "vrchat",
   ) {
     const viaVrclinking = proofMethod === "vrclinking";
-    const journeyId = ensureAnalyticsJourneyId();
+    let journeyId = ensureAnalyticsJourneyId();
 
     setStatus({
       kind: "working",
       message: viaVrclinking ? "Asking VRCLinking…" : "Looking for your code…",
     });
     try {
-      await adoptPendingProofAnalytics({
+      const adopted = await adoptPendingProofAnalytics({
         attemptId,
         analyticsJourneyId: journeyId,
         analyticsEntrySource: source,
       });
+      journeyId = adoptAnalyticsJourneyId(adopted.analyticsJourneyId);
+      captureJourneyView(journeyId);
+      captureMethodSelection(journeyId, proofMethod);
       const result = await verifyVrchat({ attemptId });
       if ("claimState" in result) {
         // Proving control of the target does not by itself establish that the
@@ -786,14 +820,17 @@ export function ClaimFlowContent({
   }
 
   async function checkDiscord(requestId: Id<"profileClaimRequests">) {
-    const journeyId = ensureAnalyticsJourneyId();
+    let journeyId = ensureAnalyticsJourneyId();
     setStatus({ kind: "working", message: "Checking your Discord server permissions…" });
     try {
-      await adoptPendingClaimRequestAnalytics({
+      const adopted = await adoptPendingClaimRequestAnalytics({
         claimRequestId: requestId,
         analyticsJourneyId: journeyId,
         analyticsEntrySource: source,
       });
+      journeyId = adoptAnalyticsJourneyId(adopted.analyticsJourneyId);
+      captureJourneyView(journeyId);
+      captureMethodSelection(journeyId, "discord");
       const result = await verifyDiscord({ claimRequestId: requestId });
       if ("claimState" in result) {
         const verified = result.claimState === "claimed_verified";
