@@ -84,7 +84,9 @@ export function ProfileVrcdnStreams({
           return;
         }
 
-        setLiveStates((current) => mergeConfirmedVrcdnLiveStates(current, states));
+        setLiveStates((current) =>
+          mergeConfirmedVrcdnLiveStates(attempt === 1 ? current : {}, states),
+        );
 
         if (attempt === 1 && shouldRetryVrcdnLiveStates(states)) {
           scheduleRetry();

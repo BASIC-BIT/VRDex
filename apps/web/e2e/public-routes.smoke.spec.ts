@@ -285,7 +285,7 @@ test.describe("fixture lookup smoke", () => {
     await expect(page.getByText("VRCDN stream", { exact: true })).toHaveCount(0);
   });
 
-  test("confirmed VRCDN player stays mounted through an unavailable retry", async ({ page }) => {
+  test("confirmed VRCDN player stays mounted while an unavailable retry is pending", async ({ page }) => {
     let attempts = 0;
     let releaseFirstResponse: () => void = () => {};
     let releaseSecondResponse: () => void = () => {};
@@ -306,7 +306,7 @@ test.describe("fixture lookup smoke", () => {
       }
 
       await secondResponseHold;
-      await route.fulfill({ contentType: "application/json", json: { states: { "dj-aurora": "live" } } });
+      await route.fulfill({ contentType: "application/json", json: { states: { "dj-aurora": "unavailable" } } });
     });
 
     await page.goto("/playwright-dj-aurora");
@@ -325,8 +325,8 @@ test.describe("fixture lookup smoke", () => {
 
     releaseSecondResponse();
 
-    await expect(player).toHaveAttribute("data-lifecycle-marker", "original");
-    await expect(player).toBeVisible();
+    await expect(player).toHaveCount(0);
+    await expect(page.getByText("VRCDN", { exact: true })).toHaveCount(0);
   });
 
   test("VRCDN live endpoint stays profile-scoped and private", async ({ page }) => {

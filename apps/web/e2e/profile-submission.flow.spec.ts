@@ -40,6 +40,7 @@ test("profile submission writes through to public profile and discovery @flow", 
   // below asserts nothing on a target that never offered it.
   let submittedStreamId: string | undefined;
   let createdSlug: string | undefined;
+  const targetRunsCurrentRevision = await hostedTargetRunsCurrentRevision(request);
 
   await page.context().addCookies([
     {
@@ -83,7 +84,7 @@ test("profile submission writes through to public profile and discovery @flow", 
     const roleCheckbox = page.getByRole("checkbox", { name: "DJ", exact: true });
     const rendersRoleCheckboxes = (await roleCheckbox.count()) > 0;
 
-    if (await hostedTargetRunsCurrentRevision(request)) {
+    if (targetRunsCurrentRevision) {
       expect(
         rendersRoleCheckboxes,
         "target runs this revision, so it must render the role checkboxes",
@@ -144,10 +145,17 @@ test("profile submission writes through to public profile and discovery @flow", 
     // submission cannot support a liveness claim, so it remains an ordinary
     // outbound link instead of entering the live-only Watch surface.
     if (submittedStreamId !== undefined) {
-      await expect(page.getByRole("link", { name: "VRCDN", exact: true })).toHaveAttribute(
-        "href",
-        `https://stream.vrcdn.live/live/${submittedStreamId}.live.ts`,
-      );
+      const questUrl = `https://stream.vrcdn.live/live/${submittedStreamId}.live.ts`;
+
+      if (targetRunsCurrentRevision) {
+        await expect(page.getByRole("link", { name: "VRCDN", exact: true })).toHaveAttribute("href", questUrl);
+      } else {
+        // Shared staging tracks main, so a pull request can write through a
+        // newer backend shape while its public page still renders the legacy
+        // copy row. This tolerance disappears as soon as the target proves it
+        // is serving this commit.
+        await expect(page.getByText(questUrl)).toBeVisible();
+      }
     }
     await captureRouteScreenshot(page, testInfo, "profile-submission-flow-profile");
 
