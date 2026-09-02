@@ -54,9 +54,50 @@ Run read-only membership inspection first with `pnpm proof:group-telemetry`. On 
    The mutation rejects a `secretRef` that is not an ARN or `secret://` reference
    and a `workerKeyHash` that is not a 64-character hex digest, so a pasted key
    fails rather than being stored.
-5. Build `workers/group-telemetry/Dockerfile`, push the image, and configure `container_image` with its immutable `@sha256:` digest URI. Terraform rejects service enablement when that digest is absent.
+5. Build `workers/group-telemetry/Dockerfile`, push the image, and configure `container_image` with its immutable `@sha256:` digest URI. Terraform rejects service enablement when that digest is absent. Once the reviewed automation bootstrap below is complete, the main-branch release lane performs this step automatically.
 6. Apply with `enable_service=false` and `desired_count=0`. Review the task role, execution role, one-secret scope, SSM deployment gate, logs, alarms, budget, and egress-only networking.
 7. After a `go` or acceptable `adjust`, set `enable_service=true`, `desired_count=1`, and a budget alert email. Keep the task cap at two.
+
+## Automatic releases and drift detection
+
+`.github/workflows/group-telemetry-release.yml` is the only automatic writer
+for routine collector releases. A successful `main` Baseline Checks run builds
+the exact main SHA, publishes an immutable SHA tag, plans against checked-in
+production enable/count state plus fail-closed repository variables, and
+applies the saved plan only after the policy helper proves that it changes the
+collector image and release metadata alone. ECS must stabilize on the exact
+digest, then `communityTelemetry:collectorDeploymentReadiness` must report a
+fresh matching heartbeat with `telemetry_v1` and `vrchat_proof_v1`.
+
+Before enabling the lane, perform one reviewed bootstrap from the trusted state
+holder:
+
+1. Migrate any existing local collector state to the declared S3 backend with
+   `terraform init -migrate-state`, then inspect the remote state.
+2. Plan the current production variables with the reviewed release image and
+   source SHA. The first plan includes task metadata plus auth, control-plane
+   failure, and restart metric filters and alarms.
+3. Apply that infrastructure plan manually. Automatic releases intentionally
+   reject it because it contains more than an image-only task revision.
+4. Provision separate main-only GitHub OIDC roles for release and read-only
+   audit, following the least-privilege requirements in the stack README.
+5. Configure every required GitHub variable and secret listed there, then set
+   `GROUP_TELEMETRY_RELEASE_ENABLED=true`.
+6. Dispatch audit mode first. Dispatch release mode only from a commit reachable
+   from `main`.
+
+Every fifteen minutes, the audit job asks GitHub Actions for the latest
+successful main baseline. It compares that expected SHA with ECR, the running
+ECS digest, and Convex operational readiness. This catches a main change that
+was never built as well as a build that never reached ECS. It allows a
+fifteen-minute convergence window, makes no provider or AWS mutation, and fails
+after that window on release mismatch, stale heartbeat, missing proof
+capability, `auth_required`, or unchecked-attempt health issues.
+
+The CloudWatch filters consume only redacted JSON event names:
+`collector_auth_required`, `collector_control_plane_failure`, and
+`collector_worker_restart`. They must never include a profile slug, proof code,
+provider target, account identifier, cookie, key, or raw error payload.
 
 Steps 1-7 are the bring-up sequence for standing a fleet up, not a description of
 the current state. Production has been through them: BASIC accepted durable

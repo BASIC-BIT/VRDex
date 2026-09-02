@@ -136,7 +136,10 @@ resource "aws_ecs_task_definition" "worker" {
       { name = "VRDEX_GROUP_TELEMETRY_CONVEX_SITE_URL", value = var.convex_site_url },
       { name = "VRDEX_GROUP_TELEMETRY_COLLECTOR_ACCOUNT_ID", value = var.collector_account_id },
       { name = "VRDEX_GROUP_TELEMETRY_USER_AGENT", value = var.user_agent },
-      { name = "VRDEX_GROUP_TELEMETRY_REQUESTS_PER_MINUTE", value = tostring(var.requests_per_minute) }
+      { name = "VRDEX_GROUP_TELEMETRY_REQUESTS_PER_MINUTE", value = tostring(var.requests_per_minute) },
+      { name = "VRDEX_GROUP_TELEMETRY_RELEASE_SHA", value = var.release_sha },
+      { name = "VRDEX_GROUP_TELEMETRY_RELEASE_VERSION", value = var.release_version },
+      { name = "VRDEX_GROUP_TELEMETRY_CAPABILITIES", value = join(",", sort(var.release_capabilities)) }
     ]
     secrets = concat(
       [{ name = "VRDEX_GROUP_TELEMETRY_ENABLED", valueFrom = aws_ssm_parameter.enabled.arn }],
@@ -202,6 +205,93 @@ resource "aws_cloudwatch_metric_alarm" "worker_count" {
   threshold           = var.desired_count
   alarm_description   = "The collector has fewer running tasks than its bounded desired count."
   dimensions          = { ClusterName = aws_ecs_cluster.worker.name, ServiceName = aws_ecs_service.worker[0].name }
+  tags                = local.tags
+}
+
+resource "aws_cloudwatch_log_metric_filter" "auth_required" {
+  name           = "${var.name_prefix}-auth-required"
+  log_group_name = aws_cloudwatch_log_group.worker.name
+  pattern        = "{ $.event = \"collector_auth_required\" }"
+
+  metric_transformation {
+    name          = "AuthRequired"
+    namespace     = "VRDex/GroupTelemetry"
+    value         = "1"
+    default_value = "0"
+    unit          = "Count"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "auth_required" {
+  count               = var.enable_service ? 1 : 0
+  alarm_name          = "${var.name_prefix}-auth-required"
+  alarm_description   = "The collector reported that its VRChat session requires operator authentication."
+  namespace           = "VRDex/GroupTelemetry"
+  metric_name         = aws_cloudwatch_log_metric_filter.auth_required.metric_transformation[0].name
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  period              = 300
+  statistic           = "Sum"
+  threshold           = 1
+  treat_missing_data  = "notBreaching"
+  tags                = local.tags
+}
+
+resource "aws_cloudwatch_log_metric_filter" "control_plane_failure" {
+  name           = "${var.name_prefix}-control-plane-failure"
+  log_group_name = aws_cloudwatch_log_group.worker.name
+  pattern        = "{ $.event = \"collector_control_plane_failure\" }"
+
+  metric_transformation {
+    name          = "ControlPlaneFailure"
+    namespace     = "VRDex/GroupTelemetry"
+    value         = "1"
+    default_value = "0"
+    unit          = "Count"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "control_plane_failures" {
+  count               = var.enable_service ? 1 : 0
+  alarm_name          = "${var.name_prefix}-control-plane-failures"
+  alarm_description   = "The collector reported at least three control-plane failures within five minutes."
+  namespace           = "VRDex/GroupTelemetry"
+  metric_name         = aws_cloudwatch_log_metric_filter.control_plane_failure.metric_transformation[0].name
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  period              = 300
+  statistic           = "Sum"
+  threshold           = 3
+  treat_missing_data  = "notBreaching"
+  tags                = local.tags
+}
+
+resource "aws_cloudwatch_log_metric_filter" "worker_restart" {
+  name           = "${var.name_prefix}-worker-restart"
+  log_group_name = aws_cloudwatch_log_group.worker.name
+  pattern        = "{ $.event = \"collector_worker_restart\" }"
+
+  metric_transformation {
+    name          = "WorkerRestart"
+    namespace     = "VRDex/GroupTelemetry"
+    value         = "1"
+    default_value = "0"
+    unit          = "Count"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "worker_restarts" {
+  count               = var.enable_service ? 1 : 0
+  alarm_name          = "${var.name_prefix}-worker-restarts"
+  alarm_description   = "The collector restarted at least three times within fifteen minutes."
+  namespace           = "VRDex/GroupTelemetry"
+  metric_name         = aws_cloudwatch_log_metric_filter.worker_restart.metric_transformation[0].name
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  period              = 900
+  statistic           = "Sum"
+  threshold           = 3
+  treat_missing_data  = "notBreaching"
   tags                = local.tags
 }
 
