@@ -1,8 +1,5 @@
 import type { PublicEventShareCard } from "../../../../../convex/_eventShareCard";
-import {
-  eventShareSchedule,
-  eventShareTitleFontSize,
-} from "@/lib/event-share-card";
+import { eventShareTitleFontSize } from "@/lib/event-share-card";
 
 export function EventShareCardImage({
   artworkImageUrl,
@@ -86,11 +83,6 @@ export function EventShareCardImage({
               }}
             >
               Cancelled
-            </div>
-          ) : null}
-          {event ? (
-            <div style={{ color: "#b9c2cf", display: "flex", fontSize: 25, marginBottom: 18 }}>
-              {eventShareSchedule(event)}
             </div>
           ) : null}
           <div

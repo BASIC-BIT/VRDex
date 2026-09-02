@@ -5,7 +5,6 @@ import {
   eventShareDescription,
   eventShareMetadata,
   eventShareRevision,
-  eventShareSchedule,
   eventShareTitleFontSize,
 } from "../../apps/web/src/lib/event-share-card";
 import { DEFAULT_SHARE_DESCRIPTION } from "../../apps/web/src/lib/profile-share-card";
@@ -56,12 +55,6 @@ describe("event share metadata", () => {
     assert.equal(eventShareRevision(card), eventShareRevision({ ...card }));
   });
 
-  it("formats the authored timezone and falls back safely for invalid zones", () => {
-    assert.match(eventShareSchedule(card), /Jun 14, 2026/);
-    assert.match(eventShareSchedule(card), /EDT/);
-    assert.match(eventShareSchedule({ startAt: card.startAt, timezone: "not-a-zone" }), /UTC/);
-  });
-
   it("scales long titles into the generated image", () => {
     assert.equal(eventShareTitleFontSize("A".repeat(81)), 38);
     assert.equal(eventShareTitleFontSize("A".repeat(59)), 46);
@@ -102,14 +95,20 @@ describe("event share artwork source", () => {
       siteUrl,
     );
 
-    assert.equal(isEventShareImageUrl(previewUrl, siteUrl), true);
+    assert.equal(isEventShareImageUrl(previewUrl), true);
     assert.equal(eventShareArtworkSource(previewUrl.href, siteUrl), null);
     assert.equal(
       isEventShareImageUrl(
-        new URL("https://media.example.test/events/7m2kp9q/opengraph-image"),
+        new URL("https://www.vrdex.net/afterglow-social/events/7m2kp9q/opengraph-image"),
+      ),
+      true,
+    );
+    assert.equal(
+      eventShareArtworkSource(
+        "https://www.vrdex.net/afterglow-social/events/7m2kp9q/opengraph-image",
         siteUrl,
       ),
-      false,
+      null,
     );
   });
 });

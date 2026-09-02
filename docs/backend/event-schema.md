@@ -132,11 +132,11 @@ The export includes the event title, canonical `/<community>/events/<event-code>
 
 Published community event pages expose Open Graph and Twitter metadata at the canonical `/<community>/events/<event-code>` route. The crawler-facing query verifies that the routed community is public, the event belongs to that community, and the event is published before returning a deliberately small projection: event title, public description, start/end time, authored timezone, scheduled/cancelled status, public community identity, and one artwork URL.
 
-Generated preview images prefer `posterImageUrl`, then `bannerImageUrl`, then `thumbnailImageUrl`. Remote artwork is fetched through the same bounded, redirect-aware, private-network-rejecting import boundary used for profile media, validated by content rather than headers alone, and rasterized before it enters the generated image. Invalid or unavailable artwork falls back to the typography-only card. The card renders its static schedule in the authored event timezone because link-preview crawlers do not provide a viewer timezone.
+Generated preview images prefer `posterImageUrl`, then `bannerImageUrl`, then `thumbnailImageUrl`. Remote artwork is fetched through the same bounded, redirect-aware, private-network-rejecting import boundary used for profile media, validated by content rather than headers alone, and rasterized before it enters the generated image. Invalid or unavailable artwork falls back to the typography-only card. Static preview images omit schedule text because link-preview crawlers do not provide the viewer timezone required for local-time rendering.
 
 Metadata image URLs carry a revision derived only from the public share-card projection so a changed title, schedule, status, description, community identity, or artwork URL receives a new cache URL. The image route accepts only that exact revision and rejects extra query parameters before downloading or rasterizing artwork. Backend failures return a non-cacheable unavailable response rather than a generic successful image.
 
-Private manager notes, source internals, participant/session associations, media-control state, watch links, and operator data are excluded from both the projection and revision. Event artwork cannot point directly or through redirects at a generated event-preview route, preventing recursive image renders.
+Private manager notes, source internals, participant/session associations, media-control state, watch links, and operator data are excluded from both the projection and revision. Event artwork cannot point directly or through redirects at a generated event-preview path on any host, preventing recursive renders through production or deployment aliases.
 
 ## Calendar Import And Export
 
