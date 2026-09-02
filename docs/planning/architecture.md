@@ -398,7 +398,7 @@ Current recommendation:
 - public event pages promote a primary `watch`, `stream`, or `vrcdn` link into a watch surface only when the event has opted in and is inside the scheduled watch window
 - provider embeds are allow-listed for YouTube, Twitch, and VRCDN; unsupported watch links remain outbound cards
 - provider live/offline checks for event watch surfaces belong to the later restream/media-control model in `#124`, and no provider state should leak into viewer-facing explanatory copy
-- profile pages are the exception: Twitch reads Helix during the server render, while VRCDN checks its transport stream after the profile renders through a profile-scoped route. Contract in `docs/backend/profile-schema.md`.
+- profile pages are the exception: Twitch reads Helix and VRCDN checks its transport stream during the server render, then VRCDN revalidates after hydration through a profile-scoped route. Contract in `docs/backend/profile-schema.md`.
 
 ### `event_media_control` later
 

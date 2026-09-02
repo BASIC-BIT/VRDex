@@ -7,6 +7,7 @@ import type { PrivateSeedLookupResult, SeedLookupViewerAccess } from "@/app/_com
 import type { SearchResultFilter } from "@/app/_components/search-view-state";
 import { publicSearchBackendFilters } from "@/lib/server/public-search-query";
 import { getTwitchLiveState } from "@/lib/server/twitch-live";
+import { getVrcdnLiveStates } from "@/lib/server/vrcdn-live";
 import {
   getPlaywrightActiveWorldFixtures,
   getPlaywrightDiscoveryFixture,
@@ -39,7 +40,11 @@ type PublicProfileType = "person" | "community";
 
 // `profileType` narrows to one of the two profile kinds. The root slug route omits it
 // because a bare /basicbit does not say which kind it is -- the slug itself decides.
-export async function fetchPublicProfileBySlug(slug: string, profileType?: PublicProfileType) {
+export async function fetchPublicProfileBySlug(
+  slug: string,
+  profileType?: PublicProfileType,
+  options: { includeLiveState?: boolean } = {},
+) {
   const fixtureProfile =
     profileType === undefined
       ? getPlaywrightPublicProfileFixture(slug, "person") ??
@@ -73,17 +78,24 @@ export async function fetchPublicProfileBySlug(slug: string, profileType?: Publi
           shareCard: projectedShareCard ?? null,
         }))(profile);
 
-    // VRCDN is resolved after hydration so its media-server latency cannot hold
-    // the profile render. Twitch remains here because its API result includes
-    // title metadata rendered with the server response.
-    const twitchLive = publicProfile
-      ? await getTwitchLiveState(publicProfile.outboundLinks)
-      : undefined;
+    // Resolve both providers before the first visible profile render. The
+    // client still revalidates VRCDN, but starting without its confirmed state
+    // made a live player disappear and return across a refresh.
+    const [twitchLive, vrcdnLive] = publicProfile && options.includeLiveState !== false
+      ? await Promise.all([
+          getTwitchLiveState(publicProfile.outboundLinks),
+          getVrcdnLiveStates(publicProfile.outboundLinks, { profileSlug: slug }),
+        ])
+      : [undefined, undefined];
 
     return {
       kind: "live" as const,
       profile: publicProfile
-        ? { ...publicProfile, ...(twitchLive ? { twitchLive } : {}) }
+        ? {
+            ...publicProfile,
+            ...(twitchLive ? { twitchLive } : {}),
+            ...(vrcdnLive ? { vrcdnLive } : {}),
+          }
         : null,
       shareCard,
     };

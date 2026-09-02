@@ -1,0 +1,67 @@
+"use client";
+
+import { useCallback, useState } from "react";
+
+import { cn } from "@/lib/cn";
+
+export function ProfileAvatarImage({
+  alt,
+  fallback,
+  src,
+}: {
+  alt: string;
+  fallback: string;
+  src?: string;
+}) {
+  const [loadedSrc, setLoadedSrc] = useState<string | null>(null);
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const loaded = loadedSrc === src;
+  const failed = failedSrc === src;
+  const showImage = Boolean(src && !failed);
+  const recordCompletedImage = useCallback((image: HTMLImageElement | null) => {
+    if (!image?.complete) {
+      return;
+    }
+
+    if (image.naturalWidth > 0) {
+      setLoadedSrc(src ?? null);
+    } else {
+      setFailedSrc(src ?? null);
+    }
+  }, [src]);
+
+  return (
+    <span
+      aria-busy={showImage && !loaded}
+      aria-label={alt}
+      className="absolute inset-0 flex items-center justify-center"
+      role="img"
+    >
+      <span
+        className={cn(
+          "transition-opacity duration-0",
+          loaded ? "delay-200 opacity-0" : "delay-0 opacity-100",
+        )}
+      >
+        {fallback}
+      </span>
+      {showImage ? (
+        // Controlled VRDex asset routes are intentionally rendered as ordinary images.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          alt=""
+          className={cn(
+            "absolute inset-0 size-full object-cover transition-opacity duration-200",
+            loaded ? "opacity-100" : "opacity-0",
+          )}
+          fetchPriority="high"
+          loading="eager"
+          onError={() => setFailedSrc(src ?? null)}
+          onLoad={() => setLoadedSrc(src ?? null)}
+          ref={recordCompletedImage}
+          src={src}
+        />
+      ) : null}
+    </span>
+  );
+}

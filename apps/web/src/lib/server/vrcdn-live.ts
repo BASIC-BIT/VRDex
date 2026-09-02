@@ -14,10 +14,10 @@ import {
 
 import { createVrcdnStreamLinks } from "../../../../../convex/_vrcdnLinks";
 
-// This no longer blocks the profile render. Production observations showed the
-// media server regularly taking about 3.8 seconds to answer from Vercel, so the
-// old 1.5 second budget converted valid answers into `unavailable` before they
-// arrived. Five seconds keeps the request bounded without preserving that race.
+// Production observations showed the media server regularly taking about 3.8
+// seconds to answer from Vercel, so the old 1.5 second budget converted valid
+// answers into `unavailable` before they arrived. Five seconds keeps the
+// server-rendered initial check bounded without preserving that race.
 const probeTimeoutMs = 5000;
 
 const getCachedVrcdnLiveState = unstable_cache(
