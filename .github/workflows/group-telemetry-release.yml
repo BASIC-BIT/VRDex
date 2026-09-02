@@ -214,7 +214,7 @@ jobs:
           deadline=$((SECONDS + 300))
           until [ "$SECONDS" -ge "$deadline" ]; do
             now="$(node -p 'Date.now()')"
-            args="$(jq -cn --arg sha "$RELEASE_SHA" --argjson now "$now" '{expectedReleaseSha:$sha,requiredCapabilities:["telemetry_v1","vrchat_proof_v1"],maxHeartbeatAgeMs:120000,now:$now}')"
+            args="$(jq -cn --arg accountId "$TF_VAR_collector_account_id" --arg sha "$RELEASE_SHA" --argjson now "$now" '{collectorAccountId:$accountId,expectedReleaseSha:$sha,requiredCapabilities:["telemetry_v1","vrchat_proof_v1"],maxHeartbeatAgeMs:120000,now:$now}')"
             CONVEX_DEPLOY_KEY="$CONVEX_DEPLOY_KEY_PROD" pnpm --silent exec convex run --prod communityTelemetry:collectorDeploymentReadiness "$args" > heartbeat.json
             if node scripts/group-telemetry-deployment.mjs heartbeat --file heartbeat.json; then
               exit 0
@@ -261,6 +261,7 @@ jobs:
       AUDIT_ENABLED: ${{ vars.GROUP_TELEMETRY_RELEASE_ENABLED }}
       CONVEX_DEPLOYMENT_PROD: ${{ vars.CONVEX_DEPLOYMENT_PROD }}
       CONVEX_DEPLOY_KEY_PROD: ${{ secrets.CONVEX_DEPLOY_KEY_PROD }}
+      COLLECTOR_ACCOUNT_ID: ${{ vars.GROUP_TELEMETRY_COLLECTOR_ACCOUNT_ID }}
 
     steps:
       - name: Checkout main
@@ -278,7 +279,7 @@ jobs:
         run: |
           set -euo pipefail
           [ "$AUDIT_ENABLED" = "true" ] || { echo "::error::GROUP_TELEMETRY_RELEASE_ENABLED must be true."; exit 1; }
-          for name in AWS_ROLE_ARN CONVEX_DEPLOYMENT_PROD CONVEX_DEPLOY_KEY_PROD; do
+          for name in AWS_ROLE_ARN CONVEX_DEPLOYMENT_PROD CONVEX_DEPLOY_KEY_PROD COLLECTOR_ACCOUNT_ID; do
             [ -n "${!name:-}" ] || { echo "::error::$name is required for the collector drift audit."; exit 1; }
           done
 
@@ -317,7 +318,7 @@ jobs:
           [ -n "$task_arns" ] && [ "$task_arns" != "None" ] || { echo "::error::Collector service has no running tasks."; exit 1; }
           aws ecs describe-tasks --cluster "$ECS_CLUSTER" --tasks $task_arns > tasks.json
           now="$(node -p 'Date.now()')"
-          args="$(jq -cn --arg sha "$expected_release_sha" --argjson now "$now" '{expectedReleaseSha:$sha,requiredCapabilities:["telemetry_v1","vrchat_proof_v1"],maxHeartbeatAgeMs:120000,now:$now}')"
+          args="$(jq -cn --arg accountId "$COLLECTOR_ACCOUNT_ID" --arg sha "$expected_release_sha" --argjson now "$now" '{collectorAccountId:$accountId,expectedReleaseSha:$sha,requiredCapabilities:["telemetry_v1","vrchat_proof_v1"],maxHeartbeatAgeMs:120000,now:$now}')"
           CONVEX_DEPLOY_KEY="$CONVEX_DEPLOY_KEY_PROD" pnpm --silent exec convex run --prod communityTelemetry:collectorDeploymentReadiness "$args" > heartbeat.json
           CONVEX_DEPLOY_KEY="$CONVEX_DEPLOY_KEY_PROD" pnpm --silent exec convex run --prod communityTelemetry:claimVerificationOperationalHealth "$(jq -cn --argjson now "$now" '{now:$now}')" > claim-health.json
           CONVEX_DEPLOY_KEY="$CONVEX_DEPLOY_KEY_PROD" pnpm --silent exec convex run --prod claimAnalytics:deliveryOperationalHealth "$(jq -cn --argjson now "$now" '{now:$now}')" > claim-analytics-health.json

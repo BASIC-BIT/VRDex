@@ -21,6 +21,7 @@ export function ClaimFlowPreview({
         analyticsSessionScope="preview"
         initialAnalyticsJourneyId="00000000-0000-4000-8000-000000000001"
         previewContext={{
+          viewerContextKey: "preview",
           emailVerified: true,
           // `hasDiscord` is a VRDex verification watermark, and only the
           // purpose-scoped OAuth round-trip writes one. Its false state is what

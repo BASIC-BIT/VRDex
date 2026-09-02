@@ -2097,16 +2097,19 @@ export const collectorProofAvailable = internalQuery({
 });
 
 /**
- * Stable, identifier-free post-deploy gate consumed by the release workflow.
+ * Stable post-deploy gate with an aggregate-only result, scoped to the
+ * configured collector account by its authenticated deployment input.
  */
 export const collectorDeploymentReadiness = internalQuery({
   args: {
+    collectorAccountId: v.string(),
     expectedReleaseSha: v.string(),
     requiredCapabilities: v.array(collectorRuntimeCapabilityValidator),
     maxHeartbeatAgeMs: v.number(),
     now: v.number(),
   },
   handler: async (ctx, args) => {
+    const collectorAccountId = ctx.db.normalizeId("collectorAccounts", args.collectorAccountId);
     const expectedReleaseSha = normalizedReleaseSha(args.expectedReleaseSha);
     const maxHeartbeatAgeMs = Math.floor(args.maxHeartbeatAgeMs);
     if (!Number.isFinite(args.maxHeartbeatAgeMs) || maxHeartbeatAgeMs < 1_000 || maxHeartbeatAgeMs > 60 * 60_000) {
@@ -2120,6 +2123,9 @@ export const collectorDeploymentReadiness = internalQuery({
         .first(),
       ctx.db.query("collectorAccounts").collect(),
     ]);
+    const configuredAccount = collectorAccountId === null
+      ? null
+      : accounts.find((account) => account._id === collectorAccountId) ?? null;
     const eligible = accounts.filter(
       (account) =>
         account.state === "ready" &&
@@ -2129,8 +2135,11 @@ export const collectorDeploymentReadiness = internalQuery({
       (account) =>
         (account.lastWorkerHeartbeatAt ?? 0) >= args.now - maxHeartbeatAgeMs,
     );
+    const configuredEligible = configuredAccount !== null && eligible.includes(configuredAccount);
+    const configuredFresh = configuredAccount !== null && fresh.includes(configuredAccount);
     const matching = fresh.filter(
       (account) =>
+        account._id === collectorAccountId &&
         account.lastWorkerReleaseSha === expectedReleaseSha &&
         requiredCapabilities.every((capability) =>
           account.lastWorkerCapabilities?.includes(capability),
@@ -2138,9 +2147,10 @@ export const collectorDeploymentReadiness = internalQuery({
     );
     const issues: string[] = [];
     if (fleet?.killSwitchEnabled) issues.push("fleet_kill_switch_enabled");
-    if (eligible.length === 0) issues.push("no_eligible_collectors");
-    if (fresh.length === 0) issues.push("no_fresh_heartbeats");
-    if (fresh.length > 0 && matching.length === 0) issues.push("release_or_capability_mismatch");
+    if (configuredAccount === null) issues.push("configured_collector_not_found");
+    else if (!configuredEligible) issues.push("configured_collector_ineligible");
+    else if (!configuredFresh) issues.push("configured_collector_heartbeat_stale");
+    else if (matching.length === 0) issues.push("release_or_capability_mismatch");
 
     return {
       healthy: !fleet?.killSwitchEnabled && matching.length > 0,
@@ -2244,7 +2254,8 @@ export const claimVerificationOperationalHealth = internalQuery({
       recentCheckedAttemptIds.map((attemptId) => ctx.db.get(attemptId)),
     );
     const recentFirstCheckLatencies = recentCheckedAttempts.flatMap((attempt) =>
-      attempt?.firstCheckAt === undefined
+      attempt?.firstCheckAt === undefined ||
+      attempt.firstCheckAt < args.now - FIRST_CHECK_HEALTH_LOOKBACK_MS
         ? []
         : [Math.max(0, attempt.firstCheckAt - attempt.createdAt)],
     );

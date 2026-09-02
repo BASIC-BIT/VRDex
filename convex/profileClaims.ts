@@ -387,6 +387,7 @@ export const getClaimJourneyContext = query({
       }
 
       return {
+        viewerContextKey: null,
         ownership: "signed_out" as const,
         verified: false,
         lastVerifiedProof: null,
@@ -439,6 +440,10 @@ export const getClaimJourneyContext = query({
       .first();
 
     return {
+      // Lets the browser distinguish a newly authenticated viewer's first
+      // snapshot from an advance for the previous account. The Convex document
+      // ID is opaque and is already scoped to this authenticated response.
+      viewerContextKey: user._id,
       ownership:
         owner === null ? ("available" as const) : owner.userId === user._id ? ("viewer" as const) : ("other" as const),
       verified: profile.claimState === "claimed_verified",

@@ -43,8 +43,9 @@ Every collector image carries:
 
 The worker reports those values on startup and at a bounded heartbeat cadence.
 The control plane stores only the latest heartbeat for each collector account.
-A deployment is successful only when ECS reaches steady state and the expected
-release and capabilities report a fresh heartbeat.
+A deployment is successful only when ECS reaches steady state and the exact
+configured collector account reports a fresh heartbeat with the expected
+release and capabilities.
 
 The release workflow must:
 
@@ -93,8 +94,8 @@ Operator health must expose, without customer identifiers:
 - pending collector-eligible attempts;
 - attempts with no first check;
 - age of the oldest unchecked attempt;
-- the maximum first-check latency observed in the last fifteen minutes, so a
-  slow check cannot disappear from health as soon as it completes;
+- the maximum latency among first checks that occurred in the last fifteen
+  minutes, so a slow check remains visible for one bounded diagnostic window;
 - time to first check and resolution;
 - collector heartbeat age, release, capability set, state, and cooldown;
 - bounded failure counts.

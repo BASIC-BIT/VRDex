@@ -171,7 +171,7 @@ describe("collector proof check queue", () => {
     });
   });
 
-  it("reports proof-path readiness and exact release convergence without identifiers", async () => {
+  it("reports proof-path readiness for the exact configured collector account", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
     const releaseSha = "b".repeat(40);
@@ -222,13 +222,14 @@ describe("collector proof check queue", () => {
     );
 
     const before = await t.query(internal.communityTelemetry.collectorDeploymentReadiness, {
+      collectorAccountId,
       expectedReleaseSha: releaseSha,
       requiredCapabilities: ["telemetry_v1", "vrchat_proof_v1"],
       maxHeartbeatAgeMs: 120_000,
       now,
     });
     assert.equal(before.healthy, false);
-    assert.deepEqual(before.issues, ["no_fresh_heartbeats"]);
+    assert.deepEqual(before.issues, ["configured_collector_heartbeat_stale"]);
 
     assert.deepEqual(
       await t.mutation(internal.communityTelemetry.recordCollectorHeartbeat, {
@@ -244,6 +245,7 @@ describe("collector proof check queue", () => {
       { recorded: true },
     );
     const ready = await t.query(internal.communityTelemetry.collectorDeploymentReadiness, {
+      collectorAccountId,
       expectedReleaseSha: releaseSha.toUpperCase(),
       requiredCapabilities: ["telemetry_v1", "vrchat_proof_v1"],
       maxHeartbeatAgeMs: 120_000,
@@ -256,10 +258,40 @@ describe("collector proof check queue", () => {
       matchingReleaseCount: 1,
       authRequiredCount: 0,
     });
+    const unrelatedCollectorAccountId = await t.run(async (ctx) =>
+      await seedCollector(ctx as never, "unrelated-readiness", now),
+    );
+    await t.mutation(internal.communityTelemetry.recordCollectorHeartbeat, {
+      collectorAccountId: unrelatedCollectorAccountId,
+      workerId: "worker-unrelated-readiness",
+      releaseSha,
+      collectorVersion: "group-telemetry-v1",
+      capabilities: ["telemetry_v1", "vrchat_proof_v1"],
+      consecutiveControlFailures: 0,
+      workerKeyHash: "a".repeat(64),
+      now,
+    });
     await t.run(async (ctx) => {
-      await ctx.db.patch(collectorAccountId, { cooldownUntil: now + 5 * 60_000 });
+      await ctx.db.patch(collectorAccountId, { lastWorkerHeartbeatAt: now - 120_001 });
+    });
+    assert.deepEqual(
+      (await t.query(internal.communityTelemetry.collectorDeploymentReadiness, {
+        collectorAccountId,
+        expectedReleaseSha: releaseSha,
+        requiredCapabilities: ["telemetry_v1", "vrchat_proof_v1"],
+        maxHeartbeatAgeMs: 120_000,
+        now,
+      })).issues,
+      ["configured_collector_heartbeat_stale"],
+    );
+    await t.run(async (ctx) => {
+      await ctx.db.patch(collectorAccountId, {
+        cooldownUntil: now + 5 * 60_000,
+        lastWorkerHeartbeatAt: now,
+      });
     });
     assert.equal((await t.query(internal.communityTelemetry.collectorDeploymentReadiness, {
+      collectorAccountId,
       expectedReleaseSha: releaseSha,
       requiredCapabilities: ["telemetry_v1", "vrchat_proof_v1"],
       maxHeartbeatAgeMs: 120_000,
@@ -407,6 +439,33 @@ describe("collector proof check queue", () => {
     const health = await t.query(internal.communityTelemetry.claimVerificationOperationalHealth, { now });
     assert.equal(health.uncheckedAttemptCount, 0);
     assert.equal(health.maxRecentFirstCheckLatencyMs, 150_000);
+  });
+
+  it("expires a first-check SLA breach after the health lookback", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      const attemptId = await seedAttempt(ctx as never, {
+        targetType: "vrchat_user",
+        now: now - 30 * 60_000,
+      });
+      const attempt = await ctx.db.get(attemptId as never);
+      assert.notEqual(attempt, null);
+      await ctx.db.patch(attemptId as never, { firstCheckAt: now - 20 * 60_000 });
+      await ctx.db.insert("profileClaimLifecycleEvents", {
+        profileId: attempt!.profileId,
+        attemptId,
+        method: attempt!.method,
+        targetType: attempt!.targetType,
+        event: "provider_checked",
+        actorSurface: "collector",
+        outcome: "not_found",
+        createdAt: now - 30_000,
+      });
+    });
+
+    const health = await t.query(internal.communityTelemetry.claimVerificationOperationalHealth, { now });
+    assert.equal(health.maxRecentFirstCheckLatencyMs, null);
   });
 
   it("excludes user-triggered VRCLinking checks from collector first-check health", async () => {

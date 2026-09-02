@@ -100,6 +100,7 @@ type ClaimFlowProps = {
   initialAnalyticsJourneyId: string;
   discordVerify?: DiscordVerifyStatus;
   previewContext?: {
+    viewerContextKey?: string | null;
     emailVerified: boolean;
     hasDiscord: boolean;
     vrclinkingConfigured?: boolean;
@@ -121,7 +122,14 @@ type ClaimFlowProps = {
 export function ClaimFlow(props: ClaimFlowProps) {
   const { sessionId } = useAuth();
 
-  return <ClaimFlowContent {...props} analyticsSessionScope={sessionId ?? "loading"} />;
+  const analyticsSessionScope = sessionId ?? "loading";
+  return (
+    <ClaimFlowContent
+      key={analyticsSessionScope}
+      {...props}
+      analyticsSessionScope={analyticsSessionScope}
+    />
+  );
 }
 
 export function ClaimFlowContent({
@@ -157,7 +165,6 @@ export function ClaimFlowContent({
   const viewedJourneyRef = useRef<string | null>(null);
   const selectedMethodKeysRef = useRef(new Set<string>());
   const analyticsJourneyFinishedRef = useRef(false);
-  const previousAnalyticsSessionScopeRef = useRef(analyticsSessionScope);
   const lastObservedPendingJourneyRef = useRef<string | null | undefined>(undefined);
   const preserveInitialDiscordReturnRef = useRef(discordVerify != null);
   const [selectedMethod, setMethod] = useState<ClaimMethod | null>(
@@ -178,9 +185,10 @@ export function ClaimFlowContent({
   // thing from `null` ("observed, and this account has no verified proof").
   // Collapsing the two suppressed the announcement for the case that matters
   // most: an account whose *first* collector proof resolves goes null → stamp.
-  const [seenVerifiedProofAt, setSeenVerifiedProofAt] = useState<number | null | undefined>(
-    undefined,
-  );
+  const [seenVerifiedProof, setSeenVerifiedProof] = useState<{
+    at: number | null;
+    viewerContextKey: string | null;
+  } | null>(null);
   const [collectorCompletion, setCollectorCompletion] = useState<
     {
       verified: boolean;
@@ -288,16 +296,6 @@ export function ClaimFlowContent({
     analyticsJourneyFinishedRef.current = false;
     return ensureAnalyticsJourneyId();
   }, [ensureAnalyticsJourneyId]);
-
-  useEffect(() => {
-    if (previousAnalyticsSessionScopeRef.current === analyticsSessionScope) return;
-    previousAnalyticsSessionScopeRef.current = analyticsSessionScope;
-    analyticsJourneyIdRef.current = null;
-    viewedJourneyRef.current = null;
-    selectedMethodKeysRef.current.clear();
-    analyticsJourneyFinishedRef.current = false;
-    lastObservedPendingJourneyRef.current = undefined;
-  }, [analyticsSessionScope]);
 
   useEffect(() => {
     if (context === undefined) return;
@@ -431,19 +429,25 @@ export function ClaimFlowContent({
   // the announcement for a proof that completed before this page opened.
   const verifiedProofAt =
     observedContext === null ? undefined : (observedContext.lastVerifiedProof?.at ?? null);
+  const viewerContextKey = observedContext?.viewerContextKey ?? null;
 
-  if (verifiedProofAt !== seenVerifiedProofAt) {
-    const previous = seenVerifiedProofAt;
+  if (
+    verifiedProofAt !== undefined &&
+    (seenVerifiedProof === null ||
+      seenVerifiedProof.at !== verifiedProofAt ||
+      seenVerifiedProof.viewerContextKey !== viewerContextKey)
+  ) {
+    const previous = seenVerifiedProof;
 
-    setSeenVerifiedProofAt(verifiedProofAt);
+    setSeenVerifiedProof({ at: verifiedProofAt, viewerContextKey });
 
     // Only an advance counts, and only one observed on this page: arriving at a
     // profile whose proof completed earlier must not replay the announcement.
     if (
-      previous !== undefined &&
-      verifiedProofAt !== undefined &&
+      previous !== null &&
+      previous.viewerContextKey === viewerContextKey &&
       verifiedProofAt !== null &&
-      (previous === null || verifiedProofAt > previous)
+      (previous.at === null || verifiedProofAt > previous.at)
     ) {
       setCollectorCompletion({
         verified: observedContext?.verified === true,

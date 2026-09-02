@@ -232,7 +232,16 @@ async function checkProofs() {
       await releaseUnread(pending, attempt);
       break;
     }
-    await heartbeat();
+    try {
+      await heartbeat();
+    } catch (error) {
+      // The batch was claimed before this heartbeat. If the control plane is
+      // temporarily unavailable, return the current attempt and unread tail so
+      // a healthy sibling can meet the first-check SLA instead of waiting for
+      // the full claim cooldown.
+      await releaseUnread(pending, attempt);
+      throw error;
+    }
     const now = Date.now();
 
     // Checked without consuming. The process-local counter is only a fast

@@ -339,6 +339,7 @@ describe("group telemetry release workflow", () => {
     assert.match(source, /steps\.apply\.outcome == 'failure'/);
     assert.match(commands, /aws ecs wait services-stable/);
     assert.match(commands, /collectorDeploymentReadiness/);
+    assert.match(commands, /collectorAccountId:\$accountId/);
     assert.match(commands, /CONVEX_DEPLOY_KEY="\$CONVEX_DEPLOY_KEY_PROD" pnpm --silent exec convex run --prod/);
     assert.match(commands, /PREVIOUS_TASK_DEFINITION/);
     assert.match(commands, /PREVIOUS_IMAGE_URI/);
@@ -359,6 +360,7 @@ describe("group telemetry release workflow", () => {
     assert.match(commands, /ecr describe-images/);
     assert.match(commands, /ecs describe-services/);
     assert.match(commands, /collectorDeploymentReadiness/);
+    assert.match(commands, /collectorAccountId:\$accountId/);
     assert.match(commands, /claimVerificationOperationalHealth/);
     assert.match(commands, /claimAnalytics:deliveryOperationalHealth/);
     assert.match(commands, /group-telemetry-deployment\.mjs claim-health/);
@@ -399,6 +401,10 @@ describe("group telemetry release workflow", () => {
     assert.match(worker, /async function pauseWithHeartbeats/);
     assert.match(worker, /await pauseWithHeartbeats\(retryAfterMs\)/);
     assert.match(worker, /for \(const attempt of pending\) \{[\s\S]*await heartbeat\(\)/);
+    assert.match(
+      worker,
+      /for \(const attempt of pending\) \{[\s\S]*try \{[\s\S]*await heartbeat\(\);[\s\S]*catch \(error\) \{[\s\S]*await releaseUnread\(pending, attempt\);[\s\S]*throw error/,
+    );
     assert.match(worker, /for \(const assignment of assignments\) \{[\s\S]*await heartbeat\(\)/);
   });
 

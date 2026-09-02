@@ -78,7 +78,7 @@ other infrastructure change fail closed for manual review.
 Before apply, the lane records and validates the currently serving immutable
 image and release metadata. ECS task definition revisions use `skip_destroy`,
 so that revision stays runnable. If Terraform apply, ECS identity/digest
-verification, or the bounded five-minute heartbeat convergence gate fails, the
+verification, or the bounded five-minute exact-account heartbeat convergence gate fails, the
 workflow reapplies the prior values through Terraform, waits for service
 stability, verifies that ECS matches Terraform's restored task definition, and
 then fails. This keeps live service and Terraform state aligned so the same SHA
@@ -91,7 +91,8 @@ task; the automatic lane does not delete rollback artifacts.
 
 The five-minute scheduled audit is read-only. It derives the expected release from the
 latest successful `main` Baseline Checks run, then compares that SHA with the
-ECR image, exact ECS digest, and the authoritative Convex heartbeat. A mismatch
+ECR image, exact ECS digest, and the configured collector account's authoritative
+Convex heartbeat. A mismatch
 may converge for fifteen minutes. Persistent drift, stale or missing heartbeat,
 missing proof capability, `auth_required`, or any operational-readiness issue
 fails the audit.

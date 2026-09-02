@@ -63,7 +63,9 @@ describe("claim analytics journey correlation", () => {
     assert.match(source, /preserveInitialDiscordReturnRef = useRef\(discordVerify != null\)/);
     assert.match(source, /preserveInitialDiscordReturnRef\.current = false/);
     assert.match(source, /const \{ sessionId \} = useAuth\(\)/);
+    assert.match(source, /key=\{analyticsSessionScope\}/);
     assert.match(source, /claimJourneyStorageKey\(profile\.slug, analyticsSessionScope\)/);
+    assert.match(source, /previous\.viewerContextKey === viewerContextKey/);
     assert.match(
       source,
       /collectorCompletion\?\.sessionScope === analyticsSessionScope \? collectorCompletion : null/,
