@@ -379,15 +379,16 @@ test.describe("fixture lookup smoke", () => {
 
     const avatarState = page.locator('[aria-busy="true"]').filter({ hasText: "DA" });
     await expect(avatarState).toBeVisible();
-    await expect(page.getByRole("img", { name: "DJ Aurora display image" })).toHaveCSS("opacity", "0");
+    const avatar = page.getByRole("img", { name: "DJ Aurora display image" });
+    await expect(avatar.locator("img")).toHaveCSS("opacity", "0");
 
     releaseImage();
 
-    await expect(page.getByRole("img", { name: "DJ Aurora display image" })).toHaveCSS("opacity", "1");
+    await expect(avatar.locator("img")).toHaveCSS("opacity", "1");
     await expect(avatarState).toHaveCount(0);
 
     await page.reload({ waitUntil: "domcontentloaded" });
-    await expect(page.getByRole("img", { name: "DJ Aurora display image" })).toHaveCSS("opacity", "1");
+    await expect(page.getByRole("img", { name: "DJ Aurora display image" }).locator("img")).toHaveCSS("opacity", "1");
   });
 
   test("media preview shows progress until its image loads", async ({ page }) => {

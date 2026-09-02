@@ -31,13 +31,18 @@ export function ProfileAvatarImage({
   }, [src]);
 
   return (
-    <span aria-busy={showImage && !loaded} className="contents">
-      {!loaded ? fallback : null}
+    <span
+      aria-busy={showImage && !loaded}
+      aria-label={alt}
+      className="absolute inset-0 flex items-center justify-center"
+      role="img"
+    >
+      {fallback}
       {showImage ? (
         // Controlled VRDex asset routes are intentionally rendered as ordinary images.
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          alt={alt}
+          alt=""
           className={cn(
             "absolute inset-0 size-full object-cover transition-opacity duration-200",
             loaded ? "opacity-100" : "opacity-0",

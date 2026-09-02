@@ -54,18 +54,17 @@ export function MediaPreviewImage({
 
   return (
     <>
-      {!loaded ? (
-        <div
-          aria-label="Loading image"
-          className="absolute inset-0 grid place-items-center bg-canvas-muted"
-          role="status"
-        >
-          <span
-            aria-hidden="true"
-            className="size-5 animate-spin rounded-full border-2 border-border border-t-foreground/70"
-          />
-        </div>
-      ) : null}
+      <div
+        aria-hidden={loaded ? true : undefined}
+        aria-label={loaded ? undefined : "Loading image"}
+        className="absolute inset-0 grid place-items-center bg-canvas-muted"
+        role={loaded ? undefined : "status"}
+      >
+        <span
+          aria-hidden="true"
+          className="size-5 animate-spin rounded-full border-2 border-border border-t-foreground/70"
+        />
+      </div>
       {/* Controlled VRDex asset routes are intentionally rendered as ordinary images. */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
