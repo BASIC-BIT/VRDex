@@ -114,6 +114,18 @@ describe("claim analytics journey correlation", () => {
 
   it("renders an opaque initial journey into Discord link targets", async () => {
     const page = await readFile("apps/web/src/app/claim/[slug]/page.tsx", "utf8");
-    assert.match(page, /initialAnalyticsJourneyId=\{crypto\.randomUUID\(\)\}/);
+    const callback = await readFile(
+      "apps/web/src/app/api/discord/verify/callback/route.ts",
+      "utf8",
+    );
+    assert.match(
+      page,
+      /validClaimJourneyId\(rawAnalyticsJourneyId\)[\s\S]*rawAnalyticsJourneyId[\s\S]*crypto\.randomUUID\(\)/,
+    );
+    assert.match(
+      callback,
+      /withStatus\(returnTo, "verified", verifiedGuildCount, analyticsJourneyId\)/,
+    );
+    assert.match(callback, /withAnalyticsJourney\([\s\S]*pending\.analyticsJourneyId/);
   });
 });

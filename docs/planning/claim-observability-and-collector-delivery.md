@@ -42,7 +42,8 @@ Every collector image carries:
   `vrchat_proof_v1`.
 
 The worker reports those values on startup and at a bounded heartbeat cadence.
-The control plane stores only the latest heartbeat for each collector account.
+The control plane keeps bounded per-task heartbeats so a healthy sibling cannot
+erase another task's active control-plane failure streak.
 A deployment is successful only when ECS reaches steady state and the exact
 configured collector account reports a fresh heartbeat with the expected
 release and capabilities.
@@ -122,7 +123,8 @@ The claim funnel contains these milestones:
 5. `claim_verification_started`, from the authoritative backend when the first
    external check occurs. For Discord community claims this is the start of the
    purpose-scoped OAuth round trip; the opaque journey ID is carried into that
-   request before Discord is opened;
+   request before Discord is opened, retained in the single-use OAuth state,
+   and restored on the callback URL even when Discord opened in a new tab;
 6. `claim_resolved`, from the authoritative backend for completed, rejected,
    canceled, or expired journeys.
 
@@ -157,7 +159,8 @@ provider throttle or expose proof material in evidence.
 ## Drift detection
 
 A scheduled read-only check compares the latest successfully built `main`
-release with the ECS task digest and the control-plane heartbeat. It reports a
+release with its tagged ECR image, the ECS task digest, and the control-plane
+heartbeat. ECR push chronology is not release order. The check reports a
 failure after fifteen minutes of persistent disagreement and never mutates the
 fleet. The normal release workflow remains the only automatic writer.
 

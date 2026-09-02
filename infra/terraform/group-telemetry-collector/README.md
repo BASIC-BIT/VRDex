@@ -90,9 +90,9 @@ tagged-image and inactive-revision cleanup is a deliberate operator retention
 task; the automatic lane does not delete rollback artifacts.
 
 The five-minute scheduled audit is read-only. It derives the expected release from the
-latest successful `main` Baseline Checks run, then compares that SHA with the
+latest successful `main` Baseline Checks run, then verifies that SHA's tagged
 ECR image, exact ECS digest, and the configured collector account's authoritative
-Convex heartbeat. A mismatch
+Convex heartbeat. It does not infer release order from ECR push timestamps. A mismatch
 may converge for fifteen minutes. Persistent drift, stale or missing heartbeat,
 missing proof capability, `auth_required`, or any operational-readiness issue
 fails the audit.

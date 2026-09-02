@@ -19,7 +19,6 @@ import {
   claimAnalyticsContext,
   claimAnalyticsEntrySource,
   enqueueClaimAnalyticsEvent,
-  validClaimAnalyticsJourneyId,
 } from "./_claimAnalytics";
 
 const STATE_TTL_MS = 10 * 60_000;
@@ -169,12 +168,9 @@ export const createVerificationState = internalMutation({
     const now = Date.now();
     const state = createStateToken();
 
-    if (
-      args.analyticsJourneyId !== undefined &&
-      !validClaimAnalyticsJourneyId(args.analyticsJourneyId)
-    ) {
-      throw claimError("VERIFICATION_STATE_INVALID", "analytics_journey_invalid");
-    }
+    const analytics = args.analyticsJourneyId === undefined
+      ? null
+      : claimAnalyticsContext(args.analyticsJourneyId, args.analyticsEntrySource);
 
     // Opportunistically clear expired rows so the table stays small without
     // needing a dedicated cron.
@@ -205,14 +201,15 @@ export const createVerificationState = internalMutation({
       userId: user._id,
       state,
       returnTo: args.returnTo,
+      ...(analytics === null ? {} : { analyticsJourneyId: analytics.journeyId }),
       createdAt: now,
       expiresAt: now + STATE_TTL_MS,
     });
 
-    if (args.analyticsJourneyId !== undefined && args.analyticsProfileType !== undefined) {
+    if (analytics !== null && args.analyticsProfileType !== undefined) {
       await enqueueClaimAnalyticsEvent(
         ctx,
-        claimAnalyticsContext(args.analyticsJourneyId, args.analyticsEntrySource),
+        analytics,
         {
           event: "claim_verification_started",
           profileType: args.analyticsProfileType,
@@ -261,7 +258,12 @@ export const consumeVerificationState = internalMutation({
 
     await ctx.db.delete(row._id);
 
-    return { returnTo: row.returnTo };
+    return {
+      returnTo: row.returnTo,
+      ...(row.analyticsJourneyId === undefined
+        ? {}
+        : { analyticsJourneyId: row.analyticsJourneyId }),
+    };
   },
 });
 
@@ -545,10 +547,13 @@ export const peekVerificationReturnTo = query({
       .first();
 
     if (row === null || row.expiresAt <= Date.now()) {
-      return { returnTo: null };
+      return { returnTo: null, analyticsJourneyId: null };
     }
 
-    return { returnTo: row.returnTo };
+    return {
+      returnTo: row.returnTo,
+      analyticsJourneyId: row.analyticsJourneyId ?? null,
+    };
   },
 });
 
@@ -754,10 +759,10 @@ async function revokeAccessToken(accessToken: string): Promise<void> {
  */
 export const abandonGuildVerification = action({
   args: { state: v.string() },
-  handler: async (ctx, args): Promise<{ returnTo: string }> => {
+  handler: async (ctx, args): Promise<{ returnTo: string; analyticsJourneyId?: string }> => {
     return (await ctx.runMutation(internal.discordVerification.consumeVerificationState, {
       state: args.state,
-    })) as { returnTo: string };
+    })) as { returnTo: string; analyticsJourneyId?: string };
   },
 });
 
@@ -766,21 +771,26 @@ export const completeGuildVerification = action({
   handler: async (
     ctx,
     args,
-  ): Promise<{ status: "verified" | "failed"; returnTo: string; verifiedGuildCount: number }> => {
+  ): Promise<{
+    status: "verified" | "failed";
+    returnTo: string;
+    analyticsJourneyId?: string;
+    verifiedGuildCount: number;
+  }> => {
     // Consuming the state keeps it single-use, but it also destroys the only
     // record of where the user came from. Everything after this point reports
     // failure through the return value so the callback can still send them
     // back where they started.
-    const { returnTo } = (await ctx.runMutation(
+    const { returnTo, analyticsJourneyId } = (await ctx.runMutation(
       internal.discordVerification.consumeVerificationState,
       { state: args.state },
-    )) as { returnTo: string };
+    )) as { returnTo: string; analyticsJourneyId?: string };
     let accessToken: string;
 
     try {
       accessToken = await exchangeCodeForAccessToken(args.code);
     } catch {
-      return { status: "failed", returnTo, verifiedGuildCount: 0 };
+      return { status: "failed", returnTo, analyticsJourneyId, verifiedGuildCount: 0 };
     }
 
     try {
@@ -826,10 +836,15 @@ export const completeGuildVerification = action({
       // superseded this one then failed, the state they were told about would
       // never arrive.
       if (recorded.superseded) {
-        return { status: "failed" as const, returnTo, verifiedGuildCount: 0 };
+        return { status: "failed" as const, returnTo, analyticsJourneyId, verifiedGuildCount: 0 };
       }
 
-      return { status: "verified" as const, returnTo, verifiedGuildCount: manageable.length };
+      return {
+        status: "verified" as const,
+        returnTo,
+        analyticsJourneyId,
+        verifiedGuildCount: manageable.length,
+      };
     } catch (error) {
       // A session revoked while the Discord round-trip was in flight is not a
       // provider failure. Translating it to `failed` sends the user back with
@@ -840,10 +855,14 @@ export const completeGuildVerification = action({
         // consumed by this point, so it is the only surviving record of where
         // the user started; without it they sign in again and land on
         // `/account` instead of the claim they were part-way through.
-        throw new ConvexError({ ...(error.data as Record<string, unknown>), returnTo });
+        throw new ConvexError({
+          ...(error.data as Record<string, unknown>),
+          returnTo,
+          analyticsJourneyId,
+        });
       }
 
-      return { status: "failed", returnTo, verifiedGuildCount: 0 };
+      return { status: "failed", returnTo, analyticsJourneyId, verifiedGuildCount: 0 };
     } finally {
       await revokeAccessToken(accessToken);
     }

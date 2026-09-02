@@ -56,6 +56,7 @@ const WORKER_HEARTBEAT_FRESHNESS_MS = 2 * 60_000;
 const PROOF_POLL_HEARTBEAT_WRITE_MS = 30_000;
 const OPERATIONAL_HEALTH_ATTEMPT_LIMIT = 1_000;
 const FIRST_CHECK_HEALTH_LOOKBACK_MS = 15 * 60_000;
+const MAX_WORKER_HEARTBEATS_PER_ACCOUNT = 32;
 const COLLECTOR_RELEASE_SHA_PATTERN = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
 
 function boundedWorkerId(value: string) {
@@ -2052,17 +2053,59 @@ export const recordCollectorHeartbeat = internalMutation({
       return { recorded: false };
     }
 
+    const workerId = boundedWorkerId(args.workerId);
+    const releaseSha = normalizedReleaseSha(args.releaseSha);
+    const collectorVersion = boundedWorkerVersion(args.collectorVersion);
     const capabilities = [...new Set(args.capabilities)] as CollectorRuntimeCapability[];
     const failures = Math.floor(args.consecutiveControlFailures);
     if (!Number.isFinite(args.consecutiveControlFailures) || failures < 0 || failures > 1000) {
       throw new Error("Collector failure count is invalid.");
     }
 
+    const existingHeartbeat = await ctx.db
+      .query("collectorWorkerHeartbeats")
+      .withIndex("by_collectorAccountId_workerId", (q) =>
+        q.eq("collectorAccountId", accountId).eq("workerId", workerId),
+      )
+      .unique();
+    const heartbeat = {
+      collectorAccountId: accountId,
+      workerId,
+      releaseSha,
+      collectorVersion,
+      capabilities,
+      consecutiveControlFailures: failures,
+      heartbeatAt: now,
+      updatedAt: now,
+    };
+    if (existingHeartbeat === null) {
+      await ctx.db.insert("collectorWorkerHeartbeats", heartbeat);
+    } else {
+      await ctx.db.patch(existingHeartbeat._id, heartbeat);
+    }
+
+    // ECS task IDs change across replacements. Keep enough current task rows
+    // for multi-task health while bounding restart churn on each account.
+    const recentHeartbeats = await ctx.db
+      .query("collectorWorkerHeartbeats")
+      .withIndex("by_collectorAccountId_heartbeatAt", (q) =>
+        q.eq("collectorAccountId", accountId),
+      )
+      .order("desc")
+      .take(MAX_WORKER_HEARTBEATS_PER_ACCOUNT * 2);
+    await Promise.all(
+      recentHeartbeats
+        .slice(MAX_WORKER_HEARTBEATS_PER_ACCOUNT)
+        .map((row) => ctx.db.delete(row._id)),
+    );
+
+    // Retain the account-level fields for existing operator surfaces and
+    // rollout compatibility. Health aggregation reads the per-worker rows.
     await ctx.db.patch(accountId, {
       lastWorkerHeartbeatAt: now,
-      lastWorkerId: boundedWorkerId(args.workerId),
-      lastWorkerReleaseSha: normalizedReleaseSha(args.releaseSha),
-      lastWorkerVersion: boundedWorkerVersion(args.collectorVersion),
+      lastWorkerId: workerId,
+      lastWorkerReleaseSha: releaseSha,
+      lastWorkerVersion: collectorVersion,
       lastWorkerCapabilities: capabilities,
       consecutiveControlFailures: failures,
       updatedAt: now,
@@ -2173,6 +2216,7 @@ export const claimVerificationOperationalHealth = internalQuery({
       groupAttempts,
       recentUserProviderChecks,
       recentGroupProviderChecks,
+      recentWorkerHeartbeats,
     ] = await Promise.all([
       ctx.db
         .query("collectorFleetSettings")
@@ -2211,12 +2255,21 @@ export const claimVerificationOperationalHealth = internalQuery({
         )
         .order("desc")
         .take(OPERATIONAL_HEALTH_ATTEMPT_LIMIT + 1),
+      ctx.db
+        .query("collectorWorkerHeartbeats")
+        .withIndex("by_heartbeatAt", (q) =>
+          q.gte("heartbeatAt", args.now - WORKER_HEARTBEAT_FRESHNESS_MS),
+        )
+        .order("desc")
+        .take(OPERATIONAL_HEALTH_ATTEMPT_LIMIT + 1),
     ]);
     const userScanLimitReached = userAttempts.length > OPERATIONAL_HEALTH_ATTEMPT_LIMIT;
     const groupScanLimitReached = groupAttempts.length > OPERATIONAL_HEALTH_ATTEMPT_LIMIT;
     const providerCheckScanLimitReached =
       recentUserProviderChecks.length > OPERATIONAL_HEALTH_ATTEMPT_LIMIT ||
       recentGroupProviderChecks.length > OPERATIONAL_HEALTH_ATTEMPT_LIMIT;
+    const workerHeartbeatScanLimitReached =
+      recentWorkerHeartbeats.length > OPERATIONAL_HEALTH_ATTEMPT_LIMIT;
     const pending = [
       ...userAttempts.slice(0, OPERATIONAL_HEALTH_ATTEMPT_LIMIT),
       ...groupAttempts.slice(0, OPERATIONAL_HEALTH_ATTEMPT_LIMIT),
@@ -2241,6 +2294,26 @@ export const claimVerificationOperationalHealth = internalQuery({
       const key = account.lastWorkerReleaseSha ?? "unknown";
       releaseCounts.set(key, (releaseCounts.get(key) ?? 0) + 1);
     }
+    const freshCollectorAccountIds = new Set(
+      freshCollectors.map((account) => String(account._id)),
+    );
+    const currentWorkerHeartbeats = recentWorkerHeartbeats
+      .slice(0, OPERATIONAL_HEALTH_ATTEMPT_LIMIT)
+      .filter((heartbeat) =>
+        freshCollectorAccountIds.has(String(heartbeat.collectorAccountId)),
+      );
+    const accountsWithWorkerHeartbeats = new Set(
+      currentWorkerHeartbeats.map((heartbeat) => String(heartbeat.collectorAccountId)),
+    );
+    const maximumWorkerFailureStreak = Math.max(
+      0,
+      ...currentWorkerHeartbeats.map((heartbeat) => heartbeat.consecutiveControlFailures),
+      // Account fields are the migration fallback until each active task has
+      // written its first per-worker heartbeat.
+      ...freshCollectors
+        .filter((account) => !accountsWithWorkerHeartbeats.has(String(account._id)))
+        .map((account) => account.consecutiveControlFailures ?? 0),
+    );
     const recentCheckedAttemptIds = [
       ...new Set(
         [
@@ -2263,7 +2336,10 @@ export const claimVerificationOperationalHealth = internalQuery({
       fleetKillSwitchEnabled: fleet?.killSwitchEnabled ?? false,
       pendingEligibleAttemptCount: pending.length,
       scanLimitReached:
-        userScanLimitReached || groupScanLimitReached || providerCheckScanLimitReached,
+        userScanLimitReached ||
+        groupScanLimitReached ||
+        providerCheckScanLimitReached ||
+        workerHeartbeatScanLimitReached,
       uncheckedAttemptCount: unchecked.length,
       oldestUncheckedAgeMs:
         unchecked.length === 0
@@ -2275,10 +2351,7 @@ export const claimVerificationOperationalHealth = internalQuery({
         recentFirstCheckLatencies.length === 0
           ? null
           : Math.max(...recentFirstCheckLatencies),
-      maxConsecutiveControlFailures: freshCollectors.reduce(
-        (maximum, account) => Math.max(maximum, account.consecutiveControlFailures ?? 0),
-        0,
-      ),
+      maxConsecutiveControlFailures: maximumWorkerFailureStreak,
       releases: [...releaseCounts.entries()]
         .sort(([left], [right]) => left.localeCompare(right))
         .map(([releaseSha, collectorCount]) => ({ releaseSha, collectorCount })),
@@ -2358,9 +2431,7 @@ export const claimPendingProofChecks = internalMutation({
 
     const limit = Math.max(1, Math.min(args.limit ?? 5, 25));
     const workerId = boundedWorkerId(args.workerId);
-    const workerReleaseSha = normalizedOptionalReleaseSha(
-      args.releaseSha ?? account.lastWorkerReleaseSha,
-    );
+    const workerReleaseSha = normalizedOptionalReleaseSha(args.releaseSha);
     // Select collector-eligible target types through the index. Scanning all
     // pending attempts and filtering afterwards let vrclinking rows, which are
     // never stamped, hold the head of the window permanently and starve the
@@ -2558,9 +2629,7 @@ export const recordProofCheckResult = internalMutation({
     ) {
       return { state: "unauthorized" as const };
     }
-    const workerReleaseSha = normalizedOptionalReleaseSha(
-      args.releaseSha ?? account.lastWorkerReleaseSha,
-    );
+    const workerReleaseSha = normalizedOptionalReleaseSha(args.releaseSha);
 
     await recordProviderCheck(ctx, {
       attempt,
@@ -2717,9 +2786,7 @@ export const recordProofCheckOutcome = internalMutation({
     ) {
       return { recorded: false };
     }
-    const workerReleaseSha = normalizedOptionalReleaseSha(
-      args.releaseSha ?? account.lastWorkerReleaseSha,
-    );
+    const workerReleaseSha = normalizedOptionalReleaseSha(args.releaseSha);
     return {
       recorded: await recordProviderCheck(ctx, {
         attempt,

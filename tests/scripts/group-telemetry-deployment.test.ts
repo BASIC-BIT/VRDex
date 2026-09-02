@@ -154,6 +154,28 @@ describe("group telemetry scheduled drift audit", () => {
     assert.deepEqual(result.mismatches, []);
   });
 
+  it("does not infer release order from unrelated ECR push times", () => {
+    const result = assertDriftAudit({
+      imageDetails: {
+        imageDetails: [
+          ...imageDetails.imageDetails,
+          {
+            imageDigest: `sha256:${"e".repeat(64)}`,
+            imageTags: [`git-${"e".repeat(40)}`],
+            imagePushedAt: "2026-09-02T12:30:00.000Z",
+          },
+        ],
+      },
+      taskDefinition: deployedTaskDefinition,
+      serviceResponse,
+      tasksResponse,
+      health,
+      expectedReleaseSha: releaseSha,
+      now: Date.parse("2026-09-02T12:40:00.000Z"),
+    });
+    assert.deepEqual(result.mismatches, []);
+  });
+
   it("allows rollout convergence briefly, then fails persistent drift", () => {
     const stale = structuredClone(deployedTaskDefinition);
     stale.taskDefinition.containerDefinitions[0].image = `repo@sha256:${"d".repeat(64)}`;

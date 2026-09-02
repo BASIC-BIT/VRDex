@@ -260,7 +260,6 @@ export function evaluateDriftAudit({
   const expectedTaskDefinitionArn = taskDefinition?.taskDefinition?.taskDefinitionArn;
   const mismatches = [];
   if (!expectedImageDetail) mismatches.push("ecr_release_missing");
-  if (latestReleaseSha !== expectedReleaseSha) mismatches.push("ecr_latest_release");
   if (!expectedDigest || expectedImage?.endsWith(`@${expectedDigest}`) !== true) mismatches.push("ecs_image_digest");
   if (deployedRelease !== expectedReleaseSha) mismatches.push("ecs_release_sha");
   if (expectedDigest) {

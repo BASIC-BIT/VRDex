@@ -12,8 +12,21 @@ import {
 
 export const dynamic = "force-dynamic";
 
-function withStatus(path: string, status: string, count?: number): string {
-  return appendReturnPathQuery(path, { discordVerify: status, discordGuilds: count });
+function withAnalyticsJourney(path: string, analyticsJourneyId?: string | null): string {
+  return appendReturnPathQuery(path, { analyticsJourneyId: analyticsJourneyId ?? undefined });
+}
+
+function withStatus(
+  path: string,
+  status: string,
+  count?: number,
+  analyticsJourneyId?: string,
+): string {
+  return appendReturnPathQuery(path, {
+    discordVerify: status,
+    discordGuilds: count,
+    analyticsJourneyId,
+  });
 }
 
 /**
@@ -25,9 +38,16 @@ function withStatus(path: string, status: string, count?: number): string {
  * were part-way through; `signInPath` validates the value.
  */
 function carriedReturnTo(error: unknown): string {
-  const carried = (error as { data?: { returnTo?: unknown } }).data?.returnTo;
+  const data = (error as {
+    data?: { returnTo?: unknown; analyticsJourneyId?: unknown };
+  }).data;
+  const carried = data?.returnTo;
+  const returnTo = typeof carried === "string" ? carried : "/account";
 
-  return typeof carried === "string" ? carried : "/account";
+  return withAnalyticsJourney(
+    returnTo,
+    typeof data?.analyticsJourneyId === "string" ? data.analyticsJourneyId : undefined,
+  );
 }
 
 export async function GET(request: NextRequest) {
@@ -43,13 +63,16 @@ export async function GET(request: NextRequest) {
     // still works if they sign back in.
     const pending = state
       ? await fetchQuery(api.discordVerification.peekVerificationReturnTo, { state }).catch(
-          () => ({ returnTo: null }),
+          () => ({ returnTo: null, analyticsJourneyId: null }),
         )
-      : { returnTo: null };
+      : { returnTo: null, analyticsJourneyId: null };
 
     return NextResponse.redirect(
       new URL(
-        signInPath(pending.returnTo ?? "/account"),
+        signInPath(withAnalyticsJourney(
+          pending.returnTo ?? "/account",
+          pending.analyticsJourneyId,
+        )),
         request.nextUrl.origin,
       ),
     );
@@ -66,10 +89,11 @@ export async function GET(request: NextRequest) {
     const status =
       oauthError === null || oauthError === "access_denied" ? "declined" : "failed";
     let declinedReturnTo = "/account";
+    let analyticsJourneyId: string | undefined;
 
     if (state) {
       try {
-        ({ returnTo: declinedReturnTo } = await fetchAction(
+        ({ returnTo: declinedReturnTo, analyticsJourneyId } = await fetchAction(
           api.discordVerification.abandonGuildVerification,
           { state },
           { token },
@@ -90,7 +114,10 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.redirect(
-      resolveSameOriginUrl(withStatus(declinedReturnTo, status), request.nextUrl.origin),
+      resolveSameOriginUrl(
+        withStatus(declinedReturnTo, status, undefined, analyticsJourneyId),
+        request.nextUrl.origin,
+      ),
     );
   }
 
@@ -101,7 +128,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const { status, returnTo, verifiedGuildCount } = await fetchAction(
+    const { status, returnTo, analyticsJourneyId, verifiedGuildCount } = await fetchAction(
       api.discordVerification.completeGuildVerification,
       { code, state },
       { token },
@@ -113,8 +140,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(
       resolveSameOriginUrl(
         status === "verified"
-          ? withStatus(returnTo, "verified", verifiedGuildCount)
-          : withStatus(returnTo, "failed"),
+          ? withStatus(returnTo, "verified", verifiedGuildCount, analyticsJourneyId)
+          : withStatus(returnTo, "failed", undefined, analyticsJourneyId),
         request.nextUrl.origin,
       ),
     );

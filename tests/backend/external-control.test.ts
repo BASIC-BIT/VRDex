@@ -953,7 +953,7 @@ describe("Discord verification state backlog", () => {
       return await webSessionIdentity(ctx as never, userId);
     });
 
-    await t.withIdentity(identity).mutation(
+    const { state } = await t.withIdentity(identity).mutation(
       internal.discordVerification.createVerificationState,
       {
         returnTo: "/claim/oauth-analytics",
@@ -964,6 +964,14 @@ describe("Discord verification state backlog", () => {
     );
 
     await t.run(async (ctx) => {
+      const verificationState = await ctx.db
+        .query("discordVerificationStates")
+        .withIndex("by_state", (q) => q.eq("state", state))
+        .unique();
+      assert.equal(
+        verificationState?.analyticsJourneyId,
+        "4d36e96e-34d9-4f7e-9fe1-72a98aa13077",
+      );
       const event = await ctx.db
         .query("claimAnalyticsOutbox")
         .withIndex("by_eventKey", (q) =>
@@ -977,6 +985,38 @@ describe("Discord verification state backlog", () => {
       assert.equal(event?.method, "discord");
       assert.equal(event?.profileType, "community");
       assert.equal(event?.entrySource, "search");
+    });
+
+    assert.deepEqual(
+      await t.withIdentity(identity).mutation(
+        internal.discordVerification.consumeVerificationState,
+        { state },
+      ),
+      {
+        returnTo: "/claim/oauth-analytics",
+        analyticsJourneyId: "4d36e96e-34d9-4f7e-9fe1-72a98aa13077",
+      },
+    );
+
+    const replacement = await t.withIdentity(identity).mutation(
+      internal.discordVerification.createVerificationState,
+      {
+        returnTo: "/claim/oauth-analytics",
+        analyticsJourneyId: "profile-basicbit",
+        analyticsEntrySource: "search",
+        analyticsProfileType: "community",
+      },
+    );
+    await t.run(async (ctx) => {
+      const verificationState = await ctx.db
+        .query("discordVerificationStates")
+        .withIndex("by_state", (q) => q.eq("state", replacement.state))
+        .unique();
+      assert.match(
+        verificationState?.analyticsJourneyId ?? "",
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+      );
+      assert.notEqual(verificationState?.analyticsJourneyId, "profile-basicbit");
     });
   });
 

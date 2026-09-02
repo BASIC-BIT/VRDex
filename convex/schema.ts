@@ -1456,6 +1456,19 @@ export default defineSchema({
   })
     .index("by_vrchatUserId", ["vrchatUserId"])
     .index("by_state_assignedGroupCount", ["state", "assignedGroupCount"]),
+  collectorWorkerHeartbeats: defineTable({
+    collectorAccountId: v.id("collectorAccounts"),
+    workerId: v.string(),
+    releaseSha: v.string(),
+    collectorVersion: v.string(),
+    capabilities: v.array(collectorRuntimeCapabilityValidator),
+    consecutiveControlFailures: v.number(),
+    heartbeatAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_collectorAccountId_workerId", ["collectorAccountId", "workerId"])
+    .index("by_collectorAccountId_heartbeatAt", ["collectorAccountId", "heartbeatAt"])
+    .index("by_heartbeatAt", ["heartbeatAt"]),
   collectorRequestBudgetCounters: defineTable({
     scopeKey: v.string(),
     windowStartedAt: v.number(),
@@ -2401,6 +2414,7 @@ export default defineSchema({
     userId: v.id("users"),
     state: v.string(),
     returnTo: v.string(),
+    analyticsJourneyId: v.optional(v.string()),
     createdAt: v.number(),
     expiresAt: v.number(),
   })

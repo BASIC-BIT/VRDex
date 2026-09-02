@@ -341,7 +341,6 @@ describe("collector proof check queue", () => {
       const account = await ctx.db.get(collectorAccountId);
       assert.equal(account?.lastWorkerId, "worker-http");
       assert.equal(account?.lastWorkerReleaseSha, "c".repeat(40));
-      await ctx.db.patch(collectorAccountId, { lastWorkerReleaseSha: undefined });
     });
 
     const legacyAttemptId = await t.run(async (ctx) =>
@@ -369,6 +368,47 @@ describe("collector proof check queue", () => {
         .withIndex("by_attemptId_createdAt", (q) => q.eq("attemptId", legacyAttemptId))
         .collect();
       assert.ok(events.every((event) => event.workerReleaseSha === undefined));
+      assert.equal(
+        (await ctx.db.get(collectorAccountId))?.lastWorkerReleaseSha,
+        "c".repeat(40),
+      );
+    });
+  });
+
+  it("preserves a failing task streak when a healthy sibling heartbeats", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const collectorAccountId = await t.run(async (ctx) => {
+      const id = await seedCollector(ctx as never, "multi-task-failure", now);
+      await ctx.db.patch(id as never, { lastProofPollAt: now });
+      return id;
+    });
+    const heartbeat = async (workerId: string, consecutiveControlFailures: number) =>
+      await t.mutation(internal.communityTelemetry.recordCollectorHeartbeat, {
+        collectorAccountId,
+        workerId,
+        releaseSha: "d".repeat(40),
+        collectorVersion: "group-telemetry-v1",
+        capabilities: ["telemetry_v1", "vrchat_proof_v1"],
+        consecutiveControlFailures,
+        workerKeyHash: "a".repeat(64),
+        now,
+      });
+
+    await heartbeat("worker-failing", 3);
+    await heartbeat("worker-healthy", 0);
+
+    const health = await t.query(
+      internal.communityTelemetry.claimVerificationOperationalHealth,
+      { now },
+    );
+    assert.equal(health.maxConsecutiveControlFailures, 3);
+    await t.run(async (ctx) => {
+      const rows = await ctx.db.query("collectorWorkerHeartbeats").collect();
+      assert.deepEqual(
+        rows.map((row) => [row.workerId, row.consecutiveControlFailures]).sort(),
+        [["worker-failing", 3], ["worker-healthy", 0]],
+      );
     });
   });
 
