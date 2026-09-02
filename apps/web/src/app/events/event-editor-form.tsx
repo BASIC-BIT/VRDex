@@ -1203,7 +1203,6 @@ function ConnectedEventEditorForm({
           <Field className="mt-4">
             Linked person profiles
             <Textarea className="min-h-24" defaultValue={serializeOtherEventParticipants(event)} name="participantLinks" placeholder="dj-aurora | Performer&#10;vj-lumen | Staff" />
-            <FieldText>One per line: person slug | freeform role label.</FieldText>
           </Field>
         </details>
       </EditorSection>
