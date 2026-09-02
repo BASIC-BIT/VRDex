@@ -13,6 +13,7 @@ import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/pa
 import { VerifiedTrustMark } from "@/components/ui/verified-trust-mark";
 import { avatarFrameStyle, defaultAvatarAppearance, type AvatarAppearance } from "@/lib/avatar-appearance";
 import { cn } from "@/lib/cn";
+import { carriesLiveClaim } from "@/lib/live-claim-sources";
 import { profileClaimPath } from "@/lib/profile-claim";
 import { hasRenderableProfileMediaKit } from "@/lib/profile-media-kit";
 import { safeImageBackground } from "@/lib/safe-image";
@@ -434,11 +435,12 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
     const stream = providerUrl.search || providerUrl.hash ? null : parseVrcdnStreamLinks(link.url);
     return stream ? [{ item, label: link.label, stream }] : [];
   });
+  const claimableVrcdnStreams = vrcdnStreams.filter(({ item }) => carriesLiveClaim(item.link));
   const creatorLinks = validLinks.filter(
     (item) =>
       item !== twitchLink &&
       !discordHandles.some((discord) => discord.item === item) &&
-      !vrcdnStreams.some((vrcdn) => vrcdn.item === item),
+      !claimableVrcdnStreams.some((vrcdn) => vrcdn.item === item),
   );
   const aliases = profile.aliases.slice(0, 3);
   const remainingAliases = profile.aliases.slice(3);
@@ -654,7 +656,7 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
         <ProfileVrcdnStreams
           initialLiveStates={profile.vrcdnLive}
           profileSlug={profile.slug}
-          streams={vrcdnStreams.map(({ label, stream }) => ({
+          streams={claimableVrcdnStreams.map(({ label, stream }) => ({
             label,
             pcUrl: stream.pcUrl,
             questUrl: stream.questUrl,

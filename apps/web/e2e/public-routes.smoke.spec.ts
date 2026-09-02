@@ -312,6 +312,7 @@ test.describe("fixture lookup smoke", () => {
     await page.goto("/playwright-dj-aurora");
     const player = page.getByRole("button", { name: "Play VRCDN" });
     await expect(player).toBeVisible();
+    await expect(page.getByRole("link", { name: "Suggested VRCDN" })).toBeVisible();
     await player.evaluate((element) => {
       element.setAttribute("data-lifecycle-marker", "original");
     });

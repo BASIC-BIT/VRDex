@@ -215,6 +215,12 @@ const personProfile: FixturePersonProfile = {
       source: "owner_authored",
     },
     {
+      type: "vrcdn",
+      label: "Suggested VRCDN",
+      url: "https://stream.vrcdn.live/live/suggested-aurora.live.ts",
+      source: "community_submitted",
+    },
+    {
       type: "commissions",
       label: "Booking inquiries",
       url: "https://example.invalid/dj-aurora-bookings",
