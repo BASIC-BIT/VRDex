@@ -48,6 +48,8 @@ event mutation. The browser does not choose another community inside the form.
   the wire/storage key for now, but its event value is the generated code.
 - Public browser routes include the community slug for context and verify that
   the event belongs to that community before rendering.
+- Event link-preview metadata and images use that same community-bound lookup;
+  the event code alone cannot render a card under the wrong community route.
 - API routes remain under `/api/v0/events/<event-code>` because the resource prefix
   already disambiguates the identifier.
 - No event data migration or legacy event-route compatibility is included.

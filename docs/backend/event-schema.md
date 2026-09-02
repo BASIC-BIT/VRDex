@@ -37,7 +37,7 @@ The editor parses event date/time inputs in the named event timezone. A local ti
 
 Session rows remain canonical event-time schedule rows. The editor template uses relative minute offsets from `startAt`, not `doorsOpenAt`, so schedule storage and Discord timestamp generation remain tied to the canonical event/session timestamps.
 
-Private manager notes reuse the existing `notes` field. They are returned only by authorized event-management reads and accepted by authorized browser or API writes. They are excluded from public event pages, search documents, MCP documents, public API responses, calendar output, and Discord export. No migration or compatibility layer is needed because there is no existing deployed event data.
+Private manager notes reuse the existing `notes` field. They are returned only by authorized event-management reads and accepted by authorized browser or API writes. They are excluded from public event pages, search documents, MCP documents, public API responses, calendar output, Discord export, link-preview metadata, and generated link-preview images. No migration or compatibility layer is needed because there is no existing deployed event data.
 
 ## Community Authority
 
@@ -127,6 +127,16 @@ Public previews include at most three ordered upcoming slot summaries. Discovery
 First `#121` slice: the event editor can preview and copy one deterministic Discord-ready post generated from the public event projection.
 
 The export includes the event title, canonical `/<community>/events/<event-code>` URL, host and world names when projected, Discord timestamp tokens for the event time and slot times, slot lineup rows or public participant rows, and projected public media/watch links. It does not post to Discord, run a bot/Gateway flow, use arbitrary user-authored templates, or include private operator/media-control state.
+
+## Event Link Previews
+
+Published community event pages expose Open Graph and Twitter metadata at the canonical `/<community>/events/<event-code>` route. The crawler-facing query verifies that the routed community is public, the event belongs to that community, and the event is published before returning a deliberately small projection: event title, public description, start/end time, authored timezone, scheduled/cancelled status, public community identity, and one artwork URL.
+
+Generated preview images prefer `posterImageUrl`, then `bannerImageUrl`, then `thumbnailImageUrl`. Remote artwork is fetched through the same bounded, redirect-aware, private-network-rejecting import boundary used for profile media, then decoded and resized once through a pixel-bounded PNG, JPEG, or WebP pipeline before it enters the generated image. Remote SVG artwork is not rasterized in this public request path; it falls back to the typography-only card along with invalid or unavailable artwork. Static preview images omit schedule text because link-preview crawlers do not provide the viewer timezone required for local-time rendering.
+
+Metadata image URLs carry a revision derived only from the public share-card projection so a changed title, schedule, status, description, community identity, or artwork URL receives a new crawler URL. The image route accepts only that exact revision, rejects extra query parameters before downloading or rasterizing artwork, and marks successful images `no-store` so a shared HTTP cache cannot outlive an unpublish or privacy change. Backend failures return a non-cacheable unavailable response rather than a generic successful image.
+
+Private manager notes, source internals, participant/session associations, media-control state, watch links, and operator data are excluded from both the projection and revision. Event artwork cannot point directly or through redirects at a generated event-preview path on any host, preventing recursive renders through production or deployment aliases.
 
 ## Calendar Import And Export
 

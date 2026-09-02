@@ -12,6 +12,7 @@ const PROFILE_ASSET_MIME_TYPES = new Set([
   "image/webp",
 ]);
 const SOURCE_URL_MAX_REDIRECTS = 5;
+const SOURCE_URL_TOTAL_TIMEOUT_MS = 30_000;
 
 export type ProfileAssetSourceUpload = {
   body: Uint8Array;
@@ -19,13 +20,16 @@ export type ProfileAssetSourceUpload = {
 };
 
 type ProfileAssetSourceImportDependencies = {
+  assertSourceUrl?: (sourceUrl: URL) => void;
   resolveHostname?: (
     hostname: string,
   ) => Promise<Array<{ address: string }>>;
   requestPinnedSource?: (
     sourceUrl: URL,
     address: string,
+    signal: AbortSignal,
   ) => Promise<IncomingMessage>;
+  totalTimeoutMs?: number;
 };
 
 function firstHeaderValue(value: IncomingHttpHeaders[string]): string | null {
@@ -199,7 +203,11 @@ function contentLengthFromHeader(contentLength: string | null): number | null {
   return value;
 }
 
-function requestPinnedSourceUrl(sourceUrl: URL, address: string): Promise<IncomingMessage> {
+function requestPinnedSourceUrl(
+  sourceUrl: URL,
+  address: string,
+  signal: AbortSignal,
+): Promise<IncomingMessage> {
   return new Promise((resolve, reject) => {
     const request = httpsRequest(
       {
@@ -212,6 +220,7 @@ function requestPinnedSourceUrl(sourceUrl: URL, address: string): Promise<Incomi
           Host: sourceUrl.host,
           "User-Agent": "VRDex profile media importer",
         },
+        signal,
       },
       resolve,
     );
@@ -222,18 +231,74 @@ function requestPinnedSourceUrl(sourceUrl: URL, address: string): Promise<Incomi
   });
 }
 
-async function responseBodyWithLimit(response: IncomingMessage): Promise<Uint8Array> {
+function timeoutError(): Error {
+  return new Error("Source URL request exceeded its total timeout.");
+}
+
+function throwIfAborted(signal: AbortSignal): void {
+  if (signal.aborted) {
+    throw signal.reason instanceof Error ? signal.reason : timeoutError();
+  }
+}
+
+function awaitWithAbort<T>(
+  promise: Promise<T>,
+  signal: AbortSignal,
+  disposeLateValue?: (value: T) => void,
+): Promise<T> {
+  if (signal.aborted) {
+    return Promise.reject(signal.reason instanceof Error ? signal.reason : timeoutError());
+  }
+
+  return new Promise<T>((resolve, reject) => {
+    let aborted = false;
+    const abort = () => {
+      aborted = true;
+      reject(signal.reason instanceof Error ? signal.reason : timeoutError());
+    };
+
+    signal.addEventListener("abort", abort, { once: true });
+    promise.then(
+      (value) => {
+        signal.removeEventListener("abort", abort);
+        if (aborted) {
+          disposeLateValue?.(value);
+          return;
+        }
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", abort);
+        if (!aborted) reject(error);
+      },
+    );
+  });
+}
+
+async function responseBodyWithLimit(
+  response: IncomingMessage,
+  signal: AbortSignal,
+): Promise<Uint8Array> {
   const chunks: Uint8Array[] = [];
   let byteSize = 0;
+  const abortResponse = () => response.destroy(timeoutError());
 
-  for await (const chunk of response) {
-    const value = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
-    byteSize += value.byteLength;
-    if (byteSize > PROFILE_ASSET_MAX_STORED_BYTES) {
-      response.destroy();
-      throw new Error("Profile media assets must be 12 MB or smaller.");
+  signal.addEventListener("abort", abortResponse, { once: true });
+
+  try {
+    throwIfAborted(signal);
+    for await (const chunk of response) {
+      throwIfAborted(signal);
+      const value = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
+      byteSize += value.byteLength;
+      if (byteSize > PROFILE_ASSET_MAX_STORED_BYTES) {
+        response.destroy();
+        throw new Error("Profile media assets must be 12 MB or smaller.");
+      }
+      chunks.push(value);
     }
-    chunks.push(value);
+  } finally {
+    signal.removeEventListener("abort", abortResponse);
   }
 
   assertAllowedByteSize(byteSize);
@@ -251,41 +316,80 @@ export async function fetchProfileAssetSourceUrl(
   dependencies: ProfileAssetSourceImportDependencies = {},
 ): Promise<ProfileAssetSourceUpload> {
   let currentUrl = new URL(sourceUrl);
+  const abortController = new AbortController();
+  const totalTimeoutMs = dependencies.totalTimeoutMs ?? SOURCE_URL_TOTAL_TIMEOUT_MS;
+  const totalTimeout = setTimeout(
+    () => abortController.abort(timeoutError()),
+    totalTimeoutMs,
+  );
   const resolveHostname = dependencies.resolveHostname ?? (
     async (hostname: string) => await lookup(hostname, { all: true, verbatim: true })
   );
   const requestSource = dependencies.requestPinnedSource ?? requestPinnedSourceUrl;
 
-  for (let redirects = 0; redirects <= SOURCE_URL_MAX_REDIRECTS; redirects += 1) {
-    const address = await resolvePublicHttpsSourceUrl(currentUrl, resolveHostname);
-    const response = await requestSource(currentUrl, address);
-    const redirectedUrl = redirectLocation(
-      response.statusCode,
-      response.headers.location,
-      currentUrl,
-    );
+  try {
+    for (let redirects = 0; redirects <= SOURCE_URL_MAX_REDIRECTS; redirects += 1) {
+      throwIfAborted(abortController.signal);
+      dependencies.assertSourceUrl?.(currentUrl);
+      const address = await awaitWithAbort(
+        resolvePublicHttpsSourceUrl(currentUrl, resolveHostname),
+        abortController.signal,
+      );
+      throwIfAborted(abortController.signal);
+      const response = await awaitWithAbort(
+        requestSource(currentUrl, address, abortController.signal),
+        abortController.signal,
+        (lateResponse) => lateResponse.destroy(timeoutError()),
+      );
+      if (abortController.signal.aborted) {
+        response.destroy(timeoutError());
+        throwIfAborted(abortController.signal);
+      }
+      let redirectedUrl: URL | null;
+      try {
+        redirectedUrl = redirectLocation(
+          response.statusCode,
+          response.headers.location,
+          currentUrl,
+        );
+      } catch (error) {
+        response.destroy();
+        throw error;
+      }
 
-    if (redirectedUrl !== null) {
-      response.resume();
-      currentUrl = redirectedUrl;
-      continue;
-    }
-    if ((response.statusCode ?? 0) < 200 || (response.statusCode ?? 0) >= 300) {
-      response.resume();
-      throw new Error(`Source URL returned HTTP ${response.statusCode ?? 0}.`);
+      if (redirectedUrl !== null) {
+        response.destroy();
+        currentUrl = redirectedUrl;
+        continue;
+      }
+      if ((response.statusCode ?? 0) < 200 || (response.statusCode ?? 0) >= 300) {
+        response.destroy();
+        throw new Error(`Source URL returned HTTP ${response.statusCode ?? 0}.`);
+      }
+
+      let mimeType: string;
+      try {
+        mimeType = normalizedContentType(firstHeaderValue(response.headers["content-type"]));
+        assertAllowedMimeType(mimeType);
+        const contentLength = contentLengthFromHeader(
+          firstHeaderValue(response.headers["content-length"]),
+        );
+        if (contentLength !== null) {
+          assertAllowedByteSize(contentLength);
+        }
+      } catch (error) {
+        response.destroy();
+        throw error;
+      }
+
+      return {
+        body: await responseBodyWithLimit(response, abortController.signal),
+        mimeType,
+      };
     }
 
-    const mimeType = normalizedContentType(firstHeaderValue(response.headers["content-type"]));
-    assertAllowedMimeType(mimeType);
-    const contentLength = contentLengthFromHeader(
-      firstHeaderValue(response.headers["content-length"]),
-    );
-    if (contentLength !== null) {
-      assertAllowedByteSize(contentLength);
-    }
-
-    return { body: await responseBodyWithLimit(response), mimeType };
+    throw new Error("Source URL redirected too many times.");
+  } finally {
+    clearTimeout(totalTimeout);
   }
-
-  throw new Error("Source URL redirected too many times.");
 }

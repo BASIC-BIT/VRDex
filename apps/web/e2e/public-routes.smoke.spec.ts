@@ -2,6 +2,8 @@ import { expect, test } from "@playwright/test";
 import { writeFile } from "node:fs/promises";
 import sharp from "sharp";
 
+import type { PublicEventShareCard } from "../../../convex/_eventShareCard";
+import { eventShareRevision } from "../src/lib/event-share-card";
 import {
   capturedRoutes,
   expectEventPage,
@@ -13,6 +15,44 @@ import {
 
 const routes = process.env.PLAYWRIGHT_BASE_URL ? productionSmokeRoutes : capturedRoutes;
 const isHostedRun = Boolean(process.env.PLAYWRIGHT_BASE_URL);
+const eventShareImageFixtures = [
+  {
+    name: "event-open-graph-image-no-artwork",
+    event: {
+      slug: "playwright-event-share-no-artwork",
+      communitySlug: "playwright-afterglow-social",
+      communityName: "Afterglow Social",
+      title: "Night Shift",
+      startAt: Date.UTC(2026, 5, 14, 22, 0, 0),
+      timezone: "America/New_York",
+      status: "scheduled",
+    },
+  },
+  {
+    name: "event-open-graph-image-cancelled-long",
+    event: {
+      slug: "playwright-event-share-cancelled-long",
+      communitySlug: "playwright-afterglow-social",
+      communityName: "Afterglow Social",
+      title: "Afterglow Harbor Sessions Presents an Extra Long Community Showcase Night",
+      startAt: Date.UTC(2026, 5, 14, 22, 0, 0),
+      timezone: "America/New_York",
+      status: "cancelled",
+    },
+  },
+  {
+    name: "event-open-graph-image-long-community",
+    event: {
+      slug: "playwright-event-share-long-community",
+      communitySlug: "playwright-afterglow-social",
+      communityName: "A".repeat(80),
+      title: "Night Shift",
+      startAt: Date.UTC(2026, 5, 14, 22, 0, 0),
+      timezone: "America/New_York",
+      status: "scheduled",
+    },
+  },
+] as const satisfies ReadonlyArray<{ name: string; event: PublicEventShareCard }>;
 
 test.beforeEach(async ({ page }) => {
   await prepareVisualPage(page);
@@ -174,6 +214,93 @@ test("profile links expose Discord-ready metadata and a generated image", async 
   }
 });
 
+test("event links expose community-scoped metadata and a poster share image", async ({ page }, testInfo) => {
+  test.skip(isHostedRun, "The deterministic event metadata fixture is local-only.");
+
+  await page.goto(visualProfilePaths.eventPath);
+
+  await expect(page).toHaveTitle("Afterglow Harbor Sessions | VRDex");
+  await expect(page.locator('meta[property="og:title"]')).toHaveAttribute(
+    "content",
+    "Afterglow Harbor Sessions | VRDex",
+  );
+  await expect(page.locator('meta[property="og:description"]')).toHaveAttribute(
+    "content",
+    "Late-night harbor club session with house, trance, and warm social energy.",
+  );
+  await expect(page.locator('meta[property="og:url"]')).toHaveAttribute(
+    "content",
+    /\/playwright-afterglow-social\/events\/playwright-afterglow-harbor-sessions$/,
+  );
+
+  const imageUrl = await page.locator('meta[property="og:image"]').getAttribute("content");
+  expect(imageUrl).not.toBeNull();
+  expect(imageUrl).toMatch(/\/opengraph-image\?revision=[0-9a-f]{16}$/);
+
+  const imageResponse = await page.request.get(imageUrl!);
+  expect(imageResponse.ok()).toBe(true);
+  expect(imageResponse.headers()["content-type"]).toContain("image/png");
+  expect(imageResponse.headers()["cache-control"]).toBe("no-store");
+  const imageBody = await imageResponse.body();
+  const metadata = await sharp(imageBody).metadata();
+  expect(metadata.width).toBe(1200);
+  expect(metadata.height).toBe(630);
+
+  const imagePath = testInfo.outputPath("event-open-graph-image.png");
+  await writeFile(imagePath, imageBody);
+  await testInfo.attach("event-open-graph-image", {
+    path: imagePath,
+    contentType: "image/png",
+  });
+
+  const renderedPixels = await sharp(imageBody).ensureAlpha().raw().toBuffer();
+  let posterPixelCount = 0;
+  for (let offset = 0; offset < renderedPixels.length; offset += 4) {
+    if (
+      renderedPixels[offset]! > 40 &&
+      renderedPixels[offset + 2]! > 80 &&
+      renderedPixels[offset + 2]! > renderedPixels[offset + 1]!
+    ) {
+      posterPixelCount += 1;
+    }
+  }
+  expect(posterPixelCount).toBeGreaterThan(1_000);
+
+  for (const fixture of eventShareImageFixtures) {
+    const fixtureResponse = await page.request.get(
+      `/playwright-afterglow-social/events/${fixture.event.slug}/opengraph-image?revision=${eventShareRevision(fixture.event)}`,
+    );
+    expect(fixtureResponse.ok()).toBe(true);
+    const fixtureBody = await fixtureResponse.body();
+    const fixturePath = testInfo.outputPath(`${fixture.name}.png`);
+    await writeFile(fixturePath, fixtureBody);
+    await testInfo.attach(fixture.name, {
+      path: fixturePath,
+      contentType: "image/png",
+    });
+  }
+
+  const fabricatedRevisionUrl = new URL(imageUrl!);
+  fabricatedRevisionUrl.searchParams.set("revision", "0000000000000000");
+  const fabricatedRevision = await page.request.get(fabricatedRevisionUrl.href);
+  expect(fabricatedRevision.status()).toBe(404);
+  expect(fabricatedRevision.headers()["cache-control"]).toBe("no-store");
+
+  const extraQueryUrl = new URL(imageUrl!);
+  extraQueryUrl.searchParams.set("cache-buster", "1");
+  expect((await page.request.get(extraQueryUrl.href)).status()).toBe(404);
+
+  const wrongCommunityImage = await page.request.get(
+    "/playwright-dj-aurora/events/playwright-afterglow-harbor-sessions/opengraph-image",
+  );
+  expect(wrongCommunityImage.status()).toBe(404);
+
+  const missingEventImage = await page.request.get(
+    "/playwright-afterglow-social/events/missing-event/opengraph-image",
+  );
+  expect(missingEventImage.status()).toBe(404);
+});
+
 test("public API supports browser CORS and preflight", async ({ page }) => {
   const origin = "https://developer.example.test";
   const response = await page.request.get("/api/v0/openapi.json", {
@@ -257,14 +384,107 @@ test.describe("fixture lookup smoke", () => {
     await page.goto("/basicbit");
     await expect(page.getByRole("heading", { name: "BASICBIT" })).toBeVisible();
     await expect.poll(() => attempts).toBe(1);
+    await expect(page.getByRole("heading", { name: "Watch" })).toBeVisible();
+    await expect(page.getByText("VRCDN stream", { exact: true })).toHaveCount(0);
     await expect(page.getByText("Live now", { exact: true })).toHaveCount(0);
 
     releaseFirstResponse();
 
+    await expect(page.getByText("VRCDN stream", { exact: true })).toBeVisible();
     await expect(page.getByText("Live now", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Play VRCDN stream" })).toBeVisible();
     await expect(page.locator("video")).toHaveCount(0);
     expect(attempts).toBe(2);
+  });
+
+  test("VRCDN-only profile does not render an empty Watch surface while offline", async ({ page }) => {
+    let attempts = 0;
+
+    await page.route("**/api/profile-live/playwright-dj-night-market/vrcdn?attempt=*", async (route) => {
+      attempts += 1;
+      await route.fulfill({ contentType: "application/json", json: { states: { "dj-night-market": "offline" } } });
+    });
+
+    await page.goto("/playwright-dj-night-market");
+    await expect(page.getByRole("heading", { name: "DJ Night Market" })).toBeVisible();
+    await expect.poll(() => attempts).toBe(1);
+    await expect(page.getByRole("heading", { name: "Watch" })).toHaveCount(0);
+    await expect(page.getByText("VRCDN stream", { exact: true })).toHaveCount(0);
+  });
+
+  test("confirmed VRCDN player stays mounted while a failed retry is pending", async ({ page }) => {
+    let attempts = 0;
+    let releaseFirstResponse: () => void = () => {};
+    let releaseSecondResponse: () => void = () => {};
+    const firstResponseHold = new Promise<void>((resolve) => {
+      releaseFirstResponse = resolve;
+    });
+    const secondResponseHold = new Promise<void>((resolve) => {
+      releaseSecondResponse = resolve;
+    });
+
+    await page.route("**/api/profile-live/playwright-dj-aurora/vrcdn?attempt=*", async (route) => {
+      attempts += 1;
+
+      if (attempts === 1) {
+        await firstResponseHold;
+        await route.fulfill({ contentType: "application/json", json: { states: { "dj-aurora": "unavailable" } } });
+        return;
+      }
+
+      await secondResponseHold;
+      await route.fulfill({ status: 503 });
+    });
+
+    await page.goto("/playwright-dj-aurora");
+    const player = page.getByRole("button", { name: "Play VRCDN" });
+    await expect(player).toBeVisible();
+    await expect(page.getByRole("link", { name: "Suggested VRCDN" })).toBeVisible();
+    await player.evaluate((element) => {
+      element.setAttribute("data-lifecycle-marker", "original");
+    });
+
+    releaseFirstResponse();
+
+    await expect.poll(() => attempts).toBe(2);
+    await expect(player).toHaveAttribute("data-lifecycle-marker", "original");
+    await expect(player).toBeVisible();
+
+    releaseSecondResponse();
+
+    await expect(player).toHaveCount(0);
+    await expect(page.getByText("VRCDN", { exact: true })).toHaveCount(0);
+  });
+
+  test("confirmed VRCDN player survives two profile-live route failures", async ({ page }) => {
+    let attempts = 0;
+    let releaseFirstResponse: () => void = () => {};
+    const firstResponseHold = new Promise<void>((resolve) => {
+      releaseFirstResponse = resolve;
+    });
+
+    await page.route("**/api/profile-live/playwright-dj-aurora/vrcdn?attempt=*", async (route) => {
+      attempts += 1;
+
+      if (attempts === 1) {
+        await firstResponseHold;
+      }
+
+      await route.fulfill({ status: 503 });
+    });
+
+    await page.goto("/playwright-dj-aurora");
+    const player = page.getByRole("button", { name: "Play VRCDN" });
+    await expect(player).toBeVisible();
+    await player.evaluate((element) => {
+      element.setAttribute("data-lifecycle-marker", "original");
+    });
+
+    releaseFirstResponse();
+
+    await expect.poll(() => attempts).toBe(2);
+    await expect(player).toHaveAttribute("data-lifecycle-marker", "original");
+    await expect(player).toBeVisible();
   });
 
   test("VRCDN live endpoint stays profile-scoped and private", async ({ page }) => {
