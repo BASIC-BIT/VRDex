@@ -122,9 +122,12 @@ Apply production with the checked-in run state, not the defaults:
 terraform apply -var-file=environments/production.tfvars
 ```
 
-`environments/production.tfvars` carries only `enable_service` and
-`desired_count`. Account-specific values — image digest, secret ARN, subnets,
-security groups — stay in the operator's gitignored `terraform.tfvars`. The
+`environments/production.tfvars` carries `enable_service`, `desired_count`, and
+the production `requests_per_minute` budget. An explicit request-budget change
+must update that checked run state before the next automatic image release, so
+the release cannot silently restore Terraform's default. The file otherwise
+contains no account-specific values. Image digest, secret ARN, subnets, and
+security groups stay in the operator's gitignored `terraform.tfvars`. The
 variable defaults remain disabled so a new environment is safe by default, but
 applying production without that var-file would set `desired_count = 0` and take
 the fleet down, which now also disables collector-resolved VRChat claims.

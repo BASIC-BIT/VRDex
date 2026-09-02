@@ -33,6 +33,14 @@ function taskDefinition(image: string, release: string) {
 }
 
 describe("group telemetry automatic deployment policy", () => {
+  it("keeps the production request budget in checked deployment state", async () => {
+    const productionVariables = await readFile(
+      "infra/terraform/group-telemetry-collector/environments/production.tfvars",
+      "utf8",
+    );
+    assert.match(productionVariables, /^requests_per_minute\s*=\s*\d+$/m);
+  });
+
   it("allows only the immutable image and release metadata replacement", () => {
     const before = taskDefinition("repo@sha256:" + "1".repeat(64), "1".repeat(40));
     const after = taskDefinition("repo@sha256:" + "2".repeat(64), "2".repeat(40));

@@ -120,14 +120,32 @@ type ClaimFlowProps = {
 };
 
 export function ClaimFlow(props: ClaimFlowProps) {
-  const { sessionId } = useAuth();
+  const { isLoaded, sessionId } = useAuth();
+  const [scopedInitialJourney, setScopedInitialJourney] = useState<{
+    journeyId: string;
+    sessionScope: string;
+  } | null>(null);
 
-  const analyticsSessionScope = sessionId ?? "loading";
+  if (!isLoaded) return null;
+
+  const analyticsSessionScope = sessionId ?? "signed-out";
+  if (scopedInitialJourney?.sessionScope !== analyticsSessionScope) {
+    // The callback query remains in the URL after Discord returns. It may
+    // restore this page's first resolved session, but it must not cross into
+    // another Clerk session if the user changes accounts without navigating.
+    setScopedInitialJourney({
+      journeyId:
+        scopedInitialJourney === null ? props.initialAnalyticsJourneyId : crypto.randomUUID(),
+      sessionScope: analyticsSessionScope,
+    });
+    return null;
+  }
   return (
     <ClaimFlowContent
       key={analyticsSessionScope}
       {...props}
       analyticsSessionScope={analyticsSessionScope}
+      initialAnalyticsJourneyId={scopedInitialJourney.journeyId}
     />
   );
 }

@@ -1,7 +1,7 @@
 import { setTimeout as sleep } from "node:timers/promises";
 
 import { VrchatClient } from "./vrchat-client.mjs";
-import { COLLECTOR_VERSION, RequestBudget, TelemetryControlClient, boundedProviderCategory, collectorAuthRequiredEvent, collectorLoopFailureEvent, collectorRestartEvent, collectorRuntimeMetadata, collectorShouldRestart, failureDisposition, pollId, randomPollDelayMs, retryDelayMs } from "./runtime.mjs";
+import { COLLECTOR_PROTOCOL_VERSION, RequestBudget, TelemetryControlClient, boundedProviderCategory, collectorAuthRequiredEvent, collectorLoopFailureEvent, collectorRestartEvent, collectorRuntimeMetadata, collectorShouldRestart, failureDisposition, pollId, randomPollDelayMs, retryDelayMs } from "./runtime.mjs";
 
 function requiredEnv(name) {
   const value = process.env[name]?.trim();
@@ -159,7 +159,7 @@ async function collect(assignment) {
       ...lease,
       pollId: pollId(assignment.integrationId, snapshot.observedAt),
       observedAt: snapshot.observedAt,
-      collectorVersion: COLLECTOR_VERSION,
+      collectorVersion: COLLECTOR_PROTOCOL_VERSION,
       groupMemberCount: snapshot.group.memberCount,
       instances: snapshot.instances,
       nextPollAt,
@@ -169,7 +169,7 @@ async function collect(assignment) {
     const attempt = (attempts.get(assignment.integrationId) ?? 0) + 1;
     attempts.set(assignment.integrationId, attempt);
     const failure = failureDisposition(error, attempt);
-    await control.send("failure", { ...lease, ...failure, collectorVersion: COLLECTOR_VERSION, now: Date.now() });
+    await control.send("failure", { ...lease, ...failure, collectorVersion: COLLECTOR_PROTOCOL_VERSION, now: Date.now() });
     if (failure.stopAccount) {
       logEvent(collectorAuthRequiredEvent());
       stopping = true;

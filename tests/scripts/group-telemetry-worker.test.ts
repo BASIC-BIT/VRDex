@@ -404,14 +404,24 @@ describe("group telemetry provider adapter", () => {
 describe("group telemetry metrics and safety helpers", () => {
   it("reports release metadata and bounded restart diagnostics without exception text", () => {
     assert.deepEqual(
-      collectorRuntimeMetadata({ VRDEX_GROUP_TELEMETRY_RELEASE_SHA: "A".repeat(40) }),
+      collectorRuntimeMetadata({
+        VRDEX_GROUP_TELEMETRY_RELEASE_SHA: "A".repeat(40),
+        VRDEX_GROUP_TELEMETRY_RELEASE_VERSION: "git-a1b2c3d4e5f6",
+      }),
       {
         releaseSha: "a".repeat(40),
-        collectorVersion: "group-telemetry-v1",
+        collectorVersion: "git-a1b2c3d4e5f6",
         capabilities: ["telemetry_v1", "vrchat_proof_v1"],
       },
     );
     assert.throws(() => collectorRuntimeMetadata({}), /exact Git SHA/);
+    assert.throws(
+      () => collectorRuntimeMetadata({
+        VRDEX_GROUP_TELEMETRY_RELEASE_SHA: "a".repeat(40),
+        VRDEX_GROUP_TELEMETRY_RELEASE_VERSION: "invalid release label",
+      }),
+      /bounded release version/,
+    );
 
     const failure = collectorLoopFailureEvent(
       new Error("Control plane 503: proof-code-and-token-must-not-escape"),

@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { VrchatProviderError } from "./vrchat-client.mjs";
 
-export const COLLECTOR_VERSION = "group-telemetry-v1";
+export const COLLECTOR_PROTOCOL_VERSION = "group-telemetry-v1";
 export const COLLECTOR_CAPABILITIES = Object.freeze(["telemetry_v1", "vrchat_proof_v1"]);
 export const MAX_CONSECUTIVE_LOOP_FAILURES = 6;
 const PROVIDER_CATEGORIES = new Set([
@@ -27,9 +27,15 @@ export function collectorRuntimeMetadata(environment = process.env) {
   if (!releaseSha || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(releaseSha)) {
     throw new Error("VRDEX_GROUP_TELEMETRY_RELEASE_SHA must be an exact Git SHA.");
   }
+  const collectorVersion = environment.VRDEX_GROUP_TELEMETRY_RELEASE_VERSION?.trim();
+  if (!collectorVersion || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(collectorVersion)) {
+    throw new Error(
+      "VRDEX_GROUP_TELEMETRY_RELEASE_VERSION must be a bounded release version.",
+    );
+  }
   return {
     releaseSha,
-    collectorVersion: COLLECTOR_VERSION,
+    collectorVersion,
     capabilities: [...COLLECTOR_CAPABILITIES],
   };
 }

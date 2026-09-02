@@ -7,7 +7,9 @@
 # is what made a clean checkout dangerous: applying with only the checked-in
 # configuration would set `enable_service = false` and `desired_count = 0`, and
 # since this fleet now resolves VRChat ownership proofs, that silently disables a
-# production claim path.
+# production claim path. The request budget lives here for the same reason: an
+# explicit production adjustment must be reflected in source control before a
+# later image release can safely plan against it.
 #
 # The variable defaults stay disabled so standing up a *new* environment is safe
 # by default, per the bring-up sequence in
@@ -17,5 +19,6 @@
 #
 # alongside the operator's local `terraform.tfvars`.
 
-enable_service = true
-desired_count  = 1
+enable_service      = true
+desired_count       = 1
+requests_per_minute = 30

@@ -67,8 +67,14 @@ describe("claim analytics journey correlation", () => {
     assert.match(source, /lastObservedPendingJourneyRef/);
     assert.match(source, /preserveInitialDiscordReturnRef = useRef\(discordVerify != null\)/);
     assert.match(source, /preserveInitialDiscordReturnRef\.current = false/);
-    assert.match(source, /const \{ sessionId \} = useAuth\(\)/);
+    assert.match(source, /const \{ isLoaded, sessionId \} = useAuth\(\)/);
     assert.match(source, /key=\{analyticsSessionScope\}/);
+    assert.match(source, /scopedInitialJourney\?\.sessionScope !== analyticsSessionScope/);
+    assert.match(source, /scopedInitialJourney === null[\s\S]*crypto\.randomUUID\(\)/);
+    assert.match(
+      source,
+      /initialAnalyticsJourneyId=\{scopedInitialJourney\.journeyId\}/,
+    );
     assert.match(source, /claimJourneyStorageKey\(profile\.slug, analyticsSessionScope\)/);
     assert.match(source, /previous\.viewerContextKey === viewerContextKey/);
     assert.match(
