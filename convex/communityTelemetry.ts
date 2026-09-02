@@ -73,6 +73,10 @@ function normalizedReleaseSha(value: string) {
   return releaseSha;
 }
 
+function normalizedOptionalReleaseSha(value: string | undefined) {
+  return value === undefined ? undefined : normalizedReleaseSha(value);
+}
+
 function boundedWorkerVersion(value: string) {
   const version = value.trim();
   if (version.length === 0 || version.length > 80) {
@@ -2290,8 +2294,8 @@ export const claimPendingProofChecks = internalMutation({
 
     const limit = Math.max(1, Math.min(args.limit ?? 5, 25));
     const workerId = boundedWorkerId(args.workerId);
-    const workerReleaseSha = normalizedReleaseSha(
-      args.releaseSha ?? account.lastWorkerReleaseSha ?? "",
+    const workerReleaseSha = normalizedOptionalReleaseSha(
+      args.releaseSha ?? account.lastWorkerReleaseSha,
     );
     // Select collector-eligible target types through the index. Scanning all
     // pending attempts and filtering afterwards let vrclinking rows, which are
@@ -2490,8 +2494,8 @@ export const recordProofCheckResult = internalMutation({
     ) {
       return { state: "unauthorized" as const };
     }
-    const workerReleaseSha = normalizedReleaseSha(
-      args.releaseSha ?? account.lastWorkerReleaseSha ?? "",
+    const workerReleaseSha = normalizedOptionalReleaseSha(
+      args.releaseSha ?? account.lastWorkerReleaseSha,
     );
 
     await recordProviderCheck(ctx, {
@@ -2649,8 +2653,8 @@ export const recordProofCheckOutcome = internalMutation({
     ) {
       return { recorded: false };
     }
-    const workerReleaseSha = normalizedReleaseSha(
-      args.releaseSha ?? account.lastWorkerReleaseSha ?? "",
+    const workerReleaseSha = normalizedOptionalReleaseSha(
+      args.releaseSha ?? account.lastWorkerReleaseSha,
     );
     return {
       recorded: await recordProviderCheck(ctx, {

@@ -11,6 +11,8 @@ const HEALTH_SCAN_LIMIT = 1_000;
 const FAILED_RECOVERY_BATCH = 100;
 const DELIVERED_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
 const DELIVERED_CLEANUP_BATCH = 200;
+const LIFECYCLE_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
+const LIFECYCLE_CLEANUP_BATCH = 200;
 
 type DeliveryClaim = { row: Doc<"claimAnalyticsOutbox"> | null };
 
@@ -18,21 +20,21 @@ export const claimNextForDelivery = internalMutation({
   args: {},
   handler: async (ctx): Promise<DeliveryClaim> => {
     const now = Date.now();
-    const pending = await ctx.db
+    const abandonedLease = await ctx.db
       .query("claimAnalyticsOutbox")
-      .withIndex("by_state_nextAttemptAt", (query) =>
-        query.eq("state", "pending").lte("nextAttemptAt", now),
+      .withIndex("by_state_leaseUntil", (query) =>
+        query.eq("state", "delivering").lte("leaseUntil", now),
       )
       .first();
-    const abandonedLease = pending === null
+    const pending = abandonedLease === null
       ? await ctx.db
           .query("claimAnalyticsOutbox")
-          .withIndex("by_state_leaseUntil", (query) =>
-            query.eq("state", "delivering").lte("leaseUntil", now),
+          .withIndex("by_state_nextAttemptAt", (query) =>
+            query.eq("state", "pending").lte("nextAttemptAt", now),
           )
           .first()
       : null;
-    const row = pending ?? abandonedLease;
+    const row = abandonedLease ?? pending;
 
     if (row === null) {
       return { row: null };
@@ -105,14 +107,14 @@ export const recordDeliveryFailure = internalMutation({
 
 /** Requeue a bounded stalled batch after delivery or configuration recovers. */
 export const recoverUndeliveredDeliveries = internalMutation({
-  args: {},
-  handler: async (ctx) => {
+  args: { recoverDisabled: v.boolean() },
+  handler: async (ctx, args) => {
     const now = Date.now();
     const failed = await ctx.db
       .query("claimAnalyticsOutbox")
       .withIndex("by_state_occurredAt", (query) => query.eq("state", "failed"))
       .take(FAILED_RECOVERY_BATCH);
-    const disabled = failed.length < FAILED_RECOVERY_BATCH
+    const disabled = args.recoverDisabled && failed.length < FAILED_RECOVERY_BATCH
       ? await ctx.db
           .query("claimAnalyticsOutbox")
           .withIndex("by_state_occurredAt", (query) => query.eq("state", "disabled"))
@@ -135,7 +137,7 @@ export const recoverUndeliveredDeliveries = internalMutation({
   },
 });
 
-/** Retain deduplication history briefly, then remove delivered transport rows. */
+/** Bound delivered dedupe history and rows from deployments that opt out. */
 export const sweepDeliveredEvents = internalMutation({
   args: { now: v.optional(v.number()) },
   handler: async (ctx, args) => {
@@ -146,12 +148,39 @@ export const sweepDeliveredEvents = internalMutation({
         query.eq("state", "delivered").lt("deliveredAt", cutoff),
       )
       .take(DELIVERED_CLEANUP_BATCH);
+    const disabled = delivered.length < DELIVERED_CLEANUP_BATCH
+      ? await ctx.db
+          .query("claimAnalyticsOutbox")
+          .withIndex("by_state_occurredAt", (query) =>
+            query.eq("state", "disabled").lt("occurredAt", cutoff),
+          )
+          .take(DELIVERED_CLEANUP_BATCH - delivered.length)
+      : [];
+    const expired = [...delivered, ...disabled];
 
-    await Promise.all(delivered.map(async (row) => await ctx.db.delete(row._id)));
-    if (delivered.length === DELIVERED_CLEANUP_BATCH) {
+    await Promise.all(expired.map(async (row) => await ctx.db.delete(row._id)));
+    if (expired.length === DELIVERED_CLEANUP_BATCH) {
       await ctx.scheduler.runAfter(0, internal.claimAnalytics.sweepDeliveredEvents, {});
     }
-    return { deletedCount: delivered.length };
+    return { deletedCount: expired.length };
+  },
+});
+
+/** Keep detailed claim lifecycle diagnostics for a bounded troubleshooting window. */
+export const sweepClaimLifecycleEvents = internalMutation({
+  args: { now: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const cutoff = (args.now ?? Date.now()) - LIFECYCLE_RETENTION_MS;
+    const events = await ctx.db
+      .query("profileClaimLifecycleEvents")
+      .withIndex("by_createdAt", (query) => query.lt("createdAt", cutoff))
+      .take(LIFECYCLE_CLEANUP_BATCH);
+
+    await Promise.all(events.map(async (event) => await ctx.db.delete(event._id)));
+    if (events.length === LIFECYCLE_CLEANUP_BATCH) {
+      await ctx.scheduler.runAfter(0, internal.claimAnalytics.sweepClaimLifecycleEvents, {});
+    }
+    return { deletedCount: events.length };
   },
 });
 

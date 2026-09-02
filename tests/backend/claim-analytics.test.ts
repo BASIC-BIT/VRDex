@@ -120,7 +120,9 @@ describe("claim analytics outbox", () => {
     });
 
     assert.deepEqual(
-      await t.mutation(internal.claimAnalytics.recoverUndeliveredDeliveries, {}),
+      await t.mutation(internal.claimAnalytics.recoverUndeliveredDeliveries, {
+        recoverDisabled: false,
+      }),
       { recoveredCount: 1 },
     );
     await t.run(async (ctx) => {
@@ -131,7 +133,7 @@ describe("claim analytics outbox", () => {
     });
   });
 
-  it("recovers configuration-disabled deliveries in the same bounded sweep", async () => {
+  it("recovers disabled deliveries only after configuration returns", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
     const outboxId = await t.run(async (ctx) => await ctx.db.insert("claimAnalyticsOutbox", {
@@ -148,7 +150,15 @@ describe("claim analytics outbox", () => {
     }));
 
     assert.deepEqual(
-      await t.mutation(internal.claimAnalytics.recoverUndeliveredDeliveries, {}),
+      await t.mutation(internal.claimAnalytics.recoverUndeliveredDeliveries, {
+        recoverDisabled: false,
+      }),
+      { recoveredCount: 0 },
+    );
+    assert.deepEqual(
+      await t.mutation(internal.claimAnalytics.recoverUndeliveredDeliveries, {
+        recoverDisabled: true,
+      }),
       { recoveredCount: 1 },
     );
     await t.run(async (ctx) => {
@@ -156,6 +166,39 @@ describe("claim analytics outbox", () => {
       assert.equal(row?.state, "pending");
       assert.equal(row?.attemptCount, 0);
     });
+  });
+
+  it("reclaims an expired delivery lease ahead of a sustained pending backlog", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const expiredLeaseId = await t.run(async (ctx) => {
+      const base = {
+        journeyId,
+        event: "claim_attempt_created" as const,
+        profileType: "person" as const,
+        method: "vrchat" as const,
+        entrySource: "profile" as const,
+        occurredAt: now - 60_000,
+        attemptCount: 1,
+        nextAttemptAt: now - 60_000,
+      };
+      const id = await ctx.db.insert("claimAnalyticsOutbox", {
+        ...base,
+        eventKey: "expired-lease",
+        state: "delivering",
+        leaseUntil: now - 1,
+      });
+      await ctx.db.insert("claimAnalyticsOutbox", {
+        ...base,
+        eventKey: "pending-backlog",
+        state: "pending",
+        attemptCount: 0,
+      });
+      return id;
+    });
+
+    const claimed = await t.mutation(internal.claimAnalytics.claimNextForDelivery, {});
+    assert.equal(claimed.row?._id, expiredLeaseId);
   });
 
   it("deletes only delivered analytics rows past the retention window", async () => {
@@ -189,16 +232,68 @@ describe("claim analytics outbox", () => {
         eventKey: "old-failed",
         state: "failed",
       });
+      await ctx.db.insert("claimAnalyticsOutbox", {
+        ...base,
+        eventKey: "old-disabled",
+        state: "disabled",
+      });
       return id;
     });
 
     assert.deepEqual(
       await t.mutation(internal.claimAnalytics.sweepDeliveredEvents, { now }),
-      { deletedCount: 1 },
+      { deletedCount: 2 },
     );
     await t.run(async (ctx) => {
       assert.equal(await ctx.db.get(oldDeliveredId), null);
       assert.equal((await ctx.db.query("claimAnalyticsOutbox").collect()).length, 2);
+    });
+  });
+
+  it("deletes detailed lifecycle events after the diagnostic retention window", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const oldId = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        clerkUserId: newClerkUserId(),
+        email: "lifecycle-retention@example.test",
+      });
+      const profileId = await ctx.db.insert("profiles", {
+        profileType: "person",
+        slug: "lifecycle-retention",
+        displayName: "Lifecycle Retention",
+        sortName: "lifecycle retention",
+        aliases: [], tags: [], claimState: "unclaimed",
+        publicationState: "published", publicSurfacingState: "public",
+        creationSource: "concierge", person: { roleTags: [] }, updatedAt: now,
+      });
+      const attemptId = await ctx.db.insert("profileVerificationAttempts", {
+        profileId, userId, method: "vrchat_user_proof", targetType: "vrchat_user",
+        targetExternalId: "usr_01234567-89ab-cdef-0123-456789abcdef",
+        proofCode: "VRDEX-RETENTION", state: "pending",
+        createdAt: now, updatedAt: now, expiresAt: now + 60_000,
+      });
+      const base = {
+        profileId, attemptId, method: "vrchat_user_proof" as const,
+        targetType: "vrchat_user" as const, event: "attempt_created" as const,
+        actorSurface: "web" as const,
+      };
+      const id = await ctx.db.insert("profileClaimLifecycleEvents", {
+        ...base, createdAt: now - 31 * 24 * 60 * 60 * 1_000,
+      });
+      await ctx.db.insert("profileClaimLifecycleEvents", {
+        ...base, createdAt: now - 29 * 24 * 60 * 60 * 1_000,
+      });
+      return id;
+    });
+
+    assert.deepEqual(
+      await t.mutation(internal.claimAnalytics.sweepClaimLifecycleEvents, { now }),
+      { deletedCount: 1 },
+    );
+    await t.run(async (ctx) => {
+      assert.equal(await ctx.db.get(oldId), null);
+      assert.equal((await ctx.db.query("profileClaimLifecycleEvents").collect()).length, 1);
     });
   });
 
@@ -270,6 +365,59 @@ describe("claim analytics outbox", () => {
       assert.ok(rows.every((row) => row.entrySource === "search"));
       assert.ok(rows.every((row) => row.method === "vrchat"));
       assert.equal(rows.find((row) => row.event === "claim_resolved")?.outcome, "rejected");
+    });
+  });
+
+  it("adopts a resumed legacy VRChat proof into the browser journey", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const clerkUserId = newClerkUserId();
+    const attemptId = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        clerkUserId,
+        email: "legacy-proof-analytics@example.test",
+        emailVerificationTime: now,
+      });
+      const profileId = await ctx.db.insert("profiles", {
+        profileType: "person",
+        slug: "legacy-proof-analytics",
+        displayName: "Legacy Proof Analytics",
+        sortName: "legacy proof analytics",
+        aliases: [], tags: [], claimState: "unclaimed",
+        publicationState: "published", publicSurfacingState: "public",
+        creationSource: "concierge", person: { roleTags: [] }, updatedAt: now,
+      });
+      return await ctx.db.insert("profileVerificationAttempts", {
+        profileId, userId, method: "vrchat_user_proof", targetType: "vrchat_user",
+        targetExternalId: "usr_01234567-89ab-cdef-0123-456789abcdef",
+        proofCode: "VRDEX-LEGACY", state: "pending",
+        createdAt: now - 5_000, updatedAt: now - 5_000, expiresAt: now + 60_000,
+      });
+    });
+    const identity = {
+      subject: clerkUserId,
+      emailVerified: true,
+      issuer: "test",
+      tokenIdentifier: `test|${clerkUserId}`,
+    };
+
+    assert.deepEqual(
+      await t.withIdentity(identity).mutation(
+        api.profileClaims.adoptPendingProofAnalyticsJourney,
+        {
+          attemptId,
+          analyticsJourneyId: journeyId,
+          analyticsEntrySource: "profile",
+        },
+      ),
+      { analyticsJourneyId: journeyId, adopted: true },
+    );
+    await t.run(async (ctx) => {
+      assert.equal((await ctx.db.get(attemptId))?.analyticsJourneyId, journeyId);
+      const rows = await ctx.db.query("claimAnalyticsOutbox").collect();
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0]?.event, "claim_attempt_created");
+      assert.equal(rows[0]?.occurredAt, now - 5_000);
     });
   });
 

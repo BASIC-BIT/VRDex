@@ -614,6 +614,43 @@ export const cancelClaimJourneyPending = mutation({
   },
 });
 
+/** Attach correlation to a pending proof created before claim analytics shipped. */
+export const adoptPendingProofAnalyticsJourney = mutation({
+  args: {
+    attemptId: v.id("profileVerificationAttempts"),
+    analyticsJourneyId: v.string(),
+    analyticsEntrySource: v.optional(claimAnalyticsEntrySource),
+  },
+  handler: async (ctx, args) => {
+    const { user } = await requireVerifiedActiveBrowserSession(ctx);
+    const attempt = await ctx.db.get(args.attemptId);
+    if (attempt === null || attempt.userId !== user._id || attempt.state !== "pending") {
+      throw claimError("PROOF_NOT_FOUND");
+    }
+    if (attempt.analyticsJourneyId !== undefined) {
+      return { analyticsJourneyId: attempt.analyticsJourneyId, adopted: false };
+    }
+
+    const profile = await ctx.db.get(attempt.profileId);
+    if (profile === null) throw claimError("PROFILE_NOT_FOUND");
+    const analytics = claimAnalyticsContext(
+      args.analyticsJourneyId,
+      args.analyticsEntrySource,
+    );
+    await ctx.db.patch(attempt._id, {
+      analyticsJourneyId: analytics.journeyId,
+      analyticsEntrySource: analytics.entrySource,
+    });
+    await enqueueClaimAnalyticsEvent(ctx, analytics, {
+      event: "claim_attempt_created",
+      profileType: profile.profileType,
+      method: claimAnalyticsMethodForAttempt(attempt),
+      occurredAt: attempt.createdAt,
+    });
+    return { analyticsJourneyId: analytics.journeyId, adopted: true };
+  },
+});
+
 /**
  * Adapter endpoint for a proof target, or null when none is configured.
  *

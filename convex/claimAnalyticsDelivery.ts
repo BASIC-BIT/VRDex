@@ -97,3 +97,12 @@ export const deliverPending = internalAction({
     }
   },
 });
+
+/** Retry disabled rows only when delivery is now configured. */
+export const recoverUndeliveredDeliveries = internalAction({
+  args: {},
+  handler: async (ctx): Promise<{ recoveredCount: number }> => await ctx.runMutation(
+    internal.claimAnalytics.recoverUndeliveredDeliveries,
+    { recoverDisabled: posthogClaimAnalyticsConfig(process.env) !== null },
+  ),
+});

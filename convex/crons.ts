@@ -26,7 +26,7 @@ crons.interval(
 crons.hourly(
   "recover stalled claim analytics deliveries",
   { minuteUTC: 5 },
-  internal.claimAnalytics.recoverUndeliveredDeliveries,
+  internal.claimAnalyticsDelivery.recoverUndeliveredDeliveries,
   {},
 );
 
@@ -34,6 +34,13 @@ crons.daily(
   "delete delivered claim analytics transport rows",
   { hourUTC: 4, minuteUTC: 5 },
   internal.claimAnalytics.sweepDeliveredEvents,
+  {},
+);
+
+crons.daily(
+  "delete expired claim lifecycle diagnostics",
+  { hourUTC: 4, minuteUTC: 10 },
+  internal.claimAnalytics.sweepClaimLifecycleEvents,
   {},
 );
 

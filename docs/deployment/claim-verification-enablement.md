@@ -206,11 +206,14 @@ encoding a user, profile, provider, or target identity.
 Convex writes authoritative milestones to `claimAnalyticsOutbox` with the
 claim transition. Delivery to PostHog happens later with an idempotent insert
 key and a ten-second request bound. Each fast retry cycle is capped at five
-attempts; a bounded hourly sweep requeues dead-letter and configuration-disabled
-rows so a temporary PostHog outage or configuration loss recovers automatically.
+attempts; a bounded hourly sweep requeues dead-letter rows, and requeues
+configuration-disabled rows only after valid PostHog configuration returns, so
+a temporary PostHog outage or configuration loss recovers automatically without
+churning permanently opted-out deployments.
 PostHog availability never blocks a claim. Missing `POSTHOG_PROJECT_API_KEY` disables
 delivery safely for local work, forks, previews, and self-hosted deployments
-that do not opt in.
+that do not opt in. Delivered transport rows, disabled rows, and detailed claim
+lifecycle diagnostics are removed after 30 days in bounded daily sweeps.
 
 BASIC BIT production reuses the hosted public project key that Terraform
 supplies to Vercel. `baseline-checks.yml` provisions it into production Convex

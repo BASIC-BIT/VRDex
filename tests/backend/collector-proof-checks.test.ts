@@ -309,6 +309,7 @@ describe("collector proof check queue", () => {
       const account = await ctx.db.get(collectorAccountId);
       assert.equal(account?.lastWorkerId, "worker-http");
       assert.equal(account?.lastWorkerReleaseSha, "c".repeat(40));
+      await ctx.db.patch(collectorAccountId, { lastWorkerReleaseSha: undefined });
     });
 
     const legacyAttemptId = await t.run(async (ctx) =>
@@ -330,6 +331,13 @@ describe("collector proof check queue", () => {
       found: false,
     });
     assert.equal(legacyProofResult.status, 200);
+    await t.run(async (ctx) => {
+      const events = await ctx.db
+        .query("profileClaimLifecycleEvents")
+        .withIndex("by_attemptId_createdAt", (q) => q.eq("attemptId", legacyAttemptId))
+        .collect();
+      assert.ok(events.every((event) => event.workerReleaseSha === undefined));
+    });
   });
 
   it("reports the maximum consecutive failure streak rather than a fleet sum", async () => {

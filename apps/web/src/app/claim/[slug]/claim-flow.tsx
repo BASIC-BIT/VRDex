@@ -134,6 +134,9 @@ export function ClaimFlow({
     api.profileConnections.claimCommunityWithVerifiedGuild,
   );
   const startVrchatProof = useMutation(api.profileClaims.startVrchatProof);
+  const adoptPendingProofAnalytics = useMutation(
+    api.profileClaims.adoptPendingProofAnalyticsJourney,
+  );
   const cancelPending = useMutation(api.profileClaims.cancelClaimJourneyPending);
   const verifyDiscord = useAction(api.profileClaims.verifyDiscordCommunityAdminClaim);
   const verifyVrchat = useAction(api.profileClaims.verifyVrchatProofViaAdapter);
@@ -142,6 +145,7 @@ export function ClaimFlow({
   const viewedJourneyRef = useRef<string | null>(null);
   const analyticsJourneyFinishedRef = useRef(false);
   const lastObservedPendingJourneyRef = useRef<string | null | undefined>(undefined);
+  const preserveInitialDiscordReturnRef = useRef(discordVerify != null);
   const [selectedMethod, setMethod] = useState<ClaimMethod | null>(
     previewContext
       ? profile.profileType === "community"
@@ -288,18 +292,19 @@ export function ClaimFlow({
     // browser handler. Successful collector completion has its own event path;
     // every other pending-to-absent transition must still close the browser
     // journey so a later retry receives a new UUID and new backend dedupe keys.
+    const preserveInitialDiscordReturn = preserveInitialDiscordReturnRef.current;
+    preserveInitialDiscordReturnRef.current = false;
     if (
       ((previous !== undefined && previous !== null) || staleStoredJourney) &&
       current === null &&
       collectorCompletion === null &&
-      discordVerifyState === null
+      !preserveInitialDiscordReturn
     ) {
       finishAnalyticsJourney();
     }
   }, [
     collectorCompletion,
     context,
-    discordVerifyState,
     finishAnalyticsJourney,
     pendingAnalyticsJourneyId,
     profile.slug,
@@ -548,6 +553,11 @@ export function ClaimFlow({
       message: viaVrclinking ? "Asking VRCLinking…" : "Looking for your code…",
     });
     try {
+      await adoptPendingProofAnalytics({
+        attemptId,
+        analyticsJourneyId: journeyId,
+        analyticsEntrySource: source,
+      });
       const result = await verifyVrchat({ attemptId });
       if ("claimState" in result) {
         // Proving control of the target does not by itself establish that the

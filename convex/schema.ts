@@ -2222,6 +2222,7 @@ export default defineSchema({
     workerReleaseSha: v.optional(v.string()),
     createdAt: v.number(),
   })
+    .index("by_createdAt", ["createdAt"])
     .index("by_event_createdAt", ["event", "createdAt"])
     .index("by_attemptId_createdAt", ["attemptId", "createdAt"]),
   claimAnalyticsOutbox: defineTable({

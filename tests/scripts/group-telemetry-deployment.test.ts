@@ -251,6 +251,8 @@ describe("group telemetry release workflow", () => {
     const commands = (release.steps ?? []).map((step) => step.run ?? "").join("\n");
     assert.match(commands, /git rev-parse HEAD/);
     assert.match(commands, /git merge-base --is-ancestor/);
+    assert.match(commands, /actions\/workflows\/baseline-checks\.yml\/runs/);
+    assert.match(commands, /release_sha.*latest_successful_sha/);
     assert.match(commands, /docker build .*org\.opencontainers\.image\.revision=\$RELEASE_SHA/);
     assert.match(commands, /terraform plan -out=collector\.tfplan -var-file=environments\/production\.tfvars/);
     assert.match(commands, /group-telemetry-deployment\.mjs plan/);

@@ -53,13 +53,15 @@ describe("claim analytics journey correlation", () => {
     assert.match(source, /analyticsJourneyFinishedRef\.current = true/);
     assert.match(source, /analyticsJourneyFinishedRef\.current\s*\) return/);
     assert.match(source, /lastObservedPendingJourneyRef/);
-    assert.match(source, /collectorCompletion === null &&\s*discordVerifyState === null/);
+    assert.match(source, /preserveInitialDiscordReturnRef = useRef\(discordVerify != null\)/);
+    assert.match(source, /preserveInitialDiscordReturnRef\.current = false/);
     assert.match(source, /previous === undefined && current === null[\s\S]*staleStoredJourney/);
     assert.match(
       source,
       /previous !== null[\s\S]*staleStoredJourney[\s\S]*current === null[\s\S]*collectorCompletion === null[\s\S]*finishAnalyticsJourney\(\)/,
     );
     assert.match(source, /!result\.canceled[\s\S]*finishAnalyticsJourney\(\)/);
+    assert.match(source, /await adoptPendingProofAnalytics\(\{[\s\S]*analyticsJourneyId: journeyId/);
     assert.match(
       source,
       /collectorCompletion\.journeyId \?\? ensureAnalyticsJourneyId\(\)/,

@@ -71,6 +71,8 @@ jobs:
           fetch-depth: 0
 
       - name: Fail closed on missing production configuration
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           missing=()
@@ -92,6 +94,8 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_run" ]; then
             [ "${{ github.event.workflow_run.head_branch }}" = "main" ] || { echo "::error::The triggering baseline run was not for main."; exit 1; }
             [ "${{ github.event.workflow_run.head_repository.full_name }}" = "$GITHUB_REPOSITORY" ] || { echo "::error::The triggering baseline run came from another repository."; exit 1; }
+            latest_successful_sha="$(gh api -X GET "repos/$GITHUB_REPOSITORY/actions/workflows/baseline-checks.yml/runs" -f branch=main -f status=success -f per_page=20 --jq '[.workflow_runs[] | select(.event == "push" and .head_branch == "main" and .head_repository.full_name == env.GITHUB_REPOSITORY)] | first | .head_sha')"
+            [ "$release_sha" = "$latest_successful_sha" ] || { echo "::error::The triggering baseline is no longer the latest successful main release."; exit 1; }
           fi
           echo "RELEASE_SHA=$release_sha" >> "$GITHUB_ENV"
           echo "RELEASE_VERSION=git-${release_sha:0:12}" >> "$GITHUB_ENV"
