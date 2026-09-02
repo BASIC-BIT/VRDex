@@ -93,6 +93,8 @@ Operator health must expose, without customer identifiers:
 - pending collector-eligible attempts;
 - attempts with no first check;
 - age of the oldest unchecked attempt;
+- the maximum first-check latency observed in the last fifteen minutes, so a
+  slow check cannot disappear from health as soon as it completes;
 - time to first check and resolution;
 - collector heartbeat age, release, capability set, state, and cooldown;
 - bounded failure counts.
@@ -116,13 +118,16 @@ The claim funnel contains these milestones:
 3. `claim_submitted`, from the browser;
 4. `claim_attempt_created`, from the authoritative backend;
 5. `claim_verification_started`, from the authoritative backend when the first
-   external check occurs;
+   external check occurs. For Discord community claims this is the start of the
+   purpose-scoped OAuth round trip; the opaque journey ID is carried into that
+   request before Discord is opened;
 6. `claim_resolved`, from the authoritative backend for completed, rejected,
    canceled, or expired journeys.
 
 An opaque random journey ID may correlate browser and backend milestones. It is
-scoped to one claim journey and carries no encoded user, profile, or provider
-identity. Backend delivery uses a small durable outbox so a committed ownership
+scoped to one claim journey and one authenticated browser session, and carries
+no encoded user, profile, or provider identity. Backend delivery uses a small
+durable outbox so a committed ownership
 transition is not lost when PostHog is temporarily unavailable. Delivery is
 best-effort with bounded retry and never blocks the claim itself.
 

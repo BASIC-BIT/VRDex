@@ -1,9 +1,10 @@
 "use client";
 
+import { useAuth } from "@clerk/nextjs";
 import { useAction, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { usePostHog } from "posthog-js/react";
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type MouseEvent } from "react";
 import { BadgeCheck, Building2, Link2, ShieldCheck, UserRound } from "lucide-react";
 
 import { api } from "@convex-generated-api";
@@ -120,6 +121,7 @@ export function ClaimFlow({
   profile: ClaimProfile;
   source: ClaimEntrySource;
 }) {
+  const { sessionId } = useAuth();
   const queriedContext = useQuery(
     api.profileClaims.getClaimJourneyContext,
     previewContext ? "skip" : { profileSlug: profile.slug },
@@ -144,6 +146,8 @@ export function ClaimFlow({
   const analyticsJourneyIdRef = useRef<string | null>(null);
   const viewedJourneyRef = useRef<string | null>(null);
   const analyticsJourneyFinishedRef = useRef(false);
+  const analyticsSessionScope = previewContext ? "preview" : (sessionId ?? "loading");
+  const previousAnalyticsSessionScopeRef = useRef(analyticsSessionScope);
   const lastObservedPendingJourneyRef = useRef<string | null | undefined>(undefined);
   const preserveInitialDiscordReturnRef = useRef(discordVerify != null);
   const [selectedMethod, setMethod] = useState<ClaimMethod | null>(
@@ -234,7 +238,7 @@ export function ClaimFlow({
       return analyticsJourneyIdRef.current;
     }
 
-    const storageKey = claimJourneyStorageKey(profile.slug);
+    const storageKey = claimJourneyStorageKey(profile.slug, analyticsSessionScope);
     let storedJourneyId: string | null = null;
     try {
       storedJourneyId = window.sessionStorage.getItem(storageKey);
@@ -254,22 +258,31 @@ export function ClaimFlow({
     }
     analyticsJourneyIdRef.current = journeyId;
     return journeyId;
-  }, [pendingAnalyticsJourneyId, profile.slug]);
+  }, [analyticsSessionScope, pendingAnalyticsJourneyId, profile.slug]);
 
   const finishAnalyticsJourney = useCallback(() => {
     try {
-      window.sessionStorage.removeItem(claimJourneyStorageKey(profile.slug));
+      window.sessionStorage.removeItem(claimJourneyStorageKey(profile.slug, analyticsSessionScope));
     } catch {
       // Analytics cleanup cannot interfere with a completed claim.
     }
     analyticsJourneyIdRef.current = null;
     analyticsJourneyFinishedRef.current = true;
-  }, [profile.slug]);
+  }, [analyticsSessionScope, profile.slug]);
 
   const beginAnalyticsJourney = useCallback(() => {
     analyticsJourneyFinishedRef.current = false;
     return ensureAnalyticsJourneyId();
   }, [ensureAnalyticsJourneyId]);
+
+  useEffect(() => {
+    if (previousAnalyticsSessionScopeRef.current === analyticsSessionScope) return;
+    previousAnalyticsSessionScopeRef.current = analyticsSessionScope;
+    analyticsJourneyIdRef.current = null;
+    viewedJourneyRef.current = null;
+    analyticsJourneyFinishedRef.current = false;
+    lastObservedPendingJourneyRef.current = undefined;
+  }, [analyticsSessionScope]);
 
   useEffect(() => {
     if (context === undefined) return;
@@ -281,7 +294,7 @@ export function ClaimFlow({
     if (previous === undefined && current === null) {
       try {
         staleStoredJourney = window.sessionStorage.getItem(
-          claimJourneyStorageKey(profile.slug),
+          claimJourneyStorageKey(profile.slug, analyticsSessionScope),
         ) !== null;
       } catch {
         // Storage availability must not affect the claim flow.
@@ -308,6 +321,7 @@ export function ClaimFlow({
     finishAnalyticsJourney,
     pendingAnalyticsJourneyId,
     profile.slug,
+    analyticsSessionScope,
   ]);
 
   const captureJourneyView = useCallback(
@@ -322,6 +336,19 @@ export function ClaimFlow({
       });
     },
     [isVerifiedViewer, posthog, profile.profileType, source],
+  );
+
+  const prepareDiscordVerification = useCallback(
+    (event: MouseEvent<HTMLAnchorElement>) => {
+      const journeyId = beginAnalyticsJourney();
+      captureJourneyView(journeyId);
+      const destination = new URL(discordVerifyHref, window.location.origin);
+      destination.searchParams.set("analyticsJourneyId", journeyId);
+      destination.searchParams.set("analyticsEntrySource", source);
+      destination.searchParams.set("analyticsProfileType", profile.profileType);
+      event.currentTarget.href = `${destination.pathname}${destination.search}`;
+    },
+    [beginAnalyticsJourney, captureJourneyView, discordVerifyHref, profile.profileType, source],
   );
 
   useEffect(() => {
@@ -1046,6 +1073,7 @@ export function ClaimFlow({
                     <Link
                       className={cn(buttonVariants({ variant: "secondary" }), "mt-3")}
                       href={discordVerifyHref}
+                      onClick={prepareDiscordVerification}
                     >
                       {discordVerifyState === "verified"
                         ? "Check Discord again"
@@ -1107,6 +1135,7 @@ export function ClaimFlow({
                         <Link
                           className={cn(buttonVariants({ variant: "primary" }), "mt-4")}
                           href={discordVerifyHref}
+                          onClick={prepareDiscordVerification}
                         >
                           {discordVerifyState === "verified"
                             ? "Check Discord servers again"

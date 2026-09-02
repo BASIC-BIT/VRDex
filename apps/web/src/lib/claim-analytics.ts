@@ -23,6 +23,6 @@ export function resolveClaimJourneyId({
   return generated;
 }
 
-export function claimJourneyStorageKey(profileSlug: string): string {
-  return `vrdex:claim-journey:${profileSlug}`;
+export function claimJourneyStorageKey(profileSlug: string, authSessionId: string): string {
+  return `vrdex:claim-journey:${authSessionId}:${profileSlug}`;
 }

@@ -13,6 +13,19 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   const returnTo = safeReturnPath(request.nextUrl.searchParams.get("returnTo"));
+  const analyticsJourneyId = request.nextUrl.searchParams.get("analyticsJourneyId") ?? undefined;
+  const analyticsEntrySourceValue = request.nextUrl.searchParams.get("analyticsEntrySource");
+  const analyticsEntrySource =
+    analyticsEntrySourceValue === "account" ||
+    analyticsEntrySourceValue === "profile" ||
+    analyticsEntrySourceValue === "search"
+      ? analyticsEntrySourceValue
+      : undefined;
+  const analyticsProfileTypeValue = request.nextUrl.searchParams.get("analyticsProfileType");
+  const analyticsProfileType =
+    analyticsProfileTypeValue === "person" || analyticsProfileTypeValue === "community"
+      ? analyticsProfileTypeValue
+      : undefined;
   const token = await convexAuthToken();
 
   if (!token) {
@@ -24,7 +37,7 @@ export async function GET(request: NextRequest) {
   try {
     const { authorizeUrl } = await fetchAction(
       api.discordVerification.startGuildVerification,
-      { returnTo },
+      { returnTo, analyticsJourneyId, analyticsEntrySource, analyticsProfileType },
       { token },
     );
 

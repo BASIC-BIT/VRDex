@@ -15,6 +15,12 @@ import {
   recordExternalControlProof,
   revokeExternalControlProof,
 } from "./_externalControl";
+import {
+  claimAnalyticsContext,
+  claimAnalyticsEntrySource,
+  enqueueClaimAnalyticsEvent,
+  validClaimAnalyticsJourneyId,
+} from "./_claimAnalytics";
 
 const STATE_TTL_MS = 10 * 60_000;
 /**
@@ -138,7 +144,12 @@ function createStateToken(): string {
 }
 
 export const createVerificationState = internalMutation({
-  args: { returnTo: v.string() },
+  args: {
+    returnTo: v.string(),
+    analyticsJourneyId: v.optional(v.string()),
+    analyticsEntrySource: v.optional(claimAnalyticsEntrySource),
+    analyticsProfileType: v.optional(v.union(v.literal("person"), v.literal("community"))),
+  },
   handler: async (ctx, args) => {
     const { user } = await requireVerifiedActiveBrowserSession(ctx);
 
@@ -157,6 +168,13 @@ export const createVerificationState = internalMutation({
 
     const now = Date.now();
     const state = createStateToken();
+
+    if (
+      args.analyticsJourneyId !== undefined &&
+      !validClaimAnalyticsJourneyId(args.analyticsJourneyId)
+    ) {
+      throw claimError("VERIFICATION_STATE_INVALID", "analytics_journey_invalid");
+    }
 
     // Opportunistically clear expired rows so the table stays small without
     // needing a dedicated cron.
@@ -190,6 +208,19 @@ export const createVerificationState = internalMutation({
       createdAt: now,
       expiresAt: now + STATE_TTL_MS,
     });
+
+    if (args.analyticsJourneyId !== undefined && args.analyticsProfileType !== undefined) {
+      await enqueueClaimAnalyticsEvent(
+        ctx,
+        claimAnalyticsContext(args.analyticsJourneyId, args.analyticsEntrySource),
+        {
+          event: "claim_verification_started",
+          profileType: args.analyticsProfileType,
+          method: "discord",
+          occurredAt: now,
+        },
+      );
+    }
 
     return { state };
   },
@@ -522,11 +553,19 @@ export const peekVerificationReturnTo = query({
 });
 
 export const startGuildVerification = action({
-  args: { returnTo: v.string() },
+  args: {
+    returnTo: v.string(),
+    analyticsJourneyId: v.optional(v.string()),
+    analyticsEntrySource: v.optional(claimAnalyticsEntrySource),
+    analyticsProfileType: v.optional(v.union(v.literal("person"), v.literal("community"))),
+  },
   handler: async (ctx, args): Promise<{ authorizeUrl: string }> => {
     const clientId = requiredEnv("AUTH_DISCORD_ID");
     const { state } = (await ctx.runMutation(internal.discordVerification.createVerificationState, {
       returnTo: args.returnTo,
+      analyticsJourneyId: args.analyticsJourneyId,
+      analyticsEntrySource: args.analyticsEntrySource,
+      analyticsProfileType: args.analyticsProfileType,
     })) as { state: string };
     const params = new URLSearchParams({
       client_id: clientId,

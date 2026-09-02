@@ -898,6 +898,45 @@ describe("Discord guild proof reconciliation", () => {
 });
 
 describe("Discord verification state backlog", () => {
+  it("records the backend verification-started milestone when claim OAuth opens", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const identity = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        clerkUserId: newClerkUserId(),
+        email: "oauth-claim-analytics@example.test",
+        emailVerificationTime: now,
+      });
+      return await webSessionIdentity(ctx as never, userId);
+    });
+
+    await t.withIdentity(identity).mutation(
+      internal.discordVerification.createVerificationState,
+      {
+        returnTo: "/claim/oauth-analytics",
+        analyticsJourneyId: "4d36e96e-34d9-4f7e-9fe1-72a98aa13077",
+        analyticsEntrySource: "search",
+        analyticsProfileType: "community",
+      },
+    );
+
+    await t.run(async (ctx) => {
+      const event = await ctx.db
+        .query("claimAnalyticsOutbox")
+        .withIndex("by_eventKey", (q) =>
+          q.eq(
+            "eventKey",
+            "4d36e96e-34d9-4f7e-9fe1-72a98aa13077:claim_verification_started",
+          ),
+        )
+        .unique();
+      assert.equal(event?.event, "claim_verification_started");
+      assert.equal(event?.method, "discord");
+      assert.equal(event?.profileType, "community");
+      assert.equal(event?.entrySource, "search");
+    });
+  });
+
   // Expiry sweeping alone bounds nothing: a caller who starts the flow and never
   // finishes it accumulates unexpired rows faster than the sweep reclaims them.
   it("keeps only the caller's most recent outstanding states", async () => {

@@ -346,12 +346,67 @@ describe("collector proof check queue", () => {
     await t.run(async (ctx) => {
       const first = await seedCollector(ctx as never, "failure-one", now);
       const second = await seedCollector(ctx as never, "failure-two", now);
-      await ctx.db.patch(first as never, { consecutiveControlFailures: 2 });
-      await ctx.db.patch(second as never, { consecutiveControlFailures: 2 });
+      await ctx.db.patch(first as never, {
+        consecutiveControlFailures: 2,
+        lastProofPollAt: now,
+      });
+      await ctx.db.patch(second as never, {
+        consecutiveControlFailures: 2,
+        lastProofPollAt: now,
+      });
     });
 
     const health = await t.query(internal.communityTelemetry.claimVerificationOperationalHealth, { now });
     assert.equal(health.maxConsecutiveControlFailures, 2);
+  });
+
+  it("excludes inactive collectors from the current failure maximum", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      const active = await seedCollector(ctx as never, "failure-active", now);
+      const retired = await seedCollector(ctx as never, "failure-retired", now);
+      await ctx.db.patch(active as never, {
+        consecutiveControlFailures: 1,
+        lastProofPollAt: now,
+      });
+      await ctx.db.patch(retired as never, {
+        state: "retired",
+        consecutiveControlFailures: 8,
+        lastProofPollAt: now,
+      });
+    });
+
+    const health = await t.query(internal.communityTelemetry.claimVerificationOperationalHealth, { now });
+    assert.equal(health.maxConsecutiveControlFailures, 1);
+  });
+
+  it("preserves a recent first-check SLA breach after the provider check", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      const attemptId = await seedAttempt(ctx as never, {
+        targetType: "vrchat_user",
+        now: now - 180_000,
+      });
+      const attempt = await ctx.db.get(attemptId as never);
+      assert.notEqual(attempt, null);
+      await ctx.db.patch(attemptId as never, { firstCheckAt: now - 30_000 });
+      await ctx.db.insert("profileClaimLifecycleEvents", {
+        profileId: attempt!.profileId,
+        attemptId,
+        method: attempt!.method,
+        targetType: attempt!.targetType,
+        event: "provider_checked",
+        actorSurface: "collector",
+        outcome: "not_found",
+        createdAt: now - 30_000,
+      });
+    });
+
+    const health = await t.query(internal.communityTelemetry.claimVerificationOperationalHealth, { now });
+    assert.equal(health.uncheckedAttemptCount, 0);
+    assert.equal(health.maxRecentFirstCheckLatencyMs, 150_000);
   });
 
   it("does not report an exact operational health scan as truncated", async () => {

@@ -41,8 +41,15 @@ describe("claim analytics journey correlation", () => {
     );
   });
 
-  it("scopes browser resume storage to one profile journey", () => {
-    assert.equal(claimJourneyStorageKey("basicbit"), "vrdex:claim-journey:basicbit");
+  it("scopes browser resume storage to one authenticated session and profile", () => {
+    assert.equal(
+      claimJourneyStorageKey("basicbit", "sess_first"),
+      "vrdex:claim-journey:sess_first:basicbit",
+    );
+    assert.notEqual(
+      claimJourneyStorageKey("basicbit", "sess_first"),
+      claimJourneyStorageKey("basicbit", "sess_second"),
+    );
   });
 
   it("latches terminal component journeys and excludes verified-owner connection visits", async () => {
@@ -55,6 +62,11 @@ describe("claim analytics journey correlation", () => {
     assert.match(source, /lastObservedPendingJourneyRef/);
     assert.match(source, /preserveInitialDiscordReturnRef = useRef\(discordVerify != null\)/);
     assert.match(source, /preserveInitialDiscordReturnRef\.current = false/);
+    assert.match(source, /const \{ sessionId \} = useAuth\(\)/);
+    assert.match(source, /claimJourneyStorageKey\(profile\.slug, analyticsSessionScope\)/);
+    assert.match(source, /analyticsJourneyId/);
+    assert.match(source, /analyticsProfileType/);
+    assert.match(source, /prepareDiscordVerification/);
     assert.match(source, /previous === undefined && current === null[\s\S]*staleStoredJourney/);
     assert.match(
       source,

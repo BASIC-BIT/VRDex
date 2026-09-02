@@ -173,6 +173,7 @@ describe("claim verification operational health", () => {
     scanLimitReached: false,
     uncheckedAttemptCount: 1,
     oldestUncheckedAgeMs: 90_000,
+    maxRecentFirstCheckLatencyMs: 90_000,
     freshCollectorCount: 1,
     authRequiredCount: 0,
     maxConsecutiveControlFailures: 0,
@@ -184,6 +185,7 @@ describe("claim verification operational health", () => {
       pendingEligibleAttemptCount: 1,
       uncheckedAttemptCount: 1,
       oldestUncheckedAgeMs: 90_000,
+      maxRecentFirstCheckLatencyMs: 90_000,
       freshCollectorCount: 1,
     });
   });
@@ -192,6 +194,10 @@ describe("claim verification operational health", () => {
     assert.throws(
       () => assertClaimHealth({ ...healthy, oldestUncheckedAgeMs: 120_001 }),
       /more than two minutes/,
+    );
+    assert.throws(
+      () => assertClaimHealth({ ...healthy, maxRecentFirstCheckLatencyMs: 120_001 }),
+      /took more than two minutes/,
     );
     assert.throws(
       () => assertClaimHealth({ ...healthy, freshCollectorCount: 0 }),

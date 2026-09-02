@@ -181,10 +181,17 @@ export function assertClaimHealth(health) {
       (typeof health?.oldestUncheckedAgeMs === "number" && health.oldestUncheckedAgeMs <= 120_000),
     "an eligible proof has remained unchecked for more than two minutes",
   );
+  assert.ok(
+    health?.maxRecentFirstCheckLatencyMs === null ||
+      (typeof health?.maxRecentFirstCheckLatencyMs === "number" &&
+        health.maxRecentFirstCheckLatencyMs <= 120_000),
+    "an eligible proof took more than two minutes to receive its first provider check",
+  );
   return {
     pendingEligibleAttemptCount: health.pendingEligibleAttemptCount,
     uncheckedAttemptCount: health.uncheckedAttemptCount,
     oldestUncheckedAgeMs: health.oldestUncheckedAgeMs,
+    maxRecentFirstCheckLatencyMs: health.maxRecentFirstCheckLatencyMs,
     freshCollectorCount: health.freshCollectorCount,
   };
 }

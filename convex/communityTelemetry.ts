@@ -55,6 +55,7 @@ const aggregateInstanceValidator = v.object({
 const WORKER_HEARTBEAT_FRESHNESS_MS = 2 * 60_000;
 const PROOF_POLL_HEARTBEAT_WRITE_MS = 30_000;
 const OPERATIONAL_HEALTH_ATTEMPT_LIMIT = 1_000;
+const FIRST_CHECK_HEALTH_LOOKBACK_MS = 15 * 60_000;
 const COLLECTOR_RELEASE_SHA_PATTERN = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
 
 function boundedWorkerId(value: string) {
@@ -2155,7 +2156,7 @@ export const collectorDeploymentReadiness = internalQuery({
 export const claimVerificationOperationalHealth = internalQuery({
   args: { now: v.number() },
   handler: async (ctx, args) => {
-    const [fleet, accounts, userAttempts, groupAttempts] = await Promise.all([
+    const [fleet, accounts, userAttempts, groupAttempts, recentProviderChecks] = await Promise.all([
       ctx.db
         .query("collectorFleetSettings")
         .withIndex("by_key", (q) => q.eq("key", "global"))
@@ -2173,9 +2174,20 @@ export const claimVerificationOperationalHealth = internalQuery({
           q.eq("state", "pending").eq("targetType", "vrchat_group"),
         )
         .take(OPERATIONAL_HEALTH_ATTEMPT_LIMIT + 1),
+      ctx.db
+        .query("profileClaimLifecycleEvents")
+        .withIndex("by_event_createdAt", (q) =>
+          q
+            .eq("event", "provider_checked")
+            .gte("createdAt", args.now - FIRST_CHECK_HEALTH_LOOKBACK_MS),
+        )
+        .order("desc")
+        .take(OPERATIONAL_HEALTH_ATTEMPT_LIMIT + 1),
     ]);
     const userScanLimitReached = userAttempts.length > OPERATIONAL_HEALTH_ATTEMPT_LIMIT;
     const groupScanLimitReached = groupAttempts.length > OPERATIONAL_HEALTH_ATTEMPT_LIMIT;
+    const providerCheckScanLimitReached =
+      recentProviderChecks.length > OPERATIONAL_HEALTH_ATTEMPT_LIMIT;
     const pending = [
       ...userAttempts.slice(0, OPERATIONAL_HEALTH_ATTEMPT_LIMIT),
       ...groupAttempts.slice(0, OPERATIONAL_HEALTH_ATTEMPT_LIMIT),
@@ -2200,10 +2212,26 @@ export const claimVerificationOperationalHealth = internalQuery({
       const key = account.lastWorkerReleaseSha ?? "unknown";
       releaseCounts.set(key, (releaseCounts.get(key) ?? 0) + 1);
     }
+    const recentCheckedAttemptIds = [
+      ...new Set(
+        recentProviderChecks
+          .slice(0, OPERATIONAL_HEALTH_ATTEMPT_LIMIT)
+          .map((event) => event.attemptId),
+      ),
+    ];
+    const recentCheckedAttempts = await Promise.all(
+      recentCheckedAttemptIds.map((attemptId) => ctx.db.get(attemptId)),
+    );
+    const recentFirstCheckLatencies = recentCheckedAttempts.flatMap((attempt) =>
+      attempt?.firstCheckAt === undefined
+        ? []
+        : [Math.max(0, attempt.firstCheckAt - attempt.createdAt)],
+    );
     return {
       fleetKillSwitchEnabled: fleet?.killSwitchEnabled ?? false,
       pendingEligibleAttemptCount: pending.length,
-      scanLimitReached: userScanLimitReached || groupScanLimitReached,
+      scanLimitReached:
+        userScanLimitReached || groupScanLimitReached || providerCheckScanLimitReached,
       uncheckedAttemptCount: unchecked.length,
       oldestUncheckedAgeMs:
         unchecked.length === 0
@@ -2211,7 +2239,11 @@ export const claimVerificationOperationalHealth = internalQuery({
           : Math.max(0, args.now - Math.min(...unchecked.map((attempt) => attempt.createdAt))),
       freshCollectorCount: freshCollectors.length,
       authRequiredCount: accounts.filter((account) => account.state === "auth_required").length,
-      maxConsecutiveControlFailures: accounts.reduce(
+      maxRecentFirstCheckLatencyMs:
+        recentFirstCheckLatencies.length === 0
+          ? null
+          : Math.max(...recentFirstCheckLatencies),
+      maxConsecutiveControlFailures: freshCollectors.reduce(
         (maximum, account) => Math.max(maximum, account.consecutiveControlFailures ?? 0),
         0,
       ),
