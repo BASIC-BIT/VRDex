@@ -2075,6 +2075,7 @@ export const collectorProofAvailable = internalQuery({
       .withIndex("by_key", (q) => q.eq("key", "global"))
       .first();
     if (fleet?.killSwitchEnabled) return false;
+    if (proofShareOf(fleet?.globalRequestsPerMinute ?? 30) < 1) return false;
 
     const accounts = await ctx.db
       .query("collectorAccounts")
@@ -2083,6 +2084,7 @@ export const collectorProofAvailable = internalQuery({
     return accounts.some(
       (account) =>
         !account.killSwitchEnabled &&
+        proofShareOf(account.requestsPerMinute) > 0 &&
         (account.cooldownUntil ?? 0) <= args.now &&
         (account.lastProofPollAt ?? 0) >= args.now - WORKER_HEARTBEAT_FRESHNESS_MS,
     );

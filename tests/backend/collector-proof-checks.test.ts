@@ -184,6 +184,34 @@ describe("collector proof check queue", () => {
       workerId: "worker-readiness",
       now,
     });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(collectorAccountId, { requestsPerMinute: 2 });
+    });
+    assert.equal(
+      await t.query(internal.communityTelemetry.collectorProofAvailable, { now }),
+      false,
+    );
+    await t.run(async (ctx) => {
+      await ctx.db.patch(collectorAccountId, { requestsPerMinute: 30 });
+      await ctx.db.insert("collectorFleetSettings", {
+        key: "global",
+        killSwitchEnabled: false,
+        globalRequestsPerMinute: 2,
+        updatedAt: now,
+      });
+    });
+    assert.equal(
+      await t.query(internal.communityTelemetry.collectorProofAvailable, { now }),
+      false,
+    );
+    await t.run(async (ctx) => {
+      const fleet = await ctx.db
+        .query("collectorFleetSettings")
+        .withIndex("by_key", (q) => q.eq("key", "global"))
+        .unique();
+      assert.ok(fleet);
+      await ctx.db.patch(fleet._id, { globalRequestsPerMinute: 30 });
+    });
     assert.equal(
       await t.query(internal.communityTelemetry.collectorProofAvailable, { now }),
       true,

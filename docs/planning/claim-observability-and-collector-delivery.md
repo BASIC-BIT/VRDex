@@ -54,7 +54,8 @@ The release workflow must:
 4. create and apply a saved Terraform plan using production run state;
 5. wait for ECS stability;
 6. verify the expected release heartbeat;
-7. retain the previous digest as the ECS circuit-breaker rollback target.
+7. retain the previous release metadata and reconcile both Terraform state and
+   ECS to that release when verification fails.
 
 Breaking worker protocol changes require a backward-compatible two-stage
 rollout. The control plane must accept the previous and current capability set

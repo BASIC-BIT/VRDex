@@ -7,7 +7,7 @@ import {
   redactProviderText,
   retryDelayMs as backendRetryDelay,
 } from "../../convex/_communityTelemetry";
-import { MAX_CONSECUTIVE_LOOP_FAILURES, RequestBudget, collectorLoopFailureEvent, collectorRestartEvent, collectorRuntimeMetadata, collectorShouldRestart, failureDisposition, randomPollDelayMs } from "../../workers/group-telemetry/runtime.mjs";
+import { MAX_CONSECUTIVE_LOOP_FAILURES, RequestBudget, collectorAuthRequiredEvent, collectorLoopFailureEvent, collectorRestartEvent, collectorRuntimeMetadata, collectorShouldRestart, failureDisposition, randomPollDelayMs } from "../../workers/group-telemetry/runtime.mjs";
 import { VrchatClient, VrchatProviderError } from "../../workers/group-telemetry/vrchat-client.mjs";
 import { VrchatOperatorLogin, VrchatSessionValidationError } from "../../workers/group-telemetry/vrchat-login.mjs";
 import { VrchatKeychainSessionStore, VrchatSessionStoreError } from "../../workers/group-telemetry/vrchat-session-store.mjs";
@@ -426,6 +426,9 @@ describe("group telemetry metrics and safety helpers", () => {
       event: "collector_worker_restart",
       reason: "consecutive_loop_failures",
       attempt: 6,
+    });
+    assert.deepEqual(collectorAuthRequiredEvent(), {
+      event: "collector_auth_required",
     });
     assert.equal(collectorShouldRestart(MAX_CONSECUTIVE_LOOP_FAILURES - 1), false);
     assert.equal(collectorShouldRestart(MAX_CONSECUTIVE_LOOP_FAILURES), true);

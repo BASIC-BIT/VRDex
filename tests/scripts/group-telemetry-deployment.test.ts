@@ -260,7 +260,13 @@ describe("group telemetry release workflow", () => {
     assert.match(commands, /collectorDeploymentReadiness/);
     assert.match(commands, /CONVEX_DEPLOY_KEY="\$CONVEX_DEPLOY_KEY_PROD" pnpm --silent exec convex run --prod/);
     assert.match(commands, /PREVIOUS_TASK_DEFINITION/);
-    assert.match(commands, /ecs update-service/);
+    assert.match(commands, /PREVIOUS_IMAGE_URI/);
+    assert.match(commands, /TF_VAR_release_sha="\$PREVIOUS_RELEASE_SHA"/);
+    assert.match(commands, /terraform apply -auto-approve -var-file=environments\/production\.tfvars/);
+    assert.match(commands, /rollback_task_definition="\$\(terraform output -raw task_definition_arn\)"/);
+    const rollback = (release.steps ?? []).find((step) => step.name === "Reconcile Terraform and ECS to the previous release");
+    assert.ok(rollback, "Terraform rollback step is missing");
+    assert.doesNotMatch(rollback.run ?? "", /ecs update-service/);
     assert.match(commands, /deadline=\$\(\(SECONDS \+ 300\)\)/);
     assert.match(commands, /sleep 10/);
   });
@@ -291,6 +297,8 @@ describe("group telemetry release workflow", () => {
     assert.match(source, /period\s+= 60/);
     assert.match(source, /treat_missing_data\s+= "breaching"/);
     assert.match(source, /resource "aws_cloudwatch_dashboard" "operations"/);
+    assert.match(source, /observability_namespace\s+= "VRDex\/GroupTelemetry\/\$\{var\.name_prefix\}"/);
+    assert.match(source, /namespace\s+= local\.observability_namespace/);
     assert.match(source, /fields @timestamp, event, outcome, attempt, retryDelayMs/);
     assert.match(source, /skip_destroy\s+= true/);
   });

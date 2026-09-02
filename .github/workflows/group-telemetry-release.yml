@@ -163,7 +163,20 @@ jobs:
           set -euo pipefail
           previous_task_definition="$(aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" --query 'services[0].taskDefinition' --output text)"
           [ -n "$previous_task_definition" ] && [ "$previous_task_definition" != "None" ] || { echo "::error::Collector service has no rollback task definition."; exit 1; }
+          aws ecs describe-task-definition --task-definition "$previous_task_definition" > previous-task-definition.json
+          previous_image_uri="$(jq -er '.taskDefinition.containerDefinitions[] | select(.name == "collector") | .image' previous-task-definition.json)"
+          previous_release_sha="$(jq -er '.taskDefinition.containerDefinitions[] | select(.name == "collector") | .environment[] | select(.name == "VRDEX_GROUP_TELEMETRY_RELEASE_SHA") | .value' previous-task-definition.json)"
+          previous_release_version="$(jq -er '.taskDefinition.containerDefinitions[] | select(.name == "collector") | .environment[] | select(.name == "VRDEX_GROUP_TELEMETRY_RELEASE_VERSION") | .value' previous-task-definition.json)"
+          previous_capabilities="$(jq -er '.taskDefinition.containerDefinitions[] | select(.name == "collector") | .environment[] | select(.name == "VRDEX_GROUP_TELEMETRY_CAPABILITIES") | .value' previous-task-definition.json)"
+          [[ "$previous_image_uri" =~ @sha256:[0-9a-fA-F]{64}$ ]] || { echo "::error::Rollback image is not an immutable digest."; exit 1; }
+          [[ "$previous_release_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Rollback release SHA is invalid."; exit 1; }
+          [[ "$previous_release_version" =~ ^[a-z0-9][a-z0-9._-]{0,63}$ ]] || { echo "::error::Rollback release version is invalid."; exit 1; }
+          [[ "$previous_capabilities" =~ ^(telemetry_v1,vrchat_proof_v1|vrchat_proof_v1,telemetry_v1)$ ]] || { echo "::error::Rollback capabilities are invalid."; exit 1; }
           echo "PREVIOUS_TASK_DEFINITION=$previous_task_definition" >> "$GITHUB_ENV"
+          echo "PREVIOUS_IMAGE_URI=$previous_image_uri" >> "$GITHUB_ENV"
+          echo "PREVIOUS_RELEASE_SHA=$previous_release_sha" >> "$GITHUB_ENV"
+          echo "PREVIOUS_RELEASE_VERSION=$previous_release_version" >> "$GITHUB_ENV"
+          echo "PREVIOUS_RELEASE_CAPABILITIES=$(jq -cn --arg value "$previous_capabilities" '$value | split(",")')" >> "$GITHUB_ENV"
 
       - name: Apply the inspected saved plan
         id: apply
@@ -204,14 +217,20 @@ jobs:
           echo "::error::Collector did not report a matching fresh heartbeat within five minutes."
           exit 1
 
-      - name: Roll back a release that never becomes control-plane ready
+      - name: Reconcile Terraform and ECS to the previous release
         if: steps.apply.outcome == 'failure' || steps.verify-ecs.outcome == 'failure' || steps.verify-heartbeat.outcome == 'failure'
+        working-directory: infra/terraform/group-telemetry-collector
         run: |
           set -euo pipefail
-          aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE" --task-definition "$PREVIOUS_TASK_DEFINITION" >/dev/null
+          export TF_VAR_container_image="$PREVIOUS_IMAGE_URI"
+          export TF_VAR_release_sha="$PREVIOUS_RELEASE_SHA"
+          export TF_VAR_release_version="$PREVIOUS_RELEASE_VERSION"
+          export TF_VAR_release_capabilities="$PREVIOUS_RELEASE_CAPABILITIES"
+          terraform apply -auto-approve -var-file=environments/production.tfvars
+          rollback_task_definition="$(terraform output -raw task_definition_arn)"
           aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE"
           restored="$(aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" --query 'services[0].taskDefinition' --output text)"
-          [ "$restored" = "$PREVIOUS_TASK_DEFINITION" ] || { echo "::error::Collector rollback did not restore the previous task definition."; exit 1; }
+          [ "$restored" = "$rollback_task_definition" ] || { echo "::error::Collector rollback did not reconcile ECS with Terraform state."; exit 1; }
 
       - name: Fail release after verified rollback
         if: steps.apply.outcome == 'failure' || steps.verify-ecs.outcome == 'failure' || steps.verify-heartbeat.outcome == 'failure'

@@ -1,7 +1,7 @@
 import { setTimeout as sleep } from "node:timers/promises";
 
 import { VrchatClient } from "./vrchat-client.mjs";
-import { COLLECTOR_VERSION, RequestBudget, TelemetryControlClient, boundedProviderCategory, collectorLoopFailureEvent, collectorRestartEvent, collectorRuntimeMetadata, collectorShouldRestart, failureDisposition, pollId, randomPollDelayMs, retryDelayMs } from "./runtime.mjs";
+import { COLLECTOR_VERSION, RequestBudget, TelemetryControlClient, boundedProviderCategory, collectorAuthRequiredEvent, collectorLoopFailureEvent, collectorRestartEvent, collectorRuntimeMetadata, collectorShouldRestart, failureDisposition, pollId, randomPollDelayMs, retryDelayMs } from "./runtime.mjs";
 
 function requiredEnv(name) {
   const value = process.env[name]?.trim();
@@ -161,7 +161,10 @@ async function collect(assignment) {
     attempts.set(assignment.integrationId, attempt);
     const failure = failureDisposition(error, attempt);
     await control.send("failure", { ...lease, ...failure, collectorVersion: COLLECTOR_VERSION, now: Date.now() });
-    if (failure.stopAccount) stopping = true;
+    if (failure.stopAccount) {
+      logEvent(collectorAuthRequiredEvent());
+      stopping = true;
+    }
   } finally {
     await control.send("release", lease).catch(() => undefined);
   }
@@ -299,7 +302,7 @@ async function checkProofs() {
             now: Date.now(),
           })
           .catch(() => undefined);
-        logEvent({ event: "collector_auth_required" });
+        logEvent(collectorAuthRequiredEvent());
         await releaseUnread(pending, attempt);
 
         try {

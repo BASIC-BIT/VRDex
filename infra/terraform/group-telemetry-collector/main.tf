@@ -1,6 +1,7 @@
 locals {
-  component    = "group-telemetry-collector"
-  worker_image = var.container_image != null ? var.container_image : "${aws_ecr_repository.worker.repository_url}:bootstrap-placeholder"
+  component               = "group-telemetry-collector"
+  observability_namespace = "VRDex/GroupTelemetry/${var.name_prefix}"
+  worker_image            = var.container_image != null ? var.container_image : "${aws_ecr_repository.worker.repository_url}:bootstrap-placeholder"
   tags = merge({
     Project   = "VRDex"
     ManagedBy = "Terraform"
@@ -220,7 +221,7 @@ resource "aws_cloudwatch_log_metric_filter" "collector_heartbeat" {
 
   metric_transformation {
     name      = "CollectorHeartbeat"
-    namespace = "VRDex/GroupTelemetry"
+    namespace = local.observability_namespace
     value     = "1"
     unit      = "Count"
   }
@@ -230,7 +231,7 @@ resource "aws_cloudwatch_metric_alarm" "collector_heartbeat" {
   count               = var.enable_service ? 1 : 0
   alarm_name          = "${var.name_prefix}-missing-heartbeat"
   alarm_description   = "The collector emitted no successful control-plane heartbeat for two minutes."
-  namespace           = "VRDex/GroupTelemetry"
+  namespace           = local.observability_namespace
   metric_name         = aws_cloudwatch_log_metric_filter.collector_heartbeat.metric_transformation[0].name
   comparison_operator = "LessThanThreshold"
   evaluation_periods  = 2
@@ -248,7 +249,7 @@ resource "aws_cloudwatch_log_metric_filter" "auth_required" {
 
   metric_transformation {
     name          = "AuthRequired"
-    namespace     = "VRDex/GroupTelemetry"
+    namespace     = local.observability_namespace
     value         = "1"
     default_value = "0"
     unit          = "Count"
@@ -259,7 +260,7 @@ resource "aws_cloudwatch_metric_alarm" "auth_required" {
   count               = var.enable_service ? 1 : 0
   alarm_name          = "${var.name_prefix}-auth-required"
   alarm_description   = "The collector reported that its VRChat session requires operator authentication."
-  namespace           = "VRDex/GroupTelemetry"
+  namespace           = local.observability_namespace
   metric_name         = aws_cloudwatch_log_metric_filter.auth_required.metric_transformation[0].name
   comparison_operator = "GreaterThanOrEqualToThreshold"
   evaluation_periods  = 1
@@ -277,7 +278,7 @@ resource "aws_cloudwatch_log_metric_filter" "control_plane_failure" {
 
   metric_transformation {
     name          = "ControlPlaneFailure"
-    namespace     = "VRDex/GroupTelemetry"
+    namespace     = local.observability_namespace
     value         = "1"
     default_value = "0"
     unit          = "Count"
@@ -288,7 +289,7 @@ resource "aws_cloudwatch_metric_alarm" "control_plane_failures" {
   count               = var.enable_service ? 1 : 0
   alarm_name          = "${var.name_prefix}-control-plane-failures"
   alarm_description   = "The collector reported at least three control-plane failures within five minutes."
-  namespace           = "VRDex/GroupTelemetry"
+  namespace           = local.observability_namespace
   metric_name         = aws_cloudwatch_log_metric_filter.control_plane_failure.metric_transformation[0].name
   comparison_operator = "GreaterThanOrEqualToThreshold"
   evaluation_periods  = 1
@@ -306,7 +307,7 @@ resource "aws_cloudwatch_log_metric_filter" "worker_restart" {
 
   metric_transformation {
     name          = "WorkerRestart"
-    namespace     = "VRDex/GroupTelemetry"
+    namespace     = local.observability_namespace
     value         = "1"
     default_value = "0"
     unit          = "Count"
@@ -317,7 +318,7 @@ resource "aws_cloudwatch_metric_alarm" "worker_restarts" {
   count               = var.enable_service ? 1 : 0
   alarm_name          = "${var.name_prefix}-worker-restarts"
   alarm_description   = "The collector restarted at least three times within fifteen minutes."
-  namespace           = "VRDex/GroupTelemetry"
+  namespace           = local.observability_namespace
   metric_name         = aws_cloudwatch_log_metric_filter.worker_restart.metric_transformation[0].name
   comparison_operator = "GreaterThanOrEqualToThreshold"
   evaluation_periods  = 1
@@ -345,7 +346,7 @@ resource "aws_cloudwatch_dashboard" "operations" {
           period = 60
           stat   = "Sum"
           metrics = [
-            ["VRDex/GroupTelemetry", "CollectorHeartbeat"],
+            [local.observability_namespace, "CollectorHeartbeat"],
             [".", "ControlPlaneFailure"],
             [".", "AuthRequired"],
             [".", "WorkerRestart"],

@@ -75,11 +75,14 @@ metadata values, plus the service's task-definition pointer, is accepted.
 Networking, identity, scaling, enablement, budget, alarms, secrets, and every
 other infrastructure change fail closed for manual review.
 
-Before apply, the lane records the currently serving task definition. ECS task
-definition revisions use `skip_destroy`, so that revision stays runnable. If
-Terraform apply, ECS identity/digest verification, or the bounded five-minute
-heartbeat convergence gate fails, the workflow restores that revision, waits
-for service stability, verifies the restored service pointer, and then fails.
+Before apply, the lane records and validates the currently serving immutable
+image and release metadata. ECS task definition revisions use `skip_destroy`,
+so that revision stays runnable. If Terraform apply, ECS identity/digest
+verification, or the bounded five-minute heartbeat convergence gate fails, the
+workflow reapplies the prior values through Terraform, waits for service
+stability, verifies that ECS matches Terraform's restored task definition, and
+then fails. This keeps live service and Terraform state aligned so the same SHA
+can be retried.
 Old inactive revisions are an operator retention concern; the automatic lane
 does not deregister rollback artifacts.
 

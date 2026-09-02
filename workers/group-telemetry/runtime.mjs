@@ -119,6 +119,10 @@ export function collectorRestartEvent(attempt) {
   };
 }
 
+export function collectorAuthRequiredEvent() {
+  return { event: "collector_auth_required" };
+}
+
 export function collectorShouldRestart(attempt) {
   return attempt >= MAX_CONSECUTIVE_LOOP_FAILURES;
 }
