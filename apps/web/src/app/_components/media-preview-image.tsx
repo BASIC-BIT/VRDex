@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
@@ -19,6 +19,17 @@ export function MediaPreviewImage({
   const [attempt, setAttempt] = useState(0);
   const failed = failedSrc === src;
   const loaded = loadedSrc === src;
+  const recordCompletedImage = useCallback((image: HTMLImageElement | null) => {
+    if (!image?.complete) {
+      return;
+    }
+
+    if (image.naturalWidth > 0) {
+      setLoadedSrc(src);
+    } else {
+      setFailedSrc(src);
+    }
+  }, [src]);
 
   if (failed) {
     return (
@@ -64,6 +75,7 @@ export function MediaPreviewImage({
         loading="lazy"
         onError={() => setFailedSrc(src)}
         onLoad={() => setLoadedSrc(src)}
+        ref={recordCompletedImage}
         src={src}
       />
     </>

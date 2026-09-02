@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 
 import { cn } from "@/lib/cn";
 
@@ -18,6 +18,17 @@ export function ProfileAvatarImage({
   const loaded = loadedSrc === src;
   const failed = failedSrc === src;
   const showImage = Boolean(src && !failed);
+  const recordCompletedImage = useCallback((image: HTMLImageElement | null) => {
+    if (!image?.complete) {
+      return;
+    }
+
+    if (image.naturalWidth > 0) {
+      setLoadedSrc(src ?? null);
+    } else {
+      setFailedSrc(src ?? null);
+    }
+  }, [src]);
 
   return (
     <span aria-busy={showImage && !loaded} className="contents">
@@ -35,6 +46,7 @@ export function ProfileAvatarImage({
           loading="eager"
           onError={() => setFailedSrc(src ?? null)}
           onLoad={() => setLoadedSrc(src ?? null)}
+          ref={recordCompletedImage}
           src={src}
         />
       ) : null}

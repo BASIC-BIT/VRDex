@@ -385,6 +385,9 @@ test.describe("fixture lookup smoke", () => {
 
     await expect(page.getByRole("img", { name: "DJ Aurora display image" })).toHaveCSS("opacity", "1");
     await expect(avatarState).toHaveCount(0);
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.getByRole("img", { name: "DJ Aurora display image" })).toHaveCSS("opacity", "1");
   });
 
   test("media preview shows progress until its image loads", async ({ page }) => {
@@ -413,6 +416,11 @@ test.describe("fixture lookup smoke", () => {
 
     await expect(preview).toHaveCSS("opacity", "1");
     await expect(logoCard.getByRole("status", { name: "Loading image" })).toHaveCount(0);
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    const reloadedMediaKit = page.getByRole("heading", { name: "Media kit" }).locator("xpath=ancestor::section");
+    await reloadedMediaKit.scrollIntoViewIfNeeded();
+    await expect(reloadedMediaKit.getByRole("img", { name: "Aurora wordmark" })).toHaveCSS("opacity", "1");
   });
 
   test("VRCDN live state recovers after the profile renders without a reload", async ({ page }) => {
