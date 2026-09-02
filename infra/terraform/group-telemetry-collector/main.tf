@@ -381,7 +381,7 @@ resource "aws_cloudwatch_dashboard" "operations" {
           title  = "Recent redacted collector operations"
           region = var.aws_region
           view   = "table"
-          query  = "SOURCE '${aws_cloudwatch_log_group.worker.name}' | fields @timestamp, event, outcome, attempt, retryDelayMs | filter event like /collector_/ | sort @timestamp desc | limit 100"
+          query  = "SOURCE '${aws_cloudwatch_log_group.worker.name}' | fields @timestamp, event, outcome, attempt, retryAfterMs | filter event like /collector_/ | sort @timestamp desc | limit 100"
         }
       },
     ]

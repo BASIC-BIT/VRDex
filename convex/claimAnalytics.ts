@@ -137,7 +137,7 @@ export const recoverUndeliveredDeliveries = internalMutation({
   },
 });
 
-/** Bound delivered dedupe history and rows from deployments that opt out. */
+/** Bound terminal transport history, including unrecoverable dead letters. */
 export const sweepDeliveredEvents = internalMutation({
   args: { now: v.optional(v.number()) },
   handler: async (ctx, args) => {
@@ -156,7 +156,15 @@ export const sweepDeliveredEvents = internalMutation({
           )
           .take(DELIVERED_CLEANUP_BATCH - delivered.length)
       : [];
-    const expired = [...delivered, ...disabled];
+    const failed = delivered.length + disabled.length < DELIVERED_CLEANUP_BATCH
+      ? await ctx.db
+          .query("claimAnalyticsOutbox")
+          .withIndex("by_state_occurredAt", (query) =>
+            query.eq("state", "failed").lt("occurredAt", cutoff),
+          )
+          .take(DELIVERED_CLEANUP_BATCH - delivered.length - disabled.length)
+      : [];
+    const expired = [...delivered, ...disabled, ...failed];
 
     await Promise.all(expired.map(async (row) => await ctx.db.delete(row._id)));
     if (expired.length === DELIVERED_CLEANUP_BATCH) {

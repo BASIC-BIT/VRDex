@@ -201,10 +201,10 @@ describe("claim analytics outbox", () => {
     assert.equal(claimed.row?._id, expiredLeaseId);
   });
 
-  it("deletes only delivered analytics rows past the retention window", async () => {
+  it("deletes terminal analytics rows past the retention window", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
-    const oldDeliveredId = await t.run(async (ctx) => {
+    const { oldDeliveredId, oldFailedId } = await t.run(async (ctx) => {
       const base = {
         journeyId,
         event: "claim_attempt_created" as const,
@@ -215,7 +215,7 @@ describe("claim analytics outbox", () => {
         attemptCount: 1,
         nextAttemptAt: now,
       };
-      const id = await ctx.db.insert("claimAnalyticsOutbox", {
+      const oldDeliveredId = await ctx.db.insert("claimAnalyticsOutbox", {
         ...base,
         eventKey: "old-delivered",
         state: "delivered",
@@ -227,9 +227,15 @@ describe("claim analytics outbox", () => {
         state: "delivered",
         deliveredAt: now - 29 * 24 * 60 * 60 * 1_000,
       });
-      await ctx.db.insert("claimAnalyticsOutbox", {
+      const oldFailedId = await ctx.db.insert("claimAnalyticsOutbox", {
         ...base,
         eventKey: "old-failed",
+        state: "failed",
+      });
+      await ctx.db.insert("claimAnalyticsOutbox", {
+        ...base,
+        eventKey: "recent-failed",
+        occurredAt: now - 29 * 24 * 60 * 60 * 1_000,
         state: "failed",
       });
       await ctx.db.insert("claimAnalyticsOutbox", {
@@ -237,16 +243,23 @@ describe("claim analytics outbox", () => {
         eventKey: "old-disabled",
         state: "disabled",
       });
-      return id;
+      await ctx.db.insert("claimAnalyticsOutbox", {
+        ...base,
+        eventKey: "old-pending",
+        state: "pending",
+        attemptCount: 0,
+      });
+      return { oldDeliveredId, oldFailedId };
     });
 
     assert.deepEqual(
       await t.mutation(internal.claimAnalytics.sweepDeliveredEvents, { now }),
-      { deletedCount: 2 },
+      { deletedCount: 3 },
     );
     await t.run(async (ctx) => {
       assert.equal(await ctx.db.get(oldDeliveredId), null);
-      assert.equal((await ctx.db.query("claimAnalyticsOutbox").collect()).length, 2);
+      assert.equal(await ctx.db.get(oldFailedId), null);
+      assert.equal((await ctx.db.query("claimAnalyticsOutbox").collect()).length, 3);
     });
   });
 

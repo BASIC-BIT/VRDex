@@ -405,6 +405,12 @@ resource "posthog_insight" "claim_first_check_latency" {
       }
       interval = "day"
       kind     = "TrendsQuery"
+      properties = [{
+        key      = "method"
+        operator = "exact"
+        type     = "event"
+        value    = ["vrchat", "vrclinking"]
+      }]
       series = [{
         event = "claim_verification_started"
         kind  = "EventsNode"

@@ -430,7 +430,8 @@ describe("group telemetry release workflow", () => {
     assert.match(source, /tagStatus\s+= "untagged"/);
     assert.match(source, /countType\s+= "sinceImagePushed"/);
     assert.doesNotMatch(source, /imageCountMoreThan/);
-    assert.match(source, /fields @timestamp, event, outcome, attempt, retryDelayMs/);
+    assert.match(source, /fields @timestamp, event, outcome, attempt, retryAfterMs/);
+    assert.doesNotMatch(source, /fields @timestamp, event, outcome, attempt, retryDelayMs/);
     assert.match(source, /skip_destroy\s+= true/);
     assert.match(worker, /async function pauseWithHeartbeats/);
     assert.match(worker, /await pauseWithHeartbeats\(retryAfterMs\)/);
@@ -448,6 +449,10 @@ describe("group telemetry release workflow", () => {
     assert.match(source, /properties\.connection_only = 'true'/);
     assert.match(source, /toDate\(timestamp\) AS day/);
     assert.match(source, /transport-level browser submissions/);
+    assert.match(
+      source,
+      /resource "posthog_insight" "claim_first_check_latency"[\s\S]*key\s+= "method"[\s\S]*value\s+= \["vrchat", "vrclinking"\]/,
+    );
   });
 });
 
