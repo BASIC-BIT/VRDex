@@ -241,6 +241,40 @@ function throwIfAborted(signal: AbortSignal): void {
   }
 }
 
+function awaitWithAbort<T>(
+  promise: Promise<T>,
+  signal: AbortSignal,
+  disposeLateValue?: (value: T) => void,
+): Promise<T> {
+  if (signal.aborted) {
+    return Promise.reject(signal.reason instanceof Error ? signal.reason : timeoutError());
+  }
+
+  return new Promise<T>((resolve, reject) => {
+    let aborted = false;
+    const abort = () => {
+      aborted = true;
+      reject(signal.reason instanceof Error ? signal.reason : timeoutError());
+    };
+
+    signal.addEventListener("abort", abort, { once: true });
+    promise.then(
+      (value) => {
+        signal.removeEventListener("abort", abort);
+        if (aborted) {
+          disposeLateValue?.(value);
+          return;
+        }
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", abort);
+        if (!aborted) reject(error);
+      },
+    );
+  });
+}
+
 async function responseBodyWithLimit(
   response: IncomingMessage,
   signal: AbortSignal,
@@ -297,10 +331,20 @@ export async function fetchProfileAssetSourceUrl(
     for (let redirects = 0; redirects <= SOURCE_URL_MAX_REDIRECTS; redirects += 1) {
       throwIfAborted(abortController.signal);
       dependencies.assertSourceUrl?.(currentUrl);
-      const address = await resolvePublicHttpsSourceUrl(currentUrl, resolveHostname);
+      const address = await awaitWithAbort(
+        resolvePublicHttpsSourceUrl(currentUrl, resolveHostname),
+        abortController.signal,
+      );
       throwIfAborted(abortController.signal);
-      const response = await requestSource(currentUrl, address, abortController.signal);
-      throwIfAborted(abortController.signal);
+      const response = await awaitWithAbort(
+        requestSource(currentUrl, address, abortController.signal),
+        abortController.signal,
+        (lateResponse) => lateResponse.destroy(timeoutError()),
+      );
+      if (abortController.signal.aborted) {
+        response.destroy(timeoutError());
+        throwIfAborted(abortController.signal);
+      }
       const redirectedUrl = redirectLocation(
         response.statusCode,
         response.headers.location,
@@ -317,13 +361,19 @@ export async function fetchProfileAssetSourceUrl(
         throw new Error(`Source URL returned HTTP ${response.statusCode ?? 0}.`);
       }
 
-      const mimeType = normalizedContentType(firstHeaderValue(response.headers["content-type"]));
-      assertAllowedMimeType(mimeType);
-      const contentLength = contentLengthFromHeader(
-        firstHeaderValue(response.headers["content-length"]),
-      );
-      if (contentLength !== null) {
-        assertAllowedByteSize(contentLength);
+      let mimeType: string;
+      try {
+        mimeType = normalizedContentType(firstHeaderValue(response.headers["content-type"]));
+        assertAllowedMimeType(mimeType);
+        const contentLength = contentLengthFromHeader(
+          firstHeaderValue(response.headers["content-length"]),
+        );
+        if (contentLength !== null) {
+          assertAllowedByteSize(contentLength);
+        }
+      } catch (error) {
+        response.destroy();
+        throw error;
       }
 
       return {

@@ -269,6 +269,18 @@ function fixtureEventShareCard(
         status: "cancelled",
       };
     }
+
+    if (eventSlug === "playwright-event-share-long-community") {
+      return {
+        slug: eventSlug,
+        communitySlug,
+        communityName: "A".repeat(80),
+        title: "Night Shift",
+        startAt: Date.UTC(2026, 5, 14, 22, 0, 0),
+        timezone: "America/New_York",
+        status: "scheduled",
+      };
+    }
   }
 
   const event = getPlaywrightPublicEventFixture(eventSlug);

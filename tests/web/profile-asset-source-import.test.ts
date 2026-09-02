@@ -165,4 +165,36 @@ describe("profile asset source imports", () => {
       response.destroy();
     }
   });
+
+  it("enforces the total deadline while hostname resolution is stalled", async () => {
+    let requested = false;
+
+    await assert.rejects(
+      fetchProfileAssetSourceUrl("https://media.example.test/stalled.webp", {
+        resolveHostname: async () => await new Promise(() => {}),
+        requestPinnedSource: async () => {
+          requested = true;
+          return sourceResponse({ statusCode: 200 });
+        },
+        totalTimeoutMs: 15,
+      }),
+      /total timeout/,
+    );
+    assert.equal(requested, false);
+  });
+
+  it("destroys responses rejected during header validation", async () => {
+    const response = new Readable({ read() {} }) as IncomingMessage;
+    response.statusCode = 200;
+    response.headers = { "content-type": "text/plain" };
+
+    await assert.rejects(
+      fetchProfileAssetSourceUrl("https://media.example.test/not-an-image.txt", {
+        resolveHostname: async () => [{ address: "93.184.216.34" }],
+        requestPinnedSource: async () => response,
+      }),
+      /must be PNG, SVG, JPEG, or WebP/,
+    );
+    assert.equal(response.destroyed, true);
+  });
 });

@@ -99,7 +99,16 @@ export function EventShareCardImage({
             {title}
           </div>
           {event?.communityName ? (
-            <div style={{ color: "#8e99a8", display: "flex", fontSize: 24, marginTop: 24 }}>
+            <div
+              style={{
+                color: "#8e99a8",
+                display: "flex",
+                fontSize: 24,
+                marginTop: 24,
+                maxWidth: "100%",
+                wordBreak: "break-word",
+              }}
+            >
               {event.communityName}
             </div>
           ) : null}

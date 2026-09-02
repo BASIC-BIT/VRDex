@@ -40,6 +40,18 @@ const eventShareImageFixtures = [
       status: "cancelled",
     },
   },
+  {
+    name: "event-open-graph-image-long-community",
+    event: {
+      slug: "playwright-event-share-long-community",
+      communitySlug: "playwright-afterglow-social",
+      communityName: "A".repeat(80),
+      title: "Night Shift",
+      startAt: Date.UTC(2026, 5, 14, 22, 0, 0),
+      timezone: "America/New_York",
+      status: "scheduled",
+    },
+  },
 ] as const satisfies ReadonlyArray<{ name: string; event: PublicEventShareCard }>;
 
 test.beforeEach(async ({ page }) => {
