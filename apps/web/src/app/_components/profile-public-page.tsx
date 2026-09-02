@@ -9,7 +9,6 @@ import { ProfileVrcdnStreams } from "./profile-vrcdn-streams";
 import { ProfilePrivateRecord } from "./profile-private-record";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, Eyebrow, SectionHeading } from "@/components/ui/card";
-import { CopyValueRow } from "@/components/ui/copy-value-row";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
 import { VerifiedTrustMark } from "@/components/ui/verified-trust-mark";
 import { avatarFrameStyle, defaultAvatarAppearance, type AvatarAppearance } from "@/lib/avatar-appearance";
@@ -436,17 +435,10 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
     return stream ? [{ item, label: link.label, stream }] : [];
   });
   const claimableVrcdnStreams = vrcdnStreams.filter(({ item }) => carriesLiveClaim(item.link));
-  const initiallyLiveVrcdnStreams = claimableVrcdnStreams.filter(
-    ({ stream }) => profile.vrcdnLive?.[stream.streamId] === "live",
-  );
   const creatorLinks = validLinks.filter(
     (item) =>
       item !== twitchLink &&
-      !discordHandles.some((discord) => discord.item === item) &&
-      // A confirmed-live stream moves into the Watch surface. Offline and
-      // unavailable streams remain ordinary profile links instead of
-      // disappearing with the player.
-      !initiallyLiveVrcdnStreams.some((vrcdn) => vrcdn.item === item),
+      !discordHandles.some((discord) => discord.item === item),
   );
   const aliases = profile.aliases.slice(0, 3);
   const remainingAliases = profile.aliases.slice(3);
@@ -662,7 +654,17 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
         ) : null}
 
         <ProfileVrcdnStreams
+          discordHandles={discordHandles.map(({ handle, item }) => ({
+            handle,
+            key: item.link.url,
+          }))}
           initialLiveStates={profile.vrcdnLive}
+          links={creatorLinks.map(({ link, href }) => ({
+            href,
+            key: `${link.type}-${link.url}`,
+            label: link.label,
+            streamId: claimableVrcdnStreams.find(({ item }) => item.link === link)?.stream.streamId,
+          }))}
           profileSlug={profile.slug}
           streams={claimableVrcdnStreams.map(({ label, stream }) => ({
             label,
@@ -689,32 +691,7 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
               </a>
             </div>
           ) : undefined}
-        >
-          <>
-            {creatorLinks.length > 0 || discordHandles.length > 0 ? (
-              <section className="py-8">
-                <SectionHeading>Links</SectionHeading>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {creatorLinks.map(({ link, href }) => (
-                    <a
-                      className={cn(buttonVariants({ variant: "secondary" }), "gap-2")}
-                      href={href}
-                      key={`${link.type}-${link.url}`}
-                      rel="noreferrer"
-                      target="_blank"
-                    >
-                      {link.label}
-                      <ExternalLink aria-hidden="true" className="size-3.5" />
-                    </a>
-                  ))}
-                </div>
-                {discordHandles.map(({ handle, item }) => (
-                  <CopyValueRow compact className="mt-4" key={item.link.url} label="Discord" value={handle} />
-                ))}
-              </section>
-            ) : null}
-          </>
-        </ProfileVrcdnStreams>
+        />
 
         {!isPerson && profile.telemetry ? <CommunityActivity telemetry={profile.telemetry} /> : null}
 

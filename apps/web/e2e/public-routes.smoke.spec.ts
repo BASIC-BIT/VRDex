@@ -456,7 +456,7 @@ test.describe("fixture lookup smoke", () => {
     releaseFirstResponse();
 
     await expect(page.getByText("VRCDN stream", { exact: true })).toBeVisible();
-    await expect(page.getByRole("link", { name: "VRCDN stream" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "VRCDN stream" })).toHaveCount(0);
     await expect(page.getByText("Live now", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Play VRCDN stream" })).toBeVisible();
     await expect(page.locator("video")).toHaveCount(0);
@@ -519,7 +519,7 @@ test.describe("fixture lookup smoke", () => {
     releaseSecondResponse();
 
     await expect(player).toHaveCount(0);
-    await expect(page.getByText("VRCDN", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "VRCDN", exact: true })).toBeVisible();
   });
 
   test("confirmed VRCDN player survives two profile-live route failures", async ({ page }) => {
