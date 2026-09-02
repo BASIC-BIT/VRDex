@@ -252,6 +252,15 @@ describe("collector proof check queue", () => {
       matchingReleaseCount: 1,
       authRequiredCount: 0,
     });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(collectorAccountId, { cooldownUntil: now + 5 * 60_000 });
+    });
+    assert.equal((await t.query(internal.communityTelemetry.collectorDeploymentReadiness, {
+      expectedReleaseSha: releaseSha,
+      requiredCapabilities: ["telemetry_v1", "vrchat_proof_v1"],
+      maxHeartbeatAgeMs: 120_000,
+      now,
+    })).healthy, true);
     assert.equal(JSON.stringify(ready).includes("readiness"), false);
   });
 

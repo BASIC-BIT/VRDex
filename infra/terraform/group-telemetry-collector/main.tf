@@ -28,11 +28,12 @@ resource "aws_ecr_lifecycle_policy" "worker" {
   policy = jsonencode({
     rules = [{
       rulePriority = 1
-      description  = "Keep ten collector images."
+      description  = "Remove only untagged collector images after seven days."
       selection = {
-        tagStatus   = "any"
-        countType   = "imageCountMoreThan"
-        countNumber = 10
+        tagStatus   = "untagged"
+        countType   = "sinceImagePushed"
+        countUnit   = "days"
+        countNumber = 7
       }
       action = { type = "expire" }
     }]
@@ -274,7 +275,7 @@ resource "aws_cloudwatch_metric_alarm" "auth_required" {
 resource "aws_cloudwatch_log_metric_filter" "control_plane_failure" {
   name           = "${var.name_prefix}-control-plane-failure"
   log_group_name = aws_cloudwatch_log_group.worker.name
-  pattern        = "{ $.event = \"collector_control_plane_failure\" }"
+  pattern        = "{ $.event = \"collector_control_plane_failure\" && $.attempt >= 3 }"
 
   metric_transformation {
     name          = "ControlPlaneFailure"
@@ -288,14 +289,14 @@ resource "aws_cloudwatch_log_metric_filter" "control_plane_failure" {
 resource "aws_cloudwatch_metric_alarm" "control_plane_failures" {
   count               = var.enable_service ? 1 : 0
   alarm_name          = "${var.name_prefix}-control-plane-failures"
-  alarm_description   = "The collector reported at least three control-plane failures within five minutes."
+  alarm_description   = "The collector reached three consecutive control-plane failures."
   namespace           = local.observability_namespace
   metric_name         = aws_cloudwatch_log_metric_filter.control_plane_failure.metric_transformation[0].name
   comparison_operator = "GreaterThanOrEqualToThreshold"
   evaluation_periods  = 1
   period              = 300
   statistic           = "Sum"
-  threshold           = 3
+  threshold           = 1
   treat_missing_data  = "notBreaching"
   tags                = local.tags
 }

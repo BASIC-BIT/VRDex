@@ -291,6 +291,7 @@ describe("group telemetry release workflow", () => {
 
   it("declares the two-minute heartbeat alarm from the redacted worker event", async () => {
     const source = await readFile("infra/terraform/group-telemetry-collector/main.tf", "utf8");
+    const worker = await readFile("workers/group-telemetry/worker.mjs", "utf8");
     assert.match(source, /\$\.event = \\"collector_heartbeat\\"/);
     assert.match(source, /alarm_name\s+= "\$\{var\.name_prefix\}-missing-heartbeat"/);
     assert.match(source, /evaluation_periods\s+= 2/);
@@ -299,8 +300,14 @@ describe("group telemetry release workflow", () => {
     assert.match(source, /resource "aws_cloudwatch_dashboard" "operations"/);
     assert.match(source, /observability_namespace\s+= "VRDex\/GroupTelemetry\/\$\{var\.name_prefix\}"/);
     assert.match(source, /namespace\s+= local\.observability_namespace/);
+    assert.match(source, /\$\.attempt >= 3/);
+    assert.match(source, /tagStatus\s+= "untagged"/);
+    assert.match(source, /countType\s+= "sinceImagePushed"/);
+    assert.doesNotMatch(source, /imageCountMoreThan/);
     assert.match(source, /fields @timestamp, event, outcome, attempt, retryDelayMs/);
     assert.match(source, /skip_destroy\s+= true/);
+    assert.match(worker, /async function pauseWithHeartbeats/);
+    assert.match(worker, /await pauseWithHeartbeats\(retryAfterMs\)/);
   });
 
   it("keeps connection-only journeys out of conversion and labels transport reconciliation", async () => {

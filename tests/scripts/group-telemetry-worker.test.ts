@@ -7,7 +7,7 @@ import {
   redactProviderText,
   retryDelayMs as backendRetryDelay,
 } from "../../convex/_communityTelemetry";
-import { MAX_CONSECUTIVE_LOOP_FAILURES, RequestBudget, collectorAuthRequiredEvent, collectorLoopFailureEvent, collectorRestartEvent, collectorRuntimeMetadata, collectorShouldRestart, failureDisposition, randomPollDelayMs } from "../../workers/group-telemetry/runtime.mjs";
+import { MAX_CONSECUTIVE_LOOP_FAILURES, RequestBudget, boundedProviderCategory, collectorAuthRequiredEvent, collectorLoopFailureEvent, collectorRestartEvent, collectorRuntimeMetadata, collectorShouldRestart, failureDisposition, randomPollDelayMs } from "../../workers/group-telemetry/runtime.mjs";
 import { VrchatClient, VrchatProviderError } from "../../workers/group-telemetry/vrchat-client.mjs";
 import { VrchatOperatorLogin, VrchatSessionValidationError } from "../../workers/group-telemetry/vrchat-login.mjs";
 import { VrchatKeychainSessionStore, VrchatSessionStoreError } from "../../workers/group-telemetry/vrchat-session-store.mjs";
@@ -346,6 +346,10 @@ describe("group telemetry provider adapter", () => {
     assert.equal(failure.statusClass, "429");
     assert.equal(failure.backoffUntil, 121_000);
     assert.equal(failure.nextPollAt, 121_000);
+    assert.throws(
+      () => failureDisposition(new Error("control-plane transport failed"), 1),
+      /control-plane transport failed/,
+    );
 
     const minimumFailure = failureDisposition(
       new VrchatProviderError("limited", { status: 429, category: "rate_limit", retryAfterMs: 120_000 }),
@@ -422,6 +426,7 @@ describe("group telemetry metrics and safety helpers", () => {
       status: "503",
     });
     assert.equal(JSON.stringify(failure).includes("proof-code-and-token-must-not-escape"), false);
+    assert.equal(boundedProviderCategory("network"), "network");
     assert.deepEqual(collectorRestartEvent(MAX_CONSECUTIVE_LOOP_FAILURES), {
       event: "collector_worker_restart",
       reason: "consecutive_loop_failures",

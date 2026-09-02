@@ -13,6 +13,7 @@ const PROVIDER_CATEGORIES = new Set([
   "schema_drift",
   "timeout",
   "provider_error",
+  "network",
 ]);
 
 export function boundedProviderCategory(value) {
@@ -69,7 +70,8 @@ export class RequestBudget {
 }
 
 export function failureDisposition(error, attempt, now = Date.now(), random = Math.random) {
-  const provider = error instanceof VrchatProviderError ? error : new VrchatProviderError("Unexpected collector failure.");
+  if (!(error instanceof VrchatProviderError)) throw error;
+  const provider = error;
   const delay = retryDelayMs(attempt, provider.retryAfterMs, random);
   return {
     statusClass: provider.status > 0 ? String(provider.status) : provider.category,

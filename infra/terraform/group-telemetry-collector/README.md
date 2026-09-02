@@ -83,8 +83,11 @@ workflow reapplies the prior values through Terraform, waits for service
 stability, verifies that ECS matches Terraform's restored task definition, and
 then fails. This keeps live service and Terraform state aligned so the same SHA
 can be retried.
-Old inactive revisions are an operator retention concern; the automatic lane
-does not deregister rollback artifacts.
+Tagged release images and inactive task definition revisions are retained so a
+run of failed releases cannot evict the last known-good rollback image. The ECR
+lifecycle rule removes only untagged images after seven days. Longer-term
+tagged-image and inactive-revision cleanup is a deliberate operator retention
+task; the automatic lane does not delete rollback artifacts.
 
 The five-minute scheduled audit is read-only. It derives the expected release from the
 latest successful `main` Baseline Checks run, then compares that SHA with the

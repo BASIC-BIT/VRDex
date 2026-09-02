@@ -2118,8 +2118,7 @@ export const collectorDeploymentReadiness = internalQuery({
     const eligible = accounts.filter(
       (account) =>
         account.state === "ready" &&
-        !account.killSwitchEnabled &&
-        (account.cooldownUntil ?? 0) <= args.now,
+        !account.killSwitchEnabled,
     );
     const fresh = eligible.filter(
       (account) =>

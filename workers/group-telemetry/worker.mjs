@@ -98,6 +98,14 @@ async function pause(ms) {
   }
 }
 
+async function pauseWithHeartbeats(ms) {
+  const deadline = Date.now() + Math.max(0, ms);
+  while (!stopping && Date.now() < deadline) {
+    await pause(Math.min(25_000, deadline - Date.now()));
+    if (!stopping && Date.now() < deadline) await heartbeat();
+  }
+}
+
 async function collect(assignment) {
   const lease = { integrationId: assignment.integrationId, fencingToken: assignment.fencingToken };
   const now = Date.now();
@@ -266,7 +274,7 @@ async function checkProofs() {
       );
 
       if (retryAfterMs > 0) {
-        await pause(retryAfterMs);
+        await pauseWithHeartbeats(retryAfterMs);
       }
 
       break;
@@ -359,7 +367,7 @@ async function checkProofs() {
           // cost a provider request.
           await releaseUnread(pending, attempt, false);
         }
-        await pause(retryAfterMs);
+        await pauseWithHeartbeats(retryAfterMs);
         break;
       }
 
