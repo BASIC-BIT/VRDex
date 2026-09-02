@@ -43,12 +43,12 @@ export function claimAnalyticsContext(
   journeyId: string | undefined,
   entrySource: ClaimAnalyticsEntrySource | undefined,
 ): ClaimAnalyticsContext {
-  if (journeyId !== undefined && !UUID_PATTERN.test(journeyId)) {
-    throw new Error("analyticsJourneyId must be an opaque UUID.");
-  }
+  const validJourneyId = journeyId !== undefined && UUID_PATTERN.test(journeyId)
+    ? journeyId
+    : undefined;
 
   return {
-    journeyId: journeyId ?? crypto.randomUUID(),
+    journeyId: validJourneyId ?? crypto.randomUUID(),
     entrySource: entrySource ?? "profile",
   };
 }

@@ -26,6 +26,17 @@ const schema = (
 const journeyId = "4d36e96e-34d9-4f7e-9fe1-72a98aa13077";
 
 describe("claim analytics outbox", () => {
+  it("replaces a malformed client journey id instead of blocking the claim", () => {
+    const analytics = claimAnalyticsContext("profile-basicbit", "search");
+
+    assert.notEqual(analytics.journeyId, "profile-basicbit");
+    assert.match(
+      analytics.journeyId,
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
+    assert.equal(analytics.entrySource, "search");
+  });
+
   it("deduplicates a lifecycle milestone and preserves only sanitized dimensions", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
