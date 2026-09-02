@@ -2,7 +2,7 @@
 
 import { ConvexProvider, ConvexReactClient } from "convex/react";
 
-import { ClaimFlow } from "@/app/claim/[slug]/claim-flow";
+import { ClaimFlowContent } from "@/app/claim/[slug]/claim-flow";
 
 const previewClient = new ConvexReactClient("https://playwright-preview.convex.cloud");
 
@@ -17,7 +17,8 @@ export function ClaimFlowPreview({
 }) {
   return (
     <ConvexProvider client={previewClient}>
-      <ClaimFlow
+      <ClaimFlowContent
+        analyticsSessionScope="preview"
         previewContext={{
           emailVerified: true,
           // `hasDiscord` is a VRDex verification watermark, and only the

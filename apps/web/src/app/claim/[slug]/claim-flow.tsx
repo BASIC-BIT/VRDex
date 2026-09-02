@@ -96,12 +96,7 @@ const CONTROL_LEVEL_LABELS: Record<string, string> = {
   self: "You",
 };
 
-export function ClaimFlow({
-  discordVerify = null,
-  previewContext,
-  profile,
-  source,
-}: {
+type ClaimFlowProps = {
   discordVerify?: DiscordVerifyStatus;
   previewContext?: {
     emailVerified: boolean;
@@ -120,8 +115,21 @@ export function ClaimFlow({
   };
   profile: ClaimProfile;
   source: ClaimEntrySource;
-}) {
+};
+
+export function ClaimFlow(props: ClaimFlowProps) {
   const { sessionId } = useAuth();
+
+  return <ClaimFlowContent {...props} analyticsSessionScope={sessionId ?? "loading"} />;
+}
+
+export function ClaimFlowContent({
+  analyticsSessionScope,
+  discordVerify = null,
+  previewContext,
+  profile,
+  source,
+}: ClaimFlowProps & { analyticsSessionScope: string }) {
   const queriedContext = useQuery(
     api.profileClaims.getClaimJourneyContext,
     previewContext ? "skip" : { profileSlug: profile.slug },
@@ -146,7 +154,6 @@ export function ClaimFlow({
   const analyticsJourneyIdRef = useRef<string | null>(null);
   const viewedJourneyRef = useRef<string | null>(null);
   const analyticsJourneyFinishedRef = useRef(false);
-  const analyticsSessionScope = previewContext ? "preview" : (sessionId ?? "loading");
   const previousAnalyticsSessionScopeRef = useRef(analyticsSessionScope);
   const lastObservedPendingJourneyRef = useRef<string | null | undefined>(undefined);
   const preserveInitialDiscordReturnRef = useRef(discordVerify != null);
