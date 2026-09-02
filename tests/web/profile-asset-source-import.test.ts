@@ -197,4 +197,19 @@ describe("profile asset source imports", () => {
     );
     assert.equal(response.destroyed, true);
   });
+
+  it("destroys discarded non-success responses", async () => {
+    const response = new Readable({ read() {} }) as IncomingMessage;
+    response.statusCode = 503;
+    response.headers = { "content-type": "text/plain" };
+
+    await assert.rejects(
+      fetchProfileAssetSourceUrl("https://media.example.test/unavailable.webp", {
+        resolveHostname: async () => [{ address: "93.184.216.34" }],
+        requestPinnedSource: async () => response,
+      }),
+      /returned HTTP 503/,
+    );
+    assert.equal(response.destroyed, true);
+  });
 });

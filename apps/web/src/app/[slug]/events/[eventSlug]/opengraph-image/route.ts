@@ -65,7 +65,7 @@ export async function GET(
     {
       ...eventShareImageSize,
       headers: {
-        "Cache-Control": "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400",
+        "Cache-Control": "no-store",
       },
     },
   );

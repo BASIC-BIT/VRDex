@@ -14,6 +14,13 @@ export type EventShareArtworkSource = {
   url: URL;
 };
 
+export function canRasterizeEventShareArtwork(
+  source: EventShareArtworkSource,
+  mimeType: string,
+): boolean {
+  return source.kind === "fixture" || mimeType !== "image/svg+xml";
+}
+
 export function isEventShareImageUrl(url: URL): boolean {
   try {
     return eventShareImagePath.test(decodeURIComponent(url.pathname));
@@ -96,6 +103,9 @@ export async function inlineEventShareArtwork(
         totalTimeoutMs: 30_000,
       });
   const normalized = await validateAndNormalizeProfileAsset(upload.body, upload.mimeType);
+  if (!canRasterizeEventShareArtwork(source, normalized.mimeType)) {
+    return undefined;
+  }
   const png = await sharp(normalized.body, {
     animated: false,
     failOn: "warning",

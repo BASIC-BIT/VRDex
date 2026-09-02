@@ -9,6 +9,7 @@ import {
 } from "../../apps/web/src/lib/event-share-card";
 import { DEFAULT_SHARE_DESCRIPTION } from "../../apps/web/src/lib/profile-share-card";
 import {
+  canRasterizeEventShareArtwork,
   eventShareArtworkSource,
   isEventShareImageUrl,
 } from "../../apps/web/src/lib/server/event-share-media";
@@ -117,5 +118,22 @@ describe("event share artwork source", () => {
       ),
       null,
     );
+  });
+
+  it("does not rasterize untrusted remote SVG artwork", () => {
+    const remote = eventShareArtworkSource(
+      "https://media.example.test/event-poster.svg",
+      siteUrl,
+    );
+    const fixture = eventShareArtworkSource(
+      "/api/e2e/fixture-assets/event-poster",
+      siteUrl,
+    );
+
+    assert.ok(remote);
+    assert.ok(fixture);
+    assert.equal(canRasterizeEventShareArtwork(remote, "image/svg+xml"), false);
+    assert.equal(canRasterizeEventShareArtwork(remote, "image/png"), true);
+    assert.equal(canRasterizeEventShareArtwork(fixture, "image/svg+xml"), true);
   });
 });

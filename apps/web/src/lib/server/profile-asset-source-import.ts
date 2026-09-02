@@ -352,12 +352,12 @@ export async function fetchProfileAssetSourceUrl(
       );
 
       if (redirectedUrl !== null) {
-        response.resume();
+        response.destroy();
         currentUrl = redirectedUrl;
         continue;
       }
       if ((response.statusCode ?? 0) < 200 || (response.statusCode ?? 0) >= 300) {
-        response.resume();
+        response.destroy();
         throw new Error(`Source URL returned HTTP ${response.statusCode ?? 0}.`);
       }
 

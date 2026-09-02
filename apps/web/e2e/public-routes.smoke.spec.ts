@@ -240,6 +240,7 @@ test("event links expose community-scoped metadata and a poster share image", as
   const imageResponse = await page.request.get(imageUrl!);
   expect(imageResponse.ok()).toBe(true);
   expect(imageResponse.headers()["content-type"]).toContain("image/png");
+  expect(imageResponse.headers()["cache-control"]).toBe("no-store");
   const imageBody = await imageResponse.body();
   const metadata = await sharp(imageBody).metadata();
   expect(metadata.width).toBe(1200);
