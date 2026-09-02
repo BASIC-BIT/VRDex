@@ -140,12 +140,14 @@ test("profile submission writes through to public profile and discovery @flow", 
     await expect(page.getByLabel("Verified profile")).toHaveCount(0);
 
     // Canonicalized on the way in: the panel preview URL that was typed is read
-    // for its stream id and stored as the `vrcdn:<id>` identifier, which is what
-    // the copy rows then derive every playback address from.
+    // for its stream id and stored as the `vrcdn:<id>` identifier. A community
+    // submission cannot support a liveness claim, so it remains an ordinary
+    // outbound link instead of entering the live-only Watch surface.
     if (submittedStreamId !== undefined) {
-      await expect(
-        page.getByText(`https://stream.vrcdn.live/live/${submittedStreamId}.live.ts`),
-      ).toBeVisible();
+      await expect(page.getByRole("link", { name: "VRCDN", exact: true })).toHaveAttribute(
+        "href",
+        `https://stream.vrcdn.live/live/${submittedStreamId}.live.ts`,
+      );
     }
     await captureRouteScreenshot(page, testInfo, "profile-submission-flow-profile");
 
