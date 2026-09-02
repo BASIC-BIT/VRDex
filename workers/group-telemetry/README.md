@@ -10,6 +10,8 @@ Required environment after the real-provider and explicit provider-approval depl
 - `VRDEX_GROUP_TELEMETRY_USER_AGENT`, including application/version/contact
 - `VRDEX_GROUP_TELEMETRY_ENABLED=true`, injected from the account stack's SSM deployment gate
 - `VRDEX_GROUP_TELEMETRY_RELEASE_SHA`, the exact Git SHA used to build the image
+- `VRDEX_GROUP_TELEMETRY_RELEASE_VERSION`, a lowercase release label matching
+  `[a-z0-9][a-z0-9._-]{0,63}` (for example, `git-a1b2c3d4e5f6`)
 
 Optional `VRDEX_GROUP_TELEMETRY_REQUESTS_PER_MINUTE` defaults to 30. Global, account, and integration kill switches in the control plane stop claims. ECS desired count is the live infrastructure stop; the SSM value prevents a disabled task revision from starting and is re-read when tasks restart.
 
