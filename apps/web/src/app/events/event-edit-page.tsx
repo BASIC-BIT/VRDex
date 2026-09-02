@@ -46,11 +46,13 @@ export async function EventEditPage({ communitySlug, eventSlug }: { communitySlu
     : null;
 
   return (
-    <EventEditorPage
-      communityName={result.event.communityName ?? communitySlug}
-      communitySlug={communitySlug}
-      discordPostText={discordPostText}
-      event={result.event}
-    />
+    <div className="ph-no-capture" data-ph-no-capture>
+      <EventEditorPage
+        communityName={result.event.communityName ?? communitySlug}
+        communitySlug={communitySlug}
+        discordPostText={discordPostText}
+        event={result.event}
+      />
+    </div>
   );
 }
