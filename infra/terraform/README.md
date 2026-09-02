@@ -11,7 +11,7 @@ VRDex keeps small infrastructure stacks separate so credentials, blast radius, a
 - `docs-site/`: Vercel docs project/domain and Route 53 DNS for `docs.vrdex.net`.
 - `web-domains/`: Vercel web project-domain bindings and Route 53 DNS for `vrdex.net` and `www.vrdex.net`.
 - `restream-worker/`: validation-only hosted restream worker benchmark foundation for ECR, ECS/Fargate, logs, roles, secret references, and the disabled kill switch.
-- `group-telemetry-collector/`: validation-only account-scoped collector fleet foundation with one-secret isolation, bounded compute, startup gate, logs, task-health alarms, and an optional tagged cost budget.
+- `group-telemetry-collector/`: account-scoped collector fleet with one-secret isolation, bounded compute, startup gate, release metadata, logs, operational alarms, an optional tagged cost budget, and a fail-closed automatic image-only release lane.
 - `vrclinking-adapter/`: the VRCLinking proof adapter as a Lambda behind a public Function URL, with an execution role that can read every delegated community credential under the `vrdex/vrclinking/` name prefix. The only stack here that is deployed and serving production traffic without CI planning it — see its README for the deploy, rotation, and secret-ownership runbook.
 
 Each non-bootstrap stack uses the shared S3 state bucket `vrdex-terraform-state` with a stack-specific state key and S3 native locking. `state-mgmt/` intentionally uses local state because it manages that bucket. Do not commit `terraform.tfvars`, local state, plans, or provider directories.
@@ -43,6 +43,12 @@ Required CI settings by provider:
 | `TERRAFORM_PROFILE_ASSETS_ENABLED=true` | repository variable | `profile-assets` after `state-mgmt` has been applied with profile asset permissions |
 | `TERRAFORM_PROFILE_ASSETS_STAGING_CUSTOM_ENVIRONMENT_IDS` | optional repository variable | `profile-assets`; HCL list of Vercel custom environment IDs, for example `["env_..."]` |
 | `TERRAFORM_PROFILE_ASSETS_VERCEL_TEAM_SLUG` | optional repository variable | `profile-assets`; defaults to `basicbit` for the hosted Vercel OIDC provider guard |
+
+The group telemetry collector uses its dedicated release workflow rather than
+the generic Terraform matrix. Its production variables, scoped OIDC roles,
+remote-state migration, initial manual infrastructure apply, and scheduled
+read-only drift audit are documented in
+`infra/terraform/group-telemetry-collector/README.md`.
 
 `state-mgmt/` is validation-only in CI because it intentionally uses local bootstrap state and owns the GitHub Actions AWS role used by the provider-backed stacks. Apply it manually when changing the shared state bucket or Terraform CI role, then store `terraform output -raw github_actions_terraform_role_arn` in GitHub variable `AWS_TERRAFORM_ROLE_ARN`.
 

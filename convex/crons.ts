@@ -11,6 +11,39 @@ crons.hourly(
   {},
 );
 
+// Scheduled delivery is the fast path. This sweep recovers a row whose action
+// runtime died after taking its lease but before recording success or retry.
+crons.interval(
+  "deliver claim analytics outbox",
+  { minutes: 5 },
+  internal.claimAnalyticsDelivery.deliverPending,
+  {},
+);
+
+// Fast retries dead-letter after five attempts so one bad destination cannot
+// monopolize delivery. This bounded hourly sweep makes temporary provider
+// outages recover automatically without turning claim writes into a dependency.
+crons.hourly(
+  "recover stalled claim analytics deliveries",
+  { minuteUTC: 5 },
+  internal.claimAnalyticsDelivery.recoverUndeliveredDeliveries,
+  {},
+);
+
+crons.daily(
+  "delete expired claim analytics transport rows",
+  { hourUTC: 4, minuteUTC: 30 },
+  internal.claimAnalytics.sweepDeliveredEvents,
+  {},
+);
+
+crons.daily(
+  "delete expired claim lifecycle diagnostics",
+  { hourUTC: 4, minuteUTC: 10 },
+  internal.claimAnalytics.sweepClaimLifecycleEvents,
+  {},
+);
+
 crons.daily(
   "community telemetry raw compaction",
   { hourUTC: 4, minuteUTC: 20 },

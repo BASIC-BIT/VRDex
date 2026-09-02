@@ -12,6 +12,9 @@ const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
   "../../convex/communityTelemetry.ts": () => import("../../convex/communityTelemetry"),
   "../../convex/profileClaims.ts": () => import("../../convex/profileClaims"),
+  "../../convex/claimAnalytics.ts": () => import("../../convex/claimAnalytics"),
+  "../../convex/claimAnalyticsDelivery.ts": () => import("../../convex/claimAnalyticsDelivery"),
+  "../../convex/http.ts": () => import("../../convex/http"),
   "../../convex/vrclinkingCredentials.ts": () => import("../../convex/vrclinkingCredentials"),
 };
 const schema = (
@@ -33,6 +36,7 @@ async function seedCollector(ctx: never, alias: string, now: number) {
     requestsPerMinute: 30,
     secretRef: `secret://${alias}`,
     workerKeyHash: "a".repeat(64),
+    lastWorkerReleaseSha: "a".repeat(40),
     credentialGeneration: 1,
     killSwitchEnabled: false,
     createdAt: now,
@@ -104,6 +108,487 @@ async function webSessionIdentity(ctx: never, userId: string) {
 }
 
 describe("collector proof check queue", () => {
+  it("separates dispatch from a completed provider check and records bounded lifecycle events", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const seeded = await t.run(async (ctx) => ({
+      collectorAccountId: await seedCollector(ctx as never, "lifecycle", now),
+      attemptId: await seedAttempt(ctx as never, { targetType: "vrchat_user", now }),
+    }));
+    await t.run(async (ctx) => {
+      await ctx.db.patch(seeded.attemptId, {
+        analyticsJourneyId: "3f77bd1c-4e10-4fc5-a2cc-0309d3952cf4",
+        analyticsEntrySource: "profile",
+      });
+    });
+
+    const claimed = await t.mutation(internal.communityTelemetry.claimPendingProofChecks, {
+      collectorAccountId: seeded.collectorAccountId,
+      workerId: "worker-lifecycle",
+      releaseSha: "b".repeat(40),
+      limit: 1,
+      now: now + 1,
+    });
+    assert.equal(claimed.attempts[0]?.attemptId, seeded.attemptId);
+
+    await t.run(async (ctx) => {
+      const attempt = await ctx.db.get(seeded.attemptId);
+      assert.equal(attempt?.firstDispatchedAt, now + 1);
+      assert.equal(attempt?.dispatchCount, 1);
+      assert.equal(attempt?.firstCheckAt, undefined);
+      assert.equal(attempt?.checkCount, undefined);
+      assert.equal((await ctx.db.query("claimAnalyticsOutbox").collect()).length, 0);
+    });
+
+    assert.deepEqual(
+      await t.mutation(internal.communityTelemetry.recordProofCheckResult, {
+        collectorAccountId: seeded.collectorAccountId,
+        attemptId: seeded.attemptId,
+        found: false,
+        releaseSha: "b".repeat(40),
+        workerKeyHash: "a".repeat(64),
+        now: now + 2,
+      }),
+      { state: "pending" },
+    );
+
+    await t.run(async (ctx) => {
+      const attempt = await ctx.db.get(seeded.attemptId);
+      assert.equal(attempt?.firstCheckAt, now + 2);
+      assert.equal(attempt?.lastCheckOutcome, "not_found");
+      assert.equal(attempt?.checkCount, 1);
+      const events = await ctx.db
+        .query("profileClaimLifecycleEvents")
+        .withIndex("by_attemptId_createdAt", (q) => q.eq("attemptId", seeded.attemptId))
+        .collect();
+      assert.deepEqual(events.map((event) => event.event), ["proof_dispatched", "provider_checked"]);
+      assert.ok(events.every((event) => event.workerReleaseSha === "b".repeat(40)));
+      assert.equal(JSON.stringify(events).includes("target-"), false);
+      assert.equal(JSON.stringify(events).includes("VRDEX-"), false);
+      const analytics = await ctx.db.query("claimAnalyticsOutbox").collect();
+      assert.deepEqual(analytics.map((event) => event.event), ["claim_verification_started"]);
+      assert.equal(analytics[0]?.timeToFirstCheckBucket, "under_1m");
+    });
+  });
+
+  it("reports proof-path readiness for the exact configured collector account", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const releaseSha = "b".repeat(40);
+    const collectorAccountId = await t.run(async (ctx) =>
+      await seedCollector(ctx as never, "readiness", now),
+    );
+
+    assert.equal(
+      await t.query(internal.communityTelemetry.collectorProofAvailable, { now }),
+      false,
+    );
+    await t.mutation(internal.communityTelemetry.claimPendingProofChecks, {
+      collectorAccountId,
+      workerId: "worker-readiness",
+      now,
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(collectorAccountId, { requestsPerMinute: 2 });
+    });
+    assert.equal(
+      await t.query(internal.communityTelemetry.collectorProofAvailable, { now }),
+      false,
+    );
+    await t.run(async (ctx) => {
+      await ctx.db.patch(collectorAccountId, { requestsPerMinute: 30 });
+      await ctx.db.insert("collectorFleetSettings", {
+        key: "global",
+        killSwitchEnabled: false,
+        globalRequestsPerMinute: 2,
+        updatedAt: now,
+      });
+    });
+    assert.equal(
+      await t.query(internal.communityTelemetry.collectorProofAvailable, { now }),
+      false,
+    );
+    await t.run(async (ctx) => {
+      const fleet = await ctx.db
+        .query("collectorFleetSettings")
+        .withIndex("by_key", (q) => q.eq("key", "global"))
+        .unique();
+      assert.ok(fleet);
+      await ctx.db.patch(fleet._id, { globalRequestsPerMinute: 30 });
+    });
+    assert.equal(
+      await t.query(internal.communityTelemetry.collectorProofAvailable, { now }),
+      true,
+    );
+
+    const before = await t.query(internal.communityTelemetry.collectorDeploymentReadiness, {
+      collectorAccountId,
+      expectedReleaseSha: releaseSha,
+      requiredCapabilities: ["telemetry_v1", "vrchat_proof_v1"],
+      maxHeartbeatAgeMs: 120_000,
+      now,
+    });
+    assert.equal(before.healthy, false);
+    assert.deepEqual(before.issues, ["configured_collector_heartbeat_stale"]);
+
+    assert.deepEqual(
+      await t.mutation(internal.communityTelemetry.recordCollectorHeartbeat, {
+        collectorAccountId,
+        workerId: "worker-readiness",
+        releaseSha,
+        collectorVersion: "group-telemetry-v1",
+        capabilities: ["telemetry_v1", "vrchat_proof_v1"],
+        consecutiveControlFailures: 0,
+        workerKeyHash: "a".repeat(64),
+        now,
+      }),
+      { recorded: true },
+    );
+    const ready = await t.query(internal.communityTelemetry.collectorDeploymentReadiness, {
+      collectorAccountId,
+      expectedReleaseSha: releaseSha.toUpperCase(),
+      requiredCapabilities: ["telemetry_v1", "vrchat_proof_v1"],
+      maxHeartbeatAgeMs: 120_000,
+      now,
+    });
+    assert.deepEqual(ready, {
+      healthy: true,
+      issues: [],
+      freshCollectorCount: 1,
+      matchingReleaseCount: 1,
+      authRequiredCount: 0,
+    });
+    const unrelatedCollectorAccountId = await t.run(async (ctx) =>
+      await seedCollector(ctx as never, "unrelated-readiness", now),
+    );
+    await t.mutation(internal.communityTelemetry.recordCollectorHeartbeat, {
+      collectorAccountId: unrelatedCollectorAccountId,
+      workerId: "worker-unrelated-readiness",
+      releaseSha,
+      collectorVersion: "group-telemetry-v1",
+      capabilities: ["telemetry_v1", "vrchat_proof_v1"],
+      consecutiveControlFailures: 0,
+      workerKeyHash: "a".repeat(64),
+      now,
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(collectorAccountId, { lastWorkerHeartbeatAt: now - 120_001 });
+    });
+    assert.deepEqual(
+      (await t.query(internal.communityTelemetry.collectorDeploymentReadiness, {
+        collectorAccountId,
+        expectedReleaseSha: releaseSha,
+        requiredCapabilities: ["telemetry_v1", "vrchat_proof_v1"],
+        maxHeartbeatAgeMs: 120_000,
+        now,
+      })).issues,
+      ["configured_collector_heartbeat_stale"],
+    );
+    await t.run(async (ctx) => {
+      await ctx.db.patch(collectorAccountId, {
+        cooldownUntil: now + 5 * 60_000,
+        lastWorkerHeartbeatAt: now,
+      });
+    });
+    assert.equal((await t.query(internal.communityTelemetry.collectorDeploymentReadiness, {
+      collectorAccountId,
+      expectedReleaseSha: releaseSha,
+      requiredCapabilities: ["telemetry_v1", "vrchat_proof_v1"],
+      maxHeartbeatAgeMs: 120_000,
+      now,
+    })).healthy, true);
+    assert.equal(JSON.stringify(ready).includes("readiness"), false);
+  });
+
+  it("authenticates and binds heartbeat identity through the worker HTTP route", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const workerKey = "worker-secret-that-is-at-least-32-bytes";
+    const workerKeyHash = [...new Uint8Array(
+      await crypto.subtle.digest("SHA-256", new TextEncoder().encode(workerKey)),
+    )].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+    const collectorAccountId = await t.run(async (ctx) => {
+      const id = await seedCollector(ctx as never, "http-heartbeat", now);
+      await ctx.db.patch(id as never, { workerKeyHash });
+      return id;
+    });
+    const body = {
+      operation: "heartbeat",
+      workerId: "worker-http",
+      vrchatUserId: "usr_http-heartbeat",
+      releaseSha: "c".repeat(40),
+      collectorVersion: "group-telemetry-v1",
+      capabilities: ["telemetry_v1", "vrchat_proof_v1"],
+      consecutiveControlFailures: 0,
+    };
+    const request = async (authorization: string, requestBody: unknown = body) =>
+      await t.fetch("/telemetry/worker", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${authorization}`,
+          "content-type": "application/json",
+          "x-vrdex-collector-account": collectorAccountId,
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+    assert.equal((await request("wrong-secret-that-is-at-least-32-bytes")).status, 401);
+    assert.equal((await request(workerKey, { ...body, vrchatUserId: "usr_other" })).status, 401);
+    const response = await request(workerKey);
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { recorded: true });
+    await t.run(async (ctx) => {
+      const account = await ctx.db.get(collectorAccountId);
+      assert.equal(account?.lastWorkerId, "worker-http");
+      assert.equal(account?.lastWorkerReleaseSha, "c".repeat(40));
+    });
+
+    const legacyAttemptId = await t.run(async (ctx) =>
+      await seedAttempt(ctx as never, { targetType: "vrchat_user", now }),
+    );
+    const legacyProofClaim = await request(workerKey, {
+      operation: "proof_claim",
+      workerId: "worker-from-rollback-image",
+      vrchatUserId: "usr_http-heartbeat",
+      limit: 1,
+    });
+    assert.equal(legacyProofClaim.status, 200);
+    assert.equal((await legacyProofClaim.json()).attempts[0]?.attemptId, legacyAttemptId);
+    const legacyProofResult = await request(workerKey, {
+      operation: "proof_result",
+      workerId: "worker-from-rollback-image",
+      vrchatUserId: "usr_http-heartbeat",
+      attemptId: legacyAttemptId,
+      found: false,
+    });
+    assert.equal(legacyProofResult.status, 200);
+    await t.run(async (ctx) => {
+      const events = await ctx.db
+        .query("profileClaimLifecycleEvents")
+        .withIndex("by_attemptId_createdAt", (q) => q.eq("attemptId", legacyAttemptId))
+        .collect();
+      assert.ok(events.every((event) => event.workerReleaseSha === undefined));
+      assert.equal(
+        (await ctx.db.get(collectorAccountId))?.lastWorkerReleaseSha,
+        "c".repeat(40),
+      );
+    });
+  });
+
+  it("preserves a failing task streak when a healthy sibling heartbeats", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const collectorAccountId = await t.run(async (ctx) => {
+      const id = await seedCollector(ctx as never, "multi-task-failure", now);
+      await ctx.db.patch(id as never, { lastProofPollAt: now });
+      return id;
+    });
+    const heartbeat = async (workerId: string, consecutiveControlFailures: number) =>
+      await t.mutation(internal.communityTelemetry.recordCollectorHeartbeat, {
+        collectorAccountId,
+        workerId,
+        releaseSha: "d".repeat(40),
+        collectorVersion: "group-telemetry-v1",
+        capabilities: ["telemetry_v1", "vrchat_proof_v1"],
+        consecutiveControlFailures,
+        workerKeyHash: "a".repeat(64),
+        now,
+      });
+
+    await heartbeat("worker-failing", 3);
+    await heartbeat("worker-healthy", 0);
+
+    const health = await t.query(
+      internal.communityTelemetry.claimVerificationOperationalHealth,
+      { now },
+    );
+    assert.equal(health.maxConsecutiveControlFailures, 3);
+    await t.run(async (ctx) => {
+      const rows = await ctx.db.query("collectorWorkerHeartbeats").collect();
+      assert.deepEqual(
+        rows.map((row) => [row.workerId, row.consecutiveControlFailures]).sort(),
+        [["worker-failing", 3], ["worker-healthy", 0]],
+      );
+    });
+  });
+
+  it("reports the maximum consecutive failure streak rather than a fleet sum", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      const first = await seedCollector(ctx as never, "failure-one", now);
+      const second = await seedCollector(ctx as never, "failure-two", now);
+      await ctx.db.patch(first as never, {
+        consecutiveControlFailures: 2,
+        lastProofPollAt: now,
+      });
+      await ctx.db.patch(second as never, {
+        consecutiveControlFailures: 2,
+        lastProofPollAt: now,
+      });
+    });
+
+    const health = await t.query(internal.communityTelemetry.claimVerificationOperationalHealth, { now });
+    assert.equal(health.maxConsecutiveControlFailures, 2);
+  });
+
+  it("excludes inactive collectors from the current failure maximum", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      const active = await seedCollector(ctx as never, "failure-active", now);
+      const retired = await seedCollector(ctx as never, "failure-retired", now);
+      await ctx.db.patch(active as never, {
+        consecutiveControlFailures: 1,
+        lastProofPollAt: now,
+      });
+      await ctx.db.patch(retired as never, {
+        state: "retired",
+        consecutiveControlFailures: 8,
+        lastProofPollAt: now,
+      });
+    });
+
+    const health = await t.query(internal.communityTelemetry.claimVerificationOperationalHealth, { now });
+    assert.equal(health.maxConsecutiveControlFailures, 1);
+  });
+
+  it("preserves a recent first-check SLA breach after the provider check", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      const attemptId = await seedAttempt(ctx as never, {
+        targetType: "vrchat_user",
+        now: now - 180_000,
+      });
+      const attempt = await ctx.db.get(attemptId as never);
+      assert.notEqual(attempt, null);
+      await ctx.db.patch(attemptId as never, { firstCheckAt: now - 30_000 });
+      await ctx.db.insert("profileClaimLifecycleEvents", {
+        profileId: attempt!.profileId,
+        attemptId,
+        method: attempt!.method,
+        targetType: attempt!.targetType,
+        event: "provider_checked",
+        actorSurface: "collector",
+        outcome: "not_found",
+        createdAt: now - 30_000,
+      });
+    });
+
+    const health = await t.query(internal.communityTelemetry.claimVerificationOperationalHealth, { now });
+    assert.equal(health.uncheckedAttemptCount, 0);
+    assert.equal(health.maxRecentFirstCheckLatencyMs, 150_000);
+  });
+
+  it("expires a first-check SLA breach after the health lookback", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      const attemptId = await seedAttempt(ctx as never, {
+        targetType: "vrchat_user",
+        now: now - 30 * 60_000,
+      });
+      const attempt = await ctx.db.get(attemptId as never);
+      assert.notEqual(attempt, null);
+      await ctx.db.patch(attemptId as never, { firstCheckAt: now - 20 * 60_000 });
+      await ctx.db.insert("profileClaimLifecycleEvents", {
+        profileId: attempt!.profileId,
+        attemptId,
+        method: attempt!.method,
+        targetType: attempt!.targetType,
+        event: "provider_checked",
+        actorSurface: "collector",
+        outcome: "not_found",
+        createdAt: now - 30_000,
+      });
+    });
+
+    const health = await t.query(internal.communityTelemetry.claimVerificationOperationalHealth, { now });
+    assert.equal(health.maxRecentFirstCheckLatencyMs, null);
+  });
+
+  it("excludes user-triggered VRCLinking checks from collector first-check health", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      const attemptId = await seedAttempt(ctx as never, {
+        targetType: "vrclinking",
+        now: now - 180_000,
+      });
+      const attempt = await ctx.db.get(attemptId as never);
+      assert.notEqual(attempt, null);
+      await ctx.db.patch(attemptId as never, { firstCheckAt: now - 30_000 });
+      await ctx.db.insert("profileClaimLifecycleEvents", {
+        profileId: attempt!.profileId,
+        attemptId,
+        method: attempt!.method,
+        targetType: attempt!.targetType,
+        event: "provider_checked",
+        actorSurface: "adapter",
+        outcome: "not_found",
+        createdAt: now - 30_000,
+      });
+    });
+
+    const health = await t.query(internal.communityTelemetry.claimVerificationOperationalHealth, { now });
+    assert.equal(health.maxRecentFirstCheckLatencyMs, null);
+    assert.equal(health.scanLimitReached, false);
+  });
+
+  it("does not report an exact operational health scan as truncated", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      for (let index = 0; index < 1_000; index += 1) {
+        await seedAttempt(ctx as never, { targetType: "vrchat_user", now });
+      }
+    });
+
+    assert.equal((await t.query(
+      internal.communityTelemetry.claimVerificationOperationalHealth,
+      { now },
+    )).scanLimitReached, false);
+    await t.run(async (ctx) => {
+      await seedAttempt(ctx as never, { targetType: "vrchat_user", now });
+    });
+    assert.equal((await t.query(
+      internal.communityTelemetry.claimVerificationOperationalHealth,
+      { now },
+    )).scanLimitReached, true);
+  });
+
+  it("requires a fresh positive-budget proof poll for operational health", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const collectorAccountId = await t.run(async (ctx) => {
+      const id = await seedCollector(ctx as never, "proof-health", now);
+      await ctx.db.patch(id as never, {
+        lastWorkerHeartbeatAt: now,
+        lastProofPollAt: now,
+      });
+      await seedAttempt(ctx as never, {
+        targetType: "vrchat_user",
+        now: now - 60_000,
+        lastCheckedAt: now - 30_000,
+      });
+      return id;
+    });
+
+    assert.equal((await t.query(
+      internal.communityTelemetry.claimVerificationOperationalHealth,
+      { now },
+    )).freshCollectorCount, 1);
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(collectorAccountId as never, { requestsPerMinute: 2 });
+    });
+    assert.equal((await t.query(
+      internal.communityTelemetry.claimVerificationOperationalHealth,
+      { now },
+    )).freshCollectorCount, 0);
+  });
+
   it("does not let never-stamped vrclinking attempts starve the queue", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();

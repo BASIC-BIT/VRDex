@@ -17,6 +17,7 @@ This directory holds the initial Convex backend slice for `VRDex`.
 - `_profileLinks.ts` contains the outbound profile link type list, normalization, and the provenance-stamping sanitizer every link writer goes through
 - `_inputValidation.ts` contains the shared untrusted-input primitives used by seed imports and profile link normalization
 - `profileClaims.ts` exposes claim request, Discord, and VRChat proof-code flows
+- `claimAnalytics.ts` and `claimAnalyticsDelivery.ts` own the durable sanitized claim-event outbox and bounded PostHog delivery
 - `profiles.ts` exposes public profile reads and authenticated community submission mutations
 - `profileMediaSubmissions.ts` keeps community-proposed profile media private until an authorized review decision
 - `_worldIds.ts` contains VRChat world id and canonical URL helpers
@@ -31,7 +32,7 @@ This directory holds the initial Convex backend slice for `VRDex`.
 - `_communityTelemetry.ts` contains group-telemetry metric, cadence, coverage, and redaction helpers
 - `_communityTelemetryPublic.ts` contains the sanitized public telemetry projection shared by web, API, and MCP reads
 - `communityTelemetry.ts` exposes community-authorized telemetry settings and the collector control plane
-- `crons.ts` schedules bounded telemetry rollups and retention compaction
+- `crons.ts` schedules bounded telemetry rollups, retention compaction, and claim-analytics outbox recovery
 - `migrations.ts` contains deploy-time data backfills for schema additions
 - `_searchDocuments.ts`, `_publicSearch.ts`, `_vocabulary.ts`, `search.ts`, and `suppressions.ts` contain public discovery, vocabulary, and suppression helpers
 - `_generated/` contains committed Convex codegen output and should not be edited by hand

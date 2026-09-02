@@ -54,9 +54,63 @@ Run read-only membership inspection first with `pnpm proof:group-telemetry`. On 
    The mutation rejects a `secretRef` that is not an ARN or `secret://` reference
    and a `workerKeyHash` that is not a 64-character hex digest, so a pasted key
    fails rather than being stored.
-5. Build `workers/group-telemetry/Dockerfile`, push the image, and configure `container_image` with its immutable `@sha256:` digest URI. Terraform rejects service enablement when that digest is absent.
+5. Build `workers/group-telemetry/Dockerfile`, push the image, and configure `container_image` with its immutable `@sha256:` digest URI. Terraform rejects service enablement when that digest is absent. Once the reviewed automation bootstrap below is complete, the main-branch release lane performs this step automatically.
 6. Apply with `enable_service=false` and `desired_count=0`. Review the task role, execution role, one-secret scope, SSM deployment gate, logs, alarms, budget, and egress-only networking.
 7. After a `go` or acceptable `adjust`, set `enable_service=true`, `desired_count=1`, and a budget alert email. Keep the task cap at two.
+
+## Automatic releases and drift detection
+
+`.github/workflows/group-telemetry-release.yml` is the only automatic writer
+for routine collector releases. A successful `main` Baseline Checks run builds
+the exact main SHA, publishes an immutable SHA tag, plans against checked-in
+production enable/count state plus fail-closed repository variables, and
+applies the saved plan only after the policy helper proves that it changes the
+collector image and release metadata alone. ECS must stabilize on the exact
+digest, then `communityTelemetry:collectorDeploymentReadiness` must report a
+fresh matching heartbeat from `GROUP_TELEMETRY_COLLECTOR_ACCOUNT_ID` with
+`telemetry_v1` and `vrchat_proof_v1`.
+
+Before enabling the lane, perform one reviewed bootstrap from the trusted state
+holder:
+
+1. Migrate any existing local collector state to the declared S3 backend with
+   `terraform init -migrate-state`, then inspect the remote state.
+2. Plan the current production variables with the reviewed release image and
+   source SHA. The first plan includes task metadata plus heartbeat, auth,
+   control-plane failure, and restart metric filters and alarms.
+3. Apply that infrastructure plan manually. Automatic releases intentionally
+   reject it because it contains more than an image-only task revision.
+4. Provision separate main-only GitHub OIDC roles for release and read-only
+   audit, following the least-privilege requirements in the stack README.
+5. Configure every required GitHub variable and secret listed there, then set
+   `GROUP_TELEMETRY_RELEASE_ENABLED=true`.
+6. Dispatch audit mode first. Dispatch release mode only from a commit reachable
+   from `main`.
+
+Every five minutes, the audit job asks GitHub Actions for the latest successful
+main baseline. It compares that expected SHA with ECR, the running ECS digest,
+and Convex operational readiness. This catches a main change that was never
+built as well as a build that never reached ECS. A branch-scoped Actions cache
+records the first observation of each current mismatch. The audit fails only
+when a mismatch remains present for fifteen minutes, and a healthy observation
+resets its clock, so an old release timestamp cannot turn one brief task restart
+into persistent drift. The audit makes no provider or AWS mutation.
+Stale heartbeat, missing proof capability, `auth_required`, or unchecked-attempt
+health issues fail immediately.
+
+The CloudWatch filters consume only redacted JSON event names:
+`collector_heartbeat`, `collector_auth_required`,
+`collector_control_plane_failure`, and `collector_worker_restart`. They must
+never include a profile slug, proof code, provider target, account identifier,
+cookie, key, or raw error payload. Missing successful heartbeats alarm after
+two one-minute periods. The scheduled audit also fails when an eligible proof
+remains unchecked for more than two minutes.
+
+The Terraform-managed `${name_prefix}-operations` dashboard combines those
+collector signals with ECS task count, CPU, and a bounded recent-log view. The
+scheduled audit summary is the companion Convex view: it reports aggregate
+proof backlog, oldest unchecked age, collector release counts, and analytics
+outbox health without customer or journey identifiers.
 
 Steps 1-7 are the bring-up sequence for standing a fleet up, not a description of
 the current state. Production has been through them: BASIC accepted durable
@@ -68,9 +122,12 @@ Apply production with the checked-in run state, not the defaults:
 terraform apply -var-file=environments/production.tfvars
 ```
 
-`environments/production.tfvars` carries only `enable_service` and
-`desired_count`. Account-specific values — image digest, secret ARN, subnets,
-security groups — stay in the operator's gitignored `terraform.tfvars`. The
+`environments/production.tfvars` carries `enable_service`, `desired_count`, and
+the production `requests_per_minute` budget. An explicit request-budget change
+must update that checked run state before the next automatic image release, so
+the release cannot silently restore Terraform's default. The file otherwise
+contains no account-specific values. Image digest, secret ARN, subnets, and
+security groups stay in the operator's gitignored `terraform.tfvars`. The
 variable defaults remain disabled so a new environment is safe by default, but
 applying production without that var-file would set `desired_count = 0` and take
 the fleet down, which now also disables collector-resolved VRChat claims.
@@ -100,6 +157,6 @@ For account loss, quarantine the account before assigning groups elsewhere. Capa
 
 ## Cost and self-hosting
 
-The default task is 256 CPU/512 MiB, desired count is capped at two, logs retain 30 days, and ECR retains ten images. The optional AWS Budget defaults to USD 30/month with 80% forecast and 100% actual alerts after the `Component` cost-allocation tag is activated.
+The default task is 256 CPU/512 MiB, desired count is capped at two, and logs retain 30 days. ECR removes untagged images after seven days, while immutable `git-*` release tags remain available for rollback until an operator deliberately removes old tagged releases. The optional AWS Budget defaults to USD 30/month with 80% forecast and 100% actual alerts after the `Component` cost-allocation tag is activated.
 
-A self-hosted deployment may run the same container outside ECS. It must provide an equivalent per-account external secret, startup gate, HTTPS-only egress, restart policy, logs without payloads, and the five required runtime variables documented in `workers/group-telemetry/README.md`. The Convex control plane remains authoritative for assignments, leases, budgets, and public settings.
+A self-hosted deployment may run the same container outside ECS. It must provide an equivalent per-account external secret, startup gate, HTTPS-only egress, restart policy, logs without payloads, and every required runtime variable documented in `workers/group-telemetry/README.md`, including the exact release SHA and bounded release version. The Convex control plane remains authoritative for assignments, leases, budgets, and public settings.

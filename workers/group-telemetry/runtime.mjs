@@ -2,7 +2,43 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { VrchatProviderError } from "./vrchat-client.mjs";
 
-export const COLLECTOR_VERSION = "group-telemetry-v1";
+export const COLLECTOR_PROTOCOL_VERSION = "group-telemetry-v1";
+export const COLLECTOR_CAPABILITIES = Object.freeze(["telemetry_v1", "vrchat_proof_v1"]);
+export const MAX_CONSECUTIVE_LOOP_FAILURES = 6;
+const PROVIDER_CATEGORIES = new Set([
+  "authentication",
+  "rate_limit",
+  "visibility",
+  "transient",
+  "schema_drift",
+  "timeout",
+  "provider_error",
+  "network",
+]);
+
+export function boundedProviderCategory(value) {
+  return typeof value === "string" && PROVIDER_CATEGORIES.has(value)
+    ? value
+    : "unexpected";
+}
+
+export function collectorRuntimeMetadata(environment = process.env) {
+  const releaseSha = environment.VRDEX_GROUP_TELEMETRY_RELEASE_SHA?.trim().toLowerCase();
+  if (!releaseSha || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(releaseSha)) {
+    throw new Error("VRDEX_GROUP_TELEMETRY_RELEASE_SHA must be an exact Git SHA.");
+  }
+  const collectorVersion = environment.VRDEX_GROUP_TELEMETRY_RELEASE_VERSION?.trim();
+  if (!collectorVersion || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(collectorVersion)) {
+    throw new Error(
+      "VRDEX_GROUP_TELEMETRY_RELEASE_VERSION must be a bounded release version.",
+    );
+  }
+  return {
+    releaseSha,
+    collectorVersion,
+    capabilities: [...COLLECTOR_CAPABILITIES],
+  };
+}
 
 export function randomPollDelayMs(active, random = Math.random) {
   const [minimum, maximum] = active ? [60_000, 120_000] : [180_000, 300_000];
@@ -40,7 +76,8 @@ export class RequestBudget {
 }
 
 export function failureDisposition(error, attempt, now = Date.now(), random = Math.random) {
-  const provider = error instanceof VrchatProviderError ? error : new VrchatProviderError("Unexpected collector failure.");
+  if (!(error instanceof VrchatProviderError)) throw error;
+  const provider = error;
   const delay = retryDelayMs(attempt, provider.retryAfterMs, random);
   return {
     statusClass: provider.status > 0 ? String(provider.status) : provider.category,
@@ -52,12 +89,58 @@ export function failureDisposition(error, attempt, now = Date.now(), random = Ma
   };
 }
 
+export function collectorLoopFailureEvent(error, phase, attempt) {
+  const message = error instanceof Error ? error.message : "";
+  const controlPlaneStatus = /^Control plane ([1-5][0-9]{2}):/.exec(message)?.[1];
+  const providerStatus = error instanceof VrchatProviderError && error.status > 0
+    ? String(error.status)
+    : undefined;
+  const failureClass = error instanceof VrchatProviderError
+    ? "provider"
+    : controlPlaneStatus !== undefined
+      ? "control_plane_http"
+      : error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")
+        ? "timeout"
+        : error instanceof TypeError
+          ? "transport"
+          : "unexpected";
+
+  return {
+    event: "collector_control_plane_failure",
+    phase,
+    attempt,
+    failureClass,
+    ...(error instanceof VrchatProviderError
+      ? { category: boundedProviderCategory(error.category) }
+      : {}),
+    ...(controlPlaneStatus === undefined && providerStatus === undefined
+      ? {}
+      : { status: controlPlaneStatus ?? providerStatus }),
+  };
+}
+
+export function collectorRestartEvent(attempt) {
+  return {
+    event: "collector_worker_restart",
+    reason: "consecutive_loop_failures",
+    attempt,
+  };
+}
+
+export function collectorAuthRequiredEvent() {
+  return { event: "collector_auth_required" };
+}
+
+export function collectorShouldRestart(attempt) {
+  return attempt >= MAX_CONSECUTIVE_LOOP_FAILURES;
+}
+
 export function pollId(integrationId, observedAt) {
   return createHash("sha256").update(`${integrationId}:${observedAt}`).digest("hex");
 }
 
 export class TelemetryControlClient {
-  constructor({ endpoint, collectorAccountId, workerApiKey, vrchatUserId, workerId = `collector-${randomUUID()}`, fetcher = fetch }) {
+  constructor({ endpoint, collectorAccountId, workerApiKey, vrchatUserId, releaseSha, workerId = `collector-${randomUUID()}`, fetcher = fetch }) {
     this.endpoint = endpoint;
     this.collectorAccountId = collectorAccountId;
     this.workerApiKey = workerApiKey;
@@ -65,6 +148,7 @@ export class TelemetryControlClient {
     // rejects the request when it does not match the collector the account id
     // names, so a mismatched secret/collector pairing cannot do work.
     this.vrchatUserId = vrchatUserId;
+    this.releaseSha = releaseSha;
     this.workerId = workerId;
     this.fetcher = fetcher;
   }
@@ -80,6 +164,7 @@ export class TelemetryControlClient {
         operation,
         workerId: this.workerId,
         ...(this.vrchatUserId === undefined ? {} : { vrchatUserId: this.vrchatUserId }),
+        ...(this.releaseSha === undefined ? {} : { releaseSha: this.releaseSha }),
         ...body,
       }),
       signal: AbortSignal.timeout(timeoutMs),

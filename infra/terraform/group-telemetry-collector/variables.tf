@@ -24,6 +24,43 @@ variable "container_image" {
   }
 }
 
+variable "release_sha" {
+  description = "Exact 40-character Git SHA embedded in the collector runtime."
+  type        = string
+  default     = "0000000000000000000000000000000000000000"
+
+  validation {
+    condition     = can(regex("^[0-9a-f]{40}$", var.release_sha))
+    error_message = "release_sha must be an exact lowercase 40-character Git SHA."
+  }
+}
+
+variable "release_version" {
+  description = "Human-readable collector release version derived from the Git SHA."
+  type        = string
+  default     = "bootstrap"
+
+  validation {
+    condition     = can(regex("^[a-z0-9][a-z0-9._-]{0,63}$", var.release_version))
+    error_message = "release_version must be a short lowercase release identifier."
+  }
+}
+
+variable "release_capabilities" {
+  description = "Fixed protocol capabilities reported by this collector release."
+  type        = list(string)
+  default     = ["telemetry_v1", "vrchat_proof_v1"]
+
+  validation {
+    condition = (
+      length(var.release_capabilities) > 0 &&
+      length(var.release_capabilities) == length(distinct(var.release_capabilities)) &&
+      alltrue([for capability in var.release_capabilities : can(regex("^[a-z0-9_]+$", capability))])
+    )
+    error_message = "release_capabilities must be a non-empty unique list of lowercase capability names."
+  }
+}
+
 variable "enable_service" {
   description = "Create the ECS service only after the provider proof gate."
   type        = bool

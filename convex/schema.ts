@@ -115,6 +115,13 @@ import {
   vrchatGroupJoinPolicyValidator,
   vrchatGroupVisibilityValidator,
 } from "./_communityTelemetry";
+import {
+  collectorRuntimeCapabilityValidator,
+  profileClaimLifecycleActorValidator,
+  profileClaimLifecycleEventValidator,
+  proofCheckOutcomeValidator,
+  proofResolutionReasonValidator,
+} from "./_claimObservability";
 
 const claimState = v.union(
   v.literal("unclaimed"),
@@ -1431,12 +1438,37 @@ export default defineSchema({
     killSwitchEnabled: v.boolean(),
     lastHealthAt: v.optional(v.number()),
     lastHealthResult: v.optional(v.string()),
+    // Proof-path readiness is intentionally distinct from generic process
+    // liveness: only a worker that reached the proof claim gate may stamp it.
+    lastProofPollAt: v.optional(v.number()),
+    // Provider/account health above is distinct from worker process liveness.
+    // A task can be running an obsolete release while the provider session is
+    // still healthy, so deployment convergence needs an explicit heartbeat.
+    lastWorkerHeartbeatAt: v.optional(v.number()),
+    lastWorkerId: v.optional(v.string()),
+    lastWorkerReleaseSha: v.optional(v.string()),
+    lastWorkerVersion: v.optional(v.string()),
+    lastWorkerCapabilities: v.optional(v.array(collectorRuntimeCapabilityValidator)),
+    consecutiveControlFailures: v.optional(v.number()),
     cooldownUntil: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_vrchatUserId", ["vrchatUserId"])
     .index("by_state_assignedGroupCount", ["state", "assignedGroupCount"]),
+  collectorWorkerHeartbeats: defineTable({
+    collectorAccountId: v.id("collectorAccounts"),
+    workerId: v.string(),
+    releaseSha: v.string(),
+    collectorVersion: v.string(),
+    capabilities: v.array(collectorRuntimeCapabilityValidator),
+    consecutiveControlFailures: v.number(),
+    heartbeatAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_collectorAccountId_workerId", ["collectorAccountId", "workerId"])
+    .index("by_collectorAccountId_heartbeatAt", ["collectorAccountId", "heartbeatAt"])
+    .index("by_heartbeatAt", ["heartbeatAt"]),
   collectorRequestBudgetCounters: defineTable({
     scopeKey: v.string(),
     windowStartedAt: v.number(),
@@ -2115,6 +2147,12 @@ export default defineSchema({
     evidenceSource: v.optional(profileVerificationEvidenceSource),
     evidenceSummary: v.optional(v.string()),
     rejectionReason: v.optional(v.string()),
+    // Opaque per-journey correlation only. It is random and carries no user,
+    // profile, provider, or target identity.
+    analyticsJourneyId: v.optional(v.string()),
+    analyticsEntrySource: v.optional(
+      v.union(v.literal("account"), v.literal("profile"), v.literal("search")),
+    ),
     createdAt: v.number(),
     updatedAt: v.number(),
     verifiedAt: v.optional(v.number()),
@@ -2151,6 +2189,23 @@ export default defineSchema({
     // accepts a verdict only from this collector, so one leaked worker key
     // cannot attest arbitrary attempts it was never given.
     lastCheckedByCollectorAccountId: v.optional(v.id("collectorAccounts")),
+    // `lastCheckedAt` is the legacy dispatch/cooldown stamp. These fields keep
+    // dispatch separate from a provider request that actually completed or
+    // failed with a bounded outcome.
+    firstDispatchedAt: v.optional(v.number()),
+    lastDispatchedAt: v.optional(v.number()),
+    dispatchCount: v.optional(v.number()),
+    lastDispatchedByWorkerId: v.optional(v.string()),
+    firstCheckAt: v.optional(v.number()),
+    lastCheckAt: v.optional(v.number()),
+    checkCount: v.optional(v.number()),
+    lastCheckOutcome: v.optional(proofCheckOutcomeValidator),
+    resolvedAt: v.optional(v.number()),
+    resolutionReason: v.optional(proofResolutionReasonValidator),
+    analyticsJourneyId: v.optional(v.string()),
+    analyticsEntrySource: v.optional(
+      v.union(v.literal("account"), v.literal("profile"), v.literal("search")),
+    ),
   })
     .index("by_profileId_state", ["profileId", "state"])
     .index("by_profileId_userId_state_updatedAt", ["profileId", "userId", "state", "updatedAt"])
@@ -2161,12 +2216,87 @@ export default defineSchema({
     // afterwards let never-stamped vrclinking rows hold the head of the scan
     // window forever and starve the queue.
     .index("by_state_targetType_lastCheckedAt", ["state", "targetType", "lastCheckedAt"])
+    .index("by_state_targetType_createdAt", ["state", "targetType", "createdAt"])
+    .index("by_state_targetType_firstCheckAt", ["state", "targetType", "firstCheckAt"])
     // Creation rate per claimant and target, independent of state. The open
     // attempt cap counts only `pending` rows, so cancelling one frees its slot
     // immediately — and because the adapter cooldown lives on the attempt row,
     // a fresh attempt starts with none. Without this index there was no way to
     // see the attempts a claimant had just discarded.
     .index("by_userId_targetType_createdAt", ["userId", "targetType", "createdAt"]),
+  profileClaimLifecycleEvents: defineTable({
+    profileId: v.id("profiles"),
+    attemptId: v.id("profileVerificationAttempts"),
+    method: profileClaimMethod,
+    targetType: profileVerificationTargetType,
+    event: profileClaimLifecycleEventValidator,
+    actorSurface: profileClaimLifecycleActorValidator,
+    outcome: v.optional(v.union(proofCheckOutcomeValidator, proofResolutionReasonValidator)),
+    workerReleaseSha: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_createdAt", ["createdAt"])
+    .index("by_event_createdAt", ["event", "createdAt"])
+    .index("by_event_targetType_createdAt", ["event", "targetType", "createdAt"])
+    .index("by_attemptId_createdAt", ["attemptId", "createdAt"]),
+  claimAnalyticsOutbox: defineTable({
+    eventKey: v.string(),
+    journeyId: v.string(),
+    event: v.union(
+      v.literal("claim_attempt_created"),
+      v.literal("claim_verification_started"),
+      v.literal("claim_resolved"),
+    ),
+    profileType: v.union(v.literal("person"), v.literal("community")),
+    method: v.union(v.literal("discord"), v.literal("vrchat"), v.literal("vrclinking")),
+    entrySource: v.union(v.literal("account"), v.literal("profile"), v.literal("search")),
+    outcome: v.optional(
+      v.union(
+        v.literal("claimed_unverified"),
+        v.literal("claimed_verified"),
+        v.literal("rejected"),
+        v.literal("canceled"),
+        v.literal("expired"),
+        v.literal("conflict"),
+        v.literal("not_claimable"),
+      ),
+    ),
+    connectionOnly: v.optional(v.boolean()),
+    timeToFirstCheckBucket: v.optional(
+      v.union(
+        v.literal("under_1m"),
+        v.literal("under_2m"),
+        v.literal("under_5m"),
+        v.literal("over_5m"),
+      ),
+    ),
+    timeToResolutionBucket: v.optional(
+      v.union(
+        v.literal("under_1m"),
+        v.literal("under_5m"),
+        v.literal("under_15m"),
+        v.literal("under_1h"),
+        v.literal("over_1h"),
+      ),
+    ),
+    occurredAt: v.number(),
+    state: v.union(
+      v.literal("pending"),
+      v.literal("delivering"),
+      v.literal("delivered"),
+      v.literal("failed"),
+      v.literal("disabled"),
+    ),
+    attemptCount: v.number(),
+    nextAttemptAt: v.number(),
+    leaseUntil: v.optional(v.number()),
+    deliveredAt: v.optional(v.number()),
+  })
+    .index("by_eventKey", ["eventKey"])
+    .index("by_state_occurredAt", ["state", "occurredAt"])
+    .index("by_state_deliveredAt", ["state", "deliveredAt"])
+    .index("by_state_nextAttemptAt", ["state", "nextAttemptAt"])
+    .index("by_state_leaseUntil", ["state", "leaseUntil"]),
   // A user proved they control an external asset. This is deliberately not a
   // claim: proving you administer a Discord guild says nothing about which
   // VRDex profile that guild represents. Profile ownership is granted only
@@ -2284,6 +2414,7 @@ export default defineSchema({
     userId: v.id("users"),
     state: v.string(),
     returnTo: v.string(),
+    analyticsJourneyId: v.optional(v.string()),
     createdAt: v.number(),
     expiresAt: v.number(),
   })

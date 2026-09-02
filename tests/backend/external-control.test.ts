@@ -23,6 +23,8 @@ import { newClerkUserId } from "./_clerkTestIdentity";
 const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
   "../../convex/profileConnections.ts": () => import("../../convex/profileConnections"),
+  "../../convex/claimAnalytics.ts": () => import("../../convex/claimAnalytics"),
+  "../../convex/claimAnalyticsDelivery.ts": () => import("../../convex/claimAnalyticsDelivery"),
   "../../convex/discordVerification.ts": () => import("../../convex/discordVerification"),
   "../../convex/vrclinkingCredentials.ts": () => import("../../convex/vrclinkingCredentials"),
 };
@@ -896,6 +898,152 @@ describe("Discord guild proof reconciliation", () => {
 });
 
 describe("Discord verification state backlog", () => {
+  it("does not record a verification start when OAuth configuration is invalid", async () => {
+    const previousClientId = process.env.AUTH_DISCORD_ID;
+    const previousSiteUrl = process.env.SITE_URL;
+    const previousAuthorizeUrl = process.env.DISCORD_OAUTH_AUTHORIZE_URL;
+    process.env.AUTH_DISCORD_ID = "discord-client-test";
+    process.env.SITE_URL = "https://vrdex.example.test";
+    process.env.DISCORD_OAUTH_AUTHORIZE_URL = "http://discord.invalid/authorize";
+
+    try {
+      const t = convexTest({ schema, modules });
+      const now = Date.now();
+      const identity = await t.run(async (ctx) => {
+        const userId = await ctx.db.insert("users", {
+          clerkUserId: newClerkUserId(),
+          email: "invalid-oauth-config@example.test",
+          emailVerificationTime: now,
+        });
+        return await webSessionIdentity(ctx as never, userId);
+      });
+
+      await assert.rejects(
+        t.withIdentity(identity).action(api.discordVerification.startGuildVerification, {
+          returnTo: "/claim/oauth-config",
+          analyticsJourneyId: "4d36e96e-34d9-4f7e-9fe1-72a98aa13077",
+          analyticsEntrySource: "profile",
+          analyticsProfileType: "community",
+        }),
+      );
+
+      await t.run(async (ctx) => {
+        assert.equal((await ctx.db.query("discordVerificationStates").collect()).length, 0);
+        assert.equal((await ctx.db.query("claimAnalyticsOutbox").collect()).length, 0);
+      });
+    } finally {
+      if (previousClientId === undefined) delete process.env.AUTH_DISCORD_ID;
+      else process.env.AUTH_DISCORD_ID = previousClientId;
+      if (previousSiteUrl === undefined) delete process.env.SITE_URL;
+      else process.env.SITE_URL = previousSiteUrl;
+      if (previousAuthorizeUrl === undefined) delete process.env.DISCORD_OAUTH_AUTHORIZE_URL;
+      else process.env.DISCORD_OAUTH_AUTHORIZE_URL = previousAuthorizeUrl;
+    }
+  });
+
+  it("records the backend verification-started milestone when claim OAuth opens", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const identity = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        clerkUserId: newClerkUserId(),
+        email: "oauth-claim-analytics@example.test",
+        emailVerificationTime: now,
+      });
+      return await webSessionIdentity(ctx as never, userId);
+    });
+
+    const { state } = await t.withIdentity(identity).mutation(
+      internal.discordVerification.createVerificationState,
+      {
+        returnTo: "/claim/oauth-analytics",
+        analyticsJourneyId: "4d36e96e-34d9-4f7e-9fe1-72a98aa13077",
+        analyticsEntrySource: "search",
+        analyticsProfileType: "community",
+      },
+    );
+
+    await t.run(async (ctx) => {
+      const verificationState = await ctx.db
+        .query("discordVerificationStates")
+        .withIndex("by_state", (q) => q.eq("state", state))
+        .unique();
+      assert.equal(
+        verificationState?.analyticsJourneyId,
+        "4d36e96e-34d9-4f7e-9fe1-72a98aa13077",
+      );
+      const event = await ctx.db
+        .query("claimAnalyticsOutbox")
+        .withIndex("by_eventKey", (q) =>
+          q.eq(
+            "eventKey",
+            "4d36e96e-34d9-4f7e-9fe1-72a98aa13077:claim_verification_started",
+          ),
+        )
+        .unique();
+      assert.equal(event?.event, "claim_verification_started");
+      assert.equal(event?.method, "discord");
+      assert.equal(event?.profileType, "community");
+      assert.equal(event?.entrySource, "search");
+    });
+
+    assert.deepEqual(
+      await t.withIdentity(identity).mutation(
+        internal.discordVerification.consumeVerificationState,
+        { state },
+      ),
+      {
+        returnTo: "/claim/oauth-analytics",
+        analyticsJourneyId: "4d36e96e-34d9-4f7e-9fe1-72a98aa13077",
+      },
+    );
+
+    const staleSession = await t.withIdentity(identity).mutation(
+      internal.discordVerification.createVerificationState,
+      {
+        returnTo: "/claim/oauth-analytics",
+        analyticsJourneyId: "4d36e96e-34d9-4f7e-9fe1-72a98aa13077",
+        analyticsEntrySource: "search",
+        analyticsProfileType: "community",
+      },
+    );
+    await assert.rejects(
+      t.mutation(internal.discordVerification.consumeVerificationState, {
+        state: staleSession.state,
+      }),
+      (error: unknown) => {
+        const data = (error as { data?: Record<string, unknown> }).data;
+        assert.equal(data?.returnTo, "/claim/oauth-analytics");
+        assert.equal(
+          data?.analyticsJourneyId,
+          "4d36e96e-34d9-4f7e-9fe1-72a98aa13077",
+        );
+        return true;
+      },
+    );
+
+    const replacement = await t.withIdentity(identity).mutation(
+      internal.discordVerification.createVerificationState,
+      {
+        returnTo: "/claim/oauth-analytics",
+        analyticsJourneyId: "profile-basicbit",
+        analyticsEntrySource: "search",
+        analyticsProfileType: "community",
+      },
+    );
+    await t.run(async (ctx) => {
+      const verificationState = await ctx.db
+        .query("discordVerificationStates")
+        .withIndex("by_state", (q) => q.eq("state", replacement.state))
+        .unique();
+      assert.match(
+        verificationState?.analyticsJourneyId ?? "",
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+      );
+      assert.notEqual(verificationState?.analyticsJourneyId, "profile-basicbit");
+    });
+  });
+
   // Expiry sweeping alone bounds nothing: a caller who starts the flow and never
   // finishes it accumulates unexpired rows faster than the sweep reclaims them.
   it("keeps only the caller's most recent outstanding states", async () => {
@@ -1926,6 +2074,8 @@ describe("claiming a community with a verified guild", () => {
     const retry = await asUser.mutation(api.profileConnections.claimCommunityWithVerifiedGuild, {
       profileSlug: "guild-claim",
       guildId: "777",
+      analyticsJourneyId: "1c64ccbd-6240-47ec-8a9a-e6d265f13736",
+      analyticsEntrySource: "account",
     });
 
     // The link this claim wrote is the claimant's own assertion repeated back,
@@ -1945,6 +2095,14 @@ describe("claiming a community with a verified guild", () => {
         (await getActiveProfileLinks(ctx.db, result.profileId, "discord_guild")).length,
         1,
       );
+      const analytics = (await ctx.db.query("claimAnalyticsOutbox").collect()).filter(
+        (row) => row.journeyId === "1c64ccbd-6240-47ec-8a9a-e6d265f13736",
+      );
+      assert.equal(analytics.length, 1);
+      assert.equal(analytics[0]?.event, "claim_resolved");
+      assert.equal(analytics[0]?.outcome, "claimed_unverified");
+      assert.equal(analytics[0]?.connectionOnly, true);
+      assert.equal(analytics[0]?.entrySource, "account");
     });
   });
 

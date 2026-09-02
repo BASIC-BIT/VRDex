@@ -1,6 +1,11 @@
 import { v } from "convex/values";
 
 import {
+  claimAnalyticsContext,
+  claimAnalyticsEntrySource,
+  enqueueClaimAnalyticsEvent,
+} from "./_claimAnalytics";
+import {
   claimSessionUserOrNull,
   requireVerifiedActiveBrowserSession,
 } from "./_claimSession";
@@ -196,7 +201,12 @@ export const listProfileConnections = query({
  * unproved claim does, and it upgrades once a trusted association exists.
  */
 export const claimCommunityWithVerifiedGuild = mutation({
-  args: { profileSlug: v.string(), guildId: v.string() },
+  args: {
+    profileSlug: v.string(),
+    guildId: v.string(),
+    analyticsJourneyId: v.optional(v.string()),
+    analyticsEntrySource: v.optional(claimAnalyticsEntrySource),
+  },
   handler: async (ctx, args) => {
     const { subject, user } = await requireVerifiedActiveBrowserSession(ctx);
     const profile = await requireProfileFromSlug(ctx.db, args.profileSlug);
@@ -269,9 +279,19 @@ export const claimCommunityWithVerifiedGuild = mutation({
     // writes. An unverified owner whose guild *is* on record still falls
     // through, since that is exactly the upgrade this mutation exists to do.
     const wouldUpgrade = profile.claimState !== "claimed_verified" && guildBacksThisProfile;
+    const analytics = claimAnalyticsContext(args.analyticsJourneyId, args.analyticsEntrySource);
 
     if (activeOwner !== null && !wouldUpgrade) {
       await linkGuild(proof._id);
+      await enqueueClaimAnalyticsEvent(ctx, analytics, {
+        event: "claim_resolved",
+        profileType: "community",
+        method: "discord",
+        outcome: profile.claimState === "claimed_verified" ? "claimed_verified" : "claimed_unverified",
+        connectionOnly: true,
+        timeToResolutionBucket: "under_1m",
+        occurredAt: now,
+      });
 
       return {
         claimRequestId: null,
@@ -301,6 +321,15 @@ export const claimCommunityWithVerifiedGuild = mutation({
       updatedAt: now,
       verifiedAt: now,
       reviewedAt: now,
+      analyticsJourneyId: analytics.journeyId,
+      analyticsEntrySource: analytics.entrySource,
+    });
+
+    await enqueueClaimAnalyticsEvent(ctx, analytics, {
+      event: "claim_attempt_created",
+      profileType: "community",
+      method: "discord",
+      occurredAt: now,
     });
 
     await linkGuild(proof._id);
@@ -328,6 +357,16 @@ export const claimCommunityWithVerifiedGuild = mutation({
     if (updatedProfile !== null) {
       await upsertSearchDocument(ctx.db, createProfileSearchDocument(updatedProfile));
     }
+
+    await enqueueClaimAnalyticsEvent(ctx, analytics, {
+      event: "claim_resolved",
+      profileType: "community",
+      method: "discord",
+      outcome: guildBacksThisProfile ? "claimed_verified" : "claimed_unverified",
+      connectionOnly: false,
+      timeToResolutionBucket: "under_1m",
+      occurredAt: now,
+    });
 
     return {
       claimRequestId,

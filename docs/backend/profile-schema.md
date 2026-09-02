@@ -217,14 +217,23 @@ providers live in Clerk. See
 
 `profileClaimRequests` stores claim review state for Discord, VRChat, VRCLinking, and manual methods. Discord methods currently distinguish `discord_person`, `discord_community`, and the stronger `discord_community_admin` flow.
 
-`profileVerificationAttempts` stores proof-code attempts for external proof readers. Attempts have a proof code, target type, target external id, state, expiry, and optional evidence summary.
+`profileVerificationAttempts` stores proof-code attempts for external proof
+readers. Attempts have a proof code, target type, target external id, state,
+expiry, and optional evidence summary. Operational lifecycle fields distinguish
+queue dispatch from an actual provider check, retain bounded check outcomes and
+counts, and record terminal resolution time and reason.
+
+`profileClaimLifecycleEvents` is the authoritative internal event stream for
+attempt creation, proof dispatch, completed provider checks, and terminal
+resolution. It stores no provider response, proof text, or raw error payload.
 
 Proof reading is split by target type:
 
 - `vrchat_user` and `vrchat_group` attempts are read by the collector fleet on
   its own schedule. `VRCHAT_PROOF_ADAPTER_URL` is optional and deliberately
   unset in production; with no adapter configured, a manual "check now" reports
-  `queued` rather than failing.
+  `queued` only while a collector proof-path heartbeat is fresh, otherwise it
+  reports `unavailable` while preserving the pending attempt.
 - `vrclinking` attempts have no collector path at all. They require
   `VRCLINKING_PROOF_ADAPTER_URL`, because the answer comes from a community's
   delegated key rather than from a posted code.

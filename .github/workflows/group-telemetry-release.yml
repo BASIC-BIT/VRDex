@@ -1,0 +1,351 @@
+name: Group Telemetry Collector Release
+
+on:
+  workflow_run:
+    workflows:
+      - Baseline Checks
+    types:
+      - completed
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Release the selected main SHA or run the read-only drift audit.
+        required: true
+        default: audit
+        type: choice
+        options:
+          - audit
+          - release
+  schedule:
+    - cron: "2-59/5 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: group-telemetry-production-${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'audit')) && 'audit' || 'release' }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: vrdex-group-telemetry
+  ECS_CLUSTER: vrdex-group-telemetry
+  ECS_SERVICE: vrdex-group-telemetry
+  RELEASE_CAPABILITIES: telemetry_v1,vrchat_proof_v1
+
+jobs:
+  release:
+    name: Build and deploy immutable collector
+    if: >-
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+      (github.event_name == 'workflow_dispatch' && inputs.mode == 'release')
+    runs-on: ubuntu-latest
+    # Leave a separate recovery budget after the bounded five-minute heartbeat
+    # verification. A failed rollout must still have time to reconcile both
+    # Terraform state and ECS to the captured immutable release.
+    timeout-minutes: 120
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    env:
+      AWS_ROLE_ARN: ${{ vars.AWS_GROUP_TELEMETRY_RELEASE_ROLE_ARN }}
+      RELEASE_ENABLED: ${{ vars.GROUP_TELEMETRY_RELEASE_ENABLED }}
+      TF_VAR_subnet_ids: ${{ vars.GROUP_TELEMETRY_SUBNET_IDS }}
+      TF_VAR_security_group_ids: ${{ vars.GROUP_TELEMETRY_SECURITY_GROUP_IDS }}
+      TF_VAR_assign_public_ip: ${{ vars.GROUP_TELEMETRY_ASSIGN_PUBLIC_IP }}
+      TF_VAR_convex_site_url: ${{ vars.GROUP_TELEMETRY_CONVEX_SITE_URL }}
+      TF_VAR_collector_account_id: ${{ vars.GROUP_TELEMETRY_COLLECTOR_ACCOUNT_ID }}
+      TF_VAR_account_secret_arn: ${{ vars.GROUP_TELEMETRY_ACCOUNT_SECRET_ARN }}
+      TF_VAR_budget_alert_email: ${{ vars.GROUP_TELEMETRY_BUDGET_ALERT_EMAIL }}
+      CONVEX_DEPLOYMENT_PROD: ${{ vars.CONVEX_DEPLOYMENT_PROD }}
+      CONVEX_DEPLOY_KEY_PROD: ${{ secrets.CONVEX_DEPLOY_KEY_PROD }}
+
+    steps:
+      - name: Checkout exact successful main SHA
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Fail closed on missing production configuration
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          WORKFLOW_RUN_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          WORKFLOW_RUN_HEAD_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [ "$RELEASE_ENABLED" = "true" ] || missing+=("GROUP_TELEMETRY_RELEASE_ENABLED=true")
+          for name in AWS_ROLE_ARN TF_VAR_subnet_ids TF_VAR_security_group_ids TF_VAR_assign_public_ip TF_VAR_convex_site_url TF_VAR_collector_account_id TF_VAR_account_secret_arn TF_VAR_budget_alert_email CONVEX_DEPLOYMENT_PROD CONVEX_DEPLOY_KEY_PROD; do
+            [ -n "${!name:-}" ] || missing+=("$name")
+          done
+          case "$TF_VAR_assign_public_ip" in true|false) ;; *) missing+=("GROUP_TELEMETRY_ASSIGN_PUBLIC_IP=true or false") ;; esac
+          jq -e 'type == "array" and length > 0 and all(.[]; type == "string" and length > 0)' <<<"$TF_VAR_subnet_ids" >/dev/null || missing+=("GROUP_TELEMETRY_SUBNET_IDS as a non-empty JSON array")
+          jq -e 'type == "array" and length > 0 and all(.[]; type == "string" and length > 0)' <<<"$TF_VAR_security_group_ids" >/dev/null || missing+=("GROUP_TELEMETRY_SECURITY_GROUP_IDS as a non-empty JSON array")
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf '::error::Collector release configuration is missing or invalid: %s\n' "${missing[*]}"
+            exit 1
+          fi
+          release_sha="$(git rev-parse HEAD)"
+          [[ "$release_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Checkout did not resolve to a full Git SHA."; exit 1; }
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$release_sha" origin/main || { echo "::error::Collector releases must use a commit reachable from main."; exit 1; }
+          if [ "$EVENT_NAME" = "workflow_run" ]; then
+            [ "$WORKFLOW_RUN_HEAD_BRANCH" = "main" ] || { echo "::error::The triggering baseline run was not for main."; exit 1; }
+            [ "$WORKFLOW_RUN_HEAD_REPOSITORY" = "$GITHUB_REPOSITORY" ] || { echo "::error::The triggering baseline run came from another repository."; exit 1; }
+            latest_successful_sha="$(gh api -X GET "repos/$GITHUB_REPOSITORY/actions/workflows/baseline-checks.yml/runs" -f branch=main -f status=success -f per_page=20 --jq '[.workflow_runs[] | select(.event == "push" and .head_branch == "main" and .head_repository.full_name == env.GITHUB_REPOSITORY)] | first | .head_sha')"
+            [ "$release_sha" = "$latest_successful_sha" ] || { echo "::error::The triggering baseline is no longer the latest successful main release."; exit 1; }
+          fi
+          echo "RELEASE_SHA=$release_sha" >> "$GITHUB_ENV"
+          echo "RELEASE_VERSION=git-${release_sha:0:12}" >> "$GITHUB_ENV"
+          echo "IMAGE_TAG=git-$release_sha" >> "$GITHUB_ENV"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify collector release contracts
+        run: |
+          pnpm test:group-telemetry
+          node --conditions=import --import tsx --test tests/backend/collector-proof-checks.test.ts
+          node --import tsx --test tests/scripts/group-telemetry-worker.test.ts
+          node --import tsx --test tests/scripts/group-telemetry-deployment.test.ts
+
+      - name: Configure scoped AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.10.5
+          terraform_wrapper: false
+
+      - name: Initialize collector remote state
+        working-directory: infra/terraform/group-telemetry-collector
+        run: terraform init -reconfigure
+
+      - name: Resolve repository and immutable image
+        run: |
+          set -euo pipefail
+          repository_url="$(terraform -chdir=infra/terraform/group-telemetry-collector output -raw repository_url)"
+          [ -n "$repository_url" ] || { echo "::error::Collector repository URL is absent from remote state."; exit 1; }
+          existing_digest="$(aws ecr describe-images --repository-name "$ECR_REPOSITORY" --image-ids "imageTag=$IMAGE_TAG" --query 'imageDetails[0].imageDigest' --output text 2>/dev/null || true)"
+          if [[ "$existing_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Reusing the immutable image already published for $RELEASE_SHA."
+            digest="$existing_digest"
+          else
+            aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "${repository_url%%/*}"
+            docker build --label "org.opencontainers.image.revision=$RELEASE_SHA" --tag "$repository_url:$IMAGE_TAG" --file workers/group-telemetry/Dockerfile .
+            docker push "$repository_url:$IMAGE_TAG"
+            digest="$(aws ecr describe-images --repository-name "$ECR_REPOSITORY" --image-ids "imageTag=$IMAGE_TAG" --query 'imageDetails[0].imageDigest' --output text)"
+          fi
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::ECR did not return an immutable image digest."; exit 1; }
+          echo "IMAGE_DIGEST=$digest" >> "$GITHUB_ENV"
+          echo "IMAGE_URI=$repository_url@$digest" >> "$GITHUB_ENV"
+
+      - name: Create and inspect saved production plan
+        working-directory: infra/terraform/group-telemetry-collector
+        run: |
+          set -euo pipefail
+          export TF_VAR_container_image="$IMAGE_URI"
+          export TF_VAR_release_sha="$RELEASE_SHA"
+          export TF_VAR_release_version="$RELEASE_VERSION"
+          export TF_VAR_release_capabilities='["telemetry_v1","vrchat_proof_v1"]'
+          terraform plan -out=collector.tfplan -var-file=environments/production.tfvars
+          terraform show -json collector.tfplan > collector-plan.json
+          node ../../../scripts/group-telemetry-deployment.mjs plan --file collector-plan.json --image "$IMAGE_URI" --release-sha "$RELEASE_SHA" --capabilities "$RELEASE_CAPABILITIES"
+
+      - name: Capture rollback task definition
+        run: |
+          set -euo pipefail
+          previous_task_definition="$(aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" --query 'services[0].taskDefinition' --output text)"
+          [ -n "$previous_task_definition" ] && [ "$previous_task_definition" != "None" ] || { echo "::error::Collector service has no rollback task definition."; exit 1; }
+          aws ecs describe-task-definition --task-definition "$previous_task_definition" > previous-task-definition.json
+          previous_image_uri="$(jq -er '.taskDefinition.containerDefinitions[] | select(.name == "collector") | .image' previous-task-definition.json)"
+          previous_release_sha="$(jq -er '.taskDefinition.containerDefinitions[] | select(.name == "collector") | .environment[] | select(.name == "VRDEX_GROUP_TELEMETRY_RELEASE_SHA") | .value' previous-task-definition.json)"
+          previous_release_version="$(jq -er '.taskDefinition.containerDefinitions[] | select(.name == "collector") | .environment[] | select(.name == "VRDEX_GROUP_TELEMETRY_RELEASE_VERSION") | .value' previous-task-definition.json)"
+          previous_capabilities="$(jq -er '.taskDefinition.containerDefinitions[] | select(.name == "collector") | .environment[] | select(.name == "VRDEX_GROUP_TELEMETRY_CAPABILITIES") | .value' previous-task-definition.json)"
+          [[ "$previous_image_uri" =~ @sha256:[0-9a-fA-F]{64}$ ]] || { echo "::error::Rollback image is not an immutable digest."; exit 1; }
+          [[ "$previous_release_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Rollback release SHA is invalid."; exit 1; }
+          [[ "$previous_release_version" =~ ^[a-z0-9][a-z0-9._-]{0,63}$ ]] || { echo "::error::Rollback release version is invalid."; exit 1; }
+          [[ "$previous_capabilities" =~ ^(telemetry_v1,vrchat_proof_v1|vrchat_proof_v1,telemetry_v1)$ ]] || { echo "::error::Rollback capabilities are invalid."; exit 1; }
+          echo "PREVIOUS_TASK_DEFINITION=$previous_task_definition" >> "$GITHUB_ENV"
+          echo "PREVIOUS_IMAGE_URI=$previous_image_uri" >> "$GITHUB_ENV"
+          echo "PREVIOUS_RELEASE_SHA=$previous_release_sha" >> "$GITHUB_ENV"
+          echo "PREVIOUS_RELEASE_VERSION=$previous_release_version" >> "$GITHUB_ENV"
+          echo "PREVIOUS_RELEASE_CAPABILITIES=$(jq -cn --arg value "$previous_capabilities" '$value | split(",")')" >> "$GITHUB_ENV"
+
+      - name: Apply the inspected saved plan
+        id: apply
+        continue-on-error: true
+        working-directory: infra/terraform/group-telemetry-collector
+        run: terraform apply -auto-approve collector.tfplan
+
+      - name: Verify exact ECS task definition and image digest
+        id: verify-ecs
+        if: steps.apply.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          task_definition="$(terraform -chdir=infra/terraform/group-telemetry-collector output -raw task_definition_arn)"
+          aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE"
+          aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" > service.json
+          task_arns="$(aws ecs list-tasks --cluster "$ECS_CLUSTER" --service-name "$ECS_SERVICE" --desired-status RUNNING --query 'taskArns' --output text)"
+          [ -n "$task_arns" ] && [ "$task_arns" != "None" ] || { echo "::error::Collector service has no running tasks."; exit 1; }
+          aws ecs describe-tasks --cluster "$ECS_CLUSTER" --tasks $task_arns > tasks.json
+          node scripts/group-telemetry-deployment.mjs ecs --service service.json --tasks tasks.json --task-definition "$task_definition" --digest "$IMAGE_DIGEST"
+
+      - name: Verify matching fresh collector heartbeat
+        id: verify-heartbeat
+        if: steps.apply.outcome == 'success' && steps.verify-ecs.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS + 300))
+          until [ "$SECONDS" -ge "$deadline" ]; do
+            now="$(node -p 'Date.now()')"
+            args="$(jq -cn --arg accountId "$TF_VAR_collector_account_id" --arg sha "$RELEASE_SHA" --argjson now "$now" '{collectorAccountId:$accountId,expectedReleaseSha:$sha,requiredCapabilities:["telemetry_v1","vrchat_proof_v1"],maxHeartbeatAgeMs:120000,now:$now}')"
+            if CONVEX_DEPLOY_KEY="$CONVEX_DEPLOY_KEY_PROD" pnpm --silent exec convex run --prod communityTelemetry:collectorDeploymentReadiness "$args" > heartbeat.json; then
+              if node scripts/group-telemetry-deployment.mjs heartbeat --file heartbeat.json; then
+                exit 0
+              fi
+            else
+              echo "::warning::Collector heartbeat query failed; retrying until the verification deadline."
+            fi
+            sleep 10
+          done
+          echo "::error::Collector did not report a matching fresh heartbeat within five minutes."
+          exit 1
+
+      - name: Reconcile Terraform and ECS to the previous release
+        if: steps.apply.outcome == 'failure' || steps.verify-ecs.outcome == 'failure' || steps.verify-heartbeat.outcome == 'failure'
+        working-directory: infra/terraform/group-telemetry-collector
+        run: |
+          set -euo pipefail
+          export TF_VAR_container_image="$PREVIOUS_IMAGE_URI"
+          export TF_VAR_release_sha="$PREVIOUS_RELEASE_SHA"
+          export TF_VAR_release_version="$PREVIOUS_RELEASE_VERSION"
+          export TF_VAR_release_capabilities="$PREVIOUS_RELEASE_CAPABILITIES"
+          terraform apply -auto-approve -var-file=environments/production.tfvars
+          rollback_task_definition="$(terraform output -raw task_definition_arn)"
+          aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE"
+          restored="$(aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" --query 'services[0].taskDefinition' --output text)"
+          [ "$restored" = "$rollback_task_definition" ] || { echo "::error::Collector rollback did not reconcile ECS with Terraform state."; exit 1; }
+
+      - name: Fail release after verified rollback
+        if: steps.apply.outcome == 'failure' || steps.verify-ecs.outcome == 'failure' || steps.verify-heartbeat.outcome == 'failure'
+        run: |
+          echo "::error::The new collector release failed post-deploy verification and was rolled back."
+          exit 1
+
+  drift-audit:
+    name: Read-only collector release drift audit
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && inputs.mode == 'audit')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    env:
+      AWS_ROLE_ARN: ${{ vars.AWS_GROUP_TELEMETRY_AUDIT_ROLE_ARN }}
+      AUDIT_ENABLED: ${{ vars.GROUP_TELEMETRY_RELEASE_ENABLED }}
+      CONVEX_DEPLOYMENT_PROD: ${{ vars.CONVEX_DEPLOYMENT_PROD }}
+      CONVEX_DEPLOY_KEY_PROD: ${{ secrets.CONVEX_DEPLOY_KEY_PROD }}
+      COLLECTOR_ACCOUNT_ID: ${{ vars.GROUP_TELEMETRY_COLLECTOR_ACCOUNT_ID }}
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v6
+
+      - name: Restore previous drift observation
+        uses: actions/cache/restore@v5
+        with:
+          path: .cache/group-telemetry-drift-state.json
+          key: group-telemetry-drift-state-${{ github.run_id }}
+          restore-keys: |
+            group-telemetry-drift-state-
+
+      - name: Fail closed on missing audit configuration
+        run: |
+          set -euo pipefail
+          [ "$AUDIT_ENABLED" = "true" ] || { echo "::error::GROUP_TELEMETRY_RELEASE_ENABLED must be true."; exit 1; }
+          for name in AWS_ROLE_ARN CONVEX_DEPLOYMENT_PROD CONVEX_DEPLOY_KEY_PROD COLLECTOR_ACCOUNT_ID; do
+            [ -n "${!name:-}" ] || { echo "::error::$name is required for the collector drift audit."; exit 1; }
+          done
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Configure read-only AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Inspect ECR, ECS, and authoritative heartbeat
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api -X GET "repos/$GITHUB_REPOSITORY/actions/workflows/baseline-checks.yml/runs" -f branch=main -f status=success -f per_page=20 > baseline-runs.json
+          expected_release_sha="$(jq -er '[.workflow_runs[] | select(.event == "push" and .head_branch == "main" and .head_repository.full_name == env.GITHUB_REPOSITORY)] | first | .head_sha' baseline-runs.json)"
+          expected_release_at="$(jq -er '[.workflow_runs[] | select(.event == "push" and .head_branch == "main" and .head_repository.full_name == env.GITHUB_REPOSITORY)] | first | (.run_completed_at // .updated_at)' baseline-runs.json)"
+          [[ "$expected_release_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::No exact successful main baseline SHA was found."; exit 1; }
+          aws ecr describe-images --repository-name "$ECR_REPOSITORY" > images.json
+          aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" > service.json
+          task_definition="$(jq -er '.services[0].taskDefinition' service.json)"
+          aws ecs describe-task-definition --task-definition "$task_definition" > task-definition.json
+          task_arns="$(aws ecs list-tasks --cluster "$ECS_CLUSTER" --service-name "$ECS_SERVICE" --desired-status RUNNING --query 'taskArns' --output text)"
+          [ -n "$task_arns" ] && [ "$task_arns" != "None" ] || { echo "::error::Collector service has no running tasks."; exit 1; }
+          aws ecs describe-tasks --cluster "$ECS_CLUSTER" --tasks $task_arns > tasks.json
+          now="$(node -p 'Date.now()')"
+          args="$(jq -cn --arg accountId "$COLLECTOR_ACCOUNT_ID" --arg sha "$expected_release_sha" --argjson now "$now" '{collectorAccountId:$accountId,expectedReleaseSha:$sha,requiredCapabilities:["telemetry_v1","vrchat_proof_v1"],maxHeartbeatAgeMs:120000,now:$now}')"
+          CONVEX_DEPLOY_KEY="$CONVEX_DEPLOY_KEY_PROD" pnpm --silent exec convex run --prod communityTelemetry:collectorDeploymentReadiness "$args" > heartbeat.json
+          CONVEX_DEPLOY_KEY="$CONVEX_DEPLOY_KEY_PROD" pnpm --silent exec convex run --prod communityTelemetry:claimVerificationOperationalHealth "$(jq -cn --argjson now "$now" '{now:$now}')" > claim-health.json
+          CONVEX_DEPLOY_KEY="$CONVEX_DEPLOY_KEY_PROD" pnpm --silent exec convex run --prod claimAnalytics:deliveryOperationalHealth "$(jq -cn --argjson now "$now" '{now:$now}')" > claim-analytics-health.json
+          {
+            echo "## Claim verification operational health"
+            echo
+            echo "| Metric | Value |"
+            echo "| --- | ---: |"
+            jq -r 'to_entries[] | "| \(.key) | \(.value) |"' claim-health.json
+            jq -r 'to_entries[] | "| analytics.\(.key) | \(.value) |"' claim-analytics-health.json
+          } >> "$GITHUB_STEP_SUMMARY"
+          mkdir -p .cache
+          node scripts/group-telemetry-deployment.mjs drift --images images.json --task-definition task-definition.json --service service.json --tasks tasks.json --heartbeat heartbeat.json --expected-release-sha "$expected_release_sha" --expected-release-at "$expected_release_at" --previous-observation .cache/group-telemetry-drift-state.json --next-observation .cache/group-telemetry-drift-state.json
+          node scripts/group-telemetry-deployment.mjs claim-health --file claim-health.json
+          node scripts/group-telemetry-deployment.mjs claim-analytics-health --file claim-analytics-health.json
+
+      - name: Save current drift observation
+        if: always()
+        uses: actions/cache/save@v5
+        with:
+          path: .cache/group-telemetry-drift-state.json
+          key: group-telemetry-drift-state-${{ github.run_id }}

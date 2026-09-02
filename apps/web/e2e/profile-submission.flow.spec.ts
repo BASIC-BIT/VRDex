@@ -149,14 +149,21 @@ test("profile submission writes through to public profile and discovery @flow", 
       const vrcdnLink = page.getByRole("link", { name: "VRCDN", exact: true });
       const rendersVrcdnLink = (await vrcdnLink.count()) > 0;
 
-      if (targetRunsCurrentRevision || rendersVrcdnLink) {
-        // Shared staging tracks main rather than the pull request, so a false
-        // revision check does not imply the legacy copy-row UI. Drive the
-        // compatibility branch from what the page actually renders, while an
-        // exact-revision target still has to provide the current link shape.
+      if (targetRunsCurrentRevision) {
+        expect(
+          rendersVrcdnLink,
+          "target runs this revision, so it must render the ordinary VRCDN link",
+        ).toBe(true);
+      }
+
+      if (rendersVrcdnLink) {
         await expect(vrcdnLink).toHaveAttribute("href", questUrl);
       } else {
-        // Only reachable against a target that still renders the legacy copy row.
+        // Shared staging tracks main, not the pull-request SHA. Detect its
+        // rendered compatibility surface just as the form above does: staging
+        // may already contain the new link from a main commit that this branch
+        // merged, while an older deployment still renders the legacy copy row.
+        // Exact-revision targets cannot enter this tolerance branch.
         await expect(page.getByText(questUrl)).toBeVisible();
       }
     }

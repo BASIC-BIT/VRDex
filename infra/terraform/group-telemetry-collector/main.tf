@@ -1,6 +1,7 @@
 locals {
-  component    = "group-telemetry-collector"
-  worker_image = var.container_image != null ? var.container_image : "${aws_ecr_repository.worker.repository_url}:bootstrap-placeholder"
+  component               = "group-telemetry-collector"
+  observability_namespace = "VRDex/GroupTelemetry/${var.name_prefix}"
+  worker_image            = var.container_image != null ? var.container_image : "${aws_ecr_repository.worker.repository_url}:bootstrap-placeholder"
   tags = merge({
     Project   = "VRDex"
     ManagedBy = "Terraform"
@@ -27,11 +28,12 @@ resource "aws_ecr_lifecycle_policy" "worker" {
   policy = jsonencode({
     rules = [{
       rulePriority = 1
-      description  = "Keep ten collector images."
+      description  = "Remove only untagged collector images after seven days."
       selection = {
-        tagStatus   = "any"
-        countType   = "imageCountMoreThan"
-        countNumber = 10
+        tagStatus   = "untagged"
+        countType   = "sinceImagePushed"
+        countUnit   = "days"
+        countNumber = 7
       }
       action = { type = "expire" }
     }]
@@ -127,6 +129,11 @@ resource "aws_ecs_task_definition" "worker" {
   execution_role_arn       = aws_iam_role.execution.arn
   task_role_arn            = aws_iam_role.task.arn
   tags                     = local.tags
+  skip_destroy             = true
+
+  lifecycle {
+    create_before_destroy = true
+  }
 
   container_definitions = jsonencode([{
     name      = "collector"
@@ -136,7 +143,10 @@ resource "aws_ecs_task_definition" "worker" {
       { name = "VRDEX_GROUP_TELEMETRY_CONVEX_SITE_URL", value = var.convex_site_url },
       { name = "VRDEX_GROUP_TELEMETRY_COLLECTOR_ACCOUNT_ID", value = var.collector_account_id },
       { name = "VRDEX_GROUP_TELEMETRY_USER_AGENT", value = var.user_agent },
-      { name = "VRDEX_GROUP_TELEMETRY_REQUESTS_PER_MINUTE", value = tostring(var.requests_per_minute) }
+      { name = "VRDEX_GROUP_TELEMETRY_REQUESTS_PER_MINUTE", value = tostring(var.requests_per_minute) },
+      { name = "VRDEX_GROUP_TELEMETRY_RELEASE_SHA", value = var.release_sha },
+      { name = "VRDEX_GROUP_TELEMETRY_RELEASE_VERSION", value = var.release_version },
+      { name = "VRDEX_GROUP_TELEMETRY_CAPABILITIES", value = join(",", sort(var.release_capabilities)) }
     ]
     secrets = concat(
       [{ name = "VRDEX_GROUP_TELEMETRY_ENABLED", valueFrom = aws_ssm_parameter.enabled.arn }],
@@ -203,6 +213,179 @@ resource "aws_cloudwatch_metric_alarm" "worker_count" {
   alarm_description   = "The collector has fewer running tasks than its bounded desired count."
   dimensions          = { ClusterName = aws_ecs_cluster.worker.name, ServiceName = aws_ecs_service.worker[0].name }
   tags                = local.tags
+}
+
+resource "aws_cloudwatch_log_metric_filter" "collector_heartbeat" {
+  name           = "${var.name_prefix}-heartbeat"
+  log_group_name = aws_cloudwatch_log_group.worker.name
+  pattern        = "{ $.event = \"collector_heartbeat\" }"
+
+  metric_transformation {
+    name      = "CollectorHeartbeat"
+    namespace = local.observability_namespace
+    value     = "1"
+    unit      = "Count"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "collector_heartbeat" {
+  count               = var.enable_service ? 1 : 0
+  alarm_name          = "${var.name_prefix}-missing-heartbeat"
+  alarm_description   = "The collector emitted no successful control-plane heartbeat for two minutes."
+  namespace           = local.observability_namespace
+  metric_name         = aws_cloudwatch_log_metric_filter.collector_heartbeat.metric_transformation[0].name
+  comparison_operator = "LessThanThreshold"
+  evaluation_periods  = 2
+  period              = 60
+  statistic           = "Sum"
+  threshold           = 1
+  treat_missing_data  = "breaching"
+  tags                = local.tags
+}
+
+resource "aws_cloudwatch_log_metric_filter" "auth_required" {
+  name           = "${var.name_prefix}-auth-required"
+  log_group_name = aws_cloudwatch_log_group.worker.name
+  pattern        = "{ $.event = \"collector_auth_required\" }"
+
+  metric_transformation {
+    name          = "AuthRequired"
+    namespace     = local.observability_namespace
+    value         = "1"
+    default_value = "0"
+    unit          = "Count"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "auth_required" {
+  count               = var.enable_service ? 1 : 0
+  alarm_name          = "${var.name_prefix}-auth-required"
+  alarm_description   = "The collector reported that its VRChat session requires operator authentication."
+  namespace           = local.observability_namespace
+  metric_name         = aws_cloudwatch_log_metric_filter.auth_required.metric_transformation[0].name
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  period              = 300
+  statistic           = "Sum"
+  threshold           = 1
+  treat_missing_data  = "notBreaching"
+  tags                = local.tags
+}
+
+resource "aws_cloudwatch_log_metric_filter" "control_plane_failure" {
+  name           = "${var.name_prefix}-control-plane-failure"
+  log_group_name = aws_cloudwatch_log_group.worker.name
+  pattern        = "{ $.event = \"collector_control_plane_failure\" && $.attempt >= 3 }"
+
+  metric_transformation {
+    name          = "ControlPlaneFailure"
+    namespace     = local.observability_namespace
+    value         = "1"
+    default_value = "0"
+    unit          = "Count"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "control_plane_failures" {
+  count               = var.enable_service ? 1 : 0
+  alarm_name          = "${var.name_prefix}-control-plane-failures"
+  alarm_description   = "The collector reached three consecutive control-plane failures."
+  namespace           = local.observability_namespace
+  metric_name         = aws_cloudwatch_log_metric_filter.control_plane_failure.metric_transformation[0].name
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  period              = 300
+  statistic           = "Sum"
+  threshold           = 1
+  treat_missing_data  = "notBreaching"
+  tags                = local.tags
+}
+
+resource "aws_cloudwatch_log_metric_filter" "worker_restart" {
+  name           = "${var.name_prefix}-worker-restart"
+  log_group_name = aws_cloudwatch_log_group.worker.name
+  pattern        = "{ $.event = \"collector_worker_restart\" }"
+
+  metric_transformation {
+    name          = "WorkerRestart"
+    namespace     = local.observability_namespace
+    value         = "1"
+    default_value = "0"
+    unit          = "Count"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "worker_restarts" {
+  count               = var.enable_service ? 1 : 0
+  alarm_name          = "${var.name_prefix}-worker-restarts"
+  alarm_description   = "The collector restarted at least three times within fifteen minutes."
+  namespace           = local.observability_namespace
+  metric_name         = aws_cloudwatch_log_metric_filter.worker_restart.metric_transformation[0].name
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  period              = 900
+  statistic           = "Sum"
+  threshold           = 3
+  treat_missing_data  = "notBreaching"
+  tags                = local.tags
+}
+
+resource "aws_cloudwatch_dashboard" "operations" {
+  dashboard_name = "${var.name_prefix}-operations"
+  dashboard_body = jsonencode({
+    widgets = [
+      {
+        type   = "metric"
+        x      = 0
+        y      = 0
+        width  = 12
+        height = 6
+        properties = {
+          title  = "Collector heartbeat and failures"
+          region = var.aws_region
+          view   = "timeSeries"
+          period = 60
+          stat   = "Sum"
+          metrics = [
+            [local.observability_namespace, "CollectorHeartbeat"],
+            [".", "ControlPlaneFailure"],
+            [".", "AuthRequired"],
+            [".", "WorkerRestart"],
+          ]
+        }
+      },
+      {
+        type   = "metric"
+        x      = 12
+        y      = 0
+        width  = 12
+        height = 6
+        properties = {
+          title  = "ECS collector service"
+          region = var.aws_region
+          view   = "timeSeries"
+          period = 300
+          metrics = [
+            ["ECS/ContainerInsights", "RunningTaskCount", "ClusterName", aws_ecs_cluster.worker.name, "ServiceName", var.name_prefix, { stat = "Minimum" }],
+            ["AWS/ECS", "CPUUtilization", "ClusterName", aws_ecs_cluster.worker.name, "ServiceName", var.name_prefix, { stat = "Average" }],
+          ]
+        }
+      },
+      {
+        type   = "log"
+        x      = 0
+        y      = 6
+        width  = 24
+        height = 6
+        properties = {
+          title  = "Recent redacted collector operations"
+          region = var.aws_region
+          view   = "table"
+          query  = "SOURCE '${aws_cloudwatch_log_group.worker.name}' | fields @timestamp, event, outcome, attempt, retryAfterMs | filter event like /collector_/ | sort @timestamp desc | limit 100"
+        }
+      },
+    ]
+  })
 }
 
 resource "aws_budgets_budget" "worker" {

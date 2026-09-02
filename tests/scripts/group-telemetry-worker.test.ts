@@ -7,7 +7,7 @@ import {
   redactProviderText,
   retryDelayMs as backendRetryDelay,
 } from "../../convex/_communityTelemetry";
-import { RequestBudget, failureDisposition, randomPollDelayMs } from "../../workers/group-telemetry/runtime.mjs";
+import { MAX_CONSECUTIVE_LOOP_FAILURES, RequestBudget, boundedProviderCategory, collectorAuthRequiredEvent, collectorLoopFailureEvent, collectorRestartEvent, collectorRuntimeMetadata, collectorShouldRestart, failureDisposition, randomPollDelayMs } from "../../workers/group-telemetry/runtime.mjs";
 import { VrchatClient, VrchatProviderError } from "../../workers/group-telemetry/vrchat-client.mjs";
 import { VrchatOperatorLogin, VrchatSessionValidationError } from "../../workers/group-telemetry/vrchat-login.mjs";
 import { VrchatKeychainSessionStore, VrchatSessionStoreError } from "../../workers/group-telemetry/vrchat-session-store.mjs";
@@ -346,6 +346,10 @@ describe("group telemetry provider adapter", () => {
     assert.equal(failure.statusClass, "429");
     assert.equal(failure.backoffUntil, 121_000);
     assert.equal(failure.nextPollAt, 121_000);
+    assert.throws(
+      () => failureDisposition(new Error("control-plane transport failed"), 1),
+      /control-plane transport failed/,
+    );
 
     const minimumFailure = failureDisposition(
       new VrchatProviderError("limited", { status: 429, category: "rate_limit", retryAfterMs: 120_000 }),
@@ -398,6 +402,53 @@ describe("group telemetry provider adapter", () => {
 });
 
 describe("group telemetry metrics and safety helpers", () => {
+  it("reports release metadata and bounded restart diagnostics without exception text", () => {
+    assert.deepEqual(
+      collectorRuntimeMetadata({
+        VRDEX_GROUP_TELEMETRY_RELEASE_SHA: "A".repeat(40),
+        VRDEX_GROUP_TELEMETRY_RELEASE_VERSION: "git-a1b2c3d4e5f6",
+      }),
+      {
+        releaseSha: "a".repeat(40),
+        collectorVersion: "git-a1b2c3d4e5f6",
+        capabilities: ["telemetry_v1", "vrchat_proof_v1"],
+      },
+    );
+    assert.throws(() => collectorRuntimeMetadata({}), /exact Git SHA/);
+    assert.throws(
+      () => collectorRuntimeMetadata({
+        VRDEX_GROUP_TELEMETRY_RELEASE_SHA: "a".repeat(40),
+        VRDEX_GROUP_TELEMETRY_RELEASE_VERSION: "invalid release label",
+      }),
+      /bounded release version/,
+    );
+
+    const failure = collectorLoopFailureEvent(
+      new Error("Control plane 503: proof-code-and-token-must-not-escape"),
+      "proof_checks",
+      3,
+    );
+    assert.deepEqual(failure, {
+      event: "collector_control_plane_failure",
+      phase: "proof_checks",
+      attempt: 3,
+      failureClass: "control_plane_http",
+      status: "503",
+    });
+    assert.equal(JSON.stringify(failure).includes("proof-code-and-token-must-not-escape"), false);
+    assert.equal(boundedProviderCategory("network"), "network");
+    assert.deepEqual(collectorRestartEvent(MAX_CONSECUTIVE_LOOP_FAILURES), {
+      event: "collector_worker_restart",
+      reason: "consecutive_loop_failures",
+      attempt: 6,
+    });
+    assert.deepEqual(collectorAuthRequiredEvent(), {
+      event: "collector_auth_required",
+    });
+    assert.equal(collectorShouldRestart(MAX_CONSECUTIVE_LOOP_FAILURES - 1), false);
+    assert.equal(collectorShouldRestart(MAX_CONSECUTIVE_LOOP_FAILURES), true);
+  });
+
   it("keeps active and quiet cadence jitter within their documented windows", () => {
     assert.equal(randomPollDelayMs(true, () => 0), 60_000);
     assert.equal(backendPollDelay(true, () => 0), 60_000);
