@@ -120,7 +120,7 @@ describe("claim analytics outbox", () => {
     });
 
     assert.deepEqual(
-      await t.mutation(internal.claimAnalytics.recoverFailedDeliveries, {}),
+      await t.mutation(internal.claimAnalytics.recoverUndeliveredDeliveries, {}),
       { recoveredCount: 1 },
     );
     await t.run(async (ctx) => {
@@ -128,6 +128,33 @@ describe("claim analytics outbox", () => {
       assert.equal(row?.state, "pending");
       assert.equal(row?.attemptCount, 0);
       assert.ok((row?.nextAttemptAt ?? 0) >= now);
+    });
+  });
+
+  it("recovers configuration-disabled deliveries in the same bounded sweep", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const outboxId = await t.run(async (ctx) => await ctx.db.insert("claimAnalyticsOutbox", {
+      eventKey: `${journeyId}:claim_attempt_created`,
+      journeyId,
+      event: "claim_attempt_created",
+      profileType: "person",
+      method: "vrchat",
+      entrySource: "profile",
+      occurredAt: now,
+      state: "disabled",
+      attemptCount: 1,
+      nextAttemptAt: now,
+    }));
+
+    assert.deepEqual(
+      await t.mutation(internal.claimAnalytics.recoverUndeliveredDeliveries, {}),
+      { recoveredCount: 1 },
+    );
+    await t.run(async (ctx) => {
+      const row = await ctx.db.get(outboxId);
+      assert.equal(row?.state, "pending");
+      assert.equal(row?.attemptCount, 0);
     });
   });
 

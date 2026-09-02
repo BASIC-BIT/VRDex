@@ -206,9 +206,9 @@ encoding a user, profile, provider, or target identity.
 Convex writes authoritative milestones to `claimAnalyticsOutbox` with the
 claim transition. Delivery to PostHog happens later with an idempotent insert
 key and a ten-second request bound. Each fast retry cycle is capped at five
-attempts; a bounded hourly sweep requeues dead-letter rows so a temporary
-PostHog outage recovers automatically. PostHog availability never blocks a
-claim. Missing `POSTHOG_PROJECT_API_KEY` disables
+attempts; a bounded hourly sweep requeues dead-letter and configuration-disabled
+rows so a temporary PostHog outage or configuration loss recovers automatically.
+PostHog availability never blocks a claim. Missing `POSTHOG_PROJECT_API_KEY` disables
 delivery safely for local work, forks, previews, and self-hosted deployments
 that do not opt in.
 

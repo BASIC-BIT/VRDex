@@ -101,8 +101,8 @@ export const recordDeliveryFailure = internalMutation({
   },
 });
 
-/** Requeue a bounded dead-letter batch so a temporary PostHog outage is recoverable. */
-export const recoverFailedDeliveries = internalMutation({
+/** Requeue a bounded stalled batch after delivery or configuration recovers. */
+export const recoverUndeliveredDeliveries = internalMutation({
   args: {},
   handler: async (ctx) => {
     const now = Date.now();
@@ -110,8 +110,15 @@ export const recoverFailedDeliveries = internalMutation({
       .query("claimAnalyticsOutbox")
       .withIndex("by_state_occurredAt", (query) => query.eq("state", "failed"))
       .take(FAILED_RECOVERY_BATCH);
+    const disabled = failed.length < FAILED_RECOVERY_BATCH
+      ? await ctx.db
+          .query("claimAnalyticsOutbox")
+          .withIndex("by_state_occurredAt", (query) => query.eq("state", "disabled"))
+          .take(FAILED_RECOVERY_BATCH - failed.length)
+      : [];
+    const stalled = [...failed, ...disabled];
 
-    for (const row of failed) {
+    for (const row of stalled) {
       await ctx.db.patch(row._id, {
         state: "pending",
         attemptCount: 0,
@@ -119,10 +126,10 @@ export const recoverFailedDeliveries = internalMutation({
         leaseUntil: undefined,
       });
     }
-    if (failed.length > 0) {
+    if (stalled.length > 0) {
       await ctx.scheduler.runAfter(0, internal.claimAnalyticsDelivery.deliverPending, {});
     }
-    return { recoveredCount: failed.length };
+    return { recoveredCount: stalled.length };
   },
 });
 

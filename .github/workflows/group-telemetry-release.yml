@@ -25,7 +25,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: group-telemetry-production
+  group: group-telemetry-production-${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'audit')) && 'audit' || 'release' }}
   cancel-in-progress: false
 
 env:
@@ -306,8 +306,6 @@ jobs:
           CONVEX_DEPLOY_KEY="$CONVEX_DEPLOY_KEY_PROD" pnpm --silent exec convex run --prod communityTelemetry:collectorDeploymentReadiness "$args" > heartbeat.json
           CONVEX_DEPLOY_KEY="$CONVEX_DEPLOY_KEY_PROD" pnpm --silent exec convex run --prod communityTelemetry:claimVerificationOperationalHealth "$(jq -cn --argjson now "$now" '{now:$now}')" > claim-health.json
           CONVEX_DEPLOY_KEY="$CONVEX_DEPLOY_KEY_PROD" pnpm --silent exec convex run --prod claimAnalytics:deliveryOperationalHealth "$(jq -cn --argjson now "$now" '{now:$now}')" > claim-analytics-health.json
-          node scripts/group-telemetry-deployment.mjs claim-health --file claim-health.json
-          node scripts/group-telemetry-deployment.mjs claim-analytics-health --file claim-analytics-health.json
           {
             echo "## Claim verification operational health"
             echo
@@ -316,4 +314,6 @@ jobs:
             jq -r 'to_entries[] | "| \(.key) | \(.value) |"' claim-health.json
             jq -r 'to_entries[] | "| analytics.\(.key) | \(.value) |"' claim-analytics-health.json
           } >> "$GITHUB_STEP_SUMMARY"
+          node scripts/group-telemetry-deployment.mjs claim-health --file claim-health.json
+          node scripts/group-telemetry-deployment.mjs claim-analytics-health --file claim-analytics-health.json
           node scripts/group-telemetry-deployment.mjs drift --images images.json --task-definition task-definition.json --service service.json --tasks tasks.json --heartbeat heartbeat.json --expected-release-sha "$expected_release_sha" --expected-release-at "$expected_release_at"

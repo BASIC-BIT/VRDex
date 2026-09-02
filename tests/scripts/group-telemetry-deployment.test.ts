@@ -284,9 +284,14 @@ describe("group telemetry release workflow", () => {
     assert.match(commands, /group-telemetry-deployment\.mjs claim-analytics-health/);
     assert.match(commands, /CONVEX_DEPLOY_KEY="\$CONVEX_DEPLOY_KEY_PROD" pnpm --silent exec convex run --prod/);
     assert.match(commands, /GITHUB_STEP_SUMMARY/);
+    assert.ok(
+      commands.indexOf("GITHUB_STEP_SUMMARY") < commands.indexOf("claim-health --file"),
+      "the aggregate health summary must be written before fail-closed assertions",
+    );
     assert.match(commands, /group-telemetry-deployment\.mjs drift/);
     assert.match(commands, /actions\/workflows\/baseline-checks\.yml\/runs/);
     assert.doesNotMatch(commands, /terraform apply|ecs update-service|ecr put-image/);
+    assert.match(source, /group-telemetry-production-\$\{\{[\s\S]*'audit'[\s\S]*'release'/);
   });
 
   it("declares the two-minute heartbeat alarm from the redacted worker event", async () => {
@@ -308,6 +313,8 @@ describe("group telemetry release workflow", () => {
     assert.match(source, /skip_destroy\s+= true/);
     assert.match(worker, /async function pauseWithHeartbeats/);
     assert.match(worker, /await pauseWithHeartbeats\(retryAfterMs\)/);
+    assert.match(worker, /for \(const attempt of pending\) \{[\s\S]*await heartbeat\(\)/);
+    assert.match(worker, /for \(const assignment of assignments\) \{[\s\S]*await heartbeat\(\)/);
   });
 
   it("keeps connection-only journeys out of conversion and labels transport reconciliation", async () => {

@@ -231,6 +231,7 @@ async function checkProofs() {
       await releaseUnread(pending, attempt);
       break;
     }
+    await heartbeat();
     const now = Date.now();
 
     // Checked without consuming. The process-local counter is only a fast
@@ -435,6 +436,7 @@ while (!stopping) {
 
     for (const assignment of assignments) {
       if (stopping) break;
+      await heartbeat();
       loopPhase = "telemetry_collection";
       await collect(assignment);
     }

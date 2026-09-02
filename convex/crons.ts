@@ -24,9 +24,9 @@ crons.interval(
 // monopolize delivery. This bounded hourly sweep makes temporary provider
 // outages recover automatically without turning claim writes into a dependency.
 crons.hourly(
-  "recover failed claim analytics deliveries",
+  "recover stalled claim analytics deliveries",
   { minuteUTC: 5 },
-  internal.claimAnalytics.recoverFailedDeliveries,
+  internal.claimAnalytics.recoverUndeliveredDeliveries,
   {},
 );
 
