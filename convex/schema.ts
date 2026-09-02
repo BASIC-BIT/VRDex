@@ -2224,6 +2224,7 @@ export default defineSchema({
   })
     .index("by_createdAt", ["createdAt"])
     .index("by_event_createdAt", ["event", "createdAt"])
+    .index("by_event_targetType_createdAt", ["event", "targetType", "createdAt"])
     .index("by_attemptId_createdAt", ["attemptId", "createdAt"]),
   claimAnalyticsOutbox: defineTable({
     eventKey: v.string(),

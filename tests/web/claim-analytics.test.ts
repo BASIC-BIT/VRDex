@@ -64,19 +64,23 @@ describe("claim analytics journey correlation", () => {
     assert.match(source, /preserveInitialDiscordReturnRef\.current = false/);
     assert.match(source, /const \{ sessionId \} = useAuth\(\)/);
     assert.match(source, /claimJourneyStorageKey\(profile\.slug, analyticsSessionScope\)/);
+    assert.match(
+      source,
+      /collectorCompletion\?\.sessionScope === analyticsSessionScope \? collectorCompletion : null/,
+    );
     assert.match(source, /analyticsJourneyId/);
     assert.match(source, /analyticsProfileType/);
     assert.match(source, /prepareDiscordVerification/);
     assert.match(source, /previous === undefined && current === null[\s\S]*staleStoredJourney/);
     assert.match(
       source,
-      /previous !== null[\s\S]*staleStoredJourney[\s\S]*current === null[\s\S]*collectorCompletion === null[\s\S]*finishAnalyticsJourney\(\)/,
+      /previous !== null[\s\S]*staleStoredJourney[\s\S]*current === null[\s\S]*activeCollectorCompletion === null[\s\S]*finishAnalyticsJourney\(\)/,
     );
     assert.match(source, /!result\.canceled[\s\S]*finishAnalyticsJourney\(\)/);
     assert.match(source, /await adoptPendingProofAnalytics\(\{[\s\S]*analyticsJourneyId: journeyId/);
     assert.match(
       source,
-      /collectorCompletion\.journeyId \?\? ensureAnalyticsJourneyId\(\)/,
+      /activeCollectorCompletion\.journeyId \?\? ensureAnalyticsJourneyId\(\)/,
     );
     assert.match(source, /if \(isVerifiedViewer\) return;/);
     assert.match(source, /if \(!isVerifiedViewer\) \{[\s\S]*claim_method_selected/);

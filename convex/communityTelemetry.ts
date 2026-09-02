@@ -2156,7 +2156,14 @@ export const collectorDeploymentReadiness = internalQuery({
 export const claimVerificationOperationalHealth = internalQuery({
   args: { now: v.number() },
   handler: async (ctx, args) => {
-    const [fleet, accounts, userAttempts, groupAttempts, recentProviderChecks] = await Promise.all([
+    const [
+      fleet,
+      accounts,
+      userAttempts,
+      groupAttempts,
+      recentUserProviderChecks,
+      recentGroupProviderChecks,
+    ] = await Promise.all([
       ctx.db
         .query("collectorFleetSettings")
         .withIndex("by_key", (q) => q.eq("key", "global"))
@@ -2176,9 +2183,20 @@ export const claimVerificationOperationalHealth = internalQuery({
         .take(OPERATIONAL_HEALTH_ATTEMPT_LIMIT + 1),
       ctx.db
         .query("profileClaimLifecycleEvents")
-        .withIndex("by_event_createdAt", (q) =>
+        .withIndex("by_event_targetType_createdAt", (q) =>
           q
             .eq("event", "provider_checked")
+            .eq("targetType", "vrchat_user")
+            .gte("createdAt", args.now - FIRST_CHECK_HEALTH_LOOKBACK_MS),
+        )
+        .order("desc")
+        .take(OPERATIONAL_HEALTH_ATTEMPT_LIMIT + 1),
+      ctx.db
+        .query("profileClaimLifecycleEvents")
+        .withIndex("by_event_targetType_createdAt", (q) =>
+          q
+            .eq("event", "provider_checked")
+            .eq("targetType", "vrchat_group")
             .gte("createdAt", args.now - FIRST_CHECK_HEALTH_LOOKBACK_MS),
         )
         .order("desc")
@@ -2187,7 +2205,8 @@ export const claimVerificationOperationalHealth = internalQuery({
     const userScanLimitReached = userAttempts.length > OPERATIONAL_HEALTH_ATTEMPT_LIMIT;
     const groupScanLimitReached = groupAttempts.length > OPERATIONAL_HEALTH_ATTEMPT_LIMIT;
     const providerCheckScanLimitReached =
-      recentProviderChecks.length > OPERATIONAL_HEALTH_ATTEMPT_LIMIT;
+      recentUserProviderChecks.length > OPERATIONAL_HEALTH_ATTEMPT_LIMIT ||
+      recentGroupProviderChecks.length > OPERATIONAL_HEALTH_ATTEMPT_LIMIT;
     const pending = [
       ...userAttempts.slice(0, OPERATIONAL_HEALTH_ATTEMPT_LIMIT),
       ...groupAttempts.slice(0, OPERATIONAL_HEALTH_ATTEMPT_LIMIT),
@@ -2214,8 +2233,10 @@ export const claimVerificationOperationalHealth = internalQuery({
     }
     const recentCheckedAttemptIds = [
       ...new Set(
-        recentProviderChecks
-          .slice(0, OPERATIONAL_HEALTH_ATTEMPT_LIMIT)
+        [
+          ...recentUserProviderChecks.slice(0, OPERATIONAL_HEALTH_ATTEMPT_LIMIT),
+          ...recentGroupProviderChecks.slice(0, OPERATIONAL_HEALTH_ATTEMPT_LIMIT),
+        ]
           .map((event) => event.attemptId),
       ),
     ];

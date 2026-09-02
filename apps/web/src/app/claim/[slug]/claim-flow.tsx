@@ -184,8 +184,11 @@ export function ClaimFlowContent({
       connectionOnly: boolean;
       method: ClaimAnalyticsMethod;
       journeyId?: string;
+      sessionScope: string;
     } | null
   >(null);
+  const activeCollectorCompletion =
+    collectorCompletion?.sessionScope === analyticsSessionScope ? collectorCompletion : null;
   // Only the person quick-claim needs Discord as a linked sign-in provider.
   // The community path claims against a control proof recorded by the
   // purpose-scoped OAuth round-trip, which a Google or email/password account
@@ -317,13 +320,13 @@ export function ClaimFlowContent({
     if (
       ((previous !== undefined && previous !== null) || staleStoredJourney) &&
       current === null &&
-      collectorCompletion === null &&
+      activeCollectorCompletion === null &&
       !preserveInitialDiscordReturn
     ) {
       finishAnalyticsJourney();
     }
   }, [
-    collectorCompletion,
+    activeCollectorCompletion,
     context,
     finishAnalyticsJourney,
     pendingAnalyticsJourneyId,
@@ -406,31 +409,32 @@ export function ClaimFlowContent({
         method:
           observedContext?.lastVerifiedProof?.targetType === "vrclinking" ? "vrclinking" : "vrchat",
         journeyId: observedContext?.lastVerifiedProof?.analyticsJourneyId,
+        sessionScope: analyticsSessionScope,
       });
     }
   }
 
   useEffect(() => {
-    if (collectorCompletion === null) {
+    if (activeCollectorCompletion === null) {
       return;
     }
 
-    if (collectorCompletion.connectionOnly) {
+    if (activeCollectorCompletion.connectionOnly) {
       // A connection-only proof changed no ownership, so counting it as a
       // completed claim would inflate the funnel with connection additions.
       finishAnalyticsJourney();
       return;
     }
 
-    const journeyId = collectorCompletion.journeyId ?? ensureAnalyticsJourneyId();
+    const journeyId = activeCollectorCompletion.journeyId ?? ensureAnalyticsJourneyId();
     captureProductEvent(posthog, "claim_completed", {
       journey_id: journeyId,
-      method: collectorCompletion.method,
-      outcome: collectorCompletion.verified ? "claimed_verified" : "claimed_unverified",
+      method: activeCollectorCompletion.method,
+      outcome: activeCollectorCompletion.verified ? "claimed_verified" : "claimed_unverified",
       profile_type: profile.profileType,
     });
     finishAnalyticsJourney();
-  }, [collectorCompletion, ensureAnalyticsJourneyId, finishAnalyticsJourney, posthog, profile.profileType]);
+  }, [activeCollectorCompletion, ensureAnalyticsJourneyId, finishAnalyticsJourney, posthog, profile.profileType]);
 
   function selectMethod(nextMethod: ClaimMethod) {
     const journeyId = beginAnalyticsJourney();
@@ -876,7 +880,7 @@ export function ClaimFlowContent({
         ) : null}
         {(context?.ownership === "viewer" && context.verified) ||
         status.kind === "complete" ||
-        collectorCompletion !== null ? (
+        activeCollectorCompletion !== null ? (
           <div
             aria-live="polite"
             className="outline-none"
@@ -891,10 +895,10 @@ export function ClaimFlowContent({
                   <p className="font-semibold">
                     {status.kind === "complete"
                       ? status.message
-                      : collectorCompletion !== null
-                        ? collectorCompletion.connectionOnly
+                      : activeCollectorCompletion !== null
+                        ? activeCollectorCompletion.connectionOnly
                           ? "That account or group is now connected to this profile."
-                          : collectorCompletion.verified
+                          : activeCollectorCompletion.verified
                             ? "Verified. This profile is yours."
                             : "This profile is yours. You can manage it now."
                         : "You already manage this profile."}

@@ -76,6 +76,25 @@ describe("group telemetry automatic deployment policy", () => {
     );
   });
 
+  it("accepts an exact current release as a no-op rerun", () => {
+    const image = `123456789012.dkr.ecr.us-east-1.amazonaws.com/vrdex-group-telemetry@${digest}`;
+    const current = taskDefinition(image, "2".repeat(40));
+    const result = assertAutomaticPlan({
+      format_version: "1.2",
+      resource_changes: [{
+        address: "aws_ecs_task_definition.worker",
+        change: { actions: ["no-op"], before: current, after: current },
+      }],
+    }, {
+      image,
+      releaseSha: "2".repeat(40),
+      capabilities: ["telemetry_v1", "vrchat_proof_v1"],
+    });
+
+    assert.deepEqual(result.changedResources, []);
+    assert.equal(result.releaseSha, "2".repeat(40));
+  });
+
   it("rejects scaling, identity, and infrastructure changes", () => {
     assert.throws(() => assertAutomaticPlan({
       format_version: "1.2",
@@ -94,7 +113,7 @@ describe("group telemetry automatic deployment policy", () => {
       resource_changes: [{ address: "aws_ssm_parameter.enabled", change: { actions: ["update"], before: {}, after: {} } }],
     }), /refuses infrastructure change/);
 
-    assert.throws(() => assertAutomaticPlan({ format_version: "1.2", resource_changes: [] }), /must replace the task definition/);
+    assert.throws(() => assertAutomaticPlan({ format_version: "1.2", resource_changes: [] }), /must include the task definition/);
   });
 });
 

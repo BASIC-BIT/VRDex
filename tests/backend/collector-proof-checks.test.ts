@@ -409,6 +409,34 @@ describe("collector proof check queue", () => {
     assert.equal(health.maxRecentFirstCheckLatencyMs, 150_000);
   });
 
+  it("excludes user-triggered VRCLinking checks from collector first-check health", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      const attemptId = await seedAttempt(ctx as never, {
+        targetType: "vrclinking",
+        now: now - 180_000,
+      });
+      const attempt = await ctx.db.get(attemptId as never);
+      assert.notEqual(attempt, null);
+      await ctx.db.patch(attemptId as never, { firstCheckAt: now - 30_000 });
+      await ctx.db.insert("profileClaimLifecycleEvents", {
+        profileId: attempt!.profileId,
+        attemptId,
+        method: attempt!.method,
+        targetType: attempt!.targetType,
+        event: "provider_checked",
+        actorSurface: "adapter",
+        outcome: "not_found",
+        createdAt: now - 30_000,
+      });
+    });
+
+    const health = await t.query(internal.communityTelemetry.claimVerificationOperationalHealth, { now });
+    assert.equal(health.maxRecentFirstCheckLatencyMs, null);
+    assert.equal(health.scanLimitReached, false);
+  });
+
   it("does not report an exact operational health scan as truncated", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();

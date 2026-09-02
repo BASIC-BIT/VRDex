@@ -76,7 +76,8 @@ function releaseMetadata(taskDefinition) {
 
 export function assertAutomaticPlan(plan, expected = {}) {
   assert.equal(plan?.format_version?.startsWith("1."), true, "unsupported Terraform plan JSON format");
-  const changes = (plan.resource_changes ?? []).filter((change) => {
+  const resources = plan.resource_changes ?? [];
+  const changes = resources.filter((change) => {
     const actions = change.change?.actions ?? [];
     return !sameJson(actions, ["no-op"]) && !sameJson(actions, ["read"]);
   });
@@ -115,8 +116,16 @@ export function assertAutomaticPlan(plan, expected = {}) {
 
 
   const taskChange = changes.find((change) => change.address === "aws_ecs_task_definition.worker");
-  assert.ok(taskChange, "automatic collector plan must replace the task definition");
-  const metadata = releaseMetadata(taskChange.change.after);
+  const taskResource = resources.find((change) => change.address === "aws_ecs_task_definition.worker");
+  assert.ok(taskResource, "automatic collector plan must include the task definition");
+  if (!taskChange) {
+    assert.equal(
+      sameJson(taskResource.change?.actions ?? [], ["no-op"]),
+      true,
+      "unchanged collector task definition must be a Terraform no-op",
+    );
+  }
+  const metadata = releaseMetadata(taskResource.change.after ?? taskResource.change.before);
   if (expected.image !== undefined) assert.equal(metadata.image, expected.image, "planned collector image does not match the built digest URI");
   if (expected.releaseSha !== undefined) assert.equal(metadata.releaseSha, expected.releaseSha, "planned collector release SHA does not match the source SHA");
   if (expected.capabilities !== undefined) {
