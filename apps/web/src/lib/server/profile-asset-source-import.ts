@@ -12,6 +12,7 @@ const PROFILE_ASSET_MIME_TYPES = new Set([
   "image/webp",
 ]);
 const SOURCE_URL_MAX_REDIRECTS = 5;
+const SOURCE_URL_TOTAL_TIMEOUT_MS = 30_000;
 
 export type ProfileAssetSourceUpload = {
   body: Uint8Array;
@@ -26,7 +27,9 @@ type ProfileAssetSourceImportDependencies = {
   requestPinnedSource?: (
     sourceUrl: URL,
     address: string,
+    signal: AbortSignal,
   ) => Promise<IncomingMessage>;
+  totalTimeoutMs?: number;
 };
 
 function firstHeaderValue(value: IncomingHttpHeaders[string]): string | null {
@@ -200,7 +203,11 @@ function contentLengthFromHeader(contentLength: string | null): number | null {
   return value;
 }
 
-function requestPinnedSourceUrl(sourceUrl: URL, address: string): Promise<IncomingMessage> {
+function requestPinnedSourceUrl(
+  sourceUrl: URL,
+  address: string,
+  signal: AbortSignal,
+): Promise<IncomingMessage> {
   return new Promise((resolve, reject) => {
     const request = httpsRequest(
       {
@@ -213,6 +220,7 @@ function requestPinnedSourceUrl(sourceUrl: URL, address: string): Promise<Incomi
           Host: sourceUrl.host,
           "User-Agent": "VRDex profile media importer",
         },
+        signal,
       },
       resolve,
     );
@@ -223,18 +231,40 @@ function requestPinnedSourceUrl(sourceUrl: URL, address: string): Promise<Incomi
   });
 }
 
-async function responseBodyWithLimit(response: IncomingMessage): Promise<Uint8Array> {
+function timeoutError(): Error {
+  return new Error("Source URL request exceeded its total timeout.");
+}
+
+function throwIfAborted(signal: AbortSignal): void {
+  if (signal.aborted) {
+    throw signal.reason instanceof Error ? signal.reason : timeoutError();
+  }
+}
+
+async function responseBodyWithLimit(
+  response: IncomingMessage,
+  signal: AbortSignal,
+): Promise<Uint8Array> {
   const chunks: Uint8Array[] = [];
   let byteSize = 0;
+  const abortResponse = () => response.destroy(timeoutError());
 
-  for await (const chunk of response) {
-    const value = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
-    byteSize += value.byteLength;
-    if (byteSize > PROFILE_ASSET_MAX_STORED_BYTES) {
-      response.destroy();
-      throw new Error("Profile media assets must be 12 MB or smaller.");
+  signal.addEventListener("abort", abortResponse, { once: true });
+
+  try {
+    throwIfAborted(signal);
+    for await (const chunk of response) {
+      throwIfAborted(signal);
+      const value = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
+      byteSize += value.byteLength;
+      if (byteSize > PROFILE_ASSET_MAX_STORED_BYTES) {
+        response.destroy();
+        throw new Error("Profile media assets must be 12 MB or smaller.");
+      }
+      chunks.push(value);
     }
-    chunks.push(value);
+  } finally {
+    signal.removeEventListener("abort", abortResponse);
   }
 
   assertAllowedByteSize(byteSize);
@@ -252,42 +282,58 @@ export async function fetchProfileAssetSourceUrl(
   dependencies: ProfileAssetSourceImportDependencies = {},
 ): Promise<ProfileAssetSourceUpload> {
   let currentUrl = new URL(sourceUrl);
+  const abortController = new AbortController();
+  const totalTimeoutMs = dependencies.totalTimeoutMs ?? SOURCE_URL_TOTAL_TIMEOUT_MS;
+  const totalTimeout = setTimeout(
+    () => abortController.abort(timeoutError()),
+    totalTimeoutMs,
+  );
   const resolveHostname = dependencies.resolveHostname ?? (
     async (hostname: string) => await lookup(hostname, { all: true, verbatim: true })
   );
   const requestSource = dependencies.requestPinnedSource ?? requestPinnedSourceUrl;
 
-  for (let redirects = 0; redirects <= SOURCE_URL_MAX_REDIRECTS; redirects += 1) {
-    dependencies.assertSourceUrl?.(currentUrl);
-    const address = await resolvePublicHttpsSourceUrl(currentUrl, resolveHostname);
-    const response = await requestSource(currentUrl, address);
-    const redirectedUrl = redirectLocation(
-      response.statusCode,
-      response.headers.location,
-      currentUrl,
-    );
+  try {
+    for (let redirects = 0; redirects <= SOURCE_URL_MAX_REDIRECTS; redirects += 1) {
+      throwIfAborted(abortController.signal);
+      dependencies.assertSourceUrl?.(currentUrl);
+      const address = await resolvePublicHttpsSourceUrl(currentUrl, resolveHostname);
+      throwIfAborted(abortController.signal);
+      const response = await requestSource(currentUrl, address, abortController.signal);
+      throwIfAborted(abortController.signal);
+      const redirectedUrl = redirectLocation(
+        response.statusCode,
+        response.headers.location,
+        currentUrl,
+      );
 
-    if (redirectedUrl !== null) {
-      response.resume();
-      currentUrl = redirectedUrl;
-      continue;
-    }
-    if ((response.statusCode ?? 0) < 200 || (response.statusCode ?? 0) >= 300) {
-      response.resume();
-      throw new Error(`Source URL returned HTTP ${response.statusCode ?? 0}.`);
+      if (redirectedUrl !== null) {
+        response.resume();
+        currentUrl = redirectedUrl;
+        continue;
+      }
+      if ((response.statusCode ?? 0) < 200 || (response.statusCode ?? 0) >= 300) {
+        response.resume();
+        throw new Error(`Source URL returned HTTP ${response.statusCode ?? 0}.`);
+      }
+
+      const mimeType = normalizedContentType(firstHeaderValue(response.headers["content-type"]));
+      assertAllowedMimeType(mimeType);
+      const contentLength = contentLengthFromHeader(
+        firstHeaderValue(response.headers["content-length"]),
+      );
+      if (contentLength !== null) {
+        assertAllowedByteSize(contentLength);
+      }
+
+      return {
+        body: await responseBodyWithLimit(response, abortController.signal),
+        mimeType,
+      };
     }
 
-    const mimeType = normalizedContentType(firstHeaderValue(response.headers["content-type"]));
-    assertAllowedMimeType(mimeType);
-    const contentLength = contentLengthFromHeader(
-      firstHeaderValue(response.headers["content-length"]),
-    );
-    if (contentLength !== null) {
-      assertAllowedByteSize(contentLength);
-    }
-
-    return { body: await responseBodyWithLimit(response), mimeType };
+    throw new Error("Source URL redirected too many times.");
+  } finally {
+    clearTimeout(totalTimeout);
   }
-
-  throw new Error("Source URL redirected too many times.");
 }

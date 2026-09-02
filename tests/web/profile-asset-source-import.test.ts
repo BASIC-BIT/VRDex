@@ -143,4 +143,26 @@ describe("profile asset source imports", () => {
     assert.equal(accepted.mimeType, "image/webp");
     assert.deepEqual([...accepted.body], [1, 2, 3, 4]);
   });
+
+  it("enforces a total deadline while a response trickles bytes", async () => {
+    const response = new Readable({ read() {} }) as IncomingMessage;
+    response.statusCode = 200;
+    response.headers = { "content-type": "image/webp" };
+
+    const trickle = setInterval(() => response.push(new Uint8Array([1])), 2);
+    try {
+      await assert.rejects(
+        fetchProfileAssetSourceUrl("https://media.example.test/slow.webp", {
+          resolveHostname: async () => [{ address: "93.184.216.34" }],
+          requestPinnedSource: async () => response,
+          totalTimeoutMs: 15,
+        }),
+        /total timeout/,
+      );
+      assert.equal(response.destroyed, true);
+    } finally {
+      clearInterval(trickle);
+      response.destroy();
+    }
+  });
 });

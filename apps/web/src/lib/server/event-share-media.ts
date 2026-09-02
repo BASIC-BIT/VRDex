@@ -15,7 +15,11 @@ export type EventShareArtworkSource = {
 };
 
 export function isEventShareImageUrl(url: URL): boolean {
-  return eventShareImagePath.test(url.pathname);
+  try {
+    return eventShareImagePath.test(decodeURIComponent(url.pathname));
+  } catch {
+    return false;
+  }
 }
 
 export function eventShareArtworkSource(
@@ -89,6 +93,7 @@ export async function inlineEventShareArtwork(
             throw new Error("Event share artwork must not reference a generated event preview.");
           }
         },
+        totalTimeoutMs: 30_000,
       });
   const normalized = await validateAndNormalizeProfileAsset(upload.body, upload.mimeType);
   const png = await sharp(normalized.body, {

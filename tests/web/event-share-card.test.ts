@@ -110,5 +110,12 @@ describe("event share artwork source", () => {
       ),
       null,
     );
+    assert.equal(
+      eventShareArtworkSource(
+        "https://www.vrdex.net/afterglow-social/events/7m2kp9q/%6fpengraph-image",
+        siteUrl,
+      ),
+      null,
+    );
   });
 });
