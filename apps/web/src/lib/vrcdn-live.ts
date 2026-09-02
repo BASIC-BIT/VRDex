@@ -27,6 +27,32 @@ import { parseVrcdnStreamLinks } from "../../../../convex/_vrcdnLinks";
  */
 export type VrcdnLiveState = "live" | "offline" | "unavailable";
 
+export type VrcdnLiveStates = Record<string, VrcdnLiveState>;
+
+export function isVrcdnLiveState(value: unknown): value is VrcdnLiveState {
+  return value === "live" || value === "offline" || value === "unavailable";
+}
+
+export function parseVrcdnLiveStates(value: unknown): VrcdnLiveStates | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+
+  const entries = Object.entries(value);
+
+  if (!entries.every(([, state]) => isVrcdnLiveState(state))) {
+    return null;
+  }
+
+  return Object.fromEntries(entries);
+}
+
+export function shouldRetryVrcdnLiveStates(states: VrcdnLiveStates): boolean {
+  return Object.values(states).some((state) => state === "unavailable");
+}
+
+export const vrcdnLiveRetryDelayMs = 750;
+
 export type VrcdnLiveLink = LiveClaimLink;
 
 export function vrcdnLiveStateFromStatus(status: number): VrcdnLiveState {

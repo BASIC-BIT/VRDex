@@ -4,7 +4,7 @@ import { Fragment, type CSSProperties, type ReactNode } from "react";
 
 import { EventPreviewCard, type PublicEventPreview } from "./event-public-page";
 import { MediaPreviewImage } from "./media-preview-image";
-import { VrcdnStreamPlayer } from "./vrcdn-stream-player";
+import { ProfileVrcdnStreams } from "./profile-vrcdn-streams";
 import { ProfilePrivateRecord } from "./profile-private-record";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, Eyebrow, SectionHeading } from "@/components/ui/card";
@@ -700,41 +700,16 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
                   </a>
                 </div>
               ) : null}
-              {vrcdnStreams.map(({ label, stream }) => (
-                <div className="pt-5" key={stream.streamId}>
-                  <div className="flex flex-wrap items-center justify-between gap-3 pb-3">
-                    <div className="flex items-center gap-3">
-                      <p className="font-medium">{label}</p>
-                      {profile.vrcdnLive?.[stream.streamId] === "live" ? (
-                        <span className="text-sm font-medium text-success">Live now</span>
-                      ) : null}
-                    </div>
-                  </div>
-                  {/* Only while the stream is actually publishing. The player
-                      is the moment's own affordance, and offering one against
-                      an idle stream is a control that cannot do anything. */}
-                  {profile.vrcdnLive?.[stream.streamId] === "live" ? (
-                    <div className="mb-4 overflow-hidden rounded-control border border-border">
-                      {/* The link's own label, unsuffixed -- appending "stream"
-                          read as "VRCDN stream stream" on every profile whose
-                          label already said so, which is most of them.
-
-                          Qualified by stream id only when a profile carries
-                          more than one, because `prepareProfileLink` defaults
-                          every unlabelled VRCDN link to "VRCDN" and nothing
-                          requires labels to be unique. `title` is accessible
-                          text only, never rendered, so this disambiguates the
-                          controls without touching what anyone sees. */}
-                      <VrcdnStreamPlayer
-                        src={stream.questUrl}
-                        title={vrcdnStreams.length > 1 ? `${label} ${stream.streamId}` : label}
-                      />
-                    </div>
-                  ) : null}
-                  <CopyValueRow label="Quest (MPEG-TS)" value={stream.questUrl} />
-                  <CopyValueRow label="PC (RTSPT)" value={stream.pcUrl} />
-                </div>
-              ))}
+              <ProfileVrcdnStreams
+                initialLiveStates={profile.vrcdnLive}
+                profileSlug={profile.slug}
+                streams={vrcdnStreams.map(({ label, stream }) => ({
+                  label,
+                  pcUrl: stream.pcUrl,
+                  questUrl: stream.questUrl,
+                  streamId: stream.streamId,
+                }))}
+              />
             </aside>
           ) : null}
         </div>

@@ -7,7 +7,6 @@ import type { PrivateSeedLookupResult, SeedLookupViewerAccess } from "@/app/_com
 import type { SearchResultFilter } from "@/app/_components/search-view-state";
 import { publicSearchBackendFilters } from "@/lib/server/public-search-query";
 import { getTwitchLiveState } from "@/lib/server/twitch-live";
-import { getVrcdnLiveStates } from "@/lib/server/vrcdn-live";
 import {
   getPlaywrightActiveWorldFixtures,
   getPlaywrightDiscoveryFixture,
@@ -73,19 +72,17 @@ export async function fetchPublicProfileBySlug(slug: string, profileType?: Publi
           shareCard: projectedShareCard ?? null,
         }))(profile);
 
-    // Together rather than in sequence: a profile that streams to both would
-    // otherwise pay for two provider round trips before rendering anything.
-    const [twitchLive, vrcdnLive] = publicProfile
-      ? await Promise.all([
-          getTwitchLiveState(publicProfile.outboundLinks),
-          getVrcdnLiveStates(publicProfile.outboundLinks),
-        ])
-      : [undefined, undefined];
+    // VRCDN is resolved after hydration so its media-server latency cannot hold
+    // the profile render. Twitch remains here because its API result includes
+    // title metadata rendered with the server response.
+    const twitchLive = publicProfile
+      ? await getTwitchLiveState(publicProfile.outboundLinks)
+      : undefined;
 
     return {
       kind: "live" as const,
       profile: publicProfile
-        ? { ...publicProfile, ...(twitchLive ? { twitchLive } : {}), ...(vrcdnLive ? { vrcdnLive } : {}) }
+        ? { ...publicProfile, ...(twitchLive ? { twitchLive } : {}) }
         : null,
       shareCard,
     };

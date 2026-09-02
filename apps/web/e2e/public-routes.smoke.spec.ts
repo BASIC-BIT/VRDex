@@ -235,6 +235,46 @@ test.describe("hosted lookup smoke", () => {
 test.describe("fixture lookup smoke", () => {
   test.skip(isHostedRun, "Fixture-specific lookup suggestions are local-only.");
 
+  test("VRCDN live state recovers after the profile renders without a reload", async ({ page }) => {
+    let attempts = 0;
+    let releaseFirstResponse: () => void = () => {};
+    const firstResponseHold = new Promise<void>((resolve) => {
+      releaseFirstResponse = resolve;
+    });
+
+    await page.route("**/api/profile-live/basicbit/vrcdn?attempt=*", async (route) => {
+      attempts += 1;
+
+      if (attempts === 1) {
+        await firstResponseHold;
+        await route.fulfill({ contentType: "application/json", json: { states: { basicbit: "unavailable" } } });
+        return;
+      }
+
+      await route.fulfill({ contentType: "application/json", json: { states: { basicbit: "live" } } });
+    });
+
+    await page.goto("/basicbit");
+    await expect(page.getByRole("heading", { name: "BASICBIT" })).toBeVisible();
+    await expect.poll(() => attempts).toBe(1);
+    await expect(page.getByText("Live now", { exact: true })).toHaveCount(0);
+
+    releaseFirstResponse();
+
+    await expect(page.getByText("Live now", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Play VRCDN stream" })).toBeVisible();
+    await expect(page.locator("video")).toHaveCount(0);
+    expect(attempts).toBe(2);
+  });
+
+  test("VRCDN live endpoint stays profile-scoped and private", async ({ page }) => {
+    const response = await page.request.get("/api/profile-live/playwright-dj-aurora/vrcdn");
+
+    expect(response.status()).toBe(200);
+    expect(response.headers()["cache-control"]).toBe("private, no-store");
+    await expect(response.json()).resolves.toEqual({ states: { "dj-aurora": "live" } });
+  });
+
   test("profile claim actions stay separate and keyboard focusable", async ({ page }) => {
     await page.goto("/playwright-afterglow-social");
 
