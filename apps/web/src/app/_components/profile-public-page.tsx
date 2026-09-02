@@ -13,6 +13,7 @@ import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/pa
 import { VerifiedTrustMark } from "@/components/ui/verified-trust-mark";
 import { avatarFrameStyle, defaultAvatarAppearance, type AvatarAppearance } from "@/lib/avatar-appearance";
 import { cn } from "@/lib/cn";
+import { carriesLiveClaim } from "@/lib/live-claim-sources";
 import { profileClaimPath } from "@/lib/profile-claim";
 import { hasRenderableProfileMediaKit } from "@/lib/profile-media-kit";
 import { safeImageBackground } from "@/lib/safe-image";
@@ -434,13 +435,13 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
     const stream = providerUrl.search || providerUrl.hash ? null : parseVrcdnStreamLinks(link.url);
     return stream ? [{ item, label: link.label, stream }] : [];
   });
+  const claimableVrcdnStreams = vrcdnStreams.filter(({ item }) => carriesLiveClaim(item.link));
   const creatorLinks = validLinks.filter(
     (item) =>
       item !== twitchLink &&
       !discordHandles.some((discord) => discord.item === item) &&
-      !vrcdnStreams.some((vrcdn) => vrcdn.item === item),
+      !claimableVrcdnStreams.some((vrcdn) => vrcdn.item === item),
   );
-  const hasWatchSurface = Boolean(twitchLink || vrcdnStreams.length > 0);
   const aliases = profile.aliases.slice(0, 3);
   const remainingAliases = profile.aliases.slice(3);
   const metadata = Array.from(new Set([
@@ -652,8 +653,36 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
           </aside>
         ) : null}
 
-        <div className={cn("grid gap-x-10", hasWatchSurface ? "lg:grid-cols-[minmax(0,1fr)_32rem]" : undefined)}>
-          <div>
+        <ProfileVrcdnStreams
+          initialLiveStates={profile.vrcdnLive}
+          profileSlug={profile.slug}
+          streams={claimableVrcdnStreams.map(({ label, stream }) => ({
+            label,
+            pcUrl: stream.pcUrl,
+            questUrl: stream.questUrl,
+            streamId: stream.streamId,
+          }))}
+          twitchContent={twitchLink ? (
+            <div className="mt-4 border-b border-border pb-5">
+              {/* Badge beside the provider name, matching the VRCDN row
+                  below, so one surface does not carry two conventions. */}
+              <div className="flex items-center gap-3">
+                <span className="font-medium">Twitch</span>
+                {profile.twitchLive?.status === "live" ? (
+                  <span className="text-sm font-medium text-success">Live now</span>
+                ) : null}
+              </div>
+              {profile.twitchLive?.status === "live" ? (
+                <p className="mt-2 line-clamp-2 text-sm leading-6 text-muted">{profile.twitchLive.title}</p>
+              ) : null}
+              <a className={cn(buttonVariants({ variant: "primary" }), "mt-4 w-full gap-2")} href={twitchLink.href} rel="noreferrer" target="_blank">
+                Watch on Twitch
+                <ExternalLink aria-hidden="true" className="size-3.5" />
+              </a>
+            </div>
+          ) : undefined}
+        >
+          <>
             {creatorLinks.length > 0 || discordHandles.length > 0 ? (
               <section className="py-8">
                 <SectionHeading>Links</SectionHeading>
@@ -676,43 +705,8 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
                 ))}
               </section>
             ) : null}
-          </div>
-
-          {hasWatchSurface ? (
-            <aside className="border-t border-border py-8 lg:border-t-0 lg:border-l lg:pl-8">
-              <SectionHeading>Watch</SectionHeading>
-              {twitchLink ? (
-                <div className="mt-4 border-b border-border pb-5">
-                  {/* Badge beside the provider name, matching the VRCDN row
-                      below, so one surface does not carry two conventions. */}
-                  <div className="flex items-center gap-3">
-                    <span className="font-medium">Twitch</span>
-                    {profile.twitchLive?.status === "live" ? (
-                      <span className="text-sm font-medium text-success">Live now</span>
-                    ) : null}
-                  </div>
-                  {profile.twitchLive?.status === "live" ? (
-                    <p className="mt-2 line-clamp-2 text-sm leading-6 text-muted">{profile.twitchLive.title}</p>
-                  ) : null}
-                  <a className={cn(buttonVariants({ variant: "primary" }), "mt-4 w-full gap-2")} href={twitchLink.href} rel="noreferrer" target="_blank">
-                    Watch on Twitch
-                    <ExternalLink aria-hidden="true" className="size-3.5" />
-                  </a>
-                </div>
-              ) : null}
-              <ProfileVrcdnStreams
-                initialLiveStates={profile.vrcdnLive}
-                profileSlug={profile.slug}
-                streams={vrcdnStreams.map(({ label, stream }) => ({
-                  label,
-                  pcUrl: stream.pcUrl,
-                  questUrl: stream.questUrl,
-                  streamId: stream.streamId,
-                }))}
-              />
-            </aside>
-          ) : null}
-        </div>
+          </>
+        </ProfileVrcdnStreams>
 
         {!isPerson && profile.telemetry ? <CommunityActivity telemetry={profile.telemetry} /> : null}
 

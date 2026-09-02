@@ -471,10 +471,13 @@ export async function expectVerifiedPersonProfilePage(page: Page) {
   await expect(page.getByText("Multigenre DJ but I really love DnB <3", { exact: true })).toBeVisible();
   await expect(page.getByText(/Public lookup seed for validating operator workflows/i)).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Copy Discord" })).toBeVisible();
-  await expect(page.getByText("https://stream.vrcdn.live/live/basicbit.live.ts", { exact: true })).toBeVisible();
-  await expect(page.getByText("rtspt://stream.vrcdn.live/live/basicbit", { exact: true })).toBeVisible();
-  // No liveness for this fixture, so no player is offered at all. The copy rows
-  // above still carry the stream; only the watch control is withheld.
+  await expect(page.getByRole("heading", { name: "Watch" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Watch on Twitch" })).toBeVisible();
+  await expect(page.getByText("VRCDN stream", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("https://stream.vrcdn.live/live/basicbit.live.ts", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("rtspt://stream.vrcdn.live/live/basicbit", { exact: true })).toHaveCount(0);
+  // Twitch keeps the Watch surface present. VRCDN has no confirmed liveness for
+  // this fixture, so its label, copy rows, and player arrive as one live block.
   await expect(page.getByRole("button", { name: /^Play / })).toHaveCount(0);
 }
 

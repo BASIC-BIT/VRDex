@@ -257,14 +257,107 @@ test.describe("fixture lookup smoke", () => {
     await page.goto("/basicbit");
     await expect(page.getByRole("heading", { name: "BASICBIT" })).toBeVisible();
     await expect.poll(() => attempts).toBe(1);
+    await expect(page.getByRole("heading", { name: "Watch" })).toBeVisible();
+    await expect(page.getByText("VRCDN stream", { exact: true })).toHaveCount(0);
     await expect(page.getByText("Live now", { exact: true })).toHaveCount(0);
 
     releaseFirstResponse();
 
+    await expect(page.getByText("VRCDN stream", { exact: true })).toBeVisible();
     await expect(page.getByText("Live now", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Play VRCDN stream" })).toBeVisible();
     await expect(page.locator("video")).toHaveCount(0);
     expect(attempts).toBe(2);
+  });
+
+  test("VRCDN-only profile does not render an empty Watch surface while offline", async ({ page }) => {
+    let attempts = 0;
+
+    await page.route("**/api/profile-live/playwright-dj-night-market/vrcdn?attempt=*", async (route) => {
+      attempts += 1;
+      await route.fulfill({ contentType: "application/json", json: { states: { "dj-night-market": "offline" } } });
+    });
+
+    await page.goto("/playwright-dj-night-market");
+    await expect(page.getByRole("heading", { name: "DJ Night Market" })).toBeVisible();
+    await expect.poll(() => attempts).toBe(1);
+    await expect(page.getByRole("heading", { name: "Watch" })).toHaveCount(0);
+    await expect(page.getByText("VRCDN stream", { exact: true })).toHaveCount(0);
+  });
+
+  test("confirmed VRCDN player stays mounted while a failed retry is pending", async ({ page }) => {
+    let attempts = 0;
+    let releaseFirstResponse: () => void = () => {};
+    let releaseSecondResponse: () => void = () => {};
+    const firstResponseHold = new Promise<void>((resolve) => {
+      releaseFirstResponse = resolve;
+    });
+    const secondResponseHold = new Promise<void>((resolve) => {
+      releaseSecondResponse = resolve;
+    });
+
+    await page.route("**/api/profile-live/playwright-dj-aurora/vrcdn?attempt=*", async (route) => {
+      attempts += 1;
+
+      if (attempts === 1) {
+        await firstResponseHold;
+        await route.fulfill({ contentType: "application/json", json: { states: { "dj-aurora": "unavailable" } } });
+        return;
+      }
+
+      await secondResponseHold;
+      await route.fulfill({ status: 503 });
+    });
+
+    await page.goto("/playwright-dj-aurora");
+    const player = page.getByRole("button", { name: "Play VRCDN" });
+    await expect(player).toBeVisible();
+    await expect(page.getByRole("link", { name: "Suggested VRCDN" })).toBeVisible();
+    await player.evaluate((element) => {
+      element.setAttribute("data-lifecycle-marker", "original");
+    });
+
+    releaseFirstResponse();
+
+    await expect.poll(() => attempts).toBe(2);
+    await expect(player).toHaveAttribute("data-lifecycle-marker", "original");
+    await expect(player).toBeVisible();
+
+    releaseSecondResponse();
+
+    await expect(player).toHaveCount(0);
+    await expect(page.getByText("VRCDN", { exact: true })).toHaveCount(0);
+  });
+
+  test("confirmed VRCDN player survives two profile-live route failures", async ({ page }) => {
+    let attempts = 0;
+    let releaseFirstResponse: () => void = () => {};
+    const firstResponseHold = new Promise<void>((resolve) => {
+      releaseFirstResponse = resolve;
+    });
+
+    await page.route("**/api/profile-live/playwright-dj-aurora/vrcdn?attempt=*", async (route) => {
+      attempts += 1;
+
+      if (attempts === 1) {
+        await firstResponseHold;
+      }
+
+      await route.fulfill({ status: 503 });
+    });
+
+    await page.goto("/playwright-dj-aurora");
+    const player = page.getByRole("button", { name: "Play VRCDN" });
+    await expect(player).toBeVisible();
+    await player.evaluate((element) => {
+      element.setAttribute("data-lifecycle-marker", "original");
+    });
+
+    releaseFirstResponse();
+
+    await expect.poll(() => attempts).toBe(2);
+    await expect(player).toHaveAttribute("data-lifecycle-marker", "original");
+    await expect(player).toBeVisible();
   });
 
   test("VRCDN live endpoint stays profile-scoped and private", async ({ page }) => {
