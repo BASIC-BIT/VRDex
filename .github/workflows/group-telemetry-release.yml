@@ -73,6 +73,9 @@ jobs:
       - name: Fail closed on missing production configuration
         env:
           GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          WORKFLOW_RUN_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          WORKFLOW_RUN_HEAD_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
         run: |
           set -euo pipefail
           missing=()
@@ -91,9 +94,9 @@ jobs:
           [[ "$release_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Checkout did not resolve to a full Git SHA."; exit 1; }
           git fetch --no-tags origin main
           git merge-base --is-ancestor "$release_sha" origin/main || { echo "::error::Collector releases must use a commit reachable from main."; exit 1; }
-          if [ "${{ github.event_name }}" = "workflow_run" ]; then
-            [ "${{ github.event.workflow_run.head_branch }}" = "main" ] || { echo "::error::The triggering baseline run was not for main."; exit 1; }
-            [ "${{ github.event.workflow_run.head_repository.full_name }}" = "$GITHUB_REPOSITORY" ] || { echo "::error::The triggering baseline run came from another repository."; exit 1; }
+          if [ "$EVENT_NAME" = "workflow_run" ]; then
+            [ "$WORKFLOW_RUN_HEAD_BRANCH" = "main" ] || { echo "::error::The triggering baseline run was not for main."; exit 1; }
+            [ "$WORKFLOW_RUN_HEAD_REPOSITORY" = "$GITHUB_REPOSITORY" ] || { echo "::error::The triggering baseline run came from another repository."; exit 1; }
             latest_successful_sha="$(gh api -X GET "repos/$GITHUB_REPOSITORY/actions/workflows/baseline-checks.yml/runs" -f branch=main -f status=success -f per_page=20 --jq '[.workflow_runs[] | select(.event == "push" and .head_branch == "main" and .head_repository.full_name == env.GITHUB_REPOSITORY)] | first | .head_sha')"
             [ "$release_sha" = "$latest_successful_sha" ] || { echo "::error::The triggering baseline is no longer the latest successful main release."; exit 1; }
           fi

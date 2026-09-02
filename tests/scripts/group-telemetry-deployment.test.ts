@@ -349,6 +349,14 @@ describe("group telemetry release workflow", () => {
     assert.ok((release["timeout-minutes"] ?? 0) >= 90, "release job does not reserve rollback time");
     assert.equal(release.permissions?.["id-token"], "write");
     const commands = (release.steps ?? []).map((step) => step.run ?? "").join("\n");
+    assert.doesNotMatch(
+      commands,
+      /\$\{\{\s*github\.(?:event|head_ref|base_ref)/,
+      "untrusted GitHub event fields must enter shell steps through environment variables",
+    );
+    assert.match(commands, /if \[ "\$EVENT_NAME" = "workflow_run" \]/);
+    assert.match(commands, /\[ "\$WORKFLOW_RUN_HEAD_BRANCH" = "main" \]/);
+    assert.match(commands, /\[ "\$WORKFLOW_RUN_HEAD_REPOSITORY" = "\$GITHUB_REPOSITORY" \]/);
     assert.match(commands, /git rev-parse HEAD/);
     assert.match(commands, /git merge-base --is-ancestor/);
     assert.match(commands, /actions\/workflows\/baseline-checks\.yml\/runs/);
