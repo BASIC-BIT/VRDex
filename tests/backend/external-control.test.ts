@@ -898,6 +898,49 @@ describe("Discord guild proof reconciliation", () => {
 });
 
 describe("Discord verification state backlog", () => {
+  it("does not record a verification start when OAuth configuration is invalid", async () => {
+    const previousClientId = process.env.AUTH_DISCORD_ID;
+    const previousSiteUrl = process.env.SITE_URL;
+    const previousAuthorizeUrl = process.env.DISCORD_OAUTH_AUTHORIZE_URL;
+    process.env.AUTH_DISCORD_ID = "discord-client-test";
+    process.env.SITE_URL = "https://vrdex.example.test";
+    process.env.DISCORD_OAUTH_AUTHORIZE_URL = "http://discord.invalid/authorize";
+
+    try {
+      const t = convexTest({ schema, modules });
+      const now = Date.now();
+      const identity = await t.run(async (ctx) => {
+        const userId = await ctx.db.insert("users", {
+          clerkUserId: newClerkUserId(),
+          email: "invalid-oauth-config@example.test",
+          emailVerificationTime: now,
+        });
+        return await webSessionIdentity(ctx as never, userId);
+      });
+
+      await assert.rejects(
+        t.withIdentity(identity).action(api.discordVerification.startGuildVerification, {
+          returnTo: "/claim/oauth-config",
+          analyticsJourneyId: "4d36e96e-34d9-4f7e-9fe1-72a98aa13077",
+          analyticsEntrySource: "profile",
+          analyticsProfileType: "community",
+        }),
+      );
+
+      await t.run(async (ctx) => {
+        assert.equal((await ctx.db.query("discordVerificationStates").collect()).length, 0);
+        assert.equal((await ctx.db.query("claimAnalyticsOutbox").collect()).length, 0);
+      });
+    } finally {
+      if (previousClientId === undefined) delete process.env.AUTH_DISCORD_ID;
+      else process.env.AUTH_DISCORD_ID = previousClientId;
+      if (previousSiteUrl === undefined) delete process.env.SITE_URL;
+      else process.env.SITE_URL = previousSiteUrl;
+      if (previousAuthorizeUrl === undefined) delete process.env.DISCORD_OAUTH_AUTHORIZE_URL;
+      else process.env.DISCORD_OAUTH_AUTHORIZE_URL = previousAuthorizeUrl;
+    }
+  });
+
   it("records the backend verification-started milestone when claim OAuth opens", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();

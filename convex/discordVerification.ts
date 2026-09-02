@@ -561,6 +561,11 @@ export const startGuildVerification = action({
   },
   handler: async (ctx, args): Promise<{ authorizeUrl: string }> => {
     const clientId = requiredEnv("AUTH_DISCORD_ID");
+    // Validate every deployment-controlled part of the browser redirect before
+    // committing state or the authoritative "verification started" milestone.
+    // A broken OAuth configuration must not look like user funnel activity.
+    const redirectUri = discordVerificationRedirectUri();
+    const authorizeBaseUrl = discordAuthorizeBaseUrl();
     const { state } = (await ctx.runMutation(internal.discordVerification.createVerificationState, {
       returnTo: args.returnTo,
       analyticsJourneyId: args.analyticsJourneyId,
@@ -572,11 +577,11 @@ export const startGuildVerification = action({
       response_type: "code",
       scope: "identify guilds",
       state,
-      redirect_uri: discordVerificationRedirectUri(),
+      redirect_uri: redirectUri,
       prompt: "consent",
     });
 
-    return { authorizeUrl: `${discordAuthorizeBaseUrl()}?${params.toString()}` };
+    return { authorizeUrl: `${authorizeBaseUrl}?${params.toString()}` };
   },
 });
 
