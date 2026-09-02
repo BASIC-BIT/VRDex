@@ -2,13 +2,30 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  parseVrcdnLiveStates,
   maxVrcdnObservationAgeMs,
+  shouldRetryVrcdnLiveStates,
   vrcdnLiveStateFromStatus,
   vrcdnReportedState,
   vrcdnStreamIds,
 } from "../../apps/web/src/lib/vrcdn-live";
 
 describe("VRCDN liveness", () => {
+  it("accepts only the three states published by the profile endpoint", () => {
+    assert.deepEqual(
+      parseVrcdnLiveStates({ alpha: "live", beta: "offline", gamma: "unavailable" }),
+      { alpha: "live", beta: "offline", gamma: "unavailable" },
+    );
+    assert.equal(parseVrcdnLiveStates({ alpha: "maybe" }), null);
+    assert.equal(parseVrcdnLiveStates([]), null);
+  });
+
+  it("retries unavailable observations but not authoritative offline answers", () => {
+    assert.equal(shouldRetryVrcdnLiveStates({ alpha: "unavailable" }), true);
+    assert.equal(shouldRetryVrcdnLiveStates({ alpha: "offline" }), false);
+    assert.equal(shouldRetryVrcdnLiveStates({ alpha: "live", beta: "offline" }), false);
+  });
+
   // Measured against a real stream on 2026-08-10, live and then idle:
   //   .live.ts   live -> 200   idle -> 404   unknown id -> 401
   it("reads the media server's answer, and refuses to guess at anything else", () => {

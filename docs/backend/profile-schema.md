@@ -58,7 +58,7 @@ Core presentation fields:
 - profile links may optionally set `presentation: "icon" | "copy"`; lookup treats Twitch as icon-only unless a link explicitly requests copy presentation, while VRCDN stream rows remain the preferred elevated stream controls
 - first-slice profile genre facts include a stable `slug`, canonical `displayName`, optional short `displayLabel`, optional featured display intent, optional aliases, optional parent genre slugs, source, confidence, explicit/inferred state, and optional external IDs such as MusicBrainz genre UUID or Wikidata QID
 
-Provider liveness is read when the profile is requested and is not stored on the profile. Twitch comes from `apps/web/src/lib/server/twitch-live.ts`, VRCDN from `apps/web/src/lib/server/vrcdn-live.ts`; both cache for sixty seconds and render as a `Live now` badge in the `Watch` surface.
+Provider liveness is not stored on the profile. Twitch is read during the server render from `apps/web/src/lib/server/twitch-live.ts`. VRCDN is read after the profile renders through the profile-scoped `/api/profile-live/[slug]/vrcdn` route and `apps/web/src/lib/server/vrcdn-live.ts`, so a slow media-server answer cannot hold the page. Both providers cache successful observations for sixty seconds and render as a `Live now` badge in the `Watch` surface. An unavailable VRCDN answer receives one bounded retry; an authoritative offline answer does not.
 
 A live VRCDN stream also offers an in-site player, `apps/web/src/app/_components/vrcdn-stream-player.tsx`, shared with the event watch surface:
 
@@ -93,7 +93,8 @@ The control strip is custom (`apps/web/src/components/media/vrcdn-player-control
 - The allow-list lives once, in `apps/web/src/lib/live-claim-sources.ts`, rather than per provider. The two drifting apart is the failure mode that actually happened: VRCDN was gated while Twitch was not, and Twitch is the one that also publishes a stream title and viewer count alongside the badge.
 - Three states, not two: `offline` is a real `404`, `unavailable` is a probe that could not finish. A failed probe renders no badge rather than an idle stream.
 - Observations expire after five minutes. The cache serves a stale entry while it refreshes, and a refresh that keeps throwing would otherwise leave a `Live now` claim standing for the length of a provider outage.
-- Nothing sweeps on a schedule. A stream nobody opens is never probed, and an opened one is probed at most once a minute.
+- Nothing sweeps on a schedule. A stream nobody opens is never probed. A viewed profile probes after hydration, with one retry only when the first answer is unavailable; successful observations remain shared for sixty seconds.
+- The VRCDN request has a five-second budget. Production requests regularly exceeded the old 1.5-second budget, which made the first profile load omit a live badge even when the provider answered on a refresh. The longer budget is off the profile's render path.
 - The probe touches a media endpoint, and this is the known cost of the mechanism. `.live.ts` ignores `Range` and starts pushing MPEG-TS as soon as it answers, so the probe cancels the body before reading a frame — a connection rather than a download. VRCDN plans are viewer-capped and whether that connection spends a slot cannot be determined from outside the operator's account. Shipping it was an explicit owner decision on `#217` with that question still open, not a resolved one. A recurring sweep, which a `Live now` discovery surface would need, multiplies the same unknown across every stream on a timer and still should not ship until VRCDN answers.
 
 State fields:

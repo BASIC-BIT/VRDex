@@ -6,6 +6,7 @@ import {
   type VrcdnLiveLink,
   type VrcdnLiveObservation,
   type VrcdnLiveState,
+  type VrcdnLiveStates,
   vrcdnLiveStateFromStatus,
   vrcdnReportedState,
   vrcdnStreamIds,
@@ -13,10 +14,11 @@ import {
 
 import { createVrcdnStreamLinks } from "../../../../../convex/_vrcdnLinks";
 
-// A probe measured at ~190ms. The Twitch lookup's four seconds buys a token
-// exchange and an API call; this is one status code, and the budget is the
-// profile page's, since nothing renders until the probe settles.
-const probeTimeoutMs = 1500;
+// This no longer blocks the profile render. Production observations showed the
+// media server regularly taking about 3.8 seconds to answer from Vercel, so the
+// old 1.5 second budget converted valid answers into `unavailable` before they
+// arrived. Five seconds keeps the request bounded without preserving that race.
+const probeTimeoutMs = 5000;
 
 const getCachedVrcdnLiveState = unstable_cache(
   async (streamId: string): Promise<VrcdnLiveObservation> => {
@@ -44,7 +46,7 @@ const getCachedVrcdnLiveState = unstable_cache(
     // next sixty seconds of viewers see. The caller degrades to `unavailable`
     // for this request only.
     if (state === "unavailable") {
-      throw new Error(`VRCDN manifest request returned HTTP ${response.status}.`);
+      throw new Error(`VRCDN transport request returned HTTP ${response.status}.`);
     }
 
     return { observedAt: Date.now(), state };
@@ -66,7 +68,8 @@ const getCachedVrcdnLiveState = unstable_cache(
  */
 export async function getVrcdnLiveStates(
   links: readonly VrcdnLiveLink[],
-): Promise<Record<string, VrcdnLiveState> | undefined> {
+  context: { attempt?: 1 | 2; profileSlug?: string } = {},
+): Promise<VrcdnLiveStates | undefined> {
   const streamIds = vrcdnStreamIds(links);
 
   if (streamIds.length === 0) {
@@ -75,10 +78,21 @@ export async function getVrcdnLiveStates(
 
   const states = await Promise.all(
     streamIds.map(async (streamId): Promise<[string, VrcdnLiveState]> => {
+      const startedAt = Date.now();
+
       try {
         return [streamId, vrcdnReportedState(await getCachedVrcdnLiveState(streamId), Date.now())];
       } catch (error) {
-        console.error(`VRCDN live-state lookup failed for ${streamId}:`, error);
+        console.error(JSON.stringify({
+          attempt: context.attempt ?? 1,
+          durationMs: Date.now() - startedAt,
+          errorKind: error instanceof Error ? error.name : "UnknownError",
+          level: "error",
+          message: "VRCDN live-state lookup failed",
+          ...(context.profileSlug ? { profileSlug: context.profileSlug } : {}),
+          reason: error instanceof Error ? error.message.slice(0, 160) : "Unknown failure",
+          streamId,
+        }));
         return [streamId, "unavailable"];
       }
     }),
