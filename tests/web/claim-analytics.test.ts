@@ -66,7 +66,10 @@ describe("claim analytics journey correlation", () => {
     assert.match(source, /analyticsJourneyFinishedRef\.current\s*\) return/);
     assert.match(source, /lastObservedPendingJourneyRef/);
     assert.match(source, /lastObservedPendingWorkRef/);
-    assert.match(source, /preserveInitialDiscordReturnRef = useRef\(discordVerify != null\)/);
+    assert.match(
+      source,
+      /preserveInitialDiscordReturnRef = useRef\([\s\S]*discordVerify != null \|\| discordJourneyRestored/,
+    );
     assert.match(source, /preserveInitialDiscordReturnRef\.current = false/);
     assert.match(source, /const \{ isLoaded, sessionId \} = useAuth\(\)/);
     assert.match(source, /key=\{analyticsSessionScope\}/);
@@ -137,7 +140,11 @@ describe("claim analytics journey correlation", () => {
       source,
       /async function submit[\s\S]*captureMethodSelection\(journeyId, method\)[\s\S]*claim_submitted/,
     );
-    assert.match(source, /if \(!isVerifiedViewer\) \{[\s\S]*claim_submitted/);
+    assert.match(source, /if \(isVerifiedViewer\) return;[\s\S]*claim_submitted/);
+    assert.match(
+      source,
+      /const started = await startVrchatProof\([\s\S]*journeyId = adoptAnalyticsJourneyId\(started\.analyticsJourneyId\)[\s\S]*captureSubmission\(\)/,
+    );
   });
 
   it("renders an opaque initial journey into Discord link targets", async () => {
@@ -151,9 +158,14 @@ describe("claim analytics journey correlation", () => {
       /validClaimJourneyId\(rawAnalyticsJourneyId\)[\s\S]*rawAnalyticsJourneyId[\s\S]*crypto\.randomUUID\(\)/,
     );
     assert.match(
+      page,
+      /discordJourneyRestored=\{[\s\S]*validClaimJourneyId\(rawAnalyticsJourneyId\)[\s\S]*rawDiscordOAuthReturn === "1"/,
+    );
+    assert.match(
       callback,
       /withStatus\(returnTo, "verified", verifiedGuildCount, analyticsJourneyId\)/,
     );
-    assert.match(callback, /withAnalyticsJourney\([\s\S]*pending\.analyticsJourneyId/);
+    assert.match(callback, /withAnalyticsJourney\([\s\S]*pending\.analyticsJourneyId,[\s\S]*true/);
+    assert.match(callback, /discordOAuthReturn: discordOAuthReturn \? "1" : undefined/);
   });
 });

@@ -98,6 +98,7 @@ const CONTROL_LEVEL_LABELS: Record<string, string> = {
 
 type ClaimFlowProps = {
   initialAnalyticsJourneyId: string;
+  discordJourneyRestored?: boolean;
   discordVerify?: DiscordVerifyStatus;
   previewContext?: {
     viewerContextKey?: string | null;
@@ -153,6 +154,7 @@ export function ClaimFlow(props: ClaimFlowProps) {
 export function ClaimFlowContent({
   analyticsSessionScope,
   initialAnalyticsJourneyId,
+  discordJourneyRestored = false,
   discordVerify = null,
   previewContext,
   profile,
@@ -189,8 +191,12 @@ export function ClaimFlowContent({
   const analyticsJourneyFinishedRef = useRef(false);
   const lastObservedPendingJourneyRef = useRef<string | null | undefined>(undefined);
   const lastObservedPendingWorkRef = useRef<boolean | undefined>(undefined);
-  const preserveInitialDiscordReturnRef = useRef(discordVerify != null);
-  const discordReturnJourneyActiveRef = useRef(discordVerify != null);
+  const preserveInitialDiscordReturnRef = useRef(
+    discordVerify != null || discordJourneyRestored,
+  );
+  const discordReturnJourneyActiveRef = useRef(
+    discordVerify != null || discordJourneyRestored,
+  );
   const [selectedMethod, setMethod] = useState<ClaimMethod | null>(
     previewContext
       ? profile.profileType === "community"
@@ -556,16 +562,17 @@ export function ClaimFlowContent({
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const journeyId = beginAnalyticsJourneyForMethod(method);
+    let journeyId = beginAnalyticsJourneyForMethod(method);
     captureJourneyView(journeyId);
     captureMethodSelection(journeyId, method);
-    if (!isVerifiedViewer) {
+    const captureSubmission = () => {
+      if (isVerifiedViewer) return;
       captureProductEvent(posthog, "claim_submitted", {
         journey_id: journeyId,
         method,
         profile_type: profile.profileType,
       });
-    }
+    };
     setCollectorCompletion(null);
     setStatus({
       kind: "working",
@@ -590,23 +597,32 @@ export function ClaimFlowContent({
           analyticsEntrySource: source,
         });
 
+        journeyId = adoptAnalyticsJourneyId(started.analyticsJourneyId);
+        captureJourneyView(journeyId);
+        captureMethodSelection(journeyId, method);
+        captureSubmission();
         await checkProof(started.attemptId, "vrclinking");
         return;
       }
 
       if (method === "vrchat") {
-        await startVrchatProof({
+        const started = await startVrchatProof({
           profileSlug: profile.slug,
           targetType: profile.profileType === "person" ? "vrchat_user" : "vrchat_group",
           targetExternalId: String(form.get("targetExternalId") ?? ""),
           analyticsJourneyId: journeyId,
           analyticsEntrySource: source,
         });
+        journeyId = adoptAnalyticsJourneyId(started.analyticsJourneyId);
+        captureJourneyView(journeyId);
+        captureMethodSelection(journeyId, method);
+        captureSubmission();
         setStatus({ kind: "notice", message: "Your code is ready. Add it to VRChat below." });
         return;
       }
 
       if (profile.profileType === "person") {
+        captureSubmission();
         const result = await claimPerson({
           profileSlug: profile.slug,
           analyticsJourneyId: journeyId,
@@ -630,6 +646,7 @@ export function ClaimFlowContent({
 
       // Control was already proved during the Discord OAuth round-trip, so
       // claiming is a single step: pair the existing proof with this profile.
+      captureSubmission();
       const result = await claimWithVerifiedGuild({
         profileSlug: profile.slug,
         guildId: String(form.get("discordGuildId") ?? ""),

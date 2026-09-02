@@ -1399,6 +1399,8 @@ export const startVrchatProof = mutation({
     );
 
     if (existingAttempt) {
+      const analyticsJourneyId =
+        existingAttempt.analyticsJourneyId ?? requestedAnalytics.journeyId;
       if (existingAttempt.analyticsJourneyId === undefined) {
         await ctx.db.patch(existingAttempt._id, {
           analyticsJourneyId: requestedAnalytics.journeyId,
@@ -1416,6 +1418,7 @@ export const startVrchatProof = mutation({
         profileId: profile._id,
         proofCode: existingAttempt.proofCode,
         expiresAt: existingAttempt.expiresAt,
+        analyticsJourneyId,
       };
     }
 
@@ -1530,6 +1533,7 @@ export const startVrchatProof = mutation({
       profileId: profile._id,
       proofCode: attempt.proofCode,
       expiresAt: attempt.expiresAt,
+      analyticsJourneyId: requestedAnalytics.journeyId,
     };
   },
 });

@@ -12,8 +12,15 @@ import {
 
 export const dynamic = "force-dynamic";
 
-function withAnalyticsJourney(path: string, analyticsJourneyId?: string | null): string {
-  return appendReturnPathQuery(path, { analyticsJourneyId: analyticsJourneyId ?? undefined });
+function withAnalyticsJourney(
+  path: string,
+  analyticsJourneyId?: string | null,
+  discordOAuthReturn = false,
+): string {
+  return appendReturnPathQuery(path, {
+    analyticsJourneyId: analyticsJourneyId ?? undefined,
+    discordOAuthReturn: discordOAuthReturn ? "1" : undefined,
+  });
 }
 
 function withStatus(
@@ -47,6 +54,7 @@ function carriedReturnTo(error: unknown): string {
   return withAnalyticsJourney(
     returnTo,
     typeof data?.analyticsJourneyId === "string" ? data.analyticsJourneyId : undefined,
+    true,
   );
 }
 
@@ -72,6 +80,7 @@ export async function GET(request: NextRequest) {
         signInPath(withAnalyticsJourney(
           pending.returnTo ?? "/account",
           pending.analyticsJourneyId,
+          true,
         )),
         request.nextUrl.origin,
       ),

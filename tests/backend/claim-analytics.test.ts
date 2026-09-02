@@ -349,6 +349,17 @@ describe("claim analytics outbox", () => {
       analyticsJourneyId: journeyId,
       analyticsEntrySource: "search",
     });
+    assert.equal(attempt.analyticsJourneyId, journeyId);
+    const duplicateJourneyId = "6d26f0c7-9427-46e0-b47d-a852d9389438";
+    const duplicate = await t.withIdentity(identity).mutation(api.profileClaims.startVrchatProof, {
+      profileSlug: "claim-analytics-target",
+      targetType: "vrchat_user",
+      targetExternalId: "usr_01234567-89ab-cdef-0123-456789abcdef",
+      analyticsJourneyId: duplicateJourneyId,
+      analyticsEntrySource: "account",
+    });
+    assert.equal(duplicate.attemptId, attempt.attemptId);
+    assert.equal(duplicate.analyticsJourneyId, journeyId);
     await t.withIdentity(identity).mutation(internal.profileClaims.reserveAdapterCheck, {
       attemptId: attempt.attemptId,
       cooldownMs: 60_000,
