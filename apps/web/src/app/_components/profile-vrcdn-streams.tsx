@@ -49,6 +49,11 @@ export function ProfileVrcdnStreams({
     mergeConfirmedVrcdnLiveStates({}, initialLiveStates ?? {}),
   );
   const streamIdentity = streams.map(({ streamId }) => streamId).join("\u0000");
+  const initialConfirmedIdentity = Object.entries(initialLiveStates ?? {})
+    .filter(([, state]) => state !== "unavailable")
+    .map(([streamId]) => streamId)
+    .sort()
+    .join("\u0000");
 
   useEffect(() => {
     if (streams.length === 0) {
@@ -57,6 +62,9 @@ export function ProfileVrcdnStreams({
 
     const controller = new AbortController();
     const allStreamIds = streamIdentity.split("\u0000");
+    const initiallyConfirmedStreamIds = new Set(
+      initialConfirmedIdentity ? initialConfirmedIdentity.split("\u0000") : [],
+    );
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let retryingStreamIds = new Set<string>();
 
@@ -71,7 +79,9 @@ export function ProfileVrcdnStreams({
     };
 
     const scheduleFullRetry = () => {
-      retryingStreamIds = new Set(allStreamIds);
+      retryingStreamIds = new Set(
+        allStreamIds.filter((streamId) => !initiallyConfirmedStreamIds.has(streamId)),
+      );
       scheduleRetry();
     };
 
@@ -133,7 +143,7 @@ export function ProfileVrcdnStreams({
         clearTimeout(retryTimer);
       }
     };
-  }, [profileSlug, streamIdentity, streams.length]);
+  }, [initialConfirmedIdentity, profileSlug, streamIdentity, streams.length]);
 
   const liveStreams = streams.filter(({ streamId }) => liveStates[streamId] === "live");
   const hasWatchSurface = Boolean(twitchContent || liveStreams.length > 0);

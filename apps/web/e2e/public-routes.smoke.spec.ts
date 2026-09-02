@@ -329,6 +329,37 @@ test.describe("fixture lookup smoke", () => {
     await expect(page.getByText("VRCDN", { exact: true })).toHaveCount(0);
   });
 
+  test("confirmed VRCDN player survives two profile-live route failures", async ({ page }) => {
+    let attempts = 0;
+    let releaseFirstResponse: () => void = () => {};
+    const firstResponseHold = new Promise<void>((resolve) => {
+      releaseFirstResponse = resolve;
+    });
+
+    await page.route("**/api/profile-live/playwright-dj-aurora/vrcdn?attempt=*", async (route) => {
+      attempts += 1;
+
+      if (attempts === 1) {
+        await firstResponseHold;
+      }
+
+      await route.fulfill({ status: 503 });
+    });
+
+    await page.goto("/playwright-dj-aurora");
+    const player = page.getByRole("button", { name: "Play VRCDN" });
+    await expect(player).toBeVisible();
+    await player.evaluate((element) => {
+      element.setAttribute("data-lifecycle-marker", "original");
+    });
+
+    releaseFirstResponse();
+
+    await expect.poll(() => attempts).toBe(2);
+    await expect(player).toHaveAttribute("data-lifecycle-marker", "original");
+    await expect(player).toBeVisible();
+  });
+
   test("VRCDN live endpoint stays profile-scoped and private", async ({ page }) => {
     const response = await page.request.get("/api/profile-live/playwright-dj-aurora/vrcdn");
 
