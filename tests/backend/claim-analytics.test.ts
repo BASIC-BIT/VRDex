@@ -229,6 +229,83 @@ describe("claim analytics outbox", () => {
     });
   });
 
+  it("adopts a legacy pending Discord request into the resumed journey", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const clerkUserId = newClerkUserId();
+    const seeded = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        clerkUserId,
+        email: "legacy-discord-analytics@example.test",
+        emailVerificationTime: now,
+      });
+      const profileId = await ctx.db.insert("profiles", {
+        profileType: "community",
+        slug: "legacy-discord-analytics",
+        displayName: "Legacy Discord Analytics",
+        sortName: "legacy discord analytics",
+        aliases: [],
+        tags: [],
+        claimState: "unclaimed",
+        publicationState: "published",
+        publicSurfacingState: "public",
+        creationSource: "concierge",
+        community: { categoryTags: [] },
+        updatedAt: now,
+      });
+      await ctx.db.insert("discordVerificationWatermarks", {
+        userId,
+        discordUserId: "123456789012345678",
+        issuedGeneration: 1,
+        appliedGeneration: 1,
+        appliedAt: now,
+        issuedAt: now,
+        updatedAt: now,
+      });
+      const claimRequestId = await ctx.db.insert("profileClaimRequests", {
+        profileId,
+        profileSlug: "legacy-discord-analytics",
+        profileType: "community",
+        requestedDisplayName: "Legacy Discord Analytics",
+        userId,
+        method: "discord_community_admin",
+        state: "pending",
+        discordGuildId: "123456789012345678",
+        evidenceSource: "discord_api",
+        evidenceSummary: "Legacy pending request.",
+        createdAt: now - 5_000,
+        updatedAt: now - 5_000,
+      });
+      return { claimRequestId };
+    });
+    const identity = {
+      subject: clerkUserId,
+      emailVerified: true,
+      issuer: "test",
+      tokenIdentifier: `test|${clerkUserId}`,
+    };
+
+    const result = await t.withIdentity(identity).mutation(
+      api.profileClaims.requestCommunityDiscordAdminClaim,
+      {
+        profileSlug: "legacy-discord-analytics",
+        discordGuildId: "123456789012345678",
+        analyticsJourneyId: journeyId,
+        analyticsEntrySource: "profile",
+      },
+    );
+    assert.equal(result.claimRequestId, seeded.claimRequestId);
+
+    await t.run(async (ctx) => {
+      const request = await ctx.db.get(seeded.claimRequestId);
+      assert.equal(request?.analyticsJourneyId, journeyId);
+      const rows = await ctx.db.query("claimAnalyticsOutbox").collect();
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0]?.event, "claim_attempt_created");
+      assert.equal(rows[0]?.occurredAt, now - 5_000);
+    });
+  });
+
   it("reports aggregate delivery failures without journey identifiers", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();

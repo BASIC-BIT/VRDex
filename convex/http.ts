@@ -112,9 +112,13 @@ const telemetryWorker = httpAction(async (ctx, request) => {
     // rather than a community integration, so they are handled before the
     // lease validation below.
     if (body.operation === "proof_claim") {
+      if (typeof body.releaseSha !== "string") {
+        return json({ error: "invalid_request" }, 400);
+      }
       const result = await ctx.runMutation(functions.claimPendingProofChecks, {
         collectorAccountId,
         workerId: body.workerId,
+        releaseSha: body.releaseSha,
         limit: typeof body.limit === "number" ? body.limit : undefined,
         now,
       });
@@ -156,13 +160,18 @@ const telemetryWorker = httpAction(async (ctx, request) => {
       return json(result);
     }
     if (body.operation === "proof_result") {
-      if (typeof body.attemptId !== "string" || typeof body.found !== "boolean") {
+      if (
+        typeof body.attemptId !== "string" ||
+        typeof body.found !== "boolean" ||
+        typeof body.releaseSha !== "string"
+      ) {
         return json({ error: "invalid_request" }, 400);
       }
       const result = await ctx.runMutation(functions.recordProofCheckResult, {
         collectorAccountId,
         attemptId: body.attemptId as never,
         found: body.found,
+        releaseSha: body.releaseSha,
         // Checked again inside the mutation: this was authenticated before the
         // body was read, and a rotation in that window must not still grant.
         workerKeyHash: presentedHash,
@@ -172,13 +181,18 @@ const telemetryWorker = httpAction(async (ctx, request) => {
       return json(result);
     }
     if (body.operation === "proof_outcome") {
-      if (typeof body.attemptId !== "string" || typeof body.outcome !== "string") {
+      if (
+        typeof body.attemptId !== "string" ||
+        typeof body.outcome !== "string" ||
+        typeof body.releaseSha !== "string"
+      ) {
         return json({ error: "invalid_request" }, 400);
       }
       const result = await ctx.runMutation(functions.recordProofCheckOutcome, {
         collectorAccountId,
         attemptId: body.attemptId,
         outcome: body.outcome,
+        releaseSha: body.releaseSha,
         workerKeyHash: presentedHash,
         now,
       } as never);

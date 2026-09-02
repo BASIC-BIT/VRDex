@@ -2249,6 +2249,7 @@ export const claimPendingProofChecks = internalMutation({
   args: {
     collectorAccountId: v.string(),
     workerId: v.string(),
+    releaseSha: v.optional(v.string()),
     limit: v.optional(v.number()),
     now: v.number(),
   },
@@ -2286,6 +2287,9 @@ export const claimPendingProofChecks = internalMutation({
 
     const limit = Math.max(1, Math.min(args.limit ?? 5, 25));
     const workerId = boundedWorkerId(args.workerId);
+    const workerReleaseSha = normalizedReleaseSha(
+      args.releaseSha ?? account.lastWorkerReleaseSha ?? "",
+    );
     // Select collector-eligible target types through the index. Scanning all
     // pending attempts and filtering afterwards let vrclinking rows, which are
     // never stamped, hold the head of the window permanently and starve the
@@ -2375,7 +2379,7 @@ export const claimPendingProofChecks = internalMutation({
           targetType: attempt.targetType,
           event: "proof_dispatched",
           actorSurface: "collector",
-          workerReleaseSha: account.lastWorkerReleaseSha,
+          workerReleaseSha,
           createdAt: args.now,
         });
       }),
@@ -2402,6 +2406,7 @@ export const recordProofCheckResult = internalMutation({
     collectorAccountId: v.string(),
     attemptId: v.id("profileVerificationAttempts"),
     found: v.boolean(),
+    releaseSha: v.optional(v.string()),
     // The key digest this request authenticated with. `http.ts` checks it
     // before reading the body, so a caller holding the body open across a key
     // rotation could still land a verdict on a credential that no longer
@@ -2482,13 +2487,16 @@ export const recordProofCheckResult = internalMutation({
     ) {
       return { state: "unauthorized" as const };
     }
+    const workerReleaseSha = normalizedReleaseSha(
+      args.releaseSha ?? account.lastWorkerReleaseSha ?? "",
+    );
 
     await recordProviderCheck(ctx, {
       attempt,
       accountId,
       outcome: args.found ? "found" : "not_found",
       now: args.now,
-      workerReleaseSha: account.lastWorkerReleaseSha,
+      workerReleaseSha,
     });
 
     if (attempt.expiresAt <= args.now) {
@@ -2506,7 +2514,7 @@ export const recordProofCheckResult = internalMutation({
         event: "attempt_resolved",
         actorSurface: "collector",
         outcome: "expired",
-        workerReleaseSha: account.lastWorkerReleaseSha,
+        workerReleaseSha,
         createdAt: args.now,
       });
       const profile = await ctx.db.get(attempt.profileId);
@@ -2569,7 +2577,7 @@ export const recordProofCheckResult = internalMutation({
         event: "attempt_resolved",
         actorSurface: "collector",
         outcome: "already_owned",
-        workerReleaseSha: account.lastWorkerReleaseSha,
+        workerReleaseSha,
         createdAt: args.now,
       });
 
@@ -2620,6 +2628,7 @@ export const recordProofCheckOutcome = internalMutation({
       v.literal("control_plane_error"),
     ),
     workerKeyHash: v.string(),
+    releaseSha: v.optional(v.string()),
     now: v.number(),
   },
   handler: async (ctx, args) => {
@@ -2637,13 +2646,16 @@ export const recordProofCheckOutcome = internalMutation({
     ) {
       return { recorded: false };
     }
+    const workerReleaseSha = normalizedReleaseSha(
+      args.releaseSha ?? account.lastWorkerReleaseSha ?? "",
+    );
     return {
       recorded: await recordProviderCheck(ctx, {
         attempt,
         accountId,
         outcome: args.outcome,
         now: args.now,
-        workerReleaseSha: account.lastWorkerReleaseSha,
+        workerReleaseSha,
       }),
     };
   },

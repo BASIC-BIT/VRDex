@@ -37,6 +37,7 @@ const control = new TelemetryControlClient({
   collectorAccountId: requiredEnv("VRDEX_GROUP_TELEMETRY_COLLECTOR_ACCOUNT_ID"),
   workerApiKey: secret.workerApiKey,
   vrchatUserId: secret.vrchatUserId,
+  releaseSha: runtimeMetadata.releaseSha,
   workerId: process.env.VRDEX_GROUP_TELEMETRY_WORKER_ID,
 });
 const provider = new VrchatClient({ authCookie: secret.authCookie, twoFactorAuthCookie: secret.twoFactorAuthCookie, userAgent: requiredEnv("VRDEX_GROUP_TELEMETRY_USER_AGENT") });

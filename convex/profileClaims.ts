@@ -914,6 +914,19 @@ export const requestCommunityDiscordAdminClaim = mutation({
       .first();
 
     if (existingRequest) {
+      if (existingRequest.analyticsJourneyId === undefined) {
+        await ctx.db.patch(existingRequest._id, {
+          analyticsJourneyId: analytics.journeyId,
+          analyticsEntrySource: analytics.entrySource,
+          updatedAt: now,
+        });
+        await enqueueClaimAnalyticsEvent(ctx, analytics, {
+          event: "claim_attempt_created",
+          profileType: "community",
+          method: "discord",
+          occurredAt: existingRequest.createdAt,
+        });
+      }
       return {
         claimRequestId: existingRequest._id,
         profileId: profile._id,

@@ -134,7 +134,7 @@ export function pollId(integrationId, observedAt) {
 }
 
 export class TelemetryControlClient {
-  constructor({ endpoint, collectorAccountId, workerApiKey, vrchatUserId, workerId = `collector-${randomUUID()}`, fetcher = fetch }) {
+  constructor({ endpoint, collectorAccountId, workerApiKey, vrchatUserId, releaseSha, workerId = `collector-${randomUUID()}`, fetcher = fetch }) {
     this.endpoint = endpoint;
     this.collectorAccountId = collectorAccountId;
     this.workerApiKey = workerApiKey;
@@ -142,6 +142,7 @@ export class TelemetryControlClient {
     // rejects the request when it does not match the collector the account id
     // names, so a mismatched secret/collector pairing cannot do work.
     this.vrchatUserId = vrchatUserId;
+    this.releaseSha = releaseSha;
     this.workerId = workerId;
     this.fetcher = fetcher;
   }
@@ -157,6 +158,7 @@ export class TelemetryControlClient {
         operation,
         workerId: this.workerId,
         ...(this.vrchatUserId === undefined ? {} : { vrchatUserId: this.vrchatUserId }),
+        ...(this.releaseSha === undefined ? {} : { releaseSha: this.releaseSha }),
         ...body,
       }),
       signal: AbortSignal.timeout(timeoutMs),

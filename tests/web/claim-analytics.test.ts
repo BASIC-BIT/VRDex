@@ -53,6 +53,7 @@ describe("claim analytics journey correlation", () => {
     assert.match(source, /analyticsJourneyFinishedRef\.current = true/);
     assert.match(source, /analyticsJourneyFinishedRef\.current\s*\) return/);
     assert.match(source, /lastObservedPendingJourneyRef/);
+    assert.match(source, /collectorCompletion === null &&\s*discordVerifyState === null/);
     assert.match(source, /previous === undefined && current === null[\s\S]*staleStoredJourney/);
     assert.match(
       source,

@@ -36,6 +36,7 @@ async function seedCollector(ctx: never, alias: string, now: number) {
     requestsPerMinute: 30,
     secretRef: `secret://${alias}`,
     workerKeyHash: "a".repeat(64),
+    lastWorkerReleaseSha: "a".repeat(40),
     credentialGeneration: 1,
     killSwitchEnabled: false,
     createdAt: now,
@@ -124,6 +125,7 @@ describe("collector proof check queue", () => {
     const claimed = await t.mutation(internal.communityTelemetry.claimPendingProofChecks, {
       collectorAccountId: seeded.collectorAccountId,
       workerId: "worker-lifecycle",
+      releaseSha: "b".repeat(40),
       limit: 1,
       now: now + 1,
     });
@@ -143,6 +145,7 @@ describe("collector proof check queue", () => {
         collectorAccountId: seeded.collectorAccountId,
         attemptId: seeded.attemptId,
         found: false,
+        releaseSha: "b".repeat(40),
         workerKeyHash: "a".repeat(64),
         now: now + 2,
       }),
@@ -159,6 +162,7 @@ describe("collector proof check queue", () => {
         .withIndex("by_attemptId_createdAt", (q) => q.eq("attemptId", seeded.attemptId))
         .collect();
       assert.deepEqual(events.map((event) => event.event), ["proof_dispatched", "provider_checked"]);
+      assert.ok(events.every((event) => event.workerReleaseSha === "b".repeat(40)));
       assert.equal(JSON.stringify(events).includes("target-"), false);
       assert.equal(JSON.stringify(events).includes("VRDEX-"), false);
       const analytics = await ctx.db.query("claimAnalyticsOutbox").collect();

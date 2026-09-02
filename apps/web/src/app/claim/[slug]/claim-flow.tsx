@@ -291,13 +291,15 @@ export function ClaimFlow({
     if (
       ((previous !== undefined && previous !== null) || staleStoredJourney) &&
       current === null &&
-      collectorCompletion === null
+      collectorCompletion === null &&
+      discordVerifyState === null
     ) {
       finishAnalyticsJourney();
     }
   }, [
     collectorCompletion,
     context,
+    discordVerifyState,
     finishAnalyticsJourney,
     pendingAnalyticsJourneyId,
     profile.slug,

@@ -89,6 +89,7 @@ describe("profile claim lifecycle", () => {
       await t.mutation(internal.communityTelemetry.claimPendingProofChecks, {
         collectorAccountId,
         workerId: "worker-readiness",
+        releaseSha: "a".repeat(40),
         now: Date.now(),
       });
       assert.deepEqual(

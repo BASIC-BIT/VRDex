@@ -243,9 +243,10 @@ describe("group telemetry release workflow", () => {
 
   it("keeps automatic writes behind exact-SHA tests, a saved plan allowlist, and post-deploy verification", async () => {
     const source = await readFile(".github/workflows/group-telemetry-release.yml", "utf8");
-    const workflow = parseYaml(source) as { jobs?: Record<string, { permissions?: Record<string, string>; steps?: Array<{ name?: string; run?: string }> }> };
+    const workflow = parseYaml(source) as { jobs?: Record<string, { "timeout-minutes"?: number; permissions?: Record<string, string>; steps?: Array<{ name?: string; run?: string }> }> };
     const release = workflow.jobs?.release;
     assert.ok(release, "release job is missing");
+    assert.ok((release["timeout-minutes"] ?? 0) >= 90, "release job does not reserve rollback time");
     assert.equal(release.permissions?.["id-token"], "write");
     const commands = (release.steps ?? []).map((step) => step.run ?? "").join("\n");
     assert.match(commands, /git rev-parse HEAD/);
