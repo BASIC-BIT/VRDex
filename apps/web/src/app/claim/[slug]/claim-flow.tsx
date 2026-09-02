@@ -157,6 +157,9 @@ export function ClaimFlowContent({
   const adoptPendingProofAnalytics = useMutation(
     api.profileClaims.adoptPendingProofAnalyticsJourney,
   );
+  const adoptPendingClaimRequestAnalytics = useMutation(
+    api.profileClaims.adoptPendingClaimRequestAnalyticsJourney,
+  );
   const cancelPending = useMutation(api.profileClaims.cancelClaimJourneyPending);
   const verifyDiscord = useAction(api.profileClaims.verifyDiscordCommunityAdminClaim);
   const verifyVrchat = useAction(api.profileClaims.verifyVrchatProofViaAdapter);
@@ -768,6 +771,11 @@ export function ClaimFlowContent({
     const journeyId = ensureAnalyticsJourneyId();
     setStatus({ kind: "working", message: "Checking your Discord server permissions…" });
     try {
+      await adoptPendingClaimRequestAnalytics({
+        claimRequestId: requestId,
+        analyticsJourneyId: journeyId,
+        analyticsEntrySource: source,
+      });
       const result = await verifyDiscord({ claimRequestId: requestId });
       if ("claimState" in result) {
         const verified = result.claimState === "claimed_verified";
@@ -820,6 +828,20 @@ export function ClaimFlowContent({
     setCollectorCompletion(null);
     setStatus({ kind: "working", message: "Canceling…" });
     try {
+      const journeyId = ensureAnalyticsJourneyId();
+      if (pendingType === "claim_request" && context?.pendingClaimRequest?.id) {
+        await adoptPendingClaimRequestAnalytics({
+          claimRequestId: context.pendingClaimRequest.id,
+          analyticsJourneyId: journeyId,
+          analyticsEntrySource: source,
+        });
+      } else if (pendingType === "proof" && context?.pendingProof?.id) {
+        await adoptPendingProofAnalytics({
+          attemptId: context.pendingProof.id,
+          analyticsJourneyId: journeyId,
+          analyticsEntrySource: source,
+        });
+      }
       const result = await cancelPending({ profileSlug: profile.slug, pendingType });
 
       // Nothing was cancelled, so the collector resolved the proof between the

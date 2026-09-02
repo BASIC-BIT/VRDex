@@ -246,6 +246,9 @@ export const consumeVerificationState = internalMutation({
         throw new ConvexError({
           ...(error.data as Record<string, unknown>),
           returnTo: row.returnTo,
+          ...(row.analyticsJourneyId === undefined
+            ? {}
+            : { analyticsJourneyId: row.analyticsJourneyId }),
         });
       }
 

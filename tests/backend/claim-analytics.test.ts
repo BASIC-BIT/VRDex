@@ -392,6 +392,7 @@ describe("claim analytics outbox", () => {
         targetExternalId: "usr_01234567-89ab-cdef-0123-456789abcdef",
         proofCode: "VRDEX-LEGACY", state: "pending",
         createdAt: now - 5_000, updatedAt: now - 5_000, expiresAt: now + 60_000,
+        firstCheckAt: now - 2_500,
       });
     });
     const identity = {
@@ -415,9 +416,13 @@ describe("claim analytics outbox", () => {
     await t.run(async (ctx) => {
       assert.equal((await ctx.db.get(attemptId))?.analyticsJourneyId, journeyId);
       const rows = await ctx.db.query("claimAnalyticsOutbox").collect();
-      assert.equal(rows.length, 1);
-      assert.equal(rows[0]?.event, "claim_attempt_created");
-      assert.equal(rows[0]?.occurredAt, now - 5_000);
+      assert.deepEqual(
+        rows.map((row) => [row.event, row.occurredAt]).sort(),
+        [
+          ["claim_attempt_created", now - 5_000],
+          ["claim_verification_started", now - 2_500],
+        ],
+      );
     });
   });
 
@@ -478,15 +483,14 @@ describe("claim analytics outbox", () => {
     };
 
     const result = await t.withIdentity(identity).mutation(
-      api.profileClaims.requestCommunityDiscordAdminClaim,
+      api.profileClaims.adoptPendingClaimRequestAnalyticsJourney,
       {
-        profileSlug: "legacy-discord-analytics",
-        discordGuildId: "123456789012345678",
+        claimRequestId: seeded.claimRequestId,
         analyticsJourneyId: journeyId,
         analyticsEntrySource: "profile",
       },
     );
-    assert.equal(result.claimRequestId, seeded.claimRequestId);
+    assert.deepEqual(result, { analyticsJourneyId: journeyId, adopted: true });
 
     await t.run(async (ctx) => {
       const request = await ctx.db.get(seeded.claimRequestId);

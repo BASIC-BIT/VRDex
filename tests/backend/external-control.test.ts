@@ -998,6 +998,30 @@ describe("Discord verification state backlog", () => {
       },
     );
 
+    const staleSession = await t.withIdentity(identity).mutation(
+      internal.discordVerification.createVerificationState,
+      {
+        returnTo: "/claim/oauth-analytics",
+        analyticsJourneyId: "4d36e96e-34d9-4f7e-9fe1-72a98aa13077",
+        analyticsEntrySource: "search",
+        analyticsProfileType: "community",
+      },
+    );
+    await assert.rejects(
+      t.mutation(internal.discordVerification.consumeVerificationState, {
+        state: staleSession.state,
+      }),
+      (error: unknown) => {
+        const data = (error as { data?: Record<string, unknown> }).data;
+        assert.equal(data?.returnTo, "/claim/oauth-analytics");
+        assert.equal(
+          data?.analyticsJourneyId,
+          "4d36e96e-34d9-4f7e-9fe1-72a98aa13077",
+        );
+        return true;
+      },
+    );
+
     const replacement = await t.withIdentity(identity).mutation(
       internal.discordVerification.createVerificationState,
       {

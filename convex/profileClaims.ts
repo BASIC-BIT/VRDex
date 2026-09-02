@@ -652,6 +652,51 @@ export const adoptPendingProofAnalyticsJourney = mutation({
       method: claimAnalyticsMethodForAttempt(attempt),
       occurredAt: attempt.createdAt,
     });
+    if (attempt.firstCheckAt !== undefined) {
+      await enqueueClaimAnalyticsEvent(ctx, analytics, {
+        event: "claim_verification_started",
+        profileType: profile.profileType,
+        method: claimAnalyticsMethodForAttempt(attempt),
+        timeToFirstCheckBucket: timeToFirstCheckBucket(attempt.firstCheckAt - attempt.createdAt),
+        occurredAt: attempt.firstCheckAt,
+      });
+    }
+    return { analyticsJourneyId: analytics.journeyId, adopted: true };
+  },
+});
+
+/** Attach correlation to a pending Discord request created before claim analytics shipped. */
+export const adoptPendingClaimRequestAnalyticsJourney = mutation({
+  args: {
+    claimRequestId: v.id("profileClaimRequests"),
+    analyticsJourneyId: v.string(),
+    analyticsEntrySource: v.optional(claimAnalyticsEntrySource),
+  },
+  handler: async (ctx, args) => {
+    const { user } = await requireVerifiedActiveBrowserSession(ctx);
+    const request = await ctx.db.get(args.claimRequestId);
+    if (request === null || request.userId !== user._id || request.state !== "pending") {
+      throw claimError("PROOF_NOT_FOUND");
+    }
+    if (request.analyticsJourneyId !== undefined) {
+      return { analyticsJourneyId: request.analyticsJourneyId, adopted: false };
+    }
+
+    const analytics = claimAnalyticsContext(
+      args.analyticsJourneyId,
+      args.analyticsEntrySource,
+    );
+    await ctx.db.patch(request._id, {
+      analyticsJourneyId: analytics.journeyId,
+      analyticsEntrySource: analytics.entrySource,
+      updatedAt: Date.now(),
+    });
+    await enqueueClaimAnalyticsEvent(ctx, analytics, {
+      event: "claim_attempt_created",
+      profileType: request.profileType,
+      method: claimAnalyticsMethodForRequest(request.method),
+      occurredAt: request.createdAt,
+    });
     return { analyticsJourneyId: analytics.journeyId, adopted: true };
   },
 });

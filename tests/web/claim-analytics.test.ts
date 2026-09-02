@@ -94,6 +94,14 @@ describe("claim analytics journey correlation", () => {
     assert.match(source, /await adoptPendingProofAnalytics\(\{[\s\S]*analyticsJourneyId: journeyId/);
     assert.match(
       source,
+      /async function checkDiscord[\s\S]*await adoptPendingClaimRequestAnalytics\(\{[\s\S]*analyticsJourneyId: journeyId[\s\S]*await verifyDiscord/,
+    );
+    assert.match(
+      source,
+      /async function startOver[\s\S]*adoptPendingClaimRequestAnalytics[\s\S]*adoptPendingProofAnalytics[\s\S]*cancelPending/,
+    );
+    assert.match(
+      source,
       /activeCollectorCompletion\.journeyId \?\? ensureAnalyticsJourneyId\(\)/,
     );
     assert.match(source, /if \(isVerifiedViewer\) return;/);
