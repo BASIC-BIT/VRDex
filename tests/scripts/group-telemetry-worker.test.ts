@@ -7,7 +7,7 @@ import {
   redactProviderText,
   retryDelayMs as backendRetryDelay,
 } from "../../convex/_communityTelemetry";
-import { RequestBudget, failureDisposition, randomPollDelayMs } from "../../workers/group-telemetry/runtime.mjs";
+import { MAX_CONSECUTIVE_LOOP_FAILURES, RequestBudget, collectorLoopFailureEvent, collectorRestartEvent, collectorRuntimeMetadata, collectorShouldRestart, failureDisposition, randomPollDelayMs } from "../../workers/group-telemetry/runtime.mjs";
 import { VrchatClient, VrchatProviderError } from "../../workers/group-telemetry/vrchat-client.mjs";
 import { VrchatOperatorLogin, VrchatSessionValidationError } from "../../workers/group-telemetry/vrchat-login.mjs";
 import { VrchatKeychainSessionStore, VrchatSessionStoreError } from "../../workers/group-telemetry/vrchat-session-store.mjs";
@@ -398,6 +398,39 @@ describe("group telemetry provider adapter", () => {
 });
 
 describe("group telemetry metrics and safety helpers", () => {
+  it("reports release metadata and bounded restart diagnostics without exception text", () => {
+    assert.deepEqual(
+      collectorRuntimeMetadata({ VRDEX_GROUP_TELEMETRY_RELEASE_SHA: "A".repeat(40) }),
+      {
+        releaseSha: "a".repeat(40),
+        collectorVersion: "group-telemetry-v1",
+        capabilities: ["telemetry_v1", "vrchat_proof_v1"],
+      },
+    );
+    assert.throws(() => collectorRuntimeMetadata({}), /exact Git SHA/);
+
+    const failure = collectorLoopFailureEvent(
+      new Error("Control plane 503: proof-code-and-token-must-not-escape"),
+      "proof_checks",
+      3,
+    );
+    assert.deepEqual(failure, {
+      event: "collector_control_plane_failure",
+      phase: "proof_checks",
+      attempt: 3,
+      failureClass: "control_plane_http",
+      status: "503",
+    });
+    assert.equal(JSON.stringify(failure).includes("proof-code-and-token-must-not-escape"), false);
+    assert.deepEqual(collectorRestartEvent(MAX_CONSECUTIVE_LOOP_FAILURES), {
+      event: "collector_worker_restart",
+      reason: "consecutive_loop_failures",
+      attempt: 6,
+    });
+    assert.equal(collectorShouldRestart(MAX_CONSECUTIVE_LOOP_FAILURES - 1), false);
+    assert.equal(collectorShouldRestart(MAX_CONSECUTIVE_LOOP_FAILURES), true);
+  });
+
   it("keeps active and quiet cadence jitter within their documented windows", () => {
     assert.equal(randomPollDelayMs(true, () => 0), 60_000);
     assert.equal(backendPollDelay(true, () => 0), 60_000);

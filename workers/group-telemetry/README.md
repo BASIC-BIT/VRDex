@@ -9,8 +9,16 @@ Required environment after the real-provider and explicit provider-approval depl
 - `VRDEX_GROUP_TELEMETRY_ACCOUNT_SECRET_JSON` injected from one Secrets Manager secret with `workerApiKey`, `authCookie`, and optional `twoFactorAuthCookie`
 - `VRDEX_GROUP_TELEMETRY_USER_AGENT`, including application/version/contact
 - `VRDEX_GROUP_TELEMETRY_ENABLED=true`, injected from the account stack's SSM deployment gate
+- `VRDEX_GROUP_TELEMETRY_RELEASE_SHA`, the exact Git SHA used to build the image
 
 Optional `VRDEX_GROUP_TELEMETRY_REQUESTS_PER_MINUTE` defaults to 30. Global, account, and integration kill switches in the control plane stop claims. ECS desired count is the live infrastructure stop; the SSM value prevents a disabled task revision from starting and is re-read when tasks restart.
+
+The worker reports `telemetry_v1` and `vrchat_proof_v1` capabilities with its
+release SHA on startup and a bounded heartbeat. It separately polls the proof
+queue so the control plane can prove that the proof protocol, not merely the
+process, is live. Logs are JSON with fixed event names and bounded fields; they
+never include proof codes, provider target IDs, provider bodies, exception
+messages, session material, or worker credentials.
 
 The worker exits on any authenticated provider 401. The local login bootstrap refreshes the alias-scoped operating-system vault session, and `pnpm ops:vrchat-session:transfer` moves that validated session into the account's AWS Secrets Manager secret without printing it.
 

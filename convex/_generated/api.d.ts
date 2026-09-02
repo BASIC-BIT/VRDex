@@ -18,6 +18,7 @@ import type * as _billing from "../_billing.js";
 import type * as _boundedFetch from "../_boundedFetch.js";
 import type * as _browserSessionAuthority from "../_browserSessionAuthority.js";
 import type * as _claimErrors from "../_claimErrors.js";
+import type * as _claimObservability from "../_claimObservability.js";
 import type * as _claimSession from "../_claimSession.js";
 import type * as _communityAuthority from "../_communityAuthority.js";
 import type * as _communityTelemetry from "../_communityTelemetry.js";
@@ -138,6 +139,7 @@ declare const fullApi: ApiFromModules<{
   _boundedFetch: typeof _boundedFetch;
   _browserSessionAuthority: typeof _browserSessionAuthority;
   _claimErrors: typeof _claimErrors;
+  _claimObservability: typeof _claimObservability;
   _claimSession: typeof _claimSession;
   _communityAuthority: typeof _communityAuthority;
   _communityTelemetry: typeof _communityTelemetry;

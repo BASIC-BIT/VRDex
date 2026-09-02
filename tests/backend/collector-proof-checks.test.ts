@@ -104,6 +104,116 @@ async function webSessionIdentity(ctx: never, userId: string) {
 }
 
 describe("collector proof check queue", () => {
+  it("separates dispatch from a completed provider check and records bounded lifecycle events", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const seeded = await t.run(async (ctx) => ({
+      collectorAccountId: await seedCollector(ctx as never, "lifecycle", now),
+      attemptId: await seedAttempt(ctx as never, { targetType: "vrchat_user", now }),
+    }));
+
+    const claimed = await t.mutation(internal.communityTelemetry.claimPendingProofChecks, {
+      collectorAccountId: seeded.collectorAccountId,
+      workerId: "worker-lifecycle",
+      limit: 1,
+      now: now + 1,
+    });
+    assert.equal(claimed.attempts[0]?.attemptId, seeded.attemptId);
+
+    await t.run(async (ctx) => {
+      const attempt = await ctx.db.get(seeded.attemptId);
+      assert.equal(attempt?.firstDispatchedAt, now + 1);
+      assert.equal(attempt?.dispatchCount, 1);
+      assert.equal(attempt?.firstCheckAt, undefined);
+      assert.equal(attempt?.checkCount, undefined);
+    });
+
+    assert.deepEqual(
+      await t.mutation(internal.communityTelemetry.recordProofCheckResult, {
+        collectorAccountId: seeded.collectorAccountId,
+        attemptId: seeded.attemptId,
+        found: false,
+        workerKeyHash: "a".repeat(64),
+        now: now + 2,
+      }),
+      { state: "pending" },
+    );
+
+    await t.run(async (ctx) => {
+      const attempt = await ctx.db.get(seeded.attemptId);
+      assert.equal(attempt?.firstCheckAt, now + 2);
+      assert.equal(attempt?.lastCheckOutcome, "not_found");
+      assert.equal(attempt?.checkCount, 1);
+      const events = await ctx.db
+        .query("profileClaimLifecycleEvents")
+        .withIndex("by_attemptId_createdAt", (q) => q.eq("attemptId", seeded.attemptId))
+        .collect();
+      assert.deepEqual(events.map((event) => event.event), ["proof_dispatched", "provider_checked"]);
+      assert.equal(JSON.stringify(events).includes("target-"), false);
+      assert.equal(JSON.stringify(events).includes("VRDEX-"), false);
+    });
+  });
+
+  it("reports proof-path readiness and exact release convergence without identifiers", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const releaseSha = "b".repeat(40);
+    const collectorAccountId = await t.run(async (ctx) =>
+      await seedCollector(ctx as never, "readiness", now),
+    );
+
+    assert.equal(
+      await t.query(internal.communityTelemetry.collectorProofAvailable, { now }),
+      false,
+    );
+    await t.mutation(internal.communityTelemetry.claimPendingProofChecks, {
+      collectorAccountId,
+      workerId: "worker-readiness",
+      now,
+    });
+    assert.equal(
+      await t.query(internal.communityTelemetry.collectorProofAvailable, { now }),
+      true,
+    );
+
+    const before = await t.query(internal.communityTelemetry.collectorDeploymentReadiness, {
+      expectedReleaseSha: releaseSha,
+      requiredCapabilities: ["telemetry_v1", "vrchat_proof_v1"],
+      maxHeartbeatAgeMs: 120_000,
+      now,
+    });
+    assert.equal(before.healthy, false);
+    assert.deepEqual(before.issues, ["no_fresh_heartbeats"]);
+
+    assert.deepEqual(
+      await t.mutation(internal.communityTelemetry.recordCollectorHeartbeat, {
+        collectorAccountId,
+        workerId: "worker-readiness",
+        releaseSha,
+        collectorVersion: "group-telemetry-v1",
+        capabilities: ["telemetry_v1", "vrchat_proof_v1"],
+        consecutiveControlFailures: 0,
+        workerKeyHash: "a".repeat(64),
+        now,
+      }),
+      { recorded: true },
+    );
+    const ready = await t.query(internal.communityTelemetry.collectorDeploymentReadiness, {
+      expectedReleaseSha: releaseSha.toUpperCase(),
+      requiredCapabilities: ["telemetry_v1", "vrchat_proof_v1"],
+      maxHeartbeatAgeMs: 120_000,
+      now,
+    });
+    assert.deepEqual(ready, {
+      healthy: true,
+      issues: [],
+      freshCollectorCount: 1,
+      matchingReleaseCount: 1,
+      authRequiredCount: 0,
+    });
+    assert.equal(JSON.stringify(ready).includes("readiness"), false);
+  });
+
   it("does not let never-stamped vrclinking attempts starve the queue", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();

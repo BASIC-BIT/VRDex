@@ -94,6 +94,22 @@ stop proof traffic and clear the saved session.
 `VRCHAT_PROOF_ADAPTER_URL` remains supported as an alternative external adapter
 seam and is no longer required for VRChat proofs to work.
 
+`profileClaims:verifyVrchatProofViaAdapter` returns `queued` only when an
+eligible collector has reached the proof-claim gate within the last two
+minutes. It returns `unavailable` when that proof-path heartbeat is missing or
+stale while preserving the pending attempt for recovery. Generic ECS health or
+a runtime heartbeat does not substitute for this proof-path signal.
+
+For deployment convergence, query
+`communityTelemetry:collectorDeploymentReadiness` with the expected exact Git
+SHA, required capabilities, heartbeat age bound, and current time. The response
+contains counts and bounded issue codes only. It is healthy only when at least
+one eligible fresh collector reports that exact release and every required
+capability. Runtime diagnostics are structured JSON. In particular,
+`collector_auth_required`, `collector_control_plane_failure`, and
+`collector_worker_restart` carry bounded classifications without exception
+messages, proof material, provider payloads, target IDs, or credentials.
+
 ## Path 4: VRC Linking
 
 `VRCLINKING_PROOF_ADAPTER_URL` still points at the generic adapter seam. The

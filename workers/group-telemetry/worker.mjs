@@ -1,7 +1,7 @@
 import { setTimeout as sleep } from "node:timers/promises";
 
 import { VrchatClient } from "./vrchat-client.mjs";
-import { COLLECTOR_VERSION, RequestBudget, TelemetryControlClient, failureDisposition, pollId, randomPollDelayMs, retryDelayMs } from "./runtime.mjs";
+import { COLLECTOR_VERSION, RequestBudget, TelemetryControlClient, boundedProviderCategory, collectorLoopFailureEvent, collectorRestartEvent, collectorRuntimeMetadata, collectorShouldRestart, failureDisposition, pollId, randomPollDelayMs, retryDelayMs } from "./runtime.mjs";
 
 function requiredEnv(name) {
   const value = process.env[name]?.trim();
@@ -30,6 +30,7 @@ if (requiredEnv("VRDEX_GROUP_TELEMETRY_ENABLED") !== "true") {
   throw new Error("Group telemetry collector is disabled by its deployment gate.");
 }
 
+const runtimeMetadata = collectorRuntimeMetadata();
 const secret = loadSecret();
 const control = new TelemetryControlClient({
   endpoint: new URL("/telemetry/worker", requiredEnv("VRDEX_GROUP_TELEMETRY_CONVEX_SITE_URL")).href,
@@ -57,6 +58,28 @@ const integrationBudgets = new Map();
 const attempts = new Map();
 let stopping = false;
 let controlFailures = 0;
+let lastHeartbeatAt = 0;
+
+function logEvent(event) {
+  console.error(JSON.stringify(event));
+}
+
+async function heartbeat() {
+  const now = Date.now();
+  if (lastHeartbeatAt > now - 30_000) return;
+  const result = await control.send("heartbeat", {
+    ...runtimeMetadata,
+    consecutiveControlFailures: controlFailures,
+    now,
+  });
+  if (result?.recorded !== true) throw new Error("Control plane heartbeat was rejected.");
+  lastHeartbeatAt = now;
+  logEvent({
+    event: "collector_heartbeat",
+    releaseSha: runtimeMetadata.releaseSha,
+    capabilities: runtimeMetadata.capabilities,
+  });
+}
 
 // A rate-limit backoff can park the loop for minutes, and ECS SIGKILLs 30s
 // after SIGTERM by default. Without a signal the flag is not read again until
@@ -187,6 +210,7 @@ async function checkProofs() {
     { limit: 5, now: claimNow },
     { requirePayload: true },
   );
+  logEvent({ event: "collector_proof_batch_claimed", count: pending.length });
 
   for (const attempt of pending) {
     if (stopping) {
@@ -268,6 +292,14 @@ async function checkProofs() {
         // would sit out its full claim cooldown even though other accounts are
         // healthy. The current attempt goes back too: a dead session says
         // nothing about it.
+        await control
+          .send("proof_outcome", {
+            attemptId: attempt.attemptId,
+            outcome: "auth_required",
+            now: Date.now(),
+          })
+          .catch(() => undefined);
+        logEvent({ event: "collector_auth_required" });
         await releaseUnread(pending, attempt);
 
         try {
@@ -288,6 +320,18 @@ async function checkProofs() {
       // more requests into a throttle. Stop the batch and honour the delay.
       if (error?.category === "rate_limit") {
         const retryAfterMs = Math.min(Math.max(error.retryAfterMs ?? 60_000, 1_000), 5 * 60_000);
+        await control
+          .send("proof_outcome", {
+            attemptId: attempt.attemptId,
+            outcome: "rate_limited",
+            now: Date.now(),
+          })
+          .catch(() => undefined);
+        logEvent({
+          event: "collector_provider_backoff",
+          category: "rate_limit",
+          retryAfterMs,
+        });
 
         // Publish the backoff account-wide *before* handing anything back. This
         // worker's sleep is process-local, and the supported two-task setup
@@ -316,11 +360,27 @@ async function checkProofs() {
         break;
       }
 
+      await control
+        .send("proof_outcome", {
+          attemptId: attempt.attemptId,
+          outcome: "provider_unavailable",
+          now: Date.now(),
+        })
+        .catch(() => undefined);
+      logEvent({
+        event: "collector_proof_check",
+        outcome: "provider_unavailable",
+        category: boundedProviderCategory(error?.category),
+      });
       continue;
     }
 
     try {
       await control.send("proof_result", { attemptId: attempt.attemptId, found, now: Date.now() });
+      logEvent({
+        event: "collector_proof_check",
+        outcome: found ? "found" : "not_found",
+      });
     } catch (error) {
       // Same reasoning as the budget call: the untouched tail must not sit out
       // a cooldown for a control-plane failure. This attempt keeps its stamp —
@@ -334,8 +394,18 @@ async function checkProofs() {
   return pending.length;
 }
 
+logEvent({
+  event: "collector_started",
+  releaseSha: runtimeMetadata.releaseSha,
+  collectorVersion: runtimeMetadata.collectorVersion,
+  capabilities: runtimeMetadata.capabilities,
+});
+
 while (!stopping) {
+  let loopPhase = "heartbeat";
   try {
+    await heartbeat();
+    loopPhase = "proof_checks";
     // Proofs first, and before the claim rather than merely before `collect()`.
     // Telemetry is continuous and a deferred batch is picked up next window
     // none the worse; a proof attempt expires after 24 hours, so with a low
@@ -347,19 +417,28 @@ while (!stopping) {
     // while the work sits in hand, so repeated proof throttling would leave
     // those integrations unpolled anyway.
     const proofCount = stopping ? 0 : await checkProofs();
+    loopPhase = "assignment_claim";
     const { assignments = [] } = stopping
       ? { assignments: [] }
       : await control.send("claim", { limit: 10, now: Date.now() }, { requirePayload: true });
 
-    controlFailures = 0;
-
     for (const assignment of assignments) {
       if (stopping) break;
+      loopPhase = "telemetry_collection";
       await collect(assignment);
     }
+    controlFailures = 0;
     await pause(assignments.length > 0 || proofCount > 0 ? 1_000 : 10_000);
-  } catch {
+  } catch (error) {
     controlFailures += 1;
+    logEvent(collectorLoopFailureEvent(error, loopPhase, controlFailures));
+    if (collectorShouldRestart(controlFailures)) {
+      logEvent(collectorRestartEvent(controlFailures));
+      process.exitCode = 1;
+      break;
+    }
     await pause(retryDelayMs(controlFailures));
   }
 }
+
+logEvent({ event: "collector_stopped", reason: process.exitCode === 1 ? "restart" : "shutdown" });

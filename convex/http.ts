@@ -78,6 +78,27 @@ const telemetryWorker = httpAction(async (ctx, request) => {
   }
   const now = Date.now();
   try {
+    if (body.operation === "heartbeat") {
+      if (
+        typeof body.releaseSha !== "string" ||
+        typeof body.collectorVersion !== "string" ||
+        !Array.isArray(body.capabilities) ||
+        typeof body.consecutiveControlFailures !== "number"
+      ) {
+        return json({ error: "invalid_request" }, 400);
+      }
+      const result = await ctx.runMutation(functions.recordCollectorHeartbeat, {
+        collectorAccountId,
+        workerId: body.workerId,
+        releaseSha: body.releaseSha,
+        collectorVersion: body.collectorVersion,
+        capabilities: body.capabilities,
+        consecutiveControlFailures: body.consecutiveControlFailures,
+        workerKeyHash: presentedHash,
+        now,
+      } as never);
+      return json(result);
+    }
     if (body.operation === "claim") {
       const assignments = await ctx.runMutation(functions.claimDueAssignments, {
         collectorAccountId: collectorAccountId as never,
@@ -148,6 +169,19 @@ const telemetryWorker = httpAction(async (ctx, request) => {
         now,
       });
 
+      return json(result);
+    }
+    if (body.operation === "proof_outcome") {
+      if (typeof body.attemptId !== "string" || typeof body.outcome !== "string") {
+        return json({ error: "invalid_request" }, 400);
+      }
+      const result = await ctx.runMutation(functions.recordProofCheckOutcome, {
+        collectorAccountId,
+        attemptId: body.attemptId,
+        outcome: body.outcome,
+        workerKeyHash: presentedHash,
+        now,
+      } as never);
       return json(result);
     }
     const common = {

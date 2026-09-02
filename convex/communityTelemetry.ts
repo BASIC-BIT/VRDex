@@ -18,6 +18,12 @@ import {
   vrchatGroupJoinPolicyValidator,
   vrchatGroupVisibilityValidator,
 } from "./_communityTelemetry";
+import {
+  collectorRuntimeCapabilityValidator,
+  recordProfileClaimLifecycleEvent,
+  type CollectorRuntimeCapability,
+  type ProofCheckOutcome,
+} from "./_claimObservability";
 import { subjectHasCommunityCapability, toAuthSubject } from "./_communityAuthority";
 import { requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
 import { getPublicCommunityTelemetry } from "./_communityTelemetryPublic";
@@ -38,6 +44,68 @@ const aggregateInstanceValidator = v.object({
   vrchatWorldId: v.string(),
   population: v.number(),
 });
+
+const WORKER_HEARTBEAT_FRESHNESS_MS = 2 * 60_000;
+const PROOF_POLL_HEARTBEAT_WRITE_MS = 30_000;
+const OPERATIONAL_HEALTH_ATTEMPT_LIMIT = 1_000;
+const COLLECTOR_RELEASE_SHA_PATTERN = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
+
+function boundedWorkerId(value: string) {
+  const workerId = value.trim();
+  if (workerId.length === 0 || workerId.length > 120) {
+    throw new Error("Collector worker id is invalid.");
+  }
+  return workerId;
+}
+
+function normalizedReleaseSha(value: string) {
+  const releaseSha = value.trim().toLowerCase();
+  if (!COLLECTOR_RELEASE_SHA_PATTERN.test(releaseSha)) {
+    throw new Error("Collector release SHA is invalid.");
+  }
+  return releaseSha;
+}
+
+function boundedWorkerVersion(value: string) {
+  const version = value.trim();
+  if (version.length === 0 || version.length > 80) {
+    throw new Error("Collector version is invalid.");
+  }
+  return version;
+}
+
+async function recordProviderCheck(
+  ctx: MutationCtx,
+  input: {
+    attempt: Doc<"profileVerificationAttempts">;
+    accountId: Id<"collectorAccounts">;
+    outcome: ProofCheckOutcome;
+    now: number;
+    workerReleaseSha?: string;
+  },
+) {
+  if (input.attempt.lastCheckedByCollectorAccountId !== input.accountId) return false;
+
+  await ctx.db.patch(input.attempt._id, {
+    firstCheckAt: input.attempt.firstCheckAt ?? input.now,
+    lastCheckAt: input.now,
+    checkCount: (input.attempt.checkCount ?? 0) + 1,
+    lastCheckOutcome: input.outcome,
+    updatedAt: input.now,
+  });
+  await recordProfileClaimLifecycleEvent(ctx, {
+    profileId: input.attempt.profileId,
+    attemptId: input.attempt._id,
+    method: input.attempt.method,
+    targetType: input.attempt.targetType,
+    event: "provider_checked",
+    actorSurface: "collector",
+    outcome: input.outcome,
+    workerReleaseSha: input.workerReleaseSha,
+    createdAt: input.now,
+  });
+  return true;
+}
 
 async function requireSubject(ctx: MutationCtx | QueryCtx) {
   return (await requireActiveBrowserSessionSubject(ctx)).subject;
@@ -1934,6 +2002,193 @@ export const fleetHealth = internalQuery({
   },
 });
 
+/**
+ * Record process liveness and immutable release metadata without weakening the
+ * proof-path readiness signal. `lastProofPollAt` is stamped separately, only
+ * after a worker reaches every fleet/account proof gate.
+ */
+export const recordCollectorHeartbeat = internalMutation({
+  args: {
+    collectorAccountId: v.string(),
+    workerId: v.string(),
+    releaseSha: v.string(),
+    collectorVersion: v.string(),
+    capabilities: v.array(collectorRuntimeCapabilityValidator),
+    consecutiveControlFailures: v.number(),
+    workerKeyHash: v.string(),
+    now: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const now = args.now ?? Date.now();
+    const accountId = ctx.db.normalizeId("collectorAccounts", args.collectorAccountId);
+    if (!accountId) return { recorded: false };
+    const account = await ctx.db.get(accountId);
+    if (!account || account.workerKeyHash !== args.workerKeyHash) {
+      return { recorded: false };
+    }
+
+    const capabilities = [...new Set(args.capabilities)] as CollectorRuntimeCapability[];
+    const failures = Math.floor(args.consecutiveControlFailures);
+    if (!Number.isFinite(args.consecutiveControlFailures) || failures < 0 || failures > 1000) {
+      throw new Error("Collector failure count is invalid.");
+    }
+
+    await ctx.db.patch(accountId, {
+      lastWorkerHeartbeatAt: now,
+      lastWorkerId: boundedWorkerId(args.workerId),
+      lastWorkerReleaseSha: normalizedReleaseSha(args.releaseSha),
+      lastWorkerVersion: boundedWorkerVersion(args.collectorVersion),
+      lastWorkerCapabilities: capabilities,
+      consecutiveControlFailures: failures,
+      updatedAt: now,
+    });
+    return { recorded: true };
+  },
+});
+
+/** Backward-compatible proof availability used by the claimant action. */
+export const collectorProofAvailable = internalQuery({
+  args: { now: v.number() },
+  handler: async (ctx, args) => {
+    const fleet = await ctx.db
+      .query("collectorFleetSettings")
+      .withIndex("by_key", (q) => q.eq("key", "global"))
+      .first();
+    if (fleet?.killSwitchEnabled) return false;
+
+    const accounts = await ctx.db
+      .query("collectorAccounts")
+      .withIndex("by_state_assignedGroupCount", (q) => q.eq("state", "ready"))
+      .collect();
+    return accounts.some(
+      (account) =>
+        !account.killSwitchEnabled &&
+        (account.cooldownUntil ?? 0) <= args.now &&
+        (account.lastProofPollAt ?? 0) >= args.now - WORKER_HEARTBEAT_FRESHNESS_MS,
+    );
+  },
+});
+
+/**
+ * Stable, identifier-free post-deploy gate consumed by the release workflow.
+ */
+export const collectorDeploymentReadiness = internalQuery({
+  args: {
+    expectedReleaseSha: v.string(),
+    requiredCapabilities: v.array(collectorRuntimeCapabilityValidator),
+    maxHeartbeatAgeMs: v.number(),
+    now: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const expectedReleaseSha = normalizedReleaseSha(args.expectedReleaseSha);
+    const maxHeartbeatAgeMs = Math.floor(args.maxHeartbeatAgeMs);
+    if (!Number.isFinite(args.maxHeartbeatAgeMs) || maxHeartbeatAgeMs < 1_000 || maxHeartbeatAgeMs > 60 * 60_000) {
+      throw new Error("Collector heartbeat age is invalid.");
+    }
+    const requiredCapabilities = [...new Set(args.requiredCapabilities)];
+    const [fleet, accounts] = await Promise.all([
+      ctx.db
+        .query("collectorFleetSettings")
+        .withIndex("by_key", (q) => q.eq("key", "global"))
+        .first(),
+      ctx.db.query("collectorAccounts").collect(),
+    ]);
+    const eligible = accounts.filter(
+      (account) =>
+        account.state === "ready" &&
+        !account.killSwitchEnabled &&
+        (account.cooldownUntil ?? 0) <= args.now,
+    );
+    const fresh = eligible.filter(
+      (account) =>
+        (account.lastWorkerHeartbeatAt ?? 0) >= args.now - maxHeartbeatAgeMs,
+    );
+    const matching = fresh.filter(
+      (account) =>
+        account.lastWorkerReleaseSha === expectedReleaseSha &&
+        requiredCapabilities.every((capability) =>
+          account.lastWorkerCapabilities?.includes(capability),
+        ),
+    );
+    const issues: string[] = [];
+    if (fleet?.killSwitchEnabled) issues.push("fleet_kill_switch_enabled");
+    if (eligible.length === 0) issues.push("no_eligible_collectors");
+    if (fresh.length === 0) issues.push("no_fresh_heartbeats");
+    if (fresh.length > 0 && matching.length === 0) issues.push("release_or_capability_mismatch");
+
+    return {
+      healthy: !fleet?.killSwitchEnabled && matching.length > 0,
+      issues,
+      freshCollectorCount: fresh.length,
+      matchingReleaseCount: matching.length,
+      authRequiredCount: accounts.filter((account) => account.state === "auth_required").length,
+    };
+  },
+});
+
+/** Aggregate-only proof backlog and fleet health for operator diagnostics. */
+export const claimVerificationOperationalHealth = internalQuery({
+  args: { now: v.number() },
+  handler: async (ctx, args) => {
+    const [fleet, accounts, userAttempts, groupAttempts] = await Promise.all([
+      ctx.db
+        .query("collectorFleetSettings")
+        .withIndex("by_key", (q) => q.eq("key", "global"))
+        .first(),
+      ctx.db.query("collectorAccounts").collect(),
+      ctx.db
+        .query("profileVerificationAttempts")
+        .withIndex("by_state_targetType_createdAt", (q) =>
+          q.eq("state", "pending").eq("targetType", "vrchat_user"),
+        )
+        .take(OPERATIONAL_HEALTH_ATTEMPT_LIMIT),
+      ctx.db
+        .query("profileVerificationAttempts")
+        .withIndex("by_state_targetType_createdAt", (q) =>
+          q.eq("state", "pending").eq("targetType", "vrchat_group"),
+        )
+        .take(OPERATIONAL_HEALTH_ATTEMPT_LIMIT),
+    ]);
+    const pending = [...userAttempts, ...groupAttempts].filter(
+      (attempt) => attempt.expiresAt > args.now,
+    );
+    const unchecked = pending.filter((attempt) => attempt.firstCheckAt === undefined);
+    const freshCollectors = accounts.filter(
+      (account) =>
+        account.state === "ready" &&
+        !account.killSwitchEnabled &&
+        (account.cooldownUntil ?? 0) <= args.now &&
+        (account.lastWorkerHeartbeatAt ?? 0) >= args.now - WORKER_HEARTBEAT_FRESHNESS_MS,
+    );
+    const releaseCounts = new Map<string, number>();
+    for (const account of freshCollectors) {
+      const key = account.lastWorkerReleaseSha ?? "unknown";
+      releaseCounts.set(key, (releaseCounts.get(key) ?? 0) + 1);
+    }
+    return {
+      fleetKillSwitchEnabled: fleet?.killSwitchEnabled ?? false,
+      pendingEligibleAttemptCount: pending.length,
+      scanLimitReached:
+        userAttempts.length === OPERATIONAL_HEALTH_ATTEMPT_LIMIT ||
+        groupAttempts.length === OPERATIONAL_HEALTH_ATTEMPT_LIMIT,
+      uncheckedAttemptCount: unchecked.length,
+      oldestUncheckedAgeMs:
+        unchecked.length === 0
+          ? null
+          : Math.max(0, args.now - Math.min(...unchecked.map((attempt) => attempt.createdAt))),
+      freshCollectorCount: freshCollectors.length,
+      authRequiredCount: accounts.filter((account) => account.state === "auth_required").length,
+      consecutiveControlFailureCount: accounts.reduce(
+        (sum, account) => sum + (account.consecutiveControlFailures ?? 0),
+        0,
+      ),
+      releases: [...releaseCounts.entries()]
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([releaseSha, collectorCount]) => ({ releaseSha, collectorCount })),
+    };
+  },
+});
+
 export const collectorWorkerAuthorization = internalQuery({
   args: { collectorAccountId: v.string() },
   handler: async (ctx, args) => {
@@ -1995,7 +2250,16 @@ export const claimPendingProofChecks = internalMutation({
       .first();
     if (fleet?.killSwitchEnabled) return { attempts: [] };
 
+    // This is the backward-compatible proof-path heartbeat. It is stamped only
+    // after every account and fleet gate passes, even when the queue is empty.
+    // A generic process heartbeat cannot prove that an obsolete release
+    // reached this protocol.
+    if ((account.lastProofPollAt ?? 0) <= args.now - PROOF_POLL_HEARTBEAT_WRITE_MS) {
+      await ctx.db.patch(accountId, { lastProofPollAt: args.now, updatedAt: args.now });
+    }
+
     const limit = Math.max(1, Math.min(args.limit ?? 5, 25));
+    const workerId = boundedWorkerId(args.workerId);
     // Select collector-eligible target types through the index. Scanning all
     // pending attempts and filtering afterwards let vrclinking rows, which are
     // never stamped, hold the head of the window permanently and starve the
@@ -2018,9 +2282,24 @@ export const claimPendingProofChecks = internalMutation({
     await Promise.all(
       scannedFlat
         .filter((attempt) => attempt.expiresAt <= args.now)
-        .map((attempt) =>
-          ctx.db.patch(attempt._id, { state: "expired", updatedAt: args.now }),
-        ),
+        .map(async (attempt) => {
+          await ctx.db.patch(attempt._id, {
+            state: "expired",
+            resolvedAt: args.now,
+            resolutionReason: "expired",
+            updatedAt: args.now,
+          });
+          await recordProfileClaimLifecycleEvent(ctx, {
+            profileId: attempt.profileId,
+            attemptId: attempt._id,
+            method: attempt.method,
+            targetType: attempt.targetType,
+            event: "attempt_resolved",
+            actorSurface: "collector",
+            outcome: "expired",
+            createdAt: args.now,
+          });
+        }),
     );
 
     const due = scannedFlat
@@ -2043,12 +2322,27 @@ export const claimPendingProofChecks = internalMutation({
       .slice(0, limit);
 
     await Promise.all(
-      due.map((attempt) =>
-        ctx.db.patch(attempt._id, {
+      due.map(async (attempt) => {
+        await ctx.db.patch(attempt._id, {
           lastCheckedAt: args.now,
           lastCheckedByCollectorAccountId: accountId,
-        }),
-      ),
+          firstDispatchedAt: attempt.firstDispatchedAt ?? args.now,
+          lastDispatchedAt: args.now,
+          dispatchCount: (attempt.dispatchCount ?? 0) + 1,
+          lastDispatchedByWorkerId: workerId,
+          updatedAt: args.now,
+        });
+        await recordProfileClaimLifecycleEvent(ctx, {
+          profileId: attempt.profileId,
+          attemptId: attempt._id,
+          method: attempt.method,
+          targetType: attempt.targetType,
+          event: "proof_dispatched",
+          actorSurface: "collector",
+          workerReleaseSha: account.lastWorkerReleaseSha,
+          createdAt: args.now,
+        });
+      }),
     );
 
     return {
@@ -2153,8 +2447,32 @@ export const recordProofCheckResult = internalMutation({
       return { state: "unauthorized" as const };
     }
 
+    await recordProviderCheck(ctx, {
+      attempt,
+      accountId,
+      outcome: args.found ? "found" : "not_found",
+      now: args.now,
+      workerReleaseSha: account.lastWorkerReleaseSha,
+    });
+
     if (attempt.expiresAt <= args.now) {
-      await ctx.db.patch(attempt._id, { state: "expired", updatedAt: args.now });
+      await ctx.db.patch(attempt._id, {
+        state: "expired",
+        resolvedAt: args.now,
+        resolutionReason: "expired",
+        updatedAt: args.now,
+      });
+      await recordProfileClaimLifecycleEvent(ctx, {
+        profileId: attempt.profileId,
+        attemptId: attempt._id,
+        method: attempt.method,
+        targetType: attempt.targetType,
+        event: "attempt_resolved",
+        actorSurface: "collector",
+        outcome: "expired",
+        workerReleaseSha: account.lastWorkerReleaseSha,
+        createdAt: args.now,
+      });
       return { state: "expired" as const };
     }
 
@@ -2172,6 +2490,7 @@ export const recordProofCheckResult = internalMutation({
         attemptId: attempt._id,
         evidenceSource: "vrchat_api",
         evidenceSummary: "Proof code was found on the VRChat target by the collector.",
+        actorSurface: "collector",
       })) as { claimState: string } | { state: string; reason?: string };
     } catch (error) {
       // Only an ownership conflict is terminal. Another claimant won between
@@ -2190,9 +2509,22 @@ export const recordProofCheckResult = internalMutation({
 
       await ctx.db.patch(attempt._id, {
         state: "failed",
+        resolvedAt: args.now,
+        resolutionReason: "already_owned",
         evidenceSource: "vrchat_api",
         evidenceSummary: "This profile was claimed by someone else before the proof was found.",
         updatedAt: args.now,
+      });
+      await recordProfileClaimLifecycleEvent(ctx, {
+        profileId: attempt.profileId,
+        attemptId: attempt._id,
+        method: attempt.method,
+        targetType: attempt.targetType,
+        event: "attempt_resolved",
+        actorSurface: "collector",
+        outcome: "already_owned",
+        workerReleaseSha: account.lastWorkerReleaseSha,
+        createdAt: args.now,
       });
 
       return { state: "already_owned" as const };
@@ -2213,5 +2545,49 @@ export const recordProofCheckResult = internalMutation({
     }
 
     return { state: "verified" as const };
+  },
+});
+
+/**
+ * Record a provider request that returned no proof verdict. These outcomes are
+ * operational only and never settle an attempt or grant ownership.
+ */
+export const recordProofCheckOutcome = internalMutation({
+  args: {
+    collectorAccountId: v.string(),
+    attemptId: v.id("profileVerificationAttempts"),
+    outcome: v.union(
+      v.literal("rate_limited"),
+      v.literal("auth_required"),
+      v.literal("provider_unavailable"),
+      v.literal("control_plane_error"),
+    ),
+    workerKeyHash: v.string(),
+    now: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const accountId = ctx.db.normalizeId("collectorAccounts", args.collectorAccountId);
+    if (!accountId) return { recorded: false };
+    const [account, attempt] = await Promise.all([
+      ctx.db.get(accountId),
+      ctx.db.get(args.attemptId),
+    ]);
+    if (
+      !account ||
+      account.workerKeyHash !== args.workerKeyHash ||
+      !attempt ||
+      attempt.state !== "pending"
+    ) {
+      return { recorded: false };
+    }
+    return {
+      recorded: await recordProviderCheck(ctx, {
+        attempt,
+        accountId,
+        outcome: args.outcome,
+        now: args.now,
+        workerReleaseSha: account.lastWorkerReleaseSha,
+      }),
+    };
   },
 });

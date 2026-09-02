@@ -115,6 +115,13 @@ import {
   vrchatGroupJoinPolicyValidator,
   vrchatGroupVisibilityValidator,
 } from "./_communityTelemetry";
+import {
+  collectorRuntimeCapabilityValidator,
+  profileClaimLifecycleActorValidator,
+  profileClaimLifecycleEventValidator,
+  proofCheckOutcomeValidator,
+  proofResolutionReasonValidator,
+} from "./_claimObservability";
 
 const claimState = v.union(
   v.literal("unclaimed"),
@@ -1431,6 +1438,18 @@ export default defineSchema({
     killSwitchEnabled: v.boolean(),
     lastHealthAt: v.optional(v.number()),
     lastHealthResult: v.optional(v.string()),
+    // Proof-path readiness is intentionally distinct from generic process
+    // liveness: only a worker that reached the proof claim gate may stamp it.
+    lastProofPollAt: v.optional(v.number()),
+    // Provider/account health above is distinct from worker process liveness.
+    // A task can be running an obsolete release while the provider session is
+    // still healthy, so deployment convergence needs an explicit heartbeat.
+    lastWorkerHeartbeatAt: v.optional(v.number()),
+    lastWorkerId: v.optional(v.string()),
+    lastWorkerReleaseSha: v.optional(v.string()),
+    lastWorkerVersion: v.optional(v.string()),
+    lastWorkerCapabilities: v.optional(v.array(collectorRuntimeCapabilityValidator)),
+    consecutiveControlFailures: v.optional(v.number()),
     cooldownUntil: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -2151,6 +2170,19 @@ export default defineSchema({
     // accepts a verdict only from this collector, so one leaked worker key
     // cannot attest arbitrary attempts it was never given.
     lastCheckedByCollectorAccountId: v.optional(v.id("collectorAccounts")),
+    // `lastCheckedAt` is the legacy dispatch/cooldown stamp. These fields keep
+    // dispatch separate from a provider request that actually completed or
+    // failed with a bounded outcome.
+    firstDispatchedAt: v.optional(v.number()),
+    lastDispatchedAt: v.optional(v.number()),
+    dispatchCount: v.optional(v.number()),
+    lastDispatchedByWorkerId: v.optional(v.string()),
+    firstCheckAt: v.optional(v.number()),
+    lastCheckAt: v.optional(v.number()),
+    checkCount: v.optional(v.number()),
+    lastCheckOutcome: v.optional(proofCheckOutcomeValidator),
+    resolvedAt: v.optional(v.number()),
+    resolutionReason: v.optional(proofResolutionReasonValidator),
   })
     .index("by_profileId_state", ["profileId", "state"])
     .index("by_profileId_userId_state_updatedAt", ["profileId", "userId", "state", "updatedAt"])
@@ -2161,12 +2193,27 @@ export default defineSchema({
     // afterwards let never-stamped vrclinking rows hold the head of the scan
     // window forever and starve the queue.
     .index("by_state_targetType_lastCheckedAt", ["state", "targetType", "lastCheckedAt"])
+    .index("by_state_targetType_createdAt", ["state", "targetType", "createdAt"])
+    .index("by_state_targetType_firstCheckAt", ["state", "targetType", "firstCheckAt"])
     // Creation rate per claimant and target, independent of state. The open
     // attempt cap counts only `pending` rows, so cancelling one frees its slot
     // immediately — and because the adapter cooldown lives on the attempt row,
     // a fresh attempt starts with none. Without this index there was no way to
     // see the attempts a claimant had just discarded.
     .index("by_userId_targetType_createdAt", ["userId", "targetType", "createdAt"]),
+  profileClaimLifecycleEvents: defineTable({
+    profileId: v.id("profiles"),
+    attemptId: v.id("profileVerificationAttempts"),
+    method: profileClaimMethod,
+    targetType: profileVerificationTargetType,
+    event: profileClaimLifecycleEventValidator,
+    actorSurface: profileClaimLifecycleActorValidator,
+    outcome: v.optional(v.union(proofCheckOutcomeValidator, proofResolutionReasonValidator)),
+    workerReleaseSha: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_event_createdAt", ["event", "createdAt"])
+    .index("by_attemptId_createdAt", ["attemptId", "createdAt"]),
   // A user proved they control an external asset. This is deliberately not a
   // claim: proving you administer a Discord guild says nothing about which
   // VRDex profile that guild represents. Profile ownership is granted only

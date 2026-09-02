@@ -28,6 +28,7 @@ import { createProfileSearchDocument, upsertSearchDocument } from "./_searchDocu
 import { normalizeVrchatTargetId } from "./_vrchatIdentity";
 import { getPublicProfileMediaKit } from "./_profileAssets";
 import { vrclinkingSecretRefForRow } from "./_vrclinkingSecretRef";
+import { recordProfileClaimLifecycleEvent } from "./_claimObservability";
 
 const DAY_MS = 86_400_000;
 // Minimum gap between adapter-backed checks of one attempt, whatever the
@@ -551,10 +552,23 @@ export const cancelClaimJourneyPending = mutation({
     if (proof === null) {
       return { canceled: false };
     }
+    const resolutionReason = proof.expiresAt <= now ? "expired" : "claimant_canceled";
     await ctx.db.patch(proof._id, {
       state: proof.expiresAt <= now ? "expired" : "failed",
+      resolvedAt: now,
+      resolutionReason,
       evidenceSummary: "Canceled by claimant.",
       updatedAt: now,
+    });
+    await recordProfileClaimLifecycleEvent(ctx, {
+      profileId: proof.profileId,
+      attemptId: proof._id,
+      method: proof.method,
+      targetType: proof.targetType,
+      event: "attempt_resolved",
+      actorSurface: "web",
+      outcome: resolutionReason,
+      createdAt: now,
     });
     return { canceled: true };
   },
@@ -1154,7 +1168,24 @@ export const startVrchatProof = mutation({
     await Promise.all(
       pendingAttempts
         .filter((attempt) => attempt.expiresAt <= now)
-        .map((attempt) => ctx.db.patch(attempt._id, { state: "expired", updatedAt: now })),
+        .map(async (attempt) => {
+          await ctx.db.patch(attempt._id, {
+            state: "expired",
+            resolvedAt: now,
+            resolutionReason: "expired",
+            updatedAt: now,
+          });
+          await recordProfileClaimLifecycleEvent(ctx, {
+            profileId: attempt.profileId,
+            attemptId: attempt._id,
+            method: attempt.method,
+            targetType: attempt.targetType,
+            event: "attempt_resolved",
+            actorSurface: "web",
+            outcome: "expired",
+            createdAt: now,
+          });
+        }),
     );
 
     // A per-attempt cooldown alone is bypassable: unlimited pending attempts,
@@ -1220,6 +1251,15 @@ export const startVrchatProof = mutation({
     if (attempt === null) {
       throw claimError("PROOF_NOT_FOUND");
     }
+    await recordProfileClaimLifecycleEvent(ctx, {
+      profileId: profile._id,
+      attemptId,
+      method: attempt.method,
+      targetType: attempt.targetType,
+      event: "attempt_created",
+      actorSurface: "web",
+      createdAt: now,
+    });
 
     return {
       attemptId,
@@ -1269,6 +1309,7 @@ export const recordVrchatProofVerification = internalMutation({
     attemptId: v.id("profileVerificationAttempts"),
     evidenceSource: v.union(v.literal("vrchat_api"), v.literal("vrclinking"), v.literal("manual")),
     evidenceSummary: v.string(),
+    actorSurface: v.optional(v.union(v.literal("collector"), v.literal("adapter"))),
     // The delegation a VRC Linking attestation came from, re-validated here so
     // the check and the ownership grant are one transaction. Checking it in a
     // separate mutation left a window in which the owner could revoke or
@@ -1343,7 +1384,22 @@ export const recordVrchatProofVerification = internalMutation({
 
     const now = Date.now();
     if (attempt.expiresAt <= now) {
-      await ctx.db.patch(attempt._id, { state: "expired", updatedAt: now });
+      await ctx.db.patch(attempt._id, {
+        state: "expired",
+        resolvedAt: now,
+        resolutionReason: "expired",
+        updatedAt: now,
+      });
+      await recordProfileClaimLifecycleEvent(ctx, {
+        profileId: attempt.profileId,
+        attemptId: attempt._id,
+        method: attempt.method,
+        targetType: attempt.targetType,
+        event: "attempt_resolved",
+        actorSurface: args.actorSurface ?? "adapter",
+        outcome: "expired",
+        createdAt: now,
+      });
       return { state: "expired" as const };
     }
 
@@ -1364,9 +1420,21 @@ export const recordVrchatProofVerification = internalMutation({
     if (existingOwner !== null && !ownedByClaimant) {
       await ctx.db.patch(attempt._id, {
         state: "failed",
+        resolvedAt: now,
+        resolutionReason: "already_owned",
         evidenceSource: args.evidenceSource,
         evidenceSummary: "Another claimant took ownership before this proof resolved.",
         updatedAt: now,
+      });
+      await recordProfileClaimLifecycleEvent(ctx, {
+        profileId: attempt.profileId,
+        attemptId: attempt._id,
+        method: attempt.method,
+        targetType: attempt.targetType,
+        event: "attempt_resolved",
+        actorSurface: args.actorSurface ?? "adapter",
+        outcome: "already_owned",
+        createdAt: now,
       });
 
       // Named, like the Discord claim path. Unnamed, the browser could not tell
@@ -1387,9 +1455,21 @@ export const recordVrchatProofVerification = internalMutation({
     if (!ownedByClaimant && !canReadProfile("public", profile)) {
       await ctx.db.patch(attempt._id, {
         state: "failed",
+        resolvedAt: now,
+        resolutionReason: "not_claimable",
         evidenceSource: args.evidenceSource,
         evidenceSummary: "The listing stopped being claimable before this proof resolved.",
         updatedAt: now,
+      });
+      await recordProfileClaimLifecycleEvent(ctx, {
+        profileId: attempt.profileId,
+        attemptId: attempt._id,
+        method: attempt.method,
+        targetType: attempt.targetType,
+        event: "attempt_resolved",
+        actorSurface: args.actorSurface ?? "adapter",
+        outcome: "not_claimable",
+        createdAt: now,
       });
 
       return { state: "failed" as const, reason: "not_claimable" as const };
@@ -1448,11 +1528,23 @@ export const recordVrchatProofVerification = internalMutation({
 
     await ctx.db.patch(attempt._id, {
       state: "verified",
+      resolvedAt: now,
+      resolutionReason: connectionOnly ? "connection_added" : "verified",
       connectionOnly,
       evidenceSource: args.evidenceSource,
       evidenceSummary: args.evidenceSummary,
       verifiedAt: now,
       updatedAt: now,
+    });
+    await recordProfileClaimLifecycleEvent(ctx, {
+      profileId: attempt.profileId,
+      attemptId: attempt._id,
+      method: attempt.method,
+      targetType: attempt.targetType,
+      event: "attempt_resolved",
+      actorSurface: args.actorSurface ?? "adapter",
+      outcome: connectionOnly ? "connection_added" : "verified",
+      createdAt: now,
     });
     if (!connectionOnly) {
       await approveProfileClaimForUser(ctx.db, {
@@ -1519,6 +1611,7 @@ export const recordVrchatProofFailure = internalMutation({
     attemptId: v.id("profileVerificationAttempts"),
     evidenceSource: v.optional(v.union(v.literal("vrchat_api"), v.literal("vrclinking"), v.literal("manual"))),
     evidenceSummary: v.string(),
+    actorSurface: v.optional(v.union(v.literal("adapter"), v.literal("cron"))),
   },
   handler: async (ctx, args) => {
     const attempt = await ctx.db.get(args.attemptId);
@@ -1532,14 +1625,64 @@ export const recordVrchatProofFailure = internalMutation({
     }
 
     const now = Date.now();
+    const resolutionReason = attempt.expiresAt <= now ? "expired" : "verification_failed";
     await ctx.db.patch(attempt._id, {
       state: attempt.expiresAt <= now ? "expired" : "failed",
+      resolvedAt: now,
+      resolutionReason,
       ...(args.evidenceSource !== undefined ? { evidenceSource: args.evidenceSource } : {}),
       evidenceSummary: args.evidenceSummary,
       updatedAt: now,
     });
+    await recordProfileClaimLifecycleEvent(ctx, {
+      profileId: attempt.profileId,
+      attemptId: attempt._id,
+      method: attempt.method,
+      targetType: attempt.targetType,
+      event: "attempt_resolved",
+      actorSurface: args.actorSurface ?? "adapter",
+      outcome: resolutionReason,
+      createdAt: now,
+    });
 
     return { state: attempt.expiresAt <= now ? "expired" : "failed" };
+  },
+});
+
+export const recordAdapterProofCheckOutcome = internalMutation({
+  args: {
+    attemptId: v.id("profileVerificationAttempts"),
+    outcome: v.union(
+      v.literal("not_found"),
+      v.literal("found"),
+      v.literal("rate_limited"),
+      v.literal("auth_required"),
+      v.literal("provider_unavailable"),
+    ),
+    now: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const attempt = await ctx.db.get(args.attemptId);
+    if (!attempt || attempt.state !== "pending") return { recorded: false };
+    const now = args.now ?? Date.now();
+    await ctx.db.patch(attempt._id, {
+      firstCheckAt: attempt.firstCheckAt ?? now,
+      lastCheckAt: now,
+      checkCount: (attempt.checkCount ?? 0) + 1,
+      lastCheckOutcome: args.outcome,
+      updatedAt: now,
+    });
+    await recordProfileClaimLifecycleEvent(ctx, {
+      profileId: attempt.profileId,
+      attemptId: attempt._id,
+      method: attempt.method,
+      targetType: attempt.targetType,
+      event: "provider_checked",
+      actorSurface: "adapter",
+      outcome: args.outcome,
+      createdAt: now,
+    });
+    return { recorded: true };
   },
 });
 
@@ -1577,10 +1720,15 @@ export const verifyVrchatProofViaAdapter = action({
     const adapterUrl = proofAdapterUrl(attemptContext.attempt.targetType);
 
     // No adapter for a VRChat target means the collector fleet reads it on its
-    // own schedule. The attempt stays pending and the collector resolves it, so
-    // report that rather than failing the user's manual check.
+    // own schedule. Report queued only after a worker has reached the proof
+    // gate recently; a generic ECS/process heartbeat cannot prove the deployed
+    // release implements this protocol. The attempt stays pending for recovery.
     if (adapterUrl === null) {
-      return { state: "queued" as const };
+      const collectorAvailable = await ctx.runQuery(
+        internal.communityTelemetry.collectorProofAvailable,
+        { now: Date.now() },
+      );
+      return { state: collectorAvailable ? "queued" as const : "unavailable" as const };
     }
 
     // Every adapter-backed check spends somebody's provider quota, and a
@@ -1713,8 +1861,27 @@ export const verifyVrchatProofViaAdapter = action({
     try {
       response = await boundedFetch(adapterUrl, adapterRequest);
     } catch {
+      await ctx.runMutation(internal.profileClaims.recordAdapterProofCheckOutcome, {
+        attemptId: args.attemptId,
+        outcome: "provider_unavailable",
+      });
       return await settledOr("unavailable" as const);
     }
+
+    const result = (response.body ?? {}) as ProofAdapterResponse;
+    await ctx.runMutation(internal.profileClaims.recordAdapterProofCheckOutcome, {
+      attemptId: args.attemptId,
+      outcome:
+        response.ok && typeof result.verified === "boolean"
+          ? result.verified
+            ? "found"
+            : "not_found"
+          : response.status === 429
+            ? "rate_limited"
+            : response.status === 401
+              ? "auth_required"
+              : "provider_unavailable",
+    });
 
     if (attemptContext.attempt.expiresAt <= Date.now()) {
       // `recordVrchatProofFailure` reports the state it found rather than
@@ -1730,8 +1897,6 @@ export const verifyVrchatProofViaAdapter = action({
 
       return { state: failure.state };
     }
-
-    const result = (response.body ?? {}) as ProofAdapterResponse;
 
     // A 200 with an empty, truncated, or non-JSON body is not a verdict.
     // Reading the missing field as a negative told the claimant the code was
@@ -1881,9 +2046,24 @@ export const expireStaleVerificationAttempts = internalMutation({
       .take(500);
 
     await Promise.all(
-      attempts.map((attempt) =>
-        ctx.db.patch(attempt._id, { state: "expired", updatedAt: now }),
-      ),
+      attempts.map(async (attempt) => {
+        await ctx.db.patch(attempt._id, {
+          state: "expired",
+          resolvedAt: now,
+          resolutionReason: "expired",
+          updatedAt: now,
+        });
+        await recordProfileClaimLifecycleEvent(ctx, {
+          profileId: attempt.profileId,
+          attemptId: attempt._id,
+          method: attempt.method,
+          targetType: attempt.targetType,
+          event: "attempt_resolved",
+          actorSurface: "cron",
+          outcome: "expired",
+          createdAt: now,
+        });
+      }),
     );
 
     return { expired: attempts.length };
