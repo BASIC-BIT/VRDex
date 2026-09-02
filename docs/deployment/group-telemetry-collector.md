@@ -150,6 +150,6 @@ For account loss, quarantine the account before assigning groups elsewhere. Capa
 
 ## Cost and self-hosting
 
-The default task is 256 CPU/512 MiB, desired count is capped at two, logs retain 30 days, and ECR retains ten images. The optional AWS Budget defaults to USD 30/month with 80% forecast and 100% actual alerts after the `Component` cost-allocation tag is activated.
+The default task is 256 CPU/512 MiB, desired count is capped at two, and logs retain 30 days. ECR removes untagged images after seven days, while immutable `git-*` release tags remain available for rollback until an operator deliberately removes old tagged releases. The optional AWS Budget defaults to USD 30/month with 80% forecast and 100% actual alerts after the `Component` cost-allocation tag is activated.
 
 A self-hosted deployment may run the same container outside ECS. It must provide an equivalent per-account external secret, startup gate, HTTPS-only egress, restart policy, logs without payloads, and the five required runtime variables documented in `workers/group-telemetry/README.md`. The Convex control plane remains authoritative for assignments, leases, budgets, and public settings.

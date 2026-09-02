@@ -9,6 +9,8 @@ const MAX_DELIVERY_ATTEMPTS = 5;
 const RETRY_DELAYS_MS = [5_000, 30_000, 120_000, 600_000] as const;
 const HEALTH_SCAN_LIMIT = 1_000;
 const FAILED_RECOVERY_BATCH = 100;
+const DELIVERED_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
+const DELIVERED_CLEANUP_BATCH = 200;
 
 type DeliveryClaim = { row: Doc<"claimAnalyticsOutbox"> | null };
 
@@ -130,6 +132,26 @@ export const recoverUndeliveredDeliveries = internalMutation({
       await ctx.scheduler.runAfter(0, internal.claimAnalyticsDelivery.deliverPending, {});
     }
     return { recoveredCount: stalled.length };
+  },
+});
+
+/** Retain deduplication history briefly, then remove delivered transport rows. */
+export const sweepDeliveredEvents = internalMutation({
+  args: { now: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const cutoff = (args.now ?? Date.now()) - DELIVERED_RETENTION_MS;
+    const delivered = await ctx.db
+      .query("claimAnalyticsOutbox")
+      .withIndex("by_state_deliveredAt", (query) =>
+        query.eq("state", "delivered").lt("deliveredAt", cutoff),
+      )
+      .take(DELIVERED_CLEANUP_BATCH);
+
+    await Promise.all(delivered.map(async (row) => await ctx.db.delete(row._id)));
+    if (delivered.length === DELIVERED_CLEANUP_BATCH) {
+      await ctx.scheduler.runAfter(0, internal.claimAnalytics.sweepDeliveredEvents, {});
+    }
+    return { deletedCount: delivered.length };
   },
 });
 

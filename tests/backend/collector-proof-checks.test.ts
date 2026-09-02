@@ -289,7 +289,7 @@ describe("collector proof check queue", () => {
       capabilities: ["telemetry_v1", "vrchat_proof_v1"],
       consecutiveControlFailures: 0,
     };
-    const request = async (authorization: string, requestBody = body) =>
+    const request = async (authorization: string, requestBody: unknown = body) =>
       await t.fetch("/telemetry/worker", {
         method: "POST",
         headers: {
@@ -310,6 +310,26 @@ describe("collector proof check queue", () => {
       assert.equal(account?.lastWorkerId, "worker-http");
       assert.equal(account?.lastWorkerReleaseSha, "c".repeat(40));
     });
+
+    const legacyAttemptId = await t.run(async (ctx) =>
+      await seedAttempt(ctx as never, { targetType: "vrchat_user", now }),
+    );
+    const legacyProofClaim = await request(workerKey, {
+      operation: "proof_claim",
+      workerId: "worker-from-rollback-image",
+      vrchatUserId: "usr_http-heartbeat",
+      limit: 1,
+    });
+    assert.equal(legacyProofClaim.status, 200);
+    assert.equal((await legacyProofClaim.json()).attempts[0]?.attemptId, legacyAttemptId);
+    const legacyProofResult = await request(workerKey, {
+      operation: "proof_result",
+      workerId: "worker-from-rollback-image",
+      vrchatUserId: "usr_http-heartbeat",
+      attemptId: legacyAttemptId,
+      found: false,
+    });
+    assert.equal(legacyProofResult.status, 200);
   });
 
   it("reports the maximum consecutive failure streak rather than a fleet sum", async () => {
@@ -324,6 +344,28 @@ describe("collector proof check queue", () => {
 
     const health = await t.query(internal.communityTelemetry.claimVerificationOperationalHealth, { now });
     assert.equal(health.maxConsecutiveControlFailures, 2);
+  });
+
+  it("does not report an exact operational health scan as truncated", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      for (let index = 0; index < 1_000; index += 1) {
+        await seedAttempt(ctx as never, { targetType: "vrchat_user", now });
+      }
+    });
+
+    assert.equal((await t.query(
+      internal.communityTelemetry.claimVerificationOperationalHealth,
+      { now },
+    )).scanLimitReached, false);
+    await t.run(async (ctx) => {
+      await seedAttempt(ctx as never, { targetType: "vrchat_user", now });
+    });
+    assert.equal((await t.query(
+      internal.communityTelemetry.claimVerificationOperationalHealth,
+      { now },
+    )).scanLimitReached, true);
   });
 
   it("requires a fresh positive-budget proof poll for operational health", async () => {

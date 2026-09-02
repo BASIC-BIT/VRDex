@@ -158,6 +158,50 @@ describe("claim analytics outbox", () => {
     });
   });
 
+  it("deletes only delivered analytics rows past the retention window", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const oldDeliveredId = await t.run(async (ctx) => {
+      const base = {
+        journeyId,
+        event: "claim_attempt_created" as const,
+        profileType: "person" as const,
+        method: "vrchat" as const,
+        entrySource: "profile" as const,
+        occurredAt: now - 40 * 24 * 60 * 60 * 1_000,
+        attemptCount: 1,
+        nextAttemptAt: now,
+      };
+      const id = await ctx.db.insert("claimAnalyticsOutbox", {
+        ...base,
+        eventKey: "old-delivered",
+        state: "delivered",
+        deliveredAt: now - 31 * 24 * 60 * 60 * 1_000,
+      });
+      await ctx.db.insert("claimAnalyticsOutbox", {
+        ...base,
+        eventKey: "recent-delivered",
+        state: "delivered",
+        deliveredAt: now - 29 * 24 * 60 * 60 * 1_000,
+      });
+      await ctx.db.insert("claimAnalyticsOutbox", {
+        ...base,
+        eventKey: "old-failed",
+        state: "failed",
+      });
+      return id;
+    });
+
+    assert.deepEqual(
+      await t.mutation(internal.claimAnalytics.sweepDeliveredEvents, { now }),
+      { deletedCount: 1 },
+    );
+    await t.run(async (ctx) => {
+      assert.equal(await ctx.db.get(oldDeliveredId), null);
+      assert.equal((await ctx.db.query("claimAnalyticsOutbox").collect()).length, 2);
+    });
+  });
+
   it("aligns browser correlation with created, first-check, and terminal server milestones", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();

@@ -2162,15 +2162,20 @@ export const claimVerificationOperationalHealth = internalQuery({
         .withIndex("by_state_targetType_createdAt", (q) =>
           q.eq("state", "pending").eq("targetType", "vrchat_user"),
         )
-        .take(OPERATIONAL_HEALTH_ATTEMPT_LIMIT),
+        .take(OPERATIONAL_HEALTH_ATTEMPT_LIMIT + 1),
       ctx.db
         .query("profileVerificationAttempts")
         .withIndex("by_state_targetType_createdAt", (q) =>
           q.eq("state", "pending").eq("targetType", "vrchat_group"),
         )
-        .take(OPERATIONAL_HEALTH_ATTEMPT_LIMIT),
+        .take(OPERATIONAL_HEALTH_ATTEMPT_LIMIT + 1),
     ]);
-    const pending = [...userAttempts, ...groupAttempts].filter(
+    const userScanLimitReached = userAttempts.length > OPERATIONAL_HEALTH_ATTEMPT_LIMIT;
+    const groupScanLimitReached = groupAttempts.length > OPERATIONAL_HEALTH_ATTEMPT_LIMIT;
+    const pending = [
+      ...userAttempts.slice(0, OPERATIONAL_HEALTH_ATTEMPT_LIMIT),
+      ...groupAttempts.slice(0, OPERATIONAL_HEALTH_ATTEMPT_LIMIT),
+    ].filter(
       (attempt) => attempt.expiresAt > args.now,
     );
     const unchecked = pending.filter((attempt) => attempt.firstCheckAt === undefined);
@@ -2194,9 +2199,7 @@ export const claimVerificationOperationalHealth = internalQuery({
     return {
       fleetKillSwitchEnabled: fleet?.killSwitchEnabled ?? false,
       pendingEligibleAttemptCount: pending.length,
-      scanLimitReached:
-        userAttempts.length === OPERATIONAL_HEALTH_ATTEMPT_LIMIT ||
-        groupAttempts.length === OPERATIONAL_HEALTH_ATTEMPT_LIMIT,
+      scanLimitReached: userScanLimitReached || groupScanLimitReached,
       uncheckedAttemptCount: unchecked.length,
       oldestUncheckedAgeMs:
         unchecked.length === 0

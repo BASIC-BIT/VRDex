@@ -112,13 +112,10 @@ const telemetryWorker = httpAction(async (ctx, request) => {
     // rather than a community integration, so they are handled before the
     // lease validation below.
     if (body.operation === "proof_claim") {
-      if (typeof body.releaseSha !== "string") {
-        return json({ error: "invalid_request" }, 400);
-      }
       const result = await ctx.runMutation(functions.claimPendingProofChecks, {
         collectorAccountId,
         workerId: body.workerId,
-        releaseSha: body.releaseSha,
+        releaseSha: typeof body.releaseSha === "string" ? body.releaseSha : undefined,
         limit: typeof body.limit === "number" ? body.limit : undefined,
         now,
       });
@@ -162,8 +159,7 @@ const telemetryWorker = httpAction(async (ctx, request) => {
     if (body.operation === "proof_result") {
       if (
         typeof body.attemptId !== "string" ||
-        typeof body.found !== "boolean" ||
-        typeof body.releaseSha !== "string"
+        typeof body.found !== "boolean"
       ) {
         return json({ error: "invalid_request" }, 400);
       }
@@ -171,7 +167,7 @@ const telemetryWorker = httpAction(async (ctx, request) => {
         collectorAccountId,
         attemptId: body.attemptId as never,
         found: body.found,
-        releaseSha: body.releaseSha,
+        releaseSha: typeof body.releaseSha === "string" ? body.releaseSha : undefined,
         // Checked again inside the mutation: this was authenticated before the
         // body was read, and a rotation in that window must not still grant.
         workerKeyHash: presentedHash,
@@ -183,8 +179,7 @@ const telemetryWorker = httpAction(async (ctx, request) => {
     if (body.operation === "proof_outcome") {
       if (
         typeof body.attemptId !== "string" ||
-        typeof body.outcome !== "string" ||
-        typeof body.releaseSha !== "string"
+        typeof body.outcome !== "string"
       ) {
         return json({ error: "invalid_request" }, 400);
       }
@@ -192,7 +187,7 @@ const telemetryWorker = httpAction(async (ctx, request) => {
         collectorAccountId,
         attemptId: body.attemptId,
         outcome: body.outcome,
-        releaseSha: body.releaseSha,
+        releaseSha: typeof body.releaseSha === "string" ? body.releaseSha : undefined,
         workerKeyHash: presentedHash,
         now,
       } as never);

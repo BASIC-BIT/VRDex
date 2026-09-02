@@ -31,6 +31,13 @@ crons.hourly(
 );
 
 crons.daily(
+  "delete delivered claim analytics transport rows",
+  { hourUTC: 4, minuteUTC: 5 },
+  internal.claimAnalytics.sweepDeliveredEvents,
+  {},
+);
+
+crons.daily(
   "community telemetry raw compaction",
   { hourUTC: 4, minuteUTC: 20 },
   internal.communityTelemetry.scheduleTelemetryCompaction,
