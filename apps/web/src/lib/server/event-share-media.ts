@@ -6,12 +6,17 @@ import { fetchProfileAssetSourceUrl } from "./profile-asset-source-import";
 import { validateAndNormalizeProfileAsset } from "./profile-asset-validation";
 
 const fixtureAssetPath = /^\/api\/e2e\/fixture-assets\/[^/]+$/;
+const eventShareImagePath = /^\/[^/]+\/events\/[^/]+\/opengraph-image\/?$/;
 const artworkBounds = { height: 574, width: 414 } as const;
 
 export type EventShareArtworkSource = {
   kind: "fixture" | "remote";
   url: URL;
 };
+
+export function isEventShareImageUrl(url: URL, siteUrl: URL): boolean {
+  return url.origin === siteUrl.origin && eventShareImagePath.test(url.pathname);
+}
 
 export function eventShareArtworkSource(
   imageUrl: string,
@@ -21,6 +26,10 @@ export function eventShareArtworkSource(
     const url = new URL(imageUrl, siteUrl);
 
     if (url.username !== "" || url.password !== "") {
+      return null;
+    }
+
+    if (isEventShareImageUrl(url, siteUrl)) {
       return null;
     }
 
@@ -68,12 +77,19 @@ export async function inlineEventShareArtwork(
 ): Promise<string | undefined> {
   if (!imageUrl) return undefined;
 
-  const source = eventShareArtworkSource(imageUrl, publicSiteUrl());
+  const siteUrl = publicSiteUrl();
+  const source = eventShareArtworkSource(imageUrl, siteUrl);
   if (!source) return undefined;
 
   const upload = source.kind === "fixture"
     ? await fetchFixtureArtwork(source.url)
-    : await fetchProfileAssetSourceUrl(source.url.href);
+    : await fetchProfileAssetSourceUrl(source.url.href, {
+        assertSourceUrl: (url) => {
+          if (isEventShareImageUrl(url, siteUrl)) {
+            throw new Error("Event share artwork must not reference a generated event preview.");
+          }
+        },
+      });
   const normalized = await validateAndNormalizeProfileAsset(upload.body, upload.mimeType);
   const png = await sharp(normalized.body, {
     animated: false,

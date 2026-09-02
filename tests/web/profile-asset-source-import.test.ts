@@ -76,6 +76,30 @@ describe("profile asset source imports", () => {
     assert.equal(requestCount, 1);
   });
 
+  it("reapplies caller URL policy after every redirect", async () => {
+    let requestCount = 0;
+
+    await assert.rejects(
+      fetchProfileAssetSourceUrl("https://media.example.test/photo.webp", {
+        assertSourceUrl: (url) => {
+          if (url.hostname === "blocked.example.test") {
+            throw new Error("blocked redirect target");
+          }
+        },
+        resolveHostname: async () => [{ address: "93.184.216.34" }],
+        requestPinnedSource: async () => {
+          requestCount += 1;
+          return sourceResponse({
+            statusCode: 302,
+            headers: { location: "https://blocked.example.test/preview.png" },
+          });
+        },
+      }),
+      /blocked redirect target/,
+    );
+    assert.equal(requestCount, 1);
+  });
+
   it("enforces MIME and byte limits before accepting the response body", async () => {
     const dependencies = {
       resolveHostname: async () => [{ address: "93.184.216.34" }],
