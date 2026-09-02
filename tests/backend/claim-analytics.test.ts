@@ -78,7 +78,7 @@ describe("claim analytics outbox", () => {
     assert.equal(JSON.stringify(payload).includes("target"), false);
   });
 
-  it("leases one event, retries with a bound, and fails permanently at the cap", async () => {
+  it("leases one event, dead-letters at the fast retry cap, and recovers it", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();
     const outboxId = await t.run(async (ctx) => await ctx.db.insert("claimAnalyticsOutbox", {
@@ -117,6 +117,17 @@ describe("claim analytics outbox", () => {
       const row = await ctx.db.get(outboxId);
       assert.equal(row?.state, "failed");
       assert.equal(row?.attemptCount, 5);
+    });
+
+    assert.deepEqual(
+      await t.mutation(internal.claimAnalytics.recoverFailedDeliveries, {}),
+      { recoveredCount: 1 },
+    );
+    await t.run(async (ctx) => {
+      const row = await ctx.db.get(outboxId);
+      assert.equal(row?.state, "pending");
+      assert.equal(row?.attemptCount, 0);
+      assert.ok((row?.nextAttemptAt ?? 0) >= now);
     });
   });
 

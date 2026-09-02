@@ -322,6 +322,37 @@ describe("collector proof check queue", () => {
     assert.equal(health.maxConsecutiveControlFailures, 2);
   });
 
+  it("requires a fresh positive-budget proof poll for operational health", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const collectorAccountId = await t.run(async (ctx) => {
+      const id = await seedCollector(ctx as never, "proof-health", now);
+      await ctx.db.patch(id as never, {
+        lastWorkerHeartbeatAt: now,
+        lastProofPollAt: now,
+      });
+      await seedAttempt(ctx as never, {
+        targetType: "vrchat_user",
+        now: now - 60_000,
+        lastCheckedAt: now - 30_000,
+      });
+      return id;
+    });
+
+    assert.equal((await t.query(
+      internal.communityTelemetry.claimVerificationOperationalHealth,
+      { now },
+    )).freshCollectorCount, 1);
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(collectorAccountId as never, { requestsPerMinute: 2 });
+    });
+    assert.equal((await t.query(
+      internal.communityTelemetry.claimVerificationOperationalHealth,
+      { now },
+    )).freshCollectorCount, 0);
+  });
+
   it("does not let never-stamped vrclinking attempts starve the queue", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();

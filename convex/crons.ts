@@ -20,6 +20,16 @@ crons.interval(
   {},
 );
 
+// Fast retries dead-letter after five attempts so one bad destination cannot
+// monopolize delivery. This bounded hourly sweep makes temporary provider
+// outages recover automatically without turning claim writes into a dependency.
+crons.hourly(
+  "recover failed claim analytics deliveries",
+  { minuteUTC: 5 },
+  internal.claimAnalytics.recoverFailedDeliveries,
+  {},
+);
+
 crons.daily(
   "community telemetry raw compaction",
   { hourUTC: 4, minuteUTC: 20 },

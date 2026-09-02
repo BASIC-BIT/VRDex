@@ -52,6 +52,12 @@ describe("claim analytics journey correlation", () => {
     );
     assert.match(source, /analyticsJourneyFinishedRef\.current = true/);
     assert.match(source, /analyticsJourneyFinishedRef\.current\s*\) return/);
+    assert.match(source, /lastObservedPendingJourneyRef/);
+    assert.match(source, /previous === undefined && current === null[\s\S]*staleStoredJourney/);
+    assert.match(
+      source,
+      /previous !== null[\s\S]*staleStoredJourney[\s\S]*current === null[\s\S]*collectorCompletion === null[\s\S]*finishAnalyticsJourney\(\)/,
+    );
     assert.match(source, /!result\.canceled[\s\S]*finishAnalyticsJourney\(\)/);
     assert.match(
       source,

@@ -141,6 +141,7 @@ export function ClaimFlow({
   const analyticsJourneyIdRef = useRef<string | null>(null);
   const viewedJourneyRef = useRef<string | null>(null);
   const analyticsJourneyFinishedRef = useRef(false);
+  const lastObservedPendingJourneyRef = useRef<string | null | undefined>(undefined);
   const [selectedMethod, setMethod] = useState<ClaimMethod | null>(
     previewContext
       ? profile.profileType === "community"
@@ -265,6 +266,42 @@ export function ClaimFlow({
     analyticsJourneyFinishedRef.current = false;
     return ensureAnalyticsJourneyId();
   }, [ensureAnalyticsJourneyId]);
+
+  useEffect(() => {
+    if (context === undefined) return;
+
+    const current = pendingAnalyticsJourneyId ?? null;
+    const previous = lastObservedPendingJourneyRef.current;
+    lastObservedPendingJourneyRef.current = current;
+    let staleStoredJourney = false;
+    if (previous === undefined && current === null) {
+      try {
+        staleStoredJourney = window.sessionStorage.getItem(
+          claimJourneyStorageKey(profile.slug),
+        ) !== null;
+      } catch {
+        // Storage availability must not affect the claim flow.
+      }
+    }
+
+    // A collector or expiry cron can settle an attempt without running a
+    // browser handler. Successful collector completion has its own event path;
+    // every other pending-to-absent transition must still close the browser
+    // journey so a later retry receives a new UUID and new backend dedupe keys.
+    if (
+      ((previous !== undefined && previous !== null) || staleStoredJourney) &&
+      current === null &&
+      collectorCompletion === null
+    ) {
+      finishAnalyticsJourney();
+    }
+  }, [
+    collectorCompletion,
+    context,
+    finishAnalyticsJourney,
+    pendingAnalyticsJourneyId,
+    profile.slug,
+  ]);
 
   const captureJourneyView = useCallback(
     (journeyId: string) => {

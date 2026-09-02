@@ -8,6 +8,7 @@ const DELIVERY_LEASE_MS = 60_000;
 const MAX_DELIVERY_ATTEMPTS = 5;
 const RETRY_DELAYS_MS = [5_000, 30_000, 120_000, 600_000] as const;
 const HEALTH_SCAN_LIMIT = 1_000;
+const FAILED_RECOVERY_BATCH = 100;
 
 type DeliveryClaim = { row: Doc<"claimAnalyticsOutbox"> | null };
 
@@ -97,6 +98,31 @@ export const recordDeliveryFailure = internalMutation({
     });
     await ctx.scheduler.runAfter(0, internal.claimAnalyticsDelivery.deliverPending, {});
     await ctx.scheduler.runAfter(delay, internal.claimAnalyticsDelivery.deliverPending, {});
+  },
+});
+
+/** Requeue a bounded dead-letter batch so a temporary PostHog outage is recoverable. */
+export const recoverFailedDeliveries = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const failed = await ctx.db
+      .query("claimAnalyticsOutbox")
+      .withIndex("by_state_occurredAt", (query) => query.eq("state", "failed"))
+      .take(FAILED_RECOVERY_BATCH);
+
+    for (const row of failed) {
+      await ctx.db.patch(row._id, {
+        state: "pending",
+        attemptCount: 0,
+        nextAttemptAt: now,
+        leaseUntil: undefined,
+      });
+    }
+    if (failed.length > 0) {
+      await ctx.scheduler.runAfter(0, internal.claimAnalyticsDelivery.deliverPending, {});
+    }
+    return { recoveredCount: failed.length };
   },
 });
 

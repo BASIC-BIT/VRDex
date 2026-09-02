@@ -2174,12 +2174,17 @@ export const claimVerificationOperationalHealth = internalQuery({
       (attempt) => attempt.expiresAt > args.now,
     );
     const unchecked = pending.filter((attempt) => attempt.firstCheckAt === undefined);
+    const fleetProofPathEnabled =
+      !fleet?.killSwitchEnabled &&
+      proofShareOf(fleet?.globalRequestsPerMinute ?? 30) > 0;
     const freshCollectors = accounts.filter(
       (account) =>
+        fleetProofPathEnabled &&
         account.state === "ready" &&
         !account.killSwitchEnabled &&
+        proofShareOf(account.requestsPerMinute) > 0 &&
         (account.cooldownUntil ?? 0) <= args.now &&
-        (account.lastWorkerHeartbeatAt ?? 0) >= args.now - WORKER_HEARTBEAT_FRESHNESS_MS,
+        (account.lastProofPollAt ?? 0) >= args.now - WORKER_HEARTBEAT_FRESHNESS_MS,
     );
     const releaseCounts = new Map<string, number>();
     for (const account of freshCollectors) {
