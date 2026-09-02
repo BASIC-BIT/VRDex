@@ -140,6 +140,7 @@ export function ClaimFlow({
   const posthog = usePostHog();
   const analyticsJourneyIdRef = useRef<string | null>(null);
   const viewedJourneyRef = useRef<string | null>(null);
+  const analyticsJourneyFinishedRef = useRef(false);
   const [selectedMethod, setMethod] = useState<ClaimMethod | null>(
     previewContext
       ? profile.profileType === "community"
@@ -162,7 +163,12 @@ export function ClaimFlow({
     undefined,
   );
   const [collectorCompletion, setCollectorCompletion] = useState<
-    { verified: boolean; connectionOnly: boolean; method: ClaimAnalyticsMethod } | null
+    {
+      verified: boolean;
+      connectionOnly: boolean;
+      method: ClaimAnalyticsMethod;
+      journeyId?: string;
+    } | null
   >(null);
   // Only the person quick-claim needs Discord as a linked sign-in provider.
   // The community path claims against a control proof recorded by the
@@ -224,32 +230,65 @@ export function ClaimFlow({
     }
 
     const storageKey = claimJourneyStorageKey(profile.slug);
+    let storedJourneyId: string | null = null;
+    try {
+      storedJourneyId = window.sessionStorage.getItem(storageKey);
+    } catch {
+      // Analytics correlation is optional and must never block a claim when
+      // browser storage is disabled or unavailable.
+    }
     const journeyId = resolveClaimJourneyId({
       pendingJourneyId: pendingAnalyticsJourneyId,
-      storedJourneyId: window.sessionStorage.getItem(storageKey),
+      storedJourneyId,
       generate: () => crypto.randomUUID(),
     });
-    window.sessionStorage.setItem(storageKey, journeyId);
+    try {
+      window.sessionStorage.setItem(storageKey, journeyId);
+    } catch {
+      // The in-memory ref still keeps this mount correlated.
+    }
     analyticsJourneyIdRef.current = journeyId;
     return journeyId;
   }, [pendingAnalyticsJourneyId, profile.slug]);
 
   const finishAnalyticsJourney = useCallback(() => {
-    window.sessionStorage.removeItem(claimJourneyStorageKey(profile.slug));
+    try {
+      window.sessionStorage.removeItem(claimJourneyStorageKey(profile.slug));
+    } catch {
+      // Analytics cleanup cannot interfere with a completed claim.
+    }
     analyticsJourneyIdRef.current = null;
+    analyticsJourneyFinishedRef.current = true;
   }, [profile.slug]);
 
+  const beginAnalyticsJourney = useCallback(() => {
+    analyticsJourneyFinishedRef.current = false;
+    return ensureAnalyticsJourneyId();
+  }, [ensureAnalyticsJourneyId]);
+
+  const captureJourneyView = useCallback(
+    (journeyId: string) => {
+      if (isVerifiedViewer) return;
+      if (viewedJourneyRef.current === journeyId) return;
+      viewedJourneyRef.current = journeyId;
+      captureProductEvent(posthog, "claim_journey_viewed", {
+        journey_id: journeyId,
+        profile_type: profile.profileType,
+        source,
+      });
+    },
+    [isVerifiedViewer, posthog, profile.profileType, source],
+  );
+
   useEffect(() => {
-    if (context === undefined) return;
-    const journeyId = ensureAnalyticsJourneyId();
-    if (viewedJourneyRef.current === journeyId) return;
-    viewedJourneyRef.current = journeyId;
-    captureProductEvent(posthog, "claim_journey_viewed", {
-      journey_id: journeyId,
-      profile_type: profile.profileType,
-      source,
-    });
-  }, [context, ensureAnalyticsJourneyId, posthog, profile.profileType, source]);
+    if (
+      context === undefined ||
+      !canUseClaimJourney ||
+      isVerifiedViewer ||
+      analyticsJourneyFinishedRef.current
+    ) return;
+    captureJourneyView(ensureAnalyticsJourneyId());
+  }, [canUseClaimJourney, captureJourneyView, context, ensureAnalyticsJourneyId, isVerifiedViewer]);
 
   useEffect(() => {
     if (status.kind === "error") statusRef.current?.focus();
@@ -288,6 +327,7 @@ export function ClaimFlow({
         connectionOnly: observedContext?.lastVerifiedProof?.connectionOnly === true,
         method:
           observedContext?.lastVerifiedProof?.targetType === "vrclinking" ? "vrclinking" : "vrchat",
+        journeyId: observedContext?.lastVerifiedProof?.analyticsJourneyId,
       });
     }
   }
@@ -304,7 +344,7 @@ export function ClaimFlow({
       return;
     }
 
-    const journeyId = ensureAnalyticsJourneyId();
+    const journeyId = collectorCompletion.journeyId ?? ensureAnalyticsJourneyId();
     captureProductEvent(posthog, "claim_completed", {
       journey_id: journeyId,
       method: collectorCompletion.method,
@@ -315,29 +355,34 @@ export function ClaimFlow({
   }, [collectorCompletion, ensureAnalyticsJourneyId, finishAnalyticsJourney, posthog, profile.profileType]);
 
   function selectMethod(nextMethod: ClaimMethod) {
-    const journeyId = ensureAnalyticsJourneyId();
+    const journeyId = beginAnalyticsJourney();
+    captureJourneyView(journeyId);
     setMethod(nextMethod);
     setStatus({ kind: "idle" });
     // The form stays mounted after a collector-resolved completion, so without
     // this the latch from the first proof rejects every later transition: a
     // second proof would keep showing the first result and emit no event.
     setCollectorCompletion(null);
-    captureProductEvent(posthog, "claim_method_selected", {
-      journey_id: journeyId,
-      method: nextMethod,
-      profile_type: profile.profileType,
-    });
+    if (!isVerifiedViewer) {
+      captureProductEvent(posthog, "claim_method_selected", {
+        journey_id: journeyId,
+        method: nextMethod,
+        profile_type: profile.profileType,
+      });
+    }
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const journeyId = ensureAnalyticsJourneyId();
-    captureProductEvent(posthog, "claim_submitted", {
-      journey_id: journeyId,
-      method,
-      profile_type: profile.profileType,
-    });
+    const journeyId = beginAnalyticsJourney();
+    if (!isVerifiedViewer) {
+      captureProductEvent(posthog, "claim_submitted", {
+        journey_id: journeyId,
+        method,
+        profile_type: profile.profileType,
+      });
+    }
     setCollectorCompletion(null);
     setStatus({
       kind: "working",
@@ -390,7 +435,7 @@ export function ClaimFlow({
           message: alreadyOwned ? "This profile is already yours." : "Done. This profile is yours to manage.",
           verified: false,
         });
-      captureProductEvent(posthog, "claim_completed", {
+        captureProductEvent(posthog, "claim_completed", {
           journey_id: journeyId,
           method,
           outcome: alreadyOwned ? "already_owned" : "claimed_unverified",
@@ -647,6 +692,7 @@ export function ClaimFlow({
       // did not happen.
       if (!result.canceled) {
         setStatus({ kind: "idle" });
+        finishAnalyticsJourney();
 
         return;
       }

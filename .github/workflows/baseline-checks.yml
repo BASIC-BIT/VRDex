@@ -376,7 +376,7 @@ jobs:
         if: steps.gate.outputs.enabled == 'true'
         run: pnpm install --frozen-lockfile
 
-      - name: Provision optional PostHog claim delivery
+      - name: Provision required PostHog claim delivery
         if: steps.gate.outputs.enabled == 'true'
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_PROD }}
@@ -384,8 +384,8 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "$POSTHOG_PROJECT_API_KEY" ]; then
-            echo "TERRAFORM_POSTHOG_PUBLIC_KEY is absent; server claim analytics remain disabled."
-            exit 0
+            echo "::error::TERRAFORM_POSTHOG_PUBLIC_KEY is required for the hosted production claim analytics pipeline."
+            exit 1
           fi
           if ! printf '%s' "$POSTHOG_PROJECT_API_KEY" | grep -qE '^phc_[A-Za-z0-9_-]+$'; then
             echo "::error::TERRAFORM_POSTHOG_PUBLIC_KEY is not a PostHog project key."

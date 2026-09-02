@@ -127,6 +127,11 @@ resource "aws_ecs_task_definition" "worker" {
   execution_role_arn       = aws_iam_role.execution.arn
   task_role_arn            = aws_iam_role.task.arn
   tags                     = local.tags
+  skip_destroy             = true
+
+  lifecycle {
+    create_before_destroy = true
+  }
 
   container_definitions = jsonencode([{
     name      = "collector"
@@ -205,6 +210,34 @@ resource "aws_cloudwatch_metric_alarm" "worker_count" {
   threshold           = var.desired_count
   alarm_description   = "The collector has fewer running tasks than its bounded desired count."
   dimensions          = { ClusterName = aws_ecs_cluster.worker.name, ServiceName = aws_ecs_service.worker[0].name }
+  tags                = local.tags
+}
+
+resource "aws_cloudwatch_log_metric_filter" "collector_heartbeat" {
+  name           = "${var.name_prefix}-heartbeat"
+  log_group_name = aws_cloudwatch_log_group.worker.name
+  pattern        = "{ $.event = \"collector_heartbeat\" }"
+
+  metric_transformation {
+    name      = "CollectorHeartbeat"
+    namespace = "VRDex/GroupTelemetry"
+    value     = "1"
+    unit      = "Count"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "collector_heartbeat" {
+  count               = var.enable_service ? 1 : 0
+  alarm_name          = "${var.name_prefix}-missing-heartbeat"
+  alarm_description   = "The collector emitted no successful control-plane heartbeat for two minutes."
+  namespace           = "VRDex/GroupTelemetry"
+  metric_name         = aws_cloudwatch_log_metric_filter.collector_heartbeat.metric_transformation[0].name
+  comparison_operator = "LessThanThreshold"
+  evaluation_periods  = 2
+  period              = 60
+  statistic           = "Sum"
+  threshold           = 1
+  treat_missing_data  = "breaching"
   tags                = local.tags
 }
 
@@ -293,6 +326,64 @@ resource "aws_cloudwatch_metric_alarm" "worker_restarts" {
   threshold           = 3
   treat_missing_data  = "notBreaching"
   tags                = local.tags
+}
+
+resource "aws_cloudwatch_dashboard" "operations" {
+  dashboard_name = "${var.name_prefix}-operations"
+  dashboard_body = jsonencode({
+    widgets = [
+      {
+        type   = "metric"
+        x      = 0
+        y      = 0
+        width  = 12
+        height = 6
+        properties = {
+          title  = "Collector heartbeat and failures"
+          region = var.aws_region
+          view   = "timeSeries"
+          period = 60
+          stat   = "Sum"
+          metrics = [
+            ["VRDex/GroupTelemetry", "CollectorHeartbeat"],
+            [".", "ControlPlaneFailure"],
+            [".", "AuthRequired"],
+            [".", "WorkerRestart"],
+          ]
+        }
+      },
+      {
+        type   = "metric"
+        x      = 12
+        y      = 0
+        width  = 12
+        height = 6
+        properties = {
+          title  = "ECS collector service"
+          region = var.aws_region
+          view   = "timeSeries"
+          period = 300
+          metrics = [
+            ["ECS/ContainerInsights", "RunningTaskCount", "ClusterName", aws_ecs_cluster.worker.name, "ServiceName", var.name_prefix, { stat = "Minimum" }],
+            ["AWS/ECS", "CPUUtilization", "ClusterName", aws_ecs_cluster.worker.name, "ServiceName", var.name_prefix, { stat = "Average" }],
+          ]
+        }
+      },
+      {
+        type   = "log"
+        x      = 0
+        y      = 6
+        width  = 24
+        height = 6
+        properties = {
+          title  = "Recent redacted collector operations"
+          region = var.aws_region
+          view   = "table"
+          query  = "SOURCE '${aws_cloudwatch_log_group.worker.name}' | fields @timestamp, event, outcome, attempt, retryDelayMs | filter event like /collector_/ | sort @timestamp desc | limit 100"
+        }
+      },
+    ]
+  })
 }
 
 resource "aws_budgets_budget" "worker" {

@@ -23,7 +23,7 @@ export function posthogClaimAnalyticsConfig(
   }
 
   if (host.protocol !== "https:") return null;
-  return { projectKey, captureUrl: new URL("/capture/", host).toString() };
+  return { projectKey, captureUrl: new URL("/i/v0/e/", host).toString() };
 }
 
 export function posthogClaimEvent(row: Doc<"claimAnalyticsOutbox">) {

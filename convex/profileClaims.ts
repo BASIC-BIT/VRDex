@@ -1837,6 +1837,19 @@ export const recordAdapterProofCheckOutcome = internalMutation({
       lastCheckOutcome: args.outcome,
       updatedAt: now,
     });
+    if (attempt.firstCheckAt === undefined) {
+      const analytics = analyticsContextFromAttempt(attempt);
+      const profile = await ctx.db.get(attempt.profileId);
+      if (analytics !== null && profile !== null) {
+        await enqueueClaimAnalyticsEvent(ctx, analytics, {
+          event: "claim_verification_started",
+          profileType: profile.profileType,
+          method: claimAnalyticsMethodForAttempt(attempt),
+          timeToFirstCheckBucket: timeToFirstCheckBucket(now - attempt.createdAt),
+          occurredAt: now,
+        });
+      }
+    }
     await recordProfileClaimLifecycleEvent(ctx, {
       profileId: attempt.profileId,
       attemptId: attempt._id,
@@ -2196,20 +2209,6 @@ export const reserveAdapterCheck = internalMutation({
     }
 
     await ctx.db.patch(args.attemptId, { lastCheckedAt: now });
-
-    if (attempt.lastCheckedAt === undefined) {
-      const analytics = analyticsContextFromAttempt(attempt);
-      const profile = await ctx.db.get(attempt.profileId);
-      if (analytics !== null && profile !== null) {
-        await enqueueClaimAnalyticsEvent(ctx, analytics, {
-          event: "claim_verification_started",
-          profileType: profile.profileType,
-          method: claimAnalyticsMethodForAttempt(attempt),
-          timeToFirstCheckBucket: timeToFirstCheckBucket(now - attempt.createdAt),
-          occurredAt: now,
-        });
-      }
-    }
 
     return { granted: true, state: attempt.state };
   },

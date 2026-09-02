@@ -152,6 +152,15 @@ describe("claim analytics outbox", () => {
       attemptId: attempt.attemptId,
       cooldownMs: 60_000,
     });
+    await t.run(async (ctx) => {
+      const rows = await ctx.db.query("claimAnalyticsOutbox").collect();
+      assert.deepEqual(rows.map((row) => row.event), ["claim_attempt_created"]);
+    });
+    await t.mutation(internal.profileClaims.recordAdapterProofCheckOutcome, {
+      attemptId: attempt.attemptId,
+      outcome: "not_found",
+      now: now + 1,
+    });
     await t.mutation(internal.profileClaims.recordVrchatProofFailure, {
       attemptId: attempt.attemptId,
       evidenceSource: "vrchat_api",
@@ -171,6 +180,37 @@ describe("claim analytics outbox", () => {
     });
   });
 
+  it("reports aggregate delivery failures without journey identifiers", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("claimAnalyticsOutbox", {
+        eventKey: "opaque-test-key",
+        journeyId,
+        event: "claim_attempt_created",
+        profileType: "person",
+        method: "vrchat",
+        entrySource: "profile",
+        occurredAt: now - 30_000,
+        state: "failed",
+        attemptCount: 5,
+        nextAttemptAt: now,
+      });
+    });
+
+    const health = await t.query(internal.claimAnalytics.deliveryOperationalHealth, { now });
+    assert.deepEqual(health, {
+      pendingCount: 0,
+      deliveringCount: 0,
+      failedCount: 1,
+      disabledCount: 0,
+      oldestPendingAgeMs: null,
+      scanLimitReached: false,
+    });
+    assert.equal(JSON.stringify(health).includes(journeyId), false);
+    assert.equal(JSON.stringify(health).includes("opaque-test-key"), false);
+  });
+
   it("disables delivery safely when a fork has no project key", async () => {
     assert.equal(posthogClaimAnalyticsConfig({}), null);
     assert.equal(
@@ -188,7 +228,7 @@ describe("claim analytics outbox", () => {
       posthogClaimAnalyticsConfig({ POSTHOG_PROJECT_API_KEY: "phc_example" }),
       {
         projectKey: "phc_example",
-        captureUrl: "https://us.i.posthog.com/capture/",
+        captureUrl: "https://us.i.posthog.com/i/v0/e/",
       },
     );
   });

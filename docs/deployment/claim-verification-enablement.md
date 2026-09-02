@@ -212,9 +212,15 @@ that do not opt in.
 
 BASIC BIT production reuses the hosted public project key that Terraform
 supplies to Vercel. `baseline-checks.yml` provisions it into production Convex
-from `TERRAFORM_POSTHOG_PUBLIC_KEY` before deployment. Do not commit the key or
-substitute a PostHog personal API key. `POSTHOG_INGEST_HOST` is optional and
+from `TERRAFORM_POSTHOG_PUBLIC_KEY` before deployment and fails the hosted
+production deploy if that key is absent or malformed. Local work, forks,
+previews, and self-hosted deployments may still omit it. Do not commit the key
+or substitute a PostHog personal API key. `POSTHOG_INGEST_HOST` is optional and
 defaults to `https://us.i.posthog.com`; a configured override must use HTTPS.
+
+The collector audit also checks aggregate outbox delivery health. Any disabled
+or permanently failed row, a scan-limit condition, or an oldest outstanding
+delivery over fifteen minutes fails the audit without exposing a journey ID.
 
 The checked-in PostHog stack declares the claim dashboard and reconciliation
 views. Apply it separately with a reviewed Terraform plan; repository changes

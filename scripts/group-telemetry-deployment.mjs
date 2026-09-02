@@ -8,6 +8,13 @@ const RELEASE_ENV_NAMES = new Set([
   "VRDEX_GROUP_TELEMETRY_CAPABILITIES",
 ]);
 
+const TASK_DEFINITION_COMPUTED_FIELDS = [
+  "arn",
+  "arn_without_revision",
+  "id",
+  "revision",
+];
+
 function clone(value) {
   return value === undefined ? undefined : structuredClone(value);
 }
@@ -15,6 +22,7 @@ function clone(value) {
 function normalizedTaskDefinition(value) {
   const normalized = clone(value);
   if (!normalized) return normalized;
+  for (const field of TASK_DEFINITION_COMPUTED_FIELDS) delete normalized[field];
   const definitions = typeof normalized.container_definitions === "string"
     ? JSON.parse(normalized.container_definitions)
     : normalized.container_definitions;
@@ -158,6 +166,48 @@ export function assertHeartbeat(health) {
   };
 }
 
+export function assertClaimHealth(health) {
+  assert.equal(health?.fleetKillSwitchEnabled, false, "collector fleet kill switch is enabled");
+  assert.equal(health?.scanLimitReached, false, "claim health scan limit was reached");
+  assert.equal(health?.authRequiredCount, 0, "a collector requires authentication");
+  assert.ok(
+    (health?.maxConsecutiveControlFailures ?? 0) < 3,
+    "a collector reported three or more consecutive control-plane failures",
+  );
+  if ((health?.pendingEligibleAttemptCount ?? 0) > 0) {
+    assert.ok((health?.freshCollectorCount ?? 0) > 0, "pending proofs have no fresh collector");
+  }
+  assert.ok(
+    health?.oldestUncheckedAgeMs === null ||
+      (typeof health?.oldestUncheckedAgeMs === "number" && health.oldestUncheckedAgeMs <= 120_000),
+    "an eligible proof has remained unchecked for more than two minutes",
+  );
+  return {
+    pendingEligibleAttemptCount: health.pendingEligibleAttemptCount,
+    uncheckedAttemptCount: health.uncheckedAttemptCount,
+    oldestUncheckedAgeMs: health.oldestUncheckedAgeMs,
+    freshCollectorCount: health.freshCollectorCount,
+  };
+}
+
+export function assertClaimAnalyticsHealth(health) {
+  assert.equal(health?.scanLimitReached, false, "claim analytics health scan limit was reached");
+  assert.equal(health?.failedCount ?? 0, 0, "claim analytics has permanently failed deliveries");
+  assert.equal(health?.disabledCount ?? 0, 0, "claim analytics delivery is disabled");
+  assert.ok(
+    health?.oldestPendingAgeMs === null ||
+      (typeof health?.oldestPendingAgeMs === "number" && health.oldestPendingAgeMs <= 15 * 60_000),
+    "claim analytics delivery has been pending for more than fifteen minutes",
+  );
+  return {
+    pendingCount: health.pendingCount,
+    deliveringCount: health.deliveringCount,
+    failedCount: health.failedCount,
+    disabledCount: health.disabledCount,
+    oldestPendingAgeMs: health.oldestPendingAgeMs,
+  };
+}
+
 export function assertDriftAudit({
   imageDetails,
   taskDefinition,
@@ -249,6 +299,16 @@ async function main(args) {
     process.stdout.write(`${JSON.stringify(result)}\n`);
     return;
   }
+  if (mode === "claim-health") {
+    const result = assertClaimHealth(await readJson(option("--file")));
+    process.stdout.write(`${JSON.stringify(result)}\n`);
+    return;
+  }
+  if (mode === "claim-analytics-health") {
+    const result = assertClaimAnalyticsHealth(await readJson(option("--file")));
+    process.stdout.write(`${JSON.stringify(result)}\n`);
+    return;
+  }
   if (mode === "drift") {
     const result = assertDriftAudit({
       imageDetails: await readJson(option("--images")),
@@ -262,7 +322,7 @@ async function main(args) {
     process.stdout.write(`${JSON.stringify(result)}\n`);
     return;
   }
-  throw new Error("usage: group-telemetry-deployment.mjs <plan|ecs|heartbeat|drift> [options]");
+  throw new Error("usage: group-telemetry-deployment.mjs <plan|ecs|heartbeat|claim-health|claim-analytics-health|drift> [options]");
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {

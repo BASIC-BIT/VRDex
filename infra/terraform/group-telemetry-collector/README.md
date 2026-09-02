@@ -36,8 +36,8 @@ an existing fleet.
 
 The first plan after this release is deliberately a reviewed operator plan. It
 adds release metadata to the task definition plus CloudWatch metric filters and
-alarms for `collector_auth_required`, `collector_control_plane_failure`, and
-`collector_worker_restart`. The automatic plan policy rejects those
+alarms for `collector_heartbeat`, `collector_auth_required`,
+`collector_control_plane_failure`, and `collector_worker_restart`. The automatic plan policy rejects those
 infrastructure additions. Apply them once with the existing production
 variables, the exact reviewed image digest and source SHA, then enable the
 routine lane.
@@ -75,7 +75,15 @@ metadata values, plus the service's task-definition pointer, is accepted.
 Networking, identity, scaling, enablement, budget, alarms, secrets, and every
 other infrastructure change fail closed for manual review.
 
-The scheduled audit is read-only. It derives the expected release from the
+Before apply, the lane records the currently serving task definition. ECS task
+definition revisions use `skip_destroy`, so that revision stays runnable. If
+Terraform apply, ECS identity/digest verification, or the bounded five-minute
+heartbeat convergence gate fails, the workflow restores that revision, waits
+for service stability, verifies the restored service pointer, and then fails.
+Old inactive revisions are an operator retention concern; the automatic lane
+does not deregister rollback artifacts.
+
+The five-minute scheduled audit is read-only. It derives the expected release from the
 latest successful `main` Baseline Checks run, then compares that SHA with the
 ECR image, exact ECS digest, and the authoritative Convex heartbeat. A mismatch
 may converge for fifteen minutes. Persistent drift, stale or missing heartbeat,

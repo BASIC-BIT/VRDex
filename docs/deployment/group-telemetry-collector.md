@@ -75,8 +75,8 @@ holder:
 1. Migrate any existing local collector state to the declared S3 backend with
    `terraform init -migrate-state`, then inspect the remote state.
 2. Plan the current production variables with the reviewed release image and
-   source SHA. The first plan includes task metadata plus auth, control-plane
-   failure, and restart metric filters and alarms.
+   source SHA. The first plan includes task metadata plus heartbeat, auth,
+   control-plane failure, and restart metric filters and alarms.
 3. Apply that infrastructure plan manually. Automatic releases intentionally
    reject it because it contains more than an image-only task revision.
 4. Provision separate main-only GitHub OIDC roles for release and read-only
@@ -86,18 +86,27 @@ holder:
 6. Dispatch audit mode first. Dispatch release mode only from a commit reachable
    from `main`.
 
-Every fifteen minutes, the audit job asks GitHub Actions for the latest
-successful main baseline. It compares that expected SHA with ECR, the running
-ECS digest, and Convex operational readiness. This catches a main change that
-was never built as well as a build that never reached ECS. It allows a
-fifteen-minute convergence window, makes no provider or AWS mutation, and fails
-after that window on release mismatch, stale heartbeat, missing proof
-capability, `auth_required`, or unchecked-attempt health issues.
+Every five minutes, the audit job asks GitHub Actions for the latest successful
+main baseline. It compares that expected SHA with ECR, the running ECS digest,
+and Convex operational readiness. This catches a main change that was never
+built as well as a build that never reached ECS. It allows a fifteen-minute
+release convergence window, makes no provider or AWS mutation, and fails after
+that window on release mismatch. Stale heartbeat, missing proof capability,
+`auth_required`, or unchecked-attempt health issues fail immediately.
 
 The CloudWatch filters consume only redacted JSON event names:
-`collector_auth_required`, `collector_control_plane_failure`, and
-`collector_worker_restart`. They must never include a profile slug, proof code,
-provider target, account identifier, cookie, key, or raw error payload.
+`collector_heartbeat`, `collector_auth_required`,
+`collector_control_plane_failure`, and `collector_worker_restart`. They must
+never include a profile slug, proof code, provider target, account identifier,
+cookie, key, or raw error payload. Missing successful heartbeats alarm after
+two one-minute periods. The scheduled audit also fails when an eligible proof
+remains unchecked for more than two minutes.
+
+The Terraform-managed `${name_prefix}-operations` dashboard combines those
+collector signals with ECS task count, CPU, and a bounded recent-log view. The
+scheduled audit summary is the companion Convex view: it reports aggregate
+proof backlog, oldest unchecked age, collector release counts, and analytics
+outbox health without customer or journey identifiers.
 
 Steps 1-7 are the bring-up sequence for standing a fleet up, not a description of
 the current state. Production has been through them: BASIC accepted durable

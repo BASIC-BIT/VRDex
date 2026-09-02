@@ -288,7 +288,8 @@ resource "posthog_insight" "claim_journey_funnel" {
         FROM (
           SELECT
             properties.journey_id AS journey_id,
-            groupUniqArray(event) AS milestones
+            groupUniqArray(event) AS milestones,
+            max(if(event = 'claim_resolved' AND properties.connection_only = 'true', 1, 0)) AS connection_only
           FROM events
           WHERE event IN (
             'claim_journey_viewed',
@@ -302,6 +303,8 @@ resource "posthog_insight" "claim_journey_funnel" {
             AND notEmpty(toString(properties.journey_id))
           GROUP BY journey_id
         )
+        WHERE connection_only = 0
+          AND has(milestones, 'claim_journey_viewed')
       HOGQL
     }
   })
@@ -363,7 +366,7 @@ resource "posthog_insight" "claim_terminal_outcomes" {
 
 resource "posthog_insight" "claim_resolution_latency" {
   name        = "Claim resolution latency"
-  description = "Authoritative claim resolutions grouped by coarse time-to-resolution bucket."
+  description = "Authoritative claim resolutions grouped by coarse time-to-resolution bucket, excluding connection-only activity."
   query_json = jsonencode({
     kind = "InsightVizNode"
     source = {
@@ -373,6 +376,12 @@ resource "posthog_insight" "claim_resolution_latency" {
       }
       interval = "day"
       kind     = "TrendsQuery"
+      properties = [{
+        key      = "connection_only"
+        operator = "exact"
+        type     = "event"
+        value    = ["false"]
+      }]
       series = [{
         event = "claim_resolved"
         kind  = "EventsNode"
@@ -384,31 +393,49 @@ resource "posthog_insight" "claim_resolution_latency" {
   tags          = ["managed-by:terraform", "surface:claim"]
 }
 
-resource "posthog_insight" "claim_milestone_reconciliation" {
-  name        = "Browser and backend milestone reconciliation"
-  description = "Daily browser submissions, authoritative attempt creation, and authoritative resolution counts. Divergence indicates client delivery loss, backend rejection before creation, or outbox delivery trouble and requires source-level diagnosis."
+resource "posthog_insight" "claim_first_check_latency" {
+  name        = "Proof time to first verification check"
+  description = "Authoritative proof checks grouped by a coarse latency bucket. This operational view includes claim and owner connection proofs and is not a claim-conversion metric."
   query_json = jsonencode({
     kind = "InsightVizNode"
     source = {
+      breakdownFilter = {
+        breakdown      = "time_to_first_check_bucket"
+        breakdown_type = "event"
+      }
       interval = "day"
       kind     = "TrendsQuery"
-      series = [
-        {
-          event = "claim_submitted"
-          kind  = "EventsNode"
-          math  = "total"
-        },
-        {
-          event = "claim_attempt_created"
-          kind  = "EventsNode"
-          math  = "total"
-        },
-        {
-          event = "claim_resolved"
-          kind  = "EventsNode"
-          math  = "total"
-        },
-      ]
+      series = [{
+        event = "claim_verification_started"
+        kind  = "EventsNode"
+        math  = "total"
+      }]
+    }
+  })
+  dashboard_ids = [posthog_dashboard.claim_adoption.id]
+  tags          = ["managed-by:terraform", "surface:claim"]
+}
+
+resource "posthog_insight" "claim_milestone_reconciliation" {
+  name        = "Browser and backend milestone reconciliation"
+  description = "Daily transport-level browser submissions, authoritative attempt creation, and authoritative resolution counts. This is not claim conversion: backend-only owner connection activity can appear until it resolves. Divergence is a diagnostic signal, not attribution without source-level evidence."
+  query_json = jsonencode({
+    kind = "DataTableNode"
+    source = {
+      kind  = "HogQLQuery"
+      query = <<-HOGQL
+        SELECT
+          toDate(timestamp) AS day,
+          countIf(event = 'claim_submitted') AS submitted,
+          countIf(event = 'claim_attempt_created') AS backend_attempt_created,
+          countIf(event = 'claim_resolved') AS resolved
+        FROM events
+        WHERE event IN ('claim_submitted', 'claim_attempt_created', 'claim_resolved')
+          AND timestamp >= now() - INTERVAL 30 DAY
+          AND notEmpty(toString(properties.journey_id))
+        GROUP BY day
+        ORDER BY day
+      HOGQL
     }
   })
   dashboard_ids = [posthog_dashboard.claim_adoption.id]
@@ -435,19 +462,25 @@ resource "posthog_dashboard_layout" "claim_adoption" {
       show_description = true
     },
     {
-      insight_id       = posthog_insight.claim_resolution_latency.id
+      insight_id       = posthog_insight.claim_first_check_latency.id
       layouts_json     = jsonencode({ sm = { x = 0, y = 10, w = 6, h = 5 } })
       show_description = true
     },
     {
-      insight_id       = posthog_insight.claim_milestone_reconciliation.id
+      insight_id       = posthog_insight.claim_resolution_latency.id
       layouts_json     = jsonencode({ sm = { x = 6, y = 10, w = 6, h = 5 } })
+      show_description = true
+    },
+    {
+      insight_id       = posthog_insight.claim_milestone_reconciliation.id
+      layouts_json     = jsonencode({ sm = { x = 0, y = 15, w = 12, h = 5 } })
       show_description = true
     },
   ]
 
   depends_on = [
     posthog_insight.claim_journey_funnel,
+    posthog_insight.claim_first_check_latency,
     posthog_insight.claim_method_selection,
     posthog_insight.claim_milestone_reconciliation,
     posthog_insight.claim_resolution_latency,

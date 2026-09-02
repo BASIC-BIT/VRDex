@@ -23,6 +23,8 @@ import { newClerkUserId } from "./_clerkTestIdentity";
 const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
   "../../convex/profileConnections.ts": () => import("../../convex/profileConnections"),
+  "../../convex/claimAnalytics.ts": () => import("../../convex/claimAnalytics"),
+  "../../convex/claimAnalyticsDelivery.ts": () => import("../../convex/claimAnalyticsDelivery"),
   "../../convex/discordVerification.ts": () => import("../../convex/discordVerification"),
   "../../convex/vrclinkingCredentials.ts": () => import("../../convex/vrclinkingCredentials"),
 };

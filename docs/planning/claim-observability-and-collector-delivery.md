@@ -131,9 +131,13 @@ bucket, and time-to-resolution bucket.
 
 ## Dashboards and reconciliation
 
-The operational dashboard is derived from Convex and collector health. The
-PostHog dashboard covers journey conversion, method selection, abandonment,
-terminal outcomes, and coarse resolution latency.
+The operator surface has two durable parts. The Terraform-managed CloudWatch
+dashboard shows collector heartbeat, ECS task count, CPU, authentication,
+control-plane failures, restarts, and recent redacted operational logs. Every
+five minutes, the release audit adds the aggregate Convex proof-backlog and
+analytics-outbox snapshot to its GitHub Actions summary and enforces the alert
+thresholds. The PostHog dashboard covers journey conversion, method selection,
+abandonment, terminal outcomes, and coarse resolution latency.
 
 Listing coverage and user adoption remain separate metrics. Claimed listings
 divided by all seeded listings is inventory coverage, not claimant conversion.

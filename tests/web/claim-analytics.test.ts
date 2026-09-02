@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { describe, it } from "node:test";
 
 import {
@@ -42,5 +43,22 @@ describe("claim analytics journey correlation", () => {
 
   it("scopes browser resume storage to one profile journey", () => {
     assert.equal(claimJourneyStorageKey("basicbit"), "vrdex:claim-journey:basicbit");
+  });
+
+  it("latches terminal component journeys and excludes verified-owner connection visits", async () => {
+    const source = await readFile(
+      "apps/web/src/app/claim/[slug]/claim-flow.tsx",
+      "utf8",
+    );
+    assert.match(source, /analyticsJourneyFinishedRef\.current = true/);
+    assert.match(source, /analyticsJourneyFinishedRef\.current\s*\) return/);
+    assert.match(source, /!result\.canceled[\s\S]*finishAnalyticsJourney\(\)/);
+    assert.match(
+      source,
+      /collectorCompletion\.journeyId \?\? ensureAnalyticsJourneyId\(\)/,
+    );
+    assert.match(source, /if \(isVerifiedViewer\) return;/);
+    assert.match(source, /if \(!isVerifiedViewer\) \{[\s\S]*claim_method_selected/);
+    assert.match(source, /if \(!isVerifiedViewer\) \{[\s\S]*claim_submitted/);
   });
 });

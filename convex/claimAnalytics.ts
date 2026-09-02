@@ -2,11 +2,12 @@ import { v } from "convex/values";
 
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
-import { internalMutation } from "./_generated/server";
+import { internalMutation, internalQuery } from "./_generated/server";
 
 const DELIVERY_LEASE_MS = 60_000;
 const MAX_DELIVERY_ATTEMPTS = 5;
 const RETRY_DELAYS_MS = [5_000, 30_000, 120_000, 600_000] as const;
+const HEALTH_SCAN_LIMIT = 1_000;
 
 type DeliveryClaim = { row: Doc<"claimAnalyticsOutbox"> | null };
 
@@ -96,5 +97,36 @@ export const recordDeliveryFailure = internalMutation({
     });
     await ctx.scheduler.runAfter(0, internal.claimAnalyticsDelivery.deliverPending, {});
     await ctx.scheduler.runAfter(delay, internal.claimAnalyticsDelivery.deliverPending, {});
+  },
+});
+
+/** Aggregate-only delivery health for the hosted claim analytics pipeline. */
+export const deliveryOperationalHealth = internalQuery({
+  args: { now: v.number() },
+  handler: async (ctx, args) => {
+    const states = ["pending", "delivering", "failed", "disabled"] as const;
+    const rowsByState = await Promise.all(
+      states.map(async (state) =>
+        await ctx.db
+          .query("claimAnalyticsOutbox")
+          .withIndex("by_state_occurredAt", (query) => query.eq("state", state))
+          .take(HEALTH_SCAN_LIMIT + 1),
+      ),
+    );
+    const [pending, delivering, failed, disabled] = rowsByState;
+    const oldestOutstanding = [...pending, ...delivering]
+      .sort((left, right) => left.occurredAt - right.occurredAt)[0];
+
+    return {
+      pendingCount: Math.min(pending.length, HEALTH_SCAN_LIMIT),
+      deliveringCount: Math.min(delivering.length, HEALTH_SCAN_LIMIT),
+      failedCount: Math.min(failed.length, HEALTH_SCAN_LIMIT),
+      disabledCount: Math.min(disabled.length, HEALTH_SCAN_LIMIT),
+      oldestPendingAgeMs:
+        oldestOutstanding === undefined
+          ? null
+          : Math.max(0, args.now - oldestOutstanding.occurredAt),
+      scanLimitReached: rowsByState.some((rows) => rows.length > HEALTH_SCAN_LIMIT),
+    };
   },
 });

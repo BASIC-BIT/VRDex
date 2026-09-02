@@ -5,6 +5,8 @@ import { parse as parseYaml } from "yaml";
 
 import {
   assertAutomaticPlan,
+  assertClaimAnalyticsHealth,
+  assertClaimHealth,
   assertEcsDeployment,
   assertHeartbeat,
   assertDriftAudit,
@@ -34,6 +36,13 @@ describe("group telemetry automatic deployment policy", () => {
   it("allows only the immutable image and release metadata replacement", () => {
     const before = taskDefinition("repo@sha256:" + "1".repeat(64), "1".repeat(40));
     const after = taskDefinition("repo@sha256:" + "2".repeat(64), "2".repeat(40));
+    Object.assign(before, {
+      arn: `${taskDefinitionArn}:before`,
+      arn_without_revision: taskDefinitionArn.replace(/:\d+$/, ""),
+      id: `${taskDefinitionArn}:before`,
+      revision: 3,
+    });
+    Object.assign(after, { arn: null, arn_without_revision: null, id: null, revision: null });
     const result = assertAutomaticPlan({
       format_version: "1.2",
       resource_changes: [
@@ -50,6 +59,21 @@ describe("group telemetry automatic deployment policy", () => {
     });
     assert.deepEqual(result.changedResources, ["aws_ecs_task_definition.worker", "aws_ecs_service.worker[0]"]);
     assert.equal(result.releaseSha, "2".repeat(40));
+  });
+
+  it("still rejects configured task-definition changes", () => {
+    const before = { ...taskDefinition("old", "1".repeat(40)), execution_role_arn: "old-role" };
+    const after = { ...taskDefinition("new", "2".repeat(40)), execution_role_arn: "new-role" };
+    assert.throws(
+      () => assertAutomaticPlan({
+        format_version: "1.2",
+        resource_changes: [{
+          address: "aws_ecs_task_definition.worker",
+          change: { actions: ["delete", "create"], before, after },
+        }],
+      }),
+      /fields other than image and release metadata/,
+    );
   });
 
   it("rejects scaling, identity, and infrastructure changes", () => {
@@ -142,7 +166,81 @@ describe("group telemetry scheduled drift audit", () => {
   });
 });
 
+describe("claim verification operational health", () => {
+  const healthy = {
+    fleetKillSwitchEnabled: false,
+    pendingEligibleAttemptCount: 1,
+    scanLimitReached: false,
+    uncheckedAttemptCount: 1,
+    oldestUncheckedAgeMs: 90_000,
+    freshCollectorCount: 1,
+    authRequiredCount: 0,
+    maxConsecutiveControlFailures: 0,
+    releases: [],
+  };
+
+  it("accepts a bounded backlog with a fresh collector", () => {
+    assert.deepEqual(assertClaimHealth(healthy), {
+      pendingEligibleAttemptCount: 1,
+      uncheckedAttemptCount: 1,
+      oldestUncheckedAgeMs: 90_000,
+      freshCollectorCount: 1,
+    });
+  });
+
+  it("rejects stale unchecked work and missing collectors", () => {
+    assert.throws(
+      () => assertClaimHealth({ ...healthy, oldestUncheckedAgeMs: 120_001 }),
+      /more than two minutes/,
+    );
+    assert.throws(
+      () => assertClaimHealth({ ...healthy, freshCollectorCount: 0 }),
+      /no fresh collector/,
+    );
+    assert.throws(
+      () => assertClaimHealth({ ...healthy, maxConsecutiveControlFailures: 3 }),
+      /a collector reported three or more/,
+    );
+  });
+});
+
+describe("claim analytics delivery health", () => {
+  const healthy = {
+    pendingCount: 1,
+    deliveringCount: 0,
+    failedCount: 0,
+    disabledCount: 0,
+    oldestPendingAgeMs: 30_000,
+    scanLimitReached: false,
+  };
+
+  it("accepts a bounded, advancing outbox", () => {
+    assert.deepEqual(assertClaimAnalyticsHealth(healthy), {
+      pendingCount: 1,
+      deliveringCount: 0,
+      failedCount: 0,
+      disabledCount: 0,
+      oldestPendingAgeMs: 30_000,
+    });
+  });
+
+  it("rejects disabled, failed, and stale delivery", () => {
+    assert.throws(() => assertClaimAnalyticsHealth({ ...healthy, disabledCount: 1 }), /disabled/);
+    assert.throws(() => assertClaimAnalyticsHealth({ ...healthy, failedCount: 1 }), /failed/);
+    assert.throws(
+      () => assertClaimAnalyticsHealth({ ...healthy, oldestPendingAgeMs: 900_001 }),
+      /more than fifteen minutes/,
+    );
+  });
+});
+
 describe("group telemetry release workflow", () => {
+  it("fails closed when hosted production claim analytics is not configured", async () => {
+    const source = await readFile(".github/workflows/baseline-checks.yml", "utf8");
+    assert.match(source, /TERRAFORM_POSTHOG_PUBLIC_KEY is required for the hosted production claim analytics pipeline/);
+    assert.doesNotMatch(source, /server claim analytics remain disabled/);
+  });
+
   it("keeps automatic writes behind exact-SHA tests, a saved plan allowlist, and post-deploy verification", async () => {
     const source = await readFile(".github/workflows/group-telemetry-release.yml", "utf8");
     const workflow = parseYaml(source) as { jobs?: Record<string, { permissions?: Record<string, string>; steps?: Array<{ name?: string; run?: string }> }> };
@@ -156,8 +254,15 @@ describe("group telemetry release workflow", () => {
     assert.match(commands, /terraform plan -out=collector\.tfplan -var-file=environments\/production\.tfvars/);
     assert.match(commands, /group-telemetry-deployment\.mjs plan/);
     assert.match(commands, /terraform apply -auto-approve collector\.tfplan/);
+    assert.match(source, /id: apply[\s\S]*continue-on-error: true/);
+    assert.match(source, /steps\.apply\.outcome == 'failure'/);
     assert.match(commands, /aws ecs wait services-stable/);
     assert.match(commands, /collectorDeploymentReadiness/);
+    assert.match(commands, /CONVEX_DEPLOY_KEY="\$CONVEX_DEPLOY_KEY_PROD" pnpm --silent exec convex run --prod/);
+    assert.match(commands, /PREVIOUS_TASK_DEFINITION/);
+    assert.match(commands, /ecs update-service/);
+    assert.match(commands, /deadline=\$\(\(SECONDS \+ 300\)\)/);
+    assert.match(commands, /sleep 10/);
   });
 
   it("keeps drift detection read-only and checks ECR, ECS, and Convex", async () => {
@@ -167,9 +272,35 @@ describe("group telemetry release workflow", () => {
     assert.match(commands, /ecr describe-images/);
     assert.match(commands, /ecs describe-services/);
     assert.match(commands, /collectorDeploymentReadiness/);
+    assert.match(commands, /claimVerificationOperationalHealth/);
+    assert.match(commands, /claimAnalytics:deliveryOperationalHealth/);
+    assert.match(commands, /group-telemetry-deployment\.mjs claim-health/);
+    assert.match(commands, /group-telemetry-deployment\.mjs claim-analytics-health/);
+    assert.match(commands, /CONVEX_DEPLOY_KEY="\$CONVEX_DEPLOY_KEY_PROD" pnpm --silent exec convex run --prod/);
+    assert.match(commands, /GITHUB_STEP_SUMMARY/);
     assert.match(commands, /group-telemetry-deployment\.mjs drift/);
     assert.match(commands, /actions\/workflows\/baseline-checks\.yml\/runs/);
     assert.doesNotMatch(commands, /terraform apply|ecs update-service|ecr put-image/);
+  });
+
+  it("declares the two-minute heartbeat alarm from the redacted worker event", async () => {
+    const source = await readFile("infra/terraform/group-telemetry-collector/main.tf", "utf8");
+    assert.match(source, /\$\.event = \\"collector_heartbeat\\"/);
+    assert.match(source, /alarm_name\s+= "\$\{var\.name_prefix\}-missing-heartbeat"/);
+    assert.match(source, /evaluation_periods\s+= 2/);
+    assert.match(source, /period\s+= 60/);
+    assert.match(source, /treat_missing_data\s+= "breaching"/);
+    assert.match(source, /resource "aws_cloudwatch_dashboard" "operations"/);
+    assert.match(source, /fields @timestamp, event, outcome, attempt, retryDelayMs/);
+    assert.match(source, /skip_destroy\s+= true/);
+  });
+
+  it("keeps connection-only journeys out of conversion and labels transport reconciliation", async () => {
+    const source = await readFile("infra/terraform/posthog/main.tf", "utf8");
+    assert.match(source, /WHERE connection_only = 0\s+AND has\(milestones, 'claim_journey_viewed'\)/);
+    assert.match(source, /properties\.connection_only = 'true'/);
+    assert.match(source, /toDate\(timestamp\) AS day/);
+    assert.match(source, /transport-level browser submissions/);
   });
 });
 

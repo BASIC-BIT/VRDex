@@ -19,7 +19,7 @@ on:
           - audit
           - release
   schedule:
-    - cron: "7,22,37,52 * * * *"
+    - cron: "2-59/5 * * * *"
 
 permissions:
   contents: read
@@ -158,11 +158,23 @@ jobs:
           terraform show -json collector.tfplan > collector-plan.json
           node ../../../scripts/group-telemetry-deployment.mjs plan --file collector-plan.json --image "$IMAGE_URI" --release-sha "$RELEASE_SHA" --capabilities "$RELEASE_CAPABILITIES"
 
+      - name: Capture rollback task definition
+        run: |
+          set -euo pipefail
+          previous_task_definition="$(aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" --query 'services[0].taskDefinition' --output text)"
+          [ -n "$previous_task_definition" ] && [ "$previous_task_definition" != "None" ] || { echo "::error::Collector service has no rollback task definition."; exit 1; }
+          echo "PREVIOUS_TASK_DEFINITION=$previous_task_definition" >> "$GITHUB_ENV"
+
       - name: Apply the inspected saved plan
+        id: apply
+        continue-on-error: true
         working-directory: infra/terraform/group-telemetry-collector
         run: terraform apply -auto-approve collector.tfplan
 
       - name: Verify exact ECS task definition and image digest
+        id: verify-ecs
+        if: steps.apply.outcome == 'success'
+        continue-on-error: true
         run: |
           set -euo pipefail
           task_definition="$(terraform -chdir=infra/terraform/group-telemetry-collector output -raw task_definition_arn)"
@@ -174,12 +186,38 @@ jobs:
           node scripts/group-telemetry-deployment.mjs ecs --service service.json --tasks tasks.json --task-definition "$task_definition" --digest "$IMAGE_DIGEST"
 
       - name: Verify matching fresh collector heartbeat
+        id: verify-heartbeat
+        if: steps.apply.outcome == 'success' && steps.verify-ecs.outcome == 'success'
+        continue-on-error: true
         run: |
           set -euo pipefail
-          now="$(node -p 'Date.now()')"
-          args="$(jq -cn --arg sha "$RELEASE_SHA" --argjson now "$now" '{expectedReleaseSha:$sha,requiredCapabilities:["telemetry_v1","vrchat_proof_v1"],maxHeartbeatAgeMs:120000,now:$now}')"
-          pnpm cx -- prod run communityTelemetry:collectorDeploymentReadiness "$args" > heartbeat.json
-          node scripts/group-telemetry-deployment.mjs heartbeat --file heartbeat.json
+          deadline=$((SECONDS + 300))
+          until [ "$SECONDS" -ge "$deadline" ]; do
+            now="$(node -p 'Date.now()')"
+            args="$(jq -cn --arg sha "$RELEASE_SHA" --argjson now "$now" '{expectedReleaseSha:$sha,requiredCapabilities:["telemetry_v1","vrchat_proof_v1"],maxHeartbeatAgeMs:120000,now:$now}')"
+            CONVEX_DEPLOY_KEY="$CONVEX_DEPLOY_KEY_PROD" pnpm --silent exec convex run --prod communityTelemetry:collectorDeploymentReadiness "$args" > heartbeat.json
+            if node scripts/group-telemetry-deployment.mjs heartbeat --file heartbeat.json; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Collector did not report a matching fresh heartbeat within five minutes."
+          exit 1
+
+      - name: Roll back a release that never becomes control-plane ready
+        if: steps.apply.outcome == 'failure' || steps.verify-ecs.outcome == 'failure' || steps.verify-heartbeat.outcome == 'failure'
+        run: |
+          set -euo pipefail
+          aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE" --task-definition "$PREVIOUS_TASK_DEFINITION" >/dev/null
+          aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE"
+          restored="$(aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" --query 'services[0].taskDefinition' --output text)"
+          [ "$restored" = "$PREVIOUS_TASK_DEFINITION" ] || { echo "::error::Collector rollback did not restore the previous task definition."; exit 1; }
+
+      - name: Fail release after verified rollback
+        if: steps.apply.outcome == 'failure' || steps.verify-ecs.outcome == 'failure' || steps.verify-heartbeat.outcome == 'failure'
+        run: |
+          echo "::error::The new collector release failed post-deploy verification and was rolled back."
+          exit 1
 
   drift-audit:
     name: Read-only collector release drift audit
@@ -246,5 +284,17 @@ jobs:
           aws ecs describe-tasks --cluster "$ECS_CLUSTER" --tasks $task_arns > tasks.json
           now="$(node -p 'Date.now()')"
           args="$(jq -cn --arg sha "$expected_release_sha" --argjson now "$now" '{expectedReleaseSha:$sha,requiredCapabilities:["telemetry_v1","vrchat_proof_v1"],maxHeartbeatAgeMs:120000,now:$now}')"
-          pnpm cx -- prod run communityTelemetry:collectorDeploymentReadiness "$args" > heartbeat.json
+          CONVEX_DEPLOY_KEY="$CONVEX_DEPLOY_KEY_PROD" pnpm --silent exec convex run --prod communityTelemetry:collectorDeploymentReadiness "$args" > heartbeat.json
+          CONVEX_DEPLOY_KEY="$CONVEX_DEPLOY_KEY_PROD" pnpm --silent exec convex run --prod communityTelemetry:claimVerificationOperationalHealth "$(jq -cn --argjson now "$now" '{now:$now}')" > claim-health.json
+          CONVEX_DEPLOY_KEY="$CONVEX_DEPLOY_KEY_PROD" pnpm --silent exec convex run --prod claimAnalytics:deliveryOperationalHealth "$(jq -cn --argjson now "$now" '{now:$now}')" > claim-analytics-health.json
+          node scripts/group-telemetry-deployment.mjs claim-health --file claim-health.json
+          node scripts/group-telemetry-deployment.mjs claim-analytics-health --file claim-analytics-health.json
+          {
+            echo "## Claim verification operational health"
+            echo
+            echo "| Metric | Value |"
+            echo "| --- | ---: |"
+            jq -r 'to_entries[] | "| \(.key) | \(.value) |"' claim-health.json
+            jq -r 'to_entries[] | "| analytics.\(.key) | \(.value) |"' claim-analytics-health.json
+          } >> "$GITHUB_STEP_SUMMARY"
           node scripts/group-telemetry-deployment.mjs drift --images images.json --task-definition task-definition.json --service service.json --tasks tasks.json --heartbeat heartbeat.json --expected-release-sha "$expected_release_sha" --expected-release-at "$expected_release_at"

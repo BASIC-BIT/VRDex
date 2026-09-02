@@ -14,6 +14,7 @@ const modules = {
   "../../convex/profileClaims.ts": () => import("../../convex/profileClaims"),
   "../../convex/claimAnalytics.ts": () => import("../../convex/claimAnalytics"),
   "../../convex/claimAnalyticsDelivery.ts": () => import("../../convex/claimAnalyticsDelivery"),
+  "../../convex/http.ts": () => import("../../convex/http"),
   "../../convex/vrclinkingCredentials.ts": () => import("../../convex/vrclinkingCredentials"),
 };
 const schema = (
@@ -113,6 +114,12 @@ describe("collector proof check queue", () => {
       collectorAccountId: await seedCollector(ctx as never, "lifecycle", now),
       attemptId: await seedAttempt(ctx as never, { targetType: "vrchat_user", now }),
     }));
+    await t.run(async (ctx) => {
+      await ctx.db.patch(seeded.attemptId, {
+        analyticsJourneyId: "3f77bd1c-4e10-4fc5-a2cc-0309d3952cf4",
+        analyticsEntrySource: "profile",
+      });
+    });
 
     const claimed = await t.mutation(internal.communityTelemetry.claimPendingProofChecks, {
       collectorAccountId: seeded.collectorAccountId,
@@ -128,6 +135,7 @@ describe("collector proof check queue", () => {
       assert.equal(attempt?.dispatchCount, 1);
       assert.equal(attempt?.firstCheckAt, undefined);
       assert.equal(attempt?.checkCount, undefined);
+      assert.equal((await ctx.db.query("claimAnalyticsOutbox").collect()).length, 0);
     });
 
     assert.deepEqual(
@@ -153,6 +161,9 @@ describe("collector proof check queue", () => {
       assert.deepEqual(events.map((event) => event.event), ["proof_dispatched", "provider_checked"]);
       assert.equal(JSON.stringify(events).includes("target-"), false);
       assert.equal(JSON.stringify(events).includes("VRDEX-"), false);
+      const analytics = await ctx.db.query("claimAnalyticsOutbox").collect();
+      assert.deepEqual(analytics.map((event) => event.event), ["claim_verification_started"]);
+      assert.equal(analytics[0]?.timeToFirstCheckBucket, "under_1m");
     });
   });
 
@@ -214,6 +225,64 @@ describe("collector proof check queue", () => {
       authRequiredCount: 0,
     });
     assert.equal(JSON.stringify(ready).includes("readiness"), false);
+  });
+
+  it("authenticates and binds heartbeat identity through the worker HTTP route", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const workerKey = "worker-secret-that-is-at-least-32-bytes";
+    const workerKeyHash = [...new Uint8Array(
+      await crypto.subtle.digest("SHA-256", new TextEncoder().encode(workerKey)),
+    )].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+    const collectorAccountId = await t.run(async (ctx) => {
+      const id = await seedCollector(ctx as never, "http-heartbeat", now);
+      await ctx.db.patch(id as never, { workerKeyHash });
+      return id;
+    });
+    const body = {
+      operation: "heartbeat",
+      workerId: "worker-http",
+      vrchatUserId: "usr_http-heartbeat",
+      releaseSha: "c".repeat(40),
+      collectorVersion: "group-telemetry-v1",
+      capabilities: ["telemetry_v1", "vrchat_proof_v1"],
+      consecutiveControlFailures: 0,
+    };
+    const request = async (authorization: string, requestBody = body) =>
+      await t.fetch("/telemetry/worker", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${authorization}`,
+          "content-type": "application/json",
+          "x-vrdex-collector-account": collectorAccountId,
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+    assert.equal((await request("wrong-secret-that-is-at-least-32-bytes")).status, 401);
+    assert.equal((await request(workerKey, { ...body, vrchatUserId: "usr_other" })).status, 401);
+    const response = await request(workerKey);
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { recorded: true });
+    await t.run(async (ctx) => {
+      const account = await ctx.db.get(collectorAccountId);
+      assert.equal(account?.lastWorkerId, "worker-http");
+      assert.equal(account?.lastWorkerReleaseSha, "c".repeat(40));
+    });
+  });
+
+  it("reports the maximum consecutive failure streak rather than a fleet sum", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      const first = await seedCollector(ctx as never, "failure-one", now);
+      const second = await seedCollector(ctx as never, "failure-two", now);
+      await ctx.db.patch(first as never, { consecutiveControlFailures: 2 });
+      await ctx.db.patch(second as never, { consecutiveControlFailures: 2 });
+    });
+
+    const health = await t.query(internal.communityTelemetry.claimVerificationOperationalHealth, { now });
+    assert.equal(health.maxConsecutiveControlFailures, 2);
   });
 
   it("does not let never-stamped vrclinking attempts starve the queue", async () => {

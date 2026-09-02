@@ -2198,8 +2198,8 @@ export const claimVerificationOperationalHealth = internalQuery({
           : Math.max(0, args.now - Math.min(...unchecked.map((attempt) => attempt.createdAt))),
       freshCollectorCount: freshCollectors.length,
       authRequiredCount: accounts.filter((account) => account.state === "auth_required").length,
-      consecutiveControlFailureCount: accounts.reduce(
-        (sum, account) => sum + (account.consecutiveControlFailures ?? 0),
+      maxConsecutiveControlFailures: accounts.reduce(
+        (maximum, account) => Math.max(maximum, account.consecutiveControlFailures ?? 0),
         0,
       ),
       releases: [...releaseCounts.entries()]

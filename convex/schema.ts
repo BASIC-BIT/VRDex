@@ -2278,6 +2278,7 @@ export default defineSchema({
     deliveredAt: v.optional(v.number()),
   })
     .index("by_eventKey", ["eventKey"])
+    .index("by_state_occurredAt", ["state", "occurredAt"])
     .index("by_state_nextAttemptAt", ["state", "nextAttemptAt"])
     .index("by_state_leaseUntil", ["state", "leaseUntil"]),
   // A user proved they control an external asset. This is deliberately not a
