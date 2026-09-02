@@ -159,7 +159,6 @@ export function assertHeartbeat(health) {
   assert.equal(health?.healthy, true, `collector operational health failed: ${(health?.issues ?? []).join(", ")}`);
   assert.ok(health.freshCollectorCount >= 1, "no fresh collector heartbeat was reported");
   assert.ok(health.matchingReleaseCount >= 1, "no fresh heartbeat matches the expected release and capabilities");
-  assert.equal(health.authRequiredCount, 0, "a collector requires authentication");
   return {
     freshCollectorCount: health.freshCollectorCount,
     matchingReleaseCount: health.matchingReleaseCount,

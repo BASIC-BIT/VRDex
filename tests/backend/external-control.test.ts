@@ -1928,6 +1928,8 @@ describe("claiming a community with a verified guild", () => {
     const retry = await asUser.mutation(api.profileConnections.claimCommunityWithVerifiedGuild, {
       profileSlug: "guild-claim",
       guildId: "777",
+      analyticsJourneyId: "1c64ccbd-6240-47ec-8a9a-e6d265f13736",
+      analyticsEntrySource: "account",
     });
 
     // The link this claim wrote is the claimant's own assertion repeated back,
@@ -1947,6 +1949,14 @@ describe("claiming a community with a verified guild", () => {
         (await getActiveProfileLinks(ctx.db, result.profileId, "discord_guild")).length,
         1,
       );
+      const analytics = (await ctx.db.query("claimAnalyticsOutbox").collect()).filter(
+        (row) => row.journeyId === "1c64ccbd-6240-47ec-8a9a-e6d265f13736",
+      );
+      assert.equal(analytics.length, 1);
+      assert.equal(analytics[0]?.event, "claim_resolved");
+      assert.equal(analytics[0]?.outcome, "claimed_unverified");
+      assert.equal(analytics[0]?.connectionOnly, true);
+      assert.equal(analytics[0]?.entrySource, "account");
     });
   });
 

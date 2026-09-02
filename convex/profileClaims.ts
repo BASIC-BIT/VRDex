@@ -646,14 +646,28 @@ function proofAdapterHeaders(): Record<string, string> {
   };
 }
 
-async function fetchDiscordJson<T>(path: string): Promise<T> {
-  const baseUrl = requireSecureOutboundUrl(
-    optionalEnv("DISCORD_API_BASE_URL") ?? "https://discord.com/api/v10",
-    "discord_api_url",
-  );
-  const response = await boundedFetch(`${baseUrl}${path}`, {
+type DiscordAdapterConfiguration = {
+  baseUrl: string;
+  botToken: string;
+};
+
+function discordAdapterConfiguration(): DiscordAdapterConfiguration {
+  return {
+    baseUrl: requireSecureOutboundUrl(
+      optionalEnv("DISCORD_API_BASE_URL") ?? "https://discord.com/api/v10",
+      "discord_api_url",
+    ),
+    botToken: requiredEnv("DISCORD_BOT_TOKEN"),
+  };
+}
+
+async function fetchDiscordJson<T>(
+  configuration: DiscordAdapterConfiguration,
+  path: string,
+): Promise<T> {
+  const response = await boundedFetch(`${configuration.baseUrl}${path}`, {
     headers: {
-      authorization: `Bot ${requiredEnv("DISCORD_BOT_TOKEN")}`,
+      authorization: `Bot ${configuration.botToken}`,
     },
   });
 
@@ -664,13 +678,18 @@ async function fetchDiscordJson<T>(path: string): Promise<T> {
   return response.body as T;
 }
 
-async function verifyDiscordAdministratorPermission(discordGuildId: string, discordUserId: string) {
+async function verifyDiscordAdministratorPermission(
+  configuration: DiscordAdapterConfiguration,
+  discordGuildId: string,
+  discordUserId: string,
+) {
   const [guild, member, roles] = await Promise.all([
-    fetchDiscordJson<DiscordGuild>(`/guilds/${encodeURIComponent(discordGuildId)}`),
+    fetchDiscordJson<DiscordGuild>(configuration, `/guilds/${encodeURIComponent(discordGuildId)}`),
     fetchDiscordJson<DiscordGuildMember>(
+      configuration,
       `/guilds/${encodeURIComponent(discordGuildId)}/members/${encodeURIComponent(discordUserId)}`,
     ),
-    fetchDiscordJson<DiscordRole[]>(`/guilds/${encodeURIComponent(discordGuildId)}/roles`),
+    fetchDiscordJson<DiscordRole[]>(configuration, `/guilds/${encodeURIComponent(discordGuildId)}/roles`),
   ]);
 
   // The provider's own name for the guild. The claim request carries a caller-
@@ -1192,11 +1211,20 @@ export const verifyDiscordCommunityAdminClaim = action({
       throw claimError("INVALID_DISCORD_GUILD_ID");
     }
 
+    // Configuration validation is not a provider check. Complete it before the
+    // authoritative first-check milestone so deployment drift cannot masquerade
+    // as verification latency.
+    const configuration = discordAdapterConfiguration();
+
     await ctx.runMutation(internal.profileClaims.recordDiscordCommunityVerificationStarted, {
       claimRequestId: args.claimRequestId,
     });
 
-    const result = await verifyDiscordAdministratorPermission(guildId, claimContext.discordUserId);
+    const result = await verifyDiscordAdministratorPermission(
+      configuration,
+      guildId,
+      claimContext.discordUserId,
+    );
 
     if (!result.verified) {
       return await ctx.runMutation(internal.profileClaims.recordDiscordCommunityAdminRejection, {

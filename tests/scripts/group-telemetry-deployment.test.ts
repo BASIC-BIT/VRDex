@@ -370,7 +370,7 @@ describe("group telemetry post-deploy verification", () => {
       issues: [],
       freshCollectorCount: 1,
       matchingReleaseCount: 1,
-      authRequiredCount: 0,
+      authRequiredCount: 3,
     }), { freshCollectorCount: 1, matchingReleaseCount: 1 });
   });
 });

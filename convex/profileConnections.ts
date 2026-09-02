@@ -279,9 +279,19 @@ export const claimCommunityWithVerifiedGuild = mutation({
     // writes. An unverified owner whose guild *is* on record still falls
     // through, since that is exactly the upgrade this mutation exists to do.
     const wouldUpgrade = profile.claimState !== "claimed_verified" && guildBacksThisProfile;
+    const analytics = claimAnalyticsContext(args.analyticsJourneyId, args.analyticsEntrySource);
 
     if (activeOwner !== null && !wouldUpgrade) {
       await linkGuild(proof._id);
+      await enqueueClaimAnalyticsEvent(ctx, analytics, {
+        event: "claim_resolved",
+        profileType: "community",
+        method: "discord",
+        outcome: profile.claimState === "claimed_verified" ? "claimed_verified" : "claimed_unverified",
+        connectionOnly: true,
+        timeToResolutionBucket: "under_1m",
+        occurredAt: now,
+      });
 
       return {
         claimRequestId: null,
@@ -291,7 +301,6 @@ export const claimCommunityWithVerifiedGuild = mutation({
       };
     }
 
-    const analytics = claimAnalyticsContext(args.analyticsJourneyId, args.analyticsEntrySource);
     const claimRequestId = await ctx.db.insert("profileClaimRequests", {
       profileId: profile._id,
       profileSlug: profile.slug,
