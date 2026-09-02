@@ -3,25 +3,22 @@ import { createPublicEventIcs, publicEventIcsFilename } from "@/lib/calendar/ics
 
 export const dynamic = "force-dynamic";
 
-type RouteContext = {
-  params: Promise<{
-    slug: string;
-  }>;
-};
-
-export async function GET(request: Request, context: RouteContext) {
-  const { slug } = await context.params;
-  const result = await fetchPublicEventBySlug(slug);
+export async function GET(
+  request: Request,
+  context: { params: Promise<{ eventSlug: string; slug: string }> },
+) {
+  const { eventSlug, slug } = await context.params;
+  const result = await fetchPublicEventBySlug(eventSlug);
 
   if (result.kind === "missing-url" || result.kind === "error") {
     return textResponse("Calendar export is not available.", 503);
   }
 
-  if (result.event === null) {
+  if (result.event === null || result.event.communitySlug !== slug) {
     return textResponse("Event not found.", 404);
   }
 
-  const canonicalUrl = new URL(`/${result.event.slug}`, request.url).href;
+  const canonicalUrl = new URL(`/${slug}/events/${result.event.slug}`, request.url).href;
   const body = createPublicEventIcs(result.event, { canonicalUrl });
 
   return new Response(body, {
@@ -36,8 +33,6 @@ export async function GET(request: Request, context: RouteContext) {
 function textResponse(message: string, status: number): Response {
   return new Response(message, {
     status,
-    headers: {
-      "Content-Type": "text/plain; charset=utf-8",
-    },
+    headers: { "Content-Type": "text/plain; charset=utf-8" },
   });
 }

@@ -45,10 +45,7 @@ import {
   getProfileBySlug,
   validateProfileSlug,
 } from "./_profileSlugs";
-import {
-  getEventBySlug as getGlobalEventBySlug,
-  getWorldBySlug as getGlobalWorldBySlug,
-} from "./_globalSlugs";
+import { getWorldBySlug as getGlobalWorldBySlug } from "./_globalSlugs";
 import { getProfileFieldVisibility, isProfileFieldVisible } from "./_profileFieldVisibility";
 import {
   createProfileSortName,
@@ -545,10 +542,9 @@ export const getPublicShareCardBySlug = query({
       return null;
     }
 
-    const [profile, world, event] = await Promise.all([
+    const [profile, world] = await Promise.all([
       getProfileBySlug(ctx.db, validation.slug),
       getGlobalWorldBySlug(ctx.db, validation.slug),
-      getGlobalEventBySlug(ctx.db, validation.slug),
     ]);
 
     if (profile !== null && canReadProfile("public", profile)) {
@@ -563,10 +559,6 @@ export const getPublicShareCardBySlug = query({
 
     if (world?.publicationState === "published") {
       return { entityType: "world" as const, profile: null };
-    }
-
-    if (event?.publicationState === "published") {
-      return { entityType: "event" as const, profile: null };
     }
 
     return null;
@@ -591,7 +583,6 @@ export const lookupPeople = query({
       {
         defaultLimit: PROFILE_LOOKUP_RESULT_LIMIT,
         maxLimit: 25,
-        takeMultiplier: 3,
       },
     );
     return rankedPeople.flatMap((result) => result.person ?? []);

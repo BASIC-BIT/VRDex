@@ -371,14 +371,19 @@ describe("public active world previews", () => {
       title: "Afterglow Harbor Sessions",
       sortTitle: "afterglow harbor sessions",
       startAt: now + 86_400_000,
-      communityName: "Afterglow Social",
+      communityProfileId: "community123",
       sourceUrl: "http://example.invalid/unsafe-event",
     } as unknown as Doc<"events">;
+    const community = {
+      _id: "community123",
+      slug: "afterglow",
+      displayName: "Afterglow Social",
+    } as unknown as Doc<"profiles">;
 
     const previews = createPublicActiveWorldPreviews(
       [
         { association, event: laterEvent, world },
-        { association, event: nextEvent, world },
+        { association, community, event: nextEvent, world },
       ],
       now,
       3,
@@ -389,6 +394,7 @@ describe("public active world previews", () => {
     assert.equal(previews[0]?.activityLabel, "Hosting upcoming events");
     assert.equal(previews[0]?.upcomingEventCount, 2);
     assert.equal(previews[0]?.nextEvent.title, "Afterglow Harbor Sessions");
+    assert.equal(previews[0]?.nextEvent.communitySlug, "afterglow");
     assert.equal("heroImageUrl" in previews[0]!, false);
     assert.equal("url" in previews[0]!.nextEvent.source, false);
   });

@@ -56,7 +56,7 @@ Candidate first slice for `#84`:
 
 World pages should be reachable at a stable public route such as `/w/<slug>`.
 
-> **Update 2026-08-11:** superseded. Profiles, worlds, and events are now first-class root links at `/<slug>`, sharing one global slug namespace. The `/p/`, `/c/`, `/w/`, and `/e/` prefixes were removed outright with no redirect. The text below is kept as the record of what was planned at the time. See `docs/backend/profile-slugs.md` for the live contract.
+> **Update 2026-08-31:** superseded. Profiles and worlds are root links at `/<slug>`. Community events use generated codes at `/<community>/events/<event-code>`. See `docs/backend/profile-slugs.md` for the live contract.
 
 ## Creator Attribution
 

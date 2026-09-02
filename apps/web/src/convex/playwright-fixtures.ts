@@ -892,6 +892,7 @@ const activeWorlds: PublicActiveWorld[] = [
     activityLabel: "Hosting upcoming events",
     nextEvent: {
       slug: eventSlug,
+      communitySlug,
       title: "Afterglow Harbor Sessions",
       startAt: eventStartAt,
       doorsOpenAt: eventDoorsOpenAt,
@@ -910,7 +911,6 @@ const publicEvent: PublicEvent = {
   ...eventPreview,
   id: "event-playwright-afterglow-harbor-sessions",
   slug: eventSlug,
-  notes: "Doors open before the first set. Follow host announcements for instance details.",
   watchSurfaceEnabled: false,
   authoredMediaLinks: [
     {
@@ -1028,7 +1028,6 @@ const publicWatchEvent: PublicEvent = {
   doorsOpenAt: watchEventDoorsOpenAt,
   endAt: watchEventEndAt,
   summary: "Live room for the Afterglow set stream.",
-  notes: "Use the player during the event, or open the stream in a new tab.",
   bannerImageUrl: "/api/e2e/fixture-assets/fixture-afterglow-event-banner",
   thumbnailImageUrl: "/api/e2e/fixture-assets/fixture-afterglow-event-thumbnail",
   watchSurfaceEnabled: true,
@@ -1090,7 +1089,7 @@ const discoveryResults: PublicSearchResult[] = [
   {
     entityType: "event",
     slug: eventSlug,
-    routePath: `/${eventSlug}`,
+    routePath: `/${communitySlug}/events/${eventSlug}`,
     title: "Afterglow Harbor Sessions",
     subtitle: "Afterglow Social",
     summary: "Late-night harbor club session with house, trance, and warm social energy.",
@@ -1573,7 +1572,7 @@ export function getPlaywrightPublicShortLinkFixture(
     return {
       code: normalized,
       targetType: "event",
-      path: `/${eventSlug}`,
+      path: `/${communitySlug}/events/${eventSlug}`,
     };
   }
 
@@ -1595,6 +1594,6 @@ export const playwrightPublicProfilePaths = {
   personPath: `/${personSlug}`,
   communityPath: `/${communitySlug}`,
   worldPath: `/${worldSlug}`,
-  eventPath: `/${eventSlug}`,
-  eventWatchPath: `/${eventWatchSlug}`,
+  eventPath: `/${communitySlug}/events/${eventSlug}`,
+  eventWatchPath: `/${communitySlug}/events/${eventWatchSlug}`,
 };

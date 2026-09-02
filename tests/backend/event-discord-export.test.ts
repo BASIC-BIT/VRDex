@@ -168,7 +168,6 @@ describe("Discord event post export", () => {
         label: "Imported source",
         url: "https://example.invalid/source-post",
       },
-      notes: "Bring water.",
     });
     const post = formatDiscordEventPost({
       canonicalUrl: "https://vrdex.net/e/afterglow-harbor-sessions-2026-06-14",

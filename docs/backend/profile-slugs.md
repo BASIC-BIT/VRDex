@@ -4,7 +4,9 @@
 
 This doc captures the slug contract for `#10`.
 
-Profiles, worlds, and events share one global slug namespace and all render from the site root as `/<slug>`. This avoids ambiguous API, card, and search lookups, and it is what makes a bare `vrdex.net/basicbit` resolvable without a type prefix.
+Profiles and worlds render from the site root as `/<slug>`. Community events
+render below their community as `/<community>/events/<event>`. A bare
+`vrdex.net/basicbit` therefore resolves only a profile or world.
 
 Reservations live in `convex/_globalSlugs.ts` as four catalogs, because a name can be unavailable for four different reasons and read paths care about only one of them.
 
@@ -24,7 +26,7 @@ Reservations live in `convex/_globalSlugs.ts` as four catalogs, because a name c
 All four live in `convex/_globalSlugs.ts`.
 
 - `LIVE_ROUTE_SLUGS`: `/<name>` itself resolves to something other than `[slug]` -- a page, an optional catch-all, a middleware redirect, or a `beforeFiles` rewrite. An entity holding one has no reachable page. This is the only catalog a *read* path consults, via `isLiveRouteSlug`.
-- `ROUTE_PREFIX_SLUGS`: a route beneath the name matches an entity subpath. Next matches whole leaf patterns rather than claiming everything below a directory, so this is narrower than it looks: `app/developers/` has no leaf at that depth and `/developers/edit` falls through to `/[slug]/edit` like any other URL, while `handoff/[token]/page.tsx` does match `/handoff/edit` with the token read as "edit". `app/events/[slug]/edit` needs three segments, so `/events/edit` is *not* intercepted. Only `handoff` and `l` qualify today. An entity holding one keeps its public page and loses its owner-facing subpaths, which is why `slugAudit` reports these separately.
+- `ROUTE_PREFIX_SLUGS`: a route beneath the name matches an entity subpath. Next matches whole leaf patterns rather than claiming everything below a directory, so this is narrower than it looks: `app/developers/` has no leaf at that depth and `/developers/edit` falls through to `/[slug]/edit` like any other URL, while dynamic children under `handoff` and `l` intercept nested entity-shaped paths. `events` is held because community event routes live under `/<community>/events/...`. An entity holding one keeps its public page and loses its owner-facing subpaths, which is why `slugAudit` reports these separately.
 - `HELD_ROUTE_SLUGS`: nothing serves them at all. Held for pages we may add.
 - `RESERVED_PREMIUM_SLUGS`: short, generic, or otherwise valuable names withheld from self-serve so they can be granted or sold later. `basicbit` and `vrdex` are here. Slugs under three characters are already unassignable, which reserves that whole space without listing it.
 
@@ -47,7 +49,10 @@ Initial slug generation starts from a display name or owner-provided text:
 
 ## Uniqueness
 
-Convex does not enforce unique indexes at the schema layer. Slug uniqueness is enforced by mutations before insert or update, and it spans all three root-routed tables: a name a world or event holds is taken for a profile too, because only one of them could answer `/<slug>`.
+Convex does not enforce unique indexes at the schema layer. Slug uniqueness is
+enforced by mutations before insert or update. Profiles and worlds share the
+root slug namespace. Community event codes use a separate namespace beneath
+each community route.
 
 Use `findSlugOwner` from `convex/_globalSlugs.ts`, or the `check*SlugAvailability` helper for the entity being written, which calls it. A single `by_slug` query sees one third of the namespace. Convex mutations are transactional across tables, so a check followed by an insert in the same mutation cannot race.
 
@@ -55,7 +60,7 @@ Use `findSlugOwner` from `convex/_globalSlugs.ts`, or the `check*SlugAvailabilit
 
 - normalize and validate the candidate slug
 - reject invalid or reserved slugs
-- reject collisions across profiles, worlds, and events, excluding the row being updated
+- reject collisions across profiles and worlds, excluding the row being updated
 - patch `updatedAt` with the slug write
 
 ## Out of Scope

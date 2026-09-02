@@ -158,10 +158,6 @@ export async function fetchPublicProfileShareCardBySlug(slug: string) {
     return { kind: "live" as const, entityType: "world" as const, profile: null };
   }
 
-  if (getPlaywrightPublicEventFixture(slug) !== null) {
-    return { kind: "live" as const, entityType: "event" as const, profile: null };
-  }
-
   if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
     return { kind: "missing-url" as const, entityType: null, profile: null };
   }
@@ -278,11 +274,11 @@ type PublicEntity =
       profile: NonNullable<Awaited<ReturnType<typeof fetchPublicProfileBySlug>>["profile"]>;
       shareCard: PublicProfileShareCard | null;
     }
-  | { type: "world"; world: NonNullable<Awaited<ReturnType<typeof fetchPublicWorldBySlug>>["world"]> }
-  | { type: "event"; event: NonNullable<Awaited<ReturnType<typeof fetchPublicEventBySlug>>["event"]> };
+  | { type: "world"; world: NonNullable<Awaited<ReturnType<typeof fetchPublicWorldBySlug>>["world"]> };
 
-// Profiles, worlds, and events share one slug namespace and all render from the site
-// root, so /basicbit has to ask all three which one owns the name.
+// Profiles and worlds share one slug namespace and render from the site root, so
+// /basicbit has to ask both which one owns the name. Events live below their
+// community route and are resolved separately.
 //
 // Fanned out rather than resolved in a single backend query on purpose: each fetcher
 // already layers Playwright fixtures and (for profiles) Twitch live state over its
@@ -294,10 +290,9 @@ async function fetchPublicEntityBySlugUncached(
   | { kind: "error" }
   | { kind: "live"; entity: PublicEntity | null }
 > {
-  const [profileResult, worldResult, eventResult] = await Promise.all([
+  const [profileResult, worldResult] = await Promise.all([
     fetchPublicProfileBySlug(slug),
     fetchPublicWorldBySlug(slug),
-    fetchPublicEventBySlug(slug),
   ]);
 
   if (profileResult.kind === "live" && profileResult.profile !== null) {
@@ -315,11 +310,7 @@ async function fetchPublicEntityBySlugUncached(
     return { kind: "live", entity: { type: "world", world: worldResult.world } };
   }
 
-  if (eventResult.kind === "live" && eventResult.event !== null) {
-    return { kind: "live", entity: { type: "event", event: eventResult.event } };
-  }
-
-  const results = [profileResult, worldResult, eventResult];
+  const results = [profileResult, worldResult];
 
   // An unreachable backend must not read as "no such page" -- a 404 would tell a
   // visitor their profile is gone when the truth is the read failed.
@@ -605,5 +596,28 @@ export async function fetchEditableEventBySlug(slug: string) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`Server-side Convex editable event fetch failed: ${message}`);
     return { kind: "error" as const, event: null };
+  }
+}
+
+export async function fetchManagedCommunityBySlug(slug: string) {
+  if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
+    return { kind: "missing-url" as const, community: null };
+  }
+
+  try {
+    const community = await fetchQuery(
+      api.events.getManagedCommunityBySlug,
+      { slug },
+      { token: await convexAuthToken() },
+    );
+
+    return {
+      kind: "live" as const,
+      community,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Server-side Convex managed community fetch failed: ${message}`);
+    return { kind: "error" as const, community: null };
   }
 }

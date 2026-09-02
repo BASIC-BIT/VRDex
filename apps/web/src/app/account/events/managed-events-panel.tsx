@@ -19,12 +19,24 @@ function eventState(event: {
 
 export function ManagedEventsPanel() {
   const events = useQuery(api.events.listManagedEvents, { limit: 100 });
+  const communities = useQuery(api.events.listManagedCommunities, {});
 
   return (
     <main className="grid gap-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <SectionTitle>Events</SectionTitle>
-        <Link className={buttonVariants({ variant: "primary" })} href="/events/new">Add event</Link>
+        <div className="flex flex-wrap justify-end gap-2">
+          {communities?.map((community) => (
+            <Link
+              aria-label={`Add event for ${community.displayName}`}
+              className={buttonVariants({ variant: "primary" })}
+              href={`/${community.slug}/events/create`}
+              key={community.profileId}
+            >
+              {communities.length === 1 ? "Add event" : `Add ${community.displayName} event`}
+            </Link>
+          ))}
+        </div>
       </div>
       {events === undefined ? <p aria-busy="true" className="text-sm text-muted">Loading events…</p> : null}
       {events?.length === 0 ? <Notice>No events</Notice> : null}
@@ -32,7 +44,7 @@ export function ManagedEventsPanel() {
         {events?.map((event) => (
           <Card className="flex flex-wrap items-center justify-between gap-4" key={event.eventId} padding="sm">
             <div>
-              <Link className="text-lg font-semibold underline-offset-4 hover:underline" href={`/events/${event.slug}/edit`}>
+              <Link className="text-lg font-semibold underline-offset-4 hover:underline" href={`/${event.communitySlug}/events/${event.slug}/edit`}>
                 {event.title}
               </Link>
               <p className="mt-1 text-sm text-muted">

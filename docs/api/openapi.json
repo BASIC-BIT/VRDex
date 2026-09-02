@@ -5770,11 +5770,6 @@
               }
             ]
           },
-          "preferredSlug": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 160
-          },
           "summary": {
             "anyOf": [
               {
@@ -5787,6 +5782,7 @@
             ]
           },
           "notes": {
+            "description": "Private notes visible only to authorized event managers.",
             "anyOf": [
               {
                 "type": "string",
@@ -6015,16 +6011,12 @@
             "minLength": 1,
             "maxLength": 160
           },
-          "preferredSlug": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 160
-          },
           "summary": {
             "type": "string",
             "maxLength": 240
           },
           "notes": {
+            "description": "Private notes visible only to authorized event managers.",
             "type": "string",
             "maxLength": 1200
           },
@@ -9994,9 +9986,6 @@
               "additionalProperties": {},
               "description": "Public event media or outbound link."
             }
-          },
-          "notes": {
-            "type": "string"
           },
           "participants": {
             "type": "array",

@@ -20,10 +20,10 @@ const appRoot = path.join(process.cwd(), "apps", "web", "src", "app");
 const nextConfigPath = path.join(process.cwd(), "apps", "web", "next.config.ts");
 
 /**
- * Profiles, worlds, and events render from the site root, so `/[slug]` is the last
- * route Next tries. Anything that resolves ahead of it wins: the day someone adds
- * `apps/web/src/app/pricing/page.tsx`, a profile slugged `pricing` stops resolving
- * and serves the pricing page instead.
+ * Profiles and worlds render from the site root, so `/[slug]` is the last route
+ * Next tries for them. Anything that resolves ahead of it wins: the day someone
+ * adds `apps/web/src/app/pricing/page.tsx`, a profile slugged `pricing` stops
+ * resolving and serves the pricing page instead.
  *
  * The four per-entity reserved lists this replaced had already drifted apart from
  * each other and from the real route tree. Prefixed URLs hid that. At the root it

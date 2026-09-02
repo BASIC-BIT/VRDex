@@ -1,5 +1,6 @@
 import type { Doc } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
+import { eventPathForSlugs } from "./_eventPaths";
 import { getPublicProfileMediaKit } from "./_profileAssets";
 import { toProfileLookupResult } from "./_profileLookup";
 import { canReadProfile } from "./_profilePermissions";
@@ -12,6 +13,8 @@ import {
   type PublicSearchResult,
   type SearchEntityType,
 } from "./_searchDocuments";
+
+const PUBLIC_SEARCH_DOCUMENT_SCAN_LIMIT = 500;
 
 export type PublicSearchFilters = {
   entityType?: SearchEntityType;
@@ -43,6 +46,30 @@ export async function projectPublicSearchResult(
   document: Doc<"searchDocuments">,
   searchText: string | undefined,
 ): Promise<PublicSearchResult | null> {
+  if (document.entityType === "event" && document.eventId !== undefined) {
+    const event = await ctx.db.get(document.eventId);
+    const community = event?.communityProfileId === undefined
+      ? null
+      : await ctx.db.get(event.communityProfileId);
+
+    if (
+      event === null ||
+      event.slug === undefined ||
+      community === null ||
+      community.profileType !== "community" ||
+      !canReadProfile("public", community)
+    ) {
+      return null;
+    }
+
+    return {
+      ...toPublicSearchResult(document, searchText),
+      slug: event.slug,
+      routePath: eventPathForSlugs(community.slug, event.slug),
+      subtitle: community.displayName,
+    };
+  }
+
   if (document.entityType !== "profile" || document.profileId === undefined) {
     return toPublicSearchResult(document, searchText);
   }
@@ -71,13 +98,35 @@ export async function projectPublicSearchResult(
   };
 }
 
+export async function isPublicEventSearchDocument(
+  ctx: QueryCtx,
+  document: Doc<"searchDocuments">,
+): Promise<boolean> {
+  if (document.entityType !== "event" || document.eventId === undefined) {
+    return false;
+  }
+
+  const event = await ctx.db.get(document.eventId);
+  const community = event?.communityProfileId === undefined
+    ? null
+    : await ctx.db.get(event.communityProfileId);
+
+  return (
+    event !== null &&
+    event.slug !== undefined &&
+    community !== null &&
+    community.profileType === "community" &&
+    canReadProfile("public", community)
+  );
+}
+
 export async function searchPublicDocuments(
   ctx: QueryCtx,
   args: {
     query: string;
     limit?: number;
   } & PublicSearchFilters,
-  options: { defaultLimit: number; maxLimit: number; takeMultiplier?: number },
+  options: { defaultLimit: number; maxLimit: number },
 ): Promise<PublicSearchResult[]> {
   const searchText = normalizeSearchQuery(args.query);
   const limit = boundedLimit(args.limit, options.defaultLimit, options.maxLimit);
@@ -98,7 +147,9 @@ export async function searchPublicDocuments(
         ? matchingEntity
         : matchingEntity.eq("profileType", args.profileType);
     })
-    .take(limit * (options.takeMultiplier ?? 2));
+    // A fixed ceiling keeps the query simple and bounded while allowing public
+    // results to refill after stale or newly hidden records are projected out.
+    .take(PUBLIC_SEARCH_DOCUMENT_SCAN_LIMIT);
 
   const documentsByKey = new Map(
     documents.map((document) => [`${document.entityType}:${document.slug}`, document]),

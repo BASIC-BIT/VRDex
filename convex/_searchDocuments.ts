@@ -1,6 +1,7 @@
 import type { Doc } from "./_generated/dataModel";
 import type { DatabaseReader, DatabaseWriter } from "./_generated/server";
 import type { PublicProfileMediaKit } from "./_profileAssets";
+import { eventPathForSlugs } from "./_eventPaths";
 import type { toProfileLookupResult } from "./_profileLookup";
 import { visibleProfileField, visibleProfileList } from "./_profileFieldVisibility";
 import { firstSafeHttpsUrl, optionalField, safeHttpsUrl } from "./_publicFields";
@@ -384,7 +385,15 @@ export function createEventSearchDocument(
   const sourceUrl = safeHttpsUrl(event.sourceUrl);
   const vocabulary = vocabularyForEvent(event, context.roleLabels ?? []);
   const worldTerms = context.world ? [context.world.displayName, ...context.world.tags] : [];
-  const routePath = event.slug === undefined ? "/" : `/${event.slug}`;
+  const indexedCommunity = context.community?.profileType === "community"
+    ? context.community
+    : undefined;
+  // Keep published events eligible in the index across community visibility
+  // changes. Public search rechecks the live community before returning a row,
+  // so restoring a community works without an unbounded event reindex sweep.
+  const routePath = event.slug === undefined || indexedCommunity === undefined
+    ? "/"
+    : eventPathForSlugs(indexedCommunity.slug, event.slug);
   const isUpcoming = event.startAt >= Date.now();
 
   return {
@@ -392,28 +401,29 @@ export function createEventSearchDocument(
     publicState:
       event.publicationState === "published" &&
       event.eventStatus === "scheduled" &&
-      event.slug !== undefined
+      event.slug !== undefined &&
+      indexedCommunity !== undefined
         ? "public"
         : "hidden",
     eventId: event._id,
     slug: event.slug ?? String(event._id),
     routePath,
     title: event.title,
-    subtitle: event.communityName ?? context.community?.displayName ?? "Event",
+    subtitle: event.communityName ?? indexedCommunity?.displayName ?? "Event",
     ...optionalField("summary", event.summary),
     ...optionalField("imageUrl", firstSafeHttpsUrl(event.thumbnailImageUrl, event.posterImageUrl, event.bannerImageUrl)),
     searchText: weightedCorpus([
       { values: [event.title, event.slug], weight: 8 },
-      { values: [event.communityName, context.community?.displayName], weight: 5 },
+      { values: [event.communityName, indexedCommunity?.displayName], weight: 5 },
       { values: worldTerms, weight: 4 },
       { values: context.roleLabels ?? [], weight: 3 },
-      { values: [event.summary, event.notes, event.timezone, sourceUrl], weight: 1 },
+      { values: [event.summary, event.timezone, sourceUrl], weight: 1 },
     ]),
     exactTokens: exactTokens([
       event.title,
       event.slug,
       event.communityName,
-      context.community?.displayName,
+      indexedCommunity?.displayName,
       ...worldTerms,
       ...(context.roleLabels ?? []),
     ]),
@@ -498,15 +508,13 @@ export function toPublicSearchResult(
     entityType: document.entityType,
     ...optionalField("profileType", document.profileType),
     slug: document.slug,
-    // Derived, not read back from the row. `routePath` is persisted at index time,
-    // so every document written before profiles moved to the site root still holds
-    // a `/p/`, `/c/`, `/w/`, or `/e/` path -- and those routes are gone. Returning
-    // the stored value would send searchers to a 404 until each entity happened to
-    // be reindexed. The slug is the whole path now, so there is nothing to store.
+    // Profiles and worlds still derive their root path so documents indexed under
+    // retired prefixes do not keep dead links. Event paths carry community context,
+    // so their indexed route must be preserved.
     //
     // Slugless events keep `String(event._id)` as their slug, but the constructor
     // marks those `hidden`, so they never reach this public projection.
-    routePath: `/${document.slug}`,
+    routePath: document.entityType === "event" ? document.routePath : `/${document.slug}`,
     title: document.title,
     ...optionalField("subtitle", document.subtitle),
     ...optionalField("summary", document.summary),

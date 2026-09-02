@@ -414,7 +414,6 @@ export const PublicEventSchema = PublicEventPreviewSchema.extend({
   authoredMediaLinks: z.array(PublicEventMediaLinkSchema).optional(),
   id: z.string(),
   mediaLinks: z.array(PublicEventMediaLinkSchema).optional(),
-  notes: z.string().optional(),
   participants: z.array(z.unknown()).optional(),
   slots: z.array(z.unknown()).optional(),
   slug,
@@ -446,9 +445,8 @@ export const ApiEventCreateRequestSchema = z
     endAt: timestampMs.optional(),
     timezone: z.string().max(64).optional(),
     worldSlug: slug.optional(),
-    preferredSlug: slug.optional(),
     summary: z.string().max(240).optional(),
-    notes: z.string().max(1_200).optional(),
+    notes: z.string().max(1_200).optional().describe("Private notes visible only to authorized event managers."),
     sourceLabel: z.string().max(120).optional(),
     sourceUrl: absoluteUrl.optional(),
     posterImageUrl: absoluteUrl.optional(),
@@ -513,7 +511,7 @@ export const ApiEventUpdateRequestSchema = ApiEventCreateRequestSchema.partial()
     timezone: z.string().max(64).nullable().optional(),
     worldSlug: slug.nullable().optional(),
     summary: z.string().max(240).nullable().optional(),
-    notes: z.string().max(1_200).nullable().optional(),
+    notes: z.string().max(1_200).nullable().optional().describe("Private notes visible only to authorized event managers."),
     sourceUrl: absoluteUrl.nullable().optional(),
     posterImageUrl: absoluteUrl.nullable().optional(),
     bannerImageUrl: absoluteUrl.nullable().optional(),
@@ -526,7 +524,7 @@ export const ApiEventUpdateRequestSchema = ApiEventCreateRequestSchema.partial()
     if (replacesParticipants !== replacesSlots) {
       context.addIssue({
         code: "custom",
-        message: "Event participantLinks and slotLinks must be supplied together when replacing lineup data.",
+        message: "Event participantLinks and slotLinks must be supplied together when replacing schedule data.",
         path: replacesParticipants ? ["slotLinks"] : ["participantLinks"],
       });
     }

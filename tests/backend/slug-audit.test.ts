@@ -66,7 +66,7 @@ describe("slug conflict audit", () => {
 
     const report = await t.query(internal.slugAudit.conflicts, {});
 
-    assert.deepEqual(report.checked, { profiles: 1, worlds: 2, events: 0 });
+    assert.deepEqual(report.checked, { profiles: 1, worlds: 2 });
     assert.equal(report.duplicates.length, 1);
     assert.equal(report.duplicates[0]?.slug, "neon-harbor");
     assert.deepEqual(
@@ -137,30 +137,5 @@ describe("slug conflict audit", () => {
       [{ slug: "handoff", lostSubpaths: ["opengraph-image"] }],
     );
     assert.deepEqual(report.duplicates, []);
-  });
-
-  it("ignores events that have no slug to collide with", async () => {
-    const t = convexTest({ schema, modules });
-
-    await t.run(async (ctx) => {
-      await ctx.db.insert("profiles", profileRow("afterglow", "Afterglow"));
-      await ctx.db.insert("events", {
-        title: "Unslugged Event",
-        sortTitle: "unslugged event",
-        startAt: 1,
-        timezone: "UTC",
-        sourceType: "manual" as const,
-        sourceLabel: "Fixture",
-        eventStatus: "scheduled" as const,
-        publicationState: "draft_private" as const,
-        updatedAt: 1,
-      });
-    });
-
-    const report = await t.query(internal.slugAudit.conflicts, {});
-
-    assert.equal(report.checked.events, 1);
-    assert.equal(report.duplicates.length, 0);
-    assert.equal(report.shadowedByRoute.length, 0);
   });
 });

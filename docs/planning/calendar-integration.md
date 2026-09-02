@@ -103,7 +103,12 @@ Do not include private notes, moderation fields, private contact paths, unreview
 
 Locked decision: the first practical calendar implementation is outbound-only single-event `.ics` export for public event pages.
 
-Published events can be exported from `/<slug>/calendar.ics`. The route reads the same public event projection used by `/<slug>`, returns `404` when the event is missing or not public, and emits UTC `VEVENT` timestamps with summary, canonical VRDex URL, and public location text derived from visible world or host data.
+Published community events can be exported from
+`/<community>/events/<event-code>/calendar.ics`. The route reads the same public
+event projection used by the nested event page, verifies that the event belongs
+to the routed community, returns `404` when the event is missing or not public,
+and emits UTC `VEVENT` timestamps with summary, canonical VRDex URL, and public
+location text derived from visible world or host data.
 
 Current recommendation: keep the public export surface static and public-data-only. The shared ICS serializer now supports both a single safe event export and a selected public event feed, but product UI for feed subscriptions should wait until follow, favorites, or community calendar selection exists.
 

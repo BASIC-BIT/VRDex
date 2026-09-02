@@ -839,9 +839,9 @@ async function queueCandidate(ctx: MutationCtx, args: QueueCandidateArgs) {
     // findAvailableProfileSlug repairs are checked here too.
     const collisionSlug = validProposedSlug ?? createProfileSlugBase(candidate.proposedDisplayName);
     const slugCollisionProfile = await getProfileBySlug(ctx.db, collisionSlug);
-    // Worlds and events share the root namespace, so one of them holding the slug
-    // collides just as hard. Reported separately from `slugCollisionProfile`
-    // because that doubles as a merge target and these are not mergeable.
+    // Worlds share the root namespace with profiles. Reported separately from
+    // `slugCollisionProfile` because that doubles as a merge target and worlds
+    // are not mergeable profile records.
     const slugOwnedByOtherEntity =
       slugCollisionProfile === null && (await findSlugOwner(ctx.db, collisionSlug)) !== null;
     // The shared identity-aware check, not a slug-only lookup. A slug-only hit

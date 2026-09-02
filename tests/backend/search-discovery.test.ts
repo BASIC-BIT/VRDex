@@ -343,26 +343,49 @@ describe("search document projection", () => {
       startAt: Date.now() + 86_400_000,
       communityName: "Afterglow Social",
       summary: "A poster-forward fixture event.",
+      notes: "private-manager-token",
       sourceType: "manual",
       sourceLabel: "Fixture event listing",
       eventStatus: "scheduled",
       publicationState: "published",
       updatedAt: 1,
     } as unknown as Doc<"events">;
+    const community = {
+      slug: "afterglow",
+      displayName: "Afterglow Social",
+      profileType: "community",
+      publicationState: "published",
+      publicSurfacingState: "public",
+    } as unknown as Doc<"profiles">;
 
     const worldDocument = createWorldSearchDocument(world);
-    const eventDocument = createEventSearchDocument(event, { world, roleLabels: ["House"] });
+    const eventDocument = createEventSearchDocument(event, { community, world, roleLabels: ["House"] });
 
     assert.equal(worldDocument.entityType, "world");
     assert.ok(worldDocument.searchText.includes("Afterglow Social"));
     assert.equal(eventDocument.entityType, "event");
     assert.equal(eventDocument.publicState, "public");
+    assert.equal(eventDocument.routePath, "/afterglow/events/afterglow-harbor-sessions");
     assert.ok(eventDocument.searchText.includes("Neon Harbor"));
+    assert.equal(eventDocument.searchText.includes("private-manager-token"), false);
     assert.deepEqual(eventDocument.vocabularyKeys, [
       "event_participant_role:house",
       "event_tag:afterglow_social",
       "event_tag:upcoming",
     ]);
+
+    const hiddenCommunityDocument = createEventSearchDocument(event, {
+      community: {
+        ...community,
+        publicSurfacingState: "suppressed",
+      } as Doc<"profiles">,
+    });
+
+    assert.equal(hiddenCommunityDocument.publicState, "public");
+    assert.equal(
+      hiddenCommunityDocument.routePath,
+      "/afterglow/events/afterglow-harbor-sessions",
+    );
   });
 
   it("omits hidden linked profile attribution names from world search documents", () => {
@@ -451,7 +474,7 @@ describe("search document projection", () => {
       ...weak,
       entityType: "event",
       slug: "house-night",
-      routePath: "/house-night",
+      routePath: "/afterglow/events/house-night",
       title: "House Night",
       exactTokens: ["house"],
       trustRank: 30,
@@ -465,6 +488,7 @@ describe("search document projection", () => {
     ]);
 
     assert.equal(results[0]?.slug, "house-night");
+    assert.equal(results[0]?.routePath, "/afterglow/events/house-night");
   });
 
   it("matches BASICBIT exact aliases without case-sensitive ranking drift", () => {
@@ -532,6 +556,82 @@ describe("search document projection", () => {
     assert.equal(await projectPublicSearchResult(ctx, document, "BASICBIT"), null);
   });
 
+  it("drops an event when its community became non-public after indexing", async () => {
+    const event = {
+      _id: "event123",
+      communityProfileId: "community123",
+      slug: "h4rb0r2",
+    } as unknown as Doc<"events">;
+    const community = {
+      _id: "community123",
+      profileType: "community",
+      publicationState: "published",
+      publicSurfacingState: "suppressed",
+    } as unknown as Doc<"profiles">;
+    const document = {
+      entityType: "event",
+      eventId: event._id,
+      slug: "harbor-sessions",
+      routePath: "/afterglow/events/harbor-sessions",
+      title: "Harbor Sessions",
+      searchText: "Harbor Sessions",
+      exactTokens: ["harbor sessions"],
+      vocabularyKeys: [],
+      trustRank: 10,
+      featuredRank: 20,
+      publicState: "public",
+      updatedAt: 1,
+    } as unknown as Doc<"searchDocuments">;
+    const ctx = {
+      db: {
+        get: async (id: string) => id === event._id ? event : community,
+      },
+    } as unknown as QueryCtx;
+
+    assert.equal(await projectPublicSearchResult(ctx, document, "Harbor"), null);
+  });
+
+  it("rebuilds event result routes from the live community slug", async () => {
+    const event = {
+      _id: "event123",
+      communityProfileId: "community123",
+      slug: "h4rb0r2",
+    } as unknown as Doc<"events">;
+    const community = {
+      _id: "community123",
+      slug: "afterglow-renamed",
+      displayName: "Afterglow Renamed",
+      profileType: "community",
+      publicationState: "published",
+      publicSurfacingState: "public",
+    } as unknown as Doc<"profiles">;
+    const document = {
+      entityType: "event",
+      eventId: event._id,
+      slug: event.slug,
+      routePath: "/afterglow/events/h4rb0r2",
+      title: "Harbor Sessions",
+      subtitle: "Afterglow",
+      searchText: "Harbor Sessions",
+      exactTokens: ["harbor sessions"],
+      vocabularyKeys: [],
+      trustRank: 10,
+      featuredRank: 20,
+      publicState: "public",
+      updatedAt: 1,
+    } as unknown as Doc<"searchDocuments">;
+    const ctx = {
+      db: {
+        get: async (id: string) => id === event._id ? event : community,
+      },
+    } as unknown as QueryCtx;
+
+    const result = await projectPublicSearchResult(ctx, document, "Harbor");
+
+    assert.equal(result?.routePath, "/afterglow-renamed/events/h4rb0r2");
+    assert.equal(result?.subtitle, "Afterglow Renamed");
+  });
+
   it("projects profile verification without exposing it as provenance copy", async () => {
     const profile = {
       _id: "profile123",
@@ -583,10 +683,10 @@ describe("search document projection", () => {
   });
 
   it("applies the result limit after dropping stale search documents", async () => {
-    const hiddenProfile = {
-      _id: "hiddenProfile",
-      slug: "hidden-house",
-      displayName: "House",
+    const hiddenProfiles = Array.from({ length: 3 }, (_, index) => ({
+      _id: `hiddenProfile${index}`,
+      slug: `hidden-house-${index}`,
+      displayName: `House ${index}`,
       aliases: [],
       tags: [],
       genres: [],
@@ -597,14 +697,14 @@ describe("search document projection", () => {
       profileType: "person",
       person: { roleTags: [] },
       updatedAt: 2,
-    } as unknown as Doc<"profiles">;
-    const hiddenDocument = {
+    })) as unknown as Doc<"profiles">[];
+    const hiddenDocuments = hiddenProfiles.map((profile) => ({
       entityType: "profile",
       profileType: "person",
-      profileId: hiddenProfile._id,
-      slug: hiddenProfile.slug,
-      routePath: `/${hiddenProfile.slug}`,
-      title: hiddenProfile.displayName,
+      profileId: profile._id,
+      slug: profile.slug,
+      routePath: `/${profile.slug}`,
+      title: profile.displayName,
       searchText: "House",
       exactTokens: ["house"],
       vocabularyKeys: [],
@@ -612,7 +712,7 @@ describe("search document projection", () => {
       featuredRank: 0,
       publicState: "public",
       updatedAt: 1,
-    } as unknown as Doc<"searchDocuments">;
+    })) as unknown as Doc<"searchDocuments">[];
     const visibleDocument = {
       entityType: "event",
       slug: "visible-house-night",
@@ -635,11 +735,11 @@ describe("search document projection", () => {
         configure(searchBuilder);
         return queryBuilder;
       },
-      take: async () => [hiddenDocument, visibleDocument],
+      take: async (count: number) => [...hiddenDocuments, visibleDocument].slice(0, count),
     };
     const ctx = {
       db: {
-        get: async () => hiddenProfile,
+        get: async (id: string) => hiddenProfiles.find((profile) => profile._id === id) ?? null,
         query: () => queryBuilder,
       },
     } as unknown as QueryCtx;
@@ -824,7 +924,7 @@ describe("search document projection", () => {
     const pastEvent = {
       entityType: "event",
       slug: "past-house-night",
-      routePath: "/past-house-night",
+      routePath: "/afterglow/events/past-house-night",
       title: "Past House Night",
       searchText: "House",
       exactTokens: ["house"],
@@ -838,7 +938,7 @@ describe("search document projection", () => {
     const upcomingEvent = {
       ...pastEvent,
       slug: "upcoming-house-night",
-      routePath: "/upcoming-house-night",
+      routePath: "/afterglow/events/upcoming-house-night",
       title: "Upcoming House Night",
       startsAt: Date.now() + 3_600_000,
     } as unknown as Doc<"searchDocuments">;

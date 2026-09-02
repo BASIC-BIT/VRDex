@@ -13,8 +13,8 @@ import {
 
 const EVENT_PREVIEW_DEFAULT_LIMIT = 6;
 const EVENT_ASSOCIATION_LIMIT = 80;
+const EVENT_ASSOCIATION_SCAN_LIMIT = 500;
 const EVENT_PREVIEW_MAX_LIMIT = EVENT_ASSOCIATION_LIMIT;
-const CURRENT_EVENT_CANDIDATE_LIMIT = 128;
 
 type PublicEventSourceType = "manual" | "community" | "partner" | "import" | "ai_suggested";
 type PublicEventMediaLinkType =
@@ -95,7 +95,6 @@ export type PublicEventPreview = {
 export type PublicEvent = PublicEventPreview & {
   id: string;
   slug: string;
-  notes?: string;
   watchSurfaceEnabled: boolean;
   authoredBannerImageUrl?: string;
   authoredThumbnailImageUrl?: string;
@@ -312,7 +311,7 @@ export function toPublicEventPreviewFromRecord(
     ...optionalField("doorsOpenAt", event.doorsOpenAt),
     ...optionalField("endAt", event.endAt),
     ...optionalField("timezone", event.timezone),
-    ...optionalField("communityName", community?.displayName ?? event.communityName),
+    ...optionalField("communityName", community?.displayName),
     ...optionalField("communitySlug", community?.slug),
     ...optionalField("summary", event.summary),
     ...optionalField("posterImageUrl", posterImageUrl),
@@ -415,7 +414,6 @@ export function toPublicEvent(record: PublicEventRecord): PublicEvent | null {
           },
         };
       }),
-    ...optionalField("notes", record.event.notes),
   };
 }
 
@@ -631,6 +629,14 @@ async function getPublicEventRecord(
     getPublicEventMediaRecord(db, event),
   ]);
 
+  if (
+    options.includeUnpublished !== true &&
+    event.communityProfileId !== undefined &&
+    community === undefined
+  ) {
+    return null;
+  }
+
   const communityMediaKit = community === undefined
     ? undefined
     : await getPublicProfileMediaKit(db, community, { surface: "discovery" });
@@ -678,7 +684,8 @@ export async function getEventForEditor(
   });
   const projected = record === null ? null : toPublicEvent(record);
   const authoredMediaLinks = (event.mediaLinks ?? []).flatMap(safePublicEventMediaLink);
-  const [worldAssociations, participantAssociations, slotAssociations] = await Promise.all([
+  const [community, worldAssociations, participantAssociations, slotAssociations] = await Promise.all([
+    event.communityProfileId === undefined ? null : db.get(event.communityProfileId),
     db.query("eventWorlds").withIndex("by_eventId", (query) => query.eq("eventId", event._id)).collect(),
     db.query("eventParticipants").withIndex("by_eventId", (query) => query.eq("eventId", event._id)).collect(),
     db.query("eventSlots").withIndex("by_eventId", (query) => query.eq("eventId", event._id)).collect(),
@@ -696,7 +703,14 @@ export async function getEventForEditor(
     ? null
     : {
         ...projected,
+        ...(community?.profileType === "community"
+          ? {
+              communityName: community.displayName,
+              communitySlug: community.slug,
+            }
+          : {}),
         authoredMediaLinks,
+        ...optionalField("notes", event.notes),
         preservedParticipantAssociationIds,
         preservedSlotAssociationIds,
         preservedWorldAssociationIds,
@@ -721,9 +735,22 @@ export async function getPublicEventPreviews(
       event.eventStatus === "scheduled" &&
       (now === undefined || eventEndsAt(event) >= now),
   );
-  const selectedEvents = (options.order === "input"
+  const orderedEvents = options.order === "input"
     ? eligibleEvents
-    : eligibleEvents.sort((first, second) => first.startAt - second.startAt)).slice(0, limit);
+    : eligibleEvents.sort((first, second) => first.startAt - second.startAt);
+  const readableEvents = (
+    await Promise.all(
+      orderedEvents.map(async (event) => ({
+        event,
+        communityIsReadable:
+          event.communityProfileId === undefined ||
+          (await getPublishedCommunity(db, event)) !== undefined,
+      })),
+    )
+  )
+    .filter(({ communityIsReadable }) => communityIsReadable)
+    .map(({ event }) => event);
+  const selectedEvents = readableEvents.slice(0, limit);
   const records = (
     await Promise.all(
       selectedEvents.map((event) =>
@@ -741,8 +768,6 @@ export async function getPublicCommunityHostedEvents(
   now: number,
   limit = EVENT_PREVIEW_DEFAULT_LIMIT,
 ): Promise<PublicEventPreview[]> {
-  // ponytail: Current events use a fixed recent-start window. If real volume
-  // can hide a valid multi-day event, replace this with indexed active state.
   const [startedCandidates, upcoming] = await Promise.all([
     db
       .query("events")
@@ -754,7 +779,7 @@ export async function getPublicCommunityHostedEvents(
           .lt("startAt", now),
       )
       .order("desc")
-      .take(CURRENT_EVENT_CANDIDATE_LIMIT),
+      .take(EVENT_ASSOCIATION_SCAN_LIMIT),
     db
       .query("events")
       .withIndex("by_communityProfileId_publicationState_eventStatus_startAt", (query) =>
@@ -764,7 +789,7 @@ export async function getPublicCommunityHostedEvents(
           .eq("eventStatus", "scheduled")
           .gte("startAt", now),
       )
-      .take(EVENT_ASSOCIATION_LIMIT),
+      .take(EVENT_ASSOCIATION_SCAN_LIMIT),
   ]);
   const started = startedCandidates
     .filter((event) => eventEndsAt(event) >= now)
@@ -794,7 +819,7 @@ export async function getPublicPersonUpcomingEvents(
           .lt("eventStartAt", now),
       )
       .order("desc")
-      .take(CURRENT_EVENT_CANDIDATE_LIMIT),
+      .take(EVENT_ASSOCIATION_SCAN_LIMIT),
     db
       .query("eventParticipants")
       .withIndex("by_person_confirmation_publication_status_start", (query) =>
@@ -805,7 +830,7 @@ export async function getPublicPersonUpcomingEvents(
           .eq("eventStatus", "scheduled")
           .gte("eventStartAt", now),
       )
-      .take(EVENT_ASSOCIATION_LIMIT),
+      .take(EVENT_ASSOCIATION_SCAN_LIMIT),
   ]);
   const participantLinks = [
     ...startedCandidates.filter((link) => link.eventEndAt >= now),

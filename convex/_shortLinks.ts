@@ -5,6 +5,7 @@ import {
   type AuthSubject,
 } from "./_communityAuthority";
 import { getPublicEventBySlug } from "./_eventPublic";
+import { eventPathForSlugs } from "./_eventPaths";
 import { userOwnsProfile } from "./_profileOwnership";
 import { canReadProfile } from "./_profilePermissions";
 
@@ -430,7 +431,9 @@ async function publicEventShortLinkPath(db: DatabaseReader, shortLink: Doc<"shor
     return null;
   }
 
-  return `/${publicEvent.slug}`;
+  return publicEvent.communitySlug === undefined
+    ? null
+    : eventPathForSlugs(publicEvent.communitySlug, publicEvent.slug);
 }
 
 export async function resolvePublicShortLinkTarget(

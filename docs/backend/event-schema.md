@@ -6,16 +6,18 @@ Current recommendation and implementation note for `#34`, `#35`, `#36`, `#93`, `
 
 ## Event Records
 
-Events are the primary scheduling object. They are not modeled as appearances or profile-page blocks. DJ/set-time slots are child schedule records under the canonical event.
+Events are the primary scheduling object. They are not modeled as appearances or profile-page blocks. Sessions are child schedule records under the canonical event.
 
 Current event fields include:
 
-- human-readable editable slug for `/<slug>` public routes
+- automatically generated event code for `/<community>/events/<event-code>`
+  public routes (stored in the existing `slug` field)
 - title and sort title
 - start time, optional doors-open time, and optional end time
 - optional canonical event time zone
 - optional linked community profile
-- optional public summary and notes
+- optional public description (stored as `summary`)
+- optional private manager notes (stored as `notes`)
 - optional primary poster image URL
 - source type, source label, and optional source URL
 - typed media links
@@ -23,7 +25,7 @@ Current event fields include:
 - scheduled or cancelled event status
 - submitter identity for provenance, not lasting authority on a community-linked event
 
-Generated durable short links such as `/l/<code>` are tracked in [Generated Short Links](./generated-short-links.md). Event slugs are readable and may become owner-editable; short links remain stable after slug edits because they target the event id.
+Generated durable short links such as `/l/<code>` are tracked in [Generated Short Links](./generated-short-links.md). An event uses that same generated code in its canonical community-scoped URL. Event codes are not editable.
 
 ## Event Times
 
@@ -33,7 +35,9 @@ Event `startAt`, `doorsOpenAt`, and `endAt` are stored as timestamps. The option
 
 The editor parses event date/time inputs in the named event timezone. A local time skipped by a daylight-saving transition is invalid; for a repeated local time, the editor consistently chooses the earlier occurrence. Public event cards, pages, and set times render directly in the viewer's local timezone; they do not repeat a canonical-timezone line.
 
-Slot rows remain canonical event-time schedule rows. The first slot editor template still uses relative minute offsets from `startAt`, not `doorsOpenAt`, so set-time storage and Discord timestamp generation remain tied to the canonical event/slot timestamps.
+Session rows remain canonical event-time schedule rows. The editor template uses relative minute offsets from `startAt`, not `doorsOpenAt`, so schedule storage and Discord timestamp generation remain tied to the canonical event/session timestamps.
+
+Private manager notes reuse the existing `notes` field. They are returned only by authorized event-management reads and accepted by authorized browser or API writes. They are excluded from public event pages, search documents, MCP documents, public API responses, calendar output, and Discord export. No migration or compatibility layer is needed because there is no existing deployed event data.
 
 ## Community Authority
 
@@ -122,7 +126,7 @@ Public previews include at most three ordered upcoming slot summaries. Discovery
 
 First `#121` slice: the event editor can preview and copy one deterministic Discord-ready post generated from the public event projection.
 
-The export includes the event title, canonical `/<slug>` URL, host and world names when projected, Discord timestamp tokens for the event time and slot times, slot lineup rows or public participant rows, and projected public media/watch links. It does not post to Discord, run a bot/Gateway flow, use arbitrary user-authored templates, depend on generated short links, or include private operator/media-control state.
+The export includes the event title, canonical `/<community>/events/<event-code>` URL, host and world names when projected, Discord timestamp tokens for the event time and slot times, slot lineup rows or public participant rows, and projected public media/watch links. It does not post to Discord, run a bot/Gateway flow, use arbitrary user-authored templates, or include private operator/media-control state.
 
 ## Calendar Import And Export
 

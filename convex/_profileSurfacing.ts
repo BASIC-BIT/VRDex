@@ -41,8 +41,9 @@ export function isPubliclySurfaced(
  * Hiding a profile is four things, not one: the state, the search document, the
  * vocabulary terms it contributed to discovery, and the worlds whose stored
  * search text still carries its display name. Suppression did all four; archival
- * needs the identical four, and the fourth is the one that looks optional and
- * leaves a retracted name searchable through its world credits when skipped.
+ * needs the identical four, and the fourth is the one that looks
+ * optional and leaves a retracted name searchable through its world credits
+ * when skipped.
  *
  * Returns the reindex key when the caller has work to schedule, so a page of
  * profiles can be covered by one world scan instead of one per profile.

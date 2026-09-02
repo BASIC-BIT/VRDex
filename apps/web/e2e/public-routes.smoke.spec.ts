@@ -264,7 +264,9 @@ test.describe("fixture lookup smoke", () => {
 
   test("event short link redirects to its public event", async ({ page }) => {
     await page.goto("/l/afh2x67");
-    await expect(page).toHaveURL(/\/playwright-afterglow-harbor-sessions$/);
+    await expect(page).toHaveURL(
+      /\/playwright-afterglow-social\/events\/playwright-afterglow-harbor-sessions$/,
+    );
     await expectEventPage(page);
   });
 

@@ -9,8 +9,8 @@ export const visualProfilePaths = {
   verifiedPersonPath: "/basicbit",
   communityPath: "/playwright-afterglow-social",
   worldPath: "/playwright-neon-harbor",
-  eventPath: "/playwright-afterglow-harbor-sessions",
-  eventWatchPath: "/playwright-afterglow-watch-room",
+  eventPath: "/playwright-afterglow-social/events/playwright-afterglow-harbor-sessions",
+  eventWatchPath: "/playwright-afterglow-social/events/playwright-afterglow-watch-room",
   lookupPath: "/lookup?q=lineup",
 } as const;
 
@@ -377,10 +377,6 @@ export async function expectNewEventPage(page: Page) {
   await expectProtectedRouteRedirect(page, "/events/new");
 }
 
-export async function expectEditEventPage(page: Page) {
-  await expectProtectedRouteRedirect(page, "/events/playwright-afterglow-harbor-sessions/edit");
-}
-
 export async function expectDeveloperApiPage(page: Page) {
   await expect(page.getByRole("heading", { name: /VRDex Public API/i })).toBeVisible();
   await expect(page.getByRole("link", { name: "OpenAPI JSON" })).toBeVisible();
@@ -506,33 +502,30 @@ export async function expectEventPage(page: Page) {
   await expect(page.getByText(/Jun 15, 2:00 AM UTC/i).first()).toBeVisible();
   await expect(page.getByText(/Your time/i)).toHaveCount(0);
   await expect(page.getByText("Place", { exact: true })).toBeVisible();
-  await expect(page.getByText("Set times", { exact: true })).toBeVisible();
+  await expect(page.getByText("Schedule", { exact: true })).toBeVisible();
   const isMobile = (page.viewportSize()?.width ?? 0) < 640;
-  const setTimes = page.locator("section").filter({ hasText: "Set times" });
+  const schedule = page.locator("section").filter({ hasText: "Schedule" });
 
   if (isMobile) {
-    await expect(page.getByRole("columnheader", { name: "Artist" })).toHaveCount(0);
-    await expect(setTimes.getByText("2:00 AM - 2:45 AM", { exact: true }).first()).toBeVisible();
-    await expect(setTimes.getByText("House", { exact: true }).first()).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Session" })).toHaveCount(0);
+    await expect(schedule.getByText("2:00 AM - 2:45 AM", { exact: true }).first()).toBeVisible();
+    await expect(schedule.getByText("House", { exact: true }).first()).toBeVisible();
   } else {
-    const setTimesTable = page.getByRole("table");
-    await expect(setTimesTable.getByRole("columnheader", { name: "Artist" })).toBeVisible();
-    await expect(setTimesTable.getByRole("columnheader", { name: "Style(s)" })).toBeVisible();
-    await expect(setTimesTable.getByRole("cell", { name: "2:00 AM - 2:45 AM" })).toBeVisible();
-    await expect(setTimesTable.getByRole("cell", { name: "House" })).toBeVisible();
+    const scheduleTable = page.getByRole("table");
+    await expect(scheduleTable.getByRole("columnheader", { name: "Session" })).toBeVisible();
+    await expect(scheduleTable.getByRole("columnheader", { name: "Details" })).toBeVisible();
+    await expect(scheduleTable.getByRole("cell", { name: "2:00 AM - 2:45 AM" })).toBeVisible();
+    await expect(scheduleTable.getByRole("cell", { name: "House" })).toBeVisible();
   }
 
-  await expect(page.getByText("Lineup", { exact: true })).toBeVisible();
+  await expect(page.getByText("Participants", { exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "DJ Aurora", exact: true }).first()).toBeVisible();
   await expect(page.getByText("Neon Harbor", { exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: /Add to calendar/i })).toHaveAttribute(
     "href",
-    "/playwright-afterglow-harbor-sessions/calendar.ics",
+    "/playwright-afterglow-social/events/playwright-afterglow-harbor-sessions/calendar.ics",
   );
-  await expect(page.getByRole("link", { name: "Edit event" })).toHaveAttribute(
-    "href",
-    "/events/playwright-afterglow-harbor-sessions/edit",
-  );
+  await expect(page.getByRole("link", { name: "Edit event" })).toHaveCount(0);
   await expect(page.getByText("Afterglow watch link", { exact: true })).toBeVisible();
   await expect(
     page.locator('a[href="https://stream.vrcdn.live/live/playwright-afterglow-harbor-sessions.live.ts"]'),
@@ -677,11 +670,6 @@ export const capturedRoutes: CapturedRoute[] = [
     name: "event-new-signed-out",
     path: "/events/new",
     expectPage: expectNewEventPage,
-  },
-  {
-    name: "event-edit-signed-out",
-    path: "/events/playwright-afterglow-harbor-sessions/edit",
-    expectPage: expectEditEventPage,
   },
   {
     name: "developer-api",

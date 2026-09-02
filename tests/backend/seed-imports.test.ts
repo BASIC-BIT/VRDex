@@ -512,9 +512,9 @@ describe("seed import review and publication guards", () => {
     );
   });
 
-  it("blocks a slug a world or event already holds", () => {
-    // Worlds and events share the root namespace with profiles now. Resolving
-    // collisions with getProfileBySlug alone reported none, and publication then
+  it("blocks a slug a world already holds", () => {
+    // Worlds share the root namespace with profiles. Resolving collisions with
+    // getProfileBySlug alone reported none, and publication then
     // allocated a suffixed slug -- so the operator approved one name and a
     // different one shipped. Not a merge target, so it arrives separately from
     // slugCollisionProfile, which doubles as one.

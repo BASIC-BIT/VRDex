@@ -28,7 +28,7 @@ import {
   type McpEventWriteResult,
   mcpWriteAttributionArgs,
   recordMcpWriteReceipt,
-  withCurrentWritePaths,
+  withCurrentEventWritePaths,
   requireSha256Hex,
 } from "./_mcpWriteReceipts";
 import { normalizeOAuthClientId } from "./_oauth";
@@ -55,13 +55,14 @@ import {
   type SanitizedEventDraftInput,
 } from "./_eventInputs";
 import { findEventOperationSlots } from "./_eventOperations";
+import { eventPathForRecord, eventPathForSlugs } from "./_eventPaths";
 import {
   getEventForEditor,
   getPublicCommunityHostedEvents,
   getPublicEventBySlug,
   getPublicEventPreviews,
 } from "./_eventPublic";
-import { findAvailableEventSlug, getEventBySlug, validateEventSlug } from "./_eventSlugs";
+import { getEventBySlug, validateEventSlug } from "./_eventSlugs";
 import { canReadProfile } from "./_profilePermissions";
 import { userOwnsProfile } from "./_profileOwnership";
 import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
@@ -152,7 +153,6 @@ const eventDraftArgs = {
     ),
   ),
   worldSlug: v.optional(v.string()),
-  preferredSlug: v.optional(v.string()),
 };
 
 const eventDraftUpdateArgs = {
@@ -962,7 +962,7 @@ async function updateCommunityEventForApiOwnerRecord(
   const validation = validateEventSlug(args.currentSlug);
 
   if (!validation.ok) {
-    throw new Error("Current event slug is invalid.");
+    throw new Error("Current event code is invalid.");
   }
 
   const event = await getEventBySlug(db, validation.slug);
@@ -1084,7 +1084,7 @@ async function insertCommunityEventRecord(
   db: DatabaseWriter,
   options: {
     input: SanitizedEventDraftInput;
-    community?: Doc<"profiles">;
+    community: Doc<"profiles">;
     world?: Doc<"worlds">;
     submitter: AuthSubject;
     publicationState?: Doc<"events">["publicationState"];
@@ -1094,21 +1094,15 @@ async function insertCommunityEventRecord(
   const { community, input, submitter, world } = options;
   const now = Date.now();
   const publicationState = options.publicationState ?? "published";
-  const slug = await findAvailableEventSlug(db, {
-    title: input.title,
-    startAt: input.startAt,
-    preferredSlug: input.preferredSlug,
-  });
   const eventId = await db.insert("events", {
-    slug,
     title: input.title,
     sortTitle: input.sortTitle,
     startAt: input.startAt,
     ...optionalValue("doorsOpenAt", input.doorsOpenAt),
     ...optionalValue("endAt", input.endAt),
     ...optionalValue("timezone", input.timezone),
-    ...optionalValue("communityProfileId", community?._id),
-    ...optionalValue("communityName", community?.displayName),
+    communityProfileId: community._id,
+    communityName: community.displayName,
     ...optionalValue("summary", input.summary),
     ...optionalValue("notes", input.notes),
     ...optionalValue("posterImageUrl", input.posterImageUrl),
@@ -1131,6 +1125,8 @@ async function insertCommunityEventRecord(
     { targetType: "event", targetId: eventId },
     now,
   );
+  const slug = shortLink.code;
+  await db.patch(eventId, { slug });
   const event = await db.get(eventId);
   if (event === null) {
     throw new Error("Event creation did not persist.");
@@ -1158,7 +1154,7 @@ async function insertCommunityEventRecord(
   return {
     eventId,
     slug,
-    eventPath: `/${slug}`,
+    eventPath: eventPathForSlugs(community.slug, slug),
     shortLinkCode: shortLink.code,
     shortLinkPath: shortLink.shortLinkPath,
   };
@@ -1169,7 +1165,7 @@ async function updateCommunityEventRecord(
   options: {
     event: Doc<"events">;
     input: SanitizedEventDraftInput;
-    community?: Doc<"profiles">;
+    community: Doc<"profiles">;
     world?: Doc<"worlds">;
     publicationState?: Doc<"events">["publicationState"];
     preserveNonPublicAssociations?: boolean;
@@ -1195,18 +1191,13 @@ async function updateCommunityEventRecord(
   } = options;
   const now = Date.now();
   const shouldUpdate = (field: keyof EventDraftInput) => updateFields === undefined || updateFields.has(field);
-  const slug = await findAvailableEventSlug(
-    db,
-    {
-      title: input.title,
-      startAt: input.startAt,
-      preferredSlug: input.preferredSlug ?? event.slug,
-    },
-    { excludingEventId: event._id },
-  );
+  const slug = event.slug;
+
+  if (slug === undefined) {
+    throw new Error("Event URL code is missing.");
+  }
 
   await db.patch(event._id, {
-    slug,
     title: input.title,
     sortTitle: input.sortTitle,
     startAt: input.startAt,
@@ -1289,7 +1280,7 @@ async function updateCommunityEventRecord(
   return {
     eventId: event._id,
     slug,
-    eventPath: `/${slug}`,
+    eventPath: eventPathForSlugs(community.slug, slug),
   };
 }
 
@@ -1338,7 +1329,7 @@ async function getEditableEventBySlug(
   const validation = validateEventSlug(currentSlug);
 
   if (!validation.ok) {
-    throw new Error("Current event slug is invalid.");
+    throw new Error("Current event code is invalid.");
   }
 
   const event = await getEventBySlug(ctx.db, validation.slug);
@@ -1362,7 +1353,7 @@ async function getMediaManageableEventBySlug(
   const validation = validateEventSlug(currentSlug);
 
   if (!validation.ok) {
-    throw new Error("Current event slug is invalid.");
+    throw new Error("Current event code is invalid.");
   }
 
   const event = await getEventBySlug(ctx.db, validation.slug);
@@ -1386,7 +1377,7 @@ async function getOperationsReadableEventBySlug(
   const validation = validateEventSlug(currentSlug);
 
   if (!validation.ok) {
-    throw new Error("Current event slug is invalid.");
+    throw new Error("Current event code is invalid.");
   }
 
   const event = await getEventBySlug(ctx.db, validation.slug);
@@ -2030,10 +2021,9 @@ export const listPublicUpcoming = query({
   },
   handler: async (ctx, args) => {
     const limit = boundedLimit(args.limit, 8, 24);
-    // ponytail: This deliberately inspects only the 128 most recently started
-    // events. If real volume can hide a valid multi-day event, add indexed
-    // active-event state instead of growing this window indefinitely.
-    const ongoingCandidateLimit = 128;
+    // Keep both scans bounded, but inspect past the requested result count so
+    // hidden communities cannot consume the whole public result window.
+    const candidateScanLimit = 500;
     const [started, upcoming] = await Promise.all([
       ctx.db
         .query("events")
@@ -2044,7 +2034,7 @@ export const listPublicUpcoming = query({
             .lt("startAt", args.now),
         )
         .order("desc")
-        .take(ongoingCandidateLimit),
+        .take(candidateScanLimit),
       ctx.db
         .query("events")
         .withIndex("by_publicationState_eventStatus_startAt", (index) =>
@@ -2053,7 +2043,7 @@ export const listPublicUpcoming = query({
             .eq("eventStatus", "scheduled")
             .gte("startAt", args.now),
         )
-        .take(limit),
+        .take(candidateScanLimit),
     ]);
     const ongoing = started
       .filter((event) => (event.endAt ?? event.startAt) >= args.now)
@@ -2061,9 +2051,8 @@ export const listPublicUpcoming = query({
         (first, second) =>
           (first.endAt ?? first.startAt) - (second.endAt ?? second.startAt) ||
           first.startAt - second.startAt,
-      )
-      .slice(0, limit);
-    const events = [...ongoing, ...upcoming].slice(0, limit);
+      );
+    const events = [...ongoing, ...upcoming];
 
     return await getPublicEventPreviews(ctx.db, events, { now: args.now, limit, order: "input" });
   },
@@ -2119,7 +2108,7 @@ export const getEventMediaControlStatus = query({
     if (program === null) {
       return {
         eventId: event._id,
-        eventPath: `/${slug}`,
+        eventPath: await eventPathForRecord(ctx.db, event, slug),
         program: null,
         sources: [],
         outputs: [],
@@ -2165,7 +2154,7 @@ export const getEventMediaControlStatus = query({
 
     return {
       eventId: event._id,
-      eventPath: `/${slug}`,
+      eventPath: await eventPathForRecord(ctx.db, event, slug),
       program: {
         programId: program._id,
         state: program.state,
@@ -2291,7 +2280,7 @@ export const queueEventMediaCommand = mutation({
 
     return {
       eventId: event._id,
-      eventPath: `/${slug}`,
+      eventPath: await eventPathForRecord(ctx.db, event, slug),
       programId: program._id,
       commandId,
       status: "queued" as const,
@@ -2535,6 +2524,34 @@ export const listManagedCommunities = query({
   },
 });
 
+export const getManagedCommunityBySlug = query({
+  args: { slug: v.string() },
+  handler: async (ctx, args) => {
+    const { subject, user } = await requireActiveBrowserSessionSubject(ctx);
+    const validation = validateProfileSlug(args.slug);
+
+    if (!validation.ok) {
+      return null;
+    }
+
+    const profile = await getProfileBySlug(ctx.db, validation.slug);
+    if (
+      profile === null ||
+      profile.profileType !== "community" ||
+      !canReadProfile("public", profile) ||
+      !(await canManageCommunityEvents(ctx.db, profile._id, subject, user._id))
+    ) {
+      return null;
+    }
+
+    return {
+      profileId: profile._id,
+      slug: profile.slug,
+      displayName: profile.displayName,
+    };
+  },
+});
+
 export const listManagedEvents = query({
   args: { limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
@@ -2625,7 +2642,7 @@ export const createCommunityEventForMcpOwner = internalMutation({
     });
 
     if (existing !== null) {
-      return withCurrentWritePaths(existing.result as McpEventWriteResult);
+      return await withCurrentEventWritePaths(ctx.db, existing.result as McpEventWriteResult);
     }
 
     let community: Doc<"profiles">;
@@ -2718,7 +2735,7 @@ export const updateCommunityEventForMcpOwner = internalMutation({
     });
 
     if (existing !== null) {
-      return withCurrentWritePaths(existing.result as McpEventWriteResult);
+      return await withCurrentEventWritePaths(ctx.db, existing.result as McpEventWriteResult);
     }
 
     let community: Doc<"profiles">;
@@ -2779,7 +2796,7 @@ export const updateCommunityEvent = mutation({
     const validation = validateEventSlug(args.currentSlug);
 
     if (!validation.ok) {
-      throw new Error("Current event slug is invalid.");
+      throw new Error("Current event code is invalid.");
     }
 
     const event = await getEventBySlug(ctx.db, validation.slug);
@@ -2823,6 +2840,9 @@ export const updateCommunityEvent = mutation({
     if (community?._id !== event.communityProfileId) {
       throw new Error("You do not have permission to move this event to another community.");
     }
+    if (community === undefined || community === null) {
+      throw new Error("Event community was not found.");
+    }
 
     const preservedWorldIds = new Set(args.preservedWorldAssociationIds);
     const loadedWorldAssociations = await Promise.all(
@@ -2839,9 +2859,7 @@ export const updateCommunityEvent = mutation({
         })),
     );
     const preservedWorldAssociations = input.worldSlug === undefined
-      ? loadedWorldAssociations.filter(
-          ({ world: loadedWorld }) => loadedWorld?.publicationState !== "published",
-        )
+      ? loadedWorldAssociations
       : loadedWorldAssociations.filter(
           ({ world: loadedWorld }) => loadedWorld?.slug === input.worldSlug,
         );
@@ -3190,7 +3208,7 @@ export const configureVrcdnOutput = mutation({
 
     return {
       eventId: event._id,
-      eventPath: `/${slug}`,
+      eventPath: await eventPathForRecord(ctx.db, event, slug),
       programId,
       outputId,
       state: output.state,
@@ -3322,7 +3340,7 @@ export const scheduleEventMediaWorker = mutation({
 
     return {
       eventId: event._id,
-      eventPath: `/${slug}`,
+      eventPath: await eventPathForRecord(ctx.db, event, slug),
       programId: program._id,
       outputId: output._id,
       sessionId,
@@ -3388,7 +3406,7 @@ export const recordEventMediaWorkerTaskStatus = mutation({
 
     return {
       eventId: event._id,
-      eventPath: `/${slug}`,
+      eventPath: await eventPathForRecord(ctx.db, event, slug),
       programId: program._id,
       session: updatedSession === null ? workerSessionStatus(session) : workerSessionStatus(updatedSession),
     };
@@ -3445,7 +3463,7 @@ export const stopEventMediaWorker = mutation({
 
     return {
       eventId: event._id,
-      eventPath: `/${slug}`,
+      eventPath: await eventPathForRecord(ctx.db, event, slug),
       programId: program._id,
       sessionId: session._id,
       status: "stopping" as const,
@@ -3520,7 +3538,7 @@ export const markEventMediaWorkerEnded = mutation({
 
     return {
       eventId: event._id,
-      eventPath: `/${slug}`,
+      eventPath: await eventPathForRecord(ctx.db, event, slug),
       programId: program._id,
       sessionId: session._id,
       status,

@@ -6,6 +6,7 @@ import {
   mcpWriteToolNameValidator,
   type McpWriteToolName,
 } from "./_apiWriteAuditEvents";
+import { eventPathForSlugs } from "./_eventPaths";
 
 export { mcpWriteToolNameValidator };
 
@@ -65,22 +66,35 @@ export type McpProfileWriteResult = {
 export type McpWriteResult = McpEventWriteResult | McpProfileWriteResult;
 
 /**
- * A stored receipt's result, with its paths brought up to the current routing.
+ * A stored event receipt's result, with its path brought up to current routing.
  *
- * Receipts are durable and have no expiry, and `eventPath` was `/e/<slug>` and
- * `profilePath` was `/p/<slug>` or `/c/<slug>` when they were written. Both
- * render from the site root now, so replaying one verbatim would hand a client
- * retrying an already-acknowledged idempotency key a permanently dead link. The
- * slug is stored alongside, so the path is derived rather than migrated.
- *
- * Covers both result shapes deliberately: the event version arrived with the
- * routing change, and a profile receipt replayed through the untouched path
- * would have been the same bug one union member over.
+ * Receipts are durable and have no expiry. Event paths now include community
+ * context, so replay resolves the stable event id through the current event and
+ * community records instead of migrating stored receipts.
  */
-export function withCurrentWritePaths<T extends McpWriteResult>(result: T): T {
-  return "eventPath" in result
-    ? { ...result, eventPath: `/${result.slug}` }
-    : { ...result, profilePath: `/${result.slug}` };
+export async function withCurrentEventWritePaths(
+  db: DatabaseReader,
+  result: McpEventWriteResult,
+): Promise<McpEventWriteResult> {
+  const event = await db.get(result.eventId);
+
+  if (event === null) {
+    return result;
+  }
+
+  const community = event.communityProfileId === undefined
+    ? null
+    : await db.get(event.communityProfileId);
+
+  if (community?.profileType !== "community") {
+    return result;
+  }
+
+  return {
+    ...result,
+    slug: event.slug ?? result.slug,
+    eventPath: eventPathForSlugs(community.slug, event.slug ?? result.slug),
+  };
 }
 
 /**

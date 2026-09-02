@@ -18,6 +18,7 @@ export type PublicActiveWorld = {
   nextEvent: {
     title: string;
     slug?: string;
+    communitySlug?: string;
     startAt: number;
     doorsOpenAt?: number;
     endAt?: number;

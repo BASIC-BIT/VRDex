@@ -3,7 +3,6 @@ import { notFound } from "next/navigation";
 
 import { validateSlugFormat } from "../../../../../convex/_globalSlugs";
 import { EntityBackendNotice } from "./entity-backend-notice";
-import { EventPublicPage } from "../_components/event-public-page";
 import { ProfilePublicPage } from "../_components/profile-public-page";
 import { WorldPublicPage } from "../_components/world-public-page";
 import { fetchPublicEntityBySlug } from "@/convex/server";
@@ -33,7 +32,7 @@ export async function generateMetadata({ params }: EntityPageProps): Promise<Met
     : {};
 }
 
-// Profiles, worlds, and events are all first-class root links -- vrdex.net/basicbit --
+// Profiles and worlds are first-class root links -- vrdex.net/basicbit --
 // so they share one slug namespace and one route. Static segments win over this
 // dynamic one in Next's router, and every top-level route name is also held in
 // RESERVED_ROUTE_SLUGS so no slug can ever be shadowed by a page.
@@ -63,7 +62,5 @@ export default async function EntityPage({ params }: EntityPageProps) {
       return <ProfilePublicPage profile={result.entity.profile} />;
     case "world":
       return <WorldPublicPage world={result.entity.world} />;
-    case "event":
-      return <EventPublicPage event={result.entity.event} showEditLink />;
   }
 }

@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import type { ChangeEvent, FormEvent } from "react";
+import type { ChangeEvent, FormEvent, ReactNode } from "react";
 import { useEffect, useState, useTransition } from "react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { api } from "@convex-generated-api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
+import { EVENT_SLOT_MAX_COUNT } from "../../../../../convex/_eventSlots";
 import type { PublicEvent } from "../_components/event-public-page";
 import { buttonVariants, Button } from "@/components/ui/button";
 import { Card, Eyebrow, SectionTitle } from "@/components/ui/card";
@@ -20,6 +21,8 @@ import {
   formatZonedDateTimeInput,
   parseZonedDateTimeInput,
 } from "@/lib/calendar/zoned-date-time";
+import { resolveAuthoredEventEndAt } from "@/lib/calendar/event-end-time";
+import { serializeOtherEventParticipants } from "@/lib/calendar/event-participants";
 
 type EventMediaLinkType = PublicEvent["mediaLinks"][number]["type"];
 
@@ -46,7 +49,8 @@ type VrcdnOutputFormState = {
   authorized: boolean;
 };
 
-type EditableEvent = PublicEvent & {
+export type EditableEvent = PublicEvent & {
+  notes?: string;
   preservedCommunityProfileId?: Id<"profiles">;
   preservedParticipantAssociationIds: Id<"eventParticipants">[];
   preservedSlotAssociationIds: Id<"eventSlots">[];
@@ -128,6 +132,7 @@ const userSafeErrorPatterns = [
   /Event title must be at least \d+ characters\./,
   /Event title must be \d+ characters or fewer\./,
   /Doors-open time must be at or before the event start time\./,
+  /Doors-open offset minutes must be (?:a whole number|zero or greater)\./,
   /Event end time must be after the start time\./,
   /Time zone must be a valid IANA time zone\./,
   /Time zone is required when event slots are provided\./,
@@ -146,7 +151,7 @@ const userSafeErrorPatterns = [
   /Person profile ".+" was not found\./,
   /You do not have permission to update this event\./,
   /You do not have permission to move this event to another community\./,
-  /Current event slug is invalid\./,
+  /Current event code is invalid\./,
   /Event was not found\./,
   /Output account is required\./,
   /Output account is not configured\./,
@@ -222,7 +227,12 @@ function applyVrcdnOutputAccountDefaults(
 }
 
 function parseInteger(value: string, fieldName: string): number {
-  const parsed = Number(value.trim());
+  const normalized = value.trim();
+  if (normalized.length === 0) {
+    throw new Error(`${fieldName} is required.`);
+  }
+
+  const parsed = Number(normalized);
 
   if (!Number.isInteger(parsed)) {
     throw new Error(`${fieldName} must be a whole number.`);
@@ -303,8 +313,8 @@ function parseSlotRows(rows: SlotFormRow[], eventStartAt: number) {
         displayLabel:
           optionalString(row.displayLabel) ??
           optionalString(row.personSlug) ??
-          `Slot ${index + 1}`,
-        roleLabel: optionalString(row.roleLabel) ?? "Performer",
+          `Session ${index + 1}`,
+        roleLabel: optionalString(row.roleLabel) ?? "Participant",
         startAt,
         ...(durationMinutes === undefined ? {} : { endAt: startAt + durationMinutes * 60_000 }),
       };
@@ -317,15 +327,9 @@ function serializeMediaLinks(event: PublicEvent | undefined): string {
     .join("\n");
 }
 
-function serializeParticipants(event: PublicEvent | undefined): string {
-  return (event?.participants ?? [])
-    .map((participant) => `${participant.slug} | ${participant.roleLabel}`)
-    .join("\n");
-}
-
 function initialSlotRows(event: EditableEvent | undefined): SlotFormRow[] {
   if (event === undefined) {
-    return [];
+    return createGeneratedSlotRows(4, 60);
   }
 
   return event.slots.map((slot, index) => ({
@@ -341,20 +345,50 @@ function initialSlotRows(event: EditableEvent | undefined): SlotFormRow[] {
   }));
 }
 
+function initialSlotTemplate(event: EditableEvent | undefined) {
+  if (event === undefined) {
+    return { count: "4", duration: "60" };
+  }
+
+  const firstSlot = event.slots[0];
+  const duration = firstSlot?.endAt === undefined
+    ? 60
+    : Math.round((firstSlot.endAt - firstSlot.startAt) / 60_000);
+
+  return {
+    count: String(event.slots.length),
+    duration: String(duration),
+  };
+}
+
+function isValidSlotTemplate(template: { count: string; duration: string }) {
+  if (template.count.trim() === "" || template.duration.trim() === "") {
+    return false;
+  }
+
+  try {
+    const count = parseInteger(template.count, "Slot count");
+    const duration = parseInteger(template.duration, "Slot duration minutes");
+
+    return count >= 0 && count <= EVENT_SLOT_MAX_COUNT && duration > 0;
+  } catch {
+    return false;
+  }
+}
+
 function createGeneratedSlotRows(
   count: number,
   durationMinutes: number,
-  breakMinutes: number,
 ): SlotFormRow[] {
   return Array.from({ length: count }, (_, index) => {
-    const offsetMinutes = index * (durationMinutes + breakMinutes);
+    const offsetMinutes = index * durationMinutes;
     return {
-      id: `generated-${Date.now()}-${index}`,
+      id: `generated-${index}`,
       offsetMinutes: String(offsetMinutes),
       durationMinutes: String(durationMinutes),
       personSlug: "",
-      displayLabel: `Slot ${index + 1}`,
-      roleLabel: "DJ set",
+      displayLabel: `Session ${index + 1}`,
+      roleLabel: "Participant",
     };
   });
 }
@@ -398,6 +432,29 @@ function chooseVisibleWorkerSession<Session extends { status: string; updatedAt:
   return sessions.find((session) => ["starting", "live", "hold", "fallback", "stopping"].includes(session.status)) ?? sessions[0];
 }
 
+function EditorSection({ children, title }: { children: ReactNode; title: string }) {
+  return (
+    <section className="grid gap-5 border-b border-border pb-8">
+      <h2 className="text-2xl font-semibold tracking-[-0.03em]">{title}</h2>
+      {children}
+    </section>
+  );
+}
+
+function EditorDisclosure({ children, title }: { children: ReactNode; title: string }) {
+  return (
+    <details className="group border-b border-border pb-6">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-4 py-2 text-xl font-semibold tracking-[-0.02em] marker:hidden">
+        {title}
+        <span aria-hidden="true" className="text-muted transition group-open:rotate-45">+</span>
+      </summary>
+      <div className="mt-5 grid gap-5 rounded-panel border border-border bg-surface px-4 py-5 sm:px-6 sm:py-6">
+        {children}
+      </div>
+    </details>
+  );
+}
+
 function DisabledEventEditorPanel() {
   return (
     <Card surface="dashed">
@@ -419,13 +476,20 @@ function SignInRequiredEventEditorPanel() {
   );
 }
 
-function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
+function ConnectedEventEditorForm({
+  communitySlug,
+  demoMode = false,
+  event,
+}: {
+  communitySlug: string;
+  demoMode?: boolean;
+  event?: EditableEvent;
+}) {
   const createEvent = useMutation(api.events.createCommunityEvent);
   const updateEvent = useMutation(api.events.updateCommunityEvent);
   const setEventCancelled = useMutation(api.events.setCommunityEventCancelled);
   const configureVrcdnOutput = useMutation(api.events.configureVrcdnOutput);
-  const managedCommunities = useQuery(api.events.listManagedCommunities, {});
-  const vrcdnOutputAccounts = useQuery(api.events.listVrcdnOutputAccounts, {});
+  const vrcdnOutputAccounts = useQuery(api.events.listVrcdnOutputAccounts, demoMode ? "skip" : {});
   const [currentSlug, setCurrentSlug] = useState(event?.slug);
   const eventMediaControlStatus = useQuery(api.events.getEventMediaControlStatus, currentSlug === undefined ? "skip" : { currentSlug });
   const eventAudit = useQuery(
@@ -435,10 +499,17 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
   const [status, setStatus] = useState<EventEditorStatus>({ kind: "idle" });
   const [vrcdnOutputStatus, setVrcdnOutputStatus] = useState<VrcdnOutputStatus>({ kind: "idle" });
   const [timezone, setTimezone] = useState(event?.timezone ?? "UTC");
+  const [doorsOpenBefore, setDoorsOpenBefore] = useState(event?.doorsOpenAt !== undefined);
+  const [doorsOpenMinutes, setDoorsOpenMinutes] = useState(() => event?.doorsOpenAt === undefined
+    ? "15"
+    : String(Math.max(0, Math.round((event.startAt - event.doorsOpenAt) / 60_000))));
   const [mediaLinksText, setMediaLinksText] = useState(() => serializeMediaLinks(event));
   const [vrcdnOutput, setVrcdnOutput] = useState<VrcdnOutputFormState>(() => createInitialVrcdnOutputForm(event));
   const [slotRows, setSlotRows] = useState(() => initialSlotRows(event));
-  const [slotTemplate, setSlotTemplate] = useState({ count: "4", duration: "45", break: "0" });
+  const [slotRowsDirty, setSlotRowsDirty] = useState(Boolean(event?.slots.length));
+  const [scheduleChanged, setScheduleChanged] = useState(false);
+  const [slotTemplate, setSlotTemplate] = useState(() => initialSlotTemplate(event));
+  const slotTemplateIsValid = isValidSlotTemplate(slotTemplate);
   const [cancellationReason, setCancellationReason] = useState("");
   const [eventStatus, setEventStatus] = useState(event?.status);
   const [isPublished, setIsPublished] = useState(event?.publicationState === "published");
@@ -469,21 +540,40 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
     });
   }, [vrcdnOutputAccounts]);
 
-  function onGenerateSlots() {
-    try {
-      const count = parseInteger(slotTemplate.count, "Slot count");
-      const duration = parseInteger(slotTemplate.duration, "Slot duration minutes");
-      const breakDuration = parseInteger(slotTemplate.break, "Break duration minutes");
+  function onSlotTemplateChange(field: "count" | "duration", value: string) {
+    const nextTemplate = { ...slotTemplate, [field]: value };
 
-      if (count <= 0 || duration <= 0 || breakDuration < 0) {
-        setStatus({ kind: "error", message: "Slot count and duration must be positive, and break duration cannot be negative." });
+    if (value.trim() === "") {
+      setSlotTemplate(nextTemplate);
+      return;
+    }
+
+    try {
+      const count = parseInteger(nextTemplate.count, "Slot count");
+      const duration = parseInteger(nextTemplate.duration, "Slot duration minutes");
+
+      if (count < 0 || duration <= 0) {
+        setSlotTemplate(nextTemplate);
         return;
       }
 
-      setSlotRows(createGeneratedSlotRows(count, duration, breakDuration));
-    } catch (error) {
-      setStatus({ kind: "error", message: eventEditorErrorMessage(error) });
+      if (slotRowsDirty && !window.confirm("Replace edited schedule?")) {
+        return;
+      }
+
+      const boundedCount = Math.min(count, EVENT_SLOT_MAX_COUNT);
+      setSlotTemplate({ ...nextTemplate, count: String(boundedCount) });
+      setSlotRows(createGeneratedSlotRows(boundedCount, duration));
+      setSlotRowsDirty(false);
+      setScheduleChanged(true);
+    } catch {
+      setSlotTemplate(nextTemplate);
     }
+  }
+
+  function updateSlotRows(updater: (rows: SlotFormRow[]) => SlotFormRow[]) {
+    setSlotRows((rows) => updater(rows));
+    setSlotRowsDirty(true);
   }
 
   async function onSaveVrcdnOutput() {
@@ -540,10 +630,13 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
 
   async function onSubmit(submitEvent: FormEvent<HTMLFormElement>) {
     submitEvent.preventDefault();
+
+    if (!slotTemplateIsValid) {
+      return;
+    }
+
     const form = submitEvent.currentTarget;
     const formData = new FormData(form, (submitEvent.nativeEvent as SubmitEvent).submitter);
-    const doorsOpenAtInput = optionalString(stringField(formData.get("doorsOpenAt")));
-    const endAtInput = optionalString(stringField(formData.get("endAt")));
     const intent = stringField(formData.get("intent"));
 
     if (event !== undefined && isPublished && intent === "draft" && !window.confirm("Unpublish and save draft")) {
@@ -556,14 +649,31 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
       const submittedTimezone = optionalString(stringField(formData.get("timezone")));
       const timeZoneForParsing = submittedTimezone ?? browserTimeZone();
       const startAt = parseZonedDateTimeInput(stringField(formData.get("startAt")), timeZoneForParsing, "Event start time");
+      const slotLinks = parseSlotRows(slotRows, startAt);
+      const derivedEndAt = slotLinks.length === 0 || slotLinks.some((slot) => slot.endAt === undefined)
+        ? undefined
+        : Math.max(...slotLinks.map((slot) => slot.endAt!));
+      const endAt = resolveAuthoredEventEndAt({
+        startAt,
+        derivedEndAt,
+        previousStartAt: event?.startAt,
+        previousEndAt: event?.endAt,
+        scheduleChanged,
+      });
+      const doorsOffsetMinutes = doorsOpenBefore
+        ? parseInteger(doorsOpenMinutes, "Doors-open offset minutes")
+        : undefined;
+      if (doorsOffsetMinutes !== undefined && doorsOffsetMinutes < 0) {
+        throw new Error("Doors-open offset minutes must be zero or greater.");
+      }
       const payload = {
         title: stringField(formData.get("title")),
-        preferredSlug: optionalString(stringField(formData.get("preferredSlug"))),
-        communitySlug: optionalString(stringField(formData.get("communitySlug"))),
-        worldSlug: optionalString(stringField(formData.get("worldSlug"))),
+        communitySlug,
         startAt,
-        ...(doorsOpenAtInput ? { doorsOpenAt: parseZonedDateTimeInput(doorsOpenAtInput, timeZoneForParsing, "Doors-open time") } : {}),
-        ...(endAtInput ? { endAt: parseZonedDateTimeInput(endAtInput, timeZoneForParsing, "Event end time") } : {}),
+        ...(doorsOffsetMinutes === undefined
+          ? {}
+          : { doorsOpenAt: startAt - doorsOffsetMinutes * 60_000 }),
+        endAt,
         timezone: submittedTimezone,
         summary: optionalString(stringField(formData.get("summary"))),
         notes: optionalString(stringField(formData.get("notes"))),
@@ -575,7 +685,7 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
         watchSurfaceEnabled: formData.get("watchSurfaceEnabled") === "on",
         mediaLinks: parseMediaLinks(mediaLinksText),
         participantLinks: parseParticipantLinks(stringField(formData.get("participantLinks"))),
-        slotLinks: parseSlotRows(slotRows, startAt),
+        slotLinks,
       };
       const result = event
           ? await updateEvent({
@@ -610,7 +720,9 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
           kind: "success",
           result: {
             ...result,
-            eventPath: intent === "publish" ? `/${result.slug}` : `/events/${result.slug}/edit`,
+            eventPath: intent === "publish"
+              ? `/${communitySlug}/events/${result.slug}`
+              : `/${communitySlug}/events/${result.slug}/edit`,
           },
         }),
       );
@@ -637,7 +749,9 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
         setStatus({
           kind: "success",
           result: {
-            eventPath: isPublished ? `/${currentSlug}` : `/events/${currentSlug}/edit`,
+            eventPath: isPublished
+              ? `/${communitySlug}/events/${currentSlug}`
+              : `/${communitySlug}/events/${currentSlug}/edit`,
             slug: currentSlug!,
           },
         }),
@@ -654,7 +768,6 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
     vrcdnOutputStatus.kind !== "submitting" && !vrcdnOutputAccountsLoading && vrcdnOutputAccountOptions.length > 0;
   const visibleWorkerSession = chooseVisibleWorkerSession(eventMediaControlStatus?.sessions ?? []);
   const visibleWorkerOutput = eventMediaControlStatus?.outputs.find((output) => output.outputId === visibleWorkerSession?.outputId);
-
   function onVrcdnOutputAccountChange(changeEvent: ChangeEvent<HTMLSelectElement>) {
     const value = eventTargetValue(changeEvent);
     const account = vrcdnOutputAccountOptions.find((option) => option.key === value);
@@ -668,76 +781,69 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
   }
 
   return (
-    <form className="grid gap-5" onSubmit={onSubmit}>
-      <div className="grid gap-4 sm:grid-cols-2">
+    <form className="grid gap-8" onSubmit={onSubmit}>
+      <EditorSection title="Details">
         <Field>
           Event title
-          <Input defaultValue={event?.title} name="title" placeholder="Afterglow Harbor Sessions" required />
+          <Input
+            defaultValue={event?.title ?? (demoMode ? "Afterglow Harbor Sessions" : "")}
+            name="title"
+            placeholder="Afterglow Harbor Sessions"
+            required
+          />
         </Field>
-        <Field>
-          Optional slug
-          <Input defaultValue={event?.slug} name="preferredSlug" placeholder="afterglow-harbor-sessions" />
-        </Field>
-      </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
         <Field>
-          Community
-          {event ? (
-            <>
-              <Input disabled value={event.communityName ?? event.communitySlug ?? ""} />
-              <input name="communitySlug" type="hidden" value={event.communitySlug ?? ""} />
-            </>
-          ) : (
-            <>
-              <Select disabled={managedCommunities === undefined || managedCommunities.length === 0} name="communitySlug" required>
-                <option value="">Select a community</option>
-                {managedCommunities?.map((community) => (
-                  <option key={community.profileId} value={community.slug}>
-                    {community.displayName} · {community.roleLabel}
-                  </option>
-                ))}
-              </Select>
-            </>
-          )}
+          Description
+          <Textarea className="min-h-24" defaultValue={event?.summary} name="summary" />
         </Field>
-        <Field>
-          Optional world slug
-          <Input defaultValue={event?.worlds[0]?.slug} name="worldSlug" placeholder="neon-harbor" />
-        </Field>
-      </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Field>
-          Doors open
-          <Input defaultValue={formatZonedDateTimeInput(event?.doorsOpenAt, event?.timezone)} name="doorsOpenAt" type="datetime-local" />
-          <FieldText>Optional public time, at or before event start.</FieldText>
-        </Field>
+        <details className="group rounded-control border border-border bg-surface px-4 py-3">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-medium marker:hidden">
+            Private notes
+            <span aria-hidden="true" className="text-muted transition group-open:rotate-45">+</span>
+          </summary>
+          <Textarea aria-label="Private notes" className="mt-4 min-h-24" defaultValue={event?.notes} name="notes" />
+        </details>
+      </EditorSection>
+
+      <EditorSection title="Timing">
+        <div className="grid gap-4 md:grid-cols-2">
         <Field>
           Start
           <Input defaultValue={formatZonedDateTimeInput(event?.startAt, event?.timezone)} name="startAt" required type="datetime-local" />
         </Field>
         <Field>
-          End
-          <Input defaultValue={formatZonedDateTimeInput(event?.endAt, event?.timezone)} name="endAt" type="datetime-local" />
-        </Field>
-        <Field>
           Time zone
           <Input name="timezone" onChange={(changeEvent) => setTimezone(changeEvent.currentTarget.value)} placeholder="America/New_York" value={timezone} />
         </Field>
-      </div>
+        <label className="flex items-center gap-3 text-sm font-medium md:col-span-2">
+          <input
+            checked={doorsOpenBefore}
+            className="h-4 w-4 accent-accent"
+            onChange={(changeEvent) => setDoorsOpenBefore(eventTargetChecked(changeEvent))}
+            type="checkbox"
+          />
+          Do doors open before?
+        </label>
+        {doorsOpenBefore ? (
+          <Field>
+            Minutes before start
+            <Input
+              inputMode="numeric"
+              min="0"
+              onChange={(changeEvent) => setDoorsOpenMinutes(eventTargetValue(changeEvent))}
+              required
+              type="number"
+              value={doorsOpenMinutes}
+            />
+          </Field>
+        ) : null}
+        </div>
+      </EditorSection>
 
-      <Field>
-        Summary
-        <Input defaultValue={event?.summary} name="summary" placeholder="Short public event summary" />
-      </Field>
-
-      <Field>
-        Public notes
-        <Textarea className="min-h-28" defaultValue={event?.notes} name="notes" placeholder="Door notes, schedule notes, or other public context" />
-      </Field>
-
-      <div className="grid gap-4 sm:grid-cols-3">
+      <EditorDisclosure title="Media and links">
+        <div className="grid gap-4 sm:grid-cols-3">
         <Field className="sm:col-span-1">
           Source label
           <Input defaultValue={event?.source.label} name="sourceLabel" placeholder="Community event listing" />
@@ -750,9 +856,9 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
           Poster image URL
           <Input defaultValue={event?.posterImageUrl} name="posterImageUrl" placeholder="https://..." />
         </Field>
-      </div>
+        </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-2">
         <Field>
           Banner image URL
           <Input defaultValue={event?.authoredBannerImageUrl} name="bannerImageUrl" placeholder="https://..." />
@@ -763,7 +869,7 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
           <Input defaultValue={event?.authoredThumbnailImageUrl} name="thumbnailImageUrl" placeholder="https://..." />
           <FieldText>Compact event-card image. Falls back to the poster or banner image.</FieldText>
         </Field>
-      </div>
+        </div>
 
       <Field>
         Media links
@@ -907,7 +1013,7 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
             <>
               <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <div className="rounded-control border border-border bg-surface-strong p-3">
-                  <dt className="text-xs text-muted">Program</dt>
+                  <dt className="text-xs text-muted">State</dt>
                   <dd className="mt-1 text-sm font-medium capitalize text-foreground">{formatMachineValue(eventMediaControlStatus.program.state)}</dd>
                 </div>
                 <div className="rounded-control border border-border bg-surface-strong p-3">
@@ -989,95 +1095,63 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
           )}
         </Card>
       )}
+      </EditorDisclosure>
 
-      <Field>
-        Linked person profiles
-        <Textarea className="min-h-28" defaultValue={serializeParticipants(event)} name="participantLinks" placeholder="dj-aurora | Performer&#10;vj-lumen | Staff" />
-        <FieldText>One per line: person slug | freeform role label.</FieldText>
-      </Field>
-
-      <Card className="grid gap-4" padding="sm" surface="strong">
-        <div>
-          <Eyebrow>DJ slots</Eyebrow>
-          <h3 className="mt-3 text-xl font-semibold tracking-[-0.03em]">Set times</h3>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end">
-          <Field className="text-xs text-muted">
-            Slot count
-            <Input
-              className="bg-surface-strong text-foreground"
-              inputMode="numeric"
-              onChange={(changeEvent) => {
-                const value = eventTargetValue(changeEvent);
-                setSlotTemplate((current) => ({ ...current, count: value }));
-              }}
-              value={slotTemplate.count}
-            />
-          </Field>
-          <Field className="text-xs text-muted">
-            Duration minutes
-            <Input
-              className="bg-surface-strong text-foreground"
-              inputMode="numeric"
-              onChange={(changeEvent) => {
-                const value = eventTargetValue(changeEvent);
-                setSlotTemplate((current) => ({ ...current, duration: value }));
-              }}
-              value={slotTemplate.duration}
-            />
-          </Field>
-          <Field className="text-xs text-muted">
-            Break minutes
-            <Input
-              className="bg-surface-strong text-foreground"
-              inputMode="numeric"
-              onChange={(changeEvent) => {
-                const value = eventTargetValue(changeEvent);
-                setSlotTemplate((current) => ({ ...current, break: value }));
-              }}
-              value={slotTemplate.break}
-            />
-          </Field>
-          <Button onClick={onGenerateSlots} type="button">
-            Generate
-          </Button>
-        </div>
-        <div className="grid gap-3">
-          {slotRows.map((slot, index) => (
+      <EditorSection title="Schedule">
+        <div className="grid gap-4">
+          <div className="grid gap-3 sm:grid-cols-2 sm:items-end">
+            <Field className="text-xs text-muted">
+              Sessions
+              <Input
+                className="bg-surface-strong text-foreground"
+                inputMode="numeric"
+                max={EVENT_SLOT_MAX_COUNT}
+                min={0}
+                onChange={(changeEvent) => {
+                  onSlotTemplateChange("count", eventTargetValue(changeEvent));
+                }}
+                required
+                step={1}
+                type="number"
+                value={slotTemplate.count}
+              />
+            </Field>
+            <Field className="text-xs text-muted">
+              Minutes each
+              <Input
+                className="bg-surface-strong text-foreground"
+                inputMode="numeric"
+                min={1}
+                onChange={(changeEvent) => {
+                  onSlotTemplateChange("duration", eventTargetValue(changeEvent));
+                }}
+                required
+                step={1}
+                type="number"
+                value={slotTemplate.duration}
+              />
+            </Field>
+          </div>
+          <div className="grid gap-3">
+            {slotRows.map((slot, index) => (
             <Card className="grid gap-3" key={slot.id} padding="sm" surface="dashed">
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+              <div className="grid gap-3 sm:grid-cols-[minmax(8rem,0.35fr)_minmax(0,1fr)] sm:items-end">
+                <div className="pb-2">
+                  <h4 className="font-semibold">Session {index + 1}</h4>
+                  <span className="text-xs text-muted">+{slot.offsetMinutes} min · {slot.durationMinutes} min</span>
+                </div>
                 <Field className="text-xs text-muted">
-                  Start offset
-                  <Input
-                    inputMode="numeric"
-                    onChange={(changeEvent) => {
-                      const value = eventTargetValue(changeEvent);
-                      setSlotRows((rows) => rows.map((row) => row.id === slot.id ? { ...row, offsetMinutes: value } : row));
-                    }}
-                    value={slot.offsetMinutes}
-                  />
-                </Field>
-                <Field className="text-xs text-muted">
-                  Duration
-                  <Input
-                    inputMode="numeric"
-                    onChange={(changeEvent) => {
-                      const value = eventTargetValue(changeEvent);
-                      setSlotRows((rows) => rows.map((row) => row.id === slot.id ? { ...row, durationMinutes: value } : row));
-                    }}
-                    value={slot.durationMinutes}
-                  />
-                </Field>
-                <Field className="text-xs text-muted">
-                  Person profile
+                  Person
                   <PersonProfileInput
                     inputId={`slot-person-${slot.id}`}
                     onChange={(value, displayName) => {
-                      setSlotRows((rows) => rows.map((row) => row.id === slot.id
+                      updateSlotRows((rows) => rows.map((row) => row.id === slot.id
                         ? {
                             ...row,
                             personSlug: value,
-                            ...(displayName !== undefined && row.displayLabel.trim() === ""
+                            ...(displayName !== undefined && (
+                              row.displayLabel.trim() === "" || row.displayLabel === `Session ${index + 1}`
+                            )
                               ? { displayLabel: displayName }
                               : {}),
                           }
@@ -1086,145 +1160,112 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
                     value={slot.personSlug}
                   />
                 </Field>
-                <Field className="text-xs text-muted">
-                  Lineup name
-                  <Input
-                    onChange={(changeEvent) => {
-                      const value = eventTargetValue(changeEvent);
-                      setSlotRows((rows) => rows.map((row) => row.id === slot.id ? { ...row, displayLabel: value } : row));
-                    }}
-                    required
-                    value={slot.displayLabel}
-                  />
-                </Field>
-                <Field className="text-xs text-muted">
-                  Role or style
-                  <Input
-                    onChange={(changeEvent) => {
-                      const value = eventTargetValue(changeEvent);
-                      setSlotRows((rows) => rows.map((row) => row.id === slot.id ? { ...row, roleLabel: value } : row));
-                    }}
-                    value={slot.roleLabel}
-                  />
-                </Field>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  disabled={index === 0}
-                  onClick={() => setSlotRows((rows) => {
-                    const next = [...rows];
-                    [next[index - 1], next[index]] = [next[index]!, next[index - 1]!];
-                    return next;
-                  })}
-                  size="sm"
-                  type="button"
-                  variant="secondary"
-                >
-                  Move up
-                </Button>
-                <Button
-                  disabled={index === slotRows.length - 1}
-                  onClick={() => setSlotRows((rows) => {
-                    const next = [...rows];
-                    [next[index], next[index + 1]] = [next[index + 1]!, next[index]!];
-                    return next;
-                  })}
-                  size="sm"
-                  type="button"
-                  variant="secondary"
-                >
-                  Move down
-                </Button>
-                <Button
-                  onClick={() => setSlotRows((rows) => rows.filter((row) => row.id !== slot.id))}
-                  size="sm"
-                  type="button"
-                  variant="secondary"
-                >
-                  Remove
-                </Button>
-              </div>
+              <details className="group border-t border-border pt-3">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm font-medium marker:hidden">
+                  Details
+                  <span aria-hidden="true" className="text-muted transition group-open:rotate-45">+</span>
+                </summary>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <Field className="text-xs text-muted">
+                    Display name
+                    <Input
+                      onChange={(changeEvent) => {
+                        const value = eventTargetValue(changeEvent);
+                        updateSlotRows((rows) => rows.map((row) => row.id === slot.id ? { ...row, displayLabel: value } : row));
+                      }}
+                      required
+                      value={slot.displayLabel}
+                    />
+                  </Field>
+                  <Field className="text-xs text-muted">
+                    Role or style
+                    <Input
+                      onChange={(changeEvent) => {
+                        const value = eventTargetValue(changeEvent);
+                        updateSlotRows((rows) => rows.map((row) => row.id === slot.id ? { ...row, roleLabel: value } : row));
+                      }}
+                      value={slot.roleLabel}
+                    />
+                  </Field>
+                </div>
+              </details>
             </Card>
-          ))}
-          <Button
-            onClick={() => setSlotRows((rows) => [
-              ...rows,
-              {
-                id: `manual-${Date.now()}-${rows.length}`,
-                offsetMinutes: "0",
-                durationMinutes: "45",
-                personSlug: "",
-                displayLabel: "",
-                roleLabel: "DJ set",
-              },
-            ])}
-            type="button"
-            variant="secondary"
-          >
-            Add slot
-          </Button>
-        </div>
-      </Card>
-
-      {event === undefined ? null : (
-        <Card className="grid gap-3" padding="sm" surface="dashed">
-          <Field>
-            Cancellation reason
-            <Input
-              onChange={(changeEvent) => setCancellationReason(changeEvent.currentTarget.value)}
-              value={cancellationReason}
-            />
-          </Field>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              disabled={isSubmitting || eventStatus === "cancelled"}
-              onClick={() => void onSetCancelled(true)}
-              type="button"
-              variant="secondary"
-            >
-              Cancel event
-            </Button>
-            <Button
-              disabled={isSubmitting || eventStatus !== "cancelled"}
-              onClick={() => void onSetCancelled(false)}
-              type="button"
-              variant="secondary"
-            >
-              Restore event
-            </Button>
+            ))}
           </div>
-        </Card>
-      )}
+        </div>
+
+        <details className="group rounded-control border border-border bg-surface px-4 py-3">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-medium marker:hidden">
+            Other participants
+            <span aria-hidden="true" className="text-muted transition group-open:rotate-45">+</span>
+          </summary>
+          <Field className="mt-4">
+            Linked person profiles
+            <Textarea className="min-h-24" defaultValue={serializeOtherEventParticipants(event)} name="participantLinks" placeholder="dj-aurora | Performer&#10;vj-lumen | Staff" />
+          </Field>
+        </details>
+      </EditorSection>
 
       {event === undefined ? null : (
-        <Card className="grid gap-3" padding="sm" surface="dashed">
-          <h3 className="text-lg font-semibold">Change history</h3>
-          {eventAudit === undefined ? (
-            <p className="text-sm text-muted">Loading history…</p>
-          ) : eventAudit.length === 0 ? (
-            <p className="text-sm text-muted">No history</p>
-          ) : (
-            <ol className="grid gap-3">
-              {eventAudit.map((row, index) => (
-                <li className="border-t border-border pt-3 first:border-t-0 first:pt-0" key={`${row.createdAt}:${row.action}:${index}`}>
-                  <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <span className="font-medium capitalize">{formatMachineValue(row.action)}</span>
-                    <ViewerLocalEventDateTime className="text-xs text-muted" timestamp={row.createdAt} />
-                  </div>
-                  <p className="mt-1 text-xs text-muted">
-                    {row.actorDisplayName ?? formatMachineValue(row.actorSurface)}
-                    {row.changedFields.length > 0 ? ` · ${row.changedFields.join(", ")}` : ""}
-                  </p>
-                  {row.reason ? <p className="mt-1 text-sm">{row.reason}</p> : null}
-                </li>
-              ))}
-            </ol>
-          )}
-        </Card>
+        <EditorDisclosure title="Operations">
+          <Card className="grid gap-3" padding="sm" surface="dashed">
+            <Field>
+              Cancellation reason
+              <Input
+                onChange={(changeEvent) => setCancellationReason(changeEvent.currentTarget.value)}
+                value={cancellationReason}
+              />
+            </Field>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                disabled={isSubmitting || eventStatus === "cancelled"}
+                onClick={() => void onSetCancelled(true)}
+                type="button"
+                variant="secondary"
+              >
+                Cancel event
+              </Button>
+              <Button
+                disabled={isSubmitting || eventStatus !== "cancelled"}
+                onClick={() => void onSetCancelled(false)}
+                type="button"
+                variant="secondary"
+              >
+                Restore event
+              </Button>
+            </div>
+          </Card>
+
+          <Card className="grid gap-3" padding="sm" surface="dashed">
+            <h3 className="text-lg font-semibold">Change history</h3>
+            {eventAudit === undefined ? (
+              <p className="text-sm text-muted">Loading history…</p>
+            ) : eventAudit.length === 0 ? (
+              <p className="text-sm text-muted">No history</p>
+            ) : (
+              <ol className="grid gap-3">
+                {eventAudit.map((row, index) => (
+                  <li className="border-t border-border pt-3 first:border-t-0 first:pt-0" key={`${row.createdAt}:${row.action}:${index}`}>
+                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                      <span className="font-medium capitalize">{formatMachineValue(row.action)}</span>
+                      <ViewerLocalEventDateTime className="text-xs text-muted" timestamp={row.createdAt} />
+                    </div>
+                    <p className="mt-1 text-xs text-muted">
+                      {row.actorDisplayName ?? formatMachineValue(row.actorSurface)}
+                      {row.changedFields.length > 0 ? ` · ${row.changedFields.join(", ")}` : ""}
+                    </p>
+                    {row.reason ? <p className="mt-1 text-sm">{row.reason}</p> : null}
+                  </li>
+                ))}
+              </ol>
+            )}
+          </Card>
+        </EditorDisclosure>
       )}
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <Button disabled={isSubmitting} name="intent" size="lg" type="submit" value="publish" variant="primary">
+        <Button disabled={isSubmitting || !slotTemplateIsValid} name="intent" size="lg" type="submit" value="publish" variant="primary">
           {isSubmitting
             ? "Saving..."
             : isPublished
@@ -1233,7 +1274,7 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
                 ? "Save and publish"
                 : "Publish event"}
         </Button>
-        <Button disabled={isSubmitting} name="intent" size="lg" type="submit" value="draft" variant="secondary">
+        <Button disabled={isSubmitting || !slotTemplateIsValid} name="intent" size="lg" type="submit" value="draft" variant="secondary">
           {isPublished ? "Unpublish and save draft" : "Save draft"}
         </Button>
         {status.kind === "success" ? (
@@ -1252,15 +1293,27 @@ function ConnectedEventEditorForm({ event }: { event?: EditableEvent }) {
   );
 }
 
-export function EventEditorForm({ event }: { event?: EditableEvent }) {
+export function EventEditorForm({
+  communitySlug,
+  demoMode = false,
+  event,
+}: {
+  communitySlug: string;
+  demoMode?: boolean;
+  event?: EditableEvent;
+}) {
+  if (demoMode) {
+    return <ConnectedEventEditorForm communitySlug={communitySlug} demoMode event={event} />;
+  }
+
   if (!convexUrl) {
     return <DisabledEventEditorPanel />;
   }
 
-  return <AuthenticatedEventEditorForm event={event} />;
+  return <AuthenticatedEventEditorForm communitySlug={communitySlug} event={event} />;
 }
 
-function AuthenticatedEventEditorForm({ event }: { event?: EditableEvent }) {
+function AuthenticatedEventEditorForm({ communitySlug, event }: { communitySlug: string; event?: EditableEvent }) {
   const { isAuthenticated, isLoading } = useConvexAuth();
 
   if (isLoading) {
@@ -1271,5 +1324,5 @@ function AuthenticatedEventEditorForm({ event }: { event?: EditableEvent }) {
     return <SignInRequiredEventEditorPanel />;
   }
 
-  return <ConnectedEventEditorForm event={event} />;
+  return <ConnectedEventEditorForm communitySlug={communitySlug} event={event} />;
 }

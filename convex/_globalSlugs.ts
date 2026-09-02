@@ -1,9 +1,9 @@
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
 
-// Profiles, worlds, and events all render from the site root now -- vrdex.net/basicbit
-// rather than vrdex.net/p/basicbit -- so the three tables share one namespace. Every
-// slug rule lives here so the three entity modules cannot drift apart again.
+// Profiles and worlds render from the site root as vrdex.net/basicbit. Events
+// use generated codes below their community and do not participate here.
+// Every slug rule lives here so the entity modules cannot drift apart again.
 export const SLUG_MIN_LENGTH = 3;
 export const SLUG_MAX_LENGTH = 64;
 export const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -40,8 +40,9 @@ export const LIVE_ROUTE_SLUGS = [
 /**
  * The only paths that exist beneath an entity's own slug.
  *
- * `app/[slug]/edit` is the profile editor, `app/[slug]/calendar.ics` is the
- * event export, and `app/[slug]/opengraph-image` serves every public entity.
+ * `app/[slug]/edit` is the profile editor and `app/[slug]/opengraph-image`
+ * serves public root entities. `calendar.ics` remains catalogued while old
+ * route-shape audits and granted slugs are still supported.
  */
 export const ENTITY_SUBPATHS = ["edit", "calendar.ics", "opengraph-image"] as const;
 
@@ -58,9 +59,9 @@ export type EntitySubpath = (typeof ENTITY_SUBPATHS)[number];
  * them.
  *
  * `handoff/[token]/page.tsx` genuinely does match `/handoff/edit`, with the token
- * read as "edit", and shadows the calendar and image paths the same way. `l/[code]` has
- * the same shape. Which subpaths each takes is recorded rather than assumed,
- * because a static `edit` child would take one and strand only profiles.
+ * read as "edit", and shadows the calendar and image paths the same way.
+ * `l/[code]` has the same shape. Which subpaths it takes is recorded rather than assumed, because a
+ * static `edit` child would take one and strand only profiles.
  *
  * Reported by `slugAudit` separately from live routes because the failure differs:
  * the public page still works and only nested entity subpaths are gone.
@@ -352,18 +353,13 @@ export async function getWorldBySlug(db: DatabaseReader, slug: string) {
   return await db.query("worlds").withIndex("by_slug", (q) => q.eq("slug", slug)).unique();
 }
 
-export async function getEventBySlug(db: DatabaseReader, slug: string) {
-  return await db.query("events").withIndex("by_slug", (q) => q.eq("slug", slug)).unique();
-}
-
 export type SlugOwner =
   | { kind: "person" | "community"; profile: Doc<"profiles"> }
-  | { kind: "world"; world: Doc<"worlds"> }
-  | { kind: "event"; event: Doc<"events"> };
+  | { kind: "world"; world: Doc<"worlds"> };
 
-export type SlugOwnerId = Id<"profiles"> | Id<"worlds"> | Id<"events">;
+export type SlugOwnerId = Id<"profiles"> | Id<"worlds">;
 
-// Whoever holds this slug across all three tables, ignoring visibility: an unpublished
+// Whoever holds this slug across both root entity tables, ignoring visibility: an unpublished
 // world still owns its name, so uniqueness has to see it. Callers that serve a page
 // apply their own public-visibility filter on top.
 //
@@ -384,11 +380,6 @@ export async function findSlugOwner(
     return { kind: "world", world };
   }
 
-  const event = await getEventBySlug(db, slug);
-  if (event !== null && event._id !== excluding) {
-    return { kind: "event", event };
-  }
-
   return null;
 }
 
@@ -397,7 +388,7 @@ export type SlugAvailability =
   | { available: false; slug: string; reason: "invalid" | "reserved" | "taken" };
 
 /**
- * Whether a slug can be assigned, shared by all three entity types.
+ * Whether a slug can be assigned, shared by profiles and worlds.
  *
  * The ownership check runs *before* the reserved gate, because keeping a name is
  * not taking one. A premium slug an operator granted is still reserved, and
@@ -416,7 +407,7 @@ export async function checkSlugAvailability(
     return { available: false, slug, reason: "invalid" };
   }
 
-  // Anyone *other than* the row being updated, across all three tables. Asked
+  // Anyone *other than* the row being updated, across both root entity tables. Asked
   // first because `findSlugOwner` reports only its first match: comparing an
   // unexcluded lookup against the excluded id instead would have seen a profile
   // keeping `afterglow` and never looked at the world also holding it, returning
@@ -441,8 +432,6 @@ export async function checkSlugAvailability(
     return { available: false, slug: validation.slug, reason: "reserved" };
   }
 
-  // Cross-table: profiles, worlds, and events all render from the site root, so a
-  // name a world already holds is taken for a profile too.
   return remaining === null
     ? { available: true, slug: validation.slug }
     : { available: false, slug: validation.slug, reason: "taken" };

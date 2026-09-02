@@ -44,6 +44,65 @@ test("profile edit signed out @visual", async ({ page }, testInfo) => {
   await captureRouteScreenshot(page, testInfo, "profile-edit-signed-out");
 });
 
+test("event editor @visual", async ({ page }, testInfo) => {
+  await page.goto("/playwright/event-editor");
+  await expect(page.getByRole("heading", { name: "Add event" })).toBeVisible();
+  await expect(page.getByLabel("Start", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Community", { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("World", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: /^Session [1-4]$/ })).toHaveCount(4);
+  await expect(page.getByRole("heading", { name: "Schedule" })).toBeVisible();
+  await expect(page.getByLabel("Break between")).toHaveCount(0);
+  await expect(page.getByLabel("Description")).toBeVisible();
+  await expect(page.getByLabel("Private notes")).toHaveCount(1);
+  await expect(page.locator("details").filter({ hasText: "Private notes" })).not.toHaveAttribute("open");
+  await expect(page.getByRole("button", { name: "Generate" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Customize" })).toHaveCount(0);
+  await expect(page.getByLabel("Slug", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Publish event" })).toBeVisible();
+  await expect(page.locator("details").filter({ hasText: "Media and links" })).not.toHaveAttribute("open");
+  await page.getByLabel("Do doors open before?").check();
+  await expect(page.getByLabel("Minutes before start")).toHaveAttribute("required", "");
+
+  await page.locator("details").filter({ hasText: /^Details/ }).first().locator("summary").click();
+  await page.getByLabel("Display name").first().fill("Aurora");
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toBe("Replace edited schedule?");
+    await dialog.dismiss();
+  });
+  await page.getByLabel("Sessions").fill("5");
+  await expect(page.getByLabel("Display name").first()).toHaveValue("Aurora");
+  await expect(page.getByRole("heading", { name: /^Session [1-4]$/ })).toHaveCount(4);
+
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByLabel("Sessions").fill("0");
+  await expect(page.getByRole("heading", { name: /^Session \d+$/ })).toHaveCount(0);
+  await page.getByLabel("Sessions").fill("4");
+  await expect(page.getByRole("heading", { name: /^Session [1-4]$/ })).toHaveCount(4);
+
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByLabel("Sessions").fill("5");
+  await expect(page.getByRole("heading", { name: /^Session [1-5]$/ })).toHaveCount(5);
+  await page.getByLabel("Sessions").fill("4");
+  await expect(page.getByRole("heading", { name: /^Session [1-4]$/ })).toHaveCount(4);
+  await page.getByLabel("Sessions").fill("81");
+  await expect(page.getByLabel("Sessions")).toHaveValue("80");
+  await page.getByLabel("Sessions").fill("4");
+  await expect(page.getByRole("heading", { name: /^Session [1-4]$/ })).toHaveCount(4);
+  await page.getByLabel("Sessions").fill("");
+  await expect(page.getByRole("button", { name: "Publish event" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Save draft" })).toBeDisabled();
+  await page.getByLabel("Sessions").fill("4");
+  await page.getByLabel("Minutes each").fill("");
+  await expect(page.getByRole("button", { name: "Publish event" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Save draft" })).toBeDisabled();
+  await page.getByLabel("Minutes each").fill("60.5");
+  await expect(page.getByRole("button", { name: "Publish event" })).toBeDisabled();
+  await page.getByLabel("Minutes each").fill("60");
+  await expect(page.getByRole("button", { name: "Publish event" })).toBeEnabled();
+  await captureRouteScreenshot(page, testInfo, "event-editor");
+});
+
 test("unified BASICBIT search views @visual", async ({ page }, testInfo) => {
   await page.goto("/search?q=BASICBIT");
   await expect(page.getByRole("heading", { name: "Search VRDex" })).toBeVisible();

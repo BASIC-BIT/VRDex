@@ -321,7 +321,7 @@ const mcpProfileMediaManageResultSchema = z.object({
 });
 const mcpEventUpdateInputSchema = z.object({
   idempotencyKey: mcpIdempotencyKeySchema,
-  slug: mcpSlugSchema.describe("Current public event slug."),
+  slug: mcpSlugSchema.describe("Current public event code."),
   update: ApiEventUpdateRequestSchema,
 });
 const mcpEventCreateInputSchema = ApiEventCreateRequestSchema.extend({
@@ -559,8 +559,12 @@ function profileRoutePath(profile: Pick<PublicProfile, "profileType" | "slug">) 
   return `/${encodeURIComponent(profile.slug)}`;
 }
 
-function eventRoutePath(event: Pick<PublicEvent, "slug">) {
-  return `/${encodeURIComponent(event.slug)}`;
+function eventRoutePath(event: Pick<PublicEvent, "communitySlug" | "slug">) {
+  if (event.communitySlug === undefined) {
+    return undefined;
+  }
+
+  return `/${encodeURIComponent(event.communitySlug)}/events/${encodeURIComponent(event.slug)}`;
 }
 
 function worldRoutePath(world: Pick<PublicWorld, "slug">) {
@@ -608,7 +612,13 @@ function profileToMcpDocument(profile: PublicProfile): McpDocumentFetchResponse 
   };
 }
 
-function eventToMcpDocument(event: PublicEvent): McpDocumentFetchResponse {
+function eventToMcpDocument(event: PublicEvent): McpDocumentFetchResponse | null {
+  const routePath = eventRoutePath(event);
+
+  if (routePath === undefined) {
+    return null;
+  }
+
   const lines: string[] = [];
 
   addMcpDocumentLine(lines, "Title", event.title);
@@ -621,7 +631,6 @@ function eventToMcpDocument(event: PublicEvent): McpDocumentFetchResponse {
   addMcpDocumentLine(lines, "End", formatTimestampMs(event.endAt));
   addMcpDocumentLine(lines, "Timezone", event.timezone);
   addMcpDocumentLine(lines, "Summary", event.summary);
-  addMcpDocumentLine(lines, "Notes", event.notes);
   addMcpDocumentLine(lines, "Worlds", formatNamedItems(event.worlds));
   addMcpDocumentLine(lines, "Media links", formatOutboundLinks(event.mediaLinks));
   addMcpDocumentLine(lines, "Source", formatSource(event.source));
@@ -636,7 +645,7 @@ function eventToMcpDocument(event: PublicEvent): McpDocumentFetchResponse {
     },
     text: lines.join("\n"),
     title: event.title,
-    url: publicUrlForRoutePath(eventRoutePath(event)),
+    url: publicUrlForRoutePath(routePath),
   };
 }
 
