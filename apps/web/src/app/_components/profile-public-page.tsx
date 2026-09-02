@@ -436,11 +436,17 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
     return stream ? [{ item, label: link.label, stream }] : [];
   });
   const claimableVrcdnStreams = vrcdnStreams.filter(({ item }) => carriesLiveClaim(item.link));
+  const initiallyLiveVrcdnStreams = claimableVrcdnStreams.filter(
+    ({ stream }) => profile.vrcdnLive?.[stream.streamId] === "live",
+  );
   const creatorLinks = validLinks.filter(
     (item) =>
       item !== twitchLink &&
       !discordHandles.some((discord) => discord.item === item) &&
-      !claimableVrcdnStreams.some((vrcdn) => vrcdn.item === item),
+      // A confirmed-live stream moves into the Watch surface. Offline and
+      // unavailable streams remain ordinary profile links instead of
+      // disappearing with the player.
+      !initiallyLiveVrcdnStreams.some((vrcdn) => vrcdn.item === item),
   );
   const aliases = profile.aliases.slice(0, 3);
   const remainingAliases = profile.aliases.slice(3);
