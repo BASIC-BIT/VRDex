@@ -40,7 +40,11 @@ type PublicProfileType = "person" | "community";
 
 // `profileType` narrows to one of the two profile kinds. The root slug route omits it
 // because a bare /basicbit does not say which kind it is -- the slug itself decides.
-export async function fetchPublicProfileBySlug(slug: string, profileType?: PublicProfileType) {
+export async function fetchPublicProfileBySlug(
+  slug: string,
+  profileType?: PublicProfileType,
+  options: { includeLiveState?: boolean } = {},
+) {
   const fixtureProfile =
     profileType === undefined
       ? getPlaywrightPublicProfileFixture(slug, "person") ??
@@ -77,7 +81,7 @@ export async function fetchPublicProfileBySlug(slug: string, profileType?: Publi
     // Resolve both providers before the first visible profile render. The
     // client still revalidates VRCDN, but starting without its confirmed state
     // made a live player disappear and return across a refresh.
-    const [twitchLive, vrcdnLive] = publicProfile
+    const [twitchLive, vrcdnLive] = publicProfile && options.includeLiveState !== false
       ? await Promise.all([
           getTwitchLiveState(publicProfile.outboundLinks),
           getVrcdnLiveStates(publicProfile.outboundLinks, { profileSlug: slug }),

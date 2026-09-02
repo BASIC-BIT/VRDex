@@ -385,6 +385,7 @@ test.describe("fixture lookup smoke", () => {
     releaseImage();
 
     await expect(avatar.locator("img")).toHaveCSS("opacity", "1");
+    await expect(avatar.getByText("DA", { exact: true })).toHaveCSS("opacity", "0");
     await expect(avatarState).toHaveCount(0);
 
     await page.reload({ waitUntil: "domcontentloaded" });
@@ -416,6 +417,8 @@ test.describe("fixture lookup smoke", () => {
     releaseImage();
 
     await expect(preview).toHaveCSS("opacity", "1");
+    await expect(logoCard.locator('div[aria-hidden="true"] > span.animate-none').locator(".."))
+      .toHaveCSS("opacity", "0");
     await expect(logoCard.getByRole("status", { name: "Loading image" })).toHaveCount(0);
 
     await page.reload({ waitUntil: "domcontentloaded" });

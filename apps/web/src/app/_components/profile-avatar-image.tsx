@@ -37,7 +37,14 @@ export function ProfileAvatarImage({
       className="absolute inset-0 flex items-center justify-center"
       role="img"
     >
-      {fallback}
+      <span
+        className={cn(
+          "transition-opacity duration-0",
+          loaded ? "delay-200 opacity-0" : "delay-0 opacity-100",
+        )}
+      >
+        {fallback}
+      </span>
       {showImage ? (
         // Controlled VRDex asset routes are intentionally rendered as ordinary images.
         // eslint-disable-next-line @next/next/no-img-element

@@ -57,12 +57,18 @@ export function MediaPreviewImage({
       <div
         aria-hidden={loaded ? true : undefined}
         aria-label={loaded ? undefined : "Loading image"}
-        className="absolute inset-0 grid place-items-center bg-canvas-muted"
+        className={cn(
+          "absolute inset-0 grid place-items-center bg-canvas-muted transition-opacity duration-200",
+          loaded ? "pointer-events-none opacity-0" : "opacity-100",
+        )}
         role={loaded ? undefined : "status"}
       >
         <span
           aria-hidden="true"
-          className="size-5 animate-spin rounded-full border-2 border-border border-t-foreground/70"
+          className={cn(
+            "size-5 rounded-full border-2 border-border border-t-foreground/70",
+            loaded ? "animate-none" : "animate-spin",
+          )}
         />
       </div>
       {/* Controlled VRDex asset routes are intentionally rendered as ordinary images. */}
