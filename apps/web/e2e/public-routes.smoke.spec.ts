@@ -2,6 +2,8 @@ import { expect, test } from "@playwright/test";
 import { writeFile } from "node:fs/promises";
 import sharp from "sharp";
 
+import type { PublicEventShareCard } from "../../../convex/_eventShareCard";
+import { eventShareRevision } from "../src/lib/event-share-card";
 import {
   capturedRoutes,
   expectEventPage,
@@ -13,6 +15,32 @@ import {
 
 const routes = process.env.PLAYWRIGHT_BASE_URL ? productionSmokeRoutes : capturedRoutes;
 const isHostedRun = Boolean(process.env.PLAYWRIGHT_BASE_URL);
+const eventShareImageFixtures = [
+  {
+    name: "event-open-graph-image-no-artwork",
+    event: {
+      slug: "playwright-event-share-no-artwork",
+      communitySlug: "playwright-afterglow-social",
+      communityName: "Afterglow Social",
+      title: "Night Shift",
+      startAt: Date.UTC(2026, 5, 14, 22, 0, 0),
+      timezone: "America/New_York",
+      status: "scheduled",
+    },
+  },
+  {
+    name: "event-open-graph-image-cancelled-long",
+    event: {
+      slug: "playwright-event-share-cancelled-long",
+      communitySlug: "playwright-afterglow-social",
+      communityName: "Afterglow Social",
+      title: "Afterglow Harbor Sessions Presents an Extra Long Community Showcase Night",
+      startAt: Date.UTC(2026, 5, 14, 22, 0, 0),
+      timezone: "America/New_York",
+      status: "cancelled",
+    },
+  },
+] as const satisfies ReadonlyArray<{ name: string; event: PublicEventShareCard }>;
 
 test.beforeEach(async ({ page }) => {
   await prepareVisualPage(page);
@@ -225,22 +253,29 @@ test("event links expose community-scoped metadata and a poster share image", as
   }
   expect(posterPixelCount).toBeGreaterThan(1_000);
 
-  for (const fixture of [
-    ["event-open-graph-image-no-artwork", "playwright-event-share-no-artwork"],
-    ["event-open-graph-image-cancelled-long", "playwright-event-share-cancelled-long"],
-  ] as const) {
+  for (const fixture of eventShareImageFixtures) {
     const fixtureResponse = await page.request.get(
-      `/playwright-afterglow-social/events/${fixture[1]}/opengraph-image`,
+      `/playwright-afterglow-social/events/${fixture.event.slug}/opengraph-image?revision=${eventShareRevision(fixture.event)}`,
     );
     expect(fixtureResponse.ok()).toBe(true);
     const fixtureBody = await fixtureResponse.body();
-    const fixturePath = testInfo.outputPath(`${fixture[0]}.png`);
+    const fixturePath = testInfo.outputPath(`${fixture.name}.png`);
     await writeFile(fixturePath, fixtureBody);
-    await testInfo.attach(fixture[0], {
+    await testInfo.attach(fixture.name, {
       path: fixturePath,
       contentType: "image/png",
     });
   }
+
+  const fabricatedRevisionUrl = new URL(imageUrl!);
+  fabricatedRevisionUrl.searchParams.set("revision", "0000000000000000");
+  const fabricatedRevision = await page.request.get(fabricatedRevisionUrl.href);
+  expect(fabricatedRevision.status()).toBe(404);
+  expect(fabricatedRevision.headers()["cache-control"]).toBe("no-store");
+
+  const extraQueryUrl = new URL(imageUrl!);
+  extraQueryUrl.searchParams.set("cache-buster", "1");
+  expect((await page.request.get(extraQueryUrl.href)).status()).toBe(404);
 
   const wrongCommunityImage = await page.request.get(
     "/playwright-dj-aurora/events/playwright-afterglow-harbor-sessions/opengraph-image",

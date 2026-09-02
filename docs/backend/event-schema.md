@@ -134,7 +134,9 @@ Published community event pages expose Open Graph and Twitter metadata at the ca
 
 Generated preview images prefer `posterImageUrl`, then `bannerImageUrl`, then `thumbnailImageUrl`. Remote artwork is fetched through the same bounded, redirect-aware, private-network-rejecting import boundary used for profile media, validated by content rather than headers alone, and rasterized before it enters the generated image. Invalid or unavailable artwork falls back to the typography-only card. The card renders its static schedule in the authored event timezone because link-preview crawlers do not provide a viewer timezone.
 
-Metadata image URLs carry a revision derived only from the public share-card projection so a changed title, schedule, status, description, community identity, or artwork URL receives a new cache URL. Private manager notes, source internals, participant/session associations, media-control state, watch links, and operator data are excluded from both the projection and revision.
+Metadata image URLs carry a revision derived only from the public share-card projection so a changed title, schedule, status, description, community identity, or artwork URL receives a new cache URL. The image route accepts only that exact revision and rejects extra query parameters before downloading or rasterizing artwork. Backend failures return a non-cacheable unavailable response rather than a generic successful image.
+
+Private manager notes, source internals, participant/session associations, media-control state, watch links, and operator data are excluded from both the projection and revision. Event artwork cannot point directly or through redirects at a generated event-preview route, preventing recursive image renders.
 
 ## Calendar Import And Export
 

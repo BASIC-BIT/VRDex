@@ -19,6 +19,7 @@ export type ProfileAssetSourceUpload = {
 };
 
 type ProfileAssetSourceImportDependencies = {
+  assertSourceUrl?: (sourceUrl: URL) => void;
   resolveHostname?: (
     hostname: string,
   ) => Promise<Array<{ address: string }>>;
@@ -257,6 +258,7 @@ export async function fetchProfileAssetSourceUrl(
   const requestSource = dependencies.requestPinnedSource ?? requestPinnedSourceUrl;
 
   for (let redirects = 0; redirects <= SOURCE_URL_MAX_REDIRECTS; redirects += 1) {
+    dependencies.assertSourceUrl?.(currentUrl);
     const address = await resolvePublicHttpsSourceUrl(currentUrl, resolveHostname);
     const response = await requestSource(currentUrl, address);
     const redirectedUrl = redirectLocation(

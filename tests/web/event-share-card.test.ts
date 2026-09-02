@@ -9,7 +9,10 @@ import {
   eventShareTitleFontSize,
 } from "../../apps/web/src/lib/event-share-card";
 import { DEFAULT_SHARE_DESCRIPTION } from "../../apps/web/src/lib/profile-share-card";
-import { eventShareArtworkSource } from "../../apps/web/src/lib/server/event-share-media";
+import {
+  eventShareArtworkSource,
+  isEventShareImageUrl,
+} from "../../apps/web/src/lib/server/event-share-media";
 import type { PublicEventShareCard } from "../../convex/_eventShareCard";
 
 const card: PublicEventShareCard = {
@@ -91,5 +94,22 @@ describe("event share artwork source", () => {
       null,
     );
     assert.equal(eventShareArtworkSource("/afterglow-social", siteUrl), null);
+  });
+
+  it("rejects generated event previews as direct or redirected artwork", () => {
+    const previewUrl = new URL(
+      "/afterglow-social/events/7m2kp9q/opengraph-image?revision=abc",
+      siteUrl,
+    );
+
+    assert.equal(isEventShareImageUrl(previewUrl, siteUrl), true);
+    assert.equal(eventShareArtworkSource(previewUrl.href, siteUrl), null);
+    assert.equal(
+      isEventShareImageUrl(
+        new URL("https://media.example.test/events/7m2kp9q/opengraph-image"),
+        siteUrl,
+      ),
+      false,
+    );
   });
 });
