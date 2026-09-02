@@ -362,6 +362,71 @@ test.describe("hosted lookup smoke", () => {
 test.describe("fixture lookup smoke", () => {
   test.skip(isHostedRun, "Fixture-specific lookup suggestions are local-only.");
 
+  test("profile image keeps its fallback until the asset loads", async ({ page }) => {
+    let releaseImage: () => void = () => {};
+    const imageHold = new Promise<void>((resolve) => {
+      releaseImage = resolve;
+    });
+
+    await page.route("**/api/e2e/fixture-assets/fixture-aurora-profile-image", async (route) => {
+      const response = await route.fetch();
+      const body = await response.body();
+      await imageHold;
+      await route.fulfill({ body, contentType: response.headers()["content-type"] });
+    });
+
+    await page.goto("/playwright-dj-aurora", { waitUntil: "domcontentloaded" });
+
+    const avatarState = page.locator('[aria-busy="true"]').filter({ hasText: "DA" });
+    await expect(avatarState).toBeVisible();
+    const avatar = page.getByRole("img", { name: "DJ Aurora display image" });
+    await expect(avatar.locator("img")).toHaveCSS("opacity", "0");
+
+    releaseImage();
+
+    await expect(avatar.locator("img")).toHaveCSS("opacity", "1");
+    await expect(avatar.getByText("DA", { exact: true })).toHaveCSS("opacity", "0");
+    await expect(avatarState).toHaveCount(0);
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.getByRole("img", { name: "DJ Aurora display image" }).locator("img")).toHaveCSS("opacity", "1");
+  });
+
+  test("media preview shows progress until its image loads", async ({ page }) => {
+    let releaseImage: () => void = () => {};
+    const imageHold = new Promise<void>((resolve) => {
+      releaseImage = resolve;
+    });
+
+    await page.route("**/api/e2e/fixture-assets/fixture-aurora-primary-logo", async (route) => {
+      const response = await route.fetch();
+      const body = await response.body();
+      await imageHold;
+      await route.fulfill({ body, contentType: response.headers()["content-type"] });
+    });
+
+    await page.goto("/playwright-dj-aurora", { waitUntil: "domcontentloaded" });
+    const mediaKit = page.getByRole("heading", { name: "Media kit" }).locator("xpath=ancestor::section");
+    await mediaKit.scrollIntoViewIfNeeded();
+
+    const logoCard = mediaKit.getByRole("article").filter({ hasText: "Primary logo" });
+    const preview = logoCard.getByRole("img", { name: "Aurora wordmark" });
+    await expect(logoCard.getByRole("status", { name: "Loading image" })).toBeVisible();
+    await expect(preview).toHaveCSS("opacity", "0");
+
+    releaseImage();
+
+    await expect(preview).toHaveCSS("opacity", "1");
+    await expect(logoCard.locator('div[aria-hidden="true"] > span.animate-none').locator(".."))
+      .toHaveCSS("opacity", "0");
+    await expect(logoCard.getByRole("status", { name: "Loading image" })).toHaveCount(0);
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    const reloadedMediaKit = page.getByRole("heading", { name: "Media kit" }).locator("xpath=ancestor::section");
+    await reloadedMediaKit.scrollIntoViewIfNeeded();
+    await expect(reloadedMediaKit.getByRole("img", { name: "Aurora wordmark" })).toHaveCSS("opacity", "1");
+  });
+
   test("VRCDN live state recovers after the profile renders without a reload", async ({ page }) => {
     let attempts = 0;
     let releaseFirstResponse: () => void = () => {};

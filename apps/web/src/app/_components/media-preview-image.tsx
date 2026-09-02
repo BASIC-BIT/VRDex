@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
@@ -14,8 +14,22 @@ export function MediaPreviewImage({
   className?: string;
   src: string;
 }) {
-  const [failed, setFailed] = useState(false);
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const [loadedSrc, setLoadedSrc] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const failed = failedSrc === src;
+  const loaded = loadedSrc === src;
+  const recordCompletedImage = useCallback((image: HTMLImageElement | null) => {
+    if (!image?.complete) {
+      return;
+    }
+
+    if (image.naturalWidth > 0) {
+      setLoadedSrc(src);
+    } else {
+      setFailedSrc(src);
+    }
+  }, [src]);
 
   if (failed) {
     return (
@@ -25,7 +39,8 @@ export function MediaPreviewImage({
           <button
             className={cn(buttonVariants({ size: "sm", variant: "secondary" }), "mt-3")}
             onClick={() => {
-              setFailed(false);
+              setFailedSrc(null);
+              setLoadedSrc(null);
               setAttempt((value) => value + 1);
             }}
             type="button"
@@ -38,15 +53,36 @@ export function MediaPreviewImage({
   }
 
   return (
-    // Controlled VRDex asset routes are intentionally rendered as ordinary images.
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      alt={alt}
-      className={className}
-      key={attempt}
-      loading="lazy"
-      onError={() => setFailed(true)}
-      src={src}
-    />
+    <>
+      <div
+        aria-hidden={loaded ? true : undefined}
+        aria-label={loaded ? undefined : "Loading image"}
+        className={cn(
+          "absolute inset-0 grid place-items-center bg-canvas-muted transition-opacity duration-200",
+          loaded ? "pointer-events-none opacity-0" : "opacity-100",
+        )}
+        role={loaded ? undefined : "status"}
+      >
+        <span
+          aria-hidden="true"
+          className={cn(
+            "size-5 rounded-full border-2 border-border border-t-foreground/70",
+            loaded ? "animate-none" : "animate-spin",
+          )}
+        />
+      </div>
+      {/* Controlled VRDex asset routes are intentionally rendered as ordinary images. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        alt={alt}
+        className={cn(className, "transition-opacity duration-200", loaded ? "opacity-100" : "opacity-0")}
+        key={attempt}
+        loading="lazy"
+        onError={() => setFailedSrc(src)}
+        onLoad={() => setLoadedSrc(src)}
+        ref={recordCompletedImage}
+        src={src}
+      />
+    </>
   );
 }
