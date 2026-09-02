@@ -331,6 +331,8 @@ describe("group telemetry release workflow", () => {
     assert.match(commands, /git merge-base --is-ancestor/);
     assert.match(commands, /actions\/workflows\/baseline-checks\.yml\/runs/);
     assert.match(commands, /release_sha.*latest_successful_sha/);
+    assert.match(commands, /tests\/backend\/collector-proof-checks\.test\.ts/);
+    assert.match(commands, /tests\/scripts\/group-telemetry-worker\.test\.ts/);
     assert.match(commands, /docker build .*org\.opencontainers\.image\.revision=\$RELEASE_SHA/);
     assert.match(commands, /terraform plan -out=collector\.tfplan -var-file=environments\/production\.tfvars/);
     assert.match(commands, /group-telemetry-deployment\.mjs plan/);
@@ -350,6 +352,8 @@ describe("group telemetry release workflow", () => {
     assert.ok(rollback, "Terraform rollback step is missing");
     assert.doesNotMatch(rollback.run ?? "", /ecs update-service/);
     assert.match(commands, /deadline=\$\(\(SECONDS \+ 300\)\)/);
+    assert.match(commands, /if CONVEX_DEPLOY_KEY=.*collectorDeploymentReadiness/);
+    assert.match(commands, /heartbeat query failed; retrying until the verification deadline/);
     assert.match(commands, /sleep 10/);
   });
 

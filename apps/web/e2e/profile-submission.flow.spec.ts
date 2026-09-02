@@ -146,14 +146,24 @@ test("profile submission writes through to public profile and discovery @flow", 
     // outbound link instead of entering the live-only Watch surface.
     if (submittedStreamId !== undefined) {
       const questUrl = `https://stream.vrcdn.live/live/${submittedStreamId}.live.ts`;
+      const vrcdnLink = page.getByRole("link", { name: "VRCDN", exact: true });
+      const rendersVrcdnLink = (await vrcdnLink.count()) > 0;
 
       if (targetRunsCurrentRevision) {
-        await expect(page.getByRole("link", { name: "VRCDN", exact: true })).toHaveAttribute("href", questUrl);
+        expect(
+          rendersVrcdnLink,
+          "target runs this revision, so it must render the ordinary VRCDN link",
+        ).toBe(true);
+      }
+
+      if (rendersVrcdnLink) {
+        await expect(vrcdnLink).toHaveAttribute("href", questUrl);
       } else {
-        // Shared staging tracks main, so a pull request can write through a
-        // newer backend shape while its public page still renders the legacy
-        // copy row. This tolerance disappears as soon as the target proves it
-        // is serving this commit.
+        // Shared staging tracks main, not the pull-request SHA. Detect its
+        // rendered compatibility surface just as the form above does: staging
+        // may already contain the new link from a main commit that this branch
+        // merged, while an older deployment still renders the legacy copy row.
+        // Exact-revision targets cannot enter this tolerance branch.
         await expect(page.getByText(questUrl)).toBeVisible();
       }
     }

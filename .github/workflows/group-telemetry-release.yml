@@ -116,6 +116,8 @@ jobs:
       - name: Verify collector release contracts
         run: |
           pnpm test:group-telemetry
+          node --conditions=import --import tsx --test tests/backend/collector-proof-checks.test.ts
+          node --import tsx --test tests/scripts/group-telemetry-worker.test.ts
           node --import tsx --test tests/scripts/group-telemetry-deployment.test.ts
 
       - name: Configure scoped AWS credentials
@@ -215,9 +217,12 @@ jobs:
           until [ "$SECONDS" -ge "$deadline" ]; do
             now="$(node -p 'Date.now()')"
             args="$(jq -cn --arg accountId "$TF_VAR_collector_account_id" --arg sha "$RELEASE_SHA" --argjson now "$now" '{collectorAccountId:$accountId,expectedReleaseSha:$sha,requiredCapabilities:["telemetry_v1","vrchat_proof_v1"],maxHeartbeatAgeMs:120000,now:$now}')"
-            CONVEX_DEPLOY_KEY="$CONVEX_DEPLOY_KEY_PROD" pnpm --silent exec convex run --prod communityTelemetry:collectorDeploymentReadiness "$args" > heartbeat.json
-            if node scripts/group-telemetry-deployment.mjs heartbeat --file heartbeat.json; then
-              exit 0
+            if CONVEX_DEPLOY_KEY="$CONVEX_DEPLOY_KEY_PROD" pnpm --silent exec convex run --prod communityTelemetry:collectorDeploymentReadiness "$args" > heartbeat.json; then
+              if node scripts/group-telemetry-deployment.mjs heartbeat --file heartbeat.json; then
+                exit 0
+              fi
+            else
+              echo "::warning::Collector heartbeat query failed; retrying until the verification deadline."
             fi
             sleep 10
           done

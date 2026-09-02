@@ -162,6 +162,7 @@ export function ClaimFlowContent({
   const verifyVrchat = useAction(api.profileClaims.verifyVrchatProofViaAdapter);
   const posthog = usePostHog();
   const analyticsJourneyIdRef = useRef<string | null>(null);
+  const initialAnalyticsJourneyConsumedRef = useRef(false);
   const viewedJourneyRef = useRef<string | null>(null);
   const selectedMethodKeysRef = useRef(new Set<string>());
   const analyticsJourneyFinishedRef = useRef(false);
@@ -270,7 +271,13 @@ export function ClaimFlowContent({
     const journeyId = resolveClaimJourneyId({
       pendingJourneyId: pendingAnalyticsJourneyId,
       storedJourneyId,
-      generate: () => initialAnalyticsJourneyId,
+      generate: () => {
+        if (!initialAnalyticsJourneyConsumedRef.current) {
+          initialAnalyticsJourneyConsumedRef.current = true;
+          return initialAnalyticsJourneyId;
+        }
+        return crypto.randomUUID();
+      },
     });
     try {
       window.sessionStorage.setItem(storageKey, journeyId);

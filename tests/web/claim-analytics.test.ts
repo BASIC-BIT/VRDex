@@ -58,6 +58,11 @@ describe("claim analytics journey correlation", () => {
       "utf8",
     );
     assert.match(source, /analyticsJourneyFinishedRef\.current = true/);
+    assert.match(source, /initialAnalyticsJourneyConsumedRef = useRef\(false\)/);
+    assert.match(
+      source,
+      /if \(!initialAnalyticsJourneyConsumedRef\.current\)[\s\S]*return initialAnalyticsJourneyId[\s\S]*return crypto\.randomUUID\(\)/,
+    );
     assert.match(source, /analyticsJourneyFinishedRef\.current\s*\) return/);
     assert.match(source, /lastObservedPendingJourneyRef/);
     assert.match(source, /preserveInitialDiscordReturnRef = useRef\(discordVerify != null\)/);
