@@ -270,23 +270,28 @@ type ProductAnalyticsEvents = {
     scope: "all" | "one" | "others";
   };
   claim_journey_viewed: {
+    journey_id: string;
     profile_type: "person" | "community";
     source: "account" | "profile" | "search";
   };
   claim_method_selected: {
+    journey_id: string;
     method: ClaimAnalyticsMethod;
     profile_type: "person" | "community";
   };
   claim_submitted: {
+    journey_id: string;
     method: ClaimAnalyticsMethod;
     profile_type: "person" | "community";
   };
   claim_completed: {
+    journey_id: string;
     method: ClaimAnalyticsMethod;
     outcome: "already_owned" | "claimed_unverified" | "claimed_verified";
     profile_type: "person" | "community";
   };
   claim_failed: {
+    journey_id: string;
     method: ClaimAnalyticsMethod;
     outcome: "conflict" | "expired" | "not_verified" | "unavailable" | "unknown";
     profile_type: "person" | "community";

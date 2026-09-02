@@ -2134,6 +2134,12 @@ export default defineSchema({
     evidenceSource: v.optional(profileVerificationEvidenceSource),
     evidenceSummary: v.optional(v.string()),
     rejectionReason: v.optional(v.string()),
+    // Opaque per-journey correlation only. It is random and carries no user,
+    // profile, provider, or target identity.
+    analyticsJourneyId: v.optional(v.string()),
+    analyticsEntrySource: v.optional(
+      v.union(v.literal("account"), v.literal("profile"), v.literal("search")),
+    ),
     createdAt: v.number(),
     updatedAt: v.number(),
     verifiedAt: v.optional(v.number()),
@@ -2183,6 +2189,10 @@ export default defineSchema({
     lastCheckOutcome: v.optional(proofCheckOutcomeValidator),
     resolvedAt: v.optional(v.number()),
     resolutionReason: v.optional(proofResolutionReasonValidator),
+    analyticsJourneyId: v.optional(v.string()),
+    analyticsEntrySource: v.optional(
+      v.union(v.literal("account"), v.literal("profile"), v.literal("search")),
+    ),
   })
     .index("by_profileId_state", ["profileId", "state"])
     .index("by_profileId_userId_state_updatedAt", ["profileId", "userId", "state", "updatedAt"])
@@ -2214,6 +2224,62 @@ export default defineSchema({
   })
     .index("by_event_createdAt", ["event", "createdAt"])
     .index("by_attemptId_createdAt", ["attemptId", "createdAt"]),
+  claimAnalyticsOutbox: defineTable({
+    eventKey: v.string(),
+    journeyId: v.string(),
+    event: v.union(
+      v.literal("claim_attempt_created"),
+      v.literal("claim_verification_started"),
+      v.literal("claim_resolved"),
+    ),
+    profileType: v.union(v.literal("person"), v.literal("community")),
+    method: v.union(v.literal("discord"), v.literal("vrchat"), v.literal("vrclinking")),
+    entrySource: v.union(v.literal("account"), v.literal("profile"), v.literal("search")),
+    outcome: v.optional(
+      v.union(
+        v.literal("claimed_unverified"),
+        v.literal("claimed_verified"),
+        v.literal("rejected"),
+        v.literal("canceled"),
+        v.literal("expired"),
+        v.literal("conflict"),
+        v.literal("not_claimable"),
+      ),
+    ),
+    connectionOnly: v.optional(v.boolean()),
+    timeToFirstCheckBucket: v.optional(
+      v.union(
+        v.literal("under_1m"),
+        v.literal("under_2m"),
+        v.literal("under_5m"),
+        v.literal("over_5m"),
+      ),
+    ),
+    timeToResolutionBucket: v.optional(
+      v.union(
+        v.literal("under_1m"),
+        v.literal("under_5m"),
+        v.literal("under_15m"),
+        v.literal("under_1h"),
+        v.literal("over_1h"),
+      ),
+    ),
+    occurredAt: v.number(),
+    state: v.union(
+      v.literal("pending"),
+      v.literal("delivering"),
+      v.literal("delivered"),
+      v.literal("failed"),
+      v.literal("disabled"),
+    ),
+    attemptCount: v.number(),
+    nextAttemptAt: v.number(),
+    leaseUntil: v.optional(v.number()),
+    deliveredAt: v.optional(v.number()),
+  })
+    .index("by_eventKey", ["eventKey"])
+    .index("by_state_nextAttemptAt", ["state", "nextAttemptAt"])
+    .index("by_state_leaseUntil", ["state", "leaseUntil"]),
   // A user proved they control an external asset. This is deliberately not a
   // claim: proving you administer a Discord guild says nothing about which
   // VRDex profile that guild represents. Profile ownership is granted only

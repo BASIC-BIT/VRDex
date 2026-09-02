@@ -86,6 +86,9 @@ GitHub Actions secret names:
 - `CONVEX_DEPLOY_KEY_PREVIEW`: preview deployment key used by on-demand Vercel previews that need same-branch backend functions
 - `CONVEX_DEPLOY_KEY_DEV`: development deployment key
 - `CONVEX_DEPLOY_KEY_PROD`: production deployment key used by the main-branch deploy workflow
+- `TERRAFORM_POSTHOG_PUBLIC_KEY`: optional hosted PostHog project key reused by
+  the production workflow for Convex claim analytics; absence leaves delivery
+  disabled and does not block deployment
 
 Local ignored env names:
 

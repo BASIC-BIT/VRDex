@@ -70,6 +70,26 @@ If the provider cannot manage a desired PostHog alert, dashboard, or insight,
 record the exact manual configuration and its URL in the owner follow-up
 instead of silently introducing configuration drift.
 
+## Claim adoption and verification
+
+Terraform declares the `Claim adoption and verification` dashboard and five
+insights for journey progression, method selection, authoritative terminal
+outcomes, coarse resolution latency, and browser-to-backend milestone
+reconciliation. The funnel groups by an opaque random journey UUID. Events do
+not contain user IDs, profile IDs or slugs, provider IDs, target IDs, proof
+codes, evidence, raw errors, email addresses, or credentials.
+
+The browser emits view, selection, and submission milestones. Convex emits
+attempt creation, first verification check, and terminal resolution through a
+durable deduplicated outbox. Listing coverage is not claimant conversion:
+claimed seeded listings divided by all seeded listings belongs in inventory
+reporting, not this adoption funnel.
+
+Applying this stack creates dashboard metadata only. It does not send a claim
+event or mutate a claim. After the application deployment, apply the stack with
+a reviewed plan and reconcile a consented canary journey before treating the
+dashboard as operational evidence.
+
 ## State Backend
 
 Terraform state for this stack is stored in the S3 backend declared in `versions.tf`:

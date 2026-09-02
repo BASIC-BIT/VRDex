@@ -3,7 +3,7 @@
 import { useAction, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { usePostHog } from "posthog-js/react";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { BadgeCheck, Building2, Link2, ShieldCheck, UserRound } from "lucide-react";
 
 import { api } from "@convex-generated-api";
@@ -16,6 +16,7 @@ import { Notice } from "@/components/ui/notice";
 import type { AvatarAppearance } from "@/lib/avatar-appearance";
 import { captureProductEvent, type ClaimAnalyticsMethod } from "@/lib/posthog";
 import { claimErrorMessage, claimFailureOutcome } from "@/lib/claim-errors";
+import { claimJourneyStorageKey, resolveClaimJourneyId } from "@/lib/claim-analytics";
 import { cn } from "@/lib/cn";
 import {
   ownerProfileDestinationPath,
@@ -113,6 +114,7 @@ export function ClaimFlow({
       at: number;
       connectionOnly: boolean;
       targetType: "vrclinking" | "vrchat_user" | "vrchat_group";
+      analyticsJourneyId?: string;
     } | null;
   };
   profile: ClaimProfile;
@@ -136,6 +138,8 @@ export function ClaimFlow({
   const verifyDiscord = useAction(api.profileClaims.verifyDiscordCommunityAdminClaim);
   const verifyVrchat = useAction(api.profileClaims.verifyVrchatProofViaAdapter);
   const posthog = usePostHog();
+  const analyticsJourneyIdRef = useRef<string | null>(null);
+  const viewedJourneyRef = useRef<string | null>(null);
   const [selectedMethod, setMethod] = useState<ClaimMethod | null>(
     previewContext
       ? profile.profileType === "community"
@@ -211,12 +215,41 @@ export function ClaimFlow({
       ? "discord"
       : "vrchat");
 
+  const pendingAnalyticsJourneyId =
+    context?.pendingProof?.analyticsJourneyId ??
+    context?.pendingClaimRequest?.analyticsJourneyId;
+  const ensureAnalyticsJourneyId = useCallback(() => {
+    if (analyticsJourneyIdRef.current !== null && pendingAnalyticsJourneyId === undefined) {
+      return analyticsJourneyIdRef.current;
+    }
+
+    const storageKey = claimJourneyStorageKey(profile.slug);
+    const journeyId = resolveClaimJourneyId({
+      pendingJourneyId: pendingAnalyticsJourneyId,
+      storedJourneyId: window.sessionStorage.getItem(storageKey),
+      generate: () => crypto.randomUUID(),
+    });
+    window.sessionStorage.setItem(storageKey, journeyId);
+    analyticsJourneyIdRef.current = journeyId;
+    return journeyId;
+  }, [pendingAnalyticsJourneyId, profile.slug]);
+
+  const finishAnalyticsJourney = useCallback(() => {
+    window.sessionStorage.removeItem(claimJourneyStorageKey(profile.slug));
+    analyticsJourneyIdRef.current = null;
+  }, [profile.slug]);
+
   useEffect(() => {
+    if (context === undefined) return;
+    const journeyId = ensureAnalyticsJourneyId();
+    if (viewedJourneyRef.current === journeyId) return;
+    viewedJourneyRef.current = journeyId;
     captureProductEvent(posthog, "claim_journey_viewed", {
+      journey_id: journeyId,
       profile_type: profile.profileType,
       source,
     });
-  }, [posthog, profile.profileType, source]);
+  }, [context, ensureAnalyticsJourneyId, posthog, profile.profileType, source]);
 
   useEffect(() => {
     if (status.kind === "error") statusRef.current?.focus();
@@ -260,20 +293,29 @@ export function ClaimFlow({
   }
 
   useEffect(() => {
-    if (collectorCompletion === null || collectorCompletion.connectionOnly) {
-      // A connection-only proof changed no ownership, so counting it as a
-      // completed claim would inflate the funnel with connection additions.
+    if (collectorCompletion === null) {
       return;
     }
 
+    if (collectorCompletion.connectionOnly) {
+      // A connection-only proof changed no ownership, so counting it as a
+      // completed claim would inflate the funnel with connection additions.
+      finishAnalyticsJourney();
+      return;
+    }
+
+    const journeyId = ensureAnalyticsJourneyId();
     captureProductEvent(posthog, "claim_completed", {
+      journey_id: journeyId,
       method: collectorCompletion.method,
       outcome: collectorCompletion.verified ? "claimed_verified" : "claimed_unverified",
       profile_type: profile.profileType,
     });
-  }, [collectorCompletion, posthog, profile.profileType]);
+    finishAnalyticsJourney();
+  }, [collectorCompletion, ensureAnalyticsJourneyId, finishAnalyticsJourney, posthog, profile.profileType]);
 
   function selectMethod(nextMethod: ClaimMethod) {
+    const journeyId = ensureAnalyticsJourneyId();
     setMethod(nextMethod);
     setStatus({ kind: "idle" });
     // The form stays mounted after a collector-resolved completion, so without
@@ -281,6 +323,7 @@ export function ClaimFlow({
     // second proof would keep showing the first result and emit no event.
     setCollectorCompletion(null);
     captureProductEvent(posthog, "claim_method_selected", {
+      journey_id: journeyId,
       method: nextMethod,
       profile_type: profile.profileType,
     });
@@ -289,7 +332,9 @@ export function ClaimFlow({
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
+    const journeyId = ensureAnalyticsJourneyId();
     captureProductEvent(posthog, "claim_submitted", {
+      journey_id: journeyId,
       method,
       profile_type: profile.profileType,
     });
@@ -313,6 +358,8 @@ export function ClaimFlow({
           profileSlug: profile.slug,
           targetType: "vrclinking",
           targetExternalId: String(form.get("targetExternalId") ?? ""),
+          analyticsJourneyId: journeyId,
+          analyticsEntrySource: source,
         });
 
         await checkProof(started.attemptId, "vrclinking");
@@ -324,13 +371,19 @@ export function ClaimFlow({
           profileSlug: profile.slug,
           targetType: profile.profileType === "person" ? "vrchat_user" : "vrchat_group",
           targetExternalId: String(form.get("targetExternalId") ?? ""),
+          analyticsJourneyId: journeyId,
+          analyticsEntrySource: source,
         });
         setStatus({ kind: "notice", message: "Your code is ready. Add it to VRChat below." });
         return;
       }
 
       if (profile.profileType === "person") {
-        const result = await claimPerson({ profileSlug: profile.slug });
+        const result = await claimPerson({
+          profileSlug: profile.slug,
+          analyticsJourneyId: journeyId,
+          analyticsEntrySource: source,
+        });
         const alreadyOwned = "state" in result && result.state === "already_owned";
         setStatus({
           kind: "complete",
@@ -338,10 +391,12 @@ export function ClaimFlow({
           verified: false,
         });
       captureProductEvent(posthog, "claim_completed", {
+          journey_id: journeyId,
           method,
           outcome: alreadyOwned ? "already_owned" : "claimed_unverified",
           profile_type: profile.profileType,
         });
+        finishAnalyticsJourney();
         return;
       }
 
@@ -350,6 +405,8 @@ export function ClaimFlow({
       const result = await claimWithVerifiedGuild({
         profileSlug: profile.slug,
         guildId: String(form.get("discordGuildId") ?? ""),
+        analyticsJourneyId: journeyId,
+        analyticsEntrySource: source,
       });
       // Server control is proved either way. Whether it verifies *this listing*
       // depends on the server already being on record for it, so report what the
@@ -372,14 +429,17 @@ export function ClaimFlow({
 
       if (!connectionOnly) {
         captureProductEvent(posthog, "claim_completed", {
+          journey_id: journeyId,
           method,
           outcome: verified ? "claimed_verified" : "claimed_unverified",
           profile_type: profile.profileType,
         });
       }
+      finishAnalyticsJourney();
     } catch (error) {
       setStatus({ kind: "error", message: errorMessage(error) });
       captureProductEvent(posthog, "claim_failed", {
+        journey_id: journeyId,
         method,
         outcome: outcomeForError(error),
         profile_type: profile.profileType,
@@ -397,6 +457,7 @@ export function ClaimFlow({
     proofMethod: ClaimAnalyticsMethod = "vrchat",
   ) {
     const viaVrclinking = proofMethod === "vrclinking";
+    const journeyId = ensureAnalyticsJourneyId();
 
     setStatus({
       kind: "working",
@@ -462,6 +523,7 @@ export function ClaimFlow({
               : "That check did not pass. Start over to get a new code.",
         });
         captureProductEvent(posthog, "claim_failed", {
+          journey_id: journeyId,
           method: proofMethod,
           // A lost race is a conflict, not a failed attestation. Counting it as
           // `not_verified` would read as VRCLinking rejecting claimants it
@@ -469,6 +531,7 @@ export function ClaimFlow({
           outcome: raced ? "conflict" : "not_verified",
           profile_type: profile.profileType,
         });
+        finishAnalyticsJourney();
       } else {
         const outcome =
           result.state === "expired"
@@ -501,15 +564,18 @@ export function ClaimFlow({
         );
         if (outcome !== null) {
           captureProductEvent(posthog, "claim_failed", {
+            journey_id: journeyId,
             method: proofMethod,
             outcome,
             profile_type: profile.profileType,
           });
+          if (outcome === "expired") finishAnalyticsJourney();
         }
       }
     } catch (error) {
       setStatus({ kind: "error", message: errorMessage(error) });
       captureProductEvent(posthog, "claim_failed", {
+        journey_id: journeyId,
         method: proofMethod,
         outcome: outcomeForError(error),
         profile_type: profile.profileType,
@@ -518,6 +584,7 @@ export function ClaimFlow({
   }
 
   async function checkDiscord(requestId: Id<"profileClaimRequests">) {
+    const journeyId = ensureAnalyticsJourneyId();
     setStatus({ kind: "working", message: "Checking your Discord server permissions…" });
     try {
       const result = await verifyDiscord({ claimRequestId: requestId });
@@ -531,10 +598,12 @@ export function ClaimFlow({
           verified,
         });
       captureProductEvent(posthog, "claim_completed", {
+          journey_id: journeyId,
           method: "discord",
           outcome: verified ? "claimed_verified" : "claimed_unverified",
           profile_type: profile.profileType,
         });
+        finishAnalyticsJourney();
       } else {
         setStatus({
           kind: "error",
@@ -547,15 +616,18 @@ export function ClaimFlow({
         });
         if (result.state === "rejected") {
           captureProductEvent(posthog, "claim_failed", {
+            journey_id: journeyId,
             method: "discord",
             outcome: "not_verified",
             profile_type: profile.profileType,
           });
+          finishAnalyticsJourney();
         }
       }
     } catch (error) {
       setStatus({ kind: "error", message: errorMessage(error) });
       captureProductEvent(posthog, "claim_failed", {
+        journey_id: journeyId,
         method: "discord",
         outcome: outcomeForError(error),
         profile_type: profile.profileType,
@@ -580,6 +652,7 @@ export function ClaimFlow({
       }
 
       setStatus({ kind: "notice", message: "Canceled. Pick a method to start again." });
+      finishAnalyticsJourney();
     } catch (error) {
       setStatus({ kind: "error", message: errorMessage(error) });
     }

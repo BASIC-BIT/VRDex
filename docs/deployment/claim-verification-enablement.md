@@ -197,8 +197,25 @@ application deploy.
 
 ## Verifying after enablement
 
-Production analytics already instrument the funnel: `claim_journey_viewed`,
-`claim_method_selected`, `claim_submitted`, `claim_completed`, and
-`claim_failed` with a bounded `outcome`. Before this change none of these had
-ever fired in production, because no user had reached a claim page. They are the
-fastest signal that a path works end to end.
+The browser emits `claim_journey_viewed`, `claim_method_selected`, and
+`claim_submitted`. Convex is authoritative for `claim_attempt_created`,
+`claim_verification_started`, and `claim_resolved`. One opaque random journey
+UUID correlates those milestones across an OAuth return or page reload without
+encoding a user, profile, provider, or target identity.
+
+Convex writes authoritative milestones to `claimAnalyticsOutbox` with the
+claim transition. Delivery to PostHog happens later with an idempotent insert
+key, a ten-second request bound, and at most five attempts, so PostHog
+availability never blocks a claim. Missing `POSTHOG_PROJECT_API_KEY` disables
+delivery safely for local work, forks, previews, and self-hosted deployments
+that do not opt in.
+
+BASIC BIT production reuses the hosted public project key that Terraform
+supplies to Vercel. `baseline-checks.yml` provisions it into production Convex
+from `TERRAFORM_POSTHOG_PUBLIC_KEY` before deployment. Do not commit the key or
+substitute a PostHog personal API key. `POSTHOG_INGEST_HOST` is optional and
+defaults to `https://us.i.posthog.com`; a configured override must use HTTPS.
+
+The checked-in PostHog stack declares the claim dashboard and reconciliation
+views. Apply it separately with a reviewed Terraform plan; repository changes
+do not mutate hosted PostHog state.

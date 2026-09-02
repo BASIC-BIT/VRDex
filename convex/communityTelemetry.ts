@@ -5,6 +5,13 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import {
+  analyticsContextFromAttempt,
+  claimAnalyticsMethodForAttempt,
+  enqueueAttemptResolution,
+  enqueueClaimAnalyticsEvent,
+  timeToFirstCheckBucket,
+} from "./_claimAnalytics";
+import {
   CURRENT_FRESHNESS_MS,
   DEFAULT_PUBLIC_TELEMETRY_SETTINGS,
   INSTANCE_CLOSE_MISSES,
@@ -104,6 +111,19 @@ async function recordProviderCheck(
     workerReleaseSha: input.workerReleaseSha,
     createdAt: input.now,
   });
+  if (input.attempt.firstCheckAt === undefined) {
+    const analytics = analyticsContextFromAttempt(input.attempt);
+    const profile = await ctx.db.get(input.attempt.profileId);
+    if (analytics !== null && profile !== null) {
+      await enqueueClaimAnalyticsEvent(ctx, analytics, {
+        event: "claim_verification_started",
+        profileType: profile.profileType,
+        method: claimAnalyticsMethodForAttempt(input.attempt),
+        timeToFirstCheckBucket: timeToFirstCheckBucket(input.now - input.attempt.createdAt),
+        occurredAt: input.now,
+      });
+    }
+  }
   return true;
 }
 
@@ -2299,6 +2319,16 @@ export const claimPendingProofChecks = internalMutation({
             outcome: "expired",
             createdAt: args.now,
           });
+          const profile = await ctx.db.get(attempt.profileId);
+          if (profile !== null) {
+            await enqueueAttemptResolution(
+              ctx,
+              attempt,
+              profile.profileType,
+              "expired",
+              args.now,
+            );
+          }
         }),
     );
 
@@ -2473,6 +2503,16 @@ export const recordProofCheckResult = internalMutation({
         workerReleaseSha: account.lastWorkerReleaseSha,
         createdAt: args.now,
       });
+      const profile = await ctx.db.get(attempt.profileId);
+      if (profile !== null) {
+        await enqueueAttemptResolution(
+          ctx,
+          attempt,
+          profile.profileType,
+          "expired",
+          args.now,
+        );
+      }
       return { state: "expired" as const };
     }
 
@@ -2526,6 +2566,17 @@ export const recordProofCheckResult = internalMutation({
         workerReleaseSha: account.lastWorkerReleaseSha,
         createdAt: args.now,
       });
+
+      const profile = await ctx.db.get(attempt.profileId);
+      if (profile !== null) {
+        await enqueueAttemptResolution(
+          ctx,
+          attempt,
+          profile.profileType,
+          "conflict",
+          args.now,
+        );
+      }
 
       return { state: "already_owned" as const };
     }

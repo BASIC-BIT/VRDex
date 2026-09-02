@@ -11,6 +11,15 @@ crons.hourly(
   {},
 );
 
+// Scheduled delivery is the fast path. This sweep recovers a row whose action
+// runtime died after taking its lease but before recording success or retry.
+crons.interval(
+  "deliver claim analytics outbox",
+  { minutes: 5 },
+  internal.claimAnalyticsDelivery.deliverPending,
+  {},
+);
+
 crons.daily(
   "community telemetry raw compaction",
   { hourUTC: 4, minuteUTC: 20 },

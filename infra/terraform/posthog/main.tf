@@ -262,3 +262,195 @@ resource "posthog_dashboard_layout" "auth_session_health" {
     posthog_insight.auth_state_change_intent,
   ]
 }
+
+resource "posthog_dashboard" "claim_adoption" {
+  name        = "Claim adoption and verification"
+  description = "Sanitized claim-journey conversion, verification, terminal outcomes, and browser-to-backend reconciliation. Journey IDs are opaque random UUIDs; no user, profile, provider, proof, target, slug, or error identifiers are collected."
+  pinned      = true
+  tags        = ["managed-by:terraform", "surface:claim"]
+}
+
+resource "posthog_insight" "claim_journey_funnel" {
+  name        = "Claim journey funnel"
+  description = "Unique opaque journeys reaching each client and authoritative backend milestone over the last 30 days."
+  query_json = jsonencode({
+    kind = "DataTableNode"
+    source = {
+      kind  = "HogQLQuery"
+      query = <<-HOGQL
+        SELECT
+          countIf(has(milestones, 'claim_journey_viewed')) AS viewed,
+          countIf(has(milestones, 'claim_method_selected')) AS selected_method,
+          countIf(has(milestones, 'claim_submitted')) AS submitted,
+          countIf(has(milestones, 'claim_attempt_created')) AS backend_attempt_created,
+          countIf(has(milestones, 'claim_verification_started')) AS verification_started,
+          countIf(has(milestones, 'claim_resolved')) AS resolved
+        FROM (
+          SELECT
+            properties.journey_id AS journey_id,
+            groupUniqArray(event) AS milestones
+          FROM events
+          WHERE event IN (
+            'claim_journey_viewed',
+            'claim_method_selected',
+            'claim_submitted',
+            'claim_attempt_created',
+            'claim_verification_started',
+            'claim_resolved'
+          )
+            AND timestamp >= now() - INTERVAL 30 DAY
+            AND notEmpty(toString(properties.journey_id))
+          GROUP BY journey_id
+        )
+      HOGQL
+    }
+  })
+  dashboard_ids = [posthog_dashboard.claim_adoption.id]
+  tags          = ["managed-by:terraform", "surface:claim"]
+}
+
+resource "posthog_insight" "claim_method_selection" {
+  name        = "Claim method selection"
+  description = "Browser method selections grouped by the fixed method enum."
+  query_json = jsonencode({
+    kind = "InsightVizNode"
+    source = {
+      breakdownFilter = {
+        breakdown      = "method"
+        breakdown_type = "event"
+      }
+      interval = "day"
+      kind     = "TrendsQuery"
+      series = [{
+        event = "claim_method_selected"
+        kind  = "EventsNode"
+        math  = "total"
+      }]
+    }
+  })
+  dashboard_ids = [posthog_dashboard.claim_adoption.id]
+  tags          = ["managed-by:terraform", "surface:claim"]
+}
+
+resource "posthog_insight" "claim_terminal_outcomes" {
+  name        = "Claim terminal outcomes"
+  description = "Authoritative backend resolutions grouped by bounded outcome, excluding connection-only activity from claim conversion."
+  query_json = jsonencode({
+    kind = "InsightVizNode"
+    source = {
+      breakdownFilter = {
+        breakdown      = "outcome"
+        breakdown_type = "event"
+      }
+      interval = "day"
+      kind     = "TrendsQuery"
+      properties = [{
+        key      = "connection_only"
+        operator = "exact"
+        type     = "event"
+        value    = ["false"]
+      }]
+      series = [{
+        event = "claim_resolved"
+        kind  = "EventsNode"
+        math  = "total"
+      }]
+    }
+  })
+  dashboard_ids = [posthog_dashboard.claim_adoption.id]
+  tags          = ["managed-by:terraform", "surface:claim"]
+}
+
+resource "posthog_insight" "claim_resolution_latency" {
+  name        = "Claim resolution latency"
+  description = "Authoritative claim resolutions grouped by coarse time-to-resolution bucket."
+  query_json = jsonencode({
+    kind = "InsightVizNode"
+    source = {
+      breakdownFilter = {
+        breakdown      = "time_to_resolution_bucket"
+        breakdown_type = "event"
+      }
+      interval = "day"
+      kind     = "TrendsQuery"
+      series = [{
+        event = "claim_resolved"
+        kind  = "EventsNode"
+        math  = "total"
+      }]
+    }
+  })
+  dashboard_ids = [posthog_dashboard.claim_adoption.id]
+  tags          = ["managed-by:terraform", "surface:claim"]
+}
+
+resource "posthog_insight" "claim_milestone_reconciliation" {
+  name        = "Browser and backend milestone reconciliation"
+  description = "Daily browser submissions, authoritative attempt creation, and authoritative resolution counts. Divergence indicates client delivery loss, backend rejection before creation, or outbox delivery trouble and requires source-level diagnosis."
+  query_json = jsonencode({
+    kind = "InsightVizNode"
+    source = {
+      interval = "day"
+      kind     = "TrendsQuery"
+      series = [
+        {
+          event = "claim_submitted"
+          kind  = "EventsNode"
+          math  = "total"
+        },
+        {
+          event = "claim_attempt_created"
+          kind  = "EventsNode"
+          math  = "total"
+        },
+        {
+          event = "claim_resolved"
+          kind  = "EventsNode"
+          math  = "total"
+        },
+      ]
+    }
+  })
+  dashboard_ids = [posthog_dashboard.claim_adoption.id]
+  tags          = ["managed-by:terraform", "surface:claim"]
+}
+
+resource "posthog_dashboard_layout" "claim_adoption" {
+  dashboard_id = posthog_dashboard.claim_adoption.id
+
+  tiles = [
+    {
+      insight_id       = posthog_insight.claim_journey_funnel.id
+      layouts_json     = jsonencode({ sm = { x = 0, y = 0, w = 12, h = 5 } })
+      show_description = true
+    },
+    {
+      insight_id       = posthog_insight.claim_method_selection.id
+      layouts_json     = jsonencode({ sm = { x = 0, y = 5, w = 6, h = 5 } })
+      show_description = true
+    },
+    {
+      insight_id       = posthog_insight.claim_terminal_outcomes.id
+      layouts_json     = jsonencode({ sm = { x = 6, y = 5, w = 6, h = 5 } })
+      show_description = true
+    },
+    {
+      insight_id       = posthog_insight.claim_resolution_latency.id
+      layouts_json     = jsonencode({ sm = { x = 0, y = 10, w = 6, h = 5 } })
+      show_description = true
+    },
+    {
+      insight_id       = posthog_insight.claim_milestone_reconciliation.id
+      layouts_json     = jsonencode({ sm = { x = 6, y = 10, w = 6, h = 5 } })
+      show_description = true
+    },
+  ]
+
+  depends_on = [
+    posthog_insight.claim_journey_funnel,
+    posthog_insight.claim_method_selection,
+    posthog_insight.claim_milestone_reconciliation,
+    posthog_insight.claim_resolution_latency,
+    posthog_insight.claim_terminal_outcomes,
+  ]
+}

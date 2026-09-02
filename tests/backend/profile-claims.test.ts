@@ -11,6 +11,8 @@ const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
   "../../convex/communityTelemetry.ts": () => import("../../convex/communityTelemetry"),
   "../../convex/profileClaims.ts": () => import("../../convex/profileClaims"),
+  "../../convex/claimAnalytics.ts": () => import("../../convex/claimAnalytics"),
+  "../../convex/claimAnalyticsDelivery.ts": () => import("../../convex/claimAnalyticsDelivery"),
   "../../convex/vrclinkingCredentials.ts": () => import("../../convex/vrclinkingCredentials"),
 };
 const schema = (
