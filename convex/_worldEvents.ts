@@ -70,6 +70,7 @@ export type PublicActiveWorldPreview = {
   nextEvent: {
     title: string;
     slug?: string;
+    communitySlug?: string;
     startAt: number;
     doorsOpenAt?: number;
     endAt?: number;
@@ -330,6 +331,7 @@ export function createPublicActiveWorldPreviews(
             ...optionalField("endAt", nextEvent.endAt),
             ...optionalField("timezone", nextEvent.timezone),
             ...optionalField("communityName", community?.displayName),
+            ...optionalField("communitySlug", community?.slug),
           },
           ...optionalField("summary", world.summary),
           ...optionalField("heroImageUrl", heroImageUrl),

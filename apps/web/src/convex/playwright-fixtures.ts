@@ -889,6 +889,7 @@ const activeWorlds: PublicActiveWorld[] = [
     activityLabel: "Hosting upcoming events",
     nextEvent: {
       slug: eventSlug,
+      communitySlug,
       title: "Afterglow Harbor Sessions",
       startAt: eventStartAt,
       doorsOpenAt: eventDoorsOpenAt,
