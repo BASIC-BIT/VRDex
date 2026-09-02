@@ -97,6 +97,7 @@ const CONTROL_LEVEL_LABELS: Record<string, string> = {
 };
 
 type ClaimFlowProps = {
+  initialAnalyticsJourneyId: string;
   discordVerify?: DiscordVerifyStatus;
   previewContext?: {
     emailVerified: boolean;
@@ -125,6 +126,7 @@ export function ClaimFlow(props: ClaimFlowProps) {
 
 export function ClaimFlowContent({
   analyticsSessionScope,
+  initialAnalyticsJourneyId,
   discordVerify = null,
   previewContext,
   profile,
@@ -153,6 +155,7 @@ export function ClaimFlowContent({
   const posthog = usePostHog();
   const analyticsJourneyIdRef = useRef<string | null>(null);
   const viewedJourneyRef = useRef<string | null>(null);
+  const selectedMethodKeysRef = useRef(new Set<string>());
   const analyticsJourneyFinishedRef = useRef(false);
   const previousAnalyticsSessionScopeRef = useRef(analyticsSessionScope);
   const lastObservedPendingJourneyRef = useRef<string | null | undefined>(undefined);
@@ -259,7 +262,7 @@ export function ClaimFlowContent({
     const journeyId = resolveClaimJourneyId({
       pendingJourneyId: pendingAnalyticsJourneyId,
       storedJourneyId,
-      generate: () => crypto.randomUUID(),
+      generate: () => initialAnalyticsJourneyId,
     });
     try {
       window.sessionStorage.setItem(storageKey, journeyId);
@@ -268,7 +271,7 @@ export function ClaimFlowContent({
     }
     analyticsJourneyIdRef.current = journeyId;
     return journeyId;
-  }, [analyticsSessionScope, pendingAnalyticsJourneyId, profile.slug]);
+  }, [analyticsSessionScope, initialAnalyticsJourneyId, pendingAnalyticsJourneyId, profile.slug]);
 
   const finishAnalyticsJourney = useCallback(() => {
     try {
@@ -277,6 +280,7 @@ export function ClaimFlowContent({
       // Analytics cleanup cannot interfere with a completed claim.
     }
     analyticsJourneyIdRef.current = null;
+    selectedMethodKeysRef.current.clear();
     analyticsJourneyFinishedRef.current = true;
   }, [analyticsSessionScope, profile.slug]);
 
@@ -290,6 +294,7 @@ export function ClaimFlowContent({
     previousAnalyticsSessionScopeRef.current = analyticsSessionScope;
     analyticsJourneyIdRef.current = null;
     viewedJourneyRef.current = null;
+    selectedMethodKeysRef.current.clear();
     analyticsJourneyFinishedRef.current = false;
     lastObservedPendingJourneyRef.current = undefined;
   }, [analyticsSessionScope]);
@@ -301,7 +306,9 @@ export function ClaimFlowContent({
     const previous = lastObservedPendingJourneyRef.current;
     lastObservedPendingJourneyRef.current = current;
     let staleStoredJourney = false;
-    if (previous === undefined && current === null) {
+    const hasPendingClaimWork =
+      context?.pendingProof != null || context?.pendingClaimRequest != null;
+    if (previous === undefined && current === null && !hasPendingClaimWork) {
       try {
         staleStoredJourney = window.sessionStorage.getItem(
           claimJourneyStorageKey(profile.slug, analyticsSessionScope),
@@ -348,17 +355,52 @@ export function ClaimFlowContent({
     [isVerifiedViewer, posthog, profile.profileType, source],
   );
 
+  const captureMethodSelection = useCallback(
+    (journeyId: string, selectedMethod: ClaimMethod) => {
+      if (isVerifiedViewer) return;
+      const selectionKey = `${journeyId}:${selectedMethod}`;
+      if (selectedMethodKeysRef.current.has(selectionKey)) return;
+      selectedMethodKeysRef.current.add(selectionKey);
+      captureProductEvent(posthog, "claim_method_selected", {
+        journey_id: journeyId,
+        method: selectedMethod,
+        profile_type: profile.profileType,
+      });
+    },
+    [isVerifiedViewer, posthog, profile.profileType],
+  );
+
+  const discordAnalyticsHref = (() => {
+    const destination = new URL(discordVerifyHref, "https://vrdex.invalid");
+    destination.searchParams.set(
+      "analyticsJourneyId",
+      pendingAnalyticsJourneyId ?? initialAnalyticsJourneyId,
+    );
+    destination.searchParams.set("analyticsEntrySource", source);
+    destination.searchParams.set("analyticsProfileType", profile.profileType);
+    return `${destination.pathname}${destination.search}`;
+  })();
+
   const prepareDiscordVerification = useCallback(
     (event: MouseEvent<HTMLAnchorElement>) => {
       const journeyId = beginAnalyticsJourney();
       captureJourneyView(journeyId);
+      captureMethodSelection(journeyId, method);
       const destination = new URL(discordVerifyHref, window.location.origin);
       destination.searchParams.set("analyticsJourneyId", journeyId);
       destination.searchParams.set("analyticsEntrySource", source);
       destination.searchParams.set("analyticsProfileType", profile.profileType);
       event.currentTarget.href = `${destination.pathname}${destination.search}`;
     },
-    [beginAnalyticsJourney, captureJourneyView, discordVerifyHref, profile.profileType, source],
+    [
+      beginAnalyticsJourney,
+      captureJourneyView,
+      captureMethodSelection,
+      discordVerifyHref,
+      method,
+      profile.profileType,
+      source,
+    ],
   );
 
   useEffect(() => {
@@ -445,19 +487,15 @@ export function ClaimFlowContent({
     // this the latch from the first proof rejects every later transition: a
     // second proof would keep showing the first result and emit no event.
     setCollectorCompletion(null);
-    if (!isVerifiedViewer) {
-      captureProductEvent(posthog, "claim_method_selected", {
-        journey_id: journeyId,
-        method: nextMethod,
-        profile_type: profile.profileType,
-      });
-    }
+    captureMethodSelection(journeyId, nextMethod);
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const journeyId = beginAnalyticsJourney();
+    captureJourneyView(journeyId);
+    captureMethodSelection(journeyId, method);
     if (!isVerifiedViewer) {
       captureProductEvent(posthog, "claim_submitted", {
         journey_id: journeyId,
@@ -1083,8 +1121,10 @@ export function ClaimFlowContent({
                   (vrclinkingAvailable && vrclinkingMethodBlocked) ? (
                     <Link
                       className={cn(buttonVariants({ variant: "secondary" }), "mt-3")}
-                      href={discordVerifyHref}
+                      href={discordAnalyticsHref}
                       onClick={prepareDiscordVerification}
+                      onContextMenu={prepareDiscordVerification}
+                      onMouseDown={prepareDiscordVerification}
                     >
                       {discordVerifyState === "verified"
                         ? "Check Discord again"
@@ -1145,8 +1185,10 @@ export function ClaimFlowContent({
                         </p>
                         <Link
                           className={cn(buttonVariants({ variant: "primary" }), "mt-4")}
-                          href={discordVerifyHref}
+                          href={discordAnalyticsHref}
                           onClick={prepareDiscordVerification}
+                          onContextMenu={prepareDiscordVerification}
+                          onMouseDown={prepareDiscordVerification}
                         >
                           {discordVerifyState === "verified"
                             ? "Check Discord servers again"

@@ -107,7 +107,8 @@ Initial alert thresholds are:
 - a collector enters `auth_required`;
 - three consecutive control-plane failures;
 - the deployed release or capability set differs from the expected release for
-  more than fifteen minutes.
+  more than fifteen minutes from the first consecutive mismatch observation;
+  a healthy audit resets that persistence clock.
 
 ## Product analytics contract
 

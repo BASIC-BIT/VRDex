@@ -266,6 +266,14 @@ jobs:
       - name: Checkout main
         uses: actions/checkout@v6
 
+      - name: Restore previous drift observation
+        uses: actions/cache/restore@v5
+        with:
+          path: .cache/group-telemetry-drift-state.json
+          key: group-telemetry-drift-state-${{ github.run_id }}
+          restore-keys: |
+            group-telemetry-drift-state-
+
       - name: Fail closed on missing audit configuration
         run: |
           set -euo pipefail
@@ -321,6 +329,14 @@ jobs:
             jq -r 'to_entries[] | "| \(.key) | \(.value) |"' claim-health.json
             jq -r 'to_entries[] | "| analytics.\(.key) | \(.value) |"' claim-analytics-health.json
           } >> "$GITHUB_STEP_SUMMARY"
+          mkdir -p .cache
+          node scripts/group-telemetry-deployment.mjs drift --images images.json --task-definition task-definition.json --service service.json --tasks tasks.json --heartbeat heartbeat.json --expected-release-sha "$expected_release_sha" --expected-release-at "$expected_release_at" --previous-observation .cache/group-telemetry-drift-state.json --next-observation .cache/group-telemetry-drift-state.json
           node scripts/group-telemetry-deployment.mjs claim-health --file claim-health.json
           node scripts/group-telemetry-deployment.mjs claim-analytics-health --file claim-analytics-health.json
-          node scripts/group-telemetry-deployment.mjs drift --images images.json --task-definition task-definition.json --service service.json --tasks tasks.json --heartbeat heartbeat.json --expected-release-sha "$expected_release_sha" --expected-release-at "$expected_release_at"
+
+      - name: Save current drift observation
+        if: always()
+        uses: actions/cache/save@v5
+        with:
+          path: .cache/group-telemetry-drift-state.json
+          key: group-telemetry-drift-state-${{ github.run_id }}

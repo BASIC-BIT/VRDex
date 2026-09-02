@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
 const RELEASE_ENV_NAMES = new Set([
@@ -223,7 +223,7 @@ export function assertClaimAnalyticsHealth(health) {
   };
 }
 
-export function assertDriftAudit({
+export function evaluateDriftAudit({
   imageDetails,
   taskDefinition,
   serviceResponse,
@@ -231,6 +231,7 @@ export function assertDriftAudit({
   health,
   expectedReleaseSha: requestedReleaseSha,
   expectedReleaseAt,
+  previousObservation,
   now = Date.now(),
   graceMs = 15 * 60_000,
 }) {
@@ -242,6 +243,13 @@ export function assertDriftAudit({
   const latestReleaseSha = latestTag?.slice(4);
   const expectedReleaseSha = requestedReleaseSha ?? latestReleaseSha;
   assert.match(expectedReleaseSha ?? "", /^[0-9a-f]{40}$/, "expected release SHA must be exact lowercase Git SHA");
+  if (expectedReleaseAt !== undefined) {
+    const expectedReleaseTime = new Date(expectedReleaseAt).getTime();
+    assert.ok(
+      Number.isFinite(expectedReleaseTime) && expectedReleaseTime <= now,
+      "expected release has an invalid completion time",
+    );
+  }
   const expectedImageDetail = candidates.find((image) => image.imageTags.includes(`git-${expectedReleaseSha}`));
   const expectedDigest = expectedImageDetail?.imageDigest;
   const expectedImage = taskDefinition?.taskDefinition?.containerDefinitions?.find((container) => container.name === "collector")?.image;
@@ -268,14 +276,47 @@ export function assertDriftAudit({
     mismatches.push("collector_heartbeat");
   }
 
-  const ageOrigin = expectedReleaseAt ?? expectedImageDetail?.imagePushedAt ?? latest?.imagePushedAt;
-  const ageMs = now - new Date(ageOrigin).getTime();
-  assert.ok(Number.isFinite(ageMs) && ageMs >= 0, "expected release has an invalid completion time");
   const uniqueMismatches = [...new Set(mismatches)];
-  if (uniqueMismatches.length > 0 && ageMs >= graceMs) {
-    assert.fail(`collector release drift persisted beyond grace period: ${uniqueMismatches.join(",")}`);
-  }
-  return { expectedReleaseSha, expectedDigest, ageMs, mismatches: uniqueMismatches, withinGrace: uniqueMismatches.length > 0 };
+  const previousTimes = previousObservation?.firstObservedAtByMismatch ?? {};
+  const firstObservedAtByMismatch = Object.fromEntries(
+    uniqueMismatches.map((mismatch) => {
+      const previousTime = new Date(previousTimes[mismatch] ?? "").getTime();
+      const firstObservedAt =
+        Number.isFinite(previousTime) && previousTime <= now ? previousTime : now;
+      return [mismatch, new Date(firstObservedAt).toISOString()];
+    }),
+  );
+  const mismatchAges = Object.fromEntries(
+    uniqueMismatches.map((mismatch) => [
+      mismatch,
+      now - new Date(firstObservedAtByMismatch[mismatch]).getTime(),
+    ]),
+  );
+  const persistentMismatches = uniqueMismatches.filter(
+    (mismatch) => mismatchAges[mismatch] >= graceMs,
+  );
+  const mismatchAgeMs = Math.max(0, ...Object.values(mismatchAges));
+  const persistent = persistentMismatches.length > 0;
+  return {
+    expectedReleaseSha,
+    expectedDigest,
+    mismatchAgeMs,
+    mismatches: uniqueMismatches,
+    persistentMismatches,
+    withinGrace: uniqueMismatches.length > 0 && !persistent,
+    persistent,
+    observation: { firstObservedAtByMismatch },
+  };
+}
+
+export function assertDriftAudit(args) {
+  const result = evaluateDriftAudit(args);
+  assert.equal(
+    result.persistent,
+    false,
+    `collector release drift persisted beyond grace period: ${result.persistentMismatches.join(",")}`,
+  );
+  return result;
 }
 
 async function readJson(path) {
@@ -288,6 +329,10 @@ async function main(args) {
     const index = rest.indexOf(name);
     assert.ok(index >= 0 && rest[index + 1], `${name} is required`);
     return rest[index + 1];
+  };
+  const optionalOption = (name) => {
+    const index = rest.indexOf(name);
+    return index >= 0 ? rest[index + 1] : undefined;
   };
 
   if (mode === "plan") {
@@ -325,7 +370,16 @@ async function main(args) {
     return;
   }
   if (mode === "drift") {
-    const result = assertDriftAudit({
+    const previousObservationPath = optionalOption("--previous-observation");
+    let previousObservation;
+    if (previousObservationPath) {
+      try {
+        previousObservation = await readJson(previousObservationPath);
+      } catch (error) {
+        if (error?.code !== "ENOENT") throw error;
+      }
+    }
+    const result = evaluateDriftAudit({
       imageDetails: await readJson(option("--images")),
       taskDefinition: await readJson(option("--task-definition")),
       serviceResponse: await readJson(option("--service")),
@@ -333,8 +387,18 @@ async function main(args) {
       health: await readJson(option("--heartbeat")),
       expectedReleaseSha: option("--expected-release-sha"),
       expectedReleaseAt: option("--expected-release-at"),
+      previousObservation,
     });
+    const nextObservationPath = optionalOption("--next-observation");
+    if (nextObservationPath) {
+      await writeFile(nextObservationPath, `${JSON.stringify(result.observation)}\n`, "utf8");
+    }
     process.stdout.write(`${JSON.stringify(result)}\n`);
+    assert.equal(
+      result.persistent,
+      false,
+      `collector release drift persisted beyond grace period: ${result.persistentMismatches.join(",")}`,
+    );
     return;
   }
   throw new Error("usage: group-telemetry-deployment.mjs <plan|ecs|heartbeat|claim-health|claim-analytics-health|drift> [options]");

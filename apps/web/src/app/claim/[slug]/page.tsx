@@ -35,6 +35,7 @@ export default async function ClaimProfilePage({
 
         {result.kind === "live" && result.profile ? (
           <ClaimFlow
+            initialAnalyticsJourneyId={crypto.randomUUID()}
             profile={{
               avatarAppearance:
                 "avatarAppearance" in result.profile && result.profile.avatarAppearance

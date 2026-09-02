@@ -19,6 +19,7 @@ export function ClaimFlowPreview({
     <ConvexProvider client={previewClient}>
       <ClaimFlowContent
         analyticsSessionScope="preview"
+        initialAnalyticsJourneyId="00000000-0000-4000-8000-000000000001"
         previewContext={{
           emailVerified: true,
           // `hasDiscord` is a VRDex verification watermark, and only the

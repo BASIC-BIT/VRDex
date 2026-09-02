@@ -71,7 +71,14 @@ describe("claim analytics journey correlation", () => {
     assert.match(source, /analyticsJourneyId/);
     assert.match(source, /analyticsProfileType/);
     assert.match(source, /prepareDiscordVerification/);
-    assert.match(source, /previous === undefined && current === null[\s\S]*staleStoredJourney/);
+    assert.match(
+      source,
+      /context\?\.pendingProof != null \|\| context\?\.pendingClaimRequest != null/,
+    );
+    assert.match(
+      source,
+      /previous === undefined && current === null && !hasPendingClaimWork[\s\S]*staleStoredJourney/,
+    );
     assert.match(
       source,
       /previous !== null[\s\S]*staleStoredJourney[\s\S]*current === null[\s\S]*activeCollectorCompletion === null[\s\S]*finishAnalyticsJourney\(\)/,
@@ -83,7 +90,23 @@ describe("claim analytics journey correlation", () => {
       /activeCollectorCompletion\.journeyId \?\? ensureAnalyticsJourneyId\(\)/,
     );
     assert.match(source, /if \(isVerifiedViewer\) return;/);
-    assert.match(source, /if \(!isVerifiedViewer\) \{[\s\S]*claim_method_selected/);
+    assert.match(source, /selectedMethodKeysRef[\s\S]*claim_method_selected/);
+    assert.match(
+      source,
+      /const discordAnalyticsHref =[\s\S]*analyticsJourneyId[\s\S]*analyticsEntrySource[\s\S]*analyticsProfileType/,
+    );
+    assert.match(source, /href=\{discordAnalyticsHref\}/);
+    assert.match(source, /onContextMenu=\{prepareDiscordVerification\}/);
+    assert.match(source, /onMouseDown=\{prepareDiscordVerification\}/);
+    assert.match(
+      source,
+      /async function submit[\s\S]*captureMethodSelection\(journeyId, method\)[\s\S]*claim_submitted/,
+    );
     assert.match(source, /if \(!isVerifiedViewer\) \{[\s\S]*claim_submitted/);
+  });
+
+  it("renders an opaque initial journey into Discord link targets", async () => {
+    const page = await readFile("apps/web/src/app/claim/[slug]/page.tsx", "utf8");
+    assert.match(page, /initialAnalyticsJourneyId=\{crypto\.randomUUID\(\)\}/);
   });
 });

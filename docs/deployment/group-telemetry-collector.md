@@ -89,10 +89,13 @@ holder:
 Every five minutes, the audit job asks GitHub Actions for the latest successful
 main baseline. It compares that expected SHA with ECR, the running ECS digest,
 and Convex operational readiness. This catches a main change that was never
-built as well as a build that never reached ECS. It allows a fifteen-minute
-release convergence window, makes no provider or AWS mutation, and fails after
-that window on release mismatch. Stale heartbeat, missing proof capability,
-`auth_required`, or unchecked-attempt health issues fail immediately.
+built as well as a build that never reached ECS. A branch-scoped Actions cache
+records the first observation of each current mismatch. The audit fails only
+when a mismatch remains present for fifteen minutes, and a healthy observation
+resets its clock, so an old release timestamp cannot turn one brief task restart
+into persistent drift. The audit makes no provider or AWS mutation.
+Stale heartbeat, missing proof capability, `auth_required`, or unchecked-attempt
+health issues fail immediately.
 
 The CloudWatch filters consume only redacted JSON event names:
 `collector_heartbeat`, `collector_auth_required`,

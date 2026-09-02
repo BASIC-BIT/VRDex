@@ -164,15 +164,68 @@ describe("group telemetry scheduled drift audit", () => {
     assert.equal(withinGrace.withinGrace, true);
     assert.throws(() => assertDriftAudit({
       imageDetails, taskDefinition: stale, serviceResponse, tasksResponse, health,
-      now: Date.parse("2026-09-02T12:16:00.000Z"),
+      previousObservation: withinGrace.observation,
+      now: Date.parse("2026-09-02T12:26:00.000Z"),
     }), /persisted beyond grace period/);
   });
 
+  it("starts the grace window when a mismatch is first observed, not when the release completed", () => {
+    const restarting = structuredClone(serviceResponse);
+    restarting.services[0].runningCount = 0;
+    restarting.services[0].pendingCount = 1;
+    restarting.services[0].deployments[0].rolloutState = "IN_PROGRESS";
+    const result = assertDriftAudit({
+      imageDetails,
+      taskDefinition: deployedTaskDefinition,
+      serviceResponse: restarting,
+      tasksResponse,
+      health,
+      expectedReleaseAt: "2026-09-01T12:00:00.000Z",
+      now: Date.parse("2026-09-02T12:00:00.000Z"),
+    });
+    assert.deepEqual(result.mismatches, ["ecs_stability"]);
+    assert.equal(result.mismatchAgeMs, 0);
+    assert.equal(result.withinGrace, true);
+  });
+
+  it("does not reset one persistent mismatch when another mismatch clears", () => {
+    const stale = structuredClone(deployedTaskDefinition);
+    stale.taskDefinition.containerDefinitions[0].image = `repo@sha256:${"d".repeat(64)}`;
+    const restarting = structuredClone(serviceResponse);
+    restarting.services[0].runningCount = 0;
+    restarting.services[0].pendingCount = 1;
+    const firstObservation = assertDriftAudit({
+      imageDetails,
+      taskDefinition: stale,
+      serviceResponse: restarting,
+      tasksResponse,
+      health,
+      now: Date.parse("2026-09-02T12:00:00.000Z"),
+    });
+    assert.deepEqual(firstObservation.mismatches, ["ecs_image_digest", "ecs_stability"]);
+    assert.throws(() => assertDriftAudit({
+      imageDetails,
+      taskDefinition: stale,
+      serviceResponse,
+      tasksResponse,
+      health,
+      previousObservation: firstObservation.observation,
+      now: Date.parse("2026-09-02T12:16:00.000Z"),
+    }), /ecs_image_digest/);
+  });
+
   it("detects a successful main baseline that was never built", () => {
+    const firstObservation = assertDriftAudit({
+      imageDetails, taskDefinition: deployedTaskDefinition, serviceResponse, tasksResponse, health,
+      expectedReleaseSha: "e".repeat(40),
+      expectedReleaseAt: "2026-09-02T12:00:00.000Z",
+      now: Date.parse("2026-09-02T12:00:00.000Z"),
+    });
     assert.throws(() => assertDriftAudit({
       imageDetails, taskDefinition: deployedTaskDefinition, serviceResponse, tasksResponse, health,
       expectedReleaseSha: "e".repeat(40),
       expectedReleaseAt: "2026-09-02T12:00:00.000Z",
+      previousObservation: firstObservation.observation,
       now: Date.parse("2026-09-02T12:16:00.000Z"),
     }), /ecr_release_missing/);
     const withinGrace = assertDriftAudit({
@@ -317,6 +370,10 @@ describe("group telemetry release workflow", () => {
       "the aggregate health summary must be written before fail-closed assertions",
     );
     assert.match(commands, /group-telemetry-deployment\.mjs drift/);
+    assert.match(source, /actions\/cache\/restore@v5/);
+    assert.match(source, /actions\/cache\/save@v5/);
+    assert.match(commands, /--previous-observation \.cache\/group-telemetry-drift-state\.json/);
+    assert.match(commands, /--next-observation \.cache\/group-telemetry-drift-state\.json/);
     assert.match(commands, /actions\/workflows\/baseline-checks\.yml\/runs/);
     assert.doesNotMatch(commands, /terraform apply|ecs update-service|ecr put-image/);
     assert.match(source, /group-telemetry-production-\$\{\{[\s\S]*'audit'[\s\S]*'release'/);
