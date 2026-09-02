@@ -76,6 +76,30 @@ describe("profile asset source imports", () => {
     assert.equal(requestCount, 1);
   });
 
+  it("reapplies caller URL policy after every redirect", async () => {
+    let requestCount = 0;
+
+    await assert.rejects(
+      fetchProfileAssetSourceUrl("https://media.example.test/photo.webp", {
+        assertSourceUrl: (url) => {
+          if (url.hostname === "blocked.example.test") {
+            throw new Error("blocked redirect target");
+          }
+        },
+        resolveHostname: async () => [{ address: "93.184.216.34" }],
+        requestPinnedSource: async () => {
+          requestCount += 1;
+          return sourceResponse({
+            statusCode: 302,
+            headers: { location: "https://blocked.example.test/preview.png" },
+          });
+        },
+      }),
+      /blocked redirect target/,
+    );
+    assert.equal(requestCount, 1);
+  });
+
   it("enforces MIME and byte limits before accepting the response body", async () => {
     const dependencies = {
       resolveHostname: async () => [{ address: "93.184.216.34" }],
@@ -118,5 +142,89 @@ describe("profile asset source imports", () => {
     );
     assert.equal(accepted.mimeType, "image/webp");
     assert.deepEqual([...accepted.body], [1, 2, 3, 4]);
+  });
+
+  it("enforces a total deadline while a response trickles bytes", async () => {
+    const response = new Readable({ read() {} }) as IncomingMessage;
+    response.statusCode = 200;
+    response.headers = { "content-type": "image/webp" };
+
+    const trickle = setInterval(() => response.push(new Uint8Array([1])), 2);
+    try {
+      await assert.rejects(
+        fetchProfileAssetSourceUrl("https://media.example.test/slow.webp", {
+          resolveHostname: async () => [{ address: "93.184.216.34" }],
+          requestPinnedSource: async () => response,
+          totalTimeoutMs: 15,
+        }),
+        /total timeout/,
+      );
+      assert.equal(response.destroyed, true);
+    } finally {
+      clearInterval(trickle);
+      response.destroy();
+    }
+  });
+
+  it("enforces the total deadline while hostname resolution is stalled", async () => {
+    let requested = false;
+
+    await assert.rejects(
+      fetchProfileAssetSourceUrl("https://media.example.test/stalled.webp", {
+        resolveHostname: async () => await new Promise(() => {}),
+        requestPinnedSource: async () => {
+          requested = true;
+          return sourceResponse({ statusCode: 200 });
+        },
+        totalTimeoutMs: 15,
+      }),
+      /total timeout/,
+    );
+    assert.equal(requested, false);
+  });
+
+  it("destroys responses rejected during header validation", async () => {
+    const response = new Readable({ read() {} }) as IncomingMessage;
+    response.statusCode = 200;
+    response.headers = { "content-type": "text/plain" };
+
+    await assert.rejects(
+      fetchProfileAssetSourceUrl("https://media.example.test/not-an-image.txt", {
+        resolveHostname: async () => [{ address: "93.184.216.34" }],
+        requestPinnedSource: async () => response,
+      }),
+      /must be PNG, SVG, JPEG, or WebP/,
+    );
+    assert.equal(response.destroyed, true);
+  });
+
+  it("destroys discarded non-success responses", async () => {
+    const response = new Readable({ read() {} }) as IncomingMessage;
+    response.statusCode = 503;
+    response.headers = { "content-type": "text/plain" };
+
+    await assert.rejects(
+      fetchProfileAssetSourceUrl("https://media.example.test/unavailable.webp", {
+        resolveHostname: async () => [{ address: "93.184.216.34" }],
+        requestPinnedSource: async () => response,
+      }),
+      /returned HTTP 503/,
+    );
+    assert.equal(response.destroyed, true);
+  });
+
+  it("destroys redirect responses when their location is invalid", async () => {
+    const response = new Readable({ read() {} }) as IncomingMessage;
+    response.statusCode = 302;
+    response.headers = {};
+
+    await assert.rejects(
+      fetchProfileAssetSourceUrl("https://media.example.test/redirect.webp", {
+        resolveHostname: async () => [{ address: "93.184.216.34" }],
+        requestPinnedSource: async () => response,
+      }),
+      /without a Location header/,
+    );
+    assert.equal(response.destroyed, true);
   });
 });
