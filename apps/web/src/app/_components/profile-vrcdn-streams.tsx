@@ -1,8 +1,10 @@
 "use client";
 
+import { ExternalLink } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 
 import { VrcdnStreamPlayer } from "./vrcdn-stream-player";
+import { buttonVariants } from "@/components/ui/button";
 import { SectionHeading } from "@/components/ui/card";
 import { CopyValueRow } from "@/components/ui/copy-value-row";
 import { cn } from "@/lib/cn";
@@ -22,9 +24,22 @@ export type ProfileVrcdnStream = {
   streamId: string;
 };
 
+type ProfileVrcdnLink = {
+  href: string;
+  key: string;
+  label: string;
+  streamId?: string;
+};
+
+type ProfileDiscordHandle = {
+  handle: string;
+  key: string;
+};
+
 type ProfileVrcdnStreamsProps = {
-  children: ReactNode;
+  discordHandles: ProfileDiscordHandle[];
   initialLiveStates?: VrcdnLiveStates;
+  links: ProfileVrcdnLink[];
   profileSlug: string;
   streams: ProfileVrcdnStream[];
   twitchContent?: ReactNode;
@@ -39,8 +54,9 @@ function responseStates(value: unknown): VrcdnLiveStates | null {
 }
 
 export function ProfileVrcdnStreams({
-  children,
+  discordHandles,
   initialLiveStates,
+  links,
   profileSlug,
   streams,
   twitchContent,
@@ -146,11 +162,38 @@ export function ProfileVrcdnStreams({
   }, [initialConfirmedIdentity, profileSlug, streamIdentity, streams.length]);
 
   const liveStreams = streams.filter(({ streamId }) => liveStates[streamId] === "live");
+  const visibleLinks = links.filter(({ streamId }) => !streamId || liveStates[streamId] !== "live");
+  const hasLinks = visibleLinks.length > 0 || discordHandles.length > 0;
   const hasWatchSurface = Boolean(twitchContent || liveStreams.length > 0);
 
   return (
     <div className={cn("grid gap-x-10", hasWatchSurface ? "lg:grid-cols-[minmax(0,1fr)_32rem]" : undefined)}>
-      <div>{children}</div>
+      <div>
+        {hasLinks ? (
+          <section className="py-8">
+            <SectionHeading>Links</SectionHeading>
+            {visibleLinks.length > 0 ? (
+              <div className="mt-4 flex flex-wrap gap-2">
+                {visibleLinks.map((link) => (
+                  <a
+                    className={cn(buttonVariants({ variant: "secondary" }), "gap-2")}
+                    href={link.href}
+                    key={link.key}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    {link.label}
+                    <ExternalLink aria-hidden="true" className="size-3.5" />
+                  </a>
+                ))}
+              </div>
+            ) : null}
+            {discordHandles.map(({ handle, key }) => (
+              <CopyValueRow compact className="mt-4" key={key} label="Discord" value={handle} />
+            ))}
+          </section>
+        ) : null}
+      </div>
 
       {hasWatchSurface ? (
         <aside className="border-t border-border py-8 lg:border-t-0 lg:border-l lg:pl-8">

@@ -450,19 +450,20 @@ test.describe("fixture lookup smoke", () => {
     await expect(page.getByRole("heading", { name: "BASICBIT" })).toBeVisible();
     await expect.poll(() => attempts).toBe(1);
     await expect(page.getByRole("heading", { name: "Watch" })).toBeVisible();
-    await expect(page.getByText("VRCDN stream", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "VRCDN stream" })).toBeVisible();
     await expect(page.getByText("Live now", { exact: true })).toHaveCount(0);
 
     releaseFirstResponse();
 
     await expect(page.getByText("VRCDN stream", { exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: "VRCDN stream" })).toHaveCount(0);
     await expect(page.getByText("Live now", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Play VRCDN stream" })).toBeVisible();
     await expect(page.locator("video")).toHaveCount(0);
     expect(attempts).toBe(2);
   });
 
-  test("VRCDN-only profile does not render an empty Watch surface while offline", async ({ page }) => {
+  test("VRCDN-only profile keeps its stream link visible while offline", async ({ page }) => {
     let attempts = 0;
 
     await page.route("**/api/profile-live/playwright-dj-night-market/vrcdn?attempt=*", async (route) => {
@@ -474,7 +475,7 @@ test.describe("fixture lookup smoke", () => {
     await expect(page.getByRole("heading", { name: "DJ Night Market" })).toBeVisible();
     await expect.poll(() => attempts).toBe(1);
     await expect(page.getByRole("heading", { name: "Watch" })).toHaveCount(0);
-    await expect(page.getByText("VRCDN stream", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "VRCDN stream" })).toBeVisible();
   });
 
   test("confirmed VRCDN player stays mounted while a failed retry is pending", async ({ page }) => {
@@ -518,7 +519,7 @@ test.describe("fixture lookup smoke", () => {
     releaseSecondResponse();
 
     await expect(player).toHaveCount(0);
-    await expect(page.getByText("VRCDN", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "VRCDN", exact: true })).toBeVisible();
   });
 
   test("confirmed VRCDN player survives two profile-live route failures", async ({ page }) => {
