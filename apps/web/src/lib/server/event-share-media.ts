@@ -14,8 +14,8 @@ export type EventShareArtworkSource = {
   url: URL;
 };
 
-export function isEventShareImageUrl(url: URL, siteUrl: URL): boolean {
-  return url.origin === siteUrl.origin && eventShareImagePath.test(url.pathname);
+export function isEventShareImageUrl(url: URL): boolean {
+  return eventShareImagePath.test(url.pathname);
 }
 
 export function eventShareArtworkSource(
@@ -29,7 +29,7 @@ export function eventShareArtworkSource(
       return null;
     }
 
-    if (isEventShareImageUrl(url, siteUrl)) {
+    if (isEventShareImageUrl(url)) {
       return null;
     }
 
@@ -85,7 +85,7 @@ export async function inlineEventShareArtwork(
     ? await fetchFixtureArtwork(source.url)
     : await fetchProfileAssetSourceUrl(source.url.href, {
         assertSourceUrl: (url) => {
-          if (isEventShareImageUrl(url, siteUrl)) {
+          if (isEventShareImageUrl(url)) {
             throw new Error("Event share artwork must not reference a generated event preview.");
           }
         },

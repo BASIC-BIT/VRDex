@@ -30,34 +30,6 @@ export function eventShareTitleFontSize(title: string): number {
   return 68;
 }
 
-export function eventShareSchedule(
-  card: { startAt: number; timezone?: string },
-): string {
-  const timeZone = card.timezone ?? "UTC";
-
-  try {
-    return new Intl.DateTimeFormat("en-US", {
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-      month: "short",
-      timeZone,
-      timeZoneName: "short",
-      year: "numeric",
-    }).format(new Date(card.startAt));
-  } catch {
-    return new Intl.DateTimeFormat("en-US", {
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-      month: "short",
-      timeZone: "UTC",
-      timeZoneName: "short",
-      year: "numeric",
-    }).format(new Date(card.startAt));
-  }
-}
-
 export function eventShareRevision(card: PublicEventShareCard): string {
   return createHash("sha256")
     .update(JSON.stringify(card))
