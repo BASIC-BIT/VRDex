@@ -62,6 +62,18 @@ until the fleet has converged.
 
 ## Operational claim contract
 
+This implementation closes issue #286 and supersedes the narrower repair in
+PR #287. It preserves that repair's useful availability distinction: a VRChat
+proof request is `queued` only after a fresh proof-capable collector has
+actually polled for work. When no eligible collector is fresh, the API reports
+`unavailable` while preserving the pending attempt for automatic recovery.
+
+Dispatch and provider checks are separate lifecycle facts. Claiming a batch
+records dispatch metadata, but only a real bounded provider response records a
+check. A worker that repeatedly cannot reach the control plane emits a redacted
+structured failure event and exits after a bounded threshold so ECS can restart
+it.
+
 Collector-eligible proof attempts record:
 
 - first and latest check time;
@@ -148,4 +160,3 @@ fleet. The normal release workflow remains the only automatic writer.
 - Terraform formatting, validation, and a saved production plan before apply.
 - Worker tests plus the complete backend and web suites.
 - A production canary after the automatic release lane is configured.
-
