@@ -4,6 +4,7 @@ import { Fragment, type CSSProperties, type ReactNode } from "react";
 
 import { EventPreviewCard, type PublicEventPreview } from "./event-public-page";
 import { MediaPreviewImage } from "./media-preview-image";
+import { ProfileAvatarImage } from "./profile-avatar-image";
 import { ProfileVrcdnStreams } from "./profile-vrcdn-streams";
 import { ProfilePrivateRecord } from "./profile-private-record";
 import { buttonVariants } from "@/components/ui/button";
@@ -16,7 +17,7 @@ import { cn } from "@/lib/cn";
 import { carriesLiveClaim } from "@/lib/live-claim-sources";
 import { profileClaimPath } from "@/lib/profile-claim";
 import { hasRenderableProfileMediaKit } from "@/lib/profile-media-kit";
-import { safeImageBackground } from "@/lib/safe-image";
+import { safeImageBackground, safeImageUrl } from "@/lib/safe-image";
 import type { TwitchLiveState } from "@/lib/server/twitch-live";
 import type { VrcdnLiveState } from "@/lib/vrcdn-live";
 import { twitchLinkForLiveClaim, twitchLoginFromUrl } from "@/lib/twitch-url";
@@ -372,8 +373,7 @@ export function ProfileBackendNotice({ kind }: { kind: "missing-url" | "error" }
 export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
   const isPerson = profile.profileType === "person";
   const bannerStyle = safeImageBackground(profile.bannerImageUrl);
-  const avatarImageStyle = safeImageBackground(profile.avatarImageUrl);
-  const hasAvatarImage = avatarImageStyle !== undefined;
+  const avatarImageUrl = safeImageUrl(profile.avatarImageUrl);
   const mediaKit = profile.mediaKit ?? {
     additionalLogos: [],
     logos: [],
@@ -382,7 +382,7 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
     compactDisplay: "profile_image" as const,
   };
   const avatarAppearance = mediaKit.avatarAppearance ?? defaultAvatarAppearance;
-  const avatarStyle: CSSProperties = avatarFrameStyle(avatarImageStyle, avatarAppearance);
+  const avatarStyle: CSSProperties = avatarFrameStyle(undefined, avatarAppearance);
   const eventPreviews = isPerson ? profile.upcomingEvents : profile.hostedEvents;
   const canClaim = profile.trustLabel === "community_submitted" || profile.trustLabel === "unclaimed";
   // Owner-authored personalization wins when present; the factual/community
@@ -563,12 +563,14 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
               <div className="flex min-w-0 flex-col gap-6 sm:flex-row sm:items-center">
                 <div className="relative w-fit shrink-0">
                   <div
-                    aria-label={`${profile.displayName} display image`}
-                    className="flex size-24 items-center justify-center bg-white/20 bg-cover bg-center text-3xl font-semibold shadow-panel"
-                    role="img"
+                    className="relative flex size-24 items-center justify-center overflow-hidden bg-white/20 text-3xl font-semibold shadow-panel"
                     style={avatarStyle}
                   >
-                    {!hasAvatarImage ? initialsFor(profile.displayName) : null}
+                    <ProfileAvatarImage
+                      alt={`${profile.displayName} display image`}
+                      fallback={initialsFor(profile.displayName)}
+                      src={avatarImageUrl}
+                    />
                   </div>
                   {profile.trustLabel === "claimed_verified" ? (
                     <VerifiedTrustMark className="verified-trust-mark--avatar" />

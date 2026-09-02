@@ -362,6 +362,59 @@ test.describe("hosted lookup smoke", () => {
 test.describe("fixture lookup smoke", () => {
   test.skip(isHostedRun, "Fixture-specific lookup suggestions are local-only.");
 
+  test("profile image keeps its fallback until the asset loads", async ({ page }) => {
+    let releaseImage: () => void = () => {};
+    const imageHold = new Promise<void>((resolve) => {
+      releaseImage = resolve;
+    });
+
+    await page.route("**/api/e2e/fixture-assets/fixture-aurora-profile-image", async (route) => {
+      const response = await route.fetch();
+      const body = await response.body();
+      await imageHold;
+      await route.fulfill({ body, contentType: response.headers()["content-type"] });
+    });
+
+    await page.goto("/playwright-dj-aurora", { waitUntil: "domcontentloaded" });
+
+    const avatarState = page.locator('[aria-busy="true"]').filter({ hasText: "DA" });
+    await expect(avatarState).toBeVisible();
+    await expect(page.getByRole("img", { name: "DJ Aurora display image" })).toHaveCSS("opacity", "0");
+
+    releaseImage();
+
+    await expect(page.getByRole("img", { name: "DJ Aurora display image" })).toHaveCSS("opacity", "1");
+    await expect(avatarState).toHaveCount(0);
+  });
+
+  test("media preview shows progress until its image loads", async ({ page }) => {
+    let releaseImage: () => void = () => {};
+    const imageHold = new Promise<void>((resolve) => {
+      releaseImage = resolve;
+    });
+
+    await page.route("**/api/e2e/fixture-assets/fixture-aurora-primary-logo", async (route) => {
+      const response = await route.fetch();
+      const body = await response.body();
+      await imageHold;
+      await route.fulfill({ body, contentType: response.headers()["content-type"] });
+    });
+
+    await page.goto("/playwright-dj-aurora", { waitUntil: "domcontentloaded" });
+    const mediaKit = page.getByRole("heading", { name: "Media kit" }).locator("xpath=ancestor::section");
+    await mediaKit.scrollIntoViewIfNeeded();
+
+    const logoCard = mediaKit.getByRole("article").filter({ hasText: "Primary logo" });
+    const preview = logoCard.getByRole("img", { name: "Aurora wordmark" });
+    await expect(logoCard.getByRole("status", { name: "Loading image" })).toBeVisible();
+    await expect(preview).toHaveCSS("opacity", "0");
+
+    releaseImage();
+
+    await expect(preview).toHaveCSS("opacity", "1");
+    await expect(logoCard.getByRole("status", { name: "Loading image" })).toHaveCount(0);
+  });
+
   test("VRCDN live state recovers after the profile renders without a reload", async ({ page }) => {
     let attempts = 0;
     let releaseFirstResponse: () => void = () => {};
