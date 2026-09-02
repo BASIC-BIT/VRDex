@@ -285,7 +285,7 @@ test.describe("fixture lookup smoke", () => {
     await expect(page.getByText("VRCDN stream", { exact: true })).toHaveCount(0);
   });
 
-  test("confirmed VRCDN player stays mounted while an unavailable retry is pending", async ({ page }) => {
+  test("confirmed VRCDN player stays mounted while a failed retry is pending", async ({ page }) => {
     let attempts = 0;
     let releaseFirstResponse: () => void = () => {};
     let releaseSecondResponse: () => void = () => {};
@@ -306,7 +306,7 @@ test.describe("fixture lookup smoke", () => {
       }
 
       await secondResponseHold;
-      await route.fulfill({ contentType: "application/json", json: { states: { "dj-aurora": "unavailable" } } });
+      await route.fulfill({ status: 503 });
     });
 
     await page.goto("/playwright-dj-aurora");

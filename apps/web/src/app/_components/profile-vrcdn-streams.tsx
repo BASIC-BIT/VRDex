@@ -61,6 +61,12 @@ export function ProfileVrcdnStreams({
       retryTimer = setTimeout(() => void loadStates(2), vrcdnLiveRetryDelayMs);
     };
 
+    const clearAfterFinalFailure = (attempt: 1 | 2) => {
+      if (attempt === 2) {
+        setLiveStates({});
+      }
+    };
+
     const loadStates = async (attempt: 1 | 2) => {
       try {
         const response = await fetch(
@@ -71,6 +77,8 @@ export function ProfileVrcdnStreams({
         if (!response.ok) {
           if (attempt === 1 && response.status >= 500) {
             scheduleRetry();
+          } else {
+            clearAfterFinalFailure(attempt);
           }
           return;
         }
@@ -80,6 +88,8 @@ export function ProfileVrcdnStreams({
         if (states === null) {
           if (attempt === 1) {
             scheduleRetry();
+          } else {
+            clearAfterFinalFailure(attempt);
           }
           return;
         }
@@ -92,8 +102,12 @@ export function ProfileVrcdnStreams({
           scheduleRetry();
         }
       } catch {
-        if (attempt === 1 && !controller.signal.aborted) {
-          scheduleRetry();
+        if (!controller.signal.aborted) {
+          if (attempt === 1) {
+            scheduleRetry();
+          } else {
+            clearAfterFinalFailure(attempt);
+          }
         }
       }
     };
