@@ -9,6 +9,7 @@ import { cn } from "@/lib/cn";
 import {
   mergeConfirmedVrcdnLiveStates,
   parseVrcdnLiveStates,
+  removeVrcdnLiveStates,
   shouldRetryVrcdnLiveStates,
   type VrcdnLiveStates,
   vrcdnLiveRetryDelayMs,
@@ -55,7 +56,9 @@ export function ProfileVrcdnStreams({
     }
 
     const controller = new AbortController();
+    const allStreamIds = streamIdentity.split("\u0000");
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let retryingStreamIds = new Set<string>();
 
     const scheduleRetry = () => {
       retryTimer = setTimeout(() => void loadStates(2), vrcdnLiveRetryDelayMs);
@@ -63,8 +66,13 @@ export function ProfileVrcdnStreams({
 
     const clearAfterFinalFailure = (attempt: 1 | 2) => {
       if (attempt === 2) {
-        setLiveStates({});
+        setLiveStates((current) => removeVrcdnLiveStates(current, retryingStreamIds));
       }
+    };
+
+    const scheduleFullRetry = () => {
+      retryingStreamIds = new Set(allStreamIds);
+      scheduleRetry();
     };
 
     const loadStates = async (attempt: 1 | 2) => {
@@ -76,7 +84,7 @@ export function ProfileVrcdnStreams({
 
         if (!response.ok) {
           if (attempt === 1 && response.status >= 500) {
-            scheduleRetry();
+            scheduleFullRetry();
           } else {
             clearAfterFinalFailure(attempt);
           }
@@ -87,7 +95,7 @@ export function ProfileVrcdnStreams({
 
         if (states === null) {
           if (attempt === 1) {
-            scheduleRetry();
+            scheduleFullRetry();
           } else {
             clearAfterFinalFailure(attempt);
           }
@@ -99,12 +107,17 @@ export function ProfileVrcdnStreams({
         );
 
         if (attempt === 1 && shouldRetryVrcdnLiveStates(states)) {
+          retryingStreamIds = new Set(
+            Object.entries(states)
+              .filter(([, state]) => state === "unavailable")
+              .map(([streamId]) => streamId),
+          );
           scheduleRetry();
         }
       } catch {
         if (!controller.signal.aborted) {
           if (attempt === 1) {
-            scheduleRetry();
+            scheduleFullRetry();
           } else {
             clearAfterFinalFailure(attempt);
           }

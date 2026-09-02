@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   mergeConfirmedVrcdnLiveStates,
   parseVrcdnLiveStates,
+  removeVrcdnLiveStates,
   maxVrcdnObservationAgeMs,
   shouldRetryVrcdnLiveStates,
   vrcdnLiveStateFromStatus,
@@ -34,6 +35,16 @@ describe("VRCDN liveness", () => {
         { alpha: "unavailable", beta: "live", gamma: "unavailable" },
       ),
       { alpha: "live", beta: "live" },
+    );
+  });
+
+  it("removes only streams whose final retry failed", () => {
+    assert.deepEqual(
+      removeVrcdnLiveStates(
+        { alpha: "live", beta: "live", gamma: "offline" },
+        new Set(["beta"]),
+      ),
+      { alpha: "live", gamma: "offline" },
     );
   });
 

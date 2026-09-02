@@ -73,6 +73,15 @@ export function mergeConfirmedVrcdnLiveStates(
   return confirmed;
 }
 
+export function removeVrcdnLiveStates(
+  current: VrcdnLiveStates,
+  streamIds: ReadonlySet<string>,
+): VrcdnLiveStates {
+  return Object.fromEntries(
+    Object.entries(current).filter(([streamId]) => !streamIds.has(streamId)),
+  );
+}
+
 export const vrcdnLiveRetryDelayMs = 750;
 
 export type VrcdnLiveLink = LiveClaimLink;
