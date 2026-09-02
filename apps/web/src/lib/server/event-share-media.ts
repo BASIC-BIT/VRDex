@@ -8,18 +8,17 @@ import { validateAndNormalizeProfileAsset } from "./profile-asset-validation";
 const fixtureAssetPath = /^\/api\/e2e\/fixture-assets\/[^/]+$/;
 const eventShareImagePath = /^\/[^/]+\/events\/[^/]+\/opengraph-image\/?$/;
 const artworkBounds = { height: 574, width: 414 } as const;
+const remoteArtworkMaxInputPixels = 4_096 ** 2;
+const remoteArtworkFormats = new Map([
+  ["image/jpeg", "jpeg"],
+  ["image/png", "png"],
+  ["image/webp", "webp"],
+]);
 
 export type EventShareArtworkSource = {
   kind: "fixture" | "remote";
   url: URL;
 };
-
-export function canRasterizeEventShareArtwork(
-  source: EventShareArtworkSource,
-  mimeType: string,
-): boolean {
-  return source.kind === "fixture" || mimeType !== "image/svg+xml";
-}
 
 export function isEventShareImageUrl(url: URL): boolean {
   try {
@@ -83,6 +82,58 @@ async function fetchFixtureArtwork(url: URL) {
   return { body, mimeType };
 }
 
+export async function rasterizeRemoteEventShareArtwork(
+  body: Uint8Array,
+  declaredMimeType: string,
+): Promise<Buffer | undefined> {
+  const expectedFormat = remoteArtworkFormats.get(declaredMimeType);
+  if (!expectedFormat) return undefined;
+
+  const image = sharp(body, {
+    animated: false,
+    failOn: "warning",
+    limitInputPixels: remoteArtworkMaxInputPixels,
+    sequentialRead: true,
+  });
+  const metadata = await image.metadata();
+
+  if (
+    metadata.format !== expectedFormat ||
+    !metadata.width ||
+    !metadata.height ||
+    (metadata.pages ?? 1) !== 1
+  ) {
+    throw new Error("Event share artwork must be one matching PNG, JPEG, or WebP image.");
+  }
+
+  return await image
+    .resize({
+      fit: "inside",
+      height: artworkBounds.height,
+      width: artworkBounds.width,
+      withoutEnlargement: true,
+    })
+    .png({ compressionLevel: 9 })
+    .toBuffer();
+}
+
+async function rasterizeFixtureEventShareArtwork(body: Uint8Array, mimeType: string) {
+  const normalized = await validateAndNormalizeProfileAsset(body, mimeType);
+  return await sharp(normalized.body, {
+    animated: false,
+    failOn: "warning",
+    limitInputPixels: 8_192 ** 2,
+  })
+    .resize({
+      fit: "inside",
+      height: artworkBounds.height,
+      width: artworkBounds.width,
+      withoutEnlargement: true,
+    })
+    .png({ compressionLevel: 9 })
+    .toBuffer();
+}
+
 export async function inlineEventShareArtwork(
   imageUrl: string | undefined,
 ): Promise<string | undefined> {
@@ -102,25 +153,11 @@ export async function inlineEventShareArtwork(
         },
         totalTimeoutMs: 30_000,
       });
-  const normalized = await validateAndNormalizeProfileAsset(upload.body, upload.mimeType);
-  if (!canRasterizeEventShareArtwork(source, normalized.mimeType)) {
-    return undefined;
-  }
-  const png = await sharp(normalized.body, {
-    animated: false,
-    failOn: "warning",
-    limitInputPixels: 8_192 ** 2,
-  })
-    .resize({
-      fit: "inside",
-      height: artworkBounds.height,
-      width: artworkBounds.width,
-      withoutEnlargement: true,
-    })
-    .png({ compressionLevel: 9 })
-    .toBuffer();
+  const png = source.kind === "remote"
+    ? await rasterizeRemoteEventShareArtwork(upload.body, upload.mimeType)
+    : await rasterizeFixtureEventShareArtwork(upload.body, upload.mimeType);
 
-  if (png.byteLength > PROFILE_ASSET_MAX_STORED_BYTES) {
+  if (!png || png.byteLength > PROFILE_ASSET_MAX_STORED_BYTES) {
     return undefined;
   }
 

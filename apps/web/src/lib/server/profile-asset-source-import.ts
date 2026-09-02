@@ -345,11 +345,17 @@ export async function fetchProfileAssetSourceUrl(
         response.destroy(timeoutError());
         throwIfAborted(abortController.signal);
       }
-      const redirectedUrl = redirectLocation(
-        response.statusCode,
-        response.headers.location,
-        currentUrl,
-      );
+      let redirectedUrl: URL | null;
+      try {
+        redirectedUrl = redirectLocation(
+          response.statusCode,
+          response.headers.location,
+          currentUrl,
+        );
+      } catch (error) {
+        response.destroy();
+        throw error;
+      }
 
       if (redirectedUrl !== null) {
         response.destroy();

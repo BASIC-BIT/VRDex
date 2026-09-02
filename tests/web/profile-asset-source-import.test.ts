@@ -212,4 +212,19 @@ describe("profile asset source imports", () => {
     );
     assert.equal(response.destroyed, true);
   });
+
+  it("destroys redirect responses when their location is invalid", async () => {
+    const response = new Readable({ read() {} }) as IncomingMessage;
+    response.statusCode = 302;
+    response.headers = {};
+
+    await assert.rejects(
+      fetchProfileAssetSourceUrl("https://media.example.test/redirect.webp", {
+        resolveHostname: async () => [{ address: "93.184.216.34" }],
+        requestPinnedSource: async () => response,
+      }),
+      /without a Location header/,
+    );
+    assert.equal(response.destroyed, true);
+  });
 });

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import sharp from "sharp";
 
 import {
   eventShareDescription,
@@ -9,9 +10,9 @@ import {
 } from "../../apps/web/src/lib/event-share-card";
 import { DEFAULT_SHARE_DESCRIPTION } from "../../apps/web/src/lib/profile-share-card";
 import {
-  canRasterizeEventShareArtwork,
   eventShareArtworkSource,
   isEventShareImageUrl,
+  rasterizeRemoteEventShareArtwork,
 } from "../../apps/web/src/lib/server/event-share-media";
 import type { PublicEventShareCard } from "../../convex/_eventShareCard";
 
@@ -120,20 +121,24 @@ describe("event share artwork source", () => {
     );
   });
 
-  it("does not rasterize untrusted remote SVG artwork", () => {
-    const remote = eventShareArtworkSource(
-      "https://media.example.test/event-poster.svg",
-      siteUrl,
-    );
-    const fixture = eventShareArtworkSource(
-      "/api/e2e/fixture-assets/event-poster",
-      siteUrl,
-    );
+  it("uses one bounded raster pipeline and rejects remote SVG artwork", async () => {
+    const source = await sharp({
+      create: { background: "#663399", channels: 4, height: 2, width: 2 },
+    }).png().toBuffer();
 
-    assert.ok(remote);
-    assert.ok(fixture);
-    assert.equal(canRasterizeEventShareArtwork(remote, "image/svg+xml"), false);
-    assert.equal(canRasterizeEventShareArtwork(remote, "image/png"), true);
-    assert.equal(canRasterizeEventShareArtwork(fixture, "image/svg+xml"), true);
+    const png = await rasterizeRemoteEventShareArtwork(source, "image/png");
+    assert.ok(png);
+    assert.equal((await sharp(png).metadata()).format, "png");
+    assert.equal(
+      await rasterizeRemoteEventShareArtwork(
+        new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"/>'),
+        "image/svg+xml",
+      ),
+      undefined,
+    );
+    await assert.rejects(
+      rasterizeRemoteEventShareArtwork(source, "image/jpeg"),
+      /one matching PNG, JPEG, or WebP/,
+    );
   });
 });
