@@ -9,6 +9,7 @@ import schemaModule from "../../convex/schema";
 import { clerkTestIdentity, newClerkUserId } from "./_clerkTestIdentity";
 const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
+  "../../convex/communityTelemetry.ts": () => import("../../convex/communityTelemetry"),
   "../../convex/profileClaims.ts": () => import("../../convex/profileClaims"),
   "../../convex/vrclinkingCredentials.ts": () => import("../../convex/vrclinkingCredentials"),
 };
@@ -17,6 +18,94 @@ const schema = (
 ).default ?? schemaModule;
 
 describe("profile claim lifecycle", () => {
+  it("only reports a collector-backed proof as queued with a fresh worker heartbeat", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const seeded = await t.run(async (ctx) => {
+      const clerkUserId = newClerkUserId();
+      const userId = await ctx.db.insert("users", {
+        clerkUserId,
+        email: "collector-readiness@example.test",
+        emailVerificationTime: now,
+      });
+      const profileId = await ctx.db.insert("profiles", {
+        profileType: "person",
+        slug: "collector-readiness",
+        displayName: "Collector Readiness",
+        sortName: "collector readiness",
+        aliases: [],
+        tags: [],
+        claimState: "unclaimed",
+        publicationState: "published",
+        publicSurfacingState: "public",
+        creationSource: "self",
+        person: { roleTags: [] },
+        updatedAt: now,
+      });
+      const attemptId = await ctx.db.insert("profileVerificationAttempts", {
+        profileId,
+        userId,
+        method: "vrchat_user_proof",
+        targetType: "vrchat_user",
+        targetExternalId: "usr_3f510886-35c4-4e2b-bdb0-2a43cc36023f",
+        proofCode: "VRDEX-READINESS",
+        state: "pending",
+        createdAt: now,
+        updatedAt: now,
+        expiresAt: now + 86_400_000,
+      });
+
+      return {
+        attemptId,
+        identity: clerkTestIdentity(clerkUserId),
+      };
+    });
+    const asClaimant = t.withIdentity(seeded.identity);
+    const originalAdapterUrl = process.env.VRCHAT_PROOF_ADAPTER_URL;
+    delete process.env.VRCHAT_PROOF_ADAPTER_URL;
+
+    try {
+      assert.deepEqual(
+        await asClaimant.action(api.profileClaims.verifyVrchatProofViaAdapter, {
+          attemptId: seeded.attemptId,
+        }),
+        { state: "unavailable" },
+      );
+
+      await t.run(async (ctx) => {
+        await ctx.db.insert("collectorAccounts", {
+          vrchatUserId: "usr_collector",
+          accountAlias: "collector-readiness",
+          state: "ready",
+          capacity: 100,
+          reservedHeadroom: 15,
+          assignedGroupCount: 0,
+          requestsPerMinute: 30,
+          secretRef: "secret://collector-readiness",
+          workerKeyHash: "a".repeat(64),
+          credentialGeneration: 1,
+          killSwitchEnabled: false,
+          lastProofPollAt: Date.now(),
+          createdAt: now,
+          updatedAt: now,
+        });
+      });
+
+      assert.deepEqual(
+        await asClaimant.action(api.profileClaims.verifyVrchatProofViaAdapter, {
+          attemptId: seeded.attemptId,
+        }),
+        { state: "queued" },
+      );
+    } finally {
+      if (originalAdapterUrl === undefined) {
+        delete process.env.VRCHAT_PROOF_ADAPTER_URL;
+      } else {
+        process.env.VRCHAT_PROOF_ADAPTER_URL = originalAdapterUrl;
+      }
+    }
+  });
+
   it("lets only an owner fetch private claim context without making the profile public", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();

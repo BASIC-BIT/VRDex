@@ -1956,6 +1956,31 @@ export const collectorWorkerAuthorization = internalQuery({
 
 const PROOF_CHECK_COOLDOWN_MS = 5 * 60_000;
 const PROOF_CHECK_SCAN_LIMIT = 100;
+const PROOF_POLL_HEARTBEAT_WRITE_MS = 30_000;
+export const PROOF_COLLECTOR_FRESH_MS = 2 * 60_000;
+
+export const collectorProofAvailable = internalQuery({
+  args: { now: v.number() },
+  handler: async (ctx, args) => {
+    const fleet = await ctx.db
+      .query("collectorFleetSettings")
+      .withIndex("by_key", (q) => q.eq("key", "global"))
+      .first();
+    if (fleet?.killSwitchEnabled) return false;
+
+    const accounts = await ctx.db
+      .query("collectorAccounts")
+      .withIndex("by_state_assignedGroupCount", (q) => q.eq("state", "ready"))
+      .collect();
+
+    return accounts.some(
+      (account) =>
+        !account.killSwitchEnabled &&
+        (account.cooldownUntil ?? 0) <= args.now &&
+        (account.lastProofPollAt ?? 0) >= args.now - PROOF_COLLECTOR_FRESH_MS,
+    );
+  },
+});
 
 /**
  * Hand the collector a batch of pending VRChat proof attempts to look for.
@@ -1994,6 +2019,13 @@ export const claimPendingProofChecks = internalMutation({
       .withIndex("by_key", (q) => q.eq("key", "global"))
       .first();
     if (fleet?.killSwitchEnabled) return { attempts: [] };
+
+    // This is the liveness contract consumed by the claim action. Stamp only
+    // after every account/fleet gate passes, including when there is no work,
+    // and bound writes because an idle worker polls every ten seconds.
+    if ((account.lastProofPollAt ?? 0) <= args.now - PROOF_POLL_HEARTBEAT_WRITE_MS) {
+      await ctx.db.patch(accountId, { lastProofPollAt: args.now });
+    }
 
     const limit = Math.max(1, Math.min(args.limit ?? 5, 25));
     // Select collector-eligible target types through the index. Scanning all

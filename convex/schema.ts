@@ -1431,6 +1431,7 @@ export default defineSchema({
     killSwitchEnabled: v.boolean(),
     lastHealthAt: v.optional(v.number()),
     lastHealthResult: v.optional(v.string()),
+    lastProofPollAt: v.optional(v.number()),
     cooldownUntil: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),

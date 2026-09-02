@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { VrchatProviderError } from "./vrchat-client.mjs";
 
 export const COLLECTOR_VERSION = "group-telemetry-v1";
+export const MAX_CONSECUTIVE_LOOP_FAILURES = 6;
 
 export function randomPollDelayMs(active, random = Math.random) {
   const [minimum, maximum] = active ? [60_000, 120_000] : [180_000, 300_000];
@@ -50,6 +51,46 @@ export function failureDisposition(error, attempt, now = Date.now(), random = Ma
     detail: provider.category,
     stopAccount: provider.category === "authentication",
   };
+}
+
+export function collectorLoopFailureEvent(error, phase, attempt) {
+  const message = error instanceof Error ? error.message : "";
+  const controlPlaneStatus = /^Control plane ([1-5][0-9]{2}):/.exec(message)?.[1];
+  const providerStatus = error instanceof VrchatProviderError && error.status > 0
+    ? String(error.status)
+    : undefined;
+  const failureClass = error instanceof VrchatProviderError
+    ? "provider"
+    : controlPlaneStatus !== undefined
+    ? "control_plane_http"
+    : error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")
+      ? "timeout"
+      : error instanceof TypeError
+        ? "transport"
+        : "unexpected";
+
+  return {
+    event: "collector_loop_failure",
+    phase,
+    attempt,
+    failureClass,
+    ...(error instanceof VrchatProviderError ? { category: error.category } : {}),
+    ...(controlPlaneStatus === undefined && providerStatus === undefined
+      ? {}
+      : { status: controlPlaneStatus ?? providerStatus }),
+  };
+}
+
+export function collectorRestartEvent(attempt) {
+  return {
+    event: "collector_restart_requested",
+    reason: "consecutive_loop_failures",
+    attempt,
+  };
+}
+
+export function collectorShouldRestart(attempt) {
+  return attempt >= MAX_CONSECUTIVE_LOOP_FAILURES;
 }
 
 export function pollId(integrationId, observedAt) {

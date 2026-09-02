@@ -1,7 +1,7 @@
 import { setTimeout as sleep } from "node:timers/promises";
 
 import { VrchatClient } from "./vrchat-client.mjs";
-import { COLLECTOR_VERSION, RequestBudget, TelemetryControlClient, failureDisposition, pollId, randomPollDelayMs, retryDelayMs } from "./runtime.mjs";
+import { COLLECTOR_VERSION, RequestBudget, TelemetryControlClient, collectorLoopFailureEvent, collectorRestartEvent, collectorShouldRestart, failureDisposition, pollId, randomPollDelayMs, retryDelayMs } from "./runtime.mjs";
 
 function requiredEnv(name) {
   const value = process.env[name]?.trim();
@@ -316,6 +316,7 @@ async function checkProofs() {
         break;
       }
 
+      console.error(JSON.stringify(collectorLoopFailureEvent(error, "proof_provider", 1)));
       continue;
     }
 
@@ -335,6 +336,8 @@ async function checkProofs() {
 }
 
 while (!stopping) {
+  let loopPhase = "proof_checks";
+
   try {
     // Proofs first, and before the claim rather than merely before `collect()`.
     // Telemetry is continuous and a deferred batch is picked up next window
@@ -347,19 +350,26 @@ while (!stopping) {
     // while the work sits in hand, so repeated proof throttling would leave
     // those integrations unpolled anyway.
     const proofCount = stopping ? 0 : await checkProofs();
+    loopPhase = "assignment_claim";
     const { assignments = [] } = stopping
       ? { assignments: [] }
       : await control.send("claim", { limit: 10, now: Date.now() }, { requirePayload: true });
 
-    controlFailures = 0;
-
     for (const assignment of assignments) {
       if (stopping) break;
+      loopPhase = "telemetry_collection";
       await collect(assignment);
     }
+    controlFailures = 0;
     await pause(assignments.length > 0 || proofCount > 0 ? 1_000 : 10_000);
-  } catch {
+  } catch (error) {
     controlFailures += 1;
+    console.error(JSON.stringify(collectorLoopFailureEvent(error, loopPhase, controlFailures)));
+    if (collectorShouldRestart(controlFailures)) {
+      console.error(JSON.stringify(collectorRestartEvent(controlFailures)));
+      process.exitCode = 1;
+      break;
+    }
     await pause(retryDelayMs(controlFailures));
   }
 }

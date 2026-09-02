@@ -186,3 +186,15 @@ Production analytics already instrument the funnel: `claim_journey_viewed`,
 `claim_failed` with a bounded `outcome`. Before this change none of these had
 ever fired in production, because no user had reached a claim page. They are the
 fastest signal that a path works end to end.
+
+`profileClaims:verifyVrchatProofViaAdapter` returns `queued` only when an
+eligible collector has polled for proof work within the last two minutes. It
+returns `unavailable` when that heartbeat is missing or stale, while preserving
+the pending attempt for recovery. If a VRChat proof remains pending,
+first compare the ECS service's desired and running task counts, then inspect
+the collector CloudWatch log group for `collector_loop_failure`. The event
+contains only the failed loop phase, bounded failure class or control-plane
+status, and consecutive retry count. After six consecutive loop failures the
+worker exits nonzero so its supervisor can replace a live-but-broken process.
+The diagnostics deliberately exclude exception
+messages, proof codes, target text, provider payloads, and credentials.

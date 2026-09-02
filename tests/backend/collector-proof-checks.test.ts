@@ -104,6 +104,44 @@ async function webSessionIdentity(ctx: never, userId: string) {
 }
 
 describe("collector proof check queue", () => {
+  it("reports proof readiness only after a fresh eligible worker poll", async () => {
+    const t = convexTest({ schema, modules });
+    const now = Date.now();
+    const collectorAccountId = await t.run(async (ctx) =>
+      await seedCollector(ctx as never, "heartbeat", now),
+    );
+
+    assert.equal(await t.query(internal.communityTelemetry.collectorProofAvailable, { now }), false);
+
+    const empty = await t.mutation(internal.communityTelemetry.claimPendingProofChecks, {
+      collectorAccountId,
+      workerId: "worker-heartbeat",
+      now,
+    });
+    assert.deepEqual(empty.attempts, []);
+    assert.equal(await t.query(internal.communityTelemetry.collectorProofAvailable, { now }), true);
+
+    assert.equal(
+      await t.query(internal.communityTelemetry.collectorProofAvailable, {
+        now: now + 2 * 60_000 + 1,
+      }),
+      false,
+    );
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(collectorAccountId, {
+        lastProofPollAt: now + 2 * 60_000 + 1,
+        cooldownUntil: now + 3 * 60_000,
+      });
+    });
+    assert.equal(
+      await t.query(internal.communityTelemetry.collectorProofAvailable, {
+        now: now + 2 * 60_000 + 1,
+      }),
+      false,
+    );
+  });
+
   it("does not let never-stamped vrclinking attempts starve the queue", async () => {
     const t = convexTest({ schema, modules });
     const now = Date.now();

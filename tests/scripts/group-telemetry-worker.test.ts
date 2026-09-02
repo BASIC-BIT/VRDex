@@ -7,7 +7,7 @@ import {
   redactProviderText,
   retryDelayMs as backendRetryDelay,
 } from "../../convex/_communityTelemetry";
-import { RequestBudget, failureDisposition, randomPollDelayMs } from "../../workers/group-telemetry/runtime.mjs";
+import { MAX_CONSECUTIVE_LOOP_FAILURES, RequestBudget, collectorLoopFailureEvent, collectorRestartEvent, collectorShouldRestart, failureDisposition, randomPollDelayMs } from "../../workers/group-telemetry/runtime.mjs";
 import { VrchatClient, VrchatProviderError } from "../../workers/group-telemetry/vrchat-client.mjs";
 import { VrchatOperatorLogin, VrchatSessionValidationError } from "../../workers/group-telemetry/vrchat-login.mjs";
 import { VrchatKeychainSessionStore, VrchatSessionStoreError } from "../../workers/group-telemetry/vrchat-session-store.mjs";
@@ -398,6 +398,54 @@ describe("group telemetry provider adapter", () => {
 });
 
 describe("group telemetry metrics and safety helpers", () => {
+  it("reports collector loop failures without logging exception details", () => {
+    const controlPlane = collectorLoopFailureEvent(
+      new Error("Control plane 503: proof-code-and-token-must-not-escape"),
+      "proof_checks",
+      2,
+    );
+    assert.deepEqual(controlPlane, {
+      event: "collector_loop_failure",
+      phase: "proof_checks",
+      attempt: 2,
+      failureClass: "control_plane_http",
+      status: "503",
+    });
+    assert.equal(JSON.stringify(controlPlane).includes("proof-code-and-token-must-not-escape"), false);
+
+    assert.deepEqual(
+      collectorLoopFailureEvent(new TypeError("private provider payload"), "assignment_claim", 1),
+      {
+        event: "collector_loop_failure",
+        phase: "assignment_claim",
+        attempt: 1,
+        failureClass: "transport",
+      },
+    );
+
+    const provider = collectorLoopFailureEvent(
+      new VrchatProviderError("provider secret", { status: 500, category: "transient" }),
+      "proof_provider",
+      1,
+    );
+    assert.deepEqual(provider, {
+      event: "collector_loop_failure",
+      phase: "proof_provider",
+      attempt: 1,
+      failureClass: "provider",
+      category: "transient",
+      status: "500",
+    });
+    assert.equal(JSON.stringify(provider).includes("provider secret"), false);
+    assert.deepEqual(collectorRestartEvent(MAX_CONSECUTIVE_LOOP_FAILURES), {
+      event: "collector_restart_requested",
+      reason: "consecutive_loop_failures",
+      attempt: 6,
+    });
+    assert.equal(collectorShouldRestart(MAX_CONSECUTIVE_LOOP_FAILURES - 1), false);
+    assert.equal(collectorShouldRestart(MAX_CONSECUTIVE_LOOP_FAILURES), true);
+  });
+
   it("keeps active and quiet cadence jitter within their documented windows", () => {
     assert.equal(randomPollDelayMs(true, () => 0), 60_000);
     assert.equal(backendPollDelay(true, () => 0), 60_000);

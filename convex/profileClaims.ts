@@ -1577,10 +1577,16 @@ export const verifyVrchatProofViaAdapter = action({
     const adapterUrl = proofAdapterUrl(attemptContext.attempt.targetType);
 
     // No adapter for a VRChat target means the collector fleet reads it on its
-    // own schedule. The attempt stays pending and the collector resolves it, so
-    // report that rather than failing the user's manual check.
+    // own schedule. Do not promise that queue is operational merely because an
+    // attempt exists: a registered collector can be stopped or livelocked.
+    // The attempt stays pending in either case so a recovered worker can still
+    // resolve it.
     if (adapterUrl === null) {
-      return { state: "queued" as const };
+      const collectorAvailable = await ctx.runQuery(
+        internal.communityTelemetry.collectorProofAvailable,
+        { now: Date.now() },
+      );
+      return { state: collectorAvailable ? "queued" as const : "unavailable" as const };
     }
 
     // Every adapter-backed check spends somebody's provider quota, and a
