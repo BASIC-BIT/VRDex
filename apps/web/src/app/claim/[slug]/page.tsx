@@ -48,6 +48,7 @@ export default async function ClaimProfilePage({
                 ? rawAnalyticsJourneyId
                 : crypto.randomUUID()
             }
+            reservedAnalyticsJourneyId={crypto.randomUUID()}
             profile={{
               avatarAppearance:
                 "avatarAppearance" in result.profile && result.profile.avatarAppearance

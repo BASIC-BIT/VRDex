@@ -9,20 +9,19 @@ export function claimJourneyForAction({
   pendingJourneyId,
   previousJourneyFinished,
   currentJourneySubmitted,
-  generate,
+  reservedJourneyId,
 }: {
   currentJourneyId: string;
   pendingJourneyId?: string;
   previousJourneyFinished: boolean;
   currentJourneySubmitted: boolean;
-  generate: () => string;
+  reservedJourneyId: string;
 }): string {
-  if (validClaimJourneyId(pendingJourneyId)) return pendingJourneyId;
+  if (!previousJourneyFinished && validClaimJourneyId(pendingJourneyId)) return pendingJourneyId;
   if (!previousJourneyFinished && !currentJourneySubmitted) return currentJourneyId;
 
-  const generated = generate();
-  if (!validClaimJourneyId(generated)) {
-    throw new Error("Claim journey ID generators must return an opaque UUID.");
+  if (!validClaimJourneyId(reservedJourneyId)) {
+    throw new Error("Reserved claim journey IDs must be opaque UUIDs.");
   }
-  return generated;
+  return reservedJourneyId;
 }

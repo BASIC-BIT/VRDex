@@ -1,5 +1,6 @@
 "use client";
 
+import { useAuth } from "@clerk/nextjs";
 import { useAction, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { usePostHog } from "posthog-js/react";
@@ -97,6 +98,7 @@ const CONTROL_LEVEL_LABELS: Record<string, string> = {
 
 type ClaimFlowProps = {
   initialAnalyticsJourneyId: string;
+  reservedAnalyticsJourneyId: string;
   discordVerify?: DiscordVerifyStatus;
   previewContext?: {
     viewerContextKey?: string | null;
@@ -119,11 +121,47 @@ type ClaimFlowProps = {
 };
 
 export function ClaimFlow(props: ClaimFlowProps) {
-  return <ClaimFlowContent {...props} />;
+  const { isLoaded, sessionId } = useAuth();
+  const analyticsSessionScope = sessionId ?? "signed-out";
+  const [scopedJourneys, setScopedJourneys] = useState<{
+    current: string;
+    reserved: string;
+    sessionScope: string;
+  } | null>(null);
+
+  if (!isLoaded) return null;
+
+  if (scopedJourneys === null) {
+    setScopedJourneys({
+      current: props.initialAnalyticsJourneyId,
+      reserved: props.reservedAnalyticsJourneyId,
+      sessionScope: analyticsSessionScope,
+    });
+    return null;
+  }
+
+  if (scopedJourneys.sessionScope !== analyticsSessionScope) {
+    setScopedJourneys({
+      current: crypto.randomUUID(),
+      reserved: crypto.randomUUID(),
+      sessionScope: analyticsSessionScope,
+    });
+    return null;
+  }
+
+  return (
+    <ClaimFlowContent
+      key={analyticsSessionScope}
+      {...props}
+      initialAnalyticsJourneyId={scopedJourneys.current}
+      reservedAnalyticsJourneyId={scopedJourneys.reserved}
+    />
+  );
 }
 
 export function ClaimFlowContent({
   initialAnalyticsJourneyId,
+  reservedAnalyticsJourneyId: initialReservedAnalyticsJourneyId,
   discordVerify = null,
   previewContext,
   profile,
@@ -148,10 +186,15 @@ export function ClaimFlowContent({
   const verifyVrchat = useAction(api.profileClaims.verifyVrchatProofViaAdapter);
   const posthog = usePostHog();
   const [analyticsJourneyId, setAnalyticsJourneyId] = useState(initialAnalyticsJourneyId);
+  const [reservedAnalyticsJourneyId, setReservedAnalyticsJourneyId] = useState(
+    initialReservedAnalyticsJourneyId,
+  );
   const viewedJourneyRef = useRef<string | null>(null);
   const selectedMethodKeysRef = useRef(new Set<string>());
-  const submittedJourneyIdsRef = useRef(new Set<string>());
-  const analyticsJourneyFinishedRef = useRef(false);
+  const [submittedAnalyticsJourneyId, setSubmittedAnalyticsJourneyId] = useState<string | null>(
+    null,
+  );
+  const [analyticsJourneyFinished, setAnalyticsJourneyFinished] = useState(false);
   const [selectedMethod, setMethod] = useState<ClaimMethod | null>(
     previewContext
       ? profile.profileType === "community"
@@ -238,24 +281,33 @@ export function ClaimFlowContent({
     context?.pendingProof?.analyticsJourneyId ??
     context?.pendingClaimRequest?.analyticsJourneyId;
   const currentAnalyticsJourneyId = pendingAnalyticsJourneyId ?? analyticsJourneyId;
+  const nextActionAnalyticsJourneyId = claimJourneyForAction({
+    currentJourneyId: analyticsJourneyId,
+    pendingJourneyId: pendingAnalyticsJourneyId,
+    previousJourneyFinished: analyticsJourneyFinished,
+    currentJourneySubmitted: submittedAnalyticsJourneyId === analyticsJourneyId,
+    reservedJourneyId: reservedAnalyticsJourneyId,
+  });
 
-  const finishAnalyticsJourney = useCallback(() => {
+  const clearAnalyticsJourneySelections = useCallback(() => {
     selectedMethodKeysRef.current.clear();
-    analyticsJourneyFinishedRef.current = true;
   }, []);
 
+  const finishAnalyticsJourney = useCallback(() => {
+    clearAnalyticsJourneySelections();
+    setAnalyticsJourneyFinished(true);
+  }, [clearAnalyticsJourneySelections]);
+
   const beginAnalyticsJourney = useCallback(() => {
-    const nextJourneyId = claimJourneyForAction({
-      currentJourneyId: analyticsJourneyId,
-      pendingJourneyId: pendingAnalyticsJourneyId,
-      previousJourneyFinished: analyticsJourneyFinishedRef.current,
-      currentJourneySubmitted: submittedJourneyIdsRef.current.has(analyticsJourneyId),
-      generate: () => crypto.randomUUID(),
-    });
+    const nextJourneyId = nextActionAnalyticsJourneyId;
     if (nextJourneyId !== analyticsJourneyId) setAnalyticsJourneyId(nextJourneyId);
-    analyticsJourneyFinishedRef.current = false;
+    if (nextJourneyId === reservedAnalyticsJourneyId) {
+      setReservedAnalyticsJourneyId(crypto.randomUUID());
+    }
+    setSubmittedAnalyticsJourneyId(null);
+    setAnalyticsJourneyFinished(false);
     return nextJourneyId;
-  }, [analyticsJourneyId, pendingAnalyticsJourneyId]);
+  }, [analyticsJourneyId, nextActionAnalyticsJourneyId, reservedAnalyticsJourneyId]);
 
   const captureJourneyView = useCallback(
     (journeyId: string) => {
@@ -294,7 +346,7 @@ export function ClaimFlowContent({
     return `${destination.pathname}${destination.search}`;
   }
 
-  const discordAnalyticsHref = discordVerificationHref(currentAnalyticsJourneyId);
+  const discordAnalyticsHref = discordVerificationHref(nextActionAnalyticsJourneyId);
 
   function prepareDiscordVerification(event: MouseEvent<HTMLAnchorElement>) {
     const journeyId = beginAnalyticsJourney();
@@ -308,10 +360,11 @@ export function ClaimFlowContent({
       context === undefined ||
       !canUseClaimJourney ||
       isVerifiedViewer ||
-      analyticsJourneyFinishedRef.current
+      analyticsJourneyFinished ||
+      activeCollectorCompletion !== null
     ) return;
     captureJourneyView(currentAnalyticsJourneyId);
-  }, [canUseClaimJourney, captureJourneyView, context, currentAnalyticsJourneyId, isVerifiedViewer]);
+  }, [activeCollectorCompletion, analyticsJourneyFinished, canUseClaimJourney, captureJourneyView, context, currentAnalyticsJourneyId, isVerifiedViewer]);
 
   useEffect(() => {
     if (status.kind === "error") statusRef.current?.focus();
@@ -358,6 +411,7 @@ export function ClaimFlowContent({
           observedContext?.lastVerifiedProof?.targetType === "vrclinking" ? "vrclinking" : "vrchat",
         journeyId: observedContext?.lastVerifiedProof?.analyticsJourneyId,
       });
+      setAnalyticsJourneyFinished(true);
     }
   }
 
@@ -369,7 +423,7 @@ export function ClaimFlowContent({
     if (activeCollectorCompletion.connectionOnly) {
       // A connection-only proof changed no ownership, so counting it as a
       // completed claim would inflate the funnel with connection additions.
-      finishAnalyticsJourney();
+      clearAnalyticsJourneySelections();
       return;
     }
 
@@ -380,8 +434,8 @@ export function ClaimFlowContent({
       outcome: activeCollectorCompletion.verified ? "claimed_verified" : "claimed_unverified",
       profile_type: profile.profileType,
     });
-    finishAnalyticsJourney();
-  }, [activeCollectorCompletion, currentAnalyticsJourneyId, finishAnalyticsJourney, posthog, profile.profileType]);
+    clearAnalyticsJourneySelections();
+  }, [activeCollectorCompletion, clearAnalyticsJourneySelections, currentAnalyticsJourneyId, posthog, profile.profileType]);
 
   function selectMethod(nextMethod: ClaimMethod) {
     const journeyId = beginAnalyticsJourney();
@@ -403,7 +457,7 @@ export function ClaimFlowContent({
     captureMethodSelection(journeyId, method);
     const captureSubmission = () => {
       if (isVerifiedViewer) return;
-      submittedJourneyIdsRef.current.add(journeyId);
+      setSubmittedAnalyticsJourneyId(journeyId);
       captureProductEvent(posthog, "claim_submitted", {
         journey_id: journeyId,
         method,

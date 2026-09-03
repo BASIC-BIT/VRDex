@@ -21,28 +21,51 @@ describe("claim analytics journey correlation", () => {
       currentJourneyId: first,
       previousJourneyFinished: false,
       currentJourneySubmitted: true,
-      generate: () => second,
+      reservedJourneyId: second,
     }), second);
     assert.equal(claimJourneyForAction({
       currentJourneyId: second,
       pendingJourneyId: first,
       previousJourneyFinished: false,
       currentJourneySubmitted: false,
-      generate: () => { throw new Error("pending journey should win"); },
+      reservedJourneyId: "f822ec99-127f-458f-bff6-1f68f97a39ef",
     }), first);
+  });
+
+  it("offers a reserved journey in links after the active journey finishes", () => {
+    const finished = "4d36e96e-34d9-4f7e-9fe1-72a98aa13077";
+    const reserved = "3d3ed4dc-49b8-4bf1-8b4c-4606090e0c28";
+
+    assert.equal(claimJourneyForAction({
+      currentJourneyId: finished,
+      pendingJourneyId: finished,
+      previousJourneyFinished: true,
+      currentJourneySubmitted: true,
+      reservedJourneyId: reserved,
+    }), reserved);
   });
 
   it("uses one in-memory journey without storage or adoption mutations", async () => {
     const source = await readFile("apps/web/src/app/claim/[slug]/claim-flow.tsx", "utf8");
     assert.match(source, /useState\(initialAnalyticsJourneyId\)/);
-    assert.match(source, /generate: \(\) => crypto\.randomUUID\(\)/);
+    assert.match(source, /reservedJourneyId: reservedAnalyticsJourneyId/);
     assert.match(source, /journeyId = started\.analyticsJourneyId/);
     assert.match(source, /context\?\.pendingProof\?\.analyticsJourneyId/);
     assert.match(
       source,
       /checkProof\(started\.attemptId, "vrclinking", started\.analyticsJourneyId\)/,
     );
-    assert.doesNotMatch(source, /sessionStorage|adoptPending.*Analytics|useAuth/);
+    assert.doesNotMatch(source, /sessionStorage|adoptPending.*Analytics/);
+    assert.match(source, /const \{ isLoaded, sessionId \} = useAuth\(\)/);
+    assert.match(
+      source,
+      /scopedJourneys === null[\s\S]*current: props\.initialAnalyticsJourneyId/,
+    );
+    assert.match(source, /key=\{analyticsSessionScope\}/);
+    assert.match(
+      source,
+      /setCollectorCompletion\(\{[\s\S]*setAnalyticsJourneyFinished\(true\)/,
+    );
     assert.match(source, /claim_journey_viewed/);
     assert.match(source, /claim_method_selected/);
     assert.match(source, /claim_submitted/);
@@ -56,6 +79,7 @@ describe("claim analytics journey correlation", () => {
     assert.match(flow, /analyticsJourneyId/);
     assert.match(flow, /analyticsEntrySource/);
     assert.match(flow, /analyticsProfileType/);
+    assert.match(flow, /discordVerificationHref\(nextActionAnalyticsJourneyId\)/);
     assert.match(flow, /onClick=\{prepareDiscordVerification\}/);
     assert.doesNotMatch(flow, /onContextMenu=\{prepareDiscordVerification\}/);
     assert.doesNotMatch(flow, /onMouseDown=\{prepareDiscordVerification\}/);

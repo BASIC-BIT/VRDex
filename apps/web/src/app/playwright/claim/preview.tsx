@@ -19,6 +19,7 @@ export function ClaimFlowPreview({
     <ConvexProvider client={previewClient}>
       <ClaimFlowContent
         initialAnalyticsJourneyId="00000000-0000-4000-8000-000000000001"
+        reservedAnalyticsJourneyId="00000000-0000-4000-8000-000000000002"
         previewContext={{
           viewerContextKey: "preview",
           emailVerified: true,
