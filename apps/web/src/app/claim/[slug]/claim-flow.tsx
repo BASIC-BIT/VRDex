@@ -17,7 +17,7 @@ import { Notice } from "@/components/ui/notice";
 import type { AvatarAppearance } from "@/lib/avatar-appearance";
 import { captureProductEvent, type ClaimAnalyticsMethod } from "@/lib/posthog";
 import { claimErrorMessage, claimFailureOutcome } from "@/lib/claim-errors";
-import { claimJourneyForAction } from "@/lib/claim-analytics";
+import { claimJourneyForAction, validClaimJourneyId } from "@/lib/claim-analytics";
 import { cn } from "@/lib/cn";
 import {
   ownerProfileDestinationPath,
@@ -97,6 +97,7 @@ const CONTROL_LEVEL_LABELS: Record<string, string> = {
 };
 
 type ClaimFlowProps = {
+  discordJourneyRestored?: boolean;
   initialAnalyticsJourneyId: string;
   reservedAnalyticsJourneyId: string;
   discordVerify?: DiscordVerifyStatus;
@@ -160,6 +161,7 @@ export function ClaimFlow(props: ClaimFlowProps) {
 }
 
 export function ClaimFlowContent({
+  discordJourneyRestored = false,
   initialAnalyticsJourneyId,
   reservedAnalyticsJourneyId: initialReservedAnalyticsJourneyId,
   discordVerify = null,
@@ -195,6 +197,9 @@ export function ClaimFlowContent({
     null,
   );
   const [analyticsJourneyFinished, setAnalyticsJourneyFinished] = useState(false);
+  const [discordReturnJourneyActive, setDiscordReturnJourneyActive] = useState(
+    discordJourneyRestored || discordVerify !== null,
+  );
   const [selectedMethod, setMethod] = useState<ClaimMethod | null>(
     previewContext
       ? profile.profileType === "community"
@@ -280,6 +285,15 @@ export function ClaimFlowContent({
   const pendingAnalyticsJourneyId =
     context?.pendingProof?.analyticsJourneyId ??
     context?.pendingClaimRequest?.analyticsJourneyId;
+  if (
+    validClaimJourneyId(pendingAnalyticsJourneyId) &&
+    submittedAnalyticsJourneyId !== pendingAnalyticsJourneyId
+  ) {
+    // A backend pending row proves this journey was already submitted, even if
+    // it settles before this mount's check handler runs.
+    setAnalyticsJourneyId(pendingAnalyticsJourneyId);
+    setSubmittedAnalyticsJourneyId(pendingAnalyticsJourneyId);
+  }
   const currentAnalyticsJourneyId = pendingAnalyticsJourneyId ?? analyticsJourneyId;
   const nextActionAnalyticsJourneyId = claimJourneyForAction({
     currentJourneyId: analyticsJourneyId,
@@ -298,16 +312,24 @@ export function ClaimFlowContent({
     setAnalyticsJourneyFinished(true);
   }, [clearAnalyticsJourneySelections]);
 
-  const beginAnalyticsJourney = useCallback(() => {
-    const nextJourneyId = nextActionAnalyticsJourneyId;
-    if (nextJourneyId !== analyticsJourneyId) setAnalyticsJourneyId(nextJourneyId);
-    if (nextJourneyId === reservedAnalyticsJourneyId) {
+  const beginAnalyticsJourney = useCallback((nextMethod: ClaimMethod) => {
+    const journeyId = claimJourneyForAction({
+      currentJourneyId: analyticsJourneyId,
+      pendingJourneyId: pendingAnalyticsJourneyId,
+      previousJourneyFinished: analyticsJourneyFinished,
+      currentJourneySubmitted: submittedAnalyticsJourneyId === analyticsJourneyId,
+      reservedJourneyId: reservedAnalyticsJourneyId,
+      forceRotate: discordReturnJourneyActive && nextMethod !== "discord",
+    });
+    if (journeyId !== analyticsJourneyId) setAnalyticsJourneyId(journeyId);
+    if (journeyId === reservedAnalyticsJourneyId) {
       setReservedAnalyticsJourneyId(crypto.randomUUID());
+      setDiscordReturnJourneyActive(false);
     }
     setSubmittedAnalyticsJourneyId(null);
     setAnalyticsJourneyFinished(false);
-    return nextJourneyId;
-  }, [analyticsJourneyId, nextActionAnalyticsJourneyId, reservedAnalyticsJourneyId]);
+    return journeyId;
+  }, [analyticsJourneyFinished, analyticsJourneyId, discordReturnJourneyActive, pendingAnalyticsJourneyId, reservedAnalyticsJourneyId, submittedAnalyticsJourneyId]);
 
   const captureJourneyView = useCallback(
     (journeyId: string) => {
@@ -349,7 +371,7 @@ export function ClaimFlowContent({
   const discordAnalyticsHref = discordVerificationHref(nextActionAnalyticsJourneyId);
 
   function prepareDiscordVerification(event: MouseEvent<HTMLAnchorElement>) {
-    const journeyId = beginAnalyticsJourney();
+    const journeyId = beginAnalyticsJourney("discord");
     captureJourneyView(journeyId);
     captureMethodSelection(journeyId, method);
     event.currentTarget.href = discordVerificationHref(journeyId);
@@ -438,7 +460,7 @@ export function ClaimFlowContent({
   }, [activeCollectorCompletion, clearAnalyticsJourneySelections, currentAnalyticsJourneyId, posthog, profile.profileType]);
 
   function selectMethod(nextMethod: ClaimMethod) {
-    const journeyId = beginAnalyticsJourney();
+    const journeyId = beginAnalyticsJourney(nextMethod);
     captureJourneyView(journeyId);
     setMethod(nextMethod);
     setStatus({ kind: "idle" });
@@ -452,7 +474,7 @@ export function ClaimFlowContent({
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    let journeyId = beginAnalyticsJourney();
+    let journeyId = beginAnalyticsJourney(method);
     captureJourneyView(journeyId);
     captureMethodSelection(journeyId, method);
     const captureSubmission = () => {
@@ -599,10 +621,6 @@ export function ClaimFlowContent({
     const journeyId =
       knownJourneyId ?? context?.pendingProof?.analyticsJourneyId ?? analyticsJourneyId;
     setAnalyticsJourneyId(journeyId);
-    // A proof restored after reload was submitted before this component
-    // mounted. Remember that fact so a background cancellation or terminal
-    // collector result cannot make the next attempt reuse its dedupe key.
-    setSubmittedAnalyticsJourneyId(journeyId);
 
     setStatus({
       kind: "working",

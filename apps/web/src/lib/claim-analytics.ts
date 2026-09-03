@@ -10,15 +10,17 @@ export function claimJourneyForAction({
   previousJourneyFinished,
   currentJourneySubmitted,
   reservedJourneyId,
+  forceRotate = false,
 }: {
   currentJourneyId: string;
   pendingJourneyId?: string;
   previousJourneyFinished: boolean;
   currentJourneySubmitted: boolean;
   reservedJourneyId: string;
+  forceRotate?: boolean;
 }): string {
   if (!previousJourneyFinished && validClaimJourneyId(pendingJourneyId)) return pendingJourneyId;
-  if (!previousJourneyFinished && !currentJourneySubmitted) return currentJourneyId;
+  if (!forceRotate && !previousJourneyFinished && !currentJourneySubmitted) return currentJourneyId;
 
   if (!validClaimJourneyId(reservedJourneyId)) {
     throw new Error("Reserved claim journey IDs must be opaque UUIDs.");

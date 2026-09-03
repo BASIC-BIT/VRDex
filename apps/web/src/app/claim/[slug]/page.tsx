@@ -15,6 +15,7 @@ export default async function ClaimProfilePage({
   searchParams: Promise<{
     source?: string | string[];
     discordVerify?: string | string[];
+    discordOAuthReturn?: string | string[];
     analyticsJourneyId?: string | string[];
   }>;
 }) {
@@ -29,6 +30,9 @@ export default async function ClaimProfilePage({
   const rawAnalyticsJourneyId = Array.isArray(resolvedSearchParams.analyticsJourneyId)
     ? resolvedSearchParams.analyticsJourneyId[0]
     : resolvedSearchParams.analyticsJourneyId;
+  const rawDiscordOAuthReturn = Array.isArray(resolvedSearchParams.discordOAuthReturn)
+    ? resolvedSearchParams.discordOAuthReturn[0]
+    : resolvedSearchParams.discordOAuthReturn;
 
   if (result.kind === "live" && result.profile === null) {
     notFound();
@@ -43,6 +47,9 @@ export default async function ClaimProfilePage({
 
         {result.kind === "live" && result.profile ? (
           <ClaimFlow
+            discordJourneyRestored={
+              rawDiscordOAuthReturn === "1" && validClaimJourneyId(rawAnalyticsJourneyId)
+            }
             initialAnalyticsJourneyId={
               validClaimJourneyId(rawAnalyticsJourneyId)
                 ? rawAnalyticsJourneyId

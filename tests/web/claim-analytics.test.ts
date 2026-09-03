@@ -45,6 +45,28 @@ describe("claim analytics journey correlation", () => {
     }), reserved);
   });
 
+  it("rotates a restored Discord journey before another method starts", () => {
+    const discord = "4d36e96e-34d9-4f7e-9fe1-72a98aa13077";
+    const vrchat = "3d3ed4dc-49b8-4bf1-8b4c-4606090e0c28";
+    const pending = "f822ec99-127f-458f-bff6-1f68f97a39ef";
+
+    assert.equal(claimJourneyForAction({
+      currentJourneyId: discord,
+      previousJourneyFinished: false,
+      currentJourneySubmitted: false,
+      reservedJourneyId: vrchat,
+      forceRotate: true,
+    }), vrchat);
+    assert.equal(claimJourneyForAction({
+      currentJourneyId: discord,
+      pendingJourneyId: pending,
+      previousJourneyFinished: false,
+      currentJourneySubmitted: false,
+      reservedJourneyId: vrchat,
+      forceRotate: true,
+    }), pending);
+  });
+
   it("uses one in-memory journey without storage or adoption mutations", async () => {
     const source = await readFile("apps/web/src/app/claim/[slug]/claim-flow.tsx", "utf8");
     assert.match(source, /useState\(initialAnalyticsJourneyId\)/);
@@ -86,16 +108,20 @@ describe("claim analytics journey correlation", () => {
     assert.match(callback, /withStatus\(returnTo, "verified", verifiedGuildCount, analyticsJourneyId\)/);
   });
 
-  it("remembers a reloaded pending proof as an already-submitted journey", async () => {
+  it("latches a reloaded pending proof before any check handler runs", async () => {
     const source = await readFile("apps/web/src/app/claim/[slug]/claim-flow.tsx", "utf8");
-    const checkProof = source.slice(
-      source.indexOf("async function checkProof("),
-      source.indexOf("async function checkDiscord("),
-    );
-
     assert.match(
-      checkProof,
-      /setAnalyticsJourneyId\(journeyId\);[\s\S]{0,300}setSubmittedAnalyticsJourneyId\(journeyId\);/,
+      source,
+      /validClaimJourneyId\(pendingAnalyticsJourneyId\)[\s\S]{0,400}setSubmittedAnalyticsJourneyId\(pendingAnalyticsJourneyId\)/,
     );
+  });
+
+  it("marks Discord callback journeys so another method rotates them", async () => {
+    const flow = await readFile("apps/web/src/app/claim/[slug]/claim-flow.tsx", "utf8");
+    const page = await readFile("apps/web/src/app/claim/[slug]/page.tsx", "utf8");
+
+    assert.match(flow, /discordJourneyRestored[\s\S]*discordReturnJourneyActive/);
+    assert.match(flow, /forceRotate:\s*discordReturnJourneyActive && nextMethod !== "discord"/);
+    assert.match(page, /discordOAuthReturn[\s\S]*discordJourneyRestored=/);
   });
 });
