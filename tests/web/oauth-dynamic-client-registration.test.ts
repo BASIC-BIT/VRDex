@@ -211,6 +211,46 @@ describe("OAuth dynamic client registration", () => {
     ]);
   });
 
+  it("accepts the media-contribution scope with read, write, or both transports", async () => {
+    for (const [index, scope] of [
+      "mcp:read assets:contribute",
+      "mcp:write assets:contribute",
+      "mcp:read mcp:write assets:contribute",
+    ].entries()) {
+      const harness = registrationHarness(`vrdx_app_6${index}23456789abcdef0123456`);
+      const response = await dynamicMcpClientRegistrationResponse(
+        registrationRequest({
+          client_name: "Profile Media Contributor",
+          redirect_uris: ["http://localhost:1455/callback"],
+          scope,
+        }),
+        harness.dependencies,
+      );
+
+      assert.equal(response.status, 201);
+      assert.deepEqual(harness.mutationInputs[0]?.allowedScopes, scope.split(" "));
+    }
+  });
+
+  it("rejects the media-contribution scope without a hosted transport scope", async () => {
+    const harness = registrationHarness("vrdx_app_6923456789abcdef01234567");
+    const response = await dynamicMcpClientRegistrationResponse(
+      registrationRequest({
+        client_name: "Broken Profile Media Contributor",
+        redirect_uris: ["http://localhost:1455/callback"],
+        scope: "assets:contribute",
+      }),
+      harness.dependencies,
+    );
+
+    assert.equal(response.status, 400);
+    assert.equal(harness.mutationInputs.length, 0);
+    assert.match(
+      (await response.json() as { error_description: string }).error_description,
+      /mcp:read.*mcp:write/,
+    );
+  });
+
   it("narrows issuer-wide known scopes to the MCP resource during DCR", async () => {
     const harness = registrationHarness("vrdx_app_3123456789abcdef01234567");
     const response = await dynamicMcpClientRegistrationResponse(
@@ -315,7 +355,7 @@ describe("OAuth dynamic client registration", () => {
     assert.equal(response.status, 400);
     assert.deepEqual(await response.json(), {
       error: "invalid_client_metadata",
-      error_description: "Dynamic MCP clients can only request public:read mcp:read profile:read mcp:write assets:write events:write profile:write profile:contribute.",
+      error_description: "Dynamic MCP clients can only request public:read mcp:read profile:read assets:contribute mcp:write assets:write events:write profile:write profile:contribute.",
     });
   });
 
@@ -341,7 +381,7 @@ describe("OAuth dynamic client registration", () => {
     assert.deepEqual(await response.json(), {
       error: "invalid_client_metadata",
       error_description:
-        "Dynamic MCP write clients must request mcp:write and at least one of assets:write, events:write, profile:write, profile:contribute.",
+        "Dynamic MCP write clients must request mcp:write and at least one of assets:write, assets:contribute, events:write, profile:write, profile:contribute.",
     });
   });
 

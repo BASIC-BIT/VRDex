@@ -32,7 +32,12 @@ export const dynamicMcpDefaultClientScopes = ["public:read", "mcp:read"] as cons
  * `/api/v0/me/profiles` asks for, so there is one rule rather than two, and its
  * consent line already says what it grants.
  */
-export const dynamicMcpClientScopes = [...dynamicMcpDefaultClientScopes, "profile:read"] as const;
+export const dynamicMcpDualUseResourceScopes = ["assets:contribute"] as const;
+export const dynamicMcpClientScopes = [
+  ...dynamicMcpDefaultClientScopes,
+  "profile:read",
+  ...dynamicMcpDualUseResourceScopes,
+] as const;
 /**
  * The resources a dynamic MCP client may write.
  *
@@ -43,6 +48,7 @@ export const dynamicMcpClientScopes = [...dynamicMcpDefaultClientScopes, "profil
  */
 export const dynamicMcpResourceWriteScopes = [
   "assets:write",
+  ...dynamicMcpDualUseResourceScopes,
   "events:write",
   "profile:write",
   "profile:contribute",
@@ -407,7 +413,7 @@ function optionalString(value: unknown, label: string) {
   return value;
 }
 
-const allowedDynamicMcpScopes = [...dynamicMcpClientScopes, ...dynamicMcpWriteScopes];
+const allowedDynamicMcpScopes = [...new Set([...dynamicMcpClientScopes, ...dynamicMcpWriteScopes])];
 
 function scopeValues(value: unknown) {
   if (value === undefined || value === null || value === "") {
@@ -463,8 +469,9 @@ export function normalizeDynamicMcpClientRegistration(
   }
 
   const allowedScopes = requestedMcpScopes;
-  const writeScopesRequested = allowedScopes.some((scope) =>
-    (dynamicMcpWriteScopes as readonly ApiScope[]).includes(scope)
+  const writeScopesRequested = allowedScopes.includes("mcp:write") || allowedScopes.some((scope) =>
+    (dynamicMcpResourceWriteScopes as readonly ApiScope[]).includes(scope)
+    && !(dynamicMcpDualUseResourceScopes as readonly ApiScope[]).includes(scope)
   );
   // `mcp:write` plus at least one resource. Either half alone is incoherent: the
   // transport scope with nothing to write reaches no tool, and a resource scope

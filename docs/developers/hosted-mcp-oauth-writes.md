@@ -2,13 +2,19 @@
 
 ## Status
 
-The hosted write tools ship on. There is no deployment switch in front of them:
-the tools are advertised, and the harness connecting decides which it exposes or
-calls. What bounds a write is the scope the user granted at consent plus the
-per-resource permission checks the browser path already enforces.
+The existing hosted write tools ship on. There is no deployment switch in front
+of them: the tools are advertised, and the harness connecting decides which it
+exposes or calls. What bounds a write is the scope the user granted at consent
+plus the per-resource permission checks the browser path already enforces.
 
-Five tools: `vrdex_event_create`, `vrdex_event_update`, `vrdex_profile_update`,
-`vrdex_profile_submit`, and `vrdex_profile_media_manage`. Anonymous hosted reads
+`vrdex_profile_media_submit` and `vrdex_list_my_media_submissions` are Issue 297
+candidates until same-branch preview and staging evidence is complete and
+BASIC explicitly approves the exact candidate for production. Because there is
+no MCP-only switch, merge or production promotion is the enablement decision.
+
+Six tools: `vrdex_event_create`, `vrdex_event_update`, `vrdex_profile_update`,
+`vrdex_profile_submit`, `vrdex_profile_media_manage`, and
+`vrdex_profile_media_submit`. Anonymous hosted reads
 and the credentialed local stdio bridge are unaffected. Profile media management
 is hosted-only in this slice.
 
@@ -24,6 +30,7 @@ resource it means to write:
 | `vrdex_profile_update` | `mcp:write` + `profile:write` |
 | `vrdex_profile_submit` | `mcp:write` + `profile:contribute` |
 | `vrdex_profile_media_manage` | `mcp:write` + `assets:write` |
+| `vrdex_profile_media_submit` | `mcp:write` + `assets:contribute` |
 
 `profile:write` is bounded by what its consent screen says: "Edit your profiles".
 Reaching a profile the user does not own, whether by correcting an unclaimed one
@@ -44,6 +51,52 @@ A client that only manages media for profiles its user owns asks for `mcp:read
 profile:read mcp:write assets:write`. The read pair supplies the owner inventory
 and its media revision; the write pair cannot edit profile fields, publish
 events, or contribute to unclaimed profiles.
+
+A contributor client asks for `mcp:read mcp:write assets:contribute`. This one
+resource scope supports both `vrdex_profile_media_submit` and the caller-only
+`vrdex_list_my_media_submissions` status read. Each tool still requires its own
+transport scope, so a read-only grant cannot submit and a write-only grant
+cannot enumerate prior submissions.
+
+Minimal Codex project configuration for that contribution workflow:
+
+```toml
+[mcp_servers.vrdex]
+url = "https://vrdex.net/mcp?auth=required"
+auth = "oauth"
+scopes = ["mcp:read", "mcp:write", "assets:contribute"]
+enabled_tools = [
+  "vrdex_search",
+  "vrdex_get_profile",
+  "vrdex_profile_media_submit",
+  "vrdex_list_my_media_submissions",
+]
+default_tools_approval_mode = "writes"
+```
+
+After adding the new scope or tools, run `codex mcp login vrdex` again so the
+OAuth grant includes `assets:contribute`.
+
+## Contribution rollout gate
+
+Before merge or production promotion, bind the candidate and base commits and
+deploy that exact tree to preview or staging. Use a staged client holding only
+`mcp:read mcp:write assets:contribute`, a synthetic public unclaimed person, and
+a non-sensitive synthetic image. Verify submission, status, same-key replay,
+conflicting reuse, stale/claimed/hidden refusal, cross-user isolation, audit
+redaction, and absence from public projections. A different staged reviewer
+must approve in the browser, producing exactly one public
+`community_submitted` asset. Then revoke the staged grant and verify refusal
+while anonymous reads remain available.
+
+Production approval must name the exact candidate/base pair, tool contracts,
+scope, staged results, rollback, first legitimate public target, image source
+and credit, and separate reviewer. Any relevant candidate or base change resets
+the staged proof. Per-client rollback revokes the OAuth grant or application.
+Global emergency rollback sets `VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED=false`
+in Vercel and Convex, which also pauses browser contributions. The first real
+write must be read back privately before review and publicly after the separate
+reviewer approves it.
 
 ## Profile write authority
 
@@ -105,11 +158,32 @@ client can provide a trusted out-of-band binary bridge; the current MCP does not
 turn a local path into a server-readable path and does not add a second import
 tool.
 
-Unclaimed-profile media keeps its separate contribution and review workflow.
-The owner tool cannot target it, cannot self-review it, and has no direct-publish
-bypass. A later contributor tool should be considered only after owner import is
-operationally proven, and should create a private proposal for browser-only
-super-admin review rather than reuse owner publication authority.
+`vrdex_profile_media_submit` imports one image from a public HTTPS URL for the
+profile image of an unclaimed, public person profile. It requires the exact
+`updatedAt` revision read from the public profile, an operator-chosen
+`idempotencyKey`, and a credit. The server imports and validates the bytes, then
+creates only a private media proposal. It never creates a public profile asset,
+placement, or approval. Claimed, community, stale, hidden, and unpublished
+targets are refused. Every submission call, including a same-key replay, checks
+the current primary-email verification state through Clerk. It does not trust
+the mirrored Convex verification timestamp. An authorized replay resolves its
+durable lifecycle without opening a second submission.
+
+An expired processing lease resumes the same intent and object keys. Storage
+writes use conditional create-and-verify semantics, and cleanup first records a
+lease-fenced terminal failure. A stale worker therefore cannot overwrite or
+delete a successor's finalized bytes.
+
+`vrdex_list_my_media_submissions` returns at most 40 proposals made by the
+authenticated user. It omits source URLs, storage identifiers, content hashes,
+processing leases, moderation notes, and other contributors' rows. An approved
+asset ID appears only while the public profile asset file route would serve that
+asset, including placement and profile-field visibility checks.
+
+Owner media management and community contribution remain separate authority
+paths. The owner tool cannot target an unclaimed profile. The contributor tool
+cannot target a claimed profile, review its own proposal, or publish media.
+Review and moderation remain browser-only.
 
 ## Authorization contract
 
@@ -174,8 +248,9 @@ The write kinds ask different authority questions, and the tools say so:
 - profile writes require the user to own the profile, or the profile to be
   unclaimed, in which case the write lands as a community correction with
   `community_submitted` link provenance. `slug` stays owner-only either way.
-- profile media writes require active ownership of a claimed profile. There is
-  no unclaimed-profile fallback.
+- owner profile media writes require active ownership of a claimed profile;
+- profile media contributions require an unclaimed public person profile and
+  create a private proposal attributed to the authenticated contributor.
 
 Create and update preserve the public API contract introduced with PR #190:
 

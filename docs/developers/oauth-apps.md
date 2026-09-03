@@ -72,6 +72,7 @@ Current public platform scopes include:
 - `events:write`
 - `assets:read`
 - `assets:write`
+- `assets:contribute` (hosted MCP contribution submission and caller-only status)
 - `developer:read`
 - `developer:write`
 - `mcp:read`

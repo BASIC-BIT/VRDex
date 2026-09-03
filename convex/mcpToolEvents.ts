@@ -35,10 +35,11 @@ export const recordInvocations = internalMutation({
 
 export const recordWriteInvocation = internalMutation({
   args: {
+    actorUserId: v.optional(v.id("users")),
     idempotencyKeyHash: v.optional(v.string()),
     oauthClientId: v.string(),
     oauthTokenId: v.string(),
-    ownerUserId: v.id("users"),
+    ownerUserId: v.optional(v.id("users")),
     requestId: v.string(),
     result: mcpToolEventResultValidator,
     targetEventId: v.optional(v.id("events")),
@@ -51,7 +52,8 @@ export const recordWriteInvocation = internalMutation({
       routeClass: "authenticated_mcp_write",
       eventType: "tool_invocation",
       result: args.result,
-      ownerUserId: args.ownerUserId,
+      ...(args.actorUserId === undefined ? {} : { actorUserId: args.actorUserId }),
+      ...(args.ownerUserId === undefined ? {} : { ownerUserId: args.ownerUserId }),
       oauthClientId: args.oauthClientId,
       oauthTokenId: args.oauthTokenId,
       requestId: args.requestId,
@@ -60,6 +62,32 @@ export const recordWriteInvocation = internalMutation({
         : { idempotencyKeyHash: args.idempotencyKeyHash }),
       ...(args.targetEventId === undefined ? {} : { targetEventId: args.targetEventId }),
       ...(args.targetProfileId === undefined ? {} : { targetProfileId: args.targetProfileId }),
+      createdAt: Date.now(),
+    });
+
+    return { recorded: 1 };
+  },
+});
+
+export const recordOwnedReadInvocation = internalMutation({
+  args: {
+    actorUserId: v.id("users"),
+    oauthClientId: v.string(),
+    oauthTokenId: v.string(),
+    requestId: v.string(),
+    result: mcpToolEventResultValidator,
+    toolName: v.literal("vrdex_list_my_media_submissions"),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.insert("mcpToolEvents", {
+      toolName: args.toolName,
+      routeClass: "authenticated_mcp",
+      eventType: "tool_invocation",
+      result: args.result,
+      actorUserId: args.actorUserId,
+      oauthClientId: args.oauthClientId,
+      oauthTokenId: args.oauthTokenId,
+      requestId: args.requestId,
       createdAt: Date.now(),
     });
 

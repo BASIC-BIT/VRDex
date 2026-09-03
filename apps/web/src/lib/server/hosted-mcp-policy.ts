@@ -23,8 +23,15 @@ export const hostedMcpWriteScopes = dynamicMcpWriteScopes;
  * metadata can ask for the owned-inventory tool instead of finding out after
  * registering that it cannot call it.
  */
-export const hostedMcpOwnedReadScopes = ["profile:read"] as const satisfies readonly ApiScope[];
+export const hostedMcpOwnedReadScopes = [
+  "profile:read",
+  "assets:contribute",
+] as const satisfies readonly ApiScope[];
 
 export function hostedMcpScopesAllowedForDynamicClient() {
-  return [...hostedMcpReadScopes, ...hostedMcpOwnedReadScopes, ...hostedMcpWriteScopes];
+  return [...new Set([
+    ...hostedMcpReadScopes,
+    ...hostedMcpOwnedReadScopes,
+    ...hostedMcpWriteScopes,
+  ])];
 }

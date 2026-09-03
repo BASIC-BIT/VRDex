@@ -108,6 +108,7 @@ const apiScopes = new Set<ApiScope>([
   "events:write",
   "assets:read",
   "assets:write",
+  "assets:contribute",
   "developer:read",
   "developer:write",
   "mcp:read",
@@ -123,11 +124,18 @@ const oauthResponseTypes = new Set<OAuthResponseType>(["code"]);
 // requestable because `vrdex_list_my_profiles` needs it; what a client gets for
 // naming no scopes stays public-read only, and that default lives in the
 // contracts package rather than in this predicate.
-const dynamicMcpReadScopes = new Set<ApiScope>(["public:read", "mcp:read", "profile:read"]);
+const dynamicMcpDualUseResourceScopes = new Set<ApiScope>(["assets:contribute"]);
+const dynamicMcpReadScopes = new Set<ApiScope>([
+  "public:read",
+  "mcp:read",
+  "profile:read",
+  ...dynamicMcpDualUseResourceScopes,
+]);
 // Mirrors `dynamicMcpResourceWriteScopes` / `dynamicMcpWriteScopes` in
 // @vrdex/api-contracts, which Convex functions cannot import. Keep both in step.
 const dynamicMcpResourceWriteScopes = new Set<ApiScope>([
   "assets:write",
+  ...dynamicMcpDualUseResourceScopes,
   "events:write",
   "profile:write",
   "profile:contribute",
@@ -489,7 +497,9 @@ export function normalizeDynamicMcpScopes(scopes: readonly string[] | undefined)
     );
   }
 
-  const writeScopesRequested = normalizedScopes.some((scope) => dynamicMcpWriteScopes.has(scope));
+  const writeScopesRequested = normalizedScopes.includes("mcp:write") || normalizedScopes.some(
+    (scope) => dynamicMcpResourceWriteScopes.has(scope) && !dynamicMcpDualUseResourceScopes.has(scope),
+  );
   // `mcp:write` plus at least one resource. Either half alone is incoherent: the
   // transport scope with nothing to write reaches no tool, and a resource scope
   // without it cannot open a hosted write session to use.

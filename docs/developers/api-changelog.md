@@ -9,13 +9,18 @@ docs update and a changelog entry so early consumers and agents can adapt.
 
 ## Unreleased
 
+- added hosted MCP media contribution for public unclaimed person profiles.
+  `vrdex_profile_media_submit` requires `mcp:write assets:contribute`, imports a
+  public HTTPS image into a private proposal, and cannot publish or review it.
+  `vrdex_list_my_media_submissions` requires `mcp:read assets:contribute` and
+  returns only the authenticated contributor's sanitized status history
 - added hosted-only owner profile media management through the existing
   `vrdex_list_my_profiles` inventory and one `vrdex_profile_media_manage` tool.
   URL imports require `mcp:write assets:write`, an idempotency key, and an
   opaque media revision; atomic metadata, placement/order, soft-delete, and
   restore updates require the revision but no idempotency key. Binary bytes and
-  private upload credentials never cross the MCP JSON boundary, and unclaimed
-  contribution/review remains browser-only
+  private upload credentials never cross the MCP JSON boundary. Contribution
+  submission is now available through hosted MCP; review remains browser-only
 - public event previews now carry `status` and up to three relevant `nextSlots`;
   cancelled events remain available by direct URL and calendar export but leave
   discovery, while in-progress events remain discoverable until their end time

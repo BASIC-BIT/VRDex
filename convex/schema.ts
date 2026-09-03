@@ -785,6 +785,7 @@ export default defineSchema({
     purpose: v.optional(profileAssetUploadIntentPurpose),
     targetSubmissionId: v.optional(v.id("profileMediaSubmissions")),
     mcpOwnerUserId: v.optional(v.id("users")),
+    mcpActorUserId: v.optional(v.id("users")),
     mcpOauthClientId: v.optional(v.string()),
     mcpOauthTokenId: v.optional(v.string()),
     mcpRequestId: v.optional(v.string()),
@@ -792,6 +793,7 @@ export default defineSchema({
     mcpRequestFingerprint: v.optional(v.string()),
     mcpExpectedMediaVersion: v.optional(v.string()),
     mcpAssetIds: v.optional(v.array(v.id("profileAssets"))),
+    mcpFailureCode: v.optional(v.string()),
     state: profileAssetUploadIntentState,
     processingToken: v.optional(v.string()),
     processingStartedAt: v.optional(v.number()),
@@ -808,6 +810,11 @@ export default defineSchema({
     .index("by_targetSubmissionId", ["targetSubmissionId"])
     .index("by_mcp_owner_client_key", [
       "mcpOwnerUserId",
+      "mcpOauthClientId",
+      "mcpIdempotencyKeyHash",
+    ])
+    .index("by_mcp_actor_client_key", [
+      "mcpActorUserId",
       "mcpOauthClientId",
       "mcpIdempotencyKeyHash",
     ])
@@ -1745,6 +1752,7 @@ export default defineSchema({
     mcpToolName: v.optional(mcpWriteToolNameValidator),
     oauthClientId: v.optional(v.string()),
     oauthTokenId: v.optional(v.string()),
+    actorUserId: v.optional(v.id("users")),
     ownerUserId: v.optional(v.id("users")),
     requestId: v.optional(v.string()),
     resourceType: apiWriteAuditResourceTypeValidator,
@@ -1753,11 +1761,13 @@ export default defineSchema({
     targetProfileId: v.optional(v.id("profiles")),
     targetEventId: v.optional(v.id("events")),
     targetIntentId: v.optional(v.id("profileAssetUploadIntents")),
+    targetSubmissionId: v.optional(v.id("profileMediaSubmissions")),
     assetIds: v.optional(v.array(v.id("profileAssets"))),
     createdAt: v.number(),
   })
     .index("by_routeClass_createdAt", ["routeClass", "createdAt"])
     .index("by_action_createdAt", ["action", "createdAt"])
+    .index("by_actorUserId_createdAt", ["actorUserId", "createdAt"])
     .index("by_ownerUserId_createdAt", ["ownerUserId", "createdAt"]),
   mcpEventWriteReceipts: defineTable({
     ownerUserId: v.id("users"),
@@ -1771,6 +1781,18 @@ export default defineSchema({
     "ownerUserId",
     "oauthClientId",
     "toolName",
+    "idempotencyKeyHash",
+  ]),
+  mcpProfileMediaSubmissionRefusalReceipts: defineTable({
+    actorUserId: v.id("users"),
+    oauthClientId: v.string(),
+    idempotencyKeyHash: v.string(),
+    requestFingerprint: v.string(),
+    errorCode: v.string(),
+    createdAt: v.number(),
+  }).index("by_actor_client_key", [
+    "actorUserId",
+    "oauthClientId",
     "idempotencyKeyHash",
   ]),
   oauthApplications: defineTable({
@@ -1900,6 +1922,7 @@ export default defineSchema({
     routeClass: mcpToolEventRouteClassValidator,
     eventType: mcpToolEventTypeValidator,
     result: mcpToolEventResultValidator,
+    actorUserId: v.optional(v.id("users")),
     ownerUserId: v.optional(v.id("users")),
     oauthClientId: v.optional(v.string()),
     oauthTokenId: v.optional(v.string()),
@@ -1912,6 +1935,7 @@ export default defineSchema({
     .index("by_toolName_createdAt", ["toolName", "createdAt"])
     .index("by_routeClass_createdAt", ["routeClass", "createdAt"])
     .index("by_routeClass_toolName_createdAt", ["routeClass", "toolName", "createdAt"])
+    .index("by_actorUserId_createdAt", ["actorUserId", "createdAt"])
     .index("by_ownerUserId_createdAt", ["ownerUserId", "createdAt"]),
   oauthAuthorizationCodes: defineTable({
     codeHash: v.string(),

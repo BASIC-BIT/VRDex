@@ -31,6 +31,8 @@ import {
   z,
 } from "@vrdex/api-contracts";
 import { createHash, randomUUID } from "node:crypto";
+import { isClerkAPIResponseError } from "@clerk/nextjs/errors";
+import { clerkClient } from "@clerk/nextjs/server";
 
 import {
   apiRateLimitPolicyForRouteClass,
@@ -55,6 +57,7 @@ import {
 import { publicSearchBackendFilters } from "@/lib/server/public-search-query";
 import {
   completeMcpProfileMediaImport,
+  completeMcpProfileMediaSubmissionImport,
   McpProfileMediaImportError,
 } from "@/lib/server/profile-media-mcp-import";
 import { hostedMcpReadScopes } from "@/lib/server/hosted-mcp-policy";
@@ -78,6 +81,8 @@ type VrdexMcpServerOptions = {
   adminConvex?: VrdexMcpAdminConvexClient;
   convex?: VrdexMcpConvexClient;
   completeProfileMediaImport?: typeof completeMcpProfileMediaImport;
+  completeProfileMediaSubmissionImport?: typeof completeMcpProfileMediaSubmissionImport;
+  verifyContributorEmail?: (actorUserId: Id<"users">) => Promise<boolean>;
   now?: () => number;
 };
 type PublicSearchResponse = z.infer<typeof PublicSearchResponseSchema>;
@@ -95,7 +100,10 @@ const mcpSearchTypes = ["all", "person", "community", "profile", "world", "event
 const mcpRequiredScopes = hostedMcpReadScopes;
 const mcpEventWriteToolNames = ["vrdex_event_create", "vrdex_event_update"] as const;
 const mcpProfileWriteToolNames = ["vrdex_profile_update", "vrdex_profile_submit"] as const;
-const mcpAssetWriteToolNames = ["vrdex_profile_media_manage"] as const;
+const mcpAssetWriteToolNames = [
+  "vrdex_profile_media_manage",
+  "vrdex_profile_media_submit",
+] as const;
 const mcpWriteToolNames = [
   ...mcpEventWriteToolNames,
   ...mcpProfileWriteToolNames,
@@ -116,6 +124,7 @@ const mcpWriteToolResourceScopes: Record<(typeof mcpWriteToolNames)[number], Api
   // the contribution grant rather than the edit-your-own-profiles one.
   vrdex_profile_submit: "profile:contribute",
   vrdex_profile_media_manage: "assets:write",
+  vrdex_profile_media_submit: "assets:contribute",
 };
 /**
  * Reads of the caller's own inventory, which no anonymous session can serve.
@@ -124,9 +133,13 @@ const mcpWriteToolResourceScopes: Record<(typeof mcpWriteToolNames)[number], Api
  * a draft or opted-out profile is invisible to `vrdex_get_profile` by design,
  * and its owner still has to be able to read the revision every update pins.
  */
-const mcpOwnedReadToolNames = ["vrdex_list_my_profiles"] as const;
+const mcpOwnedReadToolNames = [
+  "vrdex_list_my_profiles",
+  "vrdex_list_my_media_submissions",
+] as const;
 const mcpOwnedReadToolScopes: Record<(typeof mcpOwnedReadToolNames)[number], ApiScope> = {
   vrdex_list_my_profiles: "profile:read",
+  vrdex_list_my_media_submissions: "assets:contribute",
 };
 const mcpToolNames = [
   "search",
@@ -318,6 +331,49 @@ const mcpProfileMediaManageResultSchema = z.object({
   operation: z.enum(["add_from_url", "update"]),
   assetIds: z.array(z.string().min(1)).optional(),
   media: mcpOwnedProfileMediaSchema,
+});
+const mcpProfileMediaSubmissionStatusSchema = z.enum([
+  "upload_pending",
+  "submitted",
+  "under_review",
+  "approved",
+  "rejected",
+  "withdrawn",
+  "superseded",
+]);
+const mcpProfileMediaSubmissionSchema = z.object({
+  submissionId: z.string().min(1),
+  profileSlug: mcpSlugSchema,
+  profileDisplayName: z.string().min(1),
+  requestedPlacement: z.enum(["profile_image", "primary_logo"]),
+  status: mcpProfileMediaSubmissionStatusSchema,
+  publicDisposition: z.string().optional(),
+  approvedAssetId: z.string().min(1).optional(),
+  createdAt: z.number().int().nonnegative(),
+  updatedAt: z.number().int().nonnegative(),
+});
+const mcpProfileMediaSubmitInputSchema = z.object({
+  slug: mcpSlugSchema,
+  sourceUrl: z.string().url().max(2_048).refine(isSafeMcpProfileMediaSourceUrl, {
+    message: "Source URL must be public HTTPS without credentials, a custom port, query parameters, or a fragment.",
+  }),
+  credit: z.string().trim().min(1).max(120),
+  creditUrl: mcpProfileMediaCreditUrlSchema.optional(),
+  label: z.string().max(80).optional(),
+  altText: z.string().max(180).optional(),
+  contributorNote: z.string().max(500).optional(),
+  expectedUpdatedAt: z.number().int().nonnegative(),
+  idempotencyKey: mcpIdempotencyKeySchema,
+}).strict();
+const mcpProfileMediaSubmitResultSchema = z.object({
+  operation: z.literal("submit"),
+  replayed: z.boolean(),
+  submission: mcpProfileMediaSubmissionSchema.extend({
+    requestedPlacement: z.literal("profile_image"),
+  }),
+});
+const mcpMyMediaSubmissionsResultSchema = z.object({
+  submissions: z.array(mcpProfileMediaSubmissionSchema).max(40),
 });
 const mcpEventUpdateInputSchema = z.object({
   idempotencyKey: mcpIdempotencyKeySchema,
@@ -724,7 +780,10 @@ export function acceptedMcpRouteClassForRequest(request: Request): AcceptedMcpRo
 
 export async function recordAcceptedMcpToolInvocations(request: Request) {
   const toolNames = (await mcpToolCallNamesFromRequest(request))
-    .filter((toolName) => !mcpWriteToolNameSet.has(toolName));
+    .filter((toolName) =>
+      !mcpWriteToolNameSet.has(toolName)
+      && toolName !== "vrdex_list_my_media_submissions"
+    );
 
   if (toolNames.length === 0) {
     return { recorded: 0 };
@@ -805,6 +864,7 @@ async function boundedMcpToolCallNamesFromRequest(request: Request) {
 }
 
 async function recordHostedMcpWriteInvocation(args: {
+  actorKind?: "contributor" | "owner";
   idempotencyKeyHash?: string;
   principal: HostedMcpPrincipal;
   result: "accepted" | "denied" | "indeterminate" | "readback_warning";
@@ -819,7 +879,9 @@ async function recordHostedMcpWriteInvocation(args: {
         : { idempotencyKeyHash: args.idempotencyKeyHash }),
       oauthClientId: args.principal.clientId,
       oauthTokenId: args.principal.tokenId,
-      ownerUserId: args.principal.userId,
+      ...(args.actorKind === "contributor"
+        ? { actorUserId: args.principal.userId }
+        : { ownerUserId: args.principal.userId }),
       requestId: args.principal.requestId,
       result: args.result,
       toolName: args.toolName,
@@ -880,6 +942,108 @@ function canonicalJson(value: unknown): string {
 
 function sha256(value: string) {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function mcpMediaSubmissionRefusalText(code: string | null | undefined) {
+  if (code === "MEDIA_TARGET_UNAVAILABLE" || code === "MCP_MEDIA_TARGET_UNAVAILABLE") {
+    return "The target profile is unavailable for media contribution.";
+  }
+  if (code === "MEDIA_TARGET_CLAIMED" || code === "MCP_MEDIA_TARGET_CLAIMED") {
+    return "The public profile is claimed, so its owner manages profile media.";
+  }
+  if (code === "MEDIA_PLACEMENT_INVALID" || code === "MCP_MEDIA_TARGET_TYPE") {
+    return "The public profile is not a person. This contribution tool accepts person profile images only.";
+  }
+  if (code === "MCP_MEDIA_PROFILE_CHANGED") {
+    return "The profile changed after it was read. Read it again and submit with its current updatedAt and a new idempotency key.";
+  }
+  if (code === "MCP_MEDIA_EMAIL_UNVERIFIED") {
+    return "A verified-email VRDex account is required for media contributions.";
+  }
+  if (code === "MCP_MEDIA_IDEMPOTENCY_CONFLICT") {
+    return "That idempotency key was already used for a different media submission request.";
+  }
+  if (code === "MCP_MEDIA_OPEN_USER_LIMIT") {
+    return "Your open media submission limit is full. Wait for review or expiry before submitting another image.";
+  }
+  if (code === "MCP_MEDIA_OPEN_PROFILE_LIMIT") {
+    return "That profile's open media submission limit is full. Wait for review or expiry before submitting another image.";
+  }
+  if (code === "MCP_MEDIA_USER_DAILY_LIMIT") {
+    return "Your daily media submission limit has been reached.";
+  }
+  if (code === "MCP_MEDIA_PROFILE_DAILY_LIMIT") {
+    return "That profile's daily media submission limit has been reached.";
+  }
+  if (code === "MCP_MEDIA_COOLDOWN") {
+    return "Media submissions are temporarily rate limited. Wait before trying a new request.";
+  }
+  if (code === "MCP_MEDIA_IMPORT_DUPLICATE") {
+    return "That image was already submitted or published for this profile. Use a different image and a new idempotency key.";
+  }
+  if (code === "MCP_MEDIA_IMPORT_OVERSIZED") {
+    return "The source image exceeds the profile media size limit. Use a smaller image and a new idempotency key.";
+  }
+  if (code === "MCP_MEDIA_IMPORT_UNSAFE") {
+    return "The source image contains unsafe SVG content. Use a safe still image and a new idempotency key.";
+  }
+  if (code === "MCP_MEDIA_IMPORT_UNSUPPORTED") {
+    return "The source is not a supported valid still image. Use a PNG, JPEG, WebP, or safe SVG and a new idempotency key.";
+  }
+  if (code === "MCP_MEDIA_IMPORT_UNREACHABLE") {
+    return "VRDex could not retrieve the public HTTPS source image. Check the URL and use a new idempotency key.";
+  }
+  if (
+    code === "MCP_MEDIA_STORAGE_UNAVAILABLE" ||
+    code === "MCP_MEDIA_STORAGE_WRITE_FAILED"
+  ) {
+    return "Profile media storage is temporarily unavailable. Check status before retrying with a new idempotency key.";
+  }
+  return "VRDex rejected the profile media submission. Correct the target, source image, credit, or contribution limits before using a new idempotency key.";
+}
+
+async function recordHostedMcpMediaStatusInvocation(args: {
+  adminConvex: VrdexMcpAdminConvexClient;
+  principal: HostedMcpPrincipal;
+  result: "accepted" | "denied" | "indeterminate" | "readback_warning";
+}) {
+  try {
+    await args.adminConvex.mutation(internal.mcpToolEvents.recordOwnedReadInvocation, {
+      actorUserId: args.principal.userId,
+      oauthClientId: args.principal.clientId,
+      oauthTokenId: args.principal.tokenId,
+      requestId: args.principal.requestId,
+      result: args.result,
+      toolName: "vrdex_list_my_media_submissions",
+    });
+  } catch {
+    // Observability must not make an authenticated status read fail.
+  }
+}
+
+function normalizeMcpMediaSubmissionRequest(
+  input: Omit<z.infer<typeof mcpProfileMediaSubmitInputSchema>, "idempotencyKey">,
+) {
+  const inline = (value: string | undefined) => {
+    const normalized = value?.trim().replace(/\s+/gu, " ");
+    return normalized ? normalized : undefined;
+  };
+  const credit = inline(input.credit)!;
+  const creditUrl = inline(input.creditUrl);
+  const label = inline(input.label);
+  const altText = inline(input.altText);
+  const contributorNote = inline(input.contributorNote);
+
+  return {
+    slug: input.slug,
+    sourceUrl: new URL(input.sourceUrl).toString(),
+    credit,
+    ...(creditUrl === undefined ? {} : { creditUrl: new URL(creditUrl).href }),
+    ...(label === undefined ? {} : { label }),
+    ...(altText === undefined ? {} : { altText }),
+    ...(contributorNote === undefined ? {} : { contributorNote }),
+    expectedUpdatedAt: input.expectedUpdatedAt,
+  };
 }
 
 /**
@@ -1217,14 +1381,16 @@ async function authenticateMcpBearerToken(
     };
   }
 
-  if (routeClass === "authenticated_mcp_write" && (validation.subjectType !== "user" || validation.userId === undefined)) {
+  const requiresUserDelegation = routeClass === "authenticated_mcp_write"
+    || requiredScopes.some((scope) => scope === "profile:read" || scope === "assets:contribute");
+  if (requiresUserDelegation && (validation.subjectType !== "user" || validation.userId === undefined)) {
     return {
       ok: false as const,
       response: mcpAuthenticationErrorResponse(
         request,
         403,
         -32600,
-        "Hosted MCP writes require a user-delegated OAuth token.",
+        "This hosted MCP tool requires a user-delegated OAuth token.",
         {
           error: "insufficient_scope",
           // Neutral about what is being written. Naming community ownership
@@ -1588,6 +1754,25 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
   const adminConvex = () => options.adminConvex ?? convexAdminHttpClient();
   const completeProfileMediaImport =
     options.completeProfileMediaImport ?? completeMcpProfileMediaImport;
+  const completeProfileMediaSubmissionImport =
+    options.completeProfileMediaSubmissionImport ?? completeMcpProfileMediaSubmissionImport;
+  const verifyContributorEmail = options.verifyContributorEmail ?? (async (actorUserId) => {
+    const identity = await adminConvex().query(
+      internal.profileMediaSubmissions.getMcpContributorIdentity,
+      { actorUserId },
+    );
+    if (identity === null) return false;
+    const client = await clerkClient();
+    const user = await client.users.getUser(identity.clerkUserId).catch((error: unknown) => {
+      if (isClerkAPIResponseError(error) && error.status === 404) return null;
+      throw error;
+    });
+    if (user === null) return false;
+    const primaryEmail = user.emailAddresses.find(
+      (emailAddress) => emailAddress.id === user.primaryEmailAddressId,
+    );
+    return primaryEmail?.verification?.status === "verified";
+  });
   const now = options.now ?? Date.now;
   const readToolMeta = mcpReadToolMeta(anonymousPublicReads);
   const principalFor = (toolName: (typeof mcpWriteToolNames)[number]) =>
@@ -1935,6 +2120,57 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
         profiles: [profile],
         media,
       });
+    },
+  );
+
+  server.registerTool(
+    "vrdex_list_my_media_submissions",
+    {
+      title: "List My VRDex Media Submissions",
+      description: "List the signed-in VRDex user's recent profile-image submissions and review status.",
+      inputSchema: z.object({}).strict(),
+      outputSchema: mcpOutputSchema(mcpMyMediaSubmissionsResultSchema),
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+      _meta: {
+        securitySchemes: mcpOwnedReadSecuritySchemes("vrdex_list_my_media_submissions"),
+      },
+    },
+    async () => {
+      const principal = ownedReadPrincipalFor("vrdex_list_my_media_submissions");
+      if (principal === null) {
+        return mcpOwnedReadUnauthorized("vrdex_list_my_media_submissions");
+      }
+      try {
+        const result = await adminConvex().query(
+          internal.profileMediaSubmissions.listMcpMediaSubmissionsForActor,
+          { actorUserId: principal.userId },
+        );
+        const response = mcpJsonResult(mcpMyMediaSubmissionsResultSchema, result);
+        await recordHostedMcpMediaStatusInvocation({
+          adminConvex: adminConvex(),
+          principal,
+          result: "accepted",
+        });
+        return response;
+      } catch {
+        await recordHostedMcpMediaStatusInvocation({
+          adminConvex: adminConvex(),
+          principal,
+          result: "readback_warning",
+        });
+        return {
+          content: [{
+            type: "text" as const,
+            text: "VRDex media submission status is temporarily unavailable. Try again later.",
+          }],
+          isError: true as const,
+        };
+      }
     },
   );
 
@@ -2402,6 +2638,191 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
         principal,
         toolName: "vrdex_profile_submit",
         write,
+      });
+    },
+  );
+
+  server.registerTool(
+    "vrdex_profile_media_submit",
+    {
+      title: "Submit VRDex Profile Media",
+      description:
+        "Import one public HTTPS profile image as a private community proposal for a public unclaimed person. A different authorized reviewer must explicitly approve it before publication. This changes private review data and requires explicit approval.",
+      inputSchema: mcpProfileMediaSubmitInputSchema,
+      outputSchema: mcpOutputSchema(mcpProfileMediaSubmitResultSchema),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+      _meta: { securitySchemes: mcpWriteSecuritySchemes("vrdex_profile_media_submit") },
+    },
+    async ({ idempotencyKey, ...input }) => {
+      const principal = principalFor("vrdex_profile_media_submit");
+      if (principal === null) {
+        return mcpWriteUnauthorized("vrdex_profile_media_submit");
+      }
+      const idempotencyKeyHash = sha256(idempotencyKey);
+      const normalizedInput = normalizeMcpMediaSubmissionRequest(input);
+      const requestFingerprint = sha256(canonicalJson(normalizedInput));
+      let prepared;
+      try {
+        const prepareArgs = {
+          ...normalizedInput,
+          actorUserId: principal.userId,
+          oauthClientId: principal.clientId,
+          oauthTokenId: principal.tokenId,
+          requestId: principal.requestId,
+          idempotencyKeyHash,
+          requestFingerprint,
+        };
+        prepared = await adminConvex().mutation(
+          internal.profileMediaSubmissions.prepareMcpMediaSubmission,
+          prepareArgs,
+        );
+        if (prepared.status === "verification_required") {
+          const emailVerified = await verifyContributorEmail(principal.userId);
+          prepared = await adminConvex().mutation(
+            internal.profileMediaSubmissions.prepareMcpMediaSubmission,
+            {
+              ...prepareArgs,
+              emailVerificationAttestedAt: Date.now(),
+              emailVerified,
+            },
+          );
+        }
+      } catch (error) {
+        const code = mcpConvexErrorCode(error);
+        await recordHostedMcpWriteInvocation({
+          actorKind: "contributor",
+          idempotencyKeyHash,
+          principal,
+          result: code === null ? "indeterminate" : "denied",
+          toolName: "vrdex_profile_media_submit",
+        });
+        if (code === null) {
+          return {
+            content: [{
+              type: "text" as const,
+              text: "The profile media submission may have started. Do not retry automatically. Check your media submission status, then replay only the same idempotency key after operator review.",
+            }],
+            isError: true as const,
+          };
+        }
+        return {
+          content: [{
+            type: "text" as const,
+            text: mcpMediaSubmissionRefusalText(code),
+          }],
+          isError: true as const,
+        };
+      }
+
+      if (prepared.status === "completed") {
+        await recordHostedMcpWriteInvocation({
+          actorKind: "contributor",
+          idempotencyKeyHash,
+          principal,
+          result: "accepted",
+          toolName: "vrdex_profile_media_submit",
+        });
+        return mcpJsonResult(mcpProfileMediaSubmitResultSchema, {
+          operation: "submit",
+          replayed: true,
+          submission: prepared.submission,
+        });
+      }
+      if (prepared.status === "processing") {
+        await recordHostedMcpWriteInvocation({
+          actorKind: "contributor",
+          idempotencyKeyHash,
+          principal,
+          result: "indeterminate",
+          toolName: "vrdex_profile_media_submit",
+        });
+        return {
+          content: [{
+            type: "text" as const,
+            text: "This media submission is still processing. Check your media submission status and do not retry automatically.",
+          }],
+          isError: true as const,
+        };
+      }
+      if (prepared.status === "expired") {
+        await recordHostedMcpWriteInvocation({
+          actorKind: "contributor",
+          idempotencyKeyHash,
+          principal,
+          result: "denied",
+          toolName: "vrdex_profile_media_submit",
+        });
+        return {
+          content: [{
+            type: "text" as const,
+            text: "That media submission expired before completion. Read the profile again and use a new idempotency key.",
+          }],
+          isError: true as const,
+        };
+      }
+      if (prepared.status === "failed") {
+        await recordHostedMcpWriteInvocation({
+          actorKind: "contributor",
+          idempotencyKeyHash,
+          principal,
+          result: "denied",
+          toolName: "vrdex_profile_media_submit",
+        });
+        return {
+          content: [{
+            type: "text" as const,
+            text: mcpMediaSubmissionRefusalText(prepared.errorCode),
+          }],
+          isError: true as const,
+        };
+      }
+
+      let imported;
+      try {
+        imported = await completeProfileMediaSubmissionImport(
+          prepared.intentId as Id<"profileAssetUploadIntents">,
+        );
+      } catch (error) {
+        const indeterminate = error instanceof McpProfileMediaImportError
+          ? error.outcome === "indeterminate"
+          : mcpConvexErrorCode(error) === null;
+        const importCode = error instanceof McpProfileMediaImportError
+          ? error.code
+          : mcpConvexErrorCode(error);
+        await recordHostedMcpWriteInvocation({
+          actorKind: "contributor",
+          idempotencyKeyHash,
+          principal,
+          result: indeterminate ? "indeterminate" : "denied",
+          toolName: "vrdex_profile_media_submit",
+        });
+        return {
+          content: [{
+            type: "text" as const,
+            text: indeterminate
+              ? "The profile media submission outcome is uncertain. Do not retry automatically. Check your media submission status, then replay only the same idempotency key after operator review."
+              : mcpMediaSubmissionRefusalText(importCode),
+          }],
+          isError: true as const,
+        };
+      }
+
+      await recordHostedMcpWriteInvocation({
+        actorKind: "contributor",
+        idempotencyKeyHash,
+        principal,
+        result: "accepted",
+        toolName: "vrdex_profile_media_submit",
+      });
+      return mcpJsonResult(mcpProfileMediaSubmitResultSchema, {
+        operation: "submit",
+        replayed: imported.replayed,
+        submission: imported.submission,
       });
     },
   );
