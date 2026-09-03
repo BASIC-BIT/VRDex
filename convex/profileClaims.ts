@@ -41,7 +41,6 @@ import { createProfileSearchDocument, upsertSearchDocument } from "./_searchDocu
 import { normalizeVrchatTargetId } from "./_vrchatIdentity";
 import { getPublicProfileMediaKit } from "./_profileAssets";
 import { vrclinkingSecretRefForRow } from "./_vrclinkingSecretRef";
-import { recordProfileClaimLifecycleEvent } from "./_claimObservability";
 
 const DAY_MS = 86_400_000;
 // Minimum gap between adapter-backed checks of one attempt, whatever the
@@ -593,16 +592,6 @@ export const cancelClaimJourneyPending = mutation({
       evidenceSummary: "Canceled by claimant.",
       updatedAt: now,
     });
-    await recordProfileClaimLifecycleEvent(ctx, {
-      profileId: proof.profileId,
-      attemptId: proof._id,
-      method: proof.method,
-      targetType: proof.targetType,
-      event: "attempt_resolved",
-      actorSurface: "web",
-      outcome: resolutionReason,
-      createdAt: now,
-    });
     const analytics = analyticsContextFromAttempt(proof);
     if (analytics !== null) {
       await enqueueClaimAnalyticsEvent(ctx, analytics, {
@@ -616,88 +605,6 @@ export const cancelClaimJourneyPending = mutation({
       });
     }
     return { canceled: true };
-  },
-});
-
-/** Attach correlation to a pending proof created before claim analytics shipped. */
-export const adoptPendingProofAnalyticsJourney = mutation({
-  args: {
-    attemptId: v.id("profileVerificationAttempts"),
-    analyticsJourneyId: v.string(),
-    analyticsEntrySource: v.optional(claimAnalyticsEntrySource),
-  },
-  handler: async (ctx, args) => {
-    const { user } = await requireVerifiedActiveBrowserSession(ctx);
-    const attempt = await ctx.db.get(args.attemptId);
-    if (attempt === null || attempt.userId !== user._id || attempt.state !== "pending") {
-      throw claimError("PROOF_NOT_FOUND");
-    }
-    if (attempt.analyticsJourneyId !== undefined) {
-      return { analyticsJourneyId: attempt.analyticsJourneyId, adopted: false };
-    }
-
-    const profile = await ctx.db.get(attempt.profileId);
-    if (profile === null) throw claimError("PROFILE_NOT_FOUND");
-    const analytics = claimAnalyticsContext(
-      args.analyticsJourneyId,
-      args.analyticsEntrySource,
-    );
-    await ctx.db.patch(attempt._id, {
-      analyticsJourneyId: analytics.journeyId,
-      analyticsEntrySource: analytics.entrySource,
-    });
-    await enqueueClaimAnalyticsEvent(ctx, analytics, {
-      event: "claim_attempt_created",
-      profileType: profile.profileType,
-      method: claimAnalyticsMethodForAttempt(attempt),
-      occurredAt: attempt.createdAt,
-    });
-    if (attempt.firstCheckAt !== undefined) {
-      await enqueueClaimAnalyticsEvent(ctx, analytics, {
-        event: "claim_verification_started",
-        profileType: profile.profileType,
-        method: claimAnalyticsMethodForAttempt(attempt),
-        timeToFirstCheckBucket: timeToFirstCheckBucket(attempt.firstCheckAt - attempt.createdAt),
-        occurredAt: attempt.firstCheckAt,
-      });
-    }
-    return { analyticsJourneyId: analytics.journeyId, adopted: true };
-  },
-});
-
-/** Attach correlation to a pending Discord request created before claim analytics shipped. */
-export const adoptPendingClaimRequestAnalyticsJourney = mutation({
-  args: {
-    claimRequestId: v.id("profileClaimRequests"),
-    analyticsJourneyId: v.string(),
-    analyticsEntrySource: v.optional(claimAnalyticsEntrySource),
-  },
-  handler: async (ctx, args) => {
-    const { user } = await requireVerifiedActiveBrowserSession(ctx);
-    const request = await ctx.db.get(args.claimRequestId);
-    if (request === null || request.userId !== user._id || request.state !== "pending") {
-      throw claimError("PROOF_NOT_FOUND");
-    }
-    if (request.analyticsJourneyId !== undefined) {
-      return { analyticsJourneyId: request.analyticsJourneyId, adopted: false };
-    }
-
-    const analytics = claimAnalyticsContext(
-      args.analyticsJourneyId,
-      args.analyticsEntrySource,
-    );
-    await ctx.db.patch(request._id, {
-      analyticsJourneyId: analytics.journeyId,
-      analyticsEntrySource: analytics.entrySource,
-      updatedAt: Date.now(),
-    });
-    await enqueueClaimAnalyticsEvent(ctx, analytics, {
-      event: "claim_attempt_created",
-      profileType: request.profileType,
-      method: claimAnalyticsMethodForRequest(request.method),
-      occurredAt: request.createdAt,
-    });
-    return { analyticsJourneyId: analytics.journeyId, adopted: true };
   },
 });
 
@@ -1432,16 +1339,6 @@ export const startVrchatProof = mutation({
             resolutionReason: "expired",
             updatedAt: now,
           });
-          await recordProfileClaimLifecycleEvent(ctx, {
-            profileId: attempt.profileId,
-            attemptId: attempt._id,
-            method: attempt.method,
-            targetType: attempt.targetType,
-            event: "attempt_resolved",
-            actorSurface: "web",
-            outcome: "expired",
-            createdAt: now,
-          });
           await enqueueAttemptResolution(ctx, attempt, profile.profileType, "expired", now);
         }),
     );
@@ -1511,15 +1408,6 @@ export const startVrchatProof = mutation({
     if (attempt === null) {
       throw claimError("PROOF_NOT_FOUND");
     }
-    await recordProfileClaimLifecycleEvent(ctx, {
-      profileId: profile._id,
-      attemptId,
-      method: attempt.method,
-      targetType: attempt.targetType,
-      event: "attempt_created",
-      actorSurface: "web",
-      createdAt: now,
-    });
 
     await enqueueClaimAnalyticsEvent(ctx, requestedAnalytics, {
       event: "claim_attempt_created",
@@ -1658,16 +1546,6 @@ export const recordVrchatProofVerification = internalMutation({
         resolutionReason: "expired",
         updatedAt: now,
       });
-      await recordProfileClaimLifecycleEvent(ctx, {
-        profileId: attempt.profileId,
-        attemptId: attempt._id,
-        method: attempt.method,
-        targetType: attempt.targetType,
-        event: "attempt_resolved",
-        actorSurface: args.actorSurface ?? "adapter",
-        outcome: "expired",
-        createdAt: now,
-      });
       const profile = await ctx.db.get(attempt.profileId);
       if (profile !== null) {
         await enqueueAttemptResolution(ctx, attempt, profile.profileType, "expired", now);
@@ -1698,16 +1576,6 @@ export const recordVrchatProofVerification = internalMutation({
         evidenceSummary: "Another claimant took ownership before this proof resolved.",
         updatedAt: now,
       });
-      await recordProfileClaimLifecycleEvent(ctx, {
-        profileId: attempt.profileId,
-        attemptId: attempt._id,
-        method: attempt.method,
-        targetType: attempt.targetType,
-        event: "attempt_resolved",
-        actorSurface: args.actorSurface ?? "adapter",
-        outcome: "already_owned",
-        createdAt: now,
-      });
       await enqueueAttemptResolution(ctx, attempt, profile.profileType, "conflict", now);
 
       // Named, like the Discord claim path. Unnamed, the browser could not tell
@@ -1733,16 +1601,6 @@ export const recordVrchatProofVerification = internalMutation({
         evidenceSource: args.evidenceSource,
         evidenceSummary: "The listing stopped being claimable before this proof resolved.",
         updatedAt: now,
-      });
-      await recordProfileClaimLifecycleEvent(ctx, {
-        profileId: attempt.profileId,
-        attemptId: attempt._id,
-        method: attempt.method,
-        targetType: attempt.targetType,
-        event: "attempt_resolved",
-        actorSurface: args.actorSurface ?? "adapter",
-        outcome: "not_claimable",
-        createdAt: now,
       });
 
       await enqueueAttemptResolution(ctx, attempt, profile.profileType, "not_claimable", now);
@@ -1812,16 +1670,6 @@ export const recordVrchatProofVerification = internalMutation({
       evidenceSummary: args.evidenceSummary,
       verifiedAt: now,
       updatedAt: now,
-    });
-    await recordProfileClaimLifecycleEvent(ctx, {
-      profileId: attempt.profileId,
-      attemptId: attempt._id,
-      method: attempt.method,
-      targetType: attempt.targetType,
-      event: "attempt_resolved",
-      actorSurface: args.actorSurface ?? "adapter",
-      outcome: connectionOnly ? "connection_added" : "verified",
-      createdAt: now,
     });
     if (!connectionOnly) {
       await approveProfileClaimForUser(ctx.db, {
@@ -1920,16 +1768,6 @@ export const recordVrchatProofFailure = internalMutation({
       evidenceSummary: args.evidenceSummary,
       updatedAt: now,
     });
-    await recordProfileClaimLifecycleEvent(ctx, {
-      profileId: attempt.profileId,
-      attemptId: attempt._id,
-      method: attempt.method,
-      targetType: attempt.targetType,
-      event: "attempt_resolved",
-      actorSurface: args.actorSurface ?? "adapter",
-      outcome: resolutionReason,
-      createdAt: now,
-    });
 
     const profile = await ctx.db.get(attempt.profileId);
     if (profile !== null) {
@@ -1982,16 +1820,6 @@ export const recordAdapterProofCheckOutcome = internalMutation({
         });
       }
     }
-    await recordProfileClaimLifecycleEvent(ctx, {
-      profileId: attempt.profileId,
-      attemptId: attempt._id,
-      method: attempt.method,
-      targetType: attempt.targetType,
-      event: "provider_checked",
-      actorSurface: "adapter",
-      outcome: args.outcome,
-      createdAt: now,
-    });
     return { recorded: true };
   },
 });
@@ -2362,16 +2190,6 @@ export const expireStaleVerificationAttempts = internalMutation({
           resolvedAt: now,
           resolutionReason: "expired",
           updatedAt: now,
-        });
-        await recordProfileClaimLifecycleEvent(ctx, {
-          profileId: attempt.profileId,
-          attemptId: attempt._id,
-          method: attempt.method,
-          targetType: attempt.targetType,
-          event: "attempt_resolved",
-          actorSurface: "cron",
-          outcome: "expired",
-          createdAt: now,
         });
         const profile = await ctx.db.get(attempt.profileId);
         if (profile !== null) {

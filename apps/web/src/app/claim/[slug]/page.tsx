@@ -27,12 +27,12 @@ export default async function ClaimProfilePage({
   const rawDiscordVerify = Array.isArray(resolvedSearchParams.discordVerify)
     ? resolvedSearchParams.discordVerify[0]
     : resolvedSearchParams.discordVerify;
-  const rawDiscordOAuthReturn = Array.isArray(resolvedSearchParams.discordOAuthReturn)
-    ? resolvedSearchParams.discordOAuthReturn[0]
-    : resolvedSearchParams.discordOAuthReturn;
   const rawAnalyticsJourneyId = Array.isArray(resolvedSearchParams.analyticsJourneyId)
     ? resolvedSearchParams.analyticsJourneyId[0]
     : resolvedSearchParams.analyticsJourneyId;
+  const rawDiscordOAuthReturn = Array.isArray(resolvedSearchParams.discordOAuthReturn)
+    ? resolvedSearchParams.discordOAuthReturn[0]
+    : resolvedSearchParams.discordOAuthReturn;
 
   if (result.kind === "live" && result.profile === null) {
     notFound();
@@ -47,14 +47,15 @@ export default async function ClaimProfilePage({
 
         {result.kind === "live" && result.profile ? (
           <ClaimFlow
+            discordJourneyRestored={
+              rawDiscordOAuthReturn === "1" && validClaimJourneyId(rawAnalyticsJourneyId)
+            }
             initialAnalyticsJourneyId={
               validClaimJourneyId(rawAnalyticsJourneyId)
                 ? rawAnalyticsJourneyId
                 : crypto.randomUUID()
             }
-            discordJourneyRestored={
-              validClaimJourneyId(rawAnalyticsJourneyId) && rawDiscordOAuthReturn === "1"
-            }
+            reservedAnalyticsJourneyId={crypto.randomUUID()}
             profile={{
               avatarAppearance:
                 "avatarAppearance" in result.profile && result.profile.avatarAppearance

@@ -72,10 +72,9 @@ instead of silently introducing configuration drift.
 
 ## Claim adoption and verification
 
-Terraform declares the `Claim adoption and verification` dashboard and six
-insights for journey progression, method selection, authoritative terminal
-outcomes, coarse first-check and resolution latency, and browser-to-backend
-milestone reconciliation. The funnel groups by an opaque random journey UUID. Events do
+Terraform declares the `Claim adoption and verification` dashboard with one
+journey funnel and one authoritative terminal-outcome view. The funnel groups
+by an opaque random journey UUID. Events do
 not contain user IDs, profile IDs or slugs, provider IDs, target IDs, proof
 codes, evidence, raw errors, email addresses, or credentials.
 
