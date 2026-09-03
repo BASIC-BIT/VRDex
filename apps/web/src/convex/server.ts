@@ -84,7 +84,7 @@ export async function fetchPublicProfileBySlug(
     const [twitchLive, vrcdnLive] = publicProfile && options.includeLiveState !== false
       ? await Promise.all([
           getTwitchLiveState(publicProfile.outboundLinks),
-          getVrcdnLiveStates(publicProfile.outboundLinks, { profileSlug: slug }),
+          getVrcdnLiveStates(publicProfile.outboundLinks),
         ])
       : [undefined, undefined];
 

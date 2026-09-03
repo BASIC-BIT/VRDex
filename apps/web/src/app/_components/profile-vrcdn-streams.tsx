@@ -1,7 +1,8 @@
 "use client";
 
 import { ExternalLink } from "lucide-react";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePostHog } from "posthog-js/react";
 
 import { VrcdnStreamPlayer } from "./vrcdn-stream-player";
 import { buttonVariants } from "@/components/ui/button";
@@ -9,17 +10,23 @@ import { SectionHeading } from "@/components/ui/card";
 import { CopyValueRow } from "@/components/ui/copy-value-row";
 import { cn } from "@/lib/cn";
 import {
-  mergeConfirmedVrcdnLiveStates,
   parseVrcdnLiveStates,
-  removeVrcdnLiveStates,
-  shouldRetryVrcdnLiveStates,
   type VrcdnLiveStates,
-  vrcdnLiveRetryDelayMs,
 } from "@/lib/vrcdn-live";
+import { VrcdnLiveHeartbeat } from "@/lib/vrcdn-live-heartbeat";
+import {
+  applyVrcdnLiveStates,
+  createVrcdnLiveLifecycles,
+  type VrcdnLiveLifecycles,
+} from "@/lib/vrcdn-live-lifecycle";
+import { captureProductEvent } from "@/lib/posthog";
 
 export type ProfileVrcdnStream = {
+  claimable: boolean;
+  key: string;
   label: string;
   pcUrl: string;
+  previewUrl: string;
   questUrl: string;
   streamId: string;
 };
@@ -28,7 +35,6 @@ type ProfileVrcdnLink = {
   href: string;
   key: string;
   label: string;
-  streamId?: string;
 };
 
 type ProfileDiscordHandle = {
@@ -61,110 +67,117 @@ export function ProfileVrcdnStreams({
   streams,
   twitchContent,
 }: ProfileVrcdnStreamsProps) {
-  const [liveStates, setLiveStates] = useState<VrcdnLiveStates>(() =>
-    mergeConfirmedVrcdnLiveStates({}, initialLiveStates ?? {}),
+  const posthog = usePostHog();
+  const claimableStreamIds = useMemo(() => [
+    ...new Set(streams.filter(({ claimable }) => claimable).map(({ streamId }) => streamId)),
+  ], [streams]);
+  const streamIdentity = claimableStreamIds.join("\u0000");
+  const [lifecycles, setLifecycles] = useState<VrcdnLiveLifecycles>(() =>
+    createVrcdnLiveLifecycles(claimableStreamIds, initialLiveStates ?? {}, Date.now()),
   );
-  const streamIdentity = streams.map(({ streamId }) => streamId).join("\u0000");
-  const initialConfirmedIdentity = Object.entries(initialLiveStates ?? {})
-    .filter(([, state]) => state !== "unavailable")
-    .map(([streamId]) => streamId)
-    .sort()
-    .join("\u0000");
+  const lifecyclesRef = useRef(lifecycles);
+  const heartbeatRef = useRef<VrcdnLiveHeartbeat>(null);
+  const [activePlaybackStreamIds, setActivePlaybackStreamIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const conflictEpisodesRef = useRef(new Set<string>());
 
   useEffect(() => {
-    if (streams.length === 0) {
+    if (claimableStreamIds.length === 0) {
       return;
     }
 
-    const controller = new AbortController();
-    const allStreamIds = streamIdentity.split("\u0000");
-    const initiallyConfirmedStreamIds = new Set(
-      initialConfirmedIdentity ? initialConfirmedIdentity.split("\u0000") : [],
-    );
-    let retryTimer: ReturnType<typeof setTimeout> | undefined;
-    let retryingStreamIds = new Set<string>();
+    const heartbeat = new VrcdnLiveHeartbeat({
+      probe: async (signal) => {
+        let states: VrcdnLiveStates = {};
 
-    const scheduleRetry = () => {
-      retryTimer = setTimeout(() => void loadStates(2), vrcdnLiveRetryDelayMs);
-    };
-
-    const clearAfterFinalFailure = (attempt: 1 | 2) => {
-      if (attempt === 2) {
-        setLiveStates((current) => removeVrcdnLiveStates(current, retryingStreamIds));
-      }
-    };
-
-    const scheduleFullRetry = () => {
-      retryingStreamIds = new Set(
-        allStreamIds.filter((streamId) => !initiallyConfirmedStreamIds.has(streamId)),
-      );
-      scheduleRetry();
-    };
-
-    const loadStates = async (attempt: 1 | 2) => {
-      try {
-        const response = await fetch(
-          `/api/profile-live/${encodeURIComponent(profileSlug)}/vrcdn?attempt=${attempt}`,
-          { cache: "no-store", signal: controller.signal },
-        );
-
-        if (!response.ok) {
-          if (attempt === 1 && response.status >= 500) {
-            scheduleFullRetry();
-          } else {
-            clearAfterFinalFailure(attempt);
-          }
-          return;
-        }
-
-        const states = responseStates(await response.json());
-
-        if (states === null) {
-          if (attempt === 1) {
-            scheduleFullRetry();
-          } else {
-            clearAfterFinalFailure(attempt);
-          }
-          return;
-        }
-
-        setLiveStates((current) =>
-          mergeConfirmedVrcdnLiveStates(attempt === 1 ? current : {}, states),
-        );
-
-        if (attempt === 1 && shouldRetryVrcdnLiveStates(states)) {
-          retryingStreamIds = new Set(
-            Object.entries(states)
-              .filter(([, state]) => state === "unavailable")
-              .map(([streamId]) => streamId),
+        try {
+          const response = await fetch(
+            `/api/profile-live/${encodeURIComponent(profileSlug)}/vrcdn`,
+            { cache: "no-store", signal },
           );
-          scheduleRetry();
-        }
-      } catch {
-        if (!controller.signal.aborted) {
-          if (attempt === 1) {
-            scheduleFullRetry();
-          } else {
-            clearAfterFinalFailure(attempt);
+
+          if (response.ok) {
+            const parsed = responseStates(await response.json());
+            if (parsed !== null) {
+              states = parsed;
+            }
+          }
+        } catch {
+          if (signal.aborted) {
+            return { hasUnavailable: false };
           }
         }
-      }
-    };
 
-    void loadStates(1);
+        const result = applyVrcdnLiveStates(
+          lifecyclesRef.current,
+          claimableStreamIds,
+          states,
+          Date.now(),
+        );
+        lifecyclesRef.current = result.lifecycles;
+        setLifecycles(result.lifecycles);
+
+        return {
+          hasUnavailable: result.hasUnavailable,
+          ...(result.pendingOfflineDelayMs === undefined
+            ? {}
+            : { pendingOfflineDelayMs: result.pendingOfflineDelayMs }),
+        };
+      },
+    });
+    heartbeatRef.current = heartbeat;
+    heartbeat.start();
 
     return () => {
-      controller.abort();
-      if (retryTimer !== undefined) {
-        clearTimeout(retryTimer);
+      if (heartbeatRef.current === heartbeat) {
+        heartbeatRef.current = null;
       }
+      heartbeat.stop();
     };
-  }, [initialConfirmedIdentity, profileSlug, streamIdentity, streams.length]);
+  }, [claimableStreamIds, profileSlug, streamIdentity]);
 
-  const liveStreams = streams.filter(({ streamId }) => liveStates[streamId] === "live");
-  const visibleLinks = links.filter(({ streamId }) => !streamId || liveStates[streamId] !== "live");
-  const hasLinks = visibleLinks.length > 0 || discordHandles.length > 0;
-  const hasWatchSurface = Boolean(twitchContent || liveStreams.length > 0);
+  useEffect(() => {
+    heartbeatRef.current?.setPlaybackActive(activePlaybackStreamIds.size > 0);
+  }, [activePlaybackStreamIds]);
+
+  useEffect(() => {
+    for (const streamId of claimableStreamIds) {
+      const lifecycle = lifecycles[streamId];
+      const playbackActive = activePlaybackStreamIds.has(streamId);
+      const conflict = lifecycle?.presentation === "offline" && playbackActive;
+
+      if (conflict && !conflictEpisodesRef.current.has(streamId)) {
+        conflictEpisodesRef.current.add(streamId);
+        captureProductEvent(posthog, "media_state_anomaly_detected", {
+          anomaly_kind: "confirmed_offline_while_playing",
+          provider: "vrcdn",
+          surface: "profile",
+        });
+      } else if (lifecycle?.presentation === "live" || !playbackActive) {
+        conflictEpisodesRef.current.delete(streamId);
+      }
+    }
+  }, [activePlaybackStreamIds, claimableStreamIds, lifecycles, posthog]);
+
+  const handlePlaybackActiveChange = useCallback((streamId: string, active: boolean) => {
+    setActivePlaybackStreamIds((current) => {
+      const next = new Set(current);
+      if (active) {
+        next.add(streamId);
+      } else {
+        next.delete(streamId);
+      }
+      return next;
+    });
+  }, []);
+
+  const requestSanityCheck = useCallback(() => {
+    heartbeatRef.current?.requestSanityCheck();
+  }, []);
+
+  const hasLinks = links.length > 0 || discordHandles.length > 0;
+  const hasWatchSurface = Boolean(twitchContent || streams.length > 0);
 
   return (
     <div className={cn("grid gap-x-10", hasWatchSurface ? "lg:grid-cols-[minmax(0,1fr)_32rem]" : undefined)}>
@@ -172,9 +185,9 @@ export function ProfileVrcdnStreams({
         {hasLinks ? (
           <section className="py-8">
             <SectionHeading>Links</SectionHeading>
-            {visibleLinks.length > 0 ? (
+            {links.length > 0 ? (
               <div className="mt-4 flex flex-wrap gap-2">
-                {visibleLinks.map((link) => (
+                {links.map((link) => (
                   <a
                     className={cn(buttonVariants({ variant: "secondary" }), "gap-2")}
                     href={link.href}
@@ -199,24 +212,46 @@ export function ProfileVrcdnStreams({
         <aside className="border-t border-border py-8 lg:border-t-0 lg:border-l lg:pl-8">
           <SectionHeading>Watch</SectionHeading>
           {twitchContent}
-          {liveStreams.map(({ label, pcUrl, questUrl, streamId }) => (
-            <div className="pt-5" key={streamId}>
-              <div className="flex flex-wrap items-center justify-between gap-3 pb-3">
-                <div className="flex items-center gap-3">
-                  <p className="font-medium">{label}</p>
-                  <span className="text-sm font-medium text-success">Live now</span>
+          {streams.map(({ claimable, key, label, pcUrl, previewUrl, questUrl, streamId }) => {
+            const lifecycle = lifecycles[streamId];
+            const live = claimable && lifecycle?.presentation === "live";
+            const playbackActive = activePlaybackStreamIds.has(streamId);
+            const showPlayer = claimable && (
+              live || lifecycle?.status === "pending_offline" || playbackActive
+            );
+
+            return (
+              <div className="pt-5" key={key}>
+                <div className="flex flex-wrap items-center justify-between gap-3 pb-3">
+                  <div className="flex items-center gap-3">
+                    <p className="font-medium">{label}</p>
+                    {live ? <span className="text-sm font-medium text-success">Live now</span> : null}
+                  </div>
                 </div>
+                <a
+                  className={cn(buttonVariants({ variant: "secondary" }), "mb-4 gap-2")}
+                  href={previewUrl}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  Open preview
+                  <ExternalLink aria-hidden="true" className="size-3.5" />
+                </a>
+                <CopyValueRow label="Quest (MPEG-TS)" value={questUrl} />
+                <CopyValueRow label="PC (RTSPT)" value={pcUrl} />
+                {showPlayer ? (
+                  <div className="mt-4 overflow-hidden rounded-control border border-border">
+                    <VrcdnStreamPlayer
+                      onHealthSignal={requestSanityCheck}
+                      onPlaybackActiveChange={(active) => handlePlaybackActiveChange(streamId, active)}
+                      src={questUrl}
+                      title={streams.length > 1 ? `${label} ${streamId}` : label}
+                    />
+                  </div>
+                ) : null}
               </div>
-              <div className="mb-4 overflow-hidden rounded-control border border-border">
-                <VrcdnStreamPlayer
-                  src={questUrl}
-                  title={liveStreams.length > 1 ? `${label} ${streamId}` : label}
-                />
-              </div>
-              <CopyValueRow label="Quest (MPEG-TS)" value={questUrl} />
-              <CopyValueRow label="PC (RTSPT)" value={pcUrl} />
-            </div>
-          ))}
+            );
+          })}
         </aside>
       ) : null}
     </div>

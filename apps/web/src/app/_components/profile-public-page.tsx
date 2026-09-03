@@ -438,7 +438,8 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
   const creatorLinks = validLinks.filter(
     (item) =>
       item !== twitchLink &&
-      !discordHandles.some((discord) => discord.item === item),
+      !discordHandles.some((discord) => discord.item === item) &&
+      !vrcdnStreams.some((vrcdn) => vrcdn.item === item),
   );
   const aliases = profile.aliases.slice(0, 3);
   const remainingAliases = profile.aliases.slice(3);
@@ -663,12 +664,14 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
             href,
             key: `${link.type}-${link.url}`,
             label: link.label,
-            streamId: claimableVrcdnStreams.find(({ item }) => item.link === link)?.stream.streamId,
           }))}
           profileSlug={profile.slug}
-          streams={claimableVrcdnStreams.map(({ label, stream }) => ({
+          streams={vrcdnStreams.map(({ item, label, stream }) => ({
+            claimable: claimableVrcdnStreams.some((claimable) => claimable.item === item),
+            key: `${item.link.type}-${item.link.url}`,
             label,
             pcUrl: stream.pcUrl,
+            previewUrl: stream.previewUrl,
             questUrl: stream.questUrl,
             streamId: stream.streamId,
           }))}
