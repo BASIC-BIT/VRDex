@@ -3,7 +3,10 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 
 import { startVrdexMcpApiFixture } from "../packages/vrdex-mcp/tests/api-fixture";
-import { summarizeMcpToolFailure } from "./lib/mcp-smoke-diagnostics";
+import {
+  isExpectedOAuthAuthorizationRedirect,
+  summarizeMcpToolFailure,
+} from "./lib/mcp-smoke-diagnostics";
 
 type JsonRpcMessage = {
   error?: unknown;
@@ -759,11 +762,14 @@ async function smokeHostedClientMetadataDocument(
 
   const location = authorization.headers.get("location") ?? "";
 
-  assert.match(location, /\/sign-in\?/);
-  assert.match(decodeURIComponent(location), /\/oauth\/authorize\?/);
+  assert.equal(
+    isExpectedOAuthAuthorizationRedirect(location, metadata.issuer),
+    true,
+    "Client ID Metadata Document authorization returned an unexpected authentication redirect.",
+  );
 
   results.push({
-    details: `URL-form public client id metadata was accepted for scopes=${requestedScopes.join(" ")} before the expected sign-in redirect`,
+    details: `URL-form public client id metadata was accepted for scopes=${requestedScopes.join(" ")} before the expected authentication redirect`,
     name: "Hosted Client ID Metadata Document",
     status: "pass",
   });

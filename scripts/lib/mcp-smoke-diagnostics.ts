@@ -1,5 +1,46 @@
 const maxDiagnosticLength = 700;
 
+function isSameIssuerAuthorizationUrl(value: string, issuer: URL, allowRelative: boolean) {
+  try {
+    const target = allowRelative ? new URL(value, issuer) : new URL(value);
+    return (allowRelative || target.protocol === "https:")
+      && target.origin === issuer.origin
+      && target.pathname === "/oauth/authorize";
+  } catch {
+    return false;
+  }
+}
+
+export function isExpectedOAuthAuthorizationRedirect(location: string, issuerValue: string) {
+  try {
+    const issuer = new URL(issuerValue);
+    const redirect = new URL(location, issuer);
+
+    if (redirect.origin === issuer.origin && redirect.pathname === "/sign-in") {
+      const returnTargets = [
+        ...redirect.searchParams.getAll("returnTo"),
+        ...redirect.searchParams.getAll("next"),
+      ];
+      return returnTargets.length === 1
+        && isSameIssuerAuthorizationUrl(returnTargets[0]!, issuer, true);
+    }
+
+    if (
+      redirect.protocol !== "https:"
+      || !/^[a-z0-9-]+\.clerk\.accounts\.dev$/i.test(redirect.hostname)
+      || redirect.pathname !== "/v1/client/handshake"
+    ) {
+      return false;
+    }
+
+    const returnTargets = redirect.searchParams.getAll("redirect_url");
+    return returnTargets.length === 1
+      && isSameIssuerAuthorizationUrl(returnTargets[0]!, issuer, false);
+  } catch {
+    return false;
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }

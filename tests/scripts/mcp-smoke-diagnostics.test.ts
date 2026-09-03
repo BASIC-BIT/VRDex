@@ -1,9 +1,52 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { summarizeMcpToolFailure } from "../../scripts/lib/mcp-smoke-diagnostics";
+import {
+  isExpectedOAuthAuthorizationRedirect,
+  summarizeMcpToolFailure,
+} from "../../scripts/lib/mcp-smoke-diagnostics";
 
 describe("MCP smoke diagnostics", () => {
+  it("accepts Clerk's hosted handshake only when it returns to this issuer's authorization endpoint", () => {
+    const issuer = "https://preview.example";
+    const authorized = new URL("https://example.clerk.accounts.dev/v1/client/handshake");
+    authorized.searchParams.set("redirect_url", `${issuer}/oauth/authorize?client_id=metadata-url`);
+    const wrongIssuer = new URL(authorized);
+    wrongIssuer.searchParams.set("redirect_url", "https://attacker.example/oauth/authorize");
+    const relativeReturn = new URL(authorized);
+    relativeReturn.searchParams.set("redirect_url", "/oauth/authorize");
+    const duplicateReturn = new URL(authorized);
+    duplicateReturn.searchParams.append("redirect_url", `${issuer}/oauth/authorize`);
+    const insecureIssuer = new URL(authorized);
+    insecureIssuer.searchParams.set("redirect_url", "http://preview.example/oauth/authorize");
+
+    assert.equal(isExpectedOAuthAuthorizationRedirect(authorized.toString(), issuer), true);
+    assert.equal(isExpectedOAuthAuthorizationRedirect(wrongIssuer.toString(), issuer), false);
+    assert.equal(isExpectedOAuthAuthorizationRedirect(relativeReturn.toString(), issuer), false);
+    assert.equal(isExpectedOAuthAuthorizationRedirect(duplicateReturn.toString(), issuer), false);
+    assert.equal(
+      isExpectedOAuthAuthorizationRedirect(insecureIssuer.toString(), "http://preview.example"),
+      false,
+    );
+    assert.equal(
+      isExpectedOAuthAuthorizationRedirect(
+        `https://attacker.example/v1/client/handshake?redirect_url=${encodeURIComponent(`${issuer}/oauth/authorize`)}`,
+        issuer,
+      ),
+      false,
+    );
+  });
+
+  it("continues to accept the same-origin sign-in redirect", () => {
+    assert.equal(
+      isExpectedOAuthAuthorizationRedirect(
+        "https://preview.example/sign-in?returnTo=%2Foauth%2Fauthorize%3Fclient_id%3Dmetadata-url",
+        "https://preview.example",
+      ),
+      true,
+    );
+  });
+
   it("summarizes tool-error content and structured content", () => {
     const summary = summarizeMcpToolFailure({
       result: {
