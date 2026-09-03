@@ -599,6 +599,10 @@ export function ClaimFlowContent({
     const journeyId =
       knownJourneyId ?? context?.pendingProof?.analyticsJourneyId ?? analyticsJourneyId;
     setAnalyticsJourneyId(journeyId);
+    // A proof restored after reload was submitted before this component
+    // mounted. Remember that fact so a background cancellation or terminal
+    // collector result cannot make the next attempt reuse its dedupe key.
+    setSubmittedAnalyticsJourneyId(journeyId);
 
     setStatus({
       kind: "working",

@@ -85,4 +85,17 @@ describe("claim analytics journey correlation", () => {
     assert.doesNotMatch(flow, /onMouseDown=\{prepareDiscordVerification\}/);
     assert.match(callback, /withStatus\(returnTo, "verified", verifiedGuildCount, analyticsJourneyId\)/);
   });
+
+  it("remembers a reloaded pending proof as an already-submitted journey", async () => {
+    const source = await readFile("apps/web/src/app/claim/[slug]/claim-flow.tsx", "utf8");
+    const checkProof = source.slice(
+      source.indexOf("async function checkProof("),
+      source.indexOf("async function checkDiscord("),
+    );
+
+    assert.match(
+      checkProof,
+      /setAnalyticsJourneyId\(journeyId\);[\s\S]{0,300}setSubmittedAnalyticsJourneyId\(journeyId\);/,
+    );
+  });
 });
