@@ -344,10 +344,18 @@ function assertHostedTools(body: { tools?: ToolDescriptor[] }, label: string) {
   assert.equal(Array.isArray(body.tools), true, `${label} did not return tools.`);
   const toolNames = (body.tools ?? []).map((tool) => tool.name);
 
-  assert.deepEqual(toolNames, expectedTools);
+  assertExpectedHostedToolNames(toolNames);
   for (const tool of body.tools ?? []) {
     assertPublicReadSecuritySchemes(tool);
   }
+}
+
+export function assertExpectedHostedToolNames(toolNames: unknown[]) {
+  assert.deepEqual(
+    [...toolNames].sort(),
+    [...expectedTools].sort(),
+    "Hosted MCP returned an unexpected tool set.",
+  );
 }
 
 export function assertInspectorDataBackedSearch(
