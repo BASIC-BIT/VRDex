@@ -9,23 +9,12 @@ on:
     branches:
       - main
   workflow_dispatch:
-    inputs:
-      mode:
-        description: Release the selected main SHA or run the read-only drift audit.
-        required: true
-        default: audit
-        type: choice
-        options:
-          - audit
-          - release
-  schedule:
-    - cron: "2-59/5 * * * *"
 
 permissions:
   contents: read
 
 concurrency:
-  group: group-telemetry-production-${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'audit')) && 'audit' || 'release' }}
+  group: group-telemetry-production-release
   cancel-in-progress: false
 
 env:
@@ -40,7 +29,7 @@ jobs:
     name: Build and deploy immutable collector
     if: >-
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
-      (github.event_name == 'workflow_dispatch' && inputs.mode == 'release')
+      github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     # Leave a separate recovery budget after the bounded five-minute heartbeat
     # verification. A failed rollout must still have time to reconcile both
@@ -252,100 +241,3 @@ jobs:
         run: |
           echo "::error::The new collector release failed post-deploy verification and was rolled back."
           exit 1
-
-  drift-audit:
-    name: Read-only collector release drift audit
-    if: >-
-      github.event_name == 'schedule' ||
-      (github.event_name == 'workflow_dispatch' && inputs.mode == 'audit')
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      actions: read
-      contents: read
-      id-token: write
-    env:
-      AWS_ROLE_ARN: ${{ vars.AWS_GROUP_TELEMETRY_AUDIT_ROLE_ARN }}
-      AUDIT_ENABLED: ${{ vars.GROUP_TELEMETRY_RELEASE_ENABLED }}
-      CONVEX_DEPLOYMENT_PROD: ${{ vars.CONVEX_DEPLOYMENT_PROD }}
-      CONVEX_DEPLOY_KEY_PROD: ${{ secrets.CONVEX_DEPLOY_KEY_PROD }}
-      COLLECTOR_ACCOUNT_ID: ${{ vars.GROUP_TELEMETRY_COLLECTOR_ACCOUNT_ID }}
-
-    steps:
-      - name: Checkout main
-        uses: actions/checkout@v6
-
-      - name: Restore previous drift observation
-        uses: actions/cache/restore@v5
-        with:
-          path: .cache/group-telemetry-drift-state.json
-          key: group-telemetry-drift-state-${{ github.run_id }}
-          restore-keys: |
-            group-telemetry-drift-state-
-
-      - name: Fail closed on missing audit configuration
-        run: |
-          set -euo pipefail
-          [ "$AUDIT_ENABLED" = "true" ] || { echo "::error::GROUP_TELEMETRY_RELEASE_ENABLED must be true."; exit 1; }
-          for name in AWS_ROLE_ARN CONVEX_DEPLOYMENT_PROD CONVEX_DEPLOY_KEY_PROD COLLECTOR_ACCOUNT_ID; do
-            [ -n "${!name:-}" ] || { echo "::error::$name is required for the collector drift audit."; exit 1; }
-          done
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Configure read-only AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ env.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Inspect ECR, ECS, and authoritative heartbeat
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          gh api -X GET "repos/$GITHUB_REPOSITORY/actions/workflows/baseline-checks.yml/runs" -f branch=main -f status=success -f per_page=20 > baseline-runs.json
-          expected_release_sha="$(jq -er '[.workflow_runs[] | select(.event == "push" and .head_branch == "main" and .head_repository.full_name == env.GITHUB_REPOSITORY)] | first | .head_sha' baseline-runs.json)"
-          expected_release_at="$(jq -er '[.workflow_runs[] | select(.event == "push" and .head_branch == "main" and .head_repository.full_name == env.GITHUB_REPOSITORY)] | first | (.run_completed_at // .updated_at)' baseline-runs.json)"
-          [[ "$expected_release_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::No exact successful main baseline SHA was found."; exit 1; }
-          aws ecr describe-images --repository-name "$ECR_REPOSITORY" > images.json
-          aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" > service.json
-          task_definition="$(jq -er '.services[0].taskDefinition' service.json)"
-          aws ecs describe-task-definition --task-definition "$task_definition" > task-definition.json
-          task_arns="$(aws ecs list-tasks --cluster "$ECS_CLUSTER" --service-name "$ECS_SERVICE" --desired-status RUNNING --query 'taskArns' --output text)"
-          [ -n "$task_arns" ] && [ "$task_arns" != "None" ] || { echo "::error::Collector service has no running tasks."; exit 1; }
-          aws ecs describe-tasks --cluster "$ECS_CLUSTER" --tasks $task_arns > tasks.json
-          now="$(node -p 'Date.now()')"
-          args="$(jq -cn --arg accountId "$COLLECTOR_ACCOUNT_ID" --arg sha "$expected_release_sha" --argjson now "$now" '{collectorAccountId:$accountId,expectedReleaseSha:$sha,requiredCapabilities:["telemetry_v1","vrchat_proof_v1"],maxHeartbeatAgeMs:120000,now:$now}')"
-          CONVEX_DEPLOY_KEY="$CONVEX_DEPLOY_KEY_PROD" pnpm --silent exec convex run --prod communityTelemetry:collectorDeploymentReadiness "$args" > heartbeat.json
-          CONVEX_DEPLOY_KEY="$CONVEX_DEPLOY_KEY_PROD" pnpm --silent exec convex run --prod communityTelemetry:claimVerificationOperationalHealth "$(jq -cn --argjson now "$now" '{now:$now}')" > claim-health.json
-          CONVEX_DEPLOY_KEY="$CONVEX_DEPLOY_KEY_PROD" pnpm --silent exec convex run --prod claimAnalytics:deliveryOperationalHealth "$(jq -cn --argjson now "$now" '{now:$now}')" > claim-analytics-health.json
-          {
-            echo "## Claim verification operational health"
-            echo
-            echo "| Metric | Value |"
-            echo "| --- | ---: |"
-            jq -r 'to_entries[] | "| \(.key) | \(.value) |"' claim-health.json
-            jq -r 'to_entries[] | "| analytics.\(.key) | \(.value) |"' claim-analytics-health.json
-          } >> "$GITHUB_STEP_SUMMARY"
-          mkdir -p .cache
-          node scripts/group-telemetry-deployment.mjs drift --images images.json --task-definition task-definition.json --service service.json --tasks tasks.json --heartbeat heartbeat.json --expected-release-sha "$expected_release_sha" --expected-release-at "$expected_release_at" --previous-observation .cache/group-telemetry-drift-state.json --next-observation .cache/group-telemetry-drift-state.json
-          node scripts/group-telemetry-deployment.mjs claim-health --file claim-health.json
-          node scripts/group-telemetry-deployment.mjs claim-analytics-health --file claim-analytics-health.json
-
-      - name: Save current drift observation
-        if: always()
-        uses: actions/cache/save@v5
-        with:
-          path: .cache/group-telemetry-drift-state.json
-          key: group-telemetry-drift-state-${{ github.run_id }}

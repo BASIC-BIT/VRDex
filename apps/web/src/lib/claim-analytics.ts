@@ -4,25 +4,25 @@ export function validClaimJourneyId(value: string | null | undefined): value is 
   return typeof value === "string" && JOURNEY_ID_PATTERN.test(value);
 }
 
-export function resolveClaimJourneyId({
+export function claimJourneyForAction({
+  currentJourneyId,
   pendingJourneyId,
-  storedJourneyId,
+  previousJourneyFinished,
+  currentJourneySubmitted,
   generate,
 }: {
+  currentJourneyId: string;
   pendingJourneyId?: string;
-  storedJourneyId?: string | null;
+  previousJourneyFinished: boolean;
+  currentJourneySubmitted: boolean;
   generate: () => string;
 }): string {
   if (validClaimJourneyId(pendingJourneyId)) return pendingJourneyId;
-  if (validClaimJourneyId(storedJourneyId)) return storedJourneyId;
+  if (!previousJourneyFinished && !currentJourneySubmitted) return currentJourneyId;
 
   const generated = generate();
   if (!validClaimJourneyId(generated)) {
     throw new Error("Claim journey ID generators must return an opaque UUID.");
   }
   return generated;
-}
-
-export function claimJourneyStorageKey(profileSlug: string, authSessionId: string): string {
-  return `vrdex:claim-journey:${authSessionId}:${profileSlug}`;
 }

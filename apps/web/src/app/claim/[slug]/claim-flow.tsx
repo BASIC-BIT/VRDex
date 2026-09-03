@@ -1,6 +1,5 @@
 "use client";
 
-import { useAuth } from "@clerk/nextjs";
 import { useAction, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { usePostHog } from "posthog-js/react";
@@ -17,7 +16,7 @@ import { Notice } from "@/components/ui/notice";
 import type { AvatarAppearance } from "@/lib/avatar-appearance";
 import { captureProductEvent, type ClaimAnalyticsMethod } from "@/lib/posthog";
 import { claimErrorMessage, claimFailureOutcome } from "@/lib/claim-errors";
-import { claimJourneyStorageKey, resolveClaimJourneyId } from "@/lib/claim-analytics";
+import { claimJourneyForAction } from "@/lib/claim-analytics";
 import { cn } from "@/lib/cn";
 import {
   ownerProfileDestinationPath,
@@ -98,7 +97,6 @@ const CONTROL_LEVEL_LABELS: Record<string, string> = {
 
 type ClaimFlowProps = {
   initialAnalyticsJourneyId: string;
-  discordJourneyRestored?: boolean;
   discordVerify?: DiscordVerifyStatus;
   previewContext?: {
     viewerContextKey?: string | null;
@@ -121,45 +119,16 @@ type ClaimFlowProps = {
 };
 
 export function ClaimFlow(props: ClaimFlowProps) {
-  const { isLoaded, sessionId } = useAuth();
-  const [scopedInitialJourney, setScopedInitialJourney] = useState<{
-    journeyId: string;
-    sessionScope: string;
-  } | null>(null);
-
-  if (!isLoaded) return null;
-
-  const analyticsSessionScope = sessionId ?? "signed-out";
-  if (scopedInitialJourney?.sessionScope !== analyticsSessionScope) {
-    // The callback query remains in the URL after Discord returns. It may
-    // restore this page's first resolved session, but it must not cross into
-    // another Clerk session if the user changes accounts without navigating.
-    setScopedInitialJourney({
-      journeyId:
-        scopedInitialJourney === null ? props.initialAnalyticsJourneyId : crypto.randomUUID(),
-      sessionScope: analyticsSessionScope,
-    });
-    return null;
-  }
-  return (
-    <ClaimFlowContent
-      key={analyticsSessionScope}
-      {...props}
-      analyticsSessionScope={analyticsSessionScope}
-      initialAnalyticsJourneyId={scopedInitialJourney.journeyId}
-    />
-  );
+  return <ClaimFlowContent {...props} />;
 }
 
 export function ClaimFlowContent({
-  analyticsSessionScope,
   initialAnalyticsJourneyId,
-  discordJourneyRestored = false,
   discordVerify = null,
   previewContext,
   profile,
   source,
-}: ClaimFlowProps & { analyticsSessionScope: string }) {
+}: ClaimFlowProps) {
   const queriedContext = useQuery(
     api.profileClaims.getClaimJourneyContext,
     previewContext ? "skip" : { profileSlug: profile.slug },
@@ -174,29 +143,15 @@ export function ClaimFlowContent({
     api.profileConnections.claimCommunityWithVerifiedGuild,
   );
   const startVrchatProof = useMutation(api.profileClaims.startVrchatProof);
-  const adoptPendingProofAnalytics = useMutation(
-    api.profileClaims.adoptPendingProofAnalyticsJourney,
-  );
-  const adoptPendingClaimRequestAnalytics = useMutation(
-    api.profileClaims.adoptPendingClaimRequestAnalyticsJourney,
-  );
   const cancelPending = useMutation(api.profileClaims.cancelClaimJourneyPending);
   const verifyDiscord = useAction(api.profileClaims.verifyDiscordCommunityAdminClaim);
   const verifyVrchat = useAction(api.profileClaims.verifyVrchatProofViaAdapter);
   const posthog = usePostHog();
-  const analyticsJourneyIdRef = useRef<string | null>(null);
-  const initialAnalyticsJourneyConsumedRef = useRef(false);
+  const [analyticsJourneyId, setAnalyticsJourneyId] = useState(initialAnalyticsJourneyId);
   const viewedJourneyRef = useRef<string | null>(null);
   const selectedMethodKeysRef = useRef(new Set<string>());
+  const submittedJourneyIdsRef = useRef(new Set<string>());
   const analyticsJourneyFinishedRef = useRef(false);
-  const lastObservedPendingJourneyRef = useRef<string | null | undefined>(undefined);
-  const lastObservedPendingWorkRef = useRef<boolean | undefined>(undefined);
-  const preserveInitialDiscordReturnRef = useRef(
-    discordVerify != null || discordJourneyRestored,
-  );
-  const discordReturnJourneyActiveRef = useRef(
-    discordVerify != null || discordJourneyRestored,
-  );
   const [selectedMethod, setMethod] = useState<ClaimMethod | null>(
     previewContext
       ? profile.profileType === "community"
@@ -225,11 +180,9 @@ export function ClaimFlowContent({
       connectionOnly: boolean;
       method: ClaimAnalyticsMethod;
       journeyId?: string;
-      sessionScope: string;
     } | null
   >(null);
-  const activeCollectorCompletion =
-    collectorCompletion?.sessionScope === analyticsSessionScope ? collectorCompletion : null;
+  const activeCollectorCompletion = collectorCompletion;
   // Only the person quick-claim needs Discord as a linked sign-in provider.
   // The community path claims against a control proof recorded by the
   // purpose-scoped OAuth round-trip, which a Google or email/password account
@@ -284,125 +237,25 @@ export function ClaimFlowContent({
   const pendingAnalyticsJourneyId =
     context?.pendingProof?.analyticsJourneyId ??
     context?.pendingClaimRequest?.analyticsJourneyId;
-  const ensureAnalyticsJourneyId = useCallback(() => {
-    if (analyticsJourneyIdRef.current !== null && pendingAnalyticsJourneyId === undefined) {
-      return analyticsJourneyIdRef.current;
-    }
-
-    const storageKey = claimJourneyStorageKey(profile.slug, analyticsSessionScope);
-    let storedJourneyId: string | null = null;
-    try {
-      storedJourneyId = window.sessionStorage.getItem(storageKey);
-    } catch {
-      // Analytics correlation is optional and must never block a claim when
-      // browser storage is disabled or unavailable.
-    }
-    const journeyId = resolveClaimJourneyId({
-      pendingJourneyId: pendingAnalyticsJourneyId,
-      storedJourneyId,
-      generate: () => {
-        if (!initialAnalyticsJourneyConsumedRef.current) {
-          initialAnalyticsJourneyConsumedRef.current = true;
-          return initialAnalyticsJourneyId;
-        }
-        return crypto.randomUUID();
-      },
-    });
-    try {
-      window.sessionStorage.setItem(storageKey, journeyId);
-    } catch {
-      // The in-memory ref still keeps this mount correlated.
-    }
-    analyticsJourneyIdRef.current = journeyId;
-    return journeyId;
-  }, [analyticsSessionScope, initialAnalyticsJourneyId, pendingAnalyticsJourneyId, profile.slug]);
+  const currentAnalyticsJourneyId = pendingAnalyticsJourneyId ?? analyticsJourneyId;
 
   const finishAnalyticsJourney = useCallback(() => {
-    try {
-      window.sessionStorage.removeItem(claimJourneyStorageKey(profile.slug, analyticsSessionScope));
-    } catch {
-      // Analytics cleanup cannot interfere with a completed claim.
-    }
-    analyticsJourneyIdRef.current = null;
     selectedMethodKeysRef.current.clear();
     analyticsJourneyFinishedRef.current = true;
-  }, [analyticsSessionScope, profile.slug]);
+  }, []);
 
   const beginAnalyticsJourney = useCallback(() => {
+    const nextJourneyId = claimJourneyForAction({
+      currentJourneyId: analyticsJourneyId,
+      pendingJourneyId: pendingAnalyticsJourneyId,
+      previousJourneyFinished: analyticsJourneyFinishedRef.current,
+      currentJourneySubmitted: submittedJourneyIdsRef.current.has(analyticsJourneyId),
+      generate: () => crypto.randomUUID(),
+    });
+    if (nextJourneyId !== analyticsJourneyId) setAnalyticsJourneyId(nextJourneyId);
     analyticsJourneyFinishedRef.current = false;
-    return ensureAnalyticsJourneyId();
-  }, [ensureAnalyticsJourneyId]);
-
-  const adoptAnalyticsJourneyId = useCallback((journeyId: string) => {
-    try {
-      window.sessionStorage.setItem(
-        claimJourneyStorageKey(profile.slug, analyticsSessionScope),
-        journeyId,
-      );
-    } catch {
-      // The in-memory ref still adopts the backend's canonical journey.
-    }
-    analyticsJourneyIdRef.current = journeyId;
-    return journeyId;
-  }, [analyticsSessionScope, profile.slug]);
-
-  const beginAnalyticsJourneyForMethod = useCallback((nextMethod: ClaimMethod) => {
-    if (discordReturnJourneyActiveRef.current && nextMethod !== "discord") {
-      discordReturnJourneyActiveRef.current = false;
-      // Discord already recorded the first provider check for its restored
-      // journey. A different method is a new attempt and needs fresh dedupe and
-      // latency milestones rather than inheriting the OAuth journey.
-      initialAnalyticsJourneyConsumedRef.current = true;
-      finishAnalyticsJourney();
-    }
-    return beginAnalyticsJourney();
-  }, [beginAnalyticsJourney, finishAnalyticsJourney]);
-
-  useEffect(() => {
-    if (context === undefined) return;
-
-    const current = pendingAnalyticsJourneyId ?? null;
-    const previous = lastObservedPendingJourneyRef.current;
-    lastObservedPendingJourneyRef.current = current;
-    let staleStoredJourney = false;
-    const hasPendingClaimWork =
-      context?.pendingProof != null || context?.pendingClaimRequest != null;
-    const previouslyHadPendingClaimWork = lastObservedPendingWorkRef.current;
-    lastObservedPendingWorkRef.current = hasPendingClaimWork;
-    if (previous === undefined && current === null && !hasPendingClaimWork) {
-      try {
-        staleStoredJourney = window.sessionStorage.getItem(
-          claimJourneyStorageKey(profile.slug, analyticsSessionScope),
-        ) !== null;
-      } catch {
-        // Storage availability must not affect the claim flow.
-      }
-    }
-
-    // A collector or expiry cron can settle an attempt without running a
-    // browser handler. Successful collector completion has its own event path;
-    // every other pending-to-absent transition must still close the browser
-    // journey so a later retry receives a new UUID and new backend dedupe keys.
-    const preserveInitialDiscordReturn = preserveInitialDiscordReturnRef.current;
-    preserveInitialDiscordReturnRef.current = false;
-    if (
-      ((previous !== undefined && previous !== null) ||
-        (previouslyHadPendingClaimWork === true && !hasPendingClaimWork) ||
-        staleStoredJourney) &&
-      current === null &&
-      activeCollectorCompletion === null &&
-      !preserveInitialDiscordReturn
-    ) {
-      finishAnalyticsJourney();
-    }
-  }, [
-    activeCollectorCompletion,
-    context,
-    finishAnalyticsJourney,
-    pendingAnalyticsJourneyId,
-    profile.slug,
-    analyticsSessionScope,
-  ]);
+    return nextJourneyId;
+  }, [analyticsJourneyId, pendingAnalyticsJourneyId]);
 
   const captureJourneyView = useCallback(
     (journeyId: string) => {
@@ -433,38 +286,22 @@ export function ClaimFlowContent({
     [isVerifiedViewer, posthog, profile.profileType],
   );
 
-  const discordAnalyticsHref = (() => {
+  function discordVerificationHref(journeyId: string) {
     const destination = new URL(discordVerifyHref, "https://vrdex.invalid");
-    destination.searchParams.set(
-      "analyticsJourneyId",
-      pendingAnalyticsJourneyId ?? initialAnalyticsJourneyId,
-    );
+    destination.searchParams.set("analyticsJourneyId", journeyId);
     destination.searchParams.set("analyticsEntrySource", source);
     destination.searchParams.set("analyticsProfileType", profile.profileType);
     return `${destination.pathname}${destination.search}`;
-  })();
+  }
 
-  const prepareDiscordVerification = useCallback(
-    (event: MouseEvent<HTMLAnchorElement>) => {
-      const journeyId = beginAnalyticsJourney();
-      captureJourneyView(journeyId);
-      captureMethodSelection(journeyId, method);
-      const destination = new URL(discordVerifyHref, window.location.origin);
-      destination.searchParams.set("analyticsJourneyId", journeyId);
-      destination.searchParams.set("analyticsEntrySource", source);
-      destination.searchParams.set("analyticsProfileType", profile.profileType);
-      event.currentTarget.href = `${destination.pathname}${destination.search}`;
-    },
-    [
-      beginAnalyticsJourney,
-      captureJourneyView,
-      captureMethodSelection,
-      discordVerifyHref,
-      method,
-      profile.profileType,
-      source,
-    ],
-  );
+  const discordAnalyticsHref = discordVerificationHref(currentAnalyticsJourneyId);
+
+  function prepareDiscordVerification(event: MouseEvent<HTMLAnchorElement>) {
+    const journeyId = beginAnalyticsJourney();
+    captureJourneyView(journeyId);
+    captureMethodSelection(journeyId, method);
+    event.currentTarget.href = discordVerificationHref(journeyId);
+  }
 
   useEffect(() => {
     if (
@@ -473,8 +310,8 @@ export function ClaimFlowContent({
       isVerifiedViewer ||
       analyticsJourneyFinishedRef.current
     ) return;
-    captureJourneyView(ensureAnalyticsJourneyId());
-  }, [canUseClaimJourney, captureJourneyView, context, ensureAnalyticsJourneyId, isVerifiedViewer]);
+    captureJourneyView(currentAnalyticsJourneyId);
+  }, [canUseClaimJourney, captureJourneyView, context, currentAnalyticsJourneyId, isVerifiedViewer]);
 
   useEffect(() => {
     if (status.kind === "error") statusRef.current?.focus();
@@ -520,7 +357,6 @@ export function ClaimFlowContent({
         method:
           observedContext?.lastVerifiedProof?.targetType === "vrclinking" ? "vrclinking" : "vrchat",
         journeyId: observedContext?.lastVerifiedProof?.analyticsJourneyId,
-        sessionScope: analyticsSessionScope,
       });
     }
   }
@@ -537,7 +373,7 @@ export function ClaimFlowContent({
       return;
     }
 
-    const journeyId = activeCollectorCompletion.journeyId ?? ensureAnalyticsJourneyId();
+    const journeyId = activeCollectorCompletion.journeyId ?? currentAnalyticsJourneyId;
     captureProductEvent(posthog, "claim_completed", {
       journey_id: journeyId,
       method: activeCollectorCompletion.method,
@@ -545,10 +381,10 @@ export function ClaimFlowContent({
       profile_type: profile.profileType,
     });
     finishAnalyticsJourney();
-  }, [activeCollectorCompletion, ensureAnalyticsJourneyId, finishAnalyticsJourney, posthog, profile.profileType]);
+  }, [activeCollectorCompletion, currentAnalyticsJourneyId, finishAnalyticsJourney, posthog, profile.profileType]);
 
   function selectMethod(nextMethod: ClaimMethod) {
-    const journeyId = beginAnalyticsJourneyForMethod(nextMethod);
+    const journeyId = beginAnalyticsJourney();
     captureJourneyView(journeyId);
     setMethod(nextMethod);
     setStatus({ kind: "idle" });
@@ -562,11 +398,12 @@ export function ClaimFlowContent({
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    let journeyId = beginAnalyticsJourneyForMethod(method);
+    let journeyId = beginAnalyticsJourney();
     captureJourneyView(journeyId);
     captureMethodSelection(journeyId, method);
     const captureSubmission = () => {
       if (isVerifiedViewer) return;
+      submittedJourneyIdsRef.current.add(journeyId);
       captureProductEvent(posthog, "claim_submitted", {
         journey_id: journeyId,
         method,
@@ -597,11 +434,12 @@ export function ClaimFlowContent({
           analyticsEntrySource: source,
         });
 
-        journeyId = adoptAnalyticsJourneyId(started.analyticsJourneyId);
+        journeyId = started.analyticsJourneyId;
+        setAnalyticsJourneyId(journeyId);
         captureJourneyView(journeyId);
         captureMethodSelection(journeyId, method);
         captureSubmission();
-        await checkProof(started.attemptId, "vrclinking");
+        await checkProof(started.attemptId, "vrclinking", started.analyticsJourneyId);
         return;
       }
 
@@ -613,7 +451,8 @@ export function ClaimFlowContent({
           analyticsJourneyId: journeyId,
           analyticsEntrySource: source,
         });
-        journeyId = adoptAnalyticsJourneyId(started.analyticsJourneyId);
+        journeyId = started.analyticsJourneyId;
+        setAnalyticsJourneyId(journeyId);
         captureJourneyView(journeyId);
         captureMethodSelection(journeyId, method);
         captureSubmission();
@@ -700,21 +539,18 @@ export function ClaimFlowContent({
   async function checkProof(
     attemptId: Id<"profileVerificationAttempts">,
     proofMethod: ClaimAnalyticsMethod = "vrchat",
+    knownJourneyId?: string,
   ) {
     const viaVrclinking = proofMethod === "vrclinking";
-    let journeyId = ensureAnalyticsJourneyId();
+    const journeyId =
+      knownJourneyId ?? context?.pendingProof?.analyticsJourneyId ?? analyticsJourneyId;
+    setAnalyticsJourneyId(journeyId);
 
     setStatus({
       kind: "working",
       message: viaVrclinking ? "Asking VRCLinking…" : "Looking for your code…",
     });
     try {
-      const adopted = await adoptPendingProofAnalytics({
-        attemptId,
-        analyticsJourneyId: journeyId,
-        analyticsEntrySource: source,
-      });
-      journeyId = adoptAnalyticsJourneyId(adopted.analyticsJourneyId);
       captureJourneyView(journeyId);
       captureMethodSelection(journeyId, proofMethod);
       const result = await verifyVrchat({ attemptId });
@@ -837,15 +673,10 @@ export function ClaimFlowContent({
   }
 
   async function checkDiscord(requestId: Id<"profileClaimRequests">) {
-    let journeyId = ensureAnalyticsJourneyId();
+    const journeyId = context?.pendingClaimRequest?.analyticsJourneyId ?? analyticsJourneyId;
+    setAnalyticsJourneyId(journeyId);
     setStatus({ kind: "working", message: "Checking your Discord server permissions…" });
     try {
-      const adopted = await adoptPendingClaimRequestAnalytics({
-        claimRequestId: requestId,
-        analyticsJourneyId: journeyId,
-        analyticsEntrySource: source,
-      });
-      journeyId = adoptAnalyticsJourneyId(adopted.analyticsJourneyId);
       captureJourneyView(journeyId);
       captureMethodSelection(journeyId, "discord");
       const result = await verifyDiscord({ claimRequestId: requestId });
@@ -900,20 +731,6 @@ export function ClaimFlowContent({
     setCollectorCompletion(null);
     setStatus({ kind: "working", message: "Canceling…" });
     try {
-      const journeyId = ensureAnalyticsJourneyId();
-      if (pendingType === "claim_request" && context?.pendingClaimRequest?.id) {
-        await adoptPendingClaimRequestAnalytics({
-          claimRequestId: context.pendingClaimRequest.id,
-          analyticsJourneyId: journeyId,
-          analyticsEntrySource: source,
-        });
-      } else if (pendingType === "proof" && context?.pendingProof?.id) {
-        await adoptPendingProofAnalytics({
-          attemptId: context.pendingProof.id,
-          analyticsJourneyId: journeyId,
-          analyticsEntrySource: source,
-        });
-      }
       const result = await cancelPending({ profileSlug: profile.slug, pendingType });
 
       // Nothing was cancelled, so the collector resolved the proof between the
@@ -1228,8 +1045,6 @@ export function ClaimFlowContent({
                       className={cn(buttonVariants({ variant: "secondary" }), "mt-3")}
                       href={discordAnalyticsHref}
                       onClick={prepareDiscordVerification}
-                      onContextMenu={prepareDiscordVerification}
-                      onMouseDown={prepareDiscordVerification}
                     >
                       {discordVerifyState === "verified"
                         ? "Check Discord again"
@@ -1292,8 +1107,6 @@ export function ClaimFlowContent({
                           className={cn(buttonVariants({ variant: "primary" }), "mt-4")}
                           href={discordAnalyticsHref}
                           onClick={prepareDiscordVerification}
-                          onContextMenu={prepareDiscordVerification}
-                          onMouseDown={prepareDiscordVerification}
                         >
                           {discordVerifyState === "verified"
                             ? "Check Discord servers again"

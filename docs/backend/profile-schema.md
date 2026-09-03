@@ -223,9 +223,9 @@ expiry, and optional evidence summary. Operational lifecycle fields distinguish
 queue dispatch from an actual provider check, retain bounded check outcomes and
 counts, and record terminal resolution time and reason.
 
-`profileClaimLifecycleEvents` is the authoritative internal event stream for
-attempt creation, proof dispatch, completed provider checks, and terminal
-resolution. It stores no provider response, proof text, or raw error payload.
+The attempt row itself is the troubleshooting record. Its dispatch, provider
+check, outcome, and resolution fields avoid a second event stream that can
+disagree with current claim state.
 
 Proof reading is split by target type:
 

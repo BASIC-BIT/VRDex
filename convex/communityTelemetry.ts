@@ -27,7 +27,6 @@ import {
 } from "./_communityTelemetry";
 import {
   collectorRuntimeCapabilityValidator,
-  recordProfileClaimLifecycleEvent,
   type CollectorRuntimeCapability,
   type ProofCheckOutcome,
 } from "./_claimObservability";
@@ -54,9 +53,6 @@ const aggregateInstanceValidator = v.object({
 
 const WORKER_HEARTBEAT_FRESHNESS_MS = 2 * 60_000;
 const PROOF_POLL_HEARTBEAT_WRITE_MS = 30_000;
-const OPERATIONAL_HEALTH_ATTEMPT_LIMIT = 1_000;
-const FIRST_CHECK_HEALTH_LOOKBACK_MS = 15 * 60_000;
-const MAX_WORKER_HEARTBEATS_PER_ACCOUNT = 32;
 const COLLECTOR_RELEASE_SHA_PATTERN = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
 
 function boundedWorkerId(value: string) {
@@ -105,17 +101,6 @@ async function recordProviderCheck(
     checkCount: (input.attempt.checkCount ?? 0) + 1,
     lastCheckOutcome: input.outcome,
     updatedAt: input.now,
-  });
-  await recordProfileClaimLifecycleEvent(ctx, {
-    profileId: input.attempt.profileId,
-    attemptId: input.attempt._id,
-    method: input.attempt.method,
-    targetType: input.attempt.targetType,
-    event: "provider_checked",
-    actorSurface: "collector",
-    outcome: input.outcome,
-    workerReleaseSha: input.workerReleaseSha,
-    createdAt: input.now,
   });
   if (input.attempt.firstCheckAt === undefined) {
     const analytics = analyticsContextFromAttempt(input.attempt);
@@ -2062,45 +2047,6 @@ export const recordCollectorHeartbeat = internalMutation({
       throw new Error("Collector failure count is invalid.");
     }
 
-    const existingHeartbeat = await ctx.db
-      .query("collectorWorkerHeartbeats")
-      .withIndex("by_collectorAccountId_workerId", (q) =>
-        q.eq("collectorAccountId", accountId).eq("workerId", workerId),
-      )
-      .unique();
-    const heartbeat = {
-      collectorAccountId: accountId,
-      workerId,
-      releaseSha,
-      collectorVersion,
-      capabilities,
-      consecutiveControlFailures: failures,
-      heartbeatAt: now,
-      updatedAt: now,
-    };
-    if (existingHeartbeat === null) {
-      await ctx.db.insert("collectorWorkerHeartbeats", heartbeat);
-    } else {
-      await ctx.db.patch(existingHeartbeat._id, heartbeat);
-    }
-
-    // ECS task IDs change across replacements. Keep enough current task rows
-    // for multi-task health while bounding restart churn on each account.
-    const recentHeartbeats = await ctx.db
-      .query("collectorWorkerHeartbeats")
-      .withIndex("by_collectorAccountId_heartbeatAt", (q) =>
-        q.eq("collectorAccountId", accountId),
-      )
-      .order("desc")
-      .take(MAX_WORKER_HEARTBEATS_PER_ACCOUNT * 2);
-    await Promise.all(
-      recentHeartbeats
-        .slice(MAX_WORKER_HEARTBEATS_PER_ACCOUNT)
-        .map((row) => ctx.db.delete(row._id)),
-    );
-
-    // Retain the account-level fields for existing operator surfaces and
-    // rollout compatibility. Health aggregation reads the per-worker rows.
     await ctx.db.patch(accountId, {
       lastWorkerHeartbeatAt: now,
       lastWorkerId: workerId,
@@ -2201,160 +2147,6 @@ export const collectorDeploymentReadiness = internalQuery({
       freshCollectorCount: fresh.length,
       matchingReleaseCount: matching.length,
       authRequiredCount: accounts.filter((account) => account.state === "auth_required").length,
-    };
-  },
-});
-
-/** Aggregate-only proof backlog and fleet health for operator diagnostics. */
-export const claimVerificationOperationalHealth = internalQuery({
-  args: { now: v.number() },
-  handler: async (ctx, args) => {
-    const [
-      fleet,
-      accounts,
-      userAttempts,
-      groupAttempts,
-      recentUserProviderChecks,
-      recentGroupProviderChecks,
-      recentWorkerHeartbeats,
-    ] = await Promise.all([
-      ctx.db
-        .query("collectorFleetSettings")
-        .withIndex("by_key", (q) => q.eq("key", "global"))
-        .first(),
-      ctx.db.query("collectorAccounts").collect(),
-      ctx.db
-        .query("profileVerificationAttempts")
-        .withIndex("by_state_targetType_createdAt", (q) =>
-          q.eq("state", "pending").eq("targetType", "vrchat_user"),
-        )
-        .take(OPERATIONAL_HEALTH_ATTEMPT_LIMIT + 1),
-      ctx.db
-        .query("profileVerificationAttempts")
-        .withIndex("by_state_targetType_createdAt", (q) =>
-          q.eq("state", "pending").eq("targetType", "vrchat_group"),
-        )
-        .take(OPERATIONAL_HEALTH_ATTEMPT_LIMIT + 1),
-      ctx.db
-        .query("profileClaimLifecycleEvents")
-        .withIndex("by_event_targetType_createdAt", (q) =>
-          q
-            .eq("event", "provider_checked")
-            .eq("targetType", "vrchat_user")
-            .gte("createdAt", args.now - FIRST_CHECK_HEALTH_LOOKBACK_MS),
-        )
-        .order("desc")
-        .take(OPERATIONAL_HEALTH_ATTEMPT_LIMIT + 1),
-      ctx.db
-        .query("profileClaimLifecycleEvents")
-        .withIndex("by_event_targetType_createdAt", (q) =>
-          q
-            .eq("event", "provider_checked")
-            .eq("targetType", "vrchat_group")
-            .gte("createdAt", args.now - FIRST_CHECK_HEALTH_LOOKBACK_MS),
-        )
-        .order("desc")
-        .take(OPERATIONAL_HEALTH_ATTEMPT_LIMIT + 1),
-      ctx.db
-        .query("collectorWorkerHeartbeats")
-        .withIndex("by_heartbeatAt", (q) =>
-          q.gte("heartbeatAt", args.now - WORKER_HEARTBEAT_FRESHNESS_MS),
-        )
-        .order("desc")
-        .take(OPERATIONAL_HEALTH_ATTEMPT_LIMIT + 1),
-    ]);
-    const userScanLimitReached = userAttempts.length > OPERATIONAL_HEALTH_ATTEMPT_LIMIT;
-    const groupScanLimitReached = groupAttempts.length > OPERATIONAL_HEALTH_ATTEMPT_LIMIT;
-    const providerCheckScanLimitReached =
-      recentUserProviderChecks.length > OPERATIONAL_HEALTH_ATTEMPT_LIMIT ||
-      recentGroupProviderChecks.length > OPERATIONAL_HEALTH_ATTEMPT_LIMIT;
-    const workerHeartbeatScanLimitReached =
-      recentWorkerHeartbeats.length > OPERATIONAL_HEALTH_ATTEMPT_LIMIT;
-    const pending = [
-      ...userAttempts.slice(0, OPERATIONAL_HEALTH_ATTEMPT_LIMIT),
-      ...groupAttempts.slice(0, OPERATIONAL_HEALTH_ATTEMPT_LIMIT),
-    ].filter(
-      (attempt) => attempt.expiresAt > args.now,
-    );
-    const unchecked = pending.filter((attempt) => attempt.firstCheckAt === undefined);
-    const fleetProofPathEnabled =
-      !fleet?.killSwitchEnabled &&
-      proofShareOf(fleet?.globalRequestsPerMinute ?? 30) > 0;
-    const freshCollectors = accounts.filter(
-      (account) =>
-        fleetProofPathEnabled &&
-        account.state === "ready" &&
-        !account.killSwitchEnabled &&
-        proofShareOf(account.requestsPerMinute) > 0 &&
-        (account.cooldownUntil ?? 0) <= args.now &&
-        (account.lastProofPollAt ?? 0) >= args.now - WORKER_HEARTBEAT_FRESHNESS_MS,
-    );
-    const releaseCounts = new Map<string, number>();
-    for (const account of freshCollectors) {
-      const key = account.lastWorkerReleaseSha ?? "unknown";
-      releaseCounts.set(key, (releaseCounts.get(key) ?? 0) + 1);
-    }
-    const freshCollectorAccountIds = new Set(
-      freshCollectors.map((account) => String(account._id)),
-    );
-    const currentWorkerHeartbeats = recentWorkerHeartbeats
-      .slice(0, OPERATIONAL_HEALTH_ATTEMPT_LIMIT)
-      .filter((heartbeat) =>
-        freshCollectorAccountIds.has(String(heartbeat.collectorAccountId)),
-      );
-    const accountsWithWorkerHeartbeats = new Set(
-      currentWorkerHeartbeats.map((heartbeat) => String(heartbeat.collectorAccountId)),
-    );
-    const maximumWorkerFailureStreak = Math.max(
-      0,
-      ...currentWorkerHeartbeats.map((heartbeat) => heartbeat.consecutiveControlFailures),
-      // Account fields are the migration fallback until each active task has
-      // written its first per-worker heartbeat.
-      ...freshCollectors
-        .filter((account) => !accountsWithWorkerHeartbeats.has(String(account._id)))
-        .map((account) => account.consecutiveControlFailures ?? 0),
-    );
-    const recentCheckedAttemptIds = [
-      ...new Set(
-        [
-          ...recentUserProviderChecks.slice(0, OPERATIONAL_HEALTH_ATTEMPT_LIMIT),
-          ...recentGroupProviderChecks.slice(0, OPERATIONAL_HEALTH_ATTEMPT_LIMIT),
-        ]
-          .map((event) => event.attemptId),
-      ),
-    ];
-    const recentCheckedAttempts = await Promise.all(
-      recentCheckedAttemptIds.map((attemptId) => ctx.db.get(attemptId)),
-    );
-    const recentFirstCheckLatencies = recentCheckedAttempts.flatMap((attempt) =>
-      attempt?.firstCheckAt === undefined ||
-      attempt.firstCheckAt < args.now - FIRST_CHECK_HEALTH_LOOKBACK_MS
-        ? []
-        : [Math.max(0, attempt.firstCheckAt - attempt.createdAt)],
-    );
-    return {
-      fleetKillSwitchEnabled: fleet?.killSwitchEnabled ?? false,
-      pendingEligibleAttemptCount: pending.length,
-      scanLimitReached:
-        userScanLimitReached ||
-        groupScanLimitReached ||
-        providerCheckScanLimitReached ||
-        workerHeartbeatScanLimitReached,
-      uncheckedAttemptCount: unchecked.length,
-      oldestUncheckedAgeMs:
-        unchecked.length === 0
-          ? null
-          : Math.max(0, args.now - Math.min(...unchecked.map((attempt) => attempt.createdAt))),
-      freshCollectorCount: freshCollectors.length,
-      authRequiredCount: accounts.filter((account) => account.state === "auth_required").length,
-      maxRecentFirstCheckLatencyMs:
-        recentFirstCheckLatencies.length === 0
-          ? null
-          : Math.max(...recentFirstCheckLatencies),
-      maxConsecutiveControlFailures: maximumWorkerFailureStreak,
-      releases: [...releaseCounts.entries()]
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([releaseSha, collectorCount]) => ({ releaseSha, collectorCount })),
     };
   },
 });
@@ -2461,16 +2253,6 @@ export const claimPendingProofChecks = internalMutation({
             resolutionReason: "expired",
             updatedAt: args.now,
           });
-          await recordProfileClaimLifecycleEvent(ctx, {
-            profileId: attempt.profileId,
-            attemptId: attempt._id,
-            method: attempt.method,
-            targetType: attempt.targetType,
-            event: "attempt_resolved",
-            actorSurface: "collector",
-            outcome: "expired",
-            createdAt: args.now,
-          });
           const profile = await ctx.db.get(attempt.profileId);
           if (profile !== null) {
             await enqueueAttemptResolution(
@@ -2513,16 +2295,6 @@ export const claimPendingProofChecks = internalMutation({
           dispatchCount: (attempt.dispatchCount ?? 0) + 1,
           lastDispatchedByWorkerId: workerId,
           updatedAt: args.now,
-        });
-        await recordProfileClaimLifecycleEvent(ctx, {
-          profileId: attempt.profileId,
-          attemptId: attempt._id,
-          method: attempt.method,
-          targetType: attempt.targetType,
-          event: "proof_dispatched",
-          actorSurface: "collector",
-          workerReleaseSha,
-          createdAt: args.now,
         });
       }),
     );
@@ -2646,17 +2418,6 @@ export const recordProofCheckResult = internalMutation({
         resolutionReason: "expired",
         updatedAt: args.now,
       });
-      await recordProfileClaimLifecycleEvent(ctx, {
-        profileId: attempt.profileId,
-        attemptId: attempt._id,
-        method: attempt.method,
-        targetType: attempt.targetType,
-        event: "attempt_resolved",
-        actorSurface: "collector",
-        outcome: "expired",
-        workerReleaseSha,
-        createdAt: args.now,
-      });
       const profile = await ctx.db.get(attempt.profileId);
       if (profile !== null) {
         await enqueueAttemptResolution(
@@ -2708,17 +2469,6 @@ export const recordProofCheckResult = internalMutation({
         evidenceSource: "vrchat_api",
         evidenceSummary: "This profile was claimed by someone else before the proof was found.",
         updatedAt: args.now,
-      });
-      await recordProfileClaimLifecycleEvent(ctx, {
-        profileId: attempt.profileId,
-        attemptId: attempt._id,
-        method: attempt.method,
-        targetType: attempt.targetType,
-        event: "attempt_resolved",
-        actorSurface: "collector",
-        outcome: "already_owned",
-        workerReleaseSha,
-        createdAt: args.now,
       });
 
       const profile = await ctx.db.get(attempt.profileId);

@@ -80,37 +80,22 @@ holder:
    control-plane failure, and restart metric filters and alarms.
 3. Apply that infrastructure plan manually. Automatic releases intentionally
    reject it because it contains more than an image-only task revision.
-4. Provision separate main-only GitHub OIDC roles for release and read-only
-   audit, following the least-privilege requirements in the stack README.
+4. Provision the main-only GitHub OIDC release role, following the
+   least-privilege requirements in the stack README.
 5. Configure every required GitHub variable and secret listed there, then set
    `GROUP_TELEMETRY_RELEASE_ENABLED=true`.
-6. Dispatch audit mode first. Dispatch release mode only from a commit reachable
-   from `main`.
-
-Every five minutes, the audit job asks GitHub Actions for the latest successful
-main baseline. It compares that expected SHA with ECR, the running ECS digest,
-and Convex operational readiness. This catches a main change that was never
-built as well as a build that never reached ECS. A branch-scoped Actions cache
-records the first observation of each current mismatch. The audit fails only
-when a mismatch remains present for fifteen minutes, and a healthy observation
-resets its clock, so an old release timestamp cannot turn one brief task restart
-into persistent drift. The audit makes no provider or AWS mutation.
-Stale heartbeat, missing proof capability, `auth_required`, or unchecked-attempt
-health issues fail immediately.
+6. Dispatch the workflow manually only from a commit reachable from `main`, or
+   let a successful `main` Baseline Checks run trigger it automatically.
 
 The CloudWatch filters consume only redacted JSON event names:
 `collector_heartbeat`, `collector_auth_required`,
 `collector_control_plane_failure`, and `collector_worker_restart`. They must
 never include a profile slug, proof code, provider target, account identifier,
 cookie, key, or raw error payload. Missing successful heartbeats alarm after
-two one-minute periods. The scheduled audit also fails when an eligible proof
-remains unchecked for more than two minutes.
+two one-minute periods.
 
 The Terraform-managed `${name_prefix}-operations` dashboard combines those
-collector signals with ECS task count, CPU, and a bounded recent-log view. The
-scheduled audit summary is the companion Convex view: it reports aggregate
-proof backlog, oldest unchecked age, collector release counts, and analytics
-outbox health without customer or journey identifiers.
+collector signals with ECS task count, CPU, and a bounded recent-log view.
 
 Steps 1-7 are the bring-up sequence for standing a fleet up, not a description of
 the current state. Production has been through them: BASIC accepted durable

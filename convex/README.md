@@ -32,7 +32,7 @@ This directory holds the initial Convex backend slice for `VRDex`.
 - `_communityTelemetry.ts` contains group-telemetry metric, cadence, coverage, and redaction helpers
 - `_communityTelemetryPublic.ts` contains the sanitized public telemetry projection shared by web, API, and MCP reads
 - `communityTelemetry.ts` exposes community-authorized telemetry settings and the collector control plane
-- `crons.ts` schedules bounded telemetry rollups, retention compaction, and claim-analytics outbox recovery
+- `crons.ts` schedules bounded telemetry rollups, retention compaction, claim-analytics recovery, and other maintenance
 - `migrations.ts` contains deploy-time data backfills for schema additions
 - `_searchDocuments.ts`, `_publicSearch.ts`, `_vocabulary.ts`, `search.ts`, and `suppressions.ts` contain public discovery, vocabulary, and suppression helpers
 - `_generated/` contains committed Convex codegen output and should not be edited by hand

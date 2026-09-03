@@ -46,9 +46,8 @@ The release job requires these GitHub settings:
 
 | Setting | Type | Purpose |
 | --- | --- | --- |
-| `GROUP_TELEMETRY_RELEASE_ENABLED=true` | variable | Explicitly enables both the release and audit jobs. |
+| `GROUP_TELEMETRY_RELEASE_ENABLED=true` | variable | Explicitly enables the release job. |
 | `AWS_GROUP_TELEMETRY_RELEASE_ROLE_ARN` | variable | Main-only OIDC role for ECR upload, exact collector Terraform state, task-definition registration, and update of only the collector ECS service. |
-| `AWS_GROUP_TELEMETRY_AUDIT_ROLE_ARN` | variable | Main-only OIDC role with read-only ECR and ECS inspection. |
 | `GROUP_TELEMETRY_SUBNET_IDS` | variable | Non-empty JSON list passed to Terraform. |
 | `GROUP_TELEMETRY_SECURITY_GROUP_IDS` | variable | Non-empty JSON list passed to Terraform. |
 | `GROUP_TELEMETRY_ASSIGN_PUBLIC_IP` | variable | Exact `true` or `false` production run state. |
@@ -59,13 +58,13 @@ The release job requires these GitHub settings:
 | `CONVEX_DEPLOYMENT_PROD` | variable | Explicit production Convex deployment selector. |
 | `CONVEX_DEPLOY_KEY_PROD` | secret | Production query authorization used only for the readiness check. |
 
-Provision the two OIDC roles through a separately reviewed IAM bootstrap. The
+Provision the OIDC role through a separately reviewed IAM bootstrap. The
 release role needs read access to refresh this stack, ECR layer upload for only
 `vrdex-group-telemetry`, `iam:PassRole` for only the existing collector task and
 execution roles, task-definition register/deregister, `ecs:UpdateService` for
 only the collector service, and object access only to this stack's state key and
-lockfile. The audit role needs no write action. Do not reuse a broad account
-deployment role simply to avoid this bootstrap.
+lockfile. Do not reuse a broad account deployment role simply to avoid this
+bootstrap.
 
 For each successful `main` baseline, the release lane runs worker compatibility
 tests, reuses or builds the immutable `git-<40-character-sha>` ECR image, creates
@@ -88,11 +87,3 @@ run of failed releases cannot evict the last known-good rollback image. The ECR
 lifecycle rule removes only untagged images after seven days. Longer-term
 tagged-image and inactive-revision cleanup is a deliberate operator retention
 task; the automatic lane does not delete rollback artifacts.
-
-The five-minute scheduled audit is read-only. It derives the expected release from the
-latest successful `main` Baseline Checks run, then verifies that SHA's tagged
-ECR image, exact ECS digest, and the configured collector account's authoritative
-Convex heartbeat. It does not infer release order from ECR push timestamps. A mismatch
-may converge for fifteen minutes. Persistent drift, stale or missing heartbeat,
-missing proof capability, `auth_required`, or any operational-readiness issue
-fails the audit.

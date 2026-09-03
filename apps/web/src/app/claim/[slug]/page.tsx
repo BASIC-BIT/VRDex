@@ -15,7 +15,6 @@ export default async function ClaimProfilePage({
   searchParams: Promise<{
     source?: string | string[];
     discordVerify?: string | string[];
-    discordOAuthReturn?: string | string[];
     analyticsJourneyId?: string | string[];
   }>;
 }) {
@@ -27,9 +26,6 @@ export default async function ClaimProfilePage({
   const rawDiscordVerify = Array.isArray(resolvedSearchParams.discordVerify)
     ? resolvedSearchParams.discordVerify[0]
     : resolvedSearchParams.discordVerify;
-  const rawDiscordOAuthReturn = Array.isArray(resolvedSearchParams.discordOAuthReturn)
-    ? resolvedSearchParams.discordOAuthReturn[0]
-    : resolvedSearchParams.discordOAuthReturn;
   const rawAnalyticsJourneyId = Array.isArray(resolvedSearchParams.analyticsJourneyId)
     ? resolvedSearchParams.analyticsJourneyId[0]
     : resolvedSearchParams.analyticsJourneyId;
@@ -51,9 +47,6 @@ export default async function ClaimProfilePage({
               validClaimJourneyId(rawAnalyticsJourneyId)
                 ? rawAnalyticsJourneyId
                 : crypto.randomUUID()
-            }
-            discordJourneyRestored={
-              validClaimJourneyId(rawAnalyticsJourneyId) && rawDiscordOAuthReturn === "1"
             }
             profile={{
               avatarAppearance:

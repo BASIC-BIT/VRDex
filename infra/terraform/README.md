@@ -45,9 +45,9 @@ Required CI settings by provider:
 | `TERRAFORM_PROFILE_ASSETS_VERCEL_TEAM_SLUG` | optional repository variable | `profile-assets`; defaults to `basicbit` for the hosted Vercel OIDC provider guard |
 
 The group telemetry collector uses its dedicated release workflow rather than
-the generic Terraform matrix. Its production variables, scoped OIDC roles,
-remote-state migration, initial manual infrastructure apply, and scheduled
-read-only drift audit are documented in
+the generic Terraform matrix. Its production variables, scoped release role,
+remote-state migration, initial manual infrastructure apply, and deploy-time
+verification are documented in
 `infra/terraform/group-telemetry-collector/README.md`.
 
 `state-mgmt/` is validation-only in CI because it intentionally uses local bootstrap state and owns the GitHub Actions AWS role used by the provider-backed stacks. Apply it manually when changing the shared state bucket or Terraform CI role, then store `terraform output -raw github_actions_terraform_role_arn` in GitHub variable `AWS_TERRAFORM_ROLE_ARN`.
