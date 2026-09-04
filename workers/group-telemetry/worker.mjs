@@ -96,10 +96,15 @@ async function heartbeat() {
 async function checkSession() {
   const now = Date.now();
   if (now < nextSessionCheckAt || accountBudget.retryAfterMs(1, now) > 0) return;
+  // Reserved against the shared proof share like every other provider request,
+  // so two replicas cannot spend an unaccounted slot each. A denial is not a
+  // skipped check: the next tick asks again.
+  const reservation = await control.send("proof_budget", { requestCount: 1, now });
+  if (!reservation?.granted) return;
   nextSessionCheckAt = now + sessionCheckDelayMs();
   accountBudget.tryConsume(1, now);
   try {
-    await provider.verifySession();
+    await provider.verifySession({ expectedUserId: secret.vrchatUserId });
     logEvent({ event: "collector_session_check", outcome: "ok" });
   } catch (error) {
     if (error?.category !== "authentication") {
@@ -109,13 +114,22 @@ async function checkSession() {
     }
     logEvent({ event: "collector_session_check", outcome: "auth_required" });
     logEvent(collectorAuthRequiredEvent());
-    try {
-      await control.send("proof_auth_failure", { now: Date.now() });
-    } catch {
-      // Exiting on the 401 matters more than reporting it.
-    }
-    stopping = true;
+    await reportDeadSession();
   }
+}
+
+/**
+ * Tell the control plane the session is dead so the account stops being
+ * offered work, then stop. Callers log `collectorAuthRequiredEvent` first and
+ * hand back anything they hold: once reported, this worker is rejected.
+ */
+async function reportDeadSession() {
+  try {
+    await control.send("proof_auth_failure", { now: Date.now() });
+  } catch {
+    // Exiting on the 401 matters more than reporting it.
+  }
+  stopping = true;
 }
 
 // A rate-limit backoff can park the loop for minutes, and ECS SIGKILLs 30s
@@ -359,14 +373,7 @@ async function checkProofs() {
           .catch(() => undefined);
         logEvent(collectorAuthRequiredEvent());
         await releaseUnread(pending, attempt);
-
-        try {
-          await control.send("proof_auth_failure", { now: Date.now() });
-        } catch {
-          // Exiting on the 401 matters more than reporting it.
-        }
-
-        stopping = true;
+        await reportDeadSession();
         // Break rather than `continue`: the loop head releases the tail when it
         // sees `stopping`, and this path has already released it. The second
         // call would be a doomed round-trip at best, and at worst would un-stamp

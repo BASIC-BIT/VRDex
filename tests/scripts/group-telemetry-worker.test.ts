@@ -416,7 +416,7 @@ describe("group telemetry provider adapter", () => {
       },
     });
 
-    assert.deepEqual(await client.verifySession(), { userId: "usr_service-account" });
+    assert.deepEqual(await client.verifySession({ expectedUserId: "usr_service-account" }), { userId: "usr_service-account" });
     assert.match(requests[0]!.url, /\/auth\/user$/);
     assert.equal(requests[0]!.cookie, "auth=cookie-value; twoFactorAuth=two-factor-value");
 
@@ -436,6 +436,15 @@ describe("group telemetry provider adapter", () => {
       fetcher: async () => jsonResponse({ displayName: "no id" }),
     });
     await assert.rejects(malformed.verifySession(), (error: unknown) => error instanceof VrchatProviderError && error.category === "schema_drift");
+
+    // A session for a different account than the secret names is as dead as an
+    // expired one: the worker must not read anything with it.
+    const otherAccount = new VrchatClient({
+      authCookie: "cookie-value",
+      userAgent: "VRDex/0.1 telemetry@example.com",
+      fetcher: async () => jsonResponse({ id: "usr_someone-else" }),
+    });
+    await assert.rejects(otherAccount.verifySession({ expectedUserId: "usr_service-account" }), (error: unknown) => error instanceof VrchatProviderError && error.category === "authentication" && !error.message.includes("usr_someone-else"));
   });
 });
 
