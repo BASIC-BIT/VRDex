@@ -183,6 +183,7 @@ describe("collector proof check queue", () => {
     await t.mutation(internal.communityTelemetry.claimPendingProofChecks, {
       collectorAccountId,
       workerId: "worker-readiness",
+      releaseSha,
       now,
     });
     await t.run(async (ctx) => {
@@ -287,13 +288,84 @@ describe("collector proof check queue", () => {
         lastWorkerHeartbeatAt: now,
       });
     });
-    assert.equal((await t.query(internal.communityTelemetry.collectorDeploymentReadiness, {
+    assert.deepEqual((await t.query(internal.communityTelemetry.collectorDeploymentReadiness, {
       collectorAccountId,
       expectedReleaseSha: releaseSha,
       requiredCapabilities: ["telemetry_v1", "vrchat_proof_v1"],
       maxHeartbeatAgeMs: 120_000,
       now,
+    })).issues, ["configured_collector_cooldown_active"]);
+    assert.equal((await t.query(internal.communityTelemetry.collectorDeploymentReadiness, {
+      collectorAccountId,
+      expectedReleaseSha: releaseSha,
+      requiredCapabilities: ["telemetry_v1"],
+      maxHeartbeatAgeMs: 120_000,
+      now,
     })).healthy, true);
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(collectorAccountId, {
+        cooldownUntil: undefined,
+        requestsPerMinute: 2,
+      });
+    });
+    assert.deepEqual((await t.query(internal.communityTelemetry.collectorDeploymentReadiness, {
+      collectorAccountId,
+      expectedReleaseSha: releaseSha,
+      requiredCapabilities: ["telemetry_v1", "vrchat_proof_v1"],
+      maxHeartbeatAgeMs: 120_000,
+      now,
+    })).issues, ["configured_collector_proof_budget_disabled"]);
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(collectorAccountId, { requestsPerMinute: 30 });
+      const fleet = await ctx.db
+        .query("collectorFleetSettings")
+        .withIndex("by_key", (q) => q.eq("key", "global"))
+        .unique();
+      assert.ok(fleet);
+      await ctx.db.patch(fleet._id, { globalRequestsPerMinute: 2 });
+    });
+    assert.deepEqual((await t.query(internal.communityTelemetry.collectorDeploymentReadiness, {
+      collectorAccountId,
+      expectedReleaseSha: releaseSha,
+      requiredCapabilities: ["telemetry_v1", "vrchat_proof_v1"],
+      maxHeartbeatAgeMs: 120_000,
+      now,
+    })).issues, ["fleet_proof_budget_disabled"]);
+
+    await t.run(async (ctx) => {
+      const fleet = await ctx.db
+        .query("collectorFleetSettings")
+        .withIndex("by_key", (q) => q.eq("key", "global"))
+        .unique();
+      assert.ok(fleet);
+      await ctx.db.patch(fleet._id, { globalRequestsPerMinute: 30 });
+      await ctx.db.patch(collectorAccountId, {
+        lastProofPollReleaseSha: "c".repeat(40),
+      });
+    });
+    assert.deepEqual((await t.query(internal.communityTelemetry.collectorDeploymentReadiness, {
+      collectorAccountId,
+      expectedReleaseSha: releaseSha,
+      requiredCapabilities: ["telemetry_v1", "vrchat_proof_v1"],
+      maxHeartbeatAgeMs: 120_000,
+      now,
+    })).issues, ["configured_collector_proof_release_mismatch"]);
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(collectorAccountId, {
+        lastProofPollReleaseSha: releaseSha,
+        lastProofPollAt: now - 120_001,
+      });
+    });
+    assert.deepEqual((await t.query(internal.communityTelemetry.collectorDeploymentReadiness, {
+      collectorAccountId,
+      expectedReleaseSha: releaseSha,
+      requiredCapabilities: ["telemetry_v1", "vrchat_proof_v1"],
+      maxHeartbeatAgeMs: 10 * 60_000,
+      now,
+    })).issues, ["configured_collector_proof_poll_stale"]);
     assert.equal(JSON.stringify(ready).includes("readiness"), false);
   });
 

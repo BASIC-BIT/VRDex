@@ -19,9 +19,10 @@ Proof dispatch and provider checks are separate lifecycle facts.
 `firstDispatchedAt`/`lastDispatchedAt` and `dispatchCount` describe work handed
 out, while `firstCheckAt`/`lastCheckAt`, `checkCount`, and the bounded
 `lastCheckOutcome` describe provider requests that actually ran. An idle worker
-stamps `lastProofPollAt` only after the account and fleet proof gates pass. This
-lets the claim action distinguish a live proof reader from a generic running or
-obsolete task.
+stamps `lastProofPollAt` and its `lastProofPollReleaseSha` only after the account
+and fleet proof gates pass. This lets the claim action distinguish a live proof
+reader from a generic running task, while the deployment gate can also reject
+an obsolete release.
 
 ## Observation model
 

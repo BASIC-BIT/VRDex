@@ -1441,6 +1441,7 @@ export default defineSchema({
     // Proof-path readiness is intentionally distinct from generic process
     // liveness: only a worker that reached the proof claim gate may stamp it.
     lastProofPollAt: v.optional(v.number()),
+    lastProofPollReleaseSha: v.optional(v.string()),
     // Provider/account health above is distinct from worker process liveness.
     // A task can be running an obsolete release while the provider session is
     // still healthy, so deployment convergence needs an explicit heartbeat.

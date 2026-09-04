@@ -105,7 +105,10 @@ For deployment convergence, query
 SHA, required capabilities, heartbeat age bound, and current time. The response
 contains counts and bounded issue codes only. It is healthy only when at least
 one eligible fresh collector reports that exact release and every required
-capability. Runtime diagnostics are structured JSON. In particular,
+capability. When `vrchat_proof_v1` is required, that release must also have
+reached the proof-claim gate within the heartbeat age bound, with proof budget
+available and no active account cooldown. An advertised capability alone does
+not prove that claimants can use it. Runtime diagnostics are structured JSON. In particular,
 `collector_auth_required`, `collector_control_plane_failure`, and
 `collector_worker_restart` carry bounded classifications without exception
 messages, proof material, provider payloads, target IDs, or credentials.
