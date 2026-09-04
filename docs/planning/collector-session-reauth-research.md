@@ -529,8 +529,8 @@ in place:
   The operator runs the existing login harness and transfer on their own
   machine with `NODE_USE_ENV_PROXY=1 HTTPS_PROXY=http://127.0.0.1:8888
   NO_PROXY=127.0.0.1,localhost`. Nothing about the secret, the vault, or the
-  2026-07-27 decision changes. The host is still a hand-made scratch
-  artifact; making it Terraform-managed is the one piece of this left to do.
+  2026-07-27 decision changes. The host is the
+  `infra/terraform/group-telemetry-login-host` stack; its README is the runbook.
 - Option a (keep-alive, PR #306) stays: it is what reports the next death
   within ten minutes instead of a day.
 
