@@ -476,7 +476,7 @@ export async function expectVerifiedPersonProfilePage(page: Page) {
   await expect(page.getByRole("link", { name: "Open preview" })).toBeVisible();
   await expect(page.getByText("Quest (MPEG-TS)", { exact: true })).toBeVisible();
   await expect(page.getByText("PC (RTSPT)", { exact: true })).toBeVisible();
-  await expect(page.getByRole("link", { name: "VRCDN stream" })).toHaveCount(0);
+  await expect(page.getByRole("link", { exact: true, name: "VRCDN stream" })).toHaveCount(0);
   // Twitch and the permanent VRCDN controls keep the Watch surface present.
   // The fixture has no confirmed VRCDN liveness, so only the player stays out.
   await expect(page.getByRole("button", { name: /^Play / })).toHaveCount(0);

@@ -212,23 +212,23 @@ export function ProfileVrcdnStreams({
         <aside className="border-t border-border py-8 lg:border-t-0 lg:border-l lg:pl-8">
           <SectionHeading>Watch</SectionHeading>
           {twitchContent}
-          {streams.map(({ claimable, key, label, pcUrl, previewUrl, questUrl, streamId }) => {
+          {streams.map(({ claimable, key, label, pcUrl, previewUrl, questUrl, streamId }, index) => {
             const lifecycle = lifecycles[streamId];
             const live = claimable && lifecycle?.presentation === "live";
             const playbackActive = activePlaybackStreamIds.has(streamId);
             const showPlayer = claimable && (
               live || lifecycle?.status === "pending_offline" || playbackActive
             );
+            const title = streams.length > 1 ? `${label} ${streamId}` : label;
 
             return (
-              <div className="pt-5" key={key}>
-                <div className="flex flex-wrap items-center justify-between gap-3 pb-3">
-                  <div className="flex items-center gap-3">
-                    <p className="font-medium">{label}</p>
-                    {live ? <span className="text-sm font-medium text-success">Live now</span> : null}
-                  </div>
+              <div className={cn("pt-5", index > 0 && "mt-5 border-t border-border")} key={key}>
+                <div className="flex items-center gap-3 pb-3">
+                  <p className="font-medium">{label}</p>
+                  {live ? <span className="text-sm font-medium text-success">Live now</span> : null}
                 </div>
                 <a
+                  aria-label={`Open preview for ${title}`}
                   className={cn(buttonVariants({ variant: "secondary" }), "mb-4 gap-2")}
                   href={previewUrl}
                   rel="noreferrer"
@@ -245,7 +245,7 @@ export function ProfileVrcdnStreams({
                       onHealthSignal={requestSanityCheck}
                       onPlaybackActiveChange={(active) => handlePlaybackActiveChange(streamId, active)}
                       src={questUrl}
-                      title={streams.length > 1 ? `${label} ${streamId}` : label}
+                      title={title}
                     />
                   </div>
                 ) : null}

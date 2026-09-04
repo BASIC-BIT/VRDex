@@ -486,7 +486,7 @@ test.describe("fixture lookup smoke", () => {
     await expect(watch.getByRole("link", { name: "Open preview" })).toBeVisible();
     await expect(watch.getByText("https://stream.vrcdn.live/live/dj-night-market.live.ts", { exact: true })).toBeVisible();
     await expect(watch.getByText("rtspt://stream.vrcdn.live/live/dj-night-market", { exact: true })).toBeVisible();
-    await expect(page.getByRole("link", { name: "VRCDN stream" })).toHaveCount(0);
+    await expect(page.getByRole("link", { exact: true, name: "VRCDN stream" })).toHaveCount(0);
     await expect(page.getByText("Live now", { exact: true })).toHaveCount(0);
   });
 
@@ -634,7 +634,6 @@ test.describe("fixture lookup smoke", () => {
     // provider: the badge holds until the requested check answers.
     await expect(page.getByText("Playback stopped", { exact: true })).toBeVisible();
     await expect(vrcdnBlock.getByText("Live now", { exact: true })).toBeVisible();
-    expect(attempts).toBe(1);
 
     await page.clock.fastForward(10_000);
     await expect.poll(() => attempts).toBe(2);

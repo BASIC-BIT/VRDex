@@ -432,15 +432,97 @@ describe("VRCDN live heartbeat", () => {
 
     heartbeat.start();
     await flushPromises();
+    timers.tick(3_000);
     heartbeat.requestSanityCheck();
     heartbeat.requestSanityCheck();
     assert.equal(calls, 1);
 
+    // The queued check still honours the ten-second floor from the probe it
+    // waited on, rather than firing the moment that probe resolves.
     releases.shift()?.();
+    await flushPromises();
+    assert.equal(calls, 1);
+
+    timers.tick(6_999);
+    await flushPromises();
+    assert.equal(calls, 1);
+
+    timers.tick(1);
     await flushPromises();
     assert.equal(calls, 2);
     assert.equal(maxConcurrent, 1);
 
+    releases.shift()?.();
+    heartbeat.stop();
+  });
+
+  it("does not let a sanity check shorten an unavailable backoff", async () => {
+    const timers = new FakeTimers();
+    let calls = 0;
+    const heartbeat = new VrcdnLiveHeartbeat({
+      clearTimeout: timers.clearTimeout,
+      isVisible: () => true,
+      now: () => timers.now,
+      probe: async () => {
+        calls += 1;
+        return { hasUnavailable: true };
+      },
+      random: () => 0.5,
+      setTimeout: timers.setTimeout,
+      subscribeToVisibility: () => () => {},
+    });
+
+    heartbeat.start();
+    await flushPromises();
+    assert.equal(calls, 1);
+
+    timers.tick(4_000);
+    heartbeat.requestSanityCheck();
+    timers.tick(10_999);
+    await flushPromises();
+    assert.equal(calls, 1);
+
+    timers.tick(1);
+    await flushPromises();
+    assert.equal(calls, 2);
+
+    heartbeat.stop();
+  });
+
+  it("does not let a check queued during an unavailable probe discard the backoff", async () => {
+    const timers = new FakeTimers();
+    const releases: Array<() => void> = [];
+    let calls = 0;
+    const heartbeat = new VrcdnLiveHeartbeat({
+      clearTimeout: timers.clearTimeout,
+      isVisible: () => true,
+      now: () => timers.now,
+      probe: async () => {
+        calls += 1;
+        await new Promise<void>((resolve) => releases.push(resolve));
+        return { hasUnavailable: true };
+      },
+      random: () => 0.5,
+      setTimeout: timers.setTimeout,
+      subscribeToVisibility: () => () => {},
+    });
+
+    heartbeat.start();
+    await flushPromises();
+    heartbeat.requestSanityCheck();
+    releases.shift()?.();
+    await flushPromises();
+    assert.equal(calls, 1);
+
+    timers.tick(14_999);
+    await flushPromises();
+    assert.equal(calls, 1);
+
+    timers.tick(1);
+    await flushPromises();
+    assert.equal(calls, 2);
+
+    releases.shift()?.();
     heartbeat.stop();
   });
 });

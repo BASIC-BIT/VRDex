@@ -30,7 +30,7 @@ export class VrcdnLiveHeartbeat {
   private controller?: AbortController;
   private inFlight = false;
   private lastProbeAt?: number;
-  private queuedImmediate = false;
+  private queuedSanityCheck = false;
   private started = false;
   private scheduledAt?: number;
   private scheduledKind?: "heartbeat" | "priority";
@@ -41,7 +41,8 @@ export class VrcdnLiveHeartbeat {
   constructor(options: VrcdnLiveHeartbeatOptions) {
     this.clearTimer = options.clearTimeout ?? ((timer) => window.clearTimeout(timer));
     this.isVisible = options.isVisible ?? (() => document.visibilityState === "visible");
-    this.now = options.now ?? Date.now;
+    // Read lazily so a test clock installed after mount is honoured.
+    this.now = options.now ?? (() => Date.now());
     this.probe = options.probe;
     this.setTimer = options.setTimeout ?? ((callback, delayMs) => window.setTimeout(callback, delayMs));
     this.subscribeToVisibility = options.subscribeToVisibility ?? ((listener) => {
@@ -120,8 +121,14 @@ export class VrcdnLiveHeartbeat {
     }
 
     if (this.inFlight) {
-      this.clearScheduledTimer();
-      this.queuedImmediate = true;
+      this.queuedSanityCheck = true;
+      return;
+    }
+
+    // A priority plan is either an unavailable backoff or a pending-offline
+    // deadline. Both already answer on purpose, and a player stall must not
+    // shorten a backoff against a provider that is failing.
+    if (this.scheduledKind === "priority") {
       return;
     }
 
@@ -133,10 +140,7 @@ export class VrcdnLiveHeartbeat {
       : this.now() - this.lastProbeAt;
 
     if (sinceLastProbe < vrcdnSanityCheckMinIntervalMs) {
-      const delay = vrcdnSanityCheckMinIntervalMs - sinceLastProbe;
-      if (this.scheduledAt === undefined || this.scheduledAt - this.now() > delay) {
-        this.schedule(delay, "priority");
-      }
+      this.schedule(vrcdnSanityCheckMinIntervalMs - sinceLastProbe, "priority");
       return;
     }
 
@@ -149,7 +153,7 @@ export class VrcdnLiveHeartbeat {
     this.controller?.abort();
     this.controller = undefined;
     this.inFlight = false;
-    this.queuedImmediate = false;
+    this.queuedSanityCheck = false;
     this.clearScheduledTimer();
     this.unsubscribeVisibility?.();
     this.unsubscribeVisibility = undefined;
@@ -231,10 +235,11 @@ export class VrcdnLiveHeartbeat {
       this.inFlight = false;
       this.controller = undefined;
 
-      if (this.started && this.queuedImmediate && this.isVisible()) {
-        this.queuedImmediate = false;
-        this.clearScheduledTimer();
-        void this.runProbe();
+      // A check requested mid-probe goes through the same floor and
+      // priority rules as any other, so it can never discard a backoff.
+      if (this.queuedSanityCheck) {
+        this.queuedSanityCheck = false;
+        this.requestSanityCheck();
       }
     }
   }
