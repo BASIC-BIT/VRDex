@@ -12,6 +12,7 @@ export const apiWriteAuditActionValidator = v.union(
   v.literal("profile_asset_upload_intent_created"),
   v.literal("profile_asset_upload_completed"),
   v.literal("profile_asset_managed"),
+  v.literal("profile_media_submission_submitted"),
 );
 
 export const apiWriteAuditActorKindValidator = v.union(
@@ -25,6 +26,7 @@ export const apiWriteAuditResourceTypeValidator = v.union(
   v.literal("event"),
   v.literal("profile_asset_upload_intent"),
   v.literal("profile_asset"),
+  v.literal("profile_media_submission"),
 );
 
 export const apiWriteAuditResultValidator = v.literal("accepted");
@@ -36,7 +38,8 @@ export type ApiWriteAuditAction =
   | "event_updated"
   | "profile_asset_upload_intent_created"
   | "profile_asset_upload_completed"
-  | "profile_asset_managed";
+  | "profile_asset_managed"
+  | "profile_media_submission_submitted";
 
 export type ApiWriteAuditActorKind =
   | "personal_api_token"
@@ -47,7 +50,8 @@ export type ApiWriteAuditResourceType =
   | "profile"
   | "event"
   | "profile_asset_upload_intent"
-  | "profile_asset";
+  | "profile_asset"
+  | "profile_media_submission";
 
 export const mcpWriteToolNameValidator = v.union(
   v.literal("vrdex_event_create"),
@@ -55,6 +59,7 @@ export const mcpWriteToolNameValidator = v.union(
   v.literal("vrdex_profile_update"),
   v.literal("vrdex_profile_submit"),
   v.literal("vrdex_profile_media_manage"),
+  v.literal("vrdex_profile_media_submit"),
 );
 
 export type McpWriteToolName =
@@ -62,12 +67,14 @@ export type McpWriteToolName =
   | "vrdex_event_update"
   | "vrdex_profile_update"
   | "vrdex_profile_submit"
-  | "vrdex_profile_media_manage";
+  | "vrdex_profile_media_manage"
+  | "vrdex_profile_media_submit";
 
 export async function recordApiWriteAuditEvent(
   db: DatabaseWriter,
   args: {
     action: ApiWriteAuditAction;
+    actorUserId?: Id<"users">;
     actorKind: ApiWriteAuditActorKind;
     assetIds?: Id<"profileAssets">[];
     idempotencyKeyHash?: string;
@@ -80,6 +87,7 @@ export async function recordApiWriteAuditEvent(
     routeClass: ApiRouteClass;
     targetEventId?: Id<"events">;
     targetIntentId?: Id<"profileAssetUploadIntents">;
+    targetSubmissionId?: Id<"profileMediaSubmissions">;
     targetProfileId?: Id<"profiles">;
     now: number;
   },
@@ -87,6 +95,7 @@ export async function recordApiWriteAuditEvent(
   return await db.insert("apiWriteAuditEvents", {
     action: args.action,
     actorKind: args.actorKind,
+    ...(args.actorUserId === undefined ? {} : { actorUserId: args.actorUserId }),
     ...(args.assetIds === undefined ? {} : { assetIds: args.assetIds }),
     ...(args.idempotencyKeyHash === undefined ? {} : { idempotencyKeyHash: args.idempotencyKeyHash }),
     ...(args.mcpToolName === undefined ? {} : { mcpToolName: args.mcpToolName }),
@@ -99,6 +108,7 @@ export async function recordApiWriteAuditEvent(
     routeClass: args.routeClass,
     ...(args.targetEventId === undefined ? {} : { targetEventId: args.targetEventId }),
     ...(args.targetIntentId === undefined ? {} : { targetIntentId: args.targetIntentId }),
+    ...(args.targetSubmissionId === undefined ? {} : { targetSubmissionId: args.targetSubmissionId }),
     ...(args.targetProfileId === undefined ? {} : { targetProfileId: args.targetProfileId }),
     createdAt: args.now,
   });

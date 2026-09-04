@@ -2721,6 +2721,7 @@ components:
               - events:write
               - assets:read
               - assets:write
+              - assets:contribute
               - developer:read
               - developer:write
               - mcp:read
@@ -2793,6 +2794,7 @@ components:
               - events:write
               - assets:read
               - assets:write
+              - assets:contribute
               - developer:read
               - developer:write
               - mcp:read
@@ -2871,6 +2873,7 @@ components:
               - events:write
               - assets:read
               - assets:write
+              - assets:contribute
               - developer:read
               - developer:write
               - mcp:read
@@ -3497,6 +3500,7 @@ components:
                   - events:write
                   - assets:read
                   - assets:write
+                  - assets:contribute
                   - developer:read
                   - developer:write
                   - mcp:read
@@ -3553,6 +3557,7 @@ components:
                   - events:write
                   - assets:read
                   - assets:write
+                  - assets:contribute
                   - developer:read
                   - developer:write
                   - mcp:read
@@ -4033,6 +4038,7 @@ components:
               - events:write
               - assets:read
               - assets:write
+              - assets:contribute
               - developer:read
               - developer:write
               - mcp:read
@@ -4209,6 +4215,7 @@ components:
               - events:write
               - assets:read
               - assets:write
+              - assets:contribute
               - developer:read
               - developer:write
               - mcp:read
@@ -7013,6 +7020,7 @@ components:
             events:write: events:write
             assets:read: assets:read
             assets:write: assets:write
+            assets:contribute: assets:contribute
             developer:read: developer:read
             developer:write: developer:write
             mcp:read: mcp:read

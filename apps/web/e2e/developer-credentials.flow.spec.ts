@@ -239,6 +239,7 @@ test("developer credentials work with v0 bearer APIs and OAuth PKCE @flow", asyn
         decision: "approve",
         transaction,
       },
+      headers: { origin },
       maxRedirects: 0,
       timeout: 15_000,
     });

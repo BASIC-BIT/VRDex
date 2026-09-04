@@ -994,6 +994,14 @@ describe("@vrdex/api-contracts", () => {
       ["mcp:read", "mcp:write", "profile:write"],
     );
     assert.deepEqual(
+      normalizeDynamicMcpClientRegistration({
+        client_name: "Media Contribution MCP",
+        redirect_uris: ["http://localhost:3333/callback"],
+        scope: "mcp:read mcp:write assets:contribute",
+      }).allowedScopes,
+      ["mcp:read", "mcp:write", "assets:contribute"],
+    );
+    assert.deepEqual(
       normalizeDynamicMcpClientRegistration(
         {
           client_name: "Issuer Scope Catalog Client",
@@ -1024,7 +1032,7 @@ describe("@vrdex/api-contracts", () => {
           redirect_uris: ["http://localhost:3333/callback"],
           scope: "mcp:write",
         }),
-      /at least one of assets:write, events:write, profile:write, profile:contribute/,
+      /at least one of assets:write, assets:contribute, events:write, profile:write, profile:contribute/,
     );
     // The other half alone: a resource scope with no transport scope reaches no
     // hosted write tool, so it is refused rather than silently downgraded.
@@ -1035,7 +1043,7 @@ describe("@vrdex/api-contracts", () => {
           redirect_uris: ["http://localhost:3333/callback"],
           scope: "profile:write",
         }),
-      /at least one of assets:write, events:write, profile:write, profile:contribute/,
+      /at least one of assets:write, assets:contribute, events:write, profile:write, profile:contribute/,
     );
     assert.throws(
       () =>

@@ -166,6 +166,7 @@ describe("OAuth edge security", () => {
       // can ask for the owned-inventory tool rather than registering without it
       // and being refused at call time.
       "profile:read",
+      "assets:contribute",
       "mcp:write",
       "assets:write",
       "events:write",

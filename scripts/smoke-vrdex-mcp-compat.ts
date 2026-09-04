@@ -3,7 +3,10 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 
 import { startVrdexMcpApiFixture } from "../packages/vrdex-mcp/tests/api-fixture";
-import { summarizeMcpToolFailure } from "./lib/mcp-smoke-diagnostics";
+import {
+  isExpectedOAuthAuthorizationRedirect,
+  summarizeMcpToolFailure,
+} from "./lib/mcp-smoke-diagnostics";
 
 type JsonRpcMessage = {
   error?: unknown;
@@ -55,19 +58,28 @@ const writeToolResourceScopes: Record<string, string> = {
   vrdex_event_create: "events:write",
   vrdex_event_update: "events:write",
   vrdex_profile_media_manage: "assets:write",
+  vrdex_profile_media_submit: "assets:contribute",
   vrdex_profile_update: "profile:write",
   vrdex_profile_submit: "profile:contribute",
 };
 const writeToolNames = Object.keys(writeToolResourceScopes);
-const hostedOnlyWriteToolNames = new Set(["vrdex_profile_media_manage"]);
+const hostedOnlyWriteToolNames = new Set([
+  "vrdex_profile_media_manage",
+  "vrdex_profile_media_submit",
+]);
 const localWriteToolNames = writeToolNames.filter((toolName) => !hostedOnlyWriteToolNames.has(toolName));
 // Reads, but of the caller's own inventory, so they advertise a scope pair the
 // way the writes do rather than the anonymous public-read pair.
 const ownedReadToolScopes: Record<string, string> = {
+  vrdex_list_my_media_submissions: "assets:contribute",
   vrdex_list_my_profiles: "profile:read",
 };
 const ownedReadToolNames = Object.keys(ownedReadToolScopes);
-const localExpectedTools = [...localReadTools, ...ownedReadToolNames, ...localWriteToolNames];
+const hostedOnlyOwnedReadToolNames = new Set(["vrdex_list_my_media_submissions"]);
+const localOwnedReadToolNames = ownedReadToolNames.filter(
+  (toolName) => !hostedOnlyOwnedReadToolNames.has(toolName),
+);
+const localExpectedTools = [...localReadTools, ...localOwnedReadToolNames, ...localWriteToolNames];
 const hostedExpectedTools = ["search", "fetch", ...localReadTools];
 
 function assertHostedToolSecuritySchemes(tool: HostedToolDescriptor) {
@@ -750,11 +762,14 @@ async function smokeHostedClientMetadataDocument(
 
   const location = authorization.headers.get("location") ?? "";
 
-  assert.match(location, /\/sign-in\?/);
-  assert.match(decodeURIComponent(location), /\/oauth\/authorize\?/);
+  assert.equal(
+    isExpectedOAuthAuthorizationRedirect(location, metadata.issuer),
+    true,
+    "Client ID Metadata Document authorization returned an unexpected authentication redirect.",
+  );
 
   results.push({
-    details: `URL-form public client id metadata was accepted for scopes=${requestedScopes.join(" ")} before the expected sign-in redirect`,
+    details: `URL-form public client id metadata was accepted for scopes=${requestedScopes.join(" ")} before the expected authentication redirect`,
     name: "Hosted Client ID Metadata Document",
     status: "pass",
   });

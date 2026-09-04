@@ -58,11 +58,14 @@ const expectedPublicReadTools = [
 // had this smoke failing before it could collect any transport or OAuth
 // evidence at all.
 const expectedOwnedReadToolScopes: Record<string, string> = {
+  vrdex_list_my_media_submissions: "assets:contribute",
   vrdex_list_my_profiles: "profile:read",
 };
 const expectedWriteToolScopes: Record<string, string> = {
   vrdex_event_create: "events:write",
   vrdex_event_update: "events:write",
+  vrdex_profile_media_manage: "assets:write",
+  vrdex_profile_media_submit: "assets:contribute",
   vrdex_profile_update: "profile:write",
   vrdex_profile_submit: "profile:contribute",
 };
@@ -341,10 +344,18 @@ function assertHostedTools(body: { tools?: ToolDescriptor[] }, label: string) {
   assert.equal(Array.isArray(body.tools), true, `${label} did not return tools.`);
   const toolNames = (body.tools ?? []).map((tool) => tool.name);
 
-  assert.deepEqual(toolNames, expectedTools);
+  assertExpectedHostedToolNames(toolNames);
   for (const tool of body.tools ?? []) {
     assertPublicReadSecuritySchemes(tool);
   }
+}
+
+export function assertExpectedHostedToolNames(toolNames: unknown[]) {
+  assert.deepEqual(
+    [...toolNames].sort(),
+    [...expectedTools].sort(),
+    "Hosted MCP returned an unexpected tool set.",
+  );
 }
 
 export function assertInspectorDataBackedSearch(
@@ -446,7 +457,7 @@ async function main() {
   console.log("| Smoke target | Status | Details |");
   console.log("| --- | --- | --- |");
   console.log(
-    `| MCP Inspector hosted tools/list | pass | listed eight hosted VRDex tools and public-read auth metadata for ${options.hostedUrl} |`,
+    `| MCP Inspector hosted tools/list | pass | listed sixteen hosted VRDex tools with per-tool auth metadata for ${options.hostedUrl} |`,
   );
   console.log(
     dataStatus === "pass"
@@ -455,7 +466,7 @@ async function main() {
   );
   console.log(
     oauthStatus === "pass"
-      ? "| MCP Inspector hosted OAuth tools/list | pass | acquired or supplied MCP-resource OAuth token listed eight hosted VRDex tools without exposing the token or client secret |"
+      ? "| MCP Inspector hosted OAuth tools/list | pass | acquired or supplied MCP-resource OAuth token listed sixteen hosted VRDex tools without exposing the token or client secret |"
       : "| MCP Inspector hosted OAuth tools/list | skip | set VRDEX_MCP_OAUTH_CLIENT_ID / VRDEX_MCP_OAUTH_CLIENT_SECRET or VRDEX_MCP_INSPECTOR_OAUTH_TOKEN for hosted OAuth evidence |",
   );
 }

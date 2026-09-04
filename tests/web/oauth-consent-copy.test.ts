@@ -24,6 +24,7 @@ describe("OAuth consent copy", () => {
     assert.equal(oauthScopeLabel("community:write"), "Manage your communities");
     assert.equal(oauthScopeLabel("events:write"), "Create and edit your events");
     assert.equal(oauthScopeLabel("assets:write"), "Upload and manage profile assets");
+    assert.equal(oauthScopeLabel("assets:contribute"), "Submit profile media for review");
     assert.equal(
       oauthScopeLabel("developer:write"),
       "Create, update, and revoke developer credentials and OAuth apps",

@@ -3,7 +3,9 @@ import { oauthApiScopes } from "@vrdex/api-contracts";
 import { oauthApiResourceUri, oauthIssuerUrl, oauthMcpResourceUri } from "./oauth-jwt";
 import { hostedMcpScopesAllowedForDynamicClient } from "./hosted-mcp-policy";
 
-const apiResourceScopes = oauthApiScopes.filter((scope) => scope !== "mcp:read" && scope !== "mcp:write");
+const apiResourceScopes = oauthApiScopes.filter(
+  (scope) => scope !== "mcp:read" && scope !== "mcp:write" && scope !== "assets:contribute",
+);
 
 function protectedResourceMetadata(
   request: Request,
