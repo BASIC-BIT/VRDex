@@ -10,7 +10,7 @@ Apply it by hand with the operator's credentials; it is not part of the collecto
 
 When the collector account is `auth_required`:
 
-1. Start the host: `terraform apply -var-file=environments/production.tfvars -var running=true`, or `aws ec2 start-instances`. Wait until `aws ssm describe-instance-information` reports it `Online`.
+1. Start the host: `terraform apply -var-file=environments/production.tfvars -var running=true`, or `aws ec2 start-instances --instance-ids "$(terraform output -raw instance_id)"`. Wait until `aws ssm describe-instance-information` reports it `Online`.
 2. Open the tunnel with the `port_forward_command` output. The Session Manager plugin must be installed. The session ends after the CLI's own timeout, so reopen it before submitting the login form if the login takes long.
 3. From the VRDex checkout, with the proxy in the environment, log in and transfer:
 
@@ -20,9 +20,14 @@ When the collector account is `auth_required`:
    pnpm ops:vrchat-session:transfer --secret-id <account secret ARN>
    ```
 
-   The login form stays local; only the VRChat requests go through the tunnel. Check the tunnel first with `curl -x http://127.0.0.1:8888 https://checkip.amazonaws.com`; it must print the collector's Elastic IP.
-4. Re-register the account with the printed `workerKeyHash` (`communityTelemetry:registerCollectorAccount`), which sets it `ready` and bumps the credential generation.
-5. Restart the collector so it loads the new secret: `aws ecs update-service --force-new-deployment`. Do not dispatch a release until that deployment has completed; two overlapping deployments make the release verify step fail.
-6. Stop the host: apply with `running=false` (the default), or `aws ec2 stop-instances`.
+   The login form stays local; only the VRChat requests go through the tunnel. Check the tunnel first with `curl -x http://127.0.0.1:8888 https://checkip.amazonaws.com`; it must print the collector's Elastic IP. The harness saves any cookie rotation from its final read back to the vault, so the transfer always validates the current session; run it straight after.
+4. Re-register the account with the values the transfer prints (`vrchatUserId`, `workerKeyHash`, `secretRef`); this sets it `ready` and bumps the credential generation:
+
+   ```bash
+   pnpm cx prod run communityTelemetry:registerCollectorAccount '{"vrchatUserId":"<usr_... from the transfer output>","accountAlias":"<account alias, Oak in production>","secretRef":"<account secret ARN>","workerKeyHash":"<hash from the transfer output>"}'
+   ```
+
+5. Restart the collector so it loads the new secret: `aws ecs update-service --cluster vrdex-group-telemetry --service vrdex-group-telemetry --force-new-deployment`. Do not dispatch a release until that deployment has completed; two overlapping deployments make the release verify step fail.
+6. Stop the host: apply with `running=false` (the default), or `aws ec2 stop-instances --instance-ids "$(terraform output -raw instance_id)"`.
 
 Never create the session anywhere else. A laptop-born session validates on the laptop and dies on the collector's first request.

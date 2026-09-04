@@ -269,6 +269,14 @@ const evidence = {
   },
   credentialsIncluded: false,
 };
+// The reads above may have rotated the session. The client followed it in
+// memory only; the next command, the transfer, loads the vault, so a stale
+// vault copy would validate a retired cookie and fail.
+if (authenticationMode !== "cookie_environment_fallback" && (client.authCookie !== session.authCookie || client.twoFactorAuthCookie !== session.twoFactorAuthCookie)) {
+  session = { ...session, authCookie: client.authCookie, twoFactorAuthCookie: client.twoFactorAuthCookie };
+  await sessionStore.save(accountAlias, session);
+  process.stderr.write(`VRChat rotated the session during the run; the vault copy for ${accountAlias} was updated.\n`);
+}
 await mkdir("artifacts/group-telemetry-proof", { recursive: true });
 const path = join("artifacts/group-telemetry-proof", `proof-${new Date(startedAt).toISOString().replace(/[:.]/g, "-")}.json`);
 await writeFile(path, `${JSON.stringify(evidence, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
