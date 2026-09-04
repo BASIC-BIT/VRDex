@@ -193,6 +193,20 @@ describe("group telemetry release workflow", () => {
     assert.match(commands, /deadline=\$\(\(SECONDS \+ 300\)\)/);
   });
 
+  it("waits for the PRIMARY rollout to complete before judging the deployment", async () => {
+    // Every release on 2026-09-04 that got past the plan failed with "PRIMARY
+    // deployment has not completed": with the circuit breaker on, ECS marks the
+    // rollout COMPLETED minutes after `wait services-stable` returns.
+    const source = await readFile(".github/workflows/group-telemetry-release.yml", "utf8");
+    const workflow = parseYaml(source) as { jobs?: Record<string, { steps?: Array<{ name?: string; run?: string }> }> };
+    const verify = (workflow.jobs?.release?.steps ?? []).find((step) => step.name === "Verify exact ECS task definition and image digest");
+    assert.ok(verify?.run, "ECS verification step is missing");
+    assert.match(verify.run, /deadline=\$\(\(SECONDS \+ 600\)\)/);
+    assert.match(verify.run, /rolloutState/);
+    assert.match(verify.run, /COMPLETED\) break/);
+    assert.match(verify.run, /FAILED\)/);
+  });
+
   it("keeps runtime alarms in CloudWatch without polling from GitHub", async () => {
     const source = await readFile("infra/terraform/group-telemetry-collector/main.tf", "utf8");
     const worker = await readFile("workers/group-telemetry/worker.mjs", "utf8");
