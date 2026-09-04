@@ -328,6 +328,85 @@ describe("VRCDN live heartbeat", () => {
     heartbeat.stop();
   });
 
+  it("backs off instead of looping when a pending-offline check is unavailable", async () => {
+    const timers = new FakeTimers();
+    let calls = 0;
+    const heartbeat = new VrcdnLiveHeartbeat({
+      clearTimeout: timers.clearTimeout,
+      isVisible: () => true,
+      now: () => timers.now,
+      probe: async () => {
+        calls += 1;
+        // The ten-second deadline already elapsed while the provider was
+        // unreachable, so the lifecycle reports no remaining delay.
+        return { hasUnavailable: true, pendingOfflineDelayMs: 0 };
+      },
+      random: () => 0.5,
+      setTimeout: timers.setTimeout,
+      subscribeToVisibility: () => () => {},
+    });
+
+    heartbeat.start();
+    await flushPromises();
+    assert.equal(calls, 1);
+
+    timers.tick(0);
+    await flushPromises();
+    timers.tick(14_999);
+    await flushPromises();
+    assert.equal(calls, 1);
+
+    timers.tick(1);
+    await flushPromises();
+    assert.equal(calls, 2);
+
+    heartbeat.stop();
+  });
+
+  it("delays a sanity check requested within ten seconds of the last probe", async () => {
+    const timers = new FakeTimers();
+    let calls = 0;
+    const heartbeat = new VrcdnLiveHeartbeat({
+      clearTimeout: timers.clearTimeout,
+      isVisible: () => true,
+      now: () => timers.now,
+      probe: async () => {
+        calls += 1;
+        return available;
+      },
+      random: () => 0.5,
+      setTimeout: timers.setTimeout,
+      subscribeToVisibility: () => () => {},
+    });
+
+    heartbeat.start();
+    await flushPromises();
+    assert.equal(calls, 1);
+
+    // A rebuffering player can raise a stall every few seconds; each one must
+    // not turn into another fresh provider connection.
+    timers.tick(4_000);
+    heartbeat.requestSanityCheck();
+    await flushPromises();
+    assert.equal(calls, 1);
+
+    timers.tick(4_000);
+    heartbeat.requestSanityCheck();
+    await flushPromises();
+    assert.equal(calls, 1);
+
+    timers.tick(2_000);
+    await flushPromises();
+    assert.equal(calls, 2);
+
+    timers.tick(10_000);
+    heartbeat.requestSanityCheck();
+    await flushPromises();
+    assert.equal(calls, 3);
+
+    heartbeat.stop();
+  });
+
   it("coalesces sanity checks without running concurrent probes", async () => {
     const timers = new FakeTimers();
     const releases: Array<() => void> = [];

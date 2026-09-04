@@ -59,9 +59,9 @@ export async function GET(_request: Request, context: RouteContext) {
     const states = await getVrcdnLiveStates(profile.outboundLinks, { freshnessMode: "fresh" });
 
     return NextResponse.json({ states: states ?? {} }, { headers: responseHeaders });
-  } catch {
+  } catch (error) {
     console.error(JSON.stringify({
-      errorKind: "route",
+      errorKind: error instanceof Error ? error.name : "UnknownError",
       level: "error",
       message: "VRCDN profile live-state route failed",
     }));

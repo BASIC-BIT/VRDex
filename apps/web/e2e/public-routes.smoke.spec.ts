@@ -598,6 +598,52 @@ test.describe("fixture lookup smoke", () => {
     releaseMedia();
   });
 
+  test("player ended requests a sanity check without declaring offline", async ({ page }) => {
+    let attempts = 0;
+    let releaseMedia: () => void = () => {};
+    const mediaHold = new Promise<void>((resolve) => {
+      releaseMedia = resolve;
+    });
+
+    await page.route("https://stream.vrcdn.live/live/dj-aurora.live.ts*", async (route) => {
+      await mediaHold;
+      await route.abort();
+    });
+    await page.route("**/api/profile-live/playwright-dj-aurora/vrcdn*", async (route) => {
+      attempts += 1;
+      await route.fulfill({ contentType: "application/json", json: { states: { "dj-aurora": "live" } } });
+    });
+
+    await page.goto("/playwright-dj-aurora");
+    const vrcdnBlock = page
+      .getByText("VRCDN", { exact: true })
+      .locator("xpath=ancestor::div[contains(@class, 'pt-5')][1]");
+    await expect.poll(() => attempts).toBe(1);
+    const player = page.getByRole("button", { name: "Play VRCDN" });
+    await player.click();
+    const video = page.locator("video");
+    await expect(video).toBeVisible();
+
+    await page.clock.install();
+    await video.evaluate((element) => {
+      element.dispatchEvent(new Event("playing"));
+      element.dispatchEvent(new Event("ended"));
+    });
+
+    // The playback event ends this connection, but liveness stays with the
+    // provider: the badge holds until the requested check answers.
+    await expect(page.getByText("Playback stopped", { exact: true })).toBeVisible();
+    await expect(vrcdnBlock.getByText("Live now", { exact: true })).toBeVisible();
+    expect(attempts).toBe(1);
+
+    await page.clock.fastForward(10_000);
+    await expect.poll(() => attempts).toBe(2);
+    await expect(vrcdnBlock.getByText("Live now", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
+
+    releaseMedia();
+  });
+
   test("VRCDN live endpoint stays profile-scoped and private", async ({ page }) => {
     const response = await page.request.get("/api/profile-live/playwright-dj-aurora/vrcdn");
 

@@ -1,6 +1,7 @@
 export const vrcdnVisibleHeartbeatMs = 60_000;
 export const vrcdnPlaybackHeartbeatMs = 120_000;
 export const vrcdnUnavailableBackoffMs = [15_000, 30_000, 60_000] as const;
+export const vrcdnSanityCheckMinIntervalMs = 10_000;
 
 export type VrcdnHeartbeatProbeResult = {
   hasUnavailable: boolean;
@@ -118,13 +119,28 @@ export class VrcdnLiveHeartbeat {
       return;
     }
 
-    this.clearScheduledTimer();
-
     if (this.inFlight) {
+      this.clearScheduledTimer();
       this.queuedImmediate = true;
       return;
     }
 
+    // A rebuffering player raises a stall every few seconds. Each one is a
+    // request for a fresh provider connection, so within ten seconds of the
+    // last probe the check waits for that window instead of running again.
+    const sinceLastProbe = this.lastProbeAt === undefined
+      ? vrcdnSanityCheckMinIntervalMs
+      : this.now() - this.lastProbeAt;
+
+    if (sinceLastProbe < vrcdnSanityCheckMinIntervalMs) {
+      const delay = vrcdnSanityCheckMinIntervalMs - sinceLastProbe;
+      if (this.scheduledAt === undefined || this.scheduledAt - this.now() > delay) {
+        this.schedule(delay, "priority");
+      }
+      return;
+    }
+
+    this.clearScheduledTimer();
     void this.runProbe();
   }
 
@@ -187,12 +203,9 @@ export class VrcdnLiveHeartbeat {
       const result = await this.probe(this.controller.signal);
 
       if (this.started) {
-        if (result.pendingOfflineDelayMs !== undefined) {
-          this.unavailableCount = result.hasUnavailable ? this.unavailableCount + 1 : 0;
-          this.schedule(result.pendingOfflineDelayMs, "priority");
-          return;
-        }
-
+        // Unavailable wins over a pending-offline deadline. Once that deadline
+        // has passed, the remaining delay is zero, and rescheduling on it
+        // would re-probe as fast as the failing provider answers.
         if (result.hasUnavailable) {
           const backoff = vrcdnUnavailableBackoffMs[
             Math.min(this.unavailableCount, vrcdnUnavailableBackoffMs.length - 1)
@@ -203,6 +216,12 @@ export class VrcdnLiveHeartbeat {
         }
 
         this.unavailableCount = 0;
+
+        if (result.pendingOfflineDelayMs !== undefined) {
+          this.schedule(result.pendingOfflineDelayMs, "priority");
+          return;
+        }
+
         const interval = this.activePlayback
           ? vrcdnPlaybackHeartbeatMs
           : vrcdnVisibleHeartbeatMs;
