@@ -960,6 +960,9 @@ function mcpMediaSubmissionRefusalText(code: string | null | undefined) {
   if (code === "MCP_MEDIA_EMAIL_UNVERIFIED") {
     return "A verified-email VRDex account is required for media contributions.";
   }
+  if (code === "MCP_MEDIA_DISABLED") {
+    return "Profile media contributions are not enabled.";
+  }
   if (code === "MCP_MEDIA_IDEMPOTENCY_CONFLICT") {
     return "That idempotency key was already used for a different media submission request.";
   }
@@ -2682,7 +2685,25 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
           prepareArgs,
         );
         if (prepared.status === "verification_required") {
-          const emailVerified = await verifyContributorEmail(principal.userId);
+          // The first prepare call is a pure read, so a Clerk failure here
+          // means nothing was written and the same key is safe to retry.
+          const emailVerified = await verifyContributorEmail(principal.userId).catch(() => null);
+          if (emailVerified === null) {
+            await recordHostedMcpWriteInvocation({
+              actorKind: "contributor",
+              idempotencyKeyHash,
+              principal,
+              result: "denied",
+              toolName: "vrdex_profile_media_submit",
+            });
+            return {
+              content: [{
+                type: "text" as const,
+                text: "VRDex could not confirm your email verification, so nothing was submitted. Retry with the same idempotency key.",
+              }],
+              isError: true as const,
+            };
+          }
           prepared = await adminConvex().mutation(
             internal.profileMediaSubmissions.prepareMcpMediaSubmission,
             {

@@ -292,6 +292,53 @@ describe("hosted MCP profile media import cleanup", () => {
     assert.equal(result.outcome, "indeterminate");
   });
 
+  it("refuses cleanup and reports indeterminate after losing the processing lease", () => {
+    const output = runImportProbe(`
+      import { completeMcpProfileMediaSubmissionImport } from "./apps/web/src/lib/server/profile-media-mcp-import.ts";
+
+      let mutationCount = 0;
+      let deleteCalled = false;
+      let failure = null;
+      try {
+        await completeMcpProfileMediaSubmissionImport("intent_lost_lease", {
+          isStorageConfigured: () => true,
+          adminConvex: {
+            mutation: async () => {
+              mutationCount += 1;
+              if (mutationCount === 1) return {
+                status: "claimed",
+                intentId: "intent_lost_lease",
+                sourceUrl: "https://media.example.test/photo.png",
+                storageKey: "private/lost-lease/display.webp",
+              };
+              // A resumed worker holds the lease now, so the failure cannot be
+              // recorded against this token.
+              return false;
+            },
+            query: async () => false,
+          },
+          fetchSource: async () => ({ body: new Uint8Array([1]), mimeType: "image/png" }),
+          prepareAsset: async () => {
+            throw new Error("Profile media validation failed for the candidate image.");
+          },
+          putObject: async () => {},
+          deleteObjects: async () => { deleteCalled = true; },
+        });
+      } catch (error) {
+        failure = { code: error?.code ?? null, outcome: error?.outcome ?? null };
+      }
+      console.log(JSON.stringify({ deleteCalled, failure, mutationCount }));
+    `);
+
+    // The candidate objects now belong to whoever owns the lease. Deleting them
+    // here would delete a live import's staged bytes.
+    assert.deepEqual(JSON.parse(output), {
+      deleteCalled: false,
+      failure: { code: "MCP_MEDIA_IMPORT_REJECTED", outcome: "indeterminate" },
+      mutationCount: 2,
+    });
+  });
+
   it("returns stage-specific source, validation, and storage refusal codes", () => {
     const output = runImportProbe(`
       import { completeMcpProfileMediaSubmissionImport } from "./apps/web/src/lib/server/profile-media-mcp-import.ts";

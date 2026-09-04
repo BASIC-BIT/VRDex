@@ -134,6 +134,131 @@ describe("hosted MCP profile media contributions", () => {
     );
   });
 
+  it("isolates same-key submissions and refusals by OAuth client", async () => {
+    const seeded = await seed();
+    const firstClient = await seeded.t.mutation(
+      internal.profileMediaSubmissions.prepareMcpMediaSubmission,
+      input(seeded.actorUserId),
+    );
+    // Clear the per-user create cooldown so only client scoping is under test.
+    await seeded.t.run(async (ctx) => {
+      for (const row of await ctx.db.query("profileMediaSubmissions").collect()) {
+        await ctx.db.patch(row._id, { createdAt: Date.now() - 60_000 });
+      }
+    });
+    const secondClient = await seeded.t.mutation(
+      internal.profileMediaSubmissions.prepareMcpMediaSubmission,
+      { ...input(seeded.actorUserId), oauthClientId: "other-mcp-client", requestId: crypto.randomUUID() },
+    );
+    assert.equal(firstClient.status, "pending");
+    assert.equal(secondClient.status, "pending");
+    if (firstClient.status !== "pending" || secondClient.status !== "pending") return;
+    assert.notEqual(firstClient.intentId, secondClient.intentId);
+    const intents = await seeded.t.run((ctx) =>
+      ctx.db.query("profileAssetUploadIntents").collect(),
+    );
+    assert.equal(intents.length, 2);
+
+    await assert.rejects(
+      seeded.t.mutation(internal.profileMediaSubmissions.prepareMcpMediaSubmission, {
+        ...input(seeded.actorUserId),
+        requestFingerprint: "c".repeat(64),
+      }),
+      /MCP_MEDIA_IDEMPOTENCY_CONFLICT/,
+    );
+
+    const refused = await seed();
+    await refused.t.run((ctx) =>
+      ctx.db.patch(refused.profileId, { claimState: "claimed_verified" }),
+    );
+    const firstRefusal = await refused.t.mutation(
+      internal.profileMediaSubmissions.prepareMcpMediaSubmission,
+      input(refused.actorUserId),
+    );
+    const secondRefusal = await refused.t.mutation(
+      internal.profileMediaSubmissions.prepareMcpMediaSubmission,
+      { ...input(refused.actorUserId), oauthClientId: "other-mcp-client", requestId: crypto.randomUUID() },
+    );
+    assert.equal(firstRefusal.status, "failed");
+    assert.deepEqual(secondRefusal, firstRefusal);
+    const receipts = await refused.t.run((ctx) =>
+      ctx.db.query("mcpProfileMediaSubmissionRefusalReceipts").collect(),
+    );
+    assert.equal(receipts.length, 2);
+    assert.deepEqual(
+      [...new Set(receipts.map((receipt) => receipt.oauthClientId))].sort(),
+      ["mcp-client", "other-mcp-client"],
+    );
+
+    await assert.rejects(
+      refused.t.mutation(internal.profileMediaSubmissions.prepareMcpMediaSubmission, {
+        ...input(refused.actorUserId),
+        requestFingerprint: "c".repeat(64),
+      }),
+      /MCP_MEDIA_IDEMPOTENCY_CONFLICT/,
+    );
+  });
+
+  it("refuses self-review of an MCP-submitted proposal", async () => {
+    const seeded = await seed();
+    const prepared = await seeded.t.mutation(
+      internal.profileMediaSubmissions.prepareMcpMediaSubmission,
+      input(seeded.actorUserId),
+    );
+    assert.equal(prepared.status, "pending");
+    if (prepared.status !== "pending") return;
+    const processingToken = crypto.randomUUID();
+    await seeded.t.mutation(internal.profileMediaSubmissions.claimMcpMediaSubmissionImport, {
+      intentId: prepared.intentId,
+      processingToken,
+    });
+    const completed = await seeded.t.mutation(
+      internal.profileMediaSubmissions.markMcpMediaSubmissionImported,
+      {
+        intentId: prepared.intentId,
+        processingToken,
+        mimeType: "image/webp",
+        byteSize: 128,
+        contentSha256: "self-review-hash",
+        width: 800,
+        height: 800,
+      },
+    );
+    assert.equal(completed.status, "submitted");
+
+    const actorIdentity = await seeded.t.run(async (ctx) => {
+      const actor = await ctx.db.get(seeded.actorUserId);
+      assert.ok(actor);
+      await ctx.db.insert("accountFeatureGrants", {
+        userId: seeded.actorUserId,
+        feature: "super_admin",
+        state: "active",
+        grantedBy: { tokenIdentifier: "test:operator", issuer: "test", subject: "operator" },
+        grantedAt: NOW,
+        updatedAt: NOW,
+      });
+      return {
+        subject: actor.clerkUserId,
+        email: actor.email,
+        emailVerified: true,
+        issuer: "test",
+        tokenIdentifier: `test|${seeded.actorUserId}`,
+      };
+    });
+
+    await assert.rejects(
+      seeded.t.withIdentity(actorIdentity).mutation(api.profileMediaSubmissions.decide, {
+        submissionId: completed.submissionId,
+        decision: "approve",
+        expectedProfileUpdatedAt: NOW,
+        finalPlacement: "profile_image",
+        credit: "Reviewed artist credit",
+        privateReason: "Self review attempt.",
+      }),
+      /cannot decide your own/i,
+    );
+  });
+
   it("finalizes only the private proposal and returns caller-scoped status", async () => {
     const seeded = await seed();
     const prepared = await seeded.t.mutation(
@@ -186,11 +311,22 @@ describe("hosted MCP profile media contributions", () => {
     assert.equal(accepted?.ownerUserId, undefined);
     assert.equal(accepted?.oauthTokenId, "oauth-token-id");
     assert.equal(JSON.stringify(accepted).includes("sourceUrl"), false);
+    assert.equal(JSON.stringify(accepted).includes("images.example.test"), false);
 
     const beforeApproval = await seeded.t.query(api.profileAssets.listPublicBySlug, {
       slug: "community-dj",
     });
     assert.equal(beforeApproval?.mediaKit.profileImage, undefined);
+    assert.equal(beforeApproval?.mediaKit.primaryLogo, undefined);
+    assert.equal(beforeApproval?.mediaKit.featuredAsset, undefined);
+    assert.deepEqual(beforeApproval?.mediaKit.logos, []);
+    assert.deepEqual(beforeApproval?.mediaKit.additionalLogos, []);
+    assert.deepEqual(beforeApproval?.mediaKit.galleryAssets, []);
+    assert.deepEqual(beforeApproval?.mediaKit.assets, []);
+    assert.equal(
+      (await seeded.t.run((ctx) => ctx.db.query("profileAssets").collect())).length,
+      0,
+    );
     const decision = await seeded.t.withIdentity(seeded.moderatorIdentity).mutation(
       api.profileMediaSubmissions.decide,
       {
@@ -414,6 +550,114 @@ describe("hosted MCP profile media contributions", () => {
       const intents = await seeded.t.run((ctx) => ctx.db.query("profileAssetUploadIntents").collect());
       assert.equal(intents.length, 1, status);
     }
+  });
+
+  it("refuses with a coded error while contributions are disabled", async () => {
+    const seeded = await seed();
+    process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED = "false";
+    try {
+      await assert.rejects(
+        seeded.t.mutation(
+          internal.profileMediaSubmissions.prepareMcpMediaSubmission,
+          input(seeded.actorUserId),
+        ),
+        (error: unknown) => {
+          assert.equal(
+            (error as { data?: { code?: string } }).data?.code,
+            "MCP_MEDIA_DISABLED",
+          );
+          return true;
+        },
+      );
+    } finally {
+      process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED = "true";
+    }
+    const rows = await seeded.t.run(async (ctx) => ({
+      intents: await ctx.db.query("profileAssetUploadIntents").collect(),
+      refusals: await ctx.db.query("mcpProfileMediaSubmissionRefusalReceipts").collect(),
+      submissions: await ctx.db.query("profileMediaSubmissions").collect(),
+    }));
+    assert.equal(rows.intents.length, 0);
+    assert.equal(rows.refusals.length, 0);
+    assert.equal(rows.submissions.length, 0);
+  });
+
+  it("accepts a slightly future attestation and rejects a stale one", async () => {
+    const seeded = await seed();
+    const skewed = await seeded.t.mutation(
+      internal.profileMediaSubmissions.prepareMcpMediaSubmission,
+      { ...input(seeded.actorUserId), emailVerificationAttestedAt: Date.now() + 5_000 },
+    );
+    assert.equal(skewed.status, "pending");
+
+    for (const attestedAt of [Date.now() + 60_000, Date.now() - 3 * 60_000]) {
+      await assert.rejects(
+        seeded.t.mutation(internal.profileMediaSubmissions.prepareMcpMediaSubmission, {
+          ...input(seeded.actorUserId),
+          emailVerificationAttestedAt: attestedAt,
+          requestId: crypto.randomUUID(),
+        }),
+        /MCP_MEDIA_EMAIL_ATTESTATION_INVALID/,
+      );
+    }
+  });
+
+  it("replays a completed submission without re-verifying email but refuses to resume unverified", async () => {
+    const seeded = await seed();
+    const prepared = await seeded.t.mutation(
+      internal.profileMediaSubmissions.prepareMcpMediaSubmission,
+      input(seeded.actorUserId),
+    );
+    assert.equal(prepared.status, "pending");
+    if (prepared.status !== "pending") return;
+    const processingToken = crypto.randomUUID();
+    await seeded.t.mutation(internal.profileMediaSubmissions.claimMcpMediaSubmissionImport, {
+      intentId: prepared.intentId,
+      processingToken,
+    });
+    const completed = await seeded.t.mutation(
+      internal.profileMediaSubmissions.markMcpMediaSubmissionImported,
+      {
+        intentId: prepared.intentId,
+        processingToken,
+        mimeType: "image/webp",
+        byteSize: 128,
+        contentSha256: "unverified-replay-hash",
+        width: 800,
+        height: 800,
+      },
+    );
+    assert.equal(completed.status, "submitted");
+
+    const replay = await seeded.t.mutation(
+      internal.profileMediaSubmissions.prepareMcpMediaSubmission,
+      { ...input(seeded.actorUserId), emailVerified: false, requestId: crypto.randomUUID() },
+    );
+    assert.equal(replay.status, "completed");
+
+    // Clear the per-user create cooldown so only the resume path is under test.
+    await seeded.t.run(async (ctx) => {
+      for (const row of await ctx.db.query("profileMediaSubmissions").collect()) {
+        await ctx.db.patch(row._id, { createdAt: Date.now() - 60_000 });
+      }
+    });
+    const resumeInput = {
+      ...input(seeded.actorUserId),
+      idempotencyKeyHash: "e".repeat(64),
+      requestId: crypto.randomUUID(),
+    };
+    const pending = await seeded.t.mutation(
+      internal.profileMediaSubmissions.prepareMcpMediaSubmission,
+      resumeInput,
+    );
+    assert.equal(pending.status, "pending");
+    const unverifiedResume = await seeded.t.mutation(
+      internal.profileMediaSubmissions.prepareMcpMediaSubmission,
+      { ...resumeInput, emailVerified: false, requestId: crypto.randomUUID() },
+    );
+    assert.equal(unverifiedResume.status, "failed");
+    if (unverifiedResume.status !== "failed") return;
+    assert.equal(unverifiedResume.errorCode, "MCP_MEDIA_EMAIL_UNVERIFIED");
   });
 
   it("persists deterministic open, daily, profile, and cooldown limit refusals", async () => {

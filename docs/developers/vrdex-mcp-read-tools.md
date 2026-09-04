@@ -226,8 +226,9 @@ URLs, storage identifiers, content hashes, upload intents, or upload
 credentials. The local stdio package keeps its existing `/api/v0/me/profiles`
 contract and does not expose media management in this slice.
 
-Hosted MCP also provides `vrdex_list_my_media_submissions` for an authenticated
-contributor. It requires `mcp:read` plus `assets:contribute` and returns at most
+Hosted MCP adds a contributor status read, `vrdex_list_my_media_submissions`. It
+is an Issue 297 candidate and reaches production only after staged proof and
+explicit approval. It requires `mcp:read` plus `assets:contribute` and returns at most
 40 of that caller's own private-proposal statuses. It does not expose source
 URLs, storage fields, processing state, review notes, or another contributor's
 submissions. This tool is hosted-only because the local stdio package has no
@@ -243,7 +244,8 @@ need `profile:contribute`. Registration does not inspect the token's scopes, so
 all five credentialed tools are listed whenever a credential is present and the
 route refuses the ones it is not entitled to. The hosted `/mcp` server registers
 those five plus the hosted-only `vrdex_profile_media_manage`,
-`vrdex_profile_media_submit`, and `vrdex_list_my_media_submissions`, where
+`vrdex_profile_media_submit`, and `vrdex_list_my_media_submissions` (the last
+two pending the Issue 297 production gate), where
 `vrdex_list_my_profiles` advertises `mcp:read` plus `profile:read` and the media
 owner write advertises `mcp:write` plus `assets:write`. Contribution submission
 advertises `mcp:write` plus `assets:contribute`; contribution status advertises

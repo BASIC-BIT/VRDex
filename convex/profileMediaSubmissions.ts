@@ -44,6 +44,8 @@ const reviewQueueStatus = v.union(
   v.literal("rejected"),
 );
 
+const MCP_EMAIL_ATTESTATION_SKEW_MS = 30_000;
+
 function assertContributionsEnabled() {
   if (process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED !== "true") {
     throw new Error("Profile media contributions are not enabled.");
@@ -495,7 +497,11 @@ export const prepareMcpMediaSubmission = internalMutation({
     emailVerified: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    assertContributionsEnabled();
+    // Coded so the hosted handler reports the global switch as a deterministic
+    // refusal. A plain throw here would read as an indeterminate write.
+    if (process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED !== "true") {
+      return rejectMcpMediaSubmission("MCP_MEDIA_DISABLED");
+    }
     const oauthClientId = requireMcpAttributionText(args.oauthClientId, "OAuth client id", 256);
     const oauthTokenId = requireMcpAttributionText(args.oauthTokenId, "OAuth token id", 256);
     const requestId = requireMcpAttributionText(args.requestId, "Request id", 256);
@@ -518,15 +524,14 @@ export const prepareMcpMediaSubmission = internalMutation({
       return { status: "verification_required" as const };
     }
     const verificationAge = Date.now() - args.emailVerificationAttestedAt;
+    // The attestation is stamped on Vercel and checked here on Convex, so a
+    // little backward skew is normal and must not read as a forged timestamp.
     if (
       !Number.isSafeInteger(args.emailVerificationAttestedAt) ||
-      verificationAge < 0 ||
+      verificationAge < -MCP_EMAIL_ATTESTATION_SKEW_MS ||
       verificationAge > 2 * 60 * 1_000
     ) {
       return rejectMcpMediaSubmission("MCP_MEDIA_EMAIL_ATTESTATION_INVALID");
-    }
-    if (!args.emailVerified && existingIntent !== null) {
-      return { status: "failed" as const, errorCode: "MCP_MEDIA_EMAIL_UNVERIFIED" };
     }
 
     if (existingIntent !== null) {
@@ -558,6 +563,11 @@ export const prepareMcpMediaSubmission = internalMutation({
           now,
         );
         return { status: "expired" as const };
+      }
+      // Replaying a finished submission above needs no verification; resuming
+      // an import below does.
+      if (!args.emailVerified) {
+        return { status: "failed" as const, errorCode: "MCP_MEDIA_EMAIL_UNVERIFIED" };
       }
       if (
         existingIntent.processingToken !== undefined &&

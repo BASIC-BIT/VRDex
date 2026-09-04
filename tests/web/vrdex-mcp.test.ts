@@ -41,6 +41,7 @@ function jsonBodyFromProbe(output: string) {
     result?: {
       tools?: Array<{
         _meta?: unknown;
+        annotations?: unknown;
         name?: string;
         outputSchema?: unknown;
       }>;
@@ -305,6 +306,18 @@ describe("VRDex MCP server", () => {
         { scopes: ["mcp:read", resourceScope], type: "oauth2" },
       ]);
     }
+
+    // A status read of rows VRDex already holds: nothing is written, repeating
+    // it changes nothing, and it reaches no third-party host.
+    assert.deepEqual(
+      tools.find((candidate) => candidate.name === "vrdex_list_my_media_submissions")?.annotations,
+      {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    );
   });
 
   it("advertises every write tool, scoped to the resource it writes", () => {
@@ -359,6 +372,19 @@ describe("VRDex MCP server", () => {
     for (const tool of writeTools) {
       assertWriteSecuritySchemes(tool._meta, expectedResourceScope[tool.name ?? ""] ?? "");
     }
+
+    // Not idempotent even though it takes an idempotency key: a second key over
+    // the same image is a second proposal a reviewer has to dispose of. And it
+    // fetches a caller-supplied public URL, so it reaches the open world.
+    assert.deepEqual(
+      tools.find((tool) => tool.name === "vrdex_profile_media_submit")?.annotations,
+      {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+    );
   });
 
   it("advertises OAuth-only tools when anonymous hosted reads are disabled", () => {
@@ -696,6 +722,203 @@ describe("VRDex MCP server", () => {
 
     assert.match(output, /^400/m);
     assert.match(output, /MCP batches may contain at most one hosted write/);
+  });
+
+  it("rejects authenticated batches pairing a media submission with another hosted write", () => {
+    const output = runMcpProbe(`
+      import { generateKeyPairSync } from "node:crypto";
+      import { createOAuthAccessTokenId, signOAuthAccessToken } from "./apps/web/src/lib/server/oauth-jwt.ts";
+      import { authorizeHostedMcpRequest } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+
+      const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+      process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY =
+        privateKey.export({ format: "pem", type: "pkcs8" }).toString();
+      process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID = "test-key";
+      process.env.VRDEX_RATE_LIMIT_STORE = "memory";
+      const now = Math.floor(Date.now() / 1000);
+      const accessToken = signOAuthAccessToken({
+        aud: "https://app.example.test/mcp",
+        client_id: "vrdx_app_0123456789abcdef01234567",
+        exp: now + 60,
+        iat: now,
+        iss: "https://app.example.test",
+        jti: createOAuthAccessTokenId(),
+        scope: "mcp:write events:write assets:contribute",
+        sub: "user_123",
+      });
+      const authorization = await authorizeHostedMcpRequest(new Request("https://app.example.test/mcp", {
+        method: "POST",
+        headers: {
+          authorization: \`Bearer \${accessToken}\`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify([
+          {
+            jsonrpc: "2.0",
+            id: 1,
+            method: "tools/call",
+            params: {
+              name: "vrdex_event_create",
+              arguments: { idempotencyKey: "create-key-123" },
+            },
+          },
+          {
+            jsonrpc: "2.0",
+            id: 2,
+            method: "tools/call",
+            params: {
+              name: "vrdex_profile_media_submit",
+              arguments: {
+                slug: "community-dj",
+                sourceUrl: "https://media.example.test/press.webp",
+                credit: "Artist press kit",
+                expectedUpdatedAt: 123,
+                idempotencyKey: "submit-key-123",
+              },
+            },
+          },
+        ]),
+      }), {
+        validateAccessTokenRecord: async (input) => ({
+          ok: true,
+          accessTokenRecordId: "token_record_123",
+          clientId: input.clientId,
+          dynamicClientId: "dynamic_client_123",
+          resource: input.resource,
+          scopes: ["mcp:write", "events:write", "assets:contribute"],
+          subjectType: "user",
+          tokenId: input.tokenId,
+          trustTier: "standard",
+          userId: "user_123",
+        }),
+      });
+
+      console.log(authorization.response?.status);
+      console.log(await authorization.response?.text());
+    `);
+
+    // Fully scoped for both writes, so the refusal is the one-write batch rule
+    // rather than a scope challenge.
+    assert.match(output, /^400/m);
+    assert.match(output, /MCP batches may contain at most one hosted write/);
+  });
+
+  it("refuses under-scoped media submission and status tokens before dispatch", () => {
+    const output = runMcpProbe(`
+      import { generateKeyPairSync } from "node:crypto";
+      import { createOAuthAccessTokenId, signOAuthAccessToken } from "./apps/web/src/lib/server/oauth-jwt.ts";
+      import {
+        authorizeHostedMcpRequest,
+        createVrdexMcpHandler,
+      } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+
+      const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+      process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY =
+        privateKey.export({ format: "pem", type: "pkcs8" }).toString();
+      process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID = "test-key";
+      process.env.VRDEX_RATE_LIMIT_STORE = "memory";
+      const clientId = "vrdx_app_0123456789abcdef01234567";
+      const resource = "https://app.example.test/mcp";
+
+      const convexCalls = [];
+      const adminConvex = {
+        mutation: async () => { convexCalls.push("mutation"); return {}; },
+        query: async () => { convexCalls.push("query"); return null; },
+      };
+
+      async function attempt(scope, name, args) {
+        const now = Math.floor(Date.now() / 1000);
+        const tokenId = createOAuthAccessTokenId();
+        const accessToken = signOAuthAccessToken({
+          aud: resource,
+          client_id: clientId,
+          exp: now + 60,
+          iat: now,
+          iss: "https://app.example.test",
+          jti: tokenId,
+          scope,
+          sub: "user_123",
+        });
+        const request = new Request(resource, {
+          method: "POST",
+          headers: {
+            accept: "application/json, text/event-stream",
+            authorization: \`Bearer \${accessToken}\`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 44,
+            method: "tools/call",
+            params: { name, arguments: args },
+          }),
+        });
+        const authorization = await authorizeHostedMcpRequest(request, {
+          validateAccessTokenRecord: async () => ({
+            ok: true,
+            accessTokenRecordId: "token_record_123",
+            clientId,
+            dynamicClientId: "dynamic_client_123",
+            resource,
+            scopes: scope.split(" "),
+            subjectType: "user",
+            tokenId,
+            trustTier: "standard",
+            userId: "user_123",
+          }),
+        });
+        if (authorization.response !== undefined) {
+          return {
+            challenge: authorization.response.headers.get("www-authenticate"),
+            dispatched: false,
+            status: authorization.response.status,
+          };
+        }
+        // Authorization let it through, so the tool itself ran against Convex.
+        const handler = createVrdexMcpHandler({ adminConvex, eventWrites: true });
+        const response = await handler.fetch(request);
+        return { body: await response.text(), dispatched: true, status: response.status };
+      }
+
+      const submitArgs = {
+        slug: "community-dj",
+        sourceUrl: "https://media.example.test/press.webp",
+        credit: "Artist press kit",
+        expectedUpdatedAt: 123,
+        idempotencyKey: "operator-key-123",
+      };
+      console.log(JSON.stringify({
+        convexCalls,
+        statusWithoutContribute: await attempt("mcp:read", "vrdex_list_my_media_submissions", {}),
+        submitWithoutContribute: await attempt("mcp:write", "vrdex_profile_media_submit", submitArgs),
+        submitWithoutWrite: await attempt("assets:contribute", "vrdex_profile_media_submit", submitArgs),
+      }));
+    `);
+    const result = JSON.parse(output) as {
+      convexCalls: string[];
+      statusWithoutContribute: { challenge: string; dispatched: boolean; status: number };
+      submitWithoutContribute: { challenge: string; dispatched: boolean; status: number };
+      submitWithoutWrite: { challenge: string; dispatched: boolean; status: number };
+    };
+
+    // The resource scope is dual-use, so each half of the pair has to be
+    // checked on its own; holding either one alone reaches nothing.
+    assert.equal(result.submitWithoutContribute.dispatched, false);
+    assert.equal(result.submitWithoutContribute.status, 403);
+    assert.match(result.submitWithoutContribute.challenge, /scope="mcp:write assets:contribute"/);
+    assert.match(result.submitWithoutContribute.challenge, /error="insufficient_scope"/);
+
+    assert.equal(result.submitWithoutWrite.dispatched, false);
+    assert.equal(result.submitWithoutWrite.status, 403);
+    assert.match(result.submitWithoutWrite.challenge, /scope="mcp:write assets:contribute"/);
+
+    assert.equal(result.statusWithoutContribute.dispatched, false);
+    assert.equal(result.statusWithoutContribute.status, 403);
+    assert.match(result.statusWithoutContribute.challenge, /scope="mcp:read assets:contribute"/);
+
+    // Refused at the boundary, so no proposal, intent, or audit row was even
+    // considered.
+    assert.deepEqual(result.convexCalls, []);
   });
 
   it("rejects declared oversized MCP bodies before parsing", () => {
@@ -1684,6 +1907,177 @@ describe("VRDex MCP server", () => {
       result.submitted + result.status,
       /intent_private_123|sourceUrl|uploadToken|storageKey|contentSha256|never-print-this-token/,
     );
+  });
+
+  it("sends every uncertain media submission back to status and the same key", () => {
+    const output = runMcpProbe(`
+      import { createVrdexMcpHandler } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+      import { McpProfileMediaImportError } from "./apps/web/src/lib/server/profile-media-mcp-import.ts";
+
+      let mode = "prepare_uncertain";
+      const handler = createVrdexMcpHandler({
+        authInfo: {
+          token: "never-print-this-token",
+          clientId: "vrdx_app_test",
+          scopes: ["mcp:write", "assets:contribute"],
+          resource: new URL("https://app.example.test/mcp"),
+          extra: {
+            requestId: "request-123",
+            subjectType: "user",
+            tokenId: "token-123",
+            userId: "user_123",
+          },
+        },
+        adminConvex: {
+          mutation: async (_mutation, args) => {
+            if (mode === "prepare_uncertain") throw new Error("transport ended mid-prepare");
+            if (args.emailVerified === undefined) return { status: "verification_required" };
+            if (mode === "processing") return { status: "processing" };
+            return { status: "pending", intentId: "intent_private_123", submissionId: "submission_123" };
+          },
+          query: async () => null,
+        },
+        completeProfileMediaSubmissionImport: async () => {
+          throw new McpProfileMediaImportError("transport ended after maybe committing", "indeterminate");
+        },
+        verifyContributorEmail: async () => true,
+      });
+
+      async function submit(id, key) {
+        const response = await handler.fetch(new Request("https://app.example.test/mcp", {
+          method: "POST",
+          headers: {
+            accept: "application/json, text/event-stream",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id,
+            method: "tools/call",
+            params: {
+              name: "vrdex_profile_media_submit",
+              arguments: {
+                slug: "community-dj",
+                sourceUrl: "https://media.example.test/press.webp",
+                credit: "Artist press kit",
+                expectedUpdatedAt: 123,
+                idempotencyKey: key,
+              },
+            },
+          }),
+        }));
+        return await response.text();
+      }
+
+      const prepareUncertain = await submit(44, "operator-key-prepare");
+      mode = "processing";
+      const processing = await submit(45, "operator-key-processing");
+      mode = "import_uncertain";
+      const importUncertain = await submit(46, "operator-key-import");
+
+      console.log(JSON.stringify({ importUncertain, prepareUncertain, processing }));
+    `);
+    const result = JSON.parse(output) as {
+      importUncertain: string;
+      prepareUncertain: string;
+      processing: string;
+    };
+
+    // An unknown commit outcome sends the operator to status and back to the
+    // same key. A new key would propose the image a second time.
+    assert.match(result.prepareUncertain, /Check your media submission status, then replay only the same idempotency key/);
+    assert.doesNotMatch(result.prepareUncertain, /new idempotency key/);
+
+    assert.match(result.processing, /Check your media submission status and do not retry automatically/);
+    assert.doesNotMatch(result.processing, /new idempotency key/);
+
+    assert.match(result.importUncertain, /Check your media submission status, then replay only the same idempotency key/);
+    assert.doesNotMatch(result.importUncertain, /new idempotency key/);
+  });
+
+  it("reports a Clerk verification failure as nothing submitted with same-key retry guidance", () => {
+    const output = runMcpProbe(`
+      import { createVrdexMcpHandler } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+
+      const prepareArgs = [];
+      const handler = createVrdexMcpHandler({
+        authInfo: {
+          token: "never-print-this-token",
+          clientId: "vrdx_app_test",
+          scopes: ["mcp:write", "assets:contribute"],
+          resource: new URL("https://app.example.test/mcp"),
+          extra: {
+            requestId: "request-123",
+            subjectType: "user",
+            tokenId: "token-123",
+            userId: "user_123",
+          },
+        },
+        adminConvex: {
+          mutation: async (_mutation, args) => {
+            if (args.toolName !== undefined) return {};
+            prepareArgs.push(args);
+            return { status: "verification_required" };
+          },
+          query: async () => null,
+        },
+        completeProfileMediaSubmissionImport: async () => {
+          throw new Error("importer must not run");
+        },
+        verifyContributorEmail: async () => {
+          throw new Error("clerk is unavailable");
+        },
+      });
+
+      const response = await handler.fetch(new Request("https://app.example.test/mcp", {
+        method: "POST",
+        headers: {
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 47,
+          method: "tools/call",
+          params: {
+            name: "vrdex_profile_media_submit",
+            arguments: {
+              slug: "community-dj",
+              sourceUrl: "https://media.example.test/press.webp",
+              credit: "Artist press kit",
+              expectedUpdatedAt: 123,
+              idempotencyKey: "operator-key-clerk-down",
+            },
+          },
+        }),
+      }));
+      const body = await response.text();
+      const marker = "data: ";
+      const markerAt = body.indexOf(marker);
+      const payload = markerAt === -1
+        ? body
+        : body.slice(markerAt + marker.length).split(String.fromCharCode(10))[0];
+      const result = JSON.parse(payload).result;
+
+      console.log(JSON.stringify({
+        isError: result.isError,
+        prepareCalls: prepareArgs.length,
+        text: result.content.map((entry) => entry.text).join(" "),
+      }));
+    `);
+    const result = JSON.parse(output) as {
+      isError: boolean;
+      prepareCalls: number;
+      text: string;
+    };
+
+    // A Clerk outage before any write is deterministic: nothing landed, so the
+    // same key is the only safe retry.
+    assert.equal(result.isError, true);
+    assert.match(result.text, /nothing was submitted/i);
+    assert.match(result.text, /same idempotency key/i);
+    assert.doesNotMatch(result.text, /may have started/);
+    assert.equal(result.prepareCalls, 1);
   });
 
   it("rejects stale media updates definitively and does not invoke the importer", () => {

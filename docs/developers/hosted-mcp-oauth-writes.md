@@ -12,9 +12,13 @@ candidates until same-branch preview and staging evidence is complete and
 BASIC explicitly approves the exact candidate for production. Because there is
 no MCP-only switch, merge or production promotion is the enablement decision.
 
-Six tools: `vrdex_event_create`, `vrdex_event_update`, `vrdex_profile_update`,
-`vrdex_profile_submit`, `vrdex_profile_media_manage`, and
-`vrdex_profile_media_submit`. Anonymous hosted reads
+Six write tools are registered: `vrdex_event_create`, `vrdex_event_update`,
+`vrdex_profile_update`, `vrdex_profile_submit`, `vrdex_profile_media_manage`,
+and `vrdex_profile_media_submit`. The last is the Issue 297 candidate: it is
+listed unconditionally, so merge or production promotion is its enablement,
+and after that the only switch is
+`VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED=false`, which it reports as a
+deterministic refusal. Anonymous hosted reads
 and the credentialed local stdio bridge are unaffected. Profile media management
 is hosted-only in this slice.
 
@@ -58,7 +62,9 @@ resource scope supports both `vrdex_profile_media_submit` and the caller-only
 transport scope, so a read-only grant cannot submit and a write-only grant
 cannot enumerate prior submissions.
 
-Minimal Codex project configuration for that contribution workflow:
+Minimal Codex project configuration for that contribution workflow. It applies
+to preview and staging today, and to production only after the contribution
+rollout gate below is satisfied:
 
 ```toml
 [mcp_servers.vrdex]
@@ -80,7 +86,9 @@ OAuth grant includes `assets:contribute`.
 ## Contribution rollout gate
 
 Before merge or production promotion, bind the candidate and base commits and
-deploy that exact tree to preview or staging. Use a staged client holding only
+deploy that exact tree to preview or staging with
+`VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED=true` in both Vercel and Convex. Use a
+staged client holding only
 `mcp:read mcp:write assets:contribute`, a synthetic public unclaimed person, and
 a non-sensitive synthetic image. Verify submission, status, same-key replay,
 conflicting reuse, stale/claimed/hidden refusal, cross-user isolation, audit
@@ -89,7 +97,8 @@ must approve in the browser, producing exactly one public
 `community_submitted` asset. Then revoke the staged grant and verify refusal
 while anonymous reads remain available.
 
-Production approval must name the exact candidate/base pair, tool contracts,
+Production approval is BASIC's explicit decision. It must name the exact
+candidate/base pair, tool contracts,
 scope, staged results, rollback, first legitimate public target, image source
 and credit, and separate reviewer. Any relevant candidate or base change resets
 the staged proof. Per-client rollback revokes the OAuth grant or application.
