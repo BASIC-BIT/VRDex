@@ -168,7 +168,12 @@ test("profile submission writes through to public profile and discovery @flow", 
         // Shared staging tracks main, not the pull-request SHA. An older
         // deployment still renders the generic VRCDN link or the legacy copy
         // row. Exact-revision targets cannot enter this tolerance branch.
-        await expect(page.getByText(questUrl)).toBeVisible();
+        const legacyLink = page.getByRole("link", { exact: true, name: "VRCDN" });
+        if ((await legacyLink.count()) > 0) {
+          await expect(legacyLink).toHaveAttribute("href", questUrl);
+        } else {
+          await expect(page.getByText(questUrl)).toBeVisible();
+        }
       }
     }
     await captureRouteScreenshot(page, testInfo, "profile-submission-flow-profile");
