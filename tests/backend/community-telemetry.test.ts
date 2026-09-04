@@ -1300,3 +1300,34 @@ describe("community telemetry control plane", () => {
     }), null);
   });
 });
+
+describe("collector account re-registration", () => {
+  it("keeps configured limits when a credential rotation omits them", async () => {
+    // Recovery re-registers with only the credential fields (see the login
+    // host runbook); that must not silently reset an account's limits.
+    const t = convexTest({ schema, modules });
+    const accountId = await t.mutation(internal.communityTelemetry.registerCollectorAccount, {
+      vrchatUserId: "usr_00000000-0000-4000-8000-000000000001",
+      accountAlias: "proof-1",
+      secretRef: "arn:aws:secretsmanager:us-east-1:000000000000:secret:telemetry-1",
+      workerKeyHash: "a".repeat(64),
+      capacity: 40,
+      reservedHeadroom: 5,
+      requestsPerMinute: 12,
+      now: NOW,
+    });
+    const rotatedId = await t.mutation(internal.communityTelemetry.registerCollectorAccount, {
+      vrchatUserId: "usr_00000000-0000-4000-8000-000000000001",
+      accountAlias: "proof-1",
+      secretRef: "arn:aws:secretsmanager:us-east-1:000000000000:secret:telemetry-1",
+      workerKeyHash: "b".repeat(64),
+      now: NOW + 1,
+    });
+    assert.equal(rotatedId, accountId);
+    const account = await t.run((ctx) => ctx.db.get(accountId));
+    assert.equal(account?.capacity, 40);
+    assert.equal(account?.reservedHeadroom, 5);
+    assert.equal(account?.requestsPerMinute, 12);
+    assert.equal(account?.credentialGeneration, 2);
+  });
+});
