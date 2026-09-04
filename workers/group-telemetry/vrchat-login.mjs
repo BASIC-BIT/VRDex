@@ -55,7 +55,7 @@ function isLoopbackOrigin(origin, expectedPort) {
     ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname.toLowerCase());
 }
 
-function setCookieHeaders(response) {
+export function setCookieHeaders(response) {
   if (typeof response.headers.getSetCookie === "function") return response.headers.getSetCookie();
   const combined = response.headers.get("set-cookie");
   return combined ? [combined] : [];
@@ -89,7 +89,7 @@ function isCookieDeletion(header, value) {
   return false;
 }
 
-function applySessionCookies(target, headers) {
+export function applySessionCookies(target, headers) {
   for (const header of headers) {
     const pair = header.split(";", 1)[0];
     const separator = pair.indexOf("=");

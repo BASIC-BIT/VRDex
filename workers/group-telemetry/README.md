@@ -22,7 +22,9 @@ process, is live. Logs are JSON with fixed event names and bounded fields; they
 never include proof codes, provider target IDs, provider bodies, exception
 messages, session material, or worker credentials.
 
-The worker exits on any authenticated provider 401. The local login bootstrap refreshes the alias-scoped operating-system vault session, and `pnpm ops:vrchat-session:transfer` moves that validated session into the account's AWS Secrets Manager secret without printing it.
+The worker checks its own session with `GET /auth/user` every 8-12 minutes (jittered, one request from the account budget), logging `collector_session_check` with `outcome` `ok`, `provider_unavailable`, or `auth_required`, so a session that dies while no group is assigned is noticed within minutes instead of by the first real proof claim. A cookie the provider rotates on that call is followed in memory only; a restart reloads the transferred secret.
+
+The worker exits on any authenticated provider 401, from a session check or a real request. The local login bootstrap refreshes the alias-scoped operating-system vault session, and `pnpm ops:vrchat-session:transfer` moves that validated session into the account's AWS Secrets Manager secret without printing it.
 
 Both halves of the deployment gate are now cleared: BASIC accepted durable service-account sessions as an operating pattern on 2026-07-27, and the vault-to-AWS transfer command ships. The fleet is enabled. Passwords and TOTP seeds are never worker inputs or vault records.
 

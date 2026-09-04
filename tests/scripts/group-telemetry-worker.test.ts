@@ -7,7 +7,7 @@ import {
   redactProviderText,
   retryDelayMs as backendRetryDelay,
 } from "../../convex/_communityTelemetry";
-import { MAX_CONSECUTIVE_LOOP_FAILURES, RequestBudget, boundedProviderCategory, collectorAuthRequiredEvent, collectorLoopFailureEvent, collectorRestartEvent, collectorRuntimeMetadata, collectorShouldRestart, failureDisposition, randomPollDelayMs } from "../../workers/group-telemetry/runtime.mjs";
+import { MAX_CONSECUTIVE_LOOP_FAILURES, RequestBudget, boundedProviderCategory, collectorAuthRequiredEvent, collectorLoopFailureEvent, collectorRestartEvent, collectorRuntimeMetadata, collectorShouldRestart, failureDisposition, randomPollDelayMs, sessionCheckDelayMs } from "../../workers/group-telemetry/runtime.mjs";
 import { VrchatClient, VrchatProviderError } from "../../workers/group-telemetry/vrchat-client.mjs";
 import { VrchatOperatorLogin, VrchatSessionValidationError } from "../../workers/group-telemetry/vrchat-login.mjs";
 import { VrchatKeychainSessionStore, VrchatSessionStoreError } from "../../workers/group-telemetry/vrchat-session-store.mjs";
@@ -399,6 +399,44 @@ describe("group telemetry provider adapter", () => {
     });
     await assert.rejects(timeout.getGroup("grp_example"), (error: unknown) => error instanceof VrchatProviderError && error.category === "timeout");
   });
+
+  it("verifies the service-account session, follows cookie rotation, and reports a dead session as authentication", async () => {
+    const requests: Array<{ url: string; cookie: string }> = [];
+    const responses = [
+      jsonResponse({ id: "usr_service-account", displayName: "must-not-escape" }, 200, { "set-cookie": "auth=rotated-auth-value; Path=/; HttpOnly" }),
+      jsonResponse({ id: "grp_example", memberCount: 1, membershipStatus: "member", joinState: "open", privacy: "default" }),
+    ];
+    const client = new VrchatClient({
+      authCookie: "cookie-value",
+      twoFactorAuthCookie: "two-factor-value",
+      userAgent: "VRDex/0.1 telemetry@example.com",
+      fetcher: async (request: RequestInfo | URL, init?: RequestInit) => {
+        requests.push({ url: String(request), cookie: String(new Headers(init?.headers).get("cookie")) });
+        return responses.shift()!;
+      },
+    });
+
+    assert.deepEqual(await client.verifySession(), { userId: "usr_service-account" });
+    assert.match(requests[0]!.url, /\/auth\/user$/);
+    assert.equal(requests[0]!.cookie, "auth=cookie-value; twoFactorAuth=two-factor-value");
+
+    await client.getGroup("grp_example");
+    assert.equal(requests[1]!.cookie, "auth=rotated-auth-value; twoFactorAuth=two-factor-value");
+
+    const dead = new VrchatClient({
+      authCookie: "cookie-value",
+      userAgent: "VRDex/0.1 telemetry@example.com",
+      fetcher: async () => jsonResponse({ error: { message: "must-not-escape" } }, 401),
+    });
+    await assert.rejects(dead.verifySession(), (error: unknown) => error instanceof VrchatProviderError && error.category === "authentication" && !error.message.includes("must-not-escape"));
+
+    const malformed = new VrchatClient({
+      authCookie: "cookie-value",
+      userAgent: "VRDex/0.1 telemetry@example.com",
+      fetcher: async () => jsonResponse({ displayName: "no id" }),
+    });
+    await assert.rejects(malformed.verifySession(), (error: unknown) => error instanceof VrchatProviderError && error.category === "schema_drift");
+  });
 });
 
 describe("group telemetry metrics and safety helpers", () => {
@@ -455,6 +493,9 @@ describe("group telemetry metrics and safety helpers", () => {
     assert.equal(backendPollDelay(false, () => 0), 180_000);
     assert.equal(backendPollDelay(false, () => 0.999999), 300_000);
     assert.equal(backendRetryDelay(1, 120_000, () => 0.5), 120_000);
+    // Session checks are not on a fixed clock: 8-12 minutes, drawn per check.
+    assert.equal(sessionCheckDelayMs(() => 0), 8 * 60_000);
+    assert.equal(sessionCheckDelayMs(() => 0.999999), 12 * 60_000);
   });
 
   it("does not interpolate player-hours across missing coverage", () => {

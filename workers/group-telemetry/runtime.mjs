@@ -45,6 +45,16 @@ export function randomPollDelayMs(active, random = Math.random) {
   return Math.floor(minimum + random() * (maximum - minimum + 1));
 }
 
+/**
+ * How long to wait before the next `/auth/user` session check: 8-12 minutes,
+ * drawn per check. Frequent enough that a dead session is alarmed within
+ * minutes rather than on the first real claim, jittered because the provider
+ * asks that automated calls not run on fixed clock intervals.
+ */
+export function sessionCheckDelayMs(random = Math.random) {
+  return Math.floor(8 * 60_000 + random() * (4 * 60_000 + 1));
+}
+
 export function retryDelayMs(attempt, retryAfterMs, random = Math.random) {
   const exponential = Math.min(15 * 60_000, 5_000 * 2 ** Math.max(0, Math.min(attempt, 8)));
   return Math.max(retryAfterMs ?? 0, Math.floor(exponential * (0.8 + random() * 0.4)));

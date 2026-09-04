@@ -1,4 +1,5 @@
 import { containsProofCode, proofSurfaceFields } from "./proof-matching.mjs";
+import { applySessionCookies, setCookieHeaders } from "./vrchat-login.mjs";
 
 const DEFAULT_BASE_URL = "https://api.vrchat.cloud/api/1";
 
@@ -92,7 +93,32 @@ export class VrchatClient {
     this.requestCounts = { total: 0, success: 0, clientError: 0, serverError: 0, rateLimited: 0 };
   }
 
-  async request(path, { method = "GET", body } = {}) {
+  /**
+   * Confirm the stored session is still accepted, spending one request.
+   *
+   * Nothing else touches the provider while no group is assigned, so without
+   * this a dead session is first noticed by the first real proof claim. The
+   * provider may rotate the cookie on this call; the live client follows it,
+   * otherwise the next check presents a retired value and 401s on its own.
+   * The rotated value is not written back to the secret: a restart reloads the
+   * transferred one, which is the recorded limitation of a read-only secret.
+   */
+  async verifySession() {
+    const user = await this.request("/auth/user", {
+      onResponse: (response) => {
+        const cookies = new Map([["auth", this.authCookie], ...(this.twoFactorAuthCookie ? [["twoFactorAuth", this.twoFactorAuthCookie]] : [])]);
+        applySessionCookies(cookies, setCookieHeaders(response));
+        this.authCookie = cookies.get("auth") ?? this.authCookie;
+        this.twoFactorAuthCookie = cookies.get("twoFactorAuth");
+      },
+    });
+    if (!user || typeof user !== "object" || typeof user.id !== "string" || !/^usr_[A-Za-z0-9-]{8,120}$/.test(user.id)) {
+      throw new VrchatProviderError("Current user response is malformed.", { category: "schema_drift" });
+    }
+    return { userId: user.id };
+  }
+
+  async request(path, { method = "GET", body, onResponse } = {}) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     this.requestCounts.total += 1;
@@ -126,6 +152,7 @@ export class VrchatClient {
       });
     }
     this.requestCounts.success += 1;
+    onResponse?.(response);
     if (response.status === 204) {
       clearTimeout(timeout);
       return null;

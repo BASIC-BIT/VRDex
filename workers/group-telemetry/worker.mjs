@@ -1,7 +1,7 @@
 import { setTimeout as sleep } from "node:timers/promises";
 
 import { VrchatClient } from "./vrchat-client.mjs";
-import { COLLECTOR_PROTOCOL_VERSION, RequestBudget, TelemetryControlClient, boundedProviderCategory, collectorAuthRequiredEvent, collectorLoopFailureEvent, collectorRestartEvent, collectorRuntimeMetadata, collectorShouldRestart, failureDisposition, pollId, randomPollDelayMs, retryDelayMs } from "./runtime.mjs";
+import { COLLECTOR_PROTOCOL_VERSION, RequestBudget, TelemetryControlClient, boundedProviderCategory, collectorAuthRequiredEvent, collectorLoopFailureEvent, collectorRestartEvent, collectorRuntimeMetadata, collectorShouldRestart, failureDisposition, pollId, randomPollDelayMs, retryDelayMs, sessionCheckDelayMs } from "./runtime.mjs";
 
 function requiredEnv(name) {
   const value = process.env[name]?.trim();
@@ -60,6 +60,7 @@ const attempts = new Map();
 let stopping = false;
 let controlFailures = 0;
 let lastHeartbeatAt = 0;
+let nextSessionCheckAt = 0;
 
 function logEvent(event) {
   console.error(JSON.stringify(event));
@@ -80,6 +81,41 @@ async function heartbeat() {
     releaseSha: runtimeMetadata.releaseSha,
     capabilities: runtimeMetadata.capabilities,
   });
+}
+
+/**
+ * Prove the stored session is still accepted while nothing else exercises it.
+ *
+ * With no group assigned the only provider traffic is proof checks, so a
+ * session that died after the transfer was first noticed by the first real
+ * claim, a day later, by the claimant. One request every 8-12 minutes turns
+ * that into an `auth_required` alarm within minutes. A dead session takes the
+ * same exit as the proof path: report it so the account stops being offered,
+ * then stop.
+ */
+async function checkSession() {
+  const now = Date.now();
+  if (now < nextSessionCheckAt || accountBudget.retryAfterMs(1, now) > 0) return;
+  nextSessionCheckAt = now + sessionCheckDelayMs();
+  accountBudget.tryConsume(1, now);
+  try {
+    await provider.verifySession();
+    logEvent({ event: "collector_session_check", outcome: "ok" });
+  } catch (error) {
+    if (error?.category !== "authentication") {
+      // Not evidence either way; the next check will tell.
+      logEvent({ event: "collector_session_check", outcome: "provider_unavailable", category: boundedProviderCategory(error?.category) });
+      return;
+    }
+    logEvent({ event: "collector_session_check", outcome: "auth_required" });
+    logEvent(collectorAuthRequiredEvent());
+    try {
+      await control.send("proof_auth_failure", { now: Date.now() });
+    } catch {
+      // Exiting on the 401 matters more than reporting it.
+    }
+    stopping = true;
+  }
 }
 
 // A rate-limit backoff can park the loop for minutes, and ECS SIGKILLs 30s
@@ -427,6 +463,8 @@ while (!stopping) {
   let loopPhase = "heartbeat";
   try {
     await heartbeat();
+    loopPhase = "session_check";
+    if (!stopping) await checkSession();
     loopPhase = "proof_checks";
     // Proofs first, and before the claim rather than merely before `collect()`.
     // Telemetry is continuous and a deferred batch is picked up next window
