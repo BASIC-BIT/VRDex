@@ -68,7 +68,9 @@ applies the saved plan only after the policy helper proves that it changes the
 collector image and release metadata alone. ECS must stabilize on the exact
 digest, then `communityTelemetry:collectorDeploymentReadiness` must report a
 fresh matching heartbeat from `GROUP_TELEMETRY_COLLECTOR_ACCOUNT_ID` with
-`telemetry_v1` and `vrchat_proof_v1`.
+`telemetry_v1` and `vrchat_proof_v1`. Because proof capability is required,
+the same release must also have reached the proof-claim gate with usable proof
+budget and no active account cooldown.
 
 Before enabling the lane, perform one reviewed bootstrap from the trusted state
 holder:

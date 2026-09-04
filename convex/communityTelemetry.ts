@@ -2105,6 +2105,8 @@ export const collectorDeploymentReadiness = internalQuery({
       throw new Error("Collector heartbeat age is invalid.");
     }
     const requiredCapabilities = [...new Set(args.requiredCapabilities)];
+    const proofPathRequired = requiredCapabilities.includes("vrchat_proof_v1");
+    const maxProofPollAgeMs = Math.min(maxHeartbeatAgeMs, WORKER_HEARTBEAT_FRESHNESS_MS);
     const [fleet, accounts] = await Promise.all([
       ctx.db
         .query("collectorFleetSettings")
@@ -2126,20 +2128,43 @@ export const collectorDeploymentReadiness = internalQuery({
     );
     const configuredEligible = configuredAccount !== null && eligible.includes(configuredAccount);
     const configuredFresh = configuredAccount !== null && fresh.includes(configuredAccount);
+    const fleetProofEnabled = proofShareOf(fleet?.globalRequestsPerMinute ?? 30) >= 1;
+    const configuredProofReady = configuredAccount !== null &&
+      proofShareOf(configuredAccount.requestsPerMinute) > 0 &&
+      (configuredAccount.cooldownUntil ?? 0) <= args.now &&
+      (configuredAccount.lastProofPollAt ?? 0) >= args.now - maxProofPollAgeMs &&
+      configuredAccount.lastProofPollReleaseSha === expectedReleaseSha;
     const matching = fresh.filter(
       (account) =>
         account._id === collectorAccountId &&
         account.lastWorkerReleaseSha === expectedReleaseSha &&
         requiredCapabilities.every((capability) =>
           account.lastWorkerCapabilities?.includes(capability),
-        ),
+        ) &&
+        (!proofPathRequired || (fleetProofEnabled && configuredProofReady)),
     );
     const issues: string[] = [];
     if (fleet?.killSwitchEnabled) issues.push("fleet_kill_switch_enabled");
     if (configuredAccount === null) issues.push("configured_collector_not_found");
     else if (!configuredEligible) issues.push("configured_collector_ineligible");
     else if (!configuredFresh) issues.push("configured_collector_heartbeat_stale");
-    else if (matching.length === 0) issues.push("release_or_capability_mismatch");
+    else if (
+      configuredAccount.lastWorkerReleaseSha !== expectedReleaseSha ||
+      !requiredCapabilities.every((capability) =>
+        configuredAccount.lastWorkerCapabilities?.includes(capability),
+      )
+    ) issues.push("release_or_capability_mismatch");
+    else if (proofPathRequired && !fleetProofEnabled) issues.push("fleet_proof_budget_disabled");
+    else if (proofPathRequired && proofShareOf(configuredAccount.requestsPerMinute) === 0) {
+      issues.push("configured_collector_proof_budget_disabled");
+    } else if (proofPathRequired && (configuredAccount.cooldownUntil ?? 0) > args.now) {
+      issues.push("configured_collector_cooldown_active");
+    } else if (proofPathRequired && configuredAccount.lastProofPollReleaseSha !== expectedReleaseSha) {
+      issues.push("configured_collector_proof_release_mismatch");
+    } else if (
+      proofPathRequired &&
+      (configuredAccount.lastProofPollAt ?? 0) < args.now - maxProofPollAgeMs
+    ) issues.push("configured_collector_proof_poll_stale");
 
     return {
       healthy: !fleet?.killSwitchEnabled && matching.length > 0,
@@ -2217,13 +2242,20 @@ export const claimPendingProofChecks = internalMutation({
     // after every account and fleet gate passes, even when the queue is empty.
     // A generic process heartbeat cannot prove that an obsolete release
     // reached this protocol.
-    if ((account.lastProofPollAt ?? 0) <= args.now - PROOF_POLL_HEARTBEAT_WRITE_MS) {
-      await ctx.db.patch(accountId, { lastProofPollAt: args.now, updatedAt: args.now });
+    const workerReleaseSha = normalizedOptionalReleaseSha(args.releaseSha);
+    if (
+      (account.lastProofPollAt ?? 0) <= args.now - PROOF_POLL_HEARTBEAT_WRITE_MS ||
+      (workerReleaseSha !== undefined && account.lastProofPollReleaseSha !== workerReleaseSha)
+    ) {
+      await ctx.db.patch(accountId, {
+        lastProofPollAt: args.now,
+        ...(workerReleaseSha === undefined ? {} : { lastProofPollReleaseSha: workerReleaseSha }),
+        updatedAt: args.now,
+      });
     }
 
     const limit = Math.max(1, Math.min(args.limit ?? 5, 25));
     const workerId = boundedWorkerId(args.workerId);
-    const workerReleaseSha = normalizedOptionalReleaseSha(args.releaseSha);
     // Select collector-eligible target types through the index. Scanning all
     // pending attempts and filtering afterwards let vrclinking rows, which are
     // never stamped, hold the head of the window permanently and starve the
