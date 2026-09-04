@@ -185,9 +185,29 @@ resource "aws_ecs_service" "worker" {
   }
 }
 
+# Every alarm below notifies the operator through this topic. An alarm with no
+# action is a dashboard, not an alert: the 2026-09-04 session outage tripped
+# three of these within minutes and nobody heard until a user reported it.
+# The email endpoint must confirm the subscription once from the message SNS
+# sends on the first apply.
+resource "aws_sns_topic" "alerts" {
+  count = var.enable_service ? 1 : 0
+  name  = "${var.name_prefix}-alerts"
+  tags  = local.tags
+}
+
+resource "aws_sns_topic_subscription" "alerts_email" {
+  count     = var.enable_service ? 1 : 0
+  topic_arn = aws_sns_topic.alerts[0].arn
+  protocol  = "email"
+  endpoint  = var.budget_alert_email
+}
+
 resource "aws_cloudwatch_metric_alarm" "worker_cpu" {
   count               = var.enable_service ? 1 : 0
   alarm_name          = "${var.name_prefix}-high-cpu"
+  alarm_actions       = aws_sns_topic.alerts[*].arn
+  ok_actions          = aws_sns_topic.alerts[*].arn
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = 3
   metric_name         = "CPUUtilization"
@@ -203,6 +223,8 @@ resource "aws_cloudwatch_metric_alarm" "worker_cpu" {
 resource "aws_cloudwatch_metric_alarm" "worker_count" {
   count               = var.enable_service ? 1 : 0
   alarm_name          = "${var.name_prefix}-missing-task"
+  alarm_actions       = aws_sns_topic.alerts[*].arn
+  ok_actions          = aws_sns_topic.alerts[*].arn
   comparison_operator = "LessThanThreshold"
   evaluation_periods  = 2
   metric_name         = "RunningTaskCount"
@@ -231,6 +253,8 @@ resource "aws_cloudwatch_log_metric_filter" "collector_heartbeat" {
 resource "aws_cloudwatch_metric_alarm" "collector_heartbeat" {
   count               = var.enable_service ? 1 : 0
   alarm_name          = "${var.name_prefix}-missing-heartbeat"
+  alarm_actions       = aws_sns_topic.alerts[*].arn
+  ok_actions          = aws_sns_topic.alerts[*].arn
   alarm_description   = "The collector emitted no successful control-plane heartbeat for two minutes."
   namespace           = local.observability_namespace
   metric_name         = aws_cloudwatch_log_metric_filter.collector_heartbeat.metric_transformation[0].name
@@ -260,6 +284,8 @@ resource "aws_cloudwatch_log_metric_filter" "auth_required" {
 resource "aws_cloudwatch_metric_alarm" "auth_required" {
   count               = var.enable_service ? 1 : 0
   alarm_name          = "${var.name_prefix}-auth-required"
+  alarm_actions       = aws_sns_topic.alerts[*].arn
+  ok_actions          = aws_sns_topic.alerts[*].arn
   alarm_description   = "The collector reported that its VRChat session requires operator authentication."
   namespace           = local.observability_namespace
   metric_name         = aws_cloudwatch_log_metric_filter.auth_required.metric_transformation[0].name
@@ -289,6 +315,8 @@ resource "aws_cloudwatch_log_metric_filter" "control_plane_failure" {
 resource "aws_cloudwatch_metric_alarm" "control_plane_failures" {
   count               = var.enable_service ? 1 : 0
   alarm_name          = "${var.name_prefix}-control-plane-failures"
+  alarm_actions       = aws_sns_topic.alerts[*].arn
+  ok_actions          = aws_sns_topic.alerts[*].arn
   alarm_description   = "The collector reached three consecutive control-plane failures."
   namespace           = local.observability_namespace
   metric_name         = aws_cloudwatch_log_metric_filter.control_plane_failure.metric_transformation[0].name
@@ -318,6 +346,8 @@ resource "aws_cloudwatch_log_metric_filter" "worker_restart" {
 resource "aws_cloudwatch_metric_alarm" "worker_restarts" {
   count               = var.enable_service ? 1 : 0
   alarm_name          = "${var.name_prefix}-worker-restarts"
+  alarm_actions       = aws_sns_topic.alerts[*].arn
+  ok_actions          = aws_sns_topic.alerts[*].arn
   alarm_description   = "The collector restarted at least three times within fifteen minutes."
   namespace           = local.observability_namespace
   metric_name         = aws_cloudwatch_log_metric_filter.worker_restart.metric_transformation[0].name

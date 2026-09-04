@@ -94,7 +94,10 @@ The CloudWatch filters consume only redacted JSON event names:
 `collector_control_plane_failure`, and `collector_worker_restart`. They must
 never include a profile slug, proof code, provider target, account identifier,
 cookie, key, or raw error payload. Missing successful heartbeats alarm after
-two one-minute periods.
+two one-minute periods. Every alarm notifies the `${name_prefix}-alerts` SNS
+topic, which emails `budget_alert_email`. The address confirms the subscription
+once, from the message SNS sends on the first apply; until then the alarms
+change state but nobody is told.
 
 The Terraform-managed `${name_prefix}-operations` dashboard combines those
 collector signals with ECS task count, CPU, and a bounded recent-log view.
