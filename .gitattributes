@@ -1,0 +1,2 @@
+# User data is hashed by Terraform; a CRLF checkout would show a spurious change.
+infra/terraform/group-telemetry-login-host/connect-proxy.sh text eol=lf
