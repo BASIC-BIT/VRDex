@@ -73,20 +73,20 @@ How the code behaves today:
 
 ## 2. What VRChat actually says
 
-Terms of Service (https://hello.vrchat.com/legal, effective 2026-02-09),
+Terms of Service (<https://hello.vrchat.com/legal>, effective 2026-02-09),
 section 13.2, prohibits: (i) "access or use the Platform in a manner
 inconsistent with individual human usage"; (j) "use any engine, software tool,
 agent, device, or mechanism (including any robot, spambot, spider, crawler,
 scraper, or other automated means or interface) not provided by us to access,
 search, or otherwise use any portion of the Platform or to extract data".
 
-Community Guidelines (https://hello.vrchat.com/community-guidelines, updated
+Community Guidelines (<https://hello.vrchat.com/community-guidelines>, updated
 2025-09-24): "Only one person should use each account"; "creation or usage of
 'bots' to abuse the VRChat platform or services" is prohibited; "Do not share
 VRChat login credentials between people or build services that ask for VRChat
 login credentials."
 
-Creator Guidelines (https://hello.vrchat.com/creator-guidelines, updated
+Creator Guidelines (<https://hello.vrchat.com/creator-guidelines>, updated
 2025-04-15), section "API Usage / Bots", is the current written stance on API
 clients:
 
@@ -148,7 +148,7 @@ From the community specification (vrchatapi/specification, branch main):
 - Security schemes: `authCookie` (cookie `auth`), `authHeader` (HTTP basic),
   `twoFactorAuthCookie` (cookie `twoFactorAuth`, "2FA device remembrance via
   Cookie").
-  https://github.com/vrchatapi/specification/blob/main/openapi/components/securitySchemes.yaml
+  <https://github.com/vrchatapi/specification/blob/main/openapi/components/securitySchemes.yaml>
 - `GET /auth/user` (getCurrentUser) logs in with the Authorization header if
   there is no valid auth cookie, otherwise returns the current user. The
   response is `CurrentUser` or `RequiresTwoFactorAuth`. Spec warning: "Each
@@ -158,11 +158,11 @@ From the community specification (vrchatapi/specification, branch main):
   run into the rate-limit and be temporarily blocked from making new sessions
   until older ones expire. The exact number of simultaneous sessions is
   unknown/undisclosed."
-  https://github.com/vrchatapi/specification/blob/main/openapi/components/paths/authentication.yaml
+  <https://github.com/vrchatapi/specification/blob/main/openapi/components/paths/authentication.yaml>
 - `POST /auth/twofactorauth/totp/verify` with body `{ code }` finishes login
   and sets the `twoFactorAuth` cookie, which "can be used to bypasses the 2FA
   requirement for future logins on the same device".
-  https://github.com/vrchatapi/specification/blob/main/openapi/components/responses/authentication/Verify2FAResponse.yaml
+  <https://github.com/vrchatapi/specification/blob/main/openapi/components/responses/authentication/Verify2FAResponse.yaml>
 - `GET /auth` (verifyAuthToken) returns `{ ok, token }`. `PUT /logout`
   invalidates the login session. No "logout everywhere" endpoint is
   documented; password-change invalidation is not documented; multiple
@@ -170,12 +170,12 @@ From the community specification (vrchatapi/specification, branch main):
 - No cookie lifetime is documented. Both Set-Cookie examples use the
   placeholder `Expires=Tue, 01 Jan 2030`. The "2FA token expires after 30 days"
   figure appears only in a third-party README
-  (https://github.com/realPrix/vrchat-auth-cli), not in the spec.
+  (<https://github.com/realPrix/vrchat-auth-cli>), not in the spec.
 - Spec issue #248: VRChat added SameSite=Lax to auth cookies; leave Origin and
-  Referer empty. https://github.com/vrchatapi/specification/issues/248
+  Referer empty. <https://github.com/vrchatapi/specification/issues/248>
 - vrchatapi-python README: "Do not make queries to the API more than once per
   60 seconds"; User-Agent per usage policy.
-  https://github.com/vrchatapi/vrchatapi-python
+  <https://github.com/vrchatapi/vrchatapi-python>
 
 Locally, `workers/group-telemetry/vrchat-login.mjs` already exercises the
 first three: Basic login on `/auth/user`, TOTP verify, and cookie capture
@@ -223,7 +223,7 @@ Candidates, with what evidence exists:
    "Automatic releases"). Evidence that IP changes kill sessions: a VRChat
    Canny bug report speculating auth cookies expire on IP change, unconfirmed
    by staff
-   (https://vrchat.canny.io/bug-reports/p/opening-socialavatarworlds-with-an-expired-authcookie-ie-due-to-changed-ip-addre),
+   (<https://vrchat.canny.io/bug-reports/p/opening-socialavatarworlds-with-an-expired-authcookie-ie-due-to-changed-ip-addre>),
    and the Creator Guidelines' "device and IP" assumption. Not documented. The
    session was validated from the operator's workstation IP and then used from
    an AWS IP, so an IP-binding rule would have bitten on the first ECS request
@@ -318,7 +318,7 @@ What changes:
   --secret-id ... --expect-user-id ...`, then prints the exact
   `registerCollectorAccount` invocation with the digest filled in, then
   `aws ecs update-service --force-new-deployment` for the task restart
-  (https://docs.aws.amazon.com/cli/latest/reference/ecs/update-service.html).
+  (<https://docs.aws.amazon.com/cli/latest/reference/ecs/update-service.html>).
   The only human input is the login form and the TOTP code.
 - `docs/deployment/group-telemetry-collector.md` "Stops and recovery": replace
   the four-step prose with the one command.
@@ -370,7 +370,7 @@ What changes:
   failure and stops. `recordProofAuthFailure` is unchanged: the account still
   goes to `auth_required` when re-login fails.
 - Persisting the new session. ECS reads the secret at task start only
-  (https://docs.aws.amazon.com/AmazonECS/latest/developerguide/specifying-sensitive-data-secrets.html),
+  (<https://docs.aws.amazon.com/AmazonECS/latest/developerguide/specifying-sensitive-data-secrets.html>),
   so a worker that re-logs in and does not write back boots with the dead
   cookie on its next restart and logs in again, spending another session slot
   each time. Two ways: the worker writes `authCookie` and
@@ -380,9 +380,9 @@ What changes:
   Lambda does the login and writes the secret and then forces a new
   deployment. Worker-writes is the smaller change: one IAM statement, one SDK
   call, no new compute. Secrets Manager rotation Lambdas are the AWS-shaped
-  answer (https://docs.aws.amazon.com/secretsmanager/latest/userguide/rotate-secrets_lambda-functions.html)
+  answer (<https://docs.aws.amazon.com/secretsmanager/latest/userguide/rotate-secrets_lambda-functions.html>)
   but their minimum schedule is `rate(4 hours)`
-  (https://docs.aws.amazon.com/secretsmanager/latest/userguide/rotate-secrets_schedule.html)
+  (<https://docs.aws.amazon.com/secretsmanager/latest/userguide/rotate-secrets_schedule.html>)
   and scheduled rotation is the wrong trigger here: the goal is to log in when
   a session dies, not on a clock, and every scheduled login is a session slot
   spent for nothing.
@@ -546,22 +546,22 @@ Local (this repository unless noted):
 
 VRChat:
 
-- Terms of Service, https://hello.vrchat.com/legal (effective 2026-02-09).
-- Community Guidelines, https://hello.vrchat.com/community-guidelines
+- Terms of Service, <https://hello.vrchat.com/legal> (effective 2026-02-09).
+- Community Guidelines, <https://hello.vrchat.com/community-guidelines>
   (updated 2025-09-24).
-- Creator Guidelines, https://hello.vrchat.com/creator-guidelines
+- Creator Guidelines, <https://hello.vrchat.com/creator-guidelines>
   (updated 2025-04-15), "API Usage / Bots".
 - vrchat.community API docs (formerly vrchatapi.github.io).
 
 API specification and community tooling (reported by the sweep):
 
-- https://github.com/vrchatapi/specification/blob/main/openapi/components/securitySchemes.yaml
-- https://github.com/vrchatapi/specification/blob/main/openapi/components/paths/authentication.yaml
-- https://github.com/vrchatapi/specification/blob/main/openapi/components/responses/authentication/Verify2FAResponse.yaml
-- https://github.com/vrchatapi/specification/issues/248
-- https://github.com/vrchatapi/vrchatapi-python
-- https://github.com/realPrix/vrchat-auth-cli (third-party 30-day figure)
-- https://vrchat.canny.io/bug-reports/p/opening-socialavatarworlds-with-an-expired-authcookie-ie-due-to-changed-ip-addre
+- <https://github.com/vrchatapi/specification/blob/main/openapi/components/securitySchemes.yaml>
+- <https://github.com/vrchatapi/specification/blob/main/openapi/components/paths/authentication.yaml>
+- <https://github.com/vrchatapi/specification/blob/main/openapi/components/responses/authentication/Verify2FAResponse.yaml>
+- <https://github.com/vrchatapi/specification/issues/248>
+- <https://github.com/vrchatapi/vrchatapi-python>
+- <https://github.com/realPrix/vrchat-auth-cli> (third-party 30-day figure)
+- <https://vrchat.canny.io/bug-reports/p/opening-socialavatarworlds-with-an-expired-authcookie-ie-due-to-changed-ip-addre>
 - vrcx-team/VRCX at dc94cf9487fbd416075890abc37f59f31c56fe5d:
   `src/stores/updateLoop.js`, `src/services/request.js`,
   `src/coordinators/authAutoLoginCoordinator.js`, `src/stores/auth.js`;
@@ -569,7 +569,7 @@ API specification and community tooling (reported by the sweep):
 
 AWS:
 
-- https://docs.aws.amazon.com/secretsmanager/latest/userguide/rotate-secrets_lambda-functions.html
-- https://docs.aws.amazon.com/secretsmanager/latest/userguide/rotate-secrets_schedule.html
-- https://docs.aws.amazon.com/AmazonECS/latest/developerguide/specifying-sensitive-data-secrets.html
-- https://docs.aws.amazon.com/cli/latest/reference/ecs/update-service.html
+- <https://docs.aws.amazon.com/secretsmanager/latest/userguide/rotate-secrets_lambda-functions.html>
+- <https://docs.aws.amazon.com/secretsmanager/latest/userguide/rotate-secrets_schedule.html>
+- <https://docs.aws.amazon.com/AmazonECS/latest/developerguide/specifying-sensitive-data-secrets.html>
+- <https://docs.aws.amazon.com/cli/latest/reference/ecs/update-service.html>
