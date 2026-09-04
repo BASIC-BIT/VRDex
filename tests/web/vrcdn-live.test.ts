@@ -2,11 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
-  mergeConfirmedVrcdnLiveStates,
   parseVrcdnLiveStates,
-  removeVrcdnLiveStates,
   maxVrcdnObservationAgeMs,
-  shouldRetryVrcdnLiveStates,
   vrcdnLiveStateFromStatus,
   vrcdnReportedState,
   vrcdnStreamIds,
@@ -20,42 +17,6 @@ describe("VRCDN liveness", () => {
     );
     assert.equal(parseVrcdnLiveStates({ alpha: "maybe" }), null);
     assert.equal(parseVrcdnLiveStates([]), null);
-  });
-
-  it("retries unavailable observations but not authoritative offline answers", () => {
-    assert.equal(shouldRetryVrcdnLiveStates({ alpha: "unavailable" }), true);
-    assert.equal(shouldRetryVrcdnLiveStates({ alpha: "offline" }), false);
-    assert.equal(shouldRetryVrcdnLiveStates({ alpha: "live", beta: "offline" }), false);
-  });
-
-  it("does not replace confirmed liveness with an unavailable probe", () => {
-    assert.deepEqual(
-      mergeConfirmedVrcdnLiveStates(
-        { alpha: "live", beta: "offline" },
-        { alpha: "unavailable", beta: "live", gamma: "unavailable" },
-      ),
-      { alpha: "live", beta: "live" },
-    );
-  });
-
-  it("removes only streams whose final retry failed", () => {
-    assert.deepEqual(
-      removeVrcdnLiveStates(
-        { alpha: "live", beta: "live", gamma: "offline" },
-        new Set(["beta"]),
-      ),
-      { alpha: "live", gamma: "offline" },
-    );
-  });
-
-  it("lets authoritative offline and live answers replace previous state", () => {
-    assert.deepEqual(
-      mergeConfirmedVrcdnLiveStates(
-        { alpha: "live", beta: "offline" },
-        { alpha: "offline", beta: "live" },
-      ),
-      { alpha: "offline", beta: "live" },
-    );
   });
 
   // Measured against a real stream on 2026-08-10, live and then idle:

@@ -142,29 +142,38 @@ test("profile submission writes through to public profile and discovery @flow", 
 
     // Canonicalized on the way in: the panel preview URL that was typed is read
     // for its stream id and stored as the `vrcdn:<id>` identifier. A community
-    // submission cannot support a liveness claim, so it remains an ordinary
-    // outbound link instead of entering the live-only Watch surface.
+    // submission cannot support a liveness claim, but it still gets the
+    // permanent Watch controls: `Open preview` plus the copyable stream URLs.
     if (submittedStreamId !== undefined) {
       const questUrl = `https://stream.vrcdn.live/live/${submittedStreamId}.live.ts`;
-      const vrcdnLink = page.getByRole("link", { name: "VRCDN", exact: true });
-      const rendersVrcdnLink = (await vrcdnLink.count()) > 0;
+      const previewLink = page.getByRole("link", { name: "Open preview" });
+      const rendersWatchControls = (await previewLink.count()) > 0;
 
       if (targetRunsCurrentRevision) {
         expect(
-          rendersVrcdnLink,
-          "target runs this revision, so it must render the ordinary VRCDN link",
+          rendersWatchControls,
+          "target runs this revision, so it must render the permanent VRCDN controls",
         ).toBe(true);
       }
 
-      if (rendersVrcdnLink) {
-        await expect(vrcdnLink).toHaveAttribute("href", questUrl);
+      if (rendersWatchControls) {
+        await expect(previewLink).toHaveAttribute(
+          "href",
+          `https://panel.vrcdn.live/preview/${submittedStreamId}`,
+        );
+        await expect(page.getByText(questUrl, { exact: true })).toBeVisible();
+        await expect(page.getByRole("link", { exact: true, name: "VRCDN" })).toHaveCount(0);
+        await expect(page.getByText("Live now", { exact: true })).toHaveCount(0);
       } else {
-        // Shared staging tracks main, not the pull-request SHA. Detect its
-        // rendered compatibility surface just as the form above does: staging
-        // may already contain the new link from a main commit that this branch
-        // merged, while an older deployment still renders the legacy copy row.
-        // Exact-revision targets cannot enter this tolerance branch.
-        await expect(page.getByText(questUrl)).toBeVisible();
+        // Shared staging tracks main, not the pull-request SHA. An older
+        // deployment still renders the generic VRCDN link or the legacy copy
+        // row. Exact-revision targets cannot enter this tolerance branch.
+        const legacyLink = page.getByRole("link", { exact: true, name: "VRCDN" });
+        if ((await legacyLink.count()) > 0) {
+          await expect(legacyLink).toHaveAttribute("href", questUrl);
+        } else {
+          await expect(page.getByText(questUrl)).toBeVisible();
+        }
       }
     }
     await captureRouteScreenshot(page, testInfo, "profile-submission-flow-profile");

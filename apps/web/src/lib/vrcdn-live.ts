@@ -47,43 +47,6 @@ export function parseVrcdnLiveStates(value: unknown): VrcdnLiveStates | null {
   return Object.fromEntries(entries);
 }
 
-export function shouldRetryVrcdnLiveStates(states: VrcdnLiveStates): boolean {
-  return Object.values(states).some((state) => state === "unavailable");
-}
-
-/**
- * Apply only provider answers that say something authoritative about whether a
- * stream is publishing. `unavailable` means the probe failed, not that a live
- * stream stopped, so it must not clear a player while the bounded retry runs.
- */
-export function mergeConfirmedVrcdnLiveStates(
-  current: VrcdnLiveStates,
-  incoming: VrcdnLiveStates,
-): VrcdnLiveStates {
-  const confirmed = Object.fromEntries(
-    Object.entries(current).filter(([, state]) => state !== "unavailable"),
-  );
-
-  for (const [streamId, state] of Object.entries(incoming)) {
-    if (state !== "unavailable") {
-      confirmed[streamId] = state;
-    }
-  }
-
-  return confirmed;
-}
-
-export function removeVrcdnLiveStates(
-  current: VrcdnLiveStates,
-  streamIds: ReadonlySet<string>,
-): VrcdnLiveStates {
-  return Object.fromEntries(
-    Object.entries(current).filter(([streamId]) => !streamIds.has(streamId)),
-  );
-}
-
-export const vrcdnLiveRetryDelayMs = 750;
-
 export type VrcdnLiveLink = LiveClaimLink;
 
 export function vrcdnLiveStateFromStatus(status: number): VrcdnLiveState {

@@ -4,15 +4,16 @@ import { unstable_cache } from "next/cache";
 
 import {
   type VrcdnLiveLink,
-  type VrcdnLiveObservation,
-  type VrcdnLiveState,
   type VrcdnLiveStates,
-  vrcdnLiveStateFromStatus,
-  vrcdnReportedState,
   vrcdnStreamIds,
 } from "@/lib/vrcdn-live";
-
-import { createVrcdnStreamLinks } from "../../../../../convex/_vrcdnLinks";
+import {
+  collectVrcdnLiveStates,
+  probeVrcdnLiveState,
+  type VrcdnLiveProbeResult,
+  type VrcdnProbeFreshnessMode,
+  type VrcdnProbeLogEntry,
+} from "@/lib/vrcdn-live-probe";
 
 // Production observations showed the media server regularly taking about 3.8
 // seconds to answer from Vercel, so the old 1.5 second budget converted valid
@@ -20,36 +21,21 @@ import { createVrcdnStreamLinks } from "../../../../../convex/_vrcdnLinks";
 // server-rendered initial check bounded without preserving that race.
 const probeTimeoutMs = 5000;
 
+async function getFreshVrcdnLiveState(streamId: string): Promise<VrcdnLiveProbeResult> {
+  return probeVrcdnLiveState(streamId, { signal: AbortSignal.timeout(probeTimeoutMs) });
+}
+
 const getCachedVrcdnLiveState = unstable_cache(
-  async (streamId: string): Promise<VrcdnLiveObservation> => {
-    const stream = createVrcdnStreamLinks(streamId);
+  async (streamId: string): Promise<VrcdnLiveProbeResult> => {
+    const result = await getFreshVrcdnLiveState(streamId);
 
-    if (stream === null) {
-      return { observedAt: Date.now(), state: "unavailable" };
+    // Thrown rather than cached so a transient provider or intermediary answer
+    // does not become every viewer's answer for the next minute.
+    if (result.state === "unavailable") {
+      throw new Error("VRCDN transport request was unavailable.");
     }
 
-    // The transport stream, not the HLS manifest. The manifest answers `404`
-    // for a stream that is actively publishing, so probing it could never
-    // report anyone live.
-    const response = await fetch(stream.questUrl, { signal: AbortSignal.timeout(probeTimeoutMs) });
-
-    // Dropped before a frame is read. This endpoint serves media and ignores
-    // `Range`, so it starts pushing MPEG-TS the moment it answers; cancelling
-    // here is what keeps the probe to a connection rather than a download.
-    // Whether VRCDN counts that against the operator's viewer cap cannot be
-    // determined from outside their account.
-    await response.body?.cancel();
-
-    const state = vrcdnLiveStateFromStatus(response.status);
-
-    // Thrown rather than returned so a transient CDN failure is not what the
-    // next sixty seconds of viewers see. The caller degrades to `unavailable`
-    // for this request only.
-    if (state === "unavailable") {
-      throw new Error(`VRCDN transport request returned HTTP ${response.status}.`);
-    }
-
-    return { observedAt: Date.now(), state };
+    return result;
   },
   ["vrcdn-live-state"],
   { revalidate: 60 },
@@ -68,7 +54,7 @@ const getCachedVrcdnLiveState = unstable_cache(
  */
 export async function getVrcdnLiveStates(
   links: readonly VrcdnLiveLink[],
-  context: { attempt?: 1 | 2; profileSlug?: string } = {},
+  context: { freshnessMode?: VrcdnProbeFreshnessMode } = {},
 ): Promise<VrcdnLiveStates | undefined> {
   const streamIds = vrcdnStreamIds(links);
 
@@ -76,27 +62,19 @@ export async function getVrcdnLiveStates(
     return undefined;
   }
 
-  const states = await Promise.all(
-    streamIds.map(async (streamId): Promise<[string, VrcdnLiveState]> => {
-      const startedAt = Date.now();
+  const log = (entry: VrcdnProbeLogEntry) => {
+    const serialized = JSON.stringify(entry);
+    if (entry.level === "error") {
+      console.error(serialized);
+    } else {
+      console.info(serialized);
+    }
+  };
 
-      try {
-        return [streamId, vrcdnReportedState(await getCachedVrcdnLiveState(streamId), Date.now())];
-      } catch (error) {
-        console.error(JSON.stringify({
-          attempt: context.attempt ?? 1,
-          durationMs: Date.now() - startedAt,
-          errorKind: error instanceof Error ? error.name : "UnknownError",
-          level: "error",
-          message: "VRCDN live-state lookup failed",
-          ...(context.profileSlug ? { profileSlug: context.profileSlug } : {}),
-          reason: error instanceof Error ? error.message.slice(0, 160) : "Unknown failure",
-          streamId,
-        }));
-        return [streamId, "unavailable"];
-      }
-    }),
-  );
-
-  return Object.fromEntries(states);
+  return collectVrcdnLiveStates(streamIds, {
+    freshnessMode: context.freshnessMode ?? "cached",
+    log,
+    readCached: getCachedVrcdnLiveState,
+    readFresh: getFreshVrcdnLiveState,
+  });
 }

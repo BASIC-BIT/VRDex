@@ -321,6 +321,11 @@ type ProductAnalyticsEvents = {
     outcome: "resolved" | "needs_clarification" | "no_plan" | "failed";
   };
   temporal_retention_changed: { retention_default: "retain" | "do_not_retain" };
+  media_state_anomaly_detected: {
+    anomaly_kind: "confirmed_offline_while_playing";
+    provider: "vrcdn";
+    surface: "profile";
+  };
 };
 
 export type ProductAnalyticsEvent = keyof ProductAnalyticsEvents;

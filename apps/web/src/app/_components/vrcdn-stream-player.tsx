@@ -4,6 +4,10 @@ import { useEffect, useRef, useState } from "react";
 
 import { VrcdnPlayerControls } from "@/components/media/vrcdn-player-controls";
 import { cn } from "@/lib/cn";
+import {
+  VrcdnPlayerHealthMonitor,
+  type VrcdnPlayerHealthSignal,
+} from "@/lib/vrcdn-player-health";
 
 /**
  * The play-triangle poster, shared by the VRCDN player and by the watch
@@ -52,10 +56,13 @@ type MpegTsPlayer = {
   detachMediaElement: () => void;
   pause: () => void;
   play: () => unknown;
+  on: (event: string, listener: (...args: unknown[]) => void) => void;
   unload: () => void;
 };
 
 type VrcdnStreamPlayerProps = {
+  onHealthSignal?: (signal: VrcdnPlayerHealthSignal) => void;
+  onPlaybackActiveChange?: (active: boolean) => void;
   /** The `.live.ts` transport stream. VRCDN serves no HLS. */
   src: string;
   title: string;
@@ -75,9 +82,19 @@ type VrcdnStreamPlayerProps = {
  * which is exactly when the operator needs those slots for people actually in
  * the world.
  */
-export function VrcdnStreamPlayer({ src, title }: VrcdnStreamPlayerProps) {
+export function VrcdnStreamPlayer({
+  onHealthSignal,
+  onPlaybackActiveChange,
+  src,
+  title,
+}: VrcdnStreamPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const healthMonitorRef = useRef<VrcdnPlayerHealthMonitor>(null);
+  const onHealthSignalRef = useRef(onHealthSignal);
+  const onPlaybackActiveChangeRef = useRef(onPlaybackActiveChange);
+  onHealthSignalRef.current = onHealthSignal;
+  onPlaybackActiveChangeRef.current = onPlaybackActiveChange;
   const [started, setStarted] = useState(false);
   const [failed, setFailed] = useState(false);
   const [ended, setEnded] = useState(false);
@@ -109,6 +126,18 @@ export function VrcdnStreamPlayer({ src, title }: VrcdnStreamPlayerProps) {
   }, []);
 
   useEffect(() => {
+    const monitor = new VrcdnPlayerHealthMonitor({
+      onSignal: (signal) => onHealthSignalRef.current?.(signal),
+    });
+    healthMonitorRef.current = monitor;
+
+    return () => {
+      monitor.stop();
+      healthMonitorRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
     const video = videoRef.current;
 
     if (!started || failed || ended || !video) {
@@ -125,19 +154,33 @@ export function VrcdnStreamPlayer({ src, title }: VrcdnStreamPlayerProps) {
       }
     };
 
-    const markConnected = () => setConnected(true);
+    const markConnected = () => {
+      healthMonitorRef.current?.recovered();
+      setConnected(true);
+      onPlaybackActiveChangeRef.current?.(true);
+    };
+    const markRecovered = () => healthMonitorRef.current?.recovered();
+    const markStalled = () => healthMonitorRef.current?.beginStall();
 
     sync();
     video.addEventListener("playing", markConnected);
+    video.addEventListener("canplay", markRecovered);
     video.addEventListener("play", sync);
     video.addEventListener("pause", sync);
+    video.addEventListener("stalled", markStalled);
+    video.addEventListener("timeupdate", markRecovered);
     video.addEventListener("volumechange", sync);
+    video.addEventListener("waiting", markStalled);
 
     return () => {
       video.removeEventListener("playing", markConnected);
+      video.removeEventListener("canplay", markRecovered);
       video.removeEventListener("play", sync);
       video.removeEventListener("pause", sync);
+      video.removeEventListener("stalled", markStalled);
+      video.removeEventListener("timeupdate", markRecovered);
       video.removeEventListener("volumechange", sync);
+      video.removeEventListener("waiting", markStalled);
     };
   }, [started, failed, ended]);
 
@@ -173,17 +216,12 @@ export function VrcdnStreamPlayer({ src, title }: VrcdnStreamPlayerProps) {
       instance.destroy();
     };
 
-    // A set that finished is not a player that broke, and saying so needs no
-    // heartbeat: the connection is already open, and when VRCDN stops sending,
-    // `mpegts.js` ends the media source and the element fires `ended`. Polling
-    // liveness from the page instead would mean re-opening `.live.ts` -- the
-    // media endpoint -- on a timer, per open tab, which is the recurring-probe
-    // pattern `#217` deferred, at worse odds than the sweep it deferred.
-    //
-    // `ended` only, never a fatal error. An error after a while of playing is
-    // as likely a network blip, and telling a viewer the set is over while it
-    // is still running sends them away from a stream that is still there.
+    // Playback events accelerate the profile heartbeat but never decide
+    // provider liveness. A clean EOF can also mean the CDN recycled the
+    // connection, so this remains a local playback state with a retry.
     const handleEnded = () => {
+      healthMonitorRef.current?.signal("ended");
+      onPlaybackActiveChangeRef.current?.(false);
       releasePlayer();
       setEnded(true);
     };
@@ -197,6 +235,8 @@ export function VrcdnStreamPlayer({ src, title }: VrcdnStreamPlayerProps) {
         }
 
         if (!mpegts.isSupported()) {
+          healthMonitorRef.current?.signal("error");
+          onPlaybackActiveChangeRef.current?.(false);
           setFailed(true);
           return;
         }
@@ -204,8 +244,13 @@ export function VrcdnStreamPlayer({ src, title }: VrcdnStreamPlayerProps) {
         const instance = mpegts.createPlayer({ isLive: true, type: "mpegts", url: src });
 
         instance.on(mpegts.Events.ERROR, () => {
+          healthMonitorRef.current?.signal("error");
+          onPlaybackActiveChangeRef.current?.(false);
           releasePlayer();
           setFailed(true);
+        });
+        instance.on(mpegts.Events.LOADING_COMPLETE, () => {
+          healthMonitorRef.current?.signal("loading_complete");
         });
         instance.attachMediaElement(videoRef.current);
         instance.load();
@@ -221,6 +266,8 @@ export function VrcdnStreamPlayer({ src, title }: VrcdnStreamPlayerProps) {
       })
       .catch(() => {
         if (!cancelled) {
+          healthMonitorRef.current?.signal("error");
+          onPlaybackActiveChangeRef.current?.(false);
           setFailed(true);
         }
       });

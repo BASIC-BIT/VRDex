@@ -18,7 +18,7 @@ type RouteContext = {
   }>;
 };
 
-export async function GET(request: Request, context: RouteContext) {
+export async function GET(_request: Request, context: RouteContext) {
   const { slug: requestedSlug } = await context.params;
   const validation = validateSlugFormat(requestedSlug);
 
@@ -27,7 +27,6 @@ export async function GET(request: Request, context: RouteContext) {
   }
 
   const slug = validation.slug;
-  const attempt = new URL(request.url).searchParams.get("attempt") === "2" ? 2 : 1;
   const fixtureProfile =
     getPlaywrightPublicProfileFixture(slug, "person") ??
     getPlaywrightPublicProfileFixture(slug, "community");
@@ -54,7 +53,10 @@ export async function GET(request: Request, context: RouteContext) {
       return NextResponse.json({ states: {} }, { headers: responseHeaders, status: 404 });
     }
 
-    const states = await getVrcdnLiveStates(profile.outboundLinks, { attempt, profileSlug: slug });
+    // Every browser heartbeat and player sanity check needs a provider
+    // observation made for this request. The server render still uses the
+    // shared one-minute cache, but this route deliberately bypasses it.
+    const states = await getVrcdnLiveStates(profile.outboundLinks, { freshnessMode: "fresh" });
 
     return NextResponse.json({ states: states ?? {} }, { headers: responseHeaders });
   } catch (error) {
@@ -62,8 +64,6 @@ export async function GET(request: Request, context: RouteContext) {
       errorKind: error instanceof Error ? error.name : "UnknownError",
       level: "error",
       message: "VRCDN profile live-state route failed",
-      profileSlug: slug,
-      reason: error instanceof Error ? error.message.slice(0, 160) : "Unknown failure",
     }));
 
     return NextResponse.json({ states: {} }, { headers: responseHeaders, status: 503 });
