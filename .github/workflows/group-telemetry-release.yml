@@ -45,6 +45,7 @@ jobs:
       TF_VAR_subnet_ids: ${{ vars.GROUP_TELEMETRY_SUBNET_IDS }}
       TF_VAR_security_group_ids: ${{ vars.GROUP_TELEMETRY_SECURITY_GROUP_IDS }}
       TF_VAR_assign_public_ip: ${{ vars.GROUP_TELEMETRY_ASSIGN_PUBLIC_IP }}
+      TF_VAR_fixed_egress: ${{ vars.GROUP_TELEMETRY_FIXED_EGRESS || 'null' }}
       TF_VAR_convex_site_url: ${{ vars.GROUP_TELEMETRY_CONVEX_SITE_URL }}
       TF_VAR_collector_account_id: ${{ vars.GROUP_TELEMETRY_COLLECTOR_ACCOUNT_ID }}
       TF_VAR_account_secret_arn: ${{ vars.GROUP_TELEMETRY_ACCOUNT_SECRET_ARN }}

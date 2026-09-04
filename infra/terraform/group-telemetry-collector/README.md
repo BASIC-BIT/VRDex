@@ -58,6 +58,7 @@ The release job requires these GitHub settings:
 | `GROUP_TELEMETRY_COLLECTOR_ACCOUNT_ID` | variable | Registered production collector account document ID. |
 | `GROUP_TELEMETRY_ACCOUNT_SECRET_ARN` | variable | ARN only, never the secret payload. |
 | `GROUP_TELEMETRY_BUDGET_ALERT_EMAIL` | variable | Existing AWS Budget recipient. |
+| `GROUP_TELEMETRY_FIXED_EGRESS` | variable | Optional HCL object for the NAT egress block; unset means `null`. |
 | `CONVEX_DEPLOYMENT_PROD` | variable | Explicit production Convex deployment selector. |
 | `CONVEX_DEPLOY_KEY_PROD` | secret | Production query authorization used only for the readiness check. |
 
@@ -102,3 +103,17 @@ run of failed releases cannot evict the last known-good rollback image. The ECR
 lifecycle rule removes only untagged images after seven days. Longer-term
 tagged-image and inactive-revision cleanup is a deliberate operator retention
 task; the automatic lane does not delete rollback artifacts.
+
+## Fixed egress
+
+Set `fixed_egress` (CI: `GROUP_TELEMETRY_FIXED_EGRESS`, an HCL object with
+`vpc_id`, `nat_subnet_id`, `private_subnet_cidr`, `availability_zone`) to run
+the task in a private subnet behind one NAT gateway with an Elastic IP. VRChat
+refused the collector's session from the ephemeral public address twice on
+2026-09-04 while the same session worked from the machine that created it, so
+the address the session is created from has to be the address it is used
+from. The `egress_ip` output is that address. Adding or removing the block is
+an infrastructure change the release lane refuses; apply it by hand, then set
+the CI variable to match so the next release plans clean. The release role
+needs `ec2:Describe*` reads for the subnet, route table, NAT gateway, and
+address before that release.

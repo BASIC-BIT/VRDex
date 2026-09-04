@@ -29,3 +29,7 @@ output "task_definition_arn" {
 output "deployment_gate_parameter" {
   value = aws_ssm_parameter.enabled.name
 }
+
+output "egress_ip" {
+  value = one(aws_eip.egress[*].public_ip)
+}

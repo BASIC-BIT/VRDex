@@ -7,7 +7,10 @@ Research note for the 2026-09-04 collector outage. It revisits BASIC's
 and that passwords and TOTP seeds are never worker inputs
 (`workers/group-telemetry/README.md`, `docs/planning/community-group-telemetry.md`
 line 91, `docs/deployment/group-telemetry-collector.md` "Stops and recovery").
-It recommends one path. It does not authorize implementation.
+It recommends one path. It does not authorize implementation. Section 4a and
+the amendment at the top of section 6 record what the 2026-09-04 recovery
+attempts showed: the session is refused from the collector's network, so the
+login has to happen from a fixed egress.
 
 ## 1. Question and current state
 
@@ -288,12 +291,21 @@ That rules out "the session expired" and points at the network: VRChat
 refuses, per request, a session presented from an address other than the one
 it was created from, or refuses AWS address space outright. The task runs with
 `assign_public_ip = true` and no NAT gateway, so it also changes public IP on
-every restart. What this does not yet separate is whether `GET /auth/user`
-from ECS is refused too or only `/users/{id}`; the first boot of the option (a)
-image (PR #306) with the account `ready` answers that, because it calls
-`/auth/user` before anything else.
+every restart. The first boot of the option (a) image (PR #306, released as
+task definition revision 7) with the account `ready` separated the last
+variable:
 
-If the network reading holds, options a to c all inherit the same flaw: they
+- 14:56Z: the new task started, heartbeated, ran `GET /auth/user` as its first
+  provider request, and logged `collector_session_check` with outcome
+  `auth_required`. The account went back to `auth_required` and the worker
+  shut down.
+- 14:58:55Z: `pnpm proof:group-telemetry --duration-minutes=0` on BASIC's
+  machine validated the same generation 3 session with one successful request.
+
+So `/auth/user` is refused from ECS too. The endpoint does not matter; the
+session is refused from the collector's network.
+
+Options a to c all inherit the same flaw: they
 carry a session created elsewhere into ECS. The login has to happen from the
 collector's own egress. That means either a stable egress (a NAT gateway with
 an Elastic IP) and a login performed through it, for example an operator
@@ -488,6 +500,23 @@ VRChat text touched: same as c, with the account now able to satisfy the
 still unaffected.
 
 ## 6. Recommendation
+
+Amended 2026-09-04 after section 4a: a is shipped and did its job. b and c
+are off the table as written, because they present a session created on an
+operator's machine from ECS, and 4a shows VRChat refuses exactly that. The
+next decision is where the login happens, not how the session is kept:
+
+- Stable egress: a NAT gateway with an Elastic IP for the task subnets, and
+  the operator login performed through that address (an SSM session or a
+  one-off task in the same subnets running the existing login harness). This
+  keeps every guardrail below and changes nothing about the secret.
+- Option d as the fallback if a session created behind the fixed egress is
+  still refused, which would mean VRChat binds to more than the address.
+
+Either way the collector needs a fixed public address first; do that before
+any more session transfers, each of which has now failed the same way twice.
+
+The original recommendation follows for the record.
 
 Ship a, then c. Do not ship d.
 

@@ -201,3 +201,14 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "fixed_egress" {
+  description = "Route the collector through one NAT gateway with an Elastic IP so VRChat sees a stable address. Null keeps subnet_ids and assign_public_ip as given."
+  type = object({
+    vpc_id              = string
+    nat_subnet_id       = string
+    private_subnet_cidr = string
+    availability_zone   = string
+  })
+  default = null
+}

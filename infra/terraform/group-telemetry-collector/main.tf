@@ -179,9 +179,9 @@ resource "aws_ecs_service" "worker" {
   }
 
   network_configuration {
-    subnets          = var.subnet_ids
+    subnets          = var.fixed_egress == null ? var.subnet_ids : aws_subnet.egress[*].id
     security_groups  = var.security_group_ids
-    assign_public_ip = var.assign_public_ip
+    assign_public_ip = var.fixed_egress == null ? var.assign_public_ip : false
   }
 }
 
@@ -448,4 +448,47 @@ resource "aws_budgets_budget" "worker" {
   }
 
   tags = local.tags
+}
+
+# Fixed egress. VRChat refused the collector's session from the ephemeral
+# public address the task otherwise gets (2026-09-04, twice, with sessions
+# that kept working from the machine that created them). One NAT gateway
+# with an Elastic IP gives the task a stable address. The login that creates
+# the session has to be performed from behind it.
+resource "aws_subnet" "egress" {
+  count             = var.fixed_egress == null ? 0 : 1
+  vpc_id            = var.fixed_egress.vpc_id
+  cidr_block        = var.fixed_egress.private_subnet_cidr
+  availability_zone = var.fixed_egress.availability_zone
+  tags              = merge(local.tags, { Name = "${var.name_prefix}-egress" })
+}
+
+resource "aws_eip" "egress" {
+  count  = var.fixed_egress == null ? 0 : 1
+  domain = "vpc"
+  tags   = merge(local.tags, { Name = "${var.name_prefix}-egress" })
+}
+
+resource "aws_nat_gateway" "egress" {
+  count         = var.fixed_egress == null ? 0 : 1
+  subnet_id     = var.fixed_egress.nat_subnet_id
+  allocation_id = aws_eip.egress[0].id
+  tags          = merge(local.tags, { Name = "${var.name_prefix}-egress" })
+}
+
+resource "aws_route_table" "egress" {
+  count  = var.fixed_egress == null ? 0 : 1
+  vpc_id = var.fixed_egress.vpc_id
+  tags   = merge(local.tags, { Name = "${var.name_prefix}-egress" })
+
+  route {
+    cidr_block     = "0.0.0.0/0"
+    nat_gateway_id = aws_nat_gateway.egress[0].id
+  }
+}
+
+resource "aws_route_table_association" "egress" {
+  count          = var.fixed_egress == null ? 0 : 1
+  subnet_id      = aws_subnet.egress[0].id
+  route_table_id = aws_route_table.egress[0].id
 }
