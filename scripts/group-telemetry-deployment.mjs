@@ -8,26 +8,45 @@ const RELEASE_ENV_NAMES = new Set([
   "VRDEX_GROUP_TELEMETRY_CAPABILITIES",
 ]);
 
+// Fields Terraform only knows after apply. The list is static on purpose: a
+// plan's own after_unknown set must not widen it, or any attribute a provider
+// happens to mark computed would bypass the gate.
 const TASK_DEFINITION_COMPUTED_FIELDS = [
   "arn",
   "arn_without_revision",
   "id",
   "revision",
+  "enable_fault_injection",
 ];
 
 function clone(value) {
   return value === undefined ? undefined : structuredClone(value);
 }
 
+/**
+ * Drop fields whose value carries no configuration: null, "", or []. The AWS
+ * provider reads an unset task-definition field back as "" or [] and plans it
+ * as null (or the other way round between provider versions), which is not a
+ * change an operator made.
+ */
+function withoutEmpty(object) {
+  for (const [key, entry] of Object.entries(object)) {
+    if (entry === null || entry === "" || (Array.isArray(entry) && entry.length === 0)) delete object[key];
+  }
+  return object;
+}
+
 function normalizedTaskDefinition(value) {
   const normalized = clone(value);
   if (!normalized) return normalized;
   for (const field of TASK_DEFINITION_COMPUTED_FIELDS) delete normalized[field];
+  withoutEmpty(normalized);
   const definitions = typeof normalized.container_definitions === "string"
     ? JSON.parse(normalized.container_definitions)
     : normalized.container_definitions;
   assert.ok(Array.isArray(definitions), "task definition container_definitions must be an array");
   for (const container of definitions) {
+    withoutEmpty(container);
     if (container.name !== "collector") continue;
     container.image = "<release-image>";
     for (const entry of container.environment ?? []) {
@@ -91,10 +110,7 @@ export function assertAutomaticPlan(plan, expected = {}) {
         `automatic collector plan has unsafe task-definition actions: ${actions.join(",")}`,
       );
       assert.equal(
-        sameJson(
-          normalizedTaskDefinition(resource.change.before),
-          normalizedTaskDefinition(resource.change.after),
-        ),
+        sameJson(normalizedTaskDefinition(resource.change.before), normalizedTaskDefinition(resource.change.after)),
         true,
         "automatic collector plan changes task-definition fields other than image and release metadata",
       );

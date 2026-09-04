@@ -61,6 +61,51 @@ describe("group telemetry automatic deployment policy", () => {
     assert.equal(result.releaseSha, "2".repeat(40));
   });
 
+  it("ignores empty-versus-null serialization noise on the replaced task definition", () => {
+    // Observed on 2026-09-04: the AWS provider reads unset fields back as ""
+    // or [] and plans them as null, so a plain image release showed
+    // ipc_mode/pid_mode and four container arrays "changing".
+    const before = {
+      ...taskDefinition("repo@sha256:" + "1".repeat(64), "1".repeat(40)),
+      ipc_mode: "",
+      pid_mode: "",
+      arn: "old",
+      // Known in state, "known after apply" in the plan: computed, not configured.
+      enable_fault_injection: false,
+    };
+    const beforeContainers = JSON.parse(before.container_definitions);
+    Object.assign(beforeContainers[0], { mountPoints: [], portMappings: [], systemControls: [], volumesFrom: [] });
+    before.container_definitions = JSON.stringify(beforeContainers);
+    const after = {
+      ...taskDefinition("repo@sha256:" + "2".repeat(64), "2".repeat(40)),
+      ipc_mode: null,
+      pid_mode: null,
+      arn: null,
+    };
+    const result = assertAutomaticPlan({
+      format_version: "1.2",
+      resource_changes: [
+        {
+          address: "aws_ecs_task_definition.worker",
+          change: { actions: ["create", "delete"], before, after, after_unknown: { arn: true, enable_fault_injection: true } },
+        },
+      ],
+    });
+    assert.equal(result.releaseSha, "2".repeat(40));
+  });
+
+  it("does not let the plan's own after_unknown set widen the computed-field allowlist", () => {
+    const before = { ...taskDefinition("old", "1".repeat(40)), execution_role_arn: "old-role" };
+    const after = { ...taskDefinition("new", "2".repeat(40)), execution_role_arn: null };
+    assert.throws(() => assertAutomaticPlan({
+      format_version: "1.2",
+      resource_changes: [{
+        address: "aws_ecs_task_definition.worker",
+        change: { actions: ["create", "delete"], before, after, after_unknown: { execution_role_arn: true } },
+      }],
+    }), /fields other than image and release metadata/);
+  });
+
   it("rejects other task, scaling, identity, and infrastructure changes", () => {
     const before = { ...taskDefinition("old", "1".repeat(40)), execution_role_arn: "old-role" };
     const after = { ...taskDefinition("new", "2".repeat(40)), execution_role_arn: "new-role" };
