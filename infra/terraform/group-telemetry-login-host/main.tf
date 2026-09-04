@@ -51,6 +51,8 @@ resource "aws_instance" "host" {
   associate_public_ip_address = false
   iam_instance_profile        = aws_iam_instance_profile.host.name
   user_data                   = file("${path.module}/connect-proxy.sh")
+  # User data only runs on first boot, so an edit to it must replace the host.
+  user_data_replace_on_change = true
   tags                        = merge(local.tags, { Name = var.name })
 
   metadata_options {

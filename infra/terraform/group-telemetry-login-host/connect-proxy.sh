@@ -1,7 +1,8 @@
 #!/bin/bash
-# Throwaway CONNECT proxy for the fixed-egress login experiment. Listens only
-# on the instance's loopback; reach it through SSM port forwarding. Every
-# tunnel it opens leaves through the collector's NAT gateway.
+# Loopback-only CONNECT proxy for the collector login tunnel. Reached through
+# SSM port forwarding; every tunnel it opens leaves through the collector's NAT
+# gateway. Installed as a systemd unit because user data runs on first boot
+# only, and this host is stopped and started between recoveries.
 cat > /opt/connect-proxy.py <<'PY'
 import socket
 import threading
@@ -61,4 +62,20 @@ while True:
     conn, _ = server.accept()
     threading.Thread(target=handle, args=(conn,), daemon=True).start()
 PY
-nohup python3 /opt/connect-proxy.py >/var/log/connect-proxy.log 2>&1 &
+cat > /etc/systemd/system/connect-proxy.service <<'UNIT'
+[Unit]
+Description=Loopback CONNECT proxy for the collector login tunnel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/python3 /opt/connect-proxy.py
+Restart=always
+RestartSec=2
+DynamicUser=yes
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl daemon-reload
+systemctl enable --now connect-proxy.service

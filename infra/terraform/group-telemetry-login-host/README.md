@@ -4,7 +4,7 @@ One stopped `t4g.nano` in the collector's fixed-egress private subnet. It exists
 
 The host runs a loopback-only HTTP CONNECT proxy on port 8888 (`connect-proxy.sh`, applied as user data). Nothing listens on the network; the operator reaches the proxy with SSM port forwarding, and every tunnel it opens leaves through the collector's NAT gateway and Elastic IP. It has no SSH key and no permissions beyond `AmazonSSMManagedInstanceCore`.
 
-Apply it by hand with the operator's credentials; it is not part of the collector release lane and changes about once a year. `terraform.yml` only validates it.
+Apply it by hand with the operator's credentials; it is not part of the collector release lane and changes about once a year. `terraform.yml` only validates it. The proxy is a systemd unit, so it survives the stop/start cycle; an edit to `connect-proxy.sh` replaces the host, because user data runs on first boot only.
 
 ## Recovery runbook
 
