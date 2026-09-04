@@ -70,7 +70,7 @@ describe("group telemetry automatic deployment policy", () => {
       ipc_mode: "",
       pid_mode: "",
       arn: "old",
-      // Known in state, "known after apply" in the plan: not comparable.
+      // Known in state, "known after apply" in the plan: computed, not configured.
       enable_fault_injection: false,
     };
     const beforeContainers = JSON.parse(before.container_definitions);
@@ -92,6 +92,18 @@ describe("group telemetry automatic deployment policy", () => {
       ],
     });
     assert.equal(result.releaseSha, "2".repeat(40));
+  });
+
+  it("does not let the plan's own after_unknown set widen the computed-field allowlist", () => {
+    const before = { ...taskDefinition("old", "1".repeat(40)), execution_role_arn: "old-role" };
+    const after = { ...taskDefinition("new", "2".repeat(40)), execution_role_arn: null };
+    assert.throws(() => assertAutomaticPlan({
+      format_version: "1.2",
+      resource_changes: [{
+        address: "aws_ecs_task_definition.worker",
+        change: { actions: ["create", "delete"], before, after, after_unknown: { execution_role_arn: true } },
+      }],
+    }), /fields other than image and release metadata/);
   });
 
   it("rejects other task, scaling, identity, and infrastructure changes", () => {

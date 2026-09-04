@@ -8,11 +8,15 @@ const RELEASE_ENV_NAMES = new Set([
   "VRDEX_GROUP_TELEMETRY_CAPABILITIES",
 ]);
 
+// Fields Terraform only knows after apply. The list is static on purpose: a
+// plan's own after_unknown set must not widen it, or any attribute a provider
+// happens to mark computed would bypass the gate.
 const TASK_DEFINITION_COMPUTED_FIELDS = [
   "arn",
   "arn_without_revision",
   "id",
   "revision",
+  "enable_fault_injection",
 ];
 
 function clone(value) {
@@ -32,12 +36,10 @@ function withoutEmpty(object) {
   return object;
 }
 
-function normalizedTaskDefinition(value, unknownFields = []) {
+function normalizedTaskDefinition(value) {
   const normalized = clone(value);
   if (!normalized) return normalized;
-  // Fields Terraform only knows after apply cannot be compared, whatever the
-  // state holds for them; they are computed, not configured.
-  for (const field of [...TASK_DEFINITION_COMPUTED_FIELDS, ...unknownFields]) delete normalized[field];
+  for (const field of TASK_DEFINITION_COMPUTED_FIELDS) delete normalized[field];
   withoutEmpty(normalized);
   const definitions = typeof normalized.container_definitions === "string"
     ? JSON.parse(normalized.container_definitions)
@@ -107,12 +109,8 @@ export function assertAutomaticPlan(plan, expected = {}) {
         true,
         `automatic collector plan has unsafe task-definition actions: ${actions.join(",")}`,
       );
-      const unknownFields = Object.keys(resource.change.after_unknown ?? {});
       assert.equal(
-        sameJson(
-          normalizedTaskDefinition(resource.change.before, unknownFields),
-          normalizedTaskDefinition(resource.change.after, unknownFields),
-        ),
+        sameJson(normalizedTaskDefinition(resource.change.before), normalizedTaskDefinition(resource.change.after)),
         true,
         "automatic collector plan changes task-definition fields other than image and release metadata",
       );
