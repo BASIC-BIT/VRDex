@@ -305,13 +305,28 @@ variable:
 So `/auth/user` is refused from ECS too. The endpoint does not matter; the
 session is refused from the collector's network.
 
-Options a to c all inherit the same flaw: they
-carry a session created elsewhere into ECS. The login has to happen from the
-collector's own egress. That means either a stable egress (a NAT gateway with
-an Elastic IP) and a login performed through it, for example an operator
-login proxied through that address, or option d, the worker logging in itself
-from wherever it runs. Option a is still worth having: it is what turns the
-next refusal into a five-minute alarm with a timestamp.
+The two-stage experiment that followed (PR #309 for the infrastructure)
+separated "AWS is refused" from "the session is pinned to its origin":
+
+- Stage 1, 15:3xZ: the task moved into a private subnet behind a NAT gateway
+  with an Elastic IP. The generation 3 session, still created on BASIC's
+  machine, claimed a proof from that fixed address and got `provider_401`.
+  A stable AWS address on its own changes nothing.
+- Stage 2, 16:42Z: the login harness ran on BASIC's machine with its VRChat
+  traffic tunnelled through a loopback CONNECT proxy on a throwaway host in
+  that private subnet, so the session was created from the NAT address. It
+  was transferred through the same tunnel as generation 4. The restarted
+  collector's first request, `collector_proof_check`, completed with outcome
+  `not_found` (an authenticated read that succeeded) and the account stayed
+  `ready`.
+
+VRChat pins a session to the network address that created it. Nothing about
+the Oak session, the vault, or the transfer tooling was ever broken; every
+earlier "death" was a session used from a different address than the one it
+was born on. Options a to c all carried a session created elsewhere into ECS,
+and that is why they could never have worked as written. Option a is still
+worth having: it is what turns the next refusal into a five-minute alarm
+with a timestamp.
 
 ## 5. Options, in increasing blast radius
 
@@ -501,20 +516,30 @@ still unaffected.
 
 ## 6. Recommendation
 
-Amended 2026-09-04 after section 4a: a is shipped and did its job. b and c
-are off the table as written, because they present a session created on an
-operator's machine from ECS, and 4a shows VRChat refuses exactly that. The
-next decision is where the login happens, not how the session is kept:
+Amended 2026-09-04, final, after the section 4a experiment: the session must
+be created from the collector's own egress address, and now it is. What is
+in place:
 
-- Stable egress: a NAT gateway with an Elastic IP for the task subnets, and
-  the operator login performed through that address (an SSM session or a
-  one-off task in the same subnets running the existing login harness). This
-  keeps every guardrail below and changes nothing about the secret.
-- Option d as the fallback if a session created behind the fixed egress is
-  still refused, which would mean VRChat binds to more than the address.
+- The `fixed_egress` block in the collector module (PR #309): private subnet,
+  NAT gateway, Elastic IP 98.85.189.174. `GROUP_TELEMETRY_FIXED_EGRESS` is set
+  so the release lane plans clean. This is permanent; removing it breaks the
+  session again.
+- A login path through that address: a stopped `t4g.nano` in the private
+  subnet running a loopback CONNECT proxy, reached with SSM port forwarding.
+  The operator runs the existing login harness and transfer on their own
+  machine with `NODE_USE_ENV_PROXY=1 HTTPS_PROXY=http://127.0.0.1:8888
+  NO_PROXY=127.0.0.1,localhost`. Nothing about the secret, the vault, or the
+  2026-07-27 decision changes. The host is still a hand-made scratch
+  artifact; making it Terraform-managed is the one piece of this left to do.
+- Option a (keep-alive, PR #306) stays: it is what reports the next death
+  within ten minutes instead of a day.
 
-Either way the collector needs a fixed public address first; do that before
-any more session transfers, each of which has now failed the same way twice.
+b and c are withdrawn as written, because they carry a session created on an
+operator's machine into ECS, which is exactly what VRChat refuses. c could be
+revived later as "the worker logs in from its own address with the remembered
+2FA cookie", which is a stronger version of the same idea now that the
+address constraint is known; it is not needed for recovery today. d is still
+not recommended.
 
 The original recommendation follows for the record.
 
