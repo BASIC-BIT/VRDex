@@ -37,7 +37,10 @@ an existing fleet.
 The first plan after this release is deliberately a reviewed operator plan. It
 adds release metadata to the task definition plus CloudWatch metric filters and
 alarms for `collector_heartbeat`, `collector_auth_required`,
-`collector_control_plane_failure`, and `collector_worker_restart`. The automatic plan policy rejects those
+`collector_control_plane_failure`, and `collector_worker_restart`. Every alarm
+notifies the `${name_prefix}-alerts` SNS topic, which emails
+`budget_alert_email`; confirm the subscription from the message SNS sends on
+the first apply, or the alarms stay silent. The automatic plan policy rejects those
 infrastructure additions. Apply them once with the existing production
 variables, the exact reviewed image digest and source SHA, then enable the
 routine lane.
