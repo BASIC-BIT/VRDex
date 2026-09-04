@@ -178,8 +178,10 @@ async function interruptibleSleep(delayMs) {
 
 if (await stopRequested()) throw new Error(`Proof stop file is present at ${stopFile}. Remove it before starting a run.`);
 
+let sessionCleared = false;
 async function clearSessionAfterAuthenticationFailure(error) {
   if (sessionStore && error instanceof VrchatProviderError && error.status === 401) {
+    sessionCleared = true;
     await sessionStore.clear(accountAlias);
     process.stderr.write("The rejected VRChat session was removed from the operating-system credential vault.\n");
   }
@@ -271,8 +273,9 @@ const evidence = {
 };
 // The reads above may have rotated the session. The client followed it in
 // memory only; the next command, the transfer, loads the vault, so a stale
-// vault copy would validate a retired cookie and fail.
-if (authenticationMode !== "cookie_environment_fallback" && (client.authCookie !== session.authCookie || client.twoFactorAuthCookie !== session.twoFactorAuthCookie)) {
+// vault copy would validate a retired cookie and fail. Not after a 401: the
+// vault was just cleared on purpose, and the client's cookie is the rejected one.
+if (!sessionCleared && authenticationMode !== "cookie_environment_fallback" && (client.authCookie !== session.authCookie || client.twoFactorAuthCookie !== session.twoFactorAuthCookie)) {
   session = { ...session, authCookie: client.authCookie, twoFactorAuthCookie: client.twoFactorAuthCookie };
   await sessionStore.save(accountAlias, session);
   process.stderr.write(`VRChat rotated the session during the run; the vault copy for ${accountAlias} was updated.\n`);
