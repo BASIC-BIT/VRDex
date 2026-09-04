@@ -140,6 +140,28 @@ Use the Convex global kill switch to stop all new claims without taking the web 
 
 Any authenticated provider 401 immediately sets the account and every assigned integration to `auth_required`, releases all leases, and opens degraded coverage. Recover with `pnpm ops:vrchat-session:transfer` (`scripts/transfer-vrchat-session-to-aws.mjs`), which validates the session, replaces only the session fields, and mints a fresh worker key; do not manually extract the local vault record. Re-register the account with the printed `workerKeyHash` to increment credential generation, restart the task, then return the account to `ready`. Password-based unattended reauthentication is intentionally absent. Recovery puts integrations into `connecting`; it does not backfill the outage or turn it into zero attendance.
 
+### Reading production state
+
+Everything here is a read. Production Convex needs `CONVEX_DEPLOYMENT_PROD` and `CONVEX_DEPLOY_KEY_PROD` in the main checkout's ignored `.env.local`; the AWS calls need account credentials for `us-east-1`. Under Git Bash export `MSYS_NO_PATHCONV=1` first, or the `/aws/ecs/...` log group name is rewritten as a Windows path and the call fails validation.
+
+```bash
+pnpm cx prod run communityTelemetry:fleetHealth '{}'
+pnpm cx prod run communityTelemetry:collectorProofAvailable '{"now": 1788498562000}'
+aws ecs describe-services --region us-east-1 --cluster vrdex-group-telemetry --services vrdex-group-telemetry --query 'services[0].{desired:desiredCount,running:runningCount,taskDef:taskDefinition,events:events[:5].message}'
+aws ecs describe-tasks --region us-east-1 --cluster vrdex-group-telemetry --tasks $(aws ecs list-tasks --region us-east-1 --cluster vrdex-group-telemetry --desired-status STOPPED --query taskArns --output text) --query 'tasks[].{started:startedAt,stopped:stoppedAt,exit:containers[0].exitCode}'
+aws logs filter-log-events --region us-east-1 --log-group-name /aws/ecs/vrdex-group-telemetry --start-time $(( ($(date +%s) - 6*3600) * 1000 )) --filter-pattern '{ $.event != "collector_heartbeat" }' --query 'events[].message' --output text
+```
+
+`fleetHealth` strips the secret reference and worker key hash; the rest of the account row is safe to read aloud. `collectorProofAvailable` is the claimant's own gate: `false` means the claim page shows "We could not reach VRChat", and the account row says why:
+
+| Reading | Meaning |
+| --- | --- |
+| `state: auth_required`, `lastHealthResult: provider_401` | The stored VRChat session is dead. The control plane answers the worker's heartbeat with 423 `collector_disabled`, the worker fails six times and exits 1, and ECS restarts it about every five minutes. Those stopped tasks and `collector_worker_restart` log events are the expected shape of this state, not a second failure. Recover with the 401 path above. |
+| `state: ready` but `lastProofPollAt` older than two minutes | The worker is not reaching `proof_claim`. Check `consecutiveControlFailures` and the `collector_control_plane_failure` log events for the phase and failure class. |
+| `state: ready`, `cooldownUntil` in the future, or `killSwitchEnabled` on the account or in `settings` | Budget or operator gates. Nothing is broken; wait or clear the switch. |
+
+With no assigned telemetry integrations the session is exercised only by proofs, so a session that dies after the transfer's validation is first noticed by the first real claim. A release readiness check that requires `vrchat_proof_v1` fails while the account is `auth_required`; that failure is correct and clears once the session is replaced and the account is back to `ready`.
+
 For account loss, quarantine the account before assigning groups elsewhere. Capacity allocation chooses only ready, non-cooled-down accounts with reserved headroom. The internal reassignment operation checks target headroom, releases the old lease, and opens an unknown coverage window before the replacement account joins. A quarantined account stays quarantined when credentials rotate; reconcile or remove its old VRChat group memberships before explicitly returning it to `ready`. For rollback, stop ECS, turn on the global kill switch, and leave stored history in place while the previous image/configuration is restored.
 
 ## Cost and self-hosting
