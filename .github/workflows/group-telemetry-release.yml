@@ -194,6 +194,18 @@ jobs:
           set -euo pipefail
           task_definition="$(terraform -chdir=infra/terraform/group-telemetry-collector output -raw task_definition_arn)"
           aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE"
+          # With the deployment circuit breaker on, ECS marks the PRIMARY
+          # rollout COMPLETED a few minutes after the service is stable. Reading
+          # it once here failed every release on 2026-09-04.
+          deadline=$((SECONDS + 600))
+          until [ "$SECONDS" -ge "$deadline" ]; do
+            rollout="$(aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" --query 'services[0].deployments[?status==`PRIMARY`]|[0].rolloutState' --output text)"
+            case "$rollout" in
+              COMPLETED) break ;;
+              FAILED) echo "::error::Collector PRIMARY deployment failed."; exit 1 ;;
+            esac
+            sleep 15
+          done
           aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" > service.json
           task_arns="$(aws ecs list-tasks --cluster "$ECS_CLUSTER" --service-name "$ECS_SERVICE" --desired-status RUNNING --query 'taskArns' --output text)"
           [ -n "$task_arns" ] && [ "$task_arns" != "None" ] || { echo "::error::Collector service has no running tasks."; exit 1; }
