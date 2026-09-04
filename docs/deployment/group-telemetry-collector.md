@@ -91,7 +91,10 @@ holder:
 
 The CloudWatch filters consume only redacted JSON event names:
 `collector_heartbeat`, `collector_auth_required`,
-`collector_control_plane_failure`, and `collector_worker_restart`. They must
+`collector_control_plane_failure`, and `collector_worker_restart`. The worker
+also logs `collector_session_check` with a bounded `outcome`; its
+`auth_required` outcome is always paired with `collector_auth_required`, so
+the existing alarm covers it. They must
 never include a profile slug, proof code, provider target, account identifier,
 cookie, key, or raw error payload. Missing successful heartbeats alarm after
 two one-minute periods. Every alarm notifies the `${name_prefix}-alerts` SNS
@@ -130,6 +133,7 @@ The execution role reads only the assigned account secret and SSM startup gate. 
 ## Normal health
 
 - Account state is `ready`; integration state becomes `active` after membership succeeds.
+- A `collector_session_check` event with `outcome: ok` appears every 8-12 minutes, including with no groups assigned. `outcome: auth_required` means the stored session is not being accepted; a long gap means the worker is not reaching the provider or the control plane, and the heartbeat and control-plane alarms say which.
 - Active groups poll every randomized 60-120 seconds; quiet groups poll every 3-5 minutes.
 - Group membership metadata is cached for five minutes while instance state continues on the active/quiet cadence. Join, leave, and membership-transition calls always invalidate or bypass that cache.
 - The worker enforces a local process safeguard, then atomically reserves the predicted request cost against control-plane global, account, and integration minute budgets. A denied local budget defers the assignment instead of repeatedly reclaiming it.

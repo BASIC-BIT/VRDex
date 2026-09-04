@@ -1,4 +1,5 @@
 import { containsProofCode, proofSurfaceFields } from "./proof-matching.mjs";
+import { applySessionCookies, setCookieHeaders } from "./session-cookies.mjs";
 
 const DEFAULT_BASE_URL = "https://api.vrchat.cloud/api/1";
 
@@ -92,6 +93,40 @@ export class VrchatClient {
     this.requestCounts = { total: 0, success: 0, clientError: 0, serverError: 0, rateLimited: 0 };
   }
 
+  /**
+   * Confirm the stored session is still accepted, spending one request.
+   *
+   * Nothing else touches the provider while no group is assigned, so without
+   * this a dead session is first noticed by the first real proof claim. A
+   * session for an account other than the one the secret names is treated the
+   * same as an expired one: nothing may be read with it.
+   */
+  async verifySession({ expectedUserId } = {}) {
+    const user = await this.request("/auth/user");
+    if (!user || typeof user !== "object" || typeof user.id !== "string" || !/^usr_[A-Za-z0-9-]{8,120}$/.test(user.id)) {
+      throw new VrchatProviderError("Current user response is malformed.", { category: "schema_drift" });
+    }
+    if (expectedUserId !== undefined && user.id !== expectedUserId) {
+      throw new VrchatProviderError("Session belongs to another account.", { status: 401, category: "authentication" });
+    }
+    return { userId: user.id };
+  }
+
+  /**
+   * Follow a cookie the provider rotates or clears on an authenticated
+   * response, otherwise the next request presents a retired value and 401s on
+   * its own. In memory only: a restart reloads the transferred secret, which
+   * is the recorded limitation of a read-only secret. A cleared `auth` is
+   * not followed; there is no header to send without it, and the next request
+   * reports the dead session either way.
+   */
+  followSessionCookies(response) {
+    const cookies = new Map([["auth", this.authCookie], ...(this.twoFactorAuthCookie ? [["twoFactorAuth", this.twoFactorAuthCookie]] : [])]);
+    applySessionCookies(cookies, setCookieHeaders(response));
+    this.authCookie = cookies.get("auth") ?? this.authCookie;
+    this.twoFactorAuthCookie = cookies.get("twoFactorAuth");
+  }
+
   async request(path, { method = "GET", body } = {}) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
@@ -126,6 +161,7 @@ export class VrchatClient {
       });
     }
     this.requestCounts.success += 1;
+    this.followSessionCookies(response);
     if (response.status === 204) {
       clearTimeout(timeout);
       return null;
