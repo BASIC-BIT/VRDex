@@ -31,6 +31,7 @@ on:
           - rate-limit-redis
           - restream-worker
           - group-telemetry-collector
+          - group-telemetry-login-host
           - vrclinking-adapter
       apply:
         description: Apply the selected stack after a successful plan.
@@ -244,6 +245,19 @@ jobs:
           #
           # Until then `terraform plan` before a production apply is a manual
           # step, and the stack README makes the `-var-file` mandatory for it.
+          - name: group-telemetry-login-host
+            path: infra/terraform/group-telemetry-login-host
+            backend: "true"
+            plan: "false"
+            auto_apply: "false"
+            manual_apply: "false"
+            requires_aws: "false"
+            requires_vercel: "false"
+            requires_posthog: "false"
+            requires_posthog_public_key: "false"
+            requires_ses_domain: "false"
+            requires_profile_assets_enabled: "false"
+            requires_upstash: "false"
           - name: vrclinking-adapter
             path: infra/terraform/vrclinking-adapter
             backend: "true"
