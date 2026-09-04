@@ -19,15 +19,32 @@ function clone(value) {
   return value === undefined ? undefined : structuredClone(value);
 }
 
-function normalizedTaskDefinition(value) {
+/**
+ * Drop fields whose value carries no configuration: null, "", or []. The AWS
+ * provider reads an unset task-definition field back as "" or [] and plans it
+ * as null (or the other way round between provider versions), which is not a
+ * change an operator made.
+ */
+function withoutEmpty(object) {
+  for (const [key, entry] of Object.entries(object)) {
+    if (entry === null || entry === "" || (Array.isArray(entry) && entry.length === 0)) delete object[key];
+  }
+  return object;
+}
+
+function normalizedTaskDefinition(value, unknownFields = []) {
   const normalized = clone(value);
   if (!normalized) return normalized;
-  for (const field of TASK_DEFINITION_COMPUTED_FIELDS) delete normalized[field];
+  // Fields Terraform only knows after apply cannot be compared, whatever the
+  // state holds for them; they are computed, not configured.
+  for (const field of [...TASK_DEFINITION_COMPUTED_FIELDS, ...unknownFields]) delete normalized[field];
+  withoutEmpty(normalized);
   const definitions = typeof normalized.container_definitions === "string"
     ? JSON.parse(normalized.container_definitions)
     : normalized.container_definitions;
   assert.ok(Array.isArray(definitions), "task definition container_definitions must be an array");
   for (const container of definitions) {
+    withoutEmpty(container);
     if (container.name !== "collector") continue;
     container.image = "<release-image>";
     for (const entry of container.environment ?? []) {
@@ -90,10 +107,11 @@ export function assertAutomaticPlan(plan, expected = {}) {
         true,
         `automatic collector plan has unsafe task-definition actions: ${actions.join(",")}`,
       );
+      const unknownFields = Object.keys(resource.change.after_unknown ?? {});
       assert.equal(
         sameJson(
-          normalizedTaskDefinition(resource.change.before),
-          normalizedTaskDefinition(resource.change.after),
+          normalizedTaskDefinition(resource.change.before, unknownFields),
+          normalizedTaskDefinition(resource.change.after, unknownFields),
         ),
         true,
         "automatic collector plan changes task-definition fields other than image and release metadata",

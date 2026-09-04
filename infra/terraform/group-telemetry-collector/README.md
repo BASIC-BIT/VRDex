@@ -67,7 +67,19 @@ release role needs read access to refresh this stack, ECR layer upload for only
 execution roles, task-definition register/deregister, `ecs:UpdateService` for
 only the collector service, and object access only to this stack's state key and
 lockfile. Do not reuse a broad account deployment role simply to avoid this
-bootstrap.
+bootstrap. The read access has to cover every resource type in this module,
+because the plan refreshes all of them: when a new type is added (the
+`aws_sns_topic` and subscription arrived on 2026-09-04) the role needs the
+matching read actions before the next release, or the plan fails with a 403.
+The role currently carries `ReadCollectorAlertTopic` for `sns:GetTopicAttributes`,
+`sns:ListTagsForResource`, `sns:GetSubscriptionAttributes`, and
+`sns:ListSubscriptionsByTopic`, scoped to the alerts topic.
+
+Keep `.terraform.lock.hcl` and any manual apply on the same provider version.
+Two provider releases serialize an unchanged task definition differently
+(empty string and empty list against null), and a state written by one makes
+the other plan a replacement that the release policy then has to recognise as
+noise.
 
 For each successful `main` baseline, the release lane runs worker compatibility
 tests, reuses or builds the immutable `git-<40-character-sha>` ECR image, creates
