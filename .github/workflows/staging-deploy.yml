@@ -15,7 +15,7 @@ on:
         type: boolean
         default: false
       media_recovery:
-        description: Recover only the approved media-33936636933-1 fixture without deployment
+        description: Recover only the approved media-33990507621-1 fixture without deployment
         type: boolean
         default: false
 
@@ -43,9 +43,9 @@ jobs:
       - name: Recover exact fixture through existing cleanup guards
         working-directory: apps/web
         env:
-          MEDIA_RECOVERY_RUN_ID: media-33936636933-1
-          MEDIA_RECOVERY_PROFILE_ID: m57dk812r23f6z4rynencs2ngd8dvt3t
-          MEDIA_RECOVERY_EXPECTED_COMMIT: ef9621ac3ce7fe6a8bc36f101aec8db0bb965426
+          MEDIA_RECOVERY_RUN_ID: media-33990507621-1
+          MEDIA_RECOVERY_PROFILE_ID: m5773mvep4dkdqc6mx9w9q9yh58dv5aj
+          MEDIA_RECOVERY_EXPECTED_COMMIT: 267be4ea8526a9a5ab4e17e76a666fd490f271c3
           VRDEX_ENABLE_E2E_CLERK_AUTH: "true"
           CLERK_SECRET_KEY: ${{ secrets.VRDEX_HOSTED_E2E_CLERK_SECRET_KEY }}
           VRDEX_E2E_BROWSER_TOKEN: ${{ secrets.VRDEX_HOSTED_E2E_BROWSER_TOKEN }}
