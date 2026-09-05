@@ -95,6 +95,7 @@ import type * as communityTelemetry from "../communityTelemetry.js";
 import type * as crons from "../crons.js";
 import type * as discordVerification from "../discordVerification.js";
 import type * as e2e from "../e2e.js";
+import type * as e2eMedia from "../e2eMedia.js";
 import type * as events from "../events.js";
 import type * as health from "../health.js";
 import type * as hostedSmokeFixtures from "../hostedSmokeFixtures.js";
@@ -220,6 +221,7 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   discordVerification: typeof discordVerification;
   e2e: typeof e2e;
+  e2eMedia: typeof e2eMedia;
   events: typeof events;
   health: typeof health;
   hostedSmokeFixtures: typeof hostedSmokeFixtures;

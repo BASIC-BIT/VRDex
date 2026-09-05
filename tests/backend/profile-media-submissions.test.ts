@@ -377,7 +377,11 @@ describe("unclaimed-profile media submissions", () => {
         api.profileMediaSubmissions.getCandidateForStorage,
         { submissionId: intent.submissionId },
       ),
-      /review access is required/i,
+      (error: unknown) => {
+        assert.ok(error instanceof ConvexError);
+        assert.equal(error.data.code, "MEDIA_REVIEW_ACCESS_REQUIRED");
+        return true;
+      },
     );
     await assert.rejects(
       t.withIdentity(seeded.contributorIdentity).mutation(api.profileMediaSubmissions.decide, {

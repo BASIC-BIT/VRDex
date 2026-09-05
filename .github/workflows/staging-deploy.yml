@@ -9,6 +9,15 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      media_lifecycle:
+        description: Run the approved synthetic two-user media lifecycle after deployment
+        type: boolean
+        default: false
+      media_recovery:
+        description: Recover only the approved media-33990507621-1 fixture without deployment
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -18,9 +27,33 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  recover-media:
+    name: Recover approved staging media fixture
+    if: github.event_name == 'workflow_dispatch' && inputs.media_recovery
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Recover exact fixture through existing cleanup guards
+        working-directory: apps/web
+        env:
+          MEDIA_RECOVERY_RUN_ID: media-33990507621-1
+          MEDIA_RECOVERY_PROFILE_ID: m5773mvep4dkdqc6mx9w9q9yh58dv5aj
+          MEDIA_RECOVERY_EXPECTED_COMMIT: 267be4ea8526a9a5ab4e17e76a666fd490f271c3
+          VRDEX_ENABLE_E2E_CLERK_AUTH: "true"
+          CLERK_SECRET_KEY: ${{ secrets.VRDEX_HOSTED_E2E_CLERK_SECRET_KEY }}
+          VRDEX_E2E_BROWSER_TOKEN: ${{ secrets.VRDEX_HOSTED_E2E_BROWSER_TOKEN }}
+        run: pnpm exec tsx e2e/media-recovery.ts
+
   deploy-staging:
     name: Deploy Staging
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    if: (github.event_name == 'workflow_dispatch' && !inputs.media_recovery) || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -333,8 +366,6 @@ jobs:
           VRDEX_E2E_RUN_ID: staging-deploy-${{ github.run_id }}-${{ github.run_attempt }}
         run: pnpm test:e2e:hosted
 
-
-
       # After the deployment it is testing, not before it. On a merge this used
       # to run from `deployed-health.yml` on the `push` event, which fires while
       # the matching Convex and Vercel deployments are still going out — so it
@@ -370,7 +401,25 @@ jobs:
           VRDEX_E2E_RUN_ID: staging-auth-session-${{ github.run_id }}-${{ github.run_attempt }}
         run: pnpm test:e2e:hosted:auth-session
 
-      # Last of the three Playwright runs, and below the auth-session contract on
+      - name: Run approved two-user media lifecycle
+        if: steps.gate.outputs.enabled == 'true' && github.event_name == 'workflow_dispatch' && inputs.media_lifecycle
+        working-directory: apps/web
+        env:
+          PLAYWRIGHT_BASE_URL: ${{ steps.gate.outputs.hosted_base_url }}
+          PLAYWRIGHT_SKIP_WEBSERVERS: "true"
+          PLAYWRIGHT_OUTPUT_DIR: test-results-media-lifecycle
+          PLAYWRIGHT_HTML_REPORT_DIR: playwright-report-media-lifecycle
+          PLAYWRIGHT_JSON_REPORT_FILE: playwright-artifacts/results-media-lifecycle.json
+          VRDEX_E2E_MEDIA_LIFECYCLE: "true"
+          VRDEX_E2E_EXPECTED_COMMIT: ${{ github.sha }}
+          VRDEX_ENABLE_E2E_AUTH_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_AUTH_HELPERS }}
+          VRDEX_ENABLE_E2E_CLERK_AUTH: ${{ vars.VRDEX_HOSTED_E2E_CLERK_AUTH }}
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.VRDEX_HOSTED_E2E_CLERK_PUBLISHABLE_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.VRDEX_HOSTED_E2E_CLERK_SECRET_KEY }}
+          VRDEX_E2E_BROWSER_TOKEN: ${{ secrets.VRDEX_HOSTED_E2E_BROWSER_TOKEN }}
+        run: pnpm exec playwright test media-contribution.flow.spec.ts --project=desktop-chromium
+
+      # Last of the Playwright runs, and below the auth-session contract on
       # purpose. An ordinary `if:` implicitly requires every prior step to have
       # succeeded, so sitting above that step meant a failed capture skipped it —
       # and it is the only staging run of `@auth-session-staging`, which
@@ -496,6 +545,8 @@ jobs:
             apps/web/test-results
             apps/web/playwright-report-auth-session
             apps/web/test-results-auth-session
+            apps/web/playwright-report-media-lifecycle
+            apps/web/test-results-media-lifecycle
             apps/web/playwright-report-account-visual
             apps/web/test-results-account-visual
             apps/web/playwright-artifacts
