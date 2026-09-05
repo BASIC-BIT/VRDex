@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { request } from "@playwright/test";
 import { cleanupClerkTestAccountData, deleteClerkTestAccountByEmail } from "./clerk-auth";
 import { mediaFixtureRunId } from "./media-run-id";
+import { assertClerkTestTenant } from "./clerk-tenant";
 
 // Explicit operator recovery only. This script never creates fixtures or deploys.
 async function main() {
@@ -20,6 +21,7 @@ async function main() {
     assert.equal(identity.commit, expectedCommit);
     assert.equal(identity.convexServer, "https://scrupulous-corgi-247.convex.cloud");
     assert.equal(identity.clerkFrontendApi, "https://oriented-anemone-94.clerk.accounts.dev");
+    await assertClerkTestTenant(process.env.CLERK_SECRET_KEY!, identity.clerkFrontendApi);
     const headers = { "x-vrdex-e2e-token": token };
     const lookup = async () => {
       const response = await client.post("/api/e2e/media", { headers, data: { op: "lookup", runId } });

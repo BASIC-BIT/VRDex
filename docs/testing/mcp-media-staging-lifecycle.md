@@ -16,7 +16,15 @@ transition. Merged code and tool advertisement do not establish those results.
 
 On September 4, staging served `12f32b96a22a47bb91a4d0ab57f15d085c403b97`.
 The contribution flag was absent from staging Convex and Vercel configuration.
-This test has not yet passed against a deployed candidate.
+On September 5, run `33990507621` passed the lifecycle assertions against
+`267be4ea8526a9a5ab4e17e76a666fd490f271c3`, but independent readback found user
+rows recreated during teardown. Recovery run `33991156676` removed them.
+Corrected run `33991213039` passed against
+`4edc0fc2cdb49fa20623708e05fce285920b2a08`, including account absence checks.
+Independent reads found no fixture profile/media rows or matching recent test
+users. Restoration run `33991495268` passed and restored the captured baseline
+and three temporary flags. This is synthetic media lifecycle evidence, not a
+real claim or controlled stream transition.
 
 ## Preconditions
 
@@ -64,8 +72,9 @@ Automatic retries are disabled so a cleanup failure cannot become a successful
 flaky run that leaves an earlier fixture behind. CI media reports use separate
 paths from the ordinary staging health and auth-session reports.
 Cleanup runs in `afterEach` with a separate two-minute budget, so the test's
-timeout does not consume its recovery time. Recovery evidence is attached before
-browser contexts close; an already-closed browser cannot mask that evidence.
+timeout does not consume its recovery time. Browser contexts close before
+cleanup to prevent user reprovisioning. Cleanup uses the independent API request
+context; subsequent evidence attachments use `testInfo`, not a live browser.
 
 ## What the test proves
 
@@ -92,6 +101,9 @@ not evidence that the real claiming process succeeded. Unclaimed-profile
 super-admin review remains covered by backend tests rather than this browser
 scenario. Hidden-target refusal, quota/cooldown, import-safety and retention
 timing also retain their existing backend/importer coverage.
+The lifecycle does not inspect retained audit ledgers. Issue #297's staged
+audit-redaction and sanitized rate-limit evidence remain separate production
+rollout gates; this passing test does not close them.
 
 ## Cleanup and recovery
 
@@ -120,6 +132,11 @@ commit. It uses existing Actions secrets, the normal guarded media DELETE, and
 account cleanup only after media/profile absence is verified. It cannot serve
 as a general recovery command for another run without a reviewed change to its
 identity pins. Dispatch requires the operator's exact recovery approval.
+Before any deletion, an authenticated Clerk domains lookup must identify the
+same primary Frontend API as the pinned deployment. A development key prefix
+or an empty user lookup is insufficient. A failed, malformed, or mismatched
+tenant response stops recovery. This uses the read-only domains endpoint in
+the [Clerk Backend API specification](https://github.com/clerk/openapi-specs/blob/main/bapi/2025-11-10.yml).
 
 Actions recovery IDs are `media-<GITHUB_RUN_ID>-<GITHUB_RUN_ATTEMPT>`, so they
 remain reconstructible even if the runner is killed before writing artifacts.
