@@ -330,7 +330,7 @@ describe("hosted MCP profile media contributions", () => {
     assert.equal(accepted?.oauthTokenId, "oauth-token-id");
     assert.equal(JSON.stringify(accepted).includes("sourceUrl"), false);
     assert.equal(JSON.stringify(accepted).includes("images.example.test"), false);
-    assert.doesNotMatch(JSON.stringify({ completed, status, accepted }), /hm=|cdn.discordapp.com/);
+    assert.doesNotMatch(JSON.stringify({ completed, status, accepted }), /hm=|cdn\.discordapp\.com/);
 
     const beforeApproval = await seeded.t.query(api.profileAssets.listPublicBySlug, {
       slug: "community-dj",
@@ -364,7 +364,7 @@ describe("hosted MCP profile media contributions", () => {
     );
     assert.equal(approvedStatus.submissions[0]?.approvedAssetId, decision.assetId);
     const publicMedia = await seeded.t.query(api.profileAssets.listPublicBySlug, { slug: "community-dj" });
-    assert.doesNotMatch(JSON.stringify(publicMedia), /hm=|cdn.discordapp.com/);
+    assert.doesNotMatch(JSON.stringify(publicMedia), /hm=|cdn\.discordapp\.com/);
     assert.notEqual(
       await seeded.t.query(api.profileAssets.getPublicAssetForStorage, {
         slug: "community-dj",

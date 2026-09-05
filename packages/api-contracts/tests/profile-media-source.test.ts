@@ -22,7 +22,7 @@ describe("MCP contribution sources", () => {
       source.replace("/123/", "/0/"), source.replace("/123/", "/123456789012345678901/"),
       source.replace("press%20kit.png", "../press.png"),
       source.replace("press%20kit.png", "%2e%2e"),
-      source.replace("press%20kit.png", "folder/press.png"),
+      "https://cdn.discordapp.com/attachments/123/456/folder/press.png?hm=AbCd0123&is=1&ex=2&",
       source.replace("press%20kit.png", "press%2fkit.png"),
       source.replace("press%20kit.png", "press%5ckit.png"),
       source.replace("press%20kit.png", "press%00kit.png"),
