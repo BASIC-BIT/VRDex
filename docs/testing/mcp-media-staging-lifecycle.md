@@ -96,6 +96,12 @@ expires intents and refuses active processing/cleanup leases or legal holds.
 Storage deletion precedes row deletion so a failed object deletion retains
 the metadata needed for recovery. The helper never returns object keys.
 
+Cleanup removes the fixture's operational data, not its historical telemetry.
+The existing `apiWriteAuditEvents` and `mcpToolEvents` ledgers retain synthetic
+actor and target IDs after the referenced fixture rows are deleted. These are
+historical request records; cleanup does not promise zero residual telemetry.
+Their normal payload excludes source URLs, image content and storage keys.
+
 Actions recovery IDs are `media-<GITHUB_RUN_ID>-<GITHUB_RUN_ATTEMPT>`, so they
 remain reconstructible even if the runner is killed before writing artifacts.
 The exact account addresses are `<runId>-contributor+clerk_test@e2e.vrdex.net`
