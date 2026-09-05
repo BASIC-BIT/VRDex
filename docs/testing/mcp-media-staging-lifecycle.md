@@ -104,6 +104,14 @@ actor and target IDs after the referenced fixture rows are deleted. These are
 historical request records; cleanup does not promise zero residual telemetry.
 Their normal payload excludes source URLs, image content and storage keys.
 
+The failed run `33936636933` has a separately approved `media_recovery` dispatch
+mode in Staging Deploy. It skips the deployment job entirely and invokes
+`apps/web/e2e/media-recovery.ts` with that run's fixed profile ID and deployed
+commit. It uses existing Actions secrets, the normal guarded media DELETE, and
+account cleanup only after media/profile absence is verified. It cannot serve
+as a general recovery command for another run without a reviewed change to its
+identity pins. Dispatch requires the operator's exact recovery approval.
+
 Actions recovery IDs are `media-<GITHUB_RUN_ID>-<GITHUB_RUN_ATTEMPT>`, so they
 remain reconstructible even if the runner is killed before writing artifacts.
 The exact account addresses are `<runId>-contributor+clerk_test@e2e.vrdex.net`
