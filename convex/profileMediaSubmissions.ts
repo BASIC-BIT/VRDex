@@ -1,5 +1,6 @@
 import { ConvexError, v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
+import { normalizeMcpContributionSourceUrl } from "../packages/api-contracts/src/profile-media-source";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
@@ -71,23 +72,7 @@ function rejectMcpMediaSubmission(code: string, message?: string): never {
 }
 
 function normalizeMcpSubmissionSourceUrl(value: string) {
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    return rejectMcpMediaSubmission("MCP_MEDIA_SOURCE_INVALID");
-  }
-  if (
-    url.protocol !== "https:" ||
-    url.username ||
-    url.password ||
-    url.port ||
-    url.search ||
-    url.hash
-  ) {
-    return rejectMcpMediaSubmission("MCP_MEDIA_SOURCE_INVALID");
-  }
-  return url.toString();
+  return normalizeMcpContributionSourceUrl(value) ?? rejectMcpMediaSubmission("MCP_MEDIA_SOURCE_INVALID");
 }
 
 function mcpSubmissionSummary(submission: Doc<"profileMediaSubmissions">) {

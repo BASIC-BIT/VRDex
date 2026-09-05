@@ -22,6 +22,7 @@ import {
   McpDocumentFetchResponseSchema,
   McpDocumentSearchResponseSchema,
   mcpOutputJsonSchemaForZodSchema,
+  normalizeMcpContributionSourceUrl,
   PublicActiveWorldsResponseSchema,
   PublicEventSchema,
   PublicEventsResponseSchema,
@@ -354,9 +355,9 @@ const mcpProfileMediaSubmissionSchema = z.object({
 });
 const mcpProfileMediaSubmitInputSchema = z.object({
   slug: mcpSlugSchema,
-  sourceUrl: z.string().url().max(2_048).refine(isSafeMcpProfileMediaSourceUrl, {
-    message: "Source URL must be public HTTPS without credentials, a custom port, query parameters, or a fragment.",
-  }),
+  sourceUrl: z.string().url().max(2_048).refine((value) => normalizeMcpContributionSourceUrl(value) !== null, {
+    message: "Unsupported source URL.",
+  }).describe("Public HTTPS image URL, optionally a signed cdn.discordapp.com attachment with ex, is, and hm."),
   credit: z.string().trim().min(1).max(120),
   creditUrl: mcpProfileMediaCreditUrlSchema.optional(),
   label: z.string().max(80).optional(),

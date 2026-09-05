@@ -1822,7 +1822,7 @@ describe("VRDex MCP server", () => {
 
       const submitted = await call(38, "vrdex_profile_media_submit", {
         slug: "community-dj",
-        sourceUrl: "https://MEDIA.example.test/press.webp",
+        sourceUrl: "https://cdn.discordapp.com/attachments/123/456/press.webp?hm=AbCd&ex=2&is=1&",
         credit: "Artist   press kit",
         expectedUpdatedAt: 123,
         idempotencyKey: "operator-key-123",
@@ -1850,6 +1850,13 @@ describe("VRDex MCP server", () => {
         credit: "Artist press kit",
         expectedUpdatedAt: 123,
         idempotencyKey: "operator-key-unsupported",
+      });
+      await call(44, "vrdex_profile_media_submit", {
+        slug: "community-dj",
+        sourceUrl: "https://cdn.discordapp.com/attachments/123/456/press.webp?hm=AbCe&ex=2&is=1&",
+        credit: "Artist press kit",
+        expectedUpdatedAt: 123,
+        idempotencyKey: "operator-key-123",
       });
       console.log(JSON.stringify({
         importedIntentIds,
@@ -1879,13 +1886,15 @@ describe("VRDex MCP server", () => {
       verificationChecks: number;
     };
 
-    assert.deepEqual(result.importedIntentIds, ["intent_private_123"]);
-    assert.equal(result.mutationArgs.length, 6);
-    assert.equal(result.verificationChecks, 3);
+    assert.deepEqual(result.importedIntentIds, ["intent_private_123", "intent_private_123"]);
+    assert.equal(result.mutationArgs.length, 8);
+    assert.equal(result.verificationChecks, 4);
+    assert.equal(result.mutationArgs[0]?.idempotencyKeyHash, result.mutationArgs[6]?.idempotencyKeyHash);
+    assert.notEqual(result.mutationArgs[0]?.requestFingerprint, result.mutationArgs[6]?.requestFingerprint);
     assert.deepEqual(result.statusAuditResults, ["accepted", "readback_warning"]);
     assert.equal(result.mutationArgs[0]?.actorUserId, "user_123");
     assert.equal("ownerUserId" in (result.mutationArgs[0] ?? {}), false);
-    assert.equal(result.mutationArgs[0]?.sourceUrl, "https://media.example.test/press.webp");
+    assert.equal(result.mutationArgs[0]?.sourceUrl, "https://cdn.discordapp.com/attachments/123/456/press.webp?hm=AbCd&ex=2&is=1&");
     assert.equal(result.mutationArgs[0]?.credit, "Artist press kit");
     assert.equal(result.mutationArgs[1]?.emailVerified, true);
     assert.equal(typeof result.mutationArgs[1]?.emailVerificationAttestedAt, "number");

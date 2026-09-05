@@ -1,5 +1,6 @@
 export * from "./auth";
 export * from "./http";
+export * from "./profile-media-source";
 export * from "./mcp-json-schema";
 export * from "./openapi";
 export * from "./oauth";

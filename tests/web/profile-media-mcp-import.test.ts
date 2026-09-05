@@ -109,6 +109,7 @@ describe("hosted MCP profile media import cleanup", () => {
 
   it("imports a contribution into the private submission lifecycle", () => {
     const output = runImportProbe(`
+      import assert from "node:assert/strict";
       import { completeMcpProfileMediaSubmissionImport } from "./apps/web/src/lib/server/profile-media-mcp-import.ts";
 
       let mutationCount = 0;
@@ -121,7 +122,7 @@ describe("hosted MCP profile media import cleanup", () => {
             if (mutationCount === 1) return {
               status: "claimed",
               intentId: "intent_456",
-              sourceUrl: "https://media.example.test/photo.png",
+              sourceUrl: "https://cdn.discordapp.com/attachments/123/456/photo.png?ex=2&is=1&hm=AbCd&",
               sourceStorageKey: "private/source.png",
               downloadStorageKey: "private/download.png",
               storageKey: "private/display.webp",
@@ -138,7 +139,12 @@ describe("hosted MCP profile media import cleanup", () => {
           },
           query: async () => false,
         },
-        fetchSource: async () => ({ body: new Uint8Array([1]), mimeType: "image/png" }),
+        fetchSource: async (sourceUrl, options) => {
+          assert.equal(sourceUrl, "https://cdn.discordapp.com/attachments/123/456/photo.png?ex=2&is=1&hm=AbCd&");
+          options.assertSourceUrl(new URL(sourceUrl));
+          assert.throws(() => options.assertSourceUrl(new URL("https://example.test/leak")));
+          return { body: new Uint8Array([1]), mimeType: "image/png" };
+        },
         prepareAsset: async () => ({
           source: { body: new Uint8Array([1]), mimeType: "image/png", contentSha256: "source-hash" },
           download: { body: new Uint8Array([2]), mimeType: "image/png", contentSha256: "download-hash" },
@@ -341,6 +347,7 @@ describe("hosted MCP profile media import cleanup", () => {
 
   it("returns stage-specific source, validation, and storage refusal codes", () => {
     const output = runImportProbe(`
+      import assert from "node:assert/strict";
       import { completeMcpProfileMediaSubmissionImport } from "./apps/web/src/lib/server/profile-media-mcp-import.ts";
 
       const prepared = {
@@ -367,7 +374,7 @@ describe("hosted MCP profile media import cleanup", () => {
               query: async () => false,
             },
             fetchSource: async () => {
-              if (kind === "source") throw new Error("getaddrinfo ENOTFOUND media.example.test");
+              if (kind === "source") throw new Error("HTTP 403 https://cdn.discordapp.com/attachments/123/456/photo.png?ex=2&is=1&hm=AbCd");
               return { body: new Uint8Array([1]), mimeType: "image/png" };
             },
             prepareAsset: async () => {
@@ -382,6 +389,7 @@ describe("hosted MCP profile media import cleanup", () => {
           });
           return null;
         } catch (error) {
+          if (kind === "source") assert.equal(error.message, "Profile media source fetch failed.");
           return { code: error?.code ?? null, outcome: error?.outcome ?? null };
         }
       }

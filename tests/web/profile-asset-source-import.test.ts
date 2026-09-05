@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import { Readable } from "node:stream";
 
 import { fetchProfileAssetSourceUrl } from "../../apps/web/src/lib/server/profile-asset-source-import";
+import { assertMcpContributionSourceRedirect } from "../../packages/api-contracts/src/profile-media-source";
 
 function sourceResponse(input: {
   body?: Uint8Array;
@@ -17,6 +18,23 @@ function sourceResponse(input: {
 }
 
 describe("profile asset source imports", () => {
+  it("preserves a signed attachment request and blocks changed redirects before DNS", async () => {
+    const source = "https://cdn.discordapp.com/attachments/123/456/photo.png?hm=AbCd&ex=2&is=1&";
+    let lookups = 0;
+    let requests = 0;
+    await assert.rejects(fetchProfileAssetSourceUrl(source, {
+      assertSourceUrl: (target) => assertMcpContributionSourceRedirect(source, target),
+      resolveHostname: async () => { lookups += 1; return [{ address: "93.184.216.34" }]; },
+      requestPinnedSource: async (url) => {
+        requests += 1;
+        assert.equal(url.pathname + url.search, "/attachments/123/456/photo.png?hm=AbCd&ex=2&is=1&");
+        return sourceResponse({ statusCode: 302, headers: { location: source.replace("ex=2", "ex=3") } });
+      },
+    }), /not supported/);
+    assert.equal(lookups, 1);
+    assert.equal(requests, 1);
+  });
+
   it("rejects non-HTTPS and credential-bearing URLs before fetching", async () => {
     await assert.rejects(
       fetchProfileAssetSourceUrl("http://media.example.test/photo.webp"),

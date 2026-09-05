@@ -14,6 +14,7 @@ import {
   shouldInspectFailedProfileAssetUpload,
 } from "./profile-asset-storage";
 import { fetchProfileAssetSourceUrl } from "./profile-asset-source-import";
+import { assertMcpContributionSourceRedirect } from "@vrdex/api-contracts";
 import {
   PROFILE_ASSET_MAX_STORED_BYTES,
   validateAndPrepareProfileAsset,
@@ -229,7 +230,9 @@ async function fetchContributionSource(
   sourceUrl: string,
 ) {
   try {
-    return await fetchSource(sourceUrl);
+    return await fetchSource(sourceUrl, {
+      assertSourceUrl: (target) => assertMcpContributionSourceRedirect(sourceUrl, target),
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Profile media source fetch failed.";
     const normalized = message.toLowerCase();
@@ -238,7 +241,9 @@ async function fetchContributionSource(
       : normalized.includes("must be png, svg, jpeg, or webp")
         ? "MCP_MEDIA_IMPORT_UNSUPPORTED"
         : "MCP_MEDIA_IMPORT_UNREACHABLE";
-    throw new McpProfileMediaImportError(message, "rejected", code);
+    // A source can contain a temporary bearer signature. Keep transport error
+    // details out of errors that callers or logging might expose.
+    throw new McpProfileMediaImportError("Profile media source fetch failed.", "rejected", code);
   }
 }
 
