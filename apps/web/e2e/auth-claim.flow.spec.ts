@@ -622,6 +622,7 @@ test("two Clerk users keep VRChat claim fixtures isolated @flow", async ({ brows
   const pages = await Promise.all(contexts.map((context) => context.newPage()));
   const accounts: Array<ClerkTestAccount | undefined> = [];
   const reservedEmails: string[] = [];
+  const authenticatedEmails = new Set<string>();
   let slug: string | undefined;
 
   try {
@@ -631,7 +632,9 @@ test("two Clerk users keep VRChat claim fixtures isolated @flow", async ({ brows
         onEmailReserved: (email) => { reservedEmails[index] = email; },
       });
       accounts[index] = account;
-      await signInClerkTestAccount(page, account);
+      await signInClerkTestAccount(page, account, {
+        onAuthenticated: () => { authenticatedEmails.add(account.email); },
+      });
       await gotoFlowPage(page, `/claim/${encodeURIComponent(slug)}`);
       await expect(page.getByLabel("VRChat profile URL or user ID")).toBeVisible(hostedActionExpectOptions);
       await page.getByLabel("VRChat profile URL or user ID").fill(
@@ -676,6 +679,7 @@ test("two Clerk users keep VRChat claim fixtures isolated @flow", async ({ brows
         // Retain the email before creation so an interrupted create/sign-in is
         // still recoverable. Delete Convex state before its Clerk identity.
         let drained = false;
+        let cleaned = false;
         for (let pass = 0; pass < 3; pass += 1) {
           const response = await deleteE2eResourceWithRetry(request, "/api/e2e/auth", {
             headers: { "x-vrdex-e2e-token": e2eToken }, data: { email },
@@ -683,12 +687,17 @@ test("two Clerk users keep VRChat claim fixtures isolated @flow", async ({ brows
           await expect(response).toBeOK();
           // A previously accepted provisioning mutation can finish after close.
           // Keep the identity until a subsequent cleanup finds no Convex row.
-          if ((await response.json() as { deleted?: boolean }).deleted === false) {
+          const body = await response.json() as { deleted?: boolean };
+          if (body.deleted === true) cleaned = true;
+          if (body.deleted === false) {
             drained = true;
             break;
           }
         }
         expect(drained).toBe(true);
+        // Once authenticated, initial absence can be delayed provisioning.
+        // Retain the Clerk identity for recovery unless a row was removed.
+        if (authenticatedEmails.has(email)) expect(cleaned).toBe(true);
         const result = await deleteClerkTestAccountByEmail(email);
         expect(result.checked).toBe(true);
         expect(result.failed).toBe(0);
