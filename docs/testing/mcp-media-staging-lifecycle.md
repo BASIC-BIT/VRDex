@@ -41,6 +41,8 @@ This test has not yet passed against a deployed candidate.
   `VRDEX_ENABLE_E2E_AUTH_HELPERS=true` and
   `VRDEX_E2E_MEDIA_LIFECYCLE=true` in the runner. Deployment-side E2E helpers
   and their existing secrets must already be configured.
+- Local runs also require a unique, recorded `VRDEX_E2E_MEDIA_RUN_ID` such as
+  `media-local-operator-1`. Actions derives it from durable run ID and attempt.
 
 From `apps/web`, with those values loaded only into the process:
 
@@ -94,12 +96,29 @@ expires intents and refuses active processing/cleanup leases or legal holds.
 Storage deletion precedes row deletion so a failed object deletion retains
 the metadata needed for recovery. The helper never returns object keys.
 
+Actions recovery IDs are `media-<GITHUB_RUN_ID>-<GITHUB_RUN_ATTEMPT>`, so they
+remain reconstructible even if the runner is killed before writing artifacts.
+The exact account addresses are `<runId>-contributor+clerk_test@e2e.vrdex.net`
+and `<runId>-reviewer+clerk_test@e2e.vrdex.net`. Authenticated fixture POST with
+`{op:"lookup",runId}` finds the profile by its deterministic slug and verifies
+exact run attribution. The test refuses to reuse an existing fixture.
+
 If cleanup fails, the test fails and retains fixture identities. A local
 `media-cleanup-recovery` attachment contains only the run/profile handles and
 failed stages. Retry the authenticated fixture DELETE with those handles,
 then run account cleanup. Do not delete the identities first or claim cleanup
 succeeded on a best-effort response. Restore any temporary staging flags and
 verify the prior deployment/configuration state after the approved run.
+
+A retained import processing token is a distinct stop condition, including one
+whose ten-minute lease has expired. Lease expiry permits another import claim;
+it does not stop the old server invocation from writing its captured S3 keys.
+Clearing that token based only on age could recreate orphaned objects after
+cleanup. Pause for the operator, confirm the original invocation has terminated,
+and obtain approval for recovery through the existing token-matched import
+failure transition before retrying fixture cleanup. This test deliberately does
+not promise automatic recovery from a killed server invocation. Do not replay
+the import or clear the token merely to make cleanup pass.
 
 Production contribution approval and the first legitimate public target remain
 separate operator decisions. See

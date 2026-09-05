@@ -7,6 +7,7 @@ import {
   deleteClerkTestAccountByEmail,
   signInClerkTestAccount,
 } from "./clerk-auth";
+import { mediaFixtureRunId } from "./media-run-id";
 
 // Deliberately opt-in: a normal hosted smoke must not create media or claim fixtures.
 const enabled = process.env.VRDEX_E2E_MEDIA_LIFECYCLE === "true";
@@ -92,7 +93,11 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
   expect(source.status(), "Public synthetic image source must be enabled before creating fixtures").toBe(200);
   expect(source.headers()["content-type"]).toMatch(/^image\//);
 
-  const runId = `media-${Date.now().toString(36)}-${randomBytes(3).toString("hex")}`;
+  const runId = mediaFixtureRunId(process.env);
+  const existing = await request.post("/api/e2e/media", { headers, data: { op: "lookup", runId } });
+  expect(existing.status(), "Check for an earlier fixture before creating accounts").toBe(200);
+  expect((await existing.json()).profileId, "Recover an existing run before reusing its ID").toBeNull();
+  console.info(`Media recovery run: ${runId}`);
   const emails: string[] = [];
   const contexts = await Promise.all([browser.newContext({ baseURL }), browser.newContext({ baseURL })]);
   let profileId: string | undefined;

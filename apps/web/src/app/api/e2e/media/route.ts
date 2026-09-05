@@ -71,7 +71,7 @@ async function execute(request: NextRequest, cleanup: boolean) {
     !body ||
     typeof body.runId !== "string" ||
     !/^media-[a-z0-9-]{1,32}$/.test(body.runId) ||
-    typeof body.profileId !== "string"
+    (body.op !== "lookup" && typeof body.profileId !== "string")
   ) {
     return NextResponse.json(
       { error: "A media run ID and profile ID are required." },
@@ -85,6 +85,11 @@ async function execute(request: NextRequest, cleanup: boolean) {
   };
   try {
     const client = convexAdminHttpClient();
+    if (!cleanup && body.op === "lookup") {
+      return NextResponse.json(await client.query(internal.e2eMedia.findFixture, {
+        secret, runId: body.runId,
+      }));
+    }
     if (cleanup) {
       const prepared = await client.mutation(
         internal.e2eMedia.prepareCleanup,
