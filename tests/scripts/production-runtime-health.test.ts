@@ -361,6 +361,10 @@ test("deployed auth checks separate recurring staging from manual production", a
   );
   assert.ok(deployIndex >= 0);
   assert.ok(postDeployAuthIndex > deployIndex);
+  const mediaLifecycleIndex = stagingDeploySteps.findIndex(
+    (step) => step.name === "Run approved two-user media lifecycle",
+  );
+  assert.ok(mediaLifecycleIndex > postDeployAuthIndex);
   assert.equal(
     stagingDeploySteps[postDeployAuthIndex]?.run,
     "pnpm test:e2e:hosted:auth-session",

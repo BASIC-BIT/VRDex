@@ -269,7 +269,10 @@ async function reviewerContext(
   const access = await getAccountFeatureAccess(ctx.db, user._id);
   const ownsProfile = await userOwnsProfile(ctx.db, profile._id, user._id);
   if (!access.superAdmin && !ownsProfile) {
-    throw new Error("Profile media review access is required.");
+    throw new ConvexError({
+      code: "MEDIA_REVIEW_ACCESS_REQUIRED",
+      message: "Profile media review access is required.",
+    });
   }
   if (!access.superAdmin && profile.claimState === "unclaimed") {
     throw new Error("Only a moderator can review media for an unclaimed profile.");

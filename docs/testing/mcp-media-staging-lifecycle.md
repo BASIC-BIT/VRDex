@@ -72,7 +72,9 @@ paths from the ordinary staging health and auth-session reports.
    submission; conflicting reuse and stale revisions are refused.
 3. A can read the submission; B cannot enumerate it. Public profile projection
    contains no new image before review, and anonymous/A review-file requests
-   are refused. A cannot enter the review queue.
+   return the exact sign-in-required 401 and review-access-required 403 responses.
+   Unexpected backend/storage failures remain errors rather than authorization
+   evidence. A cannot enter the review queue.
 4. The fixture assigns only that synthetic profile to B after submission.
    Further contributor submissions to the claimed target are refused. B uses
    the normal browser review controls to approve, creating one public asset
