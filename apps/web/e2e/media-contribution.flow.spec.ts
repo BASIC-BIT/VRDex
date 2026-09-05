@@ -16,7 +16,7 @@ test.describe.configure({ retries: 0 }); // Cleanup failure must never become a 
 
 type Submission = { submissionId: string; status: string; approvedAssetId?: string };
 type MediaResult = { replayed: boolean; submission: Submission };
-type RpcResult<T> = { isError?: boolean; structuredContent?: T };
+type RpcResult<T> = { isError?: boolean; structuredContent?: T; content?: { type: string; text?: string }[] };
 
 async function rpc<T>(request: APIRequestContext, token: string | undefined, name: string, args: Record<string, unknown>) {
   const response = await request.post("/mcp", {
@@ -39,6 +39,13 @@ async function call<T>(request: APIRequestContext, token: string | undefined, na
   expect(response.result?.isError, `${name} tool error`).not.toBe(true);
   expect(response.result?.structuredContent !== undefined, `${name} structured result`).toBe(true);
   return response.result!.structuredContent!;
+}
+
+function expectRefusal(response: Awaited<ReturnType<typeof rpc>>, text: string) {
+  expect(response.status, "Refusal HTTP status").toBe(200);
+  expect(response.error, "Refusal must be a tool result").toBeUndefined();
+  expect(response.result?.isError).toBe(true);
+  expect(response.result?.content).toEqual([{ type: "text", text }]);
 }
 
 async function grant(page: Page, request: APIRequestContext, origin: string, runId: string) {
@@ -130,7 +137,7 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
     const stale = await rpc(request, authA.access_token, "vrdex_profile_media_submit", {
       ...input, expectedUpdatedAt: before.updatedAt - 1, idempotencyKey: `${runId}-stale`,
     });
-    expect(stale.result?.isError).toBe(true);
+    expectRefusal(stale, "The profile changed after it was read. Read it again and submit with its current updatedAt and a new idempotency key.");
     const submitted = await call<MediaResult>(request, authA.access_token, "vrdex_profile_media_submit", input);
     expect(submitted.replayed).toBe(false);
     expect(submitted.submission.status).toBe("submitted");
@@ -138,7 +145,7 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
     expect(replay.replayed).toBe(true);
     expect(replay.submission.submissionId).toBe(submitted.submission.submissionId);
     const conflict = await rpc(request, authA.access_token, "vrdex_profile_media_submit", { ...input, credit: "Conflicting credit" });
-    expect(conflict.result?.isError).toBe(true);
+    expectRefusal(conflict, "That idempotency key was already used for a different media submission request.");
     stages.push("submit, same-key replay and conflicting-key refusal");
 
     const own = await call<{ submissions: Submission[] }>(request, authA.access_token, "vrdex_list_my_media_submissions", {});
@@ -163,7 +170,7 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
     const claimed = await rpc(request, authA.access_token, "vrdex_profile_media_submit", {
       ...input, expectedUpdatedAt: claimedProfile.updatedAt, idempotencyKey: `${runId}-claimed`,
     });
-    expect(claimed.result?.isError).toBe(true);
+    expectRefusal(claimed, "The public profile is claimed, so its owner manages profile media.");
     await pageB.goto("/account/media-review");
     await pageB.getByRole("button", { name: "Start review", exact: true }).click();
     await pageB.getByLabel("Status", { exact: true }).selectOption("under_review");
@@ -195,7 +202,11 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
       if (!cleanup?.ok()) cleanupErrors.push("media/profile cleanup");
       else if (profileSlug) {
         const absent = await rpc(request, undefined, "vrdex_get_profile", { slug: profileSlug });
-        if (!absent.result?.isError) cleanupErrors.push("profile absence readback");
+        try {
+          expectRefusal(absent, `Profile was not found for slug "${profileSlug}".`);
+        } catch {
+          cleanupErrors.push("profile absence readback");
+        }
       }
     } else {
       // Creation may commit before its response is lost. No media call has run
