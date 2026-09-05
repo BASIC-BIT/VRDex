@@ -4,6 +4,7 @@ import {
   clerkTestAuthAvailability,
   createClerkTestAccount,
   deleteClerkTestAccount,
+  deleteClerkTestAccountByEmail,
   hostedHelperLagReason,
   hostedTargetRunsCurrentRevision,
   signInClerkTestAccount,
@@ -603,6 +604,98 @@ test("verified email account can complete VRChat adapter claims @flow", async ({
       [vrchatPersonSlug, vrchatCommunitySlug],
       runId,
     );
+  }
+});
+
+test("two Clerk users keep VRChat claim fixtures isolated @flow", async ({ browser, request, baseURL }, testInfo) => {
+  test.setTimeout(150_000);
+  test.skip(clerkTestAuth.available === false, clerkTestAuth.available === false ? clerkTestAuth.reason : "");
+  // This exercises real Clerk sessions and deployed claim handlers. The existing
+  // staging adapter supplies a fixture verdict, not live VRChat identity proof.
+  if (process.env.VRDEX_ENABLE_E2E_ADAPTER_HELPERS !== "true") {
+    throw new Error("Two-user claim verification requires the isolated staging adapter fixture.");
+  }
+  const e2eToken = e2eBrowserToken();
+  const runId = e2eRunId(testInfo);
+  const suffix = runId.slice(-34);
+  const contexts = [await browser.newContext({ baseURL }), await browser.newContext({ baseURL })];
+  const pages = await Promise.all(contexts.map((context) => context.newPage()));
+  const accounts: Array<ClerkTestAccount | undefined> = [];
+  const reservedEmails: string[] = [];
+  let slug: string | undefined;
+
+  try {
+    slug = await createE2eProfile({ request, e2eToken, runId, profileType: "person", displayName: `Two-user claim ${suffix}` });
+    for (const [index, page] of pages.entries()) {
+      const account = await createClerkTestAccount(`claim-${index}-${suffix}`, {
+        onEmailReserved: (email) => { reservedEmails[index] = email; },
+      });
+      accounts[index] = account;
+      await signInClerkTestAccount(page, account);
+      await gotoFlowPage(page, `/claim/${encodeURIComponent(slug)}`);
+      await expect(page.getByLabel("VRChat profile URL or user ID")).toBeVisible(hostedActionExpectOptions);
+      await page.getByLabel("VRChat profile URL or user ID").fill(
+        `usr_e2e00000-0000-4000-8000-00000000000${index + 1}`,
+      );
+      await page.getByRole("button", { name: "Create proof code" }).click();
+      await expect(page.getByText(/^VRDEX-[A-Z0-9]+$/)).toBeVisible(hostedActionExpectOptions);
+    }
+    expect(accounts[0]?.clerkUserId).not.toBe(accounts[1]?.clerkUserId);
+    const [first, second] = pages;
+    const firstCode = (await first.getByText(/^VRDEX-[A-Z0-9]+$/).innerText()).trim();
+    const secondCode = (await second.getByText(/^VRDEX-[A-Z0-9]+$/).innerText()).trim();
+    expect(firstCode).not.toBe(secondCode);
+    await expect(first.getByText(secondCode, { exact: true })).toHaveCount(0);
+    await expect(second.getByText(firstCode, { exact: true })).toHaveCount(0);
+
+    await second.getByRole("button", { name: "Start over", exact: true }).click();
+    await expect(second.getByRole("button", { name: "Create proof code" })).toBeVisible(hostedActionExpectOptions);
+    await first.reload();
+    await expect(first.getByText(firstCode, { exact: true })).toBeVisible(hostedActionExpectOptions);
+    await first.getByRole("button", { name: "I've added it - check now", exact: true }).click();
+    await expect(first.getByText(/This profile is yours|Ownership (verified|confirmed)/i)).toBeVisible(hostedActionExpectOptions);
+    await second.reload();
+    await expect(second.getByText("This profile already has an owner.", { exact: true })).toBeVisible(hostedActionExpectOptions);
+    await expect(second.getByRole("button", { name: "Create proof code" })).toHaveCount(0);
+    await expect(second.getByText(firstCode, { exact: true })).toHaveCount(0);
+    await first.reload();
+    await expect(first.getByText(/You (already )?manage this profile\./)).toBeVisible(hostedActionExpectOptions);
+  } finally {
+    // Attempt every teardown even if one fails. Each user has separate Convex
+    // and Clerk state; one failed cleanup must not strand the other identity.
+    const closed = await Promise.allSettled(contexts.map((context) => context.close()));
+    const cleanup = await Promise.allSettled([
+      (async () => {
+        const response = await deleteE2eResourceWithRetry(request, "/api/e2e/profile-submissions", {
+          headers: { "x-vrdex-e2e-token": e2eToken },
+          data: { slug, runId },
+        });
+        await expect(response).toBeOK();
+      })(),
+      ...reservedEmails.map(async (email) => {
+        // Retain the email before creation so an interrupted create/sign-in is
+        // still recoverable. Delete Convex state before its Clerk identity.
+        let drained = false;
+        for (let pass = 0; pass < 3; pass += 1) {
+          const response = await deleteE2eResourceWithRetry(request, "/api/e2e/auth", {
+            headers: { "x-vrdex-e2e-token": e2eToken }, data: { email },
+          });
+          await expect(response).toBeOK();
+          // A previously accepted provisioning mutation can finish after close.
+          // Keep the identity until a subsequent cleanup finds no Convex row.
+          if ((await response.json() as { deleted?: boolean }).deleted === false) {
+            drained = true;
+            break;
+          }
+        }
+        expect(drained).toBe(true);
+        const result = await deleteClerkTestAccountByEmail(email);
+        expect(result.checked).toBe(true);
+        expect(result.failed).toBe(0);
+      }),
+    ]);
+    const failures = [...closed, ...cleanup].filter((result) => result.status === "rejected");
+    if (failures.length) throw new AggregateError(failures.map((result) => result.reason), "Two-user claim fixture cleanup failed.");
   }
 });
 
