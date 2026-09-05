@@ -333,8 +333,10 @@ export const registerCollectorAccount = internalMutation({
       .query("collectorAccounts")
       .withIndex("by_vrchatUserId", (q) => q.eq("vrchatUserId", vrchatUserId))
       .first();
-    const capacity = Math.max(1, Math.floor(args.capacity ?? 100));
-    const reservedHeadroom = Math.max(1, Math.floor(args.reservedHeadroom ?? 15));
+    // A credential rotation re-registers with only the credential fields;
+    // omitted limits keep the account's current values, not the defaults.
+    const capacity = Math.max(1, Math.floor(args.capacity ?? existing?.capacity ?? 100));
+    const reservedHeadroom = Math.max(1, Math.floor(args.reservedHeadroom ?? existing?.reservedHeadroom ?? 15));
     if (reservedHeadroom >= capacity) {
       throw new Error("Collector account headroom must be below capacity.");
     }
@@ -354,7 +356,7 @@ export const registerCollectorAccount = internalMutation({
       workerKeyHash: args.workerKeyHash.trim().toLowerCase(),
       capacity,
       reservedHeadroom,
-      requestsPerMinute: Math.max(1, Math.floor(args.requestsPerMinute ?? 30)),
+      requestsPerMinute: Math.max(1, Math.floor(args.requestsPerMinute ?? existing?.requestsPerMinute ?? 30)),
       state: "ready" as const,
       killSwitchEnabled: false,
       updatedAt: now,
