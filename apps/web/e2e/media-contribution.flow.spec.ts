@@ -11,8 +11,15 @@ import { mediaFixtureRunId } from "./media-run-id";
 
 // Deliberately opt-in: a normal hosted smoke must not create media or claim fixtures.
 const enabled = process.env.VRDEX_E2E_MEDIA_LIFECYCLE === "true";
-test.use({ trace: "off", video: "off" }); // OAuth exchanges must not enter retained traces.
+test.use({ trace: "off", video: "off", actionTimeout: 15_000, navigationTimeout: 30_000 }); // OAuth exchanges must not enter retained traces.
 test.describe.configure({ retries: 0 }); // Cleanup failure must never become a successful flaky run.
+
+let cleanupFixture: (() => Promise<void>) | undefined;
+test.afterEach(async () => {
+  test.setTimeout(120_000); // Separate teardown budget even when the test times out.
+  await cleanupFixture?.();
+  cleanupFixture = undefined;
+});
 
 type Submission = { submissionId: string; status: string; approvedAssetId?: string };
 type MediaResult = { replayed: boolean; submission: Submission };
@@ -107,106 +114,17 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
   console.info(`Media recovery run: ${runId}`);
   const emails: string[] = [];
   const contexts = await Promise.all([browser.newContext({ baseURL }), browser.newContext({ baseURL })]);
-  let profileId: string | undefined;
-  let profileSlug: string | undefined;
+  const fixture: { profileId?: string; profileSlug?: string } = {};
   const stages: string[] = [];
-  try {
-    const a = await createClerkTestAccount(`${runId}-contributor`, { onEmailReserved: (email) => emails.push(email) });
-    const b = await createClerkTestAccount(`${runId}-reviewer`, { onEmailReserved: (email) => emails.push(email) });
-    expect(a.clerkUserId === b.clerkUserId).toBe(false);
-    const pageA = await contexts[0].newPage();
-    const pageB = await contexts[1].newPage();
-    await signInClerkTestAccount(pageA, a);
-    await signInClerkTestAccount(pageB, b);
-    const authA = await grant(pageA, request, baseURL, `${runId}-a`);
-    const authB = await grant(pageB, request, baseURL, `${runId}-b`);
-
-    const created = await request.post("/api/e2e/profile-submissions", { headers, data: {
-      runId, profileType: "person", displayName: `Media test ${runId}`, roleTags: ["dj"],
-    } });
-    expect(created.status()).toBe(200);
-    const profile = await created.json() as { profileId: string; slug: string };
-    profileId = profile.profileId;
-    profileSlug = profile.slug;
-    const before = await call<{ updatedAt: number; avatarImageUrl?: string }>(request, undefined, "vrdex_get_profile", { slug: profile.slug });
-    const input = {
-      slug: profile.slug, expectedUpdatedAt: before.updatedAt, idempotencyKey: `${runId}-image`,
-      sourceUrl,
-      credit: "VRDex synthetic staging fixture", altText: "Synthetic solid-color profile image",
-    };
-    const stale = await rpc(request, authA.access_token, "vrdex_profile_media_submit", {
-      ...input, expectedUpdatedAt: before.updatedAt - 1, idempotencyKey: `${runId}-stale`,
-    });
-    expectRefusal(stale, "The profile changed after it was read. Read it again and submit with its current updatedAt and a new idempotency key.");
-    const submitted = await call<MediaResult>(request, authA.access_token, "vrdex_profile_media_submit", input);
-    expect(submitted.replayed).toBe(false);
-    expect(submitted.submission.status).toBe("submitted");
-    const replay = await call<MediaResult>(request, authA.access_token, "vrdex_profile_media_submit", input);
-    expect(replay.replayed).toBe(true);
-    expect(replay.submission.submissionId).toBe(submitted.submission.submissionId);
-    const conflict = await rpc(request, authA.access_token, "vrdex_profile_media_submit", { ...input, credit: "Conflicting credit" });
-    expectRefusal(conflict, "That idempotency key was already used for a different media submission request.");
-    stages.push("submit, same-key replay and conflicting-key refusal");
-
-    const own = await call<{ submissions: Submission[] }>(request, authA.access_token, "vrdex_list_my_media_submissions", {});
-    expect(own.submissions.map((row) => row.submissionId)).toContain(submitted.submission.submissionId);
-    const other = await call<{ submissions: Submission[] }>(request, authB.access_token, "vrdex_list_my_media_submissions", {});
-    expect(other.submissions).toEqual([]);
-    const unpublished = await call<{ avatarImageUrl?: string }>(request, undefined, "vrdex_get_profile", { slug: profile.slug });
-    expect(unpublished.avatarImageUrl).toBe(before.avatarImageUrl);
-    const inspect = await request.post("/api/e2e/media", { headers, data: { op: "inspect", runId, profileId } });
-    expect(inspect.status()).toBe(200);
-    expect((await inspect.json()).assets).toEqual([]);
-    const privateFile = `/api/account/media-review/submissions/${submitted.submission.submissionId}/file`;
-    const anonymousFile = await request.get(privateFile);
-    expect(anonymousFile.status()).toBe(401);
-    expect(await anonymousFile.json()).toEqual({ error: "Sign in required." });
-    const contributorFile = await pageA.request.get(privateFile);
-    expect(contributorFile.status()).toBe(403);
-    expect(await contributorFile.json()).toEqual({ error: "Profile media review access is required." });
-    await pageA.goto("/account/media-review");
-    await expect(pageA.getByText("Profile media review access is required.")).toBeVisible();
-    stages.push("caller-only status, public isolation and contributor review refusal");
-
-    const assign = await request.post("/api/e2e/media", { headers, data: { op: "assign-review-owner", runId, profileId, reviewerEmail: b.email } });
-    expect(assign.status(), "Assign only this synthetic profile to B").toBe(200);
-    const claimedProfile = await call<{ updatedAt: number }>(request, undefined, "vrdex_get_profile", { slug: profile.slug });
-    const claimed = await rpc(request, authA.access_token, "vrdex_profile_media_submit", {
-      ...input, expectedUpdatedAt: claimedProfile.updatedAt, idempotencyKey: `${runId}-claimed`,
-    });
-    expectRefusal(claimed, "The public profile is claimed, so its owner manages profile media.");
-    await pageB.goto("/account/media-review");
-    await pageB.getByRole("button", { name: "Start review", exact: true }).click();
-    await pageB.getByLabel("Status", { exact: true }).selectOption("under_review");
-    await pageB.getByLabel("Private review reason", { exact: true }).fill("Synthetic two-user staging acceptance.");
-    await pageB.getByRole("button", { name: "Approve", exact: true }).click();
-    await expect.poll(async () => {
-      const history = await call<{ submissions: Submission[] }>(request, authA.access_token, "vrdex_list_my_media_submissions", {});
-      return history.submissions.find((row) => row.submissionId === submitted.submission.submissionId)?.status;
-    }).toBe("approved");
-    const approved = await request.post("/api/e2e/media", { headers, data: { op: "inspect", runId, profileId } });
-    const approvedState = await approved.json() as { assets: { id: string; source: string; state: string }[] };
-    expect(approvedState.assets).toHaveLength(1);
-    expect(approvedState.assets[0].source).toBe("community_submitted");
-    const published = await call<{ avatarImageUrl?: string }>(request, undefined, "vrdex_get_profile", { slug: profile.slug });
-    expect(published.avatarImageUrl).toBeTruthy();
-    expect((await request.get(published.avatarImageUrl!)).ok()).toBe(true);
-    stages.push("different owner browser approval and one public community_submitted asset");
-
-    const revoke = await request.post("/oauth/revoke", { form: { client_id: authA.clientId, token: authA.refresh_token, token_type_hint: "refresh_token" } });
-    expect(revoke.status()).toBe(200);
-    const refused = await rpc(request, authA.access_token, "vrdex_list_my_media_submissions", {});
-    expect(refused.status).toBe(401);
-    await call(request, undefined, "vrdex_get_profile", { slug: profile.slug });
-    stages.push("revoked grant refusal with anonymous reads preserved");
-  } finally {
+  cleanupFixture = async () => {
+    const { profileId, profileSlug } = fixture;
     const cleanupErrors: string[] = [];
     if (profileId) {
       const cleanup = await request.delete("/api/e2e/media", { headers, data: { runId, profileId } }).catch(() => undefined);
       if (!cleanup?.ok()) cleanupErrors.push("media/profile cleanup");
       else if (profileSlug) {
-        const absent = await rpc(request, undefined, "vrdex_get_profile", { slug: profileSlug });
         try {
+          const absent = await rpc(request, undefined, "vrdex_get_profile", { slug: profileSlug });
           expectRefusal(absent, `Profile was not found for slug "${profileSlug}".`);
         } catch {
           cleanupErrors.push("profile absence readback");
@@ -227,11 +145,103 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
         if (!deleted.checked || deleted.failed > 0) cleanupErrors.push("Clerk account cleanup");
       }
     }
-    await Promise.all(contexts.map((context) => context.close()));
+
     if (cleanupErrors.length) {
       await testInfo.attach("media-cleanup-recovery", { body: JSON.stringify({ runId, profileId, cleanupErrors }), contentType: "application/json" });
     }
+    await Promise.allSettled(contexts.map((context) => context.close()));
     expect(cleanupErrors, "All fixture cleanup operations must succeed").toEqual([]);
     await testInfo.attach("media-lifecycle-evidence", { body: JSON.stringify({ candidate: expectedCommit, stages, cleanup: "verified", authority: "B assigned synthetic profile ownership; no live claim/provider proof" }), contentType: "application/json" });
-  }
+
+  };
+  const a = await createClerkTestAccount(`${runId}-contributor`, { onEmailReserved: (email) => emails.push(email) });
+  const b = await createClerkTestAccount(`${runId}-reviewer`, { onEmailReserved: (email) => emails.push(email) });
+  expect(a.clerkUserId === b.clerkUserId).toBe(false);
+  const pageA = await contexts[0].newPage();
+  const pageB = await contexts[1].newPage();
+  await signInClerkTestAccount(pageA, a);
+  await signInClerkTestAccount(pageB, b);
+  const authA = await grant(pageA, request, baseURL, `${runId}-a`);
+  const authB = await grant(pageB, request, baseURL, `${runId}-b`);
+
+  const created = await request.post("/api/e2e/profile-submissions", { headers, data: {
+    runId, profileType: "person", displayName: `Media test ${runId}`, roleTags: ["dj"],
+  } });
+  expect(created.status()).toBe(200);
+  const profile = await created.json() as { profileId: string; slug: string };
+  const profileId = profile.profileId;
+  fixture.profileId = profileId;
+  fixture.profileSlug = profile.slug;
+  const before = await call<{ updatedAt: number; avatarImageUrl?: string }>(request, undefined, "vrdex_get_profile", { slug: profile.slug });
+  const input = {
+    slug: profile.slug, expectedUpdatedAt: before.updatedAt, idempotencyKey: `${runId}-image`,
+    sourceUrl,
+    credit: "VRDex synthetic staging fixture", altText: "Synthetic solid-color profile image",
+  };
+  const stale = await rpc(request, authA.access_token, "vrdex_profile_media_submit", {
+    ...input, expectedUpdatedAt: before.updatedAt - 1, idempotencyKey: `${runId}-stale`,
+  });
+  expectRefusal(stale, "The profile changed after it was read. Read it again and submit with its current updatedAt and a new idempotency key.");
+  const submitted = await call<MediaResult>(request, authA.access_token, "vrdex_profile_media_submit", input);
+  expect(submitted.replayed).toBe(false);
+  expect(submitted.submission.status).toBe("submitted");
+  const replay = await call<MediaResult>(request, authA.access_token, "vrdex_profile_media_submit", input);
+  expect(replay.replayed).toBe(true);
+  expect(replay.submission.submissionId).toBe(submitted.submission.submissionId);
+  const conflict = await rpc(request, authA.access_token, "vrdex_profile_media_submit", { ...input, credit: "Conflicting credit" });
+  expectRefusal(conflict, "That idempotency key was already used for a different media submission request.");
+  stages.push("submit, same-key replay and conflicting-key refusal");
+
+  const own = await call<{ submissions: Submission[] }>(request, authA.access_token, "vrdex_list_my_media_submissions", {});
+  expect(own.submissions.map((row) => row.submissionId)).toContain(submitted.submission.submissionId);
+  const other = await call<{ submissions: Submission[] }>(request, authB.access_token, "vrdex_list_my_media_submissions", {});
+  expect(other.submissions).toEqual([]);
+  const unpublished = await call<{ avatarImageUrl?: string }>(request, undefined, "vrdex_get_profile", { slug: profile.slug });
+  expect(unpublished.avatarImageUrl).toBe(before.avatarImageUrl);
+  const inspect = await request.post("/api/e2e/media", { headers, data: { op: "inspect", runId, profileId } });
+  expect(inspect.status()).toBe(200);
+  expect((await inspect.json()).assets).toEqual([]);
+  const privateFile = `/api/account/media-review/submissions/${submitted.submission.submissionId}/file`;
+  const anonymousFile = await request.get(privateFile);
+  expect(anonymousFile.status()).toBe(401);
+  expect(await anonymousFile.json()).toEqual({ error: "Sign in required." });
+  const contributorFile = await pageA.request.get(privateFile);
+  expect(contributorFile.status()).toBe(403);
+  expect(await contributorFile.json()).toEqual({ error: "Profile media review access is required." });
+  await pageA.goto("/account/media-review");
+  await expect(pageA.getByText("Profile media review access is required.")).toBeVisible();
+  stages.push("caller-only status, public isolation and contributor review refusal");
+
+  const assign = await request.post("/api/e2e/media", { headers, data: { op: "assign-review-owner", runId, profileId, reviewerEmail: b.email } });
+  expect(assign.status(), "Assign only this synthetic profile to B").toBe(200);
+  const claimedProfile = await call<{ updatedAt: number }>(request, undefined, "vrdex_get_profile", { slug: profile.slug });
+  const claimed = await rpc(request, authA.access_token, "vrdex_profile_media_submit", {
+    ...input, expectedUpdatedAt: claimedProfile.updatedAt, idempotencyKey: `${runId}-claimed`,
+  });
+  expectRefusal(claimed, "The public profile is claimed, so its owner manages profile media.");
+  await pageB.goto("/account/media-review");
+  await pageB.getByRole("button", { name: "Start review", exact: true }).click();
+  await pageB.getByRole("combobox", { name: "Status", exact: true }).selectOption("under_review");
+  await pageB.getByLabel("Private review reason", { exact: true }).fill("Synthetic two-user staging acceptance.");
+  await pageB.getByRole("button", { name: "Approve", exact: true }).click();
+  await expect.poll(async () => {
+    const history = await call<{ submissions: Submission[] }>(request, authA.access_token, "vrdex_list_my_media_submissions", {});
+    return history.submissions.find((row) => row.submissionId === submitted.submission.submissionId)?.status;
+  }).toBe("approved");
+  const approved = await request.post("/api/e2e/media", { headers, data: { op: "inspect", runId, profileId } });
+  const approvedState = await approved.json() as { assets: { id: string; source: string; state: string }[] };
+  expect(approvedState.assets).toHaveLength(1);
+  expect(approvedState.assets[0].source).toBe("community_submitted");
+  const published = await call<{ avatarImageUrl?: string }>(request, undefined, "vrdex_get_profile", { slug: profile.slug });
+  expect(published.avatarImageUrl).toBeTruthy();
+  expect((await request.get(published.avatarImageUrl!)).ok()).toBe(true);
+  stages.push("different owner browser approval and one public community_submitted asset");
+
+  const revoke = await request.post("/oauth/revoke", { form: { client_id: authA.clientId, token: authA.refresh_token, token_type_hint: "refresh_token" } });
+  expect(revoke.status()).toBe(200);
+  const refused = await rpc(request, authA.access_token, "vrdex_list_my_media_submissions", {});
+  expect(refused.status).toBe(401);
+  await call(request, undefined, "vrdex_get_profile", { slug: profile.slug });
+  stages.push("revoked grant refusal with anonymous reads preserved");
+
 });

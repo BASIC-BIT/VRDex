@@ -63,6 +63,9 @@ without tokens, source bytes, account IDs or profile IDs.
 Automatic retries are disabled so a cleanup failure cannot become a successful
 flaky run that leaves an earlier fixture behind. CI media reports use separate
 paths from the ordinary staging health and auth-session reports.
+Cleanup runs in `afterEach` with a separate two-minute budget, so the test's
+timeout does not consume its recovery time. Recovery evidence is attached before
+browser contexts close; an already-closed browser cannot mask that evidence.
 
 ## What the test proves
 
