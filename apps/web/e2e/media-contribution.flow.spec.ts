@@ -119,6 +119,10 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
   cleanupFixture = async () => {
     const { profileId, profileSlug } = fixture;
     const cleanupErrors: string[] = [];
+    // An authenticated browser reprovisions a missing users row. Stop those
+    // clients before deleting identities, including when the test timed out.
+    const closed = await Promise.allSettled(contexts.map((context) => context.close()));
+    if (closed.some((result) => result.status === "rejected")) cleanupErrors.push("browser context closure");
     if (profileId) {
       const cleanup = await request.delete("/api/e2e/media", { headers, data: { runId, profileId } }).catch(() => undefined);
       if (!cleanup?.ok()) cleanupErrors.push("media/profile cleanup");
@@ -143,13 +147,16 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
         if (!cleaned?.ok()) { cleanupErrors.push("Convex account cleanup"); continue; }
         const deleted = await deleteClerkTestAccountByEmail(email);
         if (!deleted.checked || deleted.failed > 0) cleanupErrors.push("Clerk account cleanup");
+        const absent = await cleanupClerkTestAccountData(request, token, { email }).catch(() => undefined);
+        if (!absent?.ok() || (await absent.json()).deleted !== false) cleanupErrors.push("Convex account absence readback");
+        const clerkAbsent = await deleteClerkTestAccountByEmail(email);
+        if (!clerkAbsent.checked || clerkAbsent.failed > 0 || clerkAbsent.deleted !== 0) cleanupErrors.push("Clerk account absence readback");
       }
     }
 
     if (cleanupErrors.length) {
       await testInfo.attach("media-cleanup-recovery", { body: JSON.stringify({ runId, profileId, cleanupErrors }), contentType: "application/json" });
     }
-    await Promise.allSettled(contexts.map((context) => context.close()));
     expect(cleanupErrors, "All fixture cleanup operations must succeed").toEqual([]);
     await testInfo.attach("media-lifecycle-evidence", { body: JSON.stringify({ candidate: expectedCommit, stages, cleanup: "verified", authority: "B assigned synthetic profile ownership; no live claim/provider proof" }), contentType: "application/json" });
 

@@ -107,7 +107,13 @@ actor and target IDs after the referenced fixture rows are deleted. These are
 historical request records; cleanup does not promise zero residual telemetry.
 Their normal payload excludes source URLs, image content and storage keys.
 
-The failed run `33936636933` has a separately approved `media_recovery` dispatch
+Close both authenticated browser contexts before account deletion. The client
+provisions a missing user row, so deleting accounts with live tabs can recreate
+the Convex identities. Teardown checks account absence in both Convex and Clerk;
+a successful DELETE response alone is insufficient evidence.
+
+Run `33990507621` passed the lifecycle assertions but independently revealed
+recreated user rows during teardown. It has an approved `media_recovery` dispatch
 mode in Staging Deploy. It skips the deployment job entirely and invokes
 `apps/web/e2e/media-recovery.ts` with that run's fixed profile ID and deployed
 commit. It uses existing Actions secrets, the normal guarded media DELETE, and
