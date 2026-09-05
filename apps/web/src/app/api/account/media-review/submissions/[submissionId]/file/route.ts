@@ -1,4 +1,5 @@
 import { api } from "@convex-generated-api";
+import { ConvexError } from "convex/values";
 import type { Id } from "../../../../../../../../../../convex/_generated/dataModel";
 
 import { convexAuthToken } from "@/lib/server/auth";
@@ -42,7 +43,15 @@ export async function GET(_request: Request, context: RouteContext) {
   convex.setAuth(authToken);
   const candidate = await convex.query(api.profileMediaSubmissions.getCandidateForStorage, {
     submissionId: submissionId as Id<"profileMediaSubmissions">,
+  }).catch((error: unknown) => {
+    if (error instanceof ConvexError && error.data?.code === "MEDIA_REVIEW_ACCESS_REQUIRED") {
+      return "review_access_required" as const;
+    }
+    throw error;
   });
+  if (candidate === "review_access_required") {
+    return Response.json({ error: "Profile media review access is required." }, { status: 403 });
+  }
   if (candidate === null) {
     return Response.json({ error: "Candidate not found." }, { status: 404 });
   }

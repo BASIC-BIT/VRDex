@@ -158,8 +158,12 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
     expect(inspect.status()).toBe(200);
     expect((await inspect.json()).assets).toEqual([]);
     const privateFile = `/api/account/media-review/submissions/${submitted.submission.submissionId}/file`;
-    expect((await request.get(privateFile)).ok()).toBe(false);
-    expect((await pageA.request.get(privateFile)).ok()).toBe(false);
+    const anonymousFile = await request.get(privateFile);
+    expect(anonymousFile.status()).toBe(401);
+    expect(await anonymousFile.json()).toEqual({ error: "Sign in required." });
+    const contributorFile = await pageA.request.get(privateFile);
+    expect(contributorFile.status()).toBe(403);
+    expect(await contributorFile.json()).toEqual({ error: "Profile media review access is required." });
     await pageA.goto("/account/media-review");
     await expect(pageA.getByText("Profile media review access is required.")).toBeVisible();
     stages.push("caller-only status, public isolation and contributor review refusal");
