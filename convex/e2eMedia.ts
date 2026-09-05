@@ -5,6 +5,7 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
+import { getProfileBySlug } from "./_profileSlugs";
 
 // Deliberately pinned: this fixture has no production override.
 const STAGING_URL = "https://scrupulous-corgi-247.convex.cloud";
@@ -81,6 +82,19 @@ async function rows(ctx: QueryCtx, profileId: Id<"profiles">) {
     throw new Error("Media fixture bound exceeded.");
   return { intents, submissions, assets, placements, owners };
 }
+
+export const findFixture = internalQuery({
+  args: { secret: v.string(), runId: v.string() },
+  handler: async (ctx, args) => {
+    guard(args.secret);
+    if (!/^media-[a-z0-9-]{1,32}$/.test(args.runId))
+      throw new Error("Invalid media run ID.");
+    const profile = await getProfileBySlug(ctx.db, `media-test-${args.runId}`);
+    if (profile === null) return { profileId: null };
+    await fixture(ctx, { ...args, profileId: profile._id });
+    return { profileId: profile._id };
+  },
+});
 
 export const preflight = internalQuery({
   args: { secret: v.string() },
@@ -178,6 +192,9 @@ async function cleanupRows(
 ) {
   const profile = await fixture(ctx, args);
   const data = await rows(ctx, profile._id);
+  // An expired DB lease does not fence the importer's captured S3 credentials
+  // or object keys. Keep failed workers fail-closed until their storage work is
+  // known to have stopped; age alone cannot make external deletion safe.
   if (
     data.intents.some((i) => i.processingToken !== undefined) ||
     data.submissions.some(

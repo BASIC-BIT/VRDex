@@ -39,7 +39,7 @@ async function seed() {
     secret,
     runId,
     profileType: "person",
-    displayName: "Media fixture",
+    displayName: `Media test ${runId}`,
   });
   const users = await t.run(async (ctx) => {
     const contributorClerkId = newClerkUserId();
@@ -86,6 +86,26 @@ async function seed() {
 }
 
 describe("bounded staging media fixture", () => {
+  it("recovers the exact fixture by durable run ID and rejects unrelated slug collisions", async () => {
+    const { t, args } = await seed();
+    assert.deepEqual(
+      await t.query(internal.e2eMedia.findFixture, { secret, runId }),
+      { profileId: args.profileId },
+    );
+    assert.deepEqual(
+      await t.query(internal.e2eMedia.findFixture, { secret, runId: "media-absent" }),
+      { profileId: null },
+    );
+    await assert.rejects(
+      t.query(internal.e2eMedia.findFixture, { secret, runId: "ordinary" }),
+      /Invalid media run ID/,
+    );
+    await t.run((ctx) => ctx.db.patch(args.profileId, { sourceAttribution: undefined }));
+    await assert.rejects(
+      t.query(internal.e2eMedia.findFixture, { secret, runId }),
+      /Exact media fixture/,
+    );
+  });
   it("retries a completed deletion without claiming orphaned media was cleaned", async () => {
     const { t, args } = await seed();
     const prepared = await t.mutation(internal.e2eMedia.prepareCleanup, args);
@@ -201,6 +221,29 @@ describe("bounded staging media fixture", () => {
     assert.deepEqual(
       await t.run((ctx) => ctx.db.query("accountFeatureGrants").collect()),
       [],
+    );
+  });
+
+  it("preserves recovery metadata for expired leases because claim age does not fence S3 writes", async () => {
+    const { t, args, intent } = await seed();
+    await t.run((ctx) =>
+      ctx.db.patch(intent.intentId, {
+        processingToken: "stalled-worker",
+        processingStartedAt: Date.now() - 11 * 60 * 1000,
+      }),
+    );
+    await assert.rejects(
+      t.mutation(internal.e2eMedia.prepareCleanup, args),
+      /active storage work/,
+    );
+    assert.equal(
+      (await t.run((ctx) => ctx.db.get(intent.intentId)))?.processingToken,
+      "stalled-worker",
+    );
+    assert.ok(await t.run((ctx) => ctx.db.get(intent.submissionId)));
+    assert.equal(
+      (await t.run((ctx) => ctx.db.get(args.profileId)))?.publicationState,
+      "published",
     );
   });
 
