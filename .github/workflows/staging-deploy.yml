@@ -9,6 +9,11 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      media_lifecycle:
+        description: Run the approved synthetic two-user media lifecycle after deployment
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -333,6 +338,24 @@ jobs:
           VRDEX_E2E_RUN_ID: staging-deploy-${{ github.run_id }}-${{ github.run_attempt }}
         run: pnpm test:e2e:hosted
 
+      - name: Run approved two-user media lifecycle
+        if: steps.gate.outputs.enabled == 'true' && github.event_name == 'workflow_dispatch' && inputs.media_lifecycle
+        working-directory: apps/web
+        env:
+          PLAYWRIGHT_BASE_URL: ${{ steps.gate.outputs.hosted_base_url }}
+          PLAYWRIGHT_SKIP_WEBSERVERS: "true"
+          PLAYWRIGHT_OUTPUT_DIR: test-results-media-lifecycle
+          PLAYWRIGHT_HTML_REPORT_DIR: playwright-report-media-lifecycle
+          PLAYWRIGHT_JSON_REPORT_FILE: playwright-artifacts/results-media-lifecycle.json
+          VRDEX_E2E_MEDIA_LIFECYCLE: "true"
+          VRDEX_E2E_EXPECTED_COMMIT: ${{ github.sha }}
+          VRDEX_ENABLE_E2E_AUTH_HELPERS: ${{ vars.VRDEX_HOSTED_E2E_AUTH_HELPERS }}
+          VRDEX_ENABLE_E2E_CLERK_AUTH: ${{ vars.VRDEX_HOSTED_E2E_CLERK_AUTH }}
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.VRDEX_HOSTED_E2E_CLERK_PUBLISHABLE_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.VRDEX_HOSTED_E2E_CLERK_SECRET_KEY }}
+          VRDEX_E2E_BROWSER_TOKEN: ${{ secrets.VRDEX_HOSTED_E2E_BROWSER_TOKEN }}
+        run: pnpm exec playwright test media-contribution.flow.spec.ts --project=desktop-chromium
+
 
 
       # After the deployment it is testing, not before it. On a merge this used
@@ -496,6 +519,8 @@ jobs:
             apps/web/test-results
             apps/web/playwright-report-auth-session
             apps/web/test-results-auth-session
+            apps/web/playwright-report-media-lifecycle
+            apps/web/test-results-media-lifecycle
             apps/web/playwright-report-account-visual
             apps/web/test-results-account-visual
             apps/web/playwright-artifacts
