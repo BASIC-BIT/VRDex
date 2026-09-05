@@ -14,6 +14,10 @@ on:
         description: Run the approved synthetic two-user media lifecycle after deployment
         type: boolean
         default: false
+      media_recovery:
+        description: Recover only the approved media-33936636933-1 fixture without deployment
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -23,9 +27,33 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  recover-media:
+    name: Recover approved staging media fixture
+    if: github.event_name == 'workflow_dispatch' && inputs.media_recovery
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Recover exact fixture through existing cleanup guards
+        working-directory: apps/web
+        env:
+          MEDIA_RECOVERY_RUN_ID: media-33936636933-1
+          MEDIA_RECOVERY_PROFILE_ID: m57dk812r23f6z4rynencs2ngd8dvt3t
+          MEDIA_RECOVERY_EXPECTED_COMMIT: ef9621ac3ce7fe6a8bc36f101aec8db0bb965426
+          VRDEX_ENABLE_E2E_CLERK_AUTH: "true"
+          CLERK_SECRET_KEY: ${{ secrets.VRDEX_HOSTED_E2E_CLERK_SECRET_KEY }}
+          VRDEX_E2E_BROWSER_TOKEN: ${{ secrets.VRDEX_HOSTED_E2E_BROWSER_TOKEN }}
+        run: pnpm exec tsx e2e/media-recovery.ts
+
   deploy-staging:
     name: Deploy Staging
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    if: (github.event_name == 'workflow_dispatch' && !inputs.media_recovery) || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
