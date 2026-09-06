@@ -8,10 +8,40 @@ import {
   proofSurfaceFields,
 } from "./proof-matching.mjs";
 import { RequestBudget } from "./runtime.mjs";
+import { VrchatClient } from "./vrchat-client.mjs";
 
 const CODE = "VRDEX-AB12CD34EF56";
 
+it("the provider client reads the bound user or group and returns only a match", async () => {
+  const paths = [];
+  const client = new VrchatClient({
+    authCookie: "fixture-cookie", userAgent: "VRDex-test/1",
+    fetcher: async (url) => {
+      const path = new URL(url).pathname;
+      paths.push(path);
+      return Response.json(path.includes("/groups/")
+        ? { description: "VRDEX00001", bio: "VRDEX99999" }
+        : { bio: "bio: vrdex19825.", description: "VRDEX99999" });
+    },
+  });
+  assert.equal(await client.findProofCode("vrchat_user", "usr_fixture", "VRDEX19825"), true);
+  assert.equal(await client.findProofCode("vrchat_group", "grp_fixture", "VRDEX00001"), true);
+  assert.equal(await client.findProofCode("vrchat_user", "usr_fixture", "VRDEX99999"), false);
+  assert.deepEqual(paths, ["/api/1/users/usr_fixture", "/api/1/groups/grp_fixture", "/api/1/users/usr_fixture"]);
+});
+
 describe("VRChat proof matching", () => {
+  it("accepts ten-character codes without matching a longer token", () => {
+    const short = "VRDEX19825";
+    assert.equal(isValidProofCode(short), true);
+    assert.equal(isValidProofCode("VRDEX00000"), true);
+    for (const text of [short, "vrdex19825", `bio: ${short}.`, `🎵${short}🎵`]) {
+      assert.equal(containsProofCode([text], short), true);
+    }
+    for (const text of ["VRDEX1982", "VRDEX198250", "xVRDEX19825", "éVRDEX19825", "VRDEX19825９", "VRDEX-19825", "VRDEX 19825", "VRDEX198 25", "VRDEX-19825ABCDEF", "VRDEX19825ABCDEF"]) {
+      assert.equal(containsProofCode([text], short), false);
+    }
+  });
   it("finds the code despite surrounding text, case, and punctuation", () => {
     assert.equal(containsProofCode([`verifying: ${CODE}`], CODE), true);
     assert.equal(containsProofCode(["vrdex-ab12cd34ef56"], CODE), true);

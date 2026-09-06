@@ -70,6 +70,20 @@ optional and defaults to `https://discord.com/api/v10`.
 
 ## Path 3: VRChat proof via the collector
 
+### Short-code reader compatibility
+
+The collector accepts both legacy `VRDEX-` codes and `VRDEX` followed by five
+digits. Short codes must be contiguous and separated from adjoining letters or
+numbers; legacy punctuation-tolerant matching is unchanged. This reader release
+does not change issuance. Deploy compatible readers before any issuer release.
+
+Before enabling short issuance, verify every eligible collector runs the
+dual-format reader and any configured external proof adapter accepts the same
+format. Readiness for one fresh worker does not prove mixed-fleet convergence.
+Keep dual-format readers when rolling issuance back, until all short attempts
+have settled or expired. Never clear historical short-code reservations during
+a rollback. See [the implementation design](../planning/claim-short-code-design.md).
+
 `communityTelemetry:claimPendingProofChecks` hands pending attempts to the
 group-telemetry collector, which reads the target's bio or group description,
 looks for the one-time code, and reports only a boolean back through

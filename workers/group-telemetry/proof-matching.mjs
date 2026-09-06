@@ -6,6 +6,7 @@
 // whether the code was present.
 
 const PROOF_CODE_PATTERN = /^VRDEX-[A-Z0-9]{6,32}$/;
+const SHORT_PROOF_CODE_PATTERN = /^VRDEX[0-9]{5}$/;
 
 /**
  * VRChat surfaces the code inside free text a user may have styled, wrapped, or
@@ -17,7 +18,8 @@ export function normalizeProofText(value) {
 }
 
 export function isValidProofCode(proofCode) {
-  return typeof proofCode === "string" && PROOF_CODE_PATTERN.test(proofCode);
+  return typeof proofCode === "string" &&
+    (SHORT_PROOF_CODE_PATTERN.test(proofCode) || PROOF_CODE_PATTERN.test(proofCode));
 }
 
 /**
@@ -29,6 +31,15 @@ export function isValidProofCode(proofCode) {
 export function containsProofCode(candidates, proofCode) {
   if (!isValidProofCode(proofCode)) {
     return false;
+  }
+
+  if (SHORT_PROOF_CODE_PATTERN.test(proofCode)) {
+    // Keep a short code contiguous and bounded. Normalizing first could match
+    // the five-digit prefix of a legacy code left on the same target.
+    const pattern = new RegExp(`(?<![\\p{L}\\p{N}])${proofCode}(?![\\p{L}\\p{N}])`, "iu");
+    return (Array.isArray(candidates) ? candidates : [candidates]).some(
+      (candidate) => typeof candidate === "string" && pattern.test(candidate),
+    );
   }
 
   const needle = normalizeProofText(proofCode);
