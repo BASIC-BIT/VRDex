@@ -51,6 +51,7 @@ import type * as _profileClaimCreation from "../_profileClaimCreation.js";
 import type * as _profileFieldVisibility from "../_profileFieldVisibility.js";
 import type * as _profileLinks from "../_profileLinks.js";
 import type * as _profileLookup from "../_profileLookup.js";
+import type * as _profileNameSearch from "../_profileNameSearch.js";
 import type * as _profileOwnership from "../_profileOwnership.js";
 import type * as _profilePermissions from "../_profilePermissions.js";
 import type * as _profilePrivacy from "../_profilePrivacy.js";
@@ -176,6 +177,7 @@ declare const fullApi: ApiFromModules<{
   _profileFieldVisibility: typeof _profileFieldVisibility;
   _profileLinks: typeof _profileLinks;
   _profileLookup: typeof _profileLookup;
+  _profileNameSearch: typeof _profileNameSearch;
   _profileOwnership: typeof _profileOwnership;
   _profilePermissions: typeof _profilePermissions;
   _profilePrivacy: typeof _profilePrivacy;

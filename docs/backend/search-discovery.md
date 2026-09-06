@@ -31,6 +31,67 @@ Each document stores:
 
 The first live implementation uses Convex full-text search. Convex supports relevance ordering and prefix/typeahead behavior. Fuzzy typo matching should not be reimplemented with ad hoc regex piles or one-off Levenshtein hacks in app code.
 
+### Partial And Stylized Profile Names
+
+Profile-name retrieval also uses the Convex `search_names` index, built from display
+names, slugs, public aliases, and internal search aliases. It stores normalized name
+suffixes so an interior substring such as `land` finds `Outlandish`. The existing
+keyword index still handles genres, tags, bios, worlds, and events.
+Keyword candidates must contain every query word (with prefix matching for the
+last word), so `Lost K20` does not return `Lost Melody` on `Lost` alone.
+The filter preserves accent folding and `&`/`and` normalization.
+Literal and stylized suffixes have separate token prefixes in the same index and
+separate candidate reads. An ambiguous stylized bucket cannot consume the literal
+candidate allowance.
+
+Name normalization ignores case, combining accents, whitespace, and punctuation.
+Queries of at least three normalized characters also support `0/o`, `1/i`, `1/l`,
+`3/e`, `4/a`, `5/s`, and `7/t` in either direction. Numeric-only queries do not
+expand. Ordinary `i` and `l` are never interchangeable: broad index candidates are
+verified against the original normalized names before they become results.
+This is a discovery aid, not identity verification or a duplicate-merge rule.
+
+Literal exact names rank first, then literal prefixes and substrings, then stylized
+exact names, prefixes, and substrings. Existing ranking signals break ties within
+those tiers. One- and two-character queries retain the existing keyword/typeahead
+path without extra substring or substitution expansion.
+Exact identity names, including world/event titles and profile aliases beyond the
+additional index budget, beat exact keyword/taxonomy matches. Exact keywords in
+turn remain ahead of partial profile names.
+
+The shared `searchPublicDocuments` helper serves universal search, person lookup,
+the public HTTP API, and hosted MCP. The stdio MCP client uses the HTTP API.
+There is no separate UI matching implementation.
+
+Keyword, literal-name, and stylized-name reads share a 256-document candidate
+budget (86 keyword, 85 literal, 85 stylized) before deduplication and ranking.
+Keyword-only queries may use all 256 slots.
+Search remains bounded, not exhaustive: very broad queries can omit matches beyond
+that ceiling. Only the ranked window needed to fill the requested limit is hydrated,
+and live profile surfacing checks still drop hidden or stale records.
+
+Each name's suffix generation is capped at 120 Unicode characters, with a 512-character shared
+budget in display-name, slug, public-alias, then search-alias order. Keyword indexing
+is unaffected by that additional name-index budget. Suffix terms and query prefixes
+are capped at 32 UTF-8 bytes, following [Convex's term limit](https://docs.convex.dev/search/text-search#limits).
+Longer queries are verified in full after candidate retrieval. Full normalized
+identity names are stored separately for verification and ranking. The combined
+literal/stylized suffix corpus also has a 16,000-byte ceiling, so adding the second
+candidate namespace does not double the document-read footprint.
+
+After deploying the optional fields and new search index, an authorized operator
+must run the resumable migration once to populate existing profiles:
+
+```sh
+pnpm cx -- prod run migrations:runBackfillProfileNameSearch
+```
+
+Wait for migration completion before claiming existing profiles support the new
+matching behavior. Normal profile writes populate the fields immediately. The
+migration reuses the delta-aware reindexer, so it does not inflate vocabulary counts
+or change publication/surfacing state. Deploy and migration execution are separate
+operator actions; implementation tests do not establish production rollout.
+
 Profile and event mutations update their own search documents. Worlds do not yet have a public write mutation, so `search.rebuildWorldSearchDocuments` is an internal backfill hook for keeping world search documents populated until that write path exists.
 
 Published event documents remain index-eligible across community visibility changes. Public search rechecks the event's live community before returning a result, so hiding takes effect immediately and restoring does not require an unbounded hosted-event reindex.

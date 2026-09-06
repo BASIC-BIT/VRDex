@@ -4,6 +4,7 @@ import type { DataModel, Doc } from "./_generated/dataModel";
 import { internalMutation } from "./_generated/server";
 import {
   createProfileSearchDocument,
+  reindexProfileSearchDocument,
   upsertSearchDocument,
   vocabularyForProfile,
 } from "./_searchDocuments";
@@ -21,6 +22,17 @@ export const migrations = new Migrations<DataModel>(components.migrations, {
   defaultBatchSize: 50,
   migrationsLocationPrefix: "migrations:",
 });
+
+export const backfillProfileNameSearch = migrations.define({
+  table: "profiles",
+  migrateOne: async (ctx, profile) => {
+    await reindexProfileSearchDocument(ctx.db, profile, Date.now());
+  },
+});
+
+export const runBackfillProfileNameSearch = migrations.runner(
+  internal.migrations.backfillProfileNameSearch,
+);
 
 export const backfillProfilePublicSurfacingState = migrations.define({
   table: "profiles",

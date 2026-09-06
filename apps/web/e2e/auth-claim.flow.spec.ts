@@ -421,9 +421,8 @@ test("verified email account with linked Discord can claim person and community 
     }
 
     await gotoFlowPage(page, `/claim/${encodeURIComponent(createdSlug!)}`);
-    // Current copy or the copy staging still serves, like the Discord branch above.
     await expect(
-      page.getByText(/You manage this profile[.,] (but )?it is not verified yet\./i),
+      page.getByText("You already manage this profile.", { exact: true }),
     ).toBeVisible();
     await expect(page.getByLabel("VRChat profile URL or user ID")).toBeVisible();
 

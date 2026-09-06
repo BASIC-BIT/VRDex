@@ -6,6 +6,7 @@ import { toProfileLookupResult } from "./_profileLookup";
 import { canReadProfile } from "./_profilePermissions";
 import { getProfileTrustLabel } from "./_profileStates";
 import { firstSafePublicImageUrl } from "./_publicFields";
+import { profileNameMatchRank, profileNameSearchQuery } from "./_profileNameSearch";
 import {
   normalizeSearchQuery,
   sortSearchResults,
@@ -14,7 +15,9 @@ import {
   type SearchEntityType,
 } from "./_searchDocuments";
 
-const PUBLIC_SEARCH_DOCUMENT_SCAN_LIMIT = 500;
+// Full documents contain both corpora. Share the budget across keyword, literal,
+// and styled reads, leaving room for long UTF-8 names and result hydration.
+const PUBLIC_SEARCH_DOCUMENT_SCAN_LIMIT = 256;
 
 export type PublicSearchFilters = {
   entityType?: SearchEntityType;
@@ -39,6 +42,18 @@ export function publicSearchLookupUsesLogo(
 
 function boundedLimit(value: number | undefined, fallback: number, max: number): number {
   return Math.max(1, Math.min(value ?? fallback, max));
+}
+
+function matchesKeywordTerms(document: Doc<"searchDocuments">, query: string): boolean {
+  const keywordWords = (value: string) => value.normalize("NFKD")
+    .replace(/\p{M}/gu, "").toLowerCase().replace(/&/g, " and ").match(/[\p{L}\p{N}]+/gu) ?? [];
+  const terms = keywordWords(query);
+  if (terms.length < 2) return true;
+  const words = keywordWords(document.searchText);
+  // Convex retrieves OR matches. A multiword query should not return a record
+  // that only matches one generic word, e.g. Lost Melody for Lost K20.
+  return terms.every((term, index) => words.some((word) =>
+    index === terms.length - 1 ? word.startsWith(term) : word === term));
 }
 
 export async function projectPublicSearchResult(
@@ -135,7 +150,12 @@ export async function searchPublicDocuments(
     return [];
   }
 
-  const documents = await ctx.db
+  const nameQuery = args.entityType === undefined || args.entityType === "profile"
+    ? profileNameSearchQuery(searchText, "literal") : undefined;
+  const nameCandidateLimit = Math.floor(PUBLIC_SEARCH_DOCUMENT_SCAN_LIMIT / 3);
+  const candidateLimit = nameQuery === undefined
+    ? PUBLIC_SEARCH_DOCUMENT_SCAN_LIMIT : PUBLIC_SEARCH_DOCUMENT_SCAN_LIMIT - nameCandidateLimit * 2;
+  const keywordDocuments = await ctx.db
     .query("searchDocuments")
     .withSearchIndex("search_text", (search) => {
       const publicDocuments = search.search("searchText", searchText).eq("publicState", "public");
@@ -149,7 +169,26 @@ export async function searchPublicDocuments(
     })
     // A fixed ceiling keeps the query simple and bounded while allowing public
     // results to refill after stale or newly hidden records are projected out.
-    .take(PUBLIC_SEARCH_DOCUMENT_SCAN_LIMIT);
+    .take(candidateLimit);
+
+  const readNameCandidates = (query: string) => ctx.db
+    .query("searchDocuments")
+    .withSearchIndex("search_names", (search) => {
+      const profiles = search.search("nameSearchText", query)
+        .eq("publicState", "public").eq("entityType", "profile");
+      return args.profileType === undefined ? profiles : profiles.eq("profileType", args.profileType);
+    })
+    .take(nameCandidateLimit);
+  // Separate namespaces prevent i/l lookalikes from exhausting literal recall.
+  const nameDocuments = nameQuery === undefined ? [] : (await Promise.all([
+    readNameCandidates(nameQuery),
+    readNameCandidates(profileNameSearchQuery(searchText, "styled")!),
+  ])).flat();
+  const documents = [...new Map([
+    ...keywordDocuments.filter((document) => matchesKeywordTerms(document, searchText)),
+    ...nameDocuments.filter((document) =>
+      profileNameMatchRank(document.searchNames ?? [], searchText) > 0),
+  ].map((document) => [`${document.entityType}:${document.slug}`, document])).values()];
 
   const documentsByKey = new Map(
     documents.map((document) => [`${document.entityType}:${document.slug}`, document]),
