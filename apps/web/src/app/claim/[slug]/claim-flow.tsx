@@ -2,6 +2,7 @@
 
 import { useAuth } from "@clerk/nextjs";
 import { useAction, useMutation, useQuery } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
 import Link from "next/link";
 import { usePostHog } from "posthog-js/react";
 import { useCallback, useEffect, useRef, useState, type FormEvent, type MouseEvent } from "react";
@@ -109,7 +110,7 @@ type ClaimFlowProps = {
     ownership: "available" | "viewer" | "other";
     verified: boolean;
     pendingClaimRequest: null;
-    pendingProof: null;
+    pendingProof: NonNullable<FunctionReturnType<typeof api.profileClaims.getClaimJourneyContext>>["pendingProof"];
     lastVerifiedProof?: {
       at: number;
       connectionOnly: boolean;
@@ -390,8 +391,8 @@ export function ClaimFlowContent({
 
   useEffect(() => {
     if (status.kind === "error") statusRef.current?.focus();
-    if (status.kind === "complete") completionRef.current?.focus();
-  }, [status]);
+    if (status.kind === "complete" || activeCollectorCompletion !== null) completionRef.current?.focus();
+  }, [status, activeCollectorCompletion]);
 
   const observedContext = context ?? null;
 
@@ -1241,8 +1242,8 @@ export function ClaimFlowContent({
           ref={statusRef}
           tabIndex={-1}
         >
-          {status.kind === "working" || status.kind === "notice" ? <p className="text-sm text-muted">{status.message}</p> : null}
-          {status.kind === "error" ? <Notice variant="error">{status.message}</Notice> : null}
+          {activeCollectorCompletion === null && (status.kind === "working" || status.kind === "notice") ? <p className="text-sm text-muted">{status.message}</p> : null}
+          {activeCollectorCompletion === null && status.kind === "error" ? <Notice variant="error">{status.message}</Notice> : null}
         </div>
 
         {/* Was a `mailto:`, which asked for none of the identifiers any of these

@@ -9,6 +9,7 @@ export default async function PlaywrightClaimPage({
     noDiscord?: string | string[];
     noVrclinking?: string | string[];
     private?: string | string[];
+    completion?: string | string[];
   }>;
 }) {
   if (
@@ -35,6 +36,7 @@ export default async function PlaywrightClaimPage({
           discordLinked={discordLinked}
           privateProfile={privateProfile}
           vrclinkingConfigured={vrclinkingConfigured}
+          completionScenario={first(params.completion)}
         />
       </PageContainer>
     </PageShell>

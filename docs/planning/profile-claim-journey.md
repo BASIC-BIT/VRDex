@@ -1,5 +1,15 @@
 # Profile Claim Journey
 
+## Background completion feedback
+
+An on-page collector completion takes precedence over earlier working, queued,
+or error messages and moves focus to the existing completion notice. A delayed
+check response must not leave a stale checking message beside success.
+Returning after a completed proof does not replay an on-page announcement.
+The local `/playwright/claim?completion=background` fixture exercises queued
+action response, reactive proof completion, and focus; `completion=returned`
+checks the remount behavior without contacting a provider.
+
 ## Status
 
 Current recommendation for the focused claim/link redesign.
