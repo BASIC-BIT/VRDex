@@ -2734,6 +2734,8 @@ export default defineSchema({
     summary: v.optional(v.string()),
     imageUrl: v.optional(v.string()),
     searchText: v.string(),
+    searchNames: v.optional(v.array(v.string())),
+    nameSearchText: v.optional(v.string()),
     exactTokens: v.array(v.string()),
     vocabularyKeys: v.array(v.string()),
     trustRank: v.number(),
@@ -2756,6 +2758,10 @@ export default defineSchema({
     .index("by_publicState_startsAt", ["publicState", "startsAt"])
     .searchIndex("search_text", {
       searchField: "searchText",
+      filterFields: ["publicState", "entityType", "profileType"],
+    })
+    .searchIndex("search_names", {
+      searchField: "nameSearchText",
       filterFields: ["publicState", "entityType", "profileType"],
     }),
   searchEmbeddings: defineTable({

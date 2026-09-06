@@ -6,6 +6,7 @@ import { toProfileLookupResult } from "./_profileLookup";
 import { canReadProfile } from "./_profilePermissions";
 import { getProfileTrustLabel } from "./_profileStates";
 import { firstSafePublicImageUrl } from "./_publicFields";
+import { profileNameMatchRank, profileNameSearchQuery } from "./_profileNameSearch";
 import {
   normalizeSearchQuery,
   sortSearchResults,
@@ -135,7 +136,7 @@ export async function searchPublicDocuments(
     return [];
   }
 
-  const documents = await ctx.db
+  const keywordDocuments = await ctx.db
     .query("searchDocuments")
     .withSearchIndex("search_text", (search) => {
       const publicDocuments = search.search("searchText", searchText).eq("publicState", "public");
@@ -150,6 +151,22 @@ export async function searchPublicDocuments(
     // A fixed ceiling keeps the query simple and bounded while allowing public
     // results to refill after stale or newly hidden records are projected out.
     .take(PUBLIC_SEARCH_DOCUMENT_SCAN_LIMIT);
+
+  const nameQuery = args.entityType === undefined || args.entityType === "profile"
+    ? profileNameSearchQuery(searchText) : undefined;
+  const nameDocuments = nameQuery === undefined ? [] : await ctx.db
+    .query("searchDocuments")
+    .withSearchIndex("search_names", (search) => {
+      const profiles = search.search("nameSearchText", nameQuery)
+        .eq("publicState", "public").eq("entityType", "profile");
+      return args.profileType === undefined ? profiles : profiles.eq("profileType", args.profileType);
+    })
+    .take(PUBLIC_SEARCH_DOCUMENT_SCAN_LIMIT);
+  const documents = [...new Map([
+    ...keywordDocuments,
+    ...nameDocuments.filter((document) =>
+      profileNameMatchRank(document.searchNames ?? [], searchText) > 0),
+  ].map((document) => [`${document.entityType}:${document.slug}`, document])).values()];
 
   const documentsByKey = new Map(
     documents.map((document) => [`${document.entityType}:${document.slug}`, document]),
