@@ -492,10 +492,17 @@ export function toPublicSearchResult(
       : 0
     : 0;
   const freshnessBoost = document.startsAt && document.startsAt >= Date.now() ? 30 : 0;
+  const identityRank = profileNameMatchRank(
+    document.searchNames ?? [document.title, document.slug], query ?? "",
+  );
+  // Exact identities beat taxonomy keywords; exact keywords still beat partial
+  // profiles. Full identity names are independent of the suffix-index budget.
+  const nameRank = identityRank === 6 ? 7 : Math.max(
+    exactBoost > 0 ? 6 : 0,
+    document.entityType === "profile" ? identityRank : 0,
+  );
   const score =
-    (document.entityType === "profile"
-      ? profileNameMatchRank(document.searchNames ?? [document.title, document.slug], query ?? "") * 1_000
-      : 0) +
+    nameRank * 1_000 +
     exactBoost +
     vocabularyBoost +
     freshnessBoost +

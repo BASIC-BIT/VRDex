@@ -42,6 +42,16 @@ function boundedLimit(value: number | undefined, fallback: number, max: number):
   return Math.max(1, Math.min(value ?? fallback, max));
 }
 
+function matchesKeywordTerms(document: Doc<"searchDocuments">, query: string): boolean {
+  const terms = query.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+  if (terms.length < 2) return true;
+  const words = document.searchText.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+  // Convex retrieves OR matches. A multiword query should not return a record
+  // that only matches one generic word, e.g. Lost Melody for Lost K20.
+  return terms.every((term, index) => words.some((word) =>
+    index === terms.length - 1 ? word.startsWith(term) : word === term));
+}
+
 export async function projectPublicSearchResult(
   ctx: QueryCtx,
   document: Doc<"searchDocuments">,
@@ -163,7 +173,7 @@ export async function searchPublicDocuments(
     })
     .take(PUBLIC_SEARCH_DOCUMENT_SCAN_LIMIT);
   const documents = [...new Map([
-    ...keywordDocuments,
+    ...keywordDocuments.filter((document) => matchesKeywordTerms(document, searchText)),
     ...nameDocuments.filter((document) =>
       profileNameMatchRank(document.searchNames ?? [], searchText) > 0),
   ].map((document) => [`${document.entityType}:${document.slug}`, document])).values()];

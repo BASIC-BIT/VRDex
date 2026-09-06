@@ -3,7 +3,7 @@ import { it } from "node:test";
 import { convexTest } from "convex-test";
 import schemaModule from "../../convex/schema";
 import { searchPublicDocuments } from "../../convex/_publicSearch";
-import { createProfileSearchDocument } from "../../convex/_searchDocuments";
+import { createProfileSearchDocument, toPublicSearchResult, sortSearchResults } from "../../convex/_searchDocuments";
 import { profileNameMatchRank, profileNameSearchFields } from "../../convex/_profileNameSearch";
 import type { Doc } from "../../convex/_generated/dataModel";
 
@@ -116,5 +116,48 @@ it("bounds index size and keeps every generated term within Convex's 32-byte lim
   const fields = profileNameSearchFields(Array.from({ length: 100 }, (_, i) => `${i}${"界abcdef".repeat(100)}`));
   assert.ok(fields.nameSearchText.length < 17_000);
   assert.ok(fields.nameSearchText.split(" ").every(term => Buffer.byteLength(term) <= 32));
-  assert.ok(fields.searchNames.join("").length <= 512);
+  assert.equal(fields.searchNames.length, 100);
+});
+
+it("preserves exact world and event matches ahead of partial profile names", () => {
+  const base = {
+    publicState: "public", slug: "aurora", title: "Aurora", routePath: "/aurora",
+    searchText: "Aurora", exactTokens: ["aurora"], vocabularyKeys: [], trustRank: 20,
+    featuredRank: 20, updatedAt: 1,
+  };
+  const results = [
+    { ...base, entityType: "profile", slug: "dj-aurora", title: "DJ Aurora", exactTokens: ["dj aurora"], searchNames: ["djaurora"] },
+    { ...base, entityType: "world" },
+    { ...base, entityType: "event" },
+  ].map(document => toPublicSearchResult(document as Doc<"searchDocuments">, "Aurora"));
+  assert.deepEqual(sortSearchResults(results).map(result => result.entityType), ["event", "world", "profile"]);
+});
+
+it("preserves exact aliases beyond the additional name index budget", () => {
+  const profile = {
+    _id: "profile", profileType: "person", slug: "long-aliases", displayName: "Performer",
+    aliases: [...Array.from({ length: 8 }, (_, i) => `${i}${"alias".repeat(16)}`), "Aurora"],
+    tags: [], person: { roleTags: [] }, claimState: "unclaimed", creationSource: "import",
+    publicationState: "published", publicSurfacingState: "public", updatedAt: 1,
+  } as unknown as Doc<"profiles">;
+  const exact = createProfileSearchDocument(profile) as Doc<"searchDocuments">;
+  const partial = createProfileSearchDocument({ ...profile, slug: "dj-aurora", displayName: "DJ Aurora", aliases: [] }) as Doc<"searchDocuments">;
+  assert.equal(sortSearchResults([exact, partial].map(document => toPublicSearchResult(document, "Aurora")))[0].slug, "long-aliases");
+});
+
+it("ranks an exact identity ahead of an unrelated profile with the same genre", () => {
+  const profile = {
+    _id: "profile", profileType: "person", slug: "house", displayName: "House",
+    aliases: [], tags: [], person: { roleTags: [] }, claimState: "unclaimed", creationSource: "import",
+    publicationState: "published", publicSurfacingState: "public", updatedAt: 1,
+  } as unknown as Doc<"profiles">;
+  const exact = createProfileSearchDocument(profile) as Doc<"searchDocuments">;
+  const tagged = createProfileSearchDocument({ ...profile, slug: "unrelated", displayName: "Unrelated DJ", tags: ["House"] }) as Doc<"searchDocuments">;
+  assert.equal(sortSearchResults([exact, tagged].map(document => toPublicSearchResult(document, "House")))[0].slug, "house");
+});
+
+it("requires all words for keyword results instead of returning unrelated Lost profiles", async () => {
+  const t = await fixture(["Lost K20", "Lost Ambitions", "Lost Melody"]);
+  assert.deepEqual(await titles(t, "Lost K20"), ["Lost K20"]);
+  assert.deepEqual(await titles(t, "Lost K21"), []);
 });

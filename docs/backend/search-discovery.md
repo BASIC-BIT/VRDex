@@ -37,6 +37,8 @@ Profile-name retrieval also uses the Convex `search_names` index, built from dis
 names, slugs, public aliases, and internal search aliases. It stores normalized name
 suffixes so an interior substring such as `land` finds `Outlandish`. The existing
 keyword index still handles genres, tags, bios, worlds, and events.
+Keyword candidates must contain every query word (with prefix matching for the
+last word), so `Lost K20` does not return `Lost Melody` on `Lost` alone.
 
 Name normalization ignores case, combining accents, whitespace, and punctuation.
 Queries of at least three normalized characters also support `0/o`, `1/i`, `1/l`,
@@ -49,6 +51,9 @@ Literal exact names rank first, then literal prefixes and substrings, then styli
 exact names, prefixes, and substrings. Existing ranking signals break ties within
 those tiers. One- and two-character queries retain the existing keyword/typeahead
 path without extra substring or substitution expansion.
+Exact identity names, including world/event titles and profile aliases beyond the
+additional index budget, beat exact keyword/taxonomy matches. Exact keywords in
+turn remain ahead of partial profile names.
 
 The shared `searchPublicDocuments` helper serves universal search, person lookup,
 the public HTTP API, and hosted MCP. The stdio MCP client uses the HTTP API.
@@ -59,11 +64,12 @@ Search remains bounded, not exhaustive: very broad queries can omit matches beyo
 that ceiling. Only the ranked window needed to fill the requested limit is hydrated,
 and live profile surfacing checks still drop hidden or stale records.
 
-Each indexed name is capped at 120 Unicode characters, with a 512-character shared
+Each name's suffix generation is capped at 120 Unicode characters, with a 512-character shared
 budget in display-name, slug, public-alias, then search-alias order. Keyword indexing
 is unaffected by that additional name-index budget. Suffix terms and query prefixes
 are capped at 32 UTF-8 bytes, following [Convex's term limit](https://docs.convex.dev/search/text-search#limits).
-Longer queries are verified in full after candidate retrieval.
+Longer queries are verified in full after candidate retrieval. Full normalized
+identity names are stored separately for verification and ranking.
 
 After deploying the optional fields and new search index, an authorized operator
 must run the resumable migration once to populate existing profiles:

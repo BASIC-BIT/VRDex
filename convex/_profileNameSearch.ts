@@ -35,20 +35,16 @@ export function profileNameSearchFields(values: string[]) {
   // Bound index size even for imported records with unusually many aliases.
   // Identity and slug are supplied first; the budget is shared with aliases.
   let remaining = 512;
-  const searchNames: string[] = [];
-  for (const value of values) {
-    const name = [...normalizeProfileName(value)].slice(0, Math.min(120, remaining)).join("");
-    if (!name || searchNames.includes(name)) continue;
-    searchNames.push(name);
-    remaining -= [...name].length;
-    if (remaining === 0) break;
-  }
+  // Keep full names for verification/ranking, independently of retrieval budget.
+  const searchNames = [...new Set(values.map(normalizeProfileName).filter(Boolean))];
   const suffixes = new Set<string>();
   for (const name of searchNames) {
-    const characters = [...candidateName(name)];
+    const characters = [...candidateName(name)].slice(0, Math.min(120, remaining));
+    remaining -= characters.length;
     for (let offset = 0; offset <= characters.length - 3; offset += 1) {
       suffixes.add(indexPrefix(characters.slice(offset).join("")));
     }
+    if (remaining === 0) break;
   }
   return { searchNames, nameSearchText: [...suffixes].join(" ") };
 }
