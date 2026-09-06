@@ -178,31 +178,26 @@ the current primary-email verification state through Clerk. It does not trust
 the mirrored Convex verification timestamp. An authorized replay resolves its
 durable lifecycle without opening a second submission.
 
-Contribution source URLs normally have no query parameters. The supported
-exception is a Discord attachment `url` on
-`https://cdn.discordapp.com/attachments/<channel-id>/<attachment-id>/<filename>`
-with exactly one each of `ex`, `is`, and `hm`. Query order, hexadecimal casing,
-and one optional trailing ampersand are preserved. Proxy URLs on
-`media.discordapp.net`, transform parameters, duplicate keys, credentials,
-custom ports, and fragments are rejected. IDs are nonzero decimal strings up
-to 20 digits; timestamps are 1-16 hex digits and signatures 1-256 hex digits.
-These are VRDex support bounds, not signature authentication. Signed redirects
-must retain the exact attachment and query. Existing public-address, size,
-timeout, MIME, and decoded-image checks still apply.
+Contribution source URLs accept HTTPS image URLs with or without query
+parameters, including CDN transforms and signed download URLs. Encoded query
+values and their order are preserved. Credentials, custom ports, fragments, and malformed raw URLs
+are rejected. The fetcher checks public addresses and pins each request to a
+validated address, including redirects to another host. Redirect count,
+timeout, size, MIME, and decoded-image checks still apply. It sends no browser
+cookies, authorization headers, or referrer from the source request.
 
 A completed same-request replay works after source expiry without fetching
-again. An unfinished import still needs a usable URL. After a definite terminal
-source refusal, obtain a fresh attachment `url` and use a new idempotency key.
-A changed signature is a different request; do not replace the URL under the
-old key or retry an indeterminate result with a new key before checking status.
+again. An unfinished import still needs a usable URL. A changed query is a
+different request. After a definite terminal source refusal, use a fresh URL
+and idempotency key; check status before retrying an indeterminate result.
 
-Treat signed URLs as temporary bearer capabilities. They remain in existing
+Source queries may contain bearer credentials. Source URLs remain in existing
 private proposal, intent, and approved-asset records and are visible to the
-submitter and authorized browser reviewers. MCP summaries, public assets, and
-audit records omit them. Do not copy the source into public credit links. This
-exception applies only to contributions; owner imports still reject queries.
-Local policy tests do not establish live Discord compatibility; a fresh,
-authorized attachment import is a separate staging acceptance check.
+submitter and authorized browser reviewers. MCP summaries, public assets,
+and audit records omit them; transport errors do not echo them. Do not copy
+them into public credit links. This change applies to contributions; owner
+imports retain their existing query-free policy.
+
 
 An expired processing lease resumes the same intent and object keys. Storage
 writes use conditional create-and-verify semantics, and cleanup first records a

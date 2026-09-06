@@ -122,7 +122,7 @@ describe("hosted MCP profile media import cleanup", () => {
             if (mutationCount === 1) return {
               status: "claimed",
               intentId: "intent_456",
-              sourceUrl: "https://cdn.discordapp.com/attachments/123/456/photo.png?ex=2&is=1&hm=AbCd&",
+              sourceUrl: "https://images.example.test/photo.png?expires=2&issued=1&signature=AbCd&",
               sourceStorageKey: "private/source.png",
               downloadStorageKey: "private/download.png",
               storageKey: "private/display.webp",
@@ -139,10 +139,8 @@ describe("hosted MCP profile media import cleanup", () => {
           },
           query: async () => false,
         },
-        fetchSource: async (sourceUrl, options) => {
-          assert.equal(sourceUrl, "https://cdn.discordapp.com/attachments/123/456/photo.png?ex=2&is=1&hm=AbCd&");
-          options.assertSourceUrl(new URL(sourceUrl));
-          assert.throws(() => options.assertSourceUrl(new URL("https://example.test/leak")));
+        fetchSource: async (sourceUrl) => {
+          assert.equal(sourceUrl, "https://images.example.test/photo.png?expires=2&issued=1&signature=AbCd&");
           return { body: new Uint8Array([1]), mimeType: "image/png" };
         },
         prepareAsset: async () => ({
@@ -374,7 +372,7 @@ describe("hosted MCP profile media import cleanup", () => {
               query: async () => false,
             },
             fetchSource: async () => {
-              if (kind === "source") throw new Error("HTTP 403 https://cdn.discordapp.com/attachments/123/456/photo.png?ex=2&is=1&hm=AbCd");
+              if (kind === "source") throw new Error("HTTP 403 https://images.example.test/photo.png?expires=2&issued=1&signature=AbCd");
               return { body: new Uint8Array([1]), mimeType: "image/png" };
             },
             prepareAsset: async () => {

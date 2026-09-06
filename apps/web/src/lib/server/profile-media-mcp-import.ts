@@ -14,7 +14,6 @@ import {
   shouldInspectFailedProfileAssetUpload,
 } from "./profile-asset-storage";
 import { fetchProfileAssetSourceUrl } from "./profile-asset-source-import";
-import { assertMcpContributionSourceRedirect } from "@vrdex/api-contracts";
 import {
   PROFILE_ASSET_MAX_STORED_BYTES,
   validateAndPrepareProfileAsset,
@@ -230,9 +229,7 @@ async function fetchContributionSource(
   sourceUrl: string,
 ) {
   try {
-    return await fetchSource(sourceUrl, {
-      assertSourceUrl: (target) => assertMcpContributionSourceRedirect(sourceUrl, target),
-    });
+    return await fetchSource(sourceUrl);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Profile media source fetch failed.";
     const normalized = message.toLowerCase();

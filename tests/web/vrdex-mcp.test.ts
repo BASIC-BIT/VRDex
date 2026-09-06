@@ -1822,7 +1822,7 @@ describe("VRDex MCP server", () => {
 
       const submitted = await call(38, "vrdex_profile_media_submit", {
         slug: "community-dj",
-        sourceUrl: "https://cdn.discordapp.com/attachments/123/456/press.webp?hm=AbCd&ex=2&is=1&",
+        sourceUrl: "https://images.example.test/press.webp?signature=AbCd&expires=2&issued=1&",
         credit: "Artist   press kit",
         expectedUpdatedAt: 123,
         idempotencyKey: "operator-key-123",
@@ -1853,7 +1853,7 @@ describe("VRDex MCP server", () => {
       });
       await call(44, "vrdex_profile_media_submit", {
         slug: "community-dj",
-        sourceUrl: "https://cdn.discordapp.com/attachments/123/456/press.webp?hm=AbCe&ex=2&is=1&",
+        sourceUrl: "https://images.example.test/press.webp?signature=AbCe&expires=2&issued=1&",
         credit: "Artist press kit",
         expectedUpdatedAt: 123,
         idempotencyKey: "operator-key-123",
@@ -1894,7 +1894,7 @@ describe("VRDex MCP server", () => {
     assert.deepEqual(result.statusAuditResults, ["accepted", "readback_warning"]);
     assert.equal(result.mutationArgs[0]?.actorUserId, "user_123");
     assert.equal("ownerUserId" in (result.mutationArgs[0] ?? {}), false);
-    assert.equal(result.mutationArgs[0]?.sourceUrl, "https://cdn.discordapp.com/attachments/123/456/press.webp?hm=AbCd&ex=2&is=1&");
+    assert.equal(result.mutationArgs[0]?.sourceUrl, "https://images.example.test/press.webp?signature=AbCd&expires=2&issued=1&");
     assert.equal(result.mutationArgs[0]?.credit, "Artist press kit");
     assert.equal(result.mutationArgs[1]?.emailVerified, true);
     assert.equal(typeof result.mutationArgs[1]?.emailVerificationAttestedAt, "number");

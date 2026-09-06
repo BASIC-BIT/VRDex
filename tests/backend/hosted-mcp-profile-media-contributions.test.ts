@@ -88,9 +88,9 @@ function input(actorUserId: Awaited<ReturnType<typeof seed>>["actorUserId"]) {
 }
 
 describe("hosted MCP profile media contributions", () => {
-  it("accepts a signed Discord attachment without rewriting its query", async () => {
+  it("accepts a generic signed image URL without rewriting its query", async () => {
     const seeded = await seed();
-    const sourceUrl = "https://cdn.discordapp.com/attachments/123/456/press%20kit.png?hm=AbCd0123&is=1&ex=2&";
+    const sourceUrl = "https://images.example.test/press%20kit.png?signature=AbCd0123&issued=1&expires=2&";
     const result = await seeded.t.mutation(
       internal.profileMediaSubmissions.prepareMcpMediaSubmission,
       { ...input(seeded.actorUserId), sourceUrl },
@@ -278,7 +278,7 @@ describe("hosted MCP profile media contributions", () => {
   it("finalizes only the private proposal and returns caller-scoped status", async () => {
     const seeded = await seed();
     // Already-expired timestamps still permit completed request replay.
-    const signedInput = { ...input(seeded.actorUserId), sourceUrl: "https://cdn.discordapp.com/attachments/123/456/photo.png?ex=2&is=1&hm=AbCd&" };
+    const signedInput = { ...input(seeded.actorUserId), sourceUrl: "https://images.example.test/photo.png?expires=2&issued=1&signature=AbCd&" };
     const prepared = await seeded.t.mutation(
       internal.profileMediaSubmissions.prepareMcpMediaSubmission,
       signedInput,
@@ -330,7 +330,7 @@ describe("hosted MCP profile media contributions", () => {
     assert.equal(accepted?.oauthTokenId, "oauth-token-id");
     assert.equal(JSON.stringify(accepted).includes("sourceUrl"), false);
     assert.equal(JSON.stringify(accepted).includes("images.example.test"), false);
-    assert.doesNotMatch(JSON.stringify({ completed, status, accepted }), /hm=|cdn\.discordapp\.com/);
+    assert.doesNotMatch(JSON.stringify({ completed, status, accepted }), /signature=|images\.example\.test/);
 
     const beforeApproval = await seeded.t.query(api.profileAssets.listPublicBySlug, {
       slug: "community-dj",
@@ -364,7 +364,7 @@ describe("hosted MCP profile media contributions", () => {
     );
     assert.equal(approvedStatus.submissions[0]?.approvedAssetId, decision.assetId);
     const publicMedia = await seeded.t.query(api.profileAssets.listPublicBySlug, { slug: "community-dj" });
-    assert.doesNotMatch(JSON.stringify(publicMedia), /hm=|cdn\.discordapp\.com/);
+    assert.doesNotMatch(JSON.stringify(publicMedia), /signature=|images\.example\.test/);
     assert.notEqual(
       await seeded.t.query(api.profileAssets.getPublicAssetForStorage, {
         slug: "community-dj",
