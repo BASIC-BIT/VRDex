@@ -224,6 +224,14 @@ Current recommendation: the no-match creation path is explicit. `profileClaims:c
 - VRCLinking uses the same attempt table with `targetType: "vrclinking"`, but answers from a community's delegated API key rather than from a posted proof code. Person profiles only: it attests that a Discord identity is linked to a claimed VRChat account, and records a `vrchat_user` asset. The delegated key belongs to a community; the claim it supports does not.
 - A claimant may hold at most `MAX_OPEN_PROOF_ATTEMPTS` unexpired pending attempts per target type. Re-requesting an attempt that already exists returns the same code and is not subject to the cap.
 
+New direct VRChat attempts use `VRDEX` plus five digits (including leading zeros).
+A normalized target may receive at most 20 new codes per rolling 24 hours across
+all profiles, claimants, and attempt states. Existing pending attempts bypass
+this issuance limit and retain their code and expiry, including legacy codes.
+Historical codes are never reused for the same target, even after cancellation
+or expiry. No new account-wide cooldown or daily limit applies. VRCLinking keeps
+its existing format and limits.
+
 Proof reading has two paths, chosen by target type:
 
 - **VRChat user and group proofs** are read by the collector fleet. `VRCHAT_PROOF_ADAPTER_URL` is optional; with no adapter configured, `profileClaims:verifyVrchatProofViaAdapter` returns `queued` and `communityTelemetry:claimPendingProofChecks` hands the attempt to a collector, which reads the target's bio or group description with the service-account session and reports the verdict back. See `docs/deployment/claim-verification-enablement.md`.

@@ -1,7 +1,8 @@
 # Short VRChat claim codes
 
-Date: 2026-09-05. Status: source design complete, implementation not authorized
-by this document. Based on checkout `12f32b96a22a47bb91a4d0ab57f15d085c403b97`.
+Date: 2026-09-06. Status: issuer source implementation authorized by BASIC via
+Life Thread. Production activation remains with Life Thread after review and
+reader compatibility verification.
 
 ## Intended result
 
@@ -15,19 +16,16 @@ profile/claimant/immutable VRChat target binding, collector authorization,
 ownership conflict handling, and existing connection-only completion behavior.
 This design does not explain or fix the separately reported stalled attempt.
 
-## Why shortening the generator alone fails
+## Scope and reader prerequisite
 
-- `convex/profileClaims.ts:createProofCode` currently emits a UUID-derived
-  twelve-character hexadecimal suffix after `VRDEX-`.
-- `workers/group-telemetry/proof-matching.mjs` requires that dash and at least
-  six suffix characters. An executed source probe rejects the requested form.
-- The staging adapter at
-  `apps/web/src/app/api/e2e/adapters/vrchat-proof/route.ts` requires `VRDEX-`.
-  The hosted browser test in `apps/web/e2e/auth-claim.flow.spec.ts` also does.
-- The browser copy row displays the server-returned string directly. No new
-  code-entry screen, length selector, or display-only shortening is needed.
-- VRCLinking does not ask the user to post a code. Keep that flow unchanged;
-  change issuance only for `vrchat_user` and `vrchat_group`.
+PR #317 delivered dual-format collector matching, fixture adapter support, and
+browser format assertions before this issuer change. PR #319 separately fixed
+verification-status presentation and is deployed. Reader source support alone
+does not prove every eligible live worker or external adapter is compatible.
+
+The browser displays the server-returned code directly. Change issuance only
+for `vrchat_user` and `vrchat_group`; VRCLinking does not ask users to post codes
+and retains its existing issuance format and limits.
 
 ## Issuance and collision rules
 
@@ -71,11 +69,8 @@ to exhaust a target are abuse, not grounds for an automatic longer-code fallback
 
 ## Issuance and checking limits
 
-Recommended initial defaults, enforced atomically before allocating a new code:
+Reduced design, enforced atomically before allocating a new code:
 
-- At least 60 seconds between new direct VRChat codes for one VRDex account.
-- At most 10 new direct VRChat codes per account in a rolling 24 hours, across
-  user and group targets together.
 - At most 20 new codes for one immutable VRChat target in a rolling 24 hours,
   across all VRDex profiles and accounts.
 - Preserve the existing three-open-attempt cap per account and target type.
@@ -87,10 +82,10 @@ The target cap limits multi-account attacks; it can also temporarily block a
 legitimate claimant during abuse. Return the same limit response without
 revealing which other accounts or attempts contributed.
 
-Use the existing user/type/creation-time index with bounded reads for both
-direct target types. Add `(targetType, targetExternalId, createdAt)` for the
-target window. Each query needs at most its cap plus one row, not an unbounded
-history scan. VRCLinking's existing issuance/check limits remain unchanged.
+BASIC removed the proposed new account-wide cooldown and daily cap. The sole
+new quota protects the finite per-target pool. Use
+`(targetType, targetExternalId, createdAt)` and read at most 20 rows for the
+rolling target window. VRCLinking's existing issuance/check limits remain unchanged.
 
 Keep the collector's five-minute per-attempt dispatch cooldown, shared provider
 budget/backoff, and adapter's 60-second check cooldown. Polling the same bound
@@ -176,12 +171,11 @@ Implementation must additionally test the actual mutation and collector path:
 - Preserve PR #314's two-user coverage through owner coordination. Do not copy
   or overwrite that owner's changes or claim its synthetic tests prove live linking.
 
-## Genuine remaining product decision
+## Approved public copy
 
 No unresolved format choice: BASIC chose `VRDEX` plus five digits. The limits
 above are concrete engineering recommendations, not extra questions for BASIC.
-The one new public sentence needs exact-copy approval before shipping under
-the repo's public-copy rule:
+BASIC approved the exact new public sentence:
 
 > Too many new codes. Try again later.
 

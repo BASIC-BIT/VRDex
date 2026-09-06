@@ -223,6 +223,13 @@ expiry, and optional evidence summary. Operational lifecycle fields distinguish
 queue dispatch from an actual provider check, retain bounded check outcomes and
 counts, and record terminal resolution time and reason.
 
+Historical attempts also permanently reserve each short code for its normalized
+`(targetType, targetExternalId)`. The `by_targetType_targetExternalId_proofCode`
+index enforces nonreuse through mutation transaction reads; the
+`by_targetType_targetExternalId_createdAt` index bounds the rolling issuance quota.
+Production deletion must preserve the target/code reservation separately before
+removing an attempt. Fixture cleanup is restricted to synthetic targets.
+
 The attempt row itself is the troubleshooting record. Its dispatch, provider
 check, outcome, and resolution fields avoid a second event stream that can
 disagree with current claim state.

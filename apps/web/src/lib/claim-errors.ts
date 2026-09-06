@@ -20,6 +20,7 @@ export type ClaimErrorCode =
   | "PROOF_EXPIRED"
   | "PROOF_NOT_PENDING"
   | "TOO_MANY_OPEN_PROOFS"
+  | "PROOF_ISSUANCE_LIMIT"
   | "ADAPTER_COOLDOWN"
   | "PROOF_NOT_FOUND_YET"
   | "LINK_NOT_FOUND"
@@ -42,6 +43,7 @@ export type ClaimFailureOutcome =
   | "unknown";
 
 const CLAIM_ERROR_COPY: Record<ClaimErrorCode, string> = {
+  PROOF_ISSUANCE_LIMIT: "Too many new codes. Try again later.",
   SIGN_IN_REQUIRED: "Sign in to continue this claim.",
   EMAIL_NOT_VERIFIED: "Verify your email address before claiming a profile.",
   DISCORD_NOT_LINKED: "Link your Discord account from your account page first.",
@@ -81,6 +83,7 @@ const CLAIM_ERROR_COPY: Record<ClaimErrorCode, string> = {
 };
 
 const OUTCOME_BY_CODE: Record<ClaimErrorCode, ClaimFailureOutcome> = {
+  PROOF_ISSUANCE_LIMIT: "unavailable",
   SIGN_IN_REQUIRED: "not_verified",
   EMAIL_NOT_VERIFIED: "not_verified",
   // "conflict", not "unknown": this is a permanent rejection, so the retry

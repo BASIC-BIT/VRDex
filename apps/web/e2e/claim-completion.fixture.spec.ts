@@ -2,6 +2,8 @@ import { expect, test } from "@playwright/test";
 
 test("background connection completion replaces the queued message @fixture", async ({ page }, testInfo) => {
   await page.goto("/playwright/claim?completion=background");
+  await expect(page.getByText("VRDEX19825", { exact: true })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("short-claim-code.png"), fullPage: true });
   await page.getByRole("button", { name: "I've added it - check now" }).click();
   await expect(page.getByText(/We are checking VRChat for your code/)).toBeVisible();
   await page.getByRole("button", { name: "Simulate collector completion" }).click();

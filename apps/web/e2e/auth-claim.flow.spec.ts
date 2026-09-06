@@ -641,12 +641,12 @@ test("two Clerk users keep VRChat claim fixtures isolated @flow", async ({ brows
         `usr_e2e00000-0000-4000-8000-00000000000${index + 1}`,
       );
       await page.getByRole("button", { name: "Create proof code" }).click();
-      await expect(page.getByText(/^VRDEX-[A-Z0-9]+$/)).toBeVisible(hostedActionExpectOptions);
+      await expect(page.getByText(/^VRDEX(?:[0-9]{5}|-[A-Z0-9]{6,32})$/)).toBeVisible(hostedActionExpectOptions);
     }
     expect(accounts[0]?.clerkUserId).not.toBe(accounts[1]?.clerkUserId);
     const [first, second] = pages;
-    const firstCode = (await first.getByText(/^VRDEX-[A-Z0-9]+$/).innerText()).trim();
-    const secondCode = (await second.getByText(/^VRDEX-[A-Z0-9]+$/).innerText()).trim();
+    const firstCode = (await first.getByText(/^VRDEX(?:[0-9]{5}|-[A-Z0-9]{6,32})$/).innerText()).trim();
+    const secondCode = (await second.getByText(/^VRDEX(?:[0-9]{5}|-[A-Z0-9]{6,32})$/).innerText()).trim();
     expect(firstCode).not.toBe(secondCode);
     await expect(first.getByText(secondCode, { exact: true })).toHaveCount(0);
     await expect(second.getByText(firstCode, { exact: true })).toHaveCount(0);

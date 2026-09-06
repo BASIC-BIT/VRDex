@@ -56,7 +56,7 @@ export function ClaimFlowPreview({
             id: "fixture-proof" as Id<"profileVerificationAttempts">,
             targetType: "vrchat_user",
             targetExternalId: "usr_fixture",
-            proofCode: "VRDEX-AAAAAAAAAAAA",
+            proofCode: "VRDEX19825",
             expiresAt: 4_000_000_000_000,
             expired: false,
             analyticsJourneyId: "00000000-0000-4000-8000-000000000001",

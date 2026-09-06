@@ -18,6 +18,7 @@ import { boundedFetch } from "./_boundedFetch";
 import { signDelegation } from "./_delegationCapability";
 import { requireSecureOutboundUrl } from "./_secureUrl";
 import { claimError } from "./_claimErrors";
+import { allocateShortClaimCode } from "./_claimProofCodes";
 import { identityEmailVerified } from "./_identity";
 import {
   claimSessionUserOrNull,
@@ -1395,7 +1396,9 @@ export const startVrchatProof = mutation({
       method: proofMethodForTarget(args.targetType),
       targetType: args.targetType,
       targetExternalId,
-      proofCode: createProofCode(),
+      proofCode: args.targetType === "vrclinking"
+        ? createProofCode()
+        : await allocateShortClaimCode(ctx.db, args.targetType, targetExternalId, now),
       state: "pending",
       createdAt: now,
       updatedAt: now,

@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { ConvexHttpClient } from 'convex/browser';
+const {adminKey}=JSON.parse(readFileSync('.convex/local/default/config.json','utf8'));
+const call = (target) => { const client=new ConvexHttpClient('http://127.0.0.1:3240'); client.setAdminAuth(adminKey); return client.mutation('localShortCodeProbe:allocate',{target}); };
+const target=`usr_local-short-code-${Date.now()}`;
+const same=await Promise.allSettled([call(target),call(target)]);
+assert.equal(same.filter(x=>x.status==='fulfilled').length,1);
+assert.equal(same.filter(x=>x.status==='rejected' && String(x.reason).includes('ADAPTER_UNAVAILABLE')).length,1);
+const different=await Promise.all([call(target+'-a'),call(target+'-b')]);
+assert.deepEqual(different,['VRDEX00007','VRDEX00007']);
+console.log('Real local Convex: concurrent identical candidates yielded one issuance, one rejection; separate targets shared the candidate.');

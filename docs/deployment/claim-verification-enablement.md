@@ -74,8 +74,10 @@ optional and defaults to `https://discord.com/api/v10`.
 
 The collector accepts both legacy `VRDEX-` codes and `VRDEX` followed by five
 digits. Short codes must be contiguous and separated from adjoining letters or
-numbers; legacy punctuation-tolerant matching is unchanged. This reader release
-does not change issuance. Deploy compatible readers before any issuer release.
+numbers; legacy punctuation-tolerant matching is unchanged. PR #317 supplied
+readers first. The separate issuer release changes new direct VRChat attempts
+to five-digit codes; existing pending legacy codes stay unchanged. Deploy
+compatible readers before activating that issuer release.
 
 Before enabling short issuance, verify every eligible collector runs the
 dual-format reader and any configured external proof adapter accepts the same
