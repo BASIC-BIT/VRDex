@@ -39,6 +39,7 @@ suffixes so an interior substring such as `land` finds `Outlandish`. The existin
 keyword index still handles genres, tags, bios, worlds, and events.
 Keyword candidates must contain every query word (with prefix matching for the
 last word), so `Lost K20` does not return `Lost Melody` on `Lost` alone.
+The filter preserves accent folding and `&`/`and` normalization.
 
 Name normalization ignores case, combining accents, whitespace, and punctuation.
 Queries of at least three normalized characters also support `0/o`, `1/i`, `1/l`,
@@ -59,7 +60,8 @@ The shared `searchPublicDocuments` helper serves universal search, person lookup
 the public HTTP API, and hosted MCP. The stdio MCP client uses the HTTP API.
 There is no separate UI matching implementation.
 
-Each index retrieves at most 500 candidates before deduplication and ranking.
+The two indexes share a 256-document candidate budget (128 each when both run)
+before deduplication and ranking. Single-index queries may use all 256 slots.
 Search remains bounded, not exhaustive: very broad queries can omit matches beyond
 that ceiling. Only the ranked window needed to fill the requested limit is hydrated,
 and live profile surfacing checks still drop hidden or stale records.

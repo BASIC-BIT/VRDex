@@ -6,6 +6,7 @@ import { searchPublicDocuments } from "../../convex/_publicSearch";
 import { createProfileSearchDocument, toPublicSearchResult, sortSearchResults } from "../../convex/_searchDocuments";
 import { profileNameMatchRank, profileNameSearchFields } from "../../convex/_profileNameSearch";
 import type { Doc } from "../../convex/_generated/dataModel";
+import type { QueryCtx } from "../../convex/_generated/server";
 
 const schema = (schemaModule as unknown as { default?: typeof schemaModule }).default ?? schemaModule;
 const modules = {
@@ -160,4 +161,21 @@ it("requires all words for keyword results instead of returning unrelated Lost p
   const t = await fixture(["Lost K20", "Lost Ambitions", "Lost Melody"]);
   assert.deepEqual(await titles(t, "Lost K20"), ["Lost K20"]);
   assert.deepEqual(await titles(t, "Lost K21"), []);
+});
+
+it("preserves the existing ampersand exact-name normalization", async () => {
+  const t = await fixture(["Drum & Bass"]);
+  assert.deepEqual(await titles(t, "Drum and Bass"), ["Drum & Bass"]);
+  assert.deepEqual(await titles(t, "Drum and Ba"), ["Drum & Bass"]);
+});
+
+it("shares the full-document read ceiling across both retrieval paths", async () => {
+  let readBudget = 0;
+  const search = { search: () => search, eq: () => search };
+  const ctx = { db: { query: () => ({ withSearchIndex: (_name: string, configure: (value: typeof search) => unknown) => {
+    configure(search);
+    return { take: async (count: number) => { readBudget += count; return []; } };
+  } }) } } as unknown as QueryCtx;
+  await searchPublicDocuments(ctx, { query: "aurora" }, { defaultLimit: 24, maxLimit: 50 });
+  assert.equal(readBudget, 256);
 });
