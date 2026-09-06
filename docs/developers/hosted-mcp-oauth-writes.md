@@ -198,7 +198,6 @@ and audit records omit them; transport errors do not echo them. Do not copy
 them into public credit links. This change applies to contributions; owner
 imports retain their existing query-free policy.
 
-
 An expired processing lease resumes the same intent and object keys. Storage
 writes use conditional create-and-verify semantics, and cleanup first records a
 lease-fenced terminal failure. A stale worker therefore cannot overwrite or
