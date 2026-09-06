@@ -421,9 +421,8 @@ test("verified email account with linked Discord can claim person and community 
     }
 
     await gotoFlowPage(page, `/claim/${encodeURIComponent(createdSlug!)}`);
-    // Current copy or the copy staging still serves, like the Discord branch above.
     await expect(
-      page.getByText(/You manage this profile[.,] (but )?it is not verified yet\./i),
+      page.getByText("You already manage this profile.", { exact: true }),
     ).toBeVisible();
     await expect(page.getByLabel("VRChat profile URL or user ID")).toBeVisible();
 
@@ -646,10 +645,12 @@ test("two Clerk users keep VRChat claim fixtures isolated @flow", async ({ brows
     expect(accounts[0]?.clerkUserId).not.toBe(accounts[1]?.clerkUserId);
     const [first, second] = pages;
     const firstCode = (await first.getByText(/^VRDEX(?:[0-9]{5}|-[A-Z0-9]{6,32})$/).innerText()).trim();
-    const secondCode = (await second.getByText(/^VRDEX(?:[0-9]{5}|-[A-Z0-9]{6,32})$/).innerText()).trim();
-    expect(firstCode).not.toBe(secondCode);
-    await expect(first.getByText(secondCode, { exact: true })).toHaveCount(0);
-    await expect(second.getByText(firstCode, { exact: true })).toHaveCount(0);
+    // Codes are scoped to targets and may legitimately match across accounts.
+    // Assert each page's bound target, then prove cancellation/ownership isolation.
+    await expect(first.getByText("usr_e2e00000-0000-4000-8000-000000000001", { exact: true })).toBeVisible();
+    await expect(first.getByText("usr_e2e00000-0000-4000-8000-000000000002", { exact: true })).toHaveCount(0);
+    await expect(second.getByText("usr_e2e00000-0000-4000-8000-000000000002", { exact: true })).toBeVisible();
+    await expect(second.getByText("usr_e2e00000-0000-4000-8000-000000000001", { exact: true })).toHaveCount(0);
 
     await second.getByRole("button", { name: "Start over", exact: true }).click();
     await expect(second.getByRole("button", { name: "Create proof code" })).toBeVisible(hostedActionExpectOptions);

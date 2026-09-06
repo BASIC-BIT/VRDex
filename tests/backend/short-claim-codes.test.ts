@@ -13,6 +13,7 @@ const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
   "../../convex/profileClaims.ts": () => import("../../convex/profileClaims"),
   "../../convex/communityTelemetry.ts": () => import("../../convex/communityTelemetry"),
+  "../../convex/e2e.ts": () => import("../../convex/e2e"),
   "../../convex/claimAnalytics.ts": () => import("../../convex/claimAnalytics"),
   "../../convex/claimAnalyticsDelivery.ts": () => import("../../convex/claimAnalyticsDelivery"),
 };
@@ -227,3 +228,30 @@ it("cancelling or choosing another profile does not release a code", async (c) =
   f.args.profileSlug = "short-code-second";
   await assert.rejects(f.start(), /ADAPTER_UNAVAILABLE/);
 });
+
+for (const surface of ["profile", "user"] as const) {
+  it(`E2E ${surface} cleanup cannot erase a real target reservation`, async (c) => {
+    const f = await fixture();
+    const names = ["VRDEX_ENABLE_E2E_HELPERS", "VRDEX_ENABLE_E2E_AUTH_HELPERS", "VRDEX_E2E_CONVEX_SECRET"];
+    const old = names.map((name) => process.env[name]);
+    Object.assign(process.env, { VRDEX_ENABLE_E2E_HELPERS: "true", VRDEX_ENABLE_E2E_AUTH_HELPERS: "true", VRDEX_E2E_CONVEX_SECRET: "fixture-secret" });
+    c.after(() => names.forEach((name, i) => { if (old[i] === undefined) delete process.env[name]; else process.env[name] = old[i]; }));
+    await f.t.run(async ({ db }) => {
+      await db.patch(f.ids.userId, { email: "reserved@e2e.vrdex.net" });
+      await db.patch(f.ids.profileId, { sourceAttribution: {
+        submittedAt: f.now, submitter: { tokenIdentifier: "e2e:reservation-test", issuer: "vrdex:e2e", subject: "reservation-test" },
+      } });
+    });
+    const issued = await f.start();
+    const cleanup = () => surface === "profile"
+      ? f.t.mutation(api.e2e.cleanupProfileBySlug, { secret: "fixture-secret", slug: f.args.profileSlug })
+      : f.t.mutation(api.e2e.cleanupAuthUserByEmail, { secret: "fixture-secret", email: "reserved@e2e.vrdex.net" });
+    await assert.rejects(cleanup(), /non-fixture VRChat target/);
+    assert.ok(await f.t.run(({ db }) => db.get(issued.attemptId)));
+    assert.ok(await f.t.run(({ db }) => db.get(f.ids.userId)));
+    assert.ok(await f.t.run(({ db }) => db.get(f.ids.profileId)));
+    await f.t.run(({ db }) => db.patch(issued.attemptId, { targetExternalId: "usr_e2e00000-0000-4000-8000-000000000001" }));
+    assert.deepEqual(await cleanup(), { deleted: true });
+    assert.equal(await f.t.run(({ db }) => db.get(issued.attemptId)), null);
+  });
+}

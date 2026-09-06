@@ -17,7 +17,7 @@ Exact new public copy, approved by BASIC:
 
 ## Evidence
 
-- All 725 backend tests passed, including 19 issuer tests, ownership races,
+- All 727 backend tests passed, including 21 issuer tests, ownership races,
   collector authority, expiry, cancellation, and VRCLinking limits.
 - 17 collector worker tests passed.
 - Six desktop/mobile browser fixture checks passed. Mobile screenshot review
@@ -57,10 +57,36 @@ adapter support short codes. One healthy worker does not establish fleet
 convergence. Preserve dual readers and historical reservations on rollback.
 
 PR #319 is deployed and G-Catz confirmed the verification-status fix. Search
-PR #320 owns the obsolete owner-notice assertion at
-`apps/web/e2e/auth-claim.flow.spec.ts:427`. This issuer change touches only that
-file's separate code-format locators. No repeat PR #319 deployment is needed.
+PR #320 supplied the exact obsolete owner-notice assertion correction, now
+applied here by coordination. Code-format locators and target-isolation checks
+also accept legitimate equal codes across different targets. No repeat PR #319 deployment is needed.
 
 Source review/CI and the required final 30-minute review window remain to be
 completed before this change can be called merge-ready. No issuer production
 activation has occurred.
+
+## Review recycle and reader inventory
+
+Codex findings addressed: both E2E cleanup paths reject non-fixture direct
+VRChat targets before deletion, preserving lifetime reservations; the two-user
+browser flow checks bound targets and cancellation/ownership isolation instead
+of assuming globally unique codes. Regression tests reproduce both cleanup
+failures before the fix and confirm accepted fixture cleanup afterward.
+
+Claude's suggested runtime activation toggle was declined because the approved
+reduced design uses two releases with reader-first convergence, not a new flag.
+Merge/deploy activates issuer code; Life Thread controls that release ordering.
+The bounded read-only production inventory on 2026-09-06 at 21:12-21:14 UTC found:
+
+- One eligible collector account, Oak, with fresh heartbeat and proof poll,
+  both identifying release `8eb9bc4406429075e8e489a750f7263d26fd6e12`.
+- One running task in the configured collector ECS cluster, task definition
+  revision 20, desired/running 1, pending 0, one completed PRIMARY deployment.
+- Running task and definition use the same immutable image digest:
+  `sha256:59d6501d99b27e31ee4ac03a634b07447e94fe874769981f2314f514137574f1`.
+  Release environment metadata agrees with the collector's reported release.
+- Git ancestry confirms PR #317's dual-format reader is included.
+- Production `VRCHAT_PROOF_ADAPTER_URL` is unset.
+
+No reader compatibility gap was found in this snapshot. Refresh if runtime or
+configuration changes before activation. This is not a live provider claim test.
