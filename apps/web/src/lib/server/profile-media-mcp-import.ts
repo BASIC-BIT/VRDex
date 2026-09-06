@@ -238,7 +238,9 @@ async function fetchContributionSource(
       : normalized.includes("must be png, svg, jpeg, or webp")
         ? "MCP_MEDIA_IMPORT_UNSUPPORTED"
         : "MCP_MEDIA_IMPORT_UNREACHABLE";
-    throw new McpProfileMediaImportError(message, "rejected", code);
+    // A source can contain a temporary bearer signature. Keep transport error
+    // details out of errors that callers or logging might expose.
+    throw new McpProfileMediaImportError("Profile media source fetch failed.", "rejected", code);
   }
 }
 

@@ -88,6 +88,22 @@ function input(actorUserId: Awaited<ReturnType<typeof seed>>["actorUserId"]) {
 }
 
 describe("hosted MCP profile media contributions", () => {
+  it("accepts a generic signed image URL without rewriting its query", async () => {
+    const seeded = await seed();
+    const sourceUrl = "https://images.example.test/press%20kit.png?signature=AbCd0123&issued=1&expires=2&";
+    const result = await seeded.t.mutation(
+      internal.profileMediaSubmissions.prepareMcpMediaSubmission,
+      { ...input(seeded.actorUserId), sourceUrl },
+    );
+    assert.equal(result.status, "pending");
+    const stored = await seeded.t.run(async (ctx) => ({
+      intent: (await ctx.db.query("profileAssetUploadIntents").collect())[0],
+      submission: (await ctx.db.query("profileMediaSubmissions").collect())[0],
+    }));
+    assert.equal(stored.intent?.sourceUrl, sourceUrl);
+    assert.equal(stored.submission?.sourceUrl, sourceUrl);
+  });
+
   it("creates one private proposal intent and reuses it for the same request", async () => {
     const seeded = await seed();
     const first = await seeded.t.mutation(
@@ -261,9 +277,11 @@ describe("hosted MCP profile media contributions", () => {
 
   it("finalizes only the private proposal and returns caller-scoped status", async () => {
     const seeded = await seed();
+    // Already-expired timestamps still permit completed request replay.
+    const signedInput = { ...input(seeded.actorUserId), sourceUrl: "https://images.example.test/photo.png?expires=2&issued=1&signature=AbCd&" };
     const prepared = await seeded.t.mutation(
       internal.profileMediaSubmissions.prepareMcpMediaSubmission,
-      input(seeded.actorUserId),
+      signedInput,
     );
     assert.equal(prepared.status, "pending");
     if (prepared.status !== "pending") return;
@@ -292,7 +310,7 @@ describe("hosted MCP profile media contributions", () => {
     assert.equal(completed.profileSlug, "community-dj");
     const replay = await seeded.t.mutation(
       internal.profileMediaSubmissions.prepareMcpMediaSubmission,
-      { ...input(seeded.actorUserId), requestId: crypto.randomUUID() },
+      { ...signedInput, requestId: crypto.randomUUID() },
     );
     assert.equal(replay.status, "completed");
     const status = await seeded.t.query(
@@ -312,6 +330,7 @@ describe("hosted MCP profile media contributions", () => {
     assert.equal(accepted?.oauthTokenId, "oauth-token-id");
     assert.equal(JSON.stringify(accepted).includes("sourceUrl"), false);
     assert.equal(JSON.stringify(accepted).includes("images.example.test"), false);
+    assert.doesNotMatch(JSON.stringify({ completed, status, accepted }), /signature=|images\.example\.test/);
 
     const beforeApproval = await seeded.t.query(api.profileAssets.listPublicBySlug, {
       slug: "community-dj",
@@ -344,6 +363,8 @@ describe("hosted MCP profile media contributions", () => {
       { actorUserId: seeded.actorUserId },
     );
     assert.equal(approvedStatus.submissions[0]?.approvedAssetId, decision.assetId);
+    const publicMedia = await seeded.t.query(api.profileAssets.listPublicBySlug, { slug: "community-dj" });
+    assert.doesNotMatch(JSON.stringify(publicMedia), /signature=|images\.example\.test/);
     assert.notEqual(
       await seeded.t.query(api.profileAssets.getPublicAssetForStorage, {
         slug: "community-dj",

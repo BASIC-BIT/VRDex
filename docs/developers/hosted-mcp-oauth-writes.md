@@ -178,6 +178,26 @@ the current primary-email verification state through Clerk. It does not trust
 the mirrored Convex verification timestamp. An authorized replay resolves its
 durable lifecycle without opening a second submission.
 
+Contribution source URLs accept HTTPS image URLs with or without query
+parameters, including CDN transforms and signed download URLs. Encoded query
+values and their order are preserved. Credentials, custom ports, fragments, and malformed raw URLs
+are rejected. The fetcher checks public addresses and pins each request to a
+validated address, including redirects to another host. Redirect count,
+timeout, size, MIME, and decoded-image checks still apply. It sends no browser
+cookies, authorization headers, or referrer from the source request.
+
+A completed same-request replay works after source expiry without fetching
+again. An unfinished import still needs a usable URL. A changed query is a
+different request. After a definite terminal source refusal, use a fresh URL
+and idempotency key; check status before retrying an indeterminate result.
+
+Source queries may contain bearer credentials. Source URLs remain in existing
+private proposal, intent, and approved-asset records and are visible to the
+submitter and authorized browser reviewers. MCP summaries, public assets,
+and audit records omit them; transport errors do not echo them. Do not copy
+them into public credit links. This change applies to contributions; owner
+imports retain their existing query-free policy.
+
 An expired processing lease resumes the same intent and object keys. Storage
 writes use conditional create-and-verify semantics, and cleanup first records a
 lease-fenced terminal failure. A stale worker therefore cannot overwrite or
