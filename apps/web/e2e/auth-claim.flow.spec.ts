@@ -572,7 +572,7 @@ test("verified email account can complete VRChat adapter claims @flow", async ({
     );
     await page.getByRole("button", { name: "Create proof code" }).click();
     await expect(currentOrLaggingCopy(page, "Add this code to your VRChat profile", "Finish your VRChat proof")).toBeVisible(hostedActionExpectOptions);
-    await expect(page.getByText(/VRDEX-/)).toBeVisible(hostedActionExpectOptions);
+    await expect(page.getByText(/\bVRDEX(?:[0-9]{5}|-[A-Z0-9]{6,32})\b/)).toBeVisible(hostedActionExpectOptions);
     await page.reload();
     await expect(currentOrLaggingCopy(page, "Add this code to your VRChat profile", "Finish your VRChat proof")).toBeVisible(hostedActionExpectOptions);
     await page

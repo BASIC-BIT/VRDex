@@ -68,13 +68,13 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  const verified = recognizedTarget && proofCode.startsWith("VRDEX-");
+  const verified = recognizedTarget && /^(?:VRDEX[0-9]{5}|VRDEX-[A-Z0-9]{6,32})$/.test(proofCode);
 
   return NextResponse.json({
     verified,
     evidenceSource: "vrchat_api",
     evidenceSummary: verified
-      ? `E2E adapter found proof code ${proofCode} for ${targetType} ${targetExternalId}.`
+      ? `E2E adapter found the proof code for ${targetType} ${targetExternalId}.`
       : `E2E adapter did not find proof code for ${targetType} ${targetExternalId}.`,
   });
 }
