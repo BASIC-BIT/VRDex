@@ -140,6 +140,7 @@ type PublicProfileBase = {
     submittedAt?: number;
   };
   outboundLinks: Array<{
+    verified?: boolean;
     type: ProfileLinkType;
     label: string;
     url: string;
@@ -664,6 +665,7 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
             href,
             key: `${link.type}-${link.url}`,
             label: link.label,
+            verified: link.verified === true,
           }))}
           profileSlug={profile.slug}
           streams={vrcdnStreams.map(({ item, label, stream }) => ({

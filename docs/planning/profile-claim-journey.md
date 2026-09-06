@@ -205,6 +205,25 @@ Deferred:
   immediate owner grant or become review/rate-limit gated.
 - `Interview later`: the structured dispute and ownership-transfer experience.
 
+## Connection verification display
+
+Email verification, profile claim verification, and external connection
+verification are separate states. The account header labels its email status
+explicitly. An owner with an active verified VRChat connection sees that
+connection status and a Connections action instead of a repeat verification
+prompt, including when the profile remains `claimed_unverified`. The claim
+page uses the same connection status for an existing owner. None of these
+presentation changes grants or upgrades ownership.
+
+Public profile links display a verification mark only for an exact VRChat
+destination matched to a connection reported verified by
+`profileConnections.listProfileConnections`. Private outbound links are not
+added to the public projection. Missing, expired, revoked, or unavailable
+verification evidence cannot confer a mark. A connection-read failure leaves
+the ordinary outbound link available. The fixture route
+`/playwright/profile-verification` covers verified and unverified presentation;
+`/playwright/claim?completion=connected-unverified` covers the returning owner.
+
 ## Independent Taste Review
 
 The initial independent Fable pass reviewed the current repository and supplied

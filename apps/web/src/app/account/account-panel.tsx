@@ -12,6 +12,7 @@ import { VerifiedTrustMark } from "@/components/ui/verified-trust-mark";
 import { cn } from "@/lib/cn";
 import { ownerProfileDestinationPath, profileClaimPath } from "@/lib/profile-claim";
 import { AccountSignOutControl } from "./sign-out-control";
+import { ConnectedProfileVerificationStatus } from "./profile-verification-status";
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 const clerkConfigured = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
@@ -57,7 +58,7 @@ function ConnectedAccountPanel() {
               <dd data-ph-no-capture>{viewer.user.email ?? "Not provided"}</dd>
             </div>
             <div className="flex flex-wrap items-baseline gap-x-3">
-              <dt className="text-muted">Status</dt>
+              <dt className="text-muted">Email status</dt>
               <dd>{viewer.user.emailVerified ? "Verified" : "Verification required"}</dd>
             </div>
           </dl>
@@ -151,12 +152,7 @@ function ConnectedAccountPanel() {
                       </Link>
                     ) : null}
                     {profile.claimState === "claimed_unverified" ? (
-                      <Link
-                        className={buttonVariants({ size: "sm", variant: "secondary" })}
-                        href={profileClaimPath(profile.slug, "account")}
-                      >
-                        Verify with VRChat
-                      </Link>
+                      <ConnectedProfileVerificationStatus slug={profile.slug} />
                     ) : null}
                     <Link
                       className={buttonVariants({ size: "sm", variant: "secondary" })}

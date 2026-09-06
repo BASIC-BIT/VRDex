@@ -6,6 +6,7 @@ import { usePostHog } from "posthog-js/react";
 
 import { VrcdnStreamPlayer } from "./vrcdn-stream-player";
 import { buttonVariants } from "@/components/ui/button";
+import { VerifiedTrustMark } from "@/components/ui/verified-trust-mark";
 import { SectionHeading } from "@/components/ui/card";
 import { CopyValueRow } from "@/components/ui/copy-value-row";
 import { cn } from "@/lib/cn";
@@ -32,6 +33,7 @@ export type ProfileVrcdnStream = {
 };
 
 type ProfileVrcdnLink = {
+  verified?: boolean;
   href: string;
   key: string;
   label: string;
@@ -196,6 +198,7 @@ export function ProfileVrcdnStreams({
                     target="_blank"
                   >
                     {link.label}
+                    {link.verified ? <VerifiedTrustMark label="Verified VRChat connection" /> : null}
                     <ExternalLink aria-hidden="true" className="size-3.5" />
                   </a>
                 ))}

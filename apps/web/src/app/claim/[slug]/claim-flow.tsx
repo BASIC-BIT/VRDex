@@ -15,6 +15,7 @@ import { CopyValueRow } from "@/components/ui/copy-value-row";
 import { ProfileAvatarImage } from "@/components/ui/profile-avatar-image";
 import { Field, FieldText, Input, Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
+import { ProfileVerificationStatus } from "../../account/profile-verification-status";
 import type { AvatarAppearance } from "@/lib/avatar-appearance";
 import { captureProductEvent, type ClaimAnalyticsMethod } from "@/lib/posthog";
 import { claimErrorMessage, claimFailureOutcome } from "@/lib/claim-errors";
@@ -103,6 +104,7 @@ type ClaimFlowProps = {
   reservedAnalyticsJourneyId: string;
   discordVerify?: DiscordVerifyStatus;
   previewContext?: {
+    hasVerifiedVrchatConnection?: boolean;
     viewerContextKey?: string | null;
     emailVerified: boolean;
     hasDiscord: boolean;
@@ -175,6 +177,14 @@ export function ClaimFlowContent({
     previewContext ? "skip" : { profileSlug: profile.slug },
   );
   const context = previewContext ?? queriedContext;
+  const connectionResult = useQuery(
+    api.profileConnections.listProfileConnections,
+    !previewContext && context?.ownership === "viewer" ? { profileSlug: profile.slug } : "skip",
+  );
+  const hasVerifiedVrchatConnection = previewContext
+    ? previewContext.hasVerifiedVrchatConnection === true
+    : connectionResult?.connections.some((connection) => connection.verified &&
+        (connection.assetType === "vrchat_user" || connection.assetType === "vrchat_group")) === true;
   const manageableGuilds = useQuery(
     api.discordVerification.getManageableGuilds,
     previewContext ? "skip" : {},
@@ -965,14 +975,12 @@ export function ClaimFlowContent({
             <p className="mt-1">If ownership changed or this looks wrong, contact support rather than creating another claim.</p>
           </Notice>
         ) : null}
-        {isUnverifiedViewer && status.kind !== "complete" ? (
+        {isUnverifiedViewer && status.kind !== "complete" && activeCollectorCompletion === null ? (
           <Notice className="mt-8">
-            <p className="font-semibold">You manage this profile. It is not verified yet.</p>
-            <p className="mt-1">
-              {profile.profileType === "community"
-                ? "Verifying takes one more step: show us you run its Discord server or VRChat group."
-                : "Verifying takes one more step: show us you own this VRChat account."}
-            </p>
+            <p className="font-semibold">You already manage this profile.</p>
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <ProfileVerificationStatus slug={profile.slug} verified={hasVerifiedVrchatConnection} showVerifyAction={false} />
+            </div>
           </Notice>
         ) : null}
         {isVerifiedViewer && status.kind !== "complete" ? (
@@ -990,7 +998,8 @@ export function ClaimFlowContent({
           </Notice>
         ) : null}
 
-        {canUseClaimJourney && context?.emailVerified && status.kind !== "complete" ? (
+        {canUseClaimJourney && context?.emailVerified && status.kind !== "complete" &&
+        !(isUnverifiedViewer && !previewContext && connectionResult === undefined) ? (
           <>
             {context.pendingProof &&
             !context.pendingProof.expired &&
@@ -1075,7 +1084,7 @@ export function ClaimFlowContent({
               <form className="mt-8" onSubmit={submit}>
                 <fieldset>
                   <legend className="text-xl font-semibold">
-                    {isVerifiedViewer
+                    {isVerifiedViewer || hasVerifiedVrchatConnection
                       ? "Prove control of another server, group, or account"
                       : isUnverifiedViewer
                         ? profile.profileType === "person"

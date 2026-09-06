@@ -32,6 +32,7 @@ export function ClaimFlowPreview({
         initialAnalyticsJourneyId="00000000-0000-4000-8000-000000000001"
         reservedAnalyticsJourneyId="00000000-0000-4000-8000-000000000002"
         previewContext={{
+          hasVerifiedVrchatConnection: completionScenario === "connected-unverified",
           viewerContextKey: "preview",
           emailVerified: true,
           // `hasDiscord` is a VRDex verification watermark, and only the
@@ -48,7 +49,7 @@ export function ClaimFlowPreview({
           // a deployment without the adapter is the state where a Discord
           // affordance would unlock nothing visible.
           vrclinkingConfigured,
-          ownership: privateProfile || completionDemo ? "viewer" : "available",
+          ownership: privateProfile || completionDemo || completionScenario === "connected-unverified" ? "viewer" : "available",
           verified: privateProfile || completionDemo,
           pendingClaimRequest: null,
           pendingProof: completionDemo && (!completed || completionScenario === "remaining") ? {
