@@ -17,3 +17,12 @@ test("returning after completion does not replay a new-connection announcement @
   await expect(page.getByText("That account or group is now connected to this profile.")).toHaveCount(0);
   await expect(page.getByText(/We are checking VRChat for your code/)).toHaveCount(0);
 });
+
+test("checking a remaining proof restores its feedback after another proof completes @fixture", async ({ page }) => {
+  await page.goto("/playwright/claim?completion=remaining");
+  await page.getByRole("button", { name: "Simulate collector completion" }).click();
+  await expect(page.getByText("That account or group is now connected to this profile.")).toBeVisible();
+  await page.getByRole("button", { name: "I've added it - check now" }).click();
+  await expect(page.getByText(/We are checking VRChat for your code/)).toBeVisible();
+  await expect(page.getByText("That account or group is now connected to this profile.")).toHaveCount(0);
+});

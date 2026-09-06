@@ -5,6 +5,8 @@
 An on-page collector completion takes precedence over earlier working, queued,
 or error messages and moves focus to the existing completion notice. A delayed
 check response must not leave a stale checking message beside success.
+Checking another pending proof clears the earlier completion notice so its
+working, queued, or error feedback remains visible.
 Returning after a completed proof does not replay an on-page announcement.
 The local `/playwright/claim?completion=background` fixture exercises queued
 action response, reactive proof completion, and focus; `completion=returned`

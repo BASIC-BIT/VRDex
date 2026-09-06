@@ -623,6 +623,9 @@ export function ClaimFlowContent({
       knownJourneyId ?? context?.pendingProof?.analyticsJourneyId ?? analyticsJourneyId;
     setAnalyticsJourneyId(journeyId);
 
+    // A different proof may have completed while this one remained pending.
+    // An explicit check starts fresh feedback, like submit and start-over.
+    setCollectorCompletion(null);
     setStatus({
       kind: "working",
       message: viaVrclinking ? "Asking VRCLinking…" : "Looking for your code…",
@@ -752,6 +755,7 @@ export function ClaimFlowContent({
   async function checkDiscord(requestId: Id<"profileClaimRequests">) {
     const journeyId = context?.pendingClaimRequest?.analyticsJourneyId ?? analyticsJourneyId;
     setAnalyticsJourneyId(journeyId);
+    setCollectorCompletion(null);
     setStatus({ kind: "working", message: "Checking your Discord server permissions…" });
     try {
       captureJourneyView(journeyId);

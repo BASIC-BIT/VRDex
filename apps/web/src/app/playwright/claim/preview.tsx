@@ -7,9 +7,10 @@ import type { Id } from "../../../../../../convex/_generated/dataModel";
 import { ClaimFlowContent } from "@/app/claim/[slug]/claim-flow";
 
 const previewClient = new ConvexReactClient("https://playwright-preview.convex.cloud");
+const completionPreviewClient = new ConvexReactClient("https://playwright-preview.convex.cloud");
 // This gated fixture replaces only the external action result. The actual
 // claim component handles the queued response and subsequent context update.
-previewClient.action = async () => ({ state: "queued" } as never);
+completionPreviewClient.action = async () => ({ state: "queued" } as never);
 
 export function ClaimFlowPreview({
   discordLinked = true,
@@ -23,9 +24,9 @@ export function ClaimFlowPreview({
   completionScenario?: string;
 }) {
   const [completed, setCompleted] = useState(completionScenario === "returned");
-  const completionDemo = completionScenario === "background" || completionScenario === "returned";
+  const completionDemo = completionScenario === "background" || completionScenario === "returned" || completionScenario === "remaining";
   return (
-    <ConvexProvider client={previewClient}>
+    <ConvexProvider client={completionDemo ? completionPreviewClient : previewClient}>
       {completionDemo ? <button type="button" onClick={() => setCompleted(true)}>Simulate collector completion</button> : null}
       <ClaimFlowContent
         initialAnalyticsJourneyId="00000000-0000-4000-8000-000000000001"
@@ -50,7 +51,7 @@ export function ClaimFlowPreview({
           ownership: privateProfile || completionDemo ? "viewer" : "available",
           verified: privateProfile || completionDemo,
           pendingClaimRequest: null,
-          pendingProof: completionDemo && !completed ? {
+          pendingProof: completionDemo && (!completed || completionScenario === "remaining") ? {
             id: "fixture-proof" as Id<"profileVerificationAttempts">,
             targetType: "vrchat_user",
             targetExternalId: "usr_fixture",
