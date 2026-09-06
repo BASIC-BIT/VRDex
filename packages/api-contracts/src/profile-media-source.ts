@@ -5,5 +5,6 @@ export function normalizeMcpContributionSourceUrl(value: string): string | null 
   try { url = new URL(value); } catch { return null; }
   if (url.protocol !== "https:" || url.username || url.password || url.port) return null;
   // Do not reserialize searchParams: query bytes can carry a signature.
-  return url.toString();
+  const normalized = url.toString();
+  return normalized.length <= 2_048 ? normalized : null;
 }

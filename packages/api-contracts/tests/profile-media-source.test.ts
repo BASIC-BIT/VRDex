@@ -28,4 +28,13 @@ describe("MCP contribution sources", () => {
       "https://media.example.test/image?token=" + "a".repeat(2_048),
     ]) assert.equal(normalizeMcpContributionSourceUrl(invalid), null, invalid);
   });
+
+  it("bounds the encoded URL before it reaches durable request handling", () => {
+    const prefix = "https://media.example.test/image?name=";
+    assert.equal(normalizeMcpContributionSourceUrl(prefix + "é".repeat(400)), null);
+    const accepted = prefix + "é".repeat(100);
+    const normalized = normalizeMcpContributionSourceUrl(accepted);
+    assert.equal(normalized, new URL(accepted).toString());
+    assert.equal(normalizeMcpContributionSourceUrl(normalized!), normalized);
+  });
 });
