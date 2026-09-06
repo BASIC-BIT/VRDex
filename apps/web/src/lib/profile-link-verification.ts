@@ -10,7 +10,8 @@ export function isVerifiedVrchatLink(
 ): boolean {
   try {
     const url = new URL(href);
-    if (url.protocol !== "https:" || url.hostname !== "vrchat.com" ||
+    const host = url.hostname.replace(/^www\./, "");
+    if (url.protocol !== "https:" || host !== "vrchat.com" ||
       url.port || url.username || url.password || url.search || url.hash) return false;
     const match = /^\/home\/(user|group)\/((?:usr|grp)_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/?$/i.exec(url.pathname);
     if (!match) return false;

@@ -7,6 +7,7 @@ const connections = [{ assetType: "vrchat_user", assetExternalId: id, verified: 
 
 test("marks only the matching verified VRChat destination", () => {
   assert.equal(isVerifiedVrchatLink(`https://vrchat.com/home/user/${id}`, connections), true);
+  assert.equal(isVerifiedVrchatLink(`https://www.vrchat.com/home/user/${id}`, connections), true);
   assert.equal(isVerifiedVrchatLink(`https://vrchat.com/home/user/${id.toUpperCase()}/`, connections), true);
   assert.equal(isVerifiedVrchatLink(`https://vrchat.com/home/user/${id.replace("11111111", "22222222")}`, connections), false);
 });
