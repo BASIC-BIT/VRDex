@@ -19,6 +19,7 @@ import {
   searchPlaywrightDiscoveryFixture,
 } from "./playwright-fixtures";
 import { profileClaimPath } from "@/lib/profile-claim";
+import { isVerifiedVrchatLink } from "@/lib/profile-link-verification";
 import type { PublicProfileShareCard } from "../../../../convex/_profileShareCard";
 import type { PublicEventShareCard } from "../../../../convex/_eventShareCard";
 
@@ -78,6 +79,10 @@ export async function fetchPublicProfileBySlug(
           shareCard: projectedShareCard ?? null,
         }))(profile);
 
+    const connectionsPromise = publicProfile?.outboundLinks.some((link) => link.type === "vrchat_profile")
+      ? fetchQuery(api.profileConnections.listProfileConnections, { profileSlug: slug }).catch(() => null)
+      : Promise.resolve(null);
+
     // Resolve both providers before the first visible profile render. The
     // client still revalidates VRCDN, but starting without its confirmed state
     // made a live player disappear and return across a refresh.
@@ -88,11 +93,19 @@ export async function fetchPublicProfileBySlug(
         ])
       : [undefined, undefined];
 
+    // Only annotate links already exposed by the public projection. A failed
+    // proof read must leave the link usable without asserting verification.
+    const connections = await connectionsPromise;
+
     return {
       kind: "live" as const,
       profile: publicProfile
         ? {
             ...publicProfile,
+            outboundLinks: publicProfile.outboundLinks.map((link) => ({
+              ...link,
+              verified: link.type === "vrchat_profile" && isVerifiedVrchatLink(link.url, connections?.connections ?? []),
+            })),
             ...(twitchLive ? { twitchLive } : {}),
             ...(vrcdnLive ? { vrcdnLive } : {}),
           }
