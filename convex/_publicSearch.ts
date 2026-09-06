@@ -15,8 +15,8 @@ import {
   type SearchEntityType,
 } from "./_searchDocuments";
 
-// Full documents contain both corpora. Reserve equal shares when using both
-// indexes, leaving read-limit headroom for long UTF-8 names and result hydration.
+// Full documents contain both corpora. Share the budget across keyword, literal,
+// and styled reads, leaving room for long UTF-8 names and result hydration.
 const PUBLIC_SEARCH_DOCUMENT_SCAN_LIMIT = 256;
 
 export type PublicSearchFilters = {
@@ -151,9 +151,10 @@ export async function searchPublicDocuments(
   }
 
   const nameQuery = args.entityType === undefined || args.entityType === "profile"
-    ? profileNameSearchQuery(searchText) : undefined;
+    ? profileNameSearchQuery(searchText, "literal") : undefined;
+  const nameCandidateLimit = Math.floor(PUBLIC_SEARCH_DOCUMENT_SCAN_LIMIT / 3);
   const candidateLimit = nameQuery === undefined
-    ? PUBLIC_SEARCH_DOCUMENT_SCAN_LIMIT : PUBLIC_SEARCH_DOCUMENT_SCAN_LIMIT / 2;
+    ? PUBLIC_SEARCH_DOCUMENT_SCAN_LIMIT : PUBLIC_SEARCH_DOCUMENT_SCAN_LIMIT - nameCandidateLimit * 2;
   const keywordDocuments = await ctx.db
     .query("searchDocuments")
     .withSearchIndex("search_text", (search) => {
@@ -170,14 +171,19 @@ export async function searchPublicDocuments(
     // results to refill after stale or newly hidden records are projected out.
     .take(candidateLimit);
 
-  const nameDocuments = nameQuery === undefined ? [] : await ctx.db
+  const readNameCandidates = (query: string) => ctx.db
     .query("searchDocuments")
     .withSearchIndex("search_names", (search) => {
-      const profiles = search.search("nameSearchText", nameQuery)
+      const profiles = search.search("nameSearchText", query)
         .eq("publicState", "public").eq("entityType", "profile");
       return args.profileType === undefined ? profiles : profiles.eq("profileType", args.profileType);
     })
-    .take(candidateLimit);
+    .take(nameCandidateLimit);
+  // Separate namespaces prevent i/l lookalikes from exhausting literal recall.
+  const nameDocuments = nameQuery === undefined ? [] : (await Promise.all([
+    readNameCandidates(nameQuery),
+    readNameCandidates(profileNameSearchQuery(searchText, "styled")!),
+  ])).flat();
   const documents = [...new Map([
     ...keywordDocuments.filter((document) => matchesKeywordTerms(document, searchText)),
     ...nameDocuments.filter((document) =>

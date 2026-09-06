@@ -15,20 +15,24 @@ function candidateName(value: string): string {
       ? "i" : SUBSTITUTIONS[character][0]);
 }
 
+const encoder = new TextEncoder();
+
 function indexPrefix(value: string): string {
   let result = "";
   let bytes = 0;
   for (const character of value) {
-    bytes += new TextEncoder().encode(character).length;
-    if (bytes > 32) break;
+    bytes += encoder.encode(character).length;
+    // Leave one byte for the literal/stylized namespace prefix.
+    if (bytes > 31) break;
     result += character;
   }
   return result;
 }
 
-export function profileNameSearchQuery(query: string): string | undefined {
-  const normalized = candidateName(query);
-  return [...normalized].length >= 3 ? indexPrefix(normalized) : undefined;
+export function profileNameSearchQuery(query: string, kind: "literal" | "styled"): string | undefined {
+  const normalized = kind === "literal" ? normalizeProfileName(query) : candidateName(query);
+  return [...normalized].length >= 3
+    ? `${kind === "literal" ? "l" : "s"}${indexPrefix(normalized)}` : undefined;
 }
 
 export function profileNameSearchFields(values: string[]) {
@@ -38,11 +42,24 @@ export function profileNameSearchFields(values: string[]) {
   // Keep full names for verification/ranking, independently of retrieval budget.
   const searchNames = [...new Set(values.map(normalizeProfileName).filter(Boolean))];
   const suffixes = new Set<string>();
+  let indexBytes = 0;
   for (const name of searchNames) {
-    const characters = [...candidateName(name)].slice(0, Math.min(120, remaining));
+    const characters = [...name].slice(0, Math.min(120, remaining));
+    const styledCharacters = [...candidateName(name)].slice(0, characters.length);
     remaining -= characters.length;
     for (let offset = 0; offset <= characters.length - 3; offset += 1) {
-      suffixes.add(indexPrefix(characters.slice(offset).join("")));
+      for (const term of [
+        `l${indexPrefix(characters.slice(offset).join(""))}`,
+        `s${indexPrefix(styledCharacters.slice(offset).join(""))}`,
+      ]) {
+        if (suffixes.has(term)) continue;
+        const termBytes = encoder.encode(term).length + (suffixes.size > 0 ? 1 : 0);
+        if (indexBytes + termBytes > 16_000) {
+          return { searchNames, nameSearchText: [...suffixes].join(" ") };
+        }
+        suffixes.add(term);
+        indexBytes += termBytes;
+      }
     }
     if (remaining === 0) break;
   }

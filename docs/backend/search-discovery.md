@@ -40,6 +40,9 @@ keyword index still handles genres, tags, bios, worlds, and events.
 Keyword candidates must contain every query word (with prefix matching for the
 last word), so `Lost K20` does not return `Lost Melody` on `Lost` alone.
 The filter preserves accent folding and `&`/`and` normalization.
+Literal and stylized suffixes have separate token prefixes in the same index and
+separate candidate reads. An ambiguous stylized bucket cannot consume the literal
+candidate allowance.
 
 Name normalization ignores case, combining accents, whitespace, and punctuation.
 Queries of at least three normalized characters also support `0/o`, `1/i`, `1/l`,
@@ -60,8 +63,9 @@ The shared `searchPublicDocuments` helper serves universal search, person lookup
 the public HTTP API, and hosted MCP. The stdio MCP client uses the HTTP API.
 There is no separate UI matching implementation.
 
-The two indexes share a 256-document candidate budget (128 each when both run)
-before deduplication and ranking. Single-index queries may use all 256 slots.
+Keyword, literal-name, and stylized-name reads share a 256-document candidate
+budget (86 keyword, 85 literal, 85 stylized) before deduplication and ranking.
+Keyword-only queries may use all 256 slots.
 Search remains bounded, not exhaustive: very broad queries can omit matches beyond
 that ceiling. Only the ranked window needed to fill the requested limit is hydrated,
 and live profile surfacing checks still drop hidden or stale records.
@@ -71,7 +75,9 @@ budget in display-name, slug, public-alias, then search-alias order. Keyword ind
 is unaffected by that additional name-index budget. Suffix terms and query prefixes
 are capped at 32 UTF-8 bytes, following [Convex's term limit](https://docs.convex.dev/search/text-search#limits).
 Longer queries are verified in full after candidate retrieval. Full normalized
-identity names are stored separately for verification and ranking.
+identity names are stored separately for verification and ranking. The combined
+literal/stylized suffix corpus also has a 16,000-byte ceiling, so adding the second
+candidate namespace does not double the document-read footprint.
 
 After deploying the optional fields and new search index, an authorized operator
 must run the resumable migration once to populate existing profiles:

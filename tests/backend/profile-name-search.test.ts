@@ -116,6 +116,7 @@ it("rechecks live surfacing state and honors entity and profile filters", async 
 it("bounds index size and keeps every generated term within Convex's 32-byte limit", () => {
   const fields = profileNameSearchFields(Array.from({ length: 100 }, (_, i) => `${i}${"界abcdef".repeat(100)}`));
   assert.ok(fields.nameSearchText.length < 17_000);
+  assert.ok(Buffer.byteLength(fields.nameSearchText) <= 16_000);
   assert.ok(fields.nameSearchText.split(" ").every(term => Buffer.byteLength(term) <= 32));
   assert.equal(fields.searchNames.length, 100);
 });
@@ -167,6 +168,11 @@ it("preserves the existing ampersand exact-name normalization", async () => {
   const t = await fixture(["Drum & Bass"]);
   assert.deepEqual(await titles(t, "Drum and Bass"), ["Drum & Bass"]);
   assert.deepEqual(await titles(t, "Drum and Ba"), ["Drum & Bass"]);
+});
+
+it("retrieves literal substrings even when many i/l lookalikes fill the folded window", async () => {
+  const t = await fixture([...Array.from({ length: 200 }, (_, i) => `XIily${i}`), "XLilyTarget"]);
+  assert.deepEqual(await titles(t, "Lily"), ["XLilyTarget"]);
 });
 
 it("shares the full-document read ceiling across both retrieval paths", async () => {
