@@ -78,6 +78,15 @@ function normalizeE2eEmail(email: string) {
   return normalized;
 }
 
+function requireFixtureProofTargets(attempts: Doc<"profileVerificationAttempts">[]) {
+  // Provenance of an E2E profile/account says nothing about a submitted target.
+  // Only the established fixture namespace may lose its reservation history.
+  if (attempts.some((attempt) => attempt.targetType !== "vrclinking" &&
+    !/^(?:usr|grp)_e2e00000-0000-4000-8000-00000000000[123]$/.test(attempt.targetExternalId))) {
+    throw new Error("E2E cleanup cannot remove a non-fixture VRChat target reservation.");
+  }
+}
+
 async function deleteE2eProfile(ctx: MutationCtx, profile: Doc<"profiles">) {
   if (!profile.sourceAttribution?.submitter.tokenIdentifier.startsWith("e2e:")) {
     throw new Error("Only E2E-created profiles can be cleaned up by this helper.");
@@ -99,6 +108,8 @@ async function deleteE2eProfile(ctx: MutationCtx, profile: Doc<"profiles">) {
     // still consuming a slot in the adapter selection window forever.
     ctx.db.query("communityVrclinkingCredentials").withIndex("by_communityProfileId_state", (query) => query.eq("communityProfileId", profile._id)).collect(),
   ]);
+
+  requireFixtureProofTargets(verificationAttempts);
 
   await Promise.all([
     ...searchDocuments.map((document) => ctx.db.delete(document._id)),
@@ -138,6 +149,8 @@ async function cleanupE2eUserByEmail(ctx: MutationCtx, email: string) {
     ctx.db.query("externalControlProofs").withIndex("by_userId_assetType_assetExternalId", (query) => query.eq("userId", user._id)).collect(),
     ctx.db.query("discordVerificationWatermarks").withIndex("by_userId_discordUserId", (query) => query.eq("userId", user._id)).collect(),
   ]);
+
+  requireFixtureProofTargets(verificationAttempts);
 
   await Promise.all([
     ...claimRequests.map((claimRequest) => ctx.db.delete(claimRequest._id)),

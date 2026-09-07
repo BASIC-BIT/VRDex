@@ -2248,7 +2248,9 @@ export default defineSchema({
     // immediately — and because the adapter cooldown lives on the attempt row,
     // a fresh attempt starts with none. Without this index there was no way to
     // see the attempts a claimant had just discarded.
-    .index("by_userId_targetType_createdAt", ["userId", "targetType", "createdAt"]),
+    .index("by_userId_targetType_createdAt", ["userId", "targetType", "createdAt"])
+    .index("by_targetType_targetExternalId_createdAt", ["targetType", "targetExternalId", "createdAt"])
+    .index("by_targetType_targetExternalId_proofCode", ["targetType", "targetExternalId", "proofCode"]),
   profileClaimLifecycleEvents: defineTable({
     profileId: v.id("profiles"),
     attemptId: v.id("profileVerificationAttempts"),
