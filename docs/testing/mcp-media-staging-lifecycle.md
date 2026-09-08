@@ -29,9 +29,16 @@ real claim or controlled stream transition.
 The current integration starts from main
 `4ead2d0f36e86e6e93bc0a01a798b3761979ca85`, retaining the newer claiming changes.
 It adds a second, different image for reviewer rejection, one normal cooldown
-refusal, and bounded audit-ledger inspection. These additions have local test
-coverage but require a new exact-candidate staging run. The September 5 pass
-does not prove these new assertions or the current baseline.
+refusal, and bounded audit-ledger inspection. On September 8,
+[run34180440620](https://github.com/BASIC-BIT/VRDex/actions/runs/34180440620)
+passed all seven lifecycle stages on exact candidate
+`249d93f104900e27a8cf1c99c576ef380182007e`: one expected test, zero skipped,
+failed or flaky results, and verified cleanup including exact Convex and Clerk
+account absence. A separate run-scoped fixture lookup also confirmed absence.
+[Restoration34180823119](https://github.com/BASIC-BIT/VRDex/actions/runs/34180823119)
+passed on the captured main baseline above. Final live identity and all three
+temporary media flags matched their original values. The passing evidence is
+limited to that candidate and the assertions described below.
 
 ## Preconditions
 
@@ -124,10 +131,10 @@ not evidence that the real claiming process succeeded. Unclaimed-profile
 super-admin review remains covered by backend tests rather than this browser
 scenario. Hidden-target refusal, quota/cooldown, import-safety and retention
 timing also retain their existing backend/importer coverage.
-The historical lifecycle did not inspect retained audit ledgers. Issue #297's
-staged audit-redaction and sanitized rate-limit gates remain open until a new
-run proves the added assertions. Any wider transport rate-limit requirement
-still needs separate evidence.
+The September 5 lifecycle did not inspect retained audit ledgers. September 8's
+run establishes bounded fixture-ledger redaction and sanitized submission
+cooldown evidence. Any wider transport rate-limit requirement still needs
+separate evidence.
 
 ## Cleanup and recovery
 
