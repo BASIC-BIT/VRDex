@@ -239,13 +239,10 @@ export function ProfileVrcdnStreams({
                   Open preview
                   <ExternalLink aria-hidden="true" className="size-3.5" />
                 </a>
-                <details className="mb-4">
-                  <summary className="cursor-pointer text-sm text-muted">Playback links</summary>
-                  <div className="mt-3">
-                    <CopyValueRow label="Quest" value={questUrl} />
-                    <CopyValueRow label="PC" value={pcUrl} />
-                  </div>
-                </details>
+                <div className="mb-4">
+                  <CopyValueRow label="Quest" value={questUrl} />
+                  <CopyValueRow label="PC" value={pcUrl} />
+                </div>
                 {showPlayer ? (
                   <div className="mt-4 overflow-hidden rounded-control border border-border">
                     <VrcdnStreamPlayer

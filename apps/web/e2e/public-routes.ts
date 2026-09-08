@@ -452,23 +452,12 @@ export async function expectPersonProfilePage(page: Page) {
 }
 
 export async function expectProfilePlaybackLinks(page: Page, count: number) {
-  const scrollPosition = await page.evaluate(() => ({ x: window.scrollX, y: window.scrollY }));
-  const disclosures = page.locator("details").filter({ has: page.locator("summary", { hasText: /^Playback links$/ }) });
-  await expect(disclosures).toHaveCount(count);
-  for (const disclosure of await disclosures.all()) {
-    const summary = disclosure.locator("summary");
-    await expect(summary).toBeVisible();
-    await expect(disclosure).not.toHaveAttribute("open");
-    await expect(disclosure.getByText("Quest", { exact: true })).toBeHidden();
-    await expect(disclosure.getByText("PC", { exact: true })).toBeHidden();
-    await summary.click();
-    await expect(disclosure.getByRole("button", { name: "Copy Quest", exact: true })).toBeVisible();
-    await expect(disclosure.getByRole("button", { name: "Copy PC", exact: true })).toBeVisible();
-    await summary.click();
-    await expect(disclosure).not.toHaveAttribute("open");
+  await expect(page.getByText("Playback links", { exact: true })).toHaveCount(0);
+  for (const label of ["Quest", "PC"]) {
+    const buttons = page.getByRole("button", { name: `Copy ${label}`, exact: true });
+    await expect(buttons).toHaveCount(count);
+    for (const button of await buttons.all()) await expect(button).toBeVisible();
   }
-  await page.evaluate(({ x, y }) => window.scrollTo({ left: x, top: y, behavior: "instant" }), scrollPosition);
-  await expect.poll(() => page.evaluate(() => ({ x: window.scrollX, y: window.scrollY }))).toEqual(scrollPosition);
 }
 
 export async function expectProfileEditSignedOutPage(page: Page) {
