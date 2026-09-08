@@ -30,6 +30,43 @@ One normalized link table now exists: `#200` added `profileExternalLinks` and `e
 
 ## `profiles` Table
 
+### Outbound destination metadata
+
+Authored outbound links remain inline. Optional `labelMode` distinguishes an explicit
+`custom` label from `automatic` naming. Missing modes on legacy links retain distinct
+labels; only recognized generated provider labels use automatic naming. Metadata refresh
+does not change profile revisions, aliases, ownership proofs, or verification state.
+
+`profileLinkDestinations` caches the minimal public name, entity ID, artwork source,
+observation time, and resolution state for exact VRChat user/group locators and Discord
+guild invites. Invite codes remain separate locators because their guild binding can change.
+Public profile, editor preview, and lookup reads attach this data as `destination` after
+their existing visibility projection. The API preserves the original `label` and `url`.
+
+A bounded minute sweep discovers existing published links. Authored writes queue new
+destinations without waiting for a provider. Successful results refresh after roughly one
+day with jitter; temporary failures retain the last successful branding, while confirmed
+invalid or inaccessible results clear it. VRChat jobs use the collector's authenticated
+transport and shared account budget. Discord jobs use a fixed-origin server action with a
+shared request budget and provider cooldown.
+
+Artwork is served through `/api/profile-link-artwork/[key]`, which rechecks a current public
+reference, fetches only allowed provider image locations through the bounded importer,
+and emits a static 128px WebP. It authorizes the exact rendering profile, rather than
+scanning a truncated reference list. Sanitized bytes persist in the existing private asset
+bucket under `profile-assets/destination-thumbnails/`, keyed by the destination and source.
+Fresh bytes are reused for a day; failed refreshes retain the last successful bytes and
+wait an hour before retrying. Concurrent requests for one source share the import. Changed
+sources use separate keys, and every origin request still checks current visibility.
+
+Browser caching is limited to five minutes; shared CDN caching is disabled so it cannot
+bypass the visibility check. The storage lifecycle expires unused thumbnail cache objects
+after 90 days. This uses existing asset storage configuration and requires the checked-in
+profile-assets lifecycle change when deployed. No browser credentials or arbitrary
+source-URL parameter are accepted. Missing artwork leaves the name and platform fallback usable.
+
+Implementation and acceptance criteria: [Profile link destination names](../planning/profile-link-display-names-design.md).
+
 Core identity fields:
 
 - `profileType`: `"person" | "community"`

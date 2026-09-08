@@ -90,4 +90,8 @@ crons.daily(
   {},
 );
 
+crons.interval("discover profile link destinations", { minutes: 1 }, internal.profileLinkDestinations.discover, {});
+
+crons.interval("refresh Discord destination metadata", { minutes: 1 }, internal.profileLinkDestinationDelivery.refreshDiscord, {});
+
 export default crons;

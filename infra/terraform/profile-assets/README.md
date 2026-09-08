@@ -21,6 +21,17 @@ It creates:
 
 The role ARN is not a secret, but it is stored as a sensitive Vercel environment variable so hosted runtime configuration stays consistently masked.
 
+## Destination thumbnail cache
+
+Profile link artwork reuses this private bucket and runtime role under
+`profile-assets/destination-thumbnails/`. Each source-bound cache object contains
+a sanitized static thumbnail and fetch timestamps. Daily refreshes retain the
+last successful thumbnail during temporary provider failures, with hourly retry
+delays. The route checks the exact profile's current public link before reading
+the cache. These objects use `private, no-store` storage headers and expire after
+90 inactive days through a narrowly scoped lifecycle rule. No additional provider
+credentials or environment variables are required for artwork delivery.
+
 ## Bootstrap Gate
 
 Provider-backed CI plan/apply for this stack is gated by repository variable `TERRAFORM_PROFILE_ASSETS_ENABLED=true`.

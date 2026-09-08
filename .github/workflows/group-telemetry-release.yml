@@ -22,7 +22,7 @@ env:
   ECR_REPOSITORY: vrdex-group-telemetry
   ECS_CLUSTER: vrdex-group-telemetry
   ECS_SERVICE: vrdex-group-telemetry
-  RELEASE_CAPABILITIES: telemetry_v1,vrchat_proof_v1
+  RELEASE_CAPABILITIES: telemetry_v1,vrchat_proof_v1,profile_link_destinations_v1
 
 jobs:
   release:
@@ -155,7 +155,7 @@ jobs:
           export TF_VAR_container_image="$IMAGE_URI"
           export TF_VAR_release_sha="$RELEASE_SHA"
           export TF_VAR_release_version="$RELEASE_VERSION"
-          export TF_VAR_release_capabilities='["telemetry_v1","vrchat_proof_v1"]'
+          export TF_VAR_release_capabilities='["telemetry_v1","vrchat_proof_v1","profile_link_destinations_v1"]'
           terraform plan -out=collector.tfplan -var-file=environments/production.tfvars
           terraform show -json collector.tfplan > collector-plan.json
           node ../../../scripts/group-telemetry-deployment.mjs plan --file collector-plan.json --image "$IMAGE_URI" --release-sha "$RELEASE_SHA" --capabilities "$RELEASE_CAPABILITIES"
@@ -173,7 +173,7 @@ jobs:
           [[ "$previous_image_uri" =~ @sha256:[0-9a-fA-F]{64}$ ]] || { echo "::error::Rollback image is not an immutable digest."; exit 1; }
           [[ "$previous_release_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Rollback release SHA is invalid."; exit 1; }
           [[ "$previous_release_version" =~ ^[a-z0-9][a-z0-9._-]{0,63}$ ]] || { echo "::error::Rollback release version is invalid."; exit 1; }
-          [[ "$previous_capabilities" =~ ^(telemetry_v1,vrchat_proof_v1|vrchat_proof_v1,telemetry_v1)$ ]] || { echo "::error::Rollback capabilities are invalid."; exit 1; }
+          jq -en --arg value "$previous_capabilities" '$value | split(",") | sort | . == ["telemetry_v1","vrchat_proof_v1"] or . == ["profile_link_destinations_v1","telemetry_v1","vrchat_proof_v1"]' > /dev/null || { echo "::error::Rollback capabilities are invalid."; exit 1; }
           echo "PREVIOUS_TASK_DEFINITION=$previous_task_definition" >> "$GITHUB_ENV"
           echo "PREVIOUS_IMAGE_URI=$previous_image_uri" >> "$GITHUB_ENV"
           echo "PREVIOUS_RELEASE_SHA=$previous_release_sha" >> "$GITHUB_ENV"

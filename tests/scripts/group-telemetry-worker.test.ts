@@ -458,7 +458,7 @@ describe("group telemetry metrics and safety helpers", () => {
       {
         releaseSha: "a".repeat(40),
         collectorVersion: "git-a1b2c3d4e5f6",
-        capabilities: ["telemetry_v1", "vrchat_proof_v1"],
+        capabilities: ["telemetry_v1", "vrchat_proof_v1", "profile_link_destinations_v1"],
       },
     );
     assert.throws(() => collectorRuntimeMetadata({}), /exact Git SHA/);

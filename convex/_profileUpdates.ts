@@ -1,3 +1,4 @@
+import { queueProfileLinkDestinations } from "./_profileLinkDestinationCache";
 import { ConvexError } from "convex/values";
 
 import type { Doc } from "./_generated/dataModel";
@@ -100,7 +101,7 @@ function matchesStoredList(submitted: unknown, stored: unknown): boolean {
  * force the whole group through validation by asking for a provenance they were
  * never going to get.
  */
-const COMPARED_LINK_KEYS = ["type", "url", "label", "handle", "presentation"] as const;
+const COMPARED_LINK_KEYS = ["type", "url", "label", "labelMode", "handle", "presentation"] as const;
 
 function matchesStoredLinks(submitted: unknown, stored: Doc<"profiles">["outboundLinks"]): boolean {
   if (!Array.isArray(submitted) || submitted.length !== (stored ?? []).length) {
@@ -468,7 +469,16 @@ export function sanitizeApiProfileUpdateInput(
     const submitted = sanitizeProfileLinks(
       input.outboundLinks ?? [],
       LINK_SOURCE_BY_SUBJECT[subject],
-    );
+    ).map((link, index) => {
+      const raw = Array.isArray(input.outboundLinks) ? input.outboundLinks[index] : undefined;
+      if (raw && typeof raw === "object" && "labelMode" in raw && raw.labelMode !== undefined) return link;
+      // Older editors post the complete list without a mode. Keep the stored
+      // distinction for untouched labels instead of inventing an override.
+      const matches = (profile.outboundLinks ?? []).filter(stored => linkIdentity(stored) === linkIdentity(link) && stored.label === link.label);
+      if (matches.length === 0 || matches.some(stored => stored.labelMode !== matches[0].labelMode)) return link;
+      const {labelMode: _inferredMode, ...rest} = link;
+      return matches[0].labelMode === undefined ? rest : {...rest, labelMode: matches[0].labelMode};
+    });
     // How many rows the request puts on each destination, counted before any of
     // them consumes anything. Nothing here deduplicates, so a writer can send a
     // destination more times than the profile stores it.
@@ -786,6 +796,7 @@ export async function applyApiProfileUpdate(
     // save. Barely visible while only the API could reach it; the profile editor
     // makes this the ordinary way a tag changes.
     await reindexProfileSearchDocument(db, updatedProfile, options.now);
+    await queueProfileLinkDestinations(db, updatedProfile, options.now);
   }
 
   return {

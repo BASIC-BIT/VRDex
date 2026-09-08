@@ -19,6 +19,9 @@ import { VerifiedTrustMark } from "@/components/ui/verified-trust-mark";
 import { Table, TableCell, TableFrame, TableHead, TableHeaderCell } from "@/components/ui/table";
 import { cn } from "@/lib/cn";
 import { discordCopyValue } from "@/lib/discord-link";
+import { profileLinkPresentation, type ProfileLinkDestinationMetadata } from "../../../../../convex/_profileLinkPresentation";
+import { ProfileDestinationArtwork } from "./profile-destination-artwork";
+import { buttonVariants } from "@/components/ui/button";
 import { parseVrcdnStreamLinks } from "../../../../../convex/_vrcdnLinks";
 import type { AvatarAppearance } from "@/lib/avatar-appearance";
 import {
@@ -84,6 +87,8 @@ export type PublicProfileLookupResult = {
   outboundLinks: Array<{
     type: ProfileLookupLinkType;
     label: string;
+    labelMode?: "automatic" | "custom";
+    destination?: ProfileLinkDestinationMetadata;
     url: string;
     handle?: string;
     presentation?: LinkPresentation;
@@ -396,6 +401,20 @@ function LookupStatusNotice({ status }: { status: LookupStatus }) {
 }
 
 function IconCircleLink({ link, className }: { link: LookupLink; className?: string }) {
+  const display = profileLinkPresentation(link);
+  if (display.kind) {
+    return (
+      <a className={cn(buttonVariants({ variant: "secondary" }), "h-auto max-w-full gap-3 whitespace-normal py-2 text-left", className)}
+        href={link.url} rel="noreferrer" target="_blank">
+        <ProfileDestinationArtwork kind={display.kind} src={display.artworkUrl} />
+        <span className="min-w-0 [overflow-wrap:anywhere]">
+          <span className="block">{display.label}</span>
+          <span className="block text-xs font-normal text-muted">{display.platform}</span>
+        </span>
+        <ExternalIcon className="size-4 shrink-0" />
+      </a>
+    );
+  }
   return (
     <a
       aria-label={link.handle ? `${link.label}: ${link.handle}` : `${link.label}: ${hostLabel(link.url)}`}

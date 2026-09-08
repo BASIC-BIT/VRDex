@@ -1,5 +1,6 @@
 import type { ProfileLinkType } from "../../../../convex/_profileLinks";
 import { parseVrcdnStreamLinks } from "../../../../convex/_vrcdnLinks";
+import { parseProfileLinkDestination } from "../../../../convex/_profileLinkDestination";
 
 const PROVIDERS: Array<[ProfileLinkType, string[]]> = [
   ["vrchat_profile", ["vrchat.com"]],
@@ -16,6 +17,8 @@ export function detectProfileLinkType(value: string): ProfileLinkType {
   try {
     const url = new URL(value);
     if (url.protocol !== "https:" || url.username || url.password) return "website";
+    const destination = parseProfileLinkDestination(value);
+    if (destination?.kind === "vrchat_user" || destination?.kind === "vrchat_group") return "vrchat_profile";
     if (url.hostname === "vrcdn.live" || url.hostname.endsWith(".vrcdn.live")) {
       return parseVrcdnStreamLinks(value) ? "vrcdn" : "website";
     }

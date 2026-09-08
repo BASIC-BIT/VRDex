@@ -656,6 +656,7 @@ const sharedProfileFields = {
       v.object({
         type: profileLinkType,
         label: v.string(),
+        labelMode: v.optional(v.union(v.literal("automatic"), v.literal("custom"))),
         url: v.string(),
         handle: v.optional(v.string()),
         presentation: v.optional(profileLinkPresentation),
@@ -691,6 +692,25 @@ const sharedProfileFields = {
 };
 
 export default defineSchema({
+  profileLinkDestinationReferences: defineTable({ key: v.string(), profileId: v.id("profiles") }).index("by_key_profile", ["key", "profileId"]).index("by_profile", ["profileId"]),
+  profileLinkDestinations: defineTable({
+    key: v.string(),
+    kind: v.union(v.literal("vrchat_user"), v.literal("vrchat_group"), v.literal("discord_guild")),
+    locator: v.string(),
+    provider: v.union(v.literal("vrchat"), v.literal("discord")),
+    status: v.union(v.literal("pending"), v.literal("resolved"), v.literal("invalid"), v.literal("unavailable")),
+    entityId: v.optional(v.string()),
+    name: v.optional(v.string()),
+    artworkSourceUrl: v.optional(v.string()),
+    observedAt: v.optional(v.number()),
+    nextAttemptAt: v.number(),
+    lastReferencedAt: v.number(),
+    leaseToken: v.optional(v.string()),
+    leaseExpiresAt: v.optional(v.number()),
+    leaseWorker: v.optional(v.object({collectorAccountId: v.string(), workerId: v.string(), workerKeyHash: v.string()})),
+  }).index("by_key", ["key"]).index("by_provider_nextAttemptAt", ["provider", "nextAttemptAt"]).index("by_lastReferencedAt", ["lastReferencedAt"]),
+  profileLinkDestinationBudgets: defineTable({ provider: v.literal("discord"), nextAllowedAt: v.number() }).index("by_provider", ["provider"]),
+  profileLinkDestinationSweep: defineTable({ cursor: v.union(v.string(), v.null()) }),
   // Clerk owns authentication and sessions. `users` stays the VRDex identity
   // spine that every other table's `v.id("users")` points at; `clerkUserId` is
   // the only link back to the auth provider.

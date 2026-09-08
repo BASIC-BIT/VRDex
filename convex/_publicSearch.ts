@@ -1,3 +1,4 @@
+import { projectProfileLinkDestinations } from "./_profileLinkDestinationCache";
 import type { Doc } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { eventPathForSlugs } from "./_eventPaths";
@@ -108,7 +109,7 @@ export async function projectPublicSearchResult(
   return {
     ...result,
     trustLabel: getProfileTrustLabel(profile.claimState, profile.creationSource),
-    ...(person === null ? {} : { person }),
+    ...(person === null ? {} : { person: { ...person, outboundLinks: await projectProfileLinkDestinations(ctx.db, person.outboundLinks, profile._id) } }),
     ...(profile.claimState === "unclaimed" ? { claimEligible: true } : {}),
   };
 }

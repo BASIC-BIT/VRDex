@@ -5,6 +5,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 import { usePostHog } from "posthog-js/react";
 
 import { VrcdnStreamPlayer } from "./vrcdn-stream-player";
+import { ProfileDestinationArtwork } from "./profile-destination-artwork";
 import { buttonVariants } from "@/components/ui/button";
 import { VerifiedTrustMark } from "@/components/ui/verified-trust-mark";
 import { SectionHeading } from "@/components/ui/card";
@@ -37,6 +38,9 @@ type ProfileVrcdnLink = {
   href: string;
   key: string;
   label: string;
+  platform?: string;
+  kind?: "vrchat_user" | "vrchat_group" | "discord_guild";
+  artworkUrl?: string;
 };
 
 type ProfileDiscordHandle = {
@@ -191,15 +195,19 @@ export function ProfileVrcdnStreams({
               <div className="mt-4 flex flex-wrap gap-2">
                 {links.map((link) => (
                   <a
-                    className={cn(buttonVariants({ variant: "secondary" }), "gap-2")}
+                    className={cn(buttonVariants({ variant: "secondary" }), "max-w-full justify-start gap-3 text-left")}
                     href={link.href}
                     key={link.key}
                     rel="noreferrer"
                     target="_blank"
                   >
-                    {link.label}
+                    {link.kind ? <ProfileDestinationArtwork kind={link.kind} src={link.artworkUrl} /> : null}
+                    <span className="min-w-0 [overflow-wrap:anywhere]">
+                      <span className="block">{link.label}</span>
+                      {link.platform ? <span className="mt-0.5 block text-xs font-normal text-muted">{link.platform}</span> : null}
+                    </span>
                     {link.verified ? <VerifiedTrustMark label="Verified VRChat connection" /> : null}
-                    <ExternalLink aria-hidden="true" className="size-3.5" />
+                    <ExternalLink aria-hidden="true" className="size-3.5 shrink-0" />
                   </a>
                 ))}
               </div>

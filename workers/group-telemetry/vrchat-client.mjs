@@ -127,7 +127,7 @@ export class VrchatClient {
     this.twoFactorAuthCookie = cookies.get("twoFactorAuth");
   }
 
-  async request(path, { method = "GET", body } = {}) {
+  async request(path, { method = "GET", body, maxResponseBytes } = {}) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     this.requestCounts.total += 1;
@@ -135,6 +135,7 @@ export class VrchatClient {
     try {
       response = await this.fetcher(`${this.baseUrl}${path}`, {
         method,
+        ...(maxResponseBytes ? { redirect: "error" } : {}),
         signal: controller.signal,
         headers: {
           accept: "application/json",
@@ -171,7 +172,26 @@ export class VrchatClient {
     // provider that sends headers and then stalls the body with no timeout at
     // all: the await never settles, the worker never leaves `checkProofs`,
     // telemetry stops, and the claimed batch stays stamped until a restart.
-    try { return await response.json(); }
+    try {
+      if (!maxResponseBytes) return await response.json();
+      if (!response.body) throw new Error("Missing provider body.");
+      const reader = response.body.getReader();
+      const chunks = [];
+      let length = 0;
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          length += value.length;
+          if (length > maxResponseBytes) throw new Error("Provider body exceeds limit.");
+          chunks.push(value);
+        }
+      } finally { await reader.cancel(); }
+      const bytes = new Uint8Array(length);
+      let offset = 0;
+      for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+      return JSON.parse(new TextDecoder().decode(bytes));
+    }
     catch (error) {
       if (error?.name === "AbortError") throw new VrchatProviderError("Provider request timed out.", { category: "timeout" });
       throw new VrchatProviderError("Provider returned malformed JSON.", { status: response.status, category: "schema_drift" });

@@ -81,6 +81,16 @@ export const PublicGenreSchema = z
 export const PublicOutboundLinkSchema = z
   .object({
     label: z.string().min(1),
+    labelMode: z.enum(["automatic", "custom"]).optional(),
+    destination: z.object({
+      targetKey: z.string(),
+      kind: z.enum(["vrchat_user", "vrchat_group", "discord_guild"]),
+      entityId: z.string().optional(),
+      name: z.string().optional(),
+      artworkUrl: absoluteOrRootRelativeUrl.optional(),
+      status: z.enum(["pending", "resolved", "unavailable", "invalid"]),
+      observedAt: timestampMs.optional(),
+    }).optional(),
     source: z.string().optional(),
     type: z.string().optional(),
     url: absoluteUrl,
@@ -583,6 +593,7 @@ export const ApiProfileLinkInputSchema = z
     // every other type is rejected there unless it is already HTTPS.
     url: z.string().min(1).max(2_048),
     label: z.string().min(1).max(120).optional(),
+    labelMode: z.enum(["automatic", "custom"]).optional(),
     handle: z.string().min(1).max(160).optional(),
     presentation: z.enum(["icon", "copy"]).optional(),
   })

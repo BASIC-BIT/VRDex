@@ -1,3 +1,4 @@
+import { parseProfileLinkDestination } from "./_profileLinkDestination";
 import { ConvexError, v } from "convex/values";
 
 import {
@@ -83,6 +84,7 @@ export const profileLinkInputValidator = v.object({
   type: v.string(),
   url: v.string(),
   label: v.optional(v.string()),
+  labelMode: v.optional(v.union(v.literal("automatic"), v.literal("custom"))),
   handle: v.optional(v.string()),
   presentation: v.optional(v.string()),
   /**
@@ -119,7 +121,7 @@ export const PROFILE_LINK_URL_MAX_LENGTH = 2_048;
  * here because `parseVrcdnStreamLinks` already constrains it far more tightly.
  */
 const PROFILE_LINK_TYPE_HOSTS: Partial<Record<ProfileLinkType, readonly string[]>> = {
-  vrchat_profile: ["vrchat.com"],
+  vrchat_profile: ["vrchat.com", "vrc.group", "vrch.at"],
   discord: ["discord.com", "discord.gg", "discordapp.com"],
   soundcloud: ["soundcloud.com"],
   mixcloud: ["mixcloud.com"],
@@ -148,6 +150,7 @@ export type ProfileLinkSource =
 export type NormalizedProfileLink = {
   type: ProfileLinkType;
   label: string;
+  labelMode?: "automatic" | "custom";
   url: string;
   handle?: string;
   presentation?: "icon" | "copy";
@@ -175,7 +178,7 @@ export function normalizeOutboundLinks(value: unknown): NormalizedProfileLink[] 
     const link = requireRecord(entry, `Outbound link ${index + 1}`);
     assertOnlyKeys(
       link,
-      ["type", "label", "url", "handle", "presentation"],
+      ["type", "label", "labelMode", "url", "handle", "presentation"],
       `Outbound link ${index + 1}`,
     );
     const type = requireStringValue(link.type, "Outbound link type");
@@ -215,8 +218,12 @@ export function normalizeOutboundLinks(value: unknown): NormalizedProfileLink[] 
       throw new Error("Outbound link presentation must be icon or copy.");
     }
 
+    if (link.labelMode !== undefined && link.labelMode !== "automatic" && link.labelMode !== "custom") {
+      throw new Error("Outbound link label mode must be automatic or custom.");
+    }
     return {
       type,
+      ...optionalField("labelMode", link.labelMode as "automatic" | "custom" | undefined),
       label: normalizeInlineText(
         requireStringValue(link.label, "Outbound link label"),
         "Outbound link label",
@@ -313,7 +320,14 @@ export function sanitizeProfileLinks(
       throw new Error(`Outbound links can include at most ${PROFILE_LINK_MAX_COUNT} values.`);
     }
 
-    return normalizeOutboundLinks(links.map(prepareProfileLink)).map((link) => {
+    return normalizeOutboundLinks(links.map((entry, index) => {
+      const prepared = prepareProfileLink(entry, index);
+      if (prepared.labelMode === undefined && typeof prepared.url === "string" && parseProfileLinkDestination(prepared.url) && (source === "owner_authored" || source === "community_submitted")) {
+        const raw = requireRecord(entry, `Outbound link ${index + 1}`);
+        prepared.labelMode = typeof raw.label === "string" && raw.label.trim() ? "custom" : "automatic";
+      }
+      return prepared;
+    })).map((link) => {
       const allowedDomains = PROFILE_LINK_TYPE_HOSTS[link.type];
 
       if (allowedDomains !== undefined && !hostMatchesProvider(new URL(link.url).hostname, allowedDomains)) {

@@ -108,6 +108,28 @@ const telemetryWorker = httpAction(async (ctx, request) => {
       });
       return json({ assignments });
     }
+    if (body.operation.startsWith("destination_")) {
+      // Bind the collector identity and current credential generation inside
+      // the cache transaction too, closing the key-rotation dispatch race.
+      const worker = { collectorAccountId, workerId: body.workerId, workerKeyHash: presentedHash };
+      const destinations = internal.profileLinkDestinations;
+      if (body.operation === "destination_claim") {
+        return json(await ctx.runMutation(destinations.claimPending, {
+          provider: "vrchat", limit: 1, worker,
+        }));
+      }
+      if (typeof body.key !== "string" || typeof body.leaseToken !== "string") {
+        return json({ error: "invalid_request" }, 400);
+      }
+      const lease = { key: body.key, leaseToken: body.leaseToken, worker };
+      if (body.operation === "destination_release") {
+        return json(await ctx.runMutation(destinations.release, lease));
+      }
+      if (body.operation === "destination_result") {
+        return json(await ctx.runMutation(destinations.recordResult, { ...lease, result: body.result } as never));
+      }
+      return json({ error: "invalid_operation" }, 400);
+    }
     // Proof checks are not lease-scoped: they target verification attempts
     // rather than a community integration, so they are handled before the
     // lease validation below.

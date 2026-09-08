@@ -1,6 +1,8 @@
 import { setTimeout as sleep } from "node:timers/promises";
 
 import { VrchatClient } from "./vrchat-client.mjs";
+import { checkDestinationMetadata } from "./destination-jobs.mjs";
+import { resolveProfileLinkDestination } from "./profile-link-destination.mjs";
 import { COLLECTOR_PROTOCOL_VERSION, RequestBudget, TelemetryControlClient, boundedProviderCategory, collectorAuthRequiredEvent, collectorLoopFailureEvent, collectorRestartEvent, collectorRuntimeMetadata, collectorShouldRestart, failureDisposition, pollId, randomPollDelayMs, retryDelayMs, sessionCheckDelayMs } from "./runtime.mjs";
 
 function requiredEnv(name) {
@@ -495,8 +497,16 @@ while (!stopping) {
       loopPhase = "telemetry_collection";
       await collect(assignment);
     }
+    loopPhase = "destination_metadata";
+    // Metadata is read after proof and telemetry work and shares the proof
+    // reservation ceiling. Public page traffic cannot consume provider slots.
+    const destinationCount = stopping ? 0 : await checkDestinationMetadata({
+      control, provider, resolve: resolveProfileLinkDestination,
+      accountBudget, metadataBudget: proofBudget, heartbeat,
+      isStopping: () => stopping, reportDeadSession, pauseWithHeartbeats, logEvent,
+    });
     controlFailures = 0;
-    await pause(assignments.length > 0 || proofCount > 0 ? 1_000 : 10_000);
+    await pause(assignments.length > 0 || proofCount > 0 || destinationCount > 0 ? 1_000 : 10_000);
   } catch (error) {
     controlFailures += 1;
     logEvent(collectorLoopFailureEvent(error, loopPhase, controlFailures));

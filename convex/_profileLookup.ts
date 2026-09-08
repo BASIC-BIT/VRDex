@@ -1,3 +1,4 @@
+import type { ProfileLinkDestinationMetadata } from "./_profileLinkPresentation";
 import type { Doc } from "./_generated/dataModel";
 import { visibleProfileField, visibleProfileList } from "./_profileFieldVisibility";
 import { optionalField, safeHttpsUrl, safePublicImageUrl } from "./_publicFields";
@@ -5,7 +6,7 @@ import { safePublicLinkUrl } from "./_vrcdnLinks";
 import { getProfileTrustLabel } from "./_profileStates";
 import type { PublicProfileAvatarAppearance } from "./_profileAssets";
 
-type ProfileLookupLink = NonNullable<Doc<"profiles">["outboundLinks"]>[number] & { url: string };
+type ProfileLookupLink = NonNullable<Doc<"profiles">["outboundLinks"]>[number] & { url: string; destination?: ProfileLinkDestinationMetadata };
 type ProfileLookupGenre = NonNullable<Doc<"profiles">["genres"]>[number];
 
 const PROFILE_LOOKUP_LINK_PRIORITY = [
