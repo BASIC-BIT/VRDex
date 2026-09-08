@@ -1,6 +1,6 @@
 # Profile link display names: provider research
 
-Status: research supporting approved scope, 2026-09-08. No provider API calls or application changes performed. The motivating case is three indistinguishable VRChat group links on one person's profile. Names and artwork should describe destinations; they must not imply ownership or management. BASIC accepted Q3-Q8 and explicitly included destination artwork in the first version, superseding the earlier recommendation to defer it. See the companion design for decisions.
+Status: research snapshot supporting approved scope, 2026-09-08, captured before implementation and live provider checks. The motivating case is three indistinguishable VRChat group links on one person's profile. Names and artwork should describe destinations; they must not imply ownership or management. BASIC accepted Q3-Q8 and explicitly included destination artwork in the first version, superseding the earlier recommendation to defer it. See the [companion design](profile-link-display-names-design.md) for decisions and subsequent implementation evidence.
 
 ## Verified provider facts
 

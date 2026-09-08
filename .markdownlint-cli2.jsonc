@@ -22,7 +22,8 @@
     // the suite locally.
     "apps/web/playwright-report-storybook/**",
     "apps/web/test-results/**",
-    "apps/web/playwright-artifacts/**"
+    "apps/web/playwright-artifacts/**",
+    "artifacts/profile-link-destinations/**"
   ],
   "config": {
     "default": true,
