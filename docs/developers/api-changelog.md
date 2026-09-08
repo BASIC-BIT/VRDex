@@ -9,6 +9,12 @@ docs update and a changelog entry so early consumers and agents can adapt.
 
 ## Unreleased
 
+- upgraded the hosted and stdio MCP SDK to `@modelcontextprotocol/server` 2.0.0.
+  Modern `2026-07-28` discovery returns server identity in result `_meta` and
+  accepts requests without `clientInfo`; legacy initialization remains supported.
+  After application authorization, HTTP transport rejects missing or non-JSON
+  `Content-Type` with `415`; `application/json; charset=utf-8` remains accepted
+
 - added hosted MCP media contribution for public unclaimed person profiles.
   `vrdex_profile_media_submit` requires `mcp:write assets:contribute`, imports a
   public HTTPS image into a private proposal, and cannot publish or review it.

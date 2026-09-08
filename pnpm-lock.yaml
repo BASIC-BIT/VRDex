@@ -127,8 +127,8 @@ importers:
         specifier: ^7.6.3
         version: 7.6.3(next@16.1.6(@babel/core@7.29.0)(@opentelemetry/api@1.9.1)(@playwright/test@1.60.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       '@modelcontextprotocol/server':
-        specifier: 2.0.0-beta.2
-        version: 2.0.0-beta.2
+        specifier: 2.0.0
+        version: 2.0.0
       '@vercel/oidc-aws-credentials-provider':
         specifier: ^3.1.4
         version: 3.1.4
@@ -274,8 +274,8 @@ importers:
   packages/vrdex-mcp:
     dependencies:
       '@modelcontextprotocol/server':
-        specifier: 2.0.0-beta.2
-        version: 2.0.0-beta.2
+        specifier: 2.0.0
+        version: 2.0.0
       '@vrdex/api-contracts':
         specifier: workspace:*
         version: link:../api-contracts
@@ -2585,8 +2585,12 @@ packages:
       '@types/react': '>=16'
       react: '>=16'
 
-  '@modelcontextprotocol/server@2.0.0-beta.2':
-    resolution: {integrity: sha512-XK+sgFntT5ZzeqtTGpT9uti+Sqmq7YJZdx/N76eLJv9UA9vKvP04Qh9Hc45LCeIHGfTKRwDG6eh4C1Hs4omyIg==}
+  '@modelcontextprotocol/core@2.0.0':
+    resolution: {integrity: sha512-pJCEwGG7Lfr/+PQp9ZTwKXNeO5wzbfKL7H3MYpCorM4oFBoQrdjnBgEoqG+RjhsvS1FKrDbKux+M1HhlnGWqcA==}
+    engines: {node: '>=20'}
+
+  '@modelcontextprotocol/server@2.0.0':
+    resolution: {integrity: sha512-YhHWdHfpFMQfd0prsEnxKeS3Qz3ytIGmsS0sth4KDjnacIT7hxk6hXHkJ9KysxlkvTM+WZAtQbbcUhdoP4Hvtw==}
     engines: {node: '>=20'}
 
   '@napi-rs/wasm-runtime@0.2.12':
@@ -12629,9 +12633,14 @@ snapshots:
       '@types/react': 19.2.14
       react: 19.2.3
 
-  '@modelcontextprotocol/server@2.0.0-beta.2':
+  '@modelcontextprotocol/core@2.0.0':
     dependencies:
-      zod: 4.3.6
+      zod: 4.4.3
+
+  '@modelcontextprotocol/server@2.0.0':
+    dependencies:
+      '@modelcontextprotocol/core': 2.0.0
+      zod: 4.4.3
 
   '@napi-rs/wasm-runtime@0.2.12':
     dependencies:

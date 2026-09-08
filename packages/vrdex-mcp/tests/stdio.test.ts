@@ -501,6 +501,12 @@ test("serves VRDex tools over stdio and calls the configured API base URL", asyn
     });
     assert.equal(fixture.captured[8]?.method, "PATCH");
     assert.deepEqual(fixture.captured[8]?.body, { summary: null });
+    const exited = new Promise<number | null>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("stdio did not exit on EOF")), 5_000);
+      child.once("exit", (code) => { clearTimeout(timeout); resolve(code); });
+    });
+    child.stdin.end();
+    assert.equal(await exited, 0);
   } finally {
     child.stdin.end();
     child.kill();
@@ -579,6 +585,12 @@ test("keeps event write tools hidden when local stdio has no bearer credential",
       "vrdex_get_world",
       "vrdex_list_active_worlds",
     ]);
+    const exited = new Promise<number | null>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("stdio did not exit on EOF")), 5_000);
+      child.once("exit", (code) => { clearTimeout(timeout); resolve(code); });
+    });
+    child.stdin.end();
+    assert.equal(await exited, 0);
   } finally {
     child.stdin.end();
     child.kill();
