@@ -936,7 +936,7 @@ export const previewProfileFromBrowser = query({
       const imageUrl = `/api/account/media-kit/${encodeURIComponent(profile._id)}/assets/${encodeURIComponent(asset.assetId)}/file`;
       return { ...asset, imageUrl, downloadUrl: `${imageUrl}?download=1` };
     };
-    const mediaKit = owns ? {
+    const mediaKit = owns && !canReadProfile("public", profile) ? {
       ...publicMediaKit,
       profileImage: publicMediaKit.profileImage ? ownerAsset(publicMediaKit.profileImage) : undefined,
       banner: publicMediaKit.banner ? ownerAsset(publicMediaKit.banner) : undefined,

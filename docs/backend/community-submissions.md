@@ -81,11 +81,13 @@ search document, or audit event. The browser renders the result on demand; savin
 still uses the existing revision-checked mutation.
 
 The embedded preview omits site navigation and private record controls. Owner
-previews serve projected media through the existing authenticated asset route,
-so private profiles can preview images without making them public. The public
-field and asset filters still apply; preview does not include hidden assets.
-Owner previews omit the public logo ZIP download. Community contributors keep
-the public asset URLs and cannot use the owner asset route.
+previews of profiles that are not publicly readable serve projected media through
+the existing authenticated asset route, so private profiles can preview images
+without making them public. The public field and asset filters still apply;
+preview does not include hidden assets. These private-profile previews omit the
+public logo ZIP download. Publicly readable profiles retain public asset URLs and
+ZIP downloads, including when media editing is disabled. Community contributors
+keep public asset URLs and cannot use the owner asset route.
 
 Person-specific fields:
 

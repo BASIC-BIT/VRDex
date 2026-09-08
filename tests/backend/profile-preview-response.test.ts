@@ -126,6 +126,23 @@ it("uses authenticated asset routes for hidden owner previews without widening p
     assert.equal(await other.query(api.profileAssets.getOwnedAssetForStorage, { profileId, assetId }), null);
     await assert.rejects(other.query(api.profiles.previewProfileFromBrowser, { slug: "preview-assets", displayName: "Preview Assets" }), /Profile was not found/);
   }
+  await t.run((ctx) => ctx.db.patch(profileId, { publicSurfacingState: "public" }));
+  const mediaFlag = process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED;
+  try {
+    process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "false";
+    const publicOwnerPreview = await owner.query(api.profiles.previewProfileFromBrowser, {
+      slug: "preview-assets", displayName: "Preview Assets",
+    });
+    const publicPath = `/api/v0/profiles/preview-assets/assets/${assetId}/file`;
+    assert.equal(publicOwnerPreview.avatarImageUrl, publicPath);
+    assert.equal(publicOwnerPreview.bannerImageUrl, publicPath);
+    assert.equal(publicOwnerPreview.mediaKit.profileImage?.downloadUrl, `${publicPath}?download=1`);
+    assert.equal(publicOwnerPreview.mediaKit.logoZipUrl, "/api/v0/profiles/preview-assets/logos.zip");
+    assert.equal((await t.query(api.profileAssets.getPublicAssetForStorage, { slug: "preview-assets", assetId }))?.storageKey, "preview/asset.png");
+  } finally {
+    if (mediaFlag === undefined) delete process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED;
+    else process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = mediaFlag;
+  }
   await t.run((ctx) => ctx.db.patch(profileId, { publicSurfacingState: "public", claimState: "unclaimed" }));
   const contributor = await other.query(api.profiles.previewProfileFromBrowser, { slug: "preview-assets", aliases: ["Alias"] });
   assert.equal(contributor.mediaKit.profileImage?.imageUrl, `/api/v0/profiles/preview-assets/assets/${assetId}/file`);

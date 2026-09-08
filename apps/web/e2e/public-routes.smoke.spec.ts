@@ -486,9 +486,13 @@ test.describe("fixture lookup smoke", () => {
     await expect(watch).toBeVisible();
     await expect(watch.getByRole("link", { name: "Open preview" })).toBeVisible();
     await expectProfilePlaybackLinks(page, 1);
+    let copiedPlayback = "";
+    await page.exposeFunction("capturePlaybackCopy", (value: string) => { copiedPlayback = value; });
     await page.evaluate(() => {
       Object.defineProperty(navigator, "clipboard", { configurable: true, value: {
-        writeText: async (value: string) => { window.localStorage.setItem("test-playback-copy", value); },
+        writeText: (value: string) => (window as unknown as {
+          capturePlaybackCopy: (value: string) => Promise<void>;
+        }).capturePlaybackCopy(value),
       } });
     });
     const playback = watch.locator("details");
@@ -500,7 +504,7 @@ test.describe("fixture lookup smoke", () => {
       await expect(playback.getByText(value, { exact: true })).toBeVisible();
       await playback.getByRole("button", { name: `Copy ${label}`, exact: true }).click();
       await expect(playback.getByRole("button", { name: `${label} copied`, exact: true })).toBeVisible();
-      await expect.poll(() => page.evaluate(() => window.localStorage.getItem("test-playback-copy"))).toBe(value);
+      await expect.poll(() => copiedPlayback).toBe(value);
     }
     await playback.locator("summary").click();
     await expect(playback).not.toHaveAttribute("open");
