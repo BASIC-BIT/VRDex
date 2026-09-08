@@ -21,7 +21,7 @@ test.afterEach(async () => {
   cleanupFixture = undefined;
 });
 
-type Submission = { submissionId: string; status: string; approvedAssetId?: string };
+type Submission = { submissionId: string; status: string; approvedAssetId?: string; publicDisposition?: string };
 type MediaResult = { replayed: boolean; submission: Submission };
 type RpcResult<T> = { isError?: boolean; structuredContent?: T; content?: { type: string; text?: string }[] };
 
@@ -106,6 +106,10 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
   const source = await request.get(sourceUrl);
   expect(source.status(), "Public synthetic image source must be enabled before creating fixtures").toBe(200);
   expect(source.headers()["content-type"]).toMatch(/^image\//);
+  const rejectionSourceUrl = `${baseURL}/test-media/rejected-image.png`;
+  const rejectionSource = await request.get(rejectionSourceUrl);
+  expect(rejectionSource.status()).toBe(200);
+  expect(rejectionSource.headers()["content-type"]).toMatch(/^image\//);
 
   const runId = mediaFixtureRunId(process.env);
   const existing = await request.post("/api/e2e/media", { headers, data: { op: "lookup", runId } });
@@ -192,6 +196,12 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
   const submitted = await call<MediaResult>(request, authA.access_token, "vrdex_profile_media_submit", input);
   expect(submitted.replayed).toBe(false);
   expect(submitted.submission.status).toBe("submitted");
+  const cooldown = await rpc(request, authA.access_token, "vrdex_profile_media_submit", {
+    ...input, idempotencyKey: `${runId}-cooldown`,
+  });
+  expectRefusal(cooldown, "Media submissions are temporarily rate limited. Wait before trying a new request.");
+  // One genuine cooldown refusal, without changing rate policy or flooding requests.
+  stages.push("sanitized submission cooldown refusal");
   const replay = await call<MediaResult>(request, authA.access_token, "vrdex_profile_media_submit", input);
   expect(replay.replayed).toBe(true);
   expect(replay.submission.submissionId).toBe(submitted.submission.submissionId);
@@ -219,6 +229,15 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
   await expect(pageA.getByText("Profile media review access is required.")).toBeVisible();
   stages.push("caller-only status, public isolation and contributor review refusal");
 
+  // Let the normal creation cooldown expire before the second proposal.
+  // The refused key is durable and must not be reused for this request.
+  await new Promise((resolve) => setTimeout(resolve, 31_000));
+  const rejectedCandidate = await call<MediaResult>(request, authA.access_token, "vrdex_profile_media_submit", {
+    ...input, sourceUrl: rejectionSourceUrl, idempotencyKey: `${runId}-reject`,
+  });
+  expect(rejectedCandidate.submission.status).toBe("submitted");
+  expect(rejectedCandidate.submission.submissionId).not.toBe(submitted.submission.submissionId);
+
   const assign = await request.post("/api/e2e/media", { headers, data: { op: "assign-review-owner", runId, profileId, reviewerEmail: b.email } });
   expect(assign.status(), "Assign only this synthetic profile to B").toBe(200);
   const claimedProfile = await call<{ updatedAt: number }>(request, undefined, "vrdex_get_profile", { slug: profile.slug });
@@ -227,7 +246,35 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
   });
   expectRefusal(claimed, "The public profile is claimed, so its owner manages profile media.");
   await pageB.goto("/account/media-review");
-  await pageB.getByRole("button", { name: "Start review", exact: true }).click();
+  const rejectFile = `/api/account/media-review/submissions/${rejectedCandidate.submission.submissionId}/file`;
+  const rejectCard = pageB.locator("section").filter({ has: pageB.locator(`img[src="${rejectFile}"]`) });
+  await rejectCard.getByRole("button", { name: "Start review", exact: true }).click();
+  await pageB.getByRole("combobox", { name: "Status", exact: true }).selectOption("under_review");
+  const privateRejection = `Private fixture rejection ${runId}`;
+  const disposition = "Synthetic candidate rejected.";
+  await rejectCard.getByLabel("Private review reason", { exact: true }).fill(privateRejection);
+  await rejectCard.getByLabel("Contributor-visible disposition", { exact: true }).fill(disposition);
+  await rejectCard.getByRole("button", { name: "Reject", exact: true }).click();
+  await expect.poll(async () => {
+    const history = await call<{ submissions: Submission[] }>(request, authA.access_token, "vrdex_list_my_media_submissions", {});
+    const rejected = history.submissions.find((row) => row.submissionId === rejectedCandidate.submission.submissionId);
+    expect(JSON.stringify(history)).not.toContain(privateRejection);
+    return { status: rejected?.status, disposition: rejected?.publicDisposition, asset: rejected?.approvedAssetId };
+  }).toEqual({ status: "rejected", disposition, asset: undefined });
+  const rejectedState = await request.post("/api/e2e/media", { headers, data: { op: "inspect", runId, profileId } });
+  expect(rejectedState.status()).toBe(200);
+  expect((await rejectedState.json()).assets).toEqual([]);
+  const stillUnpublished = await call<{ avatarImageUrl?: string }>(request, undefined, "vrdex_get_profile", { slug: profile.slug });
+  expect(stillUnpublished.avatarImageUrl).toBe(before.avatarImageUrl);
+  for (const privateValue of [privateRejection, disposition, sourceUrl, rejectionSourceUrl])
+    expect(JSON.stringify(stillUnpublished)).not.toContain(privateValue);
+  const reviewerHistory = await call<{ submissions: Submission[] }>(request, authB.access_token, "vrdex_list_my_media_submissions", {});
+  expect(reviewerHistory.submissions).toEqual([]);
+  stages.push("different owner rejection, private reason isolation and no public rejected asset");
+
+  await pageB.getByRole("combobox", { name: "Status", exact: true }).selectOption("submitted");
+  const approveCard = pageB.locator("section").filter({ has: pageB.locator(`img[src="${privateFile}"]`) });
+  await approveCard.getByRole("button", { name: "Start review", exact: true }).click();
   await pageB.getByRole("combobox", { name: "Status", exact: true }).selectOption("under_review");
   await pageB.getByLabel("Private review reason", { exact: true }).fill("Synthetic two-user staging acceptance.");
   await pageB.getByRole("button", { name: "Approve", exact: true }).click();
@@ -243,6 +290,15 @@ test("contributor A submits and different owner B reviews media @media-lifecycle
   expect(published.avatarImageUrl).toBeTruthy();
   expect((await request.get(published.avatarImageUrl!)).ok()).toBe(true);
   stages.push("different owner browser approval and one public community_submitted asset");
+
+  const audit = await request.post("/api/e2e/media", { headers, data: { op: "inspect-audit", runId, profileId } });
+  expect(audit.status()).toBe(200);
+  const auditEvidence = await audit.json() as { auditRows: number; toolRows: number; deniedToolRows: number; redacted: boolean };
+  expect(auditEvidence.auditRows).toBe(2);
+  expect(auditEvidence.toolRows).toBeGreaterThanOrEqual(7);
+  expect(auditEvidence.deniedToolRows).toBeGreaterThanOrEqual(4);
+  expect(auditEvidence.redacted).toBe(true);
+  stages.push("bounded contributor write-audit and tool-event redaction checks");
 
   const revoke = await request.post("/oauth/revoke", { form: { client_id: authA.clientId, token: authA.refresh_token, token_type_hint: "refresh_token" } });
   expect(revoke.status()).toBe(200);

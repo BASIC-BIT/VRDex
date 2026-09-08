@@ -86,6 +86,41 @@ async function seed() {
 }
 
 describe("bounded staging media fixture", () => {
+  it("checks only the run contributor's bounded audit rows without returning identifiers", async () => {
+    const { t, args, users } = await seed();
+    const event = {
+      actorUserId: users.contributorId,
+      oauthClientId: "fixture-client", oauthTokenId: "fixture-token-id",
+      requestId: "fixture-request", toolName: "vrdex_profile_media_submit" as const,
+      routeClass: "authenticated_mcp_write" as const,
+      eventType: "tool_invocation" as const, result: "denied" as const,
+      createdAt: Date.now(),
+    };
+    const id = await t.run(async (ctx) => {
+      await ctx.db.insert("mcpToolEvents", { ...event, actorUserId: users.reviewerId });
+      await ctx.db.insert("apiWriteAuditEvents", {
+        actorUserId: users.contributorId, actorKind: "user_delegated_oauth",
+        action: "profile_media_submission_submitted", resourceType: "profile_media_submission",
+        result: "accepted", routeClass: "authenticated_mcp_write",
+        mcpToolName: "vrdex_profile_media_submit", targetProfileId: args.profileId,
+        createdAt: Date.now(),
+      });
+      return await ctx.db.insert("mcpToolEvents", event);
+    });
+    assert.deepEqual(await t.query(internal.e2eMedia.inspectAudit, args), {
+      auditRows: 1, toolRows: 1, deniedToolRows: 1, redacted: true,
+    });
+    await t.run((ctx) => ctx.db.patch(id, { requestId: "https://private.invalid/source?signature=secret" }));
+    await assert.rejects(t.query(internal.e2eMedia.inspectAudit, args), /Audit redaction check failed/);
+    const storageKey = await t.run(async (ctx) => (await ctx.db.query("profileAssetUploadIntents").first())!.storageKey);
+    await t.run((ctx) => ctx.db.patch(id, { requestId: storageKey }));
+    await assert.rejects(t.query(internal.e2eMedia.inspectAudit, args), /Audit redaction check failed/);
+    await t.run((ctx) => ctx.db.patch(id, { requestId: "fixture-request" }));
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 100; i++) await ctx.db.insert("mcpToolEvents", event);
+    });
+    await assert.rejects(t.query(internal.e2eMedia.inspectAudit, args), /Audit fixture bound exceeded/);
+  });
   it("recovers the exact fixture by durable run ID and rejects unrelated slug collisions", async () => {
     const { t, args } = await seed();
     assert.deepEqual(

@@ -3,7 +3,7 @@
 The opt-in `apps/web/e2e/media-contribution.flow.spec.ts` exercises a real
 user-delegated OAuth contribution and a different Clerk user's browser review.
 It uses only synthetic accounts, a synthetic person profile and the existing
-solid-color fixture image. It does not prove a live VRChat claim or a real VRCDN
+solid-color fixture images. It does not prove a live VRChat claim or a real VRCDN
 stream transition.
 
 ## Current evidence boundary
@@ -26,6 +26,13 @@ users. Restoration run `33991495268` passed and restored the captured baseline
 and three temporary flags. This is synthetic media lifecycle evidence, not a
 real claim or controlled stream transition.
 
+The current integration starts from main
+`4ead2d0f36e86e6e93bc0a01a798b3761979ca85`, retaining the newer claiming changes.
+It adds a second, different image for reviewer rejection, one normal cooldown
+refusal, and bounded audit-ledger inspection. These additions have local test
+coverage but require a new exact-candidate staging run. The September 5 pass
+does not prove these new assertions or the current baseline.
+
 ## Preconditions
 
 - Obtain operator approval before deploying a candidate or changing staging
@@ -38,8 +45,10 @@ real claim or controlled stream transition.
 - Enable the existing media-kit and media-submission flags in the web and
   backend as required by their normal import/review paths. Verify storage is
   configured. The fixture preflight runs before account creation.
-- The synthetic image is the static 64px solid-color PNG at
-  `/test-media/profile-image.png`. The test fetches it before creating accounts.
+- The synthetic images are static 64px solid-color PNGs at
+  `/test-media/profile-image.png` and `/test-media/rejected-image.png`.
+  Different content avoids the normal duplicate-image refusal. The test fetches
+  both before creating accounts.
   No application-wide Playwright fixture mode is enabled.
 - Supply the matching Clerk development secret/publishable keys and existing
   E2E browser token through the runner environment. A Vercel environment pull
@@ -81,19 +90,33 @@ context; subsequent evidence attachments use `testInfo`, not a live browser.
 1. A and B have separate Clerk identities and browser contexts. Each authorizes
    only `mcp:read mcp:write assets:contribute`.
 2. A submits an image to an unclaimed person. Same-key replay returns the same
-   submission; conflicting reuse and stale revisions are refused.
+   submission; conflicting reuse and stale revisions are refused. One immediate
+   new-key request must return the exact sanitized cooldown message. After
+   waiting 31 seconds without changing rate policy, A submits the second image
+   under a new key. This is submission-cooldown evidence, not transport-wide
+   HTTP 429 or daily-quota exhaustion coverage.
 3. A can read the submission; B cannot enumerate it. Public profile projection
    contains no new image before review, and anonymous/A review-file requests
    return the exact sign-in-required 401 and review-access-required 403 responses.
    Unexpected backend/storage failures remain errors rather than authorization
    evidence. A cannot enter the review queue.
 4. The fixture assigns only that synthetic profile to B after submission.
-   Further contributor submissions to the claimed target are refused. B uses
-   the normal browser review controls to approve, creating one public asset
-   with `community_submitted` provenance.
-5. Revoking A's grant refuses subsequent authenticated status reads while
+   Further contributor submissions to the claimed target are refused. B rejects
+   the second image through normal browser controls. A sees the contributor
+   disposition but not the private reason; B's caller-only history stays empty.
+   No public asset exists after rejection, and public projection excludes the
+   source URLs and review reasons. B approves the first image, creating one
+   public asset with `community_submitted` provenance.
+5. The staging-only audit inspector bounds each ledger read to 101 rows for
+   the exact run-linked contributor and refuses overflow above 100. It checks
+   field allowlists and absence of URL/bearer/image-data markers and the fixture's
+   source URLs, private notes, upload tokens and storage keys. It returns only
+   counts and a redaction boolean, requiring two accepted submission audit rows
+   and recorded denied tool calls. It never returns ledger payloads or removes
+   retained audit rows. This is bounded fixture evidence, not a global audit.
+6. Revoking A's grant refuses subsequent authenticated status reads while
    anonymous profile reads remain available.
-6. Cleanup removes only the run's fixture objects and media rows before the
+7. Cleanup removes only the run's fixture objects and media rows before the
    existing profile/account cleanup removes its synthetic identities.
 
 Assigning fixture ownership is setup for media authorization testing. It is
@@ -101,9 +124,10 @@ not evidence that the real claiming process succeeded. Unclaimed-profile
 super-admin review remains covered by backend tests rather than this browser
 scenario. Hidden-target refusal, quota/cooldown, import-safety and retention
 timing also retain their existing backend/importer coverage.
-The lifecycle does not inspect retained audit ledgers. Issue #297's staged
-audit-redaction and sanitized rate-limit evidence remain separate production
-rollout gates; this passing test does not close them.
+The historical lifecycle did not inspect retained audit ledgers. Issue #297's
+staged audit-redaction and sanitized rate-limit gates remain open until a new
+run proves the added assertions. Any wider transport rate-limit requirement
+still needs separate evidence.
 
 ## Cleanup and recovery
 

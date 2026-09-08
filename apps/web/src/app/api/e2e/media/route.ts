@@ -117,6 +117,8 @@ async function execute(request: NextRequest, cleanup: boolean) {
       return NextResponse.json(
         await client.query(internal.e2eMedia.inspect, args),
       );
+    if (body.op === "inspect-audit")
+      return NextResponse.json(await client.query(internal.e2eMedia.inspectAudit, args));
     if (
       body.op === "assign-review-owner" &&
       typeof body.reviewerEmail === "string"

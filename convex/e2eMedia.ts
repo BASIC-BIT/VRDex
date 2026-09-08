@@ -186,6 +186,54 @@ export const inspect = internalQuery({
   },
 });
 
+// Only aggregate evidence leaves this fixture. Never return retained ledger rows.
+export const inspectAudit = internalQuery({
+  args: fixtureArgs,
+  handler: async (ctx, args) => {
+    await fixture(ctx, args);
+    const contributor = await ctx.db.query("users")
+      .withIndex("email", (q) => q.eq("email", `${args.runId}-contributor+clerk_test@e2e.vrdex.net`))
+      .unique();
+    if (!contributor?.clerkUserId || contributor.emailVerificationTime === undefined)
+      throw new Error("Verified fixture contributor required.");
+    const [audit, tools] = await Promise.all([
+      ctx.db.query("apiWriteAuditEvents")
+        .withIndex("by_actorUserId_createdAt", (q) => q.eq("actorUserId", contributor._id)).take(101),
+      ctx.db.query("mcpToolEvents")
+        .withIndex("by_actorUserId_createdAt", (q) => q.eq("actorUserId", contributor._id)).take(101),
+    ]);
+    if (audit.length > 100 || tools.length > 100) throw new Error("Audit fixture bound exceeded.");
+    const common = ["_id", "_creationTime", "actorUserId", "ownerUserId", "oauthClientId", "oauthTokenId",
+      "requestId", "idempotencyKeyHash", "targetProfileId", "targetEventId", "routeClass", "result", "createdAt"];
+    const auditKeys = new Set([...common, "action", "actorKind", "mcpToolName", "resourceType",
+      "targetIntentId", "targetSubmissionId", "assetIds"]);
+    const toolKeys = new Set([...common, "toolName", "eventType"]);
+    const data = await rows(ctx, args.profileId);
+    const privateValues = [
+      ...data.submissions.flatMap((s) => [s.sourceUrl, s.privateReason, s.contributorNote]),
+      ...data.intents.flatMap((i) => [i.uploadToken, i.storageKey, i.quarantineStorageKey,
+        i.sourceStorageKey, i.downloadStorageKey]),
+    ].filter((value): value is string => typeof value === "string" && value.length > 0);
+    for (const [entries, allowed] of [[audit, auditKeys], [tools, toolKeys]] as const) {
+      for (const entry of entries) {
+        const serialized = JSON.stringify(entry);
+        if (Object.keys(entry).some((key) => !allowed.has(key)) ||
+          /https?:\/\/|data:image\/|Bearer\s/i.test(serialized) ||
+          privateValues.some((value) => serialized.includes(JSON.stringify(value).slice(1, -1))))
+          throw new Error("Audit redaction check failed.");
+      }
+    }
+    const mediaAudit = audit.filter((row) => row.result === "accepted" && row.action === "profile_media_submission_submitted" &&
+      row.mcpToolName === "vrdex_profile_media_submit" && row.targetProfileId === args.profileId);
+    const mediaTools = tools.filter((row) => row.toolName === "vrdex_profile_media_submit");
+    return {
+      auditRows: mediaAudit.length, toolRows: mediaTools.length,
+      deniedToolRows: mediaTools.filter((row) => row.result === "denied").length,
+      redacted: true,
+    };
+  },
+});
+
 async function cleanupRows(
   ctx: QueryCtx,
   args: { secret: string; runId: string; profileId: Id<"profiles"> },
