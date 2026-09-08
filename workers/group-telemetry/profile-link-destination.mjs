@@ -28,22 +28,12 @@ export function allowedDestinationArtworkUrl(value, kind) {
   try {
     const url = new URL(value);
     if (url.protocol !== "https:" || url.username || url.password || url.port || url.hash) return undefined;
-    if (kind === "discord_guild") {
-      return url.hostname === "cdn.discordapp.com" && /^\/icons\/\d{5,25}\/(?:a_)?[a-f0-9]{32}\.png$/i.test(url.pathname)
-        && [...url.searchParams.keys()].every((key) => key === "size") ? url.href : undefined;
-    }
-    // Provider file endpoints redirect to these public image distributions. No credentials are sent.
-    const apiFile = ["api.vrchat.cloud", "api.vrchat.com"].includes(url.hostname)
-      && /^\/api\/1\/file\/file_[a-f0-9-]{36}\/\d+\/file$/i.test(url.pathname);
-    const imageFile = url.hostname === "files.vrchat.cloud" && /^\/file_[a-f0-9-]{36}\/\d+\/file$/i.test(url.pathname);
-    const signedBlob = url.hostname === "files.vrchat.cloud" && /^\/file_[a-f0-9-]{36}_blob$/i.test(url.pathname)
-      && /^\d{1,12}$/.test(url.searchParams.get("Expires") ?? "")
-      && /^[a-z0-9]+$/i.test(url.searchParams.get("Key-Pair-Id") ?? "")
-      && /^[a-z0-9_~-]+$/i.test(url.searchParams.get("Signature") ?? "")
-      && [...url.searchParams.keys()].length === 3
-      && [...url.searchParams.keys()].every(key => ["Expires", "Key-Pair-Id", "Signature"].includes(key));
-    if (signedBlob) return url.href;
-    return (apiFile || imageFile) && !url.search ? url.href : undefined;
+    // Provider-returned media only. Recheck this policy on every redirect;
+    // the importer separately pins public IPs and bounds and re-encodes image data.
+    const hosts = kind === "discord_guild" ? ["cdn.discordapp.com"]
+      : kind === "vrchat_user" || kind === "vrchat_group"
+        ? ["api.vrchat.cloud", "api.vrchat.com", "files.vrchat.cloud"] : [];
+    return hosts.includes(url.hostname) ? url.href : undefined;
   } catch { return undefined; }
 }
 
@@ -100,7 +90,9 @@ export async function resolveProfileLinkDestination(target, { requestVrchat, fet
       if (invite.type !== 0) return { status: "inaccessible" };
       if (invite.code !== target.locator || typeof guild.id !== "string" || !/^\d{5,25}$/.test(guild.id) || !name(guild.name)) return { status: "transient" };
       if (typeof invite.expires_at === "string" && Number.isFinite(Date.parse(invite.expires_at)) && Date.parse(invite.expires_at) <= Date.now()) return { status: "invalid" };
-      const artworkSourceUrl = allowedDestinationArtworkUrl(`https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.png?size=128`, target.kind);
+      const artworkSourceUrl = typeof guild.icon === "string" && guild.icon.trim()
+        ? allowedDestinationArtworkUrl(`https://cdn.discordapp.com/icons/${guild.id}/${encodeURIComponent(guild.icon)}.png?size=128`, target.kind)
+        : undefined;
       return { status: "resolved", entityId: guild.id, displayName: name(guild.name), ...(artworkSourceUrl ? { artworkSourceUrl } : {}) };
     } catch { return { status: "transient" }; }
   }
