@@ -108,6 +108,11 @@ Run this before manual client smokes:
 pnpm smoke:mcp-compat
 ```
 
+The command runs one generic local stdio protocol smoke against the API fixture,
+covering initialization, tool listing, and all curated read tool calls. Its
+`Local stdio MCP protocol` result is shared protocol evidence. Actual client
+integration runs and their recorded evidence establish client compatibility.
+
 For hosted data-backed evidence, add `--hosted-data`. The hosted compatibility
 smoke then requires both the VRDex-specific `vrdex_search` tool and the
 OpenAI-compatible `search` plus `fetch` aliases to return real public data. Use
