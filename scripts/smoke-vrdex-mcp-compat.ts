@@ -117,16 +117,6 @@ function assertHostedToolSecuritySchemes(tool: HostedToolDescriptor) {
   }
 }
 
-const localClientProfiles = [
-  { name: "Claude Desktop", clientName: "claude-desktop" },
-  { name: "Claude Code", clientName: "claude-code" },
-  { name: "Gemini CLI", clientName: "gemini-cli" },
-  { name: "VS Code", clientName: "vscode" },
-  { name: "Cursor", clientName: "cursor" },
-  { name: "Devin Desktop / Windsurf Cascade", clientName: "devin-windsurf-cascade" },
-  { name: "MCP Inspector", clientName: "mcp-inspector" },
-];
-
 function envFlag(name: string) {
   const value = process.env[name]?.trim().toLowerCase();
 
@@ -275,7 +265,7 @@ function waitForMessage(
   });
 }
 
-async function smokeLocalStdioProfile(profile: (typeof localClientProfiles)[number]) {
+async function smokeLocalStdioProtocol() {
   const fixture = await startVrdexMcpApiFixture();
   const messages: JsonRpcMessage[] = [];
   const stderr: string[] = [];
@@ -319,19 +309,19 @@ async function smokeLocalStdioProfile(profile: (typeof localClientProfiles)[numb
       method: "initialize",
       params: {
         capabilities: {},
-        clientInfo: { name: profile.clientName, version: "smoke" },
+        clientInfo: { name: "vrdex-mcp-stdio-smoke", version: "smoke" },
         protocolVersion: "2025-06-18",
       },
     });
 
-    const initialized = await waitForMessage(messages, onMessage, 1, stderr, profile.name);
+    const initialized = await waitForMessage(messages, onMessage, 1, stderr, "Local stdio MCP protocol");
 
     assert.equal(Boolean(initialized.error), false);
 
     send({ jsonrpc: "2.0", method: "notifications/initialized", params: {} });
     send({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
 
-    const tools = await waitForMessage(messages, onMessage, 2, stderr, profile.name);
+    const tools = await waitForMessage(messages, onMessage, 2, stderr, "Local stdio MCP protocol");
     const toolNames = ((tools.result as { tools: Array<{ name: string }> }).tools).map((tool) => tool.name);
 
     assert.deepEqual(toolNames, localExpectedTools);
@@ -1105,14 +1095,12 @@ async function main() {
   const results: SmokeResult[] = [];
 
   if (!options.hostedOnly) {
-    for (const profile of localClientProfiles) {
-      await smokeLocalStdioProfile(profile);
-      results.push({
-        details: "stdio initialize, tool list, and all curated read tool calls passed",
-        name: `Local stdio MCP - ${profile.name}`,
-        status: "pass",
-      });
-    }
+    await smokeLocalStdioProtocol();
+    results.push({
+      details: "stdio initialize, tool list, and all curated read tool calls passed",
+      name: "Local stdio MCP protocol",
+      status: "pass",
+    });
   }
 
   await smokeHostedHttp(results, options);

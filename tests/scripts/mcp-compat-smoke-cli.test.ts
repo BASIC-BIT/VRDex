@@ -479,7 +479,19 @@ async function startHostedSuccessFixture() {
 }
 
 describe("MCP compatibility smoke CLI", () => {
-  it("can run hosted-only without local stdio profiles", () => {
+  it("reports one generic local protocol smoke without claiming client compatibility", () => {
+    const result = runSmoke([]);
+
+    assert.equal(result.status, 0, result.stderr);
+    const localRows = result.stdout.split(/\r?\n/).filter((line) => line.startsWith("| Local stdio MCP"));
+    assert.deepEqual(localRows, [
+      "| Local stdio MCP protocol | pass | stdio initialize, tool list, and all curated read tool calls passed |",
+    ]);
+    assert.match(result.stdout, /\| Smoke target \| Status \| Details \|/);
+    assert.match(result.stdout, /\| Hosted Streamable HTTP MCP \| skip \|/);
+  });
+
+  it("can run hosted-only without the local stdio protocol smoke", () => {
     const result = runSmoke(["--hosted-only"]);
 
     assert.equal(result.status, 0, result.stderr);

@@ -108,6 +108,11 @@ Run this before manual client smokes:
 pnpm smoke:mcp-compat
 ```
 
+The command runs one generic local stdio protocol smoke against the API fixture,
+covering initialization, tool listing, and all curated read tool calls. Its
+`Local stdio MCP protocol` result is shared protocol evidence. Actual client
+integration runs and their recorded evidence establish client compatibility.
+
 For hosted data-backed evidence, add `--hosted-data`. The hosted compatibility
 smoke then requires both the VRDex-specific `vrdex_search` tool and the
 OpenAI-compatible `search` plus `fetch` aliases to return real public data. Use
@@ -376,10 +381,9 @@ backend, the lane fails and names that prerequisite instead of downgrading
 coverage.
 
 The command starts the local stdio MCP package against a local API fixture and
-replays initialize, tool-list, and every curated read-tool call with protocol
-profiles for Claude Desktop, Claude Code, Gemini CLI, VS Code, Cursor, Devin
-Desktop / Windsurf Cascade, and MCP Inspector. It verifies the shared MCP
-protocol path these clients use, not the clients' UI or account flows.
+runs initialize, tool-list, and every curated read-tool call once under a generic
+smoke-client identity. This verifies the shared MCP protocol path. Client UI and
+account flows require the separate client integration smokes.
 
 The manual smoke result artifact is
 `docs/developers/mcp-client-smoke-results.json`. `pnpm verify:vrdex-mcp`
