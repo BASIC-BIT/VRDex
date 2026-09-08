@@ -2,6 +2,7 @@ const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const GROUP_ID = new RegExp(`^grp_${UUID}$`, "i");
 const USER_ID = new RegExp(`^usr_${UUID}$`, "i");
 const GROUP_CODE = /^[a-z0-9]{3,6}\.\d{4}$/i;
+const GROUP_REDIRECT = new RegExp(`^(?:https://vrchat\\.com)?/home/group/(grp_${UUID})/?$`, "i");
 const INVITE_CODE = /^[a-z0-9_-]{1,100}$/i;
 const USER_AGENT = "VRDex/1.0 (https://vrdex.net)";
 
@@ -102,7 +103,7 @@ export async function resolveProfileLinkDestination(target, { requestVrchat, fet
     let id = target.locator;
     if (target.kind === "vrchat_group" && GROUP_CODE.test(id)) {
       // The fixed redirect endpoint resolves the exact code, never a fuzzy group search.
-      const { response } = await boundedResponse(`https://api.vrchat.com/api/1/groups/redirect/${encodeURIComponent(id)}`, fetcher);
+      const { response } = await boundedResponse(`https://api.vrchat.cloud/api/1/groups/redirect/${encodeURIComponent(id)}`, fetcher);
       if (response.status === 429) {
         const error = new Error("Group redirect rate limited");
         error.status = 429;
@@ -112,10 +113,10 @@ export async function resolveProfileLinkDestination(target, { requestVrchat, fet
       }
       if (response.status === 404 || response.status === 410) return { status: "invalid" };
       if (![301, 302, 303, 307, 308].includes(response.status)) return { status: "transient" };
-      const destination = new URL(response.headers.get("location") ?? "", "https://api.vrchat.com");
-      if (destination.origin !== "https://vrchat.com" || destination.search || destination.hash) return { status: "transient" };
-      const match = destination.pathname.match(/^\/home\/group\/([^/]+)\/?$/);
-      if (!match || !GROUP_ID.test(match[1])) return { status: "transient" };
+      // The canonical API returns a root-relative group path. Also accept its
+      // public absolute form, extracting the ID without following the redirect.
+      const match = (response.headers.get("location") ?? "").match(GROUP_REDIRECT);
+      if (!match) return { status: "transient" };
       id = match[1];
     }
     const isGroup = target.kind === "vrchat_group";

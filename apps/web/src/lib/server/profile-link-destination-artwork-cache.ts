@@ -30,7 +30,13 @@ export function createDestinationArtworkCache(dependencies: Dependencies) {
     if (existing) return existing;
     const work = (async () => {
       const now = dependencies.now();
-      const stored = await dependencies.read(key);
+      const stored = await dependencies.read(key).catch((error: unknown) => {
+        // S3 returns AccessDenied for missing objects when the runtime lacks
+        // ListBucket. This derived cache key can be rebuilt without that grant.
+        // A successful import must still be persisted before we return it.
+        if (error && typeof error === "object" && "name" in error && error.name === "AccessDenied") return null;
+        throw error;
+      });
       let previous: Cache | undefined;
       if (stored && stored.body.byteLength <= 180 * 1024) {
         try {
