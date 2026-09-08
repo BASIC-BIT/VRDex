@@ -6,6 +6,9 @@ it("recognizes provider URLs without mistaking lookalike hosts for providers", (
   assert.equal(detectProfileLinkType("https://www.twitch.tv/basic_bit"), "twitch");
   assert.equal(detectProfileLinkType("https://artist.bandcamp.com/album/one"), "bandcamp");
   assert.equal(detectProfileLinkType("https://youtu.be/abc"), "youtube");
+  assert.equal(detectProfileLinkType("https://vrc.group/VELVET.1234"), "vrchat_profile");
+  assert.equal(detectProfileLinkType("https://vrch.at/usr_00000000-0000-0000-0000-000000000001"), "vrchat_profile");
+  assert.equal(detectProfileLinkType("https://vrc.group.example.com/VELVET.1234"), "website");
   assert.equal(detectProfileLinkType("https://twitch.tv.example.com/basic"), "website");
   assert.equal(detectProfileLinkType("https://twitch.tv@example.com/basic"), "website");
   assert.equal(detectProfileLinkType("https://example.com/?url=twitch.tv"), "website");

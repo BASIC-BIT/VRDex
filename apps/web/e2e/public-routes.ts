@@ -264,7 +264,7 @@ export async function expectPrivateSeedLookupPage(page: Page) {
   await expect(privateResult.getByText("Northstar", { exact: true })).toBeVisible();
   await expect(privateResult).not.toContainText(/Private seed|NWinn|Source|Reviewed|Freshness|Jul 9, 2026|Checked Jul 8, 2026/);
   await expect(privateResult.getByRole("link", { name: "Twitch: dj-northstar" })).toBeVisible();
-  await expect(privateResult.getByRole("link", { name: "VRChat profile: vrchat.com" })).toBeVisible();
+  await expect(privateResult.getByRole("link", { name: "VRChat profile VRChat", exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "Open profile", exact: true })).toHaveCount(0);
 }
 

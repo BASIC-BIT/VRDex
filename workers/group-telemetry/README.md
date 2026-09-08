@@ -15,12 +15,26 @@ Required environment after the real-provider and explicit provider-approval depl
 
 Optional `VRDEX_GROUP_TELEMETRY_REQUESTS_PER_MINUTE` defaults to 30. Global, account, and integration kill switches in the control plane stop claims. ECS desired count is the live infrastructure stop; the SSM value prevents a disabled task revision from starting and is re-read when tasks restart.
 
-The worker reports `telemetry_v1` and `vrchat_proof_v1` capabilities with its
+The worker reports `telemetry_v1`, `vrchat_proof_v1`, and `profile_link_destinations_v1` capabilities with its
 release SHA on startup and a bounded heartbeat. It separately polls the proof
 queue so the control plane can prove that the proof protocol, not merely the
 process, is live. Logs are JSON with fixed event names and bounded fields; they
 never include proof codes, provider target IDs, provider bodies, exception
 messages, session material, or worker credentials.
+
+After proof checks and assigned telemetry polls, the worker claims at most one
+public profile-link destination lookup. It reads exact VRChat user IDs, group
+IDs, or group short codes, without joining groups or fetching member lists. The
+result contains only a public display name, stable ID, and approved artwork
+source URL. Non-public group responses cannot supply display metadata. Artwork
+bytes are handled separately by the web application's bounded image boundary.
+Each provider request, including short-code resolution, reserves the existing
+shared proof budget and consumes the local account/proof allowance. Provider
+throttles publish the existing account-wide cooldown before a claim is released;
+an authenticated 401 stops the account through the existing recovery path.
+Cache leases bind the collector, worker ID, and credential generation. Metadata
+refresh runs independently of public profile requests and does not imply
+ownership or verification of the linked destination.
 
 The worker checks its own session with `GET /auth/user` every 8-12 minutes (jittered, one request reserved from the shared proof budget), logging `collector_session_check` with `outcome` `ok`, `provider_unavailable`, or `auth_required`, so a session that dies while no group is assigned is noticed within minutes instead of by the first real proof claim. A session that answers as a different account than the secret names counts as dead. A cookie the provider rotates on any authenticated response is followed in memory only; a restart reloads the transferred secret.
 

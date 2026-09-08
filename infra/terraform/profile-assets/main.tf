@@ -95,6 +95,19 @@ resource "aws_s3_bucket_lifecycle_configuration" "profile_assets" {
   bucket = aws_s3_bucket.profile_assets.id
 
   rule {
+    id     = "expire-unused-destination-thumbnails"
+    status = "Enabled"
+
+    filter {
+      prefix = "profile-assets/destination-thumbnails/"
+    }
+
+    expiration {
+      days = 90
+    }
+  }
+
+  rule {
     id     = "expire-abandoned-quarantine-uploads"
     status = "Enabled"
 

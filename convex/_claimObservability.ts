@@ -5,9 +5,10 @@ import type { Doc } from "./_generated/dataModel";
 export const collectorRuntimeCapabilityValidator = v.union(
   v.literal("telemetry_v1"),
   v.literal("vrchat_proof_v1"),
+  v.literal("profile_link_destinations_v1"),
 );
 
-export type CollectorRuntimeCapability = "telemetry_v1" | "vrchat_proof_v1";
+export type CollectorRuntimeCapability = "telemetry_v1" | "vrchat_proof_v1" | "profile_link_destinations_v1";
 
 export const proofCheckOutcomeValidator = v.union(
   v.literal("not_found"),

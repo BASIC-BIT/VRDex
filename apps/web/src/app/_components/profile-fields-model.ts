@@ -3,6 +3,7 @@ import {
   type ProfileLinkType,
 } from "../../../../../convex/_profileLinks";
 import { parseVrcdnStreamLinks } from "../../../../../convex/_vrcdnLinks";
+import type { ProfileLinkDestinationMetadata } from "../../../../../convex/_profileLinkPresentation";
 
 /**
  * The shape of the profile field set, without the rendering.
@@ -27,6 +28,8 @@ export type ProfileLinkInput = {
    * yet; they travel as hidden inputs so an unchanged row survives a save.
    */
   label?: string;
+  labelMode?: "automatic" | "custom";
+  destination?: ProfileLinkDestinationMetadata;
   handle?: string;
   presentation?: string;
   /**
@@ -291,6 +294,7 @@ function withLinkMetadata(link: ProfileLinkInput, meta: Partial<ProfileLinkInput
   return {
     ...link,
     ...(meta.label ? { label: meta.label } : {}),
+    ...(meta.labelMode ? { labelMode: meta.labelMode } : {}),
     ...(meta.handle ? { handle: meta.handle } : {}),
     ...(meta.presentation ? { presentation: meta.presentation } : {}),
     ...(meta.source ? { source: meta.source } : {}),
@@ -303,6 +307,7 @@ function linksFromFormData(formData: FormData): ProfileLinkInput[] {
   const originals = formData.getAll("linkOriginalUrl");
   const originalTypes = formData.getAll("linkOriginalType");
   const labels = formData.getAll("linkLabel");
+  const labelModes = formData.getAll("linkLabelMode");
   const editedLabels = formData.getAll("linkLabelEdited");
   const handles = formData.getAll("linkHandle");
   const presentations = formData.getAll("linkPresentation");
@@ -366,6 +371,9 @@ function linksFromFormData(formData: FormData): ProfileLinkInput[] {
               }
             : {}),
           label: unchanged || editedLabels[index] === "true" ? stringField(labels[index] ?? null) : undefined,
+          labelMode: unchanged || editedLabels[index] === "true"
+            ? labelModes[index] === "automatic" ? "automatic" : labelModes[index] === "custom" ? "custom" : undefined
+            : undefined,
           source: stringField(sources[index] ?? null),
         }),
       },

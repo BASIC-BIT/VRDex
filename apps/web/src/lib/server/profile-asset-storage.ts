@@ -317,3 +317,16 @@ export async function getProfileAssetObject(storageKey: string): Promise<StoredO
     throw error;
   }
 }
+
+/** Mutable, bounded cache objects are separate from immutable upload intents. */
+export async function putProfileLinkThumbnailCache(storageKey: string, body: Uint8Array) {
+  if (!/^profile-assets\/destination-thumbnails\/[a-f0-9]{64}\.json$/.test(storageKey) || body.byteLength > 180 * 1024) {
+    throw new Error("Invalid destination thumbnail cache object");
+  }
+  const config = storageConfig();
+  if (!config) throw new Error("Profile asset storage is not configured.");
+  await s3Client(config).send(new PutObjectCommand({
+    Bucket: config.bucket, Key: storageKey, Body: body,
+    ContentType: "application/json", CacheControl: "private, no-store",
+  }));
+}

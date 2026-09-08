@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { ExternalLink } from "lucide-react";
+import { profileLinkPresentation, type ProfileLinkDestinationMetadata } from "../../../../../convex/_profileLinkPresentation";
+import { parseProfileLinkDestination } from "../../../../../convex/_profileLinkDestination";
 import { Fragment, type CSSProperties, type ReactNode } from "react";
 
 import { EventPreviewCard, type PublicEventPreview } from "./event-public-page";
@@ -144,6 +146,8 @@ type PublicProfileBase = {
     verified?: boolean;
     type: ProfileLinkType;
     label: string;
+    labelMode?: "automatic" | "custom";
+    destination?: ProfileLinkDestinationMetadata;
     url: string;
     handle?: string;
     presentation?: LinkPresentation;
@@ -419,7 +423,7 @@ export function ProfilePublicPage({ profile, mediaKitGalleryEnabled, embedded = 
     (claimedTwitchLink && validLinks.find(({ link }) => link === claimedTwitchLink)) ??
     validLinks.find(({ link }) => link.type === "twitch" && twitchLoginFromUrl(link.url));
   const discordHandles = validLinks.flatMap((item) => {
-    if (item.link.type !== "discord") {
+    if (item.link.type !== "discord" || parseProfileLinkDestination(item.link)?.kind === "discord_guild") {
       return [];
     }
 
@@ -663,7 +667,7 @@ export function ProfilePublicPage({ profile, mediaKitGalleryEnabled, embedded = 
           links={creatorLinks.map(({ link, href }) => ({
             href,
             key: `${link.type}-${link.url}`,
-            label: link.label,
+            ...profileLinkPresentation(link),
             verified: link.verified === true,
           }))}
           profileSlug={profile.slug}

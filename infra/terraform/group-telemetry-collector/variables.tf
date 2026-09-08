@@ -49,7 +49,7 @@ variable "release_version" {
 variable "release_capabilities" {
   description = "Fixed protocol capabilities reported by this collector release."
   type        = list(string)
-  default     = ["telemetry_v1", "vrchat_proof_v1"]
+  default     = ["telemetry_v1", "vrchat_proof_v1", "profile_link_destinations_v1"]
 
   validation {
     condition = (

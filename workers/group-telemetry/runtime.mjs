@@ -3,7 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { VrchatProviderError } from "./vrchat-client.mjs";
 
 export const COLLECTOR_PROTOCOL_VERSION = "group-telemetry-v1";
-export const COLLECTOR_CAPABILITIES = Object.freeze(["telemetry_v1", "vrchat_proof_v1"]);
+export const COLLECTOR_CAPABILITIES = Object.freeze(["telemetry_v1", "vrchat_proof_v1", "profile_link_destinations_v1"]);
 export const MAX_CONSECUTIVE_LOOP_FAILURES = 6;
 const PROVIDER_CATEGORIES = new Set([
   "authentication",

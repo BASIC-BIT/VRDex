@@ -1,3 +1,4 @@
+import { projectProfileLinkDestinations, queueProfileLinkDestinations } from "./_profileLinkDestinationCache";
 import { ConvexError, type Infer, v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
@@ -131,6 +132,7 @@ function toApiOwnedProfileSummary(profile: Doc<"profiles">) {
       type: link.type,
       url: link.url,
       ...(link.label === undefined ? {} : { label: link.label }),
+      ...(link.labelMode === undefined ? {} : { labelMode: link.labelMode }),
       ...(link.handle === undefined ? {} : { handle: link.handle }),
       ...(link.presentation === undefined ? {} : { presentation: link.presentation }),
     })),
@@ -482,7 +484,8 @@ export const getPublicBySlug = query({
             hostedEvents: await getPublicCommunityHostedEvents(ctx.db, profile._id, now),
           };
 
-    const publicProfile = toPublicProfile(profile);
+    const baseProfile = toPublicProfile(profile);
+    const publicProfile = { ...baseProfile, outboundLinks: await projectProfileLinkDestinations(ctx.db, baseProfile.outboundLinks, profile._id) };
     const preference = await getProfileAssetDisplayPreference(ctx.db, profile._id);
     const mediaKit = await getPublicProfileMediaKit(ctx.db, profile, { preference });
     const shareCardMediaKit = args.includeShareCard
@@ -702,6 +705,7 @@ async function createCommunityProfileRecord(
 
       const profile = await ctx.db.get(profileId);
       if (profile !== null) {
+        await queueProfileLinkDestinations(ctx.db, profile, now);
         await consumeProfileAssetUploads(ctx.db, {
           profileId,
           requestedBy: sourceAttribution.submitter,
@@ -746,6 +750,7 @@ async function createCommunityProfileRecord(
 
     const profile = await ctx.db.get(profileId);
     if (profile !== null) {
+      await queueProfileLinkDestinations(ctx.db, profile, now);
       await consumeProfileAssetUploads(ctx.db, {
         profileId,
         requestedBy: sourceAttribution.submitter,
@@ -881,16 +886,17 @@ export const editableProfile = query({
       // and a copy-styled link turns into a button.
       outboundLinks: whenEditable(
         "outboundLinks",
-        (profile.outboundLinks ?? []).map((link) => ({
+        await projectProfileLinkDestinations(ctx.db, (profile.outboundLinks ?? []).map((link) => ({
           type: link.type,
           url: link.url,
           label: link.label,
+          labelMode: link.labelMode,
           handle: link.handle,
           presentation: link.presentation,
           // Echoed back by the form so an untouched link keeps the provenance it
           // has. Honoured as a claim, never as an assertion.
           source: link.source,
-        })),
+        })), profile._id),
       ),
       person:
         profile.profileType === "person"
@@ -928,7 +934,8 @@ export const previewProfileFromBrowser = query({
     const telemetry = profile.profileType === "community"
       ? await getPublicCommunityTelemetry(ctx.db, profile._id, now)
       : null;
-    const projected = toPublicProfile(draft);
+    const baseProjected = toPublicProfile(draft);
+    const projected = { ...baseProjected, outboundLinks: await projectProfileLinkDestinations(ctx.db, baseProjected.outboundLinks, profile._id) };
     const preference = await getProfileAssetDisplayPreference(ctx.db, profile._id);
     const publicMediaKit = await getPublicProfileMediaKit(ctx.db, draft, { preference });
     // Keep the public layout's filtering, but let an owner load its assets even

@@ -5511,6 +5511,13 @@
             "minLength": 1,
             "maxLength": 120
           },
+          "labelMode": {
+            "type": "string",
+            "enum": [
+              "automatic",
+              "custom"
+            ]
+          },
           "handle": {
             "type": "string",
             "minLength": 1,
@@ -8044,6 +8051,58 @@
                   "type": "string",
                   "minLength": 1
                 },
+                "labelMode": {
+                  "type": "string",
+                  "enum": [
+                    "automatic",
+                    "custom"
+                  ]
+                },
+                "destination": {
+                  "type": "object",
+                  "properties": {
+                    "targetKey": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "vrchat_user",
+                        "vrchat_group",
+                        "discord_guild"
+                      ]
+                    },
+                    "entityId": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "artworkUrl": {
+                      "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "pending",
+                        "resolved",
+                        "unavailable",
+                        "invalid"
+                      ]
+                    },
+                    "observedAt": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "targetKey",
+                    "kind",
+                    "status"
+                  ],
+                  "additionalProperties": false
+                },
                 "source": {
                   "type": "string"
                 },
@@ -10088,6 +10147,58 @@
                   "type": "string",
                   "minLength": 1
                 },
+                "labelMode": {
+                  "type": "string",
+                  "enum": [
+                    "automatic",
+                    "custom"
+                  ]
+                },
+                "destination": {
+                  "type": "object",
+                  "properties": {
+                    "targetKey": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "vrchat_user",
+                        "vrchat_group",
+                        "discord_guild"
+                      ]
+                    },
+                    "entityId": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "artworkUrl": {
+                      "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "pending",
+                        "resolved",
+                        "unavailable",
+                        "invalid"
+                      ]
+                    },
+                    "observedAt": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "targetKey",
+                    "kind",
+                    "status"
+                  ],
+                  "additionalProperties": false
+                },
                 "source": {
                   "type": "string"
                 },
@@ -10898,6 +11009,13 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 120
+          },
+          "labelMode": {
+            "type": "string",
+            "enum": [
+              "automatic",
+              "custom"
+            ]
           },
           "handle": {
             "type": "string",

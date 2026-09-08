@@ -3,6 +3,9 @@
 import { X } from "lucide-react";
 import { detectProfileLinkType } from "@/lib/profile-link-detection";
 import { labelForEditedDestination } from "@/lib/profile-link-label";
+import { profileLinkHasCustomLabel, profileLinkPresentation } from "../../../../../convex/_profileLinkPresentation";
+import { parseProfileLinkDestination } from "../../../../../convex/_profileLinkDestination";
+import { ProfileDestinationArtwork } from "./profile-destination-artwork";
 import { parseVrcdnStreamLinks } from "../../../../../convex/_vrcdnLinks";
 import { useId, useRef, useState, type ReactNode } from "react";
 
@@ -153,13 +156,19 @@ function LinkRow({ link, onRemove }: { link?: PositionedProfileLink; onRemove: (
   const unchanged = link !== undefined && profileLinkDestinationKey({ type: link.type, url }) === profileLinkDestinationKey(link);
   const type = unchanged ? link.type : detectProfileLinkType(url);
   const [labelEdited, setLabelEdited] = useState(false);
-  const [customLabel, setCustomLabel] = useState(link?.label ?? "");
+  const [labelMode, setLabelMode] = useState<"automatic" | "custom">(() => link && profileLinkHasCustomLabel(link) ? "custom" : "automatic");
+  const [customLabel, setCustomLabel] = useState(() => link && profileLinkHasCustomLabel(link) ? link.label ?? "" : "");
+  const target = parseProfileLinkDestination({ type, url });
+  const display = profileLinkPresentation({ ...link, type, url, label: customLabel, labelMode });
+  const automaticDisplay = profileLinkPresentation({ ...link, type, url, labelMode: "automatic" });
+  const editableLabel = Boolean(target) || ["website", "other", "generic_store", "commissions", "woocommerce"].includes(type);
   return (
     <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
       <div className="grid gap-2">
         <Field>
           <FieldText>{PROFILE_LINK_TYPE_LABELS[type]}</FieldText>
           <input name="linkLabelEdited" type="hidden" value={String(labelEdited)} />
+          <input name="linkLabelMode" type="hidden" value={editableLabel ? labelMode : unchanged ? link?.labelMode ?? "" : ""} />
           <input name="linkType" type="hidden" value={type} />
           <input name="linkOriginalUrl" type="hidden" value={link?.url ?? ""} />
           <input name="linkOriginalType" type="hidden" value={link?.type ?? ""} />
@@ -170,15 +179,38 @@ function LinkRow({ link, onRemove }: { link?: PositionedProfileLink; onRemove: (
           <Input name="linkUrl" type="url" value={url} maxLength={2048} placeholder="https://"
             onChange={(event) => {
               const next = event.target.value;
-              setCustomLabel(labelForEditedDestination(link, next, customLabel, labelEdited));
+              const nextLabel = labelForEditedDestination(link, next, customLabel, labelEdited);
+              const nextCustom = labelEdited ? labelMode === "custom" : Boolean(nextLabel && link && profileLinkHasCustomLabel(link));
+              setCustomLabel(nextCustom ? nextLabel : "");
+              setLabelMode(nextCustom ? "custom" : "automatic");
               setUrl(next);
             }} />
         </Field>
-        {type === "website" || type === "other" || type === "generic_store" || type === "commissions" || type === "woocommerce" ? (
-          <Field>
-            <FieldText>Label</FieldText>
-            <Input name="linkLabel" value={customLabel} onChange={(event) => { setCustomLabel(event.target.value); setLabelEdited(true); }} />
-          </Field>
+        {target ? (
+          <div className="flex min-w-0 items-center gap-3 py-1">
+            <ProfileDestinationArtwork kind={target.kind} src={display.artworkUrl} />
+            <span className="min-w-0 text-sm [overflow-wrap:anywhere]">
+              <span className="block font-medium">{display.label}</span>
+              <span className="block text-xs text-muted">{display.platform}</span>
+            </span>
+          </div>
+        ) : null}
+        {target && link?.destination?.targetKey === target.key && link.destination.status === "invalid" ? (
+          <span className="text-sm text-danger" role="status">{target.kind === "discord_guild" ? "Invalid invite" : "Invalid link"}</span>
+        ) : null}
+        {editableLabel ? (
+          <div className="flex items-end gap-2">
+            <Field className="grow">
+              <FieldText>Label</FieldText>
+              <Input className="min-w-0" maxLength={120} name="linkLabel" placeholder={target ? automaticDisplay.label : undefined}
+                value={customLabel} onChange={(event) => {
+                  setCustomLabel(event.target.value); setLabelEdited(true);
+                  setLabelMode(event.target.value.trim() ? "custom" : "automatic");
+                }} />
+            </Field>
+              {target && labelMode === "custom" ? <Button type="button" variant="secondary" className="mb-0.5 shrink-0"
+                onClick={() => { setCustomLabel(""); setLabelMode("automatic"); setLabelEdited(true); }}>Reset label</Button> : null}
+          </div>
         ) : <input name="linkLabel" type="hidden" value={unchanged ? link?.label ?? "" : ""} />}
       </div>
       <Button aria-label="Remove link" className="mt-6 size-11 shrink-0 p-0" type="button" variant="ghost" onClick={onRemove}>

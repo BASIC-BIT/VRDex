@@ -32,6 +32,7 @@ artifacts/restream-worker-benchmark/
 artifacts/restream-worker-benchmark-matrix/
 artifacts/restream-worker-live-control-benchmark/
 artifacts/group-telemetry-proof/
+artifacts/profile-link-destinations/
 artifacts/vrclinking-adapter.zip
 artifacts/vrclinking-adapter-stage/
 .env
