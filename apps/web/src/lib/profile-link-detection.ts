@@ -1,7 +1,8 @@
 import type { ProfileLinkType } from "../../../../convex/_profileLinks";
+import { parseVrcdnStreamLinks } from "../../../../convex/_vrcdnLinks";
 
 const PROVIDERS: Array<[ProfileLinkType, string[]]> = [
-  ["vrchat_profile", ["vrchat.com"]], ["vrcdn", ["vrcdn.live"]],
+  ["vrchat_profile", ["vrchat.com"]],
   ["discord", ["discord.com", "discord.gg", "discordapp.com"]],
   ["twitch", ["twitch.tv"]], ["youtube", ["youtube.com", "youtu.be"]],
   ["soundcloud", ["soundcloud.com"]], ["mixcloud", ["mixcloud.com"]],
@@ -15,6 +16,9 @@ export function detectProfileLinkType(value: string): ProfileLinkType {
   try {
     const url = new URL(value);
     if (url.protocol !== "https:" || url.username || url.password) return "website";
+    if (url.hostname === "vrcdn.live" || url.hostname.endsWith(".vrcdn.live")) {
+      return parseVrcdnStreamLinks(value) ? "vrcdn" : "website";
+    }
     return PROVIDERS.find(([, hosts]) => hosts.some((host) =>
       url.hostname === host || url.hostname.endsWith(`.${host}`)))?.[0] ?? "website";
   } catch {

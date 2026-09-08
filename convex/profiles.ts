@@ -922,6 +922,10 @@ export const previewProfileFromBrowser = query({
     if (!profile) throw new ConvexError({ code: "PROFILE_NOT_FOUND", message: "Profile was not found." });
     const { editSubject } = await resolveProfileEditSubject(ctx.db, profile, user._id);
     const draft = previewProfileUpdate(profile, args, editSubject);
+    const now = Date.now();
+    const telemetry = profile.profileType === "community"
+      ? await getPublicCommunityTelemetry(ctx.db, profile._id, now)
+      : null;
     const projected = toPublicProfile(draft);
     const preference = await getProfileAssetDisplayPreference(ctx.db, profile._id);
     const mediaKit = await getPublicProfileMediaKit(ctx.db, draft, { preference });
@@ -929,14 +933,15 @@ export const previewProfileFromBrowser = query({
     const legacyBanner = "bannerImageUrl" in projected && typeof projected.bannerImageUrl === "string" ? projected.bannerImageUrl : undefined;
     return {
       ...projected,
+      ...(telemetry ? { telemetry } : {}),
       appearance: toPublicProfileAppearance(preference),
       mediaKit,
       avatarImageUrl: (draft.profileType === "community" && isProfileFieldVisible(draft, "avatarImageUrl", "profile_page") ? mediaKit.primaryLogo?.imageUrl : undefined)
         ?? mediaKit.profileImage?.imageUrl ?? legacyAvatar,
       bannerImageUrl: mediaKit.banner?.imageUrl ?? legacyBanner,
       worldCredits: await getPublicProfileWorldCredits(ctx.db, { profileType: profile.profileType, slug: profile.slug }),
-      upcomingEvents: profile.profileType === "person" ? await getPublicPersonUpcomingEvents(ctx.db, profile._id, Date.now()) : [],
-      hostedEvents: profile.profileType === "community" ? await getPublicCommunityHostedEvents(ctx.db, profile._id, Date.now()) : [],
+      upcomingEvents: profile.profileType === "person" ? await getPublicPersonUpcomingEvents(ctx.db, profile._id, now) : [],
+      hostedEvents: profile.profileType === "community" ? await getPublicCommunityHostedEvents(ctx.db, profile._id, now) : [],
     };
   },
 });

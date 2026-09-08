@@ -10,4 +10,7 @@ it("recognizes provider URLs without mistaking lookalike hosts for providers", (
   assert.equal(detectProfileLinkType("https://twitch.tv@example.com/basic"), "website");
   assert.equal(detectProfileLinkType("https://example.com/?url=twitch.tv"), "website");
   assert.equal(detectProfileLinkType(""), "website");
+  assert.equal(detectProfileLinkType("https://wiki.vrcdn.live/"), "website");
+  assert.equal(detectProfileLinkType("https://panel.vrcdn.live/dashboard"), "website");
+  assert.equal(detectProfileLinkType("https://panel.vrcdn.live/preview/example"), "vrcdn");
 });
