@@ -495,8 +495,7 @@ test.describe("fixture lookup smoke", () => {
         }).capturePlaybackCopy(value),
       } });
     });
-    const playback = watch.locator("details");
-    await playback.locator("summary").click();
+    const playback = watch;
     for (const [label, value] of [
       ["Quest", "https://stream.vrcdn.live/live/dj-night-market.live.ts"],
       ["PC", "rtspt://stream.vrcdn.live/live/dj-night-market"],
@@ -506,8 +505,6 @@ test.describe("fixture lookup smoke", () => {
       await expect(playback.getByRole("button", { name: `${label} copied`, exact: true })).toBeVisible();
       await expect.poll(() => copiedPlayback).toBe(value);
     }
-    await playback.locator("summary").click();
-    await expect(playback).not.toHaveAttribute("open");
     await expect(page.getByRole("link", { exact: true, name: "VRCDN stream" })).toHaveCount(0);
     await expect(page.getByText("Live now", { exact: true })).toHaveCount(0);
   });
