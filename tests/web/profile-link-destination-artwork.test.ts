@@ -60,3 +60,24 @@ test("destination artwork rejects active SVG, malformed content and unsupported 
   await assert.rejects(sanitizeProfileLinkDestinationArtwork(svg, "image/png"), /encoding/);
   await assert.rejects(sanitizeProfileLinkDestinationArtwork(Buffer.from("not image data"), "image/png"));
 });
+
+test("destination artwork blocks untrusted redirects and private provider DNS before fetching", async () => {
+  const source = "https://api.vrchat.cloud/new-portrait?size=256";
+  for (const target of ["https://evil.example/image.png", "https://files.vrchat.cloud/image?signature=new-format"]) {
+    const requested: string[] = [];
+    await assert.rejects(fetchProfileAssetSourceUrl(source, {
+      assertSourceUrl(url) {
+        if (!allowedDestinationArtworkUrl(url.href, "vrchat_user")) throw new Error("Untrusted artwork host");
+      },
+      resolveHostname: async hostname => [{ address: hostname === "files.vrchat.cloud" ? "127.0.0.1" : "93.184.216.34" }],
+      requestPinnedSource: async url => {
+        requested.push(url.href);
+        const response = Readable.from([]) as IncomingMessage;
+        response.statusCode = 302;
+        response.headers = { location: target };
+        return response;
+      },
+    }));
+    assert.deepEqual(requested, [source]);
+  }
+});

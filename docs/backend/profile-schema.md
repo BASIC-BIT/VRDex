@@ -51,8 +51,8 @@ transport and shared account budget. Discord jobs use a fixed-origin server acti
 shared request budget and provider cooldown.
 
 Artwork is served through `/api/profile-link-artwork/[key]`, which rechecks a current public
-reference, fetches only allowed provider image locations through the bounded importer,
-and emits a static 128px WebP. It authorizes the exact rendering profile, rather than
+reference, fetches provider-returned HTTPS URLs on exact trusted provider hosts through the bounded importer,
+and emits a static 128px WebP. Paths, sizes, and signature query formats are provider-owned. Every redirect rechecks the host and public DNS/IP boundary; download, timeout, and image-decode limits remain enforced. It authorizes the exact rendering profile, rather than
 scanning a truncated reference list. Sanitized bytes persist in the existing private asset
 bucket under `profile-assets/destination-thumbnails/`, keyed by the destination and source.
 Fresh bytes are reused for a day; failed refreshes retain the last successful bytes and
