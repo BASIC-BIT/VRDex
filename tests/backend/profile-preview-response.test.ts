@@ -51,7 +51,7 @@ it("previews public community activity without exposing disabled metrics or savi
   const owner = t.withIdentity({ subject: clerkUserId, issuer: "test", emailVerified: true });
   const publicProfile = await t.query(api.profiles.getPublicBySlug, { slug: "preview-community" });
   const preview = await owner.query(api.profiles.previewProfileFromBrowser, {
-    slug: "preview-community", displayName: "Unsaved Community",
+    expectedUpdatedAt: now, slug: "preview-community", displayName: "Unsaved Community",
   });
   assert.equal(preview.displayName, "Unsaved Community");
   assert.ok(publicProfile?.telemetry?.populationHistory?.length);
@@ -63,15 +63,25 @@ it("previews public community activity without exposing disabled metrics or savi
   assert.equal((await t.run((ctx) => ctx.db.get(profileId)))?.displayName, "Preview Community");
 
   await t.run((ctx) => ctx.db.patch(integrationId, { publicMetrics: { ...metrics, populationHistory: false } }));
-  const hiddenPreview = await owner.query(api.profiles.previewProfileFromBrowser, { slug: "preview-community", displayName: "Unsaved Community" });
+  const hiddenPreview = await owner.query(api.profiles.previewProfileFromBrowser, { expectedUpdatedAt: now, slug: "preview-community", displayName: "Unsaved Community" });
   assert.equal(hiddenPreview.telemetry, undefined);
   await t.run((ctx) => ctx.db.insert("profileSuppressionRequests", {
     displayName: "Withdrawn Community", profileType: "community", requestType: "owner_opt_out",
     state: "accepted", createdAt: now, updatedAt: now,
   }));
   await assert.rejects(owner.query(api.profiles.previewProfileFromBrowser, {
-    slug: "preview-community", displayName: "Withdrawn Community",
+    expectedUpdatedAt: now, slug: "preview-community", displayName: "Withdrawn Community",
   }), (error: { data?: { code?: string } }) => error.data?.code === "IDENTITY_SUPPRESSED");
+  assert.equal((await t.run((ctx) => ctx.db.get(profileId)))?.displayName, "Preview Community");
+  await t.run((ctx) => ctx.db.patch(profileId, { bio: "A concurrent update", updatedAt: now + 1 }));
+  await assert.rejects(owner.query(api.profiles.previewProfileFromBrowser, {
+    slug: "preview-community", expectedUpdatedAt: now, displayName: "Unsaved Community",
+  }), (error: { data?: { code?: string } }) => error.data?.code === "PROFILE_CHANGED");
+  const refreshedPreview = await owner.query(api.profiles.previewProfileFromBrowser, {
+    slug: "preview-community", expectedUpdatedAt: now + 1, displayName: "Unsaved Community",
+  });
+  assert.equal(refreshedPreview.bio, "A concurrent update");
+  assert.equal(refreshedPreview.displayName, "Unsaved Community");
   assert.equal((await t.run((ctx) => ctx.db.get(profileId)))?.displayName, "Preview Community");
 });
 
@@ -110,7 +120,7 @@ it("uses authenticated asset routes for hidden owner previews without widening p
     { publicSurfacingState: "suppressed" as const },
   ]) {
     await t.run((ctx) => ctx.db.patch(profileId, patch));
-    const preview = await owner.query(api.profiles.previewProfileFromBrowser, { slug: "preview-assets", displayName: "Preview Assets" });
+    const preview = await owner.query(api.profiles.previewProfileFromBrowser, { expectedUpdatedAt: now, slug: "preview-assets", displayName: "Preview Assets" });
     assert.equal(preview.avatarImageUrl, path);
     assert.equal(preview.bannerImageUrl, path);
     assert.equal(preview.mediaKit.logoZipUrl, undefined);
@@ -124,14 +134,14 @@ it("uses authenticated asset routes for hidden owner previews without widening p
     assert.equal(await t.query(api.profileAssets.getPublicAssetForStorage, { slug: "preview-assets", assetId }), null);
     assert.equal((await owner.query(api.profileAssets.getOwnedAssetForStorage, { profileId, assetId }))?.storageKey, "preview/asset.png");
     assert.equal(await other.query(api.profileAssets.getOwnedAssetForStorage, { profileId, assetId }), null);
-    await assert.rejects(other.query(api.profiles.previewProfileFromBrowser, { slug: "preview-assets", displayName: "Preview Assets" }), /Profile was not found/);
+    await assert.rejects(other.query(api.profiles.previewProfileFromBrowser, { expectedUpdatedAt: now - 1, slug: "preview-assets", displayName: "Preview Assets" }), /Profile was not found/);
   }
   await t.run((ctx) => ctx.db.patch(profileId, { publicSurfacingState: "public" }));
   const mediaFlag = process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED;
   try {
     process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "false";
     const publicOwnerPreview = await owner.query(api.profiles.previewProfileFromBrowser, {
-      slug: "preview-assets", displayName: "Preview Assets",
+      expectedUpdatedAt: now, slug: "preview-assets", displayName: "Preview Assets",
     });
     const publicPath = `/api/v0/profiles/preview-assets/assets/${assetId}/file`;
     assert.equal(publicOwnerPreview.avatarImageUrl, publicPath);
@@ -144,10 +154,10 @@ it("uses authenticated asset routes for hidden owner previews without widening p
     else process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = mediaFlag;
   }
   await t.run((ctx) => ctx.db.patch(profileId, { publicSurfacingState: "public", claimState: "unclaimed" }));
-  const contributor = await other.query(api.profiles.previewProfileFromBrowser, { slug: "preview-assets", aliases: ["Alias"] });
+  const contributor = await other.query(api.profiles.previewProfileFromBrowser, { expectedUpdatedAt: now, slug: "preview-assets", aliases: ["Alias"] });
   assert.equal(contributor.mediaKit.profileImage?.imageUrl, `/api/v0/profiles/preview-assets/assets/${assetId}/file`);
   await t.run((ctx) => ctx.db.patch(profileId, { claimState: "claimed_verified", fieldVisibility: { avatarImageUrl: "private", bannerImageUrl: "private", mediaKit: "private" } }));
-  const privateFields = await owner.query(api.profiles.previewProfileFromBrowser, { slug: "preview-assets", displayName: "Preview Assets" });
+  const privateFields = await owner.query(api.profiles.previewProfileFromBrowser, { expectedUpdatedAt: now, slug: "preview-assets", displayName: "Preview Assets" });
   assert.equal(privateFields.avatarImageUrl, undefined);
   assert.equal(privateFields.bannerImageUrl, undefined);
   assert.deepEqual(privateFields.mediaKit.assets, []);

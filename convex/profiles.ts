@@ -914,13 +914,14 @@ export const editableProfile = query({
 
 /** Validate and render an unsaved draft without writing profile state. */
 export const previewProfileFromBrowser = query({
-  args: { slug: v.string(), ...apiProfileUpdateArgs },
+  args: { slug: v.string(), expectedUpdatedAt: v.number(), ...apiProfileUpdateArgs },
   handler: async (ctx, args) => {
     const { user } = await requireActiveBrowserSessionSubject(ctx);
     const validation = validateProfileSlug(args.slug);
     const profile = validation.ok ? await getProfileBySlug(ctx.db, validation.slug) : null;
     if (!profile) throw new ConvexError({ code: "PROFILE_NOT_FOUND", message: "Profile was not found." });
     const { owns, editSubject } = await resolveProfileEditSubject(ctx.db, profile, user._id);
+    assertProfileRevision(profile, args.expectedUpdatedAt);
     const draft = previewProfileUpdate(profile, args, editSubject);
     await assertProfileEditNotSuppressed(ctx.db, profile, args);
     const now = Date.now();

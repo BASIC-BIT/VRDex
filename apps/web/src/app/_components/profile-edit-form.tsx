@@ -253,7 +253,11 @@ function ConnectedProfileEditForm({
               const fields = Object.fromEntries(Object.entries(payload).filter(([key]) => key !== "profileType"));
               setPreviewLoading(true);
               try {
-                const result = await convex.query(api.profiles.previewProfileFromBrowser, { slug, ...fields });
+                const result = await convex.query(api.profiles.previewProfileFromBrowser, {
+                  slug,
+                  expectedUpdatedAt: loadedUpdatedAt.current ?? profile.updatedAt,
+                  ...fields,
+                });
                 setPreview(result);
               } catch (error) {
                 setStatus({ kind: "error", message: editErrorMessage(error) });

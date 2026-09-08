@@ -75,7 +75,8 @@ input accepts a username or a stream URL; bare usernames become canonical VRCDN
 references in the submitted payload.
 
 `profiles:previewProfileFromBrowser` is an authenticated read-only preview. It
-checks the same editable-field permissions, suppression rules, and input normalization as saving,
+checks the same editable-field permissions, loaded revision, suppression rules,
+and input normalization as saving,
 then applies the public field projection to the draft without writing a profile,
 search document, or audit event. The browser renders the result on demand; saving
 still uses the existing revision-checked mutation.
