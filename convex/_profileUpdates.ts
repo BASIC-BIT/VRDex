@@ -1,7 +1,7 @@
 import { ConvexError } from "convex/values";
 
 import type { Doc } from "./_generated/dataModel";
-import type { DatabaseWriter } from "./_generated/server";
+import type { DatabaseReader, DatabaseWriter } from "./_generated/server";
 import { getProfileFieldVisibility } from "./_profileFieldVisibility";
 import {
   canEditProfileField,
@@ -320,6 +320,16 @@ const LINK_SOURCE_BY_SUBJECT: Record<ProfileEditSubject, ProfileLinkSource> = {
   claimed_owner: "owner_authored",
   community_submitter: "community_submitted",
 };
+
+export function previewProfileUpdate(
+  profile: Doc<"profiles">,
+  input: ApiProfileUpdateInput,
+  subject: ProfileEditSubject,
+): Doc<"profiles"> {
+  assertSubmittedFieldsEditable(profile, input, subject);
+  const { patch } = sanitizeApiProfileUpdateInput(profile, input, subject);
+  return { ...profile, ...patch } as Doc<"profiles">;
+}
 
 export function sanitizeApiProfileUpdateInput(
   profile: Doc<"profiles">,
@@ -694,7 +704,7 @@ function fieldChanged(
  * already retracted. Republication re-checks the identity.
  */
 export async function assertProfileEditNotSuppressed(
-  db: DatabaseWriter,
+  db: DatabaseReader,
   profile: Doc<"profiles">,
   input: Pick<ApiProfileUpdateInput, "aliases" | "displayName">,
 ): Promise<void> {

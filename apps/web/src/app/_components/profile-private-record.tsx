@@ -156,11 +156,20 @@ function WithheldProfileRecord({
         );
       })}
 
-      {record.history.length > 0 ? (
-        <div className="mt-6">
-          <h3 className="text-sm font-semibold">History</h3>
+      <ProfileHistory history={record.history} />
+    </section>
+  );
+}
+
+export function ProfileHistory({ history }: {
+  history: Array<{ id: string; action: string; actor?: string; createdAt: number; note?: string }>;
+}) {
+  return (
+      history.length > 0 ? (
+        <details className="mt-6">
+          <summary className="cursor-pointer text-sm font-semibold">History</summary>
           <ul className="mt-3 grid gap-2">
-            {record.history.map((event) => (
+            {history.map((event) => (
               <li className="text-sm" key={event.id}>
                 <span>{actionLabel(event.action)}</span>
                 {event.actor ? <span className="text-muted"> by {event.actor}</span> : null}
@@ -169,9 +178,8 @@ function WithheldProfileRecord({
               </li>
             ))}
           </ul>
-        </div>
-      ) : null}
-    </section>
+        </details>
+      ) : null
   );
 }
 

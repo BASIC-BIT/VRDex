@@ -4,7 +4,7 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { FormEvent, useRef, useState, useTransition, type ReactNode } from "react";
-import { useConvexAuth, useMutation, useQuery } from "convex/react";
+import { useConvex, useConvexAuth, useMutation, useQuery } from "convex/react";
 import { api } from "@convex-generated-api";
 
 import { buttonVariants, Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import { BACKEND_ERROR_COPY } from "@/lib/error-copy";
 import { protectedRouteSignInPath } from "@/lib/protected-route-redirect";
 import { ProfileFields } from "./profile-fields";
 import { profileFieldsPayload } from "./profile-fields-model";
+import { ProfilePublicPage, type PublicProfile } from "./profile-public-page";
 
 const ProfileMediaContributionEditor = dynamic(() =>
   import("./profile-media-contribution-editor").then((module) => module.ProfileMediaContributionEditor),
@@ -76,6 +77,7 @@ function editErrorMessage(error: unknown): string {
 type ProfileEditFormProps = {
   mediaContributionFocus: boolean;
   mediaContributionsEnabled: boolean;
+  mediaKitGalleryEnabled: boolean;
   profilePath: string;
   slug: string;
 };
@@ -92,10 +94,14 @@ function EditPanel({ children, title }: { children: ReactNode; title: string }) 
 function ConnectedProfileEditForm({
   mediaContributionFocus,
   mediaContributionsEnabled,
+  mediaKitGalleryEnabled,
   profilePath,
   slug,
 }: ProfileEditFormProps) {
   const router = useRouter();
+  const convex = useConvex();
+  const [preview, setPreview] = useState<PublicProfile | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
   // No route type to pass. Profiles are served from the site root, so the slug is
   // the whole identifier and there is no `/p/<community-slug>/edit` mismatch left
   // for the query to refuse.
@@ -237,6 +243,30 @@ function ConnectedProfileEditForm({
           <Button className="sm:min-w-40" disabled={isSaving} size="lg" type="submit" variant="primary">
             {isSaving ? "Saving..." : "Save changes"}
           </Button>
+          <Button disabled={previewLoading || isSaving} size="lg" type="button" variant="secondary"
+            onClick={async (event) => {
+              const form = event.currentTarget.form;
+              setPreview(null);
+              setStatus({ kind: "idle" });
+              if (!form || !form.reportValidity()) return;
+              const payload = profileFieldsPayload(new FormData(form), profile.profileType);
+              const fields = Object.fromEntries(Object.entries(payload).filter(([key]) => key !== "profileType"));
+              setPreviewLoading(true);
+              try {
+                const result = await convex.query(api.profiles.previewProfileFromBrowser, {
+                  slug,
+                  expectedUpdatedAt: loadedUpdatedAt.current ?? profile.updatedAt,
+                  ...fields,
+                });
+                setPreview(result);
+              } catch (error) {
+                setStatus({ kind: "error", message: editErrorMessage(error) });
+              } finally {
+                setPreviewLoading(false);
+              }
+            }}>
+            Preview
+          </Button>
           {/*
             Same landing question the save path answers, and it has to answer it
             too: `/p/<slug>` and `/c/<slug>` 404 for a draft-private, opted-out or
@@ -262,6 +292,15 @@ function ConnectedProfileEditForm({
 
         {status.kind === "error" ? <Notice variant="error">{status.message}</Notice> : null}
       </form>
+      {preview ? (
+        <section aria-label="Preview" className="mt-8 border border-border ph-no-capture" data-ph-no-capture>
+          <div className="flex items-center justify-between p-4">
+            <h2 className="text-lg font-semibold">Preview</h2>
+            <Button type="button" variant="secondary" onClick={() => setPreview(null)}>Close preview</Button>
+          </div>
+          <ProfilePublicPage embedded profile={preview} mediaKitGalleryEnabled={mediaKitGalleryEnabled} />
+        </section>
+      ) : null}
       {mediaContributionsEnabled && profile.subject === "community_submitter" ? (
         <ProfileMediaContributionEditor
           autoFocus={mediaContributionFocus}
@@ -279,6 +318,7 @@ function ConnectedProfileEditForm({
 function AuthenticatedProfileEditForm({
   mediaContributionFocus,
   mediaContributionsEnabled,
+  mediaKitGalleryEnabled,
   profilePath,
   slug,
 }: ProfileEditFormProps) {
@@ -313,6 +353,7 @@ function AuthenticatedProfileEditForm({
     <ConnectedProfileEditForm
       mediaContributionFocus={mediaContributionFocus}
       mediaContributionsEnabled={mediaContributionsEnabled}
+      mediaKitGalleryEnabled={mediaKitGalleryEnabled}
       profilePath={profilePath}
       slug={slug}
     />
@@ -322,6 +363,7 @@ function AuthenticatedProfileEditForm({
 export function ProfileEditForm({
   mediaContributionFocus,
   mediaContributionsEnabled,
+  mediaKitGalleryEnabled,
   profilePath,
   slug,
 }: ProfileEditFormProps) {
@@ -342,6 +384,7 @@ export function ProfileEditForm({
     <AuthenticatedProfileEditForm
       mediaContributionFocus={mediaContributionFocus}
       mediaContributionsEnabled={mediaContributionsEnabled}
+      mediaKitGalleryEnabled={mediaKitGalleryEnabled}
       profilePath={profilePath}
       slug={slug}
     />

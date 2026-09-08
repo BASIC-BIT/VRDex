@@ -213,7 +213,6 @@ export function ProfileVrcdnStreams({
 
       {hasWatchSurface ? (
         <aside className="border-t border-border py-8 lg:border-t-0 lg:border-l lg:pl-8">
-          <SectionHeading>Watch</SectionHeading>
           {twitchContent}
           {streams.map(({ claimable, key, label, pcUrl, previewUrl, questUrl, streamId }, index) => {
             const lifecycle = lifecycles[streamId];
@@ -240,8 +239,13 @@ export function ProfileVrcdnStreams({
                   Open preview
                   <ExternalLink aria-hidden="true" className="size-3.5" />
                 </a>
-                <CopyValueRow label="Quest (MPEG-TS)" value={questUrl} />
-                <CopyValueRow label="PC (RTSPT)" value={pcUrl} />
+                <details className="mb-4">
+                  <summary className="cursor-pointer text-sm text-muted">Playback links</summary>
+                  <div className="mt-3">
+                    <CopyValueRow label="Quest" value={questUrl} />
+                    <CopyValueRow label="PC" value={pcUrl} />
+                  </div>
+                </details>
                 {showPlayer ? (
                   <div className="mt-4 overflow-hidden rounded-control border border-border">
                     <VrcdnStreamPlayer

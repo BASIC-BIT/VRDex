@@ -65,7 +65,13 @@ test("profile submission writes through to public profile and discovery @flow", 
     ).toBeVisible();
 
     await page.getByLabel("Display name").fill(displayName);
-    await page.getByLabel("Aliases").fill(`Flow ${runSuffix}`);
+    const addAlias = page.getByRole("button", { name: "Add alias", exact: true });
+    if (await addAlias.count()) {
+      await addAlias.click();
+      await page.getByRole("textbox", { name: "Alias", exact: true }).fill(`Flow ${runSuffix}`);
+    } else {
+      await page.getByLabel("Aliases").fill(`Flow ${runSuffix}`);
+    }
     await page.getByLabel("Tags", { exact: true }).or(page.getByLabel("Shared tags", { exact: true })).first().fill("playwright, data-flow");
 
     // Driven by what the page actually renders, not by which revision the target
@@ -95,7 +101,7 @@ test("profile submission writes through to public profile and discovery @flow", 
       // Roles are checkboxes over a fixed vocabulary with a freeform field
       // beside it. Checking DJ is also what reveals the stream inputs, which is
       // why roles are asked for before links.
-      const streamUrl = page.getByLabel("Stream");
+      const streamUrl = page.getByLabel("VRCDN", { exact: true }).or(page.getByLabel("Stream", { exact: true }));
       await expect(streamUrl).toHaveCount(0);
       await roleCheckbox.check();
       await expect(streamUrl).toBeVisible();
@@ -161,6 +167,8 @@ test("profile submission writes through to public profile and discovery @flow", 
           "href",
           `https://panel.vrcdn.live/preview/${submittedStreamId}`,
         );
+        const playbackLinks = page.getByText("Playback links", { exact: true });
+        if (await playbackLinks.count()) await playbackLinks.click();
         await expect(page.getByText(questUrl, { exact: true })).toBeVisible();
         await expect(page.getByRole("link", { exact: true, name: "VRCDN" })).toHaveCount(0);
         await expect(page.getByText("Live now", { exact: true })).toHaveCount(0);

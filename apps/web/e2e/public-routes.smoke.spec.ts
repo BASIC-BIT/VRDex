@@ -7,6 +7,7 @@ import { eventShareRevision } from "../src/lib/event-share-card";
 import {
   capturedRoutes,
   expectEventPage,
+  expectProfilePlaybackLinks,
   expectSearchPage,
   prepareVisualPage,
   productionSmokeRoutes,
@@ -449,10 +450,9 @@ test.describe("fixture lookup smoke", () => {
     await page.goto("/basicbit");
     await expect(page.getByRole("heading", { name: "BASICBIT" })).toBeVisible();
     await expect.poll(() => attempts).toBe(1);
-    await expect(page.getByRole("heading", { name: "Watch" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Watch", exact: true })).toHaveCount(0);
     await expect(page.getByRole("link", { name: "Open preview" })).toBeVisible();
-    await expect(page.getByText("https://stream.vrcdn.live/live/basicbit.live.ts", { exact: true })).toBeVisible();
-    await expect(page.getByText("rtspt://stream.vrcdn.live/live/basicbit", { exact: true })).toBeVisible();
+    await expectProfilePlaybackLinks(page, 1);
     await expect(page.getByText("Live now", { exact: true })).toHaveCount(0);
 
     await page.clock.install();
@@ -481,11 +481,33 @@ test.describe("fixture lookup smoke", () => {
     await page.goto("/playwright-dj-night-market");
     await expect(page.getByRole("heading", { name: "DJ Night Market" })).toBeVisible();
     await expect.poll(() => attempts).toBe(1);
-    const watch = page.getByRole("heading", { name: "Watch" }).locator("xpath=ancestor::aside");
+    await expect(page.getByRole("heading", { name: "Watch", exact: true })).toHaveCount(0);
+    const watch = page.getByRole("link", { name: /Open preview/ }).locator("xpath=ancestor::aside");
     await expect(watch).toBeVisible();
     await expect(watch.getByRole("link", { name: "Open preview" })).toBeVisible();
-    await expect(watch.getByText("https://stream.vrcdn.live/live/dj-night-market.live.ts", { exact: true })).toBeVisible();
-    await expect(watch.getByText("rtspt://stream.vrcdn.live/live/dj-night-market", { exact: true })).toBeVisible();
+    await expectProfilePlaybackLinks(page, 1);
+    let copiedPlayback = "";
+    await page.exposeFunction("capturePlaybackCopy", (value: string) => { copiedPlayback = value; });
+    await page.evaluate(() => {
+      Object.defineProperty(navigator, "clipboard", { configurable: true, value: {
+        writeText: (value: string) => (window as unknown as {
+          capturePlaybackCopy: (value: string) => Promise<void>;
+        }).capturePlaybackCopy(value),
+      } });
+    });
+    const playback = watch.locator("details");
+    await playback.locator("summary").click();
+    for (const [label, value] of [
+      ["Quest", "https://stream.vrcdn.live/live/dj-night-market.live.ts"],
+      ["PC", "rtspt://stream.vrcdn.live/live/dj-night-market"],
+    ]) {
+      await expect(playback.getByText(value, { exact: true })).toBeVisible();
+      await playback.getByRole("button", { name: `Copy ${label}`, exact: true }).click();
+      await expect(playback.getByRole("button", { name: `${label} copied`, exact: true })).toBeVisible();
+      await expect.poll(() => copiedPlayback).toBe(value);
+    }
+    await playback.locator("summary").click();
+    await expect(playback).not.toHaveAttribute("open");
     await expect(page.getByRole("link", { exact: true, name: "VRCDN stream" })).toHaveCount(0);
     await expect(page.getByText("Live now", { exact: true })).toHaveCount(0);
   });

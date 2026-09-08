@@ -428,7 +428,7 @@ export async function expectPersonProfilePage(page: Page) {
   await expect(page.getByText(/Creator links/i)).toHaveCount(0);
   await expect(page.getByText("VRChat profile", { exact: true })).toBeVisible();
   await expect(page.getByText("DJ Aurora SoundCloud", { exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Watch" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Watch", exact: true })).toHaveCount(0);
   // One badge per provider. The fixture is live on Twitch and on VRCDN, so a
   // single-match assertion would pass with either one of them missing.
   const liveBadges = page.getByText("Live now", { exact: true });
@@ -436,10 +436,8 @@ export async function expectPersonProfilePage(page: Page) {
   await expect(liveBadges.first()).toBeVisible();
   await expect(liveBadges.last()).toBeVisible();
   await expect(page.getByRole("link", { name: /Watch on Twitch/i })).toBeVisible();
-  await expect(page.getByText("Quest (MPEG-TS)", { exact: true })).toHaveCount(2);
-  await expect(page.getByText("PC (RTSPT)", { exact: true })).toHaveCount(2);
-  await expect(page.getByText("https://stream.vrcdn.live/live/dj-aurora.live.ts", { exact: true })).toBeVisible();
-  await expect(page.getByText("rtspt://stream.vrcdn.live/live/dj-aurora", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Open preview/ })).toHaveCount(2);
+  await expectProfilePlaybackLinks(page, 2);
   // Live in this fixture, so the player is offered. It has to stay a control
   // rather than a connection: nothing may reach VRCDN until a viewer presses
   // it, or every visitor spends one of the operator's capped viewer slots.
@@ -451,6 +449,26 @@ export async function expectPersonProfilePage(page: Page) {
   await expect(page.getByRole("link", { name: /Download logos/i })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Worlds" })).toBeVisible();
   await expect(page.getByRole("link", { name: /Neon Harbor/i })).toBeVisible();
+}
+
+export async function expectProfilePlaybackLinks(page: Page, count: number) {
+  const scrollPosition = await page.evaluate(() => ({ x: window.scrollX, y: window.scrollY }));
+  const disclosures = page.locator("details").filter({ has: page.locator("summary", { hasText: /^Playback links$/ }) });
+  await expect(disclosures).toHaveCount(count);
+  for (const disclosure of await disclosures.all()) {
+    const summary = disclosure.locator("summary");
+    await expect(summary).toBeVisible();
+    await expect(disclosure).not.toHaveAttribute("open");
+    await expect(disclosure.getByText("Quest", { exact: true })).toBeHidden();
+    await expect(disclosure.getByText("PC", { exact: true })).toBeHidden();
+    await summary.click();
+    await expect(disclosure.getByRole("button", { name: "Copy Quest", exact: true })).toBeVisible();
+    await expect(disclosure.getByRole("button", { name: "Copy PC", exact: true })).toBeVisible();
+    await summary.click();
+    await expect(disclosure).not.toHaveAttribute("open");
+  }
+  await page.evaluate(({ x, y }) => window.scrollTo({ left: x, top: y, behavior: "instant" }), scrollPosition);
+  await expect.poll(() => page.evaluate(() => ({ x: window.scrollX, y: window.scrollY }))).toEqual(scrollPosition);
 }
 
 export async function expectProfileEditSignedOutPage(page: Page) {
@@ -471,11 +489,10 @@ export async function expectVerifiedPersonProfilePage(page: Page) {
   await expect(page.getByText("Multigenre DJ but I really love DnB <3", { exact: true })).toBeVisible();
   await expect(page.getByText(/Public lookup seed for validating operator workflows/i)).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Copy Discord" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Watch" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Watch", exact: true })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Watch on Twitch" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Open preview" })).toBeVisible();
-  await expect(page.getByText("Quest (MPEG-TS)", { exact: true })).toBeVisible();
-  await expect(page.getByText("PC (RTSPT)", { exact: true })).toBeVisible();
+  await expectProfilePlaybackLinks(page, 1);
   await expect(page.getByRole("link", { exact: true, name: "VRCDN stream" })).toHaveCount(0);
   // Twitch and the permanent VRCDN controls keep the Watch surface present.
   // The fixture has no confirmed VRCDN liveness, so only the player stays out.

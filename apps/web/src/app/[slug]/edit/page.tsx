@@ -40,6 +40,7 @@ export default async function ProfileEditPage({ params, searchParams }: ProfileE
 
           <div className="mt-8">
             <ProfileEditForm
+              mediaKitGalleryEnabled={process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED === "true" || process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES === "true"}
               mediaContributionFocus={mediaContributionFocus}
               mediaContributionsEnabled={mediaContributionsEnabled}
               profilePath={profilePath}

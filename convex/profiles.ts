@@ -66,6 +66,7 @@ import {
   applyApiProfileUpdate,
   assertProfileEditNotSuppressed,
   assertSubmittedFieldsEditable,
+  previewProfileUpdate,
 } from "./_profileUpdates";
 
 const profileType = v.union(v.literal("person"), v.literal("community"));
@@ -907,6 +908,61 @@ export const editableProfile = query({
           : undefined,
       subject,
       editableFields,
+    };
+  },
+});
+
+/** Validate and render an unsaved draft without writing profile state. */
+export const previewProfileFromBrowser = query({
+  args: { slug: v.string(), expectedUpdatedAt: v.number(), ...apiProfileUpdateArgs },
+  handler: async (ctx, args) => {
+    const { user } = await requireActiveBrowserSessionSubject(ctx);
+    const validation = validateProfileSlug(args.slug);
+    const profile = validation.ok ? await getProfileBySlug(ctx.db, validation.slug) : null;
+    if (!profile) throw new ConvexError({ code: "PROFILE_NOT_FOUND", message: "Profile was not found." });
+    const { owns, editSubject } = await resolveProfileEditSubject(ctx.db, profile, user._id);
+    assertProfileRevision(profile, args.expectedUpdatedAt);
+    const draft = previewProfileUpdate(profile, args, editSubject);
+    await assertProfileEditNotSuppressed(ctx.db, profile, args);
+    const now = Date.now();
+    const telemetry = profile.profileType === "community"
+      ? await getPublicCommunityTelemetry(ctx.db, profile._id, now)
+      : null;
+    const projected = toPublicProfile(draft);
+    const preference = await getProfileAssetDisplayPreference(ctx.db, profile._id);
+    const publicMediaKit = await getPublicProfileMediaKit(ctx.db, draft, { preference });
+    // Keep the public layout's filtering, but let an owner load its assets even
+    // when the persisted profile is not publicly readable.
+    const ownerAsset = (asset: (typeof publicMediaKit.assets)[number]) => {
+      const imageUrl = `/api/account/media-kit/${encodeURIComponent(profile._id)}/assets/${encodeURIComponent(asset.assetId)}/file`;
+      return { ...asset, imageUrl, downloadUrl: `${imageUrl}?download=1` };
+    };
+    const mediaKit = owns && !canReadProfile("public", profile) ? {
+      ...publicMediaKit,
+      profileImage: publicMediaKit.profileImage ? ownerAsset(publicMediaKit.profileImage) : undefined,
+      banner: publicMediaKit.banner ? ownerAsset(publicMediaKit.banner) : undefined,
+      featuredAsset: publicMediaKit.featuredAsset ? ownerAsset(publicMediaKit.featuredAsset) : undefined,
+      primaryLogo: publicMediaKit.primaryLogo ? ownerAsset(publicMediaKit.primaryLogo) : undefined,
+      additionalLogos: publicMediaKit.additionalLogos.map(ownerAsset),
+      logos: publicMediaKit.logos.map(ownerAsset),
+      assets: publicMediaKit.assets.map(ownerAsset),
+      galleryAssets: publicMediaKit.galleryAssets.map(ownerAsset),
+      // No authenticated ZIP endpoint exists; individual owner downloads work.
+      logoZipUrl: undefined,
+    } : publicMediaKit;
+    const legacyAvatar = "avatarImageUrl" in projected && typeof projected.avatarImageUrl === "string" ? projected.avatarImageUrl : undefined;
+    const legacyBanner = "bannerImageUrl" in projected && typeof projected.bannerImageUrl === "string" ? projected.bannerImageUrl : undefined;
+    return {
+      ...projected,
+      ...(telemetry ? { telemetry } : {}),
+      appearance: toPublicProfileAppearance(preference),
+      mediaKit,
+      avatarImageUrl: (draft.profileType === "community" && isProfileFieldVisible(draft, "avatarImageUrl", "profile_page") ? mediaKit.primaryLogo?.imageUrl : undefined)
+        ?? mediaKit.profileImage?.imageUrl ?? legacyAvatar,
+      bannerImageUrl: mediaKit.banner?.imageUrl ?? legacyBanner,
+      worldCredits: await getPublicProfileWorldCredits(ctx.db, { profileType: profile.profileType, slug: profile.slug }),
+      upcomingEvents: profile.profileType === "person" ? await getPublicPersonUpcomingEvents(ctx.db, profile._id, now) : [],
+      hostedEvents: profile.profileType === "community" ? await getPublicCommunityHostedEvents(ctx.db, profile._id, now) : [],
     };
   },
 });

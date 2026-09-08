@@ -63,6 +63,33 @@ Shared fields:
 - `tags`
 - `outboundLinks`, stamped `source: "community_submitted"` rather than owner-authored, because the submitter is adding somebody else's profile
 
+The shared browser editor detects supported link providers from the URL hostname.
+Unrecognized URLs use the website type and can have a custom label. Existing
+links retain their type and metadata when their destination is unchanged; API
+clients continue to supply explicit link types.
+
+Aliases use individual inputs so commas within a name remain part of the name.
+The profile editor suggests browser-supported timezones and offers an explicit
+local-timezone action without changing the saved value on load. Dedicated VRCDN
+input accepts a username or a stream URL; bare usernames become canonical VRCDN
+references in the submitted payload.
+
+`profiles:previewProfileFromBrowser` is an authenticated read-only preview. It
+checks the same editable-field permissions, loaded revision, suppression rules,
+and input normalization as saving,
+then applies the public field projection to the draft without writing a profile,
+search document, or audit event. The browser renders the result on demand; saving
+still uses the existing revision-checked mutation.
+
+The embedded preview omits site navigation and private record controls. Owner
+previews of profiles that are not publicly readable serve projected media through
+the existing authenticated asset route, so private profiles can preview images
+without making them public. The public field and asset filters still apply;
+preview does not include hidden assets. These private-profile previews omit the
+public logo ZIP download. Publicly readable profiles retain public asset URLs and
+ZIP downloads, including when media editing is disabled. Community contributors
+keep public asset URLs and cannot use the owner asset route.
+
 Person-specific fields:
 
 - `person.roleTags`, collected as checkboxes over a fixed vocabulary with a

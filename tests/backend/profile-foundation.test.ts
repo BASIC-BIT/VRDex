@@ -53,6 +53,7 @@ import {
 import {
   assertProfileEditNotSuppressed,
   sanitizeApiProfileUpdateInput,
+  previewProfileUpdate,
   submittedEditableFields,
   type ApiProfileUpdateInput,
 } from "../../convex/_profileUpdates";
@@ -1068,6 +1069,16 @@ describe("API profile update helpers", () => {
       roleTags: ["DJ"],
     },
   } as Doc<"profiles">;
+
+  it("previews edits without changing the stored record or revealing private fields", () => {
+    const stored = { ...claimedPerson, bio: "Old bio", fieldVisibility: { bio: "private" as const } };
+    const draft = previewProfileUpdate(stored, { displayName: "New name", bio: "New bio" }, "claimed_owner");
+    assert.equal(draft.displayName, "New name");
+    assert.equal(stored.displayName, "DJ Celine");
+    assert.equal(stored.bio, "Old bio");
+    assert.equal("bio" in toPublicProfile(draft), false);
+    assert.throws(() => previewProfileUpdate(stored, { bio: "Guess" }, "community_submitter"));
+  });
 
   it("normalizes owner-editable profile update fields", () => {
     const result = sanitizeApiProfileUpdateInput(claimedPerson, {
