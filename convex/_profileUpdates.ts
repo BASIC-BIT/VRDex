@@ -1,7 +1,7 @@
 import { ConvexError } from "convex/values";
 
 import type { Doc } from "./_generated/dataModel";
-import type { DatabaseWriter } from "./_generated/server";
+import type { DatabaseReader, DatabaseWriter } from "./_generated/server";
 import { getProfileFieldVisibility } from "./_profileFieldVisibility";
 import {
   canEditProfileField,
@@ -704,7 +704,7 @@ function fieldChanged(
  * already retracted. Republication re-checks the identity.
  */
 export async function assertProfileEditNotSuppressed(
-  db: DatabaseWriter,
+  db: DatabaseReader,
   profile: Doc<"profiles">,
   input: Pick<ApiProfileUpdateInput, "aliases" | "displayName">,
 ): Promise<void> {

@@ -920,15 +920,35 @@ export const previewProfileFromBrowser = query({
     const validation = validateProfileSlug(args.slug);
     const profile = validation.ok ? await getProfileBySlug(ctx.db, validation.slug) : null;
     if (!profile) throw new ConvexError({ code: "PROFILE_NOT_FOUND", message: "Profile was not found." });
-    const { editSubject } = await resolveProfileEditSubject(ctx.db, profile, user._id);
+    const { owns, editSubject } = await resolveProfileEditSubject(ctx.db, profile, user._id);
     const draft = previewProfileUpdate(profile, args, editSubject);
+    await assertProfileEditNotSuppressed(ctx.db, profile, args);
     const now = Date.now();
     const telemetry = profile.profileType === "community"
       ? await getPublicCommunityTelemetry(ctx.db, profile._id, now)
       : null;
     const projected = toPublicProfile(draft);
     const preference = await getProfileAssetDisplayPreference(ctx.db, profile._id);
-    const mediaKit = await getPublicProfileMediaKit(ctx.db, draft, { preference });
+    const publicMediaKit = await getPublicProfileMediaKit(ctx.db, draft, { preference });
+    // Keep the public layout's filtering, but let an owner load its assets even
+    // when the persisted profile is not publicly readable.
+    const ownerAsset = (asset: (typeof publicMediaKit.assets)[number]) => {
+      const imageUrl = `/api/account/media-kit/${encodeURIComponent(profile._id)}/assets/${encodeURIComponent(asset.assetId)}/file`;
+      return { ...asset, imageUrl, downloadUrl: `${imageUrl}?download=1` };
+    };
+    const mediaKit = owns ? {
+      ...publicMediaKit,
+      profileImage: publicMediaKit.profileImage ? ownerAsset(publicMediaKit.profileImage) : undefined,
+      banner: publicMediaKit.banner ? ownerAsset(publicMediaKit.banner) : undefined,
+      featuredAsset: publicMediaKit.featuredAsset ? ownerAsset(publicMediaKit.featuredAsset) : undefined,
+      primaryLogo: publicMediaKit.primaryLogo ? ownerAsset(publicMediaKit.primaryLogo) : undefined,
+      additionalLogos: publicMediaKit.additionalLogos.map(ownerAsset),
+      logos: publicMediaKit.logos.map(ownerAsset),
+      assets: publicMediaKit.assets.map(ownerAsset),
+      galleryAssets: publicMediaKit.galleryAssets.map(ownerAsset),
+      // No authenticated ZIP endpoint exists; individual owner downloads work.
+      logoZipUrl: undefined,
+    } : publicMediaKit;
     const legacyAvatar = "avatarImageUrl" in projected && typeof projected.avatarImageUrl === "string" ? projected.avatarImageUrl : undefined;
     const legacyBanner = "bannerImageUrl" in projected && typeof projected.bannerImageUrl === "string" ? projected.bannerImageUrl : undefined;
     return {

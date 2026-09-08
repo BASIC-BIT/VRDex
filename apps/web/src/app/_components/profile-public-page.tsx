@@ -371,7 +371,7 @@ export function ProfileBackendNotice({ kind }: { kind: "missing-url" | "error" }
   );
 }
 
-export function ProfilePublicPage({ profile, mediaKitGalleryEnabled }: { profile: PublicProfile; mediaKitGalleryEnabled: boolean }) {
+export function ProfilePublicPage({ profile, mediaKitGalleryEnabled, embedded = false }: { profile: PublicProfile; mediaKitGalleryEnabled: boolean; embedded?: boolean }) {
   const isPerson = profile.profileType === "person";
   const bannerStyle = safeImageBackground(profile.bannerImageUrl);
   const avatarImageUrl = safeImageUrl(profile.avatarImageUrl);
@@ -536,12 +536,13 @@ export function ProfilePublicPage({ profile, mediaKitGalleryEnabled }: { profile
     ) : null,
   };
 
+  const Shell = embedded ? Fragment : PageShell;
   return (
-    <PageShell>
+    <Shell>
       <PageContainer>
-        <PageNav>
+        {!embedded ? <PageNav>
           <BrandLink />
-        </PageNav>
+        </PageNav> : null}
 
         <section
           aria-labelledby={`profile-title-${profile.slug}`}
@@ -698,8 +699,8 @@ export function ProfilePublicPage({ profile, mediaKitGalleryEnabled }: { profile
           return content ? <Fragment key={section}>{content}</Fragment> : null;
         })}
 
-        <ProfilePrivateRecord profilePath={profileBasePath} slug={profile.slug} />
+        {!embedded ? <ProfilePrivateRecord profilePath={profileBasePath} slug={profile.slug} /> : null}
       </PageContainer>
-    </PageShell>
+    </Shell>
   );
 }

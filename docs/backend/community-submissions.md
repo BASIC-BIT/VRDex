@@ -75,10 +75,17 @@ input accepts a username or a stream URL; bare usernames become canonical VRCDN
 references in the submitted payload.
 
 `profiles:previewProfileFromBrowser` is an authenticated read-only preview. It
-checks the same editable-field permissions and input normalization as saving,
+checks the same editable-field permissions, suppression rules, and input normalization as saving,
 then applies the public field projection to the draft without writing a profile,
 search document, or audit event. The browser renders the result on demand; saving
 still uses the existing revision-checked mutation.
+
+The embedded preview omits site navigation and private record controls. Owner
+previews serve projected media through the existing authenticated asset route,
+so private profiles can preview images without making them public. The public
+field and asset filters still apply; preview does not include hidden assets.
+Owner previews omit the public logo ZIP download. Community contributors keep
+the public asset URLs and cannot use the owner asset route.
 
 Person-specific fields:
 

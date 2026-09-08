@@ -45,6 +45,27 @@ export const History: Story = {
   </div>,
 };
 
+export const EmbeddedPreview: Story = {
+  render: () => <ConvexProviderWithAuth client={previewClient} useAuth={usePreviewAuth}>
+    <main className="mx-auto max-w-6xl">
+      <h1 className="mb-6 text-2xl font-semibold">Edit profile</h1>
+      <section aria-label="Preview" className="border border-border">
+        <div className="flex items-center justify-between p-4">
+          <h2 className="text-lg font-semibold">Preview</h2>
+          <Button type="button">Close preview</Button>
+        </div>
+        <ProfilePublicPage embedded mediaKitGalleryEnabled={true} profile={{
+          profileType: "person", slug: "example-dj", displayName: "Example DJ",
+          aliases: [], tags: [], genres: [], trustLabel: "claimed_unverified",
+          person: { roleTags: ["DJ"] },
+          outboundLinks: [{ type: "twitch", url: "https://twitch.tv/example", label: "Twitch", source: "owner_authored" }],
+          worldCredits: [], upcomingEvents: [], hostedEvents: [],
+        }} />
+      </section>
+    </main>
+  </ConvexProviderWithAuth>,
+};
+
 export const Playback: Story = {
   render: () => <ProfileVrcdnStreams profileSlug="example" discordHandles={[]} links={[]}
     streams={[{ claimable: false, key: "example", label: "VRCDN", streamId: "example",

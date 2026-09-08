@@ -2,6 +2,7 @@ import {
   profileLinkDestinationKey,
   type ProfileLinkType,
 } from "../../../../../convex/_profileLinks";
+import { parseVrcdnStreamLinks } from "../../../../../convex/_vrcdnLinks";
 
 /**
  * The shape of the profile field set, without the rendering.
@@ -387,9 +388,16 @@ function linksFromFormData(formData: FormData): ProfileLinkInput[] {
     // different stream and replaced the operator's label and handle with
     // provider defaults.
     const originalUrl = stringField(formData.get(`${type}OriginalUrl`)).trim();
+    // The input displays a username even when the stored value is a legacy
+    // panel or playback URL. Compare those spellings by their stream reference
+    // before deciding whether the destination's metadata still applies.
+    const originalDestination = type === "vrcdn"
+      ? parseVrcdnStreamLinks(originalUrl)?.reference ?? originalUrl : originalUrl;
+    const submittedDestination = type === "vrcdn"
+      ? parseVrcdnStreamLinks(url)?.reference ?? url : url;
     const unchanged =
-      profileLinkDestinationKey({ type, url: originalUrl }) ===
-      profileLinkDestinationKey({ type, url });
+      profileLinkDestinationKey({ type, url: originalDestination }) ===
+      profileLinkDestinationKey({ type, url: submittedDestination });
     const originalIndex = Number.parseInt(stringField(formData.get(`${type}OriginalIndex`)), 10);
 
     return [

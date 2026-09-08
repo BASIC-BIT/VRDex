@@ -246,6 +246,8 @@ function ConnectedProfileEditForm({
           <Button disabled={previewLoading || isSaving} size="lg" type="button" variant="secondary"
             onClick={async (event) => {
               const form = event.currentTarget.form;
+              setPreview(null);
+              setStatus({ kind: "idle" });
               if (!form || !form.reportValidity()) return;
               const payload = profileFieldsPayload(new FormData(form), profile.profileType);
               const fields = Object.fromEntries(Object.entries(payload).filter(([key]) => key !== "profileType"));
@@ -292,7 +294,7 @@ function ConnectedProfileEditForm({
             <h2 className="text-lg font-semibold">Preview</h2>
             <Button type="button" variant="secondary" onClick={() => setPreview(null)}>Close preview</Button>
           </div>
-          <ProfilePublicPage profile={preview} mediaKitGalleryEnabled={mediaKitGalleryEnabled} />
+          <ProfilePublicPage embedded profile={preview} mediaKitGalleryEnabled={mediaKitGalleryEnabled} />
         </section>
       ) : null}
       {mediaContributionsEnabled && profile.subject === "community_submitter" ? (
