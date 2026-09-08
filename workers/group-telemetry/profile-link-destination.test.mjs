@@ -45,13 +45,28 @@ test("short group redirects resolve only exact canonical group targets without f
       calls.push(url);
       assert.equal(options.redirect, "manual");
       assert.equal(options.headers.cookie, undefined);
-      return new Response(null, { status: 302, headers: { location: `https://vrchat.com/home/group/${id}` } });
+      return new Response(null, { status: 302, headers: { location: `/home/group/${id}` } });
     },
     requestVrchat: async path => { calls.push(path); return { id, name: "Short group", privacy: "default" }; },
   });
   assert.equal(result.entityId, id);
-  assert.deepEqual(calls, ["https://api.vrchat.com/api/1/groups/redirect/TEST.1234", `/groups/${id}`]);
-  for (const location of ["https://evil.example/group", "https://vrchat.com/home/user/" + userId, "https://vrchat.com/home/group/" + id + "?token=x"]) {
+  assert.deepEqual(calls, ["https://api.vrchat.cloud/api/1/groups/redirect/TEST.1234", `/groups/${id}`]);
+  for (const location of [`https://vrchat.com/home/group/${id}`, `/home/group/${id}/`]) {
+    const absolute = await resolveProfileLinkDestination({ kind: "vrchat_group", locator: "TEST.1234" }, {
+      fetcher: async () => new Response(null, { status: 302, headers: { location } }),
+      requestVrchat: async path => { assert.equal(path, `/groups/${id}`); return { id, name: "Short group", privacy: "default" }; },
+    });
+    assert.equal(absolute.entityId, id);
+  }
+  for (const location of [
+    "https://evil.example/group", `https://vrchat.com/home/user/${userId}`,
+    `https://vrchat.com/home/group/${id}?token=x`, `/home/group/${id}?token=x`,
+    `/home/group/${id}#fragment`, `https://user:pass@vrchat.com/home/group/${id}`,
+    `//evil.example/home/group/${id}`, `//vrchat.com/home/group/${id}`,
+    `https://api.vrchat.cloud/home/group/${id}`, `http://vrchat.com/home/group/${id}`,
+    `https://vrchat.com:8443/home/group/${id}`, `/home/user/../group/${id}`,
+    `/home/group/${id}/extra`, `home/group/${id}`, "/home/group/not-a-group", "",
+  ]) {
     assert.deepEqual(await resolveProfileLinkDestination({ kind: "vrchat_group", locator: "TEST.1234" }, { fetcher: async () => new Response(null, { status: 302, headers: { location } }), requestVrchat: async () => assert.fail("must not request rejected redirect") }), { status: "transient" });
   }
 });

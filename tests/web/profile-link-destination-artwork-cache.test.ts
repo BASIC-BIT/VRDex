@@ -5,6 +5,49 @@ import { canonicalDestinationArtworkQuery, createDestinationArtworkCache } from 
 
 const source = { key: "discord_guild:invite", kind: "discord_guild" as const, artworkSourceUrl: "https://cdn.discordapp.com/icons/12345/1234567890abcdef1234567890abcdef.png?size=128" };
 
+test("cold cache imports and persists artwork when S3 hides missing keys with AccessDenied", async () => {
+  const storage = new Map<string, Uint8Array>();
+  const bytes = new Uint8Array([1, 2, 3]);
+  let fetches = 0;
+  const dependencies = {
+    read: async (key: string) => {
+      const body = storage.get(key);
+      if (!body) throw Object.assign(new Error("Access Denied"), { name: "AccessDenied", $metadata: { httpStatusCode: 403 } });
+      return { body };
+    },
+    write: async (key: string, body: Uint8Array) => { storage.set(key, body); },
+    prepare: async () => { fetches++; return bytes; },
+    now: () => 1_000_000,
+  };
+  assert.deepEqual(await createDestinationArtworkCache(dependencies)(source), bytes);
+  assert.equal(storage.size, 1);
+  assert.deepEqual(await createDestinationArtworkCache(dependencies)(source), bytes);
+  assert.equal(fetches, 1);
+});
+
+test("cache read failures other than AccessDenied do not trigger provider imports", async () => {
+  const failure = new Error("storage unavailable");
+  const cache = createDestinationArtworkCache({
+    read: async () => { throw failure; },
+    write: async () => { assert.fail("must not write after an unknown read failure"); },
+    prepare: async () => { assert.fail("must not fetch after an unknown read failure"); },
+    now: () => 1_000_000,
+  });
+  await assert.rejects(cache(source), error => error === failure);
+});
+
+test("AccessDenied cache reads still require successful persistence of newly prepared artwork", async () => {
+  const denied = Object.assign(new Error("Access Denied"), { name: "AccessDenied" });
+  const writeDenied = Object.assign(new Error("Write denied"), { name: "AccessDenied" });
+  const cache = createDestinationArtworkCache({
+    read: async () => { throw denied; },
+    write: async () => { throw writeDenied; },
+    prepare: async () => new Uint8Array([1]),
+    now: () => 1_000_000,
+  });
+  await assert.rejects(cache(source), error => error === writeDenied);
+});
+
 test("cold instances retain stored last-known thumbnail when providers fail after freshness expires", async () => {
   const storage = new Map<string, Uint8Array>();
   let now = 1_000_000;

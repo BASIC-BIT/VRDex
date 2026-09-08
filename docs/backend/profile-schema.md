@@ -47,7 +47,7 @@ A bounded minute sweep discovers existing published links. Authored writes queue
 destinations without waiting for a provider. Successful results refresh after roughly one
 day with jitter; temporary failures retain the last successful branding, while confirmed
 invalid or inaccessible results clear it. VRChat jobs use the collector's authenticated
-transport and shared account budget. Discord jobs use a fixed-origin server action with a
+transport and shared account budget. Group short codes use the canonical `api.vrchat.cloud` redirect endpoint, accepting its root-relative group path without following it or forwarding credentials. Discord jobs use a fixed-origin server action with a
 shared request budget and provider cooldown.
 
 Artwork is served through `/api/profile-link-artwork/[key]`, which rechecks a current public
@@ -55,7 +55,7 @@ reference, fetches provider-returned HTTPS URLs on exact trusted provider hosts 
 and emits a static 128px WebP. Paths, sizes, and signature query formats are provider-owned. Every redirect rechecks the host and public DNS/IP boundary; download, timeout, and image-decode limits remain enforced. It authorizes the exact rendering profile, rather than
 scanning a truncated reference list. Sanitized bytes persist in the existing private asset
 bucket under `profile-assets/destination-thumbnails/`, keyed by the destination and source.
-Fresh bytes are reused for a day; failed refreshes retain the last successful bytes and
+A cold S3 cache read can return `AccessDenied` when the role lacks bucket-list permission. Only this thumbnail cache treats that response as a miss, imports the public image, and requires a successful cache write. Other storage failures still propagate. Fresh bytes are reused for a day; failed refreshes retain the last successful bytes and
 wait an hour before retrying. Concurrent requests for one source share the import. Changed
 sources use separate keys, and every origin request still checks current visibility.
 
