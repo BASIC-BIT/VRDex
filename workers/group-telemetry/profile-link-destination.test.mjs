@@ -116,3 +116,10 @@ test("artwork requires exact provider hosts and safe HTTPS URLs", () => {
   }
   assert.equal(allowedDestinationArtworkUrl(artwork, "unknown"), undefined);
 });
+
+test("Discord servers without icons resolve names without manufacturing artwork", async () => {
+  for (const icon of [null, undefined, "", "   ", 123, {}]) {
+    const result = await resolveProfileLinkDestination(invite, { fetcher: async () => json({ type: 0, code: invite.locator, guild: { ...guild, icon } }) });
+    assert.deepEqual(result, { status: "resolved", entityId: guild.id, displayName: guild.name });
+  }
+});

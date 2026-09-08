@@ -90,7 +90,9 @@ export async function resolveProfileLinkDestination(target, { requestVrchat, fet
       if (invite.type !== 0) return { status: "inaccessible" };
       if (invite.code !== target.locator || typeof guild.id !== "string" || !/^\d{5,25}$/.test(guild.id) || !name(guild.name)) return { status: "transient" };
       if (typeof invite.expires_at === "string" && Number.isFinite(Date.parse(invite.expires_at)) && Date.parse(invite.expires_at) <= Date.now()) return { status: "invalid" };
-      const artworkSourceUrl = allowedDestinationArtworkUrl(`https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.png?size=128`, target.kind);
+      const artworkSourceUrl = typeof guild.icon === "string" && guild.icon.trim()
+        ? allowedDestinationArtworkUrl(`https://cdn.discordapp.com/icons/${guild.id}/${encodeURIComponent(guild.icon)}.png?size=128`, target.kind)
+        : undefined;
       return { status: "resolved", entityId: guild.id, displayName: name(guild.name), ...(artworkSourceUrl ? { artworkSourceUrl } : {}) };
     } catch { return { status: "transient" }; }
   }
