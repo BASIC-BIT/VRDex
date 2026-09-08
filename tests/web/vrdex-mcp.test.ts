@@ -2669,3 +2669,116 @@ describe("VRDex MCP server", () => {
     assert.match(output, /OAuth bearer token scope is insufficient/);
   });
 });
+
+it("keeps stable modern and legacy transport behavior isolated per request", () => {
+  const output = runMcpProbe(`
+    import assert from "node:assert/strict";
+    import { createVrdexMcpHandler } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+    const owners = [];
+    const handler = createVrdexMcpHandler({
+      adminConvex: {
+        mutation: async () => ({}),
+        query: async (_fn, args) => {
+          owners.push(args.ownerUserId);
+          return [{ id: "profile_" + args.ownerUserId, slug: args.ownerUserId,
+            profileType: "person", displayName: args.ownerUserId,
+            claimState: "claimed_verified", publicationState: "draft_private",
+            publicSurfacingState: "opted_out", creationSource: "community", updatedAt: 7 }];
+        },
+      },
+    });
+    const version = "2026-07-28";
+    let id = 0;
+    async function request(method, params = {}, modern = true, authInfo, contentType = "application/json") {
+      const headers = { accept: "application/json, text/event-stream" };
+      if (contentType !== null) headers["content-type"] = contentType;
+      if (modern) { headers["mcp-protocol-version"] = version; headers["mcp-method"] = method; if (params.name) headers["mcp-name"] = params.name; }
+      const inbound = new Request("https://app.example.test/mcp", {
+        method: "POST", headers,
+        body: JSON.stringify({ jsonrpc: "2.0", id: ++id, method, params: {
+          ...params,
+          ...(modern ? { _meta: { "io.modelcontextprotocol/protocolVersion": version,
+            "io.modelcontextprotocol/clientCapabilities": {} } } : {}),
+        } }),
+      });
+      if (contentType === null) inbound.headers.delete("content-type");
+      const response = await handler.fetch(inbound, authInfo === undefined ? undefined : { authInfo });
+      const text = await response.text();
+      const data = text.split(/\\r?\\n/).find(line => line.startsWith("data: "))?.slice(6) ?? text;
+      return { status: response.status, body: JSON.parse(data) };
+    }
+    function principal(userId, scopes = ["mcp:read", "profile:read"]) {
+      return { token: "fixture", clientId: "fixture-client", scopes,
+        resource: new URL("https://app.example.test/mcp"),
+        extra: { userId, subjectType: "user", requestId: userId, tokenId: userId } };
+    }
+    try {
+      const discovered = await request("server/discover");
+      assert.equal(discovered.status, 200, JSON.stringify(discovered.body));
+      assert.equal(discovered.body.result._meta["io.modelcontextprotocol/serverInfo"].name, "vrdex");
+      assert.equal(discovered.body.result.serverInfo, undefined);
+      const initialized = await request("initialize", { protocolVersion: "2025-06-18",
+        capabilities: {}, clientInfo: { name: "fixture", version: "1" } }, false);
+      assert.equal(initialized.body.result.serverInfo.name, "vrdex");
+      for (const modern of [false, true]) {
+        const listed = await request("tools/list", {}, modern);
+        assert.equal(listed.status, 200);
+        assert.ok(listed.body.result.tools.some(tool => tool.name === "vrdex_list_my_profiles"));
+        for (const userId of ["owner-a", "owner-b"]) {
+          const called = await request("tools/call", { name: "vrdex_list_my_profiles", arguments: {} }, modern, principal(userId));
+          assert.equal(called.status, 200, JSON.stringify(called.body));
+          assert.equal(called.body.result.isError, undefined);
+          assert.match(JSON.stringify(called.body.result.structuredContent), new RegExp(userId));
+          assert.doesNotMatch(JSON.stringify(called.body.result), new RegExp(userId === "owner-a" ? "owner-b" : "owner-a"));
+        }
+        for (const authInfo of [principal("denied", ["mcp:read"]), undefined]) {
+          const rejected = await request("tools/call", { name: "vrdex_list_my_profiles", arguments: {} }, modern, authInfo);
+          assert.equal(rejected.body.result.isError, true);
+          assert.doesNotMatch(JSON.stringify(rejected.body.result), /owner-a|owner-b/);
+        }
+      }
+      assert.deepEqual(owners, ["owner-a", "owner-b", "owner-a", "owner-b"]);
+      for (const contentType of [null, "text/plain", 'text/plain; note="application/json"']) {
+        const rejected = await request("tools/list", {}, true, undefined, contentType);
+        assert.equal(rejected.status, 415);
+      }
+      assert.equal((await request("tools/list", {}, true, undefined, "application/json; charset=utf-8")).status, 200);
+      console.log("stable transport verified");
+    } finally {
+      await handler.close();
+    }
+  `);
+  assert.match(output, /stable transport verified/);
+});
+it("allows stable browser headers in the hosted OPTIONS response", () => {
+  const output = runMcpProbe(`
+    import assert from "node:assert/strict";
+    import { OPTIONS } from "./apps/web/src/app/mcp/route.ts";
+    const response = OPTIONS();
+    assert.equal(response.status, 204);
+    const allowed = response.headers.get("access-control-allow-headers").split(",").map(value => value.trim());
+    for (const header of ["mcp-method", "mcp-name", "mcp-protocol-version", "authorization", "content-type"]) {
+      assert.ok(allowed.includes(header), header);
+    }
+    console.log("preflight verified");
+  `);
+  assert.match(output, /preflight verified/);
+});
+
+it("does not record tool reads rejected by the HTTP transport", () => {
+  const output = runMcpProbe(`
+    import assert from "node:assert/strict";
+    import { recordAcceptedMcpToolInvocations } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+    for (const status of [400, 406, 415]) {
+      const request = new Request("https://app.example.test/mcp", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call",
+          params: { name: "vrdex_get_world", arguments: { slug: "fixture" } } }),
+      });
+      assert.deepEqual(await recordAcceptedMcpToolInvocations(request, new Response(null, { status })), { recorded: 0 });
+      assert.equal(request.bodyUsed, false, "Rejected transport responses must not reach the recorder body parser");
+    }
+    console.log("rejected reads not recorded");
+  `);
+  assert.match(output, /rejected reads not recorded/);
+});
