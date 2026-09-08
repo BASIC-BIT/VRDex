@@ -779,7 +779,11 @@ export function acceptedMcpRouteClassForRequest(request: Request): AcceptedMcpRo
     : "authenticated_mcp";
 }
 
-export async function recordAcceptedMcpToolInvocations(request: Request) {
+export async function recordAcceptedMcpToolInvocations(request: Request, response: Response) {
+  if (!response.ok) {
+    return { recorded: 0 };
+  }
+
   const toolNames = (await mcpToolCallNamesFromRequest(request))
     .filter((toolName) =>
       !mcpWriteToolNameSet.has(toolName)
@@ -1449,7 +1453,7 @@ function setMcpHttpHeaders(headers: Headers) {
   headers.set("access-control-allow-methods", "GET, POST, DELETE, OPTIONS");
   headers.set(
     "access-control-allow-headers",
-    "authorization, content-type, mcp-protocol-version, mcp-session-id, mcp-param-name, mcp-param-arguments",
+    "authorization, content-type, mcp-protocol-version, mcp-session-id, mcp-method, mcp-name, mcp-param-name, mcp-param-arguments",
   );
   headers.set(
     "access-control-expose-headers",

@@ -2750,3 +2750,35 @@ it("keeps stable modern and legacy transport behavior isolated per request", () 
   `);
   assert.match(output, /stable transport verified/);
 });
+it("allows stable browser headers in the hosted OPTIONS response", () => {
+  const output = runMcpProbe(`
+    import assert from "node:assert/strict";
+    import { OPTIONS } from "./apps/web/src/app/mcp/route.ts";
+    const response = OPTIONS();
+    assert.equal(response.status, 204);
+    const allowed = response.headers.get("access-control-allow-headers").split(",").map(value => value.trim());
+    for (const header of ["mcp-method", "mcp-name", "mcp-protocol-version", "authorization", "content-type"]) {
+      assert.ok(allowed.includes(header), header);
+    }
+    console.log("preflight verified");
+  `);
+  assert.match(output, /preflight verified/);
+});
+
+it("does not record tool reads rejected by the HTTP transport", () => {
+  const output = runMcpProbe(`
+    import assert from "node:assert/strict";
+    import { recordAcceptedMcpToolInvocations } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+    for (const status of [400, 406, 415]) {
+      const request = new Request("https://app.example.test/mcp", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call",
+          params: { name: "vrdex_get_world", arguments: { slug: "fixture" } } }),
+      });
+      assert.deepEqual(await recordAcceptedMcpToolInvocations(request, new Response(null, { status })), { recorded: 0 });
+      assert.equal(request.bodyUsed, false, "Rejected transport responses must not reach the recorder body parser");
+    }
+    console.log("rejected reads not recorded");
+  `);
+  assert.match(output, /rejected reads not recorded/);
+});

@@ -17,13 +17,17 @@ async function handleMcpRequest(request: Request) {
     return authorization.response;
   }
 
-  await recordAcceptedMcpToolInvocations(request.clone());
+  const invocationRequest = request.clone();
 
-  return withMcpHttpHeaders(await handler.fetch(request, {
+  const response = await handler.fetch(request, {
     ...(!("authInfo" in authorization) || authorization.authInfo === undefined
       ? {}
       : { authInfo: authorization.authInfo }),
-  }));
+  });
+
+  await recordAcceptedMcpToolInvocations(invocationRequest, response);
+
+  return withMcpHttpHeaders(response);
 }
 
 export function OPTIONS() {

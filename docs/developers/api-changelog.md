@@ -13,7 +13,9 @@ docs update and a changelog entry so early consumers and agents can adapt.
   Modern `2026-07-28` discovery returns server identity in result `_meta` and
   accepts requests without `clientInfo`; legacy initialization remains supported.
   After application authorization, HTTP transport rejects missing or non-JSON
-  `Content-Type` with `415`; `application/json; charset=utf-8` remains accepted
+  `Content-Type` with `415`; `application/json; charset=utf-8` remains accepted.
+  Browser preflights allow modern `mcp-method` and `mcp-name` headers, and
+  transport-rejected reads do not enter accepted invocation counts
 
 - added hosted MCP media contribution for public unclaimed person profiles.
   `vrdex_profile_media_submit` requires `mcp:write assets:contribute`, imports a
