@@ -1,6 +1,10 @@
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const GROUP_ID = new RegExp(`^grp_${UUID}$`, "i");
 const USER_ID = new RegExp(`^usr_${UUID}$`, "i");
+// The public portrait thumbnail returned by the user API uses this exact size.
+const FILE_VERSION = "[1-9][0-9]{0,9}";
+const PORTRAIT_IMAGE_PATH = new RegExp(`^/api/1/image/file_${UUID}/${FILE_VERSION}/512$`, "i");
+const PORTRAIT_CDN_PATH = new RegExp(`^/thumbnails/file_${UUID}\\.[a-f0-9]{64}\\.${FILE_VERSION}\\.thumbnail-512\\.png$`, "i");
 const GROUP_CODE = /^[a-z0-9]{3,6}\.\d{4}$/i;
 const INVITE_CODE = /^[a-z0-9_-]{1,100}$/i;
 const USER_AGENT = "VRDex/1.0 (https://vrdex.net)";
@@ -35,15 +39,18 @@ export function allowedDestinationArtworkUrl(value, kind) {
     // Provider file endpoints redirect to these public image distributions. No credentials are sent.
     const apiFile = ["api.vrchat.cloud", "api.vrchat.com"].includes(url.hostname)
       && /^\/api\/1\/file\/file_[a-f0-9-]{36}\/\d+\/file$/i.test(url.pathname);
+    const portraitImage = ["api.vrchat.cloud", "api.vrchat.com"].includes(url.hostname)
+      && PORTRAIT_IMAGE_PATH.test(url.pathname);
+    const portraitCdn = url.hostname === "files.vrchat.cloud" && PORTRAIT_CDN_PATH.test(url.pathname);
     const imageFile = url.hostname === "files.vrchat.cloud" && /^\/file_[a-f0-9-]{36}\/\d+\/file$/i.test(url.pathname);
-    const signedBlob = url.hostname === "files.vrchat.cloud" && /^\/file_[a-f0-9-]{36}_blob$/i.test(url.pathname)
-      && /^\d{1,12}$/.test(url.searchParams.get("Expires") ?? "")
+    const signedImageQuery = /^\d{1,12}$/.test(url.searchParams.get("Expires") ?? "")
       && /^[a-z0-9]+$/i.test(url.searchParams.get("Key-Pair-Id") ?? "")
       && /^[a-z0-9_~-]+$/i.test(url.searchParams.get("Signature") ?? "")
       && [...url.searchParams.keys()].length === 3
       && [...url.searchParams.keys()].every(key => ["Expires", "Key-Pair-Id", "Signature"].includes(key));
-    if (signedBlob) return url.href;
-    return (apiFile || imageFile) && !url.search ? url.href : undefined;
+    const signedBlob = url.hostname === "files.vrchat.cloud" && /^\/file_[a-f0-9-]{36}_blob$/i.test(url.pathname);
+    if ((signedBlob || portraitCdn) && signedImageQuery) return url.href;
+    return (apiFile || imageFile || portraitImage || portraitCdn) && !url.search ? url.href : undefined;
   } catch { return undefined; }
 }
 

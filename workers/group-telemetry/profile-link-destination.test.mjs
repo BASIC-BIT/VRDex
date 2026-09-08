@@ -6,6 +6,7 @@ import { allowedDestinationArtworkUrl, resolveProfileLinkDestination } from "./p
 const id = "grp_11111111-1111-4111-8111-111111111111";
 const userId = id.replace("grp_", "usr_");
 const artwork = "https://api.vrchat.cloud/api/1/file/file_22222222-2222-4222-8222-222222222222/1/file";
+const portraitThumbnail = "https://api.vrchat.cloud/api/1/image/file_904c068b-dccb-40e3-a52b-ebe59c79e1f4/1/512";
 const group = { kind: "vrchat_group", locator: id };
 const invite = { kind: "discord_guild", locator: "TestInvite" };
 const guild = { id: "123456789012345678", name: "Server name", icon: "a_1234567890abcdef1234567890abcdef" };
@@ -33,7 +34,28 @@ test("mismatched identities never bind metadata to requested destinations", asyn
 });
 
 test("public person uses portrait override before avatar without leaking location", async () => {
-  assert.deepEqual(await resolveProfileLinkDestination({ kind: "vrchat_user", locator: userId }, { requestVrchat: async () => ({ id: userId, displayName: "Person", profilePicOverrideThumbnail: artwork, currentAvatarImageUrl: artwork.replace("/1/", "/2/"), location: "private" }) }), { status: "resolved", entityId: userId, displayName: "Person", artworkSourceUrl: artwork });
+  assert.deepEqual(await resolveProfileLinkDestination({ kind: "vrchat_user", locator: userId }, { requestVrchat: async () => ({ id: userId, displayName: "Person", profilePicOverrideThumbnail: portraitThumbnail, profilePicOverride: "https://api.vrchat.cloud/api/1/file/file_904c068b-dccb-40e3-a52b-ebe59c79e1f4/1", currentAvatarImageUrl: artwork, location: "private" }) }), { status: "resolved", entityId: userId, displayName: "Person", artworkSourceUrl: portraitThumbnail });
+});
+
+test("portrait thumbnails accept only the observed provider image endpoint and bounded size", () => {
+  for (const host of ["api.vrchat.cloud", "api.vrchat.com"]) {
+    const source = portraitThumbnail.replace("api.vrchat.cloud", host);
+    assert.equal(allowedDestinationArtworkUrl(source, "vrchat_user"), source);
+  }
+  for (const source of [
+    portraitThumbnail.replace("/512", "/4096"),
+    portraitThumbnail.replace("/512", "/0"),
+    portraitThumbnail.replace("/512", "/0512"),
+    portraitThumbnail.replace("/1/512", "/-1/512"),
+    portraitThumbnail.replace("file_904c068b-dccb-40e3-a52b-ebe59c79e1f4", "file_------------------------------------"),
+    portraitThumbnail.replace("api.vrchat.cloud", "api.vrchat.cloud.evil.example"),
+    portraitThumbnail.replace("https://", "https://user:pass@"),
+    portraitThumbnail + "?url=https://evil.example",
+    portraitThumbnail + "/file",
+    portraitThumbnail + "#fragment",
+    "https://api.vrchat.cloud/api/1/file/file_904c068b-dccb-40e3-a52b-ebe59c79e1f4/1",
+  ]) assert.equal(allowedDestinationArtworkUrl(source, "vrchat_user"), undefined);
+  assert.equal(allowedDestinationArtworkUrl(portraitThumbnail, "discord_guild"), undefined);
 });
 
 test("short group redirects resolve only exact canonical group targets without forwarding auth", async () => {
@@ -101,4 +123,28 @@ test("VRChat public file redirects allow only observed signed blob URL structure
   assert.equal(allowedDestinationArtworkUrl(source, "vrchat_group"), source);
   assert.equal(allowedDestinationArtworkUrl(source + "&url=https://evil.example", "vrchat_group"), undefined);
   assert.equal(allowedDestinationArtworkUrl(source.replace("_blob", "/arbitrary"), "vrchat_group"), undefined);
+});
+
+test("portrait CDN redirects accept only versioned PNG thumbnails at the observed size", () => {
+  const source = "https://files.vrchat.cloud/thumbnails/file_904c068b-dccb-40e3-a52b-ebe59c79e1f4.bc26edd42f6bbb785387d1d1ecb520f0e7fbc1670a411bcc76ab0c04736ff3a5.1.thumbnail-512.png";
+  assert.equal(allowedDestinationArtworkUrl(source, "vrchat_user"), source);
+  const signed = source + "?Expires=1790208000&Key-Pair-Id=EXAMPLE&Signature=example_";
+  assert.equal(allowedDestinationArtworkUrl(signed, "vrchat_user"), signed);
+  for (const rejected of [
+    signed + "&url=https://evil.example",
+    signed + "&Signature=duplicate",
+    signed.replace("Expires=1790208000", "Expires=invalid"),
+    signed.replace("Signature=example_", "Signature="),
+    signed.replace("Key-Pair-Id=EXAMPLE&", ""),
+    source.replace("/thumbnails/", "/arbitrary/"),
+    source.replace("files.vrchat.cloud", "files.vrchat.cloud.evil.example"),
+    source.replace("thumbnail-512", "thumbnail-4096"),
+    source.replace(".png", ".svg"),
+    source.replace(".1.thumbnail", ".0.thumbnail"),
+    source.replace(".1.thumbnail", ".10000000000.thumbnail"),
+    source.replace("bc26edd4", "invalid_"),
+    source + "?url=https://evil.example",
+    source + "#fragment",
+  ]) assert.equal(allowedDestinationArtworkUrl(rejected, "vrchat_user"), undefined);
+  assert.equal(allowedDestinationArtworkUrl(source, "discord_guild"), undefined);
 });
