@@ -66,6 +66,7 @@ import {
   applyApiProfileUpdate,
   assertProfileEditNotSuppressed,
   assertSubmittedFieldsEditable,
+  previewProfileUpdate,
 } from "./_profileUpdates";
 
 const profileType = v.union(v.literal("person"), v.literal("community"));
@@ -907,6 +908,35 @@ export const editableProfile = query({
           : undefined,
       subject,
       editableFields,
+    };
+  },
+});
+
+/** Validate and render an unsaved draft without writing profile state. */
+export const previewProfileFromBrowser = query({
+  args: { slug: v.string(), ...apiProfileUpdateArgs },
+  handler: async (ctx, args) => {
+    const { user } = await requireActiveBrowserSessionSubject(ctx);
+    const validation = validateProfileSlug(args.slug);
+    const profile = validation.ok ? await getProfileBySlug(ctx.db, validation.slug) : null;
+    if (!profile) throw new ConvexError({ code: "PROFILE_NOT_FOUND", message: "Profile was not found." });
+    const { editSubject } = await resolveProfileEditSubject(ctx.db, profile, user._id);
+    const draft = previewProfileUpdate(profile, args, editSubject);
+    const projected = toPublicProfile(draft);
+    const preference = await getProfileAssetDisplayPreference(ctx.db, profile._id);
+    const mediaKit = await getPublicProfileMediaKit(ctx.db, draft, { preference });
+    const legacyAvatar = "avatarImageUrl" in projected && typeof projected.avatarImageUrl === "string" ? projected.avatarImageUrl : undefined;
+    const legacyBanner = "bannerImageUrl" in projected && typeof projected.bannerImageUrl === "string" ? projected.bannerImageUrl : undefined;
+    return {
+      ...projected,
+      appearance: toPublicProfileAppearance(preference),
+      mediaKit,
+      avatarImageUrl: (draft.profileType === "community" && isProfileFieldVisible(draft, "avatarImageUrl", "profile_page") ? mediaKit.primaryLogo?.imageUrl : undefined)
+        ?? mediaKit.profileImage?.imageUrl ?? legacyAvatar,
+      bannerImageUrl: mediaKit.banner?.imageUrl ?? legacyBanner,
+      worldCredits: await getPublicProfileWorldCredits(ctx.db, { profileType: profile.profileType, slug: profile.slug }),
+      upcomingEvents: profile.profileType === "person" ? await getPublicPersonUpcomingEvents(ctx.db, profile._id, Date.now()) : [],
+      hostedEvents: profile.profileType === "community" ? await getPublicCommunityHostedEvents(ctx.db, profile._id, Date.now()) : [],
     };
   },
 });

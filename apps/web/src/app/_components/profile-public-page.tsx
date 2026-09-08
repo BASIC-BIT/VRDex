@@ -13,6 +13,7 @@ import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/pa
 import { VerifiedTrustMark } from "@/components/ui/verified-trust-mark";
 import { avatarFrameStyle, defaultAvatarAppearance, type AvatarAppearance } from "@/lib/avatar-appearance";
 import { cn } from "@/lib/cn";
+import { uniqueProfileIdentityItems } from "@/lib/profile-identity-items";
 import { carriesLiveClaim } from "@/lib/live-claim-sources";
 import { profileClaimPath } from "@/lib/profile-claim";
 import { hasRenderableProfileMediaKit } from "@/lib/profile-media-kit";
@@ -370,7 +371,7 @@ export function ProfileBackendNotice({ kind }: { kind: "missing-url" | "error" }
   );
 }
 
-export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
+export function ProfilePublicPage({ profile, mediaKitGalleryEnabled }: { profile: PublicProfile; mediaKitGalleryEnabled: boolean }) {
   const isPerson = profile.profileType === "person";
   const bannerStyle = safeImageBackground(profile.bannerImageUrl);
   const avatarImageUrl = safeImageUrl(profile.avatarImageUrl);
@@ -392,13 +393,13 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
   const aboutCopy = canClaim
     ? profile.bio?.trim()
     : profile.about?.trim() || profile.bio?.trim();
-  const focusItems = Array.from(new Set(
+  const focusItems = uniqueProfileIdentityItems(
     isPerson
       ? [...profile.person.roleTags, ...profile.tags]
       : [profile.community.subtype, ...profile.community.categoryTags, ...profile.tags].filter(
           (item): item is string => Boolean(item),
         ),
-  ));
+  );
   const validLinks = profile.outboundLinks
     // VRCDN resolved before the HTTPS filter, because its stored value is an
     // identifier rather than an address and `safeHttpsUrl` drops it. Filtering
@@ -444,14 +445,11 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
   );
   const aliases = profile.aliases.slice(0, 3);
   const remainingAliases = profile.aliases.slice(3);
-  const metadata = Array.from(new Set([
+  const metadata = uniqueProfileIdentityItems([
     isPerson ? profile.person.pronouns : profile.community.subtype,
     profile.region,
     ...(profile.headline ? [] : focusItems.slice(0, 4)),
-  ].filter((item): item is string => Boolean(item))));
-  const mediaKitGalleryEnabled =
-    process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED === "true" ||
-    process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES === "true";
+  ]);
   const galleryAssets = mediaKit.galleryAssets ?? [];
   const galleryAssetIds = new Set([
     ...galleryAssets.map((asset) => asset.assetId),
@@ -678,19 +676,14 @@ export function ProfilePublicPage({ profile }: { profile: PublicProfile }) {
             streamId: stream.streamId,
           }))}
           twitchContent={twitchLink ? (
-            <div className="mt-4 border-b border-border pb-5">
-              {/* Badge beside the provider name, matching the VRCDN row
-                  below, so one surface does not carry two conventions. */}
-              <div className="flex items-center gap-3">
-                <span className="font-medium">Twitch</span>
-                {profile.twitchLive?.status === "live" ? (
-                  <span className="text-sm font-medium text-success">Live now</span>
-                ) : null}
-              </div>
+            <div className="border-b border-border pb-5">
+              {profile.twitchLive?.status === "live" ? (
+                <span className="text-sm font-medium text-success">Live now</span>
+              ) : null}
               {profile.twitchLive?.status === "live" ? (
                 <p className="mt-2 line-clamp-2 text-sm leading-6 text-muted">{profile.twitchLive.title}</p>
               ) : null}
-              <a className={cn(buttonVariants({ variant: "primary" }), "mt-4 w-full gap-2")} href={twitchLink.href} rel="noreferrer" target="_blank">
+              <a className={cn(buttonVariants({ variant: "primary" }), "w-full gap-2", profile.twitchLive?.status === "live" && "mt-4")} href={twitchLink.href} rel="noreferrer" target="_blank">
                 Watch on Twitch
                 <ExternalLink aria-hidden="true" className="size-3.5" />
               </a>

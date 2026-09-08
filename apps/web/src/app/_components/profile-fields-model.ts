@@ -302,6 +302,7 @@ function linksFromFormData(formData: FormData): ProfileLinkInput[] {
   const originals = formData.getAll("linkOriginalUrl");
   const originalTypes = formData.getAll("linkOriginalType");
   const labels = formData.getAll("linkLabel");
+  const editedLabels = formData.getAll("linkLabelEdited");
   const handles = formData.getAll("linkHandle");
   const presentations = formData.getAll("linkPresentation");
   const sources = formData.getAll("linkSource");
@@ -359,18 +360,19 @@ function linksFromFormData(formData: FormData): ProfileLinkInput[] {
           // writer their own stamp, which is what would have happened anyway.
           ...(unchanged
             ? {
-                label: stringField(labels[index] ?? null),
                 handle: stringField(handles[index] ?? null),
                 presentation: stringField(presentations[index] ?? null),
               }
             : {}),
+          label: unchanged || editedLabels[index] === "true" ? stringField(labels[index] ?? null) : undefined,
           source: stringField(sources[index] ?? null),
         }),
       },
     ];
   });
   const featured = (["vrcdn", "twitch"] as const).flatMap((type) => {
-    const url = stringField(formData.get(`${type}Url`)).trim();
+    const input = stringField(formData.get(`${type}Url`)).trim();
+    const url = type === "vrcdn" && /^[a-zA-Z0-9_-]{2,128}$/.test(input) ? `vrcdn:${input}` : input;
 
     if (!url) {
       return [];
@@ -452,7 +454,9 @@ export function profileFieldsPayload(
   const shared = {
     // Always rendered, and a profile cannot be nameless.
     displayName: stringField(formData.get("displayName")),
-    ...when("aliases", parseList(formData, "aliases")),
+    ...when("aliases", formData.has("aliasItems")
+      ? formData.getAll("alias").map((value) => stringField(value).trim()).filter(Boolean)
+      : parseList(formData, "aliases")),
     ...when("tags", parseList(formData, "tags")),
     ...when("outboundLinks", linksFromFormData(formData)),
     ...Object.fromEntries(

@@ -321,6 +321,16 @@ const LINK_SOURCE_BY_SUBJECT: Record<ProfileEditSubject, ProfileLinkSource> = {
   community_submitter: "community_submitted",
 };
 
+export function previewProfileUpdate(
+  profile: Doc<"profiles">,
+  input: ApiProfileUpdateInput,
+  subject: ProfileEditSubject,
+): Doc<"profiles"> {
+  assertSubmittedFieldsEditable(profile, input, subject);
+  const { patch } = sanitizeApiProfileUpdateInput(profile, input, subject);
+  return { ...profile, ...patch } as Doc<"profiles">;
+}
+
 export function sanitizeApiProfileUpdateInput(
   profile: Doc<"profiles">,
   input: ApiProfileUpdateInput,

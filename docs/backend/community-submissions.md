@@ -63,6 +63,23 @@ Shared fields:
 - `tags`
 - `outboundLinks`, stamped `source: "community_submitted"` rather than owner-authored, because the submitter is adding somebody else's profile
 
+The shared browser editor detects supported link providers from the URL hostname.
+Unrecognized URLs use the website type and can have a custom label. Existing
+links retain their type and metadata when their destination is unchanged; API
+clients continue to supply explicit link types.
+
+Aliases use individual inputs so commas within a name remain part of the name.
+The profile editor suggests browser-supported timezones and offers an explicit
+local-timezone action without changing the saved value on load. Dedicated VRCDN
+input accepts a username or a stream URL; bare usernames become canonical VRCDN
+references in the submitted payload.
+
+`profiles:previewProfileFromBrowser` is an authenticated read-only preview. It
+checks the same editable-field permissions and input normalization as saving,
+then applies the public field projection to the draft without writing a profile,
+search document, or audit event. The browser renders the result on demand; saving
+still uses the existing revision-checked mutation.
+
 Person-specific fields:
 
 - `person.roleTags`, collected as checkboxes over a fixed vocabulary with a

@@ -27,6 +27,36 @@ function formData(entries: Array<[string, string]>, present: string[] = []): For
   return data;
 }
 
+describe("custom link labels", () => {
+  it("accepts a VRCDN username without requiring a URL", () => {
+    const payload = profileFieldsPayload(formData([
+      ["displayName", "Example DJ"], ["vrcdnUrl", "example_dj"],
+    ], ["outboundLinks"]), "person");
+    assert.equal(payload.outboundLinks?.[0]?.url, "vrcdn:example_dj");
+  });
+  it("preserves commas inside individually entered aliases", () => {
+    const payload = profileFieldsPayload(formData([
+      ["displayName", "Example DJ"],
+      ["aliasItems", "true"],
+      ["alias", "Foo, Jr."],
+      ["alias", " Second name "],
+      ["alias", ""],
+    ], ["aliases"]), "person");
+    assert.deepEqual(payload.aliases, ["Foo, Jr.", "Second name"]);
+  });
+
+  it("keeps an intentionally entered label on a new destination", () => {
+    const payload = profileFieldsPayload(formData([
+      ["displayName", "Example DJ"],
+      ["linkType", "website"],
+      ["linkUrl", "https://example.com/sets"],
+      ["linkLabel", "My sets"],
+      ["linkLabelEdited", "true"],
+    ], ["outboundLinks"]), "person");
+    assert.equal(payload.outboundLinks?.[0]?.label, "My sets");
+  });
+});
+
 describe("stream link partitioning", () => {
   const links = [
     { type: "vrcdn", url: "https://vrcdn.live/snekwtf" },

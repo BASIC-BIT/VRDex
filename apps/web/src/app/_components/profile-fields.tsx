@@ -1,14 +1,17 @@
 "use client";
 
 import { X } from "lucide-react";
-import { useRef, useState, type ReactNode } from "react";
+import { detectProfileLinkType } from "@/lib/profile-link-detection";
+import { labelForEditedDestination } from "@/lib/profile-link-label";
+import { parseVrcdnStreamLinks } from "../../../../../convex/_vrcdnLinks";
+import { useId, useRef, useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
-import { CheckboxField, Field, FieldText, Input, Select, Textarea } from "@/components/ui/field";
+import { CheckboxField, Field, FieldText, Input, Textarea } from "@/components/ui/field";
 import {
   PROFILE_LINK_MAX_COUNT,
   PROFILE_LINK_TYPE_LABELS,
-  PROFILE_LINK_TYPES,
+  profileLinkDestinationKey,
 } from "../../../../../convex/_profileLinks";
 import {
   FIELD_PRESENT_INPUT,
@@ -95,6 +98,96 @@ function ListOriginal({ name, values }: { name: string; values: string[] }) {
   return <input name={`${name}Original`} type="hidden" value={JSON.stringify(values)} />;
 }
 
+
+function TimezoneField({ defaultValue }: { defaultValue: string }) {
+  const listId = useId();
+  const [value, setValue] = useState(defaultValue);
+  const [options, setOptions] = useState<string[]>([]);
+  return (
+    <div className="grid gap-2">
+      <Field>
+        Timezone
+        <Input name="timezone" list={listId} maxLength={80} value={value}
+          onChange={(event) => setValue(event.target.value)}
+          onFocus={() => {
+            const local = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            const zones = typeof Intl.supportedValuesOf === "function" ? Intl.supportedValuesOf("timeZone") : [];
+            setOptions([...new Set([local, "UTC", defaultValue, ...zones].filter(Boolean))]);
+          }} />
+      </Field>
+      <datalist id={listId}>{options.map((zone) => <option key={zone} value={zone} />)}</datalist>
+      <Button className="justify-self-start" type="button" variant="secondary"
+        onClick={() => setValue(Intl.DateTimeFormat().resolvedOptions().timeZone)}>
+        Use local
+      </Button>
+    </div>
+  );
+}
+
+function AliasFields({ defaults }: { defaults: string[] }) {
+  const nextId = useRef(defaults.length);
+  const [rows, setRows] = useState(() => defaults.map((value, id) => ({ id, value })));
+  return (
+    <div className="grid content-start gap-2">
+      <span className="text-sm">Aliases</span>
+      <input name="aliasItems" type="hidden" value="true" />
+      {rows.map((row) => (
+        <div className="flex gap-2" key={row.id}>
+          <Input aria-label="Alias" name="alias" defaultValue={row.value} />
+          <Button aria-label="Remove alias" type="button" variant="ghost" className="size-11 shrink-0 p-0"
+            onClick={() => setRows((current) => current.filter(({ id }) => id !== row.id))}>
+            <X aria-hidden="true" className="size-4" />
+          </Button>
+        </div>
+      ))}
+      <Button className="justify-self-start" type="button" variant="secondary"
+        onClick={() => { const id = nextId.current++; setRows((current) => [...current, { id, value: "" }]); }}>
+        Add alias
+      </Button>
+    </div>
+  );
+}
+
+function LinkRow({ link, onRemove }: { link?: PositionedProfileLink; onRemove: () => void }) {
+  const [url, setUrl] = useState(link?.url ?? "");
+  const unchanged = link !== undefined && profileLinkDestinationKey({ type: link.type, url }) === profileLinkDestinationKey(link);
+  const type = unchanged ? link.type : detectProfileLinkType(url);
+  const [labelEdited, setLabelEdited] = useState(false);
+  const [customLabel, setCustomLabel] = useState(link?.label ?? "");
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
+      <div className="grid gap-2">
+        <Field>
+          <FieldText>{PROFILE_LINK_TYPE_LABELS[type]}</FieldText>
+          <input name="linkLabelEdited" type="hidden" value={String(labelEdited)} />
+          <input name="linkType" type="hidden" value={type} />
+          <input name="linkOriginalUrl" type="hidden" value={link?.url ?? ""} />
+          <input name="linkOriginalType" type="hidden" value={link?.type ?? ""} />
+          <input name="linkOriginalIndex" type="hidden" value={link?.originalIndex ?? -1} />
+          <input name="linkHandle" type="hidden" value={link?.handle ?? ""} />
+          <input name="linkPresentation" type="hidden" value={link?.presentation ?? ""} />
+          <input name="linkSource" type="hidden" value={link?.source ?? ""} />
+          <Input name="linkUrl" type="url" value={url} maxLength={2048} placeholder="https://"
+            onChange={(event) => {
+              const next = event.target.value;
+              setCustomLabel(labelForEditedDestination(link, next, customLabel, labelEdited));
+              setUrl(next);
+            }} />
+        </Field>
+        {type === "website" || type === "other" || type === "generic_store" || type === "commissions" || type === "woocommerce" ? (
+          <Field>
+            <FieldText>Label</FieldText>
+            <Input name="linkLabel" value={customLabel} onChange={(event) => { setCustomLabel(event.target.value); setLabelEdited(true); }} />
+          </Field>
+        ) : <input name="linkLabel" type="hidden" value={unchanged ? link?.label ?? "" : ""} />}
+      </div>
+      <Button aria-label="Remove link" className="mt-6 size-11 shrink-0 p-0" type="button" variant="ghost" onClick={onRemove}>
+        <X aria-hidden="true" className="size-4" />
+      </Button>
+    </div>
+  );
+}
+
 function PersonRoleFields({
   defaults,
   atLinkCap,
@@ -174,14 +267,14 @@ function PersonRoleFields({
               An input that already holds a link is never disabled -- a disabled
               input submits nothing, which would delete it. */}
           <Field>
-            Stream
+            VRCDN
             <LinkMetadata link={featured.vrcdn} name="vrcdn" />
             <Input
               disabled={streamValues.vrcdn === "" && atLinkCap}
               maxLength={2048}
               name="vrcdnUrl"
-              placeholder="https://panel.vrcdn.live/preview/name"
-              type="url"
+              placeholder="Username or URL"
+              type="text"
               value={streamValues.vrcdn}
               onChange={(event) =>
                 setStreamValues((values) => ({ ...values, vrcdn: event.target.value }))
@@ -272,7 +365,7 @@ export function ProfileFields({
   // stream fields and the rows serialize into one array, and reserving a slot
   // per rendered field made one free slot usable by Stream and by nothing else.
   const [streamValues, setStreamValues] = useState(() => ({
-    vrcdn: featured.vrcdn?.url ?? "",
+    vrcdn: featured.vrcdn ? parseVrcdnStreamLinks(featured.vrcdn.url)?.streamId ?? featured.vrcdn.url : "",
     twitch: featured.twitch?.url ?? "",
   }));
   // Stable ids rather than indices: the row inputs are uncontrolled, so keying
@@ -305,15 +398,7 @@ export function ProfileFields({
       <div className="grid gap-4 sm:grid-cols-2">
         {canEdit("aliases") ? (
           <FieldGroup field="aliases">
-            <Field>
-              Aliases
-              <ListOriginal name="aliases" values={defaults.aliases ?? []} />
-              <Input
-                defaultValue={listFieldValue(defaults.aliases ?? [])}
-                name="aliases"
-                placeholder="Comma-separated names"
-              />
-            </Field>
+            <AliasFields defaults={defaults.aliases ?? []} />
           </FieldGroup>
         ) : null}
 
@@ -363,10 +448,7 @@ export function ProfileFields({
 
           {canEdit("timezone") ? (
             <FieldGroup field="timezone">
-              <Field>
-                Timezone
-                <Input defaultValue={defaults.timezone ?? ""} maxLength={80} name="timezone" />
-              </Field>
+              <TimezoneField defaultValue={defaults.timezone ?? ""} />
             </FieldGroup>
           ) : null}
         </div>
@@ -419,52 +501,7 @@ export function ProfileFields({
             <span className="text-sm font-medium">Links</span>
 
             {linkRows.map((row) => (
-              <div className="flex items-end gap-3" key={row.id}>
-                <Field className="w-44 shrink-0">
-                  <FieldText>Type</FieldText>
-                  <Select defaultValue={row.link?.type ?? "website"} name="linkType">
-                    {PROFILE_LINK_TYPES.map((linkType) => (
-                      <option key={linkType} value={linkType}>
-                        {PROFILE_LINK_TYPE_LABELS[linkType]}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-
-                <Field className="flex-1">
-                  <FieldText>URL</FieldText>
-                  {/* Always emitted, blank for a new row, so every list stays
-                      index-aligned with the URLs it describes. */}
-                  <input name="linkOriginalUrl" type="hidden" value={row.link?.url ?? ""} />
-                  <input name="linkOriginalType" type="hidden" value={row.link?.type ?? ""} />
-                  {/* Where this row sat in the stored array, so a stream link
-                      pulled into its own input goes back among the rows by
-                      position rather than by an index into a list that may have
-                      lost entries since. -1 for a row the editor added. */}
-                  <input name="linkOriginalIndex" type="hidden" value={row.link?.originalIndex ?? -1} />
-                  <input name="linkLabel" type="hidden" value={row.link?.label ?? ""} />
-                  <input name="linkHandle" type="hidden" value={row.link?.handle ?? ""} />
-                  <input name="linkPresentation" type="hidden" value={row.link?.presentation ?? ""} />
-                  <input name="linkSource" type="hidden" value={row.link?.source ?? ""} />
-                  <Input
-                    defaultValue={row.link?.url ?? ""}
-                    maxLength={2048}
-                    name="linkUrl"
-                    placeholder="https://soundcloud.com/name"
-                    type="url"
-                  />
-                </Field>
-
-                <Button
-                  aria-label="Remove link"
-                  className="size-11 shrink-0 p-0"
-                  type="button"
-                  variant="ghost"
-                  onClick={() => removeLinkRow(row.id)}
-                >
-                  <X aria-hidden="true" className="size-4" />
-                </Button>
-              </div>
+              <LinkRow key={row.id} link={row.link} onRemove={() => removeLinkRow(row.id)} />
             ))}
 
             {!atLinkCap ? (
