@@ -12,6 +12,7 @@ import {
   prepareVisualPage,
   productionSmokeRoutes,
   visualProfilePaths,
+  waitForVisualReady,
 } from "./public-routes";
 
 const routes = process.env.PLAYWRIGHT_BASE_URL ? productionSmokeRoutes : capturedRoutes;
@@ -523,7 +524,7 @@ test.describe("fixture lookup smoke", () => {
         await firstResponseHold;
       }
 
-      await route.fulfill({ contentType: "application/json", json: { states: { "dj-aurora": "offline" } } });
+      await route.fulfill({ contentType: "application/json", json: { states: { "dj-aurora": "offline", "suggested-aurora": "offline" } } });
     });
 
     await page.goto("/playwright-dj-aurora");
@@ -535,7 +536,15 @@ test.describe("fixture lookup smoke", () => {
     await expect(player).toBeVisible();
     await expect(page.getByText("Suggested VRCDN", { exact: true })).toBeVisible();
     await expect(preview).toHaveCount(2);
-    const previewBefore = await preview.first().boundingBox();
+    await waitForVisualReady(page);
+    const previewPosition = () => vrcdnBlock.evaluate((block) => {
+      const link = block.querySelector("a")!;
+      const linkRect = link.getBoundingClientRect();
+      const blockRect = block.getBoundingClientRect();
+      return { x: linkRect.x - blockRect.x, y: linkRect.y - blockRect.y,
+        width: linkRect.width, height: linkRect.height };
+    });
+    const previewBefore = await previewPosition();
     await player.evaluate((element) => {
       element.setAttribute("data-lifecycle-marker", "original");
     });
@@ -557,7 +566,7 @@ test.describe("fixture lookup smoke", () => {
     await expect(player).toHaveCount(0);
     await expect(vrcdnBlock.getByText("Live now", { exact: true })).toHaveCount(0);
     await expect(preview.first()).toBeVisible();
-    expect(await preview.first().boundingBox()).toEqual(previewBefore);
+    expect(await previewPosition()).toEqual(previewBefore);
   });
 
   test("confirmed offline state does not interrupt active VRCDN playback", async ({ page }) => {
@@ -582,7 +591,7 @@ test.describe("fixture lookup smoke", () => {
         await firstResponseHold;
       }
 
-      await route.fulfill({ contentType: "application/json", json: { states: { "dj-aurora": "offline" } } });
+      await route.fulfill({ contentType: "application/json", json: { states: { "dj-aurora": "offline", "suggested-aurora": "offline" } } });
     });
 
     await page.goto("/playwright-dj-aurora");
@@ -630,7 +639,7 @@ test.describe("fixture lookup smoke", () => {
     });
     await page.route("**/api/profile-live/playwright-dj-aurora/vrcdn*", async (route) => {
       attempts += 1;
-      await route.fulfill({ contentType: "application/json", json: { states: { "dj-aurora": "live" } } });
+      await route.fulfill({ contentType: "application/json", json: { states: { "dj-aurora": "live", "suggested-aurora": "offline" } } });
     });
 
     await page.goto("/playwright-dj-aurora");
