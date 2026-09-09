@@ -759,7 +759,7 @@ export const claimDueAssignments = internalMutation({
       .query("collectorFleetSettings")
       .withIndex("by_key", (q) => q.eq("key", "global"))
       .first();
-    if (!account || account.state !== "ready" || account.killSwitchEnabled || fleet?.killSwitchEnabled || (account.cooldownUntil ?? 0) > now) return [];
+    if (!account || account.state !== "ready" || account.killSwitchEnabled || fleet?.killSwitchEnabled || (account.cooldownUntil ?? 0) > now) return { assignments: [], destinationWorkDueAt: null };
     const candidates = await ctx.db
       .query("communityVrchatIntegrations")
       .withIndex("by_assignedCollectorAccountId_state", (q) =>
@@ -827,7 +827,7 @@ export const claimDueAssignments = internalMutation({
         ),
       });
     }
-    return claimed;
+    return { assignments: claimed, destinationWorkDueAt: fleet?.destinationWorkDueAt ?? null };
   },
 });
 

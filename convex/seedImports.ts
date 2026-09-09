@@ -1,3 +1,4 @@
+import { queueProfileLinkDestinations } from "./_profileLinkDestinationCache";
 import { v } from "convex/values";
 
 import { internal } from "./_generated/api";
@@ -1222,6 +1223,7 @@ async function publishCandidate(ctx: MutationCtx, args: PublishCandidateArgs) {
       throw new Error("Unable to load published profile.");
     }
 
+    await queueProfileLinkDestinations(ctx, profile, now, { previousProfile: matchedProfile ?? undefined });
     await reindexProfileVocabularyDelta(ctx, vocabularyBeforeCandidates, profile, now);
 
     await ctx.db.patch(candidate._id, {
@@ -2163,6 +2165,7 @@ export const bulkSetFieldVisibility = internalMutation({
       const updated = await ctx.db.get(profile._id);
 
       if (updated !== null) {
+        await queueProfileLinkDestinations(ctx, updated, now, { previousProfile: profile });
         await reindexProfileVocabularyDelta(ctx, vocabularyBefore, updated, now);
       }
     }

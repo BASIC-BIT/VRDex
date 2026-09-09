@@ -2,7 +2,7 @@ import { queueProfileLinkDestinations } from "./_profileLinkDestinationCache";
 import { ConvexError } from "convex/values";
 
 import type { Doc } from "./_generated/dataModel";
-import type { DatabaseReader, DatabaseWriter } from "./_generated/server";
+import type { DatabaseReader, MutationCtx } from "./_generated/server";
 import { getProfileFieldVisibility } from "./_profileFieldVisibility";
 import {
   canEditProfileField,
@@ -762,7 +762,7 @@ export async function assertProfileEditNotSuppressed(
 }
 
 export async function applyApiProfileUpdate(
-  db: DatabaseWriter,
+  ctx: MutationCtx,
   options: {
     profile: Doc<"profiles">;
     input: ApiProfileUpdateInput;
@@ -770,6 +770,7 @@ export async function applyApiProfileUpdate(
     now: number;
   },
 ) {
+  const { db } = ctx;
   const sanitized = sanitizeApiProfileUpdateInput(
     options.profile,
     options.input,
@@ -796,7 +797,7 @@ export async function applyApiProfileUpdate(
     // save. Barely visible while only the API could reach it; the profile editor
     // makes this the ordinary way a tag changes.
     await reindexProfileSearchDocument(db, updatedProfile, options.now);
-    await queueProfileLinkDestinations(db, updatedProfile, options.now);
+    await queueProfileLinkDestinations(ctx, updatedProfile, options.now, { previousProfile: options.profile });
   }
 
   return {

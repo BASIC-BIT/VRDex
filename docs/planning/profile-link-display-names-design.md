@@ -1,5 +1,7 @@
 # Profile link destination names
 
+Planning update, 2026-09-08: BASIC approved [the refresh simplification plan](../superpowers/plans/2026-09-08-profile-link-refresh-simplification.md). It supersedes this document's recurring discovery, daily refresh, and automatic retry design. The simplification is implemented in the current change; deployment remains separate. The presentation and artwork requirements below remain applicable.
+
 Status: design agreed on 2026-09-08, including Q10 visual treatment, and subsequently implemented at the user's request. Local tests, typechecks, visual checks, and spec/standards review pass. Deployment is a separate step.
 
 ## Problem
@@ -14,7 +16,7 @@ The user accepted Q1-Q8 on 2026-09-08, explicitly expanded Q9 to include destina
 - Default to the fetched name. Profile owners may optionally provide a custom label and reset it to the current fetched name.
 - Store authored labels separately from fetched destination metadata.
 - Initial scope: VRChat people, VRChat groups, and Discord server invites. Other providers retain their existing behavior.
-- Automatic names follow provider renames through roughly daily cached refreshes. Owner overrides remain unchanged. Rendering a profile does not wait for a provider lookup.
+- Automatic names follow provider renames through cached refreshes requested on profile visits when at least 24 hours old. Owner overrides remain unchanged. Rendering a profile does not wait for a provider lookup.
 - Temporary lookup failures retain the last known name. Never-resolved links use the platform/type plus a short destination identifier so multiple links remain distinguishable.
 - Gradually resolve existing published links as well as new links. Replace recognizable generated labels, preserve distinct custom wording, and leave ambiguous legacy labels alone.
 - Flag confirmed invalid or expired links in the editor without silently deleting them. A changed destination invalidates the old metadata association and requires a fresh resolution.
@@ -46,7 +48,7 @@ Locked decision: the user accepted the compact, static destination-artwork treat
 - Retain the authored URL. Store its resolved provider/entity ID separately; resolve by exact identifier rather than a fuzzy name search. A Discord invite code is a locator whose target may change, not a permanent guild ID.
 - Keep a minimal metadata projection: resolved name, artwork reference, provider/entity identity, observation time, and resolution status. Keep owner label overrides and their provenance separate.
 - Share public metadata by stable destination identity where appropriate, but track each invite's binding and validity separately. A reassigned code must not retain the previous server's name or image.
-- Schedule bounded asynchronous lookup on link creation/change and gradual existing-link refresh. Cache and reuse results across public renders. Honor provider retry instructions and rate limits; use jitter for refreshes.
+- Request bounded asynchronous lookup on link creation/change and actual profile visits with missing or stale metadata. Cache and reuse results across public renders. Honor provider retry instructions and rate limits; a cooldown expires without scheduling work.
 - A new metadata observation must not overwrite profile aliases, handles, provenance, ownership proofs, or verification state. Fetched branding is not proof that the profile owner controls that destination.
 - Preserve existing profile and link visibility checks before enrichment. Do not expose data obtained only through private group membership or a user's private guild-management list.
 - A transient error may retain last-known names/artwork. Confirmed removal or loss of public visibility must not be treated as a successful cached observation. Confirmed invalid invite state belongs in the editor; the public link is not silently deleted.

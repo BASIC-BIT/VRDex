@@ -487,10 +487,11 @@ while (!stopping) {
     // those integrations unpolled anyway.
     const proofCount = stopping ? 0 : await checkProofs();
     loopPhase = "assignment_claim";
-    const { assignments = [] } = stopping
+    const assignmentResponse = stopping
       ? { assignments: [] }
       : await control.send("claim", { limit: 10, now: Date.now() }, { requirePayload: true });
 
+    const { assignments = [], destinationWorkDueAt } = assignmentResponse;
     for (const assignment of assignments) {
       if (stopping) break;
       await heartbeat();
@@ -501,6 +502,7 @@ while (!stopping) {
     // Metadata is read after proof and telemetry work and shares the proof
     // reservation ceiling. Public page traffic cannot consume provider slots.
     const destinationCount = stopping ? 0 : await checkDestinationMetadata({
+      destinationWorkDueAt,
       control, provider, resolve: resolveProfileLinkDestination,
       accountBudget, metadataBudget: proofBudget, heartbeat,
       isStopping: () => stopping, reportDeadSession, pauseWithHeartbeats, logEvent,

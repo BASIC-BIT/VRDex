@@ -3,9 +3,9 @@ import { canReadProfile } from "./_profilePermissions";
 import { visibleProfileList } from "./_profileFieldVisibility";
 import { parseProfileLinkDestination } from "./_profileLinkDestination";
 import { v } from "convex/values";
-import { internalMutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import type { DatabaseReader } from "./_generated/server";
-import { queueProfileLinkDestinations } from "./_profileLinkDestinationCache";
+import { queueProfileLinkDestinations, syncDestinationQueue, destinationWorkHint } from "./_profileLinkDestinationCache";
 
 const workerValidator = v.object({ collectorAccountId: v.string(), workerId: v.string(), workerKeyHash: v.string() });
 type Worker = { collectorAccountId: string; workerId: string; workerKeyHash: string };
@@ -23,45 +23,33 @@ async function workerAuthorized(db: DatabaseReader, worker: Worker | undefined, 
 }
 const DAY = 86_400_000;
 
-// Bounded cursor sweep includes existing profiles and eventually discovers every
-// publication path without rewriting profile revisions or authored labels.
-export const discover = internalMutation({
-  args: {},
-  handler: async ctx => {
-    const expired = await ctx.db.query("profileLinkDestinations").withIndex("by_lastReferencedAt", q => q.lt("lastReferencedAt", Date.now() - 7 * DAY)).take(25);
-    for (const row of expired) {
-      const references = await ctx.db.query("profileLinkDestinationReferences").withIndex("by_key_profile", q => q.eq("key", row.key)).take(100);
-      for (const reference of references) await ctx.db.delete(reference._id);
-      if (references.length < 100) await ctx.db.delete(row._id);
-    }
-    const state = await ctx.db.query("profileLinkDestinationSweep").first();
-    const page = await ctx.db.query("profiles").paginate({cursor: state?.cursor ?? null, numItems: 25});
-    for (const profile of page.page) await queueProfileLinkDestinations(ctx.db, profile, Date.now());
-    const cursor = page.isDone ? null : page.continueCursor;
-    if (state) await ctx.db.patch(state._id, {cursor});
-    else await ctx.db.insert("profileLinkDestinationSweep", {cursor});
+export const requestForProfile = mutation({
+  args: {slug:v.string()},
+  handler: async (ctx, args) => {
+    const profile = await ctx.db.query("profiles").withIndex("by_slug", q => q.eq("slug",args.slug)).unique();
+    if (profile) await queueProfileLinkDestinations(ctx, profile, Date.now(), {requestExisting:true});
+    return null;
   },
 });
 
 export const claimPending = internalMutation({
-  args: { provider: v.union(v.literal("vrchat"), v.literal("discord")), limit: v.optional(v.number()), worker: v.optional(workerValidator) },
+  args: { provider: v.union(v.literal("vrchat"), v.literal("discord")), limit: v.optional(v.number()), worker: v.optional(workerValidator), dispatcherToken:v.optional(v.string()) },
   handler: async (ctx, args) => {
     const now = Date.now();
-    if (args.provider === "vrchat" && !await workerAuthorized(ctx.db, args.worker, now)) return {jobs: []};
-    if (args.provider === "discord") {
-      const budget = await ctx.db.query("profileLinkDestinationBudgets").withIndex("by_provider", q => q.eq("provider", "discord")).unique();
-      if (budget && budget.nextAllowedAt > now) return {jobs: []};
-      if (budget) await ctx.db.patch(budget._id, {nextAllowedAt: now + 60_000});
-      else await ctx.db.insert("profileLinkDestinationBudgets", {provider: "discord", nextAllowedAt: now + 60_000});
+    if (args.provider === "vrchat" && !await workerAuthorized(ctx.db, args.worker, now)) return {jobs: [], destinationWorkDueAt:await destinationWorkHint(ctx.db)};
+    const budget = args.provider === "discord" ? await ctx.db.query("profileLinkDestinationBudgets").withIndex("by_provider", q => q.eq("provider", "discord")).unique() : null;
+    if (args.dispatcherToken) {
+      if (budget?.dispatcherToken !== args.dispatcherToken) return {jobs:[],destinationWorkDueAt:await destinationWorkHint(ctx.db)};
+      await ctx.db.patch(budget._id, {dispatcherToken:undefined,dispatcherDueAt:undefined,dispatcherId:undefined});
     }
-    const rows = await ctx.db.query("profileLinkDestinations").withIndex("by_provider_nextAttemptAt", q => q.eq("provider", args.provider).lte("nextAttemptAt", now)).take(30);
+    if (budget && budget.nextAllowedAt > now) {
+      await syncDestinationQueue(ctx, args.provider, now);
+      return {jobs:[],destinationWorkDueAt:await destinationWorkHint(ctx.db)};
+    }
+    const rows = await ctx.db.query("profileLinkDestinations").withIndex("by_provider_workDueAt", q => q.eq("provider", args.provider).gt("workDueAt", undefined).lte("workDueAt", now)).take(30);
     const jobs = [];
     const limit = args.provider === "discord" ? 1 : Math.max(1, Math.min(10, args.limit ?? 1));
     for (const row of rows) {
-      if (row.lastReferencedAt < now - 2 * DAY) {
-        await ctx.db.patch(row._id, {nextAttemptAt: now + DAY});
-        continue;
-      }
       const references = await ctx.db.query("profileLinkDestinationReferences").withIndex("by_key_profile", q => q.eq("key", row.key)).take(100);
       let referencedPublicly = false;
       for (const reference of references) {
@@ -71,15 +59,20 @@ export const claimPending = internalMutation({
         await ctx.db.delete(reference._id);
       }
       if (!referencedPublicly) {
-        await ctx.db.patch(row._id, {nextAttemptAt: now + DAY});
+        await ctx.db.patch(row._id, {workDueAt:references.length === 100 ? now : undefined,leaseToken:undefined,leaseExpiresAt:undefined,leaseWorker:undefined});
         continue;
       }
       const leaseToken = crypto.randomUUID();
-      await ctx.db.patch(row._id, {leaseToken, leaseExpiresAt: now + 5 * 60_000, nextAttemptAt: now + 5 * 60_000, ...(args.worker ? {leaseWorker: args.worker} : {})});
+      await ctx.db.patch(row._id, {leaseToken, leaseExpiresAt: now + 5 * 60_000, workDueAt: now + 5 * 60_000, ...(args.worker ? {leaseWorker: args.worker} : {})});
       jobs.push({key: row.key, kind: row.kind, locator: row.locator, leaseToken});
       if (jobs.length >= limit) break;
     }
-    return {jobs};
+    if (jobs.length && args.provider === "discord") {
+      if (budget) await ctx.db.patch(budget._id,{nextAllowedAt:now+60_000});
+      else await ctx.db.insert("profileLinkDestinationBudgets",{provider:"discord",nextAllowedAt:now+60_000});
+    }
+    await syncDestinationQueue(ctx, args.provider, now);
+    return {jobs,destinationWorkDueAt:await destinationWorkHint(ctx.db)};
   },
 });
 
@@ -91,15 +84,15 @@ export const recordResult = internalMutation({
   handler: async (ctx, args) => {
     const row = await ctx.db.query("profileLinkDestinations").withIndex("by_key", q => q.eq("key", args.key)).unique();
     const now = Date.now();
-    if (!row || row.leaseToken !== args.leaseToken || (row.leaseExpiresAt ?? 0) <= now) return {accepted: false};
-    if (row.provider === "vrchat" && (!await workerAuthorized(ctx.db, args.worker, now) || !sameWorker(row.leaseWorker, args.worker))) return {accepted: false};
+    if (!row || row.leaseToken !== args.leaseToken || (row.leaseExpiresAt ?? 0) <= now) return {accepted: false,destinationWorkDueAt:await destinationWorkHint(ctx.db)};
+    if (row.provider === "vrchat" && (!await workerAuthorized(ctx.db, args.worker, now, true) || !sameWorker(row.leaseWorker, args.worker))) return {accepted: false,destinationWorkDueAt:await destinationWorkHint(ctx.db)};
     const result = args.result;
     const transient = result.status === "transient";
     if (result.status === "resolved") {
       const uuid = "[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}";
       const idPattern = row.kind === "discord_guild" ? /^\d{5,25}$/ : new RegExp(`^${row.kind === "vrchat_user" ? "usr" : "grp"}_${uuid}$`, "i");
-      if (!result.entityId || !idPattern.test(result.entityId) || !result.displayName?.trim() || /[\u0000-\u001f\u007f]/u.test(result.displayName)) return {accepted: false};
-      if ((row.locator.startsWith("usr_") || row.locator.startsWith("grp_")) && row.locator !== result.entityId.toLowerCase()) return {accepted: false};
+      if (!result.entityId || !idPattern.test(result.entityId) || !result.displayName?.trim() || /[\u0000-\u001f\u007f]/u.test(result.displayName)) return {accepted: false,destinationWorkDueAt:await destinationWorkHint(ctx.db)};
+      if ((row.locator.startsWith("usr_") || row.locator.startsWith("grp_")) && row.locator !== result.entityId.toLowerCase()) return {accepted: false,destinationWorkDueAt:await destinationWorkHint(ctx.db)};
     }
     const retry = Number.isFinite(result.retryAfterMs) ? Math.max(60_000, Math.min(DAY, result.retryAfterMs!)) : 15 * 60_000;
     if (transient && row.provider === "discord") {
@@ -111,7 +104,8 @@ export const recordResult = internalMutation({
     // clear branding; only temporary transport failures preserve it.
     await ctx.db.patch(row._id, {
       leaseToken: undefined, leaseExpiresAt: undefined, leaseWorker: undefined,
-      nextAttemptAt: now + (transient ? retry : DAY + Math.floor(Math.random() * 3_600_000)),
+      workDueAt: undefined,
+      retryEligibleAt: result.status === "resolved" ? undefined : now + retry,
       ...(transient ? {status: row.name ? "resolved" as const : "unavailable" as const} : {
         status: result.status === "resolved" ? "resolved" as const : result.status === "invalid" ? "invalid" as const : "unavailable" as const,
         entityId: result.status === "resolved" ? result.entityId : undefined,
@@ -120,7 +114,8 @@ export const recordResult = internalMutation({
         observedAt: now,
       }),
     });
-    return {accepted: true};
+    await syncDestinationQueue(ctx, row.provider, now);
+    return {accepted: true,destinationWorkDueAt:await destinationWorkHint(ctx.db)};
   },
 });
 
@@ -128,9 +123,11 @@ export const release = internalMutation({
   args: {key: v.string(), leaseToken: v.string(), worker: v.optional(workerValidator)},
   handler: async (ctx, args) => {
     const row = await ctx.db.query("profileLinkDestinations").withIndex("by_key", q => q.eq("key", args.key)).unique();
-    if (!row || row.leaseToken !== args.leaseToken) return;
-    if (row.provider === "vrchat" && (!await workerAuthorized(ctx.db, args.worker, Date.now(), true) || !sameWorker(row.leaseWorker, args.worker))) return;
-    await ctx.db.patch(row._id, {leaseToken: undefined, leaseExpiresAt: undefined, leaseWorker: undefined, nextAttemptAt: Date.now() + 60_000});
+    if (!row || row.leaseToken !== args.leaseToken || (row.leaseExpiresAt ?? 0) <= Date.now()) return {destinationWorkDueAt:await destinationWorkHint(ctx.db)};
+    if (row.provider === "vrchat" && (!await workerAuthorized(ctx.db, args.worker, Date.now(), true) || !sameWorker(row.leaseWorker, args.worker))) return {destinationWorkDueAt:await destinationWorkHint(ctx.db)};
+    await ctx.db.patch(row._id, {leaseToken: undefined, leaseExpiresAt: undefined, leaseWorker: undefined, workDueAt: Date.now() + 60_000});
+    await syncDestinationQueue(ctx, row.provider, Date.now());
+    return {destinationWorkDueAt:await destinationWorkHint(ctx.db)};
   },
 });
 

@@ -1,3 +1,4 @@
+import { queueProfileLinkDestinations } from "./_profileLinkDestinationCache";
 import { internalMutation } from "./_generated/server";
 import { findSlugOwner } from "./_globalSlugs";
 import { createProfileSearchDocument, upsertSearchDocument } from "./_searchDocuments";
@@ -70,6 +71,7 @@ export const ensurePublicSearchFixture = internalMutation({
       throw new Error("Hosted smoke fixture profile could not be loaded.");
     }
 
+    await queueProfileLinkDestinations(ctx, profile, now, { previousProfile: existing ?? undefined });
     await upsertSearchDocument(ctx.db, createProfileSearchDocument(profile));
 
     if (created) {
