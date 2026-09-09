@@ -6,6 +6,7 @@ import { getPublicProfileMediaKit } from "./_profileAssets";
 import { toProfileLookupResult } from "./_profileLookup";
 import { canReadProfile } from "./_profilePermissions";
 import { getProfileTrustLabel } from "./_profileStates";
+import { visibleProfileField } from "./_profileFieldVisibility";
 import { firstSafePublicImageUrl } from "./_publicFields";
 import { profileNameMatchRank, profileNameSearchQuery } from "./_profileNameSearch";
 import {
@@ -97,7 +98,15 @@ export async function projectPublicSearchResult(
   }
 
   const mediaKit = await getPublicProfileMediaKit(ctx.db, profile, { surface: "discovery" });
-  const result = toPublicSearchResult(document, searchText, mediaKit);
+  // Hydrate images from current visibility, never a stale search index URL.
+  const result = toPublicSearchResult({
+    ...document,
+    imageUrl: firstSafePublicImageUrl(
+      visibleProfileField(profile, "avatarImageUrl", profile.avatarImageUrl, "discovery"),
+      mediaKit.automaticAvatarImageUrl,
+      visibleProfileField(profile, "bannerImageUrl", profile.bannerImageUrl, "discovery"),
+    ),
+  }, searchText, mediaKit);
   const usesLogo = publicSearchLookupUsesLogo(result);
   const person = toProfileLookupResult(profile, {
     avatarImageUrl: publicSearchLookupAvatarUrl(result),

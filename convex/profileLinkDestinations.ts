@@ -3,6 +3,7 @@ import { canReadProfile } from "./_profilePermissions";
 import { visibleProfileList } from "./_profileFieldVisibility";
 import { parseProfileLinkDestination } from "./_profileLinkDestination";
 import { v } from "convex/values";
+import { automaticProfileImage, hasDestinationArtwork } from "./_profileImageFallback";
 import { internalMutation, mutation, query } from "./_generated/server";
 import type { DatabaseReader } from "./_generated/server";
 import { queueProfileLinkDestinations, syncDestinationQueue, destinationWorkHint } from "./_profileLinkDestinationCache";
@@ -79,7 +80,7 @@ export const claimPending = internalMutation({
 export const recordResult = internalMutation({
   args: {
     key: v.string(), leaseToken: v.string(), worker: v.optional(workerValidator),
-    result: v.object({status: v.union(v.literal("resolved"), v.literal("invalid"), v.literal("inaccessible"), v.literal("transient")), entityId: v.optional(v.string()), displayName: v.optional(v.string()), artworkSourceUrl: v.optional(v.string()), retryAfterMs: v.optional(v.number())}),
+    result: v.object({status: v.union(v.literal("resolved"), v.literal("invalid"), v.literal("inaccessible"), v.literal("transient")), entityId: v.optional(v.string()), displayName: v.optional(v.string()), artworkSourceUrl: v.optional(v.string()), artworkType: v.optional(v.union(v.literal("profile_picture"),v.literal("group_icon"),v.literal("server_icon"))), retryAfterMs: v.optional(v.number())}),
   },
   handler: async (ctx, args) => {
     const row = await ctx.db.query("profileLinkDestinations").withIndex("by_key", q => q.eq("key", args.key)).unique();
@@ -111,6 +112,7 @@ export const recordResult = internalMutation({
         entityId: result.status === "resolved" ? result.entityId : undefined,
         name: result.status === "resolved" ? result.displayName!.trim().slice(0, 120) : undefined,
         artworkSourceUrl: result.status === "resolved" ? allowedDestinationArtworkUrl(result.artworkSourceUrl, row.kind) : undefined,
+        artworkType: result.status === "resolved" ? result.artworkType : undefined,
         observedAt: now,
       }),
     });
@@ -132,16 +134,22 @@ export const release = internalMutation({
 });
 
 export const lookupArtworkSource = query({
-  args: {key: v.string(), profileId: v.string()},
+  args: {key: v.string(), profileId: v.string(), surface: v.optional(v.union(v.literal("profile_page"),v.literal("discovery"))), profileImage: v.optional(v.boolean())},
   handler: async (ctx, args) => {
     // Authorize against the exact rendering profile, so stale references on
     // unrelated profiles cannot hide a valid destination or widen its access.
     const profileId = ctx.db.normalizeId("profiles", args.profileId);
     const profile = profileId ? await ctx.db.get(profileId) : null;
     if (!profile || !canReadProfile("public", profile)) return null;
-    if (!visibleProfileList(profile, "outboundLinks", profile.outboundLinks ?? [], "profile_page").some(link => parseProfileLinkDestination(link)?.key === args.key)) return null;
+    const surface = args.surface ?? "profile_page";
+    if (!visibleProfileList(profile, "outboundLinks", profile.outboundLinks ?? [], surface).some(link => parseProfileLinkDestination(link)?.key === args.key)) return null;
+    if (args.profileImage) {
+      const placements = await ctx.db.query("profileAssetPlacements").withIndex("by_profileId_state", q => q.eq("profileId",profile._id).eq("state","active")).collect();
+      const selected = await automaticProfileImage(ctx.db, profile, surface, placements.some(p => p.placement === "profile_image" || p.placement === "primary_logo"));
+      if (!selected || !selected.startsWith(`/api/profile-link-artwork/${encodeURIComponent(args.key)}?`)) return null;
+    }
     const row = await ctx.db.query("profileLinkDestinations").withIndex("by_key", q => q.eq("key", args.key)).unique();
-    if (!row || row.status !== "resolved" || !row.artworkSourceUrl) return null;
+    if (!row || !hasDestinationArtwork(row)) return null;
     return {kind: row.kind, artworkSourceUrl: row.artworkSourceUrl, observedAt: row.observedAt};
   },
 });

@@ -14,10 +14,13 @@ export async function GET(request: Request, context: { params: Promise<{ key: st
     const params = new URL(request.url).searchParams;
     const profileId = params.get("profile");
     if (!profileId || profileId.length > 100) return new Response(null, { status: 404 });
-    const source = await fetchQuery(api.profileLinkDestinations.lookupArtworkSource, { key, profileId });
+    const surface = params.get("surface");
+    if (surface !== null && surface !== "profile_page" && surface !== "discovery") return new Response(null, {status:404});
+    const size = params.get("size") === "512" ? 512 : 128;
+    const source = await fetchQuery(api.profileLinkDestinations.lookupArtworkSource, { key, profileId, ...(surface ? {surface} : {}), ...(size === 512 ? {profileImage:true} : {}) });
     if (!source) return new Response(null, { status: 404, headers: { "Cache-Control": "no-store" } });
     if (!canonicalDestinationArtworkQuery(params, source.observedAt)) return new Response(null, { status: 404, headers: { "Cache-Control": "no-store" } });
-    const bytes = await cachedProfileLinkDestinationArtwork({ key, ...source });
+    const bytes = await cachedProfileLinkDestinationArtwork({ key, ...source, artworkSourceUrl: source.artworkSourceUrl! }, size);
     if (!bytes) return new Response(null, { status: 503, headers: { "Cache-Control": "no-store", "Retry-After": "3600" } });
     return new Response(new Uint8Array(bytes), {
       headers: {

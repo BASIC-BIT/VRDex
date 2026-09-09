@@ -189,11 +189,10 @@ function safePublicEventMediaLink(link: PublicEvent["mediaLinks"][number]): Publ
     return [{ ...link, url }];
 }
 
-function publicProfileCardImage(profile: Doc<"profiles">): string | undefined {
-  return firstSafeHttpsUrl(
-    visibleProfileField(profile, "avatarImageUrl", profile.avatarImageUrl, "discovery"),
-    visibleProfileField(profile, "bannerImageUrl", profile.bannerImageUrl, "discovery"),
-  );
+function publicProfileCardImage(profile: Doc<"profiles">, automaticAvatarImageUrl?: string): string | undefined {
+  return firstSafeHttpsUrl(visibleProfileField(profile, "avatarImageUrl", profile.avatarImageUrl, "discovery"))
+    ?? automaticAvatarImageUrl
+    ?? firstSafeHttpsUrl(visibleProfileField(profile, "bannerImageUrl", profile.bannerImageUrl, "discovery"));
 }
 
 function eventMediaPublicLinkType(platform: Doc<"eventMediaOutputs">["playbackLinks"][number]["platform"]): PublicEventMediaLinkType {
@@ -494,7 +493,8 @@ async function getPublicEventParticipantRecords(
       return {
         association,
         profile,
-        imageUrl: mediaKit.profileImage?.imageUrl ?? publicProfileCardImage(profile),
+        imageUrl: mediaKit.profileImage?.imageUrl ?? mediaKit.primaryLogo?.imageUrl
+          ?? publicProfileCardImage(profile, mediaKit.automaticAvatarImageUrl),
         avatarAppearance: mediaKit.avatarAppearance,
       };
     }),
@@ -543,7 +543,8 @@ async function getPublicEventSlotRecords(
       return {
         slot,
         profile,
-        imageUrl: mediaKit.profileImage?.imageUrl ?? publicProfileCardImage(profile),
+        imageUrl: mediaKit.profileImage?.imageUrl ?? mediaKit.primaryLogo?.imageUrl
+          ?? publicProfileCardImage(profile, mediaKit.automaticAvatarImageUrl),
         avatarAppearance: mediaKit.avatarAppearance,
       };
     }),
@@ -655,7 +656,8 @@ async function getPublicEventRecord(
     ...optionalField("community", community),
     ...optionalField(
       "communityImageUrl",
-      communityImageUrl ?? (community === undefined ? undefined : publicProfileCardImage(community)),
+      communityImageUrl ?? (community === undefined ? undefined
+        : publicProfileCardImage(community, communityMediaKit?.automaticAvatarImageUrl)),
     ),
     ...optionalField("communityAvatarAppearance", communityMediaKit?.avatarAppearance),
   };

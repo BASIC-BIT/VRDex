@@ -1886,8 +1886,8 @@ export const listOwnedAppearanceProfiles = query({
         displayName: profile.displayName,
         headline: profile.headline,
         avatarImageUrl: profile.profileType === "community"
-          ? mediaKit.primaryLogo?.imageUrl ?? mediaKit.profileImage?.imageUrl ?? profile.avatarImageUrl
-          : mediaKit.profileImage?.imageUrl ?? profile.avatarImageUrl,
+          ? mediaKit.primaryLogo?.imageUrl ?? mediaKit.profileImage?.imageUrl ?? profile.avatarImageUrl ?? mediaKit.automaticAvatarImageUrl
+          : mediaKit.profileImage?.imageUrl ?? profile.avatarImageUrl ?? mediaKit.automaticAvatarImageUrl,
         compactDisplay: mediaKit.compactDisplay,
         avatarAppearance: mediaKit.avatarAppearance,
         sectionOrder: appearance.sectionOrder,

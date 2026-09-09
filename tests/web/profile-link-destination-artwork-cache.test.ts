@@ -100,3 +100,23 @@ test("changed destination artwork never falls back to a previous destination's b
   unavailable = true;
   assert.equal(await cache({ ...source, artworkSourceUrl: source.artworkSourceUrl.replace("12345/", "54321/") }), null);
 });
+
+test("portrait and thumbnail derivatives have separate persistent cache identities", async () => {
+  const storage = new Map<string, Uint8Array>();
+  const prepared: number[] = [];
+  const cache = createDestinationArtworkCache({
+    read: async key => storage.has(key) ? { body: storage.get(key)! } : null,
+    write: async (key, body) => { storage.set(key, body); },
+    prepare: async (_url, _kind, size = 128) => { prepared.push(size); return new Uint8Array([size === 512 ? 2 : 1]); },
+    now: () => 1_000_000,
+  });
+  assert.deepEqual(await cache(source), new Uint8Array([1]));
+  assert.deepEqual(await cache(source, 512), new Uint8Array([2]));
+  await cache(source, 512);
+  assert.deepEqual(prepared, [128, 512]);
+  assert.equal(storage.size, 2);
+  assert.equal(canonicalDestinationArtworkQuery(new URLSearchParams("profile=p&v=123&size=512"), 123), true);
+  for (const size of ["128", "1024", "512&size=512"]) {
+    assert.equal(canonicalDestinationArtworkQuery(new URLSearchParams(`profile=p&v=123&size=${size}`), 123), false);
+  }
+});

@@ -650,6 +650,11 @@ const sharedProfileFields = {
   bio: v.optional(v.string()),
   about: v.optional(v.string()),
   avatarImageUrl: v.optional(v.string()),
+  imageFallback: v.optional(v.object({
+    disabled: v.boolean(),
+    vrchatGroupKey: v.optional(v.string()),
+    discordGuildKey: v.optional(v.string()),
+  })),
   bannerImageUrl: v.optional(v.string()),
   outboundLinks: v.optional(
     v.array(
@@ -702,6 +707,7 @@ export default defineSchema({
     entityId: v.optional(v.string()),
     name: v.optional(v.string()),
     artworkSourceUrl: v.optional(v.string()),
+    artworkType: v.optional(v.union(v.literal("profile_picture"), v.literal("group_icon"), v.literal("server_icon"))),
     observedAt: v.optional(v.number()),
     workDueAt: v.optional(v.number()),
     retryEligibleAt: v.optional(v.number()),

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { DestinationKind } from "../../../../../workers/group-telemetry/profile-link-destination.mjs";
 import { getProfileAssetObject, putProfileLinkThumbnailCache } from "./profile-asset-storage";
-import { prepareProfileLinkDestinationArtwork } from "./profile-link-destination-artwork";
+import { prepareProfileLinkDestinationArtwork, type DestinationArtworkSize } from "./profile-link-destination-artwork";
 
 type Source = { key: string; kind: DestinationKind; artworkSourceUrl: string };
 type Cache = { attemptedAt: number; fetchedAt?: number; image?: string };
@@ -15,7 +15,11 @@ type Dependencies = {
 export function canonicalDestinationArtworkQuery(params: URLSearchParams, observedAt: number | undefined): boolean {
   return observedAt !== undefined && Number.isFinite(observedAt)
     && params.getAll("profile").length === 1 && params.getAll("v").length === 1
-    && [...params.keys()].every(key => key === "profile" || key === "v")
+    && params.getAll("size").length <= 1
+      && (!params.has("size") || params.get("size") === "512")
+      && params.getAll("surface").length <= 1
+      && (!params.has("surface") || params.get("surface") === "profile_page" || params.get("surface") === "discovery")
+      && [...params.keys()].every(key => key === "profile" || key === "v" || key === "size" || key === "surface")
     && params.get("v") === String(observedAt);
 }
 
@@ -23,8 +27,8 @@ export function canonicalDestinationArtworkQuery(params: URLSearchParams, observ
 // metadata observation timestamps select storage keys or trigger provider reads.
 export function createDestinationArtworkCache(dependencies: Dependencies) {
   const pending = new Map<string, Promise<Uint8Array | null>>();
-  return async (source: Source): Promise<Uint8Array | null> => {
-    const hash = createHash("sha256").update(JSON.stringify([source.key, source.kind, source.artworkSourceUrl])).digest("hex");
+  return async (source: Source, size: DestinationArtworkSize = 128): Promise<Uint8Array | null> => {
+    const hash = createHash("sha256").update(JSON.stringify([2, size, source.key, source.kind, source.artworkSourceUrl])).digest("hex");
     const key = `profile-assets/destination-thumbnails/${hash}.json`;
     const existing = pending.get(key);
     if (existing) return existing;
@@ -38,19 +42,19 @@ export function createDestinationArtworkCache(dependencies: Dependencies) {
         throw error;
       });
       let previous: Cache | undefined;
-      if (stored && stored.body.byteLength <= 180 * 1024) {
+      if (stored && stored.body.byteLength <= (size === 512 ? 700 : 180) * 1024) {
         try {
           const parsed: unknown = JSON.parse(new TextDecoder().decode(stored.body));
           if (parsed && typeof parsed === "object" && "attemptedAt" in parsed && typeof parsed.attemptedAt === "number" && Number.isFinite(parsed.attemptedAt)) {
             const candidate = parsed as Cache;
-            if ((!candidate.image || (typeof candidate.image === "string" && candidate.image.length <= 175_000)) && (!candidate.fetchedAt || Number.isFinite(candidate.fetchedAt))) previous = candidate;
+            if ((!candidate.image || (typeof candidate.image === "string" && candidate.image.length <= (size === 512 ? 700_000 : 175_000))) && (!candidate.fetchedAt || Number.isFinite(candidate.fetchedAt))) previous = candidate;
           }
         } catch { /* A corrupt cache object is replaced by a fresh sanitized import. */ }
       }
       const old = previous?.image ? new Uint8Array(Buffer.from(previous.image, "base64")) : null;
       if (previous && ((previous.fetchedAt && now - previous.fetchedAt < 86_400_000) || now - previous.attemptedAt < 3_600_000)) return old;
       let image: Uint8Array | null;
-      try { image = await dependencies.prepare(source.artworkSourceUrl, source.kind); }
+      try { image = await dependencies.prepare(source.artworkSourceUrl, source.kind, size); }
       catch {
         await dependencies.write(key, new TextEncoder().encode(JSON.stringify({ ...previous, attemptedAt: now }))).catch(() => undefined);
         return old;

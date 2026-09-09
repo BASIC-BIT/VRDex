@@ -62,7 +62,7 @@ export function toPublicProfileShareCard(
   );
   const logoImage = rasterManagedImageUrl(mediaKit.primaryLogo);
   const prefersLogo = mediaKit.compactDisplay === "logo";
-  const avatarImage = prefersLogo
+  const authoredAvatarImage = prefersLogo
     ? logoImage
       ? { imageUrl: logoImage, kind: "logo" as const }
       : managedProfileImage
@@ -77,6 +77,9 @@ export function toPublicProfileShareCard(
         : legacyProfileImage
           ? { imageUrl: legacyProfileImage, kind: "profile" as const }
           : undefined;
+  const avatarImage = authoredAvatarImage ?? (mediaKit.automaticAvatarImageUrl
+    ? { imageUrl: mediaKit.automaticAvatarImageUrl, kind: "profile" as const }
+    : undefined);
 
   return {
     profileType: profile.profileType,

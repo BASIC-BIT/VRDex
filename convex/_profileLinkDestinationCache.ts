@@ -4,6 +4,7 @@ import { internal } from "./_generated/api";
 import { parseProfileLinkDestination } from "./_profileLinkDestination";
 import { canReadProfile } from "./_profilePermissions";
 import { visibleProfileList } from "./_profileFieldVisibility";
+import { hasDestinationArtwork } from "./_profileImageFallback";
 
 type Provider = "discord" | "vrchat";
 export async function destinationWorkHint(db: DatabaseReader) {
@@ -85,7 +86,7 @@ export async function projectProfileLinkDestinations<T extends { type: string; u
       status: cached?.status ?? "pending" as const,
       ...(cached?.entityId ? { entityId: cached.entityId } : {}),
       ...(cached?.name ? { name: cached.name } : {}),
-      ...(cached?.artworkSourceUrl ? { artworkUrl: `/api/profile-link-artwork/${encodeURIComponent(target.key)}?v=${cached.observedAt ?? 0}&profile=${encodeURIComponent(profileId)}` } : {}),
+      ...(hasDestinationArtwork(cached) ? { artworkUrl: `/api/profile-link-artwork/${encodeURIComponent(target.key)}?v=${cached!.observedAt ?? 0}&profile=${encodeURIComponent(profileId)}` } : {}),
       ...(cached?.observedAt !== undefined ? { observedAt: cached.observedAt } : {}),
     } };
   }));

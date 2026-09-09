@@ -1,5 +1,6 @@
 const managedProfileAssetPath = /^\/api\/v0\/profiles\/[^/]+\/assets\/[^/]+\/file$/;
 const playwrightFixtureAssetPath = /^\/api\/e2e\/fixture-assets\/[^/]+$/;
+const destinationArtworkPath = /^\/api\/profile-link-artwork\/[^/]+$/;
 const inlineableProfileShareAssetContentTypes = new Set([
   "image/jpeg",
   "image/png",
@@ -18,7 +19,7 @@ export function inlineableProfileShareAssetUrl(
     const url = new URL(imageUrl, siteUrl);
 
     if (url.origin !== siteUrl.origin) return null;
-    if (!managedProfileAssetPath.test(url.pathname) && !playwrightFixtureAssetPath.test(url.pathname)) {
+    if (!managedProfileAssetPath.test(url.pathname) && !playwrightFixtureAssetPath.test(url.pathname) && !destinationArtworkPath.test(url.pathname)) {
       return null;
     }
 

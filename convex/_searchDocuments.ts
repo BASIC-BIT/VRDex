@@ -514,7 +514,9 @@ export function toPublicSearchResult(
   const logoImageUrl = mediaKit?.primaryLogo?.imageUrl;
   const preferredProfileImageUrl =
     mediaKit?.compactDisplay === "logo" ? logoImageUrl ?? profileImageUrl : profileImageUrl ?? logoImageUrl;
-  const imageUrl = document.entityType === "profile" ? preferredProfileImageUrl ?? document.imageUrl : document.imageUrl;
+  const imageUrl = document.entityType === "profile"
+    ? preferredProfileImageUrl ?? mediaKit?.automaticAvatarImageUrl ?? document.imageUrl
+    : document.imageUrl;
 
   return {
     entityType: document.entityType,
