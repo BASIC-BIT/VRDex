@@ -80,7 +80,7 @@ export const claimPending = internalMutation({
 export const recordResult = internalMutation({
   args: {
     key: v.string(), leaseToken: v.string(), worker: v.optional(workerValidator),
-    result: v.object({status: v.union(v.literal("resolved"), v.literal("invalid"), v.literal("inaccessible"), v.literal("transient")), entityId: v.optional(v.string()), displayName: v.optional(v.string()), artworkSourceUrl: v.optional(v.string()), artworkType: v.optional(v.union(v.literal("profile_picture"),v.literal("group_icon"),v.literal("server_icon"))), retryAfterMs: v.optional(v.number())}),
+    result: v.object({status: v.union(v.literal("resolved"), v.literal("invalid"), v.literal("inaccessible"), v.literal("transient")), entityId: v.optional(v.string()), displayName: v.optional(v.string()), artworkSourceUrl: v.optional(v.string()), artworkType: v.optional(v.union(v.literal("profile_picture"), v.literal("user_icon"),v.literal("group_icon"),v.literal("server_icon"))), retryAfterMs: v.optional(v.number())}),
   },
   handler: async (ctx, args) => {
     const row = await ctx.db.query("profileLinkDestinations").withIndex("by_key", q => q.eq("key", args.key)).unique();

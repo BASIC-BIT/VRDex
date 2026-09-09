@@ -33,8 +33,8 @@ test("mismatched identities never bind metadata to requested destinations", asyn
   assert.deepEqual(await resolveProfileLinkDestination(invite, { fetcher: async () => json({ type: 0, code: "Other", guild }) }), { status: "transient" });
 });
 
-test("public person prefers full custom portrait without leaking location", async () => {
-  assert.deepEqual(await resolveProfileLinkDestination({ kind: "vrchat_user", locator: userId }, { requestVrchat: async () => ({ id: userId, displayName: "Person", profilePicOverrideThumbnail: portraitThumbnail, profilePicOverride: "https://api.vrchat.cloud/api/1/file/file_904c068b-dccb-40e3-a52b-ebe59c79e1f4/1", currentAvatarImageUrl: artwork, location: "private" }) }), { status: "resolved", entityId: userId, displayName: "Person", artworkSourceUrl: "https://api.vrchat.cloud/api/1/file/file_904c068b-dccb-40e3-a52b-ebe59c79e1f4/1", artworkType: "profile_picture" });
+test("public person uses the user icon, not the profile override or banner", async () => {
+  assert.deepEqual(await resolveProfileLinkDestination({ kind: "vrchat_user", locator: userId }, { requestVrchat: async () => ({ id: userId, displayName: "Person", userIcon: portraitThumbnail, profilePicOverrideThumbnail: artwork, profilePicOverride: artwork, bannerUrl: artwork, currentAvatarImageUrl: artwork, location: "private" }) }), { status: "resolved", entityId: userId, displayName: "Person", artworkSourceUrl: portraitThumbnail, artworkType: "user_icon" });
 });
 
 
@@ -139,19 +139,19 @@ test("Discord servers without icons resolve names without manufacturing artwork"
   }
 });
 
-test("avatar artwork is never used when the custom profile picture is absent or unsafe", async () => {
+test("override, banner and avatar artwork are never used when the user icon is absent or unsafe", async () => {
   for (const custom of [undefined, "", "https://evil.example/image.png"]) {
     const result = await resolveProfileLinkDestination({ kind: "vrchat_user", locator: userId }, {
-      requestVrchat: async () => ({ id: userId, displayName: "Person", profilePicOverride: custom, currentAvatarImageUrl: artwork, currentAvatarThumbnailImageUrl: portraitThumbnail }),
+      requestVrchat: async () => ({ id: userId, displayName: "Person", userIcon: custom, profilePicOverride: artwork, profilePicOverrideThumbnail: portraitThumbnail, bannerUrl: artwork, currentAvatarImageUrl: artwork, currentAvatarThumbnailImageUrl: portraitThumbnail }),
     });
     assert.deepEqual(result, { status: "resolved", entityId: userId, displayName: "Person" });
   }
 });
 
-test("custom thumbnail remains eligible when the full custom picture is unavailable", async () => {
+test("user icon remains eligible without a profile override", async () => {
   const result = await resolveProfileLinkDestination({ kind: "vrchat_user", locator: userId }, {
-    requestVrchat: async () => ({ id: userId, displayName: "Person", profilePicOverrideThumbnail: portraitThumbnail }),
+    requestVrchat: async () => ({ id: userId, displayName: "Person", userIcon: portraitThumbnail }),
   });
   assert.equal(result.artworkSourceUrl, portraitThumbnail);
-  assert.equal(result.artworkType, "profile_picture");
+  assert.equal(result.artworkType, "user_icon");
 });

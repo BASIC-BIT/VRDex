@@ -8,6 +8,11 @@ saved link order supplies a default before owner selection. See the
 
 ## Findings from current source
 
+Correction (2026-09-09): the portrait-field assumption below was wrong. The requested
+custom profile icon is `userIcon`, not `profilePicOverride` or its thumbnail. VRCX's
+[user-image helper](https://github.com/vrcx-team/VRCX/blob/master/src/shared/utils/user.js)
+handles the icon separately from the override. Current implementation uses only `userIcon`.
+
 The existing destination resolver already collects a usable portrait URL for a VRChat user. Its priority is `profilePicOverrideThumbnail`, `profilePicOverride`, `currentAvatarThumbnailImageUrl`, then `currentAvatarImageUrl`. This is our implemented choice, not an assertion that VRChat guarantees this precedence. It stores one selected source URL, so the original full-size alternative is not retained when a thumbnail wins. [Resolver](../../workers/group-telemetry/profile-link-destination.mjs)
 
 Destination artwork is sanitized and rehosted through a separate cache. The current output is a small square thumbnail intended for link buttons. A main profile portrait should have a larger derivative and prefer the full-size version of the selected portrait rather than enlarge the link thumbnail. A derivative size must participate in the cache identity to avoid serving an old small image after changing the transform. The cache currently keys on destination, kind, and source URL. [Transform](../../apps/web/src/lib/server/profile-link-destination-artwork.ts), [cache](../../apps/web/src/lib/server/profile-link-destination-artwork-cache.ts)

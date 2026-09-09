@@ -97,7 +97,7 @@ Implementation and acceptance criteria: [Profile link destination names](../plan
 
 When no authored profile image or primary-logo placement exists, a profile can use cached
 destination artwork. Hidden authored media still blocks replacement. People use only custom
-VRChat profile pictures, never current-avatar images. A matching primary VRChat connection
+VRChat `userIcon` images, never profile overrides, banners, or current-avatar images. A matching primary VRChat connection
 is preferred among public outbound links; otherwise saved link order decides. Communities
 prefer their selected VRChat group, then selected Discord server. Without a selection, the
 first eligible link of each kind is used, including on unclaimed communities.
@@ -109,13 +109,22 @@ event identities, owner previews, and share cards. Both image and source-link vi
 apply for the requested surface. The 512px image route rechecks the currently selected
 fallback before serving bytes, including after source removal or preference changes.
 
-VRChat user artwork requires `artworkType: profile_picture`. Legacy rows without provenance
+VRChat user artwork requires `artworkType: user_icon`. Legacy rows without provenance,
+including the former `profile_picture` marker (which incorrectly identified profile overrides),
 are suppressed immediately on new reads and old URLs fail authorization; the existing
 demand-driven refresh can repopulate custom pictures. Existing browser-cached bytes may
 remain for the established five-minute cache lifetime. Versioned derivative cache keys
 prevent old avatar bytes or 128px thumbnails from being reused as profile portraits.
 Unused cached objects expire under the existing storage lifecycle. No sweep or additional
 scheduled provider requests are introduced.
+
+For the user-icon correction rollout, deploy the backend before the collector, then expire
+the previous VRChat user cache records once and request their referencing public profiles
+through `profileLinkDestinations:requestForProfile`. This includes resolved rows with no
+artwork, since a missing override does not mean a missing icon. Let the existing collector
+budget drain the queue, then verify both link and 512px profile image responses. Retain the
+old schema marker during rollout so stored rows and in-flight old collector results remain
+valid, but never render it.
 
 Core identity fields:
 
