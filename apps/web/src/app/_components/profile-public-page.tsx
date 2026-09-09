@@ -16,7 +16,6 @@ import { VerifiedTrustMark } from "@/components/ui/verified-trust-mark";
 import { avatarFrameStyle, defaultAvatarAppearance, type AvatarAppearance } from "@/lib/avatar-appearance";
 import { cn } from "@/lib/cn";
 import { uniqueProfileIdentityItems } from "@/lib/profile-identity-items";
-import { carriesLiveClaim } from "@/lib/live-claim-sources";
 import { profileClaimPath } from "@/lib/profile-claim";
 import { hasRenderableProfileMediaKit } from "@/lib/profile-media-kit";
 import { safeImageBackground, safeImageUrl } from "@/lib/safe-image";
@@ -414,10 +413,7 @@ export function ProfilePublicPage({ profile, mediaKitGalleryEnabled, embedded = 
       (item): item is { link: (typeof profile.outboundLinks)[number]; href: string } =>
         item.href !== null && item.href !== undefined,
     );
-  // The very link the probe used, found by the same selector rather than by a
-  // second pass that happens to agree. The fallback keeps an unvetted link
-  // rendering as a plain watch button -- the link was never the problem, the
-  // claim about who is streaming was, and `twitchLive` stays undefined for it.
+  // Use the same channel for the live probe and the rendered link.
   const claimedTwitchLink = twitchLinkForLiveClaim(profile.outboundLinks);
   const twitchLink =
     (claimedTwitchLink && validLinks.find(({ link }) => link === claimedTwitchLink)) ??
@@ -440,7 +436,7 @@ export function ProfilePublicPage({ profile, mediaKitGalleryEnabled, embedded = 
     const stream = providerUrl.search || providerUrl.hash ? null : parseVrcdnStreamLinks(link.url);
     return stream ? [{ item, label: link.label, stream }] : [];
   });
-  const claimableVrcdnStreams = vrcdnStreams.filter(({ item }) => carriesLiveClaim(item.link));
+  const claimableVrcdnStreams = vrcdnStreams;
   const creatorLinks = validLinks.filter(
     (item) =>
       item !== twitchLink &&
@@ -612,29 +608,29 @@ export function ProfilePublicPage({ profile, mediaKitGalleryEnabled, embedded = 
         </section>
 
         {canClaim || profile.source ? (
-          <aside aria-label="Profile ownership" className="grid justify-items-end gap-2 py-4">
+          <aside aria-label="Profile ownership" className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 py-2">
             {/* Provenance describes the record, not the person. Sitting above
                 the display name it read as a label on them; here it is one of
                 the facts about how this listing came to exist, as plain text
-                with the date on its own line.
+                with the date beside it.
                 A published import carries no `sourceAttribution` -- deliberately,
                 since "Community submitted" would be false provenance for an
                 operator import -- so it needs its own line rather than none.
                 Every unclaimed listing says so, which is what the repo means by
                 labelling an unclaimed profile as unverified. */}
             {profile.source ? (
-              <p className="text-right text-sm text-muted">
+              <p className="text-sm text-muted">
                 {profile.source.label}
                 {profile.source.submittedAt !== undefined ? (
-                  <span className="block">{formatSubmittedDate(profile.source.submittedAt)}</span>
+                  <span className="ml-2">{formatSubmittedDate(profile.source.submittedAt)}</span>
                 ) : null}
               </p>
             ) : profile.trustLabel === "unclaimed" ? (
-              <p className="text-right text-sm text-muted">Unclaimed</p>
+              <p className="text-sm text-muted">Unclaimed</p>
             ) : null}
 
             {canClaim ? (
-              <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-2">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
                 <p className="text-sm text-muted">
                   {profile.profileType === "person" ? "Is this your profile?" : "Manage this community?"}
                 </p>

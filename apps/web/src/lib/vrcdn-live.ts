@@ -1,4 +1,4 @@
-import { type LiveClaimLink, carriesLiveClaim } from "./live-claim-sources";
+import { type LiveClaimLink } from "./live-claim-sources";
 
 import { parseVrcdnStreamLinks } from "../../../../convex/_vrcdnLinks";
 
@@ -96,7 +96,7 @@ export function vrcdnStreamIds(links: readonly VrcdnLiveLink[]): string[] {
   return [
     ...new Set(
       links.flatMap((link) =>
-        link.type === "vrcdn" && carriesLiveClaim(link)
+        link.type === "vrcdn"
           ? parseVrcdnStreamLinks(link.url)?.streamId ?? []
           : [],
       ),
