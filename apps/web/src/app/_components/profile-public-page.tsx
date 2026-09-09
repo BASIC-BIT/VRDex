@@ -414,9 +414,9 @@ export function ProfilePublicPage({ profile, mediaKitGalleryEnabled, embedded = 
         item.href !== null && item.href !== undefined,
     );
   // Use the same channel for the live probe and the rendered link.
-  const claimedTwitchLink = twitchLinkForLiveClaim(profile.outboundLinks);
+  const selectedTwitchLink = twitchLinkForLiveClaim(profile.outboundLinks);
   const twitchLink =
-    (claimedTwitchLink && validLinks.find(({ link }) => link === claimedTwitchLink)) ??
+    (selectedTwitchLink && validLinks.find(({ link }) => link === selectedTwitchLink)) ??
     validLinks.find(({ link }) => link.type === "twitch" && twitchLoginFromUrl(link.url));
   const discordHandles = validLinks.flatMap((item) => {
     if (item.link.type !== "discord" || parseProfileLinkDestination(item.link)?.kind === "discord_guild") {
@@ -436,7 +436,6 @@ export function ProfilePublicPage({ profile, mediaKitGalleryEnabled, embedded = 
     const stream = providerUrl.search || providerUrl.hash ? null : parseVrcdnStreamLinks(link.url);
     return stream ? [{ item, label: link.label, stream }] : [];
   });
-  const claimableVrcdnStreams = vrcdnStreams;
   const creatorLinks = validLinks.filter(
     (item) =>
       item !== twitchLink &&
@@ -668,7 +667,7 @@ export function ProfilePublicPage({ profile, mediaKitGalleryEnabled, embedded = 
           }))}
           profileSlug={profile.slug}
           streams={vrcdnStreams.map(({ item, label, stream }) => ({
-            claimable: claimableVrcdnStreams.some((claimable) => claimable.item === item),
+            claimable: true,
             key: `${item.link.type}-${item.link.url}`,
             label,
             pcUrl: stream.pcUrl,
