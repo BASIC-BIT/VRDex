@@ -80,16 +80,9 @@ describe("VRCDN liveness", () => {
     );
   });
 
-  it("will not claim someone is live on a stranger's say-so", () => {
-    // `submitCommunityProfile` publishes immediately, and a community
-    // submission is one signed-in person adding somebody else's profile. A
-    // stream id arriving that way could belong to anyone, and a `404` cannot
-    // tell "not publishing" from "not their stream".
-    assert.deepEqual(
-      vrcdnStreamIds([
-        { source: "community_submitted", type: "vrcdn", url: "https://vrcdn.live/someone-elses-stream" },
-      ]),
-      [],
-    );
+  it("probes community-submitted streams", () => {
+    assert.deepEqual(vrcdnStreamIds([
+      { source: "community_submitted", type: "vrcdn", url: "https://stream.vrcdn.live/live/ivycatty.live.ts" },
+    ]), ["ivycatty"]);
   });
 });
