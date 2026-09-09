@@ -10,7 +10,7 @@ const groupId = "grp_11111111-1111-4111-8111-111111111111";
 const job = { key: `vrchat_group:${groupId}`, kind: "vrchat_group", locator: groupId, leaseToken: "fresh-lease" };
 const json = (value, status = 200, headers = {}) => new Response(JSON.stringify(value), { status, headers });
 
-function scenario({ controlResponse, providerResponse, jobs = [job] } = {}) {
+function scenario({ controlResponse, providerResponse, jobs = [job], destinationWorkDueAt = 0, clock = Date.now } = {}) {
   const requests = [];
   const events = [];
   let stopping = false;
@@ -22,9 +22,9 @@ function scenario({ controlResponse, providerResponse, jobs = [job] } = {}) {
       requests.push({ boundary: "control", ...body });
       const override = await controlResponse?.(body);
       if (override) return override;
-      if (body.operation === "destination_claim") return json({ jobs });
+      if (body.operation === "destination_claim") return json({ jobs, destinationWorkDueAt: jobs.length ? Date.now() + 300_000 : null });
       if (body.operation === "proof_budget") return json({ granted: true });
-      return json({ accepted: true, recorded: true });
+      return json({ accepted: true, recorded: true, destinationWorkDueAt: null });
     },
   });
   const provider = new VrchatClient({
@@ -39,7 +39,8 @@ function scenario({ controlResponse, providerResponse, jobs = [job] } = {}) {
   return {
     requests, events, accountBudget, metadataBudget,
     stop() { stopping = true; },
-    run: () => checkDestinationMetadata({
+    run: (assignmentHint = destinationWorkDueAt) => checkDestinationMetadata({
+      clock, destinationWorkDueAt: assignmentHint,
       control, provider, accountBudget, metadataBudget, resolve: resolveProfileLinkDestination,
       heartbeat: () => control.send("heartbeat"), isStopping: () => stopping,
       reportDeadSession: async () => { await control.send("proof_auth_failure"); stopping = true; },
@@ -88,20 +89,22 @@ test("shutdown after claiming releases the lease without a provider read", async
   assert.equal(run.requests.at(-1).operation, "destination_release");
 });
 
-test("an authenticated 401 releases the lease before quarantining the collector", async () => {
+test("an authenticated 401 records a transient cooldown before quarantining the collector", async () => {
   const run = scenario({ providerResponse: () => json({}, 401) });
   await run.run();
-  assert.deepEqual(run.requests.slice(-2).map(entry => entry.operation), ["destination_release", "proof_auth_failure"]);
-  assert.equal(run.requests.some(entry => entry.operation === "destination_result"), false);
+  assert.deepEqual(run.requests.slice(-2).map(entry => entry.operation), ["destination_result", "proof_auth_failure"]);
+  assert.equal(run.requests.some(entry => entry.operation === "destination_release"), false);
+  assert.deepEqual(run.requests.at(-2).result, { status: "transient" });
+  assert.equal(run.requests.at(-2).leaseToken, job.leaseToken);
   const count = run.requests.length;
   await run.run();
   assert.equal(run.requests.length, count);
 });
 
-test("429 publishes an account-wide cooldown before making the lease available again", async () => {
+test("429 publishes an account-wide cooldown and ends the requested attempt", async () => {
   const run = scenario({ providerResponse: () => json({}, 429, { "retry-after": "120" }) });
   await run.run();
-  assert.deepEqual(run.requests.slice(-2).map(entry => entry.operation), ["proof_rate_limit", "destination_release"]);
+  assert.deepEqual(run.requests.slice(-2).map(entry => entry.operation), ["proof_rate_limit", "destination_result"]);
   assert.equal(run.requests.at(-2).retryAfterMs, 120_000);
   assert.ok(run.events.some(entry => entry.paused === 120_000));
 });
@@ -153,7 +156,8 @@ test("short-code redirects and their subsequent authenticated lookup each requir
   assert.equal(redirectReads, 1);
   assert.equal(reservations, 2);
   assert.equal(run.requests.some(entry => entry.boundary === "provider"), false);
-  assert.equal(run.requests.at(-1).operation, "destination_release");
+  assert.equal(run.requests.at(-1).operation, "destination_result");
+  assert.deepEqual(run.requests.at(-1).result, { status: "transient" });
   assert.equal(run.accountBudget.remaining(), 29);
 });
 
@@ -161,8 +165,71 @@ test("a short-code redirect 429 applies the same account cooldown as an authenti
   t.mock.method(globalThis, "fetch", async () => new Response(null, { status: 429, headers: { "retry-after": "90" } }));
   const run = scenario({ jobs: [{ ...job, key: "vrchat_group:SLOTH.1234", locator: "SLOTH.1234" }] });
   await run.run();
-  assert.deepEqual(run.requests.slice(-2).map(entry => entry.operation), ["proof_rate_limit", "destination_release"]);
+  assert.deepEqual(run.requests.slice(-2).map(entry => entry.operation), ["proof_rate_limit", "destination_result"]);
   assert.equal(run.requests.at(-2).retryAfterMs, 90_000);
   assert.equal(run.requests.some(entry => entry.boundary === "provider"), false);
   assert.ok(run.events.some(entry => entry.paused === 90_000));
+});
+
+
+test("idle assignments over 25 hours never send destination requests without a work hint", async () => {
+  assert.equal(await checkDestinationMetadata({}), 0);
+  for (const destinationWorkDueAt of [null, 26 * 60 * 60_000]) {
+    let now = 0;
+    const run = scenario({ destinationWorkDueAt, clock: () => now });
+    for (let hour = 0; hour <= 25; hour++) {
+      now = hour * 60 * 60_000;
+      assert.equal(await run.run(), 0);
+    }
+    assert.deepEqual(run.requests, []);
+  }
+});
+
+test("a stale due hint makes one empty claim and a later empty assignment hint prevents another", async () => {
+  const run = scenario({ jobs: [] });
+  await run.run();
+  await run.run(null);
+  assert.deepEqual(run.requests.map(request => request.operation), ["destination_claim"]);
+});
+
+test("a completed lookup followed by an empty assignment hint cannot claim again", async () => {
+  const run = scenario();
+  await run.run();
+  await run.run(null);
+  assert.equal(run.requests.filter(request => request.operation === "destination_claim").length, 1);
+});
+
+
+test("a later due assignment hint can retry a budget release before any provider request", async () => {
+  let allowed = false;
+  const run = scenario({ controlResponse: body => {
+    if (body.operation === "proof_budget") return json({ granted: allowed });
+    if (body.operation === "destination_release") return json({ released: true, destinationWorkDueAt: 0 });
+  }});
+  await run.run();
+  allowed = true;
+  await run.run(0);
+  assert.equal(run.requests.filter(request => request.operation === "destination_claim").length, 2);
+  assert.equal(run.requests.filter(request => request.operation === "destination_result").length, 1);
+});
+
+test("a provider cooldown records failure with its lease and an empty assignment prevents another lookup", async () => {
+  const run = scenario({ providerResponse: () => json({}, 429, { "retry-after": "600" }) });
+  await run.run();
+  const result = run.requests.find(request => request.operation === "destination_result");
+  assert.equal(result.leaseToken, job.leaseToken);
+  assert.deepEqual(result.result, {status: "transient", retryAfterMs: 600_000});
+  await run.run(null);
+  assert.equal(run.requests.filter(request => request.operation === "destination_claim").length, 1);
+});
+
+
+test("a failed 401 result acknowledgement retains the lease and still quarantines the collector", async () => {
+  const run = scenario({
+    providerResponse: () => json({}, 401),
+    controlResponse: body => body.operation === "destination_result" ? json({}, 503) : undefined,
+  });
+  await assert.rejects(run.run(), /Control plane 503/);
+  assert.equal(run.requests.some(entry => entry.operation === "destination_release"), false);
+  assert.equal(run.requests.at(-1).operation, "proof_auth_failure");
 });

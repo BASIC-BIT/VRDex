@@ -4,6 +4,8 @@ import { notFound } from "next/navigation";
 import { validateSlugFormat } from "../../../../../convex/_globalSlugs";
 import { EntityBackendNotice } from "./entity-backend-notice";
 import { ProfilePublicPage } from "../_components/profile-public-page";
+import { ProfileLinkRefresh } from "../_components/profile-link-refresh";
+import { parseProfileLinkDestination } from "../../../../../convex/_profileLinkDestination";
 import { WorldPublicPage } from "../_components/world-public-page";
 import { fetchPublicEntityBySlug } from "@/convex/server";
 import { profileShareMetadata } from "@/lib/profile-share-card";
@@ -59,7 +61,10 @@ export default async function EntityPage({ params }: EntityPageProps) {
 
   switch (result.entity.type) {
     case "profile":
-      return <ProfilePublicPage profile={result.entity.profile} mediaKitGalleryEnabled={process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED === "true" || process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES === "true"} />;
+      return <>
+        {process.env.NEXT_PUBLIC_CONVEX_URL && result.entity.profile.outboundLinks.some(link => parseProfileLinkDestination(link)) ? <ProfileLinkRefresh slug={slug} /> : null}
+        <ProfilePublicPage profile={result.entity.profile} mediaKitGalleryEnabled={process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED === "true" || process.env.VRDEX_ENABLE_PLAYWRIGHT_FIXTURES === "true"} />
+      </>;
     case "world":
       return <WorldPublicPage world={result.entity.world} />;
   }

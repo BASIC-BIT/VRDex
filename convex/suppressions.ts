@@ -1,3 +1,4 @@
+import { queueProfileLinkDestinations } from "./_profileLinkDestinationCache";
 import { v } from "convex/values";
 
 import { internal } from "./_generated/api";
@@ -431,6 +432,9 @@ export const retractProfilesForSuppression = internalMutation({
               : "Pre-claim safety suppression request accepted.",
           now,
         });
+
+        const updatedProfile = await ctx.db.get(profile._id);
+        if (updatedProfile) await queueProfileLinkDestinations(ctx, updatedProfile, now, { previousProfile: profile });
 
         if (reindexKey !== null) {
           reindexKeys.push(reindexKey);

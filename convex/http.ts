@@ -100,13 +100,13 @@ const telemetryWorker = httpAction(async (ctx, request) => {
       return json(result);
     }
     if (body.operation === "claim") {
-      const assignments = await ctx.runMutation(functions.claimDueAssignments, {
+      const result = await ctx.runMutation(functions.claimDueAssignments, {
         collectorAccountId: collectorAccountId as never,
         workerId: body.workerId,
         limit: typeof body.limit === "number" ? body.limit : undefined,
         now,
       });
-      return json({ assignments });
+      return json(result);
     }
     if (body.operation.startsWith("destination_")) {
       // Bind the collector identity and current credential generation inside

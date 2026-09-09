@@ -1,3 +1,4 @@
+import { queueProfileLinkDestinations } from "./_profileLinkDestinationCache";
 import { v } from "convex/values";
 
 import {
@@ -97,6 +98,7 @@ export const updateFieldVisibility = mutation({
     const updatedProfile = await ctx.db.get(profile._id);
 
     if (updatedProfile !== null) {
+      await queueProfileLinkDestinations(ctx, updatedProfile, now, { previousProfile: profile });
       await Promise.all([
         upsertSearchDocument(ctx.db, createProfileSearchDocument(updatedProfile)),
         // Only while the profile is actually on the public surfaces. A hidden

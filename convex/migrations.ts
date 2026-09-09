@@ -1,3 +1,4 @@
+import { queueProfileLinkDestinations } from "./_profileLinkDestinationCache";
 import { Migrations } from "@convex-dev/migrations";
 import { components, internal } from "./_generated/api";
 import type { DataModel, Doc } from "./_generated/dataModel";
@@ -178,6 +179,7 @@ export const publishGatedProfiles = migrations.define({
     const published = await ctx.db.get(profile._id);
 
     if (published !== null) {
+      await queueProfileLinkDestinations(ctx, published, now, { previousProfile: profile });
       // Search and vocabulary are updated together everywhere else profiles
       // publish. Indexing search alone would surface the profile while leaving
       // its tags and genres missing from discovery vocabulary and usage counts.

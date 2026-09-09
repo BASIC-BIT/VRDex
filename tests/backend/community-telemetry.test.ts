@@ -170,7 +170,7 @@ describe("community telemetry control plane", () => {
         collectorAccountId: accountId,
         workerId: "membership-worker",
         now: claimAt,
-      });
+      }).then(result => result.assignments);
       assert.ok(claim);
       await t.mutation(internal.communityTelemetry.recordMembershipResult, {
         integrationId,
@@ -195,12 +195,12 @@ describe("community telemetry control plane", () => {
         collectorAccountId: accountId,
         workerId: "early-worker",
         now: deferredUntil! - 1,
-      }), []);
+      }).then(result => result.assignments), []);
       assert.equal((await t.mutation(internal.communityTelemetry.claimDueAssignments, {
         collectorAccountId: accountId,
         workerId: "due-worker",
         now: deferredUntil,
-      })).length, 1);
+      }).then(result => result.assignments)).length, 1);
     }
   });
 
@@ -221,7 +221,7 @@ describe("community telemetry control plane", () => {
       workerId: "isolated-worker",
       leaseMs: 30_000,
       now: claimAt,
-    });
+    }).then(result => result.assignments);
     assert.ok(claim);
 
     const poll = {
@@ -303,7 +303,7 @@ describe("community telemetry control plane", () => {
       collectorAccountId: accountId,
       workerId: "reconnect-worker",
       now: claimAt,
-    });
+    }).then(result => result.assignments);
     assert.ok(claim);
     const poll = {
       integrationId,
@@ -380,7 +380,7 @@ describe("community telemetry control plane", () => {
       collectorAccountId: accountId,
       workerId: "worker-one",
       now: claimAt,
-    });
+    }).then(result => result.assignments);
     assert.equal(firstClaims.length, 1);
     assert.equal(firstClaims[0]?.fencingToken, 1);
 
@@ -514,7 +514,7 @@ describe("community telemetry control plane", () => {
       collectorAccountId: accountId,
       workerId: "worker-two",
       now: claimAt + 183_000,
-    });
+    }).then(result => result.assignments);
     assert.equal(secondClaims[0]?.fencingToken, 2);
     await assert.rejects(
       t.mutation(internal.communityTelemetry.ingestAggregatePoll, {
@@ -551,7 +551,7 @@ describe("community telemetry control plane", () => {
     }), /disconnecting or disconnected/);
     const cleanupClaims = await t.mutation(internal.communityTelemetry.claimDueAssignments, {
       collectorAccountId: accountId, workerId: "worker-three", now: claimAt + 185_000,
-    });
+    }).then(result => result.assignments);
     assert.equal(cleanupClaims[0]?.state, "disconnecting");
     assert.equal(cleanupClaims[0]?.fencingToken, 3);
     await t.mutation(internal.communityTelemetry.recordMembershipResult, {
@@ -996,7 +996,7 @@ describe("community telemetry control plane", () => {
     });
     assert.deepEqual(await t.mutation(internal.communityTelemetry.claimDueAssignments, {
       collectorAccountId: accountId, workerId: "worker", now: claimAt,
-    }), []);
+    }).then(result => result.assignments), []);
     await t.mutation(internal.communityTelemetry.setIntegrationKillSwitch, {
       integrationId, enabled: false, now: claimAt + 1,
     });
@@ -1005,7 +1005,7 @@ describe("community telemetry control plane", () => {
     });
     assert.deepEqual(await t.mutation(internal.communityTelemetry.claimDueAssignments, {
       collectorAccountId: accountId, workerId: "worker", now: claimAt + 2,
-    }), []);
+    }).then(result => result.assignments), []);
     await t.mutation(internal.communityTelemetry.setCollectorAccountState, {
       collectorAccountId: accountId, state: "ready", killSwitchEnabled: false, now: claimAt + 3,
     });
@@ -1014,13 +1014,13 @@ describe("community telemetry control plane", () => {
     });
     assert.deepEqual(await t.mutation(internal.communityTelemetry.claimDueAssignments, {
       collectorAccountId: accountId, workerId: "worker", now: claimAt + 4,
-    }), []);
+    }).then(result => result.assignments), []);
     await t.mutation(internal.communityTelemetry.configureFleet, {
       killSwitchEnabled: false, globalRequestsPerMinute: 20, now: claimAt + 5,
     });
     const claims = await t.mutation(internal.communityTelemetry.claimDueAssignments, {
       collectorAccountId: accountId, workerId: "worker", now: claimAt + 5,
-    });
+    }).then(result => result.assignments);
     assert.equal(claims.length, 1);
     assert.equal(claims[0]?.requestsPerMinute, 4);
     const budgetAt = claimAt + 6;
@@ -1171,7 +1171,7 @@ describe("community telemetry control plane", () => {
     assert.equal(state.leases.length, 1);
     assert.deepEqual(await t.mutation(internal.communityTelemetry.claimDueAssignments, {
       collectorAccountId: accountId, workerId: "other-worker", now: claimAt + 8,
-    }), []);
+    }).then(result => result.assignments), []);
     const rotatedAccountId = await t.mutation(internal.communityTelemetry.registerCollectorAccount, {
       vrchatUserId: "usr_00000000-0000-4000-8000-000000000001",
       accountAlias: "proof-1",
@@ -1192,7 +1192,7 @@ describe("community telemetry control plane", () => {
     assert.equal(recovered.integration?.state, "connecting");
     const recoveredClaims = await t.mutation(internal.communityTelemetry.claimDueAssignments, {
       collectorAccountId: accountId, workerId: "rotated-worker", now: claimAt + 10,
-    });
+    }).then(result => result.assignments);
     assert.equal(recoveredClaims[0]?.fencingToken, 2);
   });
 
@@ -1224,7 +1224,7 @@ describe("community telemetry control plane", () => {
       collectorAccountId: firstAccountId,
       workerId: "first-worker",
       now: claimAt,
-    });
+    }).then(result => result.assignments);
     assert.equal(firstClaim[0]?.fencingToken, 1);
 
     await t.mutation(internal.communityTelemetry.setCollectorAccountState, {
@@ -1237,7 +1237,7 @@ describe("community telemetry control plane", () => {
       collectorAccountId: firstAccountId,
       workerId: "first-worker",
       now: claimAt + 2_000,
-    }), []);
+    }).then(result => result.assignments), []);
     const secondAccountId = await registerAccount(t, 3, 2);
     assert.equal(await t.mutation(internal.communityTelemetry.reassignIntegration, {
       integrationId,
@@ -1264,7 +1264,7 @@ describe("community telemetry control plane", () => {
       collectorAccountId: secondAccountId,
       workerId: "second-worker",
       now: claimAt + 4_000,
-    });
+    }).then(result => result.assignments);
     assert.equal(secondClaim[0]?.fencingToken, 2);
     await assert.rejects(t.mutation(internal.communityTelemetry.ingestAggregatePoll, {
       integrationId,
@@ -1329,5 +1329,32 @@ describe("collector account re-registration", () => {
     assert.equal(account?.reservedHeadroom, 5);
     assert.equal(account?.requestsPerMinute, 12);
     assert.equal(account?.credentialGeneration, 2);
+  });
+});
+
+
+describe("collector destination work hint", () => {
+  it("returns the stored hint alongside empty assignments and clears it for unavailable collectors", async () => {
+    const t = convexTest({ schema, modules });
+    const account = await registerAccount(t);
+    await t.run(async ctx => { await ctx.db.patch(account, {state: "ready"}); });
+    const empty = await t.mutation(internal.communityTelemetry.claimDueAssignments, {
+      collectorAccountId: account, workerId: "idle-worker", now: NOW,
+    });
+    assert.deepEqual(empty, {assignments: [], destinationWorkDueAt: null});
+    await t.run(async ctx => {
+      await ctx.db.insert("collectorFleetSettings", {
+        key: "global", killSwitchEnabled: false, globalRequestsPerMinute: 30,
+        destinationWorkDueAt: NOW, updatedAt: NOW,
+      });
+    });
+    const queued = await t.mutation(internal.communityTelemetry.claimDueAssignments, {
+      collectorAccountId: account, workerId: "idle-worker", now: NOW,
+    });
+    assert.deepEqual(queued, {assignments: [], destinationWorkDueAt: NOW});
+    await t.run(async ctx => { await ctx.db.patch(account, {killSwitchEnabled: true}); });
+    assert.deepEqual(await t.mutation(internal.communityTelemetry.claimDueAssignments, {
+      collectorAccountId: account, workerId: "idle-worker", now: NOW,
+    }), {assignments: [], destinationWorkDueAt: null});
   });
 });

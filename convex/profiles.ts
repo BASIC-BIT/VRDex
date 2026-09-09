@@ -2,7 +2,7 @@ import { projectProfileLinkDestinations, queueProfileLinkDestinations } from "./
 import { ConvexError, type Infer, v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
-import type { DatabaseReader, DatabaseWriter } from "./_generated/server";
+import type { DatabaseReader, MutationCtx } from "./_generated/server";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import {
   findMcpWriteReceipt,
@@ -400,7 +400,7 @@ export const updateProfileForApiOwner = internalMutation({
     await assertProfileEditNotSuppressed(ctx.db, profile, args);
 
     const now = Date.now();
-    const { changedFields, profile: updatedProfile } = await applyApiProfileUpdate(ctx.db, {
+    const { changedFields, profile: updatedProfile } = await applyApiProfileUpdate(ctx, {
       profile,
       input: args,
       subject: editSubject,
@@ -632,7 +632,7 @@ function communityProfileSubmissionObject() {
  * the parts that must not differ by transport.
  */
 async function createCommunityProfileRecord(
-  ctx: { db: DatabaseWriter },
+  ctx: MutationCtx,
   args: CommunityProfileSubmissionInput,
   submitter: AuthSubject,
 ) {
@@ -705,7 +705,7 @@ async function createCommunityProfileRecord(
 
       const profile = await ctx.db.get(profileId);
       if (profile !== null) {
-        await queueProfileLinkDestinations(ctx.db, profile, now);
+        await queueProfileLinkDestinations(ctx, profile, now);
         await consumeProfileAssetUploads(ctx.db, {
           profileId,
           requestedBy: sourceAttribution.submitter,
@@ -750,7 +750,7 @@ async function createCommunityProfileRecord(
 
     const profile = await ctx.db.get(profileId);
     if (profile !== null) {
-      await queueProfileLinkDestinations(ctx.db, profile, now);
+      await queueProfileLinkDestinations(ctx, profile, now);
       await consumeProfileAssetUploads(ctx.db, {
         profileId,
         requestedBy: sourceAttribution.submitter,
@@ -1040,7 +1040,7 @@ export const updateProfileFromBrowser = mutation({
     await assertProfileEditNotSuppressed(ctx.db, profile, args);
 
     const now = Date.now();
-    const { changedFields, profile: updatedProfile } = await applyApiProfileUpdate(ctx.db, {
+    const { changedFields, profile: updatedProfile } = await applyApiProfileUpdate(ctx, {
       profile,
       input: args,
       subject: editSubject,
@@ -1155,7 +1155,7 @@ export const updateProfileForMcpActor = internalMutation({
       assertSubmittedFieldsEditable(profile, args, authorization.editSubject);
       await assertProfileEditNotSuppressed(ctx.db, profile, args);
 
-      const applied = await applyApiProfileUpdate(ctx.db, {
+      const applied = await applyApiProfileUpdate(ctx, {
         profile,
         input: args,
         subject: authorization.editSubject,

@@ -1,3 +1,4 @@
+import { queueProfileLinkDestinations } from "./_profileLinkDestinationCache";
 import { v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
@@ -110,6 +111,7 @@ async function deleteE2eProfile(ctx: MutationCtx, profile: Doc<"profiles">) {
   ]);
 
   requireFixtureProofTargets(verificationAttempts);
+  await queueProfileLinkDestinations(ctx, { ...profile, outboundLinks: [] }, Date.now());
 
   await Promise.all([
     ...searchDocuments.map((document) => ctx.db.delete(document._id)),

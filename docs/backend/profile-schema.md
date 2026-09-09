@@ -43,12 +43,38 @@ guild invites. Invite codes remain separate locators because their guild binding
 Public profile, editor preview, and lookup reads attach this data as `destination` after
 their existing visibility projection. The API preserves the original `label` and `url`.
 
-A bounded minute sweep discovers existing published links. Authored writes queue new
-destinations without waiting for a provider. Successful results refresh after roughly one
-day with jitter; temporary failures retain the last successful branding, while confirmed
-invalid or inaccessible results clear it. VRChat jobs use the collector's authenticated
-transport and shared account budget. Group short codes use the canonical `api.vrchat.cloud` redirect endpoint, accepting its root-relative group path without following it or forwarding credentials. Discord jobs use a fixed-origin server action with a
-shared request budget and provider cooldown.
+Link additions, URL changes, and newly public links request asynchronous lookups. An actual
+profile-page visit also requests missing metadata or a refresh when the cached observation
+is at least 24 hours old. Search, lookup, and editor previews only read the cache. Concurrent
+requests for the same destination coalesce into one queued attempt; page rendering does not
+wait for a provider.
+
+There are no destination discovery crons, scheduled daily refreshes, or automatic failed-lookup
+retries. A failed lookup records a 15-minute cooldown by default, respecting a provider retry
+delay bounded to one minute through 24 hours. A later eligible profile visit requests the next
+attempt. Temporary failures preserve the last successful branding; confirmed invalid or
+inaccessible results clear it. Merely becoming stale or reaching a cooldown deadline creates
+no work. Existing cached data is preserved, and previously unseen destinations are discovered
+on visits without a backfill.
+
+Public link references are maintained on profile edits, publication, hiding, and restoration.
+They do not expire because a profile has not been scanned. Removing the final known reference
+removes the metadata and queued work; provider access and artwork reads still recheck current
+public visibility.
+
+VRChat uses the collector's authenticated transport and shared account budget. The existing
+assignment response carries a due-work hint from the already-read fleet row, so an idle queue
+causes no separate destination request or queue scan. Group short codes use the canonical
+`api.vrchat.cloud` redirect endpoint, accepting its root-relative group path without following
+it or forwarding credentials. Discord uses one coalesced scheduled dispatcher for requested
+work, preserving its one-request-per-minute budget and provider cooldown. Dispatching stops
+when the queue is empty. Lease recovery can finish already-requested work after a worker crash;
+it does not turn a completed failed lookup into an automatic retry.
+
+`workDueAt` identifies actual queued work; `retryEligibleAt` is only an eligibility deadline.
+Legacy `nextAttemptAt`, `lastReferencedAt`, and sweep rows remain inert during additive rollout.
+Deploy backend support, then the collector hint consumer, then the web visit trigger. The idle
+request guarantee applies after the new collector replaces old tasks.
 
 Artwork is served through `/api/profile-link-artwork/[key]`, which rechecks a current public
 reference, fetches provider-returned HTTPS URLs on exact trusted provider hosts through the bounded importer,

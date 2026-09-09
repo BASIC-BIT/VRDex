@@ -1,3 +1,4 @@
+import { queueProfileLinkDestinations } from "./_profileLinkDestinationCache";
 import { v } from "convex/values";
 
 import { getLinkedProviderAccount } from "./accounts";
@@ -811,7 +812,7 @@ export const createClaimedDiscordPersonProfile = mutation({
     const { subject, user } = await requireVerifiedActiveBrowserSession(ctx);
     const discordAccount = await requireLinkedDiscordAccount(ctx, user._id);
 
-    return await createClaimedDiscordProfileForUser(ctx.db, {
+    const result = await createClaimedDiscordProfileForUser(ctx.db, {
       userId: user._id,
       discordProviderAccountId: discordAccount.providerAccountId,
       input: {
@@ -824,6 +825,9 @@ export const createClaimedDiscordPersonProfile = mutation({
       now: Date.now(),
       actor: subject,
     });
+    const profile = await ctx.db.get(result.profileId);
+    if (profile) await queueProfileLinkDestinations(ctx, profile, Date.now());
+    return result;
   },
 });
 
@@ -835,7 +839,7 @@ export const createClaimedDiscordCommunityProfile = mutation({
     const { subject, user } = await requireVerifiedActiveBrowserSession(ctx);
     const discordAccount = await requireLinkedDiscordAccount(ctx, user._id);
 
-    return await createClaimedDiscordProfileForUser(ctx.db, {
+    const result = await createClaimedDiscordProfileForUser(ctx.db, {
       userId: user._id,
       discordProviderAccountId: discordAccount.providerAccountId,
       input: {
@@ -848,6 +852,9 @@ export const createClaimedDiscordCommunityProfile = mutation({
       now: Date.now(),
       actor: subject,
     });
+    const profile = await ctx.db.get(result.profileId);
+    if (profile) await queueProfileLinkDestinations(ctx, profile, Date.now());
+    return result;
   },
 });
 

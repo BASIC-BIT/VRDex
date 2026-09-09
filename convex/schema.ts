@@ -703,13 +703,15 @@ export default defineSchema({
     name: v.optional(v.string()),
     artworkSourceUrl: v.optional(v.string()),
     observedAt: v.optional(v.number()),
-    nextAttemptAt: v.number(),
-    lastReferencedAt: v.number(),
+    workDueAt: v.optional(v.number()),
+    retryEligibleAt: v.optional(v.number()),
+    nextAttemptAt: v.optional(v.number()),
+    lastReferencedAt: v.optional(v.number()),
     leaseToken: v.optional(v.string()),
     leaseExpiresAt: v.optional(v.number()),
     leaseWorker: v.optional(v.object({collectorAccountId: v.string(), workerId: v.string(), workerKeyHash: v.string()})),
-  }).index("by_key", ["key"]).index("by_provider_nextAttemptAt", ["provider", "nextAttemptAt"]).index("by_lastReferencedAt", ["lastReferencedAt"]),
-  profileLinkDestinationBudgets: defineTable({ provider: v.literal("discord"), nextAllowedAt: v.number() }).index("by_provider", ["provider"]),
+  }).index("by_key", ["key"]).index("by_provider_workDueAt", ["provider", "workDueAt"]).index("by_provider_nextAttemptAt", ["provider", "nextAttemptAt"]).index("by_lastReferencedAt", ["lastReferencedAt"]),
+  profileLinkDestinationBudgets: defineTable({ provider: v.literal("discord"), nextAllowedAt: v.number(), dispatcherToken: v.optional(v.string()), dispatcherId:v.optional(v.id("_scheduled_functions")), dispatcherDueAt: v.optional(v.number()) }).index("by_provider", ["provider"]),
   profileLinkDestinationSweep: defineTable({ cursor: v.union(v.string(), v.null()) }),
   // Clerk owns authentication and sessions. `users` stays the VRDex identity
   // spine that every other table's `v.id("users")` points at; `clerkUserId` is
@@ -1445,6 +1447,7 @@ export default defineSchema({
       "communityProfileId",
     ]),
   collectorFleetSettings: defineTable({
+    destinationWorkDueAt: v.optional(v.number()),
     key: v.literal("global"),
     killSwitchEnabled: v.boolean(),
     globalRequestsPerMinute: v.number(),

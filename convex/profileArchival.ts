@@ -1,3 +1,4 @@
+import { queueProfileLinkDestinations } from "./_profileLinkDestinationCache";
 import { ConvexError, v } from "convex/values";
 
 import { internal } from "./_generated/api";
@@ -166,6 +167,9 @@ async function applyProfileArchival(
     reason,
     now: args.now,
   });
+
+  const updatedProfile = await ctx.db.get(profile._id);
+  if (updatedProfile) await queueProfileLinkDestinations(ctx, updatedProfile, args.now, { previousProfile: profile });
 
   await ctx.db.insert("profileAuditEvents", {
     profileId: profile._id,

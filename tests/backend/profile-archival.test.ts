@@ -9,6 +9,7 @@ import schemaModule from "../../convex/schema";
 import { newClerkUserId } from "./_clerkTestIdentity";
 
 const modules = {
+  "../../convex/profileLinkDestinations.ts": () => import("../../convex/profileLinkDestinations"),
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
   "../../convex/profileArchival.ts": () => import("../../convex/profileArchival"),
   "../../convex/profiles.ts": () => import("../../convex/profiles"),
@@ -451,4 +452,33 @@ describe("superadmin profile archival", () => {
     assert.deepEqual(events.map((event) => event.action), ["profile_archived"]);
     assert.equal(events[0]?.note, REASON);
   });
+});
+
+
+it("archival removes destination work and restoration queues it without a discovery sweep", async () => {
+  const t = convexTest({ schema, modules });
+  const profileId = await seedProfile(t);
+  const identity = await signIn(t, { superAdmin: true });
+  await t.run(async ctx => {
+    await ctx.db.patch(profileId, {outboundLinks: [{type: "website", url: "https://vrc.group/MUSIC.1704", label: "VRChat group", source: "community_submitted"}]});
+  });
+  await t.mutation(api.profileLinkDestinations.requestForProfile, {slug: "junk-row"});
+  const state = () => t.run(async ctx => ({
+    rows: await ctx.db.query("profileLinkDestinations").collect(),
+    references: await ctx.db.query("profileLinkDestinationReferences").collect(),
+    fleet: await ctx.db.query("collectorFleetSettings").first(),
+  }));
+  assert.equal((await state()).rows.length, 1);
+  await t.withIdentity(identity).mutation(api.profileArchival.setProfileArchived, {slug: "junk-row", archived: true, reason: REASON});
+  const hidden = await state();
+  assert.equal(hidden.rows.length, 0);
+  assert.equal(hidden.references.length, 0);
+  assert.equal(hidden.fleet?.destinationWorkDueAt, undefined);
+  await t.mutation(api.profileLinkDestinations.requestForProfile, {slug: "junk-row"});
+  assert.equal((await state()).rows.length, 0, "visiting a hidden profile cannot recreate work");
+  await t.withIdentity(identity).mutation(api.profileArchival.setProfileArchived, {slug: "junk-row", archived: false, reason: "Restore test profile"});
+  const restored = await state();
+  assert.equal(restored.rows.length, 1);
+  assert.equal(restored.references.length, 1);
+  assert.ok(restored.rows[0].workDueAt);
 });

@@ -1,3 +1,4 @@
+import { queueProfileLinkDestinations } from "./_profileLinkDestinationCache";
 import { v } from "convex/values";
 import {
   internalMutation,
@@ -355,6 +356,7 @@ export const prepareCleanup = internalMutation({
       claimState: "unclaimed",
       updatedAt: now,
     });
+    if (data.profile) await queueProfileLinkDestinations(ctx, { ...data.profile, publicationState: "draft_private" }, now);
     for (const owner of data.owners)
       await ctx.db.patch(owner._id, {
         state: "revoked",

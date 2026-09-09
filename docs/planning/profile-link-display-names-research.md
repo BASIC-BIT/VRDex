@@ -50,7 +50,7 @@ Discord rate limits include route buckets and a global limit; honor response hea
 
 ## Settled scope and remaining evidence
 
-Locked decisions now include VRChat people/groups and Discord server invites, daily background refresh, last-known names during temporary failures, distinct never-resolved fallbacks, conservative improvement of existing links, editor flags for confirmed invalid links, new resolution when destinations change, and shared naming across public profiles, editor previews, and lookup results with separate API metadata. Artwork is included. Other providers and Discord channel/user metadata are outside this initial automatic-resolution scope.
+Locked decisions now include VRChat people/groups and Discord server invites, view-triggered refresh of metadata at least 24 hours old, last-known names during temporary failures, distinct never-resolved fallbacks, conservative improvement of existing links, editor flags for confirmed invalid links, new resolution when destinations change, and shared naming across public profiles, editor previews, and lookup results with separate API metadata. Artwork is included. Other providers and Discord channel/user metadata are outside this initial automatic-resolution scope.
 
 The conservative migration still needs an evidence-based classifier: recognize known generated labels, preserve distinct custom wording, leave ambiguity alone, and audit importer-generated group labels. A label that equals a platform default is not proof of its authorship. This is implementation evidence work, not a reason to ask the already-settled migration question again.
 
