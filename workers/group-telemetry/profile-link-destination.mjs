@@ -126,8 +126,8 @@ export async function resolveProfileLinkDestination(target, { requestVrchat, fet
     if (isGroup && entity.privacy !== "default") return { status: "inaccessible" };
     const displayName = name(isGroup ? entity.name : entity.displayName);
     if (!displayName) return { status: "transient" };
-    const candidates = isGroup ? [entity.iconUrl] : [entity.profilePicOverride, entity.profilePicOverrideThumbnail];
+    const candidates = isGroup ? [entity.iconUrl] : [entity.userIcon];
     const artworkSourceUrl = candidates.map((url) => allowedDestinationArtworkUrl(url, target.kind)).find(Boolean);
-    return { status: "resolved", entityId: entity.id.toLowerCase(), displayName, ...(artworkSourceUrl ? { artworkSourceUrl, artworkType: isGroup ? "group_icon" : "profile_picture" } : {}) };
+    return { status: "resolved", entityId: entity.id.toLowerCase(), displayName, ...(artworkSourceUrl ? { artworkSourceUrl, artworkType: isGroup ? "group_icon" : "user_icon" } : {}) };
   } catch (error) { return providerFailure(error); }
 }

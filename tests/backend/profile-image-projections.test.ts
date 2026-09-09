@@ -24,7 +24,7 @@ it("search and share cards use custom portraits before banners and drop stale in
     await ctx.db.insert("profileLinkDestinations", {
       key: `vrchat_user:${userId}`, kind: "vrchat_user", locator: userId, provider: "vrchat",
       status: "resolved", artworkSourceUrl: "https://example.com/portrait.png",
-      artworkType: "profile_picture", observedAt: 1,
+      artworkType: "user_icon", observedAt: 1,
     });
     const profile = (await ctx.db.get(id))!;
     const documentId = await ctx.db.insert("searchDocuments", {

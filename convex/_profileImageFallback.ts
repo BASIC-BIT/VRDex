@@ -3,10 +3,10 @@ import type { DatabaseReader } from "./_generated/server";
 import { isProfileFieldVisible, visibleProfileList, type ProfileVisibilitySurface } from "./_profileFieldVisibility";
 import { parseProfileLinkDestination } from "./_profileLinkDestination";
 
-/** Legacy user images have no provenance and may be current-avatar artwork. */
+/** Only userIcon provenance is valid; older rows used profile overrides or avatars. */
 export function hasDestinationArtwork(row: Doc<"profileLinkDestinations"> | null) {
   return !!row?.artworkSourceUrl && row.status === "resolved" &&
-    (row.kind !== "vrchat_user" || row.artworkType === "profile_picture");
+    (row.kind !== "vrchat_user" || row.artworkType === "user_icon");
 }
 
 export function profileImageSources(profile: Doc<"profiles">, surface: ProfileVisibilitySurface) {

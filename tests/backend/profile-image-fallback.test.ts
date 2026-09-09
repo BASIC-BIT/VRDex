@@ -26,6 +26,13 @@ it("public profiles use cached custom portraits, never unproven avatar artwork",
     const row = await ctx.db.query("profileLinkDestinations").first();
     await ctx.db.patch(row!._id, {artworkType:"profile_picture"});
   });
+  assert.equal((await read())?.avatarImageUrl, undefined);
+  assert.equal(await t.query(api.profileLinkDestinations.lookupArtworkSource,{key:`vrchat_user:${userId}`,profileId:String(id)}),null);
+
+  await t.run(async ctx => {
+    const row = await ctx.db.query("profileLinkDestinations").first();
+    await ctx.db.patch(row!._id, {artworkType:"user_icon"});
+  });
   assert.match((await read())?.avatarImageUrl ?? "", /size=512/);
   const artworkArgs = {key:`vrchat_user:${userId}`,profileId:String(id),profileImage:true};
   assert.ok(await t.query(api.profileLinkDestinations.lookupArtworkSource,artworkArgs));
