@@ -78,7 +78,7 @@ request guarantee applies after the new collector replaces old tasks.
 
 Artwork is served through `/api/profile-link-artwork/[key]`, which rechecks a current public
 reference, fetches provider-returned HTTPS URLs on exact trusted provider hosts through the bounded importer,
-and emits a static 128px WebP. Paths, sizes, and signature query formats are provider-owned. Every redirect rechecks the host and public DNS/IP boundary; download, timeout, and image-decode limits remain enforced. It authorizes the exact rendering profile, rather than
+and emits a static 128px WebP for links or a 512px derivative for automatic profile images. Paths, sizes, and signature query formats are provider-owned. Every redirect rechecks the host and public DNS/IP boundary; download, timeout, and image-decode limits remain enforced. It authorizes the exact rendering profile, rather than
 scanning a truncated reference list. Sanitized bytes persist in the existing private asset
 bucket under `profile-assets/destination-thumbnails/`, keyed by the destination and source.
 A cold S3 cache read can return `AccessDenied` when the role lacks bucket-list permission. Only this thumbnail cache treats that response as a miss, imports the public image, and requires a successful cache write. Other storage failures still propagate. Fresh bytes are reused for a day; failed refreshes retain the last successful bytes and
@@ -92,6 +92,30 @@ profile-assets lifecycle change when deployed. No browser credentials or arbitra
 source-URL parameter are accepted. Missing artwork leaves the name and platform fallback usable.
 
 Implementation and acceptance criteria: [Profile link destination names](../planning/profile-link-display-names-design.md).
+
+### Automatic profile images
+
+When no authored profile image or primary-logo placement exists, a profile can use cached
+destination artwork. Hidden authored media still blocks replacement. People use only custom
+VRChat profile pictures, never current-avatar images. A matching primary VRChat connection
+is preferred among public outbound links; otherwise saved link order decides. Communities
+prefer their selected VRChat group, then selected Discord server. Without a selection, the
+first eligible link of each kind is used, including on unclaimed communities.
+
+Media Kit owners can disable the automatic fallback or select community sources. These
+preferences are stored separately in `profiles.imageFallback`; fetched images are not
+uploaded assets. The fallback is projected consistently into profile pages, discovery,
+event identities, owner previews, and share cards. Both image and source-link visibility
+apply for the requested surface. The 512px image route rechecks the currently selected
+fallback before serving bytes, including after source removal or preference changes.
+
+VRChat user artwork requires `artworkType: profile_picture`. Legacy rows without provenance
+are suppressed immediately on new reads and old URLs fail authorization; the existing
+demand-driven refresh can repopulate custom pictures. Existing browser-cached bytes may
+remain for the established five-minute cache lifetime. Versioned derivative cache keys
+prevent old avatar bytes or 128px thumbnails from being reused as profile portraits.
+Unused cached objects expire under the existing storage lifecycle. No sweep or additional
+scheduled provider requests are introduced.
 
 Core identity fields:
 

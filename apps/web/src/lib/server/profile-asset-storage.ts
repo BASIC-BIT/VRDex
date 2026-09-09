@@ -320,7 +320,7 @@ export async function getProfileAssetObject(storageKey: string): Promise<StoredO
 
 /** Mutable, bounded cache objects are separate from immutable upload intents. */
 export async function putProfileLinkThumbnailCache(storageKey: string, body: Uint8Array) {
-  if (!/^profile-assets\/destination-thumbnails\/[a-f0-9]{64}\.json$/.test(storageKey) || body.byteLength > 180 * 1024) {
+  if (!/^profile-assets\/destination-thumbnails\/[a-f0-9]{64}\.json$/.test(storageKey) || body.byteLength > 700 * 1024) {
     throw new Error("Invalid destination thumbnail cache object");
   }
   const config = storageConfig();

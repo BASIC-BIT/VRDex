@@ -92,9 +92,9 @@ export async function resolveProfileLinkDestination(target, { requestVrchat, fet
       if (invite.code !== target.locator || typeof guild.id !== "string" || !/^\d{5,25}$/.test(guild.id) || !name(guild.name)) return { status: "transient" };
       if (typeof invite.expires_at === "string" && Number.isFinite(Date.parse(invite.expires_at)) && Date.parse(invite.expires_at) <= Date.now()) return { status: "invalid" };
       const artworkSourceUrl = typeof guild.icon === "string" && guild.icon.trim()
-        ? allowedDestinationArtworkUrl(`https://cdn.discordapp.com/icons/${guild.id}/${encodeURIComponent(guild.icon)}.png?size=128`, target.kind)
+        ? allowedDestinationArtworkUrl(`https://cdn.discordapp.com/icons/${guild.id}/${encodeURIComponent(guild.icon)}.png?size=512`, target.kind)
         : undefined;
-      return { status: "resolved", entityId: guild.id, displayName: name(guild.name), ...(artworkSourceUrl ? { artworkSourceUrl } : {}) };
+      return { status: "resolved", entityId: guild.id, displayName: name(guild.name), ...(artworkSourceUrl ? { artworkSourceUrl, artworkType: "server_icon" } : {}) };
     } catch { return { status: "transient" }; }
   }
   if (!["vrchat_user", "vrchat_group"].includes(target.kind)) return { status: "invalid" };
@@ -126,8 +126,8 @@ export async function resolveProfileLinkDestination(target, { requestVrchat, fet
     if (isGroup && entity.privacy !== "default") return { status: "inaccessible" };
     const displayName = name(isGroup ? entity.name : entity.displayName);
     if (!displayName) return { status: "transient" };
-    const candidates = isGroup ? [entity.iconUrl] : [entity.profilePicOverrideThumbnail, entity.profilePicOverride, entity.currentAvatarThumbnailImageUrl, entity.currentAvatarImageUrl];
+    const candidates = isGroup ? [entity.iconUrl] : [entity.profilePicOverride, entity.profilePicOverrideThumbnail];
     const artworkSourceUrl = candidates.map((url) => allowedDestinationArtworkUrl(url, target.kind)).find(Boolean);
-    return { status: "resolved", entityId: entity.id.toLowerCase(), displayName, ...(artworkSourceUrl ? { artworkSourceUrl } : {}) };
+    return { status: "resolved", entityId: entity.id.toLowerCase(), displayName, ...(artworkSourceUrl ? { artworkSourceUrl, artworkType: isGroup ? "group_icon" : "profile_picture" } : {}) };
   } catch (error) { return providerFailure(error); }
 }

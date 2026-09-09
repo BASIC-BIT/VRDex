@@ -3,7 +3,7 @@
 import { useMutation, useQuery } from "convex/react";
 import { ArrowDown, ArrowUp, CircleUserRound, ImagePlus, RotateCcw, Star, Trash2 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 
 import { api } from "@convex-generated-api";
 import type { Id } from "../../../../../../convex/_generated/dataModel";
@@ -462,12 +462,14 @@ function MediaKitEditor({
   actions,
   generationEnabled,
   onPreparationSettled,
+  renderImageSettings,
 }: {
   initialProfiles: MediaProfile[];
   initialProfileSlug?: string;
   actions: EditorActions;
   generationEnabled: boolean;
   onPreparationSettled?: () => void;
+  renderImageSettings?: (profile: MediaProfile, busy: boolean) => ReactNode;
 }) {
   const [selectedId, setSelectedId] = useState(
     initialProfiles.find((profile) => profile.slug === initialProfileSlug)?.profileId ??
@@ -800,6 +802,7 @@ function MediaKitEditor({
             </label>
           </div>
         </div>
+        {renderImageSettings?.(profile, workspaceBusy)}
         {uploading ? (
           <progress
             aria-label={`${pendingPlacement === "gallery" ? "Gallery image" : pendingPlacement === "profile_image" ? "Profile image" : "Primary logo"} ${pendingFile ? "upload" : "preparation"} in progress`}
@@ -1181,6 +1184,70 @@ function DemoMediaKitPanel({ initialProfileSlug }: { initialProfileSlug?: string
   );
 }
 
+function ProfileImageSettings({ slug, busy }: { slug: string; busy: boolean }) {
+  const settings = useQuery(api.profileImageFallback.getSettings, { slug });
+  const updateSettings = useMutation(api.profileImageFallback.updateSettings);
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState<ActionStatus | null>(null);
+
+  if (!settings) return null;
+
+  const save = async (changes: {
+    disabled?: boolean;
+    vrchatGroupKey?: string;
+    discordGuildKey?: string;
+  }) => {
+    setSaving(true);
+    setStatus(null);
+    try {
+      await updateSettings({
+        slug,
+        disabled: settings.disabled,
+        vrchatGroupKey: settings.vrchatGroupKey,
+        discordGuildKey: settings.discordGuildKey,
+        ...changes,
+      });
+      setStatus({ kind: "success", message: "Saved." });
+    } catch (error) {
+      setStatus({ kind: "error", message: error instanceof Error ? error.message : "Save failed." });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <fieldset className="mt-6 border-t border-border pt-5" disabled={busy || saving}>
+      <legend className="sr-only">Fallback image</legend>
+      <div className="grid gap-4 sm:grid-cols-3">
+        <label className="text-sm font-medium">
+          Fallback image
+          <select className={inputClass} onChange={(event) => void save({ disabled: event.target.value === "none" })} value={settings.disabled ? "none" : "automatic"}>
+            <option value="automatic">Automatic</option>
+            <option value="none">No image</option>
+          </select>
+        </label>
+        {settings.profileType === "community" ? ([
+          { kind: "vrchat_group", label: "VRChat group", field: "vrchatGroupKey" },
+          { kind: "discord_guild", label: "Discord", field: "discordGuildKey" },
+        ] as const).map(({ kind, label, field }) => {
+          const sources = settings.sources.filter((source) => source.kind === kind);
+          if (sources.length === 0) return null;
+          return (
+            <label className="text-sm font-medium" key={kind}>
+              {label}
+              <select className={inputClass} disabled={settings.disabled} onChange={(event) => void save({ [field]: event.target.value || undefined })} value={settings[field] ?? ""}>
+                <option value="">Automatic</option>
+                {sources.map((source) => <option key={source.key} value={source.key}>{source.label}</option>)}
+              </select>
+            </label>
+          );
+        }) : null}
+      </div>
+      <ActionStatusMessage className="mt-3" status={status} />
+    </fieldset>
+  );
+}
+
 function ConnectedMediaKitPanel({
   generationEnabled,
   initialProfileSlug,
@@ -1348,6 +1415,7 @@ function ConnectedMediaKitPanel({
       generationEnabled={generationEnabled}
       initialProfiles={profiles as MediaProfile[]}
       initialProfileSlug={initialProfileSlug}
+      renderImageSettings={(profile, busy) => <ProfileImageSettings busy={busy} key={profile.slug} slug={profile.slug} />}
     />
   );
 }

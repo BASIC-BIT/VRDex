@@ -1,4 +1,5 @@
 import { ConvexError, type GenericId } from "convex/values";
+import { automaticProfileImage } from "./_profileImageFallback";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader, DatabaseWriter } from "./_generated/server";
@@ -64,6 +65,7 @@ export type PublicProfileAvatarAppearance = {
 };
 
 export type PublicProfileMediaKit = {
+  automaticAvatarImageUrl?: string;
   profileImage?: PublicProfileAsset;
   banner?: PublicProfileAsset;
   featuredAsset?: PublicProfileAsset;
@@ -705,7 +707,13 @@ export async function getPublicProfileMediaKit(
     ? DEFAULT_PROFILE_AVATAR_APPEARANCE
     : normalizeProfileAvatarAppearance(preference.avatarAppearance);
 
+  // Any authored placement, including private media, prevents an automatic
+  // replacement. A hidden upload is not an absent upload.
+  const hasAuthoredPlacement = placements.some(placement => placement.placement === "profile_image" || placement.placement === "primary_logo");
+  const automaticAvatarImageUrl = await automaticProfileImage(db, profile, surface, hasAuthoredPlacement);
+
   return {
+    ...(automaticAvatarImageUrl ? { automaticAvatarImageUrl } : {}),
     ...(profileImage ? { profileImage } : {}),
     ...(bannerAsset ? { banner: toPublicAsset(profile, bannerAsset) } : {}),
     ...(featuredAsset ? { featuredAsset: toPublicAsset(profile, featuredAsset) } : {}),

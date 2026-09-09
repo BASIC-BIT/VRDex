@@ -520,7 +520,8 @@ export const getPublicBySlug = query({
         ? (avatarIdentityVisible ? mediaKit.primaryLogo?.imageUrl : undefined)
           ?? mediaKit.profileImage?.imageUrl
           ?? legacyAvatarImageUrl
-        : mediaKit.profileImage?.imageUrl ?? legacyAvatarImageUrl,
+          ?? mediaKit.automaticAvatarImageUrl
+        : mediaKit.profileImage?.imageUrl ?? legacyAvatarImageUrl ?? mediaKit.automaticAvatarImageUrl,
       bannerImageUrl: mediaKit.banner?.imageUrl ?? legacyBannerImageUrl,
       ...(args.includeShareCard
         ? { shareCard: toPublicProfileShareCard(profile, shareCardMediaKit) }
@@ -965,7 +966,7 @@ export const previewProfileFromBrowser = query({
       appearance: toPublicProfileAppearance(preference),
       mediaKit,
       avatarImageUrl: (draft.profileType === "community" && isProfileFieldVisible(draft, "avatarImageUrl", "profile_page") ? mediaKit.primaryLogo?.imageUrl : undefined)
-        ?? mediaKit.profileImage?.imageUrl ?? legacyAvatar,
+        ?? mediaKit.profileImage?.imageUrl ?? legacyAvatar ?? mediaKit.automaticAvatarImageUrl,
       bannerImageUrl: mediaKit.banner?.imageUrl ?? legacyBanner,
       worldCredits: await getPublicProfileWorldCredits(ctx.db, { profileType: profile.profileType, slug: profile.slug }),
       upcomingEvents: profile.profileType === "person" ? await getPublicPersonUpcomingEvents(ctx.db, profile._id, now) : [],

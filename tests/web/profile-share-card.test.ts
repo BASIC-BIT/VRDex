@@ -163,6 +163,7 @@ describe("profile share metadata", () => {
       "https://profiles.example.test/api/e2e/fixture-assets/avatar",
     );
     assert.equal(inlineableProfileShareAssetUrl("/dj-aurora/opengraph-image", siteUrl), null);
+    assert.ok(inlineableProfileShareAssetUrl("/api/profile-link-artwork/vrchat_user%3Ausr_example?profile=example&v=1&size=512&surface=discovery", siteUrl));
     assert.equal(
       inlineableProfileShareAssetUrl(
         "https://images.example.test/api/v0/profiles/dj-aurora/assets/asset-123/file",

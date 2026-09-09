@@ -81,3 +81,13 @@ test("destination artwork blocks untrusted redirects and private provider DNS be
     assert.deepEqual(requested, [source]);
   }
 });
+
+test("profile portrait derivative retains 512px detail and strips provider metadata", async () => {
+  const source = await sharp({ create: { width: 1024, height: 768, channels: 3, background: "#123456" } }).withMetadata().png().toBuffer();
+  const result = await sanitizeProfileLinkDestinationArtwork(source, "image/png", 512);
+  const metadata = await sharp(result).metadata();
+  assert.equal(metadata.width, 512);
+  assert.equal(metadata.height, 512);
+  assert.equal(metadata.exif, undefined);
+  assert.equal(metadata.format, "webp");
+});
