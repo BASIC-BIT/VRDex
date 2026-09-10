@@ -154,6 +154,14 @@ describe("fork-aware preview workflows", () => {
     }
   });
 
+  // A bare Actions-tab dispatch has no reviewed SHA, so a fork push landing
+  // before the job resolves the PR would otherwise build with our secrets.
+  it("refuses fork heads when the dispatch carries no head_sha", () => {
+    const resolve = deploySteps.find((step) => step.name === "Resolve pull request");
+    assert.ok(resolve);
+    assert.ok(String(resolve.with?.script).includes("require the reviewed head_sha"));
+  });
+
   it("names the deployed SHA in the preview comment", () => {
     const post = deploySteps.find((step) => step.name === "Post preview comment");
     assert.ok(post);

@@ -12,7 +12,7 @@ on:
         required: false
         type: string
       head_sha:
-        description: Head commit the maintainer reviewed when they requested the preview.
+        description: Head commit the maintainer reviewed when they requested the preview. Required for fork heads.
         required: false
         type: string
   workflow_call:
@@ -26,7 +26,7 @@ on:
         required: false
         type: string
       head_sha:
-        description: Head commit the maintainer reviewed when they requested the preview.
+        description: Head commit the maintainer reviewed when they requested the preview. Required for fork heads.
         required: false
         type: string
     outputs:
@@ -100,6 +100,12 @@ jobs:
             // head moved since then, the reviewed diff is not what would build,
             // so refuse rather than deploy unreviewed code with our credentials.
             const requestedSha = String(process.env.INPUT_HEAD_SHA || "").trim();
+            if (isFork && !requestedSha) {
+              core.setFailed(
+                "Fork heads require the reviewed head_sha; trigger the preview with the @vrdex preview comment.",
+              );
+              return;
+            }
             if (requestedSha && requestedSha !== pull.head.sha) {
               core.setFailed(
                 `Head moved since the request (${requestedSha} vs ${pull.head.sha}); re-review and re-trigger.`,

@@ -112,6 +112,8 @@ heads and the hosted MCP smoke job is skipped.
 The trigger records the head commit it resolved and passes it to the deploy
 workflow, which refuses to build if the head has moved since. The deployed SHA
 is therefore always the one that was current when the maintainer commented.
+A manual Actions-tab or `gh workflow run` dispatch refuses fork heads unless
+the reviewed `head_sha` input is supplied.
 
 Before commenting `@vrdex preview` on a fork pull request:
 
