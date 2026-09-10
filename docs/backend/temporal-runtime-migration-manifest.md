@@ -34,5 +34,6 @@ update this manifest and the executor-backed promotion evidence.
 
 The adapter artifact is not committed. Deployment verifies the release SHA-256
 `d933bd524bbf95a4521f243a61cdf3e196fea08133d00fd4a72e0db30160e598`
-before moving it into an organization-owned model store. Resolve the missing
-root license-file issue before publishing code or model artifacts publicly.
+before moving it into an organization-owned model store. The repository's root
+`LICENSE` (MIT) covers this repository code only; a published adapter carries its
+own license and provenance metadata, preserving the base model's upstream terms.
