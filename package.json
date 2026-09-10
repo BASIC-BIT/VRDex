@@ -174,6 +174,8 @@
     "typecheck:web": "pnpm --filter web typecheck",
     "preverify:backend:local": "node scripts/guard-main-worktree.mjs",
     "verify:backend:local": "node scripts/run-convex-local.mjs dev --local --once --run health:status --tail-logs disable",
+    "preseed:local": "node scripts/guard-main-worktree.mjs",
+    "seed:local": "node scripts/run-convex-local.mjs dev --local --once --run localFixtures:ensureAll --tail-logs disable",
     "precheck:backend:generated": "node scripts/guard-main-worktree.mjs",
     "check:backend:generated": "pnpm verify:backend:local && git diff --exit-code -- convex/_generated",
     "preverify:web": "node scripts/guard-main-worktree.mjs",
