@@ -20,10 +20,9 @@ import {
 } from "./_localFixtures";
 import { queueProfileLinkDestinations } from "./_profileLinkDestinationCache";
 import {
-  createEventSearchDocument,
-  createProfileSearchDocument,
-  createWorldSearchDocument,
-  upsertSearchDocument,
+  reindexEventSearchDocument,
+  reindexProfileSearchDocument,
+  reindexWorldSearchDocument,
 } from "./_searchDocuments";
 
 type Counters = { created: number; updated: number };
@@ -106,7 +105,7 @@ async function ensureProfile(
   }
 
   await queueProfileLinkDestinations(ctx, profile, now, { previousProfile: existing ?? undefined });
-  await upsertSearchDocument(ctx.db, createProfileSearchDocument(profile));
+  await reindexProfileSearchDocument(ctx.db, profile, now);
 
   return profile;
 }
@@ -200,7 +199,7 @@ async function ensureWorld(
     throw new Error("Local fixture world could not be loaded.");
   }
 
-  await upsertSearchDocument(ctx.db, createWorldSearchDocument(world));
+  await reindexWorldSearchDocument(ctx.db, world, now);
 
   return world;
 }
@@ -313,9 +312,11 @@ async function ensureEvents(
       throw new Error("Local fixture event could not be loaded.");
     }
 
-    await upsertSearchDocument(
+    await reindexEventSearchDocument(
       ctx.db,
-      createEventSearchDocument(event, { community, world, roleLabels: ["Performer"] }),
+      event,
+      { community, world, roleLabels: ["Performer"] },
+      now,
     );
     count += 1;
   }

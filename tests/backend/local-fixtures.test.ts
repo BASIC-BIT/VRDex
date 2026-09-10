@@ -124,6 +124,27 @@ describe("local fixture seed", () => {
         (event: { slug?: string }) => event.slug === "playwright-afterglow-harbor-sessions",
       ),
     );
+
+    // Per-entity pages can read a fixture that discovery never surfaces, so this
+    // asserts the search projection the home page actually queries.
+    const discovery = await t.query(api.search.listDiscovery, { now: Date.now() });
+    assert.ok(discovery.people.some((result) => result.slug === "playwright-dj-aurora"));
+    assert.ok(discovery.worlds.some((result) => result.slug === "playwright-neon-harbor"));
+    assert.ok(
+      discovery.upcomingEvents.some(
+        (result) => result.slug === "playwright-afterglow-harbor-sessions",
+      ),
+    );
+
+    // The seed writes search documents through the reindex helpers, so a seeded
+    // genre must also land in `vocabularyTerms` with a real usage count.
+    const genreTerms = await t.run(async (ctx) =>
+      (await ctx.db.query("vocabularyTerms").collect()).filter(
+        (term) => term.scope === "profile_genre" && term.key === "drum_and_bass",
+      ),
+    );
+    assert.equal(genreTerms.length, 1);
+    assert.ok(genreTerms[0].usageCount >= 1, `usageCount was ${genreTerms[0].usageCount}`);
   });
 
   it("refuses to run against a non-local deployment", async () => {
