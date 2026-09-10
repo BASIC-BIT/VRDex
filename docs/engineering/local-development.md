@@ -81,9 +81,9 @@ purpose.
 tools beyond Node:
 
 - `test:temporal-inference` needs Python 3
-- `proof:restream:ffmpeg` and `proof:restream:local` need FFmpeg. The
-  matching `check:` scripts only read the artifacts a `proof:` run wrote, so
-  they need nothing extra.
+- the whole `restream` lane needs FFmpeg: `proof:restream:ffmpeg`,
+  `proof:restream:local`, and the matching `check:` scripts, which run
+  `ffprobe` over the recorded playlist
 
 `verify` does not cover the Playwright Data Flow and Image Diff lanes, the
 three Storybook lanes, or the path-gated `Restream Local Checks` lane, which
