@@ -77,31 +77,34 @@ purpose.
 
 ## Running checks
 
-`pnpm verify` runs most of what CI runs on a pull request. Two lanes need
-tools beyond Node:
+`pnpm verify` runs most of what CI runs on a pull request. Beyond Node it
+needs Python 3, for the `test:temporal-inference` lane it ends with.
 
-- `test:temporal-inference` needs Python 3
-- the whole `restream` lane needs FFmpeg: `proof:restream:ffmpeg`,
-  `proof:restream:local`, and the matching `check:` scripts, which run
-  `ffprobe` over the recorded playlist
+The restream `proof:restream:*` and `check:restream:*` scripts need FFmpeg,
+because they run `ffprobe` over the recorded playlist. They are not part of
+`verify`. Only the path-gated `Restream Local Checks` CI lane runs them, and
+only when restream files change.
 
-`verify` does not cover the Playwright Data Flow and Image Diff lanes, the
-three Storybook lanes, or the path-gated `Restream Local Checks` lane, which
-`docker build`s the restream worker image and only runs when restream files
-change. A green `verify` is a good signal, not a promise of a green pull
-request. Skip the lanes whose tools you do not have; CI runs them on your
-pull request, forks included.
+`verify` also does not cover the Playwright Data Flow and Image Diff lanes or
+the three Storybook lanes. A green `verify` is a good signal, not a promise of
+a green pull request. Skip the lanes whose tools you do not have; CI runs the
+rest on your pull request. Two of them do not run for a fork: the hosted
+Playwright lane is skipped for fork heads, and the Terraform check needs the
+repository's AWS role.
 
 Useful subsets: `pnpm lint:web`, `pnpm typecheck:web`, `pnpm test:web`,
-`pnpm typecheck:backend`, `pnpm test:backend`, `pnpm test:e2e`.
+`pnpm typecheck:backend`, `pnpm test:backend`, `pnpm test:e2e`. Stop the
+backend watcher before `pnpm test:e2e`; it boots its own local Convex on port
+3210 and collides with a running `pnpm dev:backend:local`.
 
 ## Previews
 
-Preview deployments need repository secrets, so they are not automatic for
-fork pull requests. A maintainer reviews your diff and comments
-`@vrdex preview` on the pull request; the bot replies with the preview URL
-and the exact commit it deployed. Push again and the maintainer has to
-re-review and re-trigger.
+Preview deployments need repository secrets, so no pull request gets one
+automatically, whether it comes from a fork or from a branch in this
+repository. A maintainer reviews your diff and comments `@vrdex preview` on
+the pull request; the bot replies with the preview URL and the exact commit
+it deployed. Push again and the maintainer has to re-review and re-trigger,
+because the workflow refuses to build a head that moved after the comment.
 
 ## License and data
 

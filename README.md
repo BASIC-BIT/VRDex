@@ -20,8 +20,8 @@
 - install workspace dependencies: `pnpm install`
 - install git hooks after dependency changes if needed: `pnpm prepare`
 - bootstrap an anonymous local Convex deployment and run the backend health query: `pnpm bootstrap:backend:local`
+- seed the local backend with fake profiles, a world, and events: `pnpm seed:local` (it boots and exits its own backend, so run it before the watcher below)
 - keep the local Convex backend watcher running: `pnpm dev:backend:local`
-- seed the local backend with fake profiles, a world, and events: `pnpm seed:local`
 - run the one-shot local Convex health check alias: `pnpm run:backend:health:local`
 - typecheck Convex backend files: `pnpm typecheck:backend`
 - re-run the local backend verification pass: `pnpm verify:backend:local`

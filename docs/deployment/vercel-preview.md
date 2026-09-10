@@ -109,15 +109,25 @@ the Vercel token, org and project IDs, and the Convex preview deploy key in
 scope. The hosted E2E browser token and helper flags are withheld for fork
 heads and the hosted MCP smoke job is skipped.
 
+The trigger records the head commit it resolved and passes it to the deploy
+workflow, which refuses to build if the head has moved since. The deployed SHA
+is therefore always the one that was current when the maintainer commented.
+
 Before commenting `@vrdex preview` on a fork pull request:
 
 - Read the whole diff, including `pnpm-lock.yaml`, `package.json` scripts,
   anything under `scripts/`, and `.github/`. A `postinstall` or build script
   runs with the secrets above.
+- Read `.npmrc` as well. A registry override there redirects every
+  `pnpm dlx vercel` step in the job, not just the workspace install.
 - Note the head commit. The bot comment names the SHA it deployed; anything
   pushed after that is unreviewed.
 - Remember the Vercel token has no per-project scope. It can deploy or read
   any project in the team, including the docs site.
+- Know that the "Pull Vercel preview environment" step runs
+  `vercel pull --environment=preview`, which writes the project's
+  non-sensitive Preview environment values into `.vercel/.env.preview.local`
+  inside the workspace the fork's build then reads.
 - After any new push, review again before triggering again.
 
 ### Hosted MCP preview smoke
