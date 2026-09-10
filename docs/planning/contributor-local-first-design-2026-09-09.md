@@ -1,6 +1,6 @@
 # Contributor local-first design
 
-Date: 2026-09-09. Status: approved design, awaiting implementation plan.
+Date: 2026-09-09, seed section revised 2026-09-10. Status: approved design.
 Decided with BASIC in a grilling session; the facts behind each choice are in
 `contributor-access-research-2026-09-09.md` and the rationale in
 `contributor-access-recommendation-2026-09-09.md`.
@@ -32,20 +32,33 @@ the first outside PR from being safely merged).
 
 ### 2. Seed: `pnpm seed:local`
 
-- A committed, obviously-fake seed file in the existing seed-import JSON
-  format, containing the current Playwright fixture profiles, events, and
-  worlds, ported record for record. Fake URLs use `.invalid` domains per the
-  mock-profile-fixtures rule.
-- `pnpm seed:local` runs the existing import script with `--target local`
-  and then the existing publish script, so the records become publicly
-  visible on the local backend. No new Convex functions. No new format.
-- It is a separate command, not part of `bootstrap:backend:local`, because
-  bootstrap doubles as CI's generated-code check.
-- Idempotency: running it twice must not duplicate records or fail. If the
-  import pipeline does not already guarantee that, the script skips a batch
-  whose id already exists.
+- A new internal mutation `localFixtures:ensureAll` inserts a fake dataset
+  straight into the tables, copying the pattern of
+  `convex/hostedSmokeFixtures.ts`: lookup by slug, insert or patch, refuse a
+  slug owned by a non-fixture record, write the search document, write one
+  audit row on creation.
+- Dataset: the Playwright fixture people, community, world, and two events,
+  ported field for field into table shapes. The `basicbit` fixture is left
+  out because it is a real profile; every seeded slug starts with
+  `playwright-`. Every outbound URL uses an `.invalid` host.
+- Event times are relative to seed time, one event a week ahead and one a
+  month behind, so the upcoming lane is never empty no matter when the seed
+  runs.
+- The mutation refuses to run unless the deployment URL is loopback, via a
+  new `requireLocalDeployment` helper, so it cannot touch a cloud deployment
+  even if invoked there.
+- `pnpm seed:local` runs the existing local runner with `--once --run
+  localFixtures:ensureAll`. It is a separate command, not part of
+  `bootstrap:backend:local`, because bootstrap doubles as CI's generated-code
+  check.
+- Idempotent: a second run patches the same records and adds nothing.
 - Growing the dataset is a follow-up, driven by which screens contributors
   report as empty.
+
+Rejected after fact-finding: the permissioned seed-import pipeline (person
+profiles only, eleven allowed fields, refuses files inside the repo, lands
+private, and needs hand-run review mutations to publish); a committed
+`convex export` archive (stale binary).
 
 ### 3. Auth: bring your own Clerk dev instance
 
@@ -53,6 +66,11 @@ the first outside PR from being safely merged).
   and set the publishable key and secret key in `apps/web/.env.local`, and
   the JWT issuer domain on the local Convex deployment.
 - The contributor page names the three variables and where each goes.
+- `convex/auth.config.ts` currently pins local deployments to an
+  unresolvable issuer. It changes to use `CLERK_JWT_ISSUER_DOMAIN` when set
+  on a local deployment and the unresolvable placeholder otherwise, so the
+  default still rejects every token and a contributor who sets the variable
+  gets a working sign-in.
 - No shared Clerk instance, no auth stub. Everything else runs with Clerk
   absent, which the app already supports.
 
@@ -107,9 +125,11 @@ the first outside PR from being safely merged).
 
 ## Testing
 
-- Seed: a test that runs the seed twice against a local backend and asserts
-  the record count matches the fixture count both times. Runs in the same
-  local-backend lane CI already has.
+- Seed: a convex-test test runs the mutation twice and asserts record counts
+  are unchanged the second time and that the public profile, world, upcoming
+  event, and discovery queries return the fixtures. A data test asserts every
+  seeded URL host ends in `.invalid` and every slug starts with `playwright-`.
+  A guard test asserts `requireLocalDeployment` rejects cloud URLs.
 - Guard: existing behaviour unchanged; a test only if one already exists
   for the script.
 - Preview workflows: no fork can be exercised from CI. Verification is a
