@@ -1451,7 +1451,7 @@ Expected: PASS, including the pre-existing "parses every workflow" test.
 
 - [ ] **Step 6: Dry-run the trigger on this branch**
 
-Push the branch, open the PR (Task 10 opens it properly; a draft is fine here), and comment `@vrdex preview` as the maintainer. Expected: the preview comment appears with `Branch \`feat/contributor-local-first\` at \`<sha>\`` and the hosted smoke job runs, since this is not a fork. A fork cannot be exercised without an outside PR; record that in the PR body.
+Push the branch, open the PR (Task 10 opens it properly; a draft is fine here), and comment `@vrdex preview` as the maintainer. Expected: the preview comment appears naming branch `feat/contributor-local-first` and the head commit SHA, and the hosted smoke job runs, since this is not a fork. A fork cannot be exercised without an outside PR; record that in the PR body.
 
 - [ ] **Step 7: Commit**
 
