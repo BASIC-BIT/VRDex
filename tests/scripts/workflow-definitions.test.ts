@@ -86,6 +86,8 @@ describe("fork-aware preview workflows", () => {
     comment: readFileSync(commentPath, "utf8"),
     deploy: readFileSync(deployPath, "utf8"),
   };
+  // `on` is the YAML 1.1 boolean `true` under some schemas; see the parse test.
+  const deployDocument = parseYaml(raw.deploy) as Record<string, unknown>;
 
   it("no longer rejects fork heads", () => {
     assert.ok(!raw.comment.includes("Mirror a fork PR"));
@@ -130,6 +132,26 @@ describe("fork-aware preview workflows", () => {
 
     const smoke = deploy.jobs["hosted-mcp-preview-smoke"];
     assert.ok(String(smoke.if).includes("needs.deploy-preview.outputs.is_fork == 'false'"));
+  });
+
+  // The maintainer reviews a commit, then comments. Without the SHA travelling
+  // with the dispatch, a push landing in between is what actually gets built.
+  it("pins the reviewed SHA at trigger time", () => {
+    const dispatch = raw.comment.slice(raw.comment.indexOf("createWorkflowDispatch"));
+    const start = dispatch.indexOf("inputs: {");
+    assert.ok(start >= 0, "comment workflow does not pass dispatch inputs");
+    assert.match(dispatch.slice(start, dispatch.indexOf("},", start)), /head_sha:/);
+
+    const triggers = (deployDocument.on ?? deployDocument["true"]) as Record<
+      string,
+      { inputs?: Record<string, unknown> } | undefined
+    >;
+    for (const trigger of ["workflow_dispatch", "workflow_call"]) {
+      assert.ok(
+        triggers[trigger]?.inputs?.head_sha,
+        `${trigger} does not declare a head_sha input`,
+      );
+    }
   });
 
   it("names the deployed SHA in the preview comment", () => {

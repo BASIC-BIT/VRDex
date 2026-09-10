@@ -11,6 +11,10 @@ on:
         description: Issue comment id that requested the preview.
         required: false
         type: string
+      head_sha:
+        description: Head commit the maintainer reviewed when they requested the preview.
+        required: false
+        type: string
   workflow_call:
     inputs:
       pull_number:
@@ -19,6 +23,10 @@ on:
         type: string
       comment_id:
         description: Issue comment id that requested the preview.
+        required: false
+        type: string
+      head_sha:
+        description: Head commit the maintainer reviewed when they requested the preview.
         required: false
         type: string
     outputs:
@@ -58,6 +66,7 @@ jobs:
         id: pr
         uses: actions/github-script@v9
         env:
+          INPUT_HEAD_SHA: ${{ inputs.head_sha }}
           INPUT_PULL_NUMBER: ${{ inputs.pull_number }}
         with:
           script: |
@@ -87,13 +96,25 @@ jobs:
               return;
             }
 
-            core.setOutput("head_sha", pull.head.sha);
+            // The maintainer reviewed a specific commit before commenting. If the
+            // head moved since then, the reviewed diff is not what would build,
+            // so refuse rather than deploy unreviewed code with our credentials.
+            const requestedSha = String(process.env.INPUT_HEAD_SHA || "").trim();
+            if (requestedSha && requestedSha !== pull.head.sha) {
+              core.setFailed(
+                `Head moved since the request (${requestedSha} vs ${pull.head.sha}); re-review and re-trigger.`,
+              );
+              return;
+            }
+
+            core.setOutput("head_sha", requestedSha || pull.head.sha);
             core.setOutput("head_ref", pull.head.ref);
             core.setOutput("pr_number", String(pull.number));
 
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          persist-credentials: false
           ref: ${{ steps.pr.outputs.head_sha }}
 
       - name: Check Vercel deployment secrets
@@ -431,6 +452,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          persist-credentials: false
           ref: ${{ needs.deploy-preview.outputs.head_sha }}
 
       - name: Check hosted MCP smoke target
