@@ -32,6 +32,13 @@ Planning docs capture product, architecture, roadmap, and backlog decisions befo
 - `docs/planning/issue-seeding.md` - how to split epics into GitHub issues and milestones
 - `docs/planning/dependency-map.md` - hard/soft dependency map across the seeded backlog
 - `docs/planning/issue-drafts.md` - drafted GitHub issue bodies captured from planning work
+- `docs/planning/group-instance-analytics/CONTEXT.md` - shared vocabulary for the group and instance analytics discussion
+- `docs/planning/group-instance-analytics-discovery-2026-09-08.md` - discovery interview for group and instance analytics, extending the existing telemetry work
+- `docs/planning/group-instance-analytics-provider-research-2026-09-08.md` - provider research on which group and instance signals VRChat exposes
+- `docs/planning/club-management-provider-permissions-research-2026-09-09.md` - VRChat group-management endpoints, permission mapping, and bot-action boundaries
+- `docs/planning/group-analytics-chart-library-research-2026-09-08.md` - chart library comparison and current recommendation for the analytics workspace
+- `docs/planning/group-analytics-chart-alternatives-2026-09-08.md` - independent review challenging the chart library recommendation
+- `docs/planning/group-analytics-custom-chart-assessment-2026-09-08.md` - assessment of building custom charts instead of adopting a library
 
 ## Working rule
 
