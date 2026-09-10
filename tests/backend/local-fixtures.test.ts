@@ -147,6 +147,44 @@ describe("local fixture seed", () => {
     assert.ok(genreTerms[0].usageCount >= 1, `usageCount was ${genreTerms[0].usageCount}`);
   });
 
+  it("clears optional fields the fixture no longer sets", async () => {
+    const t = convexTest({ schema, modules });
+    await t.mutation(internal.localFixtures.ensureAll, {});
+
+    const aurora = localPersonFixtures.find((fixture) => fixture.slug === "playwright-dj-aurora");
+    const sparse = localPersonFixtures.find((fixture) => fixture.slug === "playwright-sparse-import");
+    assert.ok(aurora && sparse);
+    assert.equal(sparse.region, undefined);
+
+    await t.run(async (ctx) => {
+      for (const slug of [aurora.slug, sparse.slug]) {
+        const profile = await ctx.db
+          .query("profiles")
+          .withIndex("by_slug", (q) => q.eq("slug", slug))
+          .unique();
+        assert.ok(profile);
+        await ctx.db.patch(profile._id, { bio: "stale bio", region: "stale region" });
+      }
+    });
+
+    await t.mutation(internal.localFixtures.ensureAll, {});
+
+    const stored = await t.run(async (ctx) =>
+      Promise.all(
+        [aurora.slug, sparse.slug].map((slug) =>
+          ctx.db
+            .query("profiles")
+            .withIndex("by_slug", (q) => q.eq("slug", slug))
+            .unique(),
+        ),
+      ),
+    );
+    assert.equal(stored[0]?.bio, aurora.bio);
+    assert.equal(stored[0]?.region, aurora.region);
+    assert.equal(stored[1]?.bio, sparse.bio);
+    assert.equal(stored[1]?.region, undefined);
+  });
+
   it("refuses to run against a non-local deployment", async () => {
     const t = convexTest({ schema, modules });
     process.env.CONVEX_CLOUD_URL = "https://scrupulous-corgi-247.convex.cloud";
