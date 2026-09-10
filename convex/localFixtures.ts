@@ -238,6 +238,8 @@ async function ensureEvents(
       communityProfileId: community._id,
       communityName: community.displayName,
       summary: fixture.summary,
+      // Owner-only field (editor payload); never in the public projection.
+      notes: LOCAL_FIXTURE_MARKER,
       watchSurfaceEnabled: fixture.watchSurfaceEnabled,
       mediaLinks: fixture.mediaLinks,
       sourceType: "manual" as const,
@@ -256,7 +258,7 @@ async function ensureEvents(
       eventId = await ctx.db.insert("events", fields);
       counters.created += 1;
     } else {
-      if (existing.sourceLabel !== fixture.sourceLabel) {
+      if (existing.notes !== LOCAL_FIXTURE_MARKER) {
         throw new Error(`Local fixture slug ${fixture.slug} is owned by a non-fixture event.`);
       }
 

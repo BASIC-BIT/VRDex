@@ -185,6 +185,31 @@ describe("local fixture seed", () => {
     assert.equal(stored[1]?.region, undefined);
   });
 
+  it("reseeds an event whose sourceLabel changed in a later revision", async () => {
+    const t = convexTest({ schema, modules });
+    await t.mutation(internal.localFixtures.ensureAll, {});
+
+    const [fixture] = localEventFixtures(now);
+    await t.run(async (ctx) => {
+      const event = await ctx.db
+        .query("events")
+        .withIndex("by_slug", (q) => q.eq("slug", fixture.slug))
+        .unique();
+      assert.ok(event);
+      await ctx.db.patch(event._id, { sourceLabel: "stale source label" });
+    });
+
+    await t.mutation(internal.localFixtures.ensureAll, {});
+
+    const stored = await t.run((ctx) =>
+      ctx.db
+        .query("events")
+        .withIndex("by_slug", (q) => q.eq("slug", fixture.slug))
+        .unique(),
+    );
+    assert.equal(stored?.sourceLabel, fixture.sourceLabel);
+  });
+
   it("refuses to run against a non-local deployment", async () => {
     const t = convexTest({ schema, modules });
     process.env.CONVEX_CLOUD_URL = "https://scrupulous-corgi-247.convex.cloud";
