@@ -103,7 +103,8 @@ Preview deployments need repository secrets, so no pull request gets one
 automatically, whether it comes from a fork or from a branch in this
 repository. A maintainer reviews your diff and comments `@vrdex preview` on
 the pull request; the bot replies with the preview URL and the exact commit
-it deployed. Push again and the maintainer has to re-review and re-trigger,
+it deployed, and the workflow run summary names the same commit. Push again
+and the maintainer has to re-review and re-trigger,
 because the workflow refuses to build a head that moved after the comment.
 
 ## License and data

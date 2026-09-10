@@ -120,7 +120,8 @@ Before commenting `@vrdex preview` on a fork pull request:
   runs with the secrets above.
 - Read `.npmrc` as well. A registry override there redirects every
   `pnpm dlx vercel` step in the job, not just the workspace install.
-- Note the head commit. The bot comment names the SHA it deployed; anything
+- Note the head commit. The bot comment and the run summary (written by the
+  "Deploy Vercel preview output" step) both name the SHA it deployed; anything
   pushed after that is unreviewed.
 - Remember the Vercel token has no per-project scope. It can deploy or read
   any project in the team, including the docs site.
