@@ -53,9 +53,9 @@ console.error(`Current branch: ${branchName}`);
 console.error(`Working directory: ${currentDir}`);
 console.error("");
 console.error("VRDex keeps the local main checkout as a clean mirror.");
-console.error("Create a feature worktree under D:/bench/VRDex-wt instead:");
+console.error("Create a feature worktree next to this checkout instead:");
 console.error(
-  "  git worktree add -b codex/<branch-name> D:/bench/VRDex-wt/<name> origin/main",
+  "  git worktree add -b <branch-name> ../VRDex-wt/<name> origin/main",
 );
 console.error("");
 console.error(
