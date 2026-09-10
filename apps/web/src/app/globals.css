@@ -426,7 +426,6 @@ body {
 }
 
 .lookup-theme {
-  min-height: 100vh;
   transition:
     background 420ms ease,
     color 420ms ease;
