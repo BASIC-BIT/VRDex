@@ -45,13 +45,6 @@ jobs:
               pull_number: context.issue.number,
             });
 
-            if (pull.head.repo?.full_name !== `${context.repo.owner}/${context.repo.repo}`) {
-              core.setFailed(
-                "On-demand previews only run for branches inside this repository. Mirror a fork PR to a trusted branch first.",
-              );
-              return;
-            }
-
             if (pull.state !== "open") {
               core.setFailed(
                 `On-demand previews only run for open pull requests. This one is ${pull.state}.`,
