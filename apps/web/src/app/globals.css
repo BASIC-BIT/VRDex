@@ -337,6 +337,16 @@ body {
   min-height: 100vh;
 }
 
+/* Route layouts that block session replay wrap the page in this div, which
+   would otherwise sit between the flex body and the `flex-1` page shell and
+   leave the footer floating mid-viewport on short pages. Carrying the column
+   through here fixes every such layout at once. */
+body > .ph-no-capture {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+
 :root[data-theme-transition="true"] {
   transition-duration: 650ms !important;
   transition-property:
