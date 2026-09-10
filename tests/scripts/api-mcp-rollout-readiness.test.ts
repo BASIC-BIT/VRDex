@@ -232,9 +232,9 @@ describe("API/MCP rollout readiness checker", () => {
     assert.match(previewWorkflow, /openssl rand -hex 32/);
     assert.match(previewWorkflow, /::add-mask::\$bridge_secret/);
     assert.match(previewWorkflow, /convex env set --preview-name "\$PREVIEW_NAME" VRDEX_PREVIEW_PERSISTENCE_SECRET/);
-    assert.match(previewWorkflow, /HOSTED_E2E_AUTH_HELPERS: \$\{\{ vars\.VRDEX_HOSTED_E2E_AUTH_HELPERS \}\}/);
-    assert.match(previewWorkflow, /HOSTED_E2E_DEVELOPER_CREDENTIALS: \$\{\{ vars\.VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS \}\}/);
-    assert.match(previewWorkflow, /HOSTED_E2E_BROWSER_TOKEN: \$\{\{ secrets\.VRDEX_HOSTED_E2E_BROWSER_TOKEN \}\}/);
+    assert.match(previewWorkflow, /HOSTED_E2E_AUTH_HELPERS: \$\{\{ steps\.pr\.outputs\.is_fork == 'false' && vars\.VRDEX_HOSTED_E2E_AUTH_HELPERS \|\| '' \}\}/);
+    assert.match(previewWorkflow, /HOSTED_E2E_DEVELOPER_CREDENTIALS: \$\{\{ steps\.pr\.outputs\.is_fork == 'false' && vars\.VRDEX_HOSTED_E2E_DEVELOPER_CREDENTIALS \|\| '' \}\}/);
+    assert.match(previewWorkflow, /HOSTED_E2E_BROWSER_TOKEN: \$\{\{ steps\.pr\.outputs\.is_fork == 'false' && secrets\.VRDEX_HOSTED_E2E_BROWSER_TOKEN \|\| '' \}\}/);
     assert.match(previewWorkflow, /::add-mask::\$e2e_convex_secret/);
     assert.match(previewWorkflow, /generate-preview-developer-runtime-secrets\.mjs/);
     assert.match(previewWorkflow, /convex env set --preview-name "\$PREVIEW_NAME" VRDEX_ENABLE_E2E_AUTH_HELPERS/);

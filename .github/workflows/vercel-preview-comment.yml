@@ -45,13 +45,6 @@ jobs:
               pull_number: context.issue.number,
             });
 
-            if (pull.head.repo?.full_name !== `${context.repo.owner}/${context.repo.repo}`) {
-              core.setFailed(
-                "On-demand previews only run for branches inside this repository. Mirror a fork PR to a trusted branch first.",
-              );
-              return;
-            }
-
             if (pull.state !== "open") {
               core.setFailed(
                 `On-demand previews only run for open pull requests. This one is ${pull.state}.`,
@@ -61,11 +54,15 @@ jobs:
 
             core.setOutput("comment_id", String(context.payload.comment.id));
             core.setOutput("pr_number", String(pull.number));
+            // The reviewed commit. The deploy workflow refuses to build if the
+            // head moved between this comment and the dispatched run.
+            core.setOutput("head_sha", pull.head.sha);
 
       - name: Dispatch preview deployment
         uses: actions/github-script@v9
         env:
           COMMENT_ID: ${{ steps.request.outputs.comment_id }}
+          HEAD_SHA: ${{ steps.request.outputs.head_sha }}
           PR_NUMBER: ${{ steps.request.outputs.pr_number }}
         with:
           script: |
@@ -88,6 +85,7 @@ jobs:
               inputs: {
                 pull_number: process.env.PR_NUMBER,
                 comment_id: process.env.COMMENT_ID,
+                head_sha: process.env.HEAD_SHA,
               },
             });
 

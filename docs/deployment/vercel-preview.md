@@ -93,7 +93,7 @@ that preview.
 
 This is the only path that deploys a Vercel preview. Two workflows implement it:
 
-- `.github/workflows/vercel-preview-comment.yml` listens for `issue_comment` and dispatches the deploy when a pull request comment contains `@vrdex preview` or `/vercel-preview`. It requires an `author_association` of `OWNER`, `MEMBER`, or `COLLABORATOR`, and refuses fork branches and non-open pull requests.
+- `.github/workflows/vercel-preview-comment.yml` listens for `issue_comment` and dispatches the deploy when a pull request comment contains `@vrdex preview` or `/vercel-preview`. It requires an `author_association` of `OWNER`, `MEMBER`, or `COLLABORATOR`, and refuses non-open pull requests. Fork heads are allowed; see [Fork pull requests](#fork-pull-requests).
 - `.github/workflows/vercel-preview-deploy.yml` performs the deploy. Its only triggers are `workflow_dispatch` and `workflow_call`, so it cannot fire on `push` or `pull_request`. The `workflow_call` interface exposes a `deployment_url` output so a calling workflow can capture the link.
 
 So a preview deploy happens only when a person comments `@vrdex preview` or `/vercel-preview` on a pull request, or runs the `On-Demand Vercel Preview` workflow from the Actions tab or `gh workflow run`. Pushing another commit to a pull request does not redeploy; request a fresh preview when you want one to match new commits.
@@ -101,6 +101,37 @@ So a preview deploy happens only when a person comments `@vrdex preview` or `/ve
 This path reuses the existing `VERCEL_TOKEN`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID` repository secrets and adds no new ones.
 
 The deploy job runs the full preview pipeline: `vercel pull`, the optional `pr-<number>` Convex preview backend with its runtime flags and smoke fixture, a local `vercel build`, and `vercel deploy --prebuilt` with the preview-only environment values. The local prebuilt build is what lets the Convex preview URL reach the client bundle through `NEXT_PUBLIC_CONVEX_URL`; a remote Vercel build would use the project's own Preview environment instead.
+
+### Fork pull requests
+
+The comment trigger deploys fork heads too. The job runs the fork's code with
+the Vercel token, org and project IDs, and the Convex preview deploy key in
+scope. The hosted E2E browser token and helper flags are withheld for fork
+heads and the hosted MCP smoke job is skipped.
+
+The trigger records the head commit it resolved and passes it to the deploy
+workflow, which refuses to build if the head has moved since. The deployed SHA
+is therefore always the one that was current when the maintainer commented.
+A manual Actions-tab or `gh workflow run` dispatch refuses fork heads unless
+the reviewed `head_sha` input is supplied.
+
+Before commenting `@vrdex preview` on a fork pull request:
+
+- Read the whole diff, including `pnpm-lock.yaml`, `package.json` scripts,
+  anything under `scripts/`, and `.github/`. A `postinstall` or build script
+  runs with the secrets above.
+- Read `.npmrc` as well. A registry override there redirects every
+  `pnpm dlx vercel` step in the job, not just the workspace install.
+- Note the head commit. The bot comment and the run summary (written by the
+  "Deploy Vercel preview output" step) both name the SHA it deployed; anything
+  pushed after that is unreviewed.
+- Remember the Vercel token has no per-project scope. It can deploy or read
+  any project in the team, including the docs site.
+- Know that the "Pull Vercel preview environment" step runs
+  `vercel pull --environment=preview`, which writes the project's
+  non-sensitive Preview environment values into `.vercel/.env.preview.local`
+  inside the workspace the fork's build then reads.
+- After any new push, review again before triggering again.
 
 ### Hosted MCP preview smoke
 

@@ -13,6 +13,9 @@
     ".cache/**",
     ".pnpm-store/**",
     ".codex/state/**",
+    // Agent working notes, git-excluded the same way .codex/state is. They only
+    // exist on a machine that ran an agent, so linting them fails nowhere else.
+    ".superpowers/**",
     "apps/docs/.docusaurus/**",
     "apps/docs/build/**",
     "apps/web/.next/**",
