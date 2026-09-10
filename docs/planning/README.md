@@ -33,6 +33,7 @@ Planning docs capture product, architecture, roadmap, and backlog decisions befo
 - `docs/planning/dependency-map.md` - hard/soft dependency map across the seeded backlog
 - `docs/planning/issue-drafts.md` - drafted GitHub issue bodies captured from planning work
 - `docs/planning/group-instance-analytics/CONTEXT.md` - shared vocabulary for the group and instance analytics discussion
+- `docs/planning/group-instance-analytics/2026-09-10-club-staff-and-visibility-design.md` - approved slice 1 design: club shell, staff roles, delegated invitations, data visibility, plus the slice 0 retention prerequisite
 - `docs/planning/group-instance-analytics-discovery-2026-09-08.md` - discovery interview for group and instance analytics, extending the existing telemetry work
 - `docs/planning/group-instance-analytics-provider-research-2026-09-08.md` - provider research on which group and instance signals VRChat exposes
 - `docs/planning/club-management-provider-permissions-research-2026-09-09.md` - VRChat group-management endpoints, permission mapping, and bot-action boundaries
