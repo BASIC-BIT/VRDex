@@ -2,7 +2,7 @@
 
 ## Status
 
-Research and brainstorming, 2026-09-08. No new product decisions or implementation authorization. This extends the existing community telemetry work rather than introducing a second collector. Provider findings are recorded in [the companion research brief](group-instance-analytics-provider-research-2026-09-08.md).
+Research and brainstorming, 2026-09-08. No new product decisions or implementation authorization. This extends the existing community telemetry work rather than introducing a second collector. Provider findings are recorded in [the companion research brief](group-instance-analytics-provider-research-2026-09-08.md). Later sections record locked decisions from the 2026-09-08 and 2026-09-09 interview rounds; those supersede this initial status line.
 
 ## Request
 
