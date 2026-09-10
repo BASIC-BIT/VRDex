@@ -31,12 +31,19 @@ Run the last two in separate shells. The web app is at
 `http://localhost:3000`. Bootstrap writes `NEXT_PUBLIC_CONVEX_URL` into
 `apps/web/.env.local` for you.
 
+`/` is the lookup surface and stays empty until you search, so it is not
+where you check the seed. Open `http://localhost:3000/discovery` for the
+seeded feed, or a slug directly such as `/playwright-dj-aurora`.
+
 Scripts refuse to run on the `main` branch. Work on a branch or a worktree;
 the guard prints the command to create one.
 
 ## What works without credentials
 
-- Every public page: profiles, communities, worlds, events, search, discovery
+- Every public page. Profiles, communities, and worlds live at their slug
+  (`/playwright-dj-aurora`), events under their owner
+  (`/playwright-afterglow-social/events/playwright-afterglow-harbor-sessions`),
+  and `/discovery` and `/search` list them
 - The seeded dataset: twelve people, one community, one world, two events,
   all under `playwright-` slugs with `.invalid` links
 - The whole check suite (see below) and the Playwright data-flow tests
@@ -70,15 +77,20 @@ purpose.
 
 ## Running checks
 
-`pnpm verify` runs everything CI runs on a pull request. Two lanes need
+`pnpm verify` runs most of what CI runs on a pull request. Two lanes need
 tools beyond Node:
 
 - `test:temporal-inference` needs Python 3
-- `check:restream:ffmpeg` needs Docker and FFmpeg, and only runs when
-  restream files change
+- `proof:restream:ffmpeg` and `proof:restream:local` need FFmpeg. The
+  matching `check:` scripts only read the artifacts a `proof:` run wrote, so
+  they need nothing extra.
 
-Skip those locally if you do not have the tools. CI runs every lane on every
-pull request, including ones from forks, so nothing is lost.
+`verify` does not cover the Playwright Data Flow and Image Diff lanes, the
+three Storybook lanes, or the path-gated `Restream Local Checks` lane, which
+`docker build`s the restream worker image and only runs when restream files
+change. A green `verify` is a good signal, not a promise of a green pull
+request. Skip the lanes whose tools you do not have; CI runs them on your
+pull request, forks included.
 
 Useful subsets: `pnpm lint:web`, `pnpm typecheck:web`, `pnpm test:web`,
 `pnpm typecheck:backend`, `pnpm test:backend`, `pnpm test:e2e`.
