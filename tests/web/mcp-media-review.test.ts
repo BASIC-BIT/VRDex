@@ -114,6 +114,24 @@ describe("MCP media review handlers", () => {
     assert.match(result.content[0]?.type === "text" ? result.content[0].text : "", /changed/i);
   });
 
+  it("does not read stored bytes when detail or preview authority is denied", async () => {
+    let reads = 0;
+    const handlers = createMcpMediaReviewHandlers(dependencies({
+      query: async () => { throw new Error("MEDIA_REVIEW_ACCESS_REQUIRED"); },
+      readStoredObject: async () => { reads += 1; return null; },
+    }));
+
+    await assert.rejects(
+      handlers.get({ submissionId: "submission-1" }),
+      /MEDIA_REVIEW_ACCESS_REQUIRED/,
+    );
+    await assert.rejects(
+      handlers.preview({ submissionId: "submission-1", expectedReviewVersion: version }),
+      /MEDIA_REVIEW_ACCESS_REQUIRED/,
+    );
+    assert.equal(reads, 0);
+  });
+
   it("does not emit bytes when the stored content hash differs from inspected detail", async () => {
     const handlers = createMcpMediaReviewHandlers(dependencies({
       readStoredObject: async () => ({ body: new Uint8Array([1, 2, 3]), contentType: "image/png", contentLength: 3 }),

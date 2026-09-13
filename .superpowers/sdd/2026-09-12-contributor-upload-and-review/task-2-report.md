@@ -38,9 +38,10 @@ Implementation commit: `917af2c10d48543babc97e9529b0bfb7cbce37ad`.
   verified-email attestation.
 - Extended the existing opt-in two-Clerk-user lifecycle fixture instead of
   duplicating it at `media-review.spec.ts`, per the controller's plan-path
-  adjustment. The fixture proves browser donor denial, MCP self-review refusal,
-  authorized native preview, different-owner MCP approval, identical receipt
-  replay, browser status parity, one public asset, and existing exact cleanup.
+  adjustment. The fixture proves browser donor denial, MCP donor authorization
+  refusal, authorized native preview, different-owner MCP approval, identical
+  receipt replay, authenticated browser approved-state parity, the matching
+  image on the public page, one public asset, and existing exact cleanup.
 - Added a Storybook comparison fixture and desktop/mobile visual capture. Both
   screenshots were inspected: the wide layout presents an aligned two-column
   comparison, and the narrow layout stacks full-width images with readable
@@ -132,3 +133,26 @@ New MCP titles and descriptions:
 
 These exact strings are proposed for BASIC's public-copy review. They have not
 been deployed or shipped.
+
+## Fix round 1
+
+- Corrected the lifecycle fixture to use raw `rpc()` for donor A and assert the
+  actual review-authority tool refusal. The backend continues to authorize the
+  reviewer before evaluating same-user decision receipts.
+- Added post-approval authenticated browser assertions for the exact submission
+  and approved public image, followed by a public-page assertion for that same
+  image URL.
+- Added hosted authorization invocations proving each review read/write scope
+  is independently required, mixed read/write requests require the full union,
+  and client credentials cannot invoke review detail. Added denied detail and
+  preview handler tests proving stored bytes are never read.
+- `pnpm test:web -- --test-name-pattern="MCP media review handlers"`: 465/465
+  passed. The script runs the complete web suite because its glob precedes the
+  forwarded filter argument.
+- `node --conditions=import --import tsx --test --test-name-pattern="enforces media review scope pairs" tests/web/vrdex-mcp.test.ts`:
+  1/1 passed.
+- `pnpm --filter web exec playwright test e2e/media-contribution.flow.spec.ts --list`:
+  two project variants loaded from the opt-in fixture. No staging lifecycle was
+  executed.
+- `pnpm typecheck:web`, `pnpm lint:web`, `pnpm lint:markdown`, and
+  `git diff --check`: passed.

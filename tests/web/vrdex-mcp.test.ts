@@ -155,6 +155,113 @@ describe("VRDex MCP server", () => {
     `);
     assert.match(output, /review scope classification verified/);
   });
+
+  it("enforces media review scope pairs and mixed unions through hosted authorization", () => {
+    const output = runMcpProbe(`
+      import { generateKeyPairSync } from "node:crypto";
+      import { createOAuthAccessTokenId, signOAuthAccessToken } from "./apps/web/src/lib/server/oauth-jwt.ts";
+      import { authorizeHostedMcpRequest, createVrdexMcpHandler } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+
+      const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+      process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KEY =
+        privateKey.export({ format: "pem", type: "pkcs8" }).toString();
+      process.env.VRDEX_OAUTH_ACCESS_TOKEN_SIGNING_KID = "test-key";
+      process.env.VRDEX_RATE_LIMIT_STORE = "memory";
+      const clientId = "vrdx_app_0123456789abcdef01234567";
+      const resource = "https://app.example.test/mcp";
+
+      async function attempt(scope, calls, subjectType = "user") {
+        const now = Math.floor(Date.now() / 1000);
+        const tokenId = createOAuthAccessTokenId();
+        const accessToken = signOAuthAccessToken({
+          aud: resource, client_id: clientId, exp: now + 60, iat: now,
+          iss: "https://app.example.test", jti: tokenId, scope,
+          sub: subjectType === "user" ? "user_123" : "client_123",
+        });
+        const payload = calls.map((name, index) => ({
+          jsonrpc: "2.0", id: index + 1, method: "tools/call",
+          params: { name, arguments: name === "vrdex_media_review_decide"
+            ? { submissionId: "submission_1", expectedReviewVersion: "a".repeat(64), decision: "approve", privateReason: "Verified", idempotencyKey: "key-12345678" }
+            : { submissionId: "submission_1" } },
+        }));
+        const authorization = await authorizeHostedMcpRequest(new Request(resource, {
+          method: "POST",
+          headers: { authorization: \`Bearer \${accessToken}\`, "content-type": "application/json" },
+          body: JSON.stringify(payload.length === 1 ? payload[0] : payload),
+        }), {
+          validateAccessTokenRecord: async () => ({
+            ok: true, accessTokenRecordId: "token_record_123", clientId,
+            dynamicClientId: "dynamic_client_123", resource,
+            scopes: scope.split(" "), subjectType, tokenId, trustTier: "standard",
+            ...(subjectType === "user" ? { userId: "user_123" } : {}),
+          }),
+        });
+        return {
+          challenge: authorization.response?.headers.get("www-authenticate"),
+          passed: authorization.response === undefined,
+          status: authorization.response?.status,
+        };
+      }
+
+      async function invokeAsClient() {
+        let queryCalled = false;
+        const handler = createVrdexMcpHandler({
+          authInfo: {
+            token: "client-token", clientId,
+            scopes: ["mcp:read", "assets:review:read"],
+            extra: { requestId: "request-123", subjectType: "client", tokenId: "token-123" },
+          },
+          adminConvex: {
+            mutation: async () => null,
+            query: async () => { queryCalled = true; return null; },
+          },
+        });
+        const response = await handler.fetch(new Request(resource, {
+          method: "POST",
+          headers: { accept: "application/json, text/event-stream", "content-type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 7, method: "tools/call", params: {
+            name: "vrdex_media_review_get", arguments: { submissionId: "submission_1" },
+          } }),
+        }));
+        return { body: await response.text(), queryCalled };
+      }
+
+      console.log(JSON.stringify({
+        readWithoutMcp: await attempt("assets:review:read", ["vrdex_media_review_get"]),
+        readWithoutReview: await attempt("mcp:read", ["vrdex_media_review_preview"]),
+        writeWithoutMcp: await attempt("assets:review:write", ["vrdex_media_review_decide"]),
+        writeWithoutReview: await attempt("mcp:write", ["vrdex_media_review_decide"]),
+        mixedWithoutWriteReview: await attempt(
+          "mcp:read assets:review:read mcp:write",
+          ["vrdex_media_review_get", "vrdex_media_review_decide"],
+        ),
+        clientDelegation: await invokeAsClient(),
+      }));
+    `);
+    const result = JSON.parse(output) as Record<string, {
+      challenge: string | null;
+      passed: boolean;
+      status?: number;
+      body?: string;
+      queryCalled?: boolean;
+    }>;
+
+    for (const key of ["readWithoutMcp", "readWithoutReview", "writeWithoutMcp", "writeWithoutReview", "mixedWithoutWriteReview"]) {
+      assert.equal(result[key]?.passed, false, key);
+      assert.equal(result[key]?.status, 403, key);
+      assert.match(result[key]?.challenge ?? "", /error="insufficient_scope"/, key);
+    }
+    assert.match(result.readWithoutMcp?.challenge ?? "", /scope="mcp:read assets:review:read"/);
+    assert.match(result.readWithoutReview?.challenge ?? "", /scope="mcp:read assets:review:read"/);
+    assert.match(result.writeWithoutMcp?.challenge ?? "", /scope="mcp:write assets:review:write"/);
+    assert.match(result.writeWithoutReview?.challenge ?? "", /scope="mcp:write assets:review:write"/);
+    assert.match(
+      result.mixedWithoutWriteReview?.challenge ?? "",
+      /scope="mcp:read assets:review:read mcp:write assets:review:write"/,
+    );
+    assert.equal(result.clientDelegation?.queryCalled, false);
+    assert.match(result.clientDelegation?.body ?? "", /user-delegated VRDex OAuth session/);
+  });
   it("extracts accepted curated tool calls for durable invocation counts", () => {
     const output = runMcpProbe(`
       import {

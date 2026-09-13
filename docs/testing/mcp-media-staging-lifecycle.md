@@ -116,7 +116,7 @@ context; subsequent evidence attachments use `testInfo`, not a live browser.
    No public asset exists after rejection, and public projection excludes the
    source URLs and review reasons. The MCP preview returns stored candidate
    pixels as native image content for the inspected version. A's MCP approval
-   is durably refused as self-review. B approves the first image through MCP,
+   is refused because A has no review authority. B approves the first image through MCP,
    replays the same receipt, and the browser and public readback show one public
    asset with `community_submitted` provenance.
 5. The staging-only audit inspector bounds each ledger read to 101 rows for
