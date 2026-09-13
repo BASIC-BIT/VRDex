@@ -6,6 +6,7 @@ import { convexTest } from "convex-test";
 import { api, internal } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import schemaModule from "../../convex/schema";
+import cronsModule from "../../convex/crons";
 
 import { newClerkUserId } from "./_clerkTestIdentity";
 const modules = {
@@ -78,6 +79,14 @@ async function finishImmediateSchedules(t: ReturnType<typeof convexTest>, iterat
 }
 
 describe("community telemetry control plane", () => {
+  it("schedules telemetry rollups without scheduling raw-history deletion", () => {
+    const crons = (cronsModule as unknown as { default?: typeof cronsModule }).default ?? cronsModule;
+    const jobs = JSON.parse(crons.export());
+    assert.ok(jobs["community telemetry rollups"]);
+    assert.equal(jobs["community telemetry raw compaction"], undefined);
+    assert.equal(JSON.stringify(jobs).includes("scheduleTelemetryCompaction"), false);
+  });
+
   it("enforces authority and keeps every public metric private by default", async () => {
     const t = convexTest({ schema, modules });
     await seedCommunity(t);
@@ -364,7 +373,7 @@ describe("community telemetry control plane", () => {
     assert.equal((await t.run((ctx) => ctx.db.get(newSession._id)))?.worldId, worldId);
   });
 
-  it("fences stale workers, deduplicates polls, compacts heartbeats, and closes missing instances", async () => {
+  it("fences workers, deduplicates polls, closes instances, and retains historical observations", async () => {
     const t = convexTest({ schema, modules });
     await seedCommunity(t);
     const accountId = await registerAccount(t);
@@ -525,15 +534,6 @@ describe("community telemetry control plane", () => {
     const health = await t.query(internal.communityTelemetry.fleetHealth, {});
     assert.equal(JSON.stringify(health).includes("secret:telemetry"), false);
     assert.equal(JSON.stringify(health).includes("a".repeat(64)), false);
-    const removed = await t.mutation(internal.communityTelemetry.compactRawTelemetry, {
-      integrationId,
-      rawBeforeAt: rollupStart + 60 * 60_000,
-      limit: 1,
-    });
-    assert.equal(removed.aggregateDeleted, 1);
-    assert.equal(removed.instanceDeleted, 0);
-    assert.equal(removed.isDone, false);
-    await finishImmediateSchedules(t);
     const retainedRaw = await t.run(async (ctx) => ({
       aggregate: await ctx.db.query("communityPopulationObservations")
         .withIndex("by_integrationId_observedAt", (query) => query.eq("integrationId", integrationId).lt("observedAt", rollupStart + 60 * 60_000))
@@ -542,8 +542,24 @@ describe("community telemetry control plane", () => {
         .withIndex("by_integrationId_observedAt", (query) => query.eq("integrationId", integrationId).lt("observedAt", rollupStart + 60 * 60_000))
         .collect(),
     }));
-    assert.equal(retainedRaw.aggregate.length, 0);
-    assert.equal(retainedRaw.instances.length, 0);
+    // Historical rollups must preserve exact observations beyond the old 90-day cutoff.
+    assert.ok(retainedRaw.aggregate.length > 0);
+    assert.ok(retainedRaw.instances.length > 0);
+    const futureNow = rollupStart + 100 * 24 * 60 * 60_000;
+    assert.ok([...retainedRaw.aggregate, ...retainedRaw.instances]
+      .every((point) => point.observedAt < futureNow - 90 * 24 * 60 * 60_000));
+    for (const grain of ["hour", "day"] as const) {
+      const duration = (grain === "hour" ? 1 : 24) * 60 * 60_000;
+      const bucketStartAt = Math.floor(rollupStart / duration) * duration;
+      const historicalRollupId = await t.mutation(internal.communityTelemetry.recomputeRollup, {
+        communityProfileId: initialRollup!.communityProfileId,
+        grain, bucketStartAt, bucketEndAt: bucketStartAt + duration, now: futureNow,
+      });
+      assert.ok(await t.run((ctx) => ctx.db.get(historicalRollupId)));
+      for (const point of [...retainedRaw.aggregate, ...retainedRaw.instances]) {
+        assert.deepEqual(await t.run((ctx) => ctx.db.get(point._id)), point);
+      }
+    }
     await t.withIdentity(identity).mutation(api.communityTelemetry.disconnectGroup, { communitySlug: "faceless" });
     assert.equal(await t.query(api.communityTelemetry.getPublicForCommunity, { communitySlug: "faceless", now: claimAt + 125_000 }), null);
     await assert.rejects(t.withIdentity(identity).mutation(api.communityTelemetry.setPublicMetric, {

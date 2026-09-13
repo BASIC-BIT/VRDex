@@ -44,13 +44,6 @@ crons.daily(
   {},
 );
 
-crons.daily(
-  "community telemetry raw compaction",
-  { hourUTC: 4, minuteUTC: 20 },
-  internal.communityTelemetry.scheduleTelemetryCompaction,
-  {},
-);
-
 crons.hourly(
   "expire stale profile verification attempts",
   { minuteUTC: 35 },
