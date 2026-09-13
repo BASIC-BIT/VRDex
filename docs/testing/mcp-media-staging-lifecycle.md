@@ -1,7 +1,8 @@
 # MCP media staging lifecycle
 
 The opt-in `apps/web/e2e/media-contribution.flow.spec.ts` exercises a real
-user-delegated OAuth contribution and a different Clerk user's browser review.
+user-delegated OAuth contribution and a different Clerk user's browser and MCP
+review.
 It uses only synthetic accounts, a synthetic person profile and the existing
 solid-color fixture images. It does not prove a live VRChat claim or a real VRCDN
 stream transition.
@@ -95,7 +96,8 @@ context; subsequent evidence attachments use `testInfo`, not a live browser.
 ## What the test proves
 
 1. A and B have separate Clerk identities and browser contexts. Each authorizes
-   only `mcp:read mcp:write assets:contribute`.
+   only `mcp:read assets:review:read mcp:write assets:contribute
+   assets:review:write`.
 2. A submits an image to an unclaimed person. Same-key replay returns the same
    submission; conflicting reuse and stale revisions are refused. One immediate
    new-key request must return the exact sanitized cooldown message. After
@@ -112,8 +114,11 @@ context; subsequent evidence attachments use `testInfo`, not a live browser.
    the second image through normal browser controls. A sees the contributor
    disposition but not the private reason; B's caller-only history stays empty.
    No public asset exists after rejection, and public projection excludes the
-   source URLs and review reasons. B approves the first image, creating one
-   public asset with `community_submitted` provenance.
+   source URLs and review reasons. The MCP preview returns stored candidate
+   pixels as native image content for the inspected version. A's MCP approval
+   is durably refused as self-review. B approves the first image through MCP,
+   replays the same receipt, and the browser and public readback show one public
+   asset with `community_submitted` provenance.
 5. The staging-only audit inspector bounds each ledger read to 101 rows for
    the exact run-linked contributor and refuses overflow above 100. It checks
    field allowlists and absence of URL/bearer/image-data markers and the fixture's

@@ -9,58 +9,44 @@ import { api } from "@convex-generated-api";
 
 import { Button } from "@/components/ui/button";
 import { Card, SectionTitle } from "@/components/ui/card";
-import { Field, Input, Select, Textarea } from "@/components/ui/field";
+import { Field, Select, Textarea } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
+import { MediaReviewComparison } from "@/components/media-review-comparison";
+import { reviewDecisionMessage, reviewPlacementImage } from "./media-review-view";
 
 type ReviewRow = FunctionReturnType<typeof api.profileMediaSubmissions.listForReview>["page"][number];
 
 function ReviewCard({ row }: { row: ReviewRow }) {
-  const startReview = useMutation(api.profileMediaSubmissions.startReview);
-  const decide = useMutation(api.profileMediaSubmissions.decide);
+  const detail = useQuery(api.profileMediaSubmissions.reviewDetail, { submissionId: row.submissionId });
+  const decide = useMutation(api.profileMediaSubmissions.decideWithReceipt);
   const suppress = useMutation(api.profileMediaSubmissions.suppressApprovedAsset);
   const [busy, setBusy] = useState(false);
   const [publicDisposition, setPublicDisposition] = useState("");
   const [privateReason, setPrivateReason] = useState("");
-  const [label, setLabel] = useState(row.label ?? "");
-  const [altText, setAltText] = useState(row.altText ?? "");
-  const [credit, setCredit] = useState(row.credit);
-  const [creditUrl, setCreditUrl] = useState(row.creditUrl ?? "");
   const [suppressionReason, setSuppressionReason] = useState("");
   const [status, setStatus] = useState<string | null>(null);
-
-  async function beginReview() {
-    setBusy(true);
-    setStatus(null);
-    try {
-      await startReview({ submissionId: row.submissionId });
-      setStatus("Under review.");
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message.split("\n")[0] : "Review failed.");
-    } finally {
-      setBusy(false);
-    }
-  }
+  const [conflict, setConflict] = useState(false);
 
   async function submit(decision: "approve" | "reject") {
     setBusy(true);
     setStatus(null);
+    setConflict(false);
     try {
-      const finalPlacement = row.profileType === "person"
-        ? ("profile_image" as const)
-        : ("primary_logo" as const);
-      await decide({
+      if (detail === undefined || detail === null) {
+        setStatus("Review detail is unavailable.");
+        return;
+      }
+      const receipt = await decide({
         submissionId: row.submissionId,
+        expectedReviewVersion: detail.reviewVersion,
         decision,
-        expectedProfileUpdatedAt: row.currentProfileUpdatedAt,
-        finalPlacement,
-        label,
-        altText,
-        credit,
-        creditUrl,
-        publicDisposition: publicDisposition || undefined,
+        idempotencyKey: crypto.randomUUID(),
+        publicReason: publicDisposition || undefined,
         privateReason,
       });
-      setStatus(decision === "approve" ? "Approved." : "Rejected.");
+      const result = reviewDecisionMessage(receipt, decision);
+      setStatus(result.message);
+      setConflict(result.conflict);
     } catch (error) {
       setStatus(error instanceof Error ? error.message.split("\n")[0] : "Decision failed.");
     } finally {
@@ -98,14 +84,14 @@ function ReviewCard({ row }: { row: ReviewRow }) {
         </div>
         <a className="text-sm underline" href={row.sourceUrl} rel="noreferrer" target="_blank">Open source</a>
       </div>
-      {row.canViewCandidate ? (
-        // The authenticated no-store route must be loaded directly by the browser.
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          alt={row.altText || `Candidate for ${row.profileDisplayName}`}
-          className="mt-5 max-h-96 w-full rounded-lg bg-surface-raised object-contain"
-          src={`/api/account/media-review/submissions/${row.submissionId}/file`}
-        />
+      {detail === undefined ? <p aria-busy="true" className="mt-5 text-sm text-muted">Loading…</p> : null}
+      {detail ? (
+        <div className="mt-5"><MediaReviewComparison
+          candidateAlt={row.altText || `Candidate for ${row.profileDisplayName}`}
+          candidateSrc={detail.candidate.rendition ? `/api/account/media-review/submissions/${row.submissionId}/file` : null}
+          currentAlt={`Current image for ${row.profileDisplayName}`}
+          currentSrc={reviewPlacementImage(detail)}
+        /></div>
       ) : null}
       <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
         <div><dt className="text-muted">Credit</dt><dd>{row.credit}</dd></div>
@@ -120,15 +106,10 @@ function ReviewCard({ row }: { row: ReviewRow }) {
         ) : null}
       </dl>
       {row.contributorNote ? <Notice className="mt-5">{row.contributorNote}</Notice> : null}
-      {row.targetProfileUpdatedAt !== row.currentProfileUpdatedAt ? (
-        <Notice className="mt-5" variant="warning">Profile changed after submission.</Notice>
+      {detail && (row.targetProfileUpdatedAt !== row.currentProfileUpdatedAt || conflict) ? (
+        <Notice className="mt-5" variant="warning">Review changed. Inspect the current images before deciding again.</Notice>
       ) : null}
-      {row.status === "submitted" ? (
-        <div className="mt-5 grid gap-4">
-          <Button disabled={busy} onClick={() => void beginReview()} type="button" variant="primary">Start review</Button>
-          {status ? <Notice role="status">{status}</Notice> : null}
-        </div>
-      ) : row.status === "approved" && row.canSuppress ? (
+      {row.status === "approved" && row.canSuppress ? (
         <div className="mt-5 grid gap-4">
           <Field>
             Suppression reason
@@ -137,27 +118,9 @@ function ReviewCard({ row }: { row: ReviewRow }) {
           <Button disabled={busy || suppressionReason.trim() === ""} onClick={() => void suppressAsset()} type="button" variant="dangerGhost">Suppress media</Button>
           {status ? <Notice role="status">{status}</Notice> : null}
         </div>
-      ) : row.status === "under_review" ? <div className="mt-5 grid gap-4">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field>
-            Public label
-            <Input maxLength={80} onChange={(event) => setLabel(event.target.value)} value={label} />
-          </Field>
-          <Field>
-            Alt text
-            <Input maxLength={180} onChange={(event) => setAltText(event.target.value)} value={altText} />
-          </Field>
-          <Field>
-            Credit
-            <Input onChange={(event) => setCredit(event.target.value)} required value={credit} />
-          </Field>
-          <Field>
-            Credit URL
-            <Input onChange={(event) => setCreditUrl(event.target.value)} type="url" value={creditUrl} />
-          </Field>
-        </div>
+      ) : row.status === "submitted" || row.status === "under_review" ? <div className="mt-5 grid gap-4">
         <Field>
-          Contributor-visible disposition
+          Public rejection reason
           <Textarea maxLength={240} onChange={(event) => setPublicDisposition(event.target.value)} rows={2} value={publicDisposition} />
         </Field>
         <Field>
@@ -165,7 +128,7 @@ function ReviewCard({ row }: { row: ReviewRow }) {
           <Textarea maxLength={1000} onChange={(event) => setPrivateReason(event.target.value)} required rows={3} value={privateReason} />
         </Field>
         <div className="flex flex-wrap gap-3">
-          <Button disabled={busy || credit.trim() === "" || privateReason.trim() === ""} onClick={() => void submit("approve")} type="button" variant="primary">Approve</Button>
+          <Button disabled={busy || detail === undefined || detail === null || privateReason.trim() === ""} onClick={() => void submit("approve")} type="button" variant="primary">Approve</Button>
           <Button disabled={busy || privateReason.trim() === "" || publicDisposition.trim() === ""} onClick={() => void submit("reject")} type="button" variant="dangerGhost">Reject</Button>
         </div>
         {status ? <Notice role="status">{status}</Notice> : null}

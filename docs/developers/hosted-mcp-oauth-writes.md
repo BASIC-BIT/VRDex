@@ -35,6 +35,8 @@ resource it means to write:
 | `vrdex_profile_submit` | `mcp:write` + `profile:contribute` |
 | `vrdex_profile_media_manage` | `mcp:write` + `assets:write` |
 | `vrdex_profile_media_submit` | `mcp:write` + `assets:contribute` |
+| `vrdex_media_review_decide` | `mcp:write` + `assets:review:write` |
+| `vrdex_media_submission_withdraw` | `mcp:write` + `assets:contribute` |
 
 `profile:write` is bounded by what its consent screen says: "Edit your profiles".
 Reaching a profile the user does not own, whether by correcting an unclaimed one
@@ -212,7 +214,20 @@ asset, including placement and profile-field visibility checks.
 Owner media management and community contribution remain separate authority
 paths. The owner tool cannot target an unclaimed profile. The contributor tool
 cannot target a claimed profile, review its own proposal, or publish media.
-Review and moderation remain browser-only.
+Media review uses three authenticated read tools and one decision tool. The
+queue, detail and native preview tools require `mcp:read` plus
+`assets:review:read`. Each call rechecks the user delegation, current OAuth
+token and client, resource authority, and current verified-email state. Preview
+also requires the detail's opaque `reviewVersion`. It reads only the authorized
+stored candidate, verifies its content hash and version again, and returns a
+bounded PNG rendition. It never fetches the proposal source URL or returns a
+storage key. Decisions require `mcp:write` plus `assets:review:write` and use the
+same durable receipt transition as the website. An identical key can recover a
+lost response; a refused receipt remains refused.
+
+`vrdex_media_submission_withdraw` is the contributor's own command. It requires
+`mcp:write` plus `assets:contribute`, rechecks authorship in the transaction,
+and does not grant or depend on review authority.
 
 ## Authorization contract
 

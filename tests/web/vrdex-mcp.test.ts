@@ -84,13 +84,16 @@ function assertAuthenticatedReadSecuritySchemes(value: unknown) {
 
 function isWriteToolName(name: string | undefined) {
   return name === "vrdex_profile_media_manage" || name === "vrdex_profile_media_submit" ||
+    name === "vrdex_media_review_decide" || name === "vrdex_media_submission_withdraw" ||
     (name !== undefined && /^vrdex_(event|profile)_(create|update|submit)$/.test(name));
 }
 
 // A read, but of the caller's own inventory, so it carries a scope pair rather
 // than the public-read schemes every other read tool advertises.
 function isOwnedReadToolName(name: string | undefined) {
-  return name === "vrdex_list_my_profiles" || name === "vrdex_list_my_media_submissions";
+  return name === "vrdex_list_my_profiles" || name === "vrdex_list_my_media_submissions" ||
+    name === "vrdex_media_review_list" || name === "vrdex_media_review_get" ||
+    name === "vrdex_media_review_preview";
 }
 
 function assertWriteSecuritySchemes(value: unknown, resourceScope: string) {
@@ -110,6 +113,48 @@ function assertWriteSecuritySchemes(value: unknown, resourceScope: string) {
 }
 
 describe("VRDex MCP server", () => {
+  it("advertises media review and withdrawal tools with their exact scope pairs", () => {
+    const output = runMcpProbe(`
+      import { createVrdexMcpHandler } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+      const handler = createVrdexMcpHandler();
+      const response = await handler.fetch(new Request("http://localhost:3000/mcp", {
+        method: "POST",
+        headers: { accept: "application/json, text/event-stream", "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+      }));
+      console.log(response.status);
+      console.log(await response.text());
+    `);
+    const tools = jsonBodyFromProbe(output).result?.tools ?? [];
+    const expected = {
+      vrdex_media_review_list: ["mcp:read", "assets:review:read"],
+      vrdex_media_review_get: ["mcp:read", "assets:review:read"],
+      vrdex_media_review_preview: ["mcp:read", "assets:review:read"],
+      vrdex_media_review_decide: ["mcp:write", "assets:review:write"],
+      vrdex_media_submission_withdraw: ["mcp:write", "assets:contribute"],
+    } as const;
+    for (const [name, scopes] of Object.entries(expected)) {
+      const tool = tools.find((candidate) => candidate.name === name);
+      assert.notEqual(tool, undefined, name);
+      assert.deepEqual((tool?._meta as { securitySchemes?: unknown }).securitySchemes, [
+        { scopes, type: "oauth2" },
+      ]);
+    }
+  });
+
+  it("classifies media review reads and writes before dispatch, including mixed batches", () => {
+    const output = runMcpProbe(`
+      import assert from "node:assert/strict";
+      import { requiredHostedMcpScopesForToolNames } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+      assert.deepEqual(requiredHostedMcpScopesForToolNames(["vrdex_media_review_get"]), ["mcp:read", "assets:review:read"]);
+      assert.deepEqual(requiredHostedMcpScopesForToolNames(["vrdex_media_review_decide"]), ["mcp:write", "assets:review:write"]);
+      assert.deepEqual(requiredHostedMcpScopesForToolNames(["vrdex_media_submission_withdraw"]), ["mcp:write", "assets:contribute"]);
+      assert.deepEqual(requiredHostedMcpScopesForToolNames(["vrdex_get_profile", "vrdex_media_review_decide"]), ["mcp:read", "mcp:write", "assets:review:write"]);
+      assert.deepEqual(requiredHostedMcpScopesForToolNames(["vrdex_media_review_preview", "vrdex_media_submission_withdraw"]), ["mcp:read", "assets:review:read", "mcp:write", "assets:contribute"]);
+      console.log("review scope classification verified");
+    `);
+    assert.match(output, /review scope classification verified/);
+  });
   it("extracts accepted curated tool calls for durable invocation counts", () => {
     const output = runMcpProbe(`
       import {
@@ -298,6 +343,9 @@ describe("VRDex MCP server", () => {
     const ownedReadScopes = {
       vrdex_list_my_profiles: "profile:read",
       vrdex_list_my_media_submissions: "assets:contribute",
+      vrdex_media_review_list: "assets:review:read",
+      vrdex_media_review_get: "assets:review:read",
+      vrdex_media_review_preview: "assets:review:read",
     } as const;
     for (const [name, resourceScope] of Object.entries(ownedReadScopes)) {
       const ownedRead = tools.find((candidate) => candidate.name === name);
@@ -348,6 +396,8 @@ describe("VRDex MCP server", () => {
     // No deployment switch: the write tools are always listed, and the harness
     // connecting decides which of them it exposes.
     assert.deepEqual(writeTools.map((tool) => tool.name), [
+      "vrdex_media_review_decide",
+      "vrdex_media_submission_withdraw",
       "vrdex_event_create",
       "vrdex_event_update",
       "vrdex_profile_update",
@@ -367,6 +417,8 @@ describe("VRDex MCP server", () => {
       vrdex_profile_submit: "profile:contribute",
       vrdex_profile_media_manage: "assets:write",
       vrdex_profile_media_submit: "assets:contribute",
+      vrdex_media_review_decide: "assets:review:write",
+      vrdex_media_submission_withdraw: "assets:contribute",
     };
 
     for (const tool of writeTools) {

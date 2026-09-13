@@ -2722,6 +2722,8 @@ components:
               - assets:read
               - assets:write
               - assets:contribute
+              - assets:review:read
+              - assets:review:write
               - developer:read
               - developer:write
               - mcp:read
@@ -2795,6 +2797,8 @@ components:
               - assets:read
               - assets:write
               - assets:contribute
+              - assets:review:read
+              - assets:review:write
               - developer:read
               - developer:write
               - mcp:read
@@ -2874,6 +2878,8 @@ components:
               - assets:read
               - assets:write
               - assets:contribute
+              - assets:review:read
+              - assets:review:write
               - developer:read
               - developer:write
               - mcp:read
@@ -3506,6 +3512,8 @@ components:
                   - assets:read
                   - assets:write
                   - assets:contribute
+                  - assets:review:read
+                  - assets:review:write
                   - developer:read
                   - developer:write
                   - mcp:read
@@ -3563,6 +3571,8 @@ components:
                   - assets:read
                   - assets:write
                   - assets:contribute
+                  - assets:review:read
+                  - assets:review:write
                   - developer:read
                   - developer:write
                   - mcp:read
@@ -4044,6 +4054,8 @@ components:
               - assets:read
               - assets:write
               - assets:contribute
+              - assets:review:read
+              - assets:review:write
               - developer:read
               - developer:write
               - mcp:read
@@ -4221,6 +4233,8 @@ components:
               - assets:read
               - assets:write
               - assets:contribute
+              - assets:review:read
+              - assets:review:write
               - developer:read
               - developer:write
               - mcp:read
@@ -7107,6 +7121,8 @@ components:
             assets:read: assets:read
             assets:write: assets:write
             assets:contribute: assets:contribute
+            assets:review:read: assets:review:read
+            assets:review:write: assets:review:write
             developer:read: developer:read
             developer:write: developer:write
             mcp:read: mcp:read

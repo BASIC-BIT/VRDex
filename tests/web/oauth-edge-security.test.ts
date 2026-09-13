@@ -167,8 +167,10 @@ describe("OAuth edge security", () => {
       // and being refused at call time.
       "profile:read",
       "assets:contribute",
+      "assets:review:read",
       "mcp:write",
       "assets:write",
+      "assets:review:write",
       "events:write",
       "profile:write",
       "profile:contribute",
