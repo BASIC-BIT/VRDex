@@ -315,7 +315,7 @@ describe("OAuth application helpers", () => {
     assert.throws(() => normalizeDynamicMcpScopes(["public:read"]), /mcp:read/);
     assert.throws(
       () => normalizeDynamicMcpScopes(["mcp:write"]),
-      /at least one of assets:write, assets:contribute, events:write, profile:write, profile:contribute/,
+      /at least one of assets:write, assets:review:write, assets:contribute, events:write, profile:write, profile:contribute/,
     );
     assert.throws(() => normalizeDynamicMcpScopes(["assets:contribute"]), /mcp:read.*mcp:write/);
     assert.throws(() => normalizeOAuthResponseTypes(["token"]), /response type/);
@@ -513,4 +513,10 @@ describe("OAuth application helpers", () => {
       },
     );
   });
+});
+
+it("normalizes read-only and write-only review delegation independently", () => {
+  assert.deepEqual(normalizeDynamicMcpScopes(["mcp:read", "assets:review:read"]), ["mcp:read", "assets:review:read"]);
+  assert.deepEqual(normalizeDynamicMcpScopes(["mcp:write", "assets:review:write"]), ["mcp:write", "assets:review:write"]);
+  assert.throws(() => normalizeDynamicMcpScopes(["assets:review:write"]), /mcp:write/);
 });

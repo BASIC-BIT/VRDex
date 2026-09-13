@@ -4,13 +4,13 @@ import { normalizeMcpContributionSourceUrl } from "../packages/api-contracts/src
 
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
+import { reviewerContext, legacyDecisionArgs, applyReviewDecision, reviewSnapshot, decideReviewCommand, trustedReviewActor, type ReviewActor } from "./_mediaReview";
 import { getAccountFeatureAccess } from "./_accountFeatures";
 import type { AuthSubject } from "./_communityAuthority";
 import { requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
 import { identityEmailVerified } from "./_identity";
 import { isProfileFieldVisible } from "./_profileFieldVisibility";
 import {
-  consumeProfileAssetUploads,
   createProfileAssetUploadIntentRecord,
   normalizeProfileAssetFileName,
   normalizeProfileAssetSourceUrl,
@@ -24,7 +24,6 @@ import {
   sanitizeProfileAssetCreditUrl,
   sanitizeProfileAssetLabel,
 } from "./_profileAssets";
-import { userOwnsProfile } from "./_profileOwnership";
 import { getProfileBySlug, validateProfileSlug } from "./_profileSlugs";
 import { recordApiWriteAuditEvent } from "./_apiWriteAuditEvents";
 import { requireMcpAttributionText, requireSha256Hex } from "./_mcpWriteReceipts";
@@ -246,25 +245,6 @@ function assertEligibleTarget(
   return profile;
 }
 
-async function reviewerContext(
-  ctx: QueryCtx | MutationCtx,
-  profile: Doc<"profiles">,
-) {
-  const { user, subject } = await requireActiveBrowserSessionSubject(ctx);
-  const access = await getAccountFeatureAccess(ctx.db, user._id);
-  const ownsProfile = await userOwnsProfile(ctx.db, profile._id, user._id);
-  if (!access.superAdmin && !ownsProfile) {
-    throw new ConvexError({
-      code: "MEDIA_REVIEW_ACCESS_REQUIRED",
-      message: "Profile media review access is required.",
-    });
-  }
-  if (!access.superAdmin && profile.claimState === "unclaimed") {
-    throw new Error("Only a moderator can review media for an unclaimed profile.");
-  }
-  return { user, subject, access, ownsProfile };
-}
-
 function publicSubmission(
   submission: Doc<"profileMediaSubmissions">,
   profile: Doc<"profiles">,
@@ -294,6 +274,7 @@ function publicSubmission(
     contributorNote: submission.contributorNote,
     publicDisposition: submission.publicDisposition,
     approvedAssetId: submission.approvedAssetId,
+    expiresAt: submission.expiresAt,
     targetProfileUpdatedAt: submission.targetProfileUpdatedAt,
     currentProfileUpdatedAt: profile.updatedAt,
     createdAt: submission.createdAt,
@@ -1114,7 +1095,9 @@ export const getReviewAccess = query({
       )
       .collect();
     const profiles = (
-      await Promise.all(ownerships.map((ownership) => ctx.db.get(ownership.profileId)))
+      await Promise.all(
+        ownerships.map((ownership) => ctx.db.get(ownership.profileId)),
+      )
     ).filter((profile): profile is Doc<"profiles"> => profile !== null);
     return {
       superAdmin: access.superAdmin,
@@ -1130,112 +1113,235 @@ export const getReviewAccess = query({
 
 export const getCandidateForStorage = query({
   args: { submissionId },
-  handler: async (ctx, args) => {
-    assertContributionsEnabled();
-    const submission = await ctx.db.get(args.submissionId);
-    if (submission === null || submission.uploadIntentId === undefined) return null;
-    const profile = await ctx.db.get(submission.profileId);
-    if (profile === null) return null;
-    const reviewAccess = await reviewerContext(ctx, profile);
-    if (
-      !reviewAccess.access.superAdmin &&
-      submission.status !== "submitted" &&
-      submission.status !== "under_review" &&
-      submission.status !== "approved"
-    ) {
-      return null;
-    }
-    const intent = await ctx.db.get(submission.uploadIntentId);
-    if (
-      intent === null ||
-      intent.purpose !== "community_proposal" ||
-      intent.targetSubmissionId !== submission._id ||
-      intent.targetProfileId !== profile._id ||
-      (intent.state !== "uploaded" && intent.state !== "consumed")
-    ) {
-      return null;
-    }
-    return {
-      storageKey: intent.storageKey,
-      mimeType: intent.mimeType,
-      originalFileName: intent.originalFileName,
-      profileDisplayName: profile.displayName,
-    };
-  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      storageKey: v.string(),
+      mimeType: v.string(),
+      originalFileName: v.optional(v.string()),
+      profileDisplayName: v.string(),
+    }),
+  ),
+  handler: async (ctx, args) =>
+    authorizedCandidateStorage(ctx, args.submissionId),
 });
 
-export const listForReview = query({
-  args: {
-    profileId: v.optional(v.id("profiles")),
-    status: v.optional(reviewQueueStatus),
-    paginationOpts: paginationOptsValidator,
-  },
-  handler: async (ctx, args) => {
-    const status = args.status ?? "submitted";
-    let submissionsPage;
-    let includeModeratorEvidence = false;
-    if (args.profileId !== undefined) {
-      const profile = await ctx.db.get(args.profileId);
-      if (profile === null) {
-        return { page: [], isDone: true, continueCursor: "" };
-      }
-      const reviewAccess = await reviewerContext(ctx, profile);
-      includeModeratorEvidence = reviewAccess.access.superAdmin;
-      submissionsPage = await ctx.db
-        .query("profileMediaSubmissions")
-        .withIndex("by_profileId_status_createdAt", (query) =>
-          query.eq("profileId", profile._id).eq("status", status),
-        )
-        .order("asc")
-        .paginate(args.paginationOpts);
-    } else {
-      const { user } = await requireActiveBrowserSessionSubject(ctx);
-      const access = await getAccountFeatureAccess(ctx.db, user._id);
-      if (!access.superAdmin) throw new Error("Super admin access is required.");
-      includeModeratorEvidence = true;
-      submissionsPage = await ctx.db
-        .query("profileMediaSubmissions")
-        .withIndex("by_status_createdAt", (query) => query.eq("status", status))
-        .order("asc")
-        .paginate(args.paginationOpts);
-    }
-    const page = await Promise.all(
-      submissionsPage.page.map(async (submission) => {
-        const profile = await ctx.db.get(submission.profileId);
-        return profile === null
-          ? null
-          : await reviewSubmission(ctx, submission, profile, includeModeratorEvidence);
+const reviewProjectionFields = {
+  submissionId: v.id("profileMediaSubmissions"),
+  profileId: v.id("profiles"),
+  profileSlug: v.string(),
+  profileDisplayName: v.string(),
+  profileIsPublic: v.boolean(),
+  profileType: v.union(v.literal("person"), v.literal("community")),
+  requestedPlacement: v.union(
+    v.literal("profile_image"),
+    v.literal("banner"),
+    v.literal("primary_logo"),
+    v.literal("additional_logo"),
+    v.literal("gallery"),
+    v.literal("featured"),
+  ),
+  status: v.union(
+    v.literal("upload_pending"),
+    v.literal("submitted"),
+    v.literal("under_review"),
+    v.literal("approved"),
+    v.literal("rejected"),
+    v.literal("withdrawn"),
+    v.literal("superseded"),
+  ),
+  sourceUrl: v.string(),
+  label: v.optional(v.string()),
+  altText: v.optional(v.string()),
+  credit: v.string(),
+  creditUrl: v.optional(v.string()),
+  contributorNote: v.optional(v.string()),
+  publicDisposition: v.optional(v.string()),
+  approvedAssetId: v.optional(v.id("profileAssets")),
+  expiresAt: v.number(),
+  targetProfileUpdatedAt: v.number(),
+  currentProfileUpdatedAt: v.number(),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+  priorProposalCount: v.number(),
+  priorProposalCountTruncated: v.boolean(),
+  canViewCandidate: v.boolean(),
+  canSuppress: v.boolean(),
+  submitterDisplayName: v.optional(v.string()),
+  submitterEmail: v.optional(v.string()),
+  submitterTokenIdentifier: v.optional(v.string()),
+  reviewerTokenIdentifier: v.optional(v.string()),
+  privateReason: v.optional(v.string()),
+};
+const reviewPageValidator = v.object({
+  page: v.array(v.object(reviewProjectionFields)),
+  isDone: v.boolean(),
+  continueCursor: v.string(),
+  splitCursor: v.optional(v.union(v.string(), v.null())),
+  pageStatus: v.optional(
+    v.union(
+      v.literal("SplitRecommended"),
+      v.literal("SplitRequired"),
+      v.null(),
+    ),
+  ),
+});
+const reviewDetailValidator = v.union(
+  v.null(),
+  v.object({
+    ...reviewProjectionFields,
+    reviewVersion: v.string(),
+    currentPlacement: v.union(
+      v.null(),
+      v.object({
+        assetId: v.id("profileAssets"),
+        placementId: v.id("profileAssetPlacements"),
+        credit: v.union(v.null(), v.string()),
+        sourceUrl: v.union(v.null(), v.string()),
       }),
-    ).then((items) => items.filter((item) => item !== null));
-    return { ...submissionsPage, page };
+    ),
+    currentAvatarImageUrl: v.union(v.null(), v.string()),
+    candidate: v.object({
+      rendition: v.union(
+        v.null(),
+        v.object({
+          submissionId: v.id("profileMediaSubmissions"),
+          kind: v.literal("stored_candidate"),
+        }),
+      ),
+      sourceUrl: v.string(),
+      credit: v.string(),
+      contentSha256: v.union(v.null(), v.string()),
+    }),
+  }),
+);
+const reviewPageArgs = {
+  profileId: v.optional(v.id("profiles")),
+  status: v.optional(reviewQueueStatus),
+  paginationOpts: paginationOptsValidator,
+};
+async function authorizedReviewPage(
+  ctx: QueryCtx,
+  args: {
+    profileId?: Id<"profiles">;
+    status?: "submitted" | "under_review" | "approved" | "rejected";
+    paginationOpts: { numItems: number; cursor: string | null };
   },
+  actor?: ReviewActor,
+) {
+  if (
+    !Number.isInteger(args.paginationOpts.numItems) ||
+    args.paginationOpts.numItems < 1 ||
+    args.paginationOpts.numItems > 40 ||
+    (args.paginationOpts.cursor?.length ?? 0) > 8192
+  )
+    throw new Error("Invalid review page.");
+  const status = args.status ?? "submitted";
+  let submissionsPage;
+  let includeModeratorEvidence = false;
+  if (args.profileId !== undefined) {
+    const profile = await ctx.db.get(args.profileId);
+    if (profile === null) {
+      return { page: [], isDone: true, continueCursor: "" };
+    }
+    const reviewAccess = await reviewerContext(ctx, profile, actor);
+    includeModeratorEvidence = reviewAccess.access.superAdmin;
+    submissionsPage = await ctx.db
+      .query("profileMediaSubmissions")
+      .withIndex("by_profileId_status_expiresAt", (query) =>
+        query
+          .eq("profileId", profile._id)
+          .eq("status", status)
+          .gt(
+            "expiresAt",
+            status === "submitted" || status === "under_review"
+              ? Date.now()
+              : 0,
+          ),
+      )
+      .order("asc")
+      .paginate(args.paginationOpts);
+  } else {
+    const { user } = actor ?? (await requireActiveBrowserSessionSubject(ctx));
+    const access = await getAccountFeatureAccess(ctx.db, user._id);
+    if (!access.superAdmin) throw new Error("Super admin access is required.");
+    includeModeratorEvidence = true;
+    submissionsPage = await ctx.db
+      .query("profileMediaSubmissions")
+      .withIndex("by_status_expiresAt", (query) =>
+        query
+          .eq("status", status)
+          .gt(
+            "expiresAt",
+            status === "submitted" || status === "under_review"
+              ? Date.now()
+              : 0,
+          ),
+      )
+      .order("asc")
+      .paginate(args.paginationOpts);
+  }
+  const page = await Promise.all(
+    submissionsPage.page.map(async (submission) => {
+      const profile = await ctx.db.get(submission.profileId);
+      return profile === null
+        ? null
+        : await reviewSubmission(
+            ctx,
+            submission,
+            profile,
+            includeModeratorEvidence,
+          );
+    }),
+  ).then((items) => items.filter((item) => item !== null));
+  return { ...submissionsPage, page };
+}
+export const listForReview = query({
+  args: reviewPageArgs,
+  returns: reviewPageValidator,
+  handler: async (ctx, args) => authorizedReviewPage(ctx, args),
+});
+export const listForReviewForMcpActor = internalQuery({
+  args: { ...reviewPageArgs, actorUserId: v.id("users") },
+  returns: reviewPageValidator,
+  handler: async (ctx, { actorUserId, ...args }) =>
+    authorizedReviewPage(ctx, args, await trustedReviewActor(ctx, actorUserId)),
 });
 
-export const withdraw = mutation({
-  args: { submissionId },
-  handler: async (ctx, args) => {
-    const { user, subject } = await requireActiveBrowserSessionSubject(ctx);
-    const submission = await ctx.db.get(args.submissionId);
-    if (submission === null || submission.submitterUserId !== user._id) return false;
-    if (!OPEN_SUBMISSION_STATUSES.includes(submission.status as (typeof OPEN_SUBMISSION_STATUSES)[number])) {
-      throw new Error("This media contribution can no longer be withdrawn.");
-    }
-    const now = Date.now();
-    await ctx.db.patch(submission._id, {
-      status: "withdrawn",
-      blobDeleteAfter: now + PROFILE_MEDIA_SUBMISSION_RETENTION_MS,
-      updatedAt: now,
-    });
-    await ctx.db.insert("profileAuditEvents", {
-      profileId: submission.profileId,
-      action: "profile_media_submission_withdrawn",
-      actor: subject,
-      sourceType: "community",
-      createdAt: now,
-    });
-    return true;
-  },
-});
+async function withdrawSubmission(
+  ctx: MutationCtx,
+  args: { submissionId: Id<"profileMediaSubmissions"> },
+  actor?: ReviewActor,
+) {
+  const { user, subject } =
+    actor ?? (await requireActiveBrowserSessionSubject(ctx));
+  const submission = await ctx.db.get(args.submissionId);
+  if (submission === null || submission.submitterUserId !== user._id)
+    return false;
+  if (
+    !OPEN_SUBMISSION_STATUSES.includes(
+      submission.status as (typeof OPEN_SUBMISSION_STATUSES)[number],
+    )
+  ) {
+    throw new Error("This media contribution can no longer be withdrawn.");
+  }
+  const now = Date.now();
+  await ctx.db.patch(submission._id, {
+    status: "withdrawn",
+    blobDeleteAfter: now + PROFILE_MEDIA_SUBMISSION_RETENTION_MS,
+    updatedAt: now,
+  });
+  await ctx.db.insert("profileAuditEvents", {
+    profileId: submission.profileId,
+    action: "profile_media_submission_withdrawn",
+    actor: subject,
+    sourceType: "community",
+    createdAt: now,
+  });
+  return true;
+}
+export const withdraw = mutation({ args: { submissionId }, handler: async (ctx, args) => withdrawSubmission(ctx, args) });
+export const withdrawForMcpActor = internalMutation({ args: { submissionId, actorUserId: v.id("users") }, returns: v.boolean(), handler: async (ctx, { actorUserId, ...args }) => withdrawSubmission(ctx, args, await trustedReviewActor(ctx, actorUserId)) });
 
 export const startReview = mutation({
   args: { submissionId },
@@ -1264,168 +1370,7 @@ export const startReview = mutation({
   },
 });
 
-export const decide = mutation({
-  args: {
-    submissionId,
-    decision: v.union(v.literal("approve"), v.literal("reject")),
-    expectedProfileUpdatedAt: v.number(),
-    finalPlacement: v.optional(requestedPlacement),
-    label: v.optional(v.string()),
-    altText: v.optional(v.string()),
-    credit: v.optional(v.string()),
-    creditUrl: v.optional(v.string()),
-    publicDisposition: v.optional(v.string()),
-    privateReason: v.string(),
-  },
-  handler: async (ctx, args) => {
-    assertContributionsEnabled();
-    const submission = await ctx.db.get(args.submissionId);
-    if (
-      submission === null ||
-      (submission.status !== "submitted" && submission.status !== "under_review")
-    ) {
-      throw new Error("This media contribution is not awaiting a decision.");
-    }
-    const now = Date.now();
-    if (submission.expiresAt <= now) {
-      throw new Error("This media contribution has expired.");
-    }
-    const profile = await ctx.db.get(submission.profileId);
-    if (
-      profile === null ||
-      profile.publicationState !== "published" ||
-      profile.publicSurfacingState !== "public"
-    ) {
-      throw new Error("The target profile is no longer public.");
-    }
-    const { subject, user, ownsProfile } = await reviewerContext(ctx, profile);
-    if (submission.submitterUserId === user._id) {
-      throw new Error("You cannot decide your own media contribution.");
-    }
-    if (profile.updatedAt !== args.expectedProfileUpdatedAt) {
-      throw new Error("The target profile changed. Refresh before deciding.");
-    }
-    const privateReason = sanitizeNote(args.privateReason, 1_000);
-    if (privateReason === undefined) throw new Error("A private review reason is required.");
-    const publicDisposition = sanitizeNote(args.publicDisposition, 240);
-    if (args.decision === "reject") {
-      if (publicDisposition === undefined) {
-        throw new Error("A contributor-visible rejection reason is required.");
-      }
-      await ctx.db.patch(submission._id, {
-        status: "rejected",
-        reviewer: subject,
-        reviewedAt: now,
-        publicDisposition,
-        privateReason,
-        decisionProfileUpdatedAt: profile.updatedAt,
-        blobDeleteAfter: now + PROFILE_MEDIA_SUBMISSION_RETENTION_MS,
-        updatedAt: now,
-      });
-      await ctx.db.insert("profileAuditEvents", {
-        profileId: profile._id,
-        action: "profile_media_submission_rejected",
-        actor: subject,
-        sourceType: "moderator",
-        createdAt: now,
-      });
-      return { status: "rejected" as const };
-    }
-
-    if (submission.uploadIntentId === undefined) {
-      throw new Error("The submitted media upload is missing.");
-    }
-    const intent = await ctx.db.get(submission.uploadIntentId);
-    if (
-      intent === null ||
-      intent.state !== "uploaded" ||
-      intent.purpose !== "community_proposal" ||
-      intent.targetSubmissionId !== submission._id ||
-      intent.targetProfileId !== profile._id
-    ) {
-      throw new Error("The submitted media upload is not ready for approval.");
-    }
-    const currentPlacement = await ctx.db
-      .query("profileAssetPlacements")
-      .withIndex("by_profileId_placement_state_position", (query) =>
-        query
-          .eq("profileId", profile._id)
-          .eq("placement", submission.requestedPlacement)
-          .eq("state", "active"),
-      )
-      .first();
-    if ((currentPlacement?.assetId ?? undefined) !== submission.targetPlacementAssetId) {
-      throw new Error("The profile media placement changed. Refresh before deciding.");
-    }
-    if (intent.contentSha256 !== undefined) {
-      const existing = await ctx.db
-        .query("profileAssets")
-        .withIndex("by_profileId", (query) => query.eq("profileId", profile._id))
-        .collect();
-      if (existing.some((asset) => asset.state === "active" && asset.contentSha256 === intent.contentSha256)) {
-        throw new Error("This image is already published on the profile.");
-      }
-    }
-    const finalPlacement = args.finalPlacement ?? submission.requestedPlacement;
-    if (
-      (profile.profileType === "person" && finalPlacement !== "profile_image") ||
-      (profile.profileType === "community" && finalPlacement !== "primary_logo")
-    ) {
-      throw new Error("That media placement is not available for this profile type.");
-    }
-    const finalLabel = "label" in args
-      ? sanitizeProfileAssetLabel(args.label)
-      : submission.label;
-    const finalAltText = "altText" in args
-      ? sanitizeProfileAssetAltText(args.altText)
-      : submission.altText;
-    const finalCredit = "credit" in args
-      ? sanitizeProfileAssetCredit(args.credit)
-      : submission.credit;
-    const finalCreditUrl = "creditUrl" in args
-      ? sanitizeProfileAssetCreditUrl(args.creditUrl)
-      : submission.creditUrl;
-    if (finalCredit === undefined) {
-      throw new Error("Asset credit is required before approval.");
-    }
-    const assetIds = await consumeProfileAssetUploads(ctx.db, {
-      profileId: profile._id,
-      requestedBy: intent.requestedBy,
-      approvedSubmissionId: submission._id,
-      uploads: [{
-        intentId: intent._id,
-        uploadToken: intent.uploadToken,
-        label: finalLabel,
-        altText: finalAltText,
-        credit: finalCredit,
-        creditUrl: finalCreditUrl,
-        placements: [finalPlacement],
-      }],
-      source: "community_submitted",
-      now,
-    });
-    const approvedAssetId = assetIds[0];
-    if (approvedAssetId === undefined) throw new Error("Media approval did not create an asset.");
-    await ctx.db.patch(submission._id, {
-      status: "approved",
-      reviewer: subject,
-      reviewedAt: now,
-      ...(publicDisposition !== undefined ? { publicDisposition } : {}),
-      privateReason,
-      decisionProfileUpdatedAt: profile.updatedAt,
-      approvedAssetId,
-      updatedAt: now,
-    });
-    await ctx.db.insert("profileAuditEvents", {
-      profileId: profile._id,
-      action: "profile_media_submission_approved",
-      actor: subject,
-      sourceType: ownsProfile ? "owner" : "moderator",
-      createdAt: now,
-    });
-    return { status: "approved" as const, assetId: approvedAssetId };
-  },
-});
+export const decide = mutation({ args: legacyDecisionArgs, handler: applyReviewDecision });
 
 export const suppressApprovedAsset = mutation({
   args: {
@@ -1630,4 +1575,123 @@ export const setBlobLegalHold = mutation({
     });
     return { held: args.held };
   },
+});
+
+const receiptDecisionArgs = {
+  submissionId,
+  expectedReviewVersion: v.string(),
+  decision: v.union(v.literal("approve"), v.literal("reject")),
+  privateReason: v.string(),
+  publicReason: v.optional(v.string()),
+  idempotencyKey: v.string(),
+};
+const receiptValidator = v.object({
+  operationId: v.string(),
+  operationState: v.union(
+    v.literal("committed"),
+    v.literal("refused"),
+    v.literal("in_progress"),
+  ),
+  resourceId: v.optional(v.string()),
+  code: v.optional(v.string()),
+});
+export const decideWithReceipt = mutation({
+  args: receiptDecisionArgs,
+  returns: receiptValidator,
+  handler: async (ctx, args) =>
+    decideReviewCommand(
+      ctx,
+      args,
+      await requireActiveBrowserSessionSubject(ctx),
+    ),
+});
+export const decideForMcpActor = internalMutation({
+  args: { ...receiptDecisionArgs, actorUserId: v.id("users") },
+  returns: receiptValidator,
+  handler: async (ctx, { actorUserId, ...args }) =>
+    decideReviewCommand(ctx, args, await trustedReviewActor(ctx, actorUserId)),
+});
+async function authorizedReviewDetail(
+  ctx: QueryCtx,
+  id: Id<"profileMediaSubmissions">,
+  actor?: ReviewActor,
+) {
+  const submission = await ctx.db.get(id);
+  const profile =
+    submission === null ? null : await ctx.db.get(submission.profileId);
+  if (submission === null || profile === null) return null;
+  const access = await reviewerContext(ctx, profile, actor);
+  const projection = await reviewSubmission(
+    ctx,
+    submission,
+    profile,
+    access.access.superAdmin,
+  );
+  const snapshot = await reviewSnapshot(ctx, submission, profile);
+  return {
+    ...projection,
+    ...snapshot,
+    candidate: {
+      ...snapshot.candidate,
+      rendition: projection.canViewCandidate
+        ? snapshot.candidate.rendition
+        : null,
+    },
+  };
+}
+export const reviewDetail = query({
+  args: { submissionId },
+  returns: reviewDetailValidator,
+  handler: async (ctx, args) => authorizedReviewDetail(ctx, args.submissionId),
+});
+export const reviewDetailForMcpActor = internalQuery({
+  args: { submissionId, actorUserId: v.id("users") },
+  returns: reviewDetailValidator,
+  handler: async (ctx, args) =>
+    authorizedReviewDetail(
+      ctx,
+      args.submissionId,
+      await trustedReviewActor(ctx, args.actorUserId),
+    ),
+});
+
+async function authorizedCandidateStorage(
+  ctx: QueryCtx,
+  id: Id<"profileMediaSubmissions">,
+  actor?: ReviewActor,
+) {
+  assertContributionsEnabled();
+  const detail = await authorizedReviewDetail(ctx, id, actor);
+  if (detail?.candidate.rendition == null) return null;
+  const submission = await ctx.db.get(id);
+  const intent =
+    submission?.uploadIntentId === undefined
+      ? null
+      : await ctx.db.get(submission.uploadIntentId);
+  return intent === null
+    ? null
+    : {
+        storageKey: intent.storageKey,
+        mimeType: intent.mimeType,
+        originalFileName: intent.originalFileName,
+        profileDisplayName: detail.profileDisplayName,
+      };
+}
+export const candidateForMcpActor = internalQuery({
+  args: { submissionId, actorUserId: v.id("users") },
+  returns: v.union(
+    v.null(),
+    v.object({
+      storageKey: v.string(),
+      mimeType: v.string(),
+      originalFileName: v.optional(v.string()),
+      profileDisplayName: v.string(),
+    }),
+  ),
+  handler: async (ctx, args) =>
+    authorizedCandidateStorage(
+      ctx,
+      args.submissionId,
+      await trustedReviewActor(ctx, args.actorUserId),
+    ),
 });

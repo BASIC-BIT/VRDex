@@ -36,6 +36,7 @@ export const dynamicMcpDualUseResourceScopes = ["assets:contribute"] as const;
 export const dynamicMcpClientScopes = [
   ...dynamicMcpDefaultClientScopes,
   "profile:read",
+  "assets:review:read",
   ...dynamicMcpDualUseResourceScopes,
 ] as const;
 /**
@@ -48,6 +49,7 @@ export const dynamicMcpClientScopes = [
  */
 export const dynamicMcpResourceWriteScopes = [
   "assets:write",
+  "assets:review:write",
   ...dynamicMcpDualUseResourceScopes,
   "events:write",
   "profile:write",

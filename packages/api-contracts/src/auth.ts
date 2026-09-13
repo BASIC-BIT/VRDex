@@ -10,6 +10,8 @@ export const apiScopes = [
   "assets:read",
   "assets:write",
   "assets:contribute",
+  "assets:review:read",
+  "assets:review:write",
   "developer:read",
   "developer:write",
   "mcp:read",

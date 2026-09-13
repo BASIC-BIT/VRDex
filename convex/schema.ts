@@ -847,7 +847,14 @@ export default defineSchema({
       "mcpIdempotencyKeyHash",
     ])
     .index("by_requestedBy", ["requestedBy.tokenIdentifier"]),
+  mediaReviewReceipts: defineTable({
+    actorUserId: v.id("users"), idempotencyKey: v.string(), inputHash: v.string(),
+    submissionId: v.id("profileMediaSubmissions"),
+    receipt: v.object({ operationId: v.string(), operationState: v.union(v.literal("committed"), v.literal("refused"), v.literal("in_progress")), resourceId: v.optional(v.string()), code: v.optional(v.string()) }),
+    createdAt: v.number(),
+  }).index("by_actorUserId_idempotencyKey", ["actorUserId", "idempotencyKey"]),
   profileMediaSubmissions: defineTable({
+    reviewRevision: v.optional(v.number()),
     profileId: v.id("profiles"),
     targetProfileSlug: v.string(),
     targetProfileDisplayName: v.string(),
@@ -888,6 +895,7 @@ export default defineSchema({
     .index("by_submitterUserId_status_expiresAt", ["submitterUserId", "status", "expiresAt"])
     .index("by_submitterUserId_createdAt", ["submitterUserId", "createdAt"])
     .index("by_status_createdAt", ["status", "createdAt"])
+    .index("by_status_expiresAt", ["status", "expiresAt"])
     .index("by_blobDeleteAfter", ["blobDeleteAfter"])
     .index("by_cleanupEligibility_blobDeleteAfter", ["blobDeletedAt", "legalHoldAt", "blobDeleteAfter"])
     .index("by_profileId_contentSha256_status", ["profileId", "contentSha256", "status"])
@@ -927,6 +935,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_profileId", ["profileId"])
+    .index("by_profileId_contentSha256_state", ["profileId", "contentSha256", "state"])
     .index("by_profileId_state_visibility", ["profileId", "state", "visibility"]),
   profileAssetPlacements: defineTable({
     profileId: v.id("profiles"),
