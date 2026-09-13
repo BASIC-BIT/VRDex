@@ -4,11 +4,11 @@ import { normalizeMcpContributionSourceUrl } from "../packages/api-contracts/src
 
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
-import { reviewerContext, legacyDecisionArgs, applyReviewDecision, reviewSnapshot, decideReviewCommand, trustedReviewActor, type ReviewActor } from "./_mediaReview";
+import { browserReviewActor, assertReviewActorVerified, reviewActorAttestationArgs, reviewerContext, legacyDecisionArgs, applyReviewDecision, reviewSnapshot, decideReviewCommand, trustedReviewActor, type ReviewActor } from "./_mediaReview";
 import { getAccountFeatureAccess } from "./_accountFeatures";
 import type { AuthSubject } from "./_communityAuthority";
 import { requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
-import { identityEmailVerified } from "./_identity";
+import { identityEmailVerified, isCurrentEmailVerificationAttestation } from "./_identity";
 import { isProfileFieldVisible } from "./_profileFieldVisibility";
 import {
   createProfileAssetUploadIntentRecord,
@@ -44,7 +44,6 @@ const reviewQueueStatus = v.union(
   v.literal("rejected"),
 );
 
-const MCP_EMAIL_ATTESTATION_SKEW_MS = 30_000;
 
 function assertContributionsEnabled() {
   if (process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED !== "true") {
@@ -492,14 +491,7 @@ export const prepareMcpMediaSubmission = internalMutation({
     ) {
       return { status: "verification_required" as const };
     }
-    const verificationAge = Date.now() - args.emailVerificationAttestedAt;
-    // The attestation is stamped on Vercel and checked here on Convex, so a
-    // little backward skew is normal and must not read as a forged timestamp.
-    if (
-      !Number.isSafeInteger(args.emailVerificationAttestedAt) ||
-      verificationAge < -MCP_EMAIL_ATTESTATION_SKEW_MS ||
-      verificationAge > 2 * 60 * 1_000
-    ) {
+    if (!isCurrentEmailVerificationAttestation(args.emailVerificationAttestedAt)) {
       return rejectMcpMediaSubmission("MCP_MEDIA_EMAIL_ATTESTATION_INVALID");
     }
 
@@ -1262,7 +1254,9 @@ async function authorizedReviewPage(
       .order("asc")
       .paginate(args.paginationOpts);
   } else {
-    const { user } = actor ?? (await requireActiveBrowserSessionSubject(ctx));
+    const currentActor = actor ?? await browserReviewActor(ctx);
+    assertReviewActorVerified(currentActor);
+    const { user } = currentActor;
     const access = await getAccountFeatureAccess(ctx.db, user._id);
     if (!access.superAdmin) throw new Error("Super admin access is required.");
     includeModeratorEvidence = true;
@@ -1302,10 +1296,10 @@ export const listForReview = query({
   handler: async (ctx, args) => authorizedReviewPage(ctx, args),
 });
 export const listForReviewForMcpActor = internalQuery({
-  args: { ...reviewPageArgs, actorUserId: v.id("users") },
+  args: { ...reviewActorAttestationArgs, ...reviewPageArgs, actorUserId: v.id("users") },
   returns: reviewPageValidator,
-  handler: async (ctx, { actorUserId, ...args }) =>
-    authorizedReviewPage(ctx, args, await trustedReviewActor(ctx, actorUserId)),
+  handler: async (ctx, { actorUserId, emailVerified, emailVerificationAttestedAt, ...args }) =>
+    authorizedReviewPage(ctx, args, await trustedReviewActor(ctx, actorUserId, { emailVerified, emailVerificationAttestedAt })),
 });
 
 async function withdrawSubmission(
@@ -1549,7 +1543,8 @@ export const setBlobLegalHold = mutation({
     const access = await getAccountFeatureAccess(ctx.db, user._id);
     if (!access.superAdmin) throw new Error("Super admin access is required.");
     const reason = sanitizeNote(args.reason, 1_000);
-    if (reason === undefined) throw new Error("A legal-hold reason is required.");
+    if (reason === undefined)
+      throw new Error("A legal-hold reason is required.");
     const submission = await ctx.db.get(args.submissionId);
     if (submission === null) throw new Error("Media contribution not found.");
     if (args.held && submission.blobDeletedAt !== undefined) {
@@ -1599,17 +1594,27 @@ export const decideWithReceipt = mutation({
   args: receiptDecisionArgs,
   returns: receiptValidator,
   handler: async (ctx, args) =>
+    decideReviewCommand(ctx, args, await browserReviewActor(ctx)),
+});
+export const decideForMcpActor = internalMutation({
+  args: {
+    ...reviewActorAttestationArgs,
+    ...receiptDecisionArgs,
+    actorUserId: v.id("users"),
+  },
+  returns: receiptValidator,
+  handler: async (
+    ctx,
+    { actorUserId, emailVerified, emailVerificationAttestedAt, ...args },
+  ) =>
     decideReviewCommand(
       ctx,
       args,
-      await requireActiveBrowserSessionSubject(ctx),
+      await trustedReviewActor(ctx, actorUserId, {
+        emailVerified,
+        emailVerificationAttestedAt,
+      }),
     ),
-});
-export const decideForMcpActor = internalMutation({
-  args: { ...receiptDecisionArgs, actorUserId: v.id("users") },
-  returns: receiptValidator,
-  handler: async (ctx, { actorUserId, ...args }) =>
-    decideReviewCommand(ctx, args, await trustedReviewActor(ctx, actorUserId)),
 });
 async function authorizedReviewDetail(
   ctx: QueryCtx,
@@ -1645,13 +1650,13 @@ export const reviewDetail = query({
   handler: async (ctx, args) => authorizedReviewDetail(ctx, args.submissionId),
 });
 export const reviewDetailForMcpActor = internalQuery({
-  args: { submissionId, actorUserId: v.id("users") },
+  args: { ...reviewActorAttestationArgs, submissionId, actorUserId: v.id("users") },
   returns: reviewDetailValidator,
   handler: async (ctx, args) =>
     authorizedReviewDetail(
       ctx,
       args.submissionId,
-      await trustedReviewActor(ctx, args.actorUserId),
+      await trustedReviewActor(ctx, args.actorUserId, args),
     ),
 });
 
@@ -1678,7 +1683,7 @@ async function authorizedCandidateStorage(
       };
 }
 export const candidateForMcpActor = internalQuery({
-  args: { submissionId, actorUserId: v.id("users") },
+  args: { ...reviewActorAttestationArgs, submissionId, actorUserId: v.id("users") },
   returns: v.union(
     v.null(),
     v.object({
@@ -1692,6 +1697,6 @@ export const candidateForMcpActor = internalQuery({
     authorizedCandidateStorage(
       ctx,
       args.submissionId,
-      await trustedReviewActor(ctx, args.actorUserId),
+      await trustedReviewActor(ctx, args.actorUserId, args),
     ),
 });

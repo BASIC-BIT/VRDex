@@ -6,6 +6,16 @@ resolve the active session. MCP actor functions are internal Convex functions;
 the hosted server must derive `actorUserId` from the authenticated delegated user.
 Neither OAuth scope nor an actor ID supplied by a client grants resource access.
 
+Review authority also requires a current verified email. Browser calls use the
+authoritative identity claim. Internal MCP review calls accept server-only
+`emailVerified` and `emailVerificationAttestedAt`, produced by the existing
+hosted `verifyContributorEmail(principal.userId)` check and a fresh server
+timestamp. The shared attestation helper allows at most two minutes of age and
+30 seconds of backward clock skew. Missing, negative, stale, or future
+attestations refuse reads and receipt replay even with an active owner/admin
+role. These fields are never part of the client-facing decision schema.
+Own withdrawal does not require review verification.
+
 ## Authority and projections
 
 Current profile owners and active super-admins can review. Unclaimed profiles
@@ -37,7 +47,11 @@ fresh detail read does not silently rebase the proposal. Rejection remains
 available against a refreshed version when that original placement has changed.
 
 Successful publication and its immutable receipt commit in one transaction.
-Expected terminal refusals also persist receipts. Reusing a key with identical
+Expected terminal refusals also persist receipts. Projected active-public-asset
+capacity is checked before writes, accounting for singleton assets that retire
+only when no other active placement remains. `capacity_exceeded` remains refused
+when capacity later becomes available. The upload consumer retains its final
+transactional capacity assertion. Reusing a key with identical
 canonical input returns the original receipt; changed input returns
 `idempotency_conflict`. Clients retain the key after a lost response or refusal
 and must not generate replacement keys automatically. Authorization is checked

@@ -8,6 +8,7 @@ import { userOwnsProfile } from "./_profileOwnership";
 import {
   consumeProfileAssetUploads,
   PROFILE_MEDIA_SUBMISSION_RETENTION_MS,
+  hasProfileAssetCapacity,
   sanitizeProfileAssetAltText,
   sanitizeProfileAssetCredit,
   sanitizeProfileAssetCreditUrl,
@@ -18,15 +19,33 @@ import {
   type ReviewDecision,
   type CommandReceipt,
 } from "../packages/api-contracts/src/media-review";
-export type ReviewActor = { user: Doc<"users">; subject: AuthSubject };
+import {
+  identityEmailVerified,
+  isCurrentEmailVerificationAttestation,
+} from "./_identity";
+
+export type ReviewActor = {
+  user: Doc<"users">;
+  subject: AuthSubject;
+  emailVerified?: boolean;
+};
 export async function trustedReviewActor(
   ctx: QueryCtx | MutationCtx,
   userId: Id<"users">,
+  attestation?: {
+    emailVerified?: boolean;
+    emailVerificationAttestedAt?: number;
+  },
 ): Promise<ReviewActor> {
   const user = await ctx.db.get(userId);
   if (user === null) throw new Error("Review actor unavailable.");
   return {
     user,
+    emailVerified:
+      attestation?.emailVerified === true &&
+      isCurrentEmailVerificationAttestation(
+        attestation.emailVerificationAttestedAt,
+      ),
     subject: {
       tokenIdentifier: `api:${userId}`,
       issuer: "vrdex:api",
@@ -34,6 +53,22 @@ export async function trustedReviewActor(
     },
   };
 }
+export async function browserReviewActor(
+  ctx: QueryCtx | MutationCtx,
+): Promise<ReviewActor> {
+  return {
+    ...(await requireActiveBrowserSessionSubject(ctx)),
+    emailVerified: await identityEmailVerified(ctx),
+  };
+}
+export function assertReviewActorVerified(actor: ReviewActor) {
+  if (!actor.user.email || actor.emailVerified !== true)
+    throw new Error("A verified email address is required for media review.");
+}
+export const reviewActorAttestationArgs = {
+  emailVerified: v.optional(v.boolean()),
+  emailVerificationAttestedAt: v.optional(v.number()),
+};
 function assertContributionsEnabled() {
   if (process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED !== "true")
     throw new Error("Profile media contributions are not enabled.");
@@ -51,8 +86,9 @@ export async function reviewerContext(
   profile: Doc<"profiles">,
   actor?: ReviewActor,
 ) {
-  const { user, subject } =
-    actor ?? (await requireActiveBrowserSessionSubject(ctx));
+  const currentActor = actor ?? (await browserReviewActor(ctx));
+  assertReviewActorVerified(currentActor);
+  const { user, subject } = currentActor;
   const access = await getAccountFeatureAccess(ctx.db, user._id);
   const ownsProfile = await userOwnsProfile(ctx.db, profile._id, user._id);
   if (!access.superAdmin && !ownsProfile) {
@@ -433,6 +469,49 @@ export async function decideReviewCommand(
         .first();
       if (duplicate !== null) code = "already_published";
     }
+  }
+  if (code === undefined && args.decision === "approve") {
+    let retiringPublicAsset = 0;
+    if (snapshot.currentPlacement !== null) {
+      const asset = await ctx.db.get(snapshot.currentPlacement.assetId);
+      if (
+        asset !== null &&
+        asset.profileId === profile._id &&
+        asset.state === "active" &&
+        asset.visibility === "public" &&
+        asset.retiredAt === undefined
+      ) {
+        const [before, after] = await Promise.all([
+          ctx.db
+            .query("profileAssetPlacements")
+            .withIndex("by_assetId_state_placement", (q) =>
+              q
+                .eq("assetId", asset._id)
+                .eq("state", "active")
+                .lt("placement", submission.requestedPlacement),
+            )
+            .first(),
+          ctx.db
+            .query("profileAssetPlacements")
+            .withIndex("by_assetId_state_placement", (q) =>
+              q
+                .eq("assetId", asset._id)
+                .eq("state", "active")
+                .gt("placement", submission.requestedPlacement),
+            )
+            .first(),
+        ]);
+        if (before === null && after === null) retiringPublicAsset = 1;
+      }
+    }
+    if (
+      !(await hasProfileAssetCapacity(
+        ctx.db,
+        profile._id,
+        1 - retiringPublicAsset,
+      ))
+    )
+      code = "capacity_exceeded";
   }
   const receipt: CommandReceipt = {
     operationId: crypto.randomUUID(),

@@ -38,11 +38,21 @@ it("projects owner evidence separately and rechecks revoked authority on replay"
   });
   const owner = await t.query(
     internal.profileMediaSubmissions.reviewDetailForMcpActor,
-    { actorUserId: ownerId, submissionId: intent.submissionId },
+    {
+      emailVerified: true,
+      emailVerificationAttestedAt: Date.now(),
+      actorUserId: ownerId,
+      submissionId: intent.submissionId,
+    },
   );
   const admin = await t.query(
     internal.profileMediaSubmissions.reviewDetailForMcpActor,
-    { actorUserId: seeded.moderatorUserId, submissionId: intent.submissionId },
+    {
+      emailVerified: true,
+      emailVerificationAttestedAt: Date.now(),
+      actorUserId: seeded.moderatorUserId,
+      submissionId: intent.submissionId,
+    },
   );
   assert.ok(owner && admin);
   assert.equal(reviewDetailSchema.safeParse(owner).success, true);
@@ -53,6 +63,8 @@ it("projects owner evidence separately and rechecks revoked authority on replay"
   assert.ok(owner.candidate.rendition);
   assert.equal("storageKey" in owner.candidate, false);
   const command = {
+    emailVerified: true,
+    emailVerificationAttestedAt: Date.now(),
     actorUserId: ownerId,
     submissionId: intent.submissionId,
     expectedReviewVersion: owner.reviewVersion,
@@ -70,6 +82,14 @@ it("projects owner evidence separately and rechecks revoked authority on replay"
     ).operationState,
     "committed",
   );
+  await assert.rejects(
+    t.mutation(internal.profileMediaSubmissions.decideForMcpActor, {
+      ...command,
+      emailVerified: false,
+      emailVerificationAttestedAt: Date.now(),
+    }),
+    /verified email/i,
+  );
   await t.run(async (ctx) => {
     const ownership = await ctx.db.query("profileOwners").first();
     assert.ok(ownership);
@@ -81,6 +101,8 @@ it("projects owner evidence separately and rechecks revoked authority on replay"
   );
   await assert.rejects(
     t.query(internal.profileMediaSubmissions.candidateForMcpActor, {
+      emailVerified: true,
+      emailVerificationAttestedAt: Date.now(),
       actorUserId: ownerId,
       submissionId: intent.submissionId,
     }),
@@ -167,7 +189,10 @@ it("startReview is advisory and concurrent reviewers create only one asset", asy
     submissionId: intent.submissionId,
   });
   const anotherId = await t.run(async (ctx) => {
-    const id = await ctx.db.insert("users", { clerkUserId: newClerkUserId() });
+    const id = await ctx.db.insert("users", {
+      clerkUserId: newClerkUserId(),
+      email: "second@example.test",
+    });
     const grant = await ctx.db.query("accountFeatureGrants").first();
     assert.ok(grant);
     await ctx.db.insert("accountFeatureGrants", {
@@ -191,6 +216,8 @@ it("startReview is advisory and concurrent reviewers create only one asset", asy
     actor.mutation(api.profileMediaSubmissions.decideWithReceipt, command),
     t.mutation(internal.profileMediaSubmissions.decideForMcpActor, {
       ...command,
+      emailVerified: true,
+      emailVerificationAttestedAt: Date.now(),
       actorUserId: anotherId,
     }),
   ]);
@@ -312,5 +339,134 @@ it("withdraws only the trusted actor's own submission and prevents approval afte
   assert.equal(result.code, "already_decided");
   assert.ok(
     (await t.run((ctx) => ctx.db.get(intent.submissionId)))?.blobDeleteAfter,
+  );
+});
+
+it("refuses an unverified browser reviewer with active admin authority, including replay", async () => {
+  const t = convexTest({ schema, modules });
+  const seeded = await seed(t);
+  const { intent } = await createAndUpload(t, seeded);
+  const reviewer = t.withIdentity(seeded.moderatorIdentity);
+  const detail = await reviewer.query(
+    api.profileMediaSubmissions.reviewDetail,
+    { submissionId: intent.submissionId },
+  );
+  assert.ok(detail);
+  const command = {
+    submissionId: intent.submissionId,
+    expectedReviewVersion: detail.reviewVersion,
+    decision: "reject" as const,
+    privateReason: "Declined",
+    publicReason: "Declined",
+    idempotencyKey: "verification-lost",
+  };
+  await reviewer.mutation(
+    api.profileMediaSubmissions.decideWithReceipt,
+    command,
+  );
+  const unverified = t.withIdentity({
+    ...seeded.moderatorIdentity,
+    emailVerified: false,
+  });
+  await assert.rejects(
+    unverified.mutation(api.profileMediaSubmissions.decideWithReceipt, command),
+    /verified email/i,
+  );
+  await assert.rejects(
+    unverified.query(api.profileMediaSubmissions.reviewDetail, {
+      submissionId: intent.submissionId,
+    }),
+    /verified email/i,
+  );
+  await assert.rejects(
+    unverified.query(api.profileMediaSubmissions.listForReview, {
+      paginationOpts: { numItems: 40, cursor: null },
+    }),
+    /verified email/i,
+  );
+});
+
+it("requires fresh trusted email verification for all MCP review surfaces and replay", async () => {
+  const t = convexTest({ schema, modules });
+  const seeded = await seed(t);
+  const { intent } = await createAndUpload(t, seeded);
+  const trusted = {
+    actorUserId: seeded.moderatorUserId,
+    emailVerified: true,
+    emailVerificationAttestedAt: Date.now(),
+  };
+  const detail = await t.query(
+    internal.profileMediaSubmissions.reviewDetailForMcpActor,
+    { ...trusted, submissionId: intent.submissionId },
+  );
+  assert.ok(detail);
+  const command = {
+    ...trusted,
+    submissionId: intent.submissionId,
+    expectedReviewVersion: detail.reviewVersion,
+    decision: "reject" as const,
+    privateReason: "Declined",
+    publicReason: "Declined",
+    idempotencyKey: "mcp-verification",
+  };
+  const receipt = await t.mutation(
+    internal.profileMediaSubmissions.decideForMcpActor,
+    command,
+  );
+  for (const invalid of [
+    { emailVerified: false, emailVerificationAttestedAt: Date.now() },
+    { emailVerified: true, emailVerificationAttestedAt: Date.now() - 121_000 },
+    { emailVerified: true, emailVerificationAttestedAt: Date.now() + 31_000 },
+    { emailVerified: undefined, emailVerificationAttestedAt: undefined },
+  ]) {
+    const actor = { actorUserId: seeded.moderatorUserId, ...invalid };
+    await assert.rejects(
+      t.mutation(internal.profileMediaSubmissions.decideForMcpActor, {
+        ...command,
+        ...invalid,
+      }),
+      /verified email/i,
+    );
+    await assert.rejects(
+      t.query(internal.profileMediaSubmissions.reviewDetailForMcpActor, {
+        ...actor,
+        submissionId: intent.submissionId,
+      }),
+      /verified email/i,
+    );
+    await assert.rejects(
+      t.query(internal.profileMediaSubmissions.candidateForMcpActor, {
+        ...actor,
+        submissionId: intent.submissionId,
+      }),
+      /verified email/i,
+    );
+    await assert.rejects(
+      t.query(internal.profileMediaSubmissions.listForReviewForMcpActor, {
+        ...actor,
+        paginationOpts: { numItems: 40, cursor: null },
+      }),
+      /verified email/i,
+    );
+  }
+  assert.deepEqual(
+    await t.mutation(internal.profileMediaSubmissions.decideForMcpActor, {
+      ...command,
+      emailVerificationAttestedAt: Date.now(),
+    }),
+    receipt,
+  );
+  await t.run((ctx) =>
+    ctx.db.patch(seeded.moderatorUserId, {
+      email: undefined,
+      emailVerificationTime: undefined,
+    }),
+  );
+  await assert.rejects(
+    t.mutation(internal.profileMediaSubmissions.decideForMcpActor, {
+      ...command,
+      emailVerificationAttestedAt: Date.now(),
+    }),
+    /verified email/i,
   );
 });

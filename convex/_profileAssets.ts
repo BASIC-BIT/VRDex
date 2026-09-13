@@ -221,27 +221,42 @@ function validateProfileAssetGalleryPlacements(
   }
 }
 
-function validateProfileAssetPosition(value: number | undefined): number | undefined {
+function validateProfileAssetPosition(
+  value: number | undefined,
+): number | undefined {
   if (value !== undefined && (!Number.isSafeInteger(value) || value < 0)) {
     throw new Error("Profile media position must be a nonnegative integer.");
   }
   return value;
 }
 
-export async function assertProfileAssetCapacity(
+export async function hasProfileAssetCapacity(
   db: DatabaseReader,
   profileId: Id<"profiles">,
   additionalCount = 1,
 ) {
   const activeAssets = await db
     .query("profileAssets")
-    .withIndex("by_profileId_state_visibility", (query) =>
-      query.eq("profileId", profileId).eq("state", "active").eq("visibility", "public"),
+    .withIndex("by_profileId_state_visibility", (q) =>
+      q
+        .eq("profileId", profileId)
+        .eq("state", "active")
+        .eq("visibility", "public"),
     )
-    .collect();
-
-  if (activeAssets.length + additionalCount > PROFILE_ASSET_MAX_ACTIVE_COUNT) {
-    throw new Error(`Profiles can have up to ${PROFILE_ASSET_MAX_ACTIVE_COUNT} active media items.`);
+    .take(PROFILE_ASSET_MAX_ACTIVE_COUNT + 1);
+  return (
+    activeAssets.length + additionalCount <= PROFILE_ASSET_MAX_ACTIVE_COUNT
+  );
+}
+export async function assertProfileAssetCapacity(
+  db: DatabaseReader,
+  profileId: Id<"profiles">,
+  additionalCount = 1,
+) {
+  if (!(await hasProfileAssetCapacity(db, profileId, additionalCount))) {
+    throw new Error(
+      `Profiles can have up to ${PROFILE_ASSET_MAX_ACTIVE_COUNT} active media items.`,
+    );
   }
 }
 

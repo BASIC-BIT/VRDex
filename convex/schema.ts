@@ -952,6 +952,7 @@ export default defineSchema({
       "position",
     ])
     .index("by_profileId_state", ["profileId", "state"])
+    .index("by_assetId_state_placement", ["assetId", "state", "placement"])
     .index("by_assetId", ["assetId"]),
   profileAssetDisplayPreferences: defineTable({
     profileId: v.id("profiles"),

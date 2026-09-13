@@ -856,12 +856,14 @@ describe("unclaimed-profile media submissions", () => {
     });
     const { intent } = await createAndUpload(t, seeded, "twelfth-slot-replacement");
 
-    await t.withIdentity(seeded.moderatorIdentity).mutation(api.profileMediaSubmissions.decide, {
-      submissionId: intent.submissionId,
-      decision: "approve",
-      expectedProfileUpdatedAt: NOW,
-      privateReason: "Replacement approved.",
+    const reviewer = t.withIdentity(seeded.moderatorIdentity);
+    const detail = await reviewer.query(api.profileMediaSubmissions.reviewDetail, { submissionId: intent.submissionId });
+    assert.ok(detail);
+    const receipt = await reviewer.mutation(api.profileMediaSubmissions.decideWithReceipt, {
+      submissionId: intent.submissionId, expectedReviewVersion: detail.reviewVersion, decision: "approve",
+      privateReason: "Replacement approved.", idempotencyKey: "replacement-at-capacity",
     });
+    assert.equal(receipt.operationState, "committed");
 
     const activeAssets = await t.run((ctx) =>
       ctx.db
@@ -1322,30 +1324,201 @@ describe("shared review receipts", () => {
     const seeded = await seed(t);
     const { intent } = await createAndUpload(t, seeded);
     const reviewer = t.withIdentity(seeded.moderatorIdentity);
-    const detail = await reviewer.query(api.profileMediaSubmissions.reviewDetail, { submissionId: intent.submissionId });
+    const detail = await reviewer.query(
+      api.profileMediaSubmissions.reviewDetail,
+      { submissionId: intent.submissionId },
+    );
     assert.ok(detail);
-    const command = { submissionId: intent.submissionId, expectedReviewVersion: detail.reviewVersion, decision: "approve" as const, privateReason: "Verified credit", idempotencyKey: "lost-response" };
-    const first = await reviewer.mutation(api.profileMediaSubmissions.decideWithReceipt, command);
+    const command = {
+      submissionId: intent.submissionId,
+      expectedReviewVersion: detail.reviewVersion,
+      decision: "approve" as const,
+      privateReason: "Verified credit",
+      idempotencyKey: "lost-response",
+    };
+    const first = await reviewer.mutation(
+      api.profileMediaSubmissions.decideWithReceipt,
+      command,
+    );
     assert.equal(first.operationState, "committed");
-    assert.deepEqual(await reviewer.mutation(api.profileMediaSubmissions.decideWithReceipt, command), first);
-    const second = await reviewer.mutation(api.profileMediaSubmissions.decideWithReceipt, { ...command, idempotencyKey: "second-review" });
+    assert.deepEqual(
+      await reviewer.mutation(
+        api.profileMediaSubmissions.decideWithReceipt,
+        command,
+      ),
+      first,
+    );
+    const second = await reviewer.mutation(
+      api.profileMediaSubmissions.decideWithReceipt,
+      { ...command, idempotencyKey: "second-review" },
+    );
     assert.equal(second.code, "already_decided");
-    const assets = await t.run(ctx => ctx.db.query("profileAssets").collect());
+    const assets = await t.run((ctx) =>
+      ctx.db.query("profileAssets").collect(),
+    );
     assert.equal(assets.length, 1);
-    assert.equal((await reviewer.mutation(api.profileMediaSubmissions.decideWithReceipt, { ...command, privateReason: "Changed" })).code, "idempotency_conflict");
+    assert.equal(
+      (
+        await reviewer.mutation(api.profileMediaSubmissions.decideWithReceipt, {
+          ...command,
+          privateReason: "Changed",
+        })
+      ).code,
+      "idempotency_conflict",
+    );
   });
   it("persists a stale refusal even after the profile is restored", async () => {
     const t = convexTest({ schema, modules });
     const seeded = await seed(t);
     const { intent } = await createAndUpload(t, seeded);
     const reviewer = t.withIdentity(seeded.moderatorIdentity);
-    const detail = await reviewer.query(api.profileMediaSubmissions.reviewDetail, { submissionId: intent.submissionId });
+    const detail = await reviewer.query(
+      api.profileMediaSubmissions.reviewDetail,
+      { submissionId: intent.submissionId },
+    );
     assert.ok(detail);
-    await t.run(ctx => ctx.db.patch(seeded.profileId, { updatedAt: NOW + 1 }));
-    const command = { submissionId: intent.submissionId, expectedReviewVersion: detail.reviewVersion, decision: "approve" as const, privateReason: "Verified credit", idempotencyKey: "stale" };
-    const receipt = await reviewer.mutation(api.profileMediaSubmissions.decideWithReceipt, command);
+    await t.run((ctx) =>
+      ctx.db.patch(seeded.profileId, { updatedAt: NOW + 1 }),
+    );
+    const command = {
+      submissionId: intent.submissionId,
+      expectedReviewVersion: detail.reviewVersion,
+      decision: "approve" as const,
+      privateReason: "Verified credit",
+      idempotencyKey: "stale",
+    };
+    const receipt = await reviewer.mutation(
+      api.profileMediaSubmissions.decideWithReceipt,
+      command,
+    );
     assert.equal(receipt.code, "review_changed");
-    await t.run(ctx => ctx.db.patch(seeded.profileId, { updatedAt: NOW }));
-    assert.deepEqual(await reviewer.mutation(api.profileMediaSubmissions.decideWithReceipt, command), receipt);
+    await t.run((ctx) => ctx.db.patch(seeded.profileId, { updatedAt: NOW }));
+    assert.deepEqual(
+      await reviewer.mutation(
+        api.profileMediaSubmissions.decideWithReceipt,
+        command,
+      ),
+      receipt,
+    );
   });
+});
+
+it("persists capacity refusal after capacity becomes available", async () => {
+  const t = convexTest({ schema, modules });
+  const seeded = await seed(t);
+  const { intent } = await createAndUpload(t, seeded);
+  const assets = await t.run(async (ctx) => {
+    const result: Id<"profileAssets">[] = [];
+    for (let i = 0; i < 12; i++)
+      result.push(
+        await ctx.db.insert("profileAssets", {
+          profileId: seeded.profileId,
+          storageKey: `gallery/${i}.webp`,
+          mimeType: "image/webp",
+          byteSize: 100,
+          visibility: "public",
+          source: "owner_authored",
+          uploadedBy: {
+            tokenIdentifier: "test:owner",
+            issuer: "test",
+            subject: "owner",
+          },
+          uploadedAt: NOW,
+          state: "active",
+          updatedAt: NOW,
+        }),
+      );
+    return result;
+  });
+  const reviewer = t.withIdentity(seeded.moderatorIdentity);
+  const detail = await reviewer.query(
+    api.profileMediaSubmissions.reviewDetail,
+    { submissionId: intent.submissionId },
+  );
+  assert.ok(detail);
+  const command = {
+    submissionId: intent.submissionId,
+    expectedReviewVersion: detail.reviewVersion,
+    decision: "approve" as const,
+    privateReason: "Ready",
+    idempotencyKey: "full",
+  };
+  const receipt = await reviewer.mutation(
+    api.profileMediaSubmissions.decideWithReceipt,
+    command,
+  );
+  assert.equal(receipt.code, "capacity_exceeded");
+  await t.run((ctx) => ctx.db.patch(assets[0]!, { state: "deleted" }));
+  assert.deepEqual(
+    await reviewer.mutation(
+      api.profileMediaSubmissions.decideWithReceipt,
+      command,
+    ),
+    receipt,
+  );
+  assert.equal(
+    (await t.run((ctx) => ctx.db.get(intent.submissionId)))?.approvedAssetId,
+    undefined,
+  );
+  assert.equal(
+    (await t.run((ctx) => ctx.db.get(intent.intentId)))?.state,
+    "uploaded",
+  );
+});
+
+it("does not credit singleton retirement when the old asset still has a gallery placement", async () => {
+  const t = convexTest({ schema, modules });
+  const seeded = await seed(t);
+  await t.run(async (ctx) => {
+    for (let i = 0; i < 12; i++) {
+      const assetId = await ctx.db.insert("profileAssets", {
+        profileId: seeded.profileId,
+        storageKey: `capacity/${i}.webp`,
+        mimeType: "image/webp",
+        byteSize: 100,
+        visibility: "public",
+        source: "owner_authored",
+        uploadedBy: {
+          tokenIdentifier: "test:owner",
+          issuer: "test",
+          subject: "owner",
+        },
+        uploadedAt: NOW,
+        state: "active",
+        updatedAt: NOW,
+      });
+      if (i === 0)
+        for (const placement of ["profile_image", "gallery"] as const)
+          await ctx.db.insert("profileAssetPlacements", {
+            profileId: seeded.profileId,
+            assetId,
+            placement,
+            position: 0,
+            state: "active",
+            updatedAt: NOW,
+          });
+    }
+  });
+  const { intent } = await createAndUpload(t, seeded);
+  const reviewer = t.withIdentity(seeded.moderatorIdentity);
+  const detail = await reviewer.query(
+    api.profileMediaSubmissions.reviewDetail,
+    { submissionId: intent.submissionId },
+  );
+  assert.ok(detail);
+  const receipt = await reviewer.mutation(
+    api.profileMediaSubmissions.decideWithReceipt,
+    {
+      submissionId: intent.submissionId,
+      expectedReviewVersion: detail.reviewVersion,
+      decision: "approve",
+      privateReason: "Ready",
+      idempotencyKey: "shared-placement-full",
+    },
+  );
+  assert.equal(receipt.code, "capacity_exceeded");
+  assert.equal(
+    (await t.run((ctx) => ctx.db.get(intent.intentId)))?.state,
+    "uploaded",
+  );
 });
