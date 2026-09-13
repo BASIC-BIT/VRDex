@@ -15,6 +15,50 @@ process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED = "true";
 process.env.VRDEX_PROFILE_MEDIA_DIRECT_UPLOAD_ENABLED = "true";
 process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "true";
 
+it("projects and versions the automatic image used by the public profile", async () => {
+  const t = convexTest({ schema, modules });
+  const seeded = await seed(t);
+  const { intent } = await createAndUpload(t, seeded);
+  const externalUserId = "usr_7023d326-083f-41fe-a3e9-27ea303b50c5";
+  await t.run(async (ctx) => {
+    await ctx.db.patch(seeded.profileId, {
+      outboundLinks: [{
+        type: "vrchat_profile",
+        label: "VRChat",
+        url: `https://vrchat.com/home/user/${externalUserId}`,
+        source: "community_submitted",
+      }],
+    });
+    await ctx.db.insert("profileLinkDestinations", {
+      key: `vrchat_user:${externalUserId}`,
+      kind: "vrchat_user",
+      locator: externalUserId,
+      provider: "vrchat",
+      status: "resolved",
+      artworkSourceUrl: "https://example.test/user-icon.png",
+      artworkType: "user_icon",
+      observedAt: 1,
+    });
+  });
+  const actor = t.withIdentity(seeded.moderatorIdentity);
+  const before = await actor.query(api.profileMediaSubmissions.reviewDetail, {
+    submissionId: intent.submissionId,
+  });
+  assert.ok(before);
+  assert.match(before.currentAutomaticImageUrl ?? "", /size=512/);
+  await t.run(async (ctx) => {
+    const destination = await ctx.db.query("profileLinkDestinations").first();
+    assert.ok(destination);
+    await ctx.db.patch(destination._id, { observedAt: 2 });
+  });
+  const after = await actor.query(api.profileMediaSubmissions.reviewDetail, {
+    submissionId: intent.submissionId,
+  });
+  assert.ok(after);
+  assert.notEqual(after.currentAutomaticImageUrl, before.currentAutomaticImageUrl);
+  assert.notEqual(after.reviewVersion, before.reviewVersion);
+});
+
 it("projects owner evidence separately and rechecks revoked authority on replay", async () => {
   const t = convexTest({ schema, modules });
   const seeded = await seed(t);

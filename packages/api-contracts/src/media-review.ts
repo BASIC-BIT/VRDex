@@ -35,6 +35,7 @@ export const reviewSnapshotSchema = z.strictObject({
     })
     .nullable(),
   currentAvatarImageUrl: z.string().max(4096).nullable(),
+  currentAutomaticImageUrl: z.string().max(4096).nullable(),
   candidate: z.strictObject({
     rendition: z
       .strictObject({

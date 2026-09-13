@@ -23,6 +23,7 @@ import {
   identityEmailVerified,
   isCurrentEmailVerificationAttestation,
 } from "./_identity";
+import { automaticProfileImage } from "./_profileImageFallback";
 
 export type ReviewActor = {
   user: Doc<"users">;
@@ -327,6 +328,19 @@ export async function reviewSnapshot(
     .first();
   const currentAsset =
     placement === null ? null : await ctx.db.get(placement.assetId);
+  const authoredPlacements = await ctx.db
+    .query("profileAssetPlacements")
+    .withIndex("by_profileId_state", (q) => q.eq("profileId", profile._id).eq("state", "active"))
+    .collect();
+  const hasAuthoredProfileImage = authoredPlacements.some((row) =>
+    row.placement === "profile_image" || row.placement === "primary_logo"
+  );
+  const currentAutomaticImageUrl = await automaticProfileImage(
+    ctx.db,
+    profile,
+    "profile_page",
+    hasAuthoredProfileImage,
+  ) ?? null;
   const intent =
     submission.uploadIntentId === undefined
       ? null
@@ -364,6 +378,7 @@ export async function reviewSnapshot(
     profile,
     placement,
     currentAsset,
+    currentAutomaticImageUrl,
     revision: submission.reviewRevision ?? 0,
   });
   return {
@@ -378,6 +393,7 @@ export async function reviewSnapshot(
             sourceUrl: currentAsset?.sourceUrl ?? null,
           },
     currentAvatarImageUrl: profile.avatarImageUrl ?? null,
+    currentAutomaticImageUrl,
     candidate: {
       rendition: candidateReady
         ? { submissionId: submission._id, kind: "stored_candidate" as const }

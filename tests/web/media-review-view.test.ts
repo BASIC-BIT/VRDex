@@ -28,6 +28,7 @@ describe("media review view model", () => {
       profileIsPublic: true,
       currentPlacement: { assetId: "asset-1" },
       currentAvatarImageUrl: "https://legacy.example/avatar.png",
+      currentAutomaticImageUrl: "https://automatic.example/avatar.png",
     }), "/api/v0/profiles/fixture%20profile/assets/asset-1/file");
     assert.equal(reviewPlacementImage({
       profileId: "profile-1",
@@ -35,6 +36,7 @@ describe("media review view model", () => {
       profileIsPublic: true,
       currentPlacement: null,
       currentAvatarImageUrl: "https://legacy.example/avatar.png",
+      currentAutomaticImageUrl: "https://automatic.example/avatar.png",
     }), "https://legacy.example/avatar.png");
     assert.equal(reviewPlacementImage({
       profileId: "profile-1",
@@ -42,6 +44,15 @@ describe("media review view model", () => {
       profileIsPublic: false,
       currentPlacement: { assetId: "asset-1" },
       currentAvatarImageUrl: null,
+      currentAutomaticImageUrl: null,
     }), "/api/account/media-kit/profile-1/assets/asset-1/file");
+    assert.equal(reviewPlacementImage({
+      profileId: "profile-1",
+      profileSlug: "fixture",
+      profileIsPublic: true,
+      currentPlacement: null,
+      currentAvatarImageUrl: null,
+      currentAutomaticImageUrl: "https://automatic.example/avatar.png",
+    }), "https://automatic.example/avatar.png");
   });
 });

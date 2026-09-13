@@ -2,6 +2,8 @@
 
 Status: implemented and locally verified. Shared staging proof remains unexecuted.
 
+Implementation commit: `917af2c10d48543babc97e9529b0bfb7cbce37ad`.
+
 ## Changes
 
 - Added hosted MCP tools `vrdex_media_review_list`, `vrdex_media_review_get`,
@@ -27,6 +29,10 @@ Status: implemented and locally verified. Shared staging proof remains unexecute
   `decideWithReceipt`, displays the current and candidate images side by side,
   keeps private and public rejection reasons separate, and makes stale
   review/placement refusals visible. Existing suppression remains available.
+- The current-image projection matches public profile rendering: a managed
+  placement wins, then the legacy avatar field, then the selected automatic
+  VRChat/community fallback. The automatic fallback is included in
+  `reviewVersion`, so changed fallback artwork invalidates an inspected review.
 - The contribution panel retains existing own-withdrawal behavior; MCP now
   exposes the same own-withdrawal transition without reviewer privilege or
   verified-email attestation.
@@ -66,6 +72,9 @@ Status: implemented and locally verified. Shared staging proof remains unexecute
   current-placement selection helpers did not exist.
 - Focused handler tests: 6/6 passed.
 - Focused browser view tests: 3/3 passed.
+- Focused automatic-fallback authority and comparison tests: 10/10 passed.
+- Focused media authority/submission suites after the fallback fix: 35/35 passed.
+- `pnpm test:api-contracts`: 38/38 passed after extending the shared snapshot.
 - Focused scope/discovery and updated OAuth catalog tests: 30/30 passed.
 - Initial broad web run found six stale OAuth/tool-discovery expectations after
   adding the Task 1 scopes. Their focused rerun passed 30/30. A later broad run

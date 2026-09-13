@@ -1193,6 +1193,7 @@ const reviewDetailValidator = v.union(
       }),
     ),
     currentAvatarImageUrl: v.union(v.null(), v.string()),
+    currentAutomaticImageUrl: v.union(v.null(), v.string()),
     candidate: v.object({
       rendition: v.union(
         v.null(),

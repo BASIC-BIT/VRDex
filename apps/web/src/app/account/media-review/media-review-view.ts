@@ -27,8 +27,11 @@ export function reviewPlacementImage(input: {
   profileIsPublic: boolean;
   currentPlacement: { assetId: string } | null;
   currentAvatarImageUrl: string | null;
+  currentAutomaticImageUrl: string | null;
 }) {
-  if (input.currentPlacement === null) return input.currentAvatarImageUrl;
+  if (input.currentPlacement === null) {
+    return input.currentAvatarImageUrl ?? input.currentAutomaticImageUrl;
+  }
   return input.profileIsPublic
     ? `/api/v0/profiles/${encodeURIComponent(input.profileSlug)}/assets/${input.currentPlacement.assetId}/file`
     : `/api/account/media-kit/${input.profileId}/assets/${input.currentPlacement.assetId}/file`;

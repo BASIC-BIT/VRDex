@@ -36,6 +36,7 @@ function detail(overrides: Record<string, unknown> = {}) {
     reviewVersion: version,
     currentPlacement: null,
     currentAvatarImageUrl: null,
+    currentAutomaticImageUrl: null,
     candidate: {
       rendition: { submissionId: "submission-1", kind: "stored_candidate" },
       sourceUrl: "https://source.example/image.png",
