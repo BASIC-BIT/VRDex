@@ -439,7 +439,7 @@ describe("VRDex MCP server", () => {
 
     for (
       const tool of tools.filter((candidate) =>
-        !isWriteToolName(candidate.name) && !isOwnedReadToolName(candidate.name)
+        !candidate.name?.startsWith("vrdex_contribution_") && !isWriteToolName(candidate.name) && !isOwnedReadToolName(candidate.name)
       )
     ) {
       assertPublicReadSecuritySchemes(tool._meta);
@@ -580,7 +580,7 @@ describe("VRDex MCP server", () => {
     `);
     const body = jsonBodyFromProbe(output);
     const tools = body.result?.tools ?? [];
-    const readTools = tools.filter((tool) => !isWriteToolName(tool.name) && !isOwnedReadToolName(tool.name));
+    const readTools = tools.filter((tool) => !tool.name?.startsWith("vrdex_contribution_") && !isWriteToolName(tool.name) && !isOwnedReadToolName(tool.name));
 
     assert.match(output, /^200/m);
     assert.equal(readTools.length, 8);
@@ -2950,4 +2950,16 @@ it("does not record tool reads rejected by the HTTP transport", () => {
     console.log("rejected reads not recorded");
   `);
   assert.match(output, /rejected reads not recorded/);
+});
+
+
+it("advertises bounded private collection companions and no seed operator methods",()=>{
+ const output=runMcpProbe(`
+ import {createVrdexMcpHandler} from "./apps/web/src/lib/server/vrdex-mcp.ts";
+ const handler=createVrdexMcpHandler();const response=await handler.fetch(new Request("http://localhost:3000/mcp",{method:"POST",headers:{accept:"application/json, text/event-stream","content-type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:1,method:"tools/list",params:{}})}));console.log(await response.text());
+ `);
+ const tools=jsonBodyFromProbe(output).result?.tools??[];
+ const batchTools=tools.filter(t=>t.name?.startsWith("vrdex_contribution_"));assert.equal(batchTools.length,7);
+ for(const tool of batchTools){const meta=tool._meta as {securitySchemes:{type:string;scopes:string[]}[]};assert.ok(meta.securitySchemes.every(s=>s.type==="oauth2"));assert.ok(meta.securitySchemes.every(s=>s.scopes.some(scope=>scope.includes(":contribute")||scope==="assets:review:read")));}
+ assert.equal(tools.some(t=>/seed.*(publish|import)/i.test(t.name??"")),false);
 });

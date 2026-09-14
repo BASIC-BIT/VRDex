@@ -1,3 +1,4 @@
+import { contributionTables } from "./_contributionTables";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
@@ -697,6 +698,7 @@ const sharedProfileFields = {
 };
 
 export default defineSchema({
+  ...contributionTables,
   profileLinkDestinationReferences: defineTable({ key: v.string(), profileId: v.id("profiles") }).index("by_key_profile", ["key", "profileId"]).index("by_profile", ["profileId"]),
   profileLinkDestinations: defineTable({
     key: v.string(),
@@ -854,6 +856,7 @@ export default defineSchema({
   }).index("by_scope", ["scope"]),
   contributionUploadReservations: defineTable({
     intentId: v.id("profileAssetUploadIntents"), actorUserId: v.id("users"),
+    batchRevisionId: v.optional(v.id("contributionItemRevisions")),
     profileId: v.id("profiles"), oauthClientId: v.string(),
     idempotencyKey: v.string(), fingerprint: v.string(),
     mode: v.union(v.literal("owner"), v.literal("contributor")),

@@ -15,6 +15,7 @@ import {
   profileAssetUploadChecksum,
 } from "./profile-asset-storage";
 import { validateAndPrepareProfileAsset } from "./profile-asset-validation";
+import { fetchProfileAssetSourceUrl } from "./profile-asset-source-import";
 
 type Authority = {
   actorUserId: Id<"users">;
@@ -30,6 +31,7 @@ export type LocalUploadDependencies = {
   read?: typeof getProfileAssetObject;
   put?: typeof putProfileAssetObject;
   prepare?: typeof validateAndPrepareProfileAsset;
+  fetchSource?: typeof fetchProfileAssetSourceUrl;
 };
 export function assertLocalUploadCandidate(
   object: {
@@ -52,7 +54,38 @@ export function assertLocalUploadCandidate(
 }
 export function createMcpMediaUploadHandlers(deps: LocalUploadDependencies) {
   const admin = () => deps.admin ?? convexAdminHttpClient();
-  return {
+  const handlers = {
+    async importUrl(input: unknown) {
+      const request = localUploadRequestSchema.parse(input);
+      if (!request.sourceUrl) throw new Error("UPLOAD_SOURCE_REQUIRED");
+      const admitted = await admin().mutation(
+        internal.contributionUploads.begin,
+        {
+          ...request,
+          profileId: request.profileId as Id<"profiles">,
+          ...(await deps.authority()),
+        },
+      );
+      // Reserve bounded capacity before any remote acquisition. Digest and size
+      // must match the staged revision, exactly as for a local transfer.
+      const source = await (deps.fetchSource ?? fetchProfileAssetSourceUrl)(
+        request.sourceUrl,
+      );
+      assertLocalUploadCandidate(
+        { body: source.body, contentType: source.mimeType },
+        request,
+      );
+      await (deps.put ?? putProfileAssetObject)({
+        storageKey: admitted.quarantineStorageKey,
+        body: source.body,
+        contentType: source.mimeType,
+        cacheControl: "private, no-store",
+      });
+      return handlers.complete({
+        intentId: admitted.intentId,
+        idempotencyKey: request.idempotencyKey,
+      });
+    },
     async begin(input: unknown) {
       const request = localUploadRequestSchema.parse(input);
       const admitted = await admin().mutation(
@@ -176,4 +209,5 @@ export function createMcpMediaUploadHandlers(deps: LocalUploadDependencies) {
       }
     },
   };
+  return handlers;
 }

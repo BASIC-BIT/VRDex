@@ -1,3 +1,4 @@
+import { createMcpContributionHandlers, contributionOperations, type ContributionOperation } from "./mcp-contribution-batches";
 import { createMcpMediaUploadHandlers } from "./mcp-media-upload";
 import { localUploadRequestSchema, localUploadCompleteSchema, localUploadTargetSchema } from "@vrdex/api-contracts";
 import {
@@ -130,6 +131,11 @@ const mcpWriteToolNames = [
   ...mcpAssetWriteToolNames,
   ...mediaReviewWriteToolNames,
   ...mediaSubmissionWriteToolNames,
+  "vrdex_contribution_batch_create",
+  "vrdex_contribution_batch_append",
+  "vrdex_contribution_batch_archive",
+  "vrdex_contribution_item_submit",
+  "vrdex_contribution_item_revise",
   "vrdex_media_upload_begin",
   "vrdex_media_upload_complete",
 ] as const;
@@ -151,6 +157,11 @@ const mcpWriteToolResourceScopes: Record<(typeof mcpWriteToolNames)[number], Api
   vrdex_profile_media_submit: "assets:contribute",
   vrdex_media_review_decide: "assets:review:write",
   vrdex_media_submission_withdraw: "assets:contribute",
+  vrdex_contribution_batch_create: "mcp:write",
+  vrdex_contribution_batch_append: "mcp:write",
+  vrdex_contribution_batch_archive: "mcp:write",
+  vrdex_contribution_item_submit: "mcp:write",
+  vrdex_contribution_item_revise: "mcp:write",
   vrdex_media_upload_begin: "mcp:write",
   vrdex_media_upload_complete: "mcp:write",
 };
@@ -162,11 +173,15 @@ const mcpWriteToolResourceScopes: Record<(typeof mcpWriteToolNames)[number], Api
  * and its owner still has to be able to read the revision every update pins.
  */
 const mcpOwnedReadToolNames = [
+  "vrdex_contribution_batch_get",
+  "vrdex_contribution_batch_items",
   "vrdex_list_my_profiles",
   "vrdex_list_my_media_submissions",
   ...mediaReviewReadToolNames,
 ] as const;
 const mcpOwnedReadToolScopes: Record<(typeof mcpOwnedReadToolNames)[number], ApiScope> = {
+  vrdex_contribution_batch_get: "mcp:read",
+  vrdex_contribution_batch_items: "mcp:read",
   vrdex_list_my_profiles: "profile:read",
   vrdex_list_my_media_submissions: "assets:contribute",
   vrdex_media_review_list: "assets:review:read",
@@ -2253,6 +2268,80 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       }
     },
   );
+
+  const collectionToolNames = {
+    create: "vrdex_contribution_batch_create",
+    append: "vrdex_contribution_batch_append",
+    get: "vrdex_contribution_batch_get",
+    items: "vrdex_contribution_batch_items",
+    archive: "vrdex_contribution_batch_archive",
+    submit: "vrdex_contribution_item_submit",
+    revise: "vrdex_contribution_item_revise",
+  } as const;
+  for (const operation of Object.keys(
+    contributionOperations,
+  ) as ContributionOperation[]) {
+    const toolName = collectionToolNames[operation];
+    const read = operation === "get" || operation === "items";
+    server.registerTool(
+      toolName,
+      {
+        title: operation,
+        description: toolName,
+        inputSchema: contributionOperations[operation],
+        annotations: {
+          readOnlyHint: read,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: operation === "submit",
+        },
+        _meta: {
+          securitySchemes: [
+            "profile:contribute",
+            "assets:contribute",
+            ...(read ? ["assets:review:read"] : []),
+          ].map((scope) => ({
+            type: "oauth2",
+            scopes: [read ? "mcp:read" : "mcp:write", scope],
+          })),
+        },
+      },
+      async (input: unknown) => {
+        const principal = hostedMcpPrincipal(options.authInfo, [
+          read ? "mcp:read" : "mcp:write",
+        ]);
+        if (!principal)
+          return {
+            content: [{ type: "text" as const, text: "BATCH_UNAVAILABLE" }],
+            isError: true,
+          };
+        try {
+          const handlers = createMcpContributionHandlers({
+            admin: adminConvex(),
+            authority: async () => ({
+              actorUserId: principal.userId,
+              oauthClientId: principal.clientId,
+              oauthTokenId: principal.tokenId,
+              emailVerified: await verifyContributorEmail(
+                principal.userId,
+              ).catch(() => false),
+              emailVerificationAttestedAt: now(),
+            }),
+          });
+          const result = await handlers(operation, input);
+          return {
+            content: [{ type: "text" as const, text: JSON.stringify(result) }],
+            structuredContent: result,
+          };
+        } catch {
+          return {
+            content: [{ type: "text" as const, text: "BATCH_UNAVAILABLE" }],
+            isError: true,
+          };
+        }
+      },
+    );
+  }
 
   for (const operation of ["begin", "complete"] as const) {
     const toolName = operation === "begin" ? "vrdex_media_upload_begin" : "vrdex_media_upload_complete";

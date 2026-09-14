@@ -62,6 +62,13 @@ export const mcpWriteToolNameValidator = v.union(
   v.literal("vrdex_profile_media_submit"),
   v.literal("vrdex_media_review_decide"),
   v.literal("vrdex_media_submission_withdraw"),
+  v.literal("vrdex_contribution_batch_create"),
+  v.literal("vrdex_contribution_batch_append"),
+  v.literal("vrdex_contribution_batch_archive"),
+  v.literal("vrdex_contribution_item_submit"),
+  v.literal("vrdex_contribution_item_revise"),
+  v.literal("vrdex_contribution_batch_get"),
+  v.literal("vrdex_contribution_batch_items"),
   v.literal("vrdex_media_upload_begin"),
   v.literal("vrdex_media_upload_complete"),
 );
@@ -75,6 +82,13 @@ export type McpWriteToolName =
   | "vrdex_profile_media_submit"
   | "vrdex_media_review_decide"
   | "vrdex_media_submission_withdraw"
+  | "vrdex_contribution_batch_create"
+  | "vrdex_contribution_batch_append"
+  | "vrdex_contribution_batch_archive"
+  | "vrdex_contribution_item_submit"
+  | "vrdex_contribution_item_revise"
+  | "vrdex_contribution_batch_get"
+  | "vrdex_contribution_batch_items"
   | "vrdex_media_upload_begin"
   | "vrdex_media_upload_complete";
 

@@ -21,6 +21,7 @@ export const localUploadRequestSchema = z.strictObject({
   sourceDescription: z.string().trim().min(1).max(1000).optional(),
   batchId: z.string().min(1).max(200).optional(),
   itemKey: z.string().min(1).max(128).optional(),
+  expectedItemRevision: z.number().int().min(1).max(5).optional(),
   idempotencyKey: z.string().min(1).max(128),
 });
 export const localUploadCompleteSchema = z.strictObject({

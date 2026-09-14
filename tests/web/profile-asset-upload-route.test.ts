@@ -88,3 +88,26 @@ describe("profile asset upload route MIME fallback", () => {
     assert.equal(profileAssetUploadSource("application/octet-stream", false), "direct");
   });
 });
+
+it("reserves URL imports before fetching and seals them through the same upload lifecycle",()=>{
+ execFileSync(process.execPath,["--import","tsx","--input-type=module","-e",`
+ import assert from "node:assert/strict";
+ import sharp from "sharp";
+ import {getFunctionName} from "convex/server";
+ import {createMcpMediaUploadHandlers} from "./apps/web/src/lib/server/mcp-media-upload.ts";
+ import {profileAssetUploadChecksum} from "./apps/web/src/lib/server/profile-asset-storage.ts";
+ const bytes=await sharp({create:{width:8,height:8,channels:4,background:"red"}}).png().toBuffer();
+ const declaration={byteLength:bytes.length,contentType:"image/png",sha256:profileAssetUploadChecksum(bytes)};
+ const objects=new Map();let admitted=false,fetches=0,authorizations=0;
+ const handlers=createMcpMediaUploadHandlers({authority:async()=>{authorizations++;return {actorUserId:"actor",oauthClientId:"client",oauthTokenId:"token",emailVerified:true,emailVerificationAttestedAt:Date.now()};},
+ admin:{mutation:async(fn,args)=>{switch(getFunctionName(fn)){
+ case "contributionUploads:begin":admitted=true;assert.equal(args.placement,"primary_logo");return {intentId:"intent",quarantineStorageKey:"quarantine",expiresAt:Date.now()+600000,contentType:"image/png",byteLength:bytes.length};
+ case "contributionUploads:claim":return {intentId:"intent",quarantineStorageKey:"quarantine",sourceStorageKey:"source",downloadStorageKey:"download",storageKey:"display",...declaration};
+ case "contributionUploads:complete":return {operationId:"intent",operationState:"committed",resourceId:"submission"};
+ default:throw Error("unexpected");}}},
+ fetchSource:async()=>{assert.equal(admitted,true);fetches++;return {body:bytes,mimeType:"image/png"};},
+ put:async({storageKey,body})=>{objects.set(storageKey,body);},read:async(key)=>({body:objects.get(key),contentType:"image/png"})});
+ const result=await handlers.importUrl({mode:"contributor",profileId:"club",expectedUpdatedAt:1,placement:"primary_logo",...declaration,credit:"Artist",sourceUrl:"https://example.test/logo.png",sourceDescription:"Public artist image",idempotencyKey:"key"});
+ assert.equal(result.operationState,"committed");assert.equal(fetches,1);assert.equal(authorizations,3);assert.equal(objects.size,4);
+ `],{cwd:process.cwd(),env:{...process.env,TSX_TSCONFIG_PATH:"apps/web/tsconfig.json"},stdio:"pipe"});
+});

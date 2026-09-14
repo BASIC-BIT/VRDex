@@ -1,3 +1,4 @@
+import { validateBatchMedia, linkBatchMedia } from "./contributionBatches";
 import { v } from "convex/values";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -145,10 +146,22 @@ async function reservation(
   if (
     !row ||
     row.actorUserId !== args.actorUserId ||
-    row.oauthClientId !== args.oauthClientId
+    (!row.batchRevisionId && row.oauthClientId !== args.oauthClientId)
   )
     throw new Error("UPLOAD_UNAVAILABLE");
   await authorize(ctx, args, row.mode);
+  if (row.batchRevisionId) {
+    const rev = await ctx.db.get(row.batchRevisionId);
+    if (!rev) throw new Error("UPLOAD_BATCH_UNAVAILABLE");
+    await validateBatchMedia(
+      ctx,
+      args,
+      String(rev.batchId),
+      rev.itemKey,
+      rev.revision,
+      true,
+    );
+  }
   return row;
 }
 
@@ -167,6 +180,7 @@ export const begin = internalMutation({
     sourceDescription: v.optional(v.string()),
     batchId: v.optional(v.string()),
     itemKey: v.optional(v.string()),
+    expectedItemRevision: v.optional(v.number()),
     idempotencyKey: v.string(),
   },
   returns: v.object({
@@ -187,14 +201,47 @@ export const begin = internalMutation({
     } = args;
     const request = localUploadRequestSchema.parse(input);
     await authorize(ctx, args, request.mode);
-    // Task 4 must validate a real actor-owned batch/item association here.
-    if (request.batchId !== undefined || request.itemKey !== undefined)
+    const hasBatch =
+      request.batchId !== undefined ||
+      request.itemKey !== undefined ||
+      request.expectedItemRevision !== undefined;
+    if (
+      hasBatch &&
+      (!request.batchId ||
+        !request.itemKey ||
+        request.expectedItemRevision === undefined ||
+        request.mode !== "contributor")
+    )
       throw new Error("UPLOAD_BATCH_UNAVAILABLE");
+    const linked = hasBatch
+      ? await validateBatchMedia(
+          ctx,
+          args,
+          request.batchId!,
+          request.itemKey!,
+          request.expectedItemRevision!,
+          true,
+        )
+      : null;
+    if (linked) {
+      if (
+        linked.profileId !== request.profileId ||
+        linked.expectedUpdatedAt !== request.expectedUpdatedAt ||
+        linked.input.placement !== request.placement ||
+        linked.input.sha256 !== request.sha256 ||
+        linked.input.byteLength !== request.byteLength ||
+        linked.input.contentType !== request.contentType ||
+        linked.input.credit !== request.credit ||
+        linked.input.sourceUrl !== request.sourceUrl ||
+        linked.input.source.description !== request.sourceDescription
+      )
+        throw new Error("UPLOAD_BATCH_CONFLICT");
+    }
     const sourceUrl = normalizeProfileAssetSourceUrl(request.sourceUrl);
     if (!sourceUrl && !request.sourceDescription)
       throw new Error("UPLOAD_PROVENANCE_REQUIRED");
     const fingerprint = JSON.stringify(request);
-    const old = await ctx.db
+    let old = await ctx.db
       .query("contributionUploadReservations")
       .withIndex("by_actor_client_key", (q) =>
         q
@@ -203,7 +250,26 @@ export const begin = internalMutation({
           .eq("idempotencyKey", request.idempotencyKey),
       )
       .unique();
-    if (old && old.fingerprint !== fingerprint)
+    if (linked) {
+      const previous = await ctx.db
+        .query("contributionItemAttempts")
+        .withIndex("by_revision", (q) =>
+          q.eq("revisionId", linked.revision._id),
+        )
+        .unique();
+      if (previous) {
+        if (!previous.intentId) throw new Error("UPLOAD_BATCH_UNAVAILABLE");
+        old = await ctx.db
+          .query("contributionUploadReservations")
+          .withIndex("by_intentId", (q) => q.eq("intentId", previous.intentId!))
+          .unique();
+      }
+    }
+    if (old && linked && old.batchRevisionId !== linked.revision._id)
+      throw new Error("UPLOAD_BATCH_CONFLICT");
+    if (linked && !old && (await ctx.db.get(linked.revision.batchId))?.archived)
+      throw new Error("BATCH_ARCHIVED");
+    if (old && !linked && old.fingerprint !== fingerprint)
       throw new Error("UPLOAD_IDEMPOTENCY_CONFLICT");
     const profile = await target(
       ctx,
@@ -310,6 +376,7 @@ export const begin = internalMutation({
     await ctx.db.insert("contributionUploadReservations", {
       intentId: intent.intentId,
       actorUserId,
+      ...(linked ? { batchRevisionId: linked.revision._id } : {}),
       profileId: profile._id,
       oauthClientId,
       idempotencyKey: request.idempotencyKey,
@@ -327,6 +394,14 @@ export const begin = internalMutation({
       cleanupAfter: expiresAt + 24 * 60 * 60 * 1000,
       createdAt: now,
     });
+    if (linked && submissionId)
+      await linkBatchMedia(
+        ctx,
+        args,
+        linked.revision._id,
+        intent.intentId,
+        submissionId,
+      );
     const stored = (await ctx.db.get(intent.intentId))!;
     return {
       intentId: intent.intentId,

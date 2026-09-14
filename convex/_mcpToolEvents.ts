@@ -22,6 +22,13 @@ export const mcpToolNameValidator = v.union(
   v.literal("vrdex_media_review_preview"),
   v.literal("vrdex_media_review_decide"),
   v.literal("vrdex_media_submission_withdraw"),
+  v.literal("vrdex_contribution_batch_create"),
+  v.literal("vrdex_contribution_batch_append"),
+  v.literal("vrdex_contribution_batch_archive"),
+  v.literal("vrdex_contribution_item_submit"),
+  v.literal("vrdex_contribution_item_revise"),
+  v.literal("vrdex_contribution_batch_get"),
+  v.literal("vrdex_contribution_batch_items"),
   v.literal("vrdex_media_upload_begin"),
   v.literal("vrdex_media_upload_complete"),
 );

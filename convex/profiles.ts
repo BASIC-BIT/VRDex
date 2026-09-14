@@ -1,3 +1,4 @@
+import { sanitizeProfileLinks as sanitizeContributionLinks, profileLinkDestinationKey as contributionLinkDestinationKey } from "./_profileLinks";
 import { projectProfileLinkDestinations, queueProfileLinkDestinations } from "./_profileLinkDestinationCache";
 import { ConvexError, type Infer, v } from "convex/values";
 
@@ -632,7 +633,7 @@ function communityProfileSubmissionObject() {
  * publication, the `community_submitted` link provenance and the audit row are
  * the parts that must not differ by transport.
  */
-async function createCommunityProfileRecord(
+export async function createCommunityProfileRecord(
   ctx: MutationCtx,
   args: CommunityProfileSubmissionInput,
   submitter: AuthSubject,
@@ -1418,3 +1419,50 @@ export const submitCommunityProfileForApiUser = internalMutation({
     return result;
   },
 });
+
+/** Contributor collections add destinations without replacing stored provenance. */
+export async function applyContributionLinks(
+  ctx: MutationCtx,
+  profile: Doc<"profiles">,
+  actor: Id<"users">,
+  expectedUpdatedAt: number,
+  additions: unknown,
+) {
+  if (!canReadProfile("public", profile) || profile.claimState !== "unclaimed")
+    throw new Error("BATCH_TARGET_UNAVAILABLE");
+  const authorization = await resolveProfileEditSubject(
+    ctx.db,
+    profile,
+    actor,
+    true,
+  );
+  assertProfileRevision(profile, expectedUpdatedAt);
+  const links = sanitizeContributionLinks(additions, "community_submitted");
+  const merged = [...(profile.outboundLinks ?? [])];
+  const destinations = new Set(merged.map(contributionLinkDestinationKey));
+  for (const link of links)
+    if (!destinations.has(contributionLinkDestinationKey(link))) {
+      merged.push(link);
+      destinations.add(contributionLinkDestinationKey(link));
+    }
+  if (merged.length > 20) throw new Error("BATCH_LINK_LIMIT");
+  const input = { outboundLinks: merged };
+  assertSubmittedFieldsEditable(profile, input, authorization.editSubject);
+  await assertProfileEditNotSuppressed(ctx.db, profile, {});
+  const applied = await applyApiProfileUpdate(ctx, {
+    profile,
+    input,
+    subject: authorization.editSubject,
+    now: Date.now(),
+  });
+  if (applied.changedFields.length)
+    await ctx.db.insert("profileAuditEvents", {
+      profileId: profile._id,
+      action: "api_profile_updated",
+      actor: apiOwnerAuthSubject(actor),
+      sourceType: "community",
+      note: "Contributor collection links updated.",
+      createdAt: Date.now(),
+    });
+  return applied.profile;
+}
