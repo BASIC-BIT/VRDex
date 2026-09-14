@@ -8,6 +8,10 @@ export function isProtectedRoute(
   pathname: string,
   options: ProtectedRouteOptions = {},
 ): boolean {
+  // Recipients must inspect the token-scoped offer before they are club staff.
+  // Acceptance still requires an active browser session in the mutation.
+  if (/^\/account\/communities\/[^/]+\/invite\/[^/]+\/?$/.test(pathname)) return false;
+
   if (options.allowFixtureDemos && FIXTURE_DEMO_PATHS.has(pathname)) {
     return false;
   }

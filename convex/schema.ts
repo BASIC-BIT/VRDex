@@ -1,3 +1,4 @@
+import { clubPermission, clubVisibility, clubSubject } from "./_clubModel";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
@@ -1437,9 +1438,12 @@ export default defineSchema({
     communityProfileId: v.id("profiles"),
     subjectTokenIdentifier: v.string(),
     subject: authSubject,
-    roleKey: v.string(),
-    roleLabel: v.string(),
-    capabilities: v.array(communityCapability),
+    roleKey: v.optional(v.string()),
+    roleLabel: v.optional(v.string()),
+    capabilities: v.optional(v.array(communityCapability)),
+    roleId: v.optional(v.id("communityRoles")),
+    grantedBySubject: v.optional(clubSubject),
+    revokedBySubject: v.optional(clubSubject),
     state: communityAuthorityState,
     grantedAt: v.number(),
     revokedAt: v.optional(v.number()),
@@ -1452,6 +1456,19 @@ export default defineSchema({
       "state",
       "communityProfileId",
     ]),
+  communityRoles: defineTable({
+    communityProfileId:v.id("profiles"),key:v.string(),label:v.string(),description:v.optional(v.string()),
+    permissions:v.array(clubPermission),assignableRoleIds:v.array(v.id("communityRoles")),
+    presetKey:v.optional(v.union(v.literal("admin"),v.literal("moderator"),v.literal("event_staff"))),
+    state:v.union(v.literal("active"),v.literal("deleted")),createdAt:v.number(),updatedAt:v.number(),
+  }).index("by_communityProfileId_state",["communityProfileId","state"]),
+  communityDataVisibility:defineTable({communityProfileId:v.id("profiles"),categories:clubVisibility,updatedAt:v.number()}).index("by_communityProfileId",["communityProfileId"]),
+  communityStaffInvitations:defineTable({
+    communityProfileId:v.id("profiles"),tokenHash:v.string(),roleIds:v.array(v.id("communityRoles")),createdBySubject:clubSubject,
+    createdAt:v.number(),expiresAt:v.number(),state:v.union(v.literal("pending"),v.literal("accepted"),v.literal("revoked"),v.literal("expired")),
+    acceptedBySubject:v.optional(clubSubject),acceptedAt:v.optional(v.number()),revokedAt:v.optional(v.number()),revokedBySubject:v.optional(clubSubject),
+  }).index("by_tokenHash",["tokenHash"]).index("by_communityProfileId_state",["communityProfileId","state"]),
+  communityActionLog:defineTable({communityProfileId:v.id("profiles"),actorSubject:clubSubject,action:v.string(),details:v.record(v.string(),v.union(v.string(),v.array(v.string()),v.null())),targetSubject:v.optional(clubSubject),roleId:v.optional(v.id("communityRoles")),createdAt:v.number()}).index("by_communityProfileId_createdAt",["communityProfileId","createdAt"]),
   collectorFleetSettings: defineTable({
     destinationWorkDueAt: v.optional(v.number()),
     key: v.literal("global"),

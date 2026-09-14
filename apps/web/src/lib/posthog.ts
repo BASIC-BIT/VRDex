@@ -24,13 +24,15 @@ export function sanitizeAnalyticsUrl(value: string): string {
     const url = new URL(value, "https://vrdex.invalid");
     const pathname = url.pathname
       .replace(/^\/handoff\/[^/]+/, "/handoff/redacted")
-      .replace(/^\/claim\/[^/]+/, "/claim/redacted");
+      .replace(/^\/claim\/[^/]+/, "/claim/redacted")
+      .replace(/^(\/account\/communities\/[^/]+\/invite\/)[^/]+/, "$1redacted");
 
     return absolute ? `${url.protocol}//${url.host}${pathname}` : pathname;
   } catch {
     return fallback
       .replace(/^\/handoff\/[^/]+/, "/handoff/redacted")
-      .replace(/^\/claim\/[^/]+/, "/claim/redacted");
+      .replace(/^\/claim\/[^/]+/, "/claim/redacted")
+      .replace(/^(\/account\/communities\/[^/]+\/invite\/)[^/]+/, "$1redacted");
   }
 }
 

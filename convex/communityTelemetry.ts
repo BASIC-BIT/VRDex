@@ -1,3 +1,5 @@
+import { resolveClubActor, readClubVisibility, canReadCategory } from "./_clubAccess";
+import { CLUB_CATEGORIES, LEGACY_CATEGORY_MAP } from "./_clubModel";
 import { ConvexError, v } from "convex/values";
 
 import { internal } from "./_generated/api";
@@ -654,13 +656,20 @@ export const setPublicMetric = mutation({
       .withIndex("by_slug", (q) => q.eq("slug", args.communitySlug.trim().toLowerCase()))
       .first();
     if (!profile || profile.profileType !== "community") throw new Error("Community profile was not found.");
-    const actor = await requireCommunityCapability(ctx, profile._id);
+    const clubActor = await resolveClubActor(ctx, profile._id);
+    if(clubActor.kind !== "owner" || !clubActor.subject) throw new Error("Only the club owner can change visibility.");
+    const actor = clubActor.subject;
     const integration = await integrationForCommunity(ctx, profile._id);
     if (!integration) throw new Error("Community telemetry is not connected.");
     if (integration.state === "disconnecting" || integration.state === "disconnected") {
       throw new Error("Community telemetry is disconnecting or disconnected.");
     }
     const now = Date.now();
+    const categories = await readClubVisibility(ctx.db, profile._id);
+    categories[LEGACY_CATEGORY_MAP[args.metric]] = {audience:args.enabled?"public":"staff",staffRoleIds:null};
+    const saved = await ctx.db.query("communityDataVisibility").withIndex("by_communityProfileId",q=>q.eq("communityProfileId",profile._id)).unique();
+    if(saved) await ctx.db.patch(saved._id,{categories,updatedAt:now});
+    else await ctx.db.insert("communityDataVisibility",{communityProfileId:profile._id,categories,updatedAt:now});
     await ctx.db.patch(integration._id, {
       publicMetrics: { ...integration.publicMetrics, [args.metric]: args.enabled },
       updatedAt: now,
@@ -1500,8 +1509,37 @@ export const getPrivateDashboard = query({
       .withIndex("by_slug", (q) => q.eq("slug", args.communitySlug.trim().toLowerCase()))
       .first();
     if (!profile || profile.profileType !== "community") return null;
-    await requireCommunityCapability(ctx, profile._id);
-    return telemetryDashboardData(ctx, profile, args.now ?? Date.now());
+    const actor = await resolveClubActor(ctx, profile._id);
+    if(actor.kind === "none") throw new Error("You do not have access to this page.");
+    const visibility = await readClubVisibility(ctx.db, profile._id);
+    const readableCategories = CLUB_CATEGORIES.filter(category => canReadCategory(actor, visibility, category));
+    const allowed = (category: typeof CLUB_CATEGORIES[number]) => readableCategories.includes(category);
+    const data = await telemetryDashboardData(ctx, profile, args.now ?? Date.now());
+    if(!data) return null;
+    const integrationsAllowed = actor.kind === "owner" || actor.permissions.includes("manage_integrations");
+    const {groupVisibility,joinPolicy,vrchatGroupId,publicMetrics,collector,...safeIntegration} = data.integration;
+    return {
+      ...data,
+      readableCategories,
+      integration: {...safeIntegration,...(integrationsAllowed ? {groupVisibility,joinPolicy,vrchatGroupId,publicMetrics,collector}: {})},
+      summary: {
+        ...(allowed("current_population") ? {currentPopulation:data.summary.currentPopulation,activeInstanceCount:data.summary.activeInstanceCount,worlds:data.summary.worlds}:{}),
+        ...(allowed("population_history") ? {peakConcurrency:data.summary.peakConcurrency,playerHours:data.summary.playerHours,coverageRatio:data.summary.coverageRatio}:{}),
+        ...(allowed("group_size") ? {groupMemberCount:data.summary.groupMemberCount}:{}),
+        ...(allowed("membership_movement") ? {groupMemberGrowth:data.summary.groupMemberGrowth}:{}),
+      },
+      sessions: allowed("instance_history") ? data.sessions : [],
+      population: allowed("population_history") ? data.population:[],
+      instancePopulation: allowed("instance_history") ? data.instancePopulation:[],
+      memberCounts: allowed("group_size") ? data.memberCounts:[],
+      coverage: allowed("population_history") || allowed("instance_history") ? data.coverage:[],
+      rollups: data.rollups.filter(rollup => rollup.grain === "event" ? allowed("event_recaps") : allowed("population_history") || allowed("group_size") || allowed("membership_movement")).map(rollup => {
+        const {currentPopulation,activeInstanceCount,peakConcurrency,playerMinutes,coverageRatio,worldDistribution,groupMemberCount,groupMemberGrowth,...metadata}=rollup;
+        return {...metadata,...(rollup.grain === "event" || allowed("population_history") ? {currentPopulation,activeInstanceCount,peakConcurrency,playerMinutes,coverageRatio,worldDistribution}:{}),...(allowed("group_size")?{groupMemberCount}:{}),...(allowed("membership_movement")?{groupMemberGrowth}:{})};
+      }),
+      associations: allowed("event_recaps") ? data.associations:[],
+      events: allowed("event_recaps") ? data.events:[],
+    };
   },
 });
 

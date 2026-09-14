@@ -21,8 +21,9 @@ const identity = { subject: "telemetry-operator", issuer: "test", tokenIdentifie
 
 async function seedCommunity(t: ReturnType<typeof convexTest>, slug = "faceless") {
   return t.run(async (ctx) => {
-    const clerkUserId = newClerkUserId();
-    const userId = await ctx.db.insert("users", {
+    const existingUser = await ctx.db.query("users").withIndex("clerkUserId", q=>q.eq("clerkUserId",identity.subject)).unique();
+    const clerkUserId = existingUser?.clerkUserId ?? newClerkUserId();
+    const userId = existingUser?._id ?? await ctx.db.insert("users", {
       clerkUserId: clerkUserId,
       email: `${slug}@example.test`,
       emailVerificationTime: NOW,
@@ -54,6 +55,15 @@ async function seedCommunity(t: ReturnType<typeof convexTest>, slug = "faceless"
       updatedAt: NOW,
     });
     return communityProfileId;
+  });
+}
+
+async function grantVisibilityOwner(t: ReturnType<typeof convexTest>) {
+  await t.run(async ctx => {
+    const profile = await ctx.db.query("profiles").withIndex("by_slug", q => q.eq("slug", "faceless")).unique();
+    const user = await ctx.db.query("users").withIndex("clerkUserId", q => q.eq("clerkUserId", identity.subject)).unique();
+    const existing = await ctx.db.query("profileOwners").withIndex("by_profileId_roleKey_state", q => q.eq("profileId",profile!._id).eq("roleKey","owner").eq("state","active")).first();
+    if(!existing) await ctx.db.insert("profileOwners", {profileId:profile!._id,userId:user!._id,roleKey:"owner",state:"active",grantedAt:Date.now(),updatedAt:Date.now()});
   });
 }
 
@@ -123,7 +133,7 @@ describe("community telemetry control plane", () => {
     assert.equal(await t.query(api.communityTelemetry.getPublicForCommunity, { communitySlug: "faceless", now: NOW }), null);
     await assert.rejects(
       t.query(api.communityTelemetry.getPrivateDashboard, { communitySlug: "faceless", now: NOW }),
-      /signed-in user/,
+      /do not have access/,
     );
   });
 
@@ -421,6 +431,7 @@ describe("community telemetry control plane", () => {
       }],
     });
     assert.equal(first.duplicate, false);
+    await grantVisibilityOwner(t);
     await t.withIdentity(identity).mutation(api.communityTelemetry.setPublicMetric, {
       communitySlug: "faceless", metric: "currentPopulation", enabled: true,
     });
@@ -484,6 +495,7 @@ describe("community telemetry control plane", () => {
     });
     const initialRollup = await t.run((ctx) => ctx.db.get(rollupId));
     assert.equal(initialRollup?.peakConcurrency, 17);
+    await grantVisibilityOwner(t);
     await t.withIdentity(identity).mutation(api.communityTelemetry.setPublicMetric, {
       communitySlug: "faceless", metric: "populationHistory", enabled: true,
     });
@@ -767,6 +779,7 @@ describe("community telemetry control plane", () => {
     assert.equal(recomputedEventRollup?.peakConcurrency, 13);
     assert.equal(recomputedEventRollup?.activeInstanceCount, 1);
 
+    await grantVisibilityOwner(t);
     await t.withIdentity(identity).mutation(api.communityTelemetry.setPublicMetric, {
       communitySlug: "faceless", metric: "eventRecaps", enabled: true,
     });

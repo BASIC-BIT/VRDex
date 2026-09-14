@@ -2520,11 +2520,14 @@ async function managedCommunitiesForBrowser(
   const roleByProfileId = new Map<Id<"profiles">, string>();
   for (const owner of owners) roleByProfileId.set(owner.profileId, "Owner");
   for (const authority of authorities) {
+    if(authority.subject.subject !== subject.subject || authority.subject.issuer !== subject.issuer) continue;
+    const role = authority.roleId ? await ctx.db.get(authority.roleId) : null;
+    const permissions = authority.roleId ? (role?.state === "active" && role.communityProfileId === authority.communityProfileId ? role.permissions : []) : (authority.capabilities ?? []);
     if (
-      authority.capabilities.includes("manage_events") &&
+      permissions.includes("manage_events") &&
       !roleByProfileId.has(authority.communityProfileId)
     ) {
-      roleByProfileId.set(authority.communityProfileId, authority.roleLabel);
+      roleByProfileId.set(authority.communityProfileId, role?.label ?? authority.roleLabel ?? "Staff");
     }
   }
   const profiles = await Promise.all(

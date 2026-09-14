@@ -24,7 +24,7 @@ Operators can confirm which instance session belongs to an event. Time/world ove
 
 ## Public controls
 
-Everything is private by default. Operators enable each public field separately:
+Everything is private by default. The club owner chooses which categories are public, available to all or selected staff roles, or owner-only. Existing public settings carry forward. The public telemetry surfaces are:
 
 - current population
 - population history
@@ -32,7 +32,7 @@ Everything is private by default. Operators enable each public field separately:
 - group member growth
 - confirmed event recaps
 
-The public community page, REST API, hosted MCP, and local stdio MCP use the same visibility result. Each listed switch controls one public surface; population history is a deliberate bundle of its documented rollup fields. Enabling one surface does not reveal another, internal collection health, raw observations, provider group ID, service-account identity, or account metadata.
+The public community page, REST API, hosted MCP, and local stdio MCP use the same visibility result. Group size and membership movement separately control member counts and net growth, including values inside population history and event recaps. Public settings do not expose internal collection health, raw observations, provider group ID, service-account identity, or account metadata.
 
 Disconnecting stops new collection and removes every public telemetry field immediately. The assigned fenced worker then leaves the VRChat group and releases its account capacity; the private dashboard shows that cleanup as pending until it completes. Existing history remains private by default so a reconnect or operational recovery does not silently destroy analytics. Reconnecting starts a new presentation epoch, so retained observations from the previous group are never displayed under the new connection. A future deletion workflow may remove retained history separately.
 

@@ -1,3 +1,4 @@
+import { readClubVisibility } from "./_clubAccess";
 import type { Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
 import { CURRENT_FRESHNESS_MS, TELEMETRY_ROLLUP_VERSION } from "./_communityTelemetry";
@@ -53,11 +54,14 @@ export async function getPublicCommunityTelemetry(
     .query("communityVrchatIntegrations")
     .withIndex("by_communityProfileId", (query) => query.eq("communityProfileId", communityProfileId))
     .first();
+  if (!integration) return null;
+  const visibility = await readClubVisibility(db, communityProfileId);
+  const publicMetrics = { currentPopulation: visibility.current_population.audience === "public", populationHistory: visibility.population_history.audience === "public", groupMemberCount: visibility.group_size.audience === "public", groupMemberGrowth: visibility.membership_movement.audience === "public", eventRecaps: visibility.event_recaps.audience === "public" };
   if (
     !integration ||
     integration.state === "disconnecting" ||
     integration.state === "disconnected" ||
-    !Object.values(integration.publicMetrics).some(Boolean)
+    !Object.values(publicMetrics).some(Boolean)
   ) {
     return null;
   }
@@ -96,7 +100,7 @@ export async function getPublicCommunityTelemetry(
     if (!event || event.publicationState !== "published" || !event.slug || event.communityProfileId !== communityProfileId) return null;
     return {
       event: { slug: event.slug, title: event.title },
-      ...publicRollup(rollup, integration.publicMetrics),
+      ...publicRollup(rollup, publicMetrics),
     };
   }))).filter((recap) => recap !== null);
   const freshness = integration.lastSuccessfulObservationAt !== undefined &&
@@ -108,7 +112,7 @@ export async function getPublicCommunityTelemetry(
     freshness,
     observedAt: integration.lastSuccessfulObservationAt,
     definitions: PUBLIC_TELEMETRY_DEFINITIONS,
-    ...(integration.publicMetrics.currentPopulation && freshness === "current" && latestPopulation
+    ...(publicMetrics.currentPopulation && freshness === "current" && latestPopulation
       ? { currentPopulation: {
           value: latestPopulation.totalPopulation,
           activeInstanceCount: latestPopulation.activeInstanceCount,
@@ -116,19 +120,19 @@ export async function getPublicCommunityTelemetry(
           coverage: latestPopulation.coverageState,
         } }
       : {}),
-    ...(integration.publicMetrics.populationHistory
-      ? { populationHistory: hourlyRollups.reverse().map((rollup) => publicRollup(rollup, integration.publicMetrics)) }
+    ...(publicMetrics.populationHistory
+      ? { populationHistory: hourlyRollups.reverse().map((rollup) => publicRollup(rollup, publicMetrics)) }
       : {}),
-    ...(integration.publicMetrics.groupMemberCount && latestMember
+    ...(publicMetrics.groupMemberCount && latestMember
       ? { groupMemberCount: { value: latestMember.memberCount, observedAt: latestMember.observedAt } }
       : {}),
-    ...(integration.publicMetrics.groupMemberGrowth && latestMember && earliestMember
+    ...(publicMetrics.groupMemberGrowth && latestMember && earliestMember
       ? { groupMemberGrowth: {
           value: latestMember.memberCount - earliestMember.memberCount,
           startAt: earliestMember.observedAt,
           endAt: latestMember.observedAt,
         } }
       : {}),
-    ...(integration.publicMetrics.eventRecaps ? { eventRecaps } : {}),
+    ...(publicMetrics.eventRecaps ? { eventRecaps } : {}),
   };
 }
