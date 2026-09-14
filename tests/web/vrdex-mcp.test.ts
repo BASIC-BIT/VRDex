@@ -83,6 +83,7 @@ function assertAuthenticatedReadSecuritySchemes(value: unknown) {
 }
 
 function isWriteToolName(name: string | undefined) {
+  if (name === "vrdex_media_upload_begin" || name === "vrdex_media_upload_complete") return true;
   return name === "vrdex_profile_media_manage" || name === "vrdex_profile_media_submit" ||
     name === "vrdex_media_review_decide" || name === "vrdex_media_submission_withdraw" ||
     (name !== undefined && /^vrdex_(event|profile)_(create|update|submit)$/.test(name));
@@ -503,6 +504,8 @@ describe("VRDex MCP server", () => {
     // No deployment switch: the write tools are always listed, and the harness
     // connecting decides which of them it exposes.
     assert.deepEqual(writeTools.map((tool) => tool.name), [
+      "vrdex_media_upload_begin",
+      "vrdex_media_upload_complete",
       "vrdex_media_review_decide",
       "vrdex_media_submission_withdraw",
       "vrdex_event_create",
@@ -529,6 +532,13 @@ describe("VRDex MCP server", () => {
     };
 
     for (const tool of writeTools) {
+      if (tool.name === "vrdex_media_upload_begin" || tool.name === "vrdex_media_upload_complete") {
+        assert.deepEqual((tool._meta as { securitySchemes: unknown }).securitySchemes, [
+          { scopes: ["mcp:write", "assets:write"], type: "oauth2" },
+          { scopes: ["mcp:write", "assets:contribute"], type: "oauth2" },
+        ]);
+        continue;
+      }
       assertWriteSecuritySchemes(tool._meta, expectedResourceScope[tool.name ?? ""] ?? "");
     }
 

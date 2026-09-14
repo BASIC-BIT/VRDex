@@ -755,6 +755,7 @@ export async function consumeProfileAssetUploads(
     uploads: ProfileAssetUploadInput[];
     source: Doc<"profileAssets">["source"];
     approvedSubmissionId?: Id<"profileMediaSubmissions">;
+    bridgeAuthorized?: boolean;
     now: number;
   },
 ): Promise<Id<"profileAssets">[]> {
@@ -764,7 +765,7 @@ export async function consumeProfileAssetUploads(
   for (const upload of input.uploads) {
     const intent = await db.get(upload.intentId);
 
-    if (intent === null || intent.uploadToken !== upload.uploadToken) {
+    if (intent === null || (intent.issuer === "mcp_local" && !input.bridgeAuthorized && input.approvedSubmissionId === undefined) || intent.uploadToken !== upload.uploadToken) {
       throw new Error("Profile media upload intent was not found.");
     }
 
@@ -928,6 +929,7 @@ export async function finalizeProfileAssetUploadIntentUpload(
   input: {
     intentId: Id<"profileAssetUploadIntents">;
     uploadToken: string;
+    bridgeAuthorized?: boolean;
     processingToken: string;
     mimeType: string;
     byteSize: number;
@@ -947,6 +949,7 @@ export async function finalizeProfileAssetUploadIntentUpload(
 
   if (
     intent === null ||
+    (intent.issuer === "mcp_local" && !input.bridgeAuthorized) ||
     intent.uploadToken !== input.uploadToken ||
     intent.processingToken !== input.processingToken
   ) {
@@ -1102,6 +1105,7 @@ export async function finalizeProfileAssetUploadIntentUpload(
     : intent;
   const assetIds = await consumeProfileAssetUploads(db, {
     profileId: intent.targetProfileId,
+    bridgeAuthorized: input.bridgeAuthorized,
     requestedBy: intent.requestedBy,
     uploads: [
       {

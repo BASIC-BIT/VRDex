@@ -90,4 +90,6 @@ crons.daily(
   {},
 );
 
+crons.interval("reconcile media upload objects", { minutes: 10 }, internal.contributionCleanup.sweep, {});
+
 export default crons;

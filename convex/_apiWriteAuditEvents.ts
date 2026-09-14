@@ -62,6 +62,8 @@ export const mcpWriteToolNameValidator = v.union(
   v.literal("vrdex_profile_media_submit"),
   v.literal("vrdex_media_review_decide"),
   v.literal("vrdex_media_submission_withdraw"),
+  v.literal("vrdex_media_upload_begin"),
+  v.literal("vrdex_media_upload_complete"),
 );
 
 export type McpWriteToolName =
@@ -72,7 +74,9 @@ export type McpWriteToolName =
   | "vrdex_profile_media_manage"
   | "vrdex_profile_media_submit"
   | "vrdex_media_review_decide"
-  | "vrdex_media_submission_withdraw";
+  | "vrdex_media_submission_withdraw"
+  | "vrdex_media_upload_begin"
+  | "vrdex_media_upload_complete";
 
 export async function recordApiWriteAuditEvent(
   db: DatabaseWriter,

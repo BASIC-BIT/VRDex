@@ -1,5 +1,65 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { execFileSync } from "node:child_process";
+
+it("seals the single-read candidate despite quarantine overwrites and returns the same receipt on replay", () => {
+  execFileSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", `
+    import assert from "node:assert/strict";
+    import sharp from "sharp";
+    import { getFunctionName } from "convex/server";
+    import { createMcpMediaUploadHandlers, assertLocalUploadCandidate } from "./apps/web/src/lib/server/mcp-media-upload.ts";
+    import { profileAssetUploadChecksum } from "./apps/web/src/lib/server/profile-asset-storage.ts";
+    const original = await sharp({ create: { width: 16, height: 16, channels: 4, background: "red" } }).png().toBuffer();
+    const replacement = await sharp({ create: { width: 16, height: 16, channels: 4, background: "blue" } }).png().toBuffer();
+    const declaration = { byteLength: original.length, contentType: "image/png", sha256: profileAssetUploadChecksum(original) };
+    for (const object of [null, { body: replacement, contentType: "image/png" }, { body: original, contentType: "image/jpeg" }, { body: original, contentType: "image/png", contentLength: original.length + 1 }]) {
+      assert.throws(() => assertLocalUploadCandidate(object, declaration), /SOURCE_MISMATCH/);
+    }
+    let quarantine = original, reads = 0, receipt;
+    const stored = new Map();
+    const handler = createMcpMediaUploadHandlers({
+      authority: async () => ({ actorUserId: "user", oauthClientId: "client", oauthTokenId: "token", emailVerified: true, emailVerificationAttestedAt: Date.now() }),
+      admin: { mutation: async (fn, args) => {
+        switch (getFunctionName(fn)) {
+          case "contributionUploads:begin": return { intentId: "intent", expiresAt: Date.now() + 600000, quarantineStorageKey: "quarantine", contentType: "image/png", byteLength: original.length };
+          case "contributionUploads:claim": return receipt ? { receipt } : { intentId: "intent", quarantineStorageKey: "quarantine", sourceStorageKey: "source", downloadStorageKey: "download", storageKey: "display", ...declaration };
+          case "contributionUploads:complete":
+            assert.equal(args.sourceContentSha256, declaration.sha256);
+            receipt = { operationId: "intent", operationState: "committed", resourceId: "proposal" }; return receipt;
+          default: throw new Error("Unexpected mutation");
+        }
+      } },
+      target: async ({ storageKey }) => ({ url: "https://bucket.example.test/", fields: { key: storageKey, policy: "signed" } }),
+      read: async () => { reads++; const body = quarantine; quarantine = replacement; return { body, contentType: "image/png" }; },
+      put: async ({ storageKey, body }) => { if (stored.has(storageKey)) assert.deepEqual(stored.get(storageKey), body); else stored.set(storageKey, body); },
+    });
+    const target = await handler.begin({ mode: "contributor", profileId: "profile", expectedUpdatedAt: 1, placement: "profile_image", ...declaration, credit: "Artist", sourceDescription: "Artist local original", idempotencyKey: "begin" });
+    assert.deepEqual(Object.keys(target).sort(), ["expiresAt", "intentId", "transfer"]);
+    assert.deepEqual(target.transfer.fields, { key: "quarantine", policy: "signed" });
+    assert.equal(target.transfer.fileField, "file");
+    assert.equal(target.transfer.method, "POST");
+    const result = await handler.complete({ intentId: "intent", idempotencyKey: "complete" });
+    quarantine = replacement;
+    assert.deepEqual(await handler.complete({ intentId: "intent", idempotencyKey: "complete" }), result);
+    assert.equal(reads, 1);
+    assert.deepEqual(stored.get("source"), original);
+    assert.equal(stored.size, 3);
+    let failedToken;
+    const uncertain = createMcpMediaUploadHandlers({
+      authority: async () => ({ actorUserId: "user", oauthClientId: "client", oauthTokenId: "token", emailVerified: true, emailVerificationAttestedAt: Date.now() }),
+      admin: { mutation: async (fn, args) => {
+        if (getFunctionName(fn) === "contributionUploads:claim") return { intentId: "intent", quarantineStorageKey: "quarantine", sourceStorageKey: "source", downloadStorageKey: "download", storageKey: "display", ...declaration };
+        if (getFunctionName(fn) === "contributionUploads:complete") throw new Error("Commit response lost");
+        if (getFunctionName(fn) === "contributionUploads:fail") { failedToken = args.processingToken; return null; }
+        throw new Error("Unexpected mutation");
+      } },
+      read: async () => ({ body: original, contentType: "image/png" }),
+      put: async () => {},
+    });
+    await assert.rejects(uncertain.complete({ intentId: "intent", idempotencyKey: "complete" }), /COMPLETION_UNCERTAIN/);
+    assert.equal(typeof failedToken, "string", "An uncertain finalization must release processing through the receipt-preserving fail transaction");
+  `], { cwd: process.cwd(), env: { ...process.env, TSX_TSCONFIG_PATH: "apps/web/tsconfig.json" }, stdio: "pipe" });
+});
 
 import {
   profileAssetMimeTypeForFile,

@@ -779,6 +779,7 @@ export default defineSchema({
     .index("by_creationSource_claimState", ["creationSource", "claimState"])
     .index("by_profileType_sortName", ["profileType", "sortName"]),
   profileAssetUploadIntents: defineTable({
+    issuer: v.optional(v.union(v.literal("legacy"), v.literal("mcp_local"))),
     uploadToken: v.string(),
     requestedBy: authSubject,
     targetProfileId: v.optional(v.id("profiles")),
@@ -847,6 +848,25 @@ export default defineSchema({
       "mcpIdempotencyKeyHash",
     ])
     .index("by_requestedBy", ["requestedBy.tokenIdentifier"]),
+  contributionCapacity: defineTable({
+    scope: v.string(), bytes: v.number(), processing: v.number(),
+    byteLimit: v.optional(v.number()), processingLimit: v.optional(v.number()),
+  }).index("by_scope", ["scope"]),
+  contributionUploadReservations: defineTable({
+    intentId: v.id("profileAssetUploadIntents"), actorUserId: v.id("users"),
+    profileId: v.id("profiles"), oauthClientId: v.string(),
+    idempotencyKey: v.string(), fingerprint: v.string(),
+    mode: v.union(v.literal("owner"), v.literal("contributor")),
+    expectedUpdatedAt: v.number(), declaredBytes: v.number(), declaredType: v.string(), sha256: v.string(),
+    chargedBytes: v.number(), quarantineBytes: v.number(), processing: v.boolean(),
+    state: v.union(v.literal("pending"), v.literal("processing"), v.literal("committed"), v.literal("failed")),
+    receipt: v.optional(v.object({ operationId: v.string(), operationState: v.union(v.literal("committed"), v.literal("refused"), v.literal("in_progress")), resourceId: v.optional(v.string()), code: v.optional(v.string()) })),
+    processingToken: v.optional(v.string()), completionKey: v.optional(v.string()),
+    cleanupAfter: v.number(), cleanupToken: v.optional(v.string()), cleanupLeaseUntil: v.optional(v.number()),
+    expiresAt: v.number(), createdAt: v.number(),
+  }).index("by_intentId", ["intentId"])
+    .index("by_actor_client_key", ["actorUserId", "oauthClientId", "idempotencyKey"])
+    .index("by_cleanupAfter", ["cleanupAfter"]),
   mediaReviewReceipts: defineTable({
     actorUserId: v.id("users"), idempotencyKey: v.string(), inputHash: v.string(),
     submissionId: v.id("profileMediaSubmissions"),
@@ -863,7 +883,9 @@ export default defineSchema({
     uploadIntentId: v.optional(v.id("profileAssetUploadIntents")),
     requestedPlacement: profileAssetPlacement,
     originalFileName: v.optional(v.string()),
-    sourceUrl: v.string(),
+    sourceUrl: v.optional(v.string()),
+    sourceKind: v.optional(v.union(v.literal("url"), v.literal("local"))),
+    sourceDescription: v.optional(v.string()),
     label: v.optional(v.string()),
     altText: v.optional(v.string()),
     credit: v.string(),

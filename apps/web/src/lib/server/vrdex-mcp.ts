@@ -1,3 +1,5 @@
+import { createMcpMediaUploadHandlers } from "./mcp-media-upload";
+import { localUploadRequestSchema, localUploadCompleteSchema, localUploadTargetSchema } from "@vrdex/api-contracts";
 import {
   createMcpHandler,
   fromJsonSchema,
@@ -128,6 +130,8 @@ const mcpWriteToolNames = [
   ...mcpAssetWriteToolNames,
   ...mediaReviewWriteToolNames,
   ...mediaSubmissionWriteToolNames,
+  "vrdex_media_upload_begin",
+  "vrdex_media_upload_complete",
 ] as const;
 /**
  * The resource scope each write tool needs alongside `mcp:write`.
@@ -147,6 +151,8 @@ const mcpWriteToolResourceScopes: Record<(typeof mcpWriteToolNames)[number], Api
   vrdex_profile_media_submit: "assets:contribute",
   vrdex_media_review_decide: "assets:review:write",
   vrdex_media_submission_withdraw: "assets:contribute",
+  vrdex_media_upload_begin: "mcp:write",
+  vrdex_media_upload_complete: "mcp:write",
 };
 /**
  * Reads of the caller's own inventory, which no anonymous session can serve.
@@ -192,6 +198,9 @@ function mcpOwnedReadSecuritySchemes(toolName: (typeof mcpOwnedReadToolNames)[nu
   ] satisfies Array<Record<string, unknown>>;
 }
 function mcpWriteSecuritySchemes(toolName: (typeof mcpWriteToolNames)[number]) {
+  if (toolName === "vrdex_media_upload_begin" || toolName === "vrdex_media_upload_complete") {
+    return ["assets:write", "assets:contribute"].map(scope => ({ scopes: ["mcp:write", scope], type: "oauth2" }));
+  }
   return [
     { scopes: ["mcp:write", mcpWriteToolResourceScopes[toolName]], type: "oauth2" },
   ] satisfies Array<Record<string, unknown>>;
@@ -2244,6 +2253,32 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       }
     },
   );
+
+  for (const operation of ["begin", "complete"] as const) {
+    const toolName = operation === "begin" ? "vrdex_media_upload_begin" : "vrdex_media_upload_complete";
+    server.registerTool(toolName, {
+      title: operation === "begin" ? "Begin Media Upload" : "Complete Media Upload",
+      description: operation === "begin" ? "Reserve a local image upload and return its multipart transfer fields." : "Seal an uploaded image as owner media or a private contribution.",
+      inputSchema: operation === "begin" ? localUploadRequestSchema : localUploadCompleteSchema,
+      outputSchema: operation === "begin" ? mcpOutputSchema(localUploadTargetSchema) : mcpOutputSchema(commandReceiptSchema),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+      _meta: { securitySchemes: mcpWriteSecuritySchemes(toolName) },
+    }, async (input: unknown) => {
+      const principal = principalFor(toolName);
+      if (principal === null) return mcpWriteUnauthorized(toolName);
+      try {
+        const handlers = createMcpMediaUploadHandlers({
+          admin: adminConvex(),
+          authority: async () => ({ actorUserId: principal.userId, oauthClientId: principal.clientId, oauthTokenId: principal.tokenId,
+            emailVerified: await verifyContributorEmail(principal.userId).catch(() => false), emailVerificationAttestedAt: now() }),
+        });
+        const result = await handlers[operation](input);
+        return { content: [{ type: "text" as const, text: JSON.stringify(result) }], structuredContent: result };
+      } catch {
+        return { content: [{ type: "text" as const, text: "UPLOAD_UNAVAILABLE" }], isError: true as const };
+      }
+    });
+  }
 
   server.registerTool(
     "vrdex_media_review_list",

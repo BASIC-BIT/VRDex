@@ -82,7 +82,7 @@ function ReviewCard({ row }: { row: ReviewRow }) {
           ) : <p className="text-xl font-semibold">{row.profileDisplayName}</p>}
           <p className="mt-1 text-sm text-muted">{row.requestedPlacement === "profile_image" ? "Profile image" : "Primary logo"}</p>
         </div>
-        <a className="text-sm underline" href={row.sourceUrl} rel="noreferrer" target="_blank">Open source</a>
+        {row.sourceUrl ? <a className="text-sm underline" href={row.sourceUrl} rel="noreferrer" target="_blank">Open source</a> : <span className="text-sm">{row.sourceDescription}</span>}
       </div>
       {detail === undefined ? <p aria-busy="true" className="mt-5 text-sm text-muted">Loading…</p> : null}
       {detail ? (

@@ -365,6 +365,8 @@ export async function reviewSnapshot(
       uploadIntentId: submission.uploadIntentId,
       hash: submission.contentSha256,
       sourceUrl: submission.sourceUrl,
+      sourceKind: submission.sourceKind,
+      sourceDescription: submission.sourceDescription,
       credit: submission.credit,
       creditUrl: submission.creditUrl,
       label: submission.label,
@@ -399,6 +401,8 @@ export async function reviewSnapshot(
         ? { submissionId: submission._id, kind: "stored_candidate" as const }
         : null,
       sourceUrl: submission.sourceUrl,
+      sourceKind: submission.sourceKind,
+      sourceDescription: submission.sourceDescription,
       credit: submission.credit,
       contentSha256: submission.contentSha256 ?? null,
     },

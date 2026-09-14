@@ -9,3 +9,4 @@ export * from "./tokens";
 export * from "./temporal";
 
 export * from "./media-review";
+export * from "./media-upload";

@@ -22,6 +22,8 @@ export const mcpToolNameValidator = v.union(
   v.literal("vrdex_media_review_preview"),
   v.literal("vrdex_media_review_decide"),
   v.literal("vrdex_media_submission_withdraw"),
+  v.literal("vrdex_media_upload_begin"),
+  v.literal("vrdex_media_upload_complete"),
 );
 
 export const mcpToolEventRouteClassValidator = v.union(

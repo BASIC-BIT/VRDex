@@ -32,6 +32,12 @@ Preview storage resolvers share the detail authority predicate and return only
 validated linked uploaded/consumed renditions that remain available for reading.
 Client responses must not expose their internal storage keys.
 
+Local-upload proposals carry `sourceKind: "local"` and may replace the source URL
+with a bounded private source description. Review consumers omit the source link
+when no URL exists. Legacy URL intake still requires a URL. The
+[local upload verification guide](../testing/local-media-upload.md) documents
+transport, reservations, cleanup configuration, and the separate S3 proof gate.
+
 ## Decisions and retries
 
 `decideWithReceipt` and internal `decideForMcpActor` accept submission ID,

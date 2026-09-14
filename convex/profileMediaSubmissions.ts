@@ -1,3 +1,4 @@
+import { changeContributionCharge } from "./_contributionCapacity";
 import { ConvexError, v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import { normalizeMcpContributionSourceUrl } from "../packages/api-contracts/src/profile-media-source";
@@ -130,7 +131,7 @@ function mcpTargetRefusal(
   return null;
 }
 
-async function openSubmissionCountForUser(
+export async function openSubmissionCountForUser(
   ctx: Pick<QueryCtx, "db">,
   userId: Id<"users">,
   now: number,
@@ -148,7 +149,7 @@ async function openSubmissionCountForUser(
   return groups.reduce((count, group) => count + group.length, 0);
 }
 
-async function openSubmissionCountForProfile(
+export async function openSubmissionCountForProfile(
   ctx: Pick<QueryCtx, "db">,
   profileId: Id<"profiles">,
   now: number,
@@ -201,7 +202,7 @@ async function submissionRateLimit(
   return null;
 }
 
-async function assertSubmissionRateLimits(
+export async function assertSubmissionRateLimits(
   ctx: Pick<QueryCtx, "db">,
   userId: Id<"users">,
   profileId: Id<"profiles">,
@@ -212,7 +213,7 @@ async function assertSubmissionRateLimits(
   }
 }
 
-function assertEligibleTarget(
+export function assertEligibleTarget(
   profile: Doc<"profiles"> | null,
   placement: "profile_image" | "primary_logo",
 ) {
@@ -266,6 +267,8 @@ function publicSubmission(
     requestedPlacement: submission.requestedPlacement,
     status: submission.status,
     sourceUrl: submission.sourceUrl,
+    sourceKind: submission.sourceKind,
+    sourceDescription: submission.sourceDescription,
     label: submission.label,
     altText: submission.altText,
     credit: submission.credit,
@@ -1142,7 +1145,9 @@ const reviewProjectionFields = {
     v.literal("withdrawn"),
     v.literal("superseded"),
   ),
-  sourceUrl: v.string(),
+  sourceUrl: v.optional(v.string()),
+  sourceKind: v.optional(v.union(v.literal("url"), v.literal("local"))),
+  sourceDescription: v.optional(v.string()),
   label: v.optional(v.string()),
   altText: v.optional(v.string()),
   credit: v.string(),
@@ -1202,7 +1207,9 @@ const reviewDetailValidator = v.union(
           kind: v.literal("stored_candidate"),
         }),
       ),
-      sourceUrl: v.string(),
+      sourceUrl: v.optional(v.string()),
+  sourceKind: v.optional(v.union(v.literal("url"), v.literal("local"))),
+  sourceDescription: v.optional(v.string()),
       credit: v.string(),
       contentSha256: v.union(v.null(), v.string()),
     }),
@@ -1410,18 +1417,13 @@ export const suppressApprovedAsset = mutation({
   },
 });
 
-export const prepareDueBlobCleanup = mutation({
-  args: {},
-  handler: async (ctx) => {
-    const { user, subject } = await requireActiveBrowserSessionSubject(ctx);
-    const access = await getAccountFeatureAccess(ctx.db, user._id);
-    if (!access.superAdmin) throw new Error("Super admin access is required.");
+export async function prepareDueBlobCleanupCore(ctx: MutationCtx, subject: AuthSubject, scheduled = false) {
     const now = Date.now();
 
     for (const status of OPEN_SUBMISSION_STATUSES) {
       const oldest = await ctx.db
         .query("profileMediaSubmissions")
-        .withIndex("by_status_createdAt", (query) => query.eq("status", status))
+        .withIndex("by_status_expiresAt", (query) => query.eq("status", status).lte("expiresAt", now))
         .order("asc")
         .take(50);
       for (const submission of oldest) {
@@ -1462,6 +1464,10 @@ export const prepareDueBlobCleanup = mutation({
     return await Promise.all(
       eligible.map(async (submission) => {
         const cleanupToken = submission.blobCleanupToken ?? `${submission._id}:${now}`;
+        // Move leased work behind older due rows so a failed storage batch cannot
+        // permanently occupy the bounded scheduled queue. The token authorizes
+        // confirmation after deletion, including during this retry backoff.
+        if (scheduled) await ctx.db.patch(submission._id, { blobDeleteAfter: now + 10 * 60 * 1000 });
         if (submission.blobCleanupToken === undefined) {
           await ctx.db.patch(submission._id, {
             blobCleanupToken: cleanupToken,
@@ -1486,17 +1492,9 @@ export const prepareDueBlobCleanup = mutation({
         };
       }),
     );
-  },
-});
+}
 
-export const markBlobCleanupComplete = mutation({
-  args: {
-    items: v.array(v.object({ submissionId, cleanupToken: v.string() })),
-  },
-  handler: async (ctx, args) => {
-    const { user, subject } = await requireActiveBrowserSessionSubject(ctx);
-    const access = await getAccountFeatureAccess(ctx.db, user._id);
-    if (!access.superAdmin) throw new Error("Super admin access is required.");
+export async function markBlobCleanupCompleteCore(ctx: MutationCtx, args: { items: { submissionId: Id<"profileMediaSubmissions">; cleanupToken: string }[] }, subject: AuthSubject) {
     if (args.items.length > 20) throw new Error("Cleanup batch is too large.");
     const now = Date.now();
     let completed = 0;
@@ -1507,11 +1505,17 @@ export const markBlobCleanupComplete = mutation({
         submission === null ||
         submission.blobCleanupToken !== cleanupToken ||
         submission.blobDeleteAfter === undefined ||
-        submission.blobDeleteAfter > now ||
         submission.legalHoldAt !== undefined ||
         submission.blobDeletedAt !== undefined
       ) {
         continue;
+      }
+      if (submission.uploadIntentId) {
+        const reservation = await ctx.db.query("contributionUploadReservations").withIndex("by_intentId", q => q.eq("intentId", submission.uploadIntentId!)).unique();
+        if (reservation) {
+          await changeContributionCharge(ctx.db, reservation, -reservation.chargedBytes, reservation.processing ? -1 : 0);
+          await ctx.db.patch(reservation._id, { chargedBytes: 0, quarantineBytes: 0, processing: false });
+        }
       }
       await ctx.db.patch(id, {
         blobDeletedAt: now,
@@ -1530,8 +1534,18 @@ export const markBlobCleanupComplete = mutation({
       completed += 1;
     }
     return { completed };
-  },
-});
+}
+
+export const prepareDueBlobCleanup = mutation({ args: {}, handler: async (ctx) => {
+  const { user, subject } = await requireActiveBrowserSessionSubject(ctx);
+  if (!(await getAccountFeatureAccess(ctx.db, user._id)).superAdmin) throw new Error("Super admin access is required.");
+  return prepareDueBlobCleanupCore(ctx, subject);
+} });
+export const markBlobCleanupComplete = mutation({ args: { items: v.array(v.object({ submissionId, cleanupToken: v.string() })) }, handler: async (ctx, args) => {
+  const { user, subject } = await requireActiveBrowserSessionSubject(ctx);
+  if (!(await getAccountFeatureAccess(ctx.db, user._id)).superAdmin) throw new Error("Super admin access is required.");
+  return markBlobCleanupCompleteCore(ctx, args, subject);
+} });
 
 export const setBlobLegalHold = mutation({
   args: {
@@ -1550,6 +1564,10 @@ export const setBlobLegalHold = mutation({
     if (submission === null) throw new Error("Media contribution not found.");
     if (args.held && submission.blobDeletedAt !== undefined) {
       throw new Error("Candidate file has already been deleted.");
+    }
+    if (args.held && submission.uploadIntentId) {
+      const reservation = await ctx.db.query("contributionUploadReservations").withIndex("by_intentId", q => q.eq("intentId", submission.uploadIntentId!)).unique();
+      if (reservation?.cleanupToken) throw new Error("Candidate file cleanup is already in progress.");
     }
     if (args.held && submission.blobCleanupToken !== undefined) {
       throw new Error("Candidate file cleanup is already in progress.");
