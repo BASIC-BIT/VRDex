@@ -25,8 +25,8 @@ process.env.VRDEX_MEDIA_CLEANUP_TOKEN = "test-only";
 process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED = "true";
 process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "true";
 
-async function fixture(mode: "owner" | "contributor" = "contributor") {
-  const t = convexTest({ schema, modules });
+async function fixture(mode: "owner" | "contributor" = "contributor", bytesRead?: number) {
+  const t = convexTest({ schema, modules, transactionLimits: bytesRead === undefined ? false : { bytesRead } });
   const s = await seed(t);
   if (mode === "owner")
     await t.run(async (ctx) => {
@@ -95,6 +95,25 @@ async function fixture(mode: "owner" | "contributor" = "contributor") {
     downloadContentSha256: "b".repeat(64),
   };
   return { t, s, tokenId, authority, input, begun, claimInput, completeInput };
+}
+
+for (const duplicate of [false, true]) {
+  it(`bounds completion reads across deleted history, duplicate=${duplicate}`, async () => {
+    const f = await fixture("contributor", 32_000);
+    await f.t.run(async ctx => {
+      for (let i = 0; i < 80; i++) await ctx.db.insert("profileAssets", {
+        profileId: f.s.profileId, storageKey: `history/${i}`, mimeType: "image/png", byteSize: 512,
+        contentSha256: duplicate && i === 79 ? f.completeInput.contentSha256 : `old-${i}`,
+        caption: "x".repeat(1000), visibility: "public", source: "owner_authored",
+        uploadedBy: { issuer: "test", subject: "owner", tokenIdentifier: "test:owner" },
+        uploadedAt: NOW, state: "deleted", deletedAt: NOW, updatedAt: NOW,
+      });
+    });
+    await f.t.mutation(internal.contributionUploads.claim, f.claimInput);
+    const completion = f.t.mutation(internal.contributionUploads.complete, f.completeInput);
+    if (duplicate) await assert.rejects(completion, /This image already exists/);
+    else assert.equal((await completion).operationState, "committed");
+  });
 }
 
 it("replays admission without another reservation and refuses conflicting declarations", async () => {

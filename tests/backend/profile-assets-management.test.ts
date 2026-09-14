@@ -675,6 +675,20 @@ describe("profile media-kit owner management", () => {
     }), /title/);
   });
 
+  it("refuses legacy completion when a matching asset was deleted", async () => {
+    const seeded = await seedOwnedProfile(1);
+    await seeded.t.run(ctx => ctx.db.patch(seeded.assetIds[0]!, { state: "deleted", deletedAt: Date.now() }));
+    const intent = await seeded.t.withIdentity(seeded.ownerIdentity).mutation(api.profileAssets.createUploadIntentForOwnedProfile, {
+      profileId: seeded.profileId, originalFileName: "deleted-duplicate.png", mimeType: "image/png", byteSize: 128, label: "Duplicate", altText: "Duplicate image.",
+    });
+    const processingToken = await claimUploadIntent(seeded, intent);
+    await assert.rejects(seeded.t.mutation(internal.profileAssets.markUploadIntentUploaded, {
+      intentId: intent.intentId, uploadToken: intent.uploadToken, processingToken,
+      mimeType: "image/png", byteSize: 128, contentSha256: "hash-0", width: 20, height: 20,
+    }), /This image already exists/);
+    assert.equal((await seeded.t.run(ctx => ctx.db.get(intent.intentId)))?.state, "pending");
+  });
+
   it("rechecks duplicate content and replaces singleton featured placement during completion", async () => {
     const seeded = await seedOwnedProfile(2);
     const owner = seeded.t.withIdentity(seeded.ownerIdentity);

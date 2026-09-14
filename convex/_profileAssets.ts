@@ -977,11 +977,13 @@ export async function finalizeProfileAssetUploadIntentUpload(
   }
 
   if (intent.targetProfileId !== undefined && input.contentSha256 !== undefined) {
-    const existingAssets = await db
+    const existingAsset = await db
       .query("profileAssets")
-      .withIndex("by_profileId", (query) => query.eq("profileId", intent.targetProfileId!))
-      .collect();
-    if (existingAssets.some((asset) => asset.contentSha256 === input.contentSha256)) {
+      .withIndex("by_profileId_contentSha256_state", (query) =>
+        query.eq("profileId", intent.targetProfileId!).eq("contentSha256", input.contentSha256!),
+      )
+      .first();
+    if (existingAsset !== null) {
       throw new ConvexError("This image already exists in the profile media kit.");
     }
   }
