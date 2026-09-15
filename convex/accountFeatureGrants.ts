@@ -7,6 +7,7 @@ const accountFeatureValidator = v.union(
   v.literal("super_admin"),
   v.literal("view_private_seed_lookup"),
   v.literal("use_temporal_parsing_beta"),
+  v.literal("media_reviewer"),
 );
 
 function optionalAuditText(value: string | undefined): string | undefined {

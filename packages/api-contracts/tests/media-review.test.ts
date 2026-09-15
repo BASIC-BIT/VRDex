@@ -40,3 +40,76 @@ it("offers separate review read and decision delegation without contribution sco
   assert.ok(dynamicMcpClientScopes.includes("assets:review:read"));
   assert.ok(dynamicMcpResourceWriteScopes.includes("assets:review:write"));
 });
+import {
+  reviewRebaseSchema,
+  selectedReviewDecisionsSchema,
+} from "../src/media-review";
+it("bounds explicit selected decisions and refuses caller-controlled authority or filter approval", () => {
+  const decision = {
+    submissionId: "submission",
+    expectedReviewVersion: "version",
+    decision: "approve",
+    privateReason: "Examined",
+    idempotencyKey: "key",
+  };
+  assert.equal(
+    selectedReviewDecisionsSchema.safeParse({
+      decisions: Array(20).fill(decision),
+    }).success,
+    true,
+  );
+  for (const input of [
+    { decisions: [] },
+    { decisions: Array(21).fill(decision) },
+    { status: "submitted" },
+    { decisions: [{ ...decision, actorUserId: "admin" }] },
+    { decisions: [{ ...decision, superAdmin: true }] },
+  ])
+    assert.equal(selectedReviewDecisionsSchema.safeParse(input).success, false);
+  assert.equal(
+    reviewRebaseSchema.safeParse({
+      submissionId: "submission",
+      expectedReviewVersion: "version",
+      idempotencyKey: "key",
+      reviewerUserId: "admin",
+    }).success,
+    false,
+  );
+});
+import { decideSelectedReviews } from "../src/media-review";
+it("retains an indeterminate lost response and replays the original key without another commit", async () => {
+  const input = {
+    decisions: [
+      {
+        submissionId: "one",
+        expectedReviewVersion: "v1",
+        decision: "approve",
+        privateReason: "Viewed",
+        idempotencyKey: "stable",
+      },
+    ],
+  };
+  const saved = new Map<
+    string,
+    { operationId: string; operationState: "committed"; resourceId: string }
+  >();
+  let writes = 0;
+  const decide = async (command: { idempotencyKey: string }) => {
+    const old = saved.get(command.idempotencyKey);
+    if (old) return old;
+    writes++;
+    saved.set(command.idempotencyKey, {
+      operationId: "authoritative",
+      operationState: "committed",
+      resourceId: "one",
+    });
+    throw new Error("Response lost after commit");
+  };
+  const uncertain = await decideSelectedReviews(input, decide);
+  assert.equal(uncertain.receipts[0]?.operationState, "in_progress");
+  assert.equal(uncertain.receipts[0]?.code, "decision_unavailable");
+  const replay = await decideSelectedReviews(input, decide);
+  assert.deepEqual(replay.receipts[0], saved.get("stable"));
+  assert.equal(writes, 1);
+  assert.equal(input.decisions[0]?.idempotencyKey, "stable");
+});

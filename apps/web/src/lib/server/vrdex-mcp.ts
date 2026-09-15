@@ -1,3 +1,4 @@
+import { reviewRebaseSchema, selectedReviewDecisionsSchema } from "@vrdex/api-contracts";
 import { createMcpContributionHandlers, contributionOperations, type ContributionOperation } from "./mcp-contribution-batches";
 import { createMcpMediaUploadHandlers } from "./mcp-media-upload";
 import { localUploadRequestSchema, localUploadCompleteSchema, localUploadTargetSchema } from "@vrdex/api-contracts";
@@ -156,6 +157,8 @@ const mcpWriteToolResourceScopes: Record<(typeof mcpWriteToolNames)[number], Api
   vrdex_profile_media_manage: "assets:write",
   vrdex_profile_media_submit: "assets:contribute",
   vrdex_media_review_decide: "assets:review:write",
+  vrdex_media_review_rebase: "assets:review:write",
+  vrdex_media_review_decide_selected: "assets:review:write",
   vrdex_media_submission_withdraw: "assets:contribute",
   vrdex_contribution_batch_create: "mcp:write",
   vrdex_contribution_batch_append: "mcp:write",
@@ -1875,6 +1878,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
         return await adminConvex().mutation(
           name === "decide"
             ? internal.profileMediaSubmissions.decideForMcpActor
+            : name === "rebase" ? internal.profileMediaSubmissions.rebaseForMcpActor
             : internal.profileMediaSubmissions.withdrawForMcpActor,
           { ...args, submissionId, actorUserId: principal.userId } as never,
         );
@@ -2440,6 +2444,19 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
         : await mediaReviewHandlersFor(principal).decide(input);
     },
   );
+
+  server.registerTool("vrdex_media_review_rebase",{
+    title:"Rebase",description:"vrdex_media_review_rebase",inputSchema:reviewRebaseSchema,
+    outputSchema:mcpOutputSchema(commandReceiptSchema),
+    annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:true,openWorldHint:false},
+    _meta:{securitySchemes:mcpWriteSecuritySchemes("vrdex_media_review_rebase")},
+  },async input=>{const principal=principalFor("vrdex_media_review_rebase");return principal===null?mcpWriteUnauthorized("vrdex_media_review_rebase"):await mediaReviewHandlersFor(principal).rebase(input);});
+  server.registerTool("vrdex_media_review_decide_selected",{
+    title:"Decide selected",description:"vrdex_media_review_decide_selected",inputSchema:selectedReviewDecisionsSchema,
+    outputSchema:mcpOutputSchema(z.strictObject({receipts:z.array(commandReceiptSchema).min(1).max(20)})),
+    annotations:{readOnlyHint:false,destructiveHint:true,idempotentHint:true,openWorldHint:false},
+    _meta:{securitySchemes:mcpWriteSecuritySchemes("vrdex_media_review_decide_selected")},
+  },async input=>{const principal=principalFor("vrdex_media_review_decide_selected");return principal===null?mcpWriteUnauthorized("vrdex_media_review_decide_selected"):await mediaReviewHandlersFor(principal).decideSelected(input);});
 
   server.registerTool(
     "vrdex_media_submission_withdraw",

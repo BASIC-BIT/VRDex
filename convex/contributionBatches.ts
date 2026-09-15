@@ -1,3 +1,9 @@
+import {
+  activeBatchAssignment,
+  reviewerContext,
+  trustedReviewActor,
+} from "./_mediaReview";
+import { readScopedCursor, writeScopedCursor } from "./_reviewCursor";
 import { v } from "convex/values";
 import {
   internalMutation,
@@ -76,17 +82,10 @@ export async function requireContributionBatch(
   const row = await ctx.db.get(args.batchId);
   if (!row) throw new Error("BATCH_UNAVAILABLE");
   if (row.actorUserId !== args.actorUserId) {
-    const assignment = await ctx.db
-      .query("contributionBatchReviewers")
-      .withIndex("by_batch_reviewer", (q) =>
-        q.eq("batchId", row._id).eq("reviewerUserId", args.actorUserId),
-      )
-      .unique();
     if (
       write ||
       !token.scopes.includes("assets:review:read") ||
-      !assignment?.active ||
-      assignment.expiresAt <= Date.now()
+      !(await activeBatchAssignment(ctx, row._id, args.actorUserId))
     )
       throw new Error("BATCH_UNAVAILABLE");
   }
@@ -293,7 +292,8 @@ export const items = internalQuery({
     isDone: v.boolean(),
   }),
   handler: async (ctx, args) => {
-    await requireContributionBatch(ctx, args, false);
+    const batch = await requireContributionBatch(ctx, args, false);
+    const scope = `items:${args.actorUserId}:${args.batchId}`;
     if (
       !Number.isInteger(args.limit) ||
       args.limit < 1 ||
@@ -304,7 +304,10 @@ export const items = internalQuery({
     const page = await ctx.db
       .query("contributionItems")
       .withIndex("by_batch_key", (q) => q.eq("batchId", args.batchId))
-      .paginate({ numItems: args.limit, cursor: args.cursor });
+      .paginate({
+        numItems: args.limit,
+        cursor: readScopedCursor(args.cursor, scope),
+      });
     return {
       page: await Promise.all(
         page.page.map(async (row) => {
@@ -313,6 +316,21 @@ export const items = internalQuery({
           const media = a?.submissionId
             ? await ctx.db.get(a.submissionId)
             : null;
+          if (batch.actorUserId !== args.actorUserId) {
+            if (!media) return null;
+            const profile = await ctx.db.get(media.profileId);
+            if (!profile) return null;
+            try {
+              await reviewerContext(
+                ctx,
+                profile,
+                await trustedReviewActor(ctx, args.actorUserId, args),
+                media,
+              );
+            } catch {
+              return null;
+            }
+          }
           return {
             itemKey: row.itemKey,
             revision: row.revision,
@@ -325,8 +343,8 @@ export const items = internalQuery({
               : {}),
           };
         }),
-      ),
-      cursor: page.continueCursor,
+      ).then((rows) => rows.filter((row) => row !== null)),
+      cursor: writeScopedCursor(page.continueCursor, scope),
       isDone: page.isDone,
     };
   },
@@ -630,15 +648,17 @@ export const reconcilePage = internalQuery({
     await authorizeContribution(ctx, args, false);
     if ((args.cursor?.length ?? 0) > 4096)
       throw new Error("BATCH_PAGE_INVALID");
+    const scope = `reconcile:${args.actorUserId}:${args.kind}`;
+    const cursor = readScopedCursor(args.cursor, scope);
     if (args.kind === "batches") {
       const p = await ctx.db
         .query("contributionBatches")
         .withIndex("by_actor_archived", (q) =>
           q.eq("actorUserId", args.actorUserId).eq("archived", false),
         )
-        .paginate({ numItems: 40, cursor: args.cursor });
+        .paginate({ numItems: 40, cursor });
       return {
-        cursor: p.continueCursor,
+        cursor: writeScopedCursor(p.continueCursor, scope),
         isDone: p.isDone,
         activeRows: p.page.reduce((n, b) => n + b.rowCount, 0),
         retainedRevisions: 0,
@@ -648,9 +668,9 @@ export const reconcilePage = internalQuery({
     const p = await ctx.db
       .query("contributionItemRevisions")
       .withIndex("by_actor", (q) => q.eq("actorUserId", args.actorUserId))
-      .paginate({ numItems: 40, cursor: args.cursor });
+      .paginate({ numItems: 40, cursor });
     return {
-      cursor: p.continueCursor,
+      cursor: writeScopedCursor(p.continueCursor, scope),
       isDone: p.isDone,
       activeRows: 0,
       retainedRevisions: p.page.length,

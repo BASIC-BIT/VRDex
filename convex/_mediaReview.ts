@@ -16,6 +16,8 @@ import {
 } from "./_profileAssets";
 import {
   reviewDecisionSchema,
+  reviewRebaseSchema,
+  type ReviewRebase,
   type ReviewDecision,
   type CommandReceipt,
 } from "../packages/api-contracts/src/media-review";
@@ -86,19 +88,27 @@ export async function reviewerContext(
   ctx: QueryCtx | MutationCtx,
   profile: Doc<"profiles">,
   actor?: ReviewActor,
+  submission?: Doc<"profileMediaSubmissions">,
 ) {
   const currentActor = actor ?? (await browserReviewActor(ctx));
   assertReviewActorVerified(currentActor);
   const { user, subject } = currentActor;
   const access = await getAccountFeatureAccess(ctx.db, user._id);
   const ownsProfile = await userOwnsProfile(ctx.db, profile._id, user._id);
-  if (!access.superAdmin && !ownsProfile) {
+  const assigned =
+    submission !== undefined &&
+    access.canReviewMedia &&
+    profile.claimState === "unclaimed" &&
+    profile.publicationState === "published" &&
+    profile.publicSurfacingState === "public" &&
+    (await hasSubmissionAssignment(ctx, submission, user._id));
+  if (!access.superAdmin && !ownsProfile && !assigned) {
     throw new ConvexError({
       code: "MEDIA_REVIEW_ACCESS_REQUIRED",
       message: "Profile media review access is required.",
     });
   }
-  if (!access.superAdmin && profile.claimState === "unclaimed") {
+  if (!access.superAdmin && !assigned && profile.claimState === "unclaimed") {
     throw new Error(
       "Only a moderator can review media for an unclaimed profile.",
     );
@@ -159,11 +169,16 @@ export async function applyReviewDecision(
     ctx,
     profile,
     actor,
+    submission,
   );
   if (submission.submitterUserId === user._id) {
     throw new Error("You cannot decide your own media contribution.");
   }
-  if (profile.updatedAt !== args.expectedProfileUpdatedAt) {
+  if (
+    profile.updatedAt !== args.expectedProfileUpdatedAt ||
+    (args.decision === "approve" &&
+      profile.updatedAt !== submission.targetProfileUpdatedAt)
+  ) {
     throw new Error("The target profile changed. Refresh before deciding.");
   }
   const privateReason = sanitizeNote(args.privateReason, 1_000);
@@ -330,17 +345,21 @@ export async function reviewSnapshot(
     placement === null ? null : await ctx.db.get(placement.assetId);
   const authoredPlacements = await ctx.db
     .query("profileAssetPlacements")
-    .withIndex("by_profileId_state", (q) => q.eq("profileId", profile._id).eq("state", "active"))
+    .withIndex("by_profileId_state", (q) =>
+      q.eq("profileId", profile._id).eq("state", "active"),
+    )
     .collect();
-  const hasAuthoredProfileImage = authoredPlacements.some((row) =>
-    row.placement === "profile_image" || row.placement === "primary_logo"
+  const hasAuthoredProfileImage = authoredPlacements.some(
+    (row) =>
+      row.placement === "profile_image" || row.placement === "primary_logo",
   );
-  const currentAutomaticImageUrl = await automaticProfileImage(
-    ctx.db,
-    profile,
-    "profile_page",
-    hasAuthoredProfileImage,
-  ) ?? null;
+  const currentAutomaticImageUrl =
+    (await automaticProfileImage(
+      ctx.db,
+      profile,
+      "profile_page",
+      hasAuthoredProfileImage,
+    )) ?? null;
   const intent =
     submission.uploadIntentId === undefined
       ? null
@@ -422,7 +441,7 @@ export async function decideReviewCommand(
     throw new Error("Media contribution unavailable.");
   // Revalidate authority before receipt lookup: losing ownership or the reviewer
   // grant also loses access to historical operation results.
-  await reviewerContext(ctx, profile, actor);
+  await reviewerContext(ctx, profile, actor, submission);
   const inputHash = await hash(args);
   const previous = await ctx.db
     .query("mediaReviewReceipts")
@@ -458,6 +477,11 @@ export async function decideReviewCommand(
     code = "target_unavailable";
   else if (snapshot.reviewVersion !== args.expectedReviewVersion)
     code = "review_changed";
+  else if (
+    args.decision === "approve" &&
+    profile.updatedAt !== submission.targetProfileUpdatedAt
+  )
+    code = "target_changed";
   else if (
     args.decision === "approve" &&
     (snapshot.currentPlacement?.assetId ?? undefined) !==
@@ -555,6 +579,141 @@ export async function decideReviewCommand(
     );
     await ctx.db.patch(submission._id, {
       reviewRevision: (submission.reviewRevision ?? 0) + 1,
+    });
+  }
+  await ctx.db.insert("mediaReviewReceipts", {
+    actorUserId: actor.user._id,
+    idempotencyKey: args.idempotencyKey,
+    inputHash,
+    submissionId: submission._id,
+    receipt,
+    createdAt: Date.now(),
+  });
+  return receipt;
+}
+
+export async function activeBatchAssignment(
+  ctx: Pick<QueryCtx, "db">,
+  batchId: Id<"contributionBatches">,
+  userId: Id<"users">,
+) {
+  if (process.env.VRDEX_CONTRIBUTION_BATCHES_ENABLED !== "true") return false;
+  const access = await getAccountFeatureAccess(ctx.db, userId);
+  if (!access.canReviewMedia) return false;
+  const assignment = await ctx.db
+    .query("contributionBatchReviewers")
+    .withIndex("by_batch_reviewer", (q) =>
+      q.eq("batchId", batchId).eq("reviewerUserId", userId),
+    )
+    .unique();
+  return assignment?.active === true && assignment.expiresAt > Date.now();
+}
+export async function hasSubmissionAssignment(
+  ctx: Pick<QueryCtx, "db">,
+  submission: Doc<"profileMediaSubmissions">,
+  userId: Id<"users">,
+) {
+  const attempt = await ctx.db
+    .query("contributionItemAttempts")
+    .withIndex("by_submissionId", (q) => q.eq("submissionId", submission._id))
+    .unique();
+  const revision = attempt ? await ctx.db.get(attempt.revisionId) : null;
+  return (
+    revision !== null &&
+    revision.actorUserId === submission.submitterUserId &&
+    (await activeBatchAssignment(ctx, revision.batchId, userId))
+  );
+}
+export async function rebaseReviewCommand(
+  ctx: MutationCtx,
+  input: ReviewRebase,
+  actor: ReviewActor,
+): Promise<CommandReceipt> {
+  const args = reviewRebaseSchema.parse(input);
+  const id = ctx.db.normalizeId("profileMediaSubmissions", args.submissionId);
+  const submission = id ? await ctx.db.get(id) : null;
+  const profile = submission ? await ctx.db.get(submission.profileId) : null;
+  if (!submission || !profile)
+    throw new Error("Media contribution unavailable.");
+  await reviewerContext(ctx, profile, actor, submission);
+  const inputHash = await hash({ command: "rebase", ...args });
+  const previous = await ctx.db
+    .query("mediaReviewReceipts")
+    .withIndex("by_actorUserId_idempotencyKey", (q) =>
+      q
+        .eq("actorUserId", actor.user._id)
+        .eq("idempotencyKey", args.idempotencyKey),
+    )
+    .unique();
+  if (previous)
+    return previous.inputHash === inputHash
+      ? previous.receipt
+      : {
+          operationId: previous.receipt.operationId,
+          operationState: "refused",
+          code: "idempotency_conflict",
+        };
+  const snapshot = await reviewSnapshot(ctx, submission, profile);
+  const code =
+    process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED !== "true"
+      ? "review_disabled"
+      : submission.submitterUserId === actor.user._id
+        ? "self_review"
+        : !["submitted", "under_review"].includes(submission.status)
+          ? "already_decided"
+          : submission.expiresAt <= Date.now()
+            ? "expired"
+            : profile.publicationState !== "published" ||
+                profile.publicSurfacingState !== "public"
+              ? "target_unavailable"
+              : snapshot.reviewVersion !== args.expectedReviewVersion
+                ? "review_changed"
+                : undefined;
+  const receipt: CommandReceipt = {
+    operationId: crypto.randomUUID(),
+    resourceId: submission._id,
+    operationState: code ? "refused" : "committed",
+    ...(code ? { code } : {}),
+  };
+  if (!code) {
+    await ctx.db.insert("mediaReviewRebases", {
+      submissionId: submission._id,
+      actorUserId: actor.user._id,
+      priorTargetUpdatedAt: submission.targetProfileUpdatedAt,
+      currentTargetUpdatedAt: profile.updatedAt,
+      priorPlacementAssetId: submission.targetPlacementAssetId,
+      currentPlacementAssetId: snapshot.currentPlacement?.assetId,
+      priorTargetSnapshot: JSON.stringify({
+        profileId: submission.profileId,
+        slug: submission.targetProfileSlug,
+        displayName: submission.targetProfileDisplayName,
+        updatedAt: submission.targetProfileUpdatedAt,
+      }),
+      currentTargetSnapshot: JSON.stringify({
+        profileId: profile._id,
+        slug: profile.slug,
+        displayName: profile.displayName,
+        claimState: profile.claimState,
+        publicationState: profile.publicationState,
+        publicSurfacingState: profile.publicSurfacingState,
+        updatedAt: profile.updatedAt,
+      }),
+      currentPlacementSnapshot: JSON.stringify({
+        placement: snapshot.currentPlacement,
+        avatarImageUrl: snapshot.currentAvatarImageUrl,
+        automaticImageUrl: snapshot.currentAutomaticImageUrl,
+      }),
+      priorReviewVersion: snapshot.reviewVersion,
+      reviewRevision: (submission.reviewRevision ?? 0) + 1,
+      createdAt: Date.now(),
+    });
+    await ctx.db.patch(submission._id, {
+      targetProfileSlug: profile.slug,
+      targetProfileDisplayName: profile.displayName,
+      targetProfileUpdatedAt: profile.updatedAt,
+      targetPlacementAssetId: snapshot.currentPlacement?.assetId,
+      reviewRevision: (submission.reviewRevision ?? 0) + 1,
+      updatedAt: Date.now(),
     });
   }
   await ctx.db.insert("mediaReviewReceipts", {

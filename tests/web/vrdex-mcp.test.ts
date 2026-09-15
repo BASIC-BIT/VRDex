@@ -85,7 +85,7 @@ function assertAuthenticatedReadSecuritySchemes(value: unknown) {
 function isWriteToolName(name: string | undefined) {
   if (name === "vrdex_media_upload_begin" || name === "vrdex_media_upload_complete") return true;
   return name === "vrdex_profile_media_manage" || name === "vrdex_profile_media_submit" ||
-    name === "vrdex_media_review_decide" || name === "vrdex_media_submission_withdraw" ||
+    name === "vrdex_media_review_decide" || name === "vrdex_media_review_rebase" || name === "vrdex_media_review_decide_selected" || name === "vrdex_media_submission_withdraw" ||
     (name !== undefined && /^vrdex_(event|profile)_(create|update|submit)$/.test(name));
 }
 
@@ -132,6 +132,8 @@ describe("VRDex MCP server", () => {
       vrdex_media_review_get: ["mcp:read", "assets:review:read"],
       vrdex_media_review_preview: ["mcp:read", "assets:review:read"],
       vrdex_media_review_decide: ["mcp:write", "assets:review:write"],
+      vrdex_media_review_rebase: ["mcp:write", "assets:review:write"],
+      vrdex_media_review_decide_selected: ["mcp:write", "assets:review:write"],
       vrdex_media_submission_withdraw: ["mcp:write", "assets:contribute"],
     } as const;
     for (const [name, scopes] of Object.entries(expected)) {
@@ -507,6 +509,8 @@ describe("VRDex MCP server", () => {
       "vrdex_media_upload_begin",
       "vrdex_media_upload_complete",
       "vrdex_media_review_decide",
+      "vrdex_media_review_rebase",
+      "vrdex_media_review_decide_selected",
       "vrdex_media_submission_withdraw",
       "vrdex_event_create",
       "vrdex_event_update",
@@ -528,6 +532,8 @@ describe("VRDex MCP server", () => {
       vrdex_profile_media_manage: "assets:write",
       vrdex_profile_media_submit: "assets:contribute",
       vrdex_media_review_decide: "assets:review:write",
+      vrdex_media_review_rebase: "assets:review:write",
+      vrdex_media_review_decide_selected: "assets:review:write",
       vrdex_media_submission_withdraw: "assets:contribute",
     };
 

@@ -421,6 +421,7 @@ const accountFeature = v.union(
   v.literal("super_admin"),
   v.literal("view_private_seed_lookup"),
   v.literal("use_temporal_parsing_beta"),
+  v.literal("media_reviewer"),
 );
 
 const temporalParseJobStatus = v.union(
@@ -870,6 +871,13 @@ export default defineSchema({
   }).index("by_intentId", ["intentId"])
     .index("by_actor_client_key", ["actorUserId", "oauthClientId", "idempotencyKey"])
     .index("by_cleanupAfter", ["cleanupAfter"]),
+  mediaReviewRebases: defineTable({
+    submissionId:v.id("profileMediaSubmissions"),actorUserId:v.id("users"),
+    priorTargetUpdatedAt:v.number(),currentTargetUpdatedAt:v.number(),
+    priorPlacementAssetId:v.optional(v.id("profileAssets")),currentPlacementAssetId:v.optional(v.id("profileAssets")),
+    priorTargetSnapshot:v.string(),currentTargetSnapshot:v.string(),currentPlacementSnapshot:v.string(),
+    priorReviewVersion:v.string(),reviewRevision:v.number(),createdAt:v.number(),
+  }).index("by_submissionId",["submissionId"]),
   mediaReviewReceipts: defineTable({
     actorUserId: v.id("users"), idempotencyKey: v.string(), inputHash: v.string(),
     submissionId: v.id("profileMediaSubmissions"),

@@ -1,3 +1,5 @@
+import { readScopedCursor, writeScopedCursor } from "./_reviewCursor";
+import { activeBatchAssignment } from "./_mediaReview";
 import { changeContributionCharge } from "./_contributionCapacity";
 import { ConvexError, v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
@@ -5,7 +7,7 @@ import { normalizeMcpContributionSourceUrl } from "../packages/api-contracts/src
 
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
-import { browserReviewActor, assertReviewActorVerified, reviewActorAttestationArgs, reviewerContext, legacyDecisionArgs, applyReviewDecision, reviewSnapshot, decideReviewCommand, trustedReviewActor, type ReviewActor } from "./_mediaReview";
+import { browserReviewActor, assertReviewActorVerified, reviewActorAttestationArgs, reviewerContext, legacyDecisionArgs, applyReviewDecision, reviewSnapshot, rebaseReviewCommand, decideReviewCommand, trustedReviewActor, type ReviewActor } from "./_mediaReview";
 import { getAccountFeatureAccess } from "./_accountFeatures";
 import type { AuthSubject } from "./_communityAuthority";
 import { requireActiveBrowserSessionSubject } from "./_browserSessionAuthority";
@@ -1096,6 +1098,7 @@ export const getReviewAccess = query({
     ).filter((profile): profile is Doc<"profiles"> => profile !== null);
     return {
       superAdmin: access.superAdmin,
+      canReviewMedia:access.canReviewMedia,
       profiles: profiles.map((profile) => ({
         profileId: profile._id,
         slug: profile.slug,
@@ -1216,6 +1219,7 @@ const reviewDetailValidator = v.union(
   }),
 );
 const reviewPageArgs = {
+  batchId: v.optional(v.id("contributionBatches")),
   profileId: v.optional(v.id("profiles")),
   status: v.optional(reviewQueueStatus),
   paginationOpts: paginationOptsValidator,
@@ -1223,6 +1227,7 @@ const reviewPageArgs = {
 async function authorizedReviewPage(
   ctx: QueryCtx,
   args: {
+    batchId?: Id<"contributionBatches">;
     profileId?: Id<"profiles">;
     status?: "submitted" | "under_review" | "approved" | "rejected";
     paginationOpts: { numItems: number; cursor: string | null };
@@ -1237,6 +1242,67 @@ async function authorizedReviewPage(
   )
     throw new Error("Invalid review page.");
   const status = args.status ?? "submitted";
+  const currentActor = actor ?? (await browserReviewActor(ctx));
+  assertReviewActorVerified(currentActor);
+  const scope = JSON.stringify([
+    currentActor.user._id,
+    args.batchId ?? null,
+    args.profileId ?? null,
+    status,
+  ]);
+  const paginationOpts = {
+    ...args.paginationOpts,
+    cursor: readScopedCursor(args.paginationOpts.cursor, scope),
+  };
+  if (args.batchId) {
+    const batch = await ctx.db.get(args.batchId);
+    const access = await getAccountFeatureAccess(ctx.db, currentActor.user._id);
+    if (
+      !batch ||
+      (!access.superAdmin &&
+        !(await activeBatchAssignment(ctx, batch._id, currentActor.user._id)))
+    )
+      throw new Error("BATCH_UNAVAILABLE");
+    // Traverse immutable revisions through the batch index. Filter this bounded page,
+    // preserve its continuation even when no submission matches the status.
+    const revisions = await ctx.db
+      .query("contributionItemRevisions")
+      .withIndex("by_batch_key_revision", (q) => q.eq("batchId", batch._id))
+      .paginate(paginationOpts);
+    const page = [];
+    for (const rev of revisions.page) {
+      const attempt = await ctx.db
+        .query("contributionItemAttempts")
+        .withIndex("by_revision", (q) => q.eq("revisionId", rev._id))
+        .unique();
+      const submission = attempt?.submissionId
+        ? await ctx.db.get(attempt.submissionId)
+        : null;
+      if (
+        !submission ||
+        submission.status !== status ||
+        (args.profileId && submission.profileId !== args.profileId) ||
+        (["submitted", "under_review"].includes(status) &&
+          submission.expiresAt <= Date.now())
+      )
+        continue;
+      const profile = await ctx.db.get(submission.profileId);
+      if (!profile) continue;
+      try {
+        await reviewerContext(ctx, profile, currentActor, submission);
+      } catch {
+        continue;
+      }
+      page.push(
+        await reviewSubmission(ctx, submission, profile, access.superAdmin),
+      );
+    }
+    return {
+      ...revisions,
+      page,
+      continueCursor: writeScopedCursor(revisions.continueCursor, scope),
+    };
+  }
   let submissionsPage;
   let includeModeratorEvidence = false;
   if (args.profileId !== undefined) {
@@ -1260,9 +1326,9 @@ async function authorizedReviewPage(
           ),
       )
       .order("asc")
-      .paginate(args.paginationOpts);
+      .paginate(paginationOpts);
   } else {
-    const currentActor = actor ?? await browserReviewActor(ctx);
+    const currentActor = actor ?? (await browserReviewActor(ctx));
     assertReviewActorVerified(currentActor);
     const { user } = currentActor;
     const access = await getAccountFeatureAccess(ctx.db, user._id);
@@ -1281,7 +1347,7 @@ async function authorizedReviewPage(
           ),
       )
       .order("asc")
-      .paginate(args.paginationOpts);
+      .paginate(paginationOpts);
   }
   const page = await Promise.all(
     submissionsPage.page.map(async (submission) => {
@@ -1296,7 +1362,11 @@ async function authorizedReviewPage(
           );
     }),
   ).then((items) => items.filter((item) => item !== null));
-  return { ...submissionsPage, page };
+  return {
+    ...submissionsPage,
+    page,
+    continueCursor: writeScopedCursor(submissionsPage.continueCursor, scope),
+  };
 }
 export const listForReview = query({
   args: reviewPageArgs,
@@ -1358,7 +1428,7 @@ export const startReview = mutation({
     }
     const profile = await ctx.db.get(submission.profileId);
     if (profile === null) throw new Error("The target profile no longer exists.");
-    const { subject, user } = await reviewerContext(ctx, profile);
+    const { subject, user } = await reviewerContext(ctx, profile, undefined, submission);
     if (submission.submitterUserId === user._id) {
       throw new Error("You cannot review your own media contribution.");
     }
@@ -1644,7 +1714,7 @@ async function authorizedReviewDetail(
   const profile =
     submission === null ? null : await ctx.db.get(submission.profileId);
   if (submission === null || profile === null) return null;
-  const access = await reviewerContext(ctx, profile, actor);
+  const access = await reviewerContext(ctx, profile, actor, submission);
   const projection = await reviewSubmission(
     ctx,
     submission,
@@ -1718,4 +1788,106 @@ export const candidateForMcpActor = internalQuery({
       args.submissionId,
       await trustedReviewActor(ctx, args.actorUserId, args),
     ),
+});
+
+const rebaseArgs = {
+  submissionId,
+  expectedReviewVersion: v.string(),
+  idempotencyKey: v.string(),
+};
+export const rebase = mutation({
+  args: rebaseArgs,
+  returns: receiptValidator,
+  handler: async (ctx, args) =>
+    rebaseReviewCommand(ctx, args, await browserReviewActor(ctx)),
+});
+export const rebaseForMcpActor = internalMutation({
+  args: {
+    ...rebaseArgs,
+    ...reviewActorAttestationArgs,
+    actorUserId: v.id("users"),
+  },
+  returns: receiptValidator,
+  handler: async (
+    ctx,
+    { actorUserId, emailVerified, emailVerificationAttestedAt, ...args },
+  ) =>
+    rebaseReviewCommand(
+      ctx,
+      args,
+      await trustedReviewActor(ctx, actorUserId, {
+        emailVerified,
+        emailVerificationAttestedAt,
+      }),
+    ),
+});
+
+export const assignedReviewBatches = query({
+  args: { paginationOpts: paginationOptsValidator },
+  handler: async (ctx, args) => {
+    const actor = await browserReviewActor(ctx);
+    assertReviewActorVerified(actor);
+    const access = await getAccountFeatureAccess(ctx.db, actor.user._id);
+    if (
+      !access.canReviewMedia ||
+      process.env.VRDEX_CONTRIBUTION_BATCHES_ENABLED !== "true"
+    )
+      return { page: [], isDone: true, continueCursor: "" };
+    if (args.paginationOpts.numItems < 1 || args.paginationOpts.numItems > 40)
+      throw new Error("Invalid review page.");
+    const scope = `assignments:${actor.user._id}`;
+    const result = await ctx.db
+      .query("contributionBatchReviewers")
+      .withIndex("by_reviewer_active", (q) =>
+        q.eq("reviewerUserId", actor.user._id).eq("active", true),
+      )
+      .paginate({
+        ...args.paginationOpts,
+        cursor: readScopedCursor(args.paginationOpts.cursor, scope),
+      });
+    const page = [];
+    for (const assignment of result.page) {
+      if (assignment.expiresAt <= Date.now()) continue;
+      const batch = await ctx.db.get(assignment.batchId);
+      if (batch) page.push({ batchId: batch._id, label: batch.label });
+    }
+    return {
+      ...result,
+      page,
+      continueCursor: writeScopedCursor(result.continueCursor, scope),
+    };
+  },
+});
+export const setBatchReviewer = mutation({
+  args: {
+    batchId: v.id("contributionBatches"),
+    reviewerUserId: v.id("users"),
+    active: v.boolean(),
+    expiresAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const actor = await browserReviewActor(ctx);
+    assertReviewActorVerified(actor);
+    if (!(await getAccountFeatureAccess(ctx.db, actor.user._id)).superAdmin)
+      throw new Error("Super admin access is required.");
+    const batch = await ctx.db.get(args.batchId);
+    if (!batch || !(await ctx.db.get(args.reviewerUserId)))
+      throw new Error("BATCH_UNAVAILABLE");
+    if (
+      args.active &&
+      (batch.actorUserId === args.reviewerUserId ||
+        !Number.isFinite(args.expiresAt) ||
+        args.expiresAt <= Date.now())
+    )
+      throw new Error("ASSIGNMENT_INVALID");
+    const old = await ctx.db
+      .query("contributionBatchReviewers")
+      .withIndex("by_batch_reviewer", (q) =>
+        q.eq("batchId", args.batchId).eq("reviewerUserId", args.reviewerUserId),
+      )
+      .unique();
+    if (old) await ctx.db.patch(old._id, args);
+    else await ctx.db.insert("contributionBatchReviewers", args);
+    return null;
+  },
 });

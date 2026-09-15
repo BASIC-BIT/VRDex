@@ -77,8 +77,8 @@ export const reviewDetailSchema = z.strictObject({
     "superseded",
   ]),
   sourceUrl: z.string().max(4096).optional(),
-    sourceKind: z.enum(["url", "local"]).optional(),
-    sourceDescription: z.string().max(1000).optional(),
+  sourceKind: z.enum(["url", "local"]).optional(),
+  sourceDescription: z.string().max(1000).optional(),
   label: z.string().max(1000).optional(),
   altText: z.string().max(1000).optional(),
   credit: z.string().max(1000),
@@ -103,3 +103,36 @@ export const reviewDetailSchema = z.strictObject({
   ...reviewSnapshotSchema.shape,
 });
 export type ReviewDetail = z.infer<typeof reviewDetailSchema>;
+
+export const reviewRebaseSchema = z.strictObject({
+  submissionId: boundedId,
+  expectedReviewVersion: z.string().min(1).max(128),
+  idempotencyKey: z.string().min(1).max(128),
+});
+export type ReviewRebase = z.infer<typeof reviewRebaseSchema>;
+export const selectedReviewDecisionsSchema = z.strictObject({
+  decisions: z.array(reviewDecisionSchema).min(1).max(20),
+});
+/** Each callback is one separately committed command. Capture the explicit set before awaiting. */
+export async function decideSelectedReviews(
+  input: unknown,
+  decide: (input: ReviewDecision) => Promise<CommandReceipt>,
+) {
+  const { decisions } = selectedReviewDecisionsSchema.parse(input);
+  const receipts: CommandReceipt[] = [];
+  for (const decision of decisions) {
+    try {
+      receipts.push(await decide(decision));
+    } catch {
+      // The transport may have lost a response after commit. Preserve the key
+      // and uncertainty so replay can retrieve the authoritative receipt.
+      receipts.push({
+        operationId: decision.idempotencyKey,
+        resourceId: decision.submissionId,
+        operationState: "in_progress",
+        code: "decision_unavailable",
+      });
+    }
+  }
+  return { receipts };
+}

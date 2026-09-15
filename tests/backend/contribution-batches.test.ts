@@ -734,3 +734,151 @@ it("archives above a downgraded retained ceiling without releasing retained char
   assert.equal(usage?.retainedRevisions, 10001);
   assert.equal(usage?.retainedBytes, 81920001);
 });
+it("uses independently authenticated batch readers and binds their reconciliation cursors", async () => {
+  const f = await fixture();
+  const otherAuthority = {
+    ...f.authority,
+    actorUserId: f.s.moderatorUserId,
+    oauthTokenId: "reviewer-token",
+  };
+  await f.t.run((ctx) =>
+    ctx.db.insert("oauthAccessTokens", {
+      tokenId: "reviewer-token",
+      clientId: "client",
+      subjectType: "user",
+      userId: f.s.moderatorUserId,
+      resource: "https://example.test/mcp",
+      scopes: [
+        "mcp:read",
+        "mcp:write",
+        "profile:contribute",
+        "assets:review:read",
+      ],
+      status: "active",
+      issuedAt: Date.now(),
+      expiresAt: Date.now() + 600000,
+    }),
+  );
+  const other = await f.t.mutation(internal.contributionBatches.create, {
+    ...otherAuthority,
+    input: { label: "Other", idempotencyKey: "other" },
+  });
+  await assert.rejects(
+    f.t.query(internal.contributionBatches.get, {
+      ...otherAuthority,
+      batchId: f.batch.batchId,
+    }),
+    /BATCH_UNAVAILABLE/,
+  );
+  const original = await f.t.query(internal.contributionBatches.items, {
+    ...f.authority,
+    batchId: f.batch.batchId,
+    cursor: null,
+    limit: 1,
+  });
+  await assert.rejects(
+    f.t.query(internal.contributionBatches.items, {
+      ...otherAuthority,
+      batchId: other.batchId,
+      cursor: original.cursor,
+      limit: 1,
+    }),
+    /CURSOR/,
+  );
+  const rec = await f.t.query(internal.contributionBatches.reconcilePage, {
+    ...f.authority,
+    kind: "batches",
+    cursor: null,
+  });
+  await assert.rejects(
+    f.t.query(internal.contributionBatches.reconcilePage, {
+      ...otherAuthority,
+      kind: "batches",
+      cursor: rec.cursor,
+    }),
+    /CURSOR/,
+  );
+  const assignment = await f.t.run((ctx) =>
+    ctx.db.insert("contributionBatchReviewers", {
+      batchId: f.batch.batchId,
+      reviewerUserId: f.s.moderatorUserId,
+      active: true,
+      expiresAt: Date.now() + 600000,
+    }),
+  );
+  await assert.rejects(
+    f.t.query(internal.contributionBatches.get, {
+      ...otherAuthority,
+      batchId: f.batch.batchId,
+    }),
+    /BATCH_UNAVAILABLE/,
+  );
+  const grant = await f.t.run(async (ctx) => {
+    const g = (await ctx.db.query("accountFeatureGrants").first())!;
+    await ctx.db.patch(g._id, { feature: "media_reviewer" });
+    return g._id;
+  });
+  assert.equal(
+    (
+      await f.t.query(internal.contributionBatches.get, {
+        ...otherAuthority,
+        batchId: f.batch.batchId,
+      })
+    ).batchId,
+    f.batch.batchId,
+  );
+  const second = await f.t.mutation(internal.contributionBatches.create, {
+    ...f.authority,
+    input: { label: "Second", idempotencyKey: "second" },
+  });
+  await f.t.run((ctx) =>
+    ctx.db.insert("contributionBatchReviewers", {
+      batchId: second.batchId,
+      reviewerUserId: f.s.moderatorUserId,
+      active: true,
+      expiresAt: Date.now() + 600000,
+    }),
+  );
+  const page = await f.t.query(internal.contributionBatches.items, {
+    ...otherAuthority,
+    batchId: f.batch.batchId,
+    cursor: null,
+    limit: 1,
+  });
+  await assert.rejects(
+    f.t.query(internal.contributionBatches.items, {
+      ...otherAuthority,
+      batchId: second.batchId,
+      cursor: page.cursor,
+      limit: 1,
+    }),
+    /CURSOR/,
+  );
+  for (const change of ["expired", "revoked", "grant"]) {
+    await f.t.run(async (ctx) => {
+      await ctx.db.patch(assignment, {
+        active: change !== "revoked",
+        expiresAt: change === "expired" ? 0 : Date.now() + 600000,
+      });
+      await ctx.db.patch(grant, {
+        state: change === "grant" ? "revoked" : "active",
+      });
+    });
+    await assert.rejects(
+      f.t.query(internal.contributionBatches.get, {
+        ...otherAuthority,
+        batchId: f.batch.batchId,
+      }),
+      /BATCH_UNAVAILABLE/,
+    );
+    await assert.rejects(
+      f.t.query(internal.contributionBatches.items, {
+        ...otherAuthority,
+        batchId: f.batch.batchId,
+        cursor: null,
+        limit: 1,
+      }),
+      /BATCH_UNAVAILABLE/,
+    );
+  }
+});
