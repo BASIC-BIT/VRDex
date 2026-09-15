@@ -579,15 +579,17 @@ export async function expectVrcdnMediaLinkPreviewPage(page: Page) {
 }
 
 export async function expectCommunityTelemetryPage(page: Page) {
-  await expect(page.getByRole("heading", { name: "The Faceless telemetry" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Home", level: 1 })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Public profile" })).toHaveAttribute("href", "/the-faceless");
   await expect(page.getByText("54", { exact: true }).first()).toBeVisible();
   await expect(page.getByRole("img", { name: /Population over time/ })).toBeVisible();
   await expect(page.getByRole("img", { name: /Active instances over time/ })).toBeVisible();
   await expect(page.getByRole("img", { name: /Group members over time/ })).toBeVisible();
   await expect(page.getByRole("img", { name: /wrld_faceless instance population/ })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Coverage" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Public stats" })).toBeVisible();
-  await expect(page.getByRole("checkbox")).toHaveCount(5);
+  // Publication controls now live in the club's Data visibility screen.
+  await expect(page.getByRole("heading", { name: "Public stats" })).toHaveCount(0);
+  await expect(page.getByRole("checkbox")).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Event associations" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Confirm" })).toHaveCount(2);
   const chartRange = page.getByRole("combobox", { name: "Chart range" });

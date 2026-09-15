@@ -66,5 +66,5 @@ export default async function CommunityTelemetryPreviewPage({
   const previewFixture = state === "disconnected"
     ? { ...fixture, integration: { ...fixture.integration, state: "disconnected" } }
     : fixture;
-  return <PageShell><PageContainer max="6xl"><CommunityTelemetryDashboard communitySlug="the-faceless" fixtureData={previewFixture} /></PageContainer></PageShell>;
+  return <PageShell><PageContainer max="6xl"><CommunityTelemetryDashboard communitySlug="the-faceless" fixtureData={previewFixture} canManageIntegrations /></PageContainer></PageShell>;
 }
