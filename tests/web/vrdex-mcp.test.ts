@@ -2782,3 +2782,22 @@ it("does not record tool reads rejected by the HTTP transport", () => {
   `);
   assert.match(output, /rejected reads not recorded/);
 });
+it("serializes typed event roster links and playable slots through hosted MCP", () => {
+  const output = runMcpProbe(`
+    import { createVrdexMcpHandler } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+    import { lineupRoster } from "./packages/vrdex-mcp/tests/api-fixture.ts";
+    const handler = createVrdexMcpHandler({ convex: { query: async () => ({
+      id: "event", slug: "lineup", title: "Lineup", startAt: 1798761600000,
+      source: { label: "VRDex", sourceType: "manual" }, watchSurfaceEnabled: true, ...lineupRoster,
+    }) } });
+    const response = await handler.fetch(new Request("http://localhost:3000/mcp", {
+      method: "POST", headers: { accept: "application/json, text/event-stream", "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "vrdex_get_event", arguments: { slug: "lineup" } } }),
+    }));
+    console.log(await response.text());
+  `);
+  assert.match(output, /"watchMode":"performer_sequence"/);
+  assert.match(output, /"playbackKey":"slot_alpha"/);
+  assert.match(output, /"streamId":"alpha"/);
+  assert.match(output, /"outboundLinks":\[/);
+});
