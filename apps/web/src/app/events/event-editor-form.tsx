@@ -7,6 +7,7 @@ import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { api } from "@convex-generated-api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 import { EVENT_SLOT_MAX_COUNT } from "../../../../../convex/_eventSlots";
+import type { PlaybackStream } from "../../../../../convex/_eventPlayback";
 import type { PublicEvent } from "../_components/event-public-page";
 import { buttonVariants, Button } from "@/components/ui/button";
 import { Card, Eyebrow, SectionTitle } from "@/components/ui/card";
@@ -49,7 +50,8 @@ type VrcdnOutputFormState = {
   authorized: boolean;
 };
 
-export type EditableEvent = PublicEvent & {
+export type EditableEvent = Omit<PublicEvent, "slots"> & {
+  slots: Array<PublicEvent["slots"][number] & { selectedStreamId?: string; streamChoices?: PlaybackStream[] }>;
   notes?: string;
   preservedCommunityProfileId?: Id<"profiles">;
   preservedParticipantAssociationIds: Id<"eventParticipants">[];
@@ -66,6 +68,8 @@ type EventAssociationSnapshot = Pick<
 >;
 
 type SlotFormRow = {
+  selectedStreamId?: string;
+  streamChoices?: PlaybackStream[];
   id: string;
   offsetMinutes: string;
   durationMinutes: string;
@@ -121,6 +125,21 @@ function PersonProfileInput({
       </datalist>
     </>
   );
+}
+
+function SlotStreamSelect({ row, onChange }: { row: SlotFormRow; onChange: (value: string) => void }) {
+  const slug = row.personSlug.trim();
+  const currentChoices = useQuery(api.events.getPersonStreamChoices, /^[a-z0-9-]{1,64}$/.test(slug) ? { slug } : "skip");
+  const choices = currentChoices ?? row.streamChoices ?? [];
+  const unavailable = Boolean(row.selectedStreamId && !choices.some(choice => choice.streamId === row.selectedStreamId));
+  return <Field className="text-xs text-muted">
+    Stream
+    <Select aria-label="Stream" onChange={event => onChange(event.currentTarget.value)} value={row.selectedStreamId ?? ""}>
+      <option value="">{choices.length === 1 ? `Automatic: ${choices[0]!.streamId}` : choices.length === 0 ? "Unavailable" : "Select stream"}</option>
+      {unavailable ? <option value={row.selectedStreamId}>{row.selectedStreamId} (Unavailable)</option> : null}
+      {choices.length > 1 || row.selectedStreamId ? choices.map(choice => <option key={choice.streamId} value={choice.streamId}>{choice.streamId}</option>) : null}
+    </Select>
+  </Field>;
 }
 
 const userSafeErrorPatterns = [
@@ -310,6 +329,7 @@ function parseSlotRows(rows: SlotFormRow[], eventStartAt: number) {
 
       return {
         personSlug: optionalString(row.personSlug),
+        selectedStreamId: optionalString(row.selectedStreamId ?? "") ?? null,
         displayLabel:
           optionalString(row.displayLabel) ??
           optionalString(row.personSlug) ??
@@ -340,6 +360,8 @@ function initialSlotRows(event: EditableEvent | undefined): SlotFormRow[] {
         ? ""
         : String(Math.round((slot.endAt - slot.startAt) / 60_000)),
     personSlug: slot.performer?.slug ?? "",
+    selectedStreamId: slot.selectedStreamId,
+    streamChoices: slot.streamChoices,
     displayLabel: slot.displayLabel,
     roleLabel: slot.roleLabel,
   }));
@@ -503,6 +525,8 @@ function ConnectedEventEditorForm({
   const [doorsOpenMinutes, setDoorsOpenMinutes] = useState(() => event?.doorsOpenAt === undefined
     ? "15"
     : String(Math.max(0, Math.round((event.startAt - event.doorsOpenAt) / 60_000))));
+  const [watchSurfaceEnabled, setWatchSurfaceEnabled] = useState(event?.watchSurfaceEnabled ?? false);
+  const [watchMode, setWatchMode] = useState<"event_stream" | "performer_sequence">(event?.watchMode ?? "event_stream");
   const [mediaLinksText, setMediaLinksText] = useState(() => serializeMediaLinks(event));
   const [vrcdnOutput, setVrcdnOutput] = useState<VrcdnOutputFormState>(() => createInitialVrcdnOutputForm(event));
   const [slotRows, setSlotRows] = useState(() => initialSlotRows(event));
@@ -577,7 +601,7 @@ function ConnectedEventEditorForm({
   }
 
   async function onSaveVrcdnOutput() {
-    if (event === undefined) {
+    if (event === undefined || watchMode !== "event_stream") {
       return;
     }
 
@@ -682,7 +706,8 @@ function ConnectedEventEditorForm({
         posterImageUrl: optionalString(stringField(formData.get("posterImageUrl"))),
         bannerImageUrl: optionalString(stringField(formData.get("bannerImageUrl"))),
         thumbnailImageUrl: optionalString(stringField(formData.get("thumbnailImageUrl"))),
-        watchSurfaceEnabled: formData.get("watchSurfaceEnabled") === "on",
+        watchSurfaceEnabled,
+        watchMode,
         mediaLinks: parseMediaLinks(mediaLinksText),
         participantLinks: parseParticipantLinks(stringField(formData.get("participantLinks"))),
         slotLinks,
@@ -879,7 +904,8 @@ function ConnectedEventEditorForm({
       <label className="flex gap-3 rounded-control border border-border bg-surface-strong p-4 text-sm leading-6">
         <input
           className="mt-1 h-4 w-4 flex-none accent-accent"
-          defaultChecked={event?.watchSurfaceEnabled ?? false}
+          checked={watchSurfaceEnabled}
+          onChange={event => setWatchSurfaceEnabled(event.currentTarget.checked)}
           name="watchSurfaceEnabled"
           type="checkbox"
         />
@@ -890,9 +916,16 @@ function ConnectedEventEditorForm({
           </span>
         </span>
       </label>
+      {watchSurfaceEnabled ? <Field>
+        Watch mode
+        <Select aria-label="Watch mode" onChange={event => setWatchMode(event.currentTarget.value as "event_stream" | "performer_sequence")} value={watchMode}>
+          <option value="event_stream">Event stream</option>
+          <option value="performer_sequence">Performer sequence</option>
+        </Select>
+      </Field> : null}
       <VrcdnMediaLinkAssistant mediaLinksText={mediaLinksText} />
 
-      {event === undefined ? null : (
+      {event === undefined || watchMode !== "event_stream" ? null : (
         <Card className="grid gap-4" padding="sm" surface="strong">
           <div>
             <h3 className="text-xl font-semibold tracking-[-0.03em]">VRCDN output</h3>
@@ -993,7 +1026,7 @@ function ConnectedEventEditorForm({
         </Card>
       )}
 
-      {event === undefined ? null : (
+      {event === undefined || watchMode !== "event_stream" ? null : (
         // Private — worker runtime, task id, status reasons, artifact labels and
         // URLs, and the output-account key — as is the VRCDN output card above
         // it. Both are covered by `app/events/layout.tsx` rather than marked
@@ -1149,6 +1182,7 @@ function ConnectedEventEditorForm({
                         ? {
                             ...row,
                             personSlug: value,
+                            ...(value !== row.personSlug ? { selectedStreamId: undefined, streamChoices: [] } : {}),
                             ...(displayName !== undefined && (
                               row.displayLabel.trim() === "" || row.displayLabel === `Session ${index + 1}`
                             )
@@ -1161,6 +1195,10 @@ function ConnectedEventEditorForm({
                   />
                 </Field>
               </div>
+              {watchSurfaceEnabled && watchMode === "performer_sequence" && slot.personSlug.trim() ? <SlotStreamSelect
+                row={slot}
+                onChange={value => updateSlotRows(rows => rows.map(row => row.id === slot.id ? { ...row, selectedStreamId: value || undefined } : row))}
+              /> : null}
               <details className="group border-t border-border pt-3">
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm font-medium marker:hidden">
                   Details

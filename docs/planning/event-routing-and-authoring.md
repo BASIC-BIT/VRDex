@@ -85,3 +85,25 @@ event mutation. The browser does not choose another community inside the form.
 - Desktop and mobile screenshots for the exact event editor.
 - Manual visual review of template regeneration, edited-data confirmation, and
   responsive session rows.
+
+## Performer streams and roster links
+
+The watch mode defaults to `event_stream`. When watch viewing is enabled, organizers
+can select `performer_sequence`. Its linked schedule rows offer only currently
+public stream choices. A sole normalized stream is automatic; several sources
+require an explicit choice for playback. Freeform rows and rows without a source
+remain publishable. The editor shows an unavailable stored choice and preserves it
+on unrelated saves. Clearing the choice restores automatic resolution; changing
+the person clears the previous person's selection. Newly entered people use the
+bounded discovery-safe stream-choice query.
+
+The output account and worker controls appear only in event-stream mode. Changing
+watch mode preserves stored output configuration. Saving the event never invokes
+output configuration; that operation remains a separate explicit action.
+
+The public schedule keeps every appearance and shows its viewer-local time,
+profile link, and discovery-visible outbound links together. Other participants
+have the same link controls. VRCDN live references expose PC and Quest copy rows,
+with no per-person preview, media fetch, or profile-page fallback. Copy-only links
+remain copy actions. The shared backend projection excludes private and unlisted
+profile fields before the browser receives them.
