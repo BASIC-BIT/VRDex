@@ -26,7 +26,7 @@ Source: accepted staff design Public copy table; current club-staff, club-visibi
 - “VRDex assigns one of its own service accounts. Your VRChat credentials are never requested.”
 - “Disconnect stops collection and public presentation immediately. Existing private history is retained.”
 - “Approve the pending service-account membership request in VRChat to begin collection.”
-- “Invite service account {VRChat user ID or ‘shown above’} to this VRChat group.”
+- “Invite service account \{VRChat user ID or ‘shown above’\} to this VRChat group.”
 
 Source: club-connection.tsx. Feature and provider-role controls mostly use utility labels. The final connection controls include "Primary VRChat group ID" and "Edit additional group links". Six connection browser checks passed. The additional-link backend regression verifies two ordinary links without altering the primary integration; actual browser editing remains to be verified.
 
@@ -43,7 +43,7 @@ Source: club-connection.tsx. Feature and provider-role controls mostly use utili
 - “No recorded instances.”
 - “Instance unavailable.”
 - “Instance history is restricted.”
-- “{percentage}% observed time. Average population excludes missing intervals.”
+- “\{percentage\}% observed time. Average population excludes missing intervals.”
 - “Close this instance to prevent new joins?”
 - “No group roles available.”
 - “Instance management is disabled.”
@@ -79,7 +79,7 @@ Source: club-posts.tsx. Short result statuses: “Draft saved.”, “Post queue
 - “Eligibility is checked when each invitation is sent.”
 - “Invitations wait for this instance creation to succeed.”
 - “Up to 100 entries, separated by spaces, commas, or new lines.”
-- “Delete {list name}?”
+- “Delete \{list name\}?”
 - “Cancel invitations that have not been submitted?”
 - “Choose an instance.”
 - “Choose an instance creation.”
@@ -107,7 +107,7 @@ These are new utility/status patterns rather than marketing prose, but include t
 Source: convex/clubNotificationEmail.ts.
 
 - Subject: “VRDex action needs attention”
-- Plain-text body: “An action needs your attention. Sign in to review it: {URL}”
+- Plain-text body: “An action needs your attention. Sign in to review it: \{URL\}”
 - URL: configured HTTPS site origin plus `/account/communities/{encoded club slug}/scheduled`.
 
 No group/member/post content appears in the email. Sending remains off unless `VRDEX_CLUB_OPERATION_EMAIL_ENABLED=true`; sender/region/site origin use the documented SES configuration. This packet does not enable it or authorize sending.
