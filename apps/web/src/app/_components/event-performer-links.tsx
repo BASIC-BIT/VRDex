@@ -12,7 +12,7 @@ export function EventPerformerLinks({ links }: { links: EventOutboundLinks }) {
   return <div className="mt-3 grid min-w-0 gap-2 empty:hidden">
     {links.map(link => {
       const stream = parseVrcdnStreamLinks(link.url);
-      const key = stream?.reference ?? link.url;
+      const key = stream?.directVideoUrl ?? stream?.reference ?? link.url;
       if (seen.has(key)) return null;
       seen.add(key);
       if (stream && stream.directVideoUrl === undefined) return <div className="min-w-0" key={key}>
