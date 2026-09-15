@@ -119,9 +119,18 @@ it("merges destinations, preserves provenance, replays durable receipts and reje
           label: "Original",
           source: "owner_authored",
         },
+        {
+          type: "website",
+          url: "https://example.test/original",
+          label: "Community copy",
+          source: "community_submitted",
+          handle: "untouched",
+        },
       ],
     }),
   );
+  const storedLinks = (await f.t.run((ctx) => ctx.db.get(f.s.profileId)))!
+    .outboundLinks!;
   await f.t.mutation(internal.contributionBatches.append, {
     ...f.authority,
     batchId: f.batch.batchId,
@@ -140,8 +149,8 @@ it("merges destinations, preserves provenance, replays durable receipts and reje
     result,
   );
   const profile = await f.t.run((ctx) => ctx.db.get(f.s.profileId));
-  assert.equal(profile?.outboundLinks?.length, 2);
-  assert.equal(profile?.outboundLinks?.[0].source, "owner_authored");
+  assert.equal(profile?.outboundLinks?.length, 3);
+  assert.deepEqual(profile?.outboundLinks?.slice(0, 2), storedLinks);
   await f.t.mutation(internal.contributionBatches.append, {
     ...f.authority,
     batchId: f.batch.batchId,

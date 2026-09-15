@@ -93,12 +93,21 @@ export function createMcpContributionHandlers(deps: {
       { ...args, ...(await deps.authority()) },
     );
     if (transport !== "url") throw new Error("BATCH_REVISION_CHANGED");
-    return (
+    const uploaded = await (
       deps.uploads ??
       createMcpMediaUploadHandlers({
         authority: deps.authority,
         admin: admin(),
       })
     ).importUrl(request);
+    if (uploaded.operationState !== "committed") {
+      return { ...uploaded, operationId: receipt.operationId };
+    }
+    // The companion command owns the revision receipt. Standalone upload
+    // completion continues to return its separate intent receipt.
+    return admin().mutation(internal.contributionBatches.submit, {
+      ...args,
+      ...(await deps.authority()),
+    });
   };
 }

@@ -1,4 +1,3 @@
-import { sanitizeProfileLinks as sanitizeContributionLinks, profileLinkDestinationKey as contributionLinkDestinationKey } from "./_profileLinks";
 import { projectProfileLinkDestinations, queueProfileLinkDestinations } from "./_profileLinkDestinationCache";
 import { ConvexError, type Infer, v } from "convex/values";
 
@@ -66,6 +65,7 @@ import { recordVocabularyTerms } from "./_vocabulary";
 import { userOwnsProfile } from "./_profileOwnership";
 import {
   applyApiProfileUpdate,
+  appendCommunityProfileLinks,
   assertProfileEditNotSuppressed,
   assertSubmittedFieldsEditable,
   previewProfileUpdate,
@@ -1437,24 +1437,15 @@ export async function applyContributionLinks(
     true,
   );
   assertProfileRevision(profile, expectedUpdatedAt);
-  const links = sanitizeContributionLinks(additions, "community_submitted");
-  const merged = [...(profile.outboundLinks ?? [])];
-  const destinations = new Set(merged.map(contributionLinkDestinationKey));
-  for (const link of links)
-    if (!destinations.has(contributionLinkDestinationKey(link))) {
-      merged.push(link);
-      destinations.add(contributionLinkDestinationKey(link));
-    }
-  if (merged.length > 20) throw new Error("BATCH_LINK_LIMIT");
-  const input = { outboundLinks: merged };
+  const input = { outboundLinks: additions };
   assertSubmittedFieldsEditable(profile, input, authorization.editSubject);
   await assertProfileEditNotSuppressed(ctx.db, profile, {});
-  const applied = await applyApiProfileUpdate(ctx, {
+  const applied = await appendCommunityProfileLinks(
+    ctx,
     profile,
-    input,
-    subject: authorization.editSubject,
-    now: Date.now(),
-  });
+    additions,
+    Date.now(),
+  );
   if (applied.changedFields.length)
     await ctx.db.insert("profileAuditEvents", {
       profileId: profile._id,
