@@ -108,3 +108,89 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 export const LocalProvenance: Story = {};
+
+// Mount the full production panel and its Convex hooks. Only I/O and the
+// exceptional runner response are controlled; selection/submission state is real.
+import { ConvexProvider, ConvexReactClient } from "convex/react";
+import { getFunctionName, type FunctionReference } from "convex/server";
+import { decideSelectedReviews } from "@vrdex/api-contracts";
+import { MediaReviewPanel } from "../app/account/media-review/media-review-panel";
+function ProductionPanelFixture({
+  failFirst = false,
+}: {
+  failFirst?: boolean;
+}) {
+  const [calls, setCalls] = useState<unknown[]>([]);
+  const [runner] = useState(() => {
+    let fail = failFirst;
+    return async (...args: Parameters<typeof decideSelectedReviews>) => {
+      if (fail) {
+        fail = false;
+        throw new Error("Injected selection validation failure");
+      }
+      return await decideSelectedReviews(...args);
+    };
+  });
+  const [client] = useState(() => {
+    const value = new ConvexReactClient("http://127.0.0.1:3210");
+    const detail = {
+      ...row,
+      targetProfileUpdatedAt: 2,
+      reviewVersion: "v2",
+      currentPlacement: null,
+      currentAvatarImageUrl: null,
+      currentAutomaticImageUrl: null,
+      candidate: { rendition: null, credit: row.credit, contentSha256: null },
+    };
+    Object.defineProperty(value, "watchQuery", {
+      value: (query: FunctionReference<"query">) => ({
+        onUpdate: () => () => {},
+        localQueryResult: () => {
+          const name = getFunctionName(query);
+          if (name.endsWith(":getReviewAccess"))
+            return {
+              superAdmin: false,
+              canReviewMedia: false,
+              profiles: [
+                {
+                  profileId: row.profileId,
+                  slug: row.profileSlug,
+                  displayName: row.profileDisplayName,
+                  profileType: row.profileType,
+                },
+              ],
+            };
+          if (name.endsWith(":reviewDetail")) return detail;
+          return { page: [row], isDone: true, continueCursor: "" };
+        },
+        localQueryLogs: () => [],
+        journal: () => undefined,
+      }),
+    });
+    Object.defineProperty(value, "mutation", {
+      value: async (_mutation: unknown, args: unknown) => {
+        setCalls((previous) => [...previous, args]);
+        return {
+          operationId: "fixture-commit",
+          resourceId: row.submissionId,
+          operationState: "committed",
+        };
+      },
+    });
+    return value;
+  });
+  return (
+    <ConvexProvider client={client}>
+      <div className="mx-auto max-w-5xl p-4">
+        <MediaReviewPanel runSelected={runner} />
+        <output data-testid="panel-mutations">{JSON.stringify(calls)}</output>
+      </div>
+    </ConvexProvider>
+  );
+}
+export const ProductionWhitespace: Story = {
+  render: () => <ProductionPanelFixture />,
+};
+export const ProductionFailure: Story = {
+  render: () => <ProductionPanelFixture failFirst />,
+};

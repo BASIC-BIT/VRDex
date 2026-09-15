@@ -97,7 +97,9 @@ and its immutable `contributionItemRevisions.batchId`, rather than a second
 media lifecycle in collection items. Collection item readers also recheck the
 current target authority and exclude unrelated profile/link source records.
 Reconciliation reads remain strictly actor-owned. Every cursor is scoped to
-its authenticated actor, exact resource, and filters.
+its authenticated actor, exact resource, and filters. Reactive split pages wrap
+both outgoing continuation and split cursors and validate both incoming start
+and end cursors. Optional and null cursor boundaries retain their meaning.
 
 `assignedReviewBatches` traverses `by_reviewer_active` in bounded pages. A review
 queue with `batchId` traverses immutable revisions through `by_batch_key_revision`,

@@ -403,3 +403,181 @@ it("commits each selected item independently across a transaction rollback", asy
     1,
   );
 });
+it("round-trips both reactive split children for global and assigned review pages", async () => {
+  const f = await fixture();
+  await f.t.run(async (ctx) => {
+    const original = (await ctx.db.get(f.intent.submissionId))!;
+    const { _id, _creationTime, ...submission } = original;
+    void _id;
+    void _creationTime;
+    for (let n = 0; n < 6; n++) {
+      const submissionId = await ctx.db.insert("profileMediaSubmissions", {
+        ...submission,
+        createdAt: NOW + n,
+      });
+      const revisionId = await ctx.db.insert("contributionItemRevisions", {
+        actorUserId: f.s.contributorUserId,
+        batchId: f.batchId,
+        itemKey: `split-${n}`,
+        revision: 1,
+        payload: '{"kind":"media"}',
+        bytes: 16,
+        createdAt: NOW,
+      });
+      await ctx.db.insert("contributionItemAttempts", {
+        actorUserId: f.s.contributorUserId,
+        revisionId,
+        oauthClientId: "fixture",
+        submissionId,
+        receipt: { operationId: `split-${n}`, operationState: "committed" },
+        createdAt: NOW,
+      });
+    }
+  });
+  for (const batchId of [f.batchId, undefined]) {
+    if (!batchId)
+      await f.t.run((ctx) =>
+        ctx.db.patch(f.grantId, { feature: "super_admin" }),
+      );
+    const args = {
+      ...(batchId ? { batchId } : {}),
+      paginationOpts: { cursor: null, numItems: 40, maximumRowsRead: 4 },
+    };
+    const parent = await f.actor.query(
+      api.profileMediaSubmissions.listForReview,
+      args,
+    );
+    assert.ok(parent.splitCursor);
+    assert.ok(parent.pageStatus);
+    const first = await f.actor.query(
+      api.profileMediaSubmissions.listForReview,
+      {
+        ...args,
+        paginationOpts: {
+          ...args.paginationOpts,
+          endCursor: parent.splitCursor,
+        },
+      },
+    );
+    const second = await f.actor.query(
+      api.profileMediaSubmissions.listForReview,
+      {
+        ...args,
+        paginationOpts: {
+          ...args.paginationOpts,
+          cursor: parent.splitCursor,
+          endCursor: parent.continueCursor,
+        },
+      },
+    );
+    assert.deepEqual(
+      [...first.page, ...second.page].map((r) => r.submissionId),
+      parent.page.map((r) => r.submissionId),
+    );
+    await assert.rejects(
+      f.actor.query(api.profileMediaSubmissions.listForReview, {
+        ...args,
+        status: "rejected",
+        paginationOpts: {
+          ...args.paginationOpts,
+          endCursor: parent.splitCursor,
+        },
+      }),
+      /CURSOR/,
+    );
+  }
+});
+it("round-trips assignment split children and scopes the ending cursor", async () => {
+  const f = await fixture();
+  await f.t.run(async (ctx) => {
+    for (let n = 0; n < 6; n++) {
+      const batchId = await ctx.db.insert("contributionBatches", {
+        actorUserId: f.s.contributorUserId,
+        idempotencyKey: `split-${n}`,
+        label: `Split ${n}`,
+        archived: false,
+        rowCount: 0,
+        createdAt: NOW,
+      });
+      await ctx.db.insert("contributionBatchReviewers", {
+        batchId,
+        reviewerUserId: f.s.moderatorUserId,
+        active: true,
+        expiresAt: Date.now() + 60000,
+      });
+    }
+  });
+  const opts = { cursor: null, numItems: 40, maximumRowsRead: 4 };
+  const parent = await f.actor.query(
+    api.profileMediaSubmissions.assignedReviewBatches,
+    { paginationOpts: opts },
+  );
+  assert.ok(parent.splitCursor);
+  const first = await f.actor.query(
+    api.profileMediaSubmissions.assignedReviewBatches,
+    { paginationOpts: { ...opts, endCursor: parent.splitCursor } },
+  );
+  const second = await f.actor.query(
+    api.profileMediaSubmissions.assignedReviewBatches,
+    {
+      paginationOpts: {
+        ...opts,
+        cursor: parent.splitCursor,
+        endCursor: parent.continueCursor,
+      },
+    },
+  );
+  assert.deepEqual(
+    [...first.page, ...second.page].map((r) => r.batchId),
+    parent.page.map((r) => r.batchId),
+  );
+  await assert.rejects(
+    f.actor.query(api.profileMediaSubmissions.listForReview, {
+      batchId: f.batchId,
+      paginationOpts: { ...opts, endCursor: parent.splitCursor },
+    }),
+    /CURSOR/,
+  );
+  const noEnd = await f.actor.query(
+    api.profileMediaSubmissions.assignedReviewBatches,
+    { paginationOpts: { cursor: null, numItems: 40 } },
+  );
+  const nullEnd = await f.actor.query(
+    api.profileMediaSubmissions.assignedReviewBatches,
+    { paginationOpts: { cursor: null, numItems: 40, endCursor: null } },
+  );
+  assert.deepEqual(noEnd, nullEnd);
+});
+import {
+  readScopedPagination,
+  writeScopedPagination,
+} from "../../convex/_reviewCursor";
+it("preserves omitted and null split/end cursors in the pagination protocol", () => {
+  const omitted = writeScopedPagination({ continueCursor: "end" }, "scope");
+  assert.equal(Object.hasOwn(omitted, "splitCursor"), false);
+  const explicitNull = writeScopedPagination(
+    { continueCursor: "end", splitCursor: null },
+    "scope",
+  );
+  assert.equal(explicitNull.splitCursor, null);
+  const start = { cursor: null, numItems: 40 };
+  assert.equal(
+    Object.hasOwn(readScopedPagination(start, "scope"), "endCursor"),
+    false,
+  );
+  assert.equal(
+    readScopedPagination({ ...start, endCursor: null }, "scope").endCursor,
+    null,
+  );
+  const split = writeScopedPagination(
+    { continueCursor: "end", splitCursor: "middle" },
+    "scope",
+  );
+  assert.deepEqual(
+    readScopedPagination(
+      { ...start, cursor: split.splitCursor, endCursor: split.continueCursor },
+      "scope",
+    ),
+    { ...start, cursor: "middle", endCursor: "end" },
+  );
+});

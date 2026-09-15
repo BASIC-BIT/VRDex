@@ -79,3 +79,70 @@ test("assigned review local provenance and retained selections @storybook-visual
     "assigned-review-reselected",
   );
 });
+
+test("production panel normalizes whitespace optional reason @storybook-visual", async ({
+  page,
+}) => {
+  await gotoComponentStory(
+    page,
+    "account-assigned-media-review--production-whitespace",
+  );
+  await page.getByLabel("Private review reason").fill("Examined both images");
+  await page.getByLabel("Public rejection reason").fill("   ");
+  await page
+    .getByRole("button", { name: "Select approval", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Decide selected", exact: true })
+    .click();
+  await expect(
+    page.getByText("Local photographer: Approved.", { exact: true }),
+  ).toBeVisible();
+  const calls = JSON.parse(
+    (await page.getByTestId("panel-mutations").textContent()) ?? "[]",
+  );
+  expect(calls).toHaveLength(1);
+  expect(calls[0].publicReason).toBeUndefined();
+  await expect(
+    page.getByText("Selected (0/20)", { exact: true }),
+  ).toBeVisible();
+});
+test("production panel recovers runner failure and retains selected command @storybook-visual", async ({
+  page,
+}) => {
+  await gotoComponentStory(
+    page,
+    "account-assigned-media-review--production-failure",
+  );
+  await page.getByLabel("Private review reason").fill("Examined both images");
+  await page
+    .getByRole("button", { name: "Select approval", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Decide selected", exact: true })
+    .click();
+  await expect(
+    page.getByText("Decision failed.", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Selected (1/20)", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Decide selected", exact: true }),
+  ).toBeEnabled();
+  await expect(
+    page.getByRole("button", { name: "Remove", exact: true }),
+  ).toBeEnabled();
+  await expect(page.getByTestId("panel-mutations")).toHaveText("[]");
+  await page
+    .getByRole("button", { name: "Decide selected", exact: true })
+    .click();
+  await expect(
+    page.getByText("Local photographer: Approved.", { exact: true }),
+  ).toBeVisible();
+  expect(
+    JSON.parse(
+      (await page.getByTestId("panel-mutations").textContent()) ?? "[]",
+    ),
+  ).toHaveLength(1);
+});

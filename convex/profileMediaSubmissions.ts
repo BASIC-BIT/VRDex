@@ -1,4 +1,5 @@
-import { readScopedCursor, writeScopedCursor } from "./_reviewCursor";
+import { readScopedPagination, writeScopedPagination } from "./_reviewCursor";
+import type { PaginationOptions } from "convex/server";
 import { activeBatchAssignment } from "./_mediaReview";
 import { changeContributionCharge } from "./_contributionCapacity";
 import { ConvexError, v } from "convex/values";
@@ -1230,7 +1231,7 @@ async function authorizedReviewPage(
     batchId?: Id<"contributionBatches">;
     profileId?: Id<"profiles">;
     status?: "submitted" | "under_review" | "approved" | "rejected";
-    paginationOpts: { numItems: number; cursor: string | null };
+    paginationOpts: PaginationOptions;
   },
   actor?: ReviewActor,
 ) {
@@ -1250,10 +1251,7 @@ async function authorizedReviewPage(
     args.profileId ?? null,
     status,
   ]);
-  const paginationOpts = {
-    ...args.paginationOpts,
-    cursor: readScopedCursor(args.paginationOpts.cursor, scope),
-  };
+  const paginationOpts = readScopedPagination(args.paginationOpts, scope);
   if (args.batchId) {
     const batch = await ctx.db.get(args.batchId);
     const access = await getAccountFeatureAccess(ctx.db, currentActor.user._id);
@@ -1298,9 +1296,8 @@ async function authorizedReviewPage(
       );
     }
     return {
-      ...revisions,
+      ...writeScopedPagination(revisions,scope),
       page,
-      continueCursor: writeScopedCursor(revisions.continueCursor, scope),
     };
   }
   let submissionsPage;
@@ -1363,9 +1360,8 @@ async function authorizedReviewPage(
     }),
   ).then((items) => items.filter((item) => item !== null));
   return {
-    ...submissionsPage,
+    ...writeScopedPagination(submissionsPage,scope),
     page,
-    continueCursor: writeScopedCursor(submissionsPage.continueCursor, scope),
   };
 }
 export const listForReview = query({
@@ -1841,10 +1837,7 @@ export const assignedReviewBatches = query({
       .withIndex("by_reviewer_active", (q) =>
         q.eq("reviewerUserId", actor.user._id).eq("active", true),
       )
-      .paginate({
-        ...args.paginationOpts,
-        cursor: readScopedCursor(args.paginationOpts.cursor, scope),
-      });
+      .paginate(readScopedPagination(args.paginationOpts,scope));
     const page = [];
     for (const assignment of result.page) {
       if (assignment.expiresAt <= Date.now()) continue;
@@ -1852,9 +1845,8 @@ export const assignedReviewBatches = query({
       if (batch) page.push({ batchId: batch._id, label: batch.label });
     }
     return {
-      ...result,
+      ...writeScopedPagination(result,scope),
       page,
-      continueCursor: writeScopedCursor(result.continueCursor, scope),
     };
   },
 });

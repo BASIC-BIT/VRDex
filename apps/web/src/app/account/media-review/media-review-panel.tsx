@@ -3,6 +3,7 @@
 import Link from "next/link";
 import {
   decideSelectedReviews,
+  reviewDecisionSchema,
   type ReviewDecision,
   type ReviewDetail,
   type CommandReceipt,
@@ -101,7 +102,7 @@ export function ReviewCardView({
         expectedReviewVersion: detail.reviewVersion,
         decision,
         idempotencyKey: crypto.randomUUID(),
-        publicReason: publicDisposition || undefined,
+        publicReason: publicDisposition.trim() || undefined,
         privateReason,
       });
       const result = reviewDecisionMessage(receipt, decision);
@@ -125,7 +126,7 @@ export function ReviewCardView({
       expectedReviewVersion: detail.reviewVersion,
       decision,
       privateReason,
-      publicReason: publicDisposition || undefined,
+      publicReason: publicDisposition.trim() || undefined,
       idempotencyKey: crypto.randomUUID(),
     });
   }
@@ -371,7 +372,9 @@ export function ReviewCardView({
   );
 }
 
-export function MediaReviewPanel() {
+export function MediaReviewPanel({
+  runSelected = decideSelectedReviews,
+}: { runSelected?: typeof decideSelectedReviews } = {}) {
   const access = useQuery(api.profileMediaSubmissions.getReviewAccess);
   const [profileId, setProfileId] = useState("");
   const [batchId, setBatchId] = useState("");
@@ -381,6 +384,7 @@ export function MediaReviewPanel() {
     Array<CommandReceipt & { decision?: "approve" | "reject" }>
   >([]);
   const [busy, setBusy] = useState(false);
+  const [selectionError, setSelectionError] = useState<string | null>(null);
   const decide = useMutation(api.profileMediaSubmissions.decideWithReceipt);
   const assignments = usePaginatedQuery(
     api.profileMediaSubmissions.assignedReviewBatches,
@@ -388,6 +392,16 @@ export function MediaReviewPanel() {
     { initialNumItems: 40 },
   );
   function select(input: ReviewDecision) {
+    const parsed = reviewDecisionSchema.safeParse({
+      ...input,
+      publicReason: input.publicReason?.trim() || undefined,
+    });
+    if (!parsed.success) {
+      setSelectionError("Decision failed.");
+      return;
+    }
+    input = parsed.data;
+    setSelectionError(null);
     setReceipts((previous) =>
       previous.filter((receipt) => receipt.resourceId !== input.submissionId),
     );
@@ -409,29 +423,33 @@ export function MediaReviewPanel() {
   }
   async function submitSelected() {
     setBusy(true);
-    const result = await decideSelectedReviews(
-      { decisions: selected },
-      (input) =>
+    setSelectionError(null);
+    try {
+      const result = await runSelected({ decisions: selected }, (input) =>
         decide({
           ...input,
           submissionId: input.submissionId as Id<"profileMediaSubmissions">,
         }),
-    );
-    setReceipts(
-      result.receipts.map((receipt, index) => ({
-        ...receipt,
-        decision: selected[index]!.decision,
-      })),
-    );
-    const committed = new Set(
-      result.receipts.flatMap((r, i) =>
-        r.operationState === "committed" ? [selected[i]!.idempotencyKey] : [],
-      ),
-    );
-    setSelected((previous) =>
-      previous.filter((p) => !committed.has(p.idempotencyKey)),
-    );
-    setBusy(false);
+      );
+      setReceipts(
+        result.receipts.map((receipt, index) => ({
+          ...receipt,
+          decision: selected[index]!.decision,
+        })),
+      );
+      const committed = new Set(
+        result.receipts.flatMap((r, i) =>
+          r.operationState === "committed" ? [selected[i]!.idempotencyKey] : [],
+        ),
+      );
+      setSelected((previous) =>
+        previous.filter((p) => !committed.has(p.idempotencyKey)),
+      );
+    } catch {
+      setSelectionError("Decision failed.");
+    } finally {
+      setBusy(false);
+    }
   }
   const [queueStatus, setQueueStatus] = useState<
     "submitted" | "under_review" | "approved" | "rejected"
@@ -574,6 +592,11 @@ export function MediaReviewPanel() {
       ) : null}
       {submissions.length === 0 && paginationStatus === "Exhausted" ? (
         <Notice>No results</Notice>
+      ) : null}
+      {selectionError ? (
+        <Notice role="status" variant="warning">
+          {selectionError}
+        </Notice>
       ) : null}
       <ReviewSelection
         labels={labels}
