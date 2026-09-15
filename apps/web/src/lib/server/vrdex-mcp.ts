@@ -36,6 +36,8 @@ import {
   PublicWorldSchema,
   reviewDecisionSchema,
   reviewDetailSchema,
+  mediaPublicationSchema,
+  publicationEvidenceSchema,
   z,
 } from "@vrdex/api-contracts";
 import { createHash, randomUUID } from "node:crypto";
@@ -132,6 +134,8 @@ const mcpWriteToolNames = [
   ...mcpAssetWriteToolNames,
   ...mediaReviewWriteToolNames,
   ...mediaSubmissionWriteToolNames,
+  "vrdex_media_submission_publish",
+  "vrdex_media_submission_declare",
   "vrdex_contribution_batch_create",
   "vrdex_contribution_batch_append",
   "vrdex_contribution_batch_archive",
@@ -160,6 +164,8 @@ const mcpWriteToolResourceScopes: Record<(typeof mcpWriteToolNames)[number], Api
   vrdex_media_review_rebase: "assets:review:write",
   vrdex_media_review_decide_selected: "assets:review:write",
   vrdex_media_submission_withdraw: "assets:contribute",
+  vrdex_media_submission_publish: "assets:publish",
+  vrdex_media_submission_declare: "assets:publish",
   vrdex_contribution_batch_create: "mcp:write",
   vrdex_contribution_batch_append: "mcp:write",
   vrdex_contribution_batch_archive: "mcp:write",
@@ -181,12 +187,16 @@ const mcpOwnedReadToolNames = [
   "vrdex_list_my_profiles",
   "vrdex_list_my_media_submissions",
   ...mediaReviewReadToolNames,
+  "vrdex_media_submission_get",
+  "vrdex_media_submission_preview",
 ] as const;
 const mcpOwnedReadToolScopes: Record<(typeof mcpOwnedReadToolNames)[number], ApiScope> = {
   vrdex_contribution_batch_get: "mcp:read",
   vrdex_contribution_batch_items: "mcp:read",
   vrdex_list_my_profiles: "profile:read",
   vrdex_list_my_media_submissions: "assets:contribute",
+  vrdex_media_submission_get: "assets:publish",
+  vrdex_media_submission_preview: "assets:publish",
   vrdex_media_review_list: "assets:review:read",
   vrdex_media_review_get: "assets:review:read",
   vrdex_media_review_preview: "assets:review:read",
@@ -1847,7 +1857,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     name: "vrdex",
     version: "0.5.0",
   });
-  const mediaReviewHandlersFor = (principal: HostedMcpPrincipal) =>
+  const mediaReviewHandlersFor = (principal: HostedMcpPrincipal, publisher = false) =>
     createMcpMediaReviewHandlers({
       actorUserId: principal.userId,
       now,
@@ -1868,15 +1878,17 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
         const submissionId = args.submissionId as Id<"profileMediaSubmissions">;
         return await adminConvex().query(
           name === "detail"
-            ? internal.profileMediaSubmissions.reviewDetailForMcpActor
-            : internal.profileMediaSubmissions.candidateForMcpActor,
+            ? publisher ? internal.profileMediaSubmissions.publisherDetailForMcpActor : internal.profileMediaSubmissions.reviewDetailForMcpActor
+            : publisher ? internal.profileMediaSubmissions.publisherCandidateForMcpActor : internal.profileMediaSubmissions.candidateForMcpActor,
           { ...args, submissionId, actorUserId: principal.userId } as never,
         );
       },
       mutate: async (name, args) => {
         const submissionId = args.submissionId as Id<"profileMediaSubmissions">;
         return await adminConvex().mutation(
-          name === "decide"
+          name === "publish" ? internal.profileMediaSubmissions.publishForMcpActor
+            : name === "declare" ? internal.profileMediaSubmissions.declarePublicationEvidenceForMcpActor
+            : name === "decide"
             ? internal.profileMediaSubmissions.decideForMcpActor
             : name === "rebase" ? internal.profileMediaSubmissions.rebaseForMcpActor
             : internal.profileMediaSubmissions.withdrawForMcpActor,
@@ -2370,6 +2382,32 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       } catch {
         return { content: [{ type: "text" as const, text: "UPLOAD_UNAVAILABLE" }], isError: true as const };
       }
+    });
+  }
+
+  for (const operation of ["get", "preview"] as const) {
+    const toolName = operation === "get" ? "vrdex_media_submission_get" : "vrdex_media_submission_preview";
+    server.registerTool(toolName, {
+      title: operation === "get" ? "Contribution" : "Preview", description: toolName,
+      inputSchema: operation === "get" ? mediaReviewGetInputSchema : mediaReviewPreviewInputSchema,
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      _meta: { securitySchemes: mcpOwnedReadSecuritySchemes(toolName) },
+    }, async (input: unknown) => {
+      const principal = ownedReadPrincipalFor(toolName);
+      return principal === null ? mcpOwnedReadUnauthorized(toolName) : await mediaReviewHandlersFor(principal, true)[operation](input);
+    });
+  }
+  for (const operation of ["publish", "declare"] as const) {
+    const toolName = operation === "publish" ? "vrdex_media_submission_publish" : "vrdex_media_submission_declare";
+    server.registerTool(toolName, {
+      title: operation === "publish" ? "Publish" : "Confirm evidence", description: toolName,
+      inputSchema: operation === "publish" ? mediaPublicationSchema : publicationEvidenceSchema,
+      outputSchema: mcpOutputSchema(commandReceiptSchema),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      _meta: { securitySchemes: mcpWriteSecuritySchemes(toolName) },
+    }, async (input: unknown) => {
+      const principal = principalFor(toolName);
+      return principal === null ? mcpWriteUnauthorized(toolName) : await mediaReviewHandlersFor(principal, true)[operation](input);
     });
   }
 

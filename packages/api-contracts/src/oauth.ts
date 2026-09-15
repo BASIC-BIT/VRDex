@@ -50,6 +50,7 @@ export const dynamicMcpClientScopes = [
 export const dynamicMcpResourceWriteScopes = [
   "assets:write",
   "assets:review:write",
+  "assets:publish",
   ...dynamicMcpDualUseResourceScopes,
   "events:write",
   "profile:write",

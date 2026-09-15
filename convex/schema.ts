@@ -422,6 +422,7 @@ const accountFeature = v.union(
   v.literal("view_private_seed_lookup"),
   v.literal("use_temporal_parsing_beta"),
   v.literal("media_reviewer"),
+  v.literal("trusted_publisher"),
 );
 
 const temporalParseJobStatus = v.union(
@@ -884,7 +885,23 @@ export default defineSchema({
     receipt: v.object({ operationId: v.string(), operationState: v.union(v.literal("committed"), v.literal("refused"), v.literal("in_progress")), resourceId: v.optional(v.string()), code: v.optional(v.string()) }),
     createdAt: v.number(),
   }).index("by_actorUserId_idempotencyKey", ["actorUserId", "idempotencyKey"]),
+  mediaPublicationEvidence: defineTable({
+    submissionId: v.id("profileMediaSubmissions"), actorUserId: v.id("users"),
+    candidateVersion: v.string(), identityConfirmed: v.boolean(), attributionConfirmed: v.boolean(),
+    publicationPermitted: v.boolean(), noKnownRestrictions: v.boolean(), createdAt: v.number(),
+  }).index("by_submissionId", ["submissionId"]),
+  mediaPublicationRestrictions: defineTable({
+    profileId: v.id("profiles"), contentSha256: v.optional(v.string()),
+    submissionId: v.id("profileMediaSubmissions"), actorUserId: v.id("users"),
+    kind: v.union(v.literal("rejection"), v.literal("suppression"), v.literal("dispute"), v.literal("identity")),
+    correctionOfOperationId: v.optional(v.string()), createdAt: v.number(),
+  }).index("by_profileId_kind", ["profileId", "kind"]).index("by_contentSha256", ["contentSha256"]),
   profileMediaSubmissions: defineTable({
+    publicationEvidenceId: v.optional(v.id("mediaPublicationEvidence")),
+    publicationMethod: v.optional(v.union(v.literal("trusted_publisher"), v.literal("independent_review"))),
+    publicationActorUserId: v.optional(v.id("users")),
+    publicationEvidenceRevision: v.optional(v.string()), publicationOperationId: v.optional(v.string()),
+    priorRestrictionId: v.optional(v.id("mediaPublicationRestrictions")),
     reviewRevision: v.optional(v.number()),
     profileId: v.id("profiles"),
     targetProfileSlug: v.string(),
@@ -933,7 +950,9 @@ export default defineSchema({
     .index("by_cleanupEligibility_blobDeleteAfter", ["blobDeletedAt", "legalHoldAt", "blobDeleteAfter"])
     .index("by_profileId_contentSha256_status", ["profileId", "contentSha256", "status"])
     .index("by_profileId_contentSha256_createdAt", ["profileId", "contentSha256", "createdAt"])
-    .index("by_contentSha256", ["contentSha256"]),
+    .index("by_contentSha256", ["contentSha256"])
+    .index("by_contentSha256_status", ["contentSha256", "status"])
+    .index("by_publicationMethod_actor", ["publicationMethod", "publicationActorUserId"]),
   profileAssets: defineTable({
     profileId: v.id("profiles"),
     storageKey: v.string(),
@@ -968,6 +987,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_profileId", ["profileId"])
+    .index("by_contentSha256_suppressed", ["contentSha256", "moderatorSuppressedAt"])
     .index("by_profileId_contentSha256_state", ["profileId", "contentSha256", "state"])
     .index("by_profileId_state_visibility", ["profileId", "state", "visibility"]),
   profileAssetPlacements: defineTable({

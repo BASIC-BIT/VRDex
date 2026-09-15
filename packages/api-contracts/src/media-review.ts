@@ -53,6 +53,7 @@ export const reviewSnapshotSchema = z.strictObject({
 export type ReviewSnapshot = z.infer<typeof reviewSnapshotSchema>;
 
 export const reviewDetailSchema = z.strictObject({
+  publicationMethod: z.enum(["trusted_publisher", "independent_review"]).optional(),
   submissionId: boundedId,
   profileId: boundedId,
   profileSlug: z.string().max(200),
@@ -136,3 +137,12 @@ export async function decideSelectedReviews(
   }
   return { receipts };
 }
+
+export const mediaPublicationSchema = reviewRebaseSchema;
+export type MediaPublication = z.infer<typeof mediaPublicationSchema>;
+export const publicationEvidenceSchema = z.strictObject({
+  ...mediaPublicationSchema.shape,
+  identityConfirmed: z.boolean(), attributionConfirmed: z.boolean(),
+  publicationPermitted: z.boolean(), noKnownRestrictions: z.boolean(),
+});
+export type PublicationEvidence = z.infer<typeof publicationEvidenceSchema>;

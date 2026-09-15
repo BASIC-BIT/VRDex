@@ -171,6 +171,7 @@ describe("OAuth edge security", () => {
       "mcp:write",
       "assets:write",
       "assets:review:write",
+      "assets:publish",
       "events:write",
       "profile:write",
       "profile:contribute",

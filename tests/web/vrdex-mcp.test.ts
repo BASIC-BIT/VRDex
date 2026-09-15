@@ -83,6 +83,7 @@ function assertAuthenticatedReadSecuritySchemes(value: unknown) {
 }
 
 function isWriteToolName(name: string | undefined) {
+  if (name === "vrdex_media_submission_publish" || name === "vrdex_media_submission_declare") return true;
   if (name === "vrdex_media_upload_begin" || name === "vrdex_media_upload_complete") return true;
   return name === "vrdex_profile_media_manage" || name === "vrdex_profile_media_submit" ||
     name === "vrdex_media_review_decide" || name === "vrdex_media_review_rebase" || name === "vrdex_media_review_decide_selected" || name === "vrdex_media_submission_withdraw" ||
@@ -92,6 +93,7 @@ function isWriteToolName(name: string | undefined) {
 // A read, but of the caller's own inventory, so it carries a scope pair rather
 // than the public-read schemes every other read tool advertises.
 function isOwnedReadToolName(name: string | undefined) {
+  if (name === "vrdex_media_submission_get" || name === "vrdex_media_submission_preview") return true;
   return name === "vrdex_list_my_profiles" || name === "vrdex_list_my_media_submissions" ||
     name === "vrdex_media_review_list" || name === "vrdex_media_review_get" ||
     name === "vrdex_media_review_preview";
@@ -128,6 +130,10 @@ describe("VRDex MCP server", () => {
     `);
     const tools = jsonBodyFromProbe(output).result?.tools ?? [];
     const expected = {
+      vrdex_media_submission_get: ["mcp:read", "assets:publish"],
+      vrdex_media_submission_preview: ["mcp:read", "assets:publish"],
+      vrdex_media_submission_publish: ["mcp:write", "assets:publish"],
+      vrdex_media_submission_declare: ["mcp:write", "assets:publish"],
       vrdex_media_review_list: ["mcp:read", "assets:review:read"],
       vrdex_media_review_get: ["mcp:read", "assets:review:read"],
       vrdex_media_review_preview: ["mcp:read", "assets:review:read"],
@@ -154,6 +160,8 @@ describe("VRDex MCP server", () => {
       assert.deepEqual(requiredHostedMcpScopesForToolNames(["vrdex_media_submission_withdraw"]), ["mcp:write", "assets:contribute"]);
       assert.deepEqual(requiredHostedMcpScopesForToolNames(["vrdex_get_profile", "vrdex_media_review_decide"]), ["mcp:read", "mcp:write", "assets:review:write"]);
       assert.deepEqual(requiredHostedMcpScopesForToolNames(["vrdex_media_review_preview", "vrdex_media_submission_withdraw"]), ["mcp:read", "assets:review:read", "mcp:write", "assets:contribute"]);
+      assert.deepEqual(requiredHostedMcpScopesForToolNames(["vrdex_media_submission_publish"]), ["mcp:write", "assets:publish"]);
+      assert.deepEqual(requiredHostedMcpScopesForToolNames(["vrdex_media_submission_get"]), ["mcp:read", "assets:publish"]);
       console.log("review scope classification verified");
     `);
     assert.match(output, /review scope classification verified/);
@@ -238,6 +246,8 @@ describe("VRDex MCP server", () => {
           "mcp:read assets:review:read mcp:write",
           ["vrdex_media_review_get", "vrdex_media_review_decide"],
         ),
+        publishWithoutMcp: await attempt("assets:publish", ["vrdex_media_submission_publish"]),
+        publishWithoutGrantScope: await attempt("mcp:write assets:review:write", ["vrdex_media_submission_publish"]),
         clientDelegation: await invokeAsClient(),
       }));
     `);
@@ -249,7 +259,7 @@ describe("VRDex MCP server", () => {
       queryCalled?: boolean;
     }>;
 
-    for (const key of ["readWithoutMcp", "readWithoutReview", "writeWithoutMcp", "writeWithoutReview", "mixedWithoutWriteReview"]) {
+    for (const key of ["readWithoutMcp", "readWithoutReview", "writeWithoutMcp", "writeWithoutReview", "mixedWithoutWriteReview", "publishWithoutMcp", "publishWithoutGrantScope"]) {
       assert.equal(result[key]?.passed, false, key);
       assert.equal(result[key]?.status, 403, key);
       assert.match(result[key]?.challenge ?? "", /error="insufficient_scope"/, key);
@@ -508,6 +518,8 @@ describe("VRDex MCP server", () => {
     assert.deepEqual(writeTools.map((tool) => tool.name), [
       "vrdex_media_upload_begin",
       "vrdex_media_upload_complete",
+      "vrdex_media_submission_publish",
+      "vrdex_media_submission_declare",
       "vrdex_media_review_decide",
       "vrdex_media_review_rebase",
       "vrdex_media_review_decide_selected",
@@ -535,6 +547,8 @@ describe("VRDex MCP server", () => {
       vrdex_media_review_rebase: "assets:review:write",
       vrdex_media_review_decide_selected: "assets:review:write",
       vrdex_media_submission_withdraw: "assets:contribute",
+      vrdex_media_submission_publish: "assets:publish",
+      vrdex_media_submission_declare: "assets:publish",
     };
 
     for (const tool of writeTools) {

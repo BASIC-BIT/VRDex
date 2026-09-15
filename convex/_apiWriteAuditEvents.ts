@@ -64,6 +64,8 @@ export const mcpWriteToolNameValidator = v.union(
   v.literal("vrdex_media_review_rebase"),
   v.literal("vrdex_media_review_decide_selected"),
   v.literal("vrdex_media_submission_withdraw"),
+  v.literal("vrdex_media_submission_publish"),
+  v.literal("vrdex_media_submission_declare"),
   v.literal("vrdex_contribution_batch_create"),
   v.literal("vrdex_contribution_batch_append"),
   v.literal("vrdex_contribution_batch_archive"),

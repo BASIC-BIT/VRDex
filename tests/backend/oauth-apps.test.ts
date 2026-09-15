@@ -315,7 +315,7 @@ describe("OAuth application helpers", () => {
     assert.throws(() => normalizeDynamicMcpScopes(["public:read"]), /mcp:read/);
     assert.throws(
       () => normalizeDynamicMcpScopes(["mcp:write"]),
-      /at least one of assets:write, assets:review:write, assets:contribute, events:write, profile:write, profile:contribute/,
+      /at least one of assets:write, assets:review:write, assets:publish, assets:contribute, events:write, profile:write, profile:contribute/,
     );
     assert.throws(() => normalizeDynamicMcpScopes(["assets:contribute"]), /mcp:read.*mcp:write/);
     assert.throws(() => normalizeOAuthResponseTypes(["token"]), /response type/);

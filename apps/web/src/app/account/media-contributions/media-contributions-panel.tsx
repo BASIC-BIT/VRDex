@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { PublicationCard } from "./publication-card";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@convex-generated-api";
 
@@ -19,6 +20,7 @@ const statusLabel = {
 } as const;
 
 export function MediaContributionsPanel() {
+  const access = useQuery(api.profileMediaSubmissions.getReviewAccess);
   const submissions = useQuery(api.profileMediaSubmissions.listMine);
   const withdraw = useMutation(api.profileMediaSubmissions.withdraw);
 
@@ -54,6 +56,8 @@ export function MediaContributionsPanel() {
               <div><dt className="text-muted">Requested use</dt><dd>{submission.requestedPlacement === "profile_image" ? "Profile image" : "Primary logo"}</dd></div>
               <div><dt className="text-muted">Credit</dt><dd>{submission.credit}</dd></div>
             </dl>
+            {access?.canPublishMedia && submission.publisherTargetAvailable && ["submitted", "under_review"].includes(submission.status) ? <PublicationCard submissionId={submission.submissionId} /> : null}
+            {submission.status === "approved" ? <p className="mt-3 text-sm text-muted">{submission.publicationMethod === "trusted_publisher" ? "Trusted publication" : submission.publicationMethod === "independent_review" ? "Independent review" : "Legacy approval"}</p> : null}
             {submission.publicDisposition ? (
               <Notice className="mt-5" variant={submission.status === "rejected" ? "warning" : "info"}>
                 {submission.publicDisposition}

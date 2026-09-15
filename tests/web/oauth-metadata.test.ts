@@ -94,7 +94,7 @@ describe("OAuth metadata routes", () => {
     // refused by the owned-inventory tool it can see listed.
     assert.match(
       output,
-      /"scopes_supported":\["mcp:read","profile:read","assets:contribute","assets:review:read","mcp:write","assets:write","assets:review:write","events:write","profile:write","profile:contribute"\]/,
+      /"scopes_supported":\["mcp:read","profile:read","assets:contribute","assets:review:read","mcp:write","assets:write","assets:review:write","assets:publish","events:write","profile:write","profile:contribute"\]/,
     );
     assert.match(output, /"bearer_methods_supported":\["header"\]/);
     assert.match(output, /"resource_name":"VRDex MCP"/);

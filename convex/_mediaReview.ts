@@ -25,7 +25,9 @@ import {
   identityEmailVerified,
   isCurrentEmailVerificationAttestation,
 } from "./_identity";
-import { automaticProfileImage } from "./_profileImageFallback";
+import { recordPublicationRestriction } from "./_trustedPublication";
+import { isProfileFieldVisible } from "./_profileFieldVisibility";
+import { automaticProfileImage, profileImageSources } from "./_profileImageFallback";
 
 export type ReviewActor = {
   user: Doc<"users">;
@@ -144,6 +146,7 @@ export async function applyReviewDecision(
   ctx: MutationCtx,
   args: LegacyDecision,
   actor?: ReviewActor,
+  commandEvidence?: { operationId: string; revision: string },
 ) {
   assertContributionsEnabled();
   const submission = await ctx.db.get(args.submissionId);
@@ -186,6 +189,7 @@ export async function applyReviewDecision(
     throw new Error("A private review reason is required.");
   const publicDisposition = sanitizeNote(args.publicDisposition, 240);
   if (args.decision === "reject") {
+    await recordPublicationRestriction(ctx, submission, user._id, "rejection");
     if (publicDisposition === undefined) {
       throw new Error("A contributor-visible rejection reason is required.");
     }
@@ -279,6 +283,7 @@ export async function applyReviewDecision(
   if (finalCredit === undefined) {
     throw new Error("Asset credit is required before approval.");
   }
+  const publicationEvidence = commandEvidence ?? { operationId: crypto.randomUUID(), revision: (await reviewSnapshot(ctx, submission, profile)).reviewVersion };
   const assetIds = await consumeProfileAssetUploads(ctx.db, {
     profileId: profile._id,
     requestedBy: intent.requestedBy,
@@ -300,10 +305,18 @@ export async function applyReviewDecision(
   const approvedAssetId = assetIds[0];
   if (approvedAssetId === undefined)
     throw new Error("Media approval did not create an asset.");
+  if (!commandEvidence) await ctx.db.insert("mediaReviewReceipts", {
+    actorUserId: user._id, idempotencyKey: `legacy:${publicationEvidence.operationId}`, inputHash: await hash(args),
+    submissionId: submission._id, receipt: { operationId: publicationEvidence.operationId, operationState: "committed", resourceId: submission._id }, createdAt: now,
+  });
   await ctx.db.patch(submission._id, {
     status: "approved",
     reviewer: subject,
     reviewedAt: now,
+    publicationMethod: "independent_review",
+    publicationActorUserId: user._id,
+    publicationEvidenceRevision: publicationEvidence.revision,
+    publicationOperationId: publicationEvidence.operationId,
     ...(publicDisposition !== undefined ? { publicDisposition } : {}),
     privateReason,
     decisionProfileUpdatedAt: profile.updatedAt,
@@ -375,11 +388,14 @@ export async function reviewSnapshot(
     intent.contentSha256 === submission.contentSha256;
   // The hash binds the stored rendition and provenance, current target and placement,
   // and explicit rebase revision. Advisory startReview is deliberately excluded.
+  const artworkEvidence = await Promise.all(profileImageSources(profile, "profile_page").map(source =>
+    ctx.db.query("profileLinkDestinations").withIndex("by_key", q => q.eq("key", source.key)).unique()));
   const reviewVersion = await hash({
     candidate: {
       id: submission._id,
       submitterUserId: submission.submitterUserId,
       contributorNote: submission.contributorNote,
+      publicationEvidenceId: submission.publicationEvidenceId,
       originalFileName: submission.originalFileName,
       uploadIntentId: submission.uploadIntentId,
       hash: submission.contentSha256,
@@ -400,6 +416,8 @@ export async function reviewSnapshot(
     placement,
     currentAsset,
     currentAutomaticImageUrl,
+    authoredPlacements,
+    artworkEvidence,
     revision: submission.reviewRevision ?? 0,
   });
   return {
@@ -413,7 +431,7 @@ export async function reviewSnapshot(
             credit: currentAsset?.credit ?? null,
             sourceUrl: currentAsset?.sourceUrl ?? null,
           },
-    currentAvatarImageUrl: profile.avatarImageUrl ?? null,
+    currentAvatarImageUrl: isProfileFieldVisible(profile, "avatarImageUrl", "profile_page") ? profile.avatarImageUrl ?? null : null,
     currentAutomaticImageUrl,
     candidate: {
       rendition: candidateReady
@@ -576,9 +594,11 @@ export async function decideReviewCommand(
           : { publicDisposition: args.publicReason }),
       },
       actor,
+      { operationId: receipt.operationId, revision: snapshot.reviewVersion },
     );
     await ctx.db.patch(submission._id, {
       reviewRevision: (submission.reviewRevision ?? 0) + 1,
+      ...(args.decision === "approve" ? { publicationEvidenceRevision: snapshot.reviewVersion, publicationOperationId: receipt.operationId } : {}),
     });
   }
   await ctx.db.insert("mediaReviewReceipts", {

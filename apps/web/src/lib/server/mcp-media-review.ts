@@ -1,5 +1,7 @@
 import {
   commandReceiptSchema,
+  mediaPublicationSchema,
+  publicationEvidenceSchema,
   reviewRebaseSchema,
   decideSelectedReviews,
   reviewDecisionSchema,
@@ -74,7 +76,7 @@ export const mediaSubmissionWriteToolNames = [
 ] as const;
 
 type ReviewQueryName = "list" | "detail" | "candidate";
-type ReviewMutationName = "decide" | "withdraw" | "rebase";
+type ReviewMutationName = "decide" | "withdraw" | "rebase" | "publish" | "declare";
 type StoredObject = {
   body: Uint8Array;
   contentType: string;
@@ -260,6 +262,12 @@ export function createMcpMediaReviewHandlers<TActor extends string>(
       };
     },
 
+    async publish(input: unknown): Promise<ToolResult> {
+      return jsonResult(commandReceiptSchema.parse(await dependencies.mutate("publish", { ...(await attestation(dependencies)), ...mediaPublicationSchema.parse(input) })));
+    },
+    async declare(input: unknown): Promise<ToolResult> {
+      return jsonResult(commandReceiptSchema.parse(await dependencies.mutate("declare", { ...(await attestation(dependencies)), ...publicationEvidenceSchema.parse(input) })));
+    },
     async decide(input: unknown): Promise<ToolResult> {
       const value = reviewDecisionSchema.parse(input);
       const receipt = commandReceiptSchema.parse(

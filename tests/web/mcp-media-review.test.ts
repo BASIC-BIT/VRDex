@@ -372,3 +372,20 @@ it("selected decisions transact separately, preserve order and snapshot only exp
   );
   await assert.rejects(handlers.decideSelected({ status: "submitted" }));
 });
+
+it("declares evidence and publishes only through separate explicit commands", async () => {
+  const mutations: Array<{ name: string; args: Record<string, unknown> }> = [];
+  const handlers = createMcpMediaReviewHandlers(dependencies({ mutate: async (name, args) => {
+    mutations.push({ name, args }); return { operationId: "receipt", operationState: "committed" };
+  } }));
+  await handlers.get({ submissionId: "submission-1" });
+  await handlers.preview({ submissionId: "submission-1", expectedReviewVersion: version });
+  assert.equal(mutations.length, 0);
+  await assert.rejects(handlers.declare({ submissionId: "submission-1", expectedReviewVersion: version, idempotencyKey: "declaration" }));
+  await handlers.declare({ submissionId: "submission-1", expectedReviewVersion: version, idempotencyKey: "declaration",
+    identityConfirmed: true, attributionConfirmed: true, publicationPermitted: true, noKnownRestrictions: true });
+  assert.equal(mutations[0]?.name, "declare"); assert.equal(mutations.length, 1);
+  await handlers.publish({ submissionId: "submission-1", expectedReviewVersion: version, idempotencyKey: "publication" });
+  assert.equal(mutations[1]?.name, "publish"); assert.equal(mutations[1]?.args.actorUserId, "user-1");
+  await assert.rejects(handlers.publish({ submissionId: "submission-1", expectedReviewVersion: version, idempotencyKey: "publication", actorUserId: "other" }));
+});

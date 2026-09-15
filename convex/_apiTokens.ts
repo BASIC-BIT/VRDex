@@ -18,6 +18,7 @@ export const apiScopeValidator = v.union(
   v.literal("assets:contribute"),
   v.literal("assets:review:read"),
   v.literal("assets:review:write"),
+  v.literal("assets:publish"),
   v.literal("developer:read"),
   v.literal("developer:write"),
   v.literal("mcp:read"),
@@ -78,6 +79,7 @@ export type ApiScope =
   | "assets:contribute"
   | "assets:review:read"
   | "assets:review:write"
+  | "assets:publish"
   | "developer:read"
   | "developer:write"
   | "mcp:read"
@@ -150,6 +152,7 @@ const apiScopes = new Set<ApiScope>([
   "assets:contribute",
   "assets:review:read",
   "assets:review:write",
+  "assets:publish",
   "developer:read",
   "developer:write",
   "mcp:read",

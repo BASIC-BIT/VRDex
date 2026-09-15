@@ -111,6 +111,7 @@ const apiScopes = new Set<ApiScope>([
   "assets:contribute",
   "assets:review:read",
   "assets:review:write",
+  "assets:publish",
   "developer:read",
   "developer:write",
   "mcp:read",
@@ -139,6 +140,7 @@ const dynamicMcpReadScopes = new Set<ApiScope>([
 const dynamicMcpResourceWriteScopes = new Set<ApiScope>([
   "assets:write",
   "assets:review:write",
+  "assets:publish",
   ...dynamicMcpDualUseResourceScopes,
   "events:write",
   "profile:write",

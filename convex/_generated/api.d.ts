@@ -88,6 +88,7 @@ import type * as _supportDigest from "../_supportDigest.js";
 import type * as _supportEnv from "../_supportEnv.js";
 import type * as _supportIntake from "../_supportIntake.js";
 import type * as _suppressions from "../_suppressions.js";
+import type * as _trustedPublication from "../_trustedPublication.js";
 import type * as _vocabulary from "../_vocabulary.js";
 import type * as _vrcdnLinks from "../_vrcdnLinks.js";
 import type * as _vrcdnOutputAccounts from "../_vrcdnOutputAccounts.js";
@@ -234,6 +235,7 @@ declare const fullApi: ApiFromModules<{
   _supportEnv: typeof _supportEnv;
   _supportIntake: typeof _supportIntake;
   _suppressions: typeof _suppressions;
+  _trustedPublication: typeof _trustedPublication;
   _vocabulary: typeof _vocabulary;
   _vrcdnLinks: typeof _vrcdnLinks;
   _vrcdnOutputAccounts: typeof _vrcdnOutputAccounts;

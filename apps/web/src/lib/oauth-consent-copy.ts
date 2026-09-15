@@ -1,6 +1,7 @@
 const oauthScopeLabels: Record<string, string> = {
   "assets:review:read": "Media review",
   "assets:review:write": "Review decisions",
+  "assets:publish": "Publish media",
   "assets:read": "Read profile asset data",
   "assets:write": "Upload and manage profile assets",
   "assets:contribute": "Submit profile media for review",

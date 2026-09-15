@@ -1,3 +1,4 @@
+import { requirePublisher, publicationCommand, recordPublicationRestriction } from "./_trustedPublication";
 import { readScopedPagination, writeScopedPagination } from "./_reviewCursor";
 import type { PaginationOptions } from "convex/server";
 import { activeBatchAssignment } from "./_mediaReview";
@@ -269,6 +270,7 @@ function publicSubmission(
     profileType: profile.profileType,
     requestedPlacement: submission.requestedPlacement,
     status: submission.status,
+    ...(submission.publicationMethod ? { publicationMethod: submission.publicationMethod } : {}),
     sourceUrl: submission.sourceUrl,
     sourceKind: submission.sourceKind,
     sourceDescription: submission.sourceDescription,
@@ -1075,7 +1077,7 @@ export const listMine = query({
     return await Promise.all(
       rows.map(async (submission) => {
         const profile = await ctx.db.get(submission.profileId);
-        return profile === null ? null : publicSubmission(submission, profile, true);
+        return profile === null ? null : { ...publicSubmission(submission, profile, true), publisherTargetAvailable: profile.claimState === "unclaimed" && profile.publicationState === "published" && profile.publicSurfacingState === "public" };
       }),
     ).then((items) => items.filter((item) => item !== null));
   },
@@ -1100,6 +1102,7 @@ export const getReviewAccess = query({
     return {
       superAdmin: access.superAdmin,
       canReviewMedia:access.canReviewMedia,
+      canPublishMedia:access.canPublishMedia,
       profiles: profiles.map((profile) => ({
         profileId: profile._id,
         slug: profile.slug,
@@ -1126,6 +1129,7 @@ export const getCandidateForStorage = query({
 });
 
 const reviewProjectionFields = {
+  publicationMethod: v.optional(v.union(v.literal("trusted_publisher"), v.literal("independent_review"))),
   submissionId: v.id("profileMediaSubmissions"),
   profileId: v.id("profiles"),
   profileSlug: v.string(),
@@ -1465,6 +1469,7 @@ export const suppressApprovedAsset = mutation({
     }
     if (asset.moderatorSuppressedAt !== undefined) return { suppressed: false };
     const now = Date.now();
+    await recordPublicationRestriction(ctx, submission, user._id, "suppression");
     await ctx.db.patch(asset._id, {
       state: "deleted",
       deletedAt: now,
@@ -1705,12 +1710,14 @@ async function authorizedReviewDetail(
   ctx: QueryCtx,
   id: Id<"profileMediaSubmissions">,
   actor?: ReviewActor,
+  publisher = false,
 ) {
   const submission = await ctx.db.get(id);
   const profile =
     submission === null ? null : await ctx.db.get(submission.profileId);
   if (submission === null || profile === null) return null;
-  const access = await reviewerContext(ctx, profile, actor, submission);
+  const access = publisher ? { access: { superAdmin: false } } : await reviewerContext(ctx, profile, actor, submission);
+  if (publisher) await requirePublisher(ctx, actor ?? await browserReviewActor(ctx), submission, profile);
   const projection = await reviewSubmission(
     ctx,
     submission,
@@ -1749,9 +1756,10 @@ async function authorizedCandidateStorage(
   ctx: QueryCtx,
   id: Id<"profileMediaSubmissions">,
   actor?: ReviewActor,
+  publisher = false,
 ) {
   assertContributionsEnabled();
-  const detail = await authorizedReviewDetail(ctx, id, actor);
+  const detail = await authorizedReviewDetail(ctx, id, actor, publisher);
   if (detail?.candidate.rendition == null) return null;
   const submission = await ctx.db.get(id);
   const intent =
@@ -1881,5 +1889,205 @@ export const setBatchReviewer = mutation({
     if (old) await ctx.db.patch(old._id, args);
     else await ctx.db.insert("contributionBatchReviewers", args);
     return null;
+  },
+});
+
+export const publisherDetail = query({
+  args: { submissionId },
+  returns: reviewDetailValidator,
+  handler: async (ctx, args) =>
+    authorizedReviewDetail(ctx, args.submissionId, undefined, true),
+});
+export const publisherDetailForMcpActor = internalQuery({
+  args: {
+    ...reviewActorAttestationArgs,
+    submissionId,
+    actorUserId: v.id("users"),
+  },
+  returns: reviewDetailValidator,
+  handler: async (ctx, args) =>
+    authorizedReviewDetail(
+      ctx,
+      args.submissionId,
+      await trustedReviewActor(ctx, args.actorUserId, args),
+      true,
+    ),
+});
+const publisherCandidateValidator = v.union(
+  v.null(),
+  v.object({
+    storageKey: v.string(),
+    mimeType: v.string(),
+    originalFileName: v.optional(v.string()),
+    profileDisplayName: v.string(),
+  }),
+);
+export const publisherCandidateForMcpActor = internalQuery({
+  args: {
+    ...reviewActorAttestationArgs,
+    submissionId,
+    actorUserId: v.id("users"),
+  },
+  returns: publisherCandidateValidator,
+  handler: async (ctx, args) =>
+    authorizedCandidateStorage(
+      ctx,
+      args.submissionId,
+      await trustedReviewActor(ctx, args.actorUserId, args),
+      true,
+    ),
+});
+export const publisherCandidateForStorage = query({
+  args: { submissionId },
+  returns: publisherCandidateValidator,
+  handler: async (ctx, args) =>
+    authorizedCandidateStorage(ctx, args.submissionId, undefined, true),
+});
+export const publish = mutation({
+  args: rebaseArgs,
+  returns: receiptValidator,
+  handler: async (ctx, args) =>
+    publicationCommand(ctx, args, await browserReviewActor(ctx)),
+});
+export const publishForMcpActor = internalMutation({
+  args: {
+    ...rebaseArgs,
+    ...reviewActorAttestationArgs,
+    actorUserId: v.id("users"),
+  },
+  returns: receiptValidator,
+  handler: async (
+    ctx,
+    { actorUserId, emailVerified, emailVerificationAttestedAt, ...args },
+  ) =>
+    publicationCommand(
+      ctx,
+      args,
+      await trustedReviewActor(ctx, actorUserId, {
+        emailVerified,
+        emailVerificationAttestedAt,
+      }),
+    ),
+});
+const evidenceArgs = {
+  ...rebaseArgs,
+  identityConfirmed: v.boolean(),
+  attributionConfirmed: v.boolean(),
+  publicationPermitted: v.boolean(),
+  noKnownRestrictions: v.boolean(),
+};
+export const declarePublicationEvidence = mutation({
+  args: evidenceArgs,
+  returns: receiptValidator,
+  handler: async (ctx, args) =>
+    publicationCommand(ctx, args, await browserReviewActor(ctx), true),
+});
+export const declarePublicationEvidenceForMcpActor = internalMutation({
+  args: {
+    ...evidenceArgs,
+    ...reviewActorAttestationArgs,
+    actorUserId: v.id("users"),
+  },
+  returns: receiptValidator,
+  handler: async (
+    ctx,
+    { actorUserId, emailVerified, emailVerificationAttestedAt, ...args },
+  ) =>
+    publicationCommand(
+      ctx,
+      args,
+      await trustedReviewActor(ctx, actorUserId, {
+        emailVerified,
+        emailVerificationAttestedAt,
+      }),
+      true,
+    ),
+});
+export const recordPublicationDispute = mutation({
+  args: {
+    submissionId,
+    kind: v.union(v.literal("dispute"), v.literal("identity")),
+  },
+  returns: v.id("mediaPublicationRestrictions"),
+  handler: async (ctx, args) => {
+    const actor = await browserReviewActor(ctx);
+    assertReviewActorVerified(actor);
+    if (!(await getAccountFeatureAccess(ctx.db, actor.user._id)).superAdmin)
+      throw new Error("Super admin access is required.");
+    const submission = await ctx.db.get(args.submissionId);
+    if (!submission) throw new Error("Media contribution unavailable.");
+    return recordPublicationRestriction(
+      ctx,
+      submission,
+      actor.user._id,
+      args.kind,
+    );
+  },
+});
+const publicationSampleValidator = v.object({
+  submissionId,
+  profileId: v.id("profiles"),
+  operationId: v.optional(v.string()),
+  evidenceRevision: v.optional(v.string()),
+  assetId: v.optional(v.id("profileAssets")),
+  updatedAt: v.number(),
+});
+export const publisherPublications = query({
+  args: {
+    publisherUserId: v.id("users"),
+    paginationOpts: paginationOptsValidator,
+  },
+  returns: v.object({
+    page: v.array(publicationSampleValidator),
+    isDone: v.boolean(),
+    continueCursor: v.string(),
+    splitCursor: v.optional(v.union(v.string(), v.null())),
+    pageStatus: v.optional(
+      v.union(
+        v.literal("SplitRecommended"),
+        v.literal("SplitRequired"),
+        v.null(),
+      ),
+    ),
+  }),
+  handler: async (ctx, args) => {
+    const actor = await browserReviewActor(ctx);
+    assertReviewActorVerified(actor);
+    if (!(await getAccountFeatureAccess(ctx.db, actor.user._id)).superAdmin)
+      throw new Error("Super admin access is required.");
+    if (
+      !Number.isInteger(args.paginationOpts.numItems) ||
+      args.paginationOpts.numItems < 1 ||
+      args.paginationOpts.numItems > 40
+    )
+      throw new Error("Invalid page size.");
+    const scope = JSON.stringify([
+      "publisher_publications",
+      actor.user._id,
+      args.publisherUserId,
+    ]);
+    const result = await ctx.db
+      .query("profileMediaSubmissions")
+      .withIndex("by_publicationMethod_actor", (q) =>
+        q
+          .eq("publicationMethod", "trusted_publisher")
+          .eq("publicationActorUserId", args.publisherUserId),
+      )
+      .order("desc")
+      .paginate(readScopedPagination(args.paginationOpts, scope));
+    return writeScopedPagination(
+      {
+        ...result,
+        page: result.page.map((row) => ({
+          submissionId: row._id,
+          profileId: row.profileId,
+          operationId: row.publicationOperationId,
+          evidenceRevision: row.publicationEvidenceRevision,
+          assetId: row.approvedAssetId,
+          updatedAt: row.updatedAt,
+        })),
+      },
+      scope,
+    );
   },
 });

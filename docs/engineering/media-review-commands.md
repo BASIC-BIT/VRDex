@@ -141,3 +141,68 @@ Local Storybook fixtures exercise URL-free provenance up to 1,000 characters,
 current/candidate comparison, selection/refusal retention, and explicit rebase
 on desktop and mobile. This is component interaction evidence, not a hosted
 authenticated end-to-end or provider-storage test.
+
+## Bounded trusted publication
+
+`trusted_publisher` is a separately issued, revocable account feature. Neither
+super-admin, reviewer, application tier nor contribution capacity implies it.
+The browser uses `publisherDetail`, `declarePublicationEvidence`, and `publish`.
+MCP uses `vrdex_media_submission_get`, `vrdex_media_submission_preview`,
+`vrdex_media_submission_declare`, and `vrdex_media_submission_publish`.
+Reads require `mcp:read` and `assets:publish`; declarations and publication require
+`mcp:write` and `assets:publish`. These scopes are requestable, never defaults.
+Every backend operation requires fresh verified email and the explicit grant.
+Publisher projections are own-only and require a current public, published,
+unclaimed target. They omit private reviewer reasons and moderator identities.
+They do not confer independent reviewer authority.
+
+Publication takes exactly `{submissionId, expectedReviewVersion, idempotencyKey}`.
+Before publication, including for older pending proposals, the explicit declaration
+command takes those same fields plus four booleans: `identityConfirmed`,
+`attributionConfirmed`, `publicationPermitted`, and `noKnownRestrictions`.
+Declarations are immutable records bound to the candidate digest, target, placement,
+source reference or local provenance, and attribution. Recording one changes the
+review version. Inspect again before publishing. Absent, false or stale declarations
+require independent review. Nonempty credit or source text never implies consent
+or identity confirmation. Upload completion only submits; it never publishes.
+Choosing Independent review on the contributions page leaves the existing proposal
+in its independent-review queue and closes the publication controls locally.
+
+The publication mutation reads the current target, both image/logo placements,
+legacy image visibility, actual automatic artwork, declarations and restrictions
+in one transaction. Review versions bind authored placements and cached source
+identity/artwork records, including changes without an observed-time bump. Visible
+VRChat icons, group logos and Discord artwork fill a slot. Disabled or hidden
+fallbacks follow public rendering semantics. Existing authored placements remain
+protected even when hidden. A target version or candidate change refuses the
+inspected command. Conflicts preserve the independent-review path.
+
+Restriction history is indexed independently of mutable source URLs and collection
+item keys. Identity/dispute records restrict the target; rejection and suppression
+restrict the exact content digest across targets. Legacy rejected submissions and
+suppressed assets are checked by indexed digest as well. An unrelated digest is
+not refused solely because the target once had a rejection. Matching new history
+is linked through `priorRestrictionId`. Byte-different variants are not identified
+perceptually; the explicit no-known-restrictions declaration remains required.
+Admin `recordPublicationDispute` records identity/dispute restrictions. Existing
+suppression records a correction linked to the published operation; legal-hold and
+cleanup authority are unchanged. These records do not contain private reasons.
+
+New approvals persist `publicationMethod`, `publicationActorUserId`,
+`publicationEvidenceRevision`, and `publicationOperationId` on the submission.
+Trusted publication does not populate reviewer fields. Independent decisions keep
+the same-user refusal, including for admins. Legacy direct approval calls also
+record an operation receipt; preexisting approvals stay method-unknown and appear
+as Legacy approval. No migration invents independent reviewers. Super-admin
+`publisherPublications` provides a bounded sampling query, indexed by method and
+publisher, with actor/publisher-scoped cursor, splitCursor and endCursor handling.
+Its projection contains submission/profile/asset references and the operation and
+evidence revision, without private reasons.
+
+Both publisher previews reuse the stored-candidate digest/version checks and safe
+PNG rasterizer. The browser route is
+`/api/account/media-contributions/submissions/:id/file?version=:reviewVersion`.
+It derives authority from the browser session on each read and returns no-store
+PNG only. No source URL is fetched by preview. Local Storybook tests use controlled
+commands and synthetic images; they do not establish hosted authentication,
+stored S3 transfer or installed Codex/Claude transport evidence.
