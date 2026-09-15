@@ -101,7 +101,8 @@ it("reserves URL imports before fetching and seals them through the same upload 
  const objects=new Map();let admitted=false,fetches=0,authorizations=0;
  const handlers=createMcpMediaUploadHandlers({authority:async()=>{authorizations++;return {actorUserId:"actor",oauthClientId:"client",oauthTokenId:"token",emailVerified:true,emailVerificationAttestedAt:Date.now()};},
  admin:{mutation:async(fn,args)=>{switch(getFunctionName(fn)){
- case "contributionUploads:begin":admitted=true;assert.equal(args.placement,"primary_logo");return {intentId:"intent",quarantineStorageKey:"quarantine",expiresAt:Date.now()+600000,contentType:"image/png",byteLength:bytes.length};
+ case "contributionCapacity:claimSourceFetch":return {allowed:true};
+   case "contributionUploads:begin":admitted=true;assert.equal(args.placement,"primary_logo");return {intentId:"intent",quarantineStorageKey:"quarantine",expiresAt:Date.now()+600000,contentType:"image/png",byteLength:bytes.length};
  case "contributionUploads:claim":return {intentId:"intent",quarantineStorageKey:"quarantine",sourceStorageKey:"source",downloadStorageKey:"download",storageKey:"display",...declaration};
  case "contributionUploads:complete":return {operationId:"intent",operationState:"committed",resourceId:"submission"};
  default:throw Error("unexpected");}}},

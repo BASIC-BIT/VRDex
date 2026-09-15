@@ -1,4 +1,8 @@
 import {
+  effectiveContributionPolicy,
+  batchAllowance,
+} from "./_contributionCapacity";
+import {
   activeBatchAssignment,
   reviewerContext,
   trustedReviewActor,
@@ -129,6 +133,7 @@ async function charge(
   rows: number,
   revisions: number,
   bytes: number,
+  batchId?: Id<"contributionBatches">,
 ) {
   const old = await ctx.db
     .query("contributionManifestUsage")
@@ -139,10 +144,20 @@ async function charge(
     retainedRevisions: (old?.retainedRevisions ?? 0) + revisions,
     retainedBytes: (old?.retainedBytes ?? 0) + bytes,
   };
-  // Elevated account grants and measured limits are wired in Task 5/7. Default remains ordinary.
-  const limits = MANIFEST_LIMITS.ordinary;
+  const limits = (await effectiveContributionPolicy(ctx.db, actorUserId))
+    .limits;
+  const allowance = batchId
+    ? await batchAllowance(ctx.db, batchId, actorUserId)
+    : null;
   if (
-    (rows > 0 && next.activeRows > limits.activeRows) ||
+    allowance &&
+    rows > 0 &&
+    ((await ctx.db.get(batchId!))?.rowCount ?? 0) + rows > allowance.rows!
+  )
+    throw new Error("BATCH_ALLOWANCE_ROWS");
+  if (
+    (rows > 0 &&
+      next.activeRows > limits.activeRows + (allowance?.rows ?? 0)) ||
     (revisions > 0 && next.retainedRevisions > limits.retainedRevisions) ||
     (bytes > 0 &&
       next.retainedBytes >
@@ -239,7 +254,7 @@ export const append = internalMutation({
         result.push({ itemKey: old.itemKey, revision: old.revision });
         continue;
       }
-      await charge(ctx, args.actorUserId, 1, 1, n.bytes);
+      await charge(ctx, args.actorUserId, 1, 1, n.bytes, b._id);
       const revisionId = await ctx.db.insert("contributionItemRevisions", {
         actorUserId: args.actorUserId,
         batchId: b._id,
@@ -334,8 +349,11 @@ export const items = internalQuery({
           return {
             itemKey: row.itemKey,
             revision: row.revision,
-            kind: contributionItemInputSchema.parse(JSON.parse(rev.payload))
-              .kind,
+            kind:
+              rev.payloadExpiredAt === undefined
+                ? contributionItemInputSchema.parse(JSON.parse(rev.payload))
+                    .kind
+                : "expired",
             ...(a ? { receipt: a.receipt } : {}),
             ...(media ? { mediaStatus: media.status } : {}),
             ...(a?.profileId
@@ -356,7 +374,11 @@ export const archive = internalMutation({
     const b = await requireContributionBatch(ctx, args, true);
     if (!b.archived) {
       await charge(ctx, args.actorUserId, -b.rowCount, 0, 0);
-      await ctx.db.patch(b._id, { archived: true, archivedAt: Date.now() });
+      await ctx.db.patch(b._id, {
+        archived: true,
+        archivedAt: Date.now(),
+        payloadCleanupAfter: Date.now() + 30 * 86400000,
+      });
     }
     return { ...batchView(b), archived: true };
   },

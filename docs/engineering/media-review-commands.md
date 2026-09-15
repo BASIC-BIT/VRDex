@@ -206,3 +206,11 @@ It derives authority from the browser session on each read and returns no-store
 PNG only. No source URL is fetched by preview. Local Storybook tests use controlled
 commands and synthetic images; they do not establish hosted authentication,
 stored S3 transfer or installed Codex/Claude transport evidence.
+
+## Capacity and rollout
+
+`trusted_contributor` grants capacity only. It does not grant review, publication,
+ownership or OAuth scopes. Contributor capacity, own requests/status, temporary
+batch allowances, shared accounting, payload expiry and rollout evidence are
+documented in the [collection checkpoint](../testing/contributor-collection-checkpoint.md).
+Intake pause preserves existing review, withdrawal and receipt reads.

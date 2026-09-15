@@ -136,6 +136,7 @@ const mcpWriteToolNames = [
   ...mediaSubmissionWriteToolNames,
   "vrdex_media_submission_publish",
   "vrdex_media_submission_declare",
+  "vrdex_contribution_capacity_request",
   "vrdex_contribution_batch_create",
   "vrdex_contribution_batch_append",
   "vrdex_contribution_batch_archive",
@@ -166,6 +167,7 @@ const mcpWriteToolResourceScopes: Record<(typeof mcpWriteToolNames)[number], Api
   vrdex_media_submission_withdraw: "assets:contribute",
   vrdex_media_submission_publish: "assets:publish",
   vrdex_media_submission_declare: "assets:publish",
+  vrdex_contribution_capacity_request: "mcp:write",
   vrdex_contribution_batch_create: "mcp:write",
   vrdex_contribution_batch_append: "mcp:write",
   vrdex_contribution_batch_archive: "mcp:write",
@@ -182,6 +184,9 @@ const mcpWriteToolResourceScopes: Record<(typeof mcpWriteToolNames)[number], Api
  * and its owner still has to be able to read the revision every update pins.
  */
 const mcpOwnedReadToolNames = [
+  "vrdex_contribution_capacity",
+  "vrdex_contribution_capacity_requests",
+  "vrdex_contribution_status",
   "vrdex_contribution_batch_get",
   "vrdex_contribution_batch_items",
   "vrdex_list_my_profiles",
@@ -191,6 +196,9 @@ const mcpOwnedReadToolNames = [
   "vrdex_media_submission_preview",
 ] as const;
 const mcpOwnedReadToolScopes: Record<(typeof mcpOwnedReadToolNames)[number], ApiScope> = {
+  vrdex_contribution_capacity: "mcp:read",
+  vrdex_contribution_capacity_requests: "mcp:read",
+  vrdex_contribution_status: "mcp:read",
   vrdex_contribution_batch_get: "mcp:read",
   vrdex_contribution_batch_items: "mcp:read",
   vrdex_list_my_profiles: "profile:read",
@@ -2286,6 +2294,10 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
   );
 
   const collectionToolNames = {
+    capacity: "vrdex_contribution_capacity",
+    request: "vrdex_contribution_capacity_request",
+    requests: "vrdex_contribution_capacity_requests",
+    status: "vrdex_contribution_status",
     create: "vrdex_contribution_batch_create",
     append: "vrdex_contribution_batch_append",
     get: "vrdex_contribution_batch_get",
@@ -2298,7 +2310,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     contributionOperations,
   ) as ContributionOperation[]) {
     const toolName = collectionToolNames[operation];
-    const read = operation === "get" || operation === "items";
+    const read = ["get", "items", "capacity", "requests", "status"].includes(operation);
     server.registerTool(
       toolName,
       {
@@ -2365,7 +2377,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       title: operation === "begin" ? "Begin Media Upload" : "Complete Media Upload",
       description: operation === "begin" ? "Reserve a local image upload and return its multipart transfer fields." : "Seal an uploaded image as owner media or a private contribution.",
       inputSchema: operation === "begin" ? localUploadRequestSchema : localUploadCompleteSchema,
-      outputSchema: operation === "begin" ? mcpOutputSchema(localUploadTargetSchema) : mcpOutputSchema(commandReceiptSchema),
+      outputSchema: operation === "begin" ? mcpOutputSchema(z.union([localUploadTargetSchema,commandReceiptSchema])) : mcpOutputSchema(commandReceiptSchema),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       _meta: { securitySchemes: mcpWriteSecuritySchemes(toolName) },
     }, async (input: unknown) => {

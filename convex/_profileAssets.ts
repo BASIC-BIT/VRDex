@@ -1,3 +1,4 @@
+import { settleLegacyContribution, assertCapacityNotRevoked } from "./_contributionCapacity";
 import { ConvexError, type GenericId } from "convex/values";
 import { automaticProfileImage } from "./_profileImageFallback";
 
@@ -959,6 +960,11 @@ export async function finalizeProfileAssetUploadIntentUpload(
   if (intent.state !== "pending" || intent.expiresAt < input.now) {
     throw new ConvexError("Profile media upload intent is no longer pending.");
   }
+  if(intent.purpose === "community_proposal"){
+    if(process.env.VRDEX_CONTRIBUTION_INTAKE_PAUSED === "true")throw new Error("CONTRIBUTION_INTAKE_PAUSED");
+    const contribution=intent.targetSubmissionId?await db.get(intent.targetSubmissionId):null;
+    if(contribution)await assertCapacityNotRevoked(db,contribution.submitterUserId,contribution.createdAt);
+  }
 
   if (intent.targetProfileId !== undefined && intent.purpose !== "community_proposal") {
     const profile = await db.get(intent.targetProfileId);
@@ -1038,6 +1044,7 @@ export async function finalizeProfileAssetUploadIntentUpload(
         throw new ConvexError("This image was already proposed for the profile.");
       }
     }
+    await settleLegacyContribution(db,intent,input);
     await db.patch(submission._id, {
       status: "submitted",
       ...(input.contentSha256 !== undefined ? { contentSha256: input.contentSha256 } : {}),

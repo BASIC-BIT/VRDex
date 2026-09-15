@@ -4,6 +4,7 @@ export const ACCOUNT_FEATURES = [
   "use_temporal_parsing_beta",
   "media_reviewer",
   "trusted_publisher",
+  "trusted_contributor",
 ] as const;
 
 export type AccountFeature = (typeof ACCOUNT_FEATURES)[number];
@@ -20,6 +21,7 @@ export type AccountFeatureAccess = {
   canUseTemporalParsing: boolean;
   canReviewMedia: boolean;
   canPublishMedia: boolean;
+  canContributeBulk: boolean;
 };
 
 export function isAccountFeatureGrantActive(
@@ -45,6 +47,7 @@ export function accountFeatureAccessFromGrants(
     superAdmin,
     canReviewMedia: activeFeatures.has("media_reviewer"),
     canPublishMedia: activeFeatures.has("trusted_publisher"),
+    canContributeBulk: activeFeatures.has("trusted_contributor"),
     canViewPrivateSeedLookup:
       superAdmin || activeFeatures.has("view_private_seed_lookup"),
     canUseTemporalParsing:

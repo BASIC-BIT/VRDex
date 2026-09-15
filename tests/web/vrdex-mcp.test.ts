@@ -2979,7 +2979,7 @@ it("advertises bounded private collection companions and no seed operator method
  const handler=createVrdexMcpHandler();const response=await handler.fetch(new Request("http://localhost:3000/mcp",{method:"POST",headers:{accept:"application/json, text/event-stream","content-type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:1,method:"tools/list",params:{}})}));console.log(await response.text());
  `);
  const tools=jsonBodyFromProbe(output).result?.tools??[];
- const batchTools=tools.filter(t=>t.name?.startsWith("vrdex_contribution_"));assert.equal(batchTools.length,7);
+ const batchTools=tools.filter(t=>t.name?.startsWith("vrdex_contribution_"));assert.equal(batchTools.length,11);
  for(const tool of batchTools){const meta=tool._meta as {securitySchemes:{type:string;scopes:string[]}[]};assert.ok(meta.securitySchemes.every(s=>s.type==="oauth2"));assert.ok(meta.securitySchemes.every(s=>s.scopes.some(scope=>scope.includes(":contribute")||scope==="assets:review:read")));}
  assert.equal(tools.some(t=>/seed.*(publish|import)/i.test(t.name??"")),false);
 });

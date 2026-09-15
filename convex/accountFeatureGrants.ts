@@ -9,6 +9,7 @@ const accountFeatureValidator = v.union(
   v.literal("use_temporal_parsing_beta"),
   v.literal("media_reviewer"),
   v.literal("trusted_publisher"),
+  v.literal("trusted_contributor"),
 );
 
 function optionalAuditText(value: string | undefined): string | undefined {
@@ -21,6 +22,7 @@ export const grant = internalMutation({
     userId: v.id("users"),
     feature: accountFeatureValidator,
     grantedBy: seedImportAuthSubjectValidator,
+    requestId: v.optional(v.id("contributionCapacityRequests")),
     expiresAt: v.optional(v.number()),
     reason: v.optional(v.string()),
     now: v.optional(v.number()),
@@ -28,7 +30,7 @@ export const grant = internalMutation({
   handler: async (ctx, args) => {
     const now = args.now ?? Date.now();
 
-    if (await ctx.db.get(args.userId) === null) {
+    if ((await ctx.db.get(args.userId)) === null) {
       throw new Error("Account not found.");
     }
 
@@ -36,6 +38,21 @@ export const grant = internalMutation({
       throw new Error("Feature grant expiry must be in the future.");
     }
 
+    if (args.requestId) {
+      const request = await ctx.db.get(args.requestId);
+      if (
+        !request ||
+        request.actorUserId !== args.userId ||
+        request.kind !== args.feature ||
+        request.state !== "pending"
+      )
+        throw new Error("CAPACITY_REQUEST_INVALID");
+      await ctx.db.patch(request._id, {
+        state: "approved",
+        decisionReason: optionalAuditText(args.reason),
+        updatedAt: now,
+      });
+    }
     const activeGrants = await ctx.db
       .query("accountFeatureGrants")
       .withIndex("by_userId_feature_state", (query) =>

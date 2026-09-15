@@ -27,6 +27,8 @@ async function seed() {
       email: "contributor@example.test",
       emailVerificationTime: NOW,
     });
+    await ctx.db.insert("oauthAccessTokens",{tokenId:"oauth-token-id",clientId:"mcp-client",subjectType:"user",userId:actorUserId,resource:"https://example.test/mcp",scopes:["mcp:write","assets:contribute"],status:"active",issuedAt:Date.now(),expiresAt:Date.now()+86400000});
+    await ctx.db.insert("oauthAccessTokens",{tokenId:"other-client-token",clientId:"other-mcp-client",subjectType:"user",userId:actorUserId,resource:"https://example.test/mcp",scopes:["mcp:write","assets:contribute"],status:"active",issuedAt:Date.now(),expiresAt:Date.now()+86400000});
     const profileId = await ctx.db.insert("profiles", {
       profileType: "person",
       slug: "community-dj",
@@ -164,7 +166,7 @@ describe("hosted MCP profile media contributions", () => {
     });
     const secondClient = await seeded.t.mutation(
       internal.profileMediaSubmissions.prepareMcpMediaSubmission,
-      { ...input(seeded.actorUserId), oauthClientId: "other-mcp-client", requestId: crypto.randomUUID() },
+      { ...input(seeded.actorUserId), oauthClientId: "other-mcp-client", oauthTokenId: "other-client-token", requestId: crypto.randomUUID() },
     );
     assert.equal(firstClient.status, "pending");
     assert.equal(secondClient.status, "pending");
@@ -193,7 +195,7 @@ describe("hosted MCP profile media contributions", () => {
     );
     const secondRefusal = await refused.t.mutation(
       internal.profileMediaSubmissions.prepareMcpMediaSubmission,
-      { ...input(refused.actorUserId), oauthClientId: "other-mcp-client", requestId: crypto.randomUUID() },
+      { ...input(refused.actorUserId), oauthClientId: "other-mcp-client", oauthTokenId: "other-client-token", requestId: crypto.randomUUID() },
     );
     assert.equal(firstRefusal.status, "failed");
     assert.deepEqual(secondRefusal, firstRefusal);
@@ -760,6 +762,7 @@ describe("hosted MCP profile media contributions", () => {
       email: "other-contributor@example.test",
       emailVerificationTime: Date.now(),
     }));
+    await seeded.t.run(ctx=>ctx.db.insert("oauthAccessTokens",{tokenId:"other-actor-token",clientId:"mcp-client",subjectType:"user",userId:otherActorUserId,resource:"https://example.test/mcp",scopes:["mcp:write","assets:contribute"],status:"active",issuedAt:Date.now(),expiresAt:Date.now()+86400000}));
     const first = await seeded.t.mutation(
       internal.profileMediaSubmissions.prepareMcpMediaSubmission,
       input(seeded.actorUserId),
@@ -768,6 +771,7 @@ describe("hosted MCP profile media contributions", () => {
       internal.profileMediaSubmissions.prepareMcpMediaSubmission,
       {
         ...input(otherActorUserId),
+        oauthTokenId:"other-actor-token",
         idempotencyKeyHash: "c".repeat(64),
         requestFingerprint: "d".repeat(64),
       },

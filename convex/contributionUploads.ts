@@ -22,6 +22,10 @@ import {
 import {
   changeContributionCharge,
   reservationBytes,
+  effectiveContributionPolicy,
+  contributionChargeRefusal,
+  batchAllowance,
+  assertCapacityNotRevoked,
 } from "./_contributionCapacity";
 
 const authorityArgs = {
@@ -150,6 +154,16 @@ async function reservation(
   )
     throw new Error("UPLOAD_UNAVAILABLE");
   await authorize(ctx, args, row.mode);
+  await assertCapacityNotRevoked(ctx.db, row.actorUserId, row.createdAt);
+  if (
+    row.allowanceId &&
+    (await ctx.db.get(row.allowanceId))?.state === "revoked"
+  )
+    throw new Error("CONTRIBUTION_CAPACITY_REVOKED");
+  if (row.capacityRevokedAt !== undefined)
+    throw new Error("CONTRIBUTION_CAPACITY_REVOKED");
+  if (process.env.VRDEX_CONTRIBUTION_INTAKE_PAUSED === "true")
+    throw new Error("CONTRIBUTION_INTAKE_PAUSED");
   if (row.batchRevisionId) {
     const rev = await ctx.db.get(row.batchRevisionId);
     if (!rev) throw new Error("UPLOAD_BATCH_UNAVAILABLE");
@@ -183,13 +197,16 @@ export const begin = internalMutation({
     expectedItemRevision: v.optional(v.number()),
     idempotencyKey: v.string(),
   },
-  returns: v.object({
-    intentId: v.id("profileAssetUploadIntents"),
-    expiresAt: v.number(),
-    quarantineStorageKey: v.string(),
-    contentType: v.string(),
-    byteLength: v.number(),
-  }),
+  returns: v.union(
+    v.object({ receipt: uploadReceiptValidator }),
+    v.object({
+      intentId: v.id("profileAssetUploadIntents"),
+      expiresAt: v.number(),
+      quarantineStorageKey: v.string(),
+      contentType: v.string(),
+      byteLength: v.number(),
+    }),
+  ),
   handler: async (ctx, args) => {
     const {
       actorUserId,
@@ -241,6 +258,44 @@ export const begin = internalMutation({
     if (!sourceUrl && !request.sourceDescription)
       throw new Error("UPLOAD_PROVENANCE_REQUIRED");
     const fingerprint = JSON.stringify(request);
+    const priorRefusal = await ctx.db
+      .query("contributionAdmissionRefusals")
+      .withIndex("by_actor_client_key", (q) =>
+        q
+          .eq("actorUserId", actorUserId)
+          .eq("clientId", oauthClientId)
+          .eq("key", request.idempotencyKey),
+      )
+      .unique();
+    if (priorRefusal) {
+      if (priorRefusal.fingerprint !== fingerprint)
+        throw new Error("UPLOAD_IDEMPOTENCY_CONFLICT");
+      return { receipt: priorRefusal.receipt };
+    }
+    const refuse = async (code: string) => {
+      const result = {
+        operationId: crypto.randomUUID(),
+        operationState: "refused" as const,
+        code,
+      };
+      await ctx.db.insert("contributionAdmissionRefusals", {
+        actorUserId,
+        clientId: oauthClientId,
+        key: request.idempotencyKey,
+        fingerprint,
+        receipt: result,
+        createdAt: Date.now(),
+      });
+      if (linked)
+        await ctx.db.insert("contributionItemAttempts", {
+          actorUserId,
+          revisionId: linked.revision._id,
+          oauthClientId,
+          receipt: result,
+          createdAt: Date.now(),
+        });
+      return { receipt: result };
+    };
     let old = await ctx.db
       .query("contributionUploadReservations")
       .withIndex("by_actor_client_key", (q) =>
@@ -258,6 +313,8 @@ export const begin = internalMutation({
         )
         .unique();
       if (previous) {
+        if (previous.receipt.operationState === "refused")
+          return { receipt: previous.receipt };
         if (!previous.intentId) throw new Error("UPLOAD_BATCH_UNAVAILABLE");
         old = await ctx.db
           .query("contributionUploadReservations")
@@ -293,22 +350,50 @@ export const begin = internalMutation({
       };
     }
     const now = Date.now();
-    if (request.mode === "contributor") {
-      if (
-        (await openSubmissionCountForUser(ctx, actorUserId, now)) >= 3 ||
-        (await openSubmissionCountForProfile(ctx, profile._id, now)) >= 2
-      )
-        throw new Error("UPLOAD_CAPACITY_EXCEEDED");
-      await assertSubmissionRateLimits(ctx, actorUserId, profile._id, now);
-    } else await assertProfileAssetIntentCapacity(ctx.db, profile._id, now);
+    const policy = await effectiveContributionPolicy(ctx.db, actorUserId);
     const charge = reservationBytes(request.byteLength);
-    await changeContributionCharge(
+    const allowance = linked
+      ? await batchAllowance(ctx.db, linked.revision.batchId, actorUserId)
+      : null;
+    const extraBytes = allowance?.bytes ?? 0;
+    if (allowance && (allowance.usedBytes ?? 0) + charge > extraBytes)
+      return refuse("CONTRIBUTION_BATCH_BYTES");
+    const refusal = await contributionChargeRefusal(
       ctx.db,
       { actorUserId, profileId: profile._id },
       charge,
       1,
-      true,
+      extraBytes,
     );
+    if (refusal) return refuse(refusal);
+    if (request.mode === "contributor") {
+      if (
+        (await openSubmissionCountForUser(ctx, actorUserId, now)) >=
+        policy.limits.openActor
+      )
+        return refuse("CONTRIBUTION_ACTOR_OPEN_LIMIT");
+      if (
+        (await openSubmissionCountForProfile(ctx, profile._id, now)) >=
+        policy.limits.openTarget
+      )
+        return refuse("CONTRIBUTION_TARGET_OPEN_LIMIT");
+      try {
+        await assertSubmissionRateLimits(ctx, actorUserId, profile._id, now);
+      } catch {
+        return refuse("CONTRIBUTION_ROLLING_LIMIT");
+      }
+    } else await assertProfileAssetIntentCapacity(ctx.db, profile._id, now);
+    await changeContributionCharge(
+      ctx.db,
+      { actorUserId, profileId: profile._id, ledgerVersion: 1 },
+      charge,
+      1,
+      false,
+    );
+    if (allowance)
+      await ctx.db.patch(allowance._id, {
+        usedBytes: (allowance.usedBytes ?? 0) + charge,
+      });
     const subject = {
       issuer: "vrdex:api",
       subject: String(actorUserId),
@@ -375,6 +460,8 @@ export const begin = internalMutation({
       await ctx.db.patch(submissionId, { uploadIntentId: intent.intentId });
     await ctx.db.insert("contributionUploadReservations", {
       intentId: intent.intentId,
+      ledgerVersion: 1,
+      allowanceId: allowance?._id,
       actorUserId,
       ...(linked ? { batchRevisionId: linked.revision._id } : {}),
       profileId: profile._id,

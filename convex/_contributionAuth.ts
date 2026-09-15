@@ -16,13 +16,50 @@ export type ContributionAuthority = {
   emailVerified: boolean;
   emailVerificationAttestedAt: number;
 };
+export async function assertLiveContributionToken(
+  ctx: QueryCtx | MutationCtx,
+  actorUserId: Id<"users">,
+  clientId: string,
+  tokenId: string,
+) {
+  const token = await ctx.db
+    .query("oauthAccessTokens")
+    .withIndex("by_tokenId", (q) => q.eq("tokenId", tokenId))
+    .unique();
+  if (
+    !token ||
+    token.userId !== actorUserId ||
+    token.subjectType !== "user" ||
+    token.clientId !== clientId ||
+    token.status !== "active" ||
+    token.expiresAt <= Date.now() ||
+    !token.scopes.includes("mcp:write") ||
+    !token.scopes.includes("assets:contribute")
+  )
+    throw new Error("CONTRIBUTION_DELEGATION_DENIED");
+  if (
+    token.applicationId &&
+    (await ctx.db.get(token.applicationId))?.status !== "active"
+  )
+    throw new Error("CONTRIBUTION_DELEGATION_DENIED");
+  if (
+    token.dynamicClientId &&
+    (await ctx.db.get(token.dynamicClientId))?.status !== "active"
+  )
+    throw new Error("CONTRIBUTION_DELEGATION_DENIED");
+}
 export async function authorizeContribution(
   ctx: QueryCtx | MutationCtx,
   args: ContributionAuthority,
   write: boolean,
   scope?: "profile:contribute" | "assets:contribute",
+  intake = write,
 ) {
-  if (process.env.VRDEX_CONTRIBUTION_BATCHES_ENABLED !== "true")
+  if (
+    intake &&
+    (process.env.VRDEX_CONTRIBUTION_BATCHES_ENABLED !== "true" ||
+      process.env.VRDEX_CONTRIBUTION_INTAKE_PAUSED === "true")
+  )
     throw new Error("BATCH_DISABLED");
   if (
     !args.emailVerified ||

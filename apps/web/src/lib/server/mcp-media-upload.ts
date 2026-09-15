@@ -66,8 +66,20 @@ export function createMcpMediaUploadHandlers(deps: LocalUploadDependencies) {
           ...(await deps.authority()),
         },
       );
+      if ("receipt" in admitted)
+        return commandReceiptSchema.parse(admitted.receipt);
       // Reserve bounded capacity before any remote acquisition. Digest and size
       // must match the staged revision, exactly as for a local transfer.
+      const fetchPermit = await admin().mutation(
+        internal.contributionCapacity.claimSourceFetch,
+        { intentId: admitted.intentId },
+      );
+      if (!fetchPermit.allowed)
+        return {
+          operationId: String(admitted.intentId),
+          operationState: "in_progress" as const,
+          code: "CONTRIBUTION_HOST_RATE",
+        };
       const source = await (deps.fetchSource ?? fetchProfileAssetSourceUrl)(
         request.sourceUrl,
       );
@@ -96,6 +108,8 @@ export function createMcpMediaUploadHandlers(deps: LocalUploadDependencies) {
           ...(await deps.authority()),
         },
       );
+      if ("receipt" in admitted)
+        return commandReceiptSchema.parse(admitted.receipt);
       const transfer = await (
         deps.target ?? createProfileAssetDirectUploadTarget
       )({

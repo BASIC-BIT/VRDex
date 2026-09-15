@@ -72,7 +72,7 @@ export const claim = internalMutation({
         cleanupLeaseUntil: now + 10 * 60 * 1000,
         cleanupAfter: now + 10 * 60 * 1000,
       });
-      uploads.push({ reservationId: row._id, token, keys: [...new Set(keys)] });
+      uploads.push({ reservationId: row._id, token, keys: [...new Set(keys.filter((key): key is string => !!key))] });
     }
     return {
       uploads,

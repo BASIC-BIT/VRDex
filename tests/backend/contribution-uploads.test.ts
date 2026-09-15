@@ -320,13 +320,9 @@ it("allows admitted reservations to finish after their capacity ceiling drops", 
     const row = (await ctx.db.query("profileMediaSubmissions").first())!;
     await ctx.db.patch(row._id, { createdAt: Date.now() - 86400000 });
   });
-  await assert.rejects(
-    f.t.mutation(internal.contributionUploads.begin, {
-      ...f.input,
-      idempotencyKey: "next",
-    }),
-    /CAPACITY_EXCEEDED/,
-  );
+  const refusal = await f.t.mutation(internal.contributionUploads.begin, {...f.input,idempotencyKey:"next"});
+  assert.equal(refusal.receipt?.operationState,"refused");
+  assert.equal(refusal.receipt?.code,"CONTRIBUTION_ACTOR_BYTES");
 });
 
 it("reserves quarantine and source plus both bounded derivatives", () => {

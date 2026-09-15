@@ -1,3 +1,4 @@
+import { transferPublishedCharge } from "./_contributionCapacity";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -309,6 +310,7 @@ export async function applyReviewDecision(
     actorUserId: user._id, idempotencyKey: `legacy:${publicationEvidence.operationId}`, inputHash: await hash(args),
     submissionId: submission._id, receipt: { operationId: publicationEvidence.operationId, operationState: "committed", resourceId: submission._id }, createdAt: now,
   });
+  await transferPublishedCharge(ctx.db, submission);
   await ctx.db.patch(submission._id, {
     status: "approved",
     reviewer: subject,

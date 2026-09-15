@@ -423,6 +423,7 @@ const accountFeature = v.union(
   v.literal("use_temporal_parsing_beta"),
   v.literal("media_reviewer"),
   v.literal("trusted_publisher"),
+  v.literal("trusted_contributor"),
 );
 
 const temporalParseJobStatus = v.union(
@@ -859,10 +860,12 @@ export default defineSchema({
   contributionUploadReservations: defineTable({
     intentId: v.id("profileAssetUploadIntents"), actorUserId: v.id("users"),
     batchRevisionId: v.optional(v.id("contributionItemRevisions")),
+    allowanceId: v.optional(v.id("contributionCapacityRequests")),
     profileId: v.id("profiles"), oauthClientId: v.string(),
     idempotencyKey: v.string(), fingerprint: v.string(),
     mode: v.union(v.literal("owner"), v.literal("contributor")),
     expectedUpdatedAt: v.number(), declaredBytes: v.number(), declaredType: v.string(), sha256: v.string(),
+    capacityRevokedAt: v.optional(v.number()), publishedBytes: v.optional(v.number()), ledgerVersion: v.optional(v.number()),
     chargedBytes: v.number(), quarantineBytes: v.number(), processing: v.boolean(),
     state: v.union(v.literal("pending"), v.literal("processing"), v.literal("committed"), v.literal("failed")),
     receipt: v.optional(v.object({ operationId: v.string(), operationState: v.union(v.literal("committed"), v.literal("refused"), v.literal("in_progress")), resourceId: v.optional(v.string()), code: v.optional(v.string()) })),
@@ -871,6 +874,7 @@ export default defineSchema({
     expiresAt: v.number(), createdAt: v.number(),
   }).index("by_intentId", ["intentId"])
     .index("by_actor_client_key", ["actorUserId", "oauthClientId", "idempotencyKey"])
+    .index("by_actor_createdAt", ["actorUserId", "createdAt"])
     .index("by_cleanupAfter", ["cleanupAfter"]),
   mediaReviewRebases: defineTable({
     submissionId:v.id("profileMediaSubmissions"),actorUserId:v.id("users"),

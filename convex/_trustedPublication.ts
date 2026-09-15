@@ -1,3 +1,4 @@
+import { transferPublishedCharge } from "./_contributionCapacity";
 import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { getAccountFeatureAccess } from "./_accountFeatures";
@@ -334,6 +335,7 @@ export async function publicationCommand(
       now: Date.now(),
     });
     if (!assetId) throw new Error("Publication did not create an asset.");
+    await transferPublishedCharge(ctx.db, submission);
     await ctx.db.patch(submission._id, {
       status: "approved",
       approvedAssetId: assetId,

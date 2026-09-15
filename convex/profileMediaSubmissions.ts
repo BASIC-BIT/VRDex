@@ -1,3 +1,5 @@
+import { assertLiveContributionToken } from "./_contributionAuth";
+import { effectiveContributionPolicy, contributionChargeRefusal, registerLegacyContribution, reservationBytes } from "./_contributionCapacity";
 import { requirePublisher, publicationCommand, recordPublicationRestriction } from "./_trustedPublication";
 import { readScopedPagination, writeScopedPagination } from "./_reviewCursor";
 import type { PaginationOptions } from "convex/server";
@@ -34,11 +36,6 @@ import { recordApiWriteAuditEvent } from "./_apiWriteAuditEvents";
 import { requireMcpAttributionText, requireSha256Hex } from "./_mcpWriteReceipts";
 
 const OPEN_SUBMISSION_STATUSES = ["upload_pending", "submitted", "under_review"] as const;
-const MAX_OPEN_PER_USER = 3;
-const MAX_OPEN_PER_PROFILE = 2;
-const MAX_CREATED_PER_USER_PER_DAY = 6;
-const MAX_CREATED_PER_PROFILE_PER_DAY = 20;
-const CREATE_COOLDOWN_MS = 30 * 1_000;
 
 const submissionId = v.id("profileMediaSubmissions");
 const requestedPlacement = v.union(v.literal("profile_image"), v.literal("primary_logo"));
@@ -140,6 +137,7 @@ export async function openSubmissionCountForUser(
   userId: Id<"users">,
   now: number,
 ) {
+  const policy = await effectiveContributionPolicy(ctx.db, userId);
   const groups = await Promise.all(
     OPEN_SUBMISSION_STATUSES.map((status) =>
       ctx.db
@@ -147,7 +145,7 @@ export async function openSubmissionCountForUser(
         .withIndex("by_submitterUserId_status_expiresAt", (query) =>
           query.eq("submitterUserId", userId).eq("status", status).gt("expiresAt", now),
         )
-        .take(MAX_OPEN_PER_USER + 1),
+        .take(policy.limits.openActor + 1),
     ),
   );
   return groups.reduce((count, group) => count + group.length, 0);
@@ -165,7 +163,7 @@ export async function openSubmissionCountForProfile(
         .withIndex("by_profileId_status_expiresAt", (query) =>
           query.eq("profileId", profileId).eq("status", status).gt("expiresAt", now),
         )
-        .take(MAX_OPEN_PER_PROFILE + 1),
+        .take(11),
     ),
   );
   return groups.reduce((count, group) => count + group.length, 0);
@@ -177,6 +175,7 @@ async function submissionRateLimit(
   profileId: Id<"profiles">,
   now: number,
 ) {
+  const policy = await effectiveContributionPolicy(ctx.db, userId);
   const since = now - 24 * 60 * 60 * 1_000;
   const [recentForUser, recentForProfile] = await Promise.all([
     ctx.db
@@ -185,22 +184,22 @@ async function submissionRateLimit(
         query.eq("submitterUserId", userId).gt("createdAt", since),
       )
       .order("desc")
-      .take(MAX_CREATED_PER_USER_PER_DAY + 1),
+      .take(policy.limits.dailyActor + 1),
     ctx.db
       .query("profileMediaSubmissions")
       .withIndex("by_profileId_createdAt", (query) =>
         query.eq("profileId", profileId).gt("createdAt", since),
       )
       .order("desc")
-      .take(MAX_CREATED_PER_PROFILE_PER_DAY + 1),
+      .take(policy.limits.dailyTarget + 1),
   ]);
-  if (recentForUser.length >= MAX_CREATED_PER_USER_PER_DAY) {
+  if (recentForUser.length >= policy.limits.dailyActor) {
     return "user_daily" as const;
   }
-  if (recentForProfile.length >= MAX_CREATED_PER_PROFILE_PER_DAY) {
+  if (recentForProfile.length >= policy.limits.dailyTarget) {
     return "profile_daily" as const;
   }
-  if ((recentForUser[0]?.createdAt ?? 0) > now - CREATE_COOLDOWN_MS) {
+  if (recentForUser.filter(row => row.createdAt > now - policy.limits.burstWindowMs).length >= policy.limits.burst) {
     return "cooldown" as const;
   }
   return null;
@@ -364,10 +363,10 @@ export const createUploadIntent = mutation({
       throw new ConvexError({ code: "MEDIA_PROFILE_CHANGED", message: "Refresh profile" });
     }
     const now = Date.now();
-    if (await openSubmissionCountForUser(ctx, user._id, now) >= MAX_OPEN_PER_USER) {
+    if (await openSubmissionCountForUser(ctx, user._id, now) >= (await effectiveContributionPolicy(ctx.db, user._id)).limits.openActor) {
       throw new Error("You already have three media contributions awaiting a decision.");
     }
-    if (await openSubmissionCountForProfile(ctx, profile._id, now) >= MAX_OPEN_PER_PROFILE) {
+    if (await openSubmissionCountForProfile(ctx, profile._id, now) >= (await effectiveContributionPolicy(ctx.db, user._id)).limits.openTarget) {
       throw new Error("This profile already has two media contributions awaiting a decision.");
     }
 
@@ -431,6 +430,7 @@ export const createUploadIntent = mutation({
       source: "community_submitted",
       now,
     });
+    await registerLegacyContribution(ctx.db, intent.intentId, user._id, profile._id, args.byteSize);
     await ctx.db.patch(submissionId, { uploadIntentId: intent.intentId, updatedAt: now });
     await ctx.db.insert("profileAuditEvents", {
       profileId: profile._id,
@@ -503,6 +503,7 @@ export const prepareMcpMediaSubmission = internalMutation({
       return rejectMcpMediaSubmission("MCP_MEDIA_EMAIL_ATTESTATION_INVALID");
     }
 
+    await assertLiveContributionToken(ctx,args.actorUserId,oauthClientId,oauthTokenId);
     if (existingIntent !== null) {
       if (
         existingIntent.mcpRequestFingerprint !== requestFingerprint ||
@@ -598,10 +599,10 @@ export const prepareMcpMediaSubmission = internalMutation({
     const eligible = profile!;
 
     const now = Date.now();
-    if (await openSubmissionCountForUser(ctx, actor._id, now) >= MAX_OPEN_PER_USER) {
+    if (await openSubmissionCountForUser(ctx, actor._id, now) >= (await effectiveContributionPolicy(ctx.db, actor._id)).limits.openActor) {
       return await refuse("MCP_MEDIA_OPEN_USER_LIMIT");
     }
-    if (await openSubmissionCountForProfile(ctx, eligible._id, now) >= MAX_OPEN_PER_PROFILE) {
+    if (await openSubmissionCountForProfile(ctx, eligible._id, now) >= (await effectiveContributionPolicy(ctx.db, actor._id)).limits.openTarget) {
       return await refuse("MCP_MEDIA_OPEN_PROFILE_LIMIT");
     }
     const creationLimit = await submissionRateLimit(ctx, actor._id, eligible._id, now);
@@ -615,6 +616,8 @@ export const prepareMcpMediaSubmission = internalMutation({
       return await refuse("MCP_MEDIA_COOLDOWN");
     }
 
+    const capacityRefusal = await contributionChargeRefusal(ctx.db, {actorUserId:actor._id, profileId:eligible._id}, reservationBytes(12*1024*1024), 1);
+    if(capacityRefusal)return refuse(capacityRefusal);
     let sourceUrl;
     let credit;
     let label;
@@ -686,6 +689,7 @@ export const prepareMcpMediaSubmission = internalMutation({
       mcpIdempotencyKeyHash: idempotencyKeyHash,
       mcpRequestFingerprint: requestFingerprint,
     });
+    await registerLegacyContribution(ctx.db,intent.intentId,actor._id,eligible._id);
     await ctx.db.insert("profileAuditEvents", {
       profileId: eligible._id,
       action: "profile_media_submission_created",
@@ -730,6 +734,7 @@ export const claimMcpMediaSubmissionImport = internalMutation({
     ) {
       return { status: "not_found" as const };
     }
+    await assertLiveContributionToken(ctx,intent.mcpActorUserId,intent.mcpOauthClientId!,intent.mcpOauthTokenId!);
     const submission = await ctx.db.get(intent.targetSubmissionId);
     if (
       submission === null ||
@@ -830,6 +835,7 @@ export const markMcpMediaSubmissionImported = internalMutation({
     ) {
       return rejectMcpMediaSubmission("MCP_MEDIA_IMPORT_UNAVAILABLE");
     }
+    await assertLiveContributionToken(ctx,intent.mcpActorUserId,intent.mcpOauthClientId!,intent.mcpOauthTokenId!);
     const submission = await ctx.db.get(intent.targetSubmissionId);
     if (
       submission === null ||

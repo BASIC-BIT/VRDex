@@ -11,6 +11,50 @@ const receipt = v.object({
   code: v.optional(v.string()),
 });
 export const contributionTables = {
+  contributionAdmissionRefusals: defineTable({
+    actorUserId: v.id("users"),
+    clientId: v.string(),
+    key: v.string(),
+    fingerprint: v.string(),
+    receipt,
+    createdAt: v.number(),
+  })
+    .index("by_actor_client_key", ["actorUserId", "clientId", "key"])
+    .index("by_actor_operation", ["actorUserId", "receipt.operationId"]),
+  contributionCapacityRequests: defineTable({
+    actorUserId: v.id("users"),
+    key: v.string(),
+    kind: v.union(
+      v.literal("trusted_contributor"),
+      v.literal("batch_allowance"),
+    ),
+    batchId: v.optional(v.id("contributionBatches")),
+    evidence: v.string(),
+    reason: v.string(),
+    rows: v.optional(v.number()),
+    bytes: v.optional(v.number()),
+    expiresAt: v.optional(v.number()),
+    usedBytes: v.optional(v.number()),
+    state: v.union(
+      v.literal("pending"),
+      v.literal("approved"),
+      v.literal("declined"),
+      v.literal("revoked"),
+    ),
+    decisionReason: v.optional(v.string()),
+    decidedBy: v.optional(v.id("users")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_actor_key", ["actorUserId", "key"])
+    .index("by_actor_state", ["actorUserId", "state"])
+    .index("by_batch_state", ["batchId", "state"])
+    .index("by_state", ["state"]),
+  contributionHostFetches: defineTable({
+    host: v.string(),
+    window: v.number(),
+    count: v.number(),
+  }).index("by_host_window", ["host", "window"]),
   contributionBatches: defineTable({
     actorUserId: v.id("users"),
     idempotencyKey: v.string(),
@@ -19,9 +63,13 @@ export const contributionTables = {
     rowCount: v.number(),
     createdAt: v.number(),
     archivedAt: v.optional(v.number()),
+    payloadCleanupAfter: v.optional(v.number()),
+    payloadCleanupCursor: v.optional(v.string()),
+    payloadCleanupHeld: v.optional(v.boolean()),
   })
     .index("by_actor_key", ["actorUserId", "idempotencyKey"])
-    .index("by_actor_archived", ["actorUserId", "archived"]),
+    .index("by_actor_archived", ["actorUserId", "archived"])
+    .index("by_payloadCleanupAfter", ["payloadCleanupAfter"]),
   contributionItems: defineTable({
     actorUserId: v.id("users"),
     batchId: v.id("contributionBatches"),
@@ -38,6 +86,8 @@ export const contributionTables = {
     itemKey: v.string(),
     revision: v.number(),
     payload: v.string(),
+    payloadExpiredAt: v.optional(v.number()),
+    legalHoldAt: v.optional(v.number()),
     bytes: v.number(),
     createdAt: v.number(),
   })

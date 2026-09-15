@@ -17,6 +17,7 @@ describe("hosted MCP profile media import cleanup", () => {
   it("deletes staged objects and releases the lease after definitive finalization rejection", () => {
     const output = runImportProbe(`
       import { ConvexError } from "convex/values";
+      import { getFunctionName } from "convex/server";
       import { completeMcpProfileMediaImport } from "./apps/web/src/lib/server/profile-media-mcp-import.ts";
 
       let mutationCount = 0;
@@ -30,7 +31,8 @@ describe("hosted MCP profile media import cleanup", () => {
         await completeMcpProfileMediaImport("intent_123", {
           isStorageConfigured: () => true,
           adminConvex: {
-            mutation: async () => {
+            mutation: async (ref) => {
+              if (getFunctionName(ref) === "contributionCapacity:claimSourceFetch") return {allowed:true};
               mutationCount += 1;
               if (mutationCount === 1) {
                 return {
@@ -110,6 +112,7 @@ describe("hosted MCP profile media import cleanup", () => {
   it("imports a contribution into the private submission lifecycle", () => {
     const output = runImportProbe(`
       import assert from "node:assert/strict";
+      import { getFunctionName } from "convex/server";
       import { completeMcpProfileMediaSubmissionImport } from "./apps/web/src/lib/server/profile-media-mcp-import.ts";
 
       let mutationCount = 0;
@@ -117,7 +120,8 @@ describe("hosted MCP profile media import cleanup", () => {
       const result = await completeMcpProfileMediaSubmissionImport("intent_456", {
         isStorageConfigured: () => true,
         adminConvex: {
-          mutation: async () => {
+          mutation: async (ref) => {
+              if (getFunctionName(ref) === "contributionCapacity:claimSourceFetch") return {allowed:true};
             mutationCount += 1;
             if (mutationCount === 1) return {
               status: "claimed",
@@ -173,6 +177,7 @@ describe("hosted MCP profile media import cleanup", () => {
 
   it("recovers a committed submission after an uncertain finalization response", () => {
     const output = runImportProbe(`
+      import { getFunctionName } from "convex/server";
       import { completeMcpProfileMediaSubmissionImport } from "./apps/web/src/lib/server/profile-media-mcp-import.ts";
 
       let mutationCount = 0;
@@ -189,7 +194,8 @@ describe("hosted MCP profile media import cleanup", () => {
       const result = await completeMcpProfileMediaSubmissionImport("intent_789", {
         isStorageConfigured: () => true,
         adminConvex: {
-          mutation: async () => {
+          mutation: async (ref) => {
+              if (getFunctionName(ref) === "contributionCapacity:claimSourceFetch") return {allowed:true};
             mutationCount += 1;
             if (mutationCount === 1) return {
               status: "claimed",
@@ -234,6 +240,7 @@ describe("hosted MCP profile media import cleanup", () => {
 
   it("keeps a live finalization lease indeterminate after a transport failure", () => {
     const output = runImportProbe(`
+      import { getFunctionName } from "convex/server";
       import { completeMcpProfileMediaSubmissionImport } from "./apps/web/src/lib/server/profile-media-mcp-import.ts";
 
       let mutationCount = 0;
@@ -243,7 +250,8 @@ describe("hosted MCP profile media import cleanup", () => {
         await completeMcpProfileMediaSubmissionImport("intent_999", {
           isStorageConfigured: () => true,
           adminConvex: {
-            mutation: async () => {
+            mutation: async (ref) => {
+              if (getFunctionName(ref) === "contributionCapacity:claimSourceFetch") return {allowed:true};
               mutationCount += 1;
               if (mutationCount === 1) return {
                 status: "claimed",
@@ -298,6 +306,7 @@ describe("hosted MCP profile media import cleanup", () => {
 
   it("refuses cleanup and reports indeterminate after losing the processing lease", () => {
     const output = runImportProbe(`
+      import { getFunctionName } from "convex/server";
       import { completeMcpProfileMediaSubmissionImport } from "./apps/web/src/lib/server/profile-media-mcp-import.ts";
 
       let mutationCount = 0;
@@ -307,7 +316,8 @@ describe("hosted MCP profile media import cleanup", () => {
         await completeMcpProfileMediaSubmissionImport("intent_lost_lease", {
           isStorageConfigured: () => true,
           adminConvex: {
-            mutation: async () => {
+            mutation: async (ref) => {
+              if (getFunctionName(ref) === "contributionCapacity:claimSourceFetch") return {allowed:true};
               mutationCount += 1;
               if (mutationCount === 1) return {
                 status: "claimed",
@@ -346,6 +356,7 @@ describe("hosted MCP profile media import cleanup", () => {
   it("returns stage-specific source, validation, and storage refusal codes", () => {
     const output = runImportProbe(`
       import assert from "node:assert/strict";
+      import { getFunctionName } from "convex/server";
       import { completeMcpProfileMediaSubmissionImport } from "./apps/web/src/lib/server/profile-media-mcp-import.ts";
 
       const prepared = {
@@ -359,7 +370,8 @@ describe("hosted MCP profile media import cleanup", () => {
           await completeMcpProfileMediaSubmissionImport("intent_" + kind, {
             isStorageConfigured: () => true,
             adminConvex: {
-              mutation: async () => {
+              mutation: async (ref) => {
+              if (getFunctionName(ref) === "contributionCapacity:claimSourceFetch") return {allowed:true};
                 mutationCount += 1;
                 if (mutationCount === 1) return {
                   status: "claimed",
@@ -407,6 +419,7 @@ describe("hosted MCP profile media import cleanup", () => {
 
   it("does not report or clean up a successor's terminal failure as recovered success", () => {
     const output = runImportProbe(`
+      import { getFunctionName } from "convex/server";
       import { completeMcpProfileMediaSubmissionImport } from "./apps/web/src/lib/server/profile-media-mcp-import.ts";
 
       let mutationCount = 0;
@@ -416,7 +429,8 @@ describe("hosted MCP profile media import cleanup", () => {
         await completeMcpProfileMediaSubmissionImport("intent_failed", {
           isStorageConfigured: () => true,
           adminConvex: {
-            mutation: async () => {
+            mutation: async (ref) => {
+              if (getFunctionName(ref) === "contributionCapacity:claimSourceFetch") return {allowed:true};
               mutationCount += 1;
               if (mutationCount === 1) return {
                 status: "claimed",
