@@ -912,6 +912,7 @@ function toApiManagedEventSummary(event: Doc<"events">, community: Doc<"profiles
     sourceLabel: event.sourceLabel,
     publicationState: event.publicationState,
     status: event.eventStatus,
+    watchMode: event.watchMode ?? "event_stream",
     watchSurfaceEnabled: event.watchSurfaceEnabled ?? false,
     createdAt: event.createdAt,
     publishedAt: event.publishedAt,

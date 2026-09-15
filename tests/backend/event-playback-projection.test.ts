@@ -9,7 +9,7 @@ import schemaModule from "../../convex/schema";
 import { publicProfileOutboundLinks, toPublicProfile } from "../../convex/_profilePublic";
 import { sanitizeEventSlotInputs } from "../../convex/_eventSlots";
 import { resolveEventStream } from "../../convex/_eventPlayback";
-import { PublicEventSchema } from "../../packages/api-contracts/src/schemas";
+import { ApiMeEventsResponseSchema, PublicEventSchema } from "../../packages/api-contracts/src/schemas";
 import { newClerkUserId } from "./_clerkTestIdentity";
 const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
@@ -233,4 +233,18 @@ it("does not invent a live source from a direct VRCDN video file", async () => {
     outboundLinks: [{ type: "vrcdn", label: "Recording", url: "https://stream.vrcdn.live/live/recording.mp4", source: "owner_authored" }],
   }));
   assert.deepEqual(await t.query(api.events.getPersonStreamChoices, { slug: "performer" }), []);
+});
+
+it("serializes the actual managed inventory mode and defaults legacy records", async () => {
+  const { t, owner, created } = await lineupFixture();
+  const legacyId = await t.run(async (ctx) => {
+    const event = await ctx.db.get(created.eventId);
+    assert.ok(event);
+    const { _id, _creationTime, watchMode, ...legacy } = event;
+    return ctx.db.insert("events", { ...legacy, slug: "legacy-event", title: "Legacy event" });
+  });
+  const events = await t.query(internal.events.listCommunityManagedEventsForApiOwner, { ownerUserId: owner.userId });
+  const response = ApiMeEventsResponseSchema.parse({ events });
+  assert.equal(response.events.find((event) => event.id === created.eventId)?.watchMode, "performer_sequence");
+  assert.equal(response.events.find((event) => event.id === legacyId)?.watchMode, "event_stream");
 });
