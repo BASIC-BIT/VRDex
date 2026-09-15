@@ -4,6 +4,14 @@ import { internal } from "./_generated/api";
 
 const crons = cronJobs();
 
+// Delivery is inert until the documented email opt-in is configured.
+crons.interval(
+  "deliver club operation notifications",
+  { minutes: 5 },
+  internal.clubNotificationEmail.deliver,
+  {},
+);
+
 crons.hourly(
   "community telemetry rollups",
   { minuteUTC: 10 },

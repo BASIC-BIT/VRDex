@@ -1,4 +1,4 @@
-import { resolveClubActor, readClubVisibility, canReadCategory } from "./_clubAccess";
+import { resolveClubActor, readClubVisibility, canReadCategory, requireClubPermission } from "./_clubAccess";
 import { CLUB_CATEGORIES, LEGACY_CATEGORY_MAP } from "./_clubModel";
 import { ConvexError, v } from "convex/values";
 
@@ -824,6 +824,8 @@ export const claimDueAssignments = internalMutation({
       }
       claimed.push({
         integrationId: integration._id,
+        epochStartedAt: integration.telemetryEpochStartedAt ?? integration.createdAt,
+        enabledFeatures: integration.enabledFeatures ?? ["analytics"],
         vrchatGroupId: integration.vrchatGroupId,
         joinPolicy: integration.joinPolicy,
         groupVisibility: integration.groupVisibility,
@@ -1182,6 +1184,17 @@ export const releaseLease = internalMutation({
     const now = args.now ?? Date.now();
     const lease = await assertLease(ctx, args.integrationId, args.collectorAccountId, args.workerId, args.fencingToken, now);
     await ctx.db.patch(lease._id, { state: "released", releasedAt: now, updatedAt: now });
+    const integration = await ctx.db.get(args.integrationId);
+    if (integration && ["active", "degraded"].includes(integration.state)) {
+      const [pendingOperation, pendingRead] = await Promise.all([
+        ctx.db.query("clubOperations").withIndex("by_integration_state_readyAt", q => q.eq("integrationId", integration._id).eq("state", "pending")).first(),
+        ctx.db.query("clubProviderReadRequests").withIndex("by_integration_state_createdAt", q => q.eq("integrationId", integration._id).eq("state", "pending")).first(),
+      ]);
+      const nextWorkAt = Math.min(pendingOperation?.readyAt ?? Infinity, pendingRead ? now : Infinity);
+      if (Number.isFinite(nextWorkAt) && nextWorkAt < (integration.nextPollAt ?? Infinity)) {
+        await ctx.db.patch(integration._id, { nextPollAt: Math.max(now, nextWorkAt), updatedAt: now });
+      }
+    }
   },
 });
 
@@ -1205,6 +1218,9 @@ export const ingestAggregatePoll = internalMutation({
     await assertLease(ctx, args.integrationId, args.collectorAccountId, args.workerId, args.fencingToken, now);
     const integration = await ctx.db.get(args.integrationId);
     if (!integration) throw new Error("Integration was not found.");
+    if (integration.enabledFeatures && !integration.enabledFeatures.includes("analytics")) {
+      throw new Error("Analytics collection is disabled.");
+    }
     if (
       !Number.isSafeInteger(args.observedAt) ||
       args.observedAt < now - 15 * 60_000 ||
@@ -1458,6 +1474,8 @@ async function telemetryDashboardData(ctx: QueryCtx, profile: Doc<"profiles">, n
   const rangeStart = Math.min(...points.map((point) => point.observedAt), now);
   const metrics = computePopulationMetrics(points, rangeStart, now);
   const openSessions = sessions.filter((session) => session.state === "open");
+  const current = (!integration.enabledFeatures || integration.enabledFeatures.includes("analytics")) &&
+    integration.lastSuccessfulObservationAt !== undefined && now - integration.lastSuccessfulObservationAt <= CURRENT_FRESHNESS_MS;
   return {
     community: { slug: profile.slug, displayName: profile.displayName },
     integration: {
@@ -1466,19 +1484,19 @@ async function telemetryDashboardData(ctx: QueryCtx, profile: Doc<"profiles">, n
       joinPolicy: integration.joinPolicy,
       vrchatGroupId: integration.vrchatGroupId,
       lastSuccessfulObservationAt: integration.lastSuccessfulObservationAt,
-      freshness: integration.lastSuccessfulObservationAt && now - integration.lastSuccessfulObservationAt <= CURRENT_FRESHNESS_MS ? "current" as const : "stale" as const,
+      freshness: current ? "current" as const : "stale" as const,
       publicMetrics: integration.publicMetrics,
       collector: account ? { accountAlias: account.accountAlias, vrchatUserId: account.vrchatUserId, state: account.state } : null,
     },
     summary: {
-      currentPopulation: integration.lastSuccessfulObservationAt && now - integration.lastSuccessfulObservationAt <= CURRENT_FRESHNESS_MS ? metrics.currentPopulation : undefined,
-      activeInstanceCount: population[0]?.activeInstanceCount ?? openSessions.length,
+      currentPopulation: current ? metrics.currentPopulation : undefined,
+      activeInstanceCount: current ? population[0]?.activeInstanceCount ?? openSessions.length : undefined,
       peakConcurrency: metrics.peakConcurrency,
       playerHours: metrics.playerHours,
       coverageRatio: metrics.coverageRatio,
       groupMemberCount: memberCounts[0]?.memberCount,
       groupMemberGrowth: memberCounts.length > 1 ? memberCounts[0]!.memberCount - memberCounts[memberCounts.length - 1]!.memberCount : 0,
-      worlds: (population[0]?.worldDistribution ?? []).map((world) => ({
+      worlds: (current ? population[0]?.worldDistribution ?? [] : []).map((world) => ({
         worldId: world.vrchatWorldId,
         samples: world.instanceCount,
         population: world.population,
@@ -1662,6 +1680,24 @@ export const recomputeRollup = internalMutation({
   },
 });
 
+export const getInstanceEventAssociation = query({
+  args: { communitySlug: v.string(), sessionId: v.id("instanceSessions") },
+  returns: v.union(v.null(), v.object({ eventId: v.id("events"), title: v.string() })),
+  handler: async (ctx, args) => {
+    const profile = await ctx.db.query("profiles").withIndex("by_slug", q => q.eq("slug", args.communitySlug)).unique();
+    if (!profile) throw new Error("You do not have access to this action.");
+    requireClubPermission(await resolveClubActor(ctx, profile._id), "manage_events");
+    const session = await ctx.db.get(args.sessionId);
+    if (!profile || !session || session.communityProfileId !== profile._id) throw new Error("Instance was not found.");
+    const integration = await integrationForCommunity(ctx, profile._id);
+    if (!integration || integration._id !== session.integrationId || session.openedAt < (integration.telemetryEpochStartedAt ?? integration.createdAt)) throw new Error("Instance belongs to an earlier group connection.");
+    const association = await ctx.db.query("eventInstanceAssociations").withIndex("by_sessionId_state", q => q.eq("sessionId", session._id).eq("state", "confirmed")).first();
+    if (!association) return null;
+    const event = await ctx.db.get(association.eventId);
+    return event && event.communityProfileId === profile._id ? { eventId: event._id, title: event.title } : null;
+  },
+});
+
 export const associateEventInstance = mutation({
   args: {
     communitySlug: v.string(),
@@ -1674,9 +1710,14 @@ export const associateEventInstance = mutation({
       ctx.db.get(args.eventId),
       ctx.db.get(args.sessionId),
     ]);
-    if (!profile || profile.profileType !== "community" || !event || !session) throw new Error("Event or instance was not found.");
+    const actor = await requireSubject(ctx);
+    if (!profile || profile.profileType !== "community") throw new Error("You do not have access to this action.");
+    const clubActor = await resolveClubActor(ctx, profile._id);
+    requireClubPermission(clubActor, "manage_events");
+    if (!event || !session) throw new Error("Event or instance was not found.");
     if (event.communityProfileId !== profile._id || session.communityProfileId !== profile._id) throw new Error("Event and instance must belong to this community.");
-    const actor = await requireCommunityCapability(ctx, profile._id);
+    const integration = await integrationForCommunity(ctx, profile._id);
+    if (!integration || integration._id !== session.integrationId || session.openedAt < (integration.telemetryEpochStartedAt ?? integration.createdAt)) throw new Error("Instance belongs to an earlier group connection.");
     const now = Date.now();
     const existing = await ctx.db.query("eventInstanceAssociations").withIndex("by_sessionId_state", (q) => q.eq("sessionId", session._id).eq("state", "confirmed")).first();
     if (existing && existing.eventId !== event._id) throw new Error("Instance is already confirmed for another event.");
@@ -1715,8 +1756,12 @@ export const reviewAssociationSuggestion = mutation({
     if (args.state === "suggested") throw new Error("A review must confirm or reject the suggestion.");
     const profile = await ctx.db.query("profiles").withIndex("by_slug", (q) => q.eq("slug", args.communitySlug.trim().toLowerCase())).first();
     const association = await ctx.db.get(args.associationId);
-    if (!profile || profile.profileType !== "community" || !association || association.communityProfileId !== profile._id) throw new Error("Association was not found.");
-    const actor = await requireCommunityCapability(ctx, profile._id);
+    const actor = await requireSubject(ctx);
+    if (!profile || profile.profileType !== "community") throw new Error("You do not have access to this action.");
+    requireClubPermission(await resolveClubActor(ctx, profile._id), "manage_events");
+    if (!association || association.communityProfileId !== profile._id) throw new Error("Association was not found.");
+    const [session, event, integration] = await Promise.all([ctx.db.get(association.sessionId), ctx.db.get(association.eventId), integrationForCommunity(ctx, profile._id)]);
+    if (!session || !event || session.communityProfileId !== profile._id || event.communityProfileId !== profile._id || !integration || session.integrationId !== integration._id || session.openedAt < (integration.telemetryEpochStartedAt ?? integration.createdAt)) throw new Error("Event or instance belongs to another group connection.");
     const now = Date.now();
     if (args.state === "confirmed") {
       const existing = await ctx.db.query("eventInstanceAssociations")

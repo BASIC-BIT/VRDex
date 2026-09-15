@@ -366,6 +366,7 @@ export const seedPresetRoles = mutation({
         "Moderator",
         [
           "approve_join_requests",
+          "view_members",
           "invite_group_members",
           "assign_vrchat_roles",
           "remove_group_members",

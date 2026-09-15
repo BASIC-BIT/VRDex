@@ -103,7 +103,7 @@ export async function getPublicCommunityTelemetry(
       ...publicRollup(rollup, publicMetrics),
     };
   }))).filter((recap) => recap !== null);
-  const freshness = integration.lastSuccessfulObservationAt !== undefined &&
+  const freshness = (!integration.enabledFeatures || integration.enabledFeatures.includes("analytics")) && integration.lastSuccessfulObservationAt !== undefined &&
     now - integration.lastSuccessfulObservationAt <= CURRENT_FRESHNESS_MS ? "current" as const : "stale" as const;
 
   return {

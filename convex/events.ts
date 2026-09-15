@@ -1,4 +1,5 @@
 import { ConvexError, v } from "convex/values";
+import {syncClubEventOperations} from "./_clubOperationEvents";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import {
@@ -953,13 +954,14 @@ async function createCommunityEventForApiOwnerRecord(
 }
 
 async function updateCommunityEventForApiOwnerRecord(
-  db: DatabaseWriter,
+  ctx: MutationCtx,
   args: EventDraftUpdateInput & {
     currentSlug: string;
     ownerUserId: Id<"users">;
     actorSurface?: "api" | "mcp";
   },
 ) {
+  const {db}=ctx;
   const validation = validateEventSlug(args.currentSlug);
 
   if (!validation.ok) {
@@ -1026,7 +1028,7 @@ async function updateCommunityEventForApiOwnerRecord(
   const world = updateFields.has("worldSlug")
     ? await getPublishedWorldBySlug(db, input.worldSlug)
     : await linkedPublishedEventWorld(db, event._id);
-  const result = await updateCommunityEventRecord(db, { event, input, community, world, updateFields });
+  const result = await updateCommunityEventRecord(ctx, { event, input, community, world, updateFields });
   await recordEventAuditEvent(db, {
     eventId: event._id,
     actor: apiOwnerAuthSubject(args.ownerUserId),
@@ -1162,7 +1164,7 @@ async function insertCommunityEventRecord(
 }
 
 async function updateCommunityEventRecord(
-  db: DatabaseWriter,
+  ctx: MutationCtx,
   options: {
     event: Doc<"events">;
     input: SanitizedEventDraftInput;
@@ -1177,6 +1179,7 @@ async function updateCommunityEventRecord(
     updateFields?: ReadonlySet<keyof EventDraftInput>;
   },
 ) {
+  const {db}=ctx;
   const {
     community,
     event,
@@ -1233,6 +1236,7 @@ async function updateCommunityEventRecord(
   if (updatedEvent === null) {
     throw new Error("Event update did not persist.");
   }
+  if(updatedEvent.startAt!==event.startAt||updatedEvent.communityProfileId!==event.communityProfileId)await syncClubEventOperations(ctx,event._id);
 
   const replaceWorld = shouldUpdate("worldSlug");
   const replaceSlots = shouldUpdate("slotLinks");
@@ -2731,7 +2735,7 @@ export const updateCommunityEventForApiOwner = internalMutation({
   },
   handler: async (ctx, args) => {
     const { community, event, result } = await updateCommunityEventForApiOwnerRecord(
-      ctx.db,
+      ctx,
       args,
     );
     await recordApiWriteAuditEvent(ctx.db, {
@@ -2780,7 +2784,7 @@ export const updateCommunityEventForMcpOwner = internalMutation({
 
     try {
       ({ community, event, result } = await updateCommunityEventForApiOwnerRecord(
-        ctx.db,
+        ctx,
         { ...args, actorSurface: "mcp" },
       ));
     } catch {
@@ -2910,7 +2914,7 @@ export const updateCommunityEvent = mutation({
         : ("draft_private" as const);
     const publicationChanged =
       publicationState !== undefined && publicationState !== event.publicationState;
-    const result = await updateCommunityEventRecord(ctx.db, {
+    const result = await updateCommunityEventRecord(ctx, {
       event,
       input,
       community,
@@ -3136,6 +3140,7 @@ export const setCommunityEventCancelled = mutation({
 
     const now = Date.now();
     await ctx.db.patch(event._id, { eventStatus, updatedAt: now });
+    await syncClubEventOperations(ctx,event._id,args.cancelled);
     if (args.cancelled) {
       await settleEventMediaForCancellation(ctx.db, event, subject, now);
     }

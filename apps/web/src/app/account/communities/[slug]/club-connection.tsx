@@ -1,5 +1,6 @@
 "use client";
-import { useMutation } from "convex/react";
+import Link from "next/link";
+import { useMutation, useQuery } from "convex/react";
 import type { FunctionArgs } from "convex/server";
 import { useState } from "react";
 import { api } from "@convex-generated-api";
@@ -7,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, SectionHeading } from "@/components/ui/card";
 import { Field, Input, Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
+import { ClubConnectionFeatures } from "./club-connection-features";
 import {
   ClubAccessNotice,
   useClubWorkspace,
@@ -94,7 +96,7 @@ export function ClubConnectionView({
             }}
           >
             <Field className="md:col-span-2">
-              VRChat group ID
+              Primary VRChat group ID
               <Input
                 onChange={(event) => setGroupId(event.target.value)}
                 placeholder="grp_…"
@@ -145,7 +147,7 @@ export function ClubConnectionView({
               <dd className="mt-1">{integration.state.replaceAll("_", " ")}</dd>
             </div>
             <div>
-              <dt className="text-muted">VRChat group ID</dt>
+              <dt className="text-muted">Primary VRChat group ID</dt>
               <dd className="mt-1 break-all">{integration.vrchatGroupId}</dd>
             </div>
             <div>
@@ -188,6 +190,14 @@ export function ClubConnectionView({
           </Button>
         </Card>
       )}
+      {data.actor.kind === "owner" ? (
+        <Link
+          className="text-sm underline underline-offset-4"
+          href={`/${encodeURIComponent(data.community.slug)}/edit`}
+        >
+          Edit additional group links
+        </Link>
+      ) : null}
     </div>
   );
 }
@@ -196,7 +206,29 @@ export function ClubConnection() {
   const data = useClubWorkspace();
   const connect = useMutation(api.communityTelemetry.connectGroup);
   const disconnect = useMutation(api.communityTelemetry.disconnectGroup);
+  const allowed =
+    data.actor.kind === "owner" ||
+    data.actor.permissions.includes("manage_integrations");
+  const connection = useQuery(
+    api.clubConnection.get,
+    allowed ? { communityProfileId: data.community._id } : "skip",
+  );
+  const setFeatures = useMutation(api.clubConnection.setFeatures);
+  const setRoles = useMutation(api.clubConnection.setProviderRoleAllowlist);
   return (
-    <ClubConnectionView data={data} connect={connect} disconnect={disconnect} />
+    <div className="grid gap-6">
+      <ClubConnectionView
+        data={data}
+        connect={connect}
+        disconnect={disconnect}
+      />
+      {allowed && connection ? (
+        <ClubConnectionFeatures
+          data={data}
+          connection={connection}
+          actions={{ setFeatures, setRoles }}
+        />
+      ) : null}
+    </div>
   );
 }

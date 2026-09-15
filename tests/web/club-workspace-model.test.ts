@@ -17,7 +17,29 @@ test("staff navigation never grants owner-only settings or unheld actions", () =
     ),
     ["Home", "Staff and roles"],
   );
-  assert.equal(clubNavigation("afterhours", true, []).length, 4);
+  const ownerLinks = clubNavigation("afterhours", true, []);
+  assert.ok(ownerLinks.some((item) => item.label === "Data visibility"));
+  assert.ok(ownerLinks.some((item) => item.label === "Invitations"));
+  assert.deepEqual(
+    clubNavigation("afterhours", false, ["invite_group_members"]).map((item) => item.label),
+    ["Home", "Members", "Invitations", "Scheduled actions"],
+  );
+  assert.deepEqual(
+    clubNavigation("afterhours", false, ["manage_instances"]).map((item) => item.label),
+    ["Home", "Instances", "Invitations", "Scheduled actions"],
+  );
+  assert.deepEqual(
+    clubNavigation("afterhours", false, ["view_members"]).map(
+      (item) => item.label,
+    ),
+    ["Home", "Members"],
+  );
+  assert.deepEqual(
+    clubNavigation("afterhours", false, ["publish_posts"]).map(
+      (item) => item.label,
+    ),
+    ["Home", "Posts", "Scheduled actions"],
+  );
 });
 
 test("only the token invitation route bypasses the account middleware gate", () => {

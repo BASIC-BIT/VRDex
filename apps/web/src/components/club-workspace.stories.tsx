@@ -2,6 +2,11 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { ConvexProviderWithAuth, ConvexReactClient } from "convex/react";
 import { ClubConnectionView } from "@/app/account/communities/[slug]/club-connection";
 import {
+  ClubConnectionFeatures,
+  type ConnectionFeatures,
+} from "@/app/account/communities/[slug]/club-connection-features";
+import { useState } from "react";
+import {
   CommunityTelemetryDashboard,
   type TelemetryDashboardData,
 } from "@/app/account/communities/[slug]/telemetry/community-telemetry-dashboard";
@@ -179,6 +184,120 @@ export const Connection: Story = {
       </PageContainer>
     </PageShell>
   ),
+};
+
+function ConnectionFeatureFixture({
+  staff = false,
+  expired = false,
+}: {
+  staff?: boolean;
+  expired?: boolean;
+}) {
+  const [connection, setConnection] = useState<ConnectionFeatures>(() => ({
+    integrationId: "fixture-integration" as Id<"communityVrchatIntegrations">,
+    enabledFeatures: [
+      "analytics",
+      "membership_management",
+      "posts",
+      "instances",
+    ],
+    authority: {
+      groupId: "grp_fixture",
+      userId: "usr_fixture",
+      membershipStatus: "member",
+      permissions: ["group-members-manage", "group-instance-open-create"],
+      observedAt: Date.now() - (expired ? 61_000 : 0),
+    },
+    features: [
+      {
+        feature: "analytics",
+        enabled: true,
+        ready: true,
+        missingPermissions: [],
+      },
+      {
+        feature: "membership_management",
+        enabled: true,
+        ready: true,
+        missingPermissions: [],
+      },
+      {
+        feature: "posts",
+        enabled: true,
+        ready: false,
+        missingPermissions: ["group-announcement-manage"],
+      },
+      {
+        feature: "instances",
+        enabled: true,
+        ready: true,
+        missingPermissions: [],
+      },
+    ],
+    roles: [
+      { roleId: adminId, label: "Admin", providerRoleIds: [] },
+      { roleId: moderatorId, label: "Moderator", providerRoleIds: [] },
+    ],
+  }));
+  const viewData: WorkspaceData = staff
+    ? {
+        ...data,
+        actor: {
+          ...data.actor,
+          kind: "staff",
+          permissions: ["manage_integrations"],
+        },
+      }
+    : data;
+  return (
+    <PageShell>
+      <PageContainer max="7xl">
+        <ClubWorkspaceView
+          data={viewData}
+          pathname="/account/communities/afterhours/connection"
+        >
+          <div className="grid gap-6">
+            <h1 className="text-3xl font-semibold">Group connection</h1>
+            <ClubConnectionFeatures
+              data={viewData}
+              connection={connection}
+              actions={{
+                setFeatures: async (args) => {
+                  setConnection((previous) => ({
+                    ...previous,
+                    enabledFeatures: args.enabledFeatures,
+                    features: previous.features.map((feature) => ({
+                      ...feature,
+                      enabled: args.enabledFeatures.includes(feature.feature),
+                    })),
+                  }));
+                },
+                setRoles: async (args) => {
+                  setConnection((previous) => ({
+                    ...previous,
+                    roles: previous.roles.map((role) =>
+                      role.roleId === args.roleId
+                        ? { ...role, providerRoleIds: args.providerRoleIds }
+                        : role,
+                    ),
+                  }));
+                },
+              }}
+            />
+          </div>
+        </ClubWorkspaceView>
+      </PageContainer>
+    </PageShell>
+  );
+}
+export const ConnectionFeaturesOwner: Story = {
+  render: () => <ConnectionFeatureFixture />,
+};
+export const ConnectionFeaturesStaff: Story = {
+  render: () => <ConnectionFeatureFixture staff />,
+};
+export const ConnectionFeaturesExpired: Story = {
+  render: () => <ConnectionFeatureFixture expired />,
 };
 
 export const Staff: Story = {

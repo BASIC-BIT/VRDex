@@ -1,4 +1,7 @@
 import { clubPermission, clubVisibility, clubSubject } from "./_clubModel";
+import { providerReadParams, providerReadPage } from "./_clubProviderReads";
+import { integrationFeature, storedAuthority } from "./_clubConnection";
+import {clubOperationPayload,operationSchedule,operationState} from "./_clubOperations";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
@@ -698,6 +701,19 @@ const sharedProfileFields = {
 };
 
 export default defineSchema({
+  clubProviderReadRequests: defineTable({
+    communityProfileId: v.id("profiles"), integrationId: v.id("communityVrchatIntegrations"),
+    subject: clubSubject, params: providerReadParams, requestKey: v.string(),
+    epochStartedAt: v.number(), state: v.union(v.literal("pending"),v.literal("running"),v.literal("succeeded"),v.literal("failed")),
+    createdAt: v.number(), expiresAt: v.number(),
+    collectorAccountId: v.optional(v.id("collectorAccounts")), credentialGeneration: v.optional(v.number()),
+    workerId: v.optional(v.string()), fencingToken: v.optional(v.number()),
+    claimedAt: v.optional(v.number()), claimToken: v.optional(v.string()),
+    result: v.optional(providerReadPage), errorCode: v.optional(v.string()),
+  }).index("by_subject_key_createdAt", ["subject.tokenIdentifier", "requestKey", "createdAt"])
+    .index("by_subject_createdAt", ["subject.tokenIdentifier", "createdAt"])
+    .index("by_integration_state_createdAt", ["integrationId", "state", "createdAt"])
+    .index("by_expiresAt", ["expiresAt"]),
   profileLinkDestinationReferences: defineTable({ key: v.string(), profileId: v.id("profiles") }).index("by_key_profile", ["key", "profileId"]).index("by_profile", ["profileId"]),
   profileLinkDestinations: defineTable({
     key: v.string(),
@@ -1456,7 +1472,20 @@ export default defineSchema({
       "state",
       "communityProfileId",
     ]),
+  communityDashboardPreferences: defineTable({
+    communityProfileId:v.id("profiles"),scope:v.union(v.literal("club"),v.literal("personal")),subjectTokenIdentifier:v.string(),widgets:v.array(v.string()),rangeDays:v.union(v.literal(7),v.literal(30),v.literal(90)),updatedAt:v.number(),
+  }).index("by_communityProfileId_scope_subject",["communityProfileId","scope","subjectTokenIdentifier"]),
+  clubOperations:defineTable({dependencyId:v.optional(v.id("clubOperations")),readyAt:v.number(),preflightAttempts:v.optional(v.number()),retryAt:v.optional(v.number()),communityProfileId:v.id("profiles"),integrationId:v.id("communityVrchatIntegrations"),epochStartedAt:v.number(),requestId:v.string(),batchId:v.string(),payload:clubOperationPayload,schedule:operationSchedule,eventId:v.optional(v.id("events")),dueAt:v.number(),actor:clubSubject,createdBy:clubSubject,revision:v.number(),state:operationState,claim:v.optional(v.object({nonce:v.string(),collectorAccountId:v.id("collectorAccounts"),credentialGeneration:v.number(),workerId:v.string(),fencingToken:v.number(),expiresAt:v.number()})),submittedAt:v.optional(v.number()),completedAt:v.optional(v.number()),code:v.optional(v.string()),result:v.optional(v.object({worldId:v.optional(v.string()),instanceId:v.optional(v.string()),postId:v.optional(v.string())})),createdAt:v.number(),updatedAt:v.number()})
+    .index("by_integration_state_dueAt",["integrationId","state","dueAt"])
+    .index("by_integration_state_readyAt",["integrationId","state","readyAt"])
+    .index("by_community_createdAt",["communityProfileId","createdAt"])
+    .index("by_community_requestId",["communityProfileId","requestId"])
+    .index("by_event_state",["eventId","state"])
+    .index("by_event",["eventId"]),
+  clubOperationNotifications: defineTable({communityProfileId:v.id("profiles"),batchId:v.string(),operationId:v.id("clubOperations"),emailNextAttemptAt:v.number(),revision:v.number(),outcome:v.union(v.literal("rejected"),v.literal("indeterminate"),v.literal("missed")),createdAt:v.number(),readBy:v.array(v.string()),emailState:v.union(v.literal("pending"),v.literal("submitted"),v.literal("sent"),v.literal("suppressed"),v.literal("indeterminate")),emailRecipient:v.optional(v.string())}).index("by_operation_revision_outcome",["operationId","revision","outcome"]).index("by_community_createdAt",["communityProfileId","createdAt"]).index("by_emailState",["emailState","emailNextAttemptAt"]).index("by_batch_recipient",["communityProfileId","batchId","revision","outcome","emailRecipient"]),
+  clubOperationRevisions:defineTable({operationId:v.id("clubOperations"),revision:v.number(),actor:clubSubject,payload:clubOperationPayload,schedule:operationSchedule,dueAt:v.number(),createdAt:v.number()}).index("by_operation_revision",["operationId","revision"]),
   communityRoles: defineTable({
+    permittedProviderRoleIds: v.optional(v.array(v.string())),
     communityProfileId:v.id("profiles"),key:v.string(),label:v.string(),description:v.optional(v.string()),
     permissions:v.array(clubPermission),assignableRoleIds:v.array(v.id("communityRoles")),
     presetKey:v.optional(v.union(v.literal("admin"),v.literal("moderator"),v.literal("event_staff"))),
@@ -1529,7 +1558,49 @@ export default defineSchema({
     requestCount: v.number(),
     updatedAt: v.number(),
   }).index("by_scopeKey", ["scopeKey"]),
+  clubPostDrafts: defineTable({
+    communityProfileId:v.id("profiles"),creatorTokenIdentifier:v.string(),clientId:v.string(),
+    title:v.string(),text:v.string(),visibility:v.union(v.literal("public"),v.literal("group")),sendNotification:v.boolean(),imageId:v.optional(v.string()),roleIds:v.optional(v.array(v.string())),providerPostId:v.optional(v.string()),
+    revision:v.number(),queuedRevision:v.optional(v.number()),operationId:v.optional(v.id("clubOperations")),createdAt:v.number(),updatedAt:v.number(),
+  }).index("by_creator",["communityProfileId","creatorTokenIdentifier","updatedAt"])
+    .index("by_client",["communityProfileId","creatorTokenIdentifier","clientId"]),
+  communityMembershipScans: defineTable({
+    integrationId: v.id("communityVrchatIntegrations"),
+    epochStartedAt: v.number(),
+    groupId: v.string(),
+    startAt: v.number(),
+    endAt: v.number(),
+    nextPage: v.number(),
+    nextOffset: v.optional(v.number()),
+    workerId: v.optional(v.string()),
+    fencingToken: v.optional(v.number()),
+    complete: v.boolean(),
+    createdAt: v.number(),
+  }).index("by_scope_complete", ["integrationId", "epochStartedAt", "complete"])
+    .index("by_scope_window", ["integrationId", "epochStartedAt", "startAt", "endAt"]),
+  communityMembershipEvents: defineTable({
+    integrationId: v.id("communityVrchatIntegrations"),
+    epochStartedAt: v.number(),
+    groupId: v.string(),
+    auditId: v.string(),
+    eventType: v.string(),
+    occurredAt: v.number(),
+    targetUserId: v.optional(v.string()),
+    targetDisplayName: v.optional(v.string()),
+    receivedAt: v.number(),
+  }).index("by_audit", ["integrationId", "epochStartedAt", "auditId"])
+    .index("by_time", ["integrationId", "epochStartedAt", "occurredAt"]),
+  communityMembershipCoverage: defineTable({
+    integrationId: v.id("communityVrchatIntegrations"),
+    epochStartedAt: v.number(),
+    day: v.number(),
+    intervals: v.array(v.object({ startAt: v.number(), endAt: v.number() })),
+    checkpoint: v.optional(v.string()),
+    updatedAt: v.number(),
+  }).index("by_day", ["integrationId", "epochStartedAt", "day"]),
   communityVrchatIntegrations: defineTable({
+    enabledFeatures: v.optional(v.array(integrationFeature)),
+    providerAuthority: v.optional(storedAuthority),
     communityProfileId: v.id("profiles"),
     vrchatGroupId: v.string(),
     groupVisibility: vrchatGroupVisibilityValidator,
@@ -2858,4 +2929,6 @@ export default defineSchema({
     .index("by_targetProfileId", ["targetProfileId"])
     .index("by_targetWorldId", ["targetWorldId"])
     .index("by_targetEventId", ["targetEventId"]),
+  clubRecipientLists: defineTable({communityProfileId:v.id("profiles"),name:v.string(),recipients:v.array(v.string()),revision:v.number(),updatedAt:v.number()}).index("by_community",["communityProfileId"]),
+  clubInvitationBatches: defineTable({communityProfileId:v.id("profiles"),requestId:v.string(),recipients:v.array(v.string()),operationIds:v.array(v.id("clubOperations")),createdAt:v.number()}).index("by_community_request",["communityProfileId","requestId"]).index("by_community_createdAt",["communityProfileId","createdAt"]),
 });
