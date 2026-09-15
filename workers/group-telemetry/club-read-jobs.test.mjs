@@ -16,6 +16,31 @@ const authority = {
   permissions: ["*"],
   observedAt: now,
 };
+test("budget-delayed reads refresh authority and fail closed on revocation or stale data", async () => {
+  for (const mode of ["fresh", "revoked", "slow-refresh"]) {
+    let time = now, reads = 0;
+    const response = await readClubProviderJob(job, {
+      readAuthority: async () => {
+        reads++;
+        if (reads > 1 && mode === "slow-refresh") time += 61_000;
+        return {...authority, observedAt:time, permissions:reads > 1 && mode === "revoked" ? [] : ["*"]};
+      },
+      readPage: async () => {
+        time += 61_000;
+        return {items:[{userId:id}],nextOffset:null,observedAt:time};
+      },
+    }, () => time);
+    assert.equal(reads,2);
+    if (mode === "fresh") {
+      assert.equal(response.authority.observedAt,time);
+      assert.equal(response.result.items[0].id,id);
+    } else {
+      assert.equal(response.errorCode,mode === "revoked" ? "provider_permissions" : "provider_read_expired");
+      assert.equal(response.result,undefined);
+    }
+  }
+});
+
 test("post reads preserve audience roles and reject malformed restrictions", async () => {
   const request = {...job, enabledFeatures:["posts"], params:{kind:"posts",n:1,offset:0}};
   for (const roleIds of [["grol_staff"], [], "grol_staff", [42], Array(101).fill("grol_staff")]) {

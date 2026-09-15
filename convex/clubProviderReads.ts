@@ -316,7 +316,13 @@ export const request = mutation({
       )
       .order("desc")
       .first();
-    if (existing && existing.state !== "failed") return existing._id;
+    if (existing && existing.state !== "failed") {
+      if (existing.state === "pending")
+        await ctx.db.patch(integration._id, {
+          nextPollAt: Math.min(integration.nextPollAt ?? now, now),
+        });
+      return existing._id;
+    }
     const recent = await ctx.db
       .query("clubProviderReadRequests")
       .withIndex("by_subject_createdAt", (q) =>
@@ -337,6 +343,9 @@ export const request = mutation({
       state: "pending",
       createdAt: now,
       expiresAt: now + READ_RETENTION_MS,
+    });
+    await ctx.db.patch(integration._id, {
+      nextPollAt: Math.min(integration.nextPollAt ?? now, now),
     });
     await ctx.scheduler.runAfter(
       READ_RETENTION_MS,

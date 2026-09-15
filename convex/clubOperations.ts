@@ -41,6 +41,7 @@ async function patchOperation(
   await recordClubOperationFailure(ctx, id);
 }
 const worker = {
+  epochStartedAt: v.number(),
   collectorAccountId: v.id("collectorAccounts"),
   workerKeyHash: v.string(),
   workerId: v.string(),
@@ -48,6 +49,7 @@ const worker = {
   integrationId: v.id("communityVrchatIntegrations"),
 };
 type Worker = {
+  epochStartedAt: number;
   collectorAccountId: Id<"collectorAccounts">;
   workerKeyHash: string;
   workerId: string;
@@ -67,6 +69,8 @@ async function binding(ctx: MutationCtx, args: Worker) {
   if (
     !account ||
     !integration ||
+    args.epochStartedAt !==
+      (integration.telemetryEpochStartedAt ?? integration.createdAt) ||
     account.workerKeyHash !== args.workerKeyHash ||
     account.killSwitchEnabled ||
     integration.killSwitchEnabled ||

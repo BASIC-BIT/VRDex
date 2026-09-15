@@ -7,6 +7,7 @@ const schema =
   (schemaModule as unknown as { default?: typeof schemaModule }).default ??
   schemaModule;
 const modules = {
+  "../../convex/http.ts": () => import("../../convex/http"),
   "../../convex/communityTelemetry.ts": () =>
     import("../../convex/communityTelemetry"),
   "../../convex/clubOperations.ts": () => import("../../convex/clubOperations"),
@@ -159,6 +160,7 @@ async function queued() {
     schedule: { kind: "fixed", dueAt: Date.now() },
   });
   const worker = {
+    epochStartedAt: s.snapshot.epochStartedAt,
     collectorAccountId: s.collectorAccountId,
     integrationId: s.integrationId,
     workerKeyHash: "hash",
@@ -172,6 +174,108 @@ async function queued() {
   };
   return { ...s, operationId: ids[0], worker, authority };
 }
+it("HTTP operation routes pass real mutation validators and fence the reported epoch", async () => {
+  for (const completion of ["complete", "reject", "defer"]) {
+    const s = await queued();
+    const key = "http-operation-worker-key-".repeat(2);
+    const digest = await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(key),
+    );
+    const hash = [...new Uint8Array(digest)]
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
+    await s.t.run((ctx) =>
+      ctx.db.patch(s.collectorAccountId, { workerKeyHash: hash }),
+    );
+    const request = async (
+      operation: string,
+      extra: Record<string, unknown> = {},
+      expectedStatus = 200,
+    ) => {
+      const response = await s.t.fetch("/telemetry/worker", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${key}`,
+          "content-type": "application/json",
+          "x-vrdex-collector-account": s.collectorAccountId,
+        },
+        body: JSON.stringify({
+          operation,
+          workerId: s.worker.workerId,
+          vrchatUserId: s.authority.userId,
+          integrationId: s.integrationId,
+          fencingToken: s.worker.fencingToken,
+          epochStartedAt: s.worker.epochStartedAt,
+          ...extra,
+        }),
+      });
+      assert.equal(
+        response.status,
+        expectedStatus,
+        await response.clone().text(),
+      );
+      return response.json();
+    };
+    assert.deepEqual(
+      await request("club_operation_claim", { epochStartedAt: undefined }, 400),
+      { error: "invalid_epoch" },
+    );
+    assert.equal(
+      await request("club_operation_claim", {
+        epochStartedAt: s.worker.epochStartedAt - 1,
+      }),
+      null,
+    );
+    const claim = await request("club_operation_claim");
+    assert.equal(claim.operationId, s.operationId);
+    const target = { operationId: s.operationId, nonce: claim.nonce };
+    assert.equal(
+      (
+        await request("club_operation_authorize", {
+          ...target,
+          authority: s.authority,
+          epochStartedAt: s.worker.epochStartedAt - 1,
+        })
+      ).authorized,
+      false,
+    );
+    if (completion === "complete") {
+      assert.equal(
+        (
+          await request("club_operation_authorize", {
+            ...target,
+            authority: s.authority,
+          })
+        ).authorized,
+        true,
+      );
+      assert.deepEqual(
+        await request("club_operation_complete", {
+          ...target,
+          status: "succeeded",
+        }),
+        { recorded: true },
+      );
+    } else if (completion === "reject") {
+      assert.deepEqual(
+        await request("club_operation_reject", {
+          ...target,
+          code: "preflight_failed",
+        }),
+        { recorded: true },
+      );
+    } else {
+      const result = await request("club_operation_defer", {
+        ...target,
+        code: "timeout",
+        retryAfterMs: 1000,
+      });
+      assert.equal(result.recorded, true);
+      assert.ok(result.retryAt > Date.now());
+    }
+  }
+});
 it("dependent invitations wait for the selected creation and use only its confirmed destination", async () => {
   const s = await queued();
   const worldId = "wrld_44444444-4444-4444-4444-444444444444";
@@ -493,7 +597,7 @@ it("releasing telemetry leases restores immediate and future queued operation wa
       });
       await ctx.db.patch(s.integrationId, { nextPollAt: now + 300000 });
     });
-    const { workerKeyHash, ...lease } = s.worker;
+    const { workerKeyHash, epochStartedAt, ...lease } = s.worker;
     await s.t.mutation(
       makeFunctionReference<any>("communityTelemetry:releaseLease"),
       { ...lease, now },
@@ -667,12 +771,26 @@ it("claims, authorizes, completes once and never replays submitted writes", asyn
 it("authorized but definitively unsent completion is rejected and never automatically replayed", async () => {
   const s = await queued();
   const claim = await s.t.mutation(ref("claim"), s.worker);
-  await s.t.mutation(ref("authorizeSubmission"), {...s.worker,operationId:s.operationId,nonce:claim.nonce,authority:s.authority});
-  assert.deepEqual(await s.t.mutation(ref("complete"), {...s.worker,operationId:s.operationId,nonce:claim.nonce,status:"rejected",code:"submission_not_attempted"}), {recorded:true});
-  assert.equal(await s.t.mutation(ref("claim"),s.worker),null);
-  const stored = await s.t.run(ctx => ctx.db.get(s.operationId));
-  assert.equal(stored!.state,"rejected");
-  assert.equal(stored!.code,"submission_not_attempted");
+  await s.t.mutation(ref("authorizeSubmission"), {
+    ...s.worker,
+    operationId: s.operationId,
+    nonce: claim.nonce,
+    authority: s.authority,
+  });
+  assert.deepEqual(
+    await s.t.mutation(ref("complete"), {
+      ...s.worker,
+      operationId: s.operationId,
+      nonce: claim.nonce,
+      status: "rejected",
+      code: "submission_not_attempted",
+    }),
+    { recorded: true },
+  );
+  assert.equal(await s.t.mutation(ref("claim"), s.worker), null);
+  const stored = await s.t.run((ctx) => ctx.db.get(s.operationId));
+  assert.equal(stored!.state, "rejected");
+  assert.equal(stored!.code, "submission_not_attempted");
 });
 it("feature revocation between claim and submit prevents the write", async () => {
   const s = await queued();

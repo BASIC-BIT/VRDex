@@ -26,6 +26,13 @@ Each actual operation must additionally apply its specific permission checks
 and obtain fresh authority immediately before execution. A stale snapshot is
 unknown, never ready. The polling cadence may exceed the freshness window.
 
+New and reused pending provider reads advance the integration's next poll hint
+to the current time. Existing provider backoff and kill switches still apply.
+After a budget-delayed data read, the worker refreshes authority if its evidence
+is older than 30 seconds and rechecks membership and grants. If the data itself
+ages beyond that margin during refresh, it records an explicit read failure
+instead of sending stale evidence that leaves the request running.
+
 Backend tests cover unauthorized reads, feature defaults and updates, fenced
 snapshot rejection, freshness, identity mismatch, credential rotation, expired
 leases, role ID validation and cross-club role rejection. Provider writes and

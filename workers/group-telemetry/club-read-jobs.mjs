@@ -101,7 +101,8 @@ export async function readClubProviderJob(job, provider, clock = Date.now) {
     const requirement = requirements[params?.kind];
     if (!requirement || !job.enabledFeatures.includes(requirement[0]))
       throw new Error("feature_disabled");
-    const authority = await provider.readAuthority();
+    let authority = await provider.readAuthority();
+    function validateAuthority() {
     if (
       authority.groupId !== job.groupId ||
       authority.userId !== job.expectedUserId ||
@@ -121,6 +122,8 @@ export async function readClubProviderJob(job, provider, clock = Date.now) {
         )
     )
       throw new Error("provider_permissions");
+    }
+    validateAuthority();
     let page;
     if (params.kind === "invitation_eligibility") {
       if (!userId.test(params.userId ?? "") || params.n !== 1 || params.offset !== 0 || (params.worldId === undefined) !== (params.instanceId === undefined)) throw new Error("invalid_input");
@@ -166,6 +169,14 @@ export async function readClubProviderJob(job, provider, clock = Date.now) {
     };
     if (JSON.stringify(result).length > 500_000)
       throw new Error("response_too_large");
+    // Data reads can wait for a later shared-budget window. Refresh grants
+    // before returning private results instead of submitting expired evidence.
+    if (clock() - authority.observedAt > 30_000) {
+      authority = await provider.readAuthority();
+      validateAuthority();
+    }
+    if (!Number.isFinite(result.observedAt) || result.observedAt > clock() || clock() - result.observedAt > 30_000)
+      throw new Error("provider_read_expired");
     return {
       authority: {
         groupId: authority.groupId,

@@ -240,6 +240,7 @@ const telemetryWorker = httpAction(async (ctx, request) => {
       } as never));
     }
     if (["club_operation_claim", "club_operation_authorize", "club_operation_complete", "club_operation_reject", "club_operation_defer"].includes(body.operation)) {
+      if (typeof body.epochStartedAt !== "number" || !Number.isSafeInteger(body.epochStartedAt)) return json({ error: "invalid_epoch" }, 400);
       const worker = { ...common, workerKeyHash: presentedHash, epochStartedAt: body.epochStartedAt };
       if (body.operation === "club_operation_claim") return json(await ctx.runMutation(internal.clubOperations.claim, worker as never));
       if (body.operation === "club_operation_defer") return json(await ctx.runMutation(internal.clubOperations.deferClaim, {

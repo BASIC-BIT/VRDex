@@ -13,6 +13,50 @@ const modules = {
 };
 const ref = (name: string) =>
   makeFunctionReference<any>(`clubProviderReads:${name}`);
+it("queued reads wake idle integrations without clearing provider backoff", async (test) => {
+  test.mock.timers.enable({ apis: ["setTimeout"] });
+  for (const hasBackoff of [false, true]) {
+    const s = await setup();
+    const now = Date.now();
+    await s.t.run(async (ctx) => {
+      const lease = await ctx.db
+        .query("collectorAccountLeases")
+        .withIndex("by_integrationId_state", (q) =>
+          q.eq("integrationId", s.integrationId).eq("state", "active"),
+        )
+        .unique();
+      if (lease) await ctx.db.patch(lease._id, { state: "released" });
+      await ctx.db.patch(s.integrationId, {
+        nextPollAt: now + 300_000,
+        ...(hasBackoff
+          ? { state: "degraded", backoffUntil: now + 60_000 }
+          : {}),
+      });
+    });
+    const params = {
+      communityProfileId: s.communityProfileId,
+      params: { kind: "members", n: 10, offset: 0 },
+    };
+    const requestedAt = Date.now();
+    const requestId = await s.owner.mutation(ref("request"), params);
+    const integration = await s.t.run((ctx) => ctx.db.get(s.integrationId));
+    assert.ok(integration!.nextPollAt! >= requestedAt);
+    assert.ok(integration!.nextPollAt! <= Date.now());
+    assert.equal(
+      integration!.backoffUntil,
+      hasBackoff ? now + 60_000 : undefined,
+    );
+    // A repeated pending request also repairs a cadence hint overwritten by polling.
+    await s.t.run((ctx) =>
+      ctx.db.patch(s.integrationId, { nextPollAt: Date.now() + 300_000 }),
+    );
+    assert.equal(await s.owner.mutation(ref("request"), params), requestId);
+    assert.ok(
+      (await s.t.run((ctx) => ctx.db.get(s.integrationId)))!.nextPollAt! <=
+        Date.now(),
+    );
+  }
+});
 it("all provider caches invalidate collector rotation, reassignment, kill switch and inactive state", async (test) => {
   test.mock.timers.enable({ apis: ["setTimeout"] });
   for (const kind of ["members", "roles", "posts", "instances"] as const) {
