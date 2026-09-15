@@ -28,7 +28,7 @@ Source: accepted staff design Public copy table; current club-staff, club-visibi
 - “Approve the pending service-account membership request in VRChat to begin collection.”
 - “Invite service account {VRChat user ID or ‘shown above’} to this VRChat group.”
 
-Source: club-connection.tsx. Feature and provider-role controls mostly use utility labels. Primary/additional-group-link refinements are in progress and must be rechecked before final review.
+Source: club-connection.tsx. Feature and provider-role controls mostly use utility labels. The final connection controls include "Primary VRChat group ID" and "Edit additional group links". Six connection browser checks passed. The additional-link backend regression verifies two ordinary links without altering the primary integration; actual browser editing remains to be verified.
 
 ### Analytics, membership and instances: review exact empty/error/help copy
 
@@ -89,7 +89,7 @@ Source: club-posts.tsx. Short result statuses: “Draft saved.”, “Post queue
 - “Invitation time must be at or after instance creation.”
 - “No invitation batches.”
 
-Source: club-invitation-batches.tsx. Short result statuses: “Invitations queued.”, “List saved.”, “List deleted.” The bot action currently reads “Open assigned bot in VRChat”. Final recipient IDs, destination and execution time must remain visible in the actual review screen. This file is still being refined by its owner; refresh exact strings before obtaining final approval.
+Source: club-invitation-batches.tsx. Short result statuses: “Invitations queued.”, “List saved.”, “List deleted.” The bot action currently reads “Open assigned bot in VRChat”. Final recipient IDs, destination and execution time must remain visible in the actual review screen. Connected invitation UI has passed eight desktop/mobile checks, including explicit eligibility reads. Exact-copy approval remains outstanding.
 
 ### Scheduled actions and notifications
 
@@ -115,7 +115,7 @@ No group/member/post content appears in the email. Sending remains off unless `V
 ## Required live proof and release steps
 
 1. Present the complete assembled owner/staff experience at desktop and mobile widths, including empty/loading/error/restricted states, destructive confirmations and notification-disabled state. Obtain exact new-copy approval with any edits incorporated first.
-2. Use a specifically authorized non-production environment and test identities. Prove real sign-in return, single-use staff invitation acceptance, direct-route denial, permission revocation, multi-role union and owner-only categories. Fixture tests do not substitute for this browser journey.
+2. Real Clerk sign-in return, single-use invitation acceptance, direct-route denial and expired/revoked/consumed invitation checks passed against isolated local Convex. A separate authenticated analytics run verified owner-only category filtering, preference isolation and navigation with synthetic observations. Complete the remaining assembled management checks, including live permission revocation and multi-role union. Synthetic observations do not prove provider collection.
 3. Verify primary group plus two ordinary additional links through editing and public projection. Only the primary group receives an integration; ordinary links must not imply control or aggregate collection.
 4. Obtain authorization naming the actual VRChat test group, bot and allowed operations before live mutation. Verify actual own-member permissions for each independent feature, current member reads/search, protected targets, role allowlists, posts and instance operations. Record endpoint behavior and no-client invitation feasibility without claiming universal provider support.
 5. Verify real observations feed month/day/instance inspection, membership audit ingestion and event association/recaps. Distinguish unobserved history from zero activity and retained history from provider backfill coverage.
@@ -126,7 +126,7 @@ No group/member/post content appears in the email. Sending remains off unless `V
 ## Separate unresolved feature findings
 
 - **Locked Q31, resolved locally after initial inventory:** explicit per-recipient eligibility checks now use the queued provider read path and show friendship, destination-pending and invitation-check states. The invitation UI owner reports eight desktop/mobile browser tests passing. Refresh the final UI strings/screenshots for approval; live provider proof remains outstanding. See invitation-eligibility-read.md.
-- **Locked Q14:** profile links are reusable, but primary/additional setup and end-to-end proof were still being finalized during this snapshot.
+- **Locked Q14:** primary/additional setup is implemented. A browser-save mutation/public-query regression verifies two ordinary group links, reordering, private visibility and an unchanged primary integration with no collector leases. Actual browser editing remains unverified.
 - **Q27/Q33:** indeterminate jobs are not blindly retried. An evidence-backed reconciliation/recovery workflow is not implemented; preserve the uncertainty rather than presenting a duplicate enqueue as reconciliation.
 - Rich comparisons, exports and private staff API/MCP endpoints remain candidate/later scope in the audited discovery/accepted staff design. Do not manufacture a missing launch requirement from a reserved permission value.
 
