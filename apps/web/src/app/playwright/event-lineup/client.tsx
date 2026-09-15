@@ -56,6 +56,7 @@ function fixtureClient() {
   const mediaStatus = { program: null, outputs: [], sessions: [], queuedCommandCount: 0 };
   const read = (name: string, args: Record<string, unknown>) => {
     if (name === "events:getEditableBySlug") return event;
+    if (name === "events:getPublicBySlug") return event;
     if (name === "events:getPersonStreamChoices") return choices[args.slug as keyof typeof choices] ?? [];
     if (name === "search:searchUniversal") return Object.values(people).filter(person => person.slug.includes(String(args.query))).map(person => ({ slug: person.slug, title: person.displayName, routePath: `/${person.slug}` }));
     if (name === "events:getEventMediaControlStatus") return mediaStatus;

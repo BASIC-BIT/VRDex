@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { VrcdnPlayerControls } from "@/components/media/vrcdn-player-controls";
 import { cn } from "@/lib/cn";
+import { attachVrcdnTransport, releaseVrcdnTransport, type VrcdnTransport } from "@/lib/vrcdn-transport";
 import {
   VrcdnPlayerHealthMonitor,
   type VrcdnPlayerHealthSignal,
@@ -51,14 +52,7 @@ function canSetMediaVolume(): boolean {
   return probe.volume === 0.5;
 }
 
-type MpegTsPlayer = {
-  destroy: () => void;
-  detachMediaElement: () => void;
-  pause: () => void;
-  play: () => unknown;
-  on: (event: string, listener: (...args: unknown[]) => void) => void;
-  unload: () => void;
-};
+type MpegTsPlayer = VrcdnTransport;
 
 type VrcdnStreamPlayerProps = {
   onHealthSignal?: (signal: VrcdnPlayerHealthSignal) => void;
@@ -210,10 +204,7 @@ export function VrcdnStreamPlayer({
 
       const instance = player;
       player = null;
-      instance.pause();
-      instance.unload();
-      instance.detachMediaElement();
-      instance.destroy();
+      releaseVrcdnTransport(instance);
     };
 
     // Playback events accelerate the profile heartbeat but never decide
@@ -241,19 +232,18 @@ export function VrcdnStreamPlayer({
           return;
         }
 
-        const instance = mpegts.createPlayer({ isLive: true, type: "mpegts", url: src });
+        const instance = attachVrcdnTransport(mpegts, videoRef.current, src, {
 
-        instance.on(mpegts.Events.ERROR, () => {
+        onError: () => {
           healthMonitorRef.current?.signal("error");
           onPlaybackActiveChangeRef.current?.(false);
           releasePlayer();
           setFailed(true);
-        });
-        instance.on(mpegts.Events.LOADING_COMPLETE, () => {
+        },
+        onLoadingComplete: () => {
           healthMonitorRef.current?.signal("loading_complete");
+        },
         });
-        instance.attachMediaElement(videoRef.current);
-        instance.load();
         player = instance;
 
         // The click that started this is already spent by the time the player

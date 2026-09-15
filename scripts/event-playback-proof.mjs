@@ -1,13 +1,14 @@
 /** Local-only MPEG-TS transport. Media stays in the ignored Playwright artifacts tree. */
 import { spawn } from "node:child_process";
-import { mkdir } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const mediaDir = path.join(root, "apps/web/playwright-artifacts/event-playback-proof");
-const ffmpeg = process.env.FFMPEG_PATH || (process.platform === "win32" ? "C:/ProgramData/chocolatey/bin/ffmpeg.exe" : "ffmpeg");
+// Spawn the real executable: killing a Chocolatey shim can orphan FFmpeg.
+const ffmpeg = process.env.FFMPEG_PATH || (process.platform === "win32" ? "C:/ProgramData/chocolatey/lib/ffmpeg/tools/ffmpeg/bin/ffmpeg.exe" : "ffmpeg");
 const expressions = {
   audible: "sine=frequency=440:sample_rate=48000",
   silent: "anullsrc=r=48000:cl=stereo",
@@ -17,6 +18,15 @@ const expressions = {
 
 export async function startProofServer({ port = 0 } = {}) {
   await mkdir(mediaDir, { recursive: true });
+  const instanceMediaDir = await mkdtemp(path.join(mediaDir, "transport-"));
+  const removeMedia = async () => {
+    // Delete only the direct child directory this invocation created.
+    const target = path.resolve(instanceMediaDir);
+    if (path.dirname(target) !== path.resolve(mediaDir) || !path.basename(target).startsWith("transport-")) {
+      throw new Error("Unexpected proof media directory");
+    }
+    await rm(target, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  };
   const children = new Set();
   const sessions = new Map();
   const offline = new Set();
@@ -30,13 +40,13 @@ export async function startProofServer({ port = 0 } = {}) {
   const run = (args) => {
     const child = spawn(ffmpeg, ["-hide_banner", "-loglevel", "error", ...args], { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
     children.add(child);
-    child.once("exit", () => children.delete(child));
+    child.once("close", () => children.delete(child));
     return child;
   };
   try {
     for (const [kind, input] of Object.entries(expressions)) {
       await new Promise((resolve, reject) => {
-        const child = run(["-y", "-f", "lavfi", "-i", "color=c=black:s=320x180:r=25", "-f", "lavfi", "-i", input, "-t", "8", "-c:v", "libx264", "-preset", "ultrafast", "-g", "25", "-pix_fmt", "yuv420p", "-c:a", "aac", "-f", "mpegts", path.join(mediaDir, `${kind}.mpegts`)]);
+        const child = run(["-y", "-f", "lavfi", "-i", "color=c=black:s=320x180:r=25", "-f", "lavfi", "-i", input, "-t", "8", "-c:v", "libx264", "-preset", "ultrafast", "-g", "25", "-pix_fmt", "yuv420p", "-c:a", "aac", "-f", "mpegts", path.join(instanceMediaDir, `${kind}.mpegts`)]);
         let error = "";
         child.stderr.on("data", chunk => { error += chunk; });
         child.once("error", reject);
@@ -44,7 +54,8 @@ export async function startProofServer({ port = 0 } = {}) {
       });
     }
   } catch (error) {
-    for (const child of children) child.kill();
+    await Promise.all([...children].map(child => new Promise(resolve => { child.once("close", resolve); child.kill(); })));
+    await removeMedia();
     throw error;
   }
   const server = createServer((req, res) => {
@@ -95,7 +106,7 @@ export async function startProofServer({ port = 0 } = {}) {
     if (offline.has(id)) { res.writeHead(503).end("offline"); return; }
     if (sessions.size >= 2) { denied++; res.writeHead(429).end("proof connection limit"); return; }
     res.writeHead(200, { "Content-Type": "video/mp2t" });
-    const child = run(["-re", "-stream_loop", "-1", "-i", path.join(mediaDir, `${kind}.mpegts`), "-c", "copy", "-f", "mpegts", "-flush_packets", "1", "pipe:1"]);
+    const child = run(["-re", "-stream_loop", "-1", "-i", path.join(instanceMediaDir, `${kind}.mpegts`), "-c", "copy", "-f", "mpegts", "-flush_packets", "1", "pipe:1"]);
     sessions.set(res, { child, id });
     opened++;
     highWater = Math.max(highWater, sessions.size);
@@ -105,7 +116,12 @@ export async function startProofServer({ port = 0 } = {}) {
     child.once("exit", () => res.end());
     res.once("close", () => { sessions.delete(res); child.kill(); });
   });
-  await new Promise((resolve, reject) => { server.once("error", reject); server.listen(port, "127.0.0.1", resolve); });
+  try {
+    await new Promise((resolve, reject) => { server.once("error", reject); server.listen(port, "127.0.0.1", resolve); });
+  } catch (error) {
+    await removeMedia();
+    throw error;
+  }
   const close = async () => {
     if (stopped) return;
     stopped = true;
@@ -113,14 +129,15 @@ export async function startProofServer({ port = 0 } = {}) {
     for (const timer of timers) clearTimeout(timer);
     timers.clear();
     for (const response of sessions.keys()) response.destroy();
-    const exits = [...children].map(child => new Promise(resolve => { child.once("exit", resolve); child.kill(); }));
+    const exits = [...children].map(child => new Promise(resolve => { child.once("close", resolve); child.kill(); }));
     server.closeAllConnections();
     await new Promise(resolve => server.close(resolve));
     await Promise.all(exits);
+    await removeMedia();
   };
   const deadline = setTimeout(() => void close(), 10 * 60_000);
   deadline.unref();
-  return { url: `http://127.0.0.1:${server.address().port}`, close };
+  return { url: `http://127.0.0.1:${server.address().port}`, mediaDirectory: instanceMediaDir, close };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

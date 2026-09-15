@@ -1,6 +1,8 @@
+"use client";
+import { useQuery } from "convex/react";
 import Link from "next/link";
 import type { FunctionReturnType } from "convex/server";
-import type { api } from "@convex-generated-api";
+import { api } from "@convex-generated-api";
 import { EventPerformerLinks } from "./event-performer-links";
 
 import {
@@ -19,7 +21,7 @@ import {
   avatarFrameStyle,
   type AvatarAppearance,
 } from "@/lib/avatar-appearance";
-import { EventWatchSurface } from "./event-watch-surface";
+import { EventWatchForEvent } from "./event-live-watch";
 import { vrcdnPlaybackHref } from "../../../../../convex/_vrcdnLinks";
 import {
   ViewerLocalEventDateTime,
@@ -299,7 +301,13 @@ export function EventBackendNotice({ kind }: { kind: "missing-url" | "error" }) 
   );
 }
 
-export function EventPublicPage({ event }: { event: PublicEvent }) {
+export function EventPublicPage({ event: initialEvent }: { event: PublicEvent }) {
+  const projection = useQuery(api.events.getPublicBySlug, { slug: initialEvent.slug });
+  const event = projection === undefined ? initialEvent : projection;
+  return event ? <EventPublicPageContent event={event} /> : null;
+}
+
+function EventPublicPageContent({ event }: { event: PublicEvent }) {
   const bannerStyle = safeImageBackground(event.bannerImageUrl, eventPosterOverlay);
   const sourceUrl = safeHttpsUrl(event.source.url);
   const eventPath = publicEventPath(event);
@@ -349,13 +357,7 @@ export function EventPublicPage({ event }: { event: PublicEvent }) {
           </div>
 
           <div className="grid gap-4">
-            <EventWatchSurface
-              doorsOpenAt={event.doorsOpenAt}
-              endAt={event.endAt}
-              enabled={event.watchSurfaceEnabled && event.status !== "cancelled"}
-              mediaLinks={event.mediaLinks}
-              startAt={event.startAt}
-            />
+            <EventWatchForEvent event={event} />
 
             <Card surface="white">
               <Eyebrow>Place</Eyebrow>

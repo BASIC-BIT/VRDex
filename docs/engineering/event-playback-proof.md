@@ -109,8 +109,10 @@ pnpm --filter web exec playwright test event-lineup-proof.spec.ts --project=desk
 ```
 
 The test launches and closes its own loopback server and FFmpeg children in each
-case. `FFMPEG_PATH` overrides the default Windows Chocolatey path or Unix ffmpeg
-executable. Browser binaries must already be installed with Playwright. The
+case. `FFMPEG_PATH` overrides the default executable. On Windows, use the actual
+FFmpeg binary, not its Chocolatey launcher shim. The default now points to the
+installed binary under `chocolatey/lib/ffmpeg/tools/ffmpeg/bin/`. Killing a shim
+can leave the real FFmpeg process alive. Browser binaries must already be installed with Playwright. The
 standalone server command is `node scripts/event-playback-proof.mjs`, default
 port 4319, with a ten-minute deadline and SIGINT/SIGTERM cleanup. Stop the separately
 started Next server when done. The page returns not-found in production and when
@@ -168,3 +170,15 @@ shutdown. Duplicate overwritten Chromium freeze evidence was removed.
 The revised run also passed targeted ESLint, full web typecheck, Node syntax check,
 and whitespace validation. Existing native-background, Safari/mobile, live-provider,
 autoplay-policy, and human-listening limits still apply.
+
+## Product integration
+
+The actual event-page implementation and its runtime browser checks are documented
+in [event-lineup-player.md](event-lineup-player.md). The measurements above remain
+the original isolated experiment, not a replacement for product verification.
+
+The product integration follow-up gives each proof-server invocation private
+MPEG-TS files and removes them after its actual FFmpeg processes close. A
+simultaneous-server regression verifies that closing one server leaves the
+other's files and stream usable. Historical child counts above tracked the
+launcher and were weaker evidence than the final actual-process cleanup check.
