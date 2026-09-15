@@ -664,6 +664,16 @@ it("claims, authorizes, completes once and never replays submitted writes", asyn
     { recorded: false },
   );
 });
+it("authorized but definitively unsent completion is rejected and never automatically replayed", async () => {
+  const s = await queued();
+  const claim = await s.t.mutation(ref("claim"), s.worker);
+  await s.t.mutation(ref("authorizeSubmission"), {...s.worker,operationId:s.operationId,nonce:claim.nonce,authority:s.authority});
+  assert.deepEqual(await s.t.mutation(ref("complete"), {...s.worker,operationId:s.operationId,nonce:claim.nonce,status:"rejected",code:"submission_not_attempted"}), {recorded:true});
+  assert.equal(await s.t.mutation(ref("claim"),s.worker),null);
+  const stored = await s.t.run(ctx => ctx.db.get(s.operationId));
+  assert.equal(stored!.state,"rejected");
+  assert.equal(stored!.code,"submission_not_attempted");
+});
 it("feature revocation between claim and submit prevents the write", async () => {
   const s = await queued();
   const claim = await s.t.mutation(ref("claim"), s.worker);

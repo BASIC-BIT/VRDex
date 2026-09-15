@@ -16,6 +16,19 @@ const authority = {
   permissions: ["*"],
   observedAt: now,
 };
+test("post reads preserve audience roles and reject malformed restrictions", async () => {
+  const request = {...job, enabledFeatures:["posts"], params:{kind:"posts",n:1,offset:0}};
+  for (const roleIds of [["grol_staff"], [], "grol_staff", [42], Array(101).fill("grol_staff")]) {
+    const response = await readClubProviderJob(request, {
+      readAuthority:async () => authority,
+      readPage:async () => ({items:[{id:"post_example",title:"Staff post",roleIds}],nextOffset:null,observedAt:now}),
+    }, () => now);
+    if (Array.isArray(roleIds) && roleIds.length <= 100 && roleIds.every(id => typeof id === "string"))
+      assert.deepEqual(response.result.items[0].roleIds,roleIds);
+    else assert.equal(response.errorCode,"schema_drift");
+  }
+});
+
 test("explicit invitation checks project friendship and never imply entry rights", async () => {
   const request = { ...job, enabledFeatures: ["instances"], params: { kind: "invitation_eligibility", userId: id, n: 1, offset: 0 } };
   let reads = 0;

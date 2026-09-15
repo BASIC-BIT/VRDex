@@ -18,6 +18,9 @@ Email uses the existing AWS SES transport. Enable only after exact copy approval
 and verification of the deployment's sender and IAM permissions:
 
 - `VRDEX_CLUB_OPERATION_EMAIL_ENABLED=true`: Convex deployment opt-in, default off.
+
+This is operator enablement, not a recipient subscription setting. The accepted Q31-Q33 behavior sends actionable failure notifications to the initiating staff member by email, with owner fallback after access loss. Recipient-level preferences are not implemented.
+
 - `AWS_SES_FROM_EMAIL`: existing verified SES sender.
 - `AWS_SES_REGION`: existing SES region.
 - `VRDEX_SITE_URL`: HTTPS public origin used for the authenticated account link.

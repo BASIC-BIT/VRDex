@@ -52,6 +52,41 @@ test("uncertain writes are recorded once and never retried", async () => {
   assert.equal(order.filter(item => item === "provider-write").length, 1);
   assert.equal(sends.at(-1).body.status, "indeterminate");
 });
+for (const guard of ["shutdown", "local_capacity"]) {
+  test(`authorization followed by ${guard} records a definite unsent rejection`, async () => {
+    const { args, order, sends } = setup();
+    let stop = false;
+    args.shouldStop = () => stop;
+    const send = args.control.send;
+    args.control.send = async (op, body) => {
+      const result = await send(op, body);
+      if (op === "club_operation_authorize") {
+        if (guard === "shutdown") stop = true;
+        else while (args.accountBudget.tryConsume(1, args.clock())) { /* consume competing capacity */ }
+      }
+      return result;
+    };
+    assert.deepEqual(await executeClubOperation(args), {processed:true,status:"rejected",code:"submission_not_attempted"});
+    assert.equal(order.includes("provider-write"), false);
+    assert.equal(sends.at(-1).op, "club_operation_complete");
+    assert.equal(sends.at(-1).body.status, "rejected");
+    assert.equal(order.includes("club_operation_defer"), false);
+  });
+}
+test("lost authorization response cannot claim a definite submitted outcome or replay", async () => {
+  const {args,order,sends} = setup();
+  const send = args.control.send;
+  args.control.send = async (op, body) => {
+    const result = await send(op,body);
+    if (op === "club_operation_authorize") throw new Error("response lost after server committed");
+    return result;
+  };
+  await executeClubOperation(args);
+  assert.equal(order.includes("provider-write"),false);
+  assert.equal(order.includes("club_operation_complete"),false);
+  assert.equal(sends.at(-1).op,"club_operation_reject");
+  // The backend claimed-state guard refuses this rejection for submitted work.
+});
 test("a two-request budget waits before the grant read and reserves its write", async () => {
   const { args, order } = setup({ limit: 2 });
   assert.equal((await executeClubOperation(args)).status, "succeeded");
@@ -246,10 +281,11 @@ test("authorization that outlives the reserved window never causes a provider wr
     if (op === "club_operation_authorize") await args.pause(60000);
     return result;
   };
-  assert.equal((await executeClubOperation(args)).status, "indeterminate");
+  assert.equal((await executeClubOperation(args)).status, "rejected");
   assert.equal(order.includes("provider-write"), false);
   assert.equal(sends.at(-1).op, "club_operation_complete");
-  assert.equal(sends.at(-1).body.status, "indeterminate");
+  assert.equal(sends.at(-1).body.status, "rejected");
+  assert.equal(sends.at(-1).body.code, "submission_not_attempted");
 });
 
 test("authorization that crosses the action's late deadline cannot write inside the same budget window", async () => {
@@ -261,7 +297,7 @@ test("authorization that crosses the action's late deadline cannot write inside 
     if (op === "club_operation_authorize") await args.pause(2000);
     return result;
   };
-  assert.equal((await executeClubOperation(args)).status, "indeterminate");
+  assert.equal((await executeClubOperation(args)).status, "rejected");
   assert.equal(args.clock(), 3000);
   assert.equal(order.includes("provider-write"), false);
   assert.equal(sends.at(-1).op, "club_operation_complete");

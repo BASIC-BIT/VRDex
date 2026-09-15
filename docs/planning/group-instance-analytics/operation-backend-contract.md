@@ -28,6 +28,11 @@ Worker sequence, using the current integration lease and credential:
 
 An expired claimed action may be reclaimed with a new nonce. An expired
 submitted action becomes indeterminate and is never automatically requeued.
+When the worker receives authorization but a final budget, deadline, or shutdown
+guard prevents invoking provider transport, it completes the action as rejected
+with `submission_not_attempted` (displayed as `Not sent`). It does not requeue it.
+Once transport is invoked, an uncertain response still becomes indeterminate.
+Missing authorization acknowledgement does not establish a definite outcome.
 Remaining work more than 15 minutes past its scheduled time becomes missed.
 This is a per-target limit, including unsent batch recipients: the accepted
 Q31-Q33 decision in the discovery document explicitly says to mark remaining

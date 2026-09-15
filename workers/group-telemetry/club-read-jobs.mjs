@@ -61,6 +61,11 @@ function project(kind, row) {
   }
   if (kind === "posts") {
     const item = { id: string(row.id, 100) };
+    if (row.roleIds !== undefined && row.roleIds !== null) {
+      if (!Array.isArray(row.roleIds) || row.roleIds.length > 100)
+        throw new Error("schema_drift");
+      item.roleIds = row.roleIds.map((id) => string(id, 100));
+    }
     for (const field of [
       "title",
       "text",

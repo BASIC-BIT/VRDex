@@ -15,8 +15,14 @@ export async function executeClubOperation({ assignment, provider, control, expe
     await control.send("club_operation_reject", { ...claim, code: "operation_budget_too_low" });
     return { processed: true, status: "rejected", code: "operation_budget_too_low" };
   }
-  let evidence, submitted = false;
-  const client = budgetedClubProvider({ provider, control, assignment, accountBudget, integrationBudget, pause, shouldStop, clock, deadline: executionDeadline,
+  let evidence, submitted = false, transportAttempted = false;
+  // This wrapper runs only after all budget/deadline guards, immediately before
+  // transport. Authorization alone does not mean a provider write was attempted.
+  const transport = { request(path, options) {
+    if (options?.method && options.method !== "GET") transportAttempted = true;
+    return provider.request(path, options);
+  } };
+  const client = budgetedClubProvider({ provider: transport, control, assignment, accountBudget, integrationBudget, pause, shouldStop, clock, deadline: executionDeadline,
     reservationSize: path => path === `/groups/${encodeURIComponent(assignment.vrchatGroupId)}?includeRoles=true` ? freshRequestCount : 1,
     beforeRequest: async (_path, options) => {
       if (!options?.method || options.method === "GET") return;
@@ -36,7 +42,7 @@ export async function executeClubOperation({ assignment, provider, control, expe
     },
   });
   const adapter = new ClubProvider({ client, groupId: assignment.vrchatGroupId, expectedUserId, clock });
-  const outcome = await adapter.execute(job.payload, { onPreflight: value => { evidence = value; } });
+  let outcome = await adapter.execute(job.payload, { onPreflight: value => { evidence = value; } });
   if (!submitted) {
     if (["timeout", "network", "rate_limit", "transient"].includes(outcome.code)) {
       const deferred = await control.send("club_operation_defer", { ...claim, code: outcome.code, retryAfterMs: outcome.retryAfterMs ?? 60_000 });
@@ -44,6 +50,9 @@ export async function executeClubOperation({ assignment, provider, control, expe
     }
     await control.send("club_operation_reject", { ...claim, code: outcome.code ?? "preflight_failed" });
     return { processed: true, status: "rejected", code: outcome.code };
+  }
+  if (!transportAttempted) {
+    outcome = { status: "rejected", code: "submission_not_attempted" };
   }
   const result = {};
   if (outcome.status === "succeeded") {

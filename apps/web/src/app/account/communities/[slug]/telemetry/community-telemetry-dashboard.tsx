@@ -114,7 +114,7 @@ export type TelemetryDashboardData = {
 
 function formatNumber(value: number | undefined, digits = 0) {
   return value === undefined
-    ? "—"
+    ? "Not available"
     : new Intl.NumberFormat("en", { maximumFractionDigits: digits }).format(
         value,
       );

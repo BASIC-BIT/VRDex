@@ -84,6 +84,7 @@ export function operationReason(code: string | null) {
     late_window_elapsed: "Scheduled time missed",
     submission_outcome_unknown: "Outcome unknown",
     operation_budget_too_low: "Request budget too low",
+    submission_not_attempted: "Not sent",
     instance_creation_rescheduled: "Instance creation moved after this invitation",
     creation_failed: "Instance creation failed",
   };
