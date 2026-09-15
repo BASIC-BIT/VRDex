@@ -51,6 +51,32 @@ async function fixture() {
   return {t,owner,profileId,save,claim,read};
 }
 
+it("club additional group links survive browser edits without changing the primary integration", async () => {
+  const {t, profileId, save, read} = await fixture();
+  const ids = [1,2,3].map(n => `grp_00000000-0000-4000-8000-${String(n).padStart(12,"0")}`);
+  await t.run(async ctx => {
+    const current = (await ctx.db.get(profileId))!;
+    const {_id, _creationTime, person, ...fields} = current;
+    await ctx.db.replace(profileId, {...fields, profileType:"community", community:{categoryTags:[]}});
+    await ctx.db.insert("communityVrchatIntegrations", {
+      communityProfileId:profileId, vrchatGroupId:ids[0], groupVisibility:"public", joinPolicy:"free",
+      state:"blocked", enabledFeatures:["analytics"], killSwitchEnabled:true, requestsPerMinute:4,
+      leaseGeneration:1, publicMetrics:{currentPopulation:false,populationHistory:false,groupMemberCount:false,groupMemberGrowth:false,eventRecaps:false},
+      consecutiveFailures:0, telemetryEpochStartedAt:Date.now(), createdAt:Date.now(), updatedAt:Date.now(),
+    });
+  });
+  const before = await t.run(ctx => ctx.db.query("communityVrchatIntegrations").collect());
+  const links = ids.slice(1).map((id,index) => ({type:"other",url:`https://vrchat.com/home/group/${id}`,label:`Related group ${index+1}`,labelMode:"custom" as const}));
+  await save(links);
+  assert.deepEqual((await read())!.outboundLinks.map(link => link.url),links.map(link => link.url));
+  await save([...links].reverse());
+  assert.deepEqual((await read())!.outboundLinks.map(link => link.url),[...links].reverse().map(link => link.url));
+  assert.deepEqual(await t.run(ctx => ctx.db.query("communityVrchatIntegrations").collect()),before);
+  assert.equal((await t.run(ctx => ctx.db.query("collectorAccountLeases").collect())).length,0);
+  await t.run(ctx => ctx.db.patch(profileId,{fieldVisibility:{outboundLinks:"private"}}));
+  assert.deepEqual((await read())!.outboundLinks,[]);
+});
+
 it("public write/read, editor preview and lookup share names while overrides and resets stay authored", async () => {
   const {t,owner,save,claim,read} = await fixture();
   await save([{type:"discord",url:invite}]);

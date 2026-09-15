@@ -4,7 +4,23 @@ Goal: implement and verify the entire accepted first-release specification. A co
 
 Updated September 14, 2026. Integration checkout: `codex/club-staff-workspace`. No hosted release or live provider proof has occurred in this program.
 
-## Requirements and evidence
+## Latest verified checkpoint
+
+Local implementation is committed through `4cc95baf0`, following `dcdc0e044` for the complete workspace. The full backend suite passed again after the final security fixes on September 14. All provider-read caches now invalidate after bot reassignment or credential rotation and reject disabled/inactive accounts. Public membership history also respects profile publication visibility.
+
+The recorded combined checkpoint includes full web and worker tests, backend/web typechecks, the production web build and documentation checks. The complete worker suite has 105 tests. Focused desktop/mobile browser checks cover Members, Connection, Instances, Posts, Invitations, Scheduled actions, notifications and event association.
+
+Real Clerk sessions against isolated local Convex verified staff invitation sign-in return, acceptance, nonstaff denial and expired/revoked/consumed tokens. A separate real-route analytics run verified persisted range/layout, month/day/instance browser history, category filtering and preference isolation with synthetic observations. Disposable fixtures and accounts were cleaned up and their local processes stopped.
+
+Earlier checkpoint defects are resolved locally: notification history pagination, bounded email draining, request-budget starvation, post-authorization execution deadlines, invitation dependency timing, batch cancellation visibility and event-hook pagination. The historical entries below do not represent current open defects.
+
+The additional-group-link regression now exercises the actual browser-save mutation and public query for a community with one primary integration. Two ordinary links survive saves and reordering, private links are hidden, and the integration and collector leases remain unchanged. All 12 destination tests pass. This proves the backend path, while actual browser editing remains unverified.
+
+Remaining evidence includes additional group links through browser editing, actual provider collection and management operations, scheduled execution against an approved group, real failure-email delivery, exact product-copy approval, remote review and approved deployment. No live provider write or email delivery was performed in this program.
+
+Q27 requires reconciliation before retrying an indeterminate write, and Q33 forbids duplicate retries without reconciliation. Current code stops uncertain writes and never automatically retries them. An evidence-backed resolution/recovery workflow is absent. Creating a new job is not reconciliation.
+
+## Requirements and evidence, historical implementation checklist
 
 | Requirement | Implementation state | Required completion evidence |
 | --- | --- | --- |
@@ -39,7 +55,7 @@ Updated September 14, 2026. Integration checkout: `codex/club-staff-workspace`. 
 | Event association and recaps | Deliberate association in current instance detail implemented and visually checked | Same-club/current-epoch/manage_events regression checks pass; no automatic or fabricated session matching |
 | Full assembled experience working | Not achieved | Integrated tests, provider proofs, visual review, exact-copy approval and release checks |
 
-## Current work allocation
+## Historical work allocation
 
 - Analytics backend: bounded aggregate buckets, fine queries, session metrics and persisted preferences.
 - Analytics frontend: approved Recharts screens, URL state, customization and responsive verification.
@@ -55,7 +71,7 @@ The September 14 source audit found richer comparative reports, exports and priv
 
 Named instance attendance, member-versus-guest instance segmentation, opt-in personal listening/visit history, deletion workflows, ownership transfer, recurring schedules, role-definition editing in VRChat, arbitrary chart builders and unattended moderation rules are not first-release requirements.
 
-## Verification limits
+## Historical verification checkpoints
 
 The request-budget starvation and slow-authorization deadline defects are fixed.
 The claimed operation exposes its exact execution deadline; the worker enforces
