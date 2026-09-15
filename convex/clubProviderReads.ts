@@ -36,7 +36,10 @@ export const context = query({
     enabledFeatures: v.array(v.string()),
     permittedProviderRoleIds: v.array(v.string()),
     protectedUserIds: v.array(v.string()),
-    assignedBot: v.union(v.object({ userId: v.string(), profileUrl: v.string() }), v.null()),
+    assignedBot: v.union(
+      v.object({ userId: v.string(), profileUrl: v.string() }),
+      v.null(),
+    ),
   }),
   handler: async (ctx, args) => {
     const actor = await resolveClubActor(ctx, args.communityProfileId);
@@ -75,7 +78,12 @@ export const context = query({
     const roles = await activeClubRoles(ctx.db, args.communityProfileId);
     return {
       enabledFeatures: enabledClubFeatures(integration),
-      assignedBot: account ? { userId: account.vrchatUserId, profileUrl: `https://vrchat.com/home/user/${encodeURIComponent(account.vrchatUserId)}` } : null,
+      assignedBot: account
+        ? {
+            userId: account.vrchatUserId,
+            profileUrl: `https://vrchat.com/home/user/${encodeURIComponent(account.vrchatUserId)}`,
+          }
+        : null,
       permittedProviderRoleIds: [
         ...new Set(
           roles
@@ -182,6 +190,26 @@ async function integrationFor(ctx: QueryCtx | MutationCtx, id: Id<"profiles">) {
     throw new Error("Group connection unavailable.");
   return integration;
 }
+async function currentReadAccount(
+  ctx: QueryCtx | MutationCtx,
+  integration: Doc<"communityVrchatIntegrations">,
+) {
+  const account = integration.assignedCollectorAccountId
+    ? await ctx.db.get(integration.assignedCollectorAccountId)
+    : null;
+  const fleet = await ctx.db
+    .query("collectorFleetSettings")
+    .withIndex("by_key", (q) => q.eq("key", "global"))
+    .unique();
+  if (
+    !account ||
+    account.killSwitchEnabled ||
+    fleet?.killSwitchEnabled ||
+    !["ready", "degraded"].includes(account.state)
+  )
+    throw new Error("Read access expired.");
+  return account;
+}
 async function checkWorker(ctx: MutationCtx, args: WorkerArgs) {
   const [account, integration, fleet] = await Promise.all([
     ctx.db.get(args.collectorAccountId),
@@ -255,11 +283,19 @@ export const request = mutation({
     const integration = await integrationFor(ctx, args.communityProfileId);
     if (!enabledClubFeatures(integration).includes(requirement.feature))
       throw new Error("Feature is disabled.");
-    if (params.kind === "invitation_eligibility" && params.instanceId !== undefined) {
+    if (
+      params.kind === "invitation_eligibility" &&
+      params.instanceId !== undefined
+    ) {
       const groups = [...params.instanceId.matchAll(/~group\(([^)]+)\)/g)];
-      if (/[\s:/?#\\%]/.test(params.instanceId) || groups.length !== 1 || groups[0][1] !== integration.vrchatGroupId) throw new Error("Invitation destination belongs to another group.");
+      if (
+        /[\s:/?#\\%]/.test(params.instanceId) ||
+        groups.length !== 1 ||
+        groups[0][1] !== integration.vrchatGroupId
+      )
+        throw new Error("Invitation destination belongs to another group.");
     }
-    const eligibilityAccount = params.kind === "invitation_eligibility" && integration.assignedCollectorAccountId ? await ctx.db.get(integration.assignedCollectorAccountId) : null;
+    const account = await currentReadAccount(ctx, integration);
     const now = Date.now(),
       epochStartedAt =
         integration.telemetryEpochStartedAt ?? integration.createdAt;
@@ -267,7 +303,8 @@ export const request = mutation({
       integration._id,
       epochStartedAt,
       params,
-      ...(params.kind === "invitation_eligibility" ? [eligibilityAccount?._id, eligibilityAccount?.credentialGeneration] : []),
+      account._id,
+      account.credentialGeneration,
     ]);
     const existing = await ctx.db
       .query("clubProviderReadRequests")
@@ -333,9 +370,13 @@ export const get = query({
     if (actor.subject?.tokenIdentifier !== row.subject.tokenIdentifier)
       throw new Error("Read request not found.");
     const integration = await integrationFor(ctx, row.communityProfileId);
-    if (row.params.kind === "invitation_eligibility" && row.result) {
-      const account = integration.assignedCollectorAccountId ? await ctx.db.get(integration.assignedCollectorAccountId) : null;
-      if (!account || account.killSwitchEnabled || !["ready", "degraded"].includes(account.state) || account._id !== row.collectorAccountId || account.credentialGeneration !== row.credentialGeneration) throw new Error("Read access expired.");
+    if (row.result) {
+      const account = await currentReadAccount(ctx, integration);
+      if (
+        account._id !== row.collectorAccountId ||
+        account.credentialGeneration !== row.credentialGeneration
+      )
+        throw new Error("Read access expired.");
     }
     if (
       row.integrationId !== integration._id ||
@@ -478,7 +519,25 @@ export const complete = internalMutation({
       const result = args.result;
       if (row.params.kind === "invitation_eligibility") {
         const item = result.items[0];
-        if (result.items.length !== 1 || result.nextOffset !== null || item.id !== row.params.userId || item.userId !== row.params.userId || !item.friendship || !item.destinationState || (row.params.worldId === undefined) !== (item.destinationState === "pending") || item.invitationEligibility !== (item.friendship === "not_friend" ? "not_friend" : item.destinationState === "pending" ? "destination_pending" : item.destinationState === "closed" ? "destination_closed" : "eligible")) throw new Error("Invalid eligibility result.");
+        if (
+          result.items.length !== 1 ||
+          result.nextOffset !== null ||
+          item.id !== row.params.userId ||
+          item.userId !== row.params.userId ||
+          !item.friendship ||
+          !item.destinationState ||
+          (row.params.worldId === undefined) !==
+            (item.destinationState === "pending") ||
+          item.invitationEligibility !==
+            (item.friendship === "not_friend"
+              ? "not_friend"
+              : item.destinationState === "pending"
+                ? "destination_pending"
+                : item.destinationState === "closed"
+                  ? "destination_closed"
+                  : "eligible")
+        )
+          throw new Error("Invalid eligibility result.");
       }
       if (
         result.items.length > row.params.n ||

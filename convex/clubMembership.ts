@@ -7,6 +7,7 @@ import {
   type MutationCtx,
 } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
+import { canReadProfile } from "./_profilePermissions";
 import {
   resolveClubActor,
   readClubVisibility,
@@ -115,7 +116,8 @@ async function active(
     !integration ||
     integration.state !== "active" ||
     integration.killSwitchEnabled ||
-    (integration.enabledFeatures && !integration.enabledFeatures.includes("analytics")) ||
+    (integration.enabledFeatures &&
+      !integration.enabledFeatures.includes("analytics")) ||
     integration.vrchatGroupId !== args.groupId ||
     (integration.telemetryEpochStartedAt ?? integration.createdAt) !==
       args.epochStartedAt
@@ -333,6 +335,8 @@ async function readContext(ctx: QueryCtx, slug: string, individual: boolean) {
   if (!community || community.profileType !== "community")
     throw new Error("Club not found.");
   const actor = await resolveClubActor(ctx, community._id);
+  if (actor.kind === "none" && !canReadProfile("public", community))
+    return null;
   const visibility = await readClubVisibility(ctx.db, community._id);
   if (
     (individual && actor.kind === "none") ||

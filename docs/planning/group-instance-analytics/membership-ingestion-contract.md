@@ -1,5 +1,10 @@
 # Membership ingestion contract
 
+Anonymous aggregate reads also require the community profile to pass the existing
+public profile visibility policy. Unpublishing or suppressing the profile hides
+membership movement immediately. Current authorized club staff retain access to
+the categories their role permits.
+
 Current implementation: local backend foundation, authenticated HTTP dispatch, and Analytics UI. Worker polling and live provider verification are tracked by the main implementation lane.
 
 Analytics displays paired joins/departures bars from one aggregate query per actual local calendar day. Selecting a day preserves the shared URL range. Unknown intervals remain null, with explicit Unknown values in the accessible data table. The separately gated membership activity list loads 25 events at a time and displays the event target, never substitutes the actor, and does not imply instance attendance. Home keeps its total-membership line. Desktop/mobile Storybook checks cover bars, unknown versus zero table values, target identity, layout overflow, and browser errors.

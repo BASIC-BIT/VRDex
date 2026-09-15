@@ -13,26 +13,162 @@ const modules = {
 };
 const ref = (name: string) =>
   makeFunctionReference<any>(`clubProviderReads:${name}`);
+it("all provider caches invalidate collector rotation, reassignment, kill switch and inactive state", async (test) => {
+  test.mock.timers.enable({ apis: ["setTimeout"] });
+  for (const kind of ["members", "roles", "posts", "instances"] as const) {
+    for (const change of ["rotate", "reassign", "kill", "inactive"] as const) {
+      const s = await setup();
+      await s.t.run((ctx) =>
+        ctx.db.patch(s.integrationId, {
+          enabledFeatures: ["membership_management", "posts", "instances"],
+        }),
+      );
+      const args = {
+        communityProfileId: s.communityProfileId,
+        params: { kind, n: 10, offset: 0 },
+      };
+      const requestId = await s.owner.mutation(ref("request"), args);
+      await s.t.run((ctx) =>
+        ctx.db.patch(requestId, {
+          state: "succeeded",
+          collectorAccountId: s.collectorAccountId,
+          credentialGeneration: 1,
+          result: { items: [], nextOffset: null, observedAt: Date.now() },
+        }),
+      );
+      assert.equal(
+        (await s.owner.query(ref("get"), { requestId })).fresh,
+        true,
+      );
+      await s.t.run(async (ctx) => {
+        if (change === "rotate")
+          await ctx.db.patch(s.collectorAccountId, { credentialGeneration: 2 });
+        if (change === "kill")
+          await ctx.db.patch(s.collectorAccountId, { killSwitchEnabled: true });
+        if (change === "inactive")
+          await ctx.db.patch(s.collectorAccountId, { state: "quarantined" });
+        if (change === "reassign") {
+          const { _id, _creationTime, ...account } = (await ctx.db.get(
+            s.collectorAccountId,
+          ))!;
+          const replacement = await ctx.db.insert("collectorAccounts", {
+            ...account,
+            vrchatUserId: "usr_replacement",
+          });
+          await ctx.db.patch(s.integrationId, {
+            assignedCollectorAccountId: replacement,
+          });
+        }
+      });
+      await assert.rejects(s.owner.query(ref("get"), { requestId }), /expired/);
+      if (change === "rotate" || change === "reassign")
+        assert.notEqual(
+          await s.owner.mutation(ref("request"), args),
+          requestId,
+        );
+      else
+        await assert.rejects(s.owner.mutation(ref("request"), args), /expired/);
+    }
+  }
+});
 it("eligibility is explicit single-recipient instance work and rejects foreign destinations", async (test) => {
   test.mock.timers.enable({ apis: ["setTimeout"] });
   const s = await setup();
-  const params = { kind: "invitation_eligibility", userId: "usr_11111111-1111-1111-1111-111111111111", n: 1, offset: 0 };
-  await assert.rejects(s.owner.mutation(ref("request"), { communityProfileId: s.communityProfileId, params }), /disabled/);
-  await s.t.run(ctx => ctx.db.patch(s.integrationId, { enabledFeatures: ["instances"] }));
-  const requestId = await s.owner.mutation(ref("request"), { communityProfileId: s.communityProfileId, params });
+  const params = {
+    kind: "invitation_eligibility",
+    userId: "usr_11111111-1111-1111-1111-111111111111",
+    n: 1,
+    offset: 0,
+  };
+  await assert.rejects(
+    s.owner.mutation(ref("request"), {
+      communityProfileId: s.communityProfileId,
+      params,
+    }),
+    /disabled/,
+  );
+  await s.t.run((ctx) =>
+    ctx.db.patch(s.integrationId, { enabledFeatures: ["instances"] }),
+  );
+  const requestId = await s.owner.mutation(ref("request"), {
+    communityProfileId: s.communityProfileId,
+    params,
+  });
   assert.ok(requestId);
   const { authority, ...worker } = s.snapshot;
   const job = await s.t.mutation(ref("claim"), worker);
-  const completion = { ...worker, requestId, claimToken: job.claimToken, authority, result: { items: [{ id: params.userId, userId: params.userId, friendship: "friend", destinationState: "pending", invitationEligibility: "destination_pending" }], nextOffset: null, observedAt: Date.now() } };
-  await assert.rejects(s.t.mutation(ref("complete"), { ...completion, result: { ...completion.result, items: [{ ...completion.result.items[0], userId: "someone-else" }] } }), /eligibility result/);
-  assert.deepEqual(await s.t.mutation(ref("complete"), completion), { recorded: true });
-  assert.equal((await s.owner.query(ref("get"), { requestId })).result.items[0].friendship, "friend");
-  await s.t.run(ctx => ctx.db.patch(s.collectorAccountId, { credentialGeneration: 2 }));
+  const completion = {
+    ...worker,
+    requestId,
+    claimToken: job.claimToken,
+    authority,
+    result: {
+      items: [
+        {
+          id: params.userId,
+          userId: params.userId,
+          friendship: "friend",
+          destinationState: "pending",
+          invitationEligibility: "destination_pending",
+        },
+      ],
+      nextOffset: null,
+      observedAt: Date.now(),
+    },
+  };
+  await assert.rejects(
+    s.t.mutation(ref("complete"), {
+      ...completion,
+      result: {
+        ...completion.result,
+        items: [{ ...completion.result.items[0], userId: "someone-else" }],
+      },
+    }),
+    /eligibility result/,
+  );
+  assert.deepEqual(await s.t.mutation(ref("complete"), completion), {
+    recorded: true,
+  });
+  assert.equal(
+    (await s.owner.query(ref("get"), { requestId })).result.items[0].friendship,
+    "friend",
+  );
+  await s.t.run((ctx) =>
+    ctx.db.patch(s.collectorAccountId, { credentialGeneration: 2 }),
+  );
   await assert.rejects(s.owner.query(ref("get"), { requestId }), /expired/);
-  assert.notEqual(await s.owner.mutation(ref("request"), { communityProfileId: s.communityProfileId, params }), requestId);
-  await assert.rejects(s.t.mutation(ref("request"), { communityProfileId: s.communityProfileId, params }), /access/);
-  await assert.rejects(s.owner.mutation(ref("request"), { communityProfileId: s.communityProfileId, params: { ...params, n: 2 } }), /eligibility/);
-  await assert.rejects(s.owner.mutation(ref("request"), { communityProfileId: s.communityProfileId, params: { ...params, worldId: "wrld_11111111-1111-1111-1111-111111111111", instanceId: "12~group(other)" } }), /another group/);
+  assert.notEqual(
+    await s.owner.mutation(ref("request"), {
+      communityProfileId: s.communityProfileId,
+      params,
+    }),
+    requestId,
+  );
+  await assert.rejects(
+    s.t.mutation(ref("request"), {
+      communityProfileId: s.communityProfileId,
+      params,
+    }),
+    /access/,
+  );
+  await assert.rejects(
+    s.owner.mutation(ref("request"), {
+      communityProfileId: s.communityProfileId,
+      params: { ...params, n: 2 },
+    }),
+    /eligibility/,
+  );
+  await assert.rejects(
+    s.owner.mutation(ref("request"), {
+      communityProfileId: s.communityProfileId,
+      params: {
+        ...params,
+        worldId: "wrld_11111111-1111-1111-1111-111111111111",
+        instanceId: "12~group(other)",
+      },
+    }),
+    /another group/,
+  );
 });
 it("event picker paginates only the current club and instance roles need no membership feature", async (test) => {
   test.mock.timers.enable({ apis: ["setTimeout"] });
@@ -205,18 +341,42 @@ async function setup() {
 it("instance destination reads require instances feature without analytics or member access", async (test) => {
   test.mock.timers.enable({ apis: ["setTimeout"] });
   const s = await setup();
-  const subject = {subject: "instance-staff", issuer: "https://test.clerk.accounts.dev", tokenIdentifier: "https://test.clerk.accounts.dev|instance-staff"};
-  await s.t.run(async ctx => {
-    await ctx.db.insert("users", {clerkUserId: subject.subject});
-    await ctx.db.patch(s.roleId, {permissions: ["manage_instances"]});
-    await ctx.db.patch(s.integrationId, {enabledFeatures: ["instances"]});
-    await ctx.db.insert("communityAuthorities", {communityProfileId:s.communityProfileId,subject,subjectTokenIdentifier:subject.tokenIdentifier,roleId:s.roleId,roleKey:"staff",roleLabel:"Staff",state:"active",grantedAt:Date.now(),updatedAt:Date.now()});
+  const subject = {
+    subject: "instance-staff",
+    issuer: "https://test.clerk.accounts.dev",
+    tokenIdentifier: "https://test.clerk.accounts.dev|instance-staff",
+  };
+  await s.t.run(async (ctx) => {
+    await ctx.db.insert("users", { clerkUserId: subject.subject });
+    await ctx.db.patch(s.roleId, { permissions: ["manage_instances"] });
+    await ctx.db.patch(s.integrationId, { enabledFeatures: ["instances"] });
+    await ctx.db.insert("communityAuthorities", {
+      communityProfileId: s.communityProfileId,
+      subject,
+      subjectTokenIdentifier: subject.tokenIdentifier,
+      roleId: s.roleId,
+      roleKey: "staff",
+      roleLabel: "Staff",
+      state: "active",
+      grantedAt: Date.now(),
+      updatedAt: Date.now(),
+    });
   });
   const staff = s.t.withIdentity(subject);
-  const args = {communityProfileId:s.communityProfileId,params:{kind:"instances",n:10,offset:0}};
+  const args = {
+    communityProfileId: s.communityProfileId,
+    params: { kind: "instances", n: 10, offset: 0 },
+  };
   assert.ok(await staff.mutation(ref("request"), args));
-  await assert.rejects(staff.mutation(ref("request"), {...args,params:{...args.params,kind:"members"}}));
-  await s.t.run(ctx => ctx.db.patch(s.integrationId,{enabledFeatures:[]}));
+  await assert.rejects(
+    staff.mutation(ref("request"), {
+      ...args,
+      params: { ...args.params, kind: "members" },
+    }),
+  );
+  await s.t.run((ctx) =>
+    ctx.db.patch(s.integrationId, { enabledFeatures: [] }),
+  );
   await assert.rejects(staff.mutation(ref("request"), args), /disabled/);
 });
 it("serves projected pages only to requester, rechecks feature and worker credential generation", async (test) => {

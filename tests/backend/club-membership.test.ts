@@ -22,8 +22,19 @@ const start = Date.UTC(2026, 2, 1),
 
 it("stops new audit scans after analytics is disabled", async () => {
   const { t, integrationId } = await setup();
-  await t.run(ctx => ctx.db.patch(integrationId, { enabledFeatures: ["posts"] }));
-  await assert.rejects(t.mutation(begin, { integrationId, epochStartedAt: start, groupId: "grp_test", startAt: start, endAt: end }), /scope/);
+  await t.run((ctx) =>
+    ctx.db.patch(integrationId, { enabledFeatures: ["posts"] }),
+  );
+  await assert.rejects(
+    t.mutation(begin, {
+      integrationId,
+      epochStartedAt: start,
+      groupId: "grp_test",
+      startAt: start,
+      endAt: end,
+    }),
+    /scope/,
+  );
 });
 
 it("never treats a coverage gap as zero, merges adjacent scans and hides disconnected public data", async () => {
@@ -100,6 +111,24 @@ it("never treats a coverage gap as zero, merges adjacent scans and hides disconn
     ).complete,
     true,
   );
+  await t.run(async (ctx) => {
+    const integration = (await ctx.db.get(integrationId))!;
+    await ctx.db.patch(integrationId, { killSwitchEnabled: false });
+    await ctx.db.patch(integration.communityProfileId, {
+      publicationState: "draft_private",
+    });
+  });
+  const args = { communitySlug: "club", startAt: start, endAt: end };
+  assert.deepEqual(await t.query(bucket, args), {
+    joins: null,
+    departures: null,
+    complete: false,
+  });
+  assert.deepEqual(await owner.query(bucket, args), {
+    joins: 0,
+    departures: 0,
+    complete: true,
+  });
 });
 async function setup() {
   const t = convexTest({ schema, modules });

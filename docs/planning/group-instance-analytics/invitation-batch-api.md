@@ -57,6 +57,10 @@ Live invitations and the browser recipient-selection flow remain unverified.
 
 ## Invitation destination context
 
+All queued provider read caches, not only eligibility, bind to the assigned bot
+and credential generation. Rotation, reassignment, account/fleet kill switches,
+or inactive collector state invalidate cached results and prevent their reuse.
+
 `clubProviderReads.context` provides `assignedBot: {userId, profileUrl} | null` to
 authorized invitation staff, without collector secrets or configuration. This is
 a link to the assigned account, not evidence of friendship or an invitation send.
