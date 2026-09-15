@@ -1,9 +1,9 @@
-import { chromium, firefox, expect, test, type Page } from "@playwright/test";
+import { chromium, firefox, expect, test, type Page, type Browser } from "@playwright/test";
 // The proof server is deliberately a Node script, outside the application bundle.
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 
-type Sample = { at: number; kind: string; db: number; outputDb: number; time: number; valid: boolean; silenceMs: number; gap: number };
+type Sample = { at: number; kind: string; db: number; outputDb: number; time: number; valid: boolean; silenceMs: number; gap: number; failureMs: number; failed: boolean; eof: boolean; ended: boolean; bufferedSeconds: number };
 type Snapshot = { current: string; nextReady: boolean; connections: number; rejected: boolean; samples: Sample[]; context: string };
 const read = async (page: Page): Promise<Snapshot> => JSON.parse(await page.getByTestId("snapshot").innerText());
 const click = (page: Page, name: string) => page.getByRole("button", { name, exact: true }).click();
@@ -15,12 +15,14 @@ for (const engine of [chromium, firefox]) {
     test.setTimeout(180_000);
     const { startProofServer } = await (new Function("url", "return import(url)"))(pathToFileURL(path.resolve("../../scripts/event-playback-proof.mjs")).href);
     const transport = await startProofServer();
-    const browser = await engine.launch().catch(async (error) => { await transport.close(); throw error; });
-    const page = await browser.newPage();
+    let browser: Browser | undefined;
     const stats = async () => (await fetch(`${transport.url}/stats`)).json();
     const control = (state: string) => fetch(`${transport.url}/control?id=next&state=${state}`, { method: "POST" });
-    const evidence: Record<string, unknown> = { browser: browser.version(), engine: engine.name() };
+    const evidence: Record<string, unknown> = { engine: engine.name() };
     try {
+      browser = await engine.launch();
+      evidence.browser = browser.version();
+      const page = await browser.newPage();
       await page.goto(`${baseURL}/playwright/event-lineup-proof?transport=${encodeURIComponent(transport.url)}`);
       await expect(page.getByRole("button", { name: "Start audible", exact: true })).toBeVisible();
       expect((await stats()).opened).toBe(0);
@@ -64,8 +66,6 @@ for (const engine of [chromium, firefox]) {
         await cdp.send("Page.setWebLifecycleState", { state: "frozen" });
         await new Promise(resolve => setTimeout(resolve, 1200));
         await cdp.send("Page.setWebLifecycleState", { state: "active" });
-        evidence.frozenResume = (await read(page)).samples.filter(s => s.at > frozenAt);
-
         evidence.frozenResume = (await read(page)).samples.filter(s => s.at > frozenAt).slice(0, 3);
         await cdp.detach();
       }
@@ -121,6 +121,28 @@ for (const engine of [chromium, firefox]) {
       await click(page, "Start audible");
       await expect.poll(async () => (await latest(page)).valid, { timeout: 20_000 }).toBe(true);
       evidence.recovered = await latest(page);
+      const shortDropAt = await page.evaluate(() => performance.now());
+      await fetch(transport.url + "/control?id=current&state=short-drop", { method: "POST" });
+      await expect.poll(async () => (await stats()).interruptions.at(-1)?.resumedAt).toBeTruthy();
+      await expect.poll(async () => (await latest(page)).at - shortDropAt).toBeGreaterThan(1200);
+      const shortDropSamples = (await read(page)).samples.filter(s => s.at > shortDropAt);
+      const interruption = (await stats()).interruptions.at(-1);
+      expect(interruption.resumedAt - interruption.startedAt).toBeLessThan(1000);
+      expect(shortDropSamples.every(s => s.failureMs < 1000)).toBe(true);
+      expect((await latest(page)).failureMs).toBe(0);
+      expect((await latest(page)).valid).toBe(true);
+      expect((await read(page)).current).toBe("audible");
+      evidence.shortDrop = { interruption, samples: shortDropSamples };
+      await fetch(transport.url + "/control?id=current&state=eof", { method: "POST" });
+      await expect.poll(async () => (await stats()).active).toBe(0);
+      await expect.poll(async () => (await latest(page)).eof).toBe(true);
+      evidence.cleanEof = { observed: await latest(page), stats: await stats() };
+      // Clean HTTP EOF is transport state; it cannot identify broadcaster completion.
+      expect((await latest(page)).failed).toBe(false);
+      expect((await read(page)).current).toBe("audible");
+      const eofAt = (await latest(page)).at;
+      await expect.poll(async () => (await latest(page)).at - eofAt).toBeGreaterThan(1200);
+      evidence.afterEof = await latest(page);
       await click(page, "Stop");
       await expect.poll(async () => (await stats()).active).toBe(0);
       await click(page, "Reject next play");
@@ -153,9 +175,11 @@ for (const engine of [chromium, firefox]) {
       expect((await stats()).highWater).toBe(2);
       expect((await stats()).denied).toBe(0);
     } finally {
-      await info.attach(`proof-${engine.name()}.json`, { body: JSON.stringify(evidence, null, 2), contentType: "application/json" });
-      await browser.close();
-      await transport.close();
+      try {
+        await info.attach(`proof-${engine.name()}.json`, { body: JSON.stringify(evidence, null, 2), contentType: "application/json" });
+      } finally {
+        try { await browser?.close(); } finally { await transport.close(); }
+      }
     }
   });
 }

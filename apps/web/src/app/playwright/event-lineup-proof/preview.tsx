@@ -4,8 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { VrcdnStreamPlayer } from "@/app/_components/vrcdn-stream-player";
 
 type Player = ReturnType<(typeof import("mpegts.js"))["default"]["createPlayer"]>;
-type Connection = { video: HTMLVideoElement; player: Player; source: MediaElementAudioSourceNode; analyser: AnalyserNode; gain: GainNode; kind: string; lastTime: number; progress: number; failed: boolean };
-type Sample = { at: number; kind: string; db: number; outputDb: number; time: number; progressing: boolean; valid: boolean; silenceMs: number; gap: number };
+type Connection = { video: HTMLVideoElement; player: Player; source: MediaElementAudioSourceNode; analyser: AnalyserNode; gain: GainNode; kind: string; lastTime: number; progress: number; failed: boolean; eof: boolean };
+type Sample = { at: number; kind: string; db: number; outputDb: number; time: number; progressing: boolean; valid: boolean; silenceMs: number; gap: number; failureMs: number; failed: boolean; eof: boolean; ended: boolean; bufferedSeconds: number };
 const EMPTY = { current: "", nextReady: false, connections: 0, rejected: false, samples: [] as Sample[], context: "", volume: 1, muted: false };
 
 /** Isolated transport experiment. No product state or schedule policy lives here. */
@@ -16,6 +16,7 @@ export function PlaybackProof() {
   const next = useRef<Connection | null>(null);
   const master = useRef<GainNode | null>(null);
   const output = useRef<AnalyserNode | null>(null);
+  const failureSince = useRef<number | null>(null);
   const silenceSince = useRef<number | null>(null);
   const lastSample = useRef(0);
   const generation = useRef(0);
@@ -33,7 +34,7 @@ export function PlaybackProof() {
     connection.source.disconnect(); connection.analyser.disconnect(); connection.gain.disconnect();
     connection.video.removeAttribute("src"); connection.video.load(); connection.video.remove();
   };
-  const clear = () => { silenceSince.current = null; lastSample.current = 0; };
+  const clear = () => { failureSince.current = null; silenceSince.current = null; lastSample.current = 0; };
   const stop = () => {
     generation.current++; release(current.current); release(next.current); current.current = null; next.current = null; clear();
   };
@@ -70,8 +71,9 @@ export function PlaybackProof() {
     const gain = audio.current.createGain(); gain.gain.value = prepared ? 0 : 1;
     source.connect(analyser); analyser.connect(gain); gain.connect(master.current);
     const player = mpegts.createPlayer({ isLive: true, type: "mpegts", url: `${base}/${kind}.live.ts?id=${prepared ? "next" : "current"}` });
-    const connection: Connection = { video, source, analyser, gain, player, kind, lastTime: 0, progress: 0, failed: false };
+    const connection: Connection = { video, source, analyser, gain, player, kind, lastTime: 0, progress: 0, failed: false, eof: false };
     player.on(mpegts.Events.ERROR, () => { connection.failed = true; });
+    player.on(mpegts.Events.LOADING_COMPLETE, () => { connection.eof = true; });
     player.attachMediaElement(video); player.load();
     if (prepared) next.current = connection; else current.current = connection;
     await play(video);
@@ -105,10 +107,14 @@ export function PlaybackProof() {
         const progressing = !!previous && active.video.currentTime > previous.time && previous.kind === active.kind;
         const gap = lastSample.current ? at - lastSample.current : 0;
         const valid = document.visibilityState === "visible" && audio.current?.state === "running" && !active.video.paused && !active.failed && progressing && gap > 0 && gap <= 500;
+        const observing = document.visibilityState === "visible" && audio.current?.state === "running" && !active.video.paused && gap > 0 && gap <= 500;
+        if (!observing || (!active.failed && progressing)) failureSince.current = null;
+        else failureSince.current ??= at;
         const level = db(active.analyser);
         if (!valid || level >= -90) silenceSince.current = null;
         else silenceSince.current ??= at;
-        history.current.push({ at, kind: active.kind, db: level, outputDb: output.current ? db(output.current) : -240, time: active.video.currentTime, progressing, valid, silenceMs: silenceSince.current === null ? 0 : at - silenceSince.current, gap });
+        const bufferedSeconds = active.video.buffered.length ? Math.max(0, active.video.buffered.end(active.video.buffered.length - 1) - active.video.currentTime) : 0;
+        history.current.push({ failureMs: failureSince.current === null ? 0 : at - failureSince.current, failed: active.failed, eof: active.eof, ended: active.video.ended, bufferedSeconds, at, kind: active.kind, db: level, outputDb: output.current ? db(output.current) : -240, time: active.video.currentTime, progressing, valid, silenceMs: silenceSince.current === null ? 0 : at - silenceSince.current, gap });
         history.current = history.current.slice(-1200); lastSample.current = at;
       }
       const candidate = next.current;

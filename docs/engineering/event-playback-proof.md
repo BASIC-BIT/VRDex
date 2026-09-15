@@ -127,3 +127,44 @@ complete the later product UI's visual acceptance.
 Validation also passed web typecheck and targeted ESLint for both fixture files
 and the browser test. Remaining product-policy, live-provider, native-background,
 and Safari verification belongs in the feature handoff.
+
+## Review follow-up: short interruption and clean EOF
+
+The revised proof passed both actual browsers, Chromium in 33.495 seconds and
+Firefox in 31.443 seconds. It now pauses HTTP byte delivery for 600 ms and resumes
+the same connection. Measured interruption durations were 601.95 ms and 613.18 ms.
+Buffered playback concealed both interruptions: every recorded sample remained
+valid and the observed failure duration stayed zero. The current source stayed
+audible. This verifies that a short transport interruption need not be a playback
+failure. It does not prove cancellation of an already accumulating failure timer;
+Task 4 must test that policy deterministically.
+
+A separate control ends the HTTP response cleanly and stops its FFmpeg child.
+The fixture records mpegts.js LOADING_COMPLETE separately from decoder error,
+media-element ended state, decoded progress, and remaining buffered duration.
+
+| EOF observation | Chromium | Firefox |
+| --- | --- | --- |
+| Loading complete | true | true |
+| Decoder error | false | false |
+| Media element ended at first observation | false | false |
+| Buffered seconds at first observation | 0.926 | 0.997 |
+| Decoded progress at first observation | true | true |
+| Later media element ended | true | true |
+| Later buffered seconds | 0 | 0 |
+| Later observation valid | false | false |
+
+The later samples were taken about 1.9 seconds after the first EOF observation.
+No source switch was requested or inferred from EOF. These results demonstrate why
+clean transport completion, buffered playback, and broadcaster completion must
+remain separate concepts. Both final server connection counts and FFmpeg child
+counts were zero, with one controlled EOF per run.
+
+Browser launch and page creation now run inside the cleanup-protected region.
+Nested finally blocks attempt transport cleanup even if attachment writing or
+browser close fails. Pending short-interruption timers are cleared on server
+shutdown. Duplicate overwritten Chromium freeze evidence was removed.
+
+The revised run also passed targeted ESLint, full web typecheck, Node syntax check,
+and whitespace validation. Existing native-background, Safari/mobile, live-provider,
+autoplay-policy, and human-listening limits still apply.

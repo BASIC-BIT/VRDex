@@ -20,6 +20,9 @@ export async function startProofServer({ port = 0 } = {}) {
   const children = new Set();
   const sessions = new Map();
   const offline = new Set();
+  const timers = new Set();
+  const interruptions = [];
+  let cleanEofs = 0;
   let highWater = 0;
   let opened = 0;
   let denied = 0;
@@ -55,11 +58,32 @@ export async function startProofServer({ port = 0 } = {}) {
     res.setHeader("Cache-Control", "no-store");
     if (url.pathname === "/stats") {
       res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ active: sessions.size, highWater, opened, denied, children: children.size })); return;
+      res.end(JSON.stringify({ active: sessions.size, highWater, opened, denied, children: children.size, interruptions, cleanEofs })); return;
     }
     if (url.pathname === "/control" && req.method === "POST") {
       const id = url.searchParams.get("id");
-      if (url.searchParams.get("state") === "offline") {
+      const state = url.searchParams.get("state");
+      if (state === "short-drop") {
+        for (const [response, session] of sessions) if (session.id === id) {
+          const interruption = { startedAt: performance.now(), resumedAt: null };
+          interruptions.push(interruption);
+          session.child.stdout.unpipe(response);
+          session.child.stdout.pause();
+          const timer = setTimeout(() => {
+            timers.delete(timer);
+            if (!response.destroyed) session.child.stdout.pipe(response);
+            interruption.resumedAt = performance.now();
+          }, 600);
+          timers.add(timer);
+        }
+      } else if (state === "eof") {
+        for (const [response, session] of sessions) if (session.id === id) {
+          session.child.stdout.unpipe(response);
+          response.end();
+          session.child.kill();
+          cleanEofs++;
+        }
+      } else if (state === "offline") {
         offline.add(id);
         for (const [response, session] of sessions) if (session.id === id) response.destroy();
       } else offline.delete(id);
@@ -86,6 +110,8 @@ export async function startProofServer({ port = 0 } = {}) {
     if (stopped) return;
     stopped = true;
     clearTimeout(deadline);
+    for (const timer of timers) clearTimeout(timer);
+    timers.clear();
     for (const response of sessions.keys()) response.destroy();
     const exits = [...children].map(child => new Promise(resolve => { child.once("exit", resolve); child.kill(); }));
     server.closeAllConnections();
