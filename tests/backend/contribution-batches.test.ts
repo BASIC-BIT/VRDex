@@ -10,6 +10,7 @@ import {
 } from "./_mediaReviewFixture";
 const modules = {
   ...baseModules,
+  "../../convex/contributionOperations.ts": () => import("../../convex/contributionOperations"),
   "../../convex/contributionUploads.ts": () =>
     import("../../convex/contributionUploads"),
   "../../convex/contributionBatches.ts": () =>
@@ -881,4 +882,47 @@ it("uses independently authenticated batch readers and binds their reconciliatio
       /BATCH_UNAVAILABLE/,
     );
   }
+});
+
+it("bounds every new row across append pages while replayed rows are free", async () => {
+  const f = await fixture();
+  process.env.VRDEX_CONTRIBUTION_POLICY = "synthetic-v1";
+  process.env.CONVEX_DEPLOYMENT = "local:contributor-capacity-proof";
+  try {
+    await f.t.run(ctx => ctx.db.insert("contributionCapacityRequests", { actorUserId: f.s.contributorUserId, key: "allow", kind: "batch_allowance", batchId: f.batch.batchId, evidence: "fixture", reason: "fixture", rows: 3, bytes: 10000, expiresAt: Date.now()+86400000, state: "approved", createdAt: Date.now(), updatedAt: Date.now() }));
+    const append = (keys: string[]) => f.t.mutation(internal.contributionBatches.append, { ...f.authority, batchId: f.batch.batchId, items: keys.map(itemKey => ({ ...f.item, itemKey })) });
+    await append(["a", "b"]);
+    await assert.rejects(append(["a", "c", "d"]), /BATCH_ALLOWANCE_ROWS/);
+    assert.equal((await f.t.run(ctx => ctx.db.get(f.batch.batchId)))?.rowCount, 2);
+    await append(["a", "b", "c"]);
+    await append(["a", "b", "c"]);
+    assert.equal((await f.t.run(ctx => ctx.db.get(f.batch.batchId)))?.rowCount, 3);
+  } finally { delete process.env.VRDEX_CONTRIBUTION_POLICY; delete process.env.CONVEX_DEPLOYMENT; }
+});
+
+it("migrates old archived payload deadlines in bounded pages, preserving holds and unknown dates", async () => {
+  const f = await fixture();
+  await f.t.mutation(internal.contributionBatches.append, { ...f.authority, batchId: f.batch.batchId, items: [f.item, { ...f.item, itemKey: "held" }] });
+  const archivedAt = Date.now()-31*86400000;
+  await f.t.run(async ctx => {
+    await ctx.db.patch(f.batch.batchId, { archived: true, archivedAt });
+    const revisions = await ctx.db.query("contributionItemRevisions").collect();
+    await ctx.db.patch(revisions.find(r => r.itemKey === "held")!._id, { legalHoldAt: Date.now() });
+    for (let i=0;i<41;i++) await ctx.db.insert("contributionBatches", { actorUserId: f.s.contributorUserId, idempotencyKey: `old-${i}`, label: "old", archived: true, rowCount: 0, createdAt: 1, ...(i===40 ? {} : { archivedAt }) });
+  });
+  let cursor: string|null = null, updated=0, unresolved=0, pages=0;
+  for (;;) {
+    const page = await f.t.mutation(internal.contributionOperations.backfillArchivedPayloads, { cursor });
+    pages++; updated+=page.updated; unresolved+=page.unresolved;
+    if (page.isDone) break;
+    cursor=page.cursor;
+  }
+  assert.equal(pages, 2); assert.equal(updated, 41); assert.equal(unresolved, 1);
+  assert.equal((await f.t.run(ctx=>ctx.db.get(f.batch.batchId)))?.payloadCleanupAfter, archivedAt+30*86400000);
+  const expired = await f.t.mutation(internal.contributionOperations.expirePayloads, {});
+  assert.equal(expired.expired, 1); assert.equal(expired.held, 1);
+  const batch = (await f.t.run(ctx=>ctx.db.get(f.batch.batchId)))!;
+  assert.ok(batch.payloadCleanupAfter! > Date.now());
+  await f.t.mutation(internal.contributionOperations.backfillArchivedPayloads, { cursor: null });
+  assert.equal((await f.t.run(ctx=>ctx.db.get(f.batch.batchId)))?.payloadCleanupAfter, batch.payloadCleanupAfter);
 });

@@ -105,8 +105,16 @@ initial fetch requests; SSRF/redirect restrictions remain in the fetch adapter.
    new ledger and publication fields; readers tolerate them and do not invent
    historical reviewer attribution.
 2. Keep intake paused while running `contributionOperations.backfill` in cursor
-   pages of 40, then `backfillSubmissions` until both are done. These internal
-   mutations never enable policy or issue grants. Inspect every unresolved count.
+   pages of 40, then `backfillSubmissions`, then `backfillArchivedPayloads`, each
+   from a null cursor until its `isDone` result. These internal mutations never
+   enable policy or issue grants. Inspect every unresolved count. Consumed approved
+   intents retain committed receipts and published accounting; cleanup excludes
+   their published keys even if a reservation state is inconsistent. Archived
+   payload scheduling derives from `archivedAt` plus 30 days and preserves existing
+   cursors and legal holds. Missing, invalid or future archive timestamps remain
+   unresolved without a deletion deadline; resolve their history before rollout.
+   A retention-version marker makes completed scheduling repeatable without
+   rescheduling already expired payloads.
 3. Page `inventory`, compare unique object keys and actual S3 HEAD/list sizes,
    and reconcile actor, target, deployment and published counters. Missing objects,
    untracked legacy records and unknown sizes block elevated rollout. Backfill

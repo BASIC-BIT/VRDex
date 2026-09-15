@@ -257,6 +257,9 @@ export const backfillSubmissions = internalMutation({
         (intent.sourceByteSize ?? 0) +
         (intent.downloadByteSize ?? 0);
       const published = submission.status === "approved";
+      const committed =
+        intent.state === "uploaded" ||
+        (intent.state === "consumed" && published);
       const bytes =
         submission.blobDeletedAt !== undefined
           ? 0
@@ -303,11 +306,7 @@ export const backfillSubmissions = internalMutation({
         publishedBytes: published ? bytes : undefined,
         quarantineBytes: 0,
         processing,
-        state: processing
-          ? "pending"
-          : intent.state === "uploaded"
-            ? "committed"
-            : "failed",
+        state: processing ? "pending" : committed ? "committed" : "failed",
         expiresAt: intent.expiresAt,
         cleanupAfter: intent.expiresAt + DAY,
         createdAt: submission.createdAt,
@@ -315,14 +314,58 @@ export const backfillSubmissions = internalMutation({
           ? {
               receipt: {
                 operationId: String(intent._id),
-                operationState:
-                  intent.state === "uploaded"
-                    ? ("committed" as const)
-                    : ("refused" as const),
+                operationState: committed
+                  ? ("committed" as const)
+                  : ("refused" as const),
                 resourceId: String(submission._id),
               },
             }
           : {}),
+      });
+      updated++;
+    }
+    return {
+      cursor: page.continueCursor,
+      isDone: page.isDone,
+      updated,
+      unresolved,
+    };
+  },
+});
+
+// Schedule old archived manifests without changing existing cursors or hold decisions.
+export const backfillArchivedPayloads = internalMutation({
+  args: { cursor: v.union(v.string(), v.null()) },
+  returns: v.object({
+    cursor: v.string(),
+    isDone: v.boolean(),
+    updated: v.number(),
+    unresolved: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query("contributionBatches")
+      .paginate({ cursor: args.cursor, numItems: 40 });
+    let updated = 0,
+      unresolved = 0;
+    for (const batch of page.page) {
+      if (!batch.archived || batch.payloadRetentionVersion === 1) continue;
+      if (batch.payloadCleanupAfter !== undefined) {
+        await ctx.db.patch(batch._id, { payloadRetentionVersion: 1 });
+        updated++;
+        continue;
+      }
+      if (
+        !Number.isSafeInteger(batch.archivedAt) ||
+        batch.archivedAt! <= 0 ||
+        batch.archivedAt! > Date.now()
+      ) {
+        unresolved++;
+        continue;
+      }
+      await ctx.db.patch(batch._id, {
+        payloadRetentionVersion: 1,
+        payloadCleanupAfter: batch.archivedAt! + 30 * DAY,
       });
       updated++;
     }

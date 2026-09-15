@@ -134,6 +134,7 @@ async function charge(
   revisions: number,
   bytes: number,
   batchId?: Id<"contributionBatches">,
+  batchRowCount?: number,
 ) {
   const old = await ctx.db
     .query("contributionManifestUsage")
@@ -152,7 +153,7 @@ async function charge(
   if (
     allowance &&
     rows > 0 &&
-    ((await ctx.db.get(batchId!))?.rowCount ?? 0) + rows > allowance.rows!
+    (batchRowCount ?? (await ctx.db.get(batchId!))?.rowCount ?? 0) + rows > allowance.rows!
   )
     throw new Error("BATCH_ALLOWANCE_ROWS");
   if (
@@ -254,7 +255,7 @@ export const append = internalMutation({
         result.push({ itemKey: old.itemKey, revision: old.revision });
         continue;
       }
-      await charge(ctx, args.actorUserId, 1, 1, n.bytes, b._id);
+      await charge(ctx, args.actorUserId, 1, 1, n.bytes, b._id, b.rowCount);
       const revisionId = await ctx.db.insert("contributionItemRevisions", {
         actorUserId: args.actorUserId,
         batchId: b._id,
@@ -377,6 +378,7 @@ export const archive = internalMutation({
       await ctx.db.patch(b._id, {
         archived: true,
         archivedAt: Date.now(),
+        payloadRetentionVersion: 1,
         payloadCleanupAfter: Date.now() + 30 * 86400000,
       });
     }

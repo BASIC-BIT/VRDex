@@ -10,6 +10,7 @@ process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED = "true";
 process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "true";
 
 const modules = {
+  "../../convex/contributionCapacity.ts": () => import("../../convex/contributionCapacity"),
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
   "../../convex/profileAssets.ts": () => import("../../convex/profileAssets"),
   "../../convex/profileMediaSubmissions.ts": () => import("../../convex/profileMediaSubmissions"),
@@ -27,8 +28,8 @@ async function seed() {
       email: "contributor@example.test",
       emailVerificationTime: NOW,
     });
-    await ctx.db.insert("oauthAccessTokens",{tokenId:"oauth-token-id",clientId:"mcp-client",subjectType:"user",userId:actorUserId,resource:"https://example.test/mcp",scopes:["mcp:write","assets:contribute"],status:"active",issuedAt:Date.now(),expiresAt:Date.now()+86400000});
-    await ctx.db.insert("oauthAccessTokens",{tokenId:"other-client-token",clientId:"other-mcp-client",subjectType:"user",userId:actorUserId,resource:"https://example.test/mcp",scopes:["mcp:write","assets:contribute"],status:"active",issuedAt:Date.now(),expiresAt:Date.now()+86400000});
+    await ctx.db.insert("oauthAccessTokens",{tokenId:"oauth-token-id",clientId:"mcp-client",subjectType:"user",userId:actorUserId,resource:"https://example.test/mcp",scopes:["mcp:read","mcp:write","assets:contribute"],status:"active",issuedAt:Date.now(),expiresAt:Date.now()+86400000});
+    await ctx.db.insert("oauthAccessTokens",{tokenId:"other-client-token",clientId:"other-mcp-client",subjectType:"user",userId:actorUserId,resource:"https://example.test/mcp",scopes:["mcp:read","mcp:write","assets:contribute"],status:"active",issuedAt:Date.now(),expiresAt:Date.now()+86400000});
     const profileId = await ctx.db.insert("profiles", {
       profileType: "person",
       slug: "community-dj",
@@ -435,7 +436,7 @@ describe("hosted MCP profile media contributions", () => {
       {
         intentId: prepared.intentId,
         processingToken: secondToken,
-        errorCode: "MCP_MEDIA_IMPORT_REJECTED",
+        errorCode: "MCP_MEDIA_FETCH_FAILED",
       },
     ), true);
     assert.equal((await seeded.t.mutation(
@@ -449,6 +450,17 @@ describe("hosted MCP profile media contributions", () => {
     assert.equal(rows.intents.length, 1);
     assert.equal(rows.submissions.length, 1);
     assert.equal(rows.submissions[0]?.status, "withdrawn");
+    const ledger = await seeded.t.run(async ctx => ({ row: await ctx.db.query("contributionUploadReservations").unique(), counters: await ctx.db.query("contributionCapacity").collect() }));
+    assert.equal(ledger.row?.state, "failed");
+    assert.equal(ledger.row?.receipt?.operationState, "refused");
+    assert.equal(ledger.row?.receipt?.code, "MCP_MEDIA_FETCH_FAILED");
+    assert.equal(ledger.row?.processing, false);
+    const status = await seeded.t.query(internal.contributionCapacity.status, { actorUserId: seeded.actorUserId, oauthClientId: "mcp-client", oauthTokenId: "oauth-token-id", emailVerified: true, emailVerificationAttestedAt: Date.now(), cursor: null, limit: 10, operationId: String(prepared.intentId) });
+    assert.equal(status.receipt.operationState, "refused");
+    assert.equal(status.receipt.code, "MCP_MEDIA_FETCH_FAILED");
+    assert.ok(ledger.row!.chargedBytes > 0);
+    for (const counter of ledger.counters) { assert.equal(counter.processing, 0); assert.equal(counter.bytes, ledger.row!.chargedBytes); }
+
   });
 
   it("expires the same receipt deterministically and isolates status by contributor", async () => {
@@ -762,7 +774,7 @@ describe("hosted MCP profile media contributions", () => {
       email: "other-contributor@example.test",
       emailVerificationTime: Date.now(),
     }));
-    await seeded.t.run(ctx=>ctx.db.insert("oauthAccessTokens",{tokenId:"other-actor-token",clientId:"mcp-client",subjectType:"user",userId:otherActorUserId,resource:"https://example.test/mcp",scopes:["mcp:write","assets:contribute"],status:"active",issuedAt:Date.now(),expiresAt:Date.now()+86400000}));
+    await seeded.t.run(ctx=>ctx.db.insert("oauthAccessTokens",{tokenId:"other-actor-token",clientId:"mcp-client",subjectType:"user",userId:otherActorUserId,resource:"https://example.test/mcp",scopes:["mcp:read","mcp:write","assets:contribute"],status:"active",issuedAt:Date.now(),expiresAt:Date.now()+86400000}));
     const first = await seeded.t.mutation(
       internal.profileMediaSubmissions.prepareMcpMediaSubmission,
       input(seeded.actorUserId),

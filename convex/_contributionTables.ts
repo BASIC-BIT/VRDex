@@ -63,6 +63,7 @@ export const contributionTables = {
     rowCount: v.number(),
     createdAt: v.number(),
     archivedAt: v.optional(v.number()),
+    payloadRetentionVersion: v.optional(v.literal(1)),
     payloadCleanupAfter: v.optional(v.number()),
     payloadCleanupCursor: v.optional(v.string()),
     payloadCleanupHeld: v.optional(v.boolean()),

@@ -51,7 +51,14 @@ export const claim = internalMutation({
         await ctx.db.patch(row._id, { cleanupAfter: now + DAY });
         continue;
       }
-      if (row.state === "pending" || row.state === "processing") {
+      const published =
+        intent.state === "consumed" ||
+        submission?.status === "approved" ||
+        row.publishedBytes !== undefined;
+      if (
+        !published &&
+        (row.state === "pending" || row.state === "processing")
+      ) {
         await failReservation(ctx, row, "UPLOAD_EXPIRED");
         row = (await ctx.db.get(row._id))!;
       }
@@ -59,7 +66,7 @@ export const claim = internalMutation({
       // A failed intent is never retried: all server writes have been fenced
       // for a full day before deletion, then tombstones reconcile late writes.
       const keys =
-        row.state === "failed"
+        row.state === "failed" && !published
           ? [
               intent.quarantineStorageKey!,
               intent.sourceStorageKey!,
@@ -72,7 +79,11 @@ export const claim = internalMutation({
         cleanupLeaseUntil: now + 10 * 60 * 1000,
         cleanupAfter: now + 10 * 60 * 1000,
       });
-      uploads.push({ reservationId: row._id, token, keys: [...new Set(keys.filter((key): key is string => !!key))] });
+      uploads.push({
+        reservationId: row._id,
+        token,
+        keys: [...new Set(keys.filter((key): key is string => !!key))],
+      });
     }
     return {
       uploads,
@@ -109,7 +120,12 @@ export const confirm = internalMutation({
       if (submission?.legalHoldAt !== undefined)
         throw new Error("CLEANUP_HELD");
       const release =
-        row.state === "failed" ? row.chargedBytes : row.quarantineBytes;
+        row.state === "failed" &&
+        intent?.state !== "consumed" &&
+        submission?.status !== "approved" &&
+        row.publishedBytes === undefined
+          ? row.chargedBytes
+          : row.quarantineBytes;
       await changeContributionCharge(ctx.db, row, -release, 0);
       await ctx.db.patch(row._id, {
         chargedBytes: row.chargedBytes - release,

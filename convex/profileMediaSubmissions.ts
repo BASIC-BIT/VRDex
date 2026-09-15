@@ -98,6 +98,12 @@ async function failMcpMediaSubmissionRecord(
   now: number,
 ) {
   const normalizedCode = errorCode.trim().slice(0, 80) || "MCP_MEDIA_IMPORT_REJECTED";
+  const reservation = await ctx.db.query("contributionUploadReservations").withIndex("by_intentId", q => q.eq("intentId", intent._id)).unique();
+  if (reservation && !reservation.receipt) {
+    if (reservation.processing) await changeContributionCharge(ctx.db, reservation, 0, -1);
+    await ctx.db.patch(reservation._id, { state: "failed", processing: false, receipt: { operationId: String(intent._id), operationState: "refused", resourceId: String(submission._id), code: normalizedCode } });
+  }
+
   await ctx.db.patch(intent._id, {
     mcpFailureCode: normalizedCode,
     processingToken: undefined,
