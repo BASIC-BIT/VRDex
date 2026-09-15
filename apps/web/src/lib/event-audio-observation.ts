@@ -23,6 +23,14 @@ export function clearPlaybackEvidence(observedAt: number): PlaybackEvidence {
   };
 }
 
+function evidenceWithoutTimers(sample: AudioObservationSample): PlaybackEvidence {
+  return {
+    observedAt: sample.observedAt,
+    progressing: sample.progressing,
+    analysisActive: sample.analysisActive,
+  };
+}
+
 /**
  * Accumulates continuous failure or silence evidence. A discontinuity consumes the
  * first resumed sample as a reset, so a fresh interval starts on a later sample.
@@ -41,13 +49,17 @@ export function observeAudio(
   }
 
   if (previous !== undefined) {
+    if (!previous.analysisActive) {
+      return evidenceWithoutTimers(sample);
+    }
+
     const elapsed = sample.observedAt - previous.observedAt;
     if (
       !Number.isFinite(previous.observedAt) ||
       elapsed < 0 ||
       elapsed > AUDIO_OBSERVATION_FRESHNESS_MS
     ) {
-      return clearPlaybackEvidence(sample.observedAt);
+      return evidenceWithoutTimers(sample);
     }
   }
 

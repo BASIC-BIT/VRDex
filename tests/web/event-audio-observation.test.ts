@@ -38,16 +38,16 @@ describe("audio observation", () => {
       evidence = observeAudio(evidence, sample(observedAt, { progressing: false }));
     }
     evidence = observeAudio(evidence, sample(1_100, { disconnected: true }));
-    assert.equal(evidence.failureSince, 100);
+    assert.equal(evidence.failureSince, 200);
     assert.equal(evidence.silenceSince, undefined);
   });
 
   it("clears a failure on recovery and starts a fresh timer on relapse", () => {
     let evidence = observeAudio(undefined, sample(100, { disconnected: true }));
-    evidence = observeAudio(evidence, sample(900, { progressing: true }));
+    evidence = observeAudio(evidence, sample(300, { progressing: true }));
     assert.equal(evidence.failureSince, undefined);
-    evidence = observeAudio(evidence, sample(950, { progressing: false }));
-    assert.equal(evidence.failureSince, 950);
+    evidence = observeAudio(evidence, sample(400, { progressing: false }));
+    assert.equal(evidence.failureSince, 400);
   });
 
   it("tracks continuous source silence only while decoded media progresses", () => {
@@ -55,7 +55,7 @@ describe("audio observation", () => {
     for (let observedAt = 100; observedAt <= 1_100; observedAt += 100) {
       evidence = observeAudio(evidence, sample(observedAt, { dbfs: -240 }));
     }
-    assert.equal(evidence.silenceSince, 100);
+    assert.equal(evidence.silenceSince, 200);
     assert.equal(evidence.failureSince, undefined);
     evidence = observeAudio(evidence, sample(1_200, { dbfs: -89.9 }));
     assert.equal(evidence.silenceSince, undefined);
@@ -76,15 +76,43 @@ describe("audio observation", () => {
     );
   });
 
+  it("consumes the first active sample after pause before starting evidence", () => {
+    let evidence = observeAudio(undefined, sample(100, { disconnected: true }));
+    evidence = observeAudio(evidence, sample(200, { paused: true }));
+    evidence = observeAudio(evidence, sample(300, { disconnected: true }));
+    assert.equal(evidence.failureSince, undefined);
+    assert.equal(evidence.silenceSince, undefined);
+    evidence = observeAudio(evidence, sample(400, { disconnected: true }));
+    assert.equal(evidence.failureSince, 400);
+  });
+
+  it("consumes the first active sample after analysis suspension before silence", () => {
+    let evidence = observeAudio(undefined, sample(100, { dbfs: -240 }));
+    evidence = observeAudio(evidence, sample(200, { analysisActive: false }));
+    evidence = observeAudio(evidence, sample(300, { dbfs: -240 }));
+    assert.equal(evidence.failureSince, undefined);
+    assert.equal(evidence.silenceSince, undefined);
+    evidence = observeAudio(evidence, sample(400, { dbfs: -240 }));
+    assert.equal(evidence.silenceSince, 400);
+  });
+
   it("resets without accumulating on a gap, backward clock, or invalid timestamp", () => {
     const failing = observeAudio(undefined, sample(100, { disconnected: true }));
     assert.deepEqual(
       observeAudio(failing, sample(601, { disconnected: true })),
-      clearPlaybackEvidence(601),
+      {
+        observedAt: 601,
+        progressing: true,
+        analysisActive: true,
+      },
     );
     assert.deepEqual(
       observeAudio(failing, sample(99, { disconnected: true })),
-      clearPlaybackEvidence(99),
+      {
+        observedAt: 99,
+        progressing: true,
+        analysisActive: true,
+      },
     );
     assert.deepEqual(
       observeAudio(failing, sample(Number.NaN, { disconnected: true })),
