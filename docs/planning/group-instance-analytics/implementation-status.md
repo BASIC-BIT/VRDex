@@ -6,7 +6,7 @@ Updated September 14, 2026. Integration checkout: `codex/club-staff-workspace`. 
 
 ## PR review checkpoint, September 16, 2026
 
-PR #341 is published and undergoing iterative review. The latest local fixes preserve distinct-club discovery with multiple roles, reject unavailable collectors, hide anonymous movement when analytics is disabled, and revalidate dependent invitation event associations. Malformed or inaccessible instance links retain a Back control; stale event suggestions can be dismissed but not confirmed. Reconnection retains supported saved group settings, and membership-history-only staff can discover Analytics. Review fixes remain subject to current-head CI and AI review. Exact-copy approval and the live release evidence below remain outstanding.
+PR #341 is published and undergoing iterative review. The latest local fixes preserve distinct-club discovery with multiple roles, reject unavailable collectors, hide anonymous movement when analytics is disabled, and revalidate dependent invitation event associations. Malformed or inaccessible instance links retain a Back control; stale event suggestions can be dismissed but not confirmed. Reconnection retains supported saved group settings, and membership-history-only staff can discover Analytics. Review fixes remain subject to current-head CI and AI review. BASIC approved the edited exact copy on September 16, 2026. The live release evidence below remains outstanding.
 
 ## Earlier implementation checkpoint
 
@@ -20,7 +20,7 @@ Earlier checkpoint defects are resolved locally: notification history pagination
 
 The additional-group-link regression now exercises the actual browser-save mutation and public query for a community with one primary integration. Two ordinary links survive saves and reordering, private links are hidden, and the integration and collector leases remain unchanged. All 12 destination tests pass. A manual browser check of the existing DestinationEditor story added a fourth group URL, verified VRChat-group detection and a custom label, and visually inspected the rendered row. This verifies editor interaction separately from backend persistence; a single authenticated editor-to-public-page journey remains unverified.
 
-Remaining evidence includes additional group links through browser editing, actual provider collection and management operations, scheduled execution against an approved group, real failure-email delivery, exact product-copy approval, remote review and approved deployment. No live provider write or email delivery was performed in this program.
+Remaining evidence includes additional group links through browser editing, actual provider collection and management operations, scheduled execution against an approved group, real failure-email delivery, remote review and approved deployment. No live provider write or email delivery was performed in this program.
 
 Q27 requires reconciliation before retrying an indeterminate write, and Q33 forbids duplicate retries without reconciliation. Current code stops uncertain writes and never automatically retries them. An evidence-backed resolution/recovery workflow is absent. Creating a new job is not reconciliation.
 

@@ -7,7 +7,6 @@ import type { Id } from "../../../../../../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Card, SectionHeading } from "@/components/ui/card";
 import { CheckboxField, Select } from "@/components/ui/field";
-import { Notice } from "@/components/ui/notice";
 import {
   ClubAccessNotice,
   useClubWorkspace,
@@ -160,7 +159,7 @@ export function ClubVisibilityView({
     <div className="grid gap-6">
       <h1 className="text-3xl font-semibold tracking-tight">Data visibility</h1>
       <Card padding="lg" className="min-w-0">
-        <SectionHeading description="Owner-controlled. Public settings apply to community pages and public APIs.">
+        <SectionHeading description="Public settings apply to community pages and public APIs.">
           Who can see each category
         </SectionHeading>
         <div className="relative mt-5 overflow-x-auto">
@@ -194,10 +193,6 @@ export function ClubVisibilityView({
             </tbody>
           </table>
         </div>
-        <Notice className="mt-5">
-          Historical statistics are retained permanently. Disconnecting stops
-          collection.
-        </Notice>
       </Card>
     </div>
   );

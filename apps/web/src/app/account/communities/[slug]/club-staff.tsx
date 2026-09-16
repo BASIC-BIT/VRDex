@@ -245,11 +245,10 @@ export function ClubStaffView({
         ) : null}
         <div className="mt-5 flex flex-wrap justify-between gap-3 border-b border-border py-3 text-sm">
           <strong>Club owner</strong>
-          <span className="text-muted">Ownership is separate from roles.</span>
         </div>
         {groups.size === 0 ? (
           <Notice className="mt-4" variant="dashed">
-            No staff yet. Invite someone to get started.
+            No staff yet.
           </Notice>
         ) : (
           Array.from(groups, ([identity, assignments]) => (

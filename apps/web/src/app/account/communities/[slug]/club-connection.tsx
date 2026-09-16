@@ -79,7 +79,7 @@ export function ClubConnectionView({
       ) : null}
       {!integration || reconnecting ? (
         <Card padding="lg" surface="strong">
-          <SectionHeading description="VRDex assigns one of its own service accounts. Your VRChat credentials are never requested.">
+          <SectionHeading description="Connect your group to a VRDex bot.">
             {reconnecting ? "Reconnect VRChat group" : "Connect VRChat group"}
           </SectionHeading>
           <form
@@ -141,7 +141,7 @@ export function ClubConnectionView({
         </Card>
       ) : (
         <Card padding="lg" surface="strong">
-          <SectionHeading description="Disconnect stops collection and public presentation immediately. Existing private history is retained.">
+          <SectionHeading description="Disconnect stops collection and public presentation immediately.">
             Connection
           </SectionHeading>
           <dl className="mt-6 grid gap-4 text-sm sm:grid-cols-2">
@@ -154,7 +154,7 @@ export function ClubConnectionView({
               <dd className="mt-1 break-all">{integration.vrchatGroupId}</dd>
             </div>
             <div>
-              <dt className="text-muted">Service account</dt>
+              <dt className="text-muted">VRDex bot</dt>
               <dd className="mt-1 break-all">
                 {integration.collector?.vrchatUserId ?? "Unassigned"}
               </dd>
@@ -166,13 +166,13 @@ export function ClubConnectionView({
           </dl>
           {integration.state === "awaiting_approval" ? (
             <Notice className="mt-5" variant="warning">
-              Approve the pending service-account membership request in VRChat
+              Approve the VRDex bot&apos;s join request in VRChat
               to begin collection.
             </Notice>
           ) : null}
           {integration.state === "awaiting_invite" ? (
             <Notice className="mt-5" variant="warning">
-              Invite service account{" "}
+              Invite the VRDex bot{" "}
               {integration.collector?.vrchatUserId ?? "shown above"} to this
               VRChat group.
             </Notice>

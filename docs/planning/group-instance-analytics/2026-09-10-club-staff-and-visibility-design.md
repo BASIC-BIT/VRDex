@@ -197,14 +197,12 @@ Every string below is new public-facing prose and needs BASIC's approval before 
 | Where | Text |
 | --- | --- |
 | Sidebar | Home, Staff and roles, Data visibility, Group connection |
-| Staff page, owner row | Ownership is separate from roles. |
-| Staff page, empty staff | No staff yet. Invite someone to get started. |
+| Staff page, empty staff | No staff yet. |
 | Staff page, invite form | Invite club staff; Roles; Create invite link; Copy link; This link works once and expires in 7 days. |
 | Staff page, roles note | VRDex roles control this dashboard. VRChat group roles are managed separately. |
 | Role editor | Not yet available; Roles this role can assign; Started from the Admin preset (and Moderator, Event Staff variants) |
 | Role delete confirm | Deleting this role removes it from everyone who holds it. Categories visible only to this role become owner only. |
-| Visibility page | Who can see each category; Owner-controlled. Public settings apply to community pages and public APIs.; Public; Selected staff; Owner only; All staff; Not applicable |
-| Visibility note | Historical statistics are retained permanently. Disconnecting stops collection. |
+| Visibility page | Who can see each category; Public settings apply to community pages and public APIs.; Public; Selected staff; Owner only; All staff; Not applicable |
 | Invite page | You have been invited to join the staff of this club.; Accept invitation; Sign in to accept; This invitation is no longer valid. |
 | Access notices | You do not have access to this page. |
 

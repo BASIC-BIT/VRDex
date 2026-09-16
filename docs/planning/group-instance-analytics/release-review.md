@@ -4,17 +4,15 @@ Snapshot: 2026-09-14, current local implementation. This is a review packet, not
 
 ## Copy status
 
-The staff design's Public copy table already proposed exact wording but explicitly required BASIC's review before merge. No separate exact-copy approval was found during this audit. Treat matching sentences below as **previously proposed, approval still unproven**, rather than silently marking them approved. Obvious utility labels and existing approved patterns can proceed under AGENTS.md; new substantive sentences below await review. Dynamic club, person, event and list names are user data, not new authored copy.
+BASIC approved the remaining exact copy on September 16, 2026: "alrighty I approve the rest of the copy". This approval follows replacing service-account terminology with VRDex bot and removing password reassurance, retention notices, the ownership explanation, and redundant prompts. The strings below reflect those edits. Approval covers copy only; deployment, provider operations and email delivery remain separate.
 
-### Staff, invitations and visibility: previously proposed
+### Staff, invitations and visibility: approved
 
-- “Ownership is separate from roles.”
-- “No staff yet. Invite someone to get started.”
+- “No staff yet.”
 - “This link works once and expires in 7 days.”
 - “VRDex roles control this dashboard. VRChat group roles are managed separately.”
 - “Deleting this role removes it from everyone who holds it. Categories visible only to this role become owner only.”
-- “Owner-controlled. Public settings apply to community pages and public APIs.”
-- “Historical statistics are retained permanently. Disconnecting stops collection.”
+- “Public settings apply to community pages and public APIs.”
 - “You have been invited to join the staff of this club.”
 - “This invitation is no longer valid.”
 - “You do not have access to this page.”
@@ -23,10 +21,12 @@ Source: accepted staff design Public copy table; current club-staff, club-visibi
 
 ### Group connection: review exact explanatory copy
 
-- “VRDex assigns one of its own service accounts. Your VRChat credentials are never requested.”
-- “Disconnect stops collection and public presentation immediately. Existing private history is retained.”
-- “Approve the pending service-account membership request in VRChat to begin collection.”
-- “Invite service account \{VRChat user ID or ‘shown above’\} to this VRChat group.”
+- “Connect your group to a VRDex bot.”
+- “Disconnect stops collection and public presentation immediately.”
+- “Approve the VRDex bot's join request in VRChat to begin collection.”
+- “Invite the VRDex bot \{VRChat user ID or ‘shown above’\} to this VRChat group.”
+
+Legacy connection notices also use the same terminology: “Collection is stopped while a VRDex operator reconnects the VRDex bot.” and “Collection and public stats are off. The VRDex bot is leaving the VRChat group.”
 
 Source: club-connection.tsx. Feature and provider-role controls mostly use utility labels. The final connection controls include "Primary VRChat group ID" and "Edit additional group links". Six connection browser checks passed. The additional-link backend regression verifies two ordinary links without altering the primary integration; actual browser editing remains to be verified.
 
@@ -89,7 +89,7 @@ Source: club-posts.tsx. Short result statuses: “Draft saved.”, “Post queue
 - “Invitation time must be at or after instance creation.”
 - “No invitation batches.”
 
-Source: club-invitation-batches.tsx. Short result statuses: “Invitations queued.”, “List saved.”, “List deleted.” The bot action currently reads “Open assigned bot in VRChat”. Final recipient IDs, destination and execution time must remain visible in the actual review screen. Connected invitation UI has passed eight desktop/mobile checks, including explicit eligibility reads. Exact-copy approval remains outstanding.
+Source: club-invitation-batches.tsx. Short result statuses: “Invitations queued.”, “List saved.”, “List deleted.” The bot action currently reads “Open assigned bot in VRChat”. Final recipient IDs, destination and execution time must remain visible in the actual review screen. Connected invitation UI has passed eight desktop/mobile checks, including explicit eligibility reads. Exact-copy approval is recorded above.
 
 ### Scheduled actions and notifications
 
@@ -102,7 +102,7 @@ Sources: club-scheduled.tsx and club-notifications.tsx. Short states are utility
 
 These are new utility/status patterns rather than marketing prose, but include them in the final screen review: “Unable to save changes.”, “Unable to create preset roles.”, “Unable to save roles.”, “Unable to save features.”, “Unable to save post.”, “Unable to update post.”, “Unable to save invitations.”, “Unable to cancel invitations.”, “Unable to save action.”, “Unable to cancel action.”, “The telemetry change failed.”. Loading indicators and one/two-word controls are omitted from the substantive approval list. Backend validation errors are also surfaced by some catch handlers, so error-state testing must check their final user-visible text.
 
-### Email: exact proposed content
+### Email: approved content
 
 Source: convex/clubNotificationEmail.ts.
 
@@ -114,7 +114,7 @@ No group/member/post content appears in the email. Sending remains off unless `V
 
 ## Required live proof and release steps
 
-1. Present the complete assembled owner/staff experience at desktop and mobile widths, including empty/loading/error/restricted states, destructive confirmations and notification-disabled state. Obtain exact new-copy approval with any edits incorporated first.
+1. Present the complete assembled owner/staff experience at desktop and mobile widths, including empty/loading/error/restricted states, destructive confirmations and notification-disabled state. Exact-copy approval is recorded above; any later substantive wording changes need review.
 2. Real Clerk sign-in return, single-use invitation acceptance, direct-route denial and expired/revoked/consumed invitation checks passed against isolated local Convex. A separate authenticated analytics run verified owner-only category filtering, preference isolation and navigation with synthetic observations. Complete the remaining assembled management checks, including live permission revocation and multi-role union. Synthetic observations do not prove provider collection.
 3. Verify primary group plus two ordinary additional links through editing and public projection. Only the primary group receives an integration; ordinary links must not imply control or aggregate collection.
 4. Obtain authorization naming the actual VRChat test group, bot and allowed operations before live mutation. Verify actual own-member permissions for each independent feature, current member reads/search, protected targets, role allowlists, posts and instance operations. Record endpoint behavior and no-client invitation feasibility without claiming universal provider support.
@@ -125,7 +125,7 @@ No group/member/post content appears in the email. Sending remains off unless `V
 
 ## Separate unresolved feature findings
 
-- **Locked Q31, resolved locally after initial inventory:** explicit per-recipient eligibility checks now use the queued provider read path and show friendship, destination-pending and invitation-check states. The invitation UI owner reports eight desktop/mobile browser tests passing. Refresh the final UI strings/screenshots for approval; live provider proof remains outstanding. See invitation-eligibility-read.md.
+- **Locked Q31, resolved locally after initial inventory:** explicit per-recipient eligibility checks now use the queued provider read path and show friendship, destination-pending and invitation-check states. The invitation UI owner reports eight desktop/mobile browser tests passing. Copy is approved; refresh final screenshot evidence before release; live provider proof remains outstanding. See invitation-eligibility-read.md.
 - **Locked Q14:** primary/additional setup is implemented. A browser-save mutation/public-query regression verifies two ordinary group links, reordering, private visibility and an unchanged primary integration with no collector leases. Actual browser editing remains unverified.
 - **Q27/Q33:** indeterminate jobs are not blindly retried. An evidence-backed reconciliation/recovery workflow is not implemented; preserve the uncertainty rather than presenting a duplicate enqueue as reconciliation.
 - Rich comparisons, exports and private staff API/MCP endpoints remain candidate/later scope in the audited discovery/accepted staff design. Do not manufacture a missing launch requirement from a reserved permission value.

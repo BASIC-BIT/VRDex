@@ -427,21 +427,20 @@ function CommunityTelemetryDashboardContent({
       ) : null}
       {data.integration.state === "awaiting_approval" ? (
         <Notice variant="warning">
-          Approve the pending service-account membership request in VRChat to
+          Approve the VRDex bot&apos;s join request in VRChat to
           begin collection.
         </Notice>
       ) : null}
       {data.integration.state === "awaiting_invite" ? (
         <Notice variant="warning">
-          Invite service account{" "}
+          Invite the VRDex bot{" "}
           {data.integration.collector?.vrchatUserId ?? "shown below"} to this
           VRChat group.
         </Notice>
       ) : null}
       {data.integration.state === "auth_required" ? (
         <Notice variant="warning">
-          Collection is stopped while a VRDex operator refreshes this service
-          account.
+          Collection is stopped while a VRDex operator reconnects the VRDex bot.
         </Notice>
       ) : null}
       {data.integration.state === "degraded" ? (
@@ -452,7 +451,7 @@ function CommunityTelemetryDashboardContent({
       ) : null}
       {data.integration.state === "disconnecting" ? (
         <Notice>
-          Collection and public stats are off. The service account is leaving
+          Collection and public stats are off. The VRDex bot is leaving
           the VRChat group.
         </Notice>
       ) : null}
