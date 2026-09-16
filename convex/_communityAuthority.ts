@@ -73,9 +73,16 @@ export async function subjectHasAnyCommunityCapability(
         .eq("state", "active")
         .eq("communityProfileId", communityProfileId),
     )
-    .take(20);
+    .take(101);
+  if (authorities.length > 100) throw new Error("Club assignment limit exceeded.");
 
-  return authorities.some((authority) =>
-    capabilities.some((capability) => hasCapability(authority.capabilities as CommunityCapability[], capability)),
-  );
+  for (const authority of authorities) {
+    if(authority.subject.subject !== subject.subject || authority.subject.issuer !== subject.issuer) continue;
+    if (authority.roleId) {
+      const role = await db.get(authority.roleId);
+      if (role?.state === "active" && role.communityProfileId === communityProfileId &&
+          capabilities.some(capability => hasCapability(role.permissions as CommunityCapability[], capability))) return true;
+    } else if (capabilities.some(capability => hasCapability(authority.capabilities ?? [], capability))) return true;
+  }
+  return false;
 }

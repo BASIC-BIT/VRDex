@@ -1,3 +1,5 @@
+import { resolveClubActor, readClubVisibility, canReadCategory, requireClubPermission } from "./_clubAccess";
+import { CLUB_CATEGORIES, LEGACY_CATEGORY_MAP } from "./_clubModel";
 import { ConvexError, v } from "convex/values";
 
 import { internal } from "./_generated/api";
@@ -654,13 +656,20 @@ export const setPublicMetric = mutation({
       .withIndex("by_slug", (q) => q.eq("slug", args.communitySlug.trim().toLowerCase()))
       .first();
     if (!profile || profile.profileType !== "community") throw new Error("Community profile was not found.");
-    const actor = await requireCommunityCapability(ctx, profile._id);
+    const clubActor = await resolveClubActor(ctx, profile._id);
+    if(clubActor.kind !== "owner" || !clubActor.subject) throw new Error("Only the club owner can change visibility.");
+    const actor = clubActor.subject;
     const integration = await integrationForCommunity(ctx, profile._id);
     if (!integration) throw new Error("Community telemetry is not connected.");
     if (integration.state === "disconnecting" || integration.state === "disconnected") {
       throw new Error("Community telemetry is disconnecting or disconnected.");
     }
     const now = Date.now();
+    const categories = await readClubVisibility(ctx.db, profile._id);
+    categories[LEGACY_CATEGORY_MAP[args.metric]] = {audience:args.enabled?"public":"staff",staffRoleIds:null};
+    const saved = await ctx.db.query("communityDataVisibility").withIndex("by_communityProfileId",q=>q.eq("communityProfileId",profile._id)).unique();
+    if(saved) await ctx.db.patch(saved._id,{categories,updatedAt:now});
+    else await ctx.db.insert("communityDataVisibility",{communityProfileId:profile._id,categories,updatedAt:now});
     await ctx.db.patch(integration._id, {
       publicMetrics: { ...integration.publicMetrics, [args.metric]: args.enabled },
       updatedAt: now,
@@ -815,6 +824,8 @@ export const claimDueAssignments = internalMutation({
       }
       claimed.push({
         integrationId: integration._id,
+        epochStartedAt: integration.telemetryEpochStartedAt ?? integration.createdAt,
+        enabledFeatures: integration.enabledFeatures ?? ["analytics"],
         vrchatGroupId: integration.vrchatGroupId,
         joinPolicy: integration.joinPolicy,
         groupVisibility: integration.groupVisibility,
@@ -1173,6 +1184,17 @@ export const releaseLease = internalMutation({
     const now = args.now ?? Date.now();
     const lease = await assertLease(ctx, args.integrationId, args.collectorAccountId, args.workerId, args.fencingToken, now);
     await ctx.db.patch(lease._id, { state: "released", releasedAt: now, updatedAt: now });
+    const integration = await ctx.db.get(args.integrationId);
+    if (integration && ["active", "degraded"].includes(integration.state)) {
+      const [pendingOperation, pendingRead] = await Promise.all([
+        ctx.db.query("clubOperations").withIndex("by_integration_state_readyAt", q => q.eq("integrationId", integration._id).eq("state", "pending")).first(),
+        ctx.db.query("clubProviderReadRequests").withIndex("by_integration_state_createdAt", q => q.eq("integrationId", integration._id).eq("state", "pending")).first(),
+      ]);
+      const nextWorkAt = Math.min(pendingOperation?.readyAt ?? Infinity, pendingRead ? now : Infinity);
+      if (Number.isFinite(nextWorkAt) && nextWorkAt < (integration.nextPollAt ?? Infinity)) {
+        await ctx.db.patch(integration._id, { nextPollAt: Math.max(now, nextWorkAt), updatedAt: now });
+      }
+    }
   },
 });
 
@@ -1196,6 +1218,9 @@ export const ingestAggregatePoll = internalMutation({
     await assertLease(ctx, args.integrationId, args.collectorAccountId, args.workerId, args.fencingToken, now);
     const integration = await ctx.db.get(args.integrationId);
     if (!integration) throw new Error("Integration was not found.");
+    if (integration.enabledFeatures && !integration.enabledFeatures.includes("analytics")) {
+      throw new Error("Analytics collection is disabled.");
+    }
     if (
       !Number.isSafeInteger(args.observedAt) ||
       args.observedAt < now - 15 * 60_000 ||
@@ -1449,6 +1474,8 @@ async function telemetryDashboardData(ctx: QueryCtx, profile: Doc<"profiles">, n
   const rangeStart = Math.min(...points.map((point) => point.observedAt), now);
   const metrics = computePopulationMetrics(points, rangeStart, now);
   const openSessions = sessions.filter((session) => session.state === "open");
+  const current = (!integration.enabledFeatures || integration.enabledFeatures.includes("analytics")) &&
+    integration.lastSuccessfulObservationAt !== undefined && now - integration.lastSuccessfulObservationAt <= CURRENT_FRESHNESS_MS;
   return {
     community: { slug: profile.slug, displayName: profile.displayName },
     integration: {
@@ -1457,19 +1484,19 @@ async function telemetryDashboardData(ctx: QueryCtx, profile: Doc<"profiles">, n
       joinPolicy: integration.joinPolicy,
       vrchatGroupId: integration.vrchatGroupId,
       lastSuccessfulObservationAt: integration.lastSuccessfulObservationAt,
-      freshness: integration.lastSuccessfulObservationAt && now - integration.lastSuccessfulObservationAt <= CURRENT_FRESHNESS_MS ? "current" as const : "stale" as const,
+      freshness: current ? "current" as const : "stale" as const,
       publicMetrics: integration.publicMetrics,
       collector: account ? { accountAlias: account.accountAlias, vrchatUserId: account.vrchatUserId, state: account.state } : null,
     },
     summary: {
-      currentPopulation: integration.lastSuccessfulObservationAt && now - integration.lastSuccessfulObservationAt <= CURRENT_FRESHNESS_MS ? metrics.currentPopulation : undefined,
-      activeInstanceCount: population[0]?.activeInstanceCount ?? openSessions.length,
+      currentPopulation: current ? metrics.currentPopulation : undefined,
+      activeInstanceCount: current ? population[0]?.activeInstanceCount ?? openSessions.length : undefined,
       peakConcurrency: metrics.peakConcurrency,
       playerHours: metrics.playerHours,
       coverageRatio: metrics.coverageRatio,
       groupMemberCount: memberCounts[0]?.memberCount,
       groupMemberGrowth: memberCounts.length > 1 ? memberCounts[0]!.memberCount - memberCounts[memberCounts.length - 1]!.memberCount : 0,
-      worlds: (population[0]?.worldDistribution ?? []).map((world) => ({
+      worlds: (current ? population[0]?.worldDistribution ?? [] : []).map((world) => ({
         worldId: world.vrchatWorldId,
         samples: world.instanceCount,
         population: world.population,
@@ -1500,8 +1527,37 @@ export const getPrivateDashboard = query({
       .withIndex("by_slug", (q) => q.eq("slug", args.communitySlug.trim().toLowerCase()))
       .first();
     if (!profile || profile.profileType !== "community") return null;
-    await requireCommunityCapability(ctx, profile._id);
-    return telemetryDashboardData(ctx, profile, args.now ?? Date.now());
+    const actor = await resolveClubActor(ctx, profile._id);
+    if(actor.kind === "none") throw new Error("You do not have access to this page.");
+    const visibility = await readClubVisibility(ctx.db, profile._id);
+    const readableCategories = CLUB_CATEGORIES.filter(category => canReadCategory(actor, visibility, category));
+    const allowed = (category: typeof CLUB_CATEGORIES[number]) => readableCategories.includes(category);
+    const data = await telemetryDashboardData(ctx, profile, args.now ?? Date.now());
+    if(!data) return null;
+    const integrationsAllowed = actor.kind === "owner" || actor.permissions.includes("manage_integrations");
+    const {groupVisibility,joinPolicy,vrchatGroupId,publicMetrics,collector,...safeIntegration} = data.integration;
+    return {
+      ...data,
+      readableCategories,
+      integration: {...safeIntegration,...(integrationsAllowed ? {groupVisibility,joinPolicy,vrchatGroupId,publicMetrics,collector}: {})},
+      summary: {
+        ...(allowed("current_population") ? {currentPopulation:data.summary.currentPopulation,activeInstanceCount:data.summary.activeInstanceCount,worlds:data.summary.worlds}:{}),
+        ...(allowed("population_history") ? {peakConcurrency:data.summary.peakConcurrency,playerHours:data.summary.playerHours,coverageRatio:data.summary.coverageRatio}:{}),
+        ...(allowed("group_size") ? {groupMemberCount:data.summary.groupMemberCount}:{}),
+        ...(allowed("membership_movement") ? {groupMemberGrowth:data.summary.groupMemberGrowth}:{}),
+      },
+      sessions: allowed("instance_history") ? data.sessions : [],
+      population: allowed("population_history") ? data.population:[],
+      instancePopulation: allowed("instance_history") ? data.instancePopulation:[],
+      memberCounts: allowed("group_size") ? data.memberCounts:[],
+      coverage: allowed("population_history") || allowed("instance_history") ? data.coverage:[],
+      rollups: data.rollups.filter(rollup => rollup.grain === "event" ? allowed("event_recaps") : allowed("population_history") || allowed("group_size") || allowed("membership_movement")).map(rollup => {
+        const {currentPopulation,activeInstanceCount,peakConcurrency,playerMinutes,coverageRatio,worldDistribution,groupMemberCount,groupMemberGrowth,...metadata}=rollup;
+        return {...metadata,...(rollup.grain === "event" || allowed("population_history") ? {currentPopulation,activeInstanceCount,peakConcurrency,playerMinutes,coverageRatio,worldDistribution}:{}),...(allowed("group_size")?{groupMemberCount}:{}),...(allowed("membership_movement")?{groupMemberGrowth}:{})};
+      }),
+      associations: allowed("event_recaps") ? data.associations:[],
+      events: allowed("event_recaps") ? data.events:[],
+    };
   },
 });
 
@@ -1624,6 +1680,24 @@ export const recomputeRollup = internalMutation({
   },
 });
 
+export const getInstanceEventAssociation = query({
+  args: { communitySlug: v.string(), sessionId: v.id("instanceSessions") },
+  returns: v.union(v.null(), v.object({ eventId: v.id("events"), title: v.string() })),
+  handler: async (ctx, args) => {
+    const profile = await ctx.db.query("profiles").withIndex("by_slug", q => q.eq("slug", args.communitySlug)).unique();
+    if (!profile) throw new Error("You do not have access to this action.");
+    requireClubPermission(await resolveClubActor(ctx, profile._id), "manage_events");
+    const session = await ctx.db.get(args.sessionId);
+    if (!profile || !session || session.communityProfileId !== profile._id) throw new Error("Instance was not found.");
+    const integration = await integrationForCommunity(ctx, profile._id);
+    if (!integration || integration._id !== session.integrationId || session.openedAt < (integration.telemetryEpochStartedAt ?? integration.createdAt)) throw new Error("Instance belongs to an earlier group connection.");
+    const association = await ctx.db.query("eventInstanceAssociations").withIndex("by_sessionId_state", q => q.eq("sessionId", session._id).eq("state", "confirmed")).first();
+    if (!association) return null;
+    const event = await ctx.db.get(association.eventId);
+    return event && event.communityProfileId === profile._id ? { eventId: event._id, title: event.title } : null;
+  },
+});
+
 export const associateEventInstance = mutation({
   args: {
     communitySlug: v.string(),
@@ -1636,9 +1710,14 @@ export const associateEventInstance = mutation({
       ctx.db.get(args.eventId),
       ctx.db.get(args.sessionId),
     ]);
-    if (!profile || profile.profileType !== "community" || !event || !session) throw new Error("Event or instance was not found.");
+    const actor = await requireSubject(ctx);
+    if (!profile || profile.profileType !== "community") throw new Error("You do not have access to this action.");
+    const clubActor = await resolveClubActor(ctx, profile._id);
+    requireClubPermission(clubActor, "manage_events");
+    if (!event || !session) throw new Error("Event or instance was not found.");
     if (event.communityProfileId !== profile._id || session.communityProfileId !== profile._id) throw new Error("Event and instance must belong to this community.");
-    const actor = await requireCommunityCapability(ctx, profile._id);
+    const integration = await integrationForCommunity(ctx, profile._id);
+    if (!integration || integration._id !== session.integrationId || session.openedAt < (integration.telemetryEpochStartedAt ?? integration.createdAt)) throw new Error("Instance belongs to an earlier group connection.");
     const now = Date.now();
     const existing = await ctx.db.query("eventInstanceAssociations").withIndex("by_sessionId_state", (q) => q.eq("sessionId", session._id).eq("state", "confirmed")).first();
     if (existing && existing.eventId !== event._id) throw new Error("Instance is already confirmed for another event.");
@@ -1677,8 +1756,12 @@ export const reviewAssociationSuggestion = mutation({
     if (args.state === "suggested") throw new Error("A review must confirm or reject the suggestion.");
     const profile = await ctx.db.query("profiles").withIndex("by_slug", (q) => q.eq("slug", args.communitySlug.trim().toLowerCase())).first();
     const association = await ctx.db.get(args.associationId);
-    if (!profile || profile.profileType !== "community" || !association || association.communityProfileId !== profile._id) throw new Error("Association was not found.");
-    const actor = await requireCommunityCapability(ctx, profile._id);
+    const actor = await requireSubject(ctx);
+    if (!profile || profile.profileType !== "community") throw new Error("You do not have access to this action.");
+    requireClubPermission(await resolveClubActor(ctx, profile._id), "manage_events");
+    if (!association || association.communityProfileId !== profile._id) throw new Error("Association was not found.");
+    const [session, event, integration] = await Promise.all([ctx.db.get(association.sessionId), ctx.db.get(association.eventId), integrationForCommunity(ctx, profile._id)]);
+    if (args.state === "confirmed" && (!session || !event || session.communityProfileId !== profile._id || event.communityProfileId !== profile._id || !integration || session.integrationId !== integration._id || session.openedAt < (integration.telemetryEpochStartedAt ?? integration.createdAt))) throw new Error("Event or instance belongs to another group connection.");
     const now = Date.now();
     if (args.state === "confirmed") {
       const existing = await ctx.db.query("eventInstanceAssociations")
@@ -1690,7 +1773,7 @@ export const reviewAssociationSuggestion = mutation({
     await ctx.db.patch(association._id, { state: args.state, actor, reviewedAt: now, updatedAt: now });
     if (requiresRollupRecompute) {
       const event = await ctx.db.get(association.eventId);
-      if (event) await ctx.scheduler.runAfter(0, internal.communityTelemetry.recomputeRollup, {
+      if (event?.communityProfileId === profile._id) await ctx.scheduler.runAfter(0, internal.communityTelemetry.recomputeRollup, {
         communityProfileId: profile._id,
         eventId: event._id,
         grain: "event",
@@ -1801,141 +1884,6 @@ export const scheduleTelemetryEventWorkForCommunity = internalMutation({
   },
 });
 
-async function rolledHoursForObservations(
-  ctx: MutationCtx,
-  communityProfileId: Id<"profiles">,
-  observedAts: number[],
-) {
-  const hours = new Set(
-    observedAts.map((observedAt) => Math.floor(observedAt / (60 * 60_000)) * 60 * 60_000),
-  );
-  const results = await Promise.all([...hours].map(async (hour) => ({
-    hour,
-    rollup: await ctx.db
-      .query("communityTelemetryRollups")
-      .withIndex("by_communityProfileId_grain_bucketStartAt", (query) =>
-        query
-          .eq("communityProfileId", communityProfileId)
-          .eq("grain", "hour")
-          .eq("bucketStartAt", hour),
-      )
-      .first(),
-  })));
-  return new Set(results.filter((result) => result.rollup).map((result) => result.hour));
-}
-
-export const compactRawTelemetry = internalMutation({
-  args: {
-    integrationId: v.id("communityVrchatIntegrations"),
-    rawBeforeAt: v.number(),
-    limit: v.optional(v.number()),
-    phase: v.optional(v.union(v.literal("aggregate"), v.literal("instance"))),
-    cursor: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    const integration = await ctx.db.get(args.integrationId);
-    if (!integration) return { aggregateDeleted: 0, instanceDeleted: 0, isDone: true };
-    const limit = Math.max(1, Math.min(args.limit ?? 500, 1000));
-    const phase = args.phase ?? "aggregate";
-
-    if (phase === "aggregate") {
-      const page = await ctx.db.query("communityPopulationObservations")
-        .withIndex("by_integrationId_observedAt", (query) => query.eq("integrationId", integration._id).lt("observedAt", args.rawBeforeAt))
-        .paginate({ cursor: args.cursor ?? null, numItems: limit });
-      const rolledHours = await rolledHoursForObservations(
-        ctx,
-        integration.communityProfileId,
-        page.page.map((point) => point.observedAt),
-      );
-      let aggregateDeleted = 0;
-      for (const point of page.page) {
-        const hour = Math.floor(point.observedAt / (60 * 60_000)) * 60 * 60_000;
-        if (!rolledHours.has(hour)) continue;
-        await ctx.db.delete(point._id);
-        aggregateDeleted += 1;
-      }
-      await ctx.scheduler.runAfter(0, internal.communityTelemetry.compactRawTelemetry, {
-        integrationId: integration._id,
-        rawBeforeAt: args.rawBeforeAt,
-        limit,
-        phase: page.isDone ? "instance" : "aggregate",
-        cursor: page.isDone ? undefined : page.continueCursor,
-      });
-      return { aggregateDeleted, instanceDeleted: 0, isDone: false };
-    }
-
-    const page = await ctx.db.query("instancePopulationObservations")
-      .withIndex("by_integrationId_observedAt", (query) => query.eq("integrationId", integration._id).lt("observedAt", args.rawBeforeAt))
-      .paginate({ cursor: args.cursor ?? null, numItems: limit });
-    const rolledHours = await rolledHoursForObservations(
-      ctx,
-      integration.communityProfileId,
-      page.page.map((point) => point.observedAt),
-    );
-    const protectedSessionResults = await Promise.all(
-      [...new Set(page.page.map((point) => point.sessionId))].map(async (sessionId) => {
-        const confirmed = await ctx.db.query("eventInstanceAssociations")
-          .withIndex("by_sessionId_state", (query) =>
-            query.eq("sessionId", sessionId).eq("state", "confirmed"),
-          )
-          .first();
-        if (!confirmed) return undefined;
-        const eventRollup = await ctx.db.query("communityTelemetryRollups")
-          .withIndex("by_eventId_rollupVersion", (query) =>
-            query.eq("eventId", confirmed.eventId).eq("rollupVersion", TELEMETRY_ROLLUP_VERSION),
-          )
-          .first();
-        return eventRollup ? undefined : sessionId;
-      }),
-    );
-    const protectedSessions = new Set(
-      protectedSessionResults.filter((sessionId): sessionId is Id<"instanceSessions"> => Boolean(sessionId)),
-    );
-    let instanceDeleted = 0;
-    for (const point of page.page) {
-      const hour = Math.floor(point.observedAt / (60 * 60_000)) * 60 * 60_000;
-      if (!rolledHours.has(hour) || protectedSessions.has(point.sessionId)) continue;
-      await ctx.db.delete(point._id);
-      instanceDeleted += 1;
-    }
-    if (!page.isDone) {
-      await ctx.scheduler.runAfter(0, internal.communityTelemetry.compactRawTelemetry, {
-        integrationId: integration._id,
-        rawBeforeAt: args.rawBeforeAt,
-        limit,
-        phase: "instance",
-        cursor: page.continueCursor,
-      });
-    }
-    return { aggregateDeleted: 0, instanceDeleted, isDone: page.isDone };
-  },
-});
-
-export const scheduleTelemetryCompaction = internalMutation({
-  args: { now: v.optional(v.number()), cursor: v.optional(v.string()) },
-  handler: async (ctx, args) => {
-    const now = args.now ?? Date.now();
-    const integrationsPage = await ctx.db.query("communityVrchatIntegrations").paginate({
-      cursor: args.cursor ?? null,
-      numItems: 200,
-    });
-    for (const integration of integrationsPage.page) {
-      await ctx.scheduler.runAfter(0, internal.communityTelemetry.compactRawTelemetry, {
-        integrationId: integration._id,
-        rawBeforeAt: now - 90 * 24 * 60 * 60_000,
-        limit: 500,
-      });
-    }
-    if (!integrationsPage.isDone) {
-      await ctx.scheduler.runAfter(0, internal.communityTelemetry.scheduleTelemetryCompaction, {
-        now,
-        cursor: integrationsPage.continueCursor,
-      });
-    }
-    return { scheduled: integrationsPage.page.length, isDone: integrationsPage.isDone };
-  },
-});
-
 export const suggestEventAssociations = internalMutation({
   args: {
     eventId: v.id("events"),
@@ -1946,6 +1894,9 @@ export const suggestEventAssociations = internalMutation({
   handler: async (ctx, args) => {
     const event = await ctx.db.get(args.eventId);
     if (!event?.communityProfileId) return [];
+    const integration = await integrationForCommunity(ctx, event.communityProfileId);
+    if (!integration) return [];
+    const epochStartedAt = integration.telemetryEpochStartedAt ?? integration.createdAt;
     const eventWorlds = await ctx.db.query("eventWorlds").withIndex("by_eventId", (q) => q.eq("eventId", event._id)).collect();
     const worldIds = new Set(eventWorlds.filter((link) => link.confirmationState === "confirmed").map((link) => link.worldId as string));
     const now = args.now ?? Date.now();
@@ -1953,7 +1904,7 @@ export const suggestEventAssociations = internalMutation({
     const sessionsPage = await ctx.db.query("instanceSessions")
       .withIndex("by_communityProfileId_openedAt", (q) =>
         q.eq("communityProfileId", event.communityProfileId!)
-          .gte("openedAt", event.startAt - 6 * 60 * 60_000)
+          .gte("openedAt", Math.max(epochStartedAt, event.startAt - 6 * 60 * 60_000))
           .lte("openedAt", eventEndAt),
       )
       .paginate({
@@ -1962,6 +1913,7 @@ export const suggestEventAssociations = internalMutation({
       });
     const created: Id<"eventInstanceAssociations">[] = [];
     for (const session of sessionsPage.page) {
+      if (session.integrationId !== integration._id) continue;
       const timeOverlap = session.openedAt <= eventEndAt && (session.closedAt ?? now) >= event.startAt;
       const worldMatch = session.worldId ? worldIds.has(session.worldId as string) : false;
       if (!timeOverlap || !worldMatch) continue;

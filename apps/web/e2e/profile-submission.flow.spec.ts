@@ -134,7 +134,13 @@ test("profile submission writes through to public profile and discovery @flow", 
     expect(createdSlug).toBeTruthy();
     await captureRouteScreenshot(page, testInfo, "profile-submission-flow-submit-success");
 
-    await profileLink.click();
+    // The destination awaits a bounded server-side VRCDN probe before its RSC
+    // response commits. CI traces show that probe alone taking ~4.5 seconds;
+    // use the navigation budget before starting the heading assertion budget.
+    await Promise.all([
+      page.waitForURL((url) => url.pathname === new URL(href!, page.url()).pathname, { timeout: 15_000 }),
+      profileLink.click(),
+    ]);
     await expect(page.getByRole("heading", { name: displayName })).toBeVisible();
     if (!process.env.PLAYWRIGHT_BASE_URL) {
       // Provenance is rendered now, in the ownership aside rather than above the

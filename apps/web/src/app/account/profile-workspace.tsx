@@ -354,6 +354,7 @@ function ConnectedProfileWorkspace({
             >
               Edit profile
             </Link>
+            {active.profileType === "community" ? <Link className="ml-4 mt-2 inline-block text-sm text-muted underline underline-offset-4" href={`/account/communities/${encodeURIComponent(active.slug)}`}>Club workspace</Link> : null}
           </div>
           {profiles.length > 1 ? (
             <label className="grid gap-1 text-sm">

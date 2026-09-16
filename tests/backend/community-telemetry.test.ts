@@ -6,6 +6,7 @@ import { convexTest } from "convex-test";
 import { api, internal } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import schemaModule from "../../convex/schema";
+import cronsModule from "../../convex/crons";
 
 import { newClerkUserId } from "./_clerkTestIdentity";
 const modules = {
@@ -20,8 +21,9 @@ const identity = { subject: "telemetry-operator", issuer: "test", tokenIdentifie
 
 async function seedCommunity(t: ReturnType<typeof convexTest>, slug = "faceless") {
   return t.run(async (ctx) => {
-    const clerkUserId = newClerkUserId();
-    const userId = await ctx.db.insert("users", {
+    const existingUser = await ctx.db.query("users").withIndex("clerkUserId", q=>q.eq("clerkUserId",identity.subject)).unique();
+    const clerkUserId = existingUser?.clerkUserId ?? newClerkUserId();
+    const userId = existingUser?._id ?? await ctx.db.insert("users", {
       clerkUserId: clerkUserId,
       email: `${slug}@example.test`,
       emailVerificationTime: NOW,
@@ -56,6 +58,15 @@ async function seedCommunity(t: ReturnType<typeof convexTest>, slug = "faceless"
   });
 }
 
+async function grantVisibilityOwner(t: ReturnType<typeof convexTest>) {
+  await t.run(async ctx => {
+    const profile = await ctx.db.query("profiles").withIndex("by_slug", q => q.eq("slug", "faceless")).unique();
+    const user = await ctx.db.query("users").withIndex("clerkUserId", q => q.eq("clerkUserId", identity.subject)).unique();
+    const existing = await ctx.db.query("profileOwners").withIndex("by_profileId_roleKey_state", q => q.eq("profileId",profile!._id).eq("roleKey","owner").eq("state","active")).first();
+    if(!existing) await ctx.db.insert("profileOwners", {profileId:profile!._id,userId:user!._id,roleKey:"owner",state:"active",grantedAt:Date.now(),updatedAt:Date.now()});
+  });
+}
+
 async function registerAccount(t: ReturnType<typeof convexTest>, capacity = 3, sequence = 1) {
   const suffix = String(sequence).padStart(12, "0");
   return t.mutation(internal.communityTelemetry.registerCollectorAccount, {
@@ -78,6 +89,14 @@ async function finishImmediateSchedules(t: ReturnType<typeof convexTest>, iterat
 }
 
 describe("community telemetry control plane", () => {
+  it("schedules telemetry rollups without scheduling raw-history deletion", () => {
+    const crons = (cronsModule as unknown as { default?: typeof cronsModule }).default ?? cronsModule;
+    const jobs = JSON.parse(crons.export());
+    assert.ok(jobs["community telemetry rollups"]);
+    assert.equal(jobs["community telemetry raw compaction"], undefined);
+    assert.equal(JSON.stringify(jobs).includes("scheduleTelemetryCompaction"), false);
+  });
+
   it("enforces authority and keeps every public metric private by default", async () => {
     const t = convexTest({ schema, modules });
     await seedCommunity(t);
@@ -114,7 +133,7 @@ describe("community telemetry control plane", () => {
     assert.equal(await t.query(api.communityTelemetry.getPublicForCommunity, { communitySlug: "faceless", now: NOW }), null);
     await assert.rejects(
       t.query(api.communityTelemetry.getPrivateDashboard, { communitySlug: "faceless", now: NOW }),
-      /signed-in user/,
+      /do not have access/,
     );
   });
 
@@ -172,6 +191,8 @@ describe("community telemetry control plane", () => {
         now: claimAt,
       }).then(result => result.assignments);
       assert.ok(claim);
+      const claimedIntegration = await t.run(ctx => ctx.db.get(integrationId));
+      assert.equal(claim.epochStartedAt, claimedIntegration?.telemetryEpochStartedAt ?? claimedIntegration?.createdAt);
       await t.mutation(internal.communityTelemetry.recordMembershipResult, {
         integrationId,
         collectorAccountId: accountId,
@@ -364,7 +385,7 @@ describe("community telemetry control plane", () => {
     assert.equal((await t.run((ctx) => ctx.db.get(newSession._id)))?.worldId, worldId);
   });
 
-  it("fences stale workers, deduplicates polls, compacts heartbeats, and closes missing instances", async () => {
+  it("fences workers, deduplicates polls, closes instances, and retains historical observations", async () => {
     const t = convexTest({ schema, modules });
     await seedCommunity(t);
     const accountId = await registerAccount(t);
@@ -395,6 +416,11 @@ describe("community telemetry control plane", () => {
       nextPollAt: claimAt + 60_000,
       now: claimAt + 1_000,
     };
+    await t.run(ctx => ctx.db.patch(integrationId, { enabledFeatures: ["posts"] }));
+    await assert.rejects(t.mutation(internal.communityTelemetry.ingestAggregatePoll, {
+      ...poll, pollId: "disabled-poll", observedAt: claimAt + 1_000, instances: [],
+    }), /Analytics collection is disabled/);
+    await t.run(ctx => ctx.db.patch(integrationId, { enabledFeatures: ["analytics", "posts"] }));
     const first = await t.mutation(internal.communityTelemetry.ingestAggregatePoll, {
       ...poll,
       pollId: "poll-1",
@@ -412,6 +438,7 @@ describe("community telemetry control plane", () => {
       }],
     });
     assert.equal(first.duplicate, false);
+    await grantVisibilityOwner(t);
     await t.withIdentity(identity).mutation(api.communityTelemetry.setPublicMetric, {
       communitySlug: "faceless", metric: "currentPopulation", enabled: true,
     });
@@ -419,6 +446,13 @@ describe("community telemetry control plane", () => {
       communitySlug: "faceless", now: claimAt + 2_000,
     });
     assert.equal(publicCurrent?.currentPopulation?.value, 17);
+    await t.run(ctx => ctx.db.patch(integrationId, { enabledFeatures: ["posts"] }));
+    const disabledCurrent = await t.query(api.communityTelemetry.getPublicForCommunity, {
+      communitySlug: "faceless", now: claimAt + 2_000,
+    });
+    assert.equal(disabledCurrent?.freshness, "stale");
+    assert.equal("currentPopulation" in disabledCurrent!, false);
+    await t.run(ctx => ctx.db.patch(integrationId, { enabledFeatures: ["analytics", "posts"] }));
     assert.equal("groupMemberCount" in publicCurrent!, false);
     const publicAtQuietCadence = await t.query(api.communityTelemetry.getPublicForCommunity, {
       communitySlug: "faceless", now: claimAt + 5 * 60_000,
@@ -475,6 +509,7 @@ describe("community telemetry control plane", () => {
     });
     const initialRollup = await t.run((ctx) => ctx.db.get(rollupId));
     assert.equal(initialRollup?.peakConcurrency, 17);
+    await grantVisibilityOwner(t);
     await t.withIdentity(identity).mutation(api.communityTelemetry.setPublicMetric, {
       communitySlug: "faceless", metric: "populationHistory", enabled: true,
     });
@@ -525,15 +560,6 @@ describe("community telemetry control plane", () => {
     const health = await t.query(internal.communityTelemetry.fleetHealth, {});
     assert.equal(JSON.stringify(health).includes("secret:telemetry"), false);
     assert.equal(JSON.stringify(health).includes("a".repeat(64)), false);
-    const removed = await t.mutation(internal.communityTelemetry.compactRawTelemetry, {
-      integrationId,
-      rawBeforeAt: rollupStart + 60 * 60_000,
-      limit: 1,
-    });
-    assert.equal(removed.aggregateDeleted, 1);
-    assert.equal(removed.instanceDeleted, 0);
-    assert.equal(removed.isDone, false);
-    await finishImmediateSchedules(t);
     const retainedRaw = await t.run(async (ctx) => ({
       aggregate: await ctx.db.query("communityPopulationObservations")
         .withIndex("by_integrationId_observedAt", (query) => query.eq("integrationId", integrationId).lt("observedAt", rollupStart + 60 * 60_000))
@@ -542,8 +568,24 @@ describe("community telemetry control plane", () => {
         .withIndex("by_integrationId_observedAt", (query) => query.eq("integrationId", integrationId).lt("observedAt", rollupStart + 60 * 60_000))
         .collect(),
     }));
-    assert.equal(retainedRaw.aggregate.length, 0);
-    assert.equal(retainedRaw.instances.length, 0);
+    // Historical rollups must preserve exact observations beyond the old 90-day cutoff.
+    assert.ok(retainedRaw.aggregate.length > 0);
+    assert.ok(retainedRaw.instances.length > 0);
+    const futureNow = rollupStart + 100 * 24 * 60 * 60_000;
+    assert.ok([...retainedRaw.aggregate, ...retainedRaw.instances]
+      .every((point) => point.observedAt < futureNow - 90 * 24 * 60 * 60_000));
+    for (const grain of ["hour", "day"] as const) {
+      const duration = (grain === "hour" ? 1 : 24) * 60 * 60_000;
+      const bucketStartAt = Math.floor(rollupStart / duration) * duration;
+      const historicalRollupId = await t.mutation(internal.communityTelemetry.recomputeRollup, {
+        communityProfileId: initialRollup!.communityProfileId,
+        grain, bucketStartAt, bucketEndAt: bucketStartAt + duration, now: futureNow,
+      });
+      assert.ok(await t.run((ctx) => ctx.db.get(historicalRollupId)));
+      for (const point of [...retainedRaw.aggregate, ...retainedRaw.instances]) {
+        assert.deepEqual(await t.run((ctx) => ctx.db.get(point._id)), point);
+      }
+    }
     await t.withIdentity(identity).mutation(api.communityTelemetry.disconnectGroup, { communitySlug: "faceless" });
     assert.equal(await t.query(api.communityTelemetry.getPublicForCommunity, { communitySlug: "faceless", now: claimAt + 125_000 }), null);
     await assert.rejects(t.withIdentity(identity).mutation(api.communityTelemetry.setPublicMetric, {
@@ -704,11 +746,52 @@ describe("community telemetry control plane", () => {
       communitySlug: "faceless", eventId: seeded.eventId, sessionId: seeded.sessions[0]!,
     }), /signed-in user/);
     const confirmedAssociations: Id<"eventInstanceAssociations">[] = [];
+    await assert.rejects(t.withIdentity(identity).mutation(api.communityTelemetry.associateEventInstance, {
+      communitySlug: "faceless", eventId: seeded.eventId, sessionId: seeded.sessions[0]!,
+    }), /access to this action/);
+    await t.run(async (ctx) => {
+      const authority = await ctx.db.query("communityAuthorities").withIndex("by_communityProfileId_state", q => q.eq("communityProfileId", communityProfileId).eq("state", "active")).first();
+      await ctx.db.patch(authority!._id, { capabilities: ["manage_events"] });
+    });
+    const originalOpenedAt = await t.run(async (ctx) => {
+      const session = await ctx.db.get(seeded.sessions[0]!);
+      await ctx.db.patch(session!._id, { openedAt: 0 });
+      return session!.openedAt;
+    });
+    await assert.rejects(t.withIdentity(identity).mutation(api.communityTelemetry.associateEventInstance, {
+      communitySlug: "faceless", eventId: seeded.eventId, sessionId: seeded.sessions[0]!,
+    }), /earlier group connection/);
+    await t.run(ctx => ctx.db.patch(seeded.sessions[0]!, { openedAt: originalOpenedAt }));
     for (const sessionId of seeded.sessions.slice(0, 2)) {
       confirmedAssociations.push(await t.withIdentity(identity).mutation(api.communityTelemetry.associateEventInstance, {
         communitySlug: "faceless", eventId: seeded.eventId, sessionId,
       }));
     }
+    const associationView = await t.withIdentity(identity).query(api.communityTelemetry.getInstanceEventAssociation, {
+      communitySlug: "faceless", sessionId: seeded.sessions[0]!,
+    });
+    assert.equal(associationView?.eventId, seeded.eventId);
+    await assert.rejects(t.query(api.communityTelemetry.getInstanceEventAssociation, {
+      communitySlug: "faceless", sessionId: seeded.sessions[0]!,
+    }), /access to this action/);
+    const otherCommunity = await seedCommunity(t, "other-association-club");
+    await t.run(ctx => ctx.db.patch(seeded.eventId, { communityProfileId: otherCommunity }));
+    await assert.rejects(t.withIdentity(identity).mutation(api.communityTelemetry.associateEventInstance, {
+      communitySlug: "faceless", eventId: seeded.eventId, sessionId: seeded.sessions[0]!,
+    }), /must belong to this community/);
+    await assert.rejects(t.withIdentity(identity).mutation(api.communityTelemetry.reviewAssociationSuggestion, {
+      communitySlug: "faceless", associationId: confirmedAssociations[0]!, state: "confirmed",
+    }), /another group connection/);
+    await t.run(ctx => ctx.db.patch(seeded.eventId, { communityProfileId }));
+    await t.run(ctx => ctx.db.patch(seeded.sessions[0]!, { openedAt: 0 }));
+    await t.withIdentity(identity).mutation(api.communityTelemetry.reviewAssociationSuggestion, {
+      communitySlug: "faceless", associationId: confirmedAssociations[0]!, state: "rejected",
+    });
+    assert.equal((await t.run(ctx => ctx.db.get(confirmedAssociations[0]!)))?.state, "rejected");
+    await t.run(ctx => ctx.db.patch(seeded.sessions[0]!, { openedAt: originalOpenedAt }));
+    await t.withIdentity(identity).mutation(api.communityTelemetry.reviewAssociationSuggestion, {
+      communitySlug: "faceless", associationId: confirmedAssociations[0]!, state: "confirmed",
+    });
     const eventRollupId = await t.mutation(internal.communityTelemetry.recomputeRollup, {
       communityProfileId, eventId: seeded.eventId, grain: "event",
       bucketStartAt: dayStart + 60_000, bucketEndAt: dayStart + 4 * 60_000, now: dayStart + 5 * 60_000,
@@ -722,12 +805,21 @@ describe("community telemetry control plane", () => {
       bucketStartAt: dayStart + 60_000, bucketEndAt: dayStart + 4 * 60_000, now: dayStart + 5 * 60_000,
     });
 
+    const staleSessions = await t.run(async ctx => {
+      const {_id, _creationTime, ...session} = (await ctx.db.get(seeded.sessions[0]!))!;
+      const {_id: integrationId, _creationTime: integrationCreation, ...integration} = (await ctx.db.get(session.integrationId))!;
+      const oldIntegration = await ctx.db.insert("communityVrchatIntegrations", {...integration, communityProfileId:otherCommunity});
+      const previousConnection = await ctx.db.insert("instanceSessions", {...session,integrationId:oldIntegration});
+      const previousEpoch = await ctx.db.insert("instanceSessions", {...session,openedAt:(integration.telemetryEpochStartedAt??integration.createdAt)-1});
+      return [previousConnection,previousEpoch];
+    });
     await t.mutation(internal.communityTelemetry.suggestEventAssociations, {
       eventId: seeded.eventId,
       now: dayStart + 5 * 60_000,
       limit: 1,
     });
     await finishImmediateSchedules(t);
+    for(const sessionId of staleSessions)assert.equal(await t.run(ctx=>ctx.db.query("eventInstanceAssociations").withIndex("by_sessionId_state",q=>q.eq("sessionId",sessionId).eq("state","suggested")).first()),null);
     const [suggestion] = await t.run((ctx) => ctx.db.query("eventInstanceAssociations")
       .withIndex("by_eventId_state", (query) => query.eq("eventId", seeded.eventId).eq("state", "suggested"))
       .collect());
@@ -743,6 +835,19 @@ describe("community telemetry control plane", () => {
     await assert.rejects(t.withIdentity(identity).mutation(api.communityTelemetry.associateEventInstance, {
       communitySlug: "faceless", eventId: seeded.conflictingEventId, sessionId: seeded.sessions[0]!,
     }), /already confirmed/);
+    await t.run(async (ctx) => {
+      const authority = await ctx.db.query("communityAuthorities").withIndex("by_communityProfileId_state", q => q.eq("communityProfileId", communityProfileId).eq("state", "active")).first();
+      await ctx.db.patch(authority!._id, { capabilities: ["manage_integrations"] });
+    });
+    for (const state of ["confirmed", "rejected"] as const) {
+      await assert.rejects(t.withIdentity(identity).mutation(api.communityTelemetry.reviewAssociationSuggestion, {
+        communitySlug: "faceless", associationId: confirmedAssociations[0]!, state,
+      }), /access to this action/);
+    }
+    await t.run(async (ctx) => {
+      const authority = await ctx.db.query("communityAuthorities").withIndex("by_communityProfileId_state", q => q.eq("communityProfileId", communityProfileId).eq("state", "active")).first();
+      await ctx.db.patch(authority!._id, { capabilities: ["manage_events"] });
+    });
     await t.withIdentity(identity).mutation(api.communityTelemetry.reviewAssociationSuggestion, {
       communitySlug: "faceless", associationId: confirmedAssociations[0]!, state: "rejected",
     });
@@ -751,6 +856,7 @@ describe("community telemetry control plane", () => {
     assert.equal(recomputedEventRollup?.peakConcurrency, 13);
     assert.equal(recomputedEventRollup?.activeInstanceCount, 1);
 
+    await grantVisibilityOwner(t);
     await t.withIdentity(identity).mutation(api.communityTelemetry.setPublicMetric, {
       communitySlug: "faceless", metric: "eventRecaps", enabled: true,
     });

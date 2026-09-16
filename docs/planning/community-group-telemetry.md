@@ -76,9 +76,9 @@ Counts are provider observations and may be delayed or approximate. Queues and i
 
 ## Retention
 
-- Exact group and per-instance observations: 90 days after their hourly rollup exists.
-- Session boundaries, coverage windows, compacted member-count changes, and rollups remain queryable so gaps and lifecycle history do not disappear during compaction.
-- Hourly rollups: 18 months.
+- Exact group and per-instance observations are retained permanently; rollups do not replace or expire raw history.
+- Session boundaries, coverage windows, member-count changes, and rollups are retained permanently.
+- No age-based deletion applies. Deletion workflows are a separate, deferred capability.
 - Daily rollups and confirmed event recaps: retained while the community integration/history remains retained.
 - Disconnect stops new collection and public presentation immediately. Historical private data is retained by default until an authorized deletion workflow is requested; this behavior is shown before disconnect.
 

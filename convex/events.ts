@@ -1,4 +1,5 @@
 import { ConvexError, v } from "convex/values";
+import {syncClubEventOperations} from "./_clubOperationEvents";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import {
@@ -953,13 +954,14 @@ async function createCommunityEventForApiOwnerRecord(
 }
 
 async function updateCommunityEventForApiOwnerRecord(
-  db: DatabaseWriter,
+  ctx: MutationCtx,
   args: EventDraftUpdateInput & {
     currentSlug: string;
     ownerUserId: Id<"users">;
     actorSurface?: "api" | "mcp";
   },
 ) {
+  const {db}=ctx;
   const validation = validateEventSlug(args.currentSlug);
 
   if (!validation.ok) {
@@ -1026,7 +1028,7 @@ async function updateCommunityEventForApiOwnerRecord(
   const world = updateFields.has("worldSlug")
     ? await getPublishedWorldBySlug(db, input.worldSlug)
     : await linkedPublishedEventWorld(db, event._id);
-  const result = await updateCommunityEventRecord(db, { event, input, community, world, updateFields });
+  const result = await updateCommunityEventRecord(ctx, { event, input, community, world, updateFields });
   await recordEventAuditEvent(db, {
     eventId: event._id,
     actor: apiOwnerAuthSubject(args.ownerUserId),
@@ -1162,7 +1164,7 @@ async function insertCommunityEventRecord(
 }
 
 async function updateCommunityEventRecord(
-  db: DatabaseWriter,
+  ctx: MutationCtx,
   options: {
     event: Doc<"events">;
     input: SanitizedEventDraftInput;
@@ -1177,6 +1179,7 @@ async function updateCommunityEventRecord(
     updateFields?: ReadonlySet<keyof EventDraftInput>;
   },
 ) {
+  const {db}=ctx;
   const {
     community,
     event,
@@ -1233,6 +1236,7 @@ async function updateCommunityEventRecord(
   if (updatedEvent === null) {
     throw new Error("Event update did not persist.");
   }
+  if(updatedEvent.startAt!==event.startAt||updatedEvent.communityProfileId!==event.communityProfileId)await syncClubEventOperations(ctx,event._id);
 
   const replaceWorld = shouldUpdate("worldSlug");
   const replaceSlots = shouldUpdate("slotLinks");
@@ -2503,28 +2507,48 @@ async function managedCommunitiesForBrowser(
   options: { includeNonPublic?: boolean } = {},
 ) {
   const { subject, user } = await requireActiveBrowserSessionSubject(ctx);
-  const [owners, authorities] = await Promise.all([
-    ctx.db
+  const owners = await ctx.db
         .query("profileOwners")
         .withIndex("by_userId_state", (query) =>
           query.eq("userId", user._id).eq("state", "active"),
         )
-        .take(100),
-    ctx.db
-        .query("communityAuthorities")
-        .withIndex("by_subjectTokenIdentifier_state", (query) =>
-          query.eq("subjectTokenIdentifier", subject.tokenIdentifier).eq("state", "active"),
-        )
-        .take(100),
-  ]);
+        .take(100);
+  // Bound communities, not raw assignments: one club may have 100 roles.
+  // Seek past each community key so duplicate assignments cannot crowd out
+  // later clubs. Never silently return an incomplete inventory at the bound.
+  const authorities: Doc<"communityAuthorities">[] = [];
+  let afterCommunity: Id<"profiles"> | undefined;
+  for (let communityCount = 0; ; communityCount++) {
+    const next = await ctx.db.query("communityAuthorities")
+      .withIndex("by_subjectTokenIdentifier_state_communityProfileId", q => {
+        const prefix = q.eq("subjectTokenIdentifier", subject.tokenIdentifier).eq("state", "active");
+        return afterCommunity ? prefix.gt("communityProfileId", afterCommunity) : prefix;
+      }).first();
+    if (!next) break;
+    if (communityCount === 100) throw new Error("Managed community inventory requires pagination.");
+    const assignments = await ctx.db.query("communityAuthorities")
+      .withIndex("by_subjectTokenIdentifier_state_communityProfileId", q =>
+        q.eq("subjectTokenIdentifier", subject.tokenIdentifier).eq("state", "active").eq("communityProfileId", next.communityProfileId),
+      ).take(101);
+    if (assignments.length > 100) throw new Error("Community authority assignments require pagination.");
+    // At most 4,000 assignment reads plus 4,000 role reads, leaving room
+    // for profile and event inventory reads in callers of this helper.
+    if (authorities.length + assignments.length > 4000)
+      throw new Error("Managed community inventory requires pagination.");
+    authorities.push(...assignments);
+    afterCommunity = next.communityProfileId;
+  }
   const roleByProfileId = new Map<Id<"profiles">, string>();
   for (const owner of owners) roleByProfileId.set(owner.profileId, "Owner");
   for (const authority of authorities) {
+    if(authority.subject.subject !== subject.subject || authority.subject.issuer !== subject.issuer) continue;
+    const role = authority.roleId ? await ctx.db.get(authority.roleId) : null;
+    const permissions = authority.roleId ? (role?.state === "active" && role.communityProfileId === authority.communityProfileId ? role.permissions : []) : (authority.capabilities ?? []);
     if (
-      authority.capabilities.includes("manage_events") &&
+      permissions.includes("manage_events") &&
       !roleByProfileId.has(authority.communityProfileId)
     ) {
-      roleByProfileId.set(authority.communityProfileId, authority.roleLabel);
+      roleByProfileId.set(authority.communityProfileId, role?.label ?? authority.roleLabel ?? "Staff");
     }
   }
   const profiles = await Promise.all(
@@ -2728,7 +2752,7 @@ export const updateCommunityEventForApiOwner = internalMutation({
   },
   handler: async (ctx, args) => {
     const { community, event, result } = await updateCommunityEventForApiOwnerRecord(
-      ctx.db,
+      ctx,
       args,
     );
     await recordApiWriteAuditEvent(ctx.db, {
@@ -2777,7 +2801,7 @@ export const updateCommunityEventForMcpOwner = internalMutation({
 
     try {
       ({ community, event, result } = await updateCommunityEventForApiOwnerRecord(
-        ctx.db,
+        ctx,
         { ...args, actorSurface: "mcp" },
       ));
     } catch {
@@ -2907,7 +2931,7 @@ export const updateCommunityEvent = mutation({
         : ("draft_private" as const);
     const publicationChanged =
       publicationState !== undefined && publicationState !== event.publicationState;
-    const result = await updateCommunityEventRecord(ctx.db, {
+    const result = await updateCommunityEventRecord(ctx, {
       event,
       input,
       community,
@@ -3133,6 +3157,7 @@ export const setCommunityEventCancelled = mutation({
 
     const now = Date.now();
     await ctx.db.patch(event._id, { eventStatus, updatedAt: now });
+    await syncClubEventOperations(ctx,event._id,args.cancelled);
     if (args.cancelled) {
       await settleEventMediaForCancellation(ctx.db, event, subject, now);
     }

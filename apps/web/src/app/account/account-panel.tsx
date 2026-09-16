@@ -21,6 +21,7 @@ function ConnectedAccountPanel() {
   const viewer = useQuery(api.accounts.viewer);
   const ownedProfiles = useQuery(api.profilePrivacy.listOwnedPrivacyProfilesForAccount);
   const mediaReviewAccess = useQuery(api.profileMediaSubmissions.getReviewAccess);
+  const staffWorkspaces = useQuery(api.clubStaff.listStaffWorkspaces);
   const { openUserProfile } = useClerk();
 
   if (viewer === undefined || ownedProfiles === undefined) {
@@ -108,6 +109,21 @@ function ConnectedAccountPanel() {
         </div>
       </section>
 
+      {staffWorkspaces && staffWorkspaces.workspaces.length > 0 ? (
+        <section aria-labelledby="staff-clubs-heading" className="border-t border-border py-8 ph-no-capture" data-ph-no-capture>
+          <h2 id="staff-clubs-heading" className="text-2xl font-semibold">Staff clubs</h2>
+          <ul className="mt-5 divide-y divide-border border-y border-border">
+            {staffWorkspaces.workspaces.map((club) => (
+              <li key={club.slug} className="flex flex-wrap items-center justify-between gap-3 py-4">
+                <span className="font-medium">{club.displayName}</span>
+                <Link className={buttonVariants({ size: "sm", variant: "secondary" })} href={`/account/communities/${encodeURIComponent(club.slug)}`}>Club workspace</Link>
+              </li>
+            ))}
+          </ul>
+          {staffWorkspaces.hasMore ? <Notice className="mt-4">Some staff clubs are not shown here.</Notice> : null}
+        </section>
+      ) : null}
+
       <section aria-labelledby="profiles-heading" className="border-t border-border py-8">
         <div className="grid gap-6 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
           <div>
@@ -146,6 +162,7 @@ function ConnectedAccountPanel() {
                     {profile.claimState === "claimed_verified" ? <VerifiedTrustMark /> : null}
                   </div>
                   <div className="flex flex-wrap gap-2">
+                    {profile.profileType === "community" ? <Link className={buttonVariants({ size: "sm", variant: "secondary" })} href={`/account/communities/${encodeURIComponent(profile.slug)}`}>Club workspace</Link> : null}
                     {profile.hasPublicProfile ? (
                       <Link className={buttonVariants({ size: "sm", variant: "primary" })} href={profilePath}>
                         View profile

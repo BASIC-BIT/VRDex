@@ -1,6 +1,12 @@
 import { setTimeout as sleep } from "node:timers/promises";
 
 import { VrchatClient } from "./vrchat-client.mjs";
+import { refreshClubAuthority } from "./club-authority.mjs";
+import { collectMembershipPage } from "./membership-collection.mjs";
+import { budgetedClubProvider } from "./club-request-budget.mjs";
+import { ClubProvider } from "./club-provider.mjs";
+import { readClubProviderJob } from "./club-read-jobs.mjs";
+import { executeClubOperation } from "./club-operation-jobs.mjs";
 import { checkDestinationMetadata } from "./destination-jobs.mjs";
 import { resolveProfileLinkDestination } from "./profile-link-destination.mjs";
 import { COLLECTOR_PROTOCOL_VERSION, RequestBudget, TelemetryControlClient, boundedProviderCategory, collectorAuthRequiredEvent, collectorLoopFailureEvent, collectorRestartEvent, collectorRuntimeMetadata, collectorShouldRestart, failureDisposition, pollId, randomPollDelayMs, retryDelayMs, sessionCheckDelayMs } from "./runtime.mjs";
@@ -159,6 +165,22 @@ async function pauseWithHeartbeats(ms) {
   }
 }
 
+async function checkClubReads(assignment, integrationBudget, deadline) {
+  const scope = { integrationId: assignment.integrationId, fencingToken: assignment.fencingToken, epochStartedAt: assignment.epochStartedAt };
+  const job = await control.send("club_read_claim", scope);
+  if (!job) return;
+  const client = budgetedClubProvider({ provider, control, assignment, accountBudget, integrationBudget, pause: pauseWithHeartbeats, shouldStop: () => stopping, deadline });
+  const adapter = new ClubProvider({ client, groupId: job.groupId, expectedUserId: secret.vrchatUserId });
+  const outcome = await readClubProviderJob(job, adapter);
+  await control.send("club_read_complete", { ...scope, requestId: job.requestId, claimToken: job.claimToken, ...outcome });
+  if (outcome.errorCode === "authentication") await reportDeadSession();
+}
+
+async function checkClubOperations(assignment, integrationBudget, deadline) {
+  const outcome = await executeClubOperation({ assignment, provider, control, expectedUserId: secret.vrchatUserId, accountBudget, integrationBudget, pause: pauseWithHeartbeats, shouldStop: () => stopping, deadline });
+  if (outcome.code === "authentication") await reportDeadSession();
+}
+
 async function collect(assignment) {
   const lease = { integrationId: assignment.integrationId, fencingToken: assignment.fencingToken };
   const now = Date.now();
@@ -169,6 +191,13 @@ async function collect(assignment) {
     integrationBudgets.set(assignment.integrationId, integrationBudget);
   }
   try {
+    if (assignment.state === "active" && assignment.enabledFeatures && !assignment.enabledFeatures.includes("analytics")) {
+      await checkClubOperations(assignment, integrationBudget, now + 240_000);
+      await checkClubReads(assignment, integrationBudget, now + 240_000);
+      await refreshClubAuthority({ assignment, provider, control, expectedUserId: secret.vrchatUserId, accountBudget, integrationBudget });
+      await control.send("defer", { ...lease, nextPollAt: now + randomPollDelayMs(false), now });
+      return;
+    }
     const localRetryAfterMs = Math.max(
       accountBudget.retryAfterMs(requestCost, now),
       integrationBudget.retryAfterMs(requestCost, now),
@@ -217,6 +246,17 @@ async function collect(assignment) {
       nextPollAt,
     });
     attempts.delete(assignment.integrationId);
+    try {
+      await checkClubOperations(assignment, integrationBudget, now + 240_000);
+      await checkClubReads(assignment, integrationBudget, now + 240_000);
+      const refreshed = await refreshClubAuthority({ assignment, provider, control, expectedUserId: secret.vrchatUserId, accountBudget, integrationBudget });
+      const auditProvider = budgetedClubProvider({ provider, control, assignment, accountBudget, integrationBudget, pause: pauseWithHeartbeats, shouldStop: () => stopping, deadline: now + 240_000 });
+      await collectMembershipPage({ assignment, authority: refreshed.authority, provider: auditProvider, control, expectedUserId: secret.vrchatUserId, accountBudget, integrationBudget, requestBudgeted: true });
+    } catch (error) {
+      // A readiness refresh does not invalidate an already recorded telemetry poll.
+      logEvent({ event: "club_authority_refresh_failed", category: boundedProviderCategory(error?.category) });
+      if (error?.category === "authentication") await reportDeadSession();
+    }
   } catch (error) {
     const attempt = (attempts.get(assignment.integrationId) ?? 0) + 1;
     attempts.set(assignment.integrationId, attempt);
