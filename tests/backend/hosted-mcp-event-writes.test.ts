@@ -3,7 +3,8 @@ import { describe, it } from "node:test";
 
 import { convexTest } from "convex-test";
 
-import { internal } from "../../convex/_generated/api";
+import { api, internal } from "../../convex/_generated/api";
+import { PublicEventSchema } from "../../packages/api-contracts/src/schemas";
 import schemaModule from "../../convex/schema";
 
 import { newClerkUserId } from "./_clerkTestIdentity";
@@ -257,4 +258,24 @@ describe("hosted MCP event writes", () => {
     assert.equal(stored.audits.every((audit) => audit.oauthClientId === oauthClientId), true);
     assert.equal(stored.receipts.every((receipt) => receipt.oauthClientId === oauthClientId), true);
   });
+});
+
+it("MCP create persists lineup mode and returns public selections through the shared query", async () => {
+  const t = convexTest({ schema, modules });
+  const owner = await seedCommunityOwner(t, "lineup");
+  await t.run((ctx) => ctx.db.insert("profiles", {
+    slug: "performer", displayName: "Performer", sortName: "performer", aliases: [], tags: [],
+    claimState: "unclaimed", publicationState: "published", publicSurfacingState: "public",
+    creationSource: "community", updatedAt: NOW, profileType: "person", person: { roleTags: [] },
+    outboundLinks: [{ type: "vrcdn", label: "Stream", url: "vrcdn:alpha", source: "owner_authored" }],
+  }));
+  const result = await t.mutation(internal.events.createCommunityEventForMcpOwner, {
+    ...createAttribution(owner.userId), title: "Lineup", communitySlug: owner.slug,
+    startAt: NOW, timezone: "UTC", watchMode: "performer_sequence",
+    slotLinks: [{ personSlug: "performer", displayLabel: "Set", startAt: NOW, selectedStreamId: "alpha" }],
+  });
+  const event = PublicEventSchema.parse(await t.query(api.events.getPublicBySlug, { slug: result.slug }));
+  assert.equal(event.watchMode, "performer_sequence");
+  assert.equal(event.slots?.[0]?.stream?.streamId, "alpha");
+  assert.equal(event.participants?.[0]?.outboundLinks[0]?.url, "https://stream.vrcdn.live/live/alpha.live.ts");
 });
