@@ -42,6 +42,14 @@ test("staff navigation never grants owner-only settings or unheld actions", () =
   );
 });
 
+test("individual membership history readers can reach analytics without other categories", () => {
+  assert.deepEqual(
+    clubNavigation("afterhours", false, [], ["individual_membership_history"])
+      .map((item) => item.label),
+    ["Home", "Analytics"],
+  );
+});
+
 test("only the token invitation route bypasses the account middleware gate", () => {
   assert.equal(
     isProtectedRoute("/account/communities/afterhours/invite/abc"),

@@ -340,6 +340,7 @@ function MembersContent({
               <Button type="submit">Search</Button>
               {query ? (
                 <Button
+                  type="button"
                   onClick={() => {
                     setSearch("");
                     setQuery("");

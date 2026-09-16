@@ -17,6 +17,7 @@ export function clubNavigation(
             "population_history",
             "group_size",
             "membership_movement",
+            "individual_membership_history",
             "event_recaps",
           ].includes(category),
         ),

@@ -1,4 +1,15 @@
 import { expect, test } from "@playwright/test";
+test("clearing member search restores the unfiltered directory @storybook-visual", async ({ page }) => {
+  await page.goto("/iframe.html?id=clubs-members--owner&viewMode=story");
+  await page.getByLabel("Search members").fill("Riley");
+  await page.getByRole("button", { name: "Search", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Nova", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Clear search", exact: true }).click();
+  await expect(page.getByLabel("Search members")).toHaveValue("");
+  await expect(page.getByRole("button", { name: "Nova", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Clear search", exact: true })).toHaveCount(0);
+});
+
 test("assigned bot remains inspectable when omitted from the directory @storybook-visual", async ({
   page,
 }) => {

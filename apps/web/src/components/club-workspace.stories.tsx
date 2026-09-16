@@ -186,6 +186,48 @@ export const Connection: Story = {
   ),
 };
 
+function ReconnectFixture() {
+  const [submitted, setSubmitted] = useState("");
+  const disconnected: WorkspaceData = {
+    ...data,
+    connectionState: "disconnected",
+    integration: {
+      _id: "fixture-integration" as Id<"communityVrchatIntegrations">,
+      _creationTime: now,
+      communityProfileId: data.community._id,
+      vrchatGroupId: "grp_saved",
+      collector: null,
+      groupVisibility: "public",
+      joinPolicy: "free",
+      state: "disconnected",
+      killSwitchEnabled: false,
+      requestsPerMinute: 10,
+      leaseGeneration: 1,
+      publicMetrics: {
+        currentPopulation: false,
+        populationHistory: false,
+        groupMemberCount: false,
+        groupMemberGrowth: false,
+        eventRecaps: false,
+      },
+      consecutiveFailures: 0,
+      createdAt: now,
+      updatedAt: now,
+    },
+  };
+  return (
+    <>
+      <ClubConnectionView
+        data={disconnected}
+        connect={async (input) => { setSubmitted(JSON.stringify(input)); }}
+        disconnect={noop}
+      />
+      <output aria-label="Submitted connection">{submitted}</output>
+    </>
+  );
+}
+export const Reconnect: Story = { render: () => <ReconnectFixture /> };
+
 function ConnectionFeatureFixture({
   staff = false,
   expired = false,

@@ -784,10 +784,14 @@ describe("community telemetry control plane", () => {
     }), /another group connection/);
     await t.run(ctx => ctx.db.patch(seeded.eventId, { communityProfileId }));
     await t.run(ctx => ctx.db.patch(seeded.sessions[0]!, { openedAt: 0 }));
-    await assert.rejects(t.withIdentity(identity).mutation(api.communityTelemetry.reviewAssociationSuggestion, {
+    await t.withIdentity(identity).mutation(api.communityTelemetry.reviewAssociationSuggestion, {
       communitySlug: "faceless", associationId: confirmedAssociations[0]!, state: "rejected",
-    }), /another group connection/);
+    });
+    assert.equal((await t.run(ctx => ctx.db.get(confirmedAssociations[0]!)))?.state, "rejected");
     await t.run(ctx => ctx.db.patch(seeded.sessions[0]!, { openedAt: originalOpenedAt }));
+    await t.withIdentity(identity).mutation(api.communityTelemetry.reviewAssociationSuggestion, {
+      communitySlug: "faceless", associationId: confirmedAssociations[0]!, state: "confirmed",
+    });
     const eventRollupId = await t.mutation(internal.communityTelemetry.recomputeRollup, {
       communityProfileId, eventId: seeded.eventId, grain: "event",
       bucketStartAt: dayStart + 60_000, bucketEndAt: dayStart + 4 * 60_000, now: dayStart + 5 * 60_000,
@@ -801,12 +805,21 @@ describe("community telemetry control plane", () => {
       bucketStartAt: dayStart + 60_000, bucketEndAt: dayStart + 4 * 60_000, now: dayStart + 5 * 60_000,
     });
 
+    const staleSessions = await t.run(async ctx => {
+      const {_id, _creationTime, ...session} = (await ctx.db.get(seeded.sessions[0]!))!;
+      const {_id: integrationId, _creationTime: integrationCreation, ...integration} = (await ctx.db.get(session.integrationId))!;
+      const oldIntegration = await ctx.db.insert("communityVrchatIntegrations", {...integration, communityProfileId:otherCommunity});
+      const previousConnection = await ctx.db.insert("instanceSessions", {...session,integrationId:oldIntegration});
+      const previousEpoch = await ctx.db.insert("instanceSessions", {...session,openedAt:(integration.telemetryEpochStartedAt??integration.createdAt)-1});
+      return [previousConnection,previousEpoch];
+    });
     await t.mutation(internal.communityTelemetry.suggestEventAssociations, {
       eventId: seeded.eventId,
       now: dayStart + 5 * 60_000,
       limit: 1,
     });
     await finishImmediateSchedules(t);
+    for(const sessionId of staleSessions)assert.equal(await t.run(ctx=>ctx.db.query("eventInstanceAssociations").withIndex("by_sessionId_state",q=>q.eq("sessionId",sessionId).eq("state","suggested")).first()),null);
     const [suggestion] = await t.run((ctx) => ctx.db.query("eventInstanceAssociations")
       .withIndex("by_eventId_state", (query) => query.eq("eventId", seeded.eventId).eq("state", "suggested"))
       .collect());

@@ -129,10 +129,12 @@ class AnalyticsFixtureClient extends ConvexReactClient {
           : [session(2), session(3), session(4)],
       );
     else if (name === "clubAnalytics:getInstance") {
+      if (args.sessionId === "foo") return null;
+      if (args.sessionId === "unreadable")
+        throw new Error("Instance not found.");
       const index = Number(String(args.sessionId).split("-").at(-1));
       result = session(index, index < 2);
-    }
-    else if (name === "clubMembership:getMovementBucket")
+    } else if (name === "clubMembership:getMovementBucket")
       result = { joins: 4, departures: 2, complete: true };
     else if (name === "clubAnalytics:getInstanceSummaryPage")
       result = page([
@@ -165,11 +167,19 @@ class AnalyticsFixtureClient extends ConvexReactClient {
         protectedUserIds: [],
       };
     else if (name === "communityTelemetry:getInstanceEventAssociation")
-      result = this.associatedEvent ? { eventId: "fixture-event", title: "Afterhours 043" } : null;
+      result = this.associatedEvent
+        ? { eventId: "fixture-event", title: "Afterhours 043" }
+        : null;
     else if (name === "clubProviderReads:listEvents")
-      result = page([{ id: "fixture-event", title: "Afterhours 043", startAt: this.now, status: "scheduled" }]);
-    else if (name === "clubOperations:list")
-      result = page([]);
+      result = page([
+        {
+          id: "fixture-event",
+          title: "Afterhours 043",
+          startAt: this.now,
+          status: "scheduled",
+        },
+      ]);
+    else if (name === "clubOperations:list") result = page([]);
     else throw new Error(`Unmocked fixture query ${name}`);
     this.cache.set(key, result);
     return result;
@@ -196,7 +206,10 @@ class AnalyticsFixtureClient extends ConvexReactClient {
     ...args: ArgsAndOptions<Mutation, MutationOptions<FunctionArgs<Mutation>>>
   ): Promise<FunctionReturnType<Mutation>> {
     const value = args[0] as Record<string, unknown> | undefined;
-    if (getFunctionName(mutation) === "communityTelemetry:associateEventInstance") this.associatedEvent = true;
+    if (
+      getFunctionName(mutation) === "communityTelemetry:associateEventInstance"
+    )
+      this.associatedEvent = true;
     if (
       getFunctionName(mutation) === "clubAnalytics:savePreferences" &&
       value
@@ -249,12 +262,14 @@ const workspace: WorkspaceData = {
 };
 function AnalyticsFixture({
   mode = "home",
+  initialInstance,
 }: {
   mode?: "home" | "analytics" | "instances";
+  initialInstance?: string;
 }) {
   const [client] = useState(() => new AnalyticsFixtureClient());
   const [href, setHref] = useState(
-    `/account/communities/afterhours${mode === "home" ? "" : `/${mode}`}`,
+    `/account/communities/afterhours${mode === "home" ? "" : `/${mode}`}${initialInstance ? `?instance=${initialInstance}` : ""}`,
   );
   const url = new URL(href, "https://fixture.invalid");
   usePathname.mockReturnValue(url.pathname);
@@ -290,4 +305,12 @@ export const Analytics: Story = {
 };
 export const Instances: Story = {
   render: () => <AnalyticsFixture mode="instances" />,
+};
+export const InvalidInstance: Story = {
+  render: () => <AnalyticsFixture mode="instances" initialInstance="foo" />,
+};
+export const UnreadableInstance: Story = {
+  render: () => (
+    <AnalyticsFixture mode="instances" initialInstance="unreadable" />
+  ),
 };

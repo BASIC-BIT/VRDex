@@ -1,5 +1,15 @@
 import { expect, test } from "@playwright/test";
 
+test("reconnect preserves saved group policy on submission @storybook-visual", async ({ page }) => {
+  await page.goto("/iframe.html?id=clubs-workspace--reconnect&viewMode=story");
+  await expect(page.getByRole("combobox", { name: "Group visibility", exact: true })).toHaveValue("public");
+  await expect(page.getByRole("combobox", { name: "Join policy", exact: true })).toHaveValue("free");
+  await page.getByRole("button", { name: "Reconnect group", exact: true }).click();
+  await expect(page.getByLabel("Submitted connection")).toContainText('"vrchatGroupId":"grp_saved"');
+  await expect(page.getByLabel("Submitted connection")).toContainText('"groupVisibility":"public"');
+  await expect(page.getByLabel("Submitted connection")).toContainText('"joinPolicy":"free"');
+});
+
 test("primary connection keeps additional links in profile editing @storybook-visual", async ({
   page,
 }) => {

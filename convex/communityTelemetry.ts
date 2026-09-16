@@ -1761,7 +1761,7 @@ export const reviewAssociationSuggestion = mutation({
     requireClubPermission(await resolveClubActor(ctx, profile._id), "manage_events");
     if (!association || association.communityProfileId !== profile._id) throw new Error("Association was not found.");
     const [session, event, integration] = await Promise.all([ctx.db.get(association.sessionId), ctx.db.get(association.eventId), integrationForCommunity(ctx, profile._id)]);
-    if (!session || !event || session.communityProfileId !== profile._id || event.communityProfileId !== profile._id || !integration || session.integrationId !== integration._id || session.openedAt < (integration.telemetryEpochStartedAt ?? integration.createdAt)) throw new Error("Event or instance belongs to another group connection.");
+    if (args.state === "confirmed" && (!session || !event || session.communityProfileId !== profile._id || event.communityProfileId !== profile._id || !integration || session.integrationId !== integration._id || session.openedAt < (integration.telemetryEpochStartedAt ?? integration.createdAt))) throw new Error("Event or instance belongs to another group connection.");
     const now = Date.now();
     if (args.state === "confirmed") {
       const existing = await ctx.db.query("eventInstanceAssociations")
@@ -1773,7 +1773,7 @@ export const reviewAssociationSuggestion = mutation({
     await ctx.db.patch(association._id, { state: args.state, actor, reviewedAt: now, updatedAt: now });
     if (requiresRollupRecompute) {
       const event = await ctx.db.get(association.eventId);
-      if (event) await ctx.scheduler.runAfter(0, internal.communityTelemetry.recomputeRollup, {
+      if (event?.communityProfileId === profile._id) await ctx.scheduler.runAfter(0, internal.communityTelemetry.recomputeRollup, {
         communityProfileId: profile._id,
         eventId: event._id,
         grain: "event",
@@ -1894,6 +1894,9 @@ export const suggestEventAssociations = internalMutation({
   handler: async (ctx, args) => {
     const event = await ctx.db.get(args.eventId);
     if (!event?.communityProfileId) return [];
+    const integration = await integrationForCommunity(ctx, event.communityProfileId);
+    if (!integration) return [];
+    const epochStartedAt = integration.telemetryEpochStartedAt ?? integration.createdAt;
     const eventWorlds = await ctx.db.query("eventWorlds").withIndex("by_eventId", (q) => q.eq("eventId", event._id)).collect();
     const worldIds = new Set(eventWorlds.filter((link) => link.confirmationState === "confirmed").map((link) => link.worldId as string));
     const now = args.now ?? Date.now();
@@ -1901,7 +1904,7 @@ export const suggestEventAssociations = internalMutation({
     const sessionsPage = await ctx.db.query("instanceSessions")
       .withIndex("by_communityProfileId_openedAt", (q) =>
         q.eq("communityProfileId", event.communityProfileId!)
-          .gte("openedAt", event.startAt - 6 * 60 * 60_000)
+          .gte("openedAt", Math.max(epochStartedAt, event.startAt - 6 * 60 * 60_000))
           .lte("openedAt", eventEndAt),
       )
       .paginate({
@@ -1910,6 +1913,7 @@ export const suggestEventAssociations = internalMutation({
       });
     const created: Id<"eventInstanceAssociations">[] = [];
     for (const session of sessionsPage.page) {
+      if (session.integrationId !== integration._id) continue;
       const timeOverlap = session.openedAt <= eventEndAt && (session.closedAt ?? now) >= event.startAt;
       const worldMatch = session.worldId ? worldIds.has(session.worldId as string) : false;
       if (!timeOverlap || !worldMatch) continue;

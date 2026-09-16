@@ -142,6 +142,48 @@ describe("club staff and visibility", () => {
       [],
     );
   });
+  it("discovers distinct workspaces after 100 assignments in the first club", async () => {
+    const { t, recipient, communityProfileId } = await setup();
+    await t.run(async ctx => {
+      const original = (await ctx.db.get(communityProfileId))!;
+      const { _id, _creationTime, ...profile } = original;
+      void _id; void _creationTime;
+      const later = await ctx.db.insert("profiles", { ...profile, slug: "later-club", displayName: "Later club" });
+      for (const [clubId, count] of [[communityProfileId, 100], [later, 20]] as const) {
+        for (let index = 0; index < count; index++) {
+          await ctx.db.insert("communityAuthorities", {
+            communityProfileId: clubId, subjectTokenIdentifier: recipient.tokenIdentifier,
+            subject: recipient, capabilities: ["manage_events"], roleKey: `legacy-${index}`,
+            state: "active", grantedAt: Date.now(), updatedAt: Date.now(),
+          });
+        }
+      }
+    });
+    const result = await t.withIdentity(recipient).query(api.clubStaff.listStaffWorkspaces, {});
+    assert.deepEqual(result.workspaces.map(row => row.slug), ["later-club", "test-club"]);
+    assert.equal(result.hasMore, false);
+  });
+
+  it("reports more only when the distinct community limit is exceeded", async () => {
+    const { t, recipient, communityProfileId } = await setup();
+    await t.run(async ctx => {
+      const original = (await ctx.db.get(communityProfileId))!;
+      const { _id, _creationTime, ...profile } = original;
+      void _id; void _creationTime;
+      for (let index = 0; index < 101; index++) {
+        const id = await ctx.db.insert("profiles", { ...profile, slug: `club-${index}` });
+        await ctx.db.insert("communityAuthorities", {
+          communityProfileId: id, subjectTokenIdentifier: recipient.tokenIdentifier,
+          subject: recipient, capabilities: ["manage_events"], state: "active",
+          grantedAt: Date.now(), updatedAt: Date.now(),
+        });
+      }
+    });
+    const result = await t.withIdentity(recipient).query(api.clubStaff.listStaffWorkspaces, {});
+    assert.equal(result.workspaces.length, 100);
+    assert.equal(result.hasMore, true);
+  });
+
   it("grants multiple roles atomically and consumes invitations once", async () => {
     const { t, ownerClient, recipient, admin, event } = await setup();
     const invite = await ownerClient.mutation(

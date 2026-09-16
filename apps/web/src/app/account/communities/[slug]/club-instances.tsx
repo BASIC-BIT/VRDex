@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { Component, useEffect, useMemo, type ReactNode } from "react";
 import { usePaginatedQuery, useQuery } from "convex/react";
 import { api } from "@convex-generated-api";
 import type { Id } from "../../../../../../../convex/_generated/dataModel";
@@ -300,7 +300,45 @@ function InstanceDetailContent({
   );
 }
 
-export function ClubInstanceDetail({
+function UnavailableInstance({ onBack }: { onBack: () => void }) {
+  return (
+    <div className="grid gap-4">
+      <Button onClick={onBack}>Back to instances</Button>
+      <Notice variant="warning">Instance unavailable.</Notice>
+    </div>
+  );
+}
+class InstanceDetailBoundary extends Component<
+  { children: ReactNode; onBack: () => void },
+  { failed: boolean }
+> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  render() {
+    return this.state.failed ? (
+      <UnavailableInstance onBack={this.props.onBack} />
+    ) : (
+      this.props.children
+    );
+  }
+}
+export function ClubInstanceDetail(props: {
+  communitySlug: string;
+  sessionId: string;
+  onBack: () => void;
+}) {
+  return (
+    <InstanceDetailBoundary
+      key={`${props.communitySlug}:${props.sessionId}`}
+      onBack={props.onBack}
+    >
+      <InstanceDetailQuery {...props} />
+    </InstanceDetailBoundary>
+  );
+}
+function InstanceDetailQuery({
   communitySlug,
   sessionId,
   onBack,
@@ -311,17 +349,16 @@ export function ClubInstanceDetail({
 }) {
   const session = useQuery(api.clubAnalytics.getInstance, {
     communitySlug,
-    sessionId: sessionId as Id<"instanceSessions">,
+    sessionId,
   });
   if (session === undefined)
-    return <Notice role="status">Loading instance…</Notice>;
-  if (session === null)
     return (
       <div className="grid gap-4">
-        <Button onClick={onBack}>Back</Button>
-        <Notice variant="warning">Instance unavailable.</Notice>
+        <Button onClick={onBack}>Back to instances</Button>
+        <Notice role="status">Loading instance…</Notice>
       </div>
     );
+  if (session === null) return <UnavailableInstance onBack={onBack} />;
   return (
     <InstanceDetailContent
       communitySlug={communitySlug}

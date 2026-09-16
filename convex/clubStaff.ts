@@ -50,22 +50,22 @@ export const listStaffWorkspaces = query({
   handler: async (ctx) => {
     const session = await activeBrowserSessionSubjectOrNull(ctx);
     if (!session) return { workspaces: [], hasMore: false };
-    const rows = await ctx.db
-      .query("communityAuthorities")
-      .withIndex("by_subjectTokenIdentifier_state", (q) =>
-        q
-          .eq("subjectTokenIdentifier", session.subject.tokenIdentifier)
-          .eq("state", "active"),
-      )
-      .take(101);
-    const communityIds = [
-      ...new Set(
-        rows
-          .slice(0, 100)
-          .filter((row) => sameSubject(row.subject, session.subject))
-          .map((row) => row.communityProfileId),
-      ),
-    ];
+    const communityIds: Id<"profiles">[] = [];
+    let afterCommunity: Id<"profiles"> | undefined;
+    let hasMore = false;
+    // Seek one distinct community at a time. Multiple roles in an earlier
+    // club must not consume the discovery limit for later clubs.
+    while (true) {
+      const row = await ctx.db.query("communityAuthorities")
+        .withIndex("by_subjectTokenIdentifier_state_communityProfileId", q => {
+          const prefix = q.eq("subjectTokenIdentifier", session.subject.tokenIdentifier).eq("state", "active");
+          return afterCommunity ? prefix.gt("communityProfileId", afterCommunity) : prefix;
+        }).first();
+      if (!row) break;
+      if (communityIds.length === 100) { hasMore = true; break; }
+      communityIds.push(row.communityProfileId);
+      afterCommunity = row.communityProfileId;
+    }
     const workspaces: Array<{ slug: string; displayName: string }> = [];
     for (const communityProfileId of communityIds) {
       const actor = await resolveClubActor(ctx, communityProfileId);
@@ -83,7 +83,7 @@ export const listStaffWorkspaces = query({
         a.displayName.localeCompare(b.displayName) ||
         a.slug.localeCompare(b.slug),
     );
-    return { workspaces, hasMore: rows.length > 100 };
+    return { workspaces, hasMore };
   },
 });
 const roleDoc = v.object({

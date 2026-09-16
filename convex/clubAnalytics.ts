@@ -223,7 +223,8 @@ export const getContext = query({
         : null;
     const fresh =
       population &&
-      (!state.integration?.enabledFeatures || state.integration.enabledFeatures.includes("analytics")) &&
+      (!state.integration?.enabledFeatures ||
+        state.integration.enabledFeatures.includes("analytics")) &&
       population.coverageState === "observed" &&
       now - population.observedAt <= CURRENT_FRESHNESS_MS &&
       state.integration?.state !== "disconnected" &&
@@ -517,14 +518,21 @@ async function requireSession(
   return { state, session };
 }
 export const getInstance = query({
-  args: { ...base, sessionId: v.id("instanceSessions") },
-  returns: sessionView,
+  args: { ...base, sessionId: v.string() },
+  returns: v.union(sessionView, v.null()),
   handler: async (ctx, args) => {
-    const { session } = await requireSession(
-      ctx,
-      args.communitySlug,
-      args.sessionId,
-    );
+    const state = await context(ctx, args.communitySlug);
+    if (!state.allowed("instance_history")) return null;
+    const sessionId = ctx.db.normalizeId("instanceSessions", args.sessionId);
+    if (!sessionId) return null;
+    const session = await ctx.db.get(sessionId);
+    if (
+      !session ||
+      session.integrationId !== state.integration?._id ||
+      session.communityProfileId !== state.community._id ||
+      session.openedAt < state.epoch
+    )
+      return null;
     return projectSession(ctx, session);
   },
 });

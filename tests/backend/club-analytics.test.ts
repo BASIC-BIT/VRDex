@@ -424,12 +424,47 @@ describe("club analytics range and permissions", () => {
     assert.equal(second.page.length, 2);
     assert.equal(second.isDone, true);
     await t.run((ctx) => ctx.db.patch(sessions[0]!, { openedAt: epoch - 1 }));
-    await assert.rejects(
-      owner.query(api.clubAnalytics.getInstance, {
+    assert.equal(
+      await owner.query(api.clubAnalytics.getInstance, {
         communitySlug: "analytics",
         sessionId: sessions[0]!,
       }),
-      /not found/,
+      null,
+    );
+    for (const sessionId of ["foo", "", communityProfileId]) {
+      assert.equal(
+        await owner.query(api.clubAnalytics.getInstance, {
+          communitySlug: "analytics",
+          sessionId,
+        }),
+        null,
+      );
+    }
+    await t.run((ctx) => ctx.db.delete(sessions[1]!));
+    assert.equal(
+      await owner.query(api.clubAnalytics.getInstance, {
+        communitySlug: "analytics",
+        sessionId: sessions[1]!,
+      }),
+      null,
+    );
+    await owner.mutation(api.clubStaff.setCategoryVisibility, {
+      communitySlug: "analytics",
+      category: "instance_history",
+      audience: "owner",
+      staffRoleIds: null,
+    });
+    const staff = t.withIdentity({
+      subject: "user_staff",
+      issuer: "https://test.clerk.accounts.dev",
+      tokenIdentifier: "https://test.clerk.accounts.dev|user_staff",
+    });
+    assert.equal(
+      await staff.query(api.clubAnalytics.getInstance, {
+        communitySlug: "analytics",
+        sessionId: sessions[2]!,
+      }),
+      null,
     );
   });
 });

@@ -30,10 +30,13 @@ export function ClubConnectionView({
 }) {
   const [groupId, setGroupId] = useState(data.integration?.vrchatGroupId ?? "");
   const [joinPolicy, setJoinPolicy] = useState<"free" | "request" | "invite">(
-    "request",
+    data.integration?.joinPolicy === "free" ||
+      data.integration?.joinPolicy === "invite"
+      ? data.integration.joinPolicy
+      : "request",
   );
   const [groupVisibility, setGroupVisibility] = useState<"public" | "private">(
-    "private",
+    data.integration?.groupVisibility === "public" ? "public" : "private",
   );
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);

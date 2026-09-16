@@ -1,4 +1,25 @@
 import { expect, test } from "@playwright/test";
+for (const kind of ["invalid", "unreadable"]) {
+  test(`${kind} instance link retains a working Back button @storybook-visual`, async ({
+    page,
+  }) => {
+    await page.goto(
+      `/iframe.html?id=clubs-analytics--${kind}-instance&viewMode=story`,
+    );
+    await expect(
+      page.getByText("Instance unavailable.", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Unable to load this page.", { exact: true }),
+    ).toHaveCount(0);
+    await page
+      .getByRole("button", { name: "Back to instances", exact: true })
+      .click();
+    await expect(
+      page.getByText("Past instances", { exact: true }),
+    ).toBeVisible();
+  });
+}
 
 test("dashboard charts, drilldown and preferences @storybook-visual", async ({
   page,
@@ -84,9 +105,16 @@ test("instance list emphasizes population and opens detail @storybook-visual", a
     page.getByRole("group", { name: "People", exact: true }),
   ).toBeVisible();
   await page.getByLabel("Event", { exact: true }).selectOption("fixture-event");
-  await page.getByRole("button", { name: "Associate event", exact: true }).click();
-  await expect(page.getByText("Event: Afterhours 043", { exact: true })).toBeVisible();
-  await page.screenshot({ path: `../../.cache/artifacts/event-association-${isMobile ? "mobile" : "desktop"}.png`, fullPage: true });
+  await page
+    .getByRole("button", { name: "Associate event", exact: true })
+    .click();
+  await expect(
+    page.getByText("Event: Afterhours 043", { exact: true }),
+  ).toBeVisible();
+  await page.screenshot({
+    path: `../../.cache/artifacts/event-association-${isMobile ? "mobile" : "desktop"}.png`,
+    fullPage: true,
+  });
   await page.getByRole("button", { name: "Back to instances" }).click();
   await expect(page.getByText("Past instances", { exact: true })).toBeVisible();
   expect(
