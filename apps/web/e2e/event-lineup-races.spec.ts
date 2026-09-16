@@ -224,3 +224,68 @@ test("@fixture revoked source cancels a pending viewer resume", async ({baseURL}
   expect((await(await fetch(`${transport.url}/stats`)).json()).opened).toBe(2);
  }finally{try{await browser.close();}finally{await transport.close();}}
 });
+
+test("@fixture unavailable lineup has no initial play poster", async ({baseURL}) => {
+ test.skip(process.env.EVENT_PLAYBACK_PROOF!=="true","Opt-in local transport");
+ const page = await (await chromium.launch()).newPage();
+ try {
+  await page.goto(`${baseURL}/playwright/event-lineup-live?transport=http%3A%2F%2F127.0.0.1%3A9999`);
+  await page.getByRole("button",{name:"hide",exact:true}).click();
+  await expect(page.getByRole("button",{name:"Play Lineup live"})).toHaveCount(0);
+  await expect(page.getByText("Aurora",{exact:true}).first()).toBeVisible();
+ } finally { await page.context().browser()?.close(); }
+});
+
+test("@fixture stable playback samples without repeated control renders", async ({baseURL}) => {
+ test.skip(process.env.EVENT_PLAYBACK_PROOF!=="true","Opt-in local transport");
+ const {startProofServer}=await(new Function("url","return import(url)"))(pathToFileURL(path.resolve("../../scripts/event-playback-proof.mjs")).href);
+ const transport=await startProofServer();const browser=await chromium.launch();
+ try {
+  const page=await browser.newPage();
+  await page.addInitScript(()=>{
+   const sample=AnalyserNode.prototype.getFloatTimeDomainData;
+   Object.assign(window,{sampleCount:0});
+   AnalyserNode.prototype.getFloatTimeDomainData=function(values){
+    const target=window as unknown as {sampleCount:number};target.sampleCount++;
+    return sample.call(this,values);
+   };
+  });
+  await page.goto(`${baseURL}/playwright/event-lineup-live?transport=${encodeURIComponent(transport.url)}`);
+  await page.getByRole("button",{name:"Play Lineup live"}).click();
+  await expect.poll(()=>page.locator("video").evaluate(v=>(v as HTMLVideoElement).currentTime)).toBeGreaterThan(2);
+  await page.evaluate(()=>Object.assign(window,{sampleCount:0,lineupCommits:0}));
+  await page.waitForTimeout(1200);
+  const counts=await page.evaluate(()=>({samples:(window as unknown as {sampleCount:number}).sampleCount,commits:(window as unknown as {lineupCommits:number}).lineupCommits}));
+  expect(counts.samples).toBeGreaterThanOrEqual(9);
+  expect(counts.commits).toBeLessThanOrEqual(3);
+ }finally{try{await browser.close();}finally{await transport.close();}}
+});
+
+test("@fixture each handoff resets the next candidate retry delay", async ({baseURL}) => {
+ test.skip(process.env.EVENT_PLAYBACK_PROOF!=="true","Opt-in local transport");test.setTimeout(30000);
+ const {startProofServer}=await(new Function("url","return import(url)"))(pathToFileURL(path.resolve("../../scripts/event-playback-proof.mjs")).href);
+ const transport=await startProofServer();const browser=await chromium.launch();
+ try {
+  const page=await browser.newPage();
+  await page.addInitScript(()=>{
+   const create=AudioContext.prototype.createMediaElementSource;
+   Object.assign(window,{rejectCandidate:false,candidateAttempts:[]});
+   AudioContext.prototype.createMediaElementSource=function(video){
+    const target=window as unknown as {rejectCandidate:boolean;candidateAttempts:number[]};
+    if(target.rejectCandidate){target.candidateAttempts.push(performance.now());throw new Error("Fixture candidate unavailable");}
+    return create.call(this,video);
+   };
+  });
+  await page.goto(`${baseURL}/playwright/event-lineup-live?transport=${encodeURIComponent(transport.url)}&kind=silent`);
+  await page.getByRole("button",{name:"third",exact:true}).click();
+  await page.getByRole("button",{name:"Play Lineup live"}).click();
+  await page.getByRole("button",{name:"Eligible",exact:true}).click();
+  await expect(page.locator("[data-current]")).toHaveAttribute("data-current","b",{timeout:15000});
+  await page.evaluate(()=>Object.assign(window,{rejectCandidate:true}));
+  await page.getByRole("button",{name:"Later eligible",exact:true}).click();
+  await page.waitForFunction(()=>(window as unknown as {candidateAttempts:number[]}).candidateAttempts.length>=2);
+  const attempts=await page.evaluate(()=>(window as unknown as {candidateAttempts:number[]}).candidateAttempts);
+  expect(attempts[1]-attempts[0]).toBeGreaterThanOrEqual(900);
+  expect(attempts[1]-attempts[0]).toBeLessThan(1600);
+ }finally{try{await browser.close();}finally{await transport.close();}}
+});

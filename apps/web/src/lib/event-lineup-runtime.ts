@@ -26,12 +26,19 @@ export class EventLineupSession {
   private selected?: LineupSlot;
   private disposed = false;
   private playRequest = 0;
+  private lastSnapshot?: LineupSnapshot;
   private timer: ReturnType<typeof setInterval>;
   constructor(private event: LineupEvent, private mount: HTMLElement, private notify: (state: LineupSnapshot) => void) {
     this.timer = setInterval(() => this.tick(), 100);
     document.addEventListener("visibilitychange", this.resetEvidence);
   }
-  private emit() { if (!this.disposed) this.notify({ ...this.state }); }
+  private emit() {
+    if (this.disposed) return;
+    const previous = this.lastSnapshot;
+    if (previous && (Object.keys(this.state) as Array<keyof LineupSnapshot>).every(key => this.state[key] === previous[key])) return;
+    this.lastSnapshot = { ...this.state };
+    this.notify(this.lastSnapshot);
+  }
   private resetEvidence = () => {
     for (const connection of [this.current, this.next]) if (connection) connection.evidence = clearPlaybackEvidence(performance.now());
   };
@@ -39,7 +46,7 @@ export class EventLineupSession {
     const released = !!this.next;
     this.nextGeneration++; this.nextPending = false; this.next?.source.release(); this.next = undefined;
     this.nextAttempt = 0;
-    if (released) this.nextRetryAt = performance.now() + backoff[0];
+    this.nextRetryAt = released ? performance.now() + backoff[0] : 0;
   }
   private releaseCurrent() {
     this.currentGeneration++; this.currentPending = false; this.current?.source.release(); this.current = undefined;
@@ -175,6 +182,7 @@ export class EventLineupSession {
         evidence: active.evidence, silenceDurationMs: AUDIO_SILENCE_DURATION_MS })) {
         active.source.gain.gain.value = 0; this.releaseCurrent();
         this.current = this.next; this.next = undefined; this.nextGeneration++;
+        this.nextAttempt = 0; this.nextRetryAt = 0; this.nextPending = false;
         this.selected = this.current.slot; this.state.current = this.selected.key;
         this.current.source.video.hidden = false; this.current.source.gain.gain.value = 1;
         this.resetEvidence(); this.emit(); return;

@@ -33,7 +33,7 @@ type EventEditorStatus =
   | { kind: "idle" }
   | { kind: "submitting" }
   | { kind: "success"; result: { eventPath: string; slug: string } }
-  | { kind: "error"; message: string };
+  | { kind: "error"; message: string; streamSelections?: Record<string, string> };
 
 type VrcdnOutputStatus =
   | { kind: "idle" }
@@ -127,14 +127,14 @@ function PersonProfileInput({
   );
 }
 
-function SlotStreamSelect({ row, onChange }: { row: SlotFormRow; onChange: (value: string) => void }) {
+function SlotStreamSelect({ row, invalid, onChange }: { row: SlotFormRow; invalid?: boolean; onChange: (value: string) => void }) {
   const slug = row.personSlug.trim();
   const currentChoices = useQuery(api.events.getPersonStreamChoices, /^[a-z0-9-]{1,64}$/.test(slug) ? { slug } : "skip");
   const choices = currentChoices ?? row.streamChoices ?? [];
   const unavailable = Boolean(row.selectedStreamId && !choices.some(choice => choice.streamId === row.selectedStreamId));
   return <Field className="text-xs text-muted">
     Stream
-    <Select aria-label="Stream" onChange={event => onChange(event.currentTarget.value)} value={row.selectedStreamId ?? ""}>
+    <Select aria-label="Stream" aria-invalid={invalid || undefined} className={invalid ? "border-danger" : undefined} onChange={event => onChange(event.currentTarget.value)} value={row.selectedStreamId ?? ""}>
       <option value="">{choices.length === 1 ? `Automatic: ${choices[0]!.streamId}` : choices.length === 0 ? "Unavailable" : "Select stream"}</option>
       {unavailable ? <option value={row.selectedStreamId}>{row.selectedStreamId} (Unavailable)</option> : null}
       {choices.length > 1 || row.selectedStreamId ? choices.map(choice => <option key={choice.streamId} value={choice.streamId}>{choice.streamId}</option>) : null}
@@ -181,7 +181,13 @@ const userSafeErrorPatterns = [
   /Media control public links must use HTTPS or a recognized VRCDN stream URL\./,
 ];
 
+function isUnavailableStreamError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /^(?:Uncaught Error: )?Selected stream must belong to the performer's public streams\.$/m.test(message);
+}
+
 function eventEditorErrorMessage(error: unknown): string {
+  if (isUnavailableStreamError(error)) return "Stream unavailable";
   const message = error instanceof Error ? error.message : String(error);
 
   if (/Credential secret reference/.test(message)) {
@@ -752,7 +758,13 @@ function ConnectedEventEditorForm({
         }),
       );
     } catch (error) {
-      startTransition(() => setStatus({ kind: "error", message: eventEditorErrorMessage(error) }));
+      startTransition(() => setStatus({
+        kind: "error", message: eventEditorErrorMessage(error),
+        // The backend identifies the selection category, not an individual row.
+        streamSelections: isUnavailableStreamError(error)
+          ? Object.fromEntries(slotRows.filter(row => row.selectedStreamId).map(row => [row.id, row.selectedStreamId!]))
+          : undefined,
+      }));
     }
   }
 
@@ -1197,6 +1209,7 @@ function ConnectedEventEditorForm({
               </div>
               {watchSurfaceEnabled && watchMode === "performer_sequence" && slot.personSlug.trim() ? <SlotStreamSelect
                 row={slot}
+                invalid={status.kind === "error" && Boolean(slot.selectedStreamId) && status.streamSelections?.[slot.id] === slot.selectedStreamId}
                 onChange={value => updateSlotRows(rows => rows.map(row => row.id === slot.id ? { ...row, selectedStreamId: value || undefined } : row))}
               /> : null}
               <details className="group border-t border-border pt-3">

@@ -12,7 +12,7 @@ export function EventLineupPlayer({ event }: { event: LineupEvent }) {
   const [state, setState] = useState<LineupSnapshot>({ started: false, following: true, paused: true, muted: false, volume: 1, connected: false, unavailable: false });
   const [fullscreen, setFullscreen] = useState(false);
   const now = useCurrentTimestamp();
-  const visible = state.started || isInScheduledWatchWindow({ ...event, now });
+  const visible = state.started || (event.slots.some(slot => slot.stream) && isInScheduledWatchWindow({ ...event, now }));
   useEffect(() => {
     if (!mount.current) return;
     const instance = new EventLineupSession(event, mount.current, setState);

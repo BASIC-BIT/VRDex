@@ -72,6 +72,8 @@ function fixtureClient() {
     async mutation(mutation: FunctionReference<"mutation">, args: Record<string, unknown>) {
       if (getFunctionName(mutation) !== "events:updateCommunityEvent") throw new Error("Unsupported fixture mutation");
       localStorage.setItem(`${storageKey}-submission`, JSON.stringify(args));
+      const error = localStorage.getItem("event-lineup-fixture-save-error");
+      if (error) throw new Error(error);
       const slots = (args.slotLinks as Array<Record<string, unknown>>).map((slot, index) => ({
         ...slot, position: index, playbackKey: `saved-${index}`, discord: previewEvent.slots[0]!.discord, source: previewEvent.source,
         performer: people[slot.personSlug as keyof typeof people],

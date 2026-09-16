@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { Profiler, useState } from "react";
 import { ConvexProvider, type ConvexReactClient } from "convex/react";
 import { getFunctionName, type FunctionReference } from "convex/server";
 import { EventPublicPage } from "../../_components/event-public-page";
@@ -35,6 +35,7 @@ function setup() {
      if (kind==="replace") event={...event,slots:event.slots.map(slot=>({...slot,playbackKey:slot.playbackKey+"-new"}))};
      if (kind==="duplicate") event={...event,slots:[{...a,playbackKey:"x"},{...a,playbackKey:"y"},b]};
      if (kind==="missing") event={...event,slots:[a,{...b,stream:undefined},{...b,playbackKey:"c",startAt:1_500_000}]};
+     if (kind==="third") event={...event,endAt:1_800_000,slots:[a,b,{...b,playbackKey:"c",startAt:1_500_000,endAt:1_800_000,stream:source("third","audible")}]};
      if (kind==="overlap") event={...event,slots:[a,{...b,startAt:1_200_000}]};
      if (kind==="event-stream") event={...event,watchMode:"event_stream",mediaLinks:[{type:"vrcdn",label:"Event stream",url:"vrcdn:fixture",presentation:"open"}]};
    }
@@ -46,11 +47,11 @@ export default function Fixture() {
  const [mounted,setMounted]=useState(true);
  const [baseline,setBaseline]=useState(false);
  return <main className="mx-auto max-w-3xl space-y-5 p-5"><h1>Lineup playback fixture</h1>
-  <div className="flex flex-wrap gap-3">{[["Before event",800_000],["Before window",1_000_000],["Just before eligible",1_119_999],["Exactly eligible",1_120_000],["Eligible",1_121_000],["Next slot",1_250_000],["After end",1_600_000]].map(([label,at])=><button key={label} onClick={()=>fixture.setTime(Number(at))}>{label}</button>)}
-  {["swap-source","hide","cancel","unpublish","replace","duplicate","missing","overlap","event-stream"].map(action=><button key={action} onClick={()=>fixture.change(action)}>{action}</button>)}
+  <div className="flex flex-wrap gap-3">{[["Before event",800_000],["Before window",1_000_000],["Just before eligible",1_119_999],["Exactly eligible",1_120_000],["Eligible",1_121_000],["Next slot",1_250_000],["Later eligible",1_381_000],["After end",1_600_000]].map(([label,at])=><button key={label} onClick={()=>fixture.setTime(Number(at))}>{label}</button>)}
+  {["third","swap-source","hide","cancel","unpublish","replace","duplicate","missing","overlap","event-stream"].map(action=><button key={action} onClick={()=>fixture.change(action)}>{action}</button>)}
   <button onClick={()=>{setMounted(false);setBaseline(false);}}>Unmount</button><button onClick={()=>{setMounted(false);setBaseline(true);}}>Profile player</button>
   </div>
-  <ConvexProvider client={fixture.client}>{mounted&&<EventPublicPage event={fixture.initial}/>}</ConvexProvider>
+  <ConvexProvider client={fixture.client}>{mounted&&<Profiler id="lineup" onRender={()=>{const target=window as unknown as {lineupCommits?:number};target.lineupCommits=(target.lineupCommits??0)+1;}}><EventPublicPage event={fixture.initial}/></Profiler>}</ConvexProvider>
   {baseline&&<VrcdnStreamPlayer title="Profile stream" src={`${fixture.base}/audible.live.ts?id=profile`}/>}
  </main>;
 }

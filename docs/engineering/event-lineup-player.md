@@ -30,6 +30,10 @@ normalized stream ID. A hidden or changed selected source stops the session and
 requires viewer action. An unchanged stream may retain its connection while its
 slot key changes.
 
+A save rejected for an unavailable stream selection shows `Stream unavailable`.
+The editor marks the submitted explicit stream choices invalid until changed or
+resubmitted. The backend error identifies the selection category, not a slot.
+
 The existing standalone `VrcdnStreamPlayer` API is unchanged. It and the observed
 event source share `attachVrcdnTransport` and `releaseVrcdnTransport`. Event playback
 uses different buffered-failure handling, with the existing `VrcdnPlayerControls`
@@ -57,6 +61,9 @@ viewer gain. Prepared source gain is zero. Three consecutive progressing samples
 are required before it is ready to replace the current source. Viewer mute and
 volume affect output gain, not silence measurements.
 
+UI subscribers receive a new snapshot only when a snapshot field changes.
+Media observation continues every 100 ms regardless of UI notifications.
+
 The measured policy is below -90 dBFS for 1000 ms, sampled every 100 ms. Continuous
 stopped playback requires at least 1000 ms. Healthy decoded progress cancels
 failure evidence, including when bytes remain buffered after transport failure or
@@ -64,7 +71,8 @@ clean EOF. EOF alone neither releases buffered playback nor advances the lineup.
 A genuine long silent musical break can satisfy the silence rule; it does not
 prove that the broadcaster has finished.
 
-Retries use 1, 2, 4, then 10 second intervals. Replacing a prepared connection also
+Retries use 1, 2, 4, then 10 second intervals. Each successful handoff resets the
+preparation retry count and deadline for the next candidate. Replacing a prepared connection also
 observes the first retry interval to avoid immediate reconnect bursts after
 pause/resume or edits. A pending `video.play()` promise cannot block retries.
 Failed next-source attempts retain the current source. Pause disables transition
@@ -74,7 +82,9 @@ Manual selection disables following. Return to live re-evaluates the scheduled
 slot. Resuming following also re-evaluates it, except an already-active final slot
 can resume after posted event end, including while its transport is being recovered.
 The reconciled selected slot retains this identity through failed or pending connections.
-Removed or changed sources lose it. New sessions after event end are refused. There
+Removed or changed sources lose it. New sessions after event end are refused.
+A lineup with no playable source offers no initial player. An already-started
+session keeps its recovery controls when its sources become unavailable. There
 is no automatic wraparound.
 
 ## Browser visibility
