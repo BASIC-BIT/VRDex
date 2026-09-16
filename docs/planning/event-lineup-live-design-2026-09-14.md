@@ -1,7 +1,9 @@
 # Event lineup links and live playback
 
 Status: design approved by BASIC in this task on September 14, 2026. One PR.
-Product code and browser experiments have not started. This document supersedes conflicting
+Implementation and local browser verification are recorded as of September 16, 2026 in
+[the verification report](../engineering/event-lineup-verification.md). Deployment remains separate.
+This document supersedes conflicting
 recommendations in the September 12 research notes, but not their evidence.
 
 ## Outcome and approved direction

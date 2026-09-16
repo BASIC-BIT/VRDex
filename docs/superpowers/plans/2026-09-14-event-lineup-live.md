@@ -253,10 +253,10 @@ pnpm check:api-openapi
 pnpm --filter web exec playwright test event-lineup.flow.spec.ts --project=desktop-chromium --project=mobile-chromium
 ```
 
-- [ ] Run the new snapshot tests with the configured desktop/mobile projects, inspect images, and record screenshot paths. Run markdown checks for changed documents and `git diff --check`. Re-run only when changes/failures justify it.
+- [x] Run the new snapshot tests with the configured desktop/mobile projects, inspect images, and record screenshot paths. Run markdown checks for changed documents and `git diff --check`. Re-run only when changes/failures justify it.
 - [ ] Demonstrate the same controlled event through community editor, discovery, event page, public API, and hosted/stdio MCP. Development fixtures must exercise real serialization/authorization code. A production mutation requires a separately approved exact event/target; mark live-write verification pending if none is authorized.
-- [ ] Recheck client event-tool visibility without overwriting local MCP edits. Report missing scope/config as an operational prerequisite, not a product-code failure. Existing production auth smoke remains deferred under `AGENTS.local.md` unless that prerequisite has been completed independently.
-- [ ] Audit docs for behavior drift: event schema, authoring, MCP event writes/reads, and browser proof. Show BASIC any substantive proposed public prose that needs approval before shipping.
+- [x] Recheck client event-tool visibility without overwriting local MCP edits. Report missing scope/config as an operational prerequisite, not a product-code failure. Existing production auth smoke remains deferred under `AGENTS.local.md` unless that prerequisite has been completed independently.
+- [x] Audit docs for behavior drift: event schema, authoring, MCP event writes/reads, and browser proof. Show BASIC any substantive proposed public prose that needs approval before shipping.
 - [ ] Open/update one PR. Describe the concrete operator and viewer outcomes and include useful manual/browser evidence. No separate proof or docs PR. Triage outstanding review comments before each follow-up push, reply with disposition, and resolve handled threads.
 - [ ] After the latest pushed commit is at least 30 minutes old, refresh exact-head required/informational checks, comments, inline threads, formal reviews, and mutable AI summaries. Address valid feedback, then refresh again. Report merge-ready only with acceptable terminal checks, clean mergeability, and no blocking feedback. Include the PR URL. Do not merge or deploy without authorization.
 
@@ -265,4 +265,4 @@ pnpm --filter web exec playwright test event-lineup.flow.spec.ts --project=deskt
 - Scope coverage: roster, authoring, API/MCP, privacy, default following, source selection, silence/disconnection, overtime, invalidation, visual checks, and one-PR review are assigned above.
 - Task 1 owns measured thresholds; Task 4 consumes its recorded result. No threshold is presented as already validated.
 - Public field names and policy interfaces are defined once and used consistently. Runtime slot ids may change, so reconciliation is explicit.
-- All checklist items start unchecked. This plan is documentation, not evidence of implementation or a passed test.
+- Completed verification items link to the September 16 [local evidence ledger](../../engineering/event-lineup-verification.md). Unchecked delivery items remain pending; the original task breakdown is retained as history.

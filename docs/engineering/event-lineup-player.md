@@ -144,3 +144,7 @@ This reproduces and fixes a concrete teardown leak consistent with the historica
 Object symptom. The historical recording did not retain the exception fields, so
 its exact identity remains unprovable. Preserve that failed artifact alongside
 the cancellation RED/GREEN evidence; a clean rerun alone is not the explanation.
+
+The [final local verification ledger](event-lineup-verification.md) records the
+connected authored-event serialization test, final editor snapshots and remaining
+operational evidence.
