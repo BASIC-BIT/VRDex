@@ -15,11 +15,22 @@ A real stdio MCP child process then reads the actual GET route through a loopbac
 HTTP server. Both MCP results must preserve the authored slots and participants.
 No independently constructed roster stands in for the authored event.
 
-This test proves mutation, projection and serialization composition. The browser
-editor fixture separately mounts the real `EventEditorForm`, records its mutation
-arguments and reloads them. It does not use a running authenticated Convex backend.
-The live-player fixture mounts `EventPublicPage` with a controlled reactive query
-boundary. These are complementary tests, not a deployed editor-to-MCP smoke.
+The browser story in `apps/web/e2e/event-lineup-story.spec.ts` additionally keeps
+one Convex test instance alive through a bounded Node child bridge. Its actual
+editable query bootstraps the real `EventEditorForm`. Playwright changes the title
+and selected stream, captures the submitted arguments without rewriting them,
+and sends those arguments to the real owner-authorized `updateCommunityEvent`.
+The bridge rejects the same update without an identity, confirms draft privacy,
+publishes, discovers and projects that same event, then runs the HTTP/hosted/stdio
+serializer helper. The returned projection bootstraps `EventPublicPage`; the test
+asserts the changed title, performer link and stream URL. Play requests only the
+newly selected stream, intercepted with HTTP 503 before reaching any provider.
+This chain passes in desktop and mobile Chromium.
+
+The fixture replaces browser query/mutation transport, not editor serialization,
+backend authority or projection code. It does not establish authenticated deployed
+browser connectivity. Existing reactive-player tests retain their controlled query
+boundary and separate real loopback media evidence.
 Privacy, removed selections and cancellation remain covered by the actual backend
 projection suite; existing owner, staff and API scope tests remain unchanged.
 
@@ -33,8 +44,9 @@ projection suite; existing owner, staff and API scope tests remain unchanged.
 | Final web suite | 486 passed, zero skipped; prior session exit handle unavailable | `.tmp/task6-web.log` |
 | Final web types / lint | exit 0 for both; repeated to recover definitive status | `.tmp/task6-types-web-final.log`, `.tmp/task6-lint-web-final.log` |
 | Backend projection plus connected story | 11 passed, exit 0 | `.tmp/task6-backend-focused.log` |
+| Review-fix web types / targeted lint | exit 0 for both | `.tmp/task6-fix-types.log`, `.tmp/task6-fix-lint.log` |
 | Backend types after local codegen | exit 0 | `.tmp/task6-types-backend.log` |
-| Editor/roster flows and snapshots | 14 passed, exit 0 | `.tmp/task6-browser.log` |
+| Connected browser story, editor/roster flows and snapshots | 16 passed, exit 0 after review fix | `.tmp/task6-fix-covering.log` |
 | Local Convex generation | Convex 1.32.0, health status ok; prior exit handle unavailable | `.tmp/task6-codegen.log` |
 
 Reused broad checks apply only to unchanged inputs. The new story has its own

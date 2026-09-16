@@ -51,13 +51,14 @@ const fixtureEvent: EditableEvent = {
 // calls its real query/mutation hooks and runs the normal serialization path.
 function fixtureClient() {
   let event = JSON.parse(localStorage.getItem(storageKey) ?? JSON.stringify(fixtureEvent)) as EditableEvent;
+  const publicEvent = JSON.parse(localStorage.getItem("event-lineup-fixture-public") ?? "null") as PublicEvent | null;
   const listeners = new Set<() => void>();
   const empty: unknown[] = [];
   const mediaStatus = { program: null, outputs: [], sessions: [], queuedCommandCount: 0 };
   const read = (name: string, args: Record<string, unknown>) => {
     if (name === "events:getEditableBySlug") return event;
-    if (name === "events:getPublicBySlug") return event;
-    if (name === "events:getPersonStreamChoices") return choices[args.slug as keyof typeof choices] ?? [];
+    if (name === "events:getPublicBySlug") return publicEvent ?? event;
+    if (name === "events:getPersonStreamChoices") return event.slots.find(slot => slot.performer?.slug === args.slug)?.streamChoices ?? choices[args.slug as keyof typeof choices] ?? [];
     if (name === "search:searchUniversal") return Object.values(people).filter(person => person.slug.includes(String(args.query))).map(person => ({ slug: person.slug, title: person.displayName, routePath: `/${person.slug}` }));
     if (name === "events:getEventMediaControlStatus") return mediaStatus;
     return empty;
@@ -85,10 +86,12 @@ function fixtureClient() {
   } as unknown as ConvexReactClient;
 }
 function Editor() {
-  const event = useQuery(api.events.getEditableBySlug, { slug: previewEvent.slug });
-  return event ? <main className="mx-auto max-w-4xl p-5"><EventEditorForm communitySlug="afterglow" demoMode event={event} /></main> : null;
+  const [bootstrap] = useState(() => JSON.parse(localStorage.getItem(storageKey) ?? JSON.stringify(fixtureEvent)) as EditableEvent);
+  const event = useQuery(api.events.getEditableBySlug, { slug: bootstrap.slug });
+  return event ? <main className="mx-auto max-w-4xl p-5"><EventEditorForm communitySlug={bootstrap.communitySlug ?? "afterglow"} demoMode event={event} /></main> : null;
 }
 export default function EventLineupFixture() {
   const [client] = useState(fixtureClient);
-  return <ConvexProvider client={client}>{new URLSearchParams(window.location.search).has("editor") ? <Editor /> : <EventPublicPage event={fixtureEvent} />}</ConvexProvider>;
+  const [publicEvent] = useState(() => JSON.parse(localStorage.getItem("event-lineup-fixture-public") ?? JSON.stringify(fixtureEvent)) as PublicEvent);
+  return <ConvexProvider client={client}>{new URLSearchParams(window.location.search).has("editor") ? <Editor /> : <EventPublicPage event={publicEvent} />}</ConvexProvider>;
 }

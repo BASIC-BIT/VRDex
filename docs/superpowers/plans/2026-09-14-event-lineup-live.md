@@ -254,7 +254,7 @@ pnpm --filter web exec playwright test event-lineup.flow.spec.ts --project=deskt
 ```
 
 - [x] Run the new snapshot tests with the configured desktop/mobile projects, inspect images, and record screenshot paths. Run markdown checks for changed documents and `git diff --check`. Re-run only when changes/failures justify it.
-- [ ] Demonstrate the same controlled event through community editor, discovery, event page, public API, and hosted/stdio MCP. Development fixtures must exercise real serialization/authorization code. A production mutation requires a separately approved exact event/target; mark live-write verification pending if none is authorized.
+- [x] Demonstrate the same controlled event through community editor, discovery, event page, public API, and hosted/stdio MCP. Development fixtures must exercise real serialization/authorization code. A production mutation requires a separately approved exact event/target; mark live-write verification pending if none is authorized.
 - [x] Recheck client event-tool visibility without overwriting local MCP edits. Report missing scope/config as an operational prerequisite, not a product-code failure. Existing production auth smoke remains deferred under `AGENTS.local.md` unless that prerequisite has been completed independently.
 - [x] Audit docs for behavior drift: event schema, authoring, MCP event writes/reads, and browser proof. Show BASIC any substantive proposed public prose that needs approval before shipping.
 - [ ] Open/update one PR. Describe the concrete operator and viewer outcomes and include useful manual/browser evidence. No separate proof or docs PR. Triage outstanding review comments before each follow-up push, reply with disposition, and resolve handled threads.
