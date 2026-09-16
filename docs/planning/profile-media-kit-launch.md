@@ -22,7 +22,7 @@ until approval; an owner who later claims the target can review pending rows,
 and an approved asset keeps `community_submitted` provenance in the owner's
 media-kit editor. The contribution flag, private candidate preview, moderator
 suppression, and retained-object cleanup remain independent launch gates from
-the existing owner-authored upload flag.
+the existing owner-authored upload flag. The [shared review command contract](../engineering/media-review-commands.md) describes replay-safe browser/MCP decisions and current review authority.
 
 ## Smallest Coherent Launch Slice
 

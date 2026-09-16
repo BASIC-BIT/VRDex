@@ -26,6 +26,7 @@ export const hostedMcpWriteScopes = dynamicMcpWriteScopes;
 export const hostedMcpOwnedReadScopes = [
   "profile:read",
   "assets:contribute",
+  "assets:review:read",
 ] as const satisfies readonly ApiScope[];
 
 export function hostedMcpScopesAllowedForDynamicClient() {

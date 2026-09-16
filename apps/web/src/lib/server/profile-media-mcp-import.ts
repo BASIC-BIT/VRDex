@@ -324,6 +324,8 @@ export async function completeMcpProfileMediaSubmissionImport(
   ];
 
   try {
+    const permit=await adminConvex.mutation(internal.contributionCapacity.claimSourceFetch,{intentId:claim.intentId});
+    if(!permit.allowed)throw new McpProfileMediaImportError("CONTRIBUTION_HOST_RATE", "rejected", "CONTRIBUTION_HOST_RATE");
     const upload = await fetchContributionSource(fetchSource, claim.sourceUrl);
     const prepared = await prepareContributionAsset(prepareAsset, upload.body, upload.mimeType);
     assertPreparedSize(prepared.source.body.byteLength);

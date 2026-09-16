@@ -1,3 +1,10 @@
+import { actionableReceipt, safeCommandError } from "./media-command-result";
+import { cachedProfileLinkDestinationArtwork } from "./profile-link-destination-artwork-cache";
+import { fetchProfileAssetSourceUrl } from "./profile-asset-source-import";
+import { reviewRebaseSchema, selectedReviewDecisionsSchema } from "@vrdex/api-contracts";
+import { createMcpContributionHandlers, contributionOperations, type ContributionOperation } from "./mcp-contribution-batches";
+import { createMcpMediaUploadHandlers } from "./mcp-media-upload";
+import { localUploadRequestSchema, localUploadCompleteSchema, localUploadTargetSchema } from "@vrdex/api-contracts";
 import {
   createMcpHandler,
   fromJsonSchema,
@@ -15,6 +22,7 @@ import {
   ApiProfileSubmitRequestSchema,
   ApiProfileUpdateRequestSchema,
   ApiProfileWriteResponseSchema,
+  commandReceiptSchema,
   ProfileAssetPlacementSchema,
   type ApiScope,
   getBearerTokenFromAuthorizationHeader,
@@ -29,6 +37,10 @@ import {
   PublicProfileSchema,
   PublicSearchResponseSchema,
   PublicWorldSchema,
+  reviewDecisionSchema,
+  reviewDetailSchema,
+  mediaPublicationSchema,
+  publicationEvidenceSchema,
   z,
 } from "@vrdex/api-contracts";
 import { createHash, randomUUID } from "node:crypto";
@@ -62,6 +74,20 @@ import {
   McpProfileMediaImportError,
 } from "@/lib/server/profile-media-mcp-import";
 import { hostedMcpReadScopes } from "@/lib/server/hosted-mcp-policy";
+import {
+  createMcpMediaReviewHandlers,
+  mediaReviewGetInputSchema,
+  mediaReviewListOutputSchema,
+  mediaReviewPageInputSchema,
+  mediaReviewPreviewInputSchema,
+  mediaReviewPreviewOutputSchema,
+  mediaReviewReadToolNames,
+  mediaReviewWriteToolNames,
+  mediaSubmissionWithdrawInputSchema,
+  mediaSubmissionWithdrawOutputSchema,
+  mediaSubmissionWriteToolNames,
+} from "@/lib/server/mcp-media-review";
+import { getProfileAssetObject } from "@/lib/server/profile-asset-storage";
 import { vrcdnPlaybackHref } from "../../../../../convex/_vrcdnLinks";
 
 type ResponseSchema<T> = z.ZodType<T>;
@@ -109,6 +135,18 @@ const mcpWriteToolNames = [
   ...mcpEventWriteToolNames,
   ...mcpProfileWriteToolNames,
   ...mcpAssetWriteToolNames,
+  ...mediaReviewWriteToolNames,
+  ...mediaSubmissionWriteToolNames,
+  "vrdex_media_submission_publish",
+  "vrdex_media_submission_declare",
+  "vrdex_contribution_capacity_request",
+  "vrdex_contribution_batch_create",
+  "vrdex_contribution_batch_append",
+  "vrdex_contribution_batch_archive",
+  "vrdex_contribution_item_submit",
+  "vrdex_contribution_item_revise",
+  "vrdex_media_upload_begin",
+  "vrdex_media_upload_complete",
 ] as const;
 /**
  * The resource scope each write tool needs alongside `mcp:write`.
@@ -126,6 +164,20 @@ const mcpWriteToolResourceScopes: Record<(typeof mcpWriteToolNames)[number], Api
   vrdex_profile_submit: "profile:contribute",
   vrdex_profile_media_manage: "assets:write",
   vrdex_profile_media_submit: "assets:contribute",
+  vrdex_media_review_decide: "assets:review:write",
+  vrdex_media_review_rebase: "assets:review:write",
+  vrdex_media_review_decide_selected: "assets:review:write",
+  vrdex_media_submission_withdraw: "assets:contribute",
+  vrdex_media_submission_publish: "assets:publish",
+  vrdex_media_submission_declare: "assets:publish",
+  vrdex_contribution_capacity_request: "mcp:write",
+  vrdex_contribution_batch_create: "mcp:write",
+  vrdex_contribution_batch_append: "mcp:write",
+  vrdex_contribution_batch_archive: "mcp:write",
+  vrdex_contribution_item_submit: "mcp:write",
+  vrdex_contribution_item_revise: "mcp:write",
+  vrdex_media_upload_begin: "mcp:write",
+  vrdex_media_upload_complete: "mcp:write",
 };
 /**
  * Reads of the caller's own inventory, which no anonymous session can serve.
@@ -135,12 +187,30 @@ const mcpWriteToolResourceScopes: Record<(typeof mcpWriteToolNames)[number], Api
  * and its owner still has to be able to read the revision every update pins.
  */
 const mcpOwnedReadToolNames = [
+  "vrdex_contribution_capacity",
+  "vrdex_contribution_capacity_requests",
+  "vrdex_contribution_status",
+  "vrdex_contribution_batch_get",
+  "vrdex_contribution_batch_items",
   "vrdex_list_my_profiles",
   "vrdex_list_my_media_submissions",
+  ...mediaReviewReadToolNames,
+  "vrdex_media_submission_get",
+  "vrdex_media_submission_preview",
 ] as const;
 const mcpOwnedReadToolScopes: Record<(typeof mcpOwnedReadToolNames)[number], ApiScope> = {
+  vrdex_contribution_capacity: "mcp:read",
+  vrdex_contribution_capacity_requests: "mcp:read",
+  vrdex_contribution_status: "mcp:read",
+  vrdex_contribution_batch_get: "mcp:read",
+  vrdex_contribution_batch_items: "mcp:read",
   vrdex_list_my_profiles: "profile:read",
   vrdex_list_my_media_submissions: "assets:contribute",
+  vrdex_media_submission_get: "assets:publish",
+  vrdex_media_submission_preview: "assets:publish",
+  vrdex_media_review_list: "assets:review:read",
+  vrdex_media_review_get: "assets:review:read",
+  vrdex_media_review_preview: "assets:review:read",
 };
 const mcpToolNames = [
   "search",
@@ -167,6 +237,9 @@ function mcpOwnedReadSecuritySchemes(toolName: (typeof mcpOwnedReadToolNames)[nu
   ] satisfies Array<Record<string, unknown>>;
 }
 function mcpWriteSecuritySchemes(toolName: (typeof mcpWriteToolNames)[number]) {
+  if (toolName === "vrdex_media_upload_begin" || toolName === "vrdex_media_upload_complete") {
+    return ["assets:write", "assets:contribute"].map(scope => ({ scopes: ["mcp:write", scope], type: "oauth2" }));
+  }
   return [
     { scopes: ["mcp:write", mcpWriteToolResourceScopes[toolName]], type: "oauth2" },
   ] satisfies Array<Record<string, unknown>>;
@@ -373,8 +446,25 @@ const mcpProfileMediaSubmitResultSchema = z.object({
     requestedPlacement: z.literal("profile_image"),
   }),
 });
+const ownSubmissionPageInput = z.strictObject({
+  cursor: z.string().max(8192).nullable().default(null),
+  limit: z.number().int().min(1).max(40).default(20),
+  status: z.enum([
+  "upload_pending",
+  "submitted",
+  "under_review",
+  "approved",
+  "rejected",
+  "withdrawn",
+  "superseded",
+])
+    .optional(),
+  batchId: z.string().max(200).optional(),
+});
 const mcpMyMediaSubmissionsResultSchema = z.object({
-  submissions: z.array(mcpProfileMediaSubmissionSchema).max(40),
+  continueCursor: z.string().optional(),
+  isDone: z.boolean().optional(),
+  submissions: z.array(mcpProfileMediaSubmissionSchema.passthrough()).max(40),
 });
 const mcpEventUpdateInputSchema = z.object({
   idempotencyKey: mcpIdempotencyKeySchema,
@@ -759,6 +849,27 @@ export function mcpToolCallNamesFromPayload(payload: unknown) {
   }
 
   return toolNames;
+}
+
+export function requiredHostedMcpScopesForToolNames(toolNames: readonly string[]): ApiScope[] {
+  const writeToolsCalled = toolNames.filter((toolName) => mcpWriteToolNameSet.has(toolName));
+  const readToolRequested = toolNames.some((toolName) => !mcpWriteToolNameSet.has(toolName));
+  const ownedReadScopes = toolNames
+    .filter((toolName) => mcpOwnedReadToolNameSet.has(toolName))
+    .map((toolName) => mcpOwnedReadToolScopes[toolName as (typeof mcpOwnedReadToolNames)[number]]);
+  const writeScopes = writeToolsCalled.length > 0
+    ? [
+        "mcp:write" as const,
+        ...writeToolsCalled.map(
+          (toolName) => mcpWriteToolResourceScopes[toolName as (typeof mcpWriteToolNames)[number]],
+        ),
+      ]
+    : [];
+  return [...new Set([
+    ...(readToolRequested ? mcpRequiredScopes : []),
+    ...ownedReadScopes,
+    ...writeScopes,
+  ])];
 }
 
 export async function mcpToolCallNamesFromRequest(request: Request) {
@@ -1606,40 +1717,20 @@ export async function authorizeHostedMcpRequest(
   const writeToolsCalled = toolNames.filter((toolName) => mcpWriteToolNameSet.has(toolName));
   const writeCallCount = writeToolsCalled.length;
   const writeRequested = writeCallCount > 0;
-  const readToolRequested = toolNames.some((toolName) => !mcpWriteToolNameSet.has(toolName));
   // Only the resources this request actually writes. Demanding the full write
   // catalog would make a link-editing agent ask for `events:write` it will never
   // use, which is the consent screen telling the user something untrue.
-  const writeScopes: readonly ApiScope[] = writeRequested
-    ? [
-      "mcp:write",
-      ...new Set(
-        writeToolsCalled.map(
-          (toolName) => mcpWriteToolResourceScopes[toolName as (typeof mcpWriteToolNames)[number]],
-        ),
-      ),
-    ]
-    : [];
   // The owned-inventory reads need their resource scope named here, not only
   // inside the tool. Classified as ordinary reads, a token holding `mcp:read`
   // alone passed this gate, was counted as an accepted invocation, and was
   // refused by the callback -- so the caller never got the insufficient-scope
   // challenge that tells a client which grant to go and obtain.
-  const ownedReadScopes: readonly ApiScope[] = [
-    ...new Set(
-      toolNames
-        .filter((toolName) => mcpOwnedReadToolNameSet.has(toolName))
-        .map((toolName) => mcpOwnedReadToolScopes[toolName as (typeof mcpOwnedReadToolNames)[number]]),
-    ),
-  ];
   const requiredScopes: readonly ApiScope[] =
-    writeRequested && readToolRequested
-      ? [...mcpRequiredScopes, ...ownedReadScopes, ...writeScopes]
-      : writeRequested
-        ? [...writeScopes, ...ownedReadScopes]
-        : readToolRequested || bearerToken === null || request.method !== "POST"
-          ? [...mcpRequiredScopes, ...ownedReadScopes]
-          : [];
+    toolNames.length > 0
+      ? requiredHostedMcpScopesForToolNames(toolNames)
+      : bearerToken === null || request.method !== "POST"
+        ? [...mcpRequiredScopes]
+        : [];
   const authenticatedRouteClass = writeRequested
     ? "authenticated_mcp_write" as const
     : "authenticated_mcp" as const;
@@ -1794,6 +1885,84 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     name: "vrdex",
     version: "0.5.0",
   });
+  const mediaReviewHandlersFor = (principal: HostedMcpPrincipal, publisher = false,
+  ) =>
+    createMcpMediaReviewHandlers({
+      actorUserId: principal.userId,
+      now,
+      verifyContributorEmail,
+      query: async (name, args) => {
+        if (name === "list") {
+          return await adminConvex().query(
+            internal.profileMediaSubmissions.listForReviewForMcpActor,
+            {
+              ...args,
+              ...(typeof args.profileId === "string"
+                ? { profileId: args.profileId as Id<"profiles"> }
+                : {}),
+              actorUserId: principal.userId,
+              oauthTokenId: principal.tokenId,
+              oauthClientId: principal.clientId,
+              ...(options.authInfo?.resource
+                ? { oauthResource: options.authInfo.resource.toString() }
+                : {}),
+            } as never,
+          );
+        }
+        const submissionId = args.submissionId as Id<"profileMediaSubmissions">;
+        return await adminConvex().query(
+          name === "detail"
+            ? publisher ? internal.profileMediaSubmissions.publisherDetailForMcpActor : internal.profileMediaSubmissions.reviewDetailForMcpActor
+            : name === "current"
+              ? publisher
+                ? internal.profileMediaSubmissions.publisherCurrentForMcpActor
+                : internal.profileMediaSubmissions.currentForMcpActor
+              : publisher ? internal.profileMediaSubmissions.publisherCandidateForMcpActor : internal.profileMediaSubmissions.candidateForMcpActor,
+          { ...args, submissionId, actorUserId: principal.userId,
+            oauthTokenId: principal.tokenId,
+            oauthClientId: principal.clientId,
+            ...(options.authInfo?.resource
+              ? { oauthResource: options.authInfo.resource.toString() }
+              : {}),
+          } as never,
+        );
+      },
+      mutate: async (name, args) => {
+        const submissionId = args.submissionId as Id<"profileMediaSubmissions">;
+        return await adminConvex().mutation(
+          name === "publish" ? internal.profileMediaSubmissions.publishForMcpActor
+            : name === "declare" ? internal.profileMediaSubmissions.declarePublicationEvidenceForMcpActor
+            : name === "decide"
+            ? internal.profileMediaSubmissions.decideForMcpActor
+            : name === "rebase" ? internal.profileMediaSubmissions.rebaseForMcpActor
+            : internal.profileMediaSubmissions.withdrawWithReceiptForMcpActor,
+          { ...args, submissionId, actorUserId: principal.userId,
+            oauthTokenId: principal.tokenId,
+            oauthClientId: principal.clientId,
+            ...(options.authInfo?.resource
+              ? { oauthResource: options.authInfo.resource.toString() }
+              : {}),
+          } as never,
+        );
+      },
+      readStoredObject: getProfileAssetObject,
+      readRemoteImage: async (descriptor) => {
+        if (descriptor.sourceKind === "automatic") {
+          if (!descriptor.artworkKey || !descriptor.artworkKind) return null;
+          const body = await cachedProfileLinkDestinationArtwork(
+            {
+              key: descriptor.artworkKey,
+              kind: descriptor.artworkKind,
+              artworkSourceUrl: descriptor.sourceUrl,
+            },
+            512,
+          );
+          return body ? { body, contentType: "image/webp" } : null;
+        }
+        const source = await fetchProfileAssetSourceUrl(descriptor.sourceUrl);
+        return { body: source.body, contentType: source.mimeType };
+      },
+    });
 
   /**
    * Read the saved profile back publicly before reporting success.
@@ -2136,29 +2305,39 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     {
       title: "List My VRDex Media Submissions",
       description: "List the signed-in VRDex user's recent profile-image submissions and review status.",
-      inputSchema: z.object({}).strict(),
+      inputSchema: ownSubmissionPageInput,
       outputSchema: mcpOutputSchema(mcpMyMediaSubmissionsResultSchema),
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       _meta: {
         securitySchemes: mcpOwnedReadSecuritySchemes("vrdex_list_my_media_submissions"),
       },
     },
-    async () => {
+    async (input) => {
       const principal = ownedReadPrincipalFor("vrdex_list_my_media_submissions");
       if (principal === null) {
         return mcpOwnedReadUnauthorized("vrdex_list_my_media_submissions");
       }
       try {
         const result = await adminConvex().query(
-          internal.profileMediaSubmissions.listMcpMediaSubmissionsForActor,
-          { actorUserId: principal.userId },
+          internal.profileMediaSubmissions.listMinePageForMcpActor,
+          { actorUserId: principal.userId,
+            oauthClientId: principal.clientId,
+            oauthTokenId: principal.tokenId,
+            ...(options.authInfo?.resource
+              ? { oauthResource: options.authInfo.resource.toString() }
+              : {}),
+            paginationOpts: { numItems: input.limit, cursor: input.cursor },
+            ...(input.status ? { status: input.status } : {}),
+            ...(input.batchId
+              ? { batchId: input.batchId as Id<"contributionBatches"> }
+              : {}),
+          },
         );
-        const response = mcpJsonResult(mcpMyMediaSubmissionsResultSchema, result);
+        const response = mcpJsonResult(mcpMyMediaSubmissionsResultSchema, {
+          submissions: result.page,
+          continueCursor: result.continueCursor,
+          isDone: result.isDone,
+        });
         await recordHostedMcpMediaStatusInvocation({
           adminConvex: adminConvex(),
           principal,
@@ -2179,6 +2358,319 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
           isError: true as const,
         };
       }
+    },
+  );
+
+  const collectionToolNames = {
+    capacity: "vrdex_contribution_capacity",
+    request: "vrdex_contribution_capacity_request",
+    requests: "vrdex_contribution_capacity_requests",
+    status: "vrdex_contribution_status",
+    create: "vrdex_contribution_batch_create",
+    append: "vrdex_contribution_batch_append",
+    get: "vrdex_contribution_batch_get",
+    items: "vrdex_contribution_batch_items",
+    archive: "vrdex_contribution_batch_archive",
+    submit: "vrdex_contribution_item_submit",
+    revise: "vrdex_contribution_item_revise",
+  } as const;
+  for (const operation of Object.keys(
+    contributionOperations,
+  ) as ContributionOperation[]) {
+    const toolName = collectionToolNames[operation];
+    const read = ["get", "items", "capacity", "requests", "status"].includes(operation);
+    server.registerTool(
+      toolName,
+      {
+        title: operation,
+        description: toolName,
+        inputSchema: contributionOperations[operation],
+        annotations: {
+          readOnlyHint: read,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: operation === "submit",
+        },
+        _meta: {
+          securitySchemes: [
+            "profile:contribute",
+            "assets:contribute",
+            ...(read ? ["assets:review:read"] : []),
+          ].map((scope) => ({
+            type: "oauth2",
+            scopes: [read ? "mcp:read" : "mcp:write", scope],
+          })),
+        },
+      },
+      async (input: unknown) => {
+        const principal = hostedMcpPrincipal(options.authInfo, [
+          read ? "mcp:read" : "mcp:write",
+        ]);
+        if (!principal)
+          return {
+            content: [{ type: "text" as const, text: "BATCH_UNAVAILABLE" }],
+            isError: true,
+          };
+        try {
+          const handlers = createMcpContributionHandlers({
+            admin: adminConvex(),
+            authority: async () => ({
+              actorUserId: principal.userId,
+              oauthClientId: principal.clientId,
+              oauthTokenId: principal.tokenId,
+              emailVerified: await verifyContributorEmail(
+                principal.userId,
+              ).catch(() => false),
+              emailVerificationAttestedAt: now(),
+            }),
+          });
+          const raw = await handlers(operation, input);
+          const receipt = commandReceiptSchema.safeParse(raw);
+          const result = receipt.success
+            ? actionableReceipt(receipt.data)
+            : raw;
+          return { content: [{ type: "text" as const, text: JSON.stringify(result) }], structuredContent: result };
+        } catch (error) {
+          const value = input as { idempotencyKey?: string; itemKey?: string };
+          return safeCommandError(
+            error,
+            value.idempotencyKey ?? value.itemKey ?? operation,
+          );
+        }
+      },
+    );
+  }
+
+  for (const operation of ["begin", "complete"] as const) {
+    const toolName = operation === "begin" ? "vrdex_media_upload_begin" : "vrdex_media_upload_complete";
+    server.registerTool(toolName, {
+      title: operation === "begin" ? "Begin Media Upload" : "Complete Media Upload",
+      description: operation === "begin" ? "Reserve a local image upload and return its multipart transfer fields." : "Seal an uploaded image as owner media or a private contribution.",
+      inputSchema: operation === "begin" ? localUploadRequestSchema : localUploadCompleteSchema,
+      outputSchema: operation === "begin" ? mcpOutputSchema(z.union([localUploadTargetSchema,commandReceiptSchema])) : mcpOutputSchema(commandReceiptSchema),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+      _meta: { securitySchemes: mcpWriteSecuritySchemes(toolName) },
+    }, async (input: unknown) => {
+      const principal = principalFor(toolName);
+      if (principal === null) return mcpWriteUnauthorized(toolName);
+      try {
+        const handlers = createMcpMediaUploadHandlers({
+          admin: adminConvex(),
+          authority: async () => ({ actorUserId: principal.userId, oauthClientId: principal.clientId, oauthTokenId: principal.tokenId,
+            emailVerified: await verifyContributorEmail(principal.userId).catch(() => false), emailVerificationAttestedAt: now() }),
+        });
+        const raw = await handlers[operation](input);
+          const result = "operationState" in raw ? actionableReceipt(raw) : raw;
+        return { content: [{ type: "text" as const, text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) {
+        return safeCommandError(
+            error,
+            (input as { idempotencyKey: string }).idempotencyKey,
+          );
+      }
+    },
+    );
+  }
+
+  for (const operation of ["get", "preview"] as const) {
+    const toolName = operation === "get" ? "vrdex_media_submission_get" : "vrdex_media_submission_preview";
+    server.registerTool(toolName, {
+      title: operation === "get" ? "Contribution" : "Preview", description: toolName,
+      inputSchema: operation === "get" ? mediaReviewGetInputSchema : mediaReviewPreviewInputSchema,
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      _meta: { securitySchemes: mcpOwnedReadSecuritySchemes(toolName) },
+    }, async (input: unknown) => {
+      const principal = ownedReadPrincipalFor(toolName);
+      return principal === null ? mcpOwnedReadUnauthorized(toolName) : await mediaReviewHandlersFor(principal, true)[operation](input);
+    });
+  }
+  for (const operation of ["publish", "declare"] as const) {
+    const toolName = operation === "publish" ? "vrdex_media_submission_publish" : "vrdex_media_submission_declare";
+    server.registerTool(toolName, {
+      title: operation === "publish" ? "Publish" : "Confirm evidence", description: toolName,
+      inputSchema: operation === "publish" ? mediaPublicationSchema : publicationEvidenceSchema,
+      outputSchema: mcpOutputSchema(commandReceiptSchema),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      _meta: { securitySchemes: mcpWriteSecuritySchemes(toolName) },
+    }, async (input: unknown) => {
+      const principal = principalFor(toolName);
+      return principal === null ? mcpWriteUnauthorized(toolName) : await mediaReviewHandlersFor(principal, true)[operation](input);
+    });
+  }
+
+  for (const assigned of [false, true]) {
+    const name = assigned
+      ? "vrdex_media_review_assignments"
+      : "vrdex_get_my_media_submission";
+    server.registerTool(
+      name,
+      {
+        title: assigned ? "Assigned batches" : "My contribution",
+        description: name,
+        inputSchema: assigned
+          ? z.strictObject({
+              cursor: z.string().max(8192).nullable().default(null),
+              limit: z.number().int().min(1).max(40).default(20),
+            })
+          : mediaReviewGetInputSchema,
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        _meta: {
+          securitySchemes: [
+            {
+              type: "oauth2",
+              scopes: [
+                "mcp:read",
+                assigned ? "assets:review:read" : "assets:contribute",
+              ],
+            },
+          ],
+        },
+      },
+      async (raw: unknown) => {
+        const principal = hostedMcpPrincipal(options.authInfo, [
+          "mcp:read",
+          assigned ? "assets:review:read" : "assets:contribute",
+        ]);
+        if (!principal)
+          return {
+            content: [{ type: "text" as const, text: "MEDIA_UNAVAILABLE" }],
+            isError: true,
+          };
+        const authority = {
+          actorUserId: principal.userId,
+          oauthClientId: principal.clientId,
+          oauthTokenId: principal.tokenId,
+          ...(options.authInfo?.resource
+            ? { oauthResource: options.authInfo.resource.toString() }
+            : {}),
+          emailVerified: await verifyContributorEmail(principal.userId).catch(() => false),
+          emailVerificationAttestedAt: now(),
+        };
+        const page = ownSubmissionPageInput.parse(assigned ? raw : {});
+        const result = assigned
+          ? await adminConvex().query(
+              internal.profileMediaSubmissions.assignedReviewBatchesForMcpActor,
+              {
+                ...authority,
+                paginationOpts: { cursor: page.cursor, numItems: page.limit },
+              },
+            )
+          : await adminConvex().query(
+              internal.profileMediaSubmissions.getMineForMcpActor,
+              {
+                ...authority,
+                submissionId: mediaReviewGetInputSchema.parse(raw)
+                  .submissionId as Id<"profileMediaSubmissions">,
+              },
+            );
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(result) }],
+          structuredContent: result ?? { unavailable: true },
+        };
+      },
+    );
+  }
+
+  server.registerTool(
+    "vrdex_media_review_list",
+    {
+      title: "List Media Reviews",
+      description: "List media submissions available to the signed-in reviewer.",
+      inputSchema: mediaReviewPageInputSchema,
+      outputSchema: mcpOutputSchema(mediaReviewListOutputSchema),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      _meta: { securitySchemes: mcpOwnedReadSecuritySchemes("vrdex_media_review_list") },
+    },
+    async (input) => {
+      const principal = ownedReadPrincipalFor("vrdex_media_review_list");
+      return principal === null
+        ? mcpOwnedReadUnauthorized("vrdex_media_review_list")
+        : await mediaReviewHandlersFor(principal).list(input);
+    },
+  );
+
+  server.registerTool(
+    "vrdex_media_review_get",
+    {
+      title: "Get Media Review",
+      description: "Inspect one media submission and its current placement.",
+      inputSchema: mediaReviewGetInputSchema,
+      outputSchema: mcpOutputSchema(reviewDetailSchema),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      _meta: { securitySchemes: mcpOwnedReadSecuritySchemes("vrdex_media_review_get") },
+    },
+    async (input) => {
+      const principal = ownedReadPrincipalFor("vrdex_media_review_get");
+      return principal === null
+        ? mcpOwnedReadUnauthorized("vrdex_media_review_get")
+        : await mediaReviewHandlersFor(principal).get(input);
+    },
+  );
+
+  server.registerTool(
+    "vrdex_media_review_preview",
+    {
+      title: "Preview Media Review",
+      description: "Render the stored candidate for an inspected review version.",
+      inputSchema: mediaReviewPreviewInputSchema,
+      outputSchema: mcpOutputSchema(mediaReviewPreviewOutputSchema),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      _meta: { securitySchemes: mcpOwnedReadSecuritySchemes("vrdex_media_review_preview") },
+    },
+    async (input) => {
+      const principal = ownedReadPrincipalFor("vrdex_media_review_preview");
+      return principal === null
+        ? mcpOwnedReadUnauthorized("vrdex_media_review_preview")
+        : await mediaReviewHandlersFor(principal).preview(input);
+    },
+  );
+
+  server.registerTool(
+    "vrdex_media_review_decide",
+    {
+      title: "Decide Media Review",
+      description: "Approve or reject one inspected media submission.",
+      inputSchema: reviewDecisionSchema,
+      outputSchema: mcpOutputSchema(commandReceiptSchema),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+      _meta: { securitySchemes: mcpWriteSecuritySchemes("vrdex_media_review_decide") },
+    },
+    async (input) => {
+      const principal = principalFor("vrdex_media_review_decide");
+      return principal === null
+        ? mcpWriteUnauthorized("vrdex_media_review_decide")
+        : await mediaReviewHandlersFor(principal).decide(input);
+    },
+  );
+
+  server.registerTool("vrdex_media_review_rebase",{
+    title:"Rebase",description:"vrdex_media_review_rebase",inputSchema:reviewRebaseSchema,
+    outputSchema:mcpOutputSchema(commandReceiptSchema),
+    annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:true,openWorldHint:false},
+    _meta:{securitySchemes:mcpWriteSecuritySchemes("vrdex_media_review_rebase")},
+  },async input=>{const principal=principalFor("vrdex_media_review_rebase");return principal===null?mcpWriteUnauthorized("vrdex_media_review_rebase"):await mediaReviewHandlersFor(principal).rebase(input);});
+  server.registerTool("vrdex_media_review_decide_selected",{
+    title:"Decide selected",description:"vrdex_media_review_decide_selected",inputSchema:selectedReviewDecisionsSchema,
+    outputSchema:mcpOutputSchema(z.strictObject({receipts:z.array(commandReceiptSchema).min(1).max(20)})),
+    annotations:{readOnlyHint:false,destructiveHint:true,idempotentHint:true,openWorldHint:false},
+    _meta:{securitySchemes:mcpWriteSecuritySchemes("vrdex_media_review_decide_selected")},
+  },async input=>{const principal=principalFor("vrdex_media_review_decide_selected");return principal===null?mcpWriteUnauthorized("vrdex_media_review_decide_selected"):await mediaReviewHandlersFor(principal).decideSelected(input);});
+
+  server.registerTool(
+    "vrdex_media_submission_withdraw",
+    {
+      title: "Withdraw Media Submission",
+      description: "Withdraw one open media submission made by the signed-in user.",
+      inputSchema: mediaSubmissionWithdrawInputSchema,
+      outputSchema: mcpOutputSchema(mediaSubmissionWithdrawOutputSchema),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+      _meta: { securitySchemes: mcpWriteSecuritySchemes("vrdex_media_submission_withdraw") },
+    },
+    async (input) => {
+      const principal = principalFor("vrdex_media_submission_withdraw");
+      return principal === null
+        ? mcpWriteUnauthorized("vrdex_media_submission_withdraw")
+        : await mediaReviewHandlersFor(principal).withdraw(input);
     },
   );
 
