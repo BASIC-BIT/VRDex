@@ -2507,20 +2507,37 @@ async function managedCommunitiesForBrowser(
   options: { includeNonPublic?: boolean } = {},
 ) {
   const { subject, user } = await requireActiveBrowserSessionSubject(ctx);
-  const [owners, authorities] = await Promise.all([
-    ctx.db
+  const owners = await ctx.db
         .query("profileOwners")
         .withIndex("by_userId_state", (query) =>
           query.eq("userId", user._id).eq("state", "active"),
         )
-        .take(100),
-    ctx.db
-        .query("communityAuthorities")
-        .withIndex("by_subjectTokenIdentifier_state", (query) =>
-          query.eq("subjectTokenIdentifier", subject.tokenIdentifier).eq("state", "active"),
-        )
-        .take(100),
-  ]);
+        .take(100);
+  // Bound communities, not raw assignments: one club may have 100 roles.
+  // Seek past each community key so duplicate assignments cannot crowd out
+  // later clubs. Never silently return an incomplete inventory at the bound.
+  const authorities: Doc<"communityAuthorities">[] = [];
+  let afterCommunity: Id<"profiles"> | undefined;
+  for (let communityCount = 0; ; communityCount++) {
+    const next = await ctx.db.query("communityAuthorities")
+      .withIndex("by_subjectTokenIdentifier_state_communityProfileId", q => {
+        const prefix = q.eq("subjectTokenIdentifier", subject.tokenIdentifier).eq("state", "active");
+        return afterCommunity ? prefix.gt("communityProfileId", afterCommunity) : prefix;
+      }).first();
+    if (!next) break;
+    if (communityCount === 100) throw new Error("Managed community inventory requires pagination.");
+    const assignments = await ctx.db.query("communityAuthorities")
+      .withIndex("by_subjectTokenIdentifier_state_communityProfileId", q =>
+        q.eq("subjectTokenIdentifier", subject.tokenIdentifier).eq("state", "active").eq("communityProfileId", next.communityProfileId),
+      ).take(101);
+    if (assignments.length > 100) throw new Error("Community authority assignments require pagination.");
+    // At most 4,000 assignment reads plus 4,000 role reads, leaving room
+    // for profile and event inventory reads in callers of this helper.
+    if (authorities.length + assignments.length > 4000)
+      throw new Error("Managed community inventory requires pagination.");
+    authorities.push(...assignments);
+    afterCommunity = next.communityProfileId;
+  }
   const roleByProfileId = new Map<Id<"profiles">, string>();
   for (const owner of owners) roleByProfileId.set(owner.profileId, "Owner");
   for (const authority of authorities) {

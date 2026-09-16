@@ -67,7 +67,7 @@ integration epoch can supply the concrete destination returned to the worker.
 The destination must match the planned world and connected group; failures and
 unknown outcomes never substitute another instance. Submission rechecks the
 dependency. A linked creation's event association also applies to remaining
-invitations, so event cancellation stops them.
+invitations, so event cancellation stops them. If a pending creation is edited to a different event or detached from its inherited event, unsent invitations reviewed against the previous association are rejected at claim or final authorization. Their reviewed schedules are never silently rebound.
 
 Current integration work still includes notifications, reusable recipient lists
 and scheduled UI. Provider writes are not

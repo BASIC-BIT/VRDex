@@ -2144,6 +2144,35 @@ describe("API-created event ownership", () => {
     );
   });
 
+  it("discovers later clubs after more than 100 role assignments and unions current role permissions", async () => {
+    const t = convexTest({ schema, modules });
+    const { profileId } = await seedOwnedCommunity(t);
+    const { identity } = await seedUser(t, "Many Role Staff");
+    await t.run(async ctx => {
+      const original = (await ctx.db.get(profileId))!;
+      const { _id, _creationTime, ...profile } = original;
+      void _id; void _creationTime;
+      const later = await ctx.db.insert("profiles", { ...profile, slug: "later-club", displayName: "Later club" });
+      for (const communityProfileId of [profileId, later]) {
+        for (let index = 0; index < 60; index++) {
+          const roleId = await ctx.db.insert("communityRoles", {
+            communityProfileId, key: `role-${index}`, label: `Role ${index}`,
+            permissions: index === 59 ? ["manage_events"] : [], assignableRoleIds: [],
+            state: "active", createdAt: NOW, updatedAt: NOW,
+          });
+          await ctx.db.insert("communityAuthorities", {
+            communityProfileId, subjectTokenIdentifier: identity.tokenIdentifier,
+            subject: { tokenIdentifier: identity.tokenIdentifier, issuer: identity.issuer, subject: identity.subject },
+            roleId, state: "active", grantedAt: NOW, updatedAt: NOW,
+          });
+        }
+      }
+    });
+    const clubs = await t.withIdentity(identity).query(api.events.listManagedCommunities, {});
+    assert.deepEqual(clubs.map(club => club.slug).sort(), ["faceless", "later-club"]);
+    assert.equal(clubs.every(club => club.roleLabel === "Role 59"), true);
+  });
+
   it("does not preserve submitter authority on a community-linked event", async () => {
     const t = convexTest({ schema, modules });
     const { profileId } = await seedOwnedCommunity(t);

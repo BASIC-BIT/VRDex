@@ -1,6 +1,17 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { canEditOperation } from "../../apps/web/src/app/account/communities/[slug]/club-operation-model";
+import {
+  canEditOperation,
+  operationReason,
+} from "../../apps/web/src/app/account/communities/[slug]/club-operation-model";
+
+test("dependent instance invitations display the backend creation failure reason", () => {
+  assert.equal(
+    operationReason("instance_creation_failed"),
+    "Instance creation failed",
+  );
+});
+
 test("editing another scheduled action requires both its operation permission and schedule permission", () => {
   const payload = {
     kind: "publish_post" as const,

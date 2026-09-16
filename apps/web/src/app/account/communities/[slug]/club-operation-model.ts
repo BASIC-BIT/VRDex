@@ -86,7 +86,7 @@ export function operationReason(code: string | null) {
     operation_budget_too_low: "Request budget too low",
     submission_not_attempted: "Not sent",
     instance_creation_rescheduled: "Instance creation moved after this invitation",
-    creation_failed: "Instance creation failed",
+    instance_creation_failed: "Instance creation failed",
   };
   return labels[code] ?? null;
 }

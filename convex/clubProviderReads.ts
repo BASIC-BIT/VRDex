@@ -205,7 +205,7 @@ async function currentReadAccount(
     !account ||
     account.killSwitchEnabled ||
     fleet?.killSwitchEnabled ||
-    !["ready", "degraded"].includes(account.state)
+    account.state !== "ready"
   )
     throw new Error("Read access expired.");
   return account;
@@ -225,7 +225,7 @@ async function checkWorker(ctx: MutationCtx, args: WorkerArgs) {
     account.workerKeyHash !== args.workerKeyHash ||
     account.killSwitchEnabled ||
     fleet?.killSwitchEnabled ||
-    !["ready", "degraded"].includes(account.state) ||
+    account.state !== "ready" ||
     integration.killSwitchEnabled ||
     !["active", "degraded"].includes(integration.state) ||
     integration.assignedCollectorAccountId !== account._id ||

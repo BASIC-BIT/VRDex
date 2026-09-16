@@ -385,14 +385,21 @@ function OperationEditor({
         />
         {isRoleEdit ? (
           <div className="flex flex-wrap gap-3">
-            <Button onClick={roles.refresh}>Refresh roles</Button>
+            <Button type="button" onClick={roles.refresh}>
+              Refresh roles
+            </Button>
             {roles.data?.nextOffset != null ? (
-              <Button onClick={() => setRoleOffset(roles.data!.nextOffset!)}>
+              <Button
+                type="button"
+                onClick={() => setRoleOffset(roles.data!.nextOffset!)}
+              >
                 More roles
               </Button>
             ) : null}
             {roleOffset > 0 ? (
-              <Button onClick={() => setRoleOffset(0)}>First roles</Button>
+              <Button type="button" onClick={() => setRoleOffset(0)}>
+                First roles
+              </Button>
             ) : null}
             {roles.error ? (
               <Notice variant="error">{roles.error}</Notice>

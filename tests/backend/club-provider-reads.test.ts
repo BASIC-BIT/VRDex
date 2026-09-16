@@ -60,7 +60,13 @@ it("queued reads wake idle integrations without clearing provider backoff", asyn
 it("all provider caches invalidate collector rotation, reassignment, kill switch and inactive state", async (test) => {
   test.mock.timers.enable({ apis: ["setTimeout"] });
   for (const kind of ["members", "roles", "posts", "instances"] as const) {
-    for (const change of ["rotate", "reassign", "kill", "inactive"] as const) {
+    for (const change of [
+      "rotate",
+      "reassign",
+      "kill",
+      "inactive",
+      "degraded",
+    ] as const) {
       const s = await setup();
       await s.t.run((ctx) =>
         ctx.db.patch(s.integrationId, {
@@ -91,6 +97,8 @@ it("all provider caches invalidate collector rotation, reassignment, kill switch
           await ctx.db.patch(s.collectorAccountId, { killSwitchEnabled: true });
         if (change === "inactive")
           await ctx.db.patch(s.collectorAccountId, { state: "quarantined" });
+        if (change === "degraded")
+          await ctx.db.patch(s.collectorAccountId, { state: "degraded" });
         if (change === "reassign") {
           const { _id, _creationTime, ...account } = (await ctx.db.get(
             s.collectorAccountId,

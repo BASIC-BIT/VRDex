@@ -339,6 +339,103 @@ it("dependent invitations wait for the selected creation and use only its confir
     { authorized: true, code: null },
   );
 });
+it("creation event reassociation rejects reviewed dependent invitations at claim and final authorization", async () => {
+  for (const stage of ["claim", "authorize"]) {
+    const s = await queued();
+    const worldId = "wrld_44444444-4444-4444-4444-444444444444";
+    const payload = {
+      kind: "create_instance",
+      worldId,
+      access: "members",
+      region: "us",
+    };
+    const dueAt = Date.now();
+    const [eventA, eventB] = await s.t.run(async (ctx) => {
+      const events = [];
+      for (const slug of ["event-a", "event-b"])
+        events.push(
+          await ctx.db.insert("events", {
+            slug,
+            title: slug,
+            sortTitle: slug,
+            startAt: dueAt,
+            communityProfileId: s.communityProfileId,
+            sourceType: "manual",
+            sourceLabel: "test",
+            eventStatus: "scheduled",
+            publicationState: "published",
+            publishedAt: dueAt,
+            updatedAt: dueAt,
+          }),
+        );
+      await ctx.db.patch(s.operationId, {
+        payload: payload as any,
+        eventId: events[0],
+        schedule: { kind: "fixed", dueAt, eventId: events[0] },
+        dueAt,
+        readyAt: dueAt,
+      });
+      return events;
+    });
+    const [inviteId] = await s.owner.mutation(ref("enqueue"), {
+      communityProfileId: s.communityProfileId,
+      requestId: "event_dependency",
+      payloads: [
+        {
+          kind: "invite_to_created_instance",
+          creationOperationId: s.operationId,
+          targetUserId: "usr_55555555-5555-5555-5555-555555555555",
+        },
+      ],
+      schedule: { kind: "fixed", dueAt },
+    });
+    const succeedCreation = async () =>
+      s.t.run((ctx) =>
+        ctx.db.patch(s.operationId, {
+          state: "succeeded",
+          result: {
+            worldId,
+            instanceId:
+              "123~group(grp_11111111-1111-1111-1111-111111111111)~groupAccessType(members)",
+          },
+        }),
+      );
+    let claim;
+    if (stage === "authorize") {
+      await succeedCreation();
+      claim = await s.t.mutation(ref("claim"), s.worker);
+      // Simulate an in-flight invitation while a prior creation revision changes.
+      await s.t.run((ctx) => ctx.db.patch(s.operationId, { state: "pending" }));
+    }
+    await s.owner.mutation(ref("edit"), {
+      operationId: s.operationId,
+      payload,
+      schedule: { kind: "fixed", dueAt, eventId: eventB },
+    });
+    await succeedCreation();
+    await s.t.run((ctx) => ctx.db.patch(eventB, { eventStatus: "cancelled" }));
+    if (stage === "claim")
+      assert.equal(await s.t.mutation(ref("claim"), s.worker), null);
+    else
+      assert.equal(
+        (
+          await s.t.mutation(ref("authorizeSubmission"), {
+            ...s.worker,
+            operationId: inviteId,
+            nonce: claim.nonce,
+            authority: s.authority,
+            friendship: "friend",
+          })
+        ).authorized,
+        false,
+      );
+    const invite = await s.t.run((ctx) => ctx.db.get(inviteId));
+    assert.equal(invite!.state, "rejected");
+    assert.equal(invite!.code, "dependency_unavailable");
+    assert.equal(invite!.eventId, eventA);
+    assert.deepEqual(invite!.schedule, { kind: "fixed", dueAt });
+  }
+});
 it("dependent invitations cannot precede creation and later parent timing changes reject without detaching schedules", async () => {
   const s = await queued();
   const dueAt = Date.now() + 60000;

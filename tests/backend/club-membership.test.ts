@@ -36,6 +36,64 @@ it("stops new audit scans after analytics is disabled", async () => {
     /scope/,
   );
 });
+it("disabling analytics hides public movement while preserving authorized history", async () => {
+  const { t, owner, integrationId } = await setup();
+  const scanId = await t.mutation(begin, {
+    integrationId,
+    epochStartedAt: start,
+    groupId: "grp_test",
+    startAt: start,
+    endAt: end,
+  });
+  await t.mutation(ingest, {
+    scanId,
+    pageNumber: 0,
+    events: [
+      {
+        auditId: "retained_join",
+        eventType: "group.member.join",
+        occurredAt: start + 1,
+      },
+    ],
+    exhausted: true,
+  });
+  const args = { communitySlug: "club", startAt: start, endAt: end };
+  assert.deepEqual(await t.query(bucket, args), {
+    joins: 1,
+    departures: 0,
+    complete: true,
+  });
+  await t.run((ctx) =>
+    ctx.db.patch(integrationId, { enabledFeatures: ["posts"] }),
+  );
+  assert.deepEqual(await t.query(bucket, args), {
+    joins: null,
+    departures: null,
+    complete: false,
+  });
+  assert.deepEqual(await owner.query(bucket, args), {
+    joins: 1,
+    departures: 0,
+    complete: true,
+  });
+  assert.equal(
+    (
+      await owner.query(activity, {
+        ...args,
+        paginationOpts: { numItems: 10, cursor: null },
+      })
+    ).page.length,
+    1,
+  );
+  await t.run((ctx) =>
+    ctx.db.patch(integrationId, { enabledFeatures: ["analytics"] }),
+  );
+  assert.deepEqual(await t.query(bucket, args), {
+    joins: 1,
+    departures: 0,
+    complete: true,
+  });
+});
 
 it("never treats a coverage gap as zero, merges adjacent scans and hides disconnected public data", async () => {
   const { t, owner, integrationId } = await setup();

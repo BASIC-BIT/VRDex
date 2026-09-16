@@ -356,7 +356,10 @@ async function readContext(ctx: QueryCtx, slug: string, individual: boolean) {
   if (
     !integration ||
     (actor.kind === "none" &&
-      (integration.state !== "active" || integration.killSwitchEnabled))
+      (integration.state !== "active" ||
+        integration.killSwitchEnabled ||
+        (integration.enabledFeatures !== undefined &&
+          !integration.enabledFeatures.includes("analytics"))))
   )
     return null;
   return {

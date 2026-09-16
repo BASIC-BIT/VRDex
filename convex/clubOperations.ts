@@ -223,6 +223,25 @@ async function resolvedOperation(
     dependency.payload.kind !== "create_instance"
   )
     return { status: "rejected", code: "dependency_unavailable" };
+  // Event association is part of the reviewed dependency. A later creation edit
+  // must not silently move invitations to another event or detach cancellation.
+  if (dependency.eventId && dependency.eventId !== job.eventId)
+    return { status: "rejected", code: "dependency_unavailable" };
+  if (
+    job.eventId &&
+    !job.schedule.eventId &&
+    dependency.eventId !== job.eventId
+  )
+    return { status: "rejected", code: "dependency_unavailable" };
+  if (dependency.eventId) {
+    const event = await ctx.db.get(dependency.eventId);
+    if (
+      !event ||
+      event.communityProfileId !== job.communityProfileId ||
+      event.eventStatus === "cancelled"
+    )
+      return { status: "rejected", code: "event_cancelled" };
+  }
   if (["pending", "claimed", "submitted"].includes(dependency.state))
     return { status: "pending", code: "awaiting_instance_creation" };
   if (dependency.state !== "succeeded")
