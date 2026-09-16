@@ -22,3 +22,16 @@ test("established current traverses ordered overlaps, including unrelated later 
   const later = [{ key: "c", startAt: 2100, endAt: 3000 }, { key: "d", startAt: 2500, endAt: 4000 }];
   assert.equal(nextSlot(a, [a,{ ...b,startAt: 1000 },...later])?.key, "b");
 });
+
+test("later ambiguity does not block an earlier unambiguous transition", () => {
+  const b = { key: "b", startAt: 1000, endAt: 2000, stream };
+  const c = { key: "c", startAt: 2000, endAt: 3000, stream };
+  const d = { ...c, key: "d" };
+  const slots = [a,b,c,d];
+  assert.equal(nextSlot(a, slots)?.key, "b");
+  assert.equal(nextSlot(b, slots), undefined);
+  assert.equal(nextSlot(c, slots), undefined);
+  assert.equal(nextSlot(d, [...slots,{ key: "e", startAt: 3000, stream }]), undefined);
+  assert.equal(nextSlot(a, [a,b,c,{ ...d,startAt: 1900 }])?.key, "b");
+  assert.equal(nextSlot(b, [a,b,c,{ ...d,startAt: 1900 }]), undefined);
+});

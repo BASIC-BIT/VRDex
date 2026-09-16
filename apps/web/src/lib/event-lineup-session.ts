@@ -12,7 +12,8 @@ export function reconcileSlot(previous: LineupSlot, slots: readonly LineupSlot[]
 export function nextSlot(current: LineupSlot, slots: readonly LineupSlot[]): LineupSlot | undefined {
   const index = slots.findIndex(slot => slot.key === current.key);
   if (index < 0 || slots.filter(slot => slot.key === current.key).length !== 1) return undefined;
-  // Established playback can traverse overlaps; equal starts still have no ordered winner.
-  if (slots.some((slot, i) => i > 0 && slot.startAt <= slots[i-1].startAt)) return undefined;
+  // Only the current transition matters, including same-start siblings on either side.
+  const neighbors = slots.slice(Math.max(0, index - 1), index + 3);
+  if (neighbors.some((slot, i) => i > 0 && slot.startAt <= neighbors[i-1].startAt)) return undefined;
   return slots[index + 1];
 }

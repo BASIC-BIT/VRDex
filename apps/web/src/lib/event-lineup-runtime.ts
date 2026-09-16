@@ -56,6 +56,7 @@ export class EventLineupSession {
     if (this.selected) {
       const match = reconcileSlot(this.selected, event.slots);
       if (!match) {
+        this.playRequest++;
         this.releaseCurrent(); this.selected = undefined;
         this.state.current = undefined; this.state.connected = false; this.state.unavailable = true;
         // A revoked source needs explicit viewer action, never an automatic substitute.

@@ -187,3 +187,40 @@ test("@fixture failed final reconnect retains overtime selection across pause", 
   expect((await(await fetch(`${transport.url}/stats`)).json()).active).toBe(0);
  }finally{try{await browser.close();}finally{await transport.close();}}
 });
+
+test("@fixture revoked source cancels a pending viewer resume", async ({baseURL}) => {
+ test.skip(process.env.EVENT_PLAYBACK_PROOF!=="true","Opt-in local transport");test.setTimeout(30000);
+ const {startProofServer}=await(new Function("url","return import(url)"))(pathToFileURL(path.resolve("../../scripts/event-playback-proof.mjs")).href);
+ const transport=await startProofServer();const browser=await chromium.launch();
+ try {
+  const page=await browser.newPage();
+  await page.addInitScript(()=>{
+   const resume=AudioContext.prototype.resume;
+   Object.assign(window,{holdResume:false});
+   AudioContext.prototype.resume=function(){
+    const pending=resume.call(this);
+    if((window as unknown as {holdResume:boolean}).holdResume) {
+     Object.assign(window,{holdResume:false});
+     return pending.then(()=>new Promise<void>(resolve=>Object.assign(window,{finishViewerResume:resolve})));
+    }
+    return pending;
+   };
+  });
+  await page.goto(`${baseURL}/playwright/event-lineup-live?transport=${encodeURIComponent(transport.url)}`);
+  await page.getByRole("button",{name:"Play Lineup live"}).click();
+  await expect.poll(()=>page.locator("video").evaluate(v=>(v as HTMLVideoElement).currentTime)).toBeGreaterThan(1);
+  await page.getByRole("button",{name:"Pause",exact:true}).click();
+  await page.evaluate(()=>Object.assign(window,{holdResume:true}));
+  await page.getByRole("button",{name:"Play",exact:true}).click();
+  await page.waitForFunction(()=>"finishViewerResume" in window);
+  await page.getByRole("button",{name:"swap-source",exact:true}).click();
+  await expect(page.locator("video")).toHaveCount(0);
+  await page.evaluate(()=>(window as unknown as {finishViewerResume:()=>void}).finishViewerResume());
+  await page.waitForTimeout(1200);
+  await expect(page.getByRole("button",{name:"Play",exact:true})).toBeVisible();
+  expect((await(await fetch(`${transport.url}/stats`)).json()).opened).toBe(1);
+  await page.getByRole("button",{name:"Play",exact:true}).click();
+  await expect.poll(()=>page.locator("video").evaluate(v=>(v as HTMLVideoElement).currentTime)).toBeGreaterThan(1);
+  expect((await(await fetch(`${transport.url}/stats`)).json()).opened).toBe(2);
+ }finally{try{await browser.close();}finally{await transport.close();}}
+});

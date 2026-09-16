@@ -44,8 +44,10 @@ subtracted. Current playback retains its slot identity across schedule boundarie
 A healthy source is never cut off because its posted end has passed.
 
 Only the immediate next slot can be prepared. Missing, freeform and unplayable
-slots are barriers. Out-of-order or simultaneous-start schedules do not automatically
-advance. Eligibility is the later of current end and next start, minus 120 seconds.
+slots are barriers. Out-of-order or simultaneous starts adjacent to the current or
+candidate slot block that transition, including a candidate with a same-time sibling.
+Ambiguity later in the lineup does not block an earlier unambiguous transition.
+Eligibility is the later of current end and next start, minus 120 seconds.
 Ordered overlaps use that same later boundary for an established current selection.
 Joining during simultaneous active intervals still refuses an ambiguous selection.
 If current end is absent, next start provides the handoff boundary only.
