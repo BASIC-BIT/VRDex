@@ -32,10 +32,12 @@ function ReviewCard({
   row,
   select,
   selected,
+  retain,
 }: {
   row: ReviewRow;
   select: (decision: ReviewDecision) => void;
   selected?: ReviewDecision;
+  retain: (row: ReviewRow, pending: boolean) => void;
 }) {
   const detail = useQuery(api.profileMediaSubmissions.reviewDetail, {
     submissionId: row.submissionId,
@@ -54,6 +56,7 @@ function ReviewCard({
       suppress={suppress}
       select={select}
       selected={selected}
+      onPendingChange={(pending) => retain(row, pending)}
     />
   );
 }
@@ -65,6 +68,7 @@ export function ReviewCardView({
   suppress,
   select,
   selected,
+  onPendingChange,
 }: {
   row: ReviewRow;
   detail: ReviewDetail | null | undefined;
@@ -80,6 +84,7 @@ export function ReviewCardView({
   }) => Promise<{ suppressed: boolean }>;
   select: (decision: ReviewDecision) => void;
   selected?: ReviewDecision;
+  onPendingChange?: (pending: boolean) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [publicDisposition, setPublicDisposition] = useState("");
@@ -88,39 +93,65 @@ export function ReviewCardView({
   const [status, setStatus] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
 
-  async function submit(decision: "approve" | "reject") {
+  const [pending, setPending] = useState<
+    | { kind: "decide"; input: ReviewDecision }
+    | {
+        kind: "rebase";
+        input: {
+          submissionId: string;
+          expectedReviewVersion: string;
+          idempotencyKey: string;
+        };
+      }
+    | null
+  >(null);
+  async function runPending(command: NonNullable<typeof pending>) {
+    if (busy) return;
+    setPending(command);
+    onPendingChange?.(true);
     setBusy(true);
     setStatus(null);
-    setConflict(false);
     try {
-      if (detail === undefined || detail === null) {
-        setStatus("Review detail is unavailable.");
-        return;
-      }
-      const receipt = await decide({
-        submissionId: row.submissionId,
-        expectedReviewVersion: detail.reviewVersion,
-        decision,
-        idempotencyKey: crypto.randomUUID(),
-        publicReason: publicDisposition.trim() || undefined,
-        privateReason,
-      });
-      const result = reviewDecisionMessage(receipt, decision);
-      setStatus(result.message);
-      setConflict(result.conflict);
-    } catch (error) {
-      setStatus(
-        error instanceof Error
-          ? error.message.split("\n")[0]
-          : "Decision failed.",
+      const receipt =
+        command.kind === "decide"
+          ? await decide(command.input)
+          : await rebase(command.input);
+      const result = reviewDecisionMessage(
+        receipt,
+        command.kind === "decide" ? command.input.decision : undefined,
       );
+      setStatus(
+        command.kind === "rebase" && receipt.operationState === "committed"
+          ? "Rebased"
+          : result.message,
+      );
+      setConflict(result.conflict);
+      if (receipt.operationState !== "in_progress") {
+        setPending(null);
+        onPendingChange?.(false);
+      }
+    } catch {
+      setStatus("Outcome unknown");
     } finally {
       setBusy(false);
     }
   }
+  async function submit(decision: "approve" | "reject") {
+    if (!detail || pending || busy) return;
+    const input = reviewDecisionSchema.safeParse({
+      submissionId: row.submissionId,
+      expectedReviewVersion: detail.reviewVersion,
+      decision,
+      idempotencyKey: crypto.randomUUID(),
+      publicReason: publicDisposition.trim() || undefined,
+      privateReason,
+    });
+    if (!input.success) return;
+    await runPending({ kind: "decide", input: input.data });
+  }
 
   function selectDecision(decision: "approve" | "reject") {
-    if (!detail) return;
+    if (!detail || pending || busy) return;
     select({
       submissionId: row.submissionId,
       expectedReviewVersion: detail.reviewVersion,
@@ -131,25 +162,15 @@ export function ReviewCardView({
     });
   }
   async function rebaseCandidate() {
-    if (!detail) return;
-    setBusy(true);
-    try {
-      const receipt = await rebase({
+    if (!detail || pending || busy) return;
+    await runPending({
+      kind: "rebase",
+      input: {
         submissionId: row.submissionId,
         expectedReviewVersion: detail.reviewVersion,
         idempotencyKey: crypto.randomUUID(),
-      });
-      setStatus(
-        receipt.operationState === "committed"
-          ? "Rebased"
-          : reviewDecisionMessage(receipt).message,
-      );
-      setConflict(receipt.operationState !== "committed");
-    } catch {
-      setStatus("Decision refused.");
-    } finally {
-      setBusy(false);
-    }
+      },
+    });
   }
   async function suppressAsset() {
     if (!window.confirm("Suppress media")) return;
@@ -293,6 +314,7 @@ export function ReviewCardView({
           <Field>
             Public rejection reason
             <Textarea
+              disabled={busy || pending !== null}
               maxLength={240}
               onChange={(event) => setPublicDisposition(event.target.value)}
               rows={2}
@@ -302,6 +324,7 @@ export function ReviewCardView({
           <Field>
             Private review reason
             <Textarea
+              disabled={busy || pending !== null}
               maxLength={1000}
               onChange={(event) => setPrivateReason(event.target.value)}
               required
@@ -311,7 +334,7 @@ export function ReviewCardView({
           </Field>
           <div className="flex flex-wrap gap-3">
             <Button
-              disabled={busy || !detail}
+              disabled={busy || pending !== null || !detail}
               onClick={() => void rebaseCandidate()}
               type="button"
               variant="ghost"
@@ -319,7 +342,9 @@ export function ReviewCardView({
               Rebase
             </Button>
             <Button
-              disabled={busy || !detail || !privateReason.trim()}
+              disabled={
+                busy || pending !== null || !detail || !privateReason.trim()
+              }
               onClick={() => selectDecision("approve")}
               type="button"
               variant="ghost"
@@ -329,6 +354,7 @@ export function ReviewCardView({
             <Button
               disabled={
                 busy ||
+                pending !== null ||
                 !detail ||
                 !privateReason.trim() ||
                 !publicDisposition.trim()
@@ -342,6 +368,7 @@ export function ReviewCardView({
             <Button
               disabled={
                 busy ||
+                pending !== null ||
                 detail === undefined ||
                 detail === null ||
                 privateReason.trim() === ""
@@ -355,6 +382,7 @@ export function ReviewCardView({
             <Button
               disabled={
                 busy ||
+                pending !== null ||
                 privateReason.trim() === "" ||
                 publicDisposition.trim() === ""
               }
@@ -368,6 +396,17 @@ export function ReviewCardView({
           {status ? <Notice role="status">{status}</Notice> : null}
         </div>
       ) : null}
+      {pending ? (
+        <div className="mt-4">
+          <Button
+            disabled={busy}
+            onClick={() => void runPending(pending)}
+            type="button"
+          >
+            Retry
+          </Button>
+        </div>
+      ) : null}
     </Card>
   );
 }
@@ -379,6 +418,19 @@ export function MediaReviewPanel({
   const [profileId, setProfileId] = useState("");
   const [batchId, setBatchId] = useState("");
   const [selected, setSelected] = useState<ReviewDecision[]>([]);
+  const [retained, setRetained] = useState<Record<string, ReviewRow>>({});
+  function retain(row: ReviewRow, pending: boolean) {
+    setRetained((previous) => {
+      const next = { ...previous };
+      if (pending) next[row.submissionId] = row;
+      else delete next[row.submissionId];
+      return next;
+    });
+    if (pending)
+      setSelected((previous) =>
+        previous.filter((item) => item.submissionId !== row.submissionId),
+      );
+  }
   const [labels, setLabels] = useState<Record<string, string>>({});
   const [receipts, setReceipts] = useState<
     Array<CommandReceipt & { decision?: "approve" | "reject" }>
@@ -611,12 +663,21 @@ export function MediaReviewPanel({
         }
       />
       <div className="grid gap-4">
-        {submissions.map((row) => (
+        {[
+          ...submissions,
+          ...Object.values(retained).filter(
+            (row) =>
+              !submissions.some(
+                (item) => item.submissionId === row.submissionId,
+              ),
+          ),
+        ].map((row) => (
           <ReviewCard
             key={row.submissionId}
             row={row}
             select={select}
             selected={selected.find((p) => p.submissionId === row.submissionId)}
+            retain={retain}
           />
         ))}
       </div>

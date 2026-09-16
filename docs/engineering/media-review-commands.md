@@ -14,7 +14,12 @@ timestamp. The shared attestation helper allows at most two minutes of age and
 30 seconds of backward clock skew. Missing, negative, stale, or future
 attestations refuse reads and receipt replay even with an active owner/admin
 role. These fields are never part of the client-facing decision schema.
-Own withdrawal does not require review verification.
+Own withdrawal does not require review verification. Hosted adapters also carry
+server-owned token/client/resource identity. Every internal protected read and
+command checks the current token, linked application/client, resource and scope
+pair before resource access or receipt replay. Revocation between selected
+commands stops later commands even within the same HTTP request. Legacy trusted
+internal callers may omit OAuth identity; client-facing tools cannot supply it.
 
 ## Authority and projections
 
@@ -131,8 +136,18 @@ key and input and retrieves the authoritative backend receipt.
 The browser retains failed selections and shows their individual outcomes;
 reselection after inspecting current context creates a deliberate new command.
 
-MCP preview bytes come only from the stored candidate whose SHA-256 matches the
-inspected version. The renderer keeps the 12 MiB input, 16,777,216 pixel, 2,048
+MCP preview accepts optional `target: "candidate" | "current"` (candidate by
+default). Candidate and managed-current previews read the download rendition
+whose SHA-256 is stored, including legacy records with a single rendition. The
+current image follows the effective public image/logo slot, including alternate
+managed placement, legacy fallback and enabled automatic artwork. Its authorized
+storage descriptor binds the inspected version before acquisition, and detail
+is reauthorized after acquisition. Legacy/automatic current artwork uses only
+the server-selected URL/provider snapshot through bounded safe-fetch/cache
+helpers. It never uses contributor provenance or a client-provided URL. Blocked
+redirects and unavailable images return a safe unavailable result. Remote
+URL/provider identity does not prove immutable bytes if upstream changes at the
+same URL. The renderer keeps the 12 MiB input, 16,777,216 pixel, 2,048
 maximum edge, and 4 MiB PNG output bounds. High-entropy images are resized through
 bounded halvings until the raster output fits. Native SVG and donor source-URL
 bytes are never returned. Image delivery records no claim of human examination.
@@ -203,7 +218,7 @@ Both publisher previews reuse the stored-candidate digest/version checks and saf
 PNG rasterizer. The browser route is
 `/api/account/media-contributions/submissions/:id/file?version=:reviewVersion`.
 It derives authority from the browser session on each read and returns no-store
-PNG only. No source URL is fetched by preview. Local Storybook tests use controlled
+PNG only. Candidate preview never fetches donor source URLs. Local Storybook tests use controlled
 commands and synthetic images; they do not establish hosted authentication,
 stored S3 transfer or installed Codex/Claude transport evidence.
 
@@ -214,3 +229,72 @@ ownership or OAuth scopes. Contributor capacity, own requests/status, temporary
 batch allowances, shared accounting, payload expiry and rollout evidence are
 documented in the [collection checkpoint](../testing/contributor-collection-checkpoint.md).
 Intake pause preserves existing review, withdrawal and receipt reads.
+
+## Own lifecycle and recovery
+
+The implemented journey below is local code behavior; hosted enablement and
+authenticated provider/client evidence remain separate rollout gates. Existing
+direct proposal links and account entry points converge on the same commands.
+
+```mermaid
+flowchart TD
+  MCP[MCP client] --> OAuth[OAuth sign in and scoped consent]
+  OAuth --> Intake[Collection or direct local / URL upload]
+  Intake --> Own[Own contribution list and exact lookup]
+  Site[Website account or direct proposal link] --> SignIn[Sign in]
+  SignIn --> Account[/account/media-contributions]
+  Account --> Own
+  Own --> Withdraw[Versioned withdrawal]
+  Own --> Publisher[Separate publisher grant: inspect and declare]
+  Publisher --> Publish[Explicit publish]
+  OAuth --> Assigned[Discover assigned collections]
+  Assigned --> Review[Authorized review queue]
+  SignIn --> ReviewPage[/account/media-review]
+  ReviewPage --> Review
+  Review --> Compare[Current and stored candidate comparison]
+  Compare --> Decision[Versioned decision or explicit rebase]
+  Decision --> Receipt[Durable receipt]
+  Withdraw --> Receipt
+  Publish --> Receipt
+  Receipt --> Own
+  Decision --> Unknown[Response lost: retain exact command]
+  Publish --> Unknown
+  Withdraw --> Unknown
+  Unknown --> Retry[Retry same key and input]
+  Retry --> Receipt
+```
+
+`vrdex_list_my_media_submissions` accepts optional cursor, limit (1-40), status
+and batch ID, retaining the `submissions` field for existing callers and adding
+`continueCursor`/`isDone`. `vrdex_get_my_media_submission` provides exact own
+lookup, with expiry, review version and linked collection/revision/receipt when
+present. Both need `assets:contribute` plus `mcp:read`, without publisher or
+reviewer grants. Projections omit private review notes and only expose approved
+asset IDs when current public field visibility permits it. Batch filtering may
+produce an empty page with a continuation cursor. The website loads additional
+lifecycle pages explicitly.
+
+`vrdex_media_review_assignments` discovers live assigned collections with bounded
+pagination under `assets:review:read` and `mcp:read`. Assignment authority is
+independent of batch intake enablement; intake rollback preserves existing
+review, rebase and authorized receipt reads. Assignment changes append actor,
+reason and grant/revocation state to `contributionReviewerAuditEvents`; older
+internal callers without a reason use `Legacy assignment command`.
+
+New withdrawal callers use `withdrawWithReceipt` or
+`vrdex_media_submission_withdraw` with submission ID, expected review version and
+idempotency key. Own authorization precedes replay; competing review or stale
+state yields a durable refusal. Legacy boolean wrappers remain available.
+Single browser decisions, rebase, withdrawal and publication retain exact pending
+input/key after response loss and expose Retry. Opposing controls stay locked.
+Unresolved single-review cards remain mounted even if the committed item leaves
+the reactive queue. Pending recovery survives reactive updates in the mounted
+page, not a full browser reload.
+
+Upload and collection MCP failures use allowlisted bounded codes and structured
+receipt metadata: `retryable`, `retryCategory`, `nextAction`, and optional bounded
+`retryAfterMs`. Unknown transport/commit outcomes are `in_progress` with
+`retry_same_key`; validation, capacity and stale-state refusals have distinct
+correction, wait or inspection actions. Known backend codes travel as bounded `ConvexError.data.code`; raw backend
+exception text is not returned. Stale or unavailable profile-link targets persist
+a refusal on the exact revision. Terminal receipts remain authoritative on replay.

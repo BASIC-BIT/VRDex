@@ -6,6 +6,29 @@ export const commandReceiptSchema = z.strictObject({
   operationState: z.enum(["committed", "refused", "in_progress"]),
   resourceId: boundedId.optional(),
   code: z.string().min(1).max(80).optional(),
+  retryable: z.boolean().optional(),
+  retryCategory: z
+    .enum([
+      "uncertain",
+      "validation",
+      "capacity",
+      "stale",
+      "authority",
+      "unavailable",
+      "none",
+    ])
+    .optional(),
+  retryAfterMs: z.number().int().min(0).max(86400000).optional(),
+  nextAction: z
+    .enum([
+      "retry_same_key",
+      "correct_input",
+      "inspect_current",
+      "restore_access",
+      "wait_for_capacity",
+      "none",
+    ])
+    .optional(),
 });
 export type CommandReceipt = z.infer<typeof commandReceiptSchema>;
 export type OperationState = CommandReceipt["operationState"];
@@ -25,6 +48,20 @@ export const reviewPageRequestSchema = z.strictObject({
 });
 export type ReviewPageRequest = z.infer<typeof reviewPageRequestSchema>;
 export const reviewSnapshotSchema = z.strictObject({
+  currentImage: z
+    .union([
+      z.strictObject({
+        kind: z.literal("managed"),
+        assetId: boundedId,
+        contentSha256: z.string().max(128).nullable(),
+      }),
+      z.strictObject({
+        kind: z.enum(["legacy", "automatic"]),
+        url: z.string().max(4096),
+      }),
+    ])
+    .nullable()
+    .optional(),
   reviewVersion: z.string().min(1).max(128),
   currentPlacement: z
     .strictObject({
@@ -53,7 +90,9 @@ export const reviewSnapshotSchema = z.strictObject({
 export type ReviewSnapshot = z.infer<typeof reviewSnapshotSchema>;
 
 export const reviewDetailSchema = z.strictObject({
-  publicationMethod: z.enum(["trusted_publisher", "independent_review"]).optional(),
+  publicationMethod: z
+    .enum(["trusted_publisher", "independent_review"])
+    .optional(),
   submissionId: boundedId,
   profileId: boundedId,
   profileSlug: z.string().max(200),
@@ -142,7 +181,9 @@ export const mediaPublicationSchema = reviewRebaseSchema;
 export type MediaPublication = z.infer<typeof mediaPublicationSchema>;
 export const publicationEvidenceSchema = z.strictObject({
   ...mediaPublicationSchema.shape,
-  identityConfirmed: z.boolean(), attributionConfirmed: z.boolean(),
-  publicationPermitted: z.boolean(), noKnownRestrictions: z.boolean(),
+  identityConfirmed: z.boolean(),
+  attributionConfirmed: z.boolean(),
+  publicationPermitted: z.boolean(),
+  noKnownRestrictions: z.boolean(),
 });
 export type PublicationEvidence = z.infer<typeof publicationEvidenceSchema>;

@@ -95,7 +95,7 @@ export function PublicationCardView({
       );
       if (receipt.operationState !== "in_progress") setPending(null);
     } catch {
-      setMessage("Decision failed.");
+      setMessage("Outcome unknown");
     } finally {
       setBusy(false);
     }
@@ -149,9 +149,7 @@ export function PublicationCardView({
         <Button
           type="button"
           disabled={
-            busy ||
-            (pending !== null && pending.kind !== "declare") ||
-            !Object.values(confirmed).every(Boolean)
+            busy || pending !== null || !Object.values(confirmed).every(Boolean)
           }
           onClick={() => void command("declare")}
         >
@@ -159,7 +157,7 @@ export function PublicationCardView({
         </Button>
         <Button
           type="button"
-          disabled={busy || (pending !== null && pending.kind !== "publish")}
+          disabled={busy || pending !== null}
           onClick={() => void command("publish")}
         >
           Publish
@@ -174,6 +172,15 @@ export function PublicationCardView({
         </Button>
       </div>
       {message ? <Notice>{message}</Notice> : null}
+      {pending ? (
+        <Button
+          disabled={busy}
+          type="button"
+          onClick={() => void command(pending.kind)}
+        >
+          Retry
+        </Button>
+      ) : null}
     </div>
   );
 }

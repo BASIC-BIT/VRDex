@@ -24,9 +24,107 @@ process.env.VRDEX_MEDIA_CLEANUP_URL =
 process.env.VRDEX_MEDIA_CLEANUP_TOKEN = "test-only";
 process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED = "true";
 process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "true";
+it("recovers completed upload only with the exact completion key and replays admission result", async () => {
+  const f = await fixture();
+  await f.t.mutation(internal.contributionUploads.claim, f.claimInput);
+  const result = await f.t.mutation(
+    internal.contributionUploads.complete,
+    f.completeInput,
+  );
+  assert.deepEqual(
+    (await f.t.mutation(internal.contributionUploads.claim, f.claimInput))
+      .receipt,
+    result,
+  );
+  const other = await f.t.mutation(internal.contributionUploads.claim, {
+    ...f.claimInput,
+    idempotencyKey: "different",
+  });
+  assert.equal(other.receipt?.operationState, "refused");
+  assert.equal(other.receipt?.code, "UPLOAD_IDEMPOTENCY_CONFLICT");
+  assert.deepEqual(
+    (await f.t.mutation(internal.contributionUploads.begin, f.input)).receipt,
+    result,
+  );
+});
+it("fences transient acquisition reset and releases permanent failure capacity exactly once", async () => {
+  const f = await fixture();
+  await f.t.mutation(internal.contributionUploads.claim, f.claimInput);
+  await f.t.mutation(internal.contributionUploads.retryAcquisition, {
+    intentId: f.begun.intentId,
+    processingToken: "other",
+  });
+  assert.equal(
+    (
+      await f.t.run((ctx) =>
+        ctx.db.query("contributionUploadReservations").first(),
+      )
+    )?.state,
+    "processing",
+  );
+  await f.t.mutation(internal.contributionUploads.retryAcquisition, {
+    intentId: f.begun.intentId,
+    processingToken: "worker",
+  });
+  assert.equal(
+    (
+      await f.t.run((ctx) =>
+        ctx.db.query("contributionUploadReservations").first(),
+      )
+    )?.state,
+    "pending",
+  );
+  await f.t.mutation(internal.contributionUploads.claim, {
+    ...f.claimInput,
+    processingToken: "successor",
+  });
+  await f.t.mutation(internal.contributionUploads.fail, {
+    intentId: f.begun.intentId,
+    processingToken: "worker",
+  });
+  assert.equal(
+    (
+      await f.t.run((ctx) =>
+        ctx.db.query("contributionUploadReservations").first(),
+      )
+    )?.state,
+    "processing",
+  );
+  for (let i = 0; i < 2; i++)
+    await f.t.mutation(internal.contributionUploads.fail, {
+      intentId: f.begun.intentId,
+      processingToken: "successor",
+    });
+  const rows = await f.t.run((ctx) =>
+    ctx.db.query("contributionCapacity").collect(),
+  );
+  assert.ok(rows.every((row) => row.processing === 0));
+  assert.ok(rows.some((row) => row.bytes > 0));
+});
 
-async function fixture(mode: "owner" | "contributor" = "contributor", bytesRead?: number) {
-  const t = convexTest({ schema, modules, transactionLimits: bytesRead === undefined ? false : { bytesRead } });
+it("rechecks current ownership before replaying a completed admission", async () => {
+  const f = await fixture("owner");
+  await f.t.mutation(internal.contributionUploads.claim, f.claimInput);
+  await f.t.mutation(internal.contributionUploads.complete, f.completeInput);
+  await f.t.run(async (ctx) => {
+    const owner = (await ctx.db.query("profileOwners").first())!;
+    await ctx.db.delete(owner._id);
+  });
+  await assert.rejects(
+    f.t.mutation(internal.contributionUploads.begin, f.input),
+    /TARGET_DENIED/,
+  );
+});
+
+async function fixture(
+  mode: "owner" | "contributor" = "contributor",
+  bytesRead?: number,
+) {
+  const t = convexTest({
+    schema,
+    modules,
+    transactionLimits: bytesRead === undefined ? false : { bytesRead },
+  });
   const s = await seed(t);
   if (mode === "owner")
     await t.run(async (ctx) => {
@@ -100,18 +198,36 @@ async function fixture(mode: "owner" | "contributor" = "contributor", bytesRead?
 for (const duplicate of [false, true]) {
   it(`bounds completion reads across deleted history, duplicate=${duplicate}`, async () => {
     const f = await fixture("contributor", 32_000);
-    await f.t.run(async ctx => {
-      for (let i = 0; i < 80; i++) await ctx.db.insert("profileAssets", {
-        profileId: f.s.profileId, storageKey: `history/${i}`, mimeType: "image/png", byteSize: 512,
-        contentSha256: duplicate && i === 79 ? f.completeInput.contentSha256 : `old-${i}`,
-        caption: "x".repeat(1000), visibility: "public", source: "owner_authored",
-        uploadedBy: { issuer: "test", subject: "owner", tokenIdentifier: "test:owner" },
-        uploadedAt: NOW, state: "deleted", deletedAt: NOW, updatedAt: NOW,
-      });
+    await f.t.run(async (ctx) => {
+      for (let i = 0; i < 80; i++)
+        await ctx.db.insert("profileAssets", {
+          profileId: f.s.profileId,
+          storageKey: `history/${i}`,
+          mimeType: "image/png",
+          byteSize: 512,
+          contentSha256:
+            duplicate && i === 79 ? f.completeInput.contentSha256 : `old-${i}`,
+          caption: "x".repeat(1000),
+          visibility: "public",
+          source: "owner_authored",
+          uploadedBy: {
+            issuer: "test",
+            subject: "owner",
+            tokenIdentifier: "test:owner",
+          },
+          uploadedAt: NOW,
+          state: "deleted",
+          deletedAt: NOW,
+          updatedAt: NOW,
+        });
     });
     await f.t.mutation(internal.contributionUploads.claim, f.claimInput);
-    const completion = f.t.mutation(internal.contributionUploads.complete, f.completeInput);
-    if (duplicate) await assert.rejects(completion, /This image already exists/);
+    const completion = f.t.mutation(
+      internal.contributionUploads.complete,
+      f.completeInput,
+    );
+    if (duplicate)
+      await assert.rejects(completion, /This image already exists/);
     else assert.equal((await completion).operationState, "committed");
   });
 }
@@ -320,9 +436,12 @@ it("allows admitted reservations to finish after their capacity ceiling drops", 
     const row = (await ctx.db.query("profileMediaSubmissions").first())!;
     await ctx.db.patch(row._id, { createdAt: Date.now() - 86400000 });
   });
-  const refusal = await f.t.mutation(internal.contributionUploads.begin, {...f.input,idempotencyKey:"next"});
-  assert.equal(refusal.receipt?.operationState,"refused");
-  assert.equal(refusal.receipt?.code,"CONTRIBUTION_ACTOR_BYTES");
+  const refusal = await f.t.mutation(internal.contributionUploads.begin, {
+    ...f.input,
+    idempotencyKey: "next",
+  });
+  assert.equal(refusal.receipt?.operationState, "refused");
+  assert.equal(refusal.receipt?.code, "CONTRIBUTION_ACTOR_BYTES");
 });
 
 it("reserves quarantine and source plus both bounded derivatives", () => {

@@ -50,9 +50,23 @@ export function reviewPlacementImage(input: {
   profileSlug: string;
   profileIsPublic: boolean;
   currentPlacement: { assetId: string } | null;
+  currentImage?:
+    | { kind: "managed"; assetId: string }
+    | { kind: "legacy" | "automatic"; url: string }
+    | null;
   currentAvatarImageUrl: string | null;
   currentAutomaticImageUrl: string | null;
 }) {
+  if (
+    input.currentImage?.kind === "legacy" ||
+    input.currentImage?.kind === "automatic"
+  )
+    return input.currentImage.url;
+  if (input.currentImage?.kind === "managed")
+    return input.profileIsPublic
+      ? `/api/v0/profiles/${encodeURIComponent(input.profileSlug)}/assets/${input.currentImage.assetId}/file`
+      : `/api/account/media-kit/${input.profileId}/assets/${input.currentImage.assetId}/file`;
+  if (input.currentImage === null) return null;
   if (input.currentPlacement === null) {
     return input.currentAvatarImageUrl ?? input.currentAutomaticImageUrl;
   }

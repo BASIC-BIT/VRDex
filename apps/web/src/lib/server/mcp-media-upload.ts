@@ -1,4 +1,20 @@
 import { randomUUID } from "node:crypto";
+
+function permanentAcquisitionFailure(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  return (
+    error.message === "UPLOAD_SOURCE_MISMATCH" ||
+    /^Profile media assets must (?:be|include) /.test(error.message) ||
+    /^Profile media asset imports must (?:use|not include) /.test(
+      error.message,
+    ) ||
+    /^Source URL (?:redirected|returned an invalid Content-Length)/.test(
+      error.message,
+    ) ||
+    (/^Source URL returned HTTP 4\d\d\.$/.test(error.message) &&
+      !/^Source URL returned HTTP (?:408|429)\.$/.test(error.message))
+  );
+}
 import {
   localUploadRequestSchema,
   localUploadCompleteSchema,
@@ -80,23 +96,24 @@ export function createMcpMediaUploadHandlers(deps: LocalUploadDependencies) {
           operationState: "in_progress" as const,
           code: "CONTRIBUTION_HOST_RATE",
         };
-      const source = await (deps.fetchSource ?? fetchProfileAssetSourceUrl)(
-        request.sourceUrl,
+      return handlers.complete(
+        { intentId: admitted.intentId, idempotencyKey: request.idempotencyKey },
+        async () => {
+          const source = await (deps.fetchSource ?? fetchProfileAssetSourceUrl)(
+            request.sourceUrl!,
+          );
+          assertLocalUploadCandidate(
+            { body: source.body, contentType: source.mimeType },
+            request,
+          );
+          await (deps.put ?? putProfileAssetObject)({
+            storageKey: admitted.quarantineStorageKey,
+            body: source.body,
+            contentType: source.mimeType,
+            cacheControl: "private, no-store",
+          });
+        },
       );
-      assertLocalUploadCandidate(
-        { body: source.body, contentType: source.mimeType },
-        request,
-      );
-      await (deps.put ?? putProfileAssetObject)({
-        storageKey: admitted.quarantineStorageKey,
-        body: source.body,
-        contentType: source.mimeType,
-        cacheControl: "private, no-store",
-      });
-      return handlers.complete({
-        intentId: admitted.intentId,
-        idempotencyKey: request.idempotencyKey,
-      });
     },
     async begin(input: unknown) {
       const request = localUploadRequestSchema.parse(input);
@@ -129,7 +146,7 @@ export function createMcpMediaUploadHandlers(deps: LocalUploadDependencies) {
         },
       });
     },
-    async complete(input: unknown) {
+    async complete(input: unknown, acquire?: () => Promise<void>) {
       const request = localUploadCompleteSchema.parse(input);
       const intentId = request.intentId as Id<"profileAssetUploadIntents">;
       const processingToken = randomUUID();
@@ -141,7 +158,10 @@ export function createMcpMediaUploadHandlers(deps: LocalUploadDependencies) {
       });
       if ("receipt" in claim) return commandReceiptSchema.parse(claim.receipt);
       let committing = false;
+      let acquiring = !!acquire;
       try {
+        if (acquire) await acquire();
+        acquiring = false;
         // One read, bound to the digest supplied before the transfer capability existed.
         const candidate = assertLocalUploadCandidate(
           await (deps.read ?? getProfileAssetObject)(
@@ -205,7 +225,16 @@ export function createMcpMediaUploadHandlers(deps: LocalUploadDependencies) {
             downloadContentSha256: prepared.download.contentSha256,
           }),
         );
-      } catch {
+      } catch (error) {
+        if (acquiring && !permanentAcquisitionFailure(error)) {
+          await admin()
+            .mutation(internal.contributionUploads.retryAcquisition, {
+              intentId,
+              processingToken,
+            })
+            .catch(() => null);
+          throw new Error("UPLOAD_ACQUISITION_RETRY");
+        }
         // Transactional failure preserves an already-committed receipt. If it wins
         // against an in-flight commit, that commit observes the refusal receipt.
         // Release concurrency while keeping partial writes charged until deletion.

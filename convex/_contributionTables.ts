@@ -11,6 +11,15 @@ const receipt = v.object({
   code: v.optional(v.string()),
 });
 export const contributionTables = {
+  contributionReviewerAuditEvents: defineTable({
+    batchId: v.id("contributionBatches"),
+    reviewerUserId: v.id("users"),
+    actorUserId: v.id("users"),
+    active: v.boolean(),
+    expiresAt: v.number(),
+    reason: v.string(),
+    createdAt: v.number(),
+  }).index("by_batch_createdAt", ["batchId", "createdAt"]),
   contributionAdmissionRefusals: defineTable({
     actorUserId: v.id("users"),
     clientId: v.string(),
@@ -82,6 +91,13 @@ export const contributionTables = {
     .index("by_batch_key", ["batchId", "itemKey"])
     .index("by_actor", ["actorUserId"]),
   contributionItemRevisions: defineTable({
+    kind: v.optional(
+      v.union(
+        v.literal("media"),
+        v.literal("profile_create"),
+        v.literal("profile_links"),
+      ),
+    ),
     actorUserId: v.id("users"),
     batchId: v.id("contributionBatches"),
     itemKey: v.string(),

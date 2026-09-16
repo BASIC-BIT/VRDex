@@ -78,3 +78,43 @@ test("trusted publication keeps declarations and publish separate @storybook-vis
     page.getByRole("button", { name: "Inspect", exact: true }),
   ).toBeVisible();
 });
+
+test("publication retains committed command after response loss @storybook-visual", async ({
+  page,
+}, testInfo) => {
+  await prepareStorybookVisualPage(page);
+  const candidate = await sharp({
+    create: { width: 320, height: 320, channels: 3, background: "#173e35" },
+  })
+    .png()
+    .toBuffer();
+  await page.route(
+    "**/api/account/media-contributions/submissions/fixture/file?version=*",
+    (route) => route.fulfill({ contentType: "image/png", body: candidate }),
+  );
+  await gotoComponentStory(page, "account-trusted-publication--uncertain");
+  await expect(
+    page.getByRole("img", { name: "Candidate", exact: true }),
+  ).toHaveJSProperty("naturalWidth", 320);
+  await page.getByRole("button", { name: "Publish", exact: true }).click();
+  await expect(
+    page.getByText("Outcome unknown", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByLabel("Identity confirmed")).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "Publish", exact: true }),
+  ).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "Confirm evidence", exact: true }),
+  ).toBeDisabled();
+  await captureStorybookScreenshot(
+    page,
+    testInfo,
+    "publication-outcome-unknown",
+  );
+  await page.getByRole("button", { name: "Retry", exact: true }).click();
+  await expect(page.getByText("Published", { exact: true })).toBeVisible();
+  const calls = JSON.parse((await page.getByTestId("commands").textContent())!);
+  expect(calls).toHaveLength(2);
+  expect(calls[1]).toEqual(calls[0]);
+});

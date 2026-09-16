@@ -117,8 +117,10 @@ import { decideSelectedReviews } from "@vrdex/api-contracts";
 import { MediaReviewPanel } from "../app/account/media-review/media-review-panel";
 function ProductionPanelFixture({
   failFirst = false,
+  loseResponse = false,
 }: {
   failFirst?: boolean;
+  loseResponse?: boolean;
 }) {
   const [calls, setCalls] = useState<unknown[]>([]);
   const [runner] = useState(() => {
@@ -133,6 +135,9 @@ function ProductionPanelFixture({
   });
   const [client] = useState(() => {
     const value = new ConvexReactClient("http://127.0.0.1:3210");
+    const listeners = new Set<() => void>();
+    let removed = false;
+    let responseLost = loseResponse;
     const detail = {
       ...row,
       targetProfileUpdatedAt: 2,
@@ -140,11 +145,20 @@ function ProductionPanelFixture({
       currentPlacement: null,
       currentAvatarImageUrl: null,
       currentAutomaticImageUrl: null,
-      candidate: { rendition: null, credit: row.credit, contentSha256: null },
+      candidate: {
+        rendition: { submissionId: "fixture", kind: "stored_candidate" },
+        credit: row.credit,
+        contentSha256: null,
+      },
     };
     Object.defineProperty(value, "watchQuery", {
       value: (query: FunctionReference<"query">) => ({
-        onUpdate: () => () => {},
+        onUpdate: (listener: () => void) => {
+          listeners.add(listener);
+          return () => {
+            listeners.delete(listener);
+          };
+        },
         localQueryResult: () => {
           const name = getFunctionName(query);
           if (name.endsWith(":getReviewAccess"))
@@ -161,7 +175,11 @@ function ProductionPanelFixture({
               ],
             };
           if (name.endsWith(":reviewDetail")) return detail;
-          return { page: [row], isDone: true, continueCursor: "" };
+          return {
+            page: removed ? [] : [row],
+            isDone: true,
+            continueCursor: "",
+          };
         },
         localQueryLogs: () => [],
         journal: () => undefined,
@@ -170,6 +188,14 @@ function ProductionPanelFixture({
     Object.defineProperty(value, "mutation", {
       value: async (_mutation: unknown, args: unknown) => {
         setCalls((previous) => [...previous, args]);
+        if (responseLost) {
+          responseLost = false;
+          if ((args as { decision?: string }).decision) {
+            removed = true;
+            listeners.forEach((listener) => listener());
+          }
+          throw new Error("Response lost after commit");
+        }
         return {
           operationId: "fixture-commit",
           resourceId: row.submissionId,
@@ -183,7 +209,9 @@ function ProductionPanelFixture({
     <ConvexProvider client={client}>
       <div className="mx-auto max-w-5xl p-4">
         <MediaReviewPanel runSelected={runner} />
-        <output data-testid="panel-mutations">{JSON.stringify(calls)}</output>
+        <output className="block break-all" data-testid="panel-mutations">
+          {JSON.stringify(calls)}
+        </output>
       </div>
     </ConvexProvider>
   );
@@ -194,3 +222,52 @@ export const ProductionWhitespace: Story = {
 export const ProductionFailure: Story = {
   render: () => <ProductionPanelFixture failFirst />,
 };
+export const ProductionUncertain: Story = {
+  render: () => <ProductionPanelFixture loseResponse />,
+};
+
+import { MediaContributionsPanel } from "../app/account/media-contributions/media-contributions-panel";
+function OwnInventoryFixture() {
+  const [client] = useState(() => {
+    const value = new ConvexReactClient("http://127.0.0.1:3210");
+    Object.defineProperty(value, "watchQuery", {
+      value: (
+        query: FunctionReference<"query">,
+        args: { paginationOpts?: { cursor: string | null } },
+      ) => ({
+        onUpdate: () => () => {},
+        localQueryLogs: () => [],
+        journal: () => undefined,
+        localQueryResult: () => {
+          if (getFunctionName(query).endsWith(":getReviewAccess"))
+            return { canPublishMedia: false };
+          const older = args.paginationOpts?.cursor === "older";
+          return {
+            page: Array.from({ length: older ? 1 : 20 }, (_, index) => ({
+              ...row,
+              submissionId: older ? "older" : `recent-${index}`,
+              profileDisplayName: older
+                ? "Older photographer"
+                : `Recent photographer ${index}`,
+              status: "rejected",
+              reviewVersion: "v1",
+              publisherTargetAvailable: false,
+              publicDisposition: older ? "Older decision" : undefined,
+            })),
+            isDone: older,
+            continueCursor: older ? "" : "older",
+          };
+        },
+      }),
+    });
+    return value;
+  });
+  return (
+    <ConvexProvider client={client}>
+      <div className="mx-auto max-w-5xl p-4">
+        <MediaContributionsPanel />
+      </div>
+    </ConvexProvider>
+  );
+}
+export const OwnInventory: Story = { render: () => <OwnInventoryFixture /> };

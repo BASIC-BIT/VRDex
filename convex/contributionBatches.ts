@@ -1,3 +1,4 @@
+import { canReadProfile } from "./_profilePermissions";
 import {
   effectiveContributionPolicy,
   batchAllowance,
@@ -8,7 +9,7 @@ import {
   trustedReviewActor,
 } from "./_mediaReview";
 import { readScopedCursor, writeScopedCursor } from "./_reviewCursor";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import {
   internalMutation,
   internalQuery,
@@ -84,14 +85,14 @@ export async function requireContributionBatch(
 ) {
   const token = await authorizeContribution(ctx, args, write);
   const row = await ctx.db.get(args.batchId);
-  if (!row) throw new Error("BATCH_UNAVAILABLE");
+  if (!row) throw new ConvexError({ code: "BATCH_UNAVAILABLE" });
   if (row.actorUserId !== args.actorUserId) {
     if (
       write ||
       !token.scopes.includes("assets:review:read") ||
       !(await activeBatchAssignment(ctx, row._id, args.actorUserId))
     )
-      throw new Error("BATCH_UNAVAILABLE");
+      throw new ConvexError({ code: "BATCH_UNAVAILABLE" });
   }
   return row;
 }
@@ -100,14 +101,14 @@ async function item(
   batchId: Id<"contributionBatches">,
   key: string,
 ) {
-  if (!key || key.length > 128) throw new Error("BATCH_INPUT_INVALID");
+  if (!key || key.length > 128) throw new ConvexError({ code: "BATCH_INPUT_INVALID" });
   const row = await ctx.db
     .query("contributionItems")
     .withIndex("by_batch_key", (q) =>
       q.eq("batchId", batchId).eq("itemKey", key),
     )
     .unique();
-  if (!row) throw new Error("BATCH_ITEM_UNAVAILABLE");
+  if (!row) throw new ConvexError({ code: "BATCH_ITEM_UNAVAILABLE" });
   return row;
 }
 function normalize(raw: unknown) {
@@ -124,7 +125,7 @@ function normalize(raw: unknown) {
   const payload = JSON.stringify(input),
     bytes = new TextEncoder().encode(payload).length;
   if (bytes > MANIFEST_LIMITS.revisionBytes)
-    throw new Error("BATCH_METADATA_LIMIT");
+    throw new ConvexError({ code: "BATCH_METADATA_LIMIT" });
   return { input, payload, bytes };
 }
 async function charge(
@@ -153,9 +154,10 @@ async function charge(
   if (
     allowance &&
     rows > 0 &&
-    (batchRowCount ?? (await ctx.db.get(batchId!))?.rowCount ?? 0) + rows > allowance.rows!
+    (batchRowCount ?? (await ctx.db.get(batchId!))?.rowCount ?? 0) + rows >
+      allowance.rows!
   )
-    throw new Error("BATCH_ALLOWANCE_ROWS");
+    throw new ConvexError({ code: "BATCH_ALLOWANCE_ROWS" });
   if (
     (rows > 0 &&
       next.activeRows > limits.activeRows + (allowance?.rows ?? 0)) ||
@@ -164,9 +166,9 @@ async function charge(
       next.retainedBytes >
         limits.retainedRevisions * MANIFEST_LIMITS.revisionBytes)
   )
-    throw new Error("BATCH_CAPACITY_EXCEEDED");
+    throw new ConvexError({ code: "BATCH_CAPACITY_EXCEEDED" });
   if (Object.values(next).some((n) => !Number.isSafeInteger(n) || n < 0))
-    throw new Error("BATCH_ACCOUNTING_INVALID");
+    throw new ConvexError({ code: "BATCH_ACCOUNTING_INVALID" });
   if (old) await ctx.db.patch(old._id, next);
   else
     await ctx.db.insert("contributionManifestUsage", { actorUserId, ...next });
@@ -189,7 +191,8 @@ async function terminal(
   if (old.submissionId) {
     const media = await ctx.db.get(old.submissionId);
     return (
-      !!media && ["approved", "rejected", "withdrawn"].includes(media.status)
+      !!media &&
+      ["approved", "rejected", "withdrawn", "superseded"].includes(media.status)
     );
   }
   return old.receipt.operationState !== "in_progress";
@@ -209,7 +212,7 @@ export const create = internalMutation({
       )
       .unique();
     if (old) {
-      if (old.label !== input.label) throw new Error("BATCH_CONFLICT");
+      if (old.label !== input.label) throw new ConvexError({ code: "BATCH_CONFLICT" });
       return batchView(old);
     }
     const id = await ctx.db.insert("contributionBatches", {
@@ -227,14 +230,14 @@ export const append = internalMutation({
   returns: v.array(itemResult),
   handler: async (ctx, args) => {
     const b = await requireContributionBatch(ctx, args, true);
-    if (b.archived) throw new Error("BATCH_ARCHIVED");
+    if (b.archived) throw new ConvexError({ code: "BATCH_ARCHIVED" });
     if (args.items.length < 1 || args.items.length > 50)
-      throw new Error("BATCH_APPEND_LIMIT");
+      throw new ConvexError({ code: "BATCH_APPEND_LIMIT" });
     const normalized = args.items.map(normalize);
     if (
       new Set(normalized.map((n) => n.input.itemKey)).size !== normalized.length
     )
-      throw new Error("BATCH_CONFLICT");
+      throw new ConvexError({ code: "BATCH_CONFLICT" });
     const result = [];
     for (const n of normalized) {
       await authorizeContribution(
@@ -251,7 +254,7 @@ export const append = internalMutation({
         .unique();
       if (old) {
         const rev = await ctx.db.get(old.revisionId);
-        if (rev?.payload !== n.payload) throw new Error("BATCH_CONFLICT");
+        if (rev?.payload !== n.payload) throw new ConvexError({ code: "BATCH_CONFLICT" });
         result.push({ itemKey: old.itemKey, revision: old.revision });
         continue;
       }
@@ -262,6 +265,7 @@ export const append = internalMutation({
         itemKey: n.input.itemKey,
         revision: 1,
         payload: n.payload,
+        kind: n.input.kind,
         bytes: n.bytes,
         createdAt: Date.now(),
       });
@@ -316,7 +320,7 @@ export const items = internalQuery({
       args.limit > 40 ||
       (args.cursor?.length ?? 0) > 4096
     )
-      throw new Error("BATCH_PAGE_INVALID");
+      throw new ConvexError({ code: "BATCH_PAGE_INVALID" });
     const page = await ctx.db
       .query("contributionItems")
       .withIndex("by_batch_key", (q) => q.eq("batchId", args.batchId))
@@ -390,7 +394,7 @@ export const revise = internalMutation({
   returns: itemResult,
   handler: async (ctx, args) => {
     const b = await requireContributionBatch(ctx, args, true);
-    if (b.archived) throw new Error("BATCH_ARCHIVED");
+    if (b.archived) throw new ConvexError({ code: "BATCH_ARCHIVED" });
     const row = await item(ctx, b._id, args.itemKey),
       n = normalize(args.item);
     if (
@@ -398,31 +402,31 @@ export const revise = internalMutation({
       args.expectedRevision < 1 ||
       args.expectedRevision > 5
     )
-      throw new Error("BATCH_REVISION_INVALID");
+      throw new ConvexError({ code: "BATCH_REVISION_INVALID" });
     await authorizeContribution(
       ctx,
       args,
       true,
       n.input.kind === "media" ? "assets:contribute" : "profile:contribute",
     );
-    if (n.input.itemKey !== row.itemKey) throw new Error("BATCH_CONFLICT");
+    if (n.input.itemKey !== row.itemKey) throw new ConvexError({ code: "BATCH_CONFLICT" });
     if (
       row.revision === args.expectedRevision + 1 &&
       (await ctx.db.get(row.revisionId))?.payload === n.payload
     )
       return { itemKey: row.itemKey, revision: row.revision };
     if (row.revision !== args.expectedRevision)
-      throw new Error("BATCH_REVISION_CHANGED");
-    if (row.revision >= 5) throw new Error("BATCH_REVISION_LIMIT");
+      throw new ConvexError({ code: "BATCH_REVISION_CHANGED" });
+    if (row.revision >= 5) throw new ConvexError({ code: "BATCH_REVISION_LIMIT" });
     if (!(await terminal(ctx, await attempt(ctx, row.revisionId))))
-      throw new Error("BATCH_ATTEMPT_NOT_TERMINAL");
+      throw new ConvexError({ code: "BATCH_ATTEMPT_NOT_TERMINAL" });
     const old = contributionItemInputSchema.parse(
       JSON.parse((await ctx.db.get(row.revisionId))!.payload),
     );
-    if (old.kind !== n.input.kind) throw new Error("BATCH_KIND_CHANGED");
+    if (old.kind !== n.input.kind) throw new ConvexError({ code: "BATCH_KIND_CHANGED" });
     const prior = await attempt(ctx, row.revisionId);
     if (prior?.profileId && old.kind === "profile_create")
-      throw new Error("BATCH_ALREADY_CREATED");
+      throw new ConvexError({ code: "BATCH_ALREADY_CREATED" });
     await charge(ctx, args.actorUserId, 0, 1, n.bytes);
     const revision = row.revision + 1,
       revisionId = await ctx.db.insert("contributionItemRevisions", {
@@ -431,6 +435,7 @@ export const revise = internalMutation({
         itemKey: row.itemKey,
         revision,
         payload: n.payload,
+        kind: n.input.kind,
         bytes: n.bytes,
         createdAt: Date.now(),
       });
@@ -465,32 +470,43 @@ export const submit = internalMutation({
     const b = await requireContributionBatch(ctx, args, true);
     const row = await item(ctx, b._id, args.itemKey);
     if (row.revision !== args.expectedRevision)
-      throw new Error("BATCH_REVISION_CHANGED");
-    const rev = (await ctx.db.get(row.revisionId))!,
-      input = contributionItemInputSchema.parse(JSON.parse(rev.payload));
+      throw new ConvexError({ code: "BATCH_REVISION_CHANGED" });
+    const rev = (await ctx.db.get(row.revisionId))!;
+    const kind =
+      rev.kind ??
+      (rev.payload
+        ? contributionItemInputSchema.parse(JSON.parse(rev.payload)).kind
+        : undefined);
+    if (!kind) throw new ConvexError({ code: "BATCH_PAYLOAD_EXPIRED" });
     await authorizeContribution(
       ctx,
       args,
       true,
-      input.kind === "media" ? "assets:contribute" : "profile:contribute",
+      kind === "media" ? "assets:contribute" : "profile:contribute",
     );
     const old = await attempt(ctx, rev._id);
     if (old) {
-      if (input.kind === "media" && old.submissionId) {
+      if (kind === "media" && old.submissionId && rev.payload) {
         const media = await ctx.db.get(old.submissionId);
+        const input = contributionItemInputSchema.parse(
+          JSON.parse(rev.payload),
+        );
         if (media?.status === "upload_pending")
           return {
             operationId: String(rev._id),
             operationState: "in_progress" as const,
             code:
-              input.transport === "url"
+              input.kind === "media" && input.transport === "url"
                 ? "URL_UPLOAD_REQUIRED"
                 : "UPLOAD_REQUIRED",
           };
       }
       return old.receipt;
     }
-    if (b.archived) throw new Error("BATCH_ARCHIVED");
+    if (rev.payloadExpiredAt !== undefined)
+      throw new ConvexError({ code: "BATCH_PAYLOAD_EXPIRED" });
+    const input = contributionItemInputSchema.parse(JSON.parse(rev.payload));
+    if (b.archived) throw new ConvexError({ code: "BATCH_ARCHIVED" });
     let code: string | undefined;
     if (input.source.publication !== "public_allowed") code = "SOURCE_PRIVATE";
     if (!safeFields(input)) code = "SOURCE_UNSAFE";
@@ -529,8 +545,9 @@ export const submit = internalMutation({
       if (input.kind === "profile_links") {
         const targetId = ctx.db.normalizeId("profiles", input.profileId),
           profile = targetId ? await ctx.db.get(targetId) : null;
-        if (!profile) throw new Error("BATCH_TARGET_UNAVAILABLE");
-        profileId = (
+        if (!profile || !canReadProfile("public", profile) || profile.claimState !== "unclaimed") code = "BATCH_TARGET_UNAVAILABLE";
+        else if (profile.updatedAt !== input.expectedUpdatedAt) code = "PROFILE_CHANGED";
+        else profileId = (
           await applyContributionLinks(
             ctx,
             profile,
@@ -571,24 +588,24 @@ export async function validateBatchMedia(
   allowArchived = false,
 ) {
   const id = ctx.db.normalizeId("contributionBatches", batchId);
-  if (!id) throw new Error("UPLOAD_BATCH_UNAVAILABLE");
+  if (!id) throw new ConvexError({ code: "UPLOAD_BATCH_UNAVAILABLE" });
   const b = await requireContributionBatch(ctx, { ...args, batchId: id }, true);
-  if (b.archived && !allowArchived) throw new Error("BATCH_ARCHIVED");
+  if (b.archived && !allowArchived) throw new ConvexError({ code: "BATCH_ARCHIVED" });
   await authorizeContribution(ctx, args, true, "assets:contribute");
   const row = await item(ctx, id, itemKey);
   if (row.revision !== expectedRevision)
-    throw new Error("BATCH_REVISION_CHANGED");
+    throw new ConvexError({ code: "BATCH_REVISION_CHANGED" });
   const rev = (await ctx.db.get(row.revisionId))!,
     input = contributionItemInputSchema.parse(JSON.parse(rev.payload));
   if (input.kind !== "media" || input.source.publication !== "public_allowed")
-    throw new Error("UPLOAD_BATCH_UNAVAILABLE");
+    throw new ConvexError({ code: "UPLOAD_BATCH_UNAVAILABLE" });
   let profileId = input.profileId,
     expectedUpdatedAt = input.expectedUpdatedAt;
   if (input.dependsOnItemKey) {
     const dep = await item(ctx, id, input.dependsOnItemKey),
       a = await attempt(ctx, dep.revisionId);
     if (!a?.profileId || a.receipt.operationState !== "committed")
-      throw new Error("BATCH_DEPENDENCY_UNRESOLVED");
+      throw new ConvexError({ code: "BATCH_DEPENDENCY_UNRESOLVED" });
     profileId = a.profileId;
     expectedUpdatedAt = a.profileUpdatedAt;
   }
@@ -606,7 +623,7 @@ export async function linkBatchMedia(
   intentId: Id<"profileAssetUploadIntents">,
   submissionId: Id<"profileMediaSubmissions">,
 ) {
-  if (await attempt(ctx, revisionId)) throw new Error("BATCH_ATTEMPT_EXISTS");
+  if (await attempt(ctx, revisionId)) throw new ConvexError({ code: "BATCH_ATTEMPT_EXISTS" });
   await ctx.db.insert("contributionItemAttempts", {
     actorUserId: args.actorUserId,
     revisionId,
@@ -671,7 +688,7 @@ export const reconcilePage = internalQuery({
   handler: async (ctx, args) => {
     await authorizeContribution(ctx, args, false);
     if ((args.cursor?.length ?? 0) > 4096)
-      throw new Error("BATCH_PAGE_INVALID");
+      throw new ConvexError({ code: "BATCH_PAGE_INVALID" });
     const scope = `reconcile:${args.actorUserId}:${args.kind}`;
     const cursor = readScopedCursor(args.cursor, scope);
     if (args.kind === "batches") {

@@ -33,7 +33,8 @@ const fixture: ReviewDetail = {
     contentSha256: "a".repeat(64),
   },
 };
-function Fixture() {
+function Fixture({ loseResponse = false }: { loseResponse?: boolean }) {
+  const [lost, setLost] = useState(false);
   const [version, setVersion] = useState("v1");
   const [calls, setCalls] = useState<string[]>([]);
   return (
@@ -54,6 +55,12 @@ function Fixture() {
             ...previous,
             JSON.stringify({ command: "publish", ...input }),
           ]);
+          if (loseResponse && !lost) {
+            setLost(true);
+            throw new Error("Lost committed response");
+          }
+          if (loseResponse)
+            return { operationId: "publish", operationState: "committed" };
           return {
             operationId: "publish",
             operationState: "refused",
@@ -74,3 +81,5 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 export const ExplicitCommands: Story = {};
+
+export const Uncertain: Story = { render: () => <Fixture loseResponse /> };

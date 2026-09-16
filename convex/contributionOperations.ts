@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { contributionItemInputSchema } from "../packages/api-contracts/src/contribution-batches";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { getAccountFeatureAccess } from "./_accountFeatures";
 import {
@@ -48,7 +49,17 @@ export const expirePayloads = internalMutation({
         held++;
         continue;
       }
+      let kind = row.kind;
+      if (kind === undefined) {
+        // Corrupt legacy payloads must not poison an entire cleanup page. They
+        // remain fail-closed for replay when no scope metadata can be recovered.
+        try {
+          const parsed = contributionItemInputSchema.safeParse(JSON.parse(row.payload));
+          if (parsed.success) kind = parsed.data.kind;
+        } catch { /* Unrecoverable legacy JSON. */ }
+      }
       await ctx.db.patch(row._id, {
+        kind,
         payload: "",
         bytes: 0,
         payloadExpiredAt: Date.now(),

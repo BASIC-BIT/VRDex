@@ -1,3 +1,4 @@
+import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseWriter, DatabaseReader } from "./_generated/server";
 import { getAccountFeatureAccess } from "./_accountFeatures";
@@ -100,7 +101,7 @@ export async function batchAllowance(
       q.eq("batchId", batchId).eq("state", "approved"),
     )
     .take(2);
-  if (rows.length > 1) throw new Error("CAPACITY_ALLOWANCE_CONFLICT");
+  if (rows.length > 1) throw new ConvexError({ code: "CAPACITY_ALLOWANCE_CONFLICT" });
   const row = rows[0];
   return row?.actorUserId === actor &&
     row.expiresAt !== undefined &&
@@ -124,7 +125,7 @@ export async function assertCapacityNotRevoked(
     .order("desc")
     .first();
   if (grant?.revokedAt !== undefined && grant.revokedAt >= admittedAt)
-    throw new Error("CONTRIBUTION_CAPACITY_REVOKED");
+    throw new ConvexError({ code: "CONTRIBUTION_CAPACITY_REVOKED" });
 }
 export async function changeContributionCharge(
   db: DatabaseWriter,
@@ -140,7 +141,7 @@ export async function changeContributionCharge(
     admit &&
     (await contributionChargeRefusal(db, reservation, bytes, processing))
   )
-    throw new Error("UPLOAD_CAPACITY_EXCEEDED");
+    throw new ConvexError({ code: "UPLOAD_CAPACITY_EXCEEDED" });
   for (const [scope, maxBytes, maxProcessing] of [
     [
       `actor:${reservation.actorUserId}`,
@@ -169,7 +170,7 @@ export async function changeContributionCharge(
       next.processing < 0 ||
       !Number.isSafeInteger(next.bytes)
     )
-      throw new Error("UPLOAD_ACCOUNTING_INVALID");
+      throw new ConvexError({ code: "UPLOAD_ACCOUNTING_INVALID" });
     const byteLimit = Math.min(row?.byteLimit ?? maxBytes, maxBytes);
     const processingLimit = Math.min(
       row?.processingLimit ?? maxProcessing,
@@ -180,7 +181,7 @@ export async function changeContributionCharge(
         (value) => Number.isSafeInteger(value) && value >= 0,
       )
     )
-      throw new Error("UPLOAD_ACCOUNTING_INVALID");
+      throw new ConvexError({ code: "UPLOAD_ACCOUNTING_INVALID" });
     if (row) await db.patch(row._id, next);
     else await db.insert("contributionCapacity", { scope, ...next });
   }
@@ -243,7 +244,7 @@ export async function settleLegacyContribution(
     sizes.byteSize +
     (sizes.sourceByteSize ?? 0) +
     (sizes.downloadByteSize ?? 0);
-  if (bytes > row.chargedBytes) throw new Error("UPLOAD_RESERVATION_EXCEEDED");
+  if (bytes > row.chargedBytes) throw new ConvexError({ code: "UPLOAD_RESERVATION_EXCEEDED" });
   await changeContributionCharge(db, row, bytes - row.chargedBytes, -1);
   await db.patch(row._id, {
     chargedBytes: bytes,

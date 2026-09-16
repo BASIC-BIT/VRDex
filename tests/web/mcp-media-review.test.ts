@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { Readable } from "node:stream";
+import type { IncomingMessage } from "node:http";
+import { fetchProfileAssetSourceUrl } from "../../apps/web/src/lib/server/profile-asset-source-import";
 import { describe, it } from "node:test";
 
 import {
@@ -7,6 +10,50 @@ import {
 } from "../../apps/web/src/lib/server/mcp-media-review";
 
 const version = "a".repeat(64);
+it("current preview checks the selected snapshot before fetch and blocks private redirects without fetching donor URLs", async () => {
+  for (const changed of [false, true]) {
+    const fetched: string[] = [];
+    const handlers = createMcpMediaReviewHandlers(
+      dependencies({
+        query: async (name) =>
+          name === "current"
+            ? {
+                profileDisplayName: "Fixture",
+                reviewVersion: changed ? "changed" : version,
+                sourceKind: "legacy",
+                sourceUrl: "https://current.example/image",
+              }
+            : detail({
+                currentImage: {
+                  kind: "legacy",
+                  url: "https://current.example/image",
+                },
+              }),
+        readRemoteImage: async ({ sourceUrl }) => {
+          const result = await fetchProfileAssetSourceUrl(sourceUrl, {
+            resolveHostname: async () => [{ address: "93.184.216.34" }],
+            requestPinnedSource: async (url) => {
+              fetched.push(url.toString());
+              const response = Readable.from([]) as IncomingMessage;
+              response.statusCode = 302;
+              response.headers = { location: "https://127.0.0.1/private" };
+              return response;
+            },
+          });
+          return { body: result.body, contentType: result.mimeType };
+        },
+      }),
+    );
+    const result = await handlers.preview({
+      submissionId: "submission-1",
+      expectedReviewVersion: version,
+      target: "current",
+    });
+    assert.equal(result.isError, true);
+    assert.deepEqual(fetched, changed ? [] : ["https://current.example/image"]);
+    assert.doesNotMatch(JSON.stringify(result), /127\.0\.0\.1|private/);
+  }
+});
 const candidate = new Uint8Array(
   Buffer.from(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
@@ -69,14 +116,11 @@ function dependencies(
       }
       return detail();
     },
-    mutate: async (name) =>
-      name === "withdraw"
-        ? true
-        : {
-            operationId: "operation-1",
-            operationState: "committed",
-            resourceId: "submission-1",
-          },
+    mutate: async () => ({
+      operationId: "operation-1",
+      operationState: "committed",
+      resourceId: "submission-1",
+    }),
     readStoredObject: async () => ({
       body: candidate,
       contentType: "image/png",
@@ -273,26 +317,149 @@ describe("MCP media review handlers", () => {
       }),
     );
 
-    assert.deepEqual(
-      await handlers.withdraw({ submissionId: "submission-1" }),
-      {
-        structuredContent: { withdrawn: true, submissionId: "submission-1" },
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify(
-              { withdrawn: true, submissionId: "submission-1" },
-              null,
-              2,
-            ),
-          },
-        ],
-      },
-    );
+    const input = {
+      submissionId: "submission-1",
+      expectedReviewVersion: version,
+      idempotencyKey: "withdraw-key",
+    };
+    const result = await handlers.withdraw(input);
+    assert.equal(result.structuredContent?.operationState, "committed");
+    assert.deepEqual(await handlers.withdraw(input), result);
     assert.equal(verified, false);
   });
 });
 import sharp from "sharp";
+import { validateAndPrepareProfileAsset } from "../../apps/web/src/lib/server/profile-asset-validation";
+it("renders distinct current and real prepared candidate renditions without fetching donor URLs", async () => {
+  const prepared = await validateAndPrepareProfileAsset(candidate, "image/png");
+  assert.notEqual(
+    prepared.display.contentSha256,
+    prepared.download.contentSha256,
+  );
+  const current = await sharp({
+    create: { width: 8, height: 8, channels: 3, background: "red" },
+  })
+    .png()
+    .toBuffer();
+  const currentHash = createHash("sha256").update(current).digest("hex");
+  const d = detail({
+    currentImage: {
+      kind: "managed",
+      assetId: "current",
+      contentSha256: currentHash,
+    },
+  });
+  d.candidate.contentSha256 = prepared.download.contentSha256;
+  const handlers = createMcpMediaReviewHandlers(
+    dependencies({
+      query: async (name) =>
+        name === "candidate"
+          ? {
+              storageKey: "download",
+              mimeType: "image/png",
+              profileDisplayName: "Fixture",
+            }
+          : name === "current"
+            ? {
+                storageKey: "current",
+                mimeType: "image/png",
+                profileDisplayName: "Fixture",
+                reviewVersion: version,
+              }
+            : d,
+      readStoredObject: async (key) => ({
+        body: key === "current" ? current : prepared.download.body,
+        contentType: "image/png",
+      }),
+    }),
+  );
+  const a = await handlers.preview({
+    submissionId: "submission-1",
+    expectedReviewVersion: version,
+  });
+  const b = await handlers.preview({
+    submissionId: "submission-1",
+    expectedReviewVersion: version,
+    target: "current",
+  });
+  assert.equal(a.content[0]?.type, "image");
+  assert.equal(b.content[0]?.type, "image");
+  assert.notDeepEqual(a.content, b.content);
+});
+it("bounds remote current previews to server-selected artwork and refuses changed or unavailable snapshots", async () => {
+  for (const kind of ["legacy", "automatic"] as const) {
+    const d = detail({
+      currentImage: {
+        kind,
+        url:
+          kind === "legacy"
+            ? "https://current.example/image"
+            : "/api/profile-link-artwork/group?v=1",
+      },
+    });
+    const seen: string[] = [];
+    let details = 0;
+    for (const outcome of ["ok", "changed", "blocked"]) {
+      details = 0;
+      const h = createMcpMediaReviewHandlers(
+        dependencies({
+          query: async (name) =>
+            name === "current"
+              ? {
+                  profileDisplayName: "Fixture",
+                  reviewVersion: version,
+                  sourceKind: kind,
+                  sourceUrl: "https://current.example/image",
+                  ...(kind === "automatic"
+                    ? { artworkKey: "group", artworkKind: "vrchat_group" }
+                    : {}),
+                }
+              : {
+                  ...d,
+                  reviewVersion:
+                    ++details > 1 && outcome === "changed"
+                      ? "changed"
+                      : version,
+                },
+          readRemoteImage: async (input) => {
+            seen.push(input.sourceUrl);
+            if (outcome === "blocked") throw Error("private redirect details");
+            return { body: candidate, contentType: "image/png" };
+          },
+          readStoredObject: async () => {
+            throw Error("unexpected stored fetch");
+          },
+        }),
+      );
+      const result = await h.preview({
+        submissionId: "submission-1",
+        expectedReviewVersion: version,
+        target: "current",
+      });
+      assert.equal(result.isError, outcome === "ok" ? undefined : true);
+      assert.doesNotMatch(JSON.stringify(result), /private redirect details/);
+    }
+    assert.deepEqual(seen, Array(3).fill("https://current.example/image"));
+    const absent = createMcpMediaReviewHandlers(
+      dependencies({
+        query: async () => detail({ currentImage: null }),
+        readRemoteImage: async () => {
+          throw Error("must not fetch");
+        },
+      }),
+    );
+    assert.equal(
+      (
+        await absent.preview({
+          submissionId: "submission-1",
+          expectedReviewVersion: version,
+          target: "current",
+        })
+      ).isError,
+      true,
+    );
+  }
+});
 import { randomBytes, createHash } from "node:crypto";
 it("adapts a high-entropy 2048-square stored JPEG to bounded PNG", async () => {
   const jpeg = await sharp(randomBytes(2048 * 2048 * 3), {
@@ -375,17 +542,51 @@ it("selected decisions transact separately, preserve order and snapshot only exp
 
 it("declares evidence and publishes only through separate explicit commands", async () => {
   const mutations: Array<{ name: string; args: Record<string, unknown> }> = [];
-  const handlers = createMcpMediaReviewHandlers(dependencies({ mutate: async (name, args) => {
-    mutations.push({ name, args }); return { operationId: "receipt", operationState: "committed" };
-  } }));
+  const handlers = createMcpMediaReviewHandlers(
+    dependencies({
+      mutate: async (name, args) => {
+        mutations.push({ name, args });
+        return { operationId: "receipt", operationState: "committed" };
+      },
+    }),
+  );
   await handlers.get({ submissionId: "submission-1" });
-  await handlers.preview({ submissionId: "submission-1", expectedReviewVersion: version });
+  await handlers.preview({
+    submissionId: "submission-1",
+    expectedReviewVersion: version,
+  });
   assert.equal(mutations.length, 0);
-  await assert.rejects(handlers.declare({ submissionId: "submission-1", expectedReviewVersion: version, idempotencyKey: "declaration" }));
-  await handlers.declare({ submissionId: "submission-1", expectedReviewVersion: version, idempotencyKey: "declaration",
-    identityConfirmed: true, attributionConfirmed: true, publicationPermitted: true, noKnownRestrictions: true });
-  assert.equal(mutations[0]?.name, "declare"); assert.equal(mutations.length, 1);
-  await handlers.publish({ submissionId: "submission-1", expectedReviewVersion: version, idempotencyKey: "publication" });
-  assert.equal(mutations[1]?.name, "publish"); assert.equal(mutations[1]?.args.actorUserId, "user-1");
-  await assert.rejects(handlers.publish({ submissionId: "submission-1", expectedReviewVersion: version, idempotencyKey: "publication", actorUserId: "other" }));
+  await assert.rejects(
+    handlers.declare({
+      submissionId: "submission-1",
+      expectedReviewVersion: version,
+      idempotencyKey: "declaration",
+    }),
+  );
+  await handlers.declare({
+    submissionId: "submission-1",
+    expectedReviewVersion: version,
+    idempotencyKey: "declaration",
+    identityConfirmed: true,
+    attributionConfirmed: true,
+    publicationPermitted: true,
+    noKnownRestrictions: true,
+  });
+  assert.equal(mutations[0]?.name, "declare");
+  assert.equal(mutations.length, 1);
+  await handlers.publish({
+    submissionId: "submission-1",
+    expectedReviewVersion: version,
+    idempotencyKey: "publication",
+  });
+  assert.equal(mutations[1]?.name, "publish");
+  assert.equal(mutations[1]?.args.actorUserId, "user-1");
+  await assert.rejects(
+    handlers.publish({
+      submissionId: "submission-1",
+      expectedReviewVersion: version,
+      idempotencyKey: "publication",
+      actorUserId: "other",
+    }),
+  );
 });

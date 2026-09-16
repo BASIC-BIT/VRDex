@@ -12,8 +12,82 @@ function runMcpProbe(script: string) {
     },
   });
 }
+it("registered upload tools preserve actionable uncertainty, validation, capacity and stale state without secrets", () => {
+  const output = runMcpProbe(`
+    import assert from "node:assert/strict";
+    import { ConvexError } from "convex/values";
+    import {createVrdexMcpHandler} from "./apps/web/src/lib/server/vrdex-mcp.ts";
+    let failure="UPLOAD_COMPLETION_UNCERTAIN";
+    const handler=createVrdexMcpHandler({verifyContributorEmail:async()=>true,adminConvex:{mutation:async()=>{throw new ConvexError({code:failure})},query:async()=>null}});
+    const authInfo={token:"test",clientId:"client",scopes:["mcp:read","mcp:write","assets:contribute"],resource:new URL("https://app.example.test/mcp"),extra:{subjectType:"user",userId:"user",tokenId:"token",requestId:"request"}};
+    async function call(code){failure=code;const response=await handler.fetch(new Request("https://app.example.test/mcp",{method:"POST",headers:{accept:"application/json, text/event-stream","content-type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:1,method:"tools/call",params:{name:"vrdex_media_upload_complete",arguments:{intentId:"intent",idempotencyKey:"same"}}})}),{authInfo});const text=await response.text();const result=JSON.parse(text.split(/\\r?\\n/).find(l=>l.startsWith("data: "))?.slice(6)??text);return result.result;}
+    const uncertain=await call("UPLOAD_COMPLETION_UNCERTAIN");assert.equal(uncertain.structuredContent.operationState,"in_progress");assert.equal(uncertain.structuredContent.nextAction,"retry_same_key");
+    const validation=await call("UPLOAD_VALIDATION_FAILED");assert.equal(validation.structuredContent.operationState,"refused");assert.equal(validation.structuredContent.nextAction,"correct_input");
+    const capacity=await call("CONTRIBUTION_ACTOR_OPEN_LIMIT");assert.equal(capacity.structuredContent.retryCategory,"capacity");
+    const stale=await call("UPLOAD_TARGET_CHANGED");assert.equal(stale.structuredContent.nextAction,"inspect_current");
+    const unknown=await call("private secret https://host/?token=secret");assert.equal(unknown.structuredContent.operationState,"in_progress");assert.doesNotMatch(JSON.stringify(unknown),/private|secret|host/);
+    assert.deepEqual(await call("UPLOAD_COMPLETION_UNCERTAIN"),uncertain);
+    await handler.close();console.log("structured outcomes passed");
+  `);
+  assert.match(output, /structured outcomes passed/);
+});
+it("registered selected review stops at live backend OAuth revocation and denies receipt replay", () => {
+  const output = runMcpProbe(`
+ import assert from "node:assert/strict";
+ import {convexTest} from "convex-test";
+ import {getFunctionName} from "convex/server";
+ import {schema,modules,seed,createAndUpload} from "./tests/backend/_mediaReviewFixture.ts";
+ import {internal} from "./convex/_generated/api.js";
+ import {createVrdexMcpHandler} from "./apps/web/src/lib/server/vrdex-mcp.ts";
+ process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED="true";process.env.VRDEX_PROFILE_MEDIA_DIRECT_UPLOAD_ENABLED="true";process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED="true";
+ const t=convexTest({schema,modules}),s=await seed(t);const {intent}=await createAndUpload(t,s);
+ const second=await t.run(async ctx=>{const {_id,_creationTime,...row}=await ctx.db.get(intent.submissionId);return ctx.db.insert("profileMediaSubmissions",{...row,uploadIntentId:undefined});});
+ const token=await t.run(ctx=>ctx.db.insert("oauthAccessTokens",{tokenId:"review",clientId:"client",userId:s.moderatorUserId,subjectType:"user",resource:"https://app.example.test/mcp",scopes:["mcp:read","mcp:write","assets:review:read","assets:review:write"],status:"active",issuedAt:Date.now(),expiresAt:Date.now()+600000}));
+ const authority={actorUserId:s.moderatorUserId,emailVerified:true,emailVerificationAttestedAt:Date.now(),oauthTokenId:"review",oauthClientId:"client",oauthResource:"https://app.example.test/mcp"};
+ const decisions=[];for(const submissionId of [intent.submissionId,second]){const d=await t.query(internal.profileMediaSubmissions.reviewDetailForMcpActor,{...authority,submissionId});decisions.push({submissionId,expectedReviewVersion:d.reviewVersion,decision:"reject",privateReason:"Examined",publicReason:"Declined",idempotencyKey:String(submissionId)});}
+ let writes=0;const handler=createVrdexMcpHandler({verifyContributorEmail:async()=>true,adminConvex:{query:(ref,args)=>t.query(ref,args),mutation:async(ref,args)=>{const result=await t.mutation(ref,args);if(getFunctionName(ref)==="profileMediaSubmissions:decideForMcpActor"&&++writes===1)await t.run(ctx=>ctx.db.patch(token,{status:"revoked"}));return result;}}});
+ const authInfo={token:"test",clientId:"client",scopes:["mcp:read","mcp:write","assets:review:read","assets:review:write"],resource:new URL("https://app.example.test/mcp"),extra:{subjectType:"user",userId:s.moderatorUserId,tokenId:"review",requestId:"request"}};
+ async function call(name,args){const r=await handler.fetch(new Request("https://app.example.test/mcp",{method:"POST",headers:{accept:"application/json, text/event-stream","content-type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:1,method:"tools/call",params:{name,arguments:args}})}),{authInfo});const text=await r.text();return JSON.parse(text.split(/\\r?\\n/).find(l=>l.startsWith("data: "))?.slice(6)??text).result;}
+ const result=await call("vrdex_media_review_decide_selected",{decisions});assert.equal(result.structuredContent.receipts[0].operationState,"committed");assert.notEqual(result.structuredContent.receipts[1].operationState,"committed");assert.equal((await t.run(ctx=>ctx.db.get(second))).status,"submitted");assert.equal(writes,1);
+ assert.equal((await call("vrdex_media_review_decide",decisions[0])).isError,true);
+ await handler.close();console.log("live selected revocation passed");
+ `);
+  assert.match(output, /live selected revocation passed/);
+});
 
-const namedSchemaMapKeys = new Set(["$defs", "definitions", "dependentSchemas", "patternProperties", "properties"]);
+const namedSchemaMapKeys = new Set(["$defs", "definitions", "dependentSchemas", "patternProperties", "properties",
+]);
+
+it("registered lifecycle and assignment tools page actual backend records with separate contributor authority", () => {
+  const output = runMcpProbe(`
+    import assert from "node:assert/strict";
+    import { convexTest } from "convex-test";
+    import { schema, modules, seed, createAndUpload } from "./tests/backend/_mediaReviewFixture.ts";
+    import { createVrdexMcpHandler } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+    process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED="true";process.env.VRDEX_PROFILE_MEDIA_DIRECT_UPLOAD_ENABLED="true";process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED="true";
+    const t=convexTest({schema,modules}),s=await seed(t);const {intent}=await createAndUpload(t,s);
+    const ids=await t.run(async ctx=>{
+      const {_id,_creationTime,...row}=await ctx.db.get(intent.submissionId);
+      for(let i=0;i<45;i++)await ctx.db.insert("profileMediaSubmissions",{...row,uploadIntentId:undefined,status:i%2?"rejected":"approved",createdAt:Date.now()+i,publicDisposition:"Outcome "+i});
+      for(const [tokenId,userId,scope] of [["own",s.contributorUserId,"assets:contribute"],["review",s.moderatorUserId,"assets:review:read"]])await ctx.db.insert("oauthAccessTokens",{tokenId,clientId:"client",subjectType:"user",userId,resource:"https://app.example.test/mcp",scopes:["mcp:read",scope],status:"active",issuedAt:Date.now(),expiresAt:Date.now()+600000});
+      const grant=await ctx.db.query("accountFeatureGrants").first();await ctx.db.patch(grant._id,{feature:"media_reviewer"});
+      const batchId=await ctx.db.insert("contributionBatches",{actorUserId:s.contributorUserId,idempotencyKey:"batch",label:"Assigned collection",archived:false,rowCount:0,createdAt:Date.now()});
+      const assignmentId=await ctx.db.insert("contributionBatchReviewers",{batchId,reviewerUserId:s.moderatorUserId,active:true,expiresAt:Date.now()+600000});return {batchId,assignmentId};
+    });
+    const handler=createVrdexMcpHandler({verifyContributorEmail:async()=>true,adminConvex:{query:(ref,args)=>t.query(ref,args),mutation:(ref,args)=>t.mutation(ref,args)}});
+    async function call(name,args,review=false){const scope=review?"assets:review:read":"assets:contribute";const authInfo={token:"test",clientId:"client",scopes:["mcp:read",scope],resource:new URL("https://app.example.test/mcp"),extra:{subjectType:"user",userId:review?s.moderatorUserId:s.contributorUserId,tokenId:review?"review":"own",requestId:"request"}};
+      const r=await handler.fetch(new Request("https://app.example.test/mcp",{method:"POST",headers:{accept:"application/json, text/event-stream","content-type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:1,method:"tools/call",params:{name,arguments:args}})}),{authInfo});const text=await r.text();return JSON.parse(text.split(String.fromCharCode(10)).find(l=>l.startsWith("data: "))?.slice(6)??text).result;}
+    const first=(await call("vrdex_list_my_media_submissions",{limit:40})).structuredContent;
+    assert.equal(first.submissions.length,40);assert.equal(first.isDone,false);
+    const next=(await call("vrdex_list_my_media_submissions",{limit:40,cursor:first.continueCursor})).structuredContent;assert.equal(next.submissions.length,6);assert.ok(next.submissions.some(row=>row.submissionId===intent.submissionId));
+    const exact=await call("vrdex_get_my_media_submission",{submissionId:intent.submissionId});assert.notEqual(exact.isError,true);assert.match(JSON.stringify(exact),/reviewVersion/);
+    const filtered=(await call("vrdex_list_my_media_submissions",{status:"rejected",limit:40})).structuredContent;assert.equal(filtered.submissions.length,22);assert.ok(filtered.submissions.every(row=>row.status==="rejected"));
+    const discovery=(await call("vrdex_media_review_assignments",{},true)).structuredContent;assert.equal(discovery.page[0].batchId,ids.batchId);
+    await t.run(ctx=>ctx.db.patch(ids.assignmentId,{active:false}));assert.equal((await call("vrdex_media_review_assignments",{},true)).structuredContent.page.length,0);
+    await handler.close();console.log("actual lifecycle discovery passed");
+  `);
+  assert.match(output, /actual lifecycle discovery passed/);
+});
 
 function hasLegacySchemaId(value: unknown, insideNamedSchemaMap = false): boolean {
   if (Array.isArray(value)) {
@@ -85,18 +159,24 @@ function assertAuthenticatedReadSecuritySchemes(value: unknown) {
 function isWriteToolName(name: string | undefined) {
   if (name === "vrdex_media_submission_publish" || name === "vrdex_media_submission_declare") return true;
   if (name === "vrdex_media_upload_begin" || name === "vrdex_media_upload_complete") return true;
-  return name === "vrdex_profile_media_manage" || name === "vrdex_profile_media_submit" ||
+  return (
+    name === "vrdex_profile_media_manage" || name === "vrdex_profile_media_submit" ||
     name === "vrdex_media_review_decide" || name === "vrdex_media_review_rebase" || name === "vrdex_media_review_decide_selected" || name === "vrdex_media_submission_withdraw" ||
-    (name !== undefined && /^vrdex_(event|profile)_(create|update|submit)$/.test(name));
+    (name !== undefined && /^vrdex_(event|profile)_(create|update|submit)$/.test(name))
+  );
 }
 
 // A read, but of the caller's own inventory, so it carries a scope pair rather
 // than the public-read schemes every other read tool advertises.
 function isOwnedReadToolName(name: string | undefined) {
   if (name === "vrdex_media_submission_get" || name === "vrdex_media_submission_preview") return true;
-  return name === "vrdex_list_my_profiles" || name === "vrdex_list_my_media_submissions" ||
+  return (
+    name === "vrdex_get_my_media_submission" ||
+    name === "vrdex_media_review_assignments" ||
+    name === "vrdex_list_my_profiles" || name === "vrdex_list_my_media_submissions" ||
     name === "vrdex_media_review_list" || name === "vrdex_media_review_get" ||
-    name === "vrdex_media_review_preview";
+    name === "vrdex_media_review_preview"
+  );
 }
 
 function assertWriteSecuritySchemes(value: unknown, resourceScope: string) {
@@ -128,7 +208,7 @@ describe("VRDex MCP server", () => {
       console.log(response.status);
       console.log(await response.text());
     `);
-    const tools = jsonBodyFromProbe(output).result?.tools ?? [];
+    const tools=jsonBodyFromProbe(output).result?.tools??[];
     const expected = {
       vrdex_media_submission_get: ["mcp:read", "assets:publish"],
       vrdex_media_submission_preview: ["mcp:read", "assets:publish"],
@@ -146,8 +226,8 @@ describe("VRDex MCP server", () => {
       const tool = tools.find((candidate) => candidate.name === name);
       assert.notEqual(tool, undefined, name);
       assert.deepEqual((tool?._meta as { securitySchemes?: unknown }).securitySchemes, [
-        { scopes, type: "oauth2" },
-      ]);
+        { scopes, type: "oauth2" }],
+      );
     }
   });
 
@@ -259,7 +339,8 @@ describe("VRDex MCP server", () => {
       queryCalled?: boolean;
     }>;
 
-    for (const key of ["readWithoutMcp", "readWithoutReview", "writeWithoutMcp", "writeWithoutReview", "mixedWithoutWriteReview", "publishWithoutMcp", "publishWithoutGrantScope"]) {
+    for (const key of ["readWithoutMcp", "readWithoutReview", "writeWithoutMcp", "writeWithoutReview", "mixedWithoutWriteReview", "publishWithoutMcp", "publishWithoutGrantScope",
+    ]) {
       assert.equal(result[key]?.passed, false, key);
       assert.equal(result[key]?.status, 403, key);
       assert.match(result[key]?.challenge ?? "", /error="insufficient_scope"/, key);
@@ -369,7 +450,8 @@ describe("VRDex MCP server", () => {
       requestNames: string[];
     };
 
-    assert.deepEqual(result.payloadNames, ["search", "fetch", "vrdex_get_world"]);
+    assert.deepEqual(result.payloadNames, ["search", "fetch", "vrdex_get_world",
+    ]);
     assert.deepEqual(result.requestNames, ["vrdex_list_active_worlds"]);
     assert.deepEqual(result.malformedNames, []);
     assert.equal(result.anonymousRouteClass, "anonymous_mcp_public_read");
@@ -463,6 +545,8 @@ describe("VRDex MCP server", () => {
     const ownedReadScopes = {
       vrdex_list_my_profiles: "profile:read",
       vrdex_list_my_media_submissions: "assets:contribute",
+      vrdex_get_my_media_submission: "assets:contribute",
+      vrdex_media_review_assignments: "assets:review:read",
       vrdex_media_review_list: "assets:review:read",
       vrdex_media_review_get: "assets:review:read",
       vrdex_media_review_preview: "assets:review:read",
@@ -471,8 +555,8 @@ describe("VRDex MCP server", () => {
       const ownedRead = tools.find((candidate) => candidate.name === name);
       assert.notEqual(ownedRead, undefined);
       assert.deepEqual((ownedRead?._meta as { securitySchemes?: unknown }).securitySchemes, [
-        { scopes: ["mcp:read", resourceScope], type: "oauth2" },
-      ]);
+        { scopes: ["mcp:read", resourceScope], type: "oauth2" }],
+      );
     }
 
     // A status read of rows VRDex already holds: nothing is written, repeating
@@ -510,7 +594,7 @@ describe("VRDex MCP server", () => {
       console.log(response.status);
       console.log(await response.text());
     `);
-    const tools = (jsonBodyFromProbe(output).result?.tools ?? []);
+    const tools=jsonBodyFromProbe(output).result?.tools??[];
     const writeTools = tools.filter((tool) => isWriteToolName(tool.name));
 
     // No deployment switch: the write tools are always listed, and the harness
@@ -1978,8 +2062,8 @@ describe("VRDex MCP server", () => {
           query: async (_query, args) => {
             queryArgs.push(args);
             return queryArgs.length === 1
-              ? { submissions: [submission] }
-              : { submissions: [{ status: "not-a-real-status" }] };
+              ? { page: [submission], continueCursor: "", isDone: true }
+              : { page: [{ status: "not-a-real-status" }], continueCursor: "", isDone: true };
           },
         },
         completeProfileMediaSubmissionImport: async (intentId) => {
@@ -2075,12 +2159,14 @@ describe("VRDex MCP server", () => {
       verificationChecks: number;
     };
 
-    assert.deepEqual(result.importedIntentIds, ["intent_private_123", "intent_private_123"]);
+    assert.deepEqual(result.importedIntentIds, ["intent_private_123", "intent_private_123",
+    ]);
     assert.equal(result.mutationArgs.length, 8);
     assert.equal(result.verificationChecks, 4);
     assert.equal(result.mutationArgs[0]?.idempotencyKeyHash, result.mutationArgs[6]?.idempotencyKeyHash);
     assert.notEqual(result.mutationArgs[0]?.requestFingerprint, result.mutationArgs[6]?.requestFingerprint);
-    assert.deepEqual(result.statusAuditResults, ["accepted", "readback_warning"]);
+    assert.deepEqual(result.statusAuditResults, ["accepted", "readback_warning",
+    ]);
     assert.equal(result.mutationArgs[0]?.actorUserId, "user_123");
     assert.equal("ownerUserId" in (result.mutationArgs[0] ?? {}), false);
     assert.equal(result.mutationArgs[0]?.sourceUrl, "https://images.example.test/press.webp?signature=AbCd&expires=2&issued=1&");
@@ -2089,10 +2175,14 @@ describe("VRDex MCP server", () => {
     assert.equal(typeof result.mutationArgs[1]?.emailVerificationAttestedAt, "number");
     assert.match(String(result.mutationArgs[0]?.idempotencyKeyHash), /^[0-9a-f]{64}$/);
     assert.equal(JSON.stringify(result.mutationArgs).includes("operator-key-123"), false);
-    assert.deepEqual(result.queryArgs, [
-      { actorUserId: "user_123" },
-      { actorUserId: "user_123" },
-    ]);
+    assert.deepEqual(result.queryArgs,
+      Array.from({ length: 2 }, () => ({ actorUserId: "user_123",
+        oauthTokenId: "token-123",
+        oauthClientId: "vrdx_app_test",
+        oauthResource: "https://app.example.test/mcp",
+        paginationOpts: { cursor: null, numItems: 20 },
+      })),
+    );
     assert.match(result.submitted, /"operation":"submit"/);
     assert.match(result.submitted, /"replayed":false/);
     assert.match(result.status, /"submissions"/);
@@ -2979,7 +3069,13 @@ it("advertises bounded private collection companions and no seed operator method
  const handler=createVrdexMcpHandler();const response=await handler.fetch(new Request("http://localhost:3000/mcp",{method:"POST",headers:{accept:"application/json, text/event-stream","content-type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:1,method:"tools/list",params:{}})}));console.log(await response.text());
  `);
  const tools=jsonBodyFromProbe(output).result?.tools??[];
- const batchTools=tools.filter(t=>t.name?.startsWith("vrdex_contribution_"));assert.equal(batchTools.length,11);
- for(const tool of batchTools){const meta=tool._meta as {securitySchemes:{type:string;scopes:string[]}[]};assert.ok(meta.securitySchemes.every(s=>s.type==="oauth2"));assert.ok(meta.securitySchemes.every(s=>s.scopes.some(scope=>scope.includes(":contribute")||scope==="assets:review:read")));}
- assert.equal(tools.some(t=>/seed.*(publish|import)/i.test(t.name??"")),false);
+ const batchTools=tools.filter((t) =>t.name?.startsWith("vrdex_contribution_"),
+  );assert.equal(batchTools.length,11);
+ for(const tool of batchTools){const meta=tool._meta as {securitySchemes:{type:string;scopes:string[]}[]};assert.ok(meta.securitySchemes.every((s) =>s.type==="oauth2"));assert.ok(meta.securitySchemes.every((s) =>s.scopes.some(
+          (scope) =>scope.includes(":contribute")||scope==="assets:review:read",
+        ),
+      ),
+    );}
+ assert.equal(tools.some((t) =>/seed.*(publish|import)/i.test(t.name??"")),false,
+  );
 });

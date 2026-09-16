@@ -1,3 +1,6 @@
+import { actionableReceipt, safeCommandError } from "./media-command-result";
+import { cachedProfileLinkDestinationArtwork } from "./profile-link-destination-artwork-cache";
+import { fetchProfileAssetSourceUrl } from "./profile-asset-source-import";
 import { reviewRebaseSchema, selectedReviewDecisionsSchema } from "@vrdex/api-contracts";
 import { createMcpContributionHandlers, contributionOperations, type ContributionOperation } from "./mcp-contribution-batches";
 import { createMcpMediaUploadHandlers } from "./mcp-media-upload";
@@ -443,8 +446,25 @@ const mcpProfileMediaSubmitResultSchema = z.object({
     requestedPlacement: z.literal("profile_image"),
   }),
 });
+const ownSubmissionPageInput = z.strictObject({
+  cursor: z.string().max(8192).nullable().default(null),
+  limit: z.number().int().min(1).max(40).default(20),
+  status: z.enum([
+  "upload_pending",
+  "submitted",
+  "under_review",
+  "approved",
+  "rejected",
+  "withdrawn",
+  "superseded",
+])
+    .optional(),
+  batchId: z.string().max(200).optional(),
+});
 const mcpMyMediaSubmissionsResultSchema = z.object({
-  submissions: z.array(mcpProfileMediaSubmissionSchema).max(40),
+  continueCursor: z.string().optional(),
+  isDone: z.boolean().optional(),
+  submissions: z.array(mcpProfileMediaSubmissionSchema.passthrough()).max(40),
 });
 const mcpEventUpdateInputSchema = z.object({
   idempotencyKey: mcpIdempotencyKeySchema,
@@ -1865,7 +1885,8 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     name: "vrdex",
     version: "0.5.0",
   });
-  const mediaReviewHandlersFor = (principal: HostedMcpPrincipal, publisher = false) =>
+  const mediaReviewHandlersFor = (principal: HostedMcpPrincipal, publisher = false,
+  ) =>
     createMcpMediaReviewHandlers({
       actorUserId: principal.userId,
       now,
@@ -1880,6 +1901,11 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
                 ? { profileId: args.profileId as Id<"profiles"> }
                 : {}),
               actorUserId: principal.userId,
+              oauthTokenId: principal.tokenId,
+              oauthClientId: principal.clientId,
+              ...(options.authInfo?.resource
+                ? { oauthResource: options.authInfo.resource.toString() }
+                : {}),
             } as never,
           );
         }
@@ -1887,8 +1913,18 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
         return await adminConvex().query(
           name === "detail"
             ? publisher ? internal.profileMediaSubmissions.publisherDetailForMcpActor : internal.profileMediaSubmissions.reviewDetailForMcpActor
-            : publisher ? internal.profileMediaSubmissions.publisherCandidateForMcpActor : internal.profileMediaSubmissions.candidateForMcpActor,
-          { ...args, submissionId, actorUserId: principal.userId } as never,
+            : name === "current"
+              ? publisher
+                ? internal.profileMediaSubmissions.publisherCurrentForMcpActor
+                : internal.profileMediaSubmissions.currentForMcpActor
+              : publisher ? internal.profileMediaSubmissions.publisherCandidateForMcpActor : internal.profileMediaSubmissions.candidateForMcpActor,
+          { ...args, submissionId, actorUserId: principal.userId,
+            oauthTokenId: principal.tokenId,
+            oauthClientId: principal.clientId,
+            ...(options.authInfo?.resource
+              ? { oauthResource: options.authInfo.resource.toString() }
+              : {}),
+          } as never,
         );
       },
       mutate: async (name, args) => {
@@ -1899,11 +1935,33 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
             : name === "decide"
             ? internal.profileMediaSubmissions.decideForMcpActor
             : name === "rebase" ? internal.profileMediaSubmissions.rebaseForMcpActor
-            : internal.profileMediaSubmissions.withdrawForMcpActor,
-          { ...args, submissionId, actorUserId: principal.userId } as never,
+            : internal.profileMediaSubmissions.withdrawWithReceiptForMcpActor,
+          { ...args, submissionId, actorUserId: principal.userId,
+            oauthTokenId: principal.tokenId,
+            oauthClientId: principal.clientId,
+            ...(options.authInfo?.resource
+              ? { oauthResource: options.authInfo.resource.toString() }
+              : {}),
+          } as never,
         );
       },
       readStoredObject: getProfileAssetObject,
+      readRemoteImage: async (descriptor) => {
+        if (descriptor.sourceKind === "automatic") {
+          if (!descriptor.artworkKey || !descriptor.artworkKind) return null;
+          const body = await cachedProfileLinkDestinationArtwork(
+            {
+              key: descriptor.artworkKey,
+              kind: descriptor.artworkKind,
+              artworkSourceUrl: descriptor.sourceUrl,
+            },
+            512,
+          );
+          return body ? { body, contentType: "image/webp" } : null;
+        }
+        const source = await fetchProfileAssetSourceUrl(descriptor.sourceUrl);
+        return { body: source.body, contentType: source.mimeType };
+      },
     });
 
   /**
@@ -2247,29 +2305,39 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     {
       title: "List My VRDex Media Submissions",
       description: "List the signed-in VRDex user's recent profile-image submissions and review status.",
-      inputSchema: z.object({}).strict(),
+      inputSchema: ownSubmissionPageInput,
       outputSchema: mcpOutputSchema(mcpMyMediaSubmissionsResultSchema),
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       _meta: {
         securitySchemes: mcpOwnedReadSecuritySchemes("vrdex_list_my_media_submissions"),
       },
     },
-    async () => {
+    async (input) => {
       const principal = ownedReadPrincipalFor("vrdex_list_my_media_submissions");
       if (principal === null) {
         return mcpOwnedReadUnauthorized("vrdex_list_my_media_submissions");
       }
       try {
         const result = await adminConvex().query(
-          internal.profileMediaSubmissions.listMcpMediaSubmissionsForActor,
-          { actorUserId: principal.userId },
+          internal.profileMediaSubmissions.listMinePageForMcpActor,
+          { actorUserId: principal.userId,
+            oauthClientId: principal.clientId,
+            oauthTokenId: principal.tokenId,
+            ...(options.authInfo?.resource
+              ? { oauthResource: options.authInfo.resource.toString() }
+              : {}),
+            paginationOpts: { numItems: input.limit, cursor: input.cursor },
+            ...(input.status ? { status: input.status } : {}),
+            ...(input.batchId
+              ? { batchId: input.batchId as Id<"contributionBatches"> }
+              : {}),
+          },
         );
-        const response = mcpJsonResult(mcpMyMediaSubmissionsResultSchema, result);
+        const response = mcpJsonResult(mcpMyMediaSubmissionsResultSchema, {
+          submissions: result.page,
+          continueCursor: result.continueCursor,
+          isDone: result.isDone,
+        });
         await recordHostedMcpMediaStatusInvocation({
           adminConvex: adminConvex(),
           principal,
@@ -2356,16 +2424,18 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
               emailVerificationAttestedAt: now(),
             }),
           });
-          const result = await handlers(operation, input);
-          return {
-            content: [{ type: "text" as const, text: JSON.stringify(result) }],
-            structuredContent: result,
-          };
-        } catch {
-          return {
-            content: [{ type: "text" as const, text: "BATCH_UNAVAILABLE" }],
-            isError: true,
-          };
+          const raw = await handlers(operation, input);
+          const receipt = commandReceiptSchema.safeParse(raw);
+          const result = receipt.success
+            ? actionableReceipt(receipt.data)
+            : raw;
+          return { content: [{ type: "text" as const, text: JSON.stringify(result) }], structuredContent: result };
+        } catch (error) {
+          const value = input as { idempotencyKey?: string; itemKey?: string };
+          return safeCommandError(
+            error,
+            value.idempotencyKey ?? value.itemKey ?? operation,
+          );
         }
       },
     );
@@ -2389,12 +2459,17 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
           authority: async () => ({ actorUserId: principal.userId, oauthClientId: principal.clientId, oauthTokenId: principal.tokenId,
             emailVerified: await verifyContributorEmail(principal.userId).catch(() => false), emailVerificationAttestedAt: now() }),
         });
-        const result = await handlers[operation](input);
+        const raw = await handlers[operation](input);
+          const result = "operationState" in raw ? actionableReceipt(raw) : raw;
         return { content: [{ type: "text" as const, text: JSON.stringify(result) }], structuredContent: result };
-      } catch {
-        return { content: [{ type: "text" as const, text: "UPLOAD_UNAVAILABLE" }], isError: true as const };
+      } catch (error) {
+        return safeCommandError(
+            error,
+            (input as { idempotencyKey: string }).idempotencyKey,
+          );
       }
-    });
+    },
+    );
   }
 
   for (const operation of ["get", "preview"] as const) {
@@ -2421,6 +2496,79 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       const principal = principalFor(toolName);
       return principal === null ? mcpWriteUnauthorized(toolName) : await mediaReviewHandlersFor(principal, true)[operation](input);
     });
+  }
+
+  for (const assigned of [false, true]) {
+    const name = assigned
+      ? "vrdex_media_review_assignments"
+      : "vrdex_get_my_media_submission";
+    server.registerTool(
+      name,
+      {
+        title: assigned ? "Assigned batches" : "My contribution",
+        description: name,
+        inputSchema: assigned
+          ? z.strictObject({
+              cursor: z.string().max(8192).nullable().default(null),
+              limit: z.number().int().min(1).max(40).default(20),
+            })
+          : mediaReviewGetInputSchema,
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        _meta: {
+          securitySchemes: [
+            {
+              type: "oauth2",
+              scopes: [
+                "mcp:read",
+                assigned ? "assets:review:read" : "assets:contribute",
+              ],
+            },
+          ],
+        },
+      },
+      async (raw: unknown) => {
+        const principal = hostedMcpPrincipal(options.authInfo, [
+          "mcp:read",
+          assigned ? "assets:review:read" : "assets:contribute",
+        ]);
+        if (!principal)
+          return {
+            content: [{ type: "text" as const, text: "MEDIA_UNAVAILABLE" }],
+            isError: true,
+          };
+        const authority = {
+          actorUserId: principal.userId,
+          oauthClientId: principal.clientId,
+          oauthTokenId: principal.tokenId,
+          ...(options.authInfo?.resource
+            ? { oauthResource: options.authInfo.resource.toString() }
+            : {}),
+          emailVerified: await verifyContributorEmail(principal.userId).catch(() => false),
+          emailVerificationAttestedAt: now(),
+        };
+        const page = ownSubmissionPageInput.parse(assigned ? raw : {});
+        const result = assigned
+          ? await adminConvex().query(
+              internal.profileMediaSubmissions.assignedReviewBatchesForMcpActor,
+              {
+                ...authority,
+                paginationOpts: { cursor: page.cursor, numItems: page.limit },
+              },
+            )
+          : await adminConvex().query(
+              internal.profileMediaSubmissions.getMineForMcpActor,
+              {
+                ...authority,
+                submissionId: mediaReviewGetInputSchema.parse(raw)
+                  .submissionId as Id<"profileMediaSubmissions">,
+              },
+            );
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(result) }],
+          structuredContent: result ?? { unavailable: true },
+        };
+      },
+    );
   }
 
   server.registerTool(

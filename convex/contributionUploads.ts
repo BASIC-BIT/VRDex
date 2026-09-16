@@ -1,5 +1,5 @@
 import { validateBatchMedia, linkBatchMedia } from "./contributionBatches";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { localUploadRequestSchema } from "../packages/api-contracts/src/media-upload";
@@ -69,13 +69,13 @@ async function authorize(
     !process.env.VRDEX_MEDIA_CLEANUP_URL ||
     !process.env.VRDEX_MEDIA_CLEANUP_TOKEN
   )
-    throw new Error("UPLOAD_DISABLED");
+    throw new ConvexError({ code: "UPLOAD_DISABLED" });
   if (
     !args.emailVerified ||
     !isCurrentEmailVerificationAttestation(args.emailVerificationAttestedAt) ||
     !(await ctx.db.get(args.actorUserId))
   )
-    throw new Error("UPLOAD_ACTOR_DENIED");
+    throw new ConvexError({ code: "UPLOAD_ACTOR_DENIED" });
   const token = await ctx.db
     .query("oauthAccessTokens")
     .withIndex("by_tokenId", (q) => q.eq("tokenId", args.oauthTokenId))
@@ -92,27 +92,27 @@ async function authorize(
       mode === "owner" ? "assets:write" : "assets:contribute",
     )
   )
-    throw new Error("UPLOAD_DELEGATION_DENIED");
+    throw new ConvexError({ code: "UPLOAD_DELEGATION_DENIED" });
   if (token.applicationId) {
     const app = await ctx.db.get(token.applicationId);
     if (!app || app.status !== "active")
-      throw new Error("UPLOAD_DELEGATION_DENIED");
+      throw new ConvexError({ code: "UPLOAD_DELEGATION_DENIED" });
   }
   if (token.dynamicClientId) {
     const client = await ctx.db.get(token.dynamicClientId);
     if (!client || client.status !== "active")
-      throw new Error("UPLOAD_DELEGATION_DENIED");
+      throw new ConvexError({ code: "UPLOAD_DELEGATION_DENIED" });
   }
   if (
     mode === "contributor" &&
     process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED !== "true"
   )
-    throw new Error("UPLOAD_DISABLED");
+    throw new ConvexError({ code: "UPLOAD_DISABLED" });
   if (
     mode === "owner" &&
     process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED !== "true"
   )
-    throw new Error("UPLOAD_DISABLED");
+    throw new ConvexError({ code: "UPLOAD_DISABLED" });
 }
 async function target(
   ctx: MutationCtx,
@@ -124,18 +124,18 @@ async function target(
 ) {
   const profile = await ctx.db.get(profileId);
   if (!profile || profile.updatedAt !== expected)
-    throw new Error("UPLOAD_TARGET_CHANGED");
+    throw new ConvexError({ code: "UPLOAD_TARGET_CHANGED" });
   if (
     (profile.profileType === "person" ? "profile_image" : "primary_logo") !==
     placement
   )
-    throw new Error("UPLOAD_PLACEMENT_INVALID");
+    throw new ConvexError({ code: "UPLOAD_PLACEMENT_INVALID" });
   if (mode === "contributor") return assertEligibleTarget(profile, placement);
   if (
     profile.claimState === "unclaimed" ||
     !(await userOwnsProfile(ctx.db, profileId, actor))
   )
-    throw new Error("UPLOAD_TARGET_DENIED");
+    throw new ConvexError({ code: "UPLOAD_TARGET_DENIED" });
   return profile;
 }
 async function reservation(
@@ -152,21 +152,21 @@ async function reservation(
     row.actorUserId !== args.actorUserId ||
     (!row.batchRevisionId && row.oauthClientId !== args.oauthClientId)
   )
-    throw new Error("UPLOAD_UNAVAILABLE");
+    throw new ConvexError({ code: "UPLOAD_UNAVAILABLE" });
   await authorize(ctx, args, row.mode);
   await assertCapacityNotRevoked(ctx.db, row.actorUserId, row.createdAt);
   if (
     row.allowanceId &&
     (await ctx.db.get(row.allowanceId))?.state === "revoked"
   )
-    throw new Error("CONTRIBUTION_CAPACITY_REVOKED");
+    throw new ConvexError({ code: "CONTRIBUTION_CAPACITY_REVOKED" });
   if (row.capacityRevokedAt !== undefined)
-    throw new Error("CONTRIBUTION_CAPACITY_REVOKED");
+    throw new ConvexError({ code: "CONTRIBUTION_CAPACITY_REVOKED" });
   if (process.env.VRDEX_CONTRIBUTION_INTAKE_PAUSED === "true")
-    throw new Error("CONTRIBUTION_INTAKE_PAUSED");
+    throw new ConvexError({ code: "CONTRIBUTION_INTAKE_PAUSED" });
   if (row.batchRevisionId) {
     const rev = await ctx.db.get(row.batchRevisionId);
-    if (!rev) throw new Error("UPLOAD_BATCH_UNAVAILABLE");
+    if (!rev) throw new ConvexError({ code: "UPLOAD_BATCH_UNAVAILABLE" });
     await validateBatchMedia(
       ctx,
       args,
@@ -229,7 +229,7 @@ export const begin = internalMutation({
         request.expectedItemRevision === undefined ||
         request.mode !== "contributor")
     )
-      throw new Error("UPLOAD_BATCH_UNAVAILABLE");
+      throw new ConvexError({ code: "UPLOAD_BATCH_UNAVAILABLE" });
     const linked = hasBatch
       ? await validateBatchMedia(
           ctx,
@@ -252,11 +252,11 @@ export const begin = internalMutation({
         linked.input.sourceUrl !== request.sourceUrl ||
         linked.input.source.description !== request.sourceDescription
       )
-        throw new Error("UPLOAD_BATCH_CONFLICT");
+        throw new ConvexError({ code: "UPLOAD_BATCH_CONFLICT" });
     }
     const sourceUrl = normalizeProfileAssetSourceUrl(request.sourceUrl);
     if (!sourceUrl && !request.sourceDescription)
-      throw new Error("UPLOAD_PROVENANCE_REQUIRED");
+      throw new ConvexError({ code: "UPLOAD_PROVENANCE_REQUIRED" });
     const fingerprint = JSON.stringify(request);
     const priorRefusal = await ctx.db
       .query("contributionAdmissionRefusals")
@@ -269,7 +269,7 @@ export const begin = internalMutation({
       .unique();
     if (priorRefusal) {
       if (priorRefusal.fingerprint !== fingerprint)
-        throw new Error("UPLOAD_IDEMPOTENCY_CONFLICT");
+        throw new ConvexError({ code: "UPLOAD_IDEMPOTENCY_CONFLICT" });
       return { receipt: priorRefusal.receipt };
     }
     const refuse = async (code: string) => {
@@ -315,7 +315,7 @@ export const begin = internalMutation({
       if (previous) {
         if (previous.receipt.operationState === "refused")
           return { receipt: previous.receipt };
-        if (!previous.intentId) throw new Error("UPLOAD_BATCH_UNAVAILABLE");
+        if (!previous.intentId) throw new ConvexError({ code: "UPLOAD_BATCH_UNAVAILABLE" });
         old = await ctx.db
           .query("contributionUploadReservations")
           .withIndex("by_intentId", (q) => q.eq("intentId", previous.intentId!))
@@ -323,11 +323,25 @@ export const begin = internalMutation({
       }
     }
     if (old && linked && old.batchRevisionId !== linked.revision._id)
-      throw new Error("UPLOAD_BATCH_CONFLICT");
+      throw new ConvexError({ code: "UPLOAD_BATCH_CONFLICT" });
     if (linked && !old && (await ctx.db.get(linked.revision.batchId))?.archived)
-      throw new Error("BATCH_ARCHIVED");
+      throw new ConvexError({ code: "BATCH_ARCHIVED" });
     if (old && !linked && old.fingerprint !== fingerprint)
-      throw new Error("UPLOAD_IDEMPOTENCY_CONFLICT");
+      throw new ConvexError({ code: "UPLOAD_IDEMPOTENCY_CONFLICT" });
+    if (old?.receipt) {
+      // Replay uses current authority, while the original expected version may
+      // have changed because this very command published the asset.
+      const current = await ctx.db.get(args.profileId);
+      await target(
+        ctx,
+        actorUserId,
+        args.profileId,
+        request.mode,
+        request.placement,
+        current?.updatedAt ?? request.expectedUpdatedAt,
+      );
+      return { receipt: old.receipt };
+    }
     const profile = await target(
       ctx,
       actorUserId,
@@ -338,9 +352,9 @@ export const begin = internalMutation({
     );
     if (old) {
       if (old.state !== "pending" || old.expiresAt <= Date.now())
-        throw new Error("UPLOAD_UNAVAILABLE");
+        throw new ConvexError({ code: "UPLOAD_UNAVAILABLE" });
       const intent = await ctx.db.get(old.intentId);
-      if (!intent?.quarantineStorageKey) throw new Error("UPLOAD_UNAVAILABLE");
+      if (!intent?.quarantineStorageKey) throw new ConvexError({ code: "UPLOAD_UNAVAILABLE" });
       return {
         intentId: old.intentId,
         expiresAt: old.expiresAt,
@@ -526,12 +540,14 @@ export const claim = internalMutation({
       args.idempotencyKey.length > 128 ||
       args.processingToken.length > 128
     )
-      throw new Error("UPLOAD_INPUT_INVALID");
+      throw new ConvexError({ code: "UPLOAD_INPUT_INVALID" });
     const row = await reservation(ctx, args.intentId, args);
+    if (row.completionKey && row.completionKey !== args.idempotencyKey)
+      return { receipt: receipt(row.intentId, "UPLOAD_IDEMPOTENCY_CONFLICT") };
     if (row.receipt) return { receipt: row.receipt };
     const intent = await ctx.db.get(row.intentId);
     if (!intent || intent.issuer !== "mcp_local")
-      throw new Error("UPLOAD_UNAVAILABLE");
+      throw new ConvexError({ code: "UPLOAD_UNAVAILABLE" });
     await target(
       ctx,
       args.actorUserId,
@@ -550,7 +566,7 @@ export const claim = internalMutation({
         },
       };
     if (row.state !== "pending" || !row.processing)
-      throw new Error("UPLOAD_UNAVAILABLE");
+      throw new ConvexError({ code: "UPLOAD_UNAVAILABLE" });
     await ctx.db.patch(row._id, {
       state: "processing",
       processingToken: args.processingToken,
@@ -585,6 +601,16 @@ export async function failReservation(
     processing: false,
     receipt: result,
   });
+  if (row.batchRevisionId) {
+    const attempt = await ctx.db
+      .query("contributionItemAttempts")
+      .withIndex("by_revision", (q) => q.eq("revisionId", row.batchRevisionId!))
+      .unique();
+    if (attempt)
+      await ctx.db.patch(attempt._id, {
+        receipt: { ...result, operationId: String(row.batchRevisionId) },
+      });
+  }
   const intent = await ctx.db.get(row.intentId);
   if (intent?.targetSubmissionId) {
     const submission = await ctx.db.get(intent.targetSubmissionId);
@@ -613,6 +639,36 @@ export const fail = internalMutation({
     return null;
   },
 });
+// Only the acquisition owner may reopen its reservation. Retained bytes and
+// concurrency remain charged; a retry must acquire a fresh fence.
+export const retryAcquisition = internalMutation({
+  args: {
+    intentId: v.id("profileAssetUploadIntents"),
+    processingToken: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("contributionUploadReservations")
+      .withIndex("by_intentId", (q) => q.eq("intentId", args.intentId))
+      .unique();
+    if (
+      row?.state === "processing" &&
+      !row.receipt &&
+      row.processingToken === args.processingToken
+    ) {
+      await ctx.db.patch(row._id, {
+        state: "pending",
+        processingToken: undefined,
+      });
+      await ctx.db.patch(row.intentId, {
+        processingToken: undefined,
+        processingStartedAt: undefined,
+      });
+    }
+    return null;
+  },
+});
 export const complete = internalMutation({
   args: {
     ...authorityArgs,
@@ -634,13 +690,15 @@ export const complete = internalMutation({
   returns: uploadReceiptValidator,
   handler: async (ctx, args) => {
     const row = await reservation(ctx, args.intentId, args);
+    if (row.completionKey && row.completionKey !== args.idempotencyKey)
+      return receipt(row.intentId, "UPLOAD_IDEMPOTENCY_CONFLICT");
     if (row.receipt) return row.receipt;
     if (
       row.state !== "processing" ||
       row.processingToken !== args.processingToken ||
       row.completionKey !== args.idempotencyKey
     )
-      throw new Error("UPLOAD_UNAVAILABLE");
+      throw new ConvexError({ code: "UPLOAD_UNAVAILABLE" });
     if (row.expiresAt <= Date.now())
       return await failReservation(ctx, row, "UPLOAD_EXPIRED");
     const intent = (await ctx.db.get(row.intentId))!;
@@ -657,7 +715,7 @@ export const complete = internalMutation({
       args.sourceContentSha256 !== row.sha256 ||
       args.sourceMimeType !== row.declaredType
     )
-      throw new Error("UPLOAD_SOURCE_MISMATCH");
+      throw new ConvexError({ code: "UPLOAD_SOURCE_MISMATCH" });
     const retained = new Map<string, number>([
       [intent.quarantineStorageKey!, row.declaredBytes],
       [
@@ -672,7 +730,7 @@ export const complete = internalMutation({
     ]);
     const bytes = [...retained.values()].reduce((a, b) => a + b, 0);
     if (bytes > row.chargedBytes)
-      throw new Error("UPLOAD_RESERVATION_EXCEEDED");
+      throw new ConvexError({ code: "UPLOAD_RESERVATION_EXCEEDED" });
     const {
       actorUserId: _actor,
       oauthClientId: _client,

@@ -32,8 +32,9 @@ export const mediaReviewGetInputSchema = z.strictObject({
 export const mediaReviewPreviewInputSchema = z.strictObject({
   submissionId: mediaReviewSubmissionIdSchema,
   expectedReviewVersion: mediaReviewVersionSchema,
+  target: z.enum(["candidate", "current"]).optional(),
 });
-export const mediaSubmissionWithdrawInputSchema = mediaReviewGetInputSchema;
+export const mediaSubmissionWithdrawInputSchema = reviewRebaseSchema;
 export const mediaReviewListOutputSchema = z.object({
   page: z.array(z.unknown()),
   continueCursor: z.string(),
@@ -46,10 +47,7 @@ export const mediaReviewPreviewOutputSchema = z.strictObject({
   mimeType: z.literal("image/png"),
   byteLength: z.number().int().positive().max(MAX_PREVIEW_BYTES),
 });
-export const mediaSubmissionWithdrawOutputSchema = z.strictObject({
-  withdrawn: z.boolean(),
-  submissionId: mediaReviewSubmissionIdSchema,
-});
+export const mediaSubmissionWithdrawOutputSchema = commandReceiptSchema;
 
 export const mediaReviewToolNames = [
   "vrdex_media_review_list",
@@ -75,8 +73,13 @@ export const mediaSubmissionWriteToolNames = [
   "vrdex_media_submission_withdraw",
 ] as const;
 
-type ReviewQueryName = "list" | "detail" | "candidate";
-type ReviewMutationName = "decide" | "withdraw" | "rebase" | "publish" | "declare";
+type ReviewQueryName = "list" | "detail" | "candidate" | "current";
+type ReviewMutationName =
+  | "decide"
+  | "withdraw"
+  | "rebase"
+  | "publish"
+  | "declare";
 type StoredObject = {
   body: Uint8Array;
   contentType: string;
@@ -96,6 +99,12 @@ export type MediaReviewDependencies<TActor extends string = string> = {
     args: Record<string, unknown>,
   ) => Promise<unknown>;
   readStoredObject: (storageKey: string) => Promise<StoredObject | null>;
+  readRemoteImage?: (input: {
+    sourceUrl: string;
+    sourceKind: "legacy" | "automatic";
+    artworkKind?: "vrchat_user" | "vrchat_group" | "discord_guild";
+    artworkKey?: string;
+  }) => Promise<StoredObject | null>;
 };
 
 type TextContent = { type: "text"; text: string };
@@ -188,7 +197,11 @@ export function createMcpMediaReviewHandlers<TActor extends string>(
       const before = reviewDetailSchema
         .nullable()
         .parse(await dependencies.query("detail", args));
-      if (before === null || before.candidate.rendition === null) {
+      const current = value.target === "current";
+      if (
+        before === null ||
+        (current ? !before.currentImage : before.candidate.rendition === null)
+      ) {
         return refusal("The candidate is unavailable for review.");
       }
       if (before.reviewVersion !== value.expectedReviewVersion) {
@@ -198,26 +211,59 @@ export function createMcpMediaReviewHandlers<TActor extends string>(
       }
       const descriptor = z
         .strictObject({
-          storageKey: z.string().min(1).max(4096),
-          mimeType: z.string().min(1).max(100),
+          reviewVersion: mediaReviewVersionSchema.optional(),
+          storageKey: z.string().min(1).max(4096).optional(),
+          mimeType: z.string().min(1).max(100).optional(),
+          sourceUrl: z.string().max(4096).optional(),
+          sourceKind: z.enum(["legacy", "automatic"]).optional(),
+          artworkKind: z
+            .enum(["vrchat_user", "vrchat_group", "discord_guild"])
+            .optional(),
+          artworkKey: z.string().max(256).optional(),
           originalFileName: z.string().max(1000).optional(),
           profileDisplayName: z.string().max(1000),
         })
         .nullable()
-        .parse(await dependencies.query("candidate", args));
+        .parse(
+          await dependencies.query(current ? "current" : "candidate", args),
+        );
       if (descriptor === null)
         return refusal("The candidate is unavailable for review.");
-      const stored = await dependencies.readStoredObject(descriptor.storageKey);
+      if (current && descriptor.reviewVersion !== before.reviewVersion)
+        return refusal(
+          "The review changed. Inspect the current detail before requesting a preview.",
+        );
+      const remote = current && before.currentImage?.kind !== "managed";
+      const stored =
+        remote &&
+        descriptor.sourceUrl &&
+        descriptor.sourceKind &&
+        dependencies.readRemoteImage
+          ? await dependencies
+              .readRemoteImage({
+                sourceUrl: descriptor.sourceUrl,
+                sourceKind: descriptor.sourceKind,
+                artworkKind: descriptor.artworkKind,
+                artworkKey: descriptor.artworkKey,
+              })
+              .catch(() => null)
+          : descriptor.storageKey
+            ? await dependencies.readStoredObject(descriptor.storageKey)
+            : null;
+      const digest =
+        current && before.currentImage?.kind === "managed"
+          ? before.currentImage.contentSha256
+          : before.candidate.contentSha256;
       if (
         stored === null ||
         stored.body.byteLength === 0 ||
         stored.body.byteLength > MAX_STORED_CANDIDATE_BYTES ||
         (stored.contentLength !== undefined &&
           stored.contentLength !== stored.body.byteLength) ||
-        stored.contentType !== descriptor.mimeType ||
-        before.candidate.contentSha256 === null ||
-        createHash("sha256").update(stored.body).digest("hex") !==
-          before.candidate.contentSha256
+        (!remote &&
+          (stored.contentType !== descriptor.mimeType ||
+            digest === null ||
+            createHash("sha256").update(stored.body).digest("hex") !== digest))
       ) {
         return refusal(
           "The stored candidate no longer matches the inspected review detail.",
@@ -229,7 +275,7 @@ export function createMcpMediaReviewHandlers<TActor extends string>(
       if (
         after === null ||
         after.reviewVersion !== before.reviewVersion ||
-        after.candidate.rendition === null
+        (current ? !after.currentImage : after.candidate.rendition === null)
       ) {
         return refusal(
           "The review changed while the preview was prepared. Inspect it again.",
@@ -263,10 +309,24 @@ export function createMcpMediaReviewHandlers<TActor extends string>(
     },
 
     async publish(input: unknown): Promise<ToolResult> {
-      return jsonResult(commandReceiptSchema.parse(await dependencies.mutate("publish", { ...(await attestation(dependencies)), ...mediaPublicationSchema.parse(input) })));
+      return jsonResult(
+        commandReceiptSchema.parse(
+          await dependencies.mutate("publish", {
+            ...(await attestation(dependencies)),
+            ...mediaPublicationSchema.parse(input),
+          }),
+        ),
+      );
     },
     async declare(input: unknown): Promise<ToolResult> {
-      return jsonResult(commandReceiptSchema.parse(await dependencies.mutate("declare", { ...(await attestation(dependencies)), ...publicationEvidenceSchema.parse(input) })));
+      return jsonResult(
+        commandReceiptSchema.parse(
+          await dependencies.mutate("declare", {
+            ...(await attestation(dependencies)),
+            ...publicationEvidenceSchema.parse(input),
+          }),
+        ),
+      );
     },
     async decide(input: unknown): Promise<ToolResult> {
       const value = reviewDecisionSchema.parse(input);
@@ -304,13 +364,14 @@ export function createMcpMediaReviewHandlers<TActor extends string>(
     },
     async withdraw(input: unknown): Promise<ToolResult> {
       const value = mediaSubmissionWithdrawInputSchema.parse(input);
-      const withdrawn = z.boolean().parse(
-        await dependencies.mutate("withdraw", {
-          actorUserId: dependencies.actorUserId,
-          submissionId: value.submissionId,
-        }),
+      return jsonResult(
+        commandReceiptSchema.parse(
+          await dependencies.mutate("withdraw", {
+            actorUserId: dependencies.actorUserId,
+            ...value,
+          }),
+        ),
       );
-      return jsonResult({ withdrawn, submissionId: value.submissionId });
     },
   };
 }

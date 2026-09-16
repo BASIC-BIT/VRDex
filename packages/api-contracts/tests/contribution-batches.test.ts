@@ -5,7 +5,45 @@ import {
   contributionBatchAppendSchema,
   contributionItemReviseSchema,
   localUploadRequestSchema,
+  localUploadTargetSchema,
 } from "../src/index";
+it("bounds upload transfer capability fields and expiration", () => {
+  const target = {
+    intentId: "intent",
+    expiresAt: Date.now() + 600000,
+    transfer: {
+      method: "POST",
+      url: "https://bucket.example.test",
+      fileField: "file",
+      fields: { key: "quarantine" },
+    },
+  };
+  assert.ok(localUploadTargetSchema.safeParse(target).success);
+  for (const extra of [
+    { expiresAt: Infinity },
+    { expiresAt: -1 },
+    { expiresAt: 1.5 },
+    {
+      transfer: {
+        ...target.transfer,
+        url: "https://example.test/" + "a".repeat(17000),
+      },
+    },
+    {
+      transfer: {
+        ...target.transfer,
+        fields: Object.fromEntries(
+          Array.from({ length: 65 }, (_, i) => [String(i), "x"]),
+        ),
+      },
+    },
+    { transfer: { ...target.transfer, fields: { key: "x".repeat(33000) } } },
+  ])
+    assert.equal(
+      localUploadTargetSchema.safeParse({ ...target, ...extra }).success,
+      false,
+    );
+});
 it("bounds collection metadata, rejects unknown decisions, and requires exact target mappings", () => {
   const input = {
     kind: "profile_links",

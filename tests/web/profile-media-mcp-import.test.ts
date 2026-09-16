@@ -3,17 +3,45 @@ import { execFileSync } from "node:child_process";
 import { describe, it } from "node:test";
 
 function runImportProbe(script: string) {
-  return execFileSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script], {
-    cwd: process.cwd(),
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      TSX_TSCONFIG_PATH: "apps/web/tsconfig.json",
+  return execFileSync(
+    process.execPath,
+    ["--import", "tsx", "--input-type=module", "-e", script],
+    {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        TSX_TSCONFIG_PATH: "apps/web/tsconfig.json",
+      },
     },
-  });
+  );
 }
 
 describe("hosted MCP profile media import cleanup", () => {
+  it("fences URL acquisition before fetch and settles mismatch versus transient failure", () => {
+    const output = runImportProbe(`
+      import { getFunctionName } from "convex/server";
+      import { createMcpMediaUploadHandlers } from "./apps/web/src/lib/server/mcp-media-upload.ts";
+      async function run(failure) {
+        const calls=[];
+        const h=createMcpMediaUploadHandlers({ authority: async()=>({ actorUserId:"user", oauthClientId:"client", oauthTokenId:"token", emailVerified:true,emailVerificationAttestedAt:Date.now() }), admin:{ mutation: async(ref,args)=>{ const n=getFunctionName(ref); calls.push(n); if(n.endsWith(":begin")) return {intentId:"intent",quarantineStorageKey:"q",expiresAt:Date.now()+1000,contentType:"image/png",byteLength:1}; if(n.endsWith(":claimSourceFetch"))return {allowed:true}; if(n.endsWith(":claim"))return {intentId:"intent",quarantineStorageKey:"q",storageKey:"d",sourceStorageKey:"s",downloadStorageKey:"o",byteLength:1,contentType:"image/png",sha256:"a".repeat(64)}; return null; } }, fetchSource: async()=>{ calls.push("fetch"); if(failure) throw Error(failure); return {body:new Uint8Array([1]),mimeType:"image/png"}; } });
+        try {await h.importUrl({mode:"contributor",profileId:"profile",expectedUpdatedAt:1,placement:"profile_image",contentType:"image/png",byteLength:1,sha256:"a".repeat(64),credit:"Creator",sourceUrl:"https://example.test/image",idempotencyKey:"same"});}catch(e){calls.push(e.message)} return calls;
+      }
+      console.log(JSON.stringify({ mismatch: await run(null), transient: await run("private host details"), blocked: await run("Profile media asset imports must use public HTTPS URLs."), missing: await run("Source URL returned HTTP 404.") }));
+    `);
+    const result = JSON.parse(output);
+    assert.ok(
+      result.mismatch.indexOf("contributionUploads:claim") <
+        result.mismatch.indexOf("fetch"),
+    );
+    assert.ok(result.mismatch.includes("contributionUploads:fail"));
+    assert.ok(
+      result.transient.includes("contributionUploads:retryAcquisition"),
+    );
+    assert.ok(result.blocked.includes("contributionUploads:fail"));
+    assert.ok(result.missing.includes("contributionUploads:fail"));
+    assert.equal(result.transient.includes("private host details"), false);
+  });
   it("deletes staged objects and releases the lease after definitive finalization rejection", () => {
     const output = runImportProbe(`
       import { ConvexError } from "convex/values";
@@ -160,7 +188,10 @@ describe("hosted MCP profile media import cleanup", () => {
     `);
     const result = JSON.parse(output) as {
       mutationCount: number;
-      result: { replayed: boolean; submission: { status: string; submissionId: string } };
+      result: {
+        replayed: boolean;
+        submission: { status: string; submissionId: string };
+      };
       written: string[];
     };
 
@@ -228,7 +259,10 @@ describe("hosted MCP profile media import cleanup", () => {
     const result = JSON.parse(output) as {
       deleted: boolean;
       mutationCount: number;
-      result: { replayed: boolean; submission: { status: string; submissionId: string } };
+      result: {
+        replayed: boolean;
+        submission: { status: string; submissionId: string };
+      };
     };
 
     assert.equal(result.mutationCount, 2);
@@ -410,11 +444,26 @@ describe("hosted MCP profile media import cleanup", () => {
         validation: await attempt("validation"),
       }));
     `);
-    const result = JSON.parse(output) as Record<string, { code: string; outcome: string }>;
-    assert.deepEqual(result.source, { code: "MCP_MEDIA_IMPORT_UNREACHABLE", outcome: "rejected" });
-    assert.deepEqual(result.validation, { code: "MCP_MEDIA_IMPORT_UNSUPPORTED", outcome: "rejected" });
-    assert.deepEqual(result.unsafe, { code: "MCP_MEDIA_IMPORT_UNSAFE", outcome: "rejected" });
-    assert.deepEqual(result.storage, { code: "MCP_MEDIA_STORAGE_WRITE_FAILED", outcome: "rejected" });
+    const result = JSON.parse(output) as Record<
+      string,
+      { code: string; outcome: string }
+    >;
+    assert.deepEqual(result.source, {
+      code: "MCP_MEDIA_IMPORT_UNREACHABLE",
+      outcome: "rejected",
+    });
+    assert.deepEqual(result.validation, {
+      code: "MCP_MEDIA_IMPORT_UNSUPPORTED",
+      outcome: "rejected",
+    });
+    assert.deepEqual(result.unsafe, {
+      code: "MCP_MEDIA_IMPORT_UNSAFE",
+      outcome: "rejected",
+    });
+    assert.deepEqual(result.storage, {
+      code: "MCP_MEDIA_STORAGE_WRITE_FAILED",
+      outcome: "rejected",
+    });
   });
 
   it("does not report or clean up a successor's terminal failure as recovered success", () => {

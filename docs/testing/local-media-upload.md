@@ -44,3 +44,23 @@ Reservations initially charge two source-sized objects plus two 12 MiB derivativ
 `vrdex_media_upload_begin` accepts owner or contributor mode, profile revision, image/logo placement, declared MIME, byte length, SHA-256, credit, bounded provenance, and an idempotency key. A local image needs a source URL or a bounded source description. Local provenance is explicit in stored review data; existing URL intake still requires its source URL. Batch/item references bind an actor-owned staged revision and its exact declaration.
 
 Successful admission contains only intent ID, expiry, and the POST URL/form fields with `fileField: "file"`. Quota refusal instead returns a stable terminal command receipt before any upload or counter write. Only the random quarantine key is exposed in those form fields. The complete command accepts the intent ID and idempotency key, revalidates delegation, and returns a durable receipt. The backend requires `mcp:write` plus `assets:write` for owner mode or `assets:contribute` for contributor mode. Contributor completion creates a private proposal regardless of other grants. Owner mode uses existing owner asset finalization.
+
+## URL acquisition recovery
+
+URL acquisition first claims a fenced processing lease, before fetching,
+validating declared bytes/type/digest or writing quarantine data. Permanent
+validation, unsafe-source and non-retryable HTTP 4xx failures settle the linked
+attempt and release processing once. Unknown transport, timeout, HTTP 408/429
+and server failures reopen same-key acquisition under the matching lease; a
+stale worker cannot reset or fail a successor. Retained bytes stay charged until
+confirmed deletion. Completion recovery requires the exact completion key and
+current OAuth/resource authority; admission replay also rechecks current target
+access, including owner loss.
+
+Upload tickets bound URLs, field names/values/count and safe-integer expiry.
+Collection payload cleanup retains revision kind independently from private
+payload, so committed/refused receipt replay can reauthorize its original scope
+without parsing deleted payload. Expired/superseded submissions are terminal for
+correction; still-pending attempts remain blocked. Already-purged pre-change
+revisions without kind metadata cannot reconstruct the original scope and fail
+closed with `BATCH_PAYLOAD_EXPIRED`.

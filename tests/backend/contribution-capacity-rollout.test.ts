@@ -82,9 +82,18 @@ it("backfills consumed approved legacy media as committed and never leases publi
   for (const corrupted of [false, true]) {
     if (corrupted)
       await t.run((ctx) =>
-        ctx.db.patch(reservation._id, { state: "failed", cleanupAfter: 1 }),
+        ctx.db.patch(reservation._id, {
+          state: "failed",
+          cleanupAfter: 1,
+          cleanupLeaseUntil: 0,
+          cleanupToken: undefined,
+        }),
       );
     const cleanup = await t.mutation(internal.contributionCleanup.claim, {});
+    assert.ok(
+      cleanup.uploads.some((row) => row.reservationId === reservation._id),
+      "published row must be evaluated rather than skipped by a live lease",
+    );
     const keys = [
       ...cleanup.uploads.flatMap((row) => row.keys),
       ...cleanup.proposals.flatMap((row) => row.storageKeys),
@@ -95,5 +104,31 @@ it("backfills consumed approved legacy media as committed and never leases publi
       stored.downloadStorageKey,
     ].filter(Boolean))
       assert.equal(keys.includes(key!), false);
+    await t.mutation(internal.contributionCleanup.confirm, {
+      uploads: cleanup.uploads.map(({ reservationId, token }) => ({
+        reservationId,
+        token,
+      })),
+      proposals: [],
+    });
+    assert.equal(
+      (await t.run((ctx) => ctx.db.get(reservation._id)))?.publishedBytes,
+      512,
+    );
+    assert.equal(
+      (await t.run((ctx) => ctx.db.get(stored._id)))?.state,
+      "consumed",
+    );
+    assert.equal(
+      (
+        await t.run((ctx) =>
+          ctx.db
+            .query("contributionCapacity")
+            .withIndex("by_scope", (q) => q.eq("scope", "published"))
+            .unique(),
+        )
+      )?.bytes,
+      512,
+    );
   }
 });

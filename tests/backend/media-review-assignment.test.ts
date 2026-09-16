@@ -13,6 +13,407 @@ process.env.VRDEX_CONTRIBUTION_BATCHES_ENABLED = "true";
 process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED = "true";
 process.env.VRDEX_PROFILE_MEDIA_DIRECT_UPLOAD_ENABLED = "true";
 process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "true";
+it("compares the effective alternate managed slot for person and community without changing decision placement", async () => {
+  for (const type of ["person", "community"] as const) {
+    const t = convexTest({ schema, modules });
+    const s = await seed(t, type);
+    const { intent } = await createAndUpload(t, s);
+    const alt = type === "person" ? "primary_logo" : "profile_image";
+    const assetId = await t.run(async (ctx) => {
+      await ctx.db.patch(intent.submissionId, {
+        requestedPlacement:
+          type === "person" ? "profile_image" : "primary_logo",
+      });
+      const assetId = await ctx.db.insert("profileAssets", {
+        profileId: s.profileId,
+        storageKey: "alternate.webp",
+        downloadStorageKey: "alternate.png",
+        mimeType: "image/webp",
+        downloadMimeType: "image/png",
+        downloadContentSha256: "c".repeat(64),
+        contentSha256: "c".repeat(64),
+        byteSize: 100,
+        visibility: "public",
+        source: "owner_authored",
+        uploadedBy: {
+          issuer: "test",
+          subject: "owner",
+          tokenIdentifier: "test:owner",
+        },
+        uploadedAt: Date.now(),
+        state: "active",
+        updatedAt: Date.now(),
+      });
+      await ctx.db.insert("profileAssetPlacements", {
+        profileId: s.profileId,
+        assetId,
+        placement: alt,
+        position: 0,
+        state: "active",
+        updatedAt: Date.now(),
+      });
+      return assetId;
+    });
+    const args = {
+      actorUserId: s.moderatorUserId,
+      emailVerified: true,
+      emailVerificationAttestedAt: Date.now(),
+      submissionId: intent.submissionId,
+    };
+    const d = await t.query(
+      internal.profileMediaSubmissions.reviewDetailForMcpActor,
+      args,
+    );
+    assert.equal(d?.currentPlacement, null);
+    assert.equal(d?.currentImage?.kind, "managed");
+    if (d?.currentImage?.kind === "managed")
+      assert.equal(d.currentImage.assetId, assetId);
+    assert.equal(
+      (await t.query(internal.profileMediaSubmissions.currentForMcpActor, args))
+        ?.storageKey,
+      "alternate.png",
+    );
+  }
+});
+it("keeps assignment revoke and regrant actor reason history", async () => {
+  const f = await fixture();
+  await f.t.run((ctx) => ctx.db.patch(f.grantId, { feature: "super_admin" }));
+  for (const active of [false, true])
+    await f.actor.mutation(api.profileMediaSubmissions.setBatchReviewer, {
+      batchId: f.batchId,
+      reviewerUserId: f.s.moderatorUserId,
+      active,
+      expiresAt: Date.now() + 600000,
+      reason: active ? "Reassigned collection" : "Coverage ended",
+    });
+  const history = await f.t.run((ctx) =>
+    ctx.db.query("contributionReviewerAuditEvents").collect(),
+  );
+  assert.deepEqual(
+    history.map((e) => [e.active, e.reason]),
+    [
+      [false, "Coverage ended"],
+      [true, "Reassigned collection"],
+    ],
+  );
+  assert.ok(history.every((e) => e.actorUserId === f.s.moderatorUserId));
+});
+it("withdraws with exact version and durable receipt, refusing the opposite decision and foreign replay", async () => {
+  const f = await fixture();
+  const actor = f.t.withIdentity(f.s.contributorIdentity);
+  const own = await actor.query(api.profileMediaSubmissions.getMine, {
+    submissionId: f.intent.submissionId,
+  });
+  assert.ok(own);
+  const args = {
+    submissionId: f.intent.submissionId,
+    expectedReviewVersion: own.reviewVersion,
+    idempotencyKey: "withdraw-once",
+  };
+  const result = await actor.mutation(
+    api.profileMediaSubmissions.withdrawWithReceipt,
+    args,
+  );
+  assert.equal(result.operationState, "committed");
+  assert.deepEqual(
+    await actor.mutation(api.profileMediaSubmissions.withdrawWithReceipt, args),
+    result,
+  );
+  await assert.rejects(
+    f.actor.mutation(api.profileMediaSubmissions.withdrawWithReceipt, args),
+    /UNAVAILABLE/,
+  );
+  const review = await f.actor.mutation(
+    api.profileMediaSubmissions.decideWithReceipt,
+    {
+      ...args,
+      decision: "approve",
+      privateReason: "Reviewed",
+      idempotencyKey: "opposite",
+    },
+  );
+  assert.equal(review.operationState, "refused");
+});
+it("pages own lifecycle beyond forty, isolates cursors and provides an ordinary contributor exact lookup", async () => {
+  const f = await fixture();
+  await f.t.run(async (ctx) => {
+    const row = (await ctx.db.get(f.intent.submissionId))!;
+    const { _id, _creationTime, ...value } = row;
+    for (let i = 0; i < 45; i++)
+      await ctx.db.insert("profileMediaSubmissions", {
+        ...value,
+        status: i % 2 ? "rejected" : "approved",
+        createdAt: Date.now() + i,
+        publicDisposition: `result-${i}`,
+        uploadIntentId: undefined,
+      });
+  });
+  const actor = f.t.withIdentity(f.s.contributorIdentity);
+  const first = await actor.query(api.profileMediaSubmissions.listMinePage, {
+    paginationOpts: { cursor: null, numItems: 40 },
+  });
+  assert.equal(first.page.length, 40);
+  assert.equal(first.isDone, false);
+  const next = await actor.query(api.profileMediaSubmissions.listMinePage, {
+    paginationOpts: { cursor: first.continueCursor, numItems: 40 },
+  });
+  assert.equal(next.page.length, 6);
+  await assert.rejects(
+    f.actor.query(api.profileMediaSubmissions.listMinePage, {
+      paginationOpts: { cursor: first.continueCursor, numItems: 40 },
+    }),
+    /CURSOR/,
+  );
+  const filtered = await actor.query(api.profileMediaSubmissions.listMinePage, {
+    status: "rejected",
+    paginationOpts: { cursor: null, numItems: 40 },
+  });
+  assert.equal(filtered.page.length, 22);
+  const exact = await actor.query(api.profileMediaSubmissions.getMine, {
+    submissionId: f.intent.submissionId,
+  });
+  assert.ok(exact?.reviewVersion);
+  assert.equal(exact?.batchId, f.batchId);
+  assert.equal(
+    await f.actor.query(api.profileMediaSubmissions.getMine, {
+      submissionId: f.intent.submissionId,
+    }),
+    null,
+  );
+  const batch = await actor.query(api.profileMediaSubmissions.listMinePage, {
+    batchId: f.batchId,
+    paginationOpts: { cursor: null, numItems: 40 },
+  });
+  assert.ok(batch.page.every((row) => row.batchId === f.batchId));
+});
+it("discovers only live assigned batches through MCP without a known batch id", async () => {
+  const f = await fixture();
+  const args = {
+    actorUserId: f.s.moderatorUserId,
+    emailVerified: true,
+    emailVerificationAttestedAt: Date.now(),
+    paginationOpts: { cursor: null, numItems: 1 },
+  };
+  const page = await f.t.query(
+    internal.profileMediaSubmissions.assignedReviewBatchesForMcpActor,
+    args,
+  );
+  assert.equal(page.page[0]?.batchId, f.batchId);
+  await f.t.run((ctx) => ctx.db.patch(f.assignmentId, { active: false }));
+  assert.equal(
+    (
+      await f.t.query(
+        internal.profileMediaSubmissions.assignedReviewBatchesForMcpActor,
+        args,
+      )
+    ).page.length,
+    0,
+  );
+});
+it("revalidates OAuth token, client and scopes before each command and receipt replay", async () => {
+  const f = await fixture();
+  const tokenId = await f.t.run((ctx) =>
+    ctx.db.insert("oauthAccessTokens", {
+      tokenId: "review-token",
+      clientId: "review-client",
+      subjectType: "user",
+      userId: f.s.moderatorUserId,
+      resource: "https://example.test/mcp",
+      scopes: [
+        "mcp:read",
+        "mcp:write",
+        "assets:review:read",
+        "assets:review:write",
+      ],
+      status: "active",
+      issuedAt: Date.now(),
+      expiresAt: Date.now() + 600000,
+    }),
+  );
+  const authority = {
+    actorUserId: f.s.moderatorUserId,
+    emailVerified: true,
+    emailVerificationAttestedAt: Date.now(),
+    oauthTokenId: "review-token",
+    oauthClientId: "review-client",
+    oauthResource: "https://example.test/mcp",
+  };
+  const detail = await f.t.query(
+    internal.profileMediaSubmissions.reviewDetailForMcpActor,
+    { ...authority, submissionId: f.intent.submissionId },
+  );
+  assert.ok(detail);
+  const args = {
+    ...authority,
+    submissionId: f.intent.submissionId,
+    expectedReviewVersion: detail.reviewVersion,
+    decision: "reject" as const,
+    privateReason: "Examined",
+    publicReason: "Declined",
+    idempotencyKey: "oauth-review",
+  };
+  const receipt = await f.t.mutation(
+    internal.profileMediaSubmissions.decideForMcpActor,
+    args,
+  );
+  assert.equal(receipt.operationState, "committed");
+  await f.t.run((ctx) => ctx.db.patch(tokenId, { status: "revoked" }));
+  await assert.rejects(
+    f.t.mutation(internal.profileMediaSubmissions.decideForMcpActor, args),
+    /DELEGATION/,
+  );
+  await assert.rejects(
+    f.t.query(internal.profileMediaSubmissions.reviewDetailForMcpActor, {
+      ...authority,
+      submissionId: f.intent.submissionId,
+    }),
+    /DELEGATION/,
+  );
+  await f.t.run((ctx) =>
+    ctx.db.patch(tokenId, {
+      status: "active",
+      scopes: ["mcp:read", "assets:review:read"],
+    }),
+  );
+  await assert.rejects(
+    f.t.mutation(internal.profileMediaSubmissions.decideForMcpActor, args),
+    /DELEGATION/,
+  );
+  await f.t.run(async (ctx) => {
+    const client = await ctx.db.insert("oauthDynamicClients", {
+      clientId: "review-client",
+      clientName: "Review",
+      redirectUris: ["https://example.test/callback"],
+      primaryRedirectHost: "example.test",
+      grantTypes: ["authorization_code"],
+      responseTypes: ["code"],
+      tokenEndpointAuthMethod: "none",
+      contacts: [],
+      allowedScopes: ["mcp:read", "assets:review:read"],
+      resource: "https://example.test/mcp",
+      status: "revoked",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    await ctx.db.patch(tokenId, {
+      dynamicClientId: client,
+      scopes: [
+        "mcp:read",
+        "mcp:write",
+        "assets:review:read",
+        "assets:review:write",
+      ],
+    });
+  });
+  await assert.rejects(
+    f.t.mutation(internal.profileMediaSubmissions.decideForMcpActor, args),
+    /DELEGATION/,
+  );
+  await assert.rejects(
+    f.t.query(internal.profileMediaSubmissions.reviewDetailForMcpActor, {
+      ...authority,
+      submissionId: f.intent.submissionId,
+    }),
+    /DELEGATION/,
+  );
+});
+it("selects the content-addressed download rendition for existing review and publisher candidates", async () => {
+  const t = convexTest({ schema, modules });
+  const s = await seed(t);
+  const { intent } = await createAndUpload(t, s);
+  await t.run((ctx) =>
+    ctx.db.patch(intent.intentId, {
+      storageKey: "display.webp",
+      mimeType: "image/webp",
+      downloadStorageKey: "download.png",
+      downloadMimeType: "image/png",
+      downloadContentSha256: "proposal-hash",
+    }),
+  );
+  const candidate = await t
+    .withIdentity(s.moderatorIdentity)
+    .query(api.profileMediaSubmissions.getCandidateForStorage, {
+      submissionId: intent.submissionId,
+    });
+  assert.equal(candidate?.storageKey, "download.png");
+  assert.equal(candidate?.mimeType, "image/png");
+  await t.run((ctx) =>
+    ctx.db.insert("accountFeatureGrants", {
+      userId: s.contributorUserId,
+      feature: "trusted_publisher",
+      state: "active",
+      grantedBy: {
+        issuer: "test",
+        subject: "operator",
+        tokenIdentifier: "test:operator",
+      },
+      grantedAt: Date.now(),
+      updatedAt: Date.now(),
+    }),
+  );
+  const own = await t
+    .withIdentity(s.contributorIdentity)
+    .query(api.profileMediaSubmissions.publisherCandidateForStorage, {
+      submissionId: intent.submissionId,
+    });
+  assert.equal(own?.storageKey, "download.png");
+});
+it("preserves existing assignment authority and discovery while batch intake is disabled", async () => {
+  const f = await fixture();
+  process.env.VRDEX_CONTRIBUTION_BATCHES_ENABLED = "false";
+  process.env.VRDEX_CONTRIBUTION_INTAKE_PAUSED = "true";
+  try {
+    const args = { submissionId: f.intent.submissionId };
+    let d = await f.actor.query(api.profileMediaSubmissions.reviewDetail, args);
+    assert.ok(d);
+    assert.equal(
+      (
+        await f.actor.mutation(api.profileMediaSubmissions.rebase, {
+          ...args,
+          expectedReviewVersion: d.reviewVersion,
+          idempotencyKey: "paused-rebase",
+        })
+      ).operationState,
+      "committed",
+    );
+    d = await f.actor.query(api.profileMediaSubmissions.reviewDetail, args);
+    assert.ok(d);
+    assert.ok(
+      await f.actor.query(
+        api.profileMediaSubmissions.getCandidateForStorage,
+        args,
+      ),
+    );
+    const page = await f.actor.query(
+      api.profileMediaSubmissions.assignedReviewBatches,
+      { paginationOpts: { numItems: 40, cursor: null } },
+    );
+    assert.equal(page.page.length, 1);
+    const command = {
+      ...args,
+      expectedReviewVersion: d.reviewVersion,
+      decision: "reject" as const,
+      privateReason: "Reviewed",
+      publicReason: "Declined",
+      idempotencyKey: "paused-decision",
+    };
+    const receipt = await f.actor.mutation(
+      api.profileMediaSubmissions.decideWithReceipt,
+      command,
+    );
+    assert.equal(receipt.operationState, "committed");
+    assert.deepEqual(
+      await f.actor.mutation(
+        api.profileMediaSubmissions.decideWithReceipt,
+        command,
+      ),
+      receipt,
+    );
+  } finally {
+    process.env.VRDEX_CONTRIBUTION_BATCHES_ENABLED = "true";
+    delete process.env.VRDEX_CONTRIBUTION_INTAKE_PAUSED;
+  }
+});
 async function fixture() {
   const t = convexTest({ schema, modules });
   const s = await seed(t);

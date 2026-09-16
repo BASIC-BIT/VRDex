@@ -8,6 +8,7 @@ import { getAccountFeatureAccess } from "./_accountFeatures";
 import { userOwnsProfile } from "./_profileOwnership";
 import {
   consumeProfileAssetUploads,
+  getPublicProfileMediaKit,
   PROFILE_MEDIA_SUBMISSION_RETENTION_MS,
   hasProfileAssetCapacity,
   sanitizeProfileAssetAltText,
@@ -28,7 +29,10 @@ import {
 } from "./_identity";
 import { recordPublicationRestriction } from "./_trustedPublication";
 import { isProfileFieldVisible } from "./_profileFieldVisibility";
-import { automaticProfileImage, profileImageSources } from "./_profileImageFallback";
+import {
+  automaticProfileImage,
+  profileImageSources,
+} from "./_profileImageFallback";
 
 export type ReviewActor = {
   user: Doc<"users">;
@@ -41,8 +45,45 @@ export async function trustedReviewActor(
   attestation?: {
     emailVerified?: boolean;
     emailVerificationAttestedAt?: number;
+    oauthTokenId?: string;
+    oauthClientId?: string;
+    oauthResource?: string;
   },
+  scope:
+    | "assets:review:read"
+    | "assets:review:write"
+    | "assets:contribute"
+    | "assets:publish" = "assets:review:read",
+  write = scope !== "assets:review:read",
 ): Promise<ReviewActor> {
+  if (
+    attestation?.oauthTokenId !== undefined ||
+    attestation?.oauthClientId !== undefined
+  ) {
+    const token = await ctx.db
+      .query("oauthAccessTokens")
+      .withIndex("by_tokenId", (q) =>
+        q.eq("tokenId", attestation.oauthTokenId ?? ""),
+      )
+      .unique();
+    if (
+      !token ||
+      token.subjectType !== "user" ||
+      token.userId !== userId ||
+      token.clientId !== attestation.oauthClientId ||
+      token.status !== "active" ||
+      token.expiresAt <= Date.now() ||
+      !token.scopes.includes(scope) ||
+      !token.scopes.includes(write ? "mcp:write" : "mcp:read") ||
+      (attestation.oauthResource !== undefined &&
+        token.resource !== attestation.oauthResource) ||
+      (token.applicationId &&
+        (await ctx.db.get(token.applicationId))?.status !== "active") ||
+      (token.dynamicClientId &&
+        (await ctx.db.get(token.dynamicClientId))?.status !== "active")
+    )
+      throw new Error("MEDIA_DELEGATION_DENIED");
+  }
   const user = await ctx.db.get(userId);
   if (user === null) throw new Error("Review actor unavailable.");
   return {
@@ -72,6 +113,9 @@ export function assertReviewActorVerified(actor: ReviewActor) {
     throw new Error("A verified email address is required for media review.");
 }
 export const reviewActorAttestationArgs = {
+  oauthTokenId: v.optional(v.string()),
+  oauthClientId: v.optional(v.string()),
+  oauthResource: v.optional(v.string()),
   emailVerified: v.optional(v.boolean()),
   emailVerificationAttestedAt: v.optional(v.number()),
 };
@@ -284,7 +328,10 @@ export async function applyReviewDecision(
   if (finalCredit === undefined) {
     throw new Error("Asset credit is required before approval.");
   }
-  const publicationEvidence = commandEvidence ?? { operationId: crypto.randomUUID(), revision: (await reviewSnapshot(ctx, submission, profile)).reviewVersion };
+  const publicationEvidence = commandEvidence ?? {
+    operationId: crypto.randomUUID(),
+    revision: (await reviewSnapshot(ctx, submission, profile)).reviewVersion,
+  };
   const assetIds = await consumeProfileAssetUploads(ctx.db, {
     profileId: profile._id,
     requestedBy: intent.requestedBy,
@@ -306,10 +353,19 @@ export async function applyReviewDecision(
   const approvedAssetId = assetIds[0];
   if (approvedAssetId === undefined)
     throw new Error("Media approval did not create an asset.");
-  if (!commandEvidence) await ctx.db.insert("mediaReviewReceipts", {
-    actorUserId: user._id, idempotencyKey: `legacy:${publicationEvidence.operationId}`, inputHash: await hash(args),
-    submissionId: submission._id, receipt: { operationId: publicationEvidence.operationId, operationState: "committed", resourceId: submission._id }, createdAt: now,
-  });
+  if (!commandEvidence)
+    await ctx.db.insert("mediaReviewReceipts", {
+      actorUserId: user._id,
+      idempotencyKey: `legacy:${publicationEvidence.operationId}`,
+      inputHash: await hash(args),
+      submissionId: submission._id,
+      receipt: {
+        operationId: publicationEvidence.operationId,
+        operationState: "committed",
+        resourceId: submission._id,
+      },
+      createdAt: now,
+    });
   await transferPublishedCharge(ctx.db, submission);
   await ctx.db.patch(submission._id, {
     status: "approved",
@@ -335,7 +391,7 @@ export async function applyReviewDecision(
   return { status: "approved" as const, assetId: approvedAssetId };
 }
 
-async function hash(value: unknown) {
+export async function hash(value: unknown) {
   const bytes = new TextEncoder().encode(JSON.stringify(value));
   return Array.from(
     new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
@@ -375,6 +431,33 @@ export async function reviewSnapshot(
       "profile_page",
       hasAuthoredProfileImage,
     )) ?? null;
+  const mediaKit = await getPublicProfileMediaKit(ctx.db, profile);
+  const effective =
+    mediaKit.compactDisplay === "logo"
+      ? (mediaKit.primaryLogo ?? mediaKit.profileImage)
+      : (mediaKit.profileImage ?? mediaKit.primaryLogo);
+  const effectiveAsset = effective ? await ctx.db.get(effective.assetId) : null;
+  const legacyUrl = isProfileFieldVisible(
+    profile,
+    "avatarImageUrl",
+    "profile_page",
+  )
+    ? profile.avatarImageUrl
+    : undefined;
+  const currentImage = effectiveAsset
+    ? {
+        kind: "managed" as const,
+        assetId: effectiveAsset._id,
+        contentSha256:
+          effectiveAsset.downloadContentSha256 ??
+          effectiveAsset.contentSha256 ??
+          null,
+      }
+    : legacyUrl
+      ? { kind: "legacy" as const, url: legacyUrl }
+      : currentAutomaticImageUrl
+        ? { kind: "automatic" as const, url: currentAutomaticImageUrl }
+        : null;
   const intent =
     submission.uploadIntentId === undefined
       ? null
@@ -390,8 +473,14 @@ export async function reviewSnapshot(
     intent.contentSha256 === submission.contentSha256;
   // The hash binds the stored rendition and provenance, current target and placement,
   // and explicit rebase revision. Advisory startReview is deliberately excluded.
-  const artworkEvidence = await Promise.all(profileImageSources(profile, "profile_page").map(source =>
-    ctx.db.query("profileLinkDestinations").withIndex("by_key", q => q.eq("key", source.key)).unique()));
+  const artworkEvidence = await Promise.all(
+    profileImageSources(profile, "profile_page").map((source) =>
+      ctx.db
+        .query("profileLinkDestinations")
+        .withIndex("by_key", (q) => q.eq("key", source.key))
+        .unique(),
+    ),
+  );
   const reviewVersion = await hash({
     candidate: {
       id: submission._id,
@@ -420,10 +509,13 @@ export async function reviewSnapshot(
     currentAutomaticImageUrl,
     authoredPlacements,
     artworkEvidence,
+    currentImage,
+    effectiveAsset,
     revision: submission.reviewRevision ?? 0,
   });
   return {
     reviewVersion,
+    currentImage,
     currentPlacement:
       placement === null
         ? null
@@ -433,7 +525,13 @@ export async function reviewSnapshot(
             credit: currentAsset?.credit ?? null,
             sourceUrl: currentAsset?.sourceUrl ?? null,
           },
-    currentAvatarImageUrl: isProfileFieldVisible(profile, "avatarImageUrl", "profile_page") ? profile.avatarImageUrl ?? null : null,
+    currentAvatarImageUrl: isProfileFieldVisible(
+      profile,
+      "avatarImageUrl",
+      "profile_page",
+    )
+      ? (profile.avatarImageUrl ?? null)
+      : null,
     currentAutomaticImageUrl,
     candidate: {
       rendition: candidateReady
@@ -600,7 +698,12 @@ export async function decideReviewCommand(
     );
     await ctx.db.patch(submission._id, {
       reviewRevision: (submission.reviewRevision ?? 0) + 1,
-      ...(args.decision === "approve" ? { publicationEvidenceRevision: snapshot.reviewVersion, publicationOperationId: receipt.operationId } : {}),
+      ...(args.decision === "approve"
+        ? {
+            publicationEvidenceRevision: snapshot.reviewVersion,
+            publicationOperationId: receipt.operationId,
+          }
+        : {}),
     });
   }
   await ctx.db.insert("mediaReviewReceipts", {
@@ -619,7 +722,6 @@ export async function activeBatchAssignment(
   batchId: Id<"contributionBatches">,
   userId: Id<"users">,
 ) {
-  if (process.env.VRDEX_CONTRIBUTION_BATCHES_ENABLED !== "true") return false;
   const access = await getAccountFeatureAccess(ctx.db, userId);
   if (!access.canReviewMedia) return false;
   const assignment = await ctx.db

@@ -97,7 +97,11 @@ export async function createAndUpload(
     .withIdentity(seeded.contributorIdentity)
     .mutation(api.profileMediaSubmissions.createUploadIntent, {
       profileId: seeded.profileId,
-      requestedPlacement: "profile_image",
+      requestedPlacement:
+        (await t.run((ctx) => ctx.db.get(seeded.profileId)))?.profileType ===
+        "community"
+          ? "primary_logo"
+          : "profile_image",
       originalFileName: "artist.webp",
       mimeType: "image/webp",
       byteSize: 512,

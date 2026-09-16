@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
 import { isCurrentEmailVerificationAttestation } from "./_identity";
@@ -36,17 +36,17 @@ export async function assertLiveContributionToken(
     !token.scopes.includes("mcp:write") ||
     !token.scopes.includes("assets:contribute")
   )
-    throw new Error("CONTRIBUTION_DELEGATION_DENIED");
+    throw new ConvexError({ code: "CONTRIBUTION_DELEGATION_DENIED" });
   if (
     token.applicationId &&
     (await ctx.db.get(token.applicationId))?.status !== "active"
   )
-    throw new Error("CONTRIBUTION_DELEGATION_DENIED");
+    throw new ConvexError({ code: "CONTRIBUTION_DELEGATION_DENIED" });
   if (
     token.dynamicClientId &&
     (await ctx.db.get(token.dynamicClientId))?.status !== "active"
   )
-    throw new Error("CONTRIBUTION_DELEGATION_DENIED");
+    throw new ConvexError({ code: "CONTRIBUTION_DELEGATION_DENIED" });
 }
 export async function authorizeContribution(
   ctx: QueryCtx | MutationCtx,
@@ -60,13 +60,13 @@ export async function authorizeContribution(
     (process.env.VRDEX_CONTRIBUTION_BATCHES_ENABLED !== "true" ||
       process.env.VRDEX_CONTRIBUTION_INTAKE_PAUSED === "true")
   )
-    throw new Error("BATCH_DISABLED");
+    throw new ConvexError({ code: "BATCH_DISABLED" });
   if (
     !args.emailVerified ||
     !isCurrentEmailVerificationAttestation(args.emailVerificationAttestedAt) ||
     !(await ctx.db.get(args.actorUserId))
   )
-    throw new Error("BATCH_ACTOR_DENIED");
+    throw new ConvexError({ code: "BATCH_ACTOR_DENIED" });
   const token = await ctx.db
     .query("oauthAccessTokens")
     .withIndex("by_tokenId", (q) => q.eq("tokenId", args.oauthTokenId))
@@ -81,7 +81,7 @@ export async function authorizeContribution(
     !token.scopes.includes(write ? "mcp:write" : "mcp:read") ||
     (scope && !token.scopes.includes(scope))
   )
-    throw new Error("BATCH_DELEGATION_DENIED");
+    throw new ConvexError({ code: "BATCH_DELEGATION_DENIED" });
   if (
     !token.scopes.some(
       (s) =>
@@ -90,16 +90,16 @@ export async function authorizeContribution(
         (!write && s === "assets:review:read"),
     )
   )
-    throw new Error("BATCH_DELEGATION_DENIED");
+    throw new ConvexError({ code: "BATCH_DELEGATION_DENIED" });
   if (
     token.applicationId &&
     (await ctx.db.get(token.applicationId))?.status !== "active"
   )
-    throw new Error("BATCH_DELEGATION_DENIED");
+    throw new ConvexError({ code: "BATCH_DELEGATION_DENIED" });
   if (
     token.dynamicClientId &&
     (await ctx.db.get(token.dynamicClientId))?.status !== "active"
   )
-    throw new Error("BATCH_DELEGATION_DENIED");
+    throw new ConvexError({ code: "BATCH_DELEGATION_DENIED" });
   return token;
 }
