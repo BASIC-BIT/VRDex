@@ -8,6 +8,7 @@ for (const engine of [chromium, firefox]) {
   const {startProofServer}=await (new Function("url","return import(url)"))(pathToFileURL(path.resolve("../../scripts/event-playback-proof.mjs")).href);
   const transport=await startProofServer();
   let browser:Browser|undefined;
+  const diagnostics:unknown[]=[];
   const stats=async()=> (await fetch(`${transport.url}/stats`)).json();
   const control=(id:string,state:string)=>fetch(`${transport.url}/control?id=${id}&state=${state}`,{method:"POST"});
   try {
@@ -16,7 +17,20 @@ for (const engine of [chromium, firefox]) {
    const messages:string[]=[]; const pageErrors:string[]=[];
    page.on("console",message=>{if (["error","warning"].includes(message.type())) messages.push(message.text());});
    page.on("pageerror",error=>pageErrors.push(error.stack ?? error.message));
+   await page.exposeBinding("recordLineupDiagnostic",(_source,entry)=>{diagnostics.push(entry);});
    await page.addInitScript(()=>{
+    let stage="navigation";
+    const details=(value:unknown)=>{
+     if(value===null || typeof value!=="object")return {value:String(value)};
+     const result:Record<string,string>={};
+     for(const key of new Set([...Object.getOwnPropertyNames(value),"name","message","stack","code"])) {try{result[key]=String((value as Record<string,unknown>)[key]);}catch{result[key]="<unreadable>";}}
+     return result;
+    };
+    const record=(type:string,detail:unknown)=>{void (window as unknown as {recordLineupDiagnostic:(entry:unknown)=>Promise<void>}).recordLineupDiagnostic({type,stage,at:performance.now(),url:location.href,detail}).catch(()=>{});};
+    document.addEventListener("click",event=>{const target=(event.target as Element)?.closest("button");if(target){stage=target.getAttribute("aria-label")??target.textContent??"button";record("action",stage);}},true);
+    document.addEventListener("change",event=>{const target=event.target as HTMLSelectElement;stage=(target.getAttribute("aria-label")??target.tagName)+":"+target.value;record("action",stage);},true);
+    window.addEventListener("error",event=>record("error",{...details(event.error),message:event.message,filename:event.filename,lineno:event.lineno}));
+    window.addEventListener("unhandledrejection",event=>record("unhandledrejection",details(event.reason)));
     window.addEventListener("unhandledrejection",event=>{
      let detail:string;try{detail=JSON.stringify(event.reason,Object.getOwnPropertyNames(event.reason??{}));}catch{detail=String(event.reason);}
      console.error("Unhandled rejection detail",detail);
@@ -178,7 +192,7 @@ for (const engine of [chromium, firefox]) {
    expect((await stats()).denied,JSON.stringify(await stats())).toBe(0);
    await info.attach(`runtime-${engine.name()}.json`,{body:JSON.stringify({browser:browser.version(),stats:await stats(),messages,pageErrors}),contentType:"application/json"});
    expect(pageErrors).toEqual([]);
-  } finally {try{await browser?.close();}finally{await transport.close();}}
+  } finally {try{await info.attach(`diagnostics-${engine.name()}.json`,{body:JSON.stringify(diagnostics,null,2),contentType:"application/json"});}finally{try{await browser?.close();}finally{await transport.close();}}}
  });
 }
 

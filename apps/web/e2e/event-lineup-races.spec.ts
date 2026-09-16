@@ -93,3 +93,32 @@ test("@fixture stale initial context rejection preserves a newer Play",async({ba
   await expect(page.getByRole("button",{name:"Pause",exact:true})).toBeVisible();
  }finally{try{await browser.close();}finally{await transport.close();}}
 });
+
+test("@fixture pending final slot replacement preserves overtime resume",async({baseURL})=>{
+ test.skip(process.env.EVENT_PLAYBACK_PROOF!=="true","Opt-in local transport");test.setTimeout(30000);
+ const {startProofServer}=await(new Function("url","return import(url)"))(pathToFileURL(path.resolve("../../scripts/event-playback-proof.mjs")).href);
+ const transport=await startProofServer();const browser=await chromium.launch();
+ let releaseImport:()=>void=()=>{};
+ try{
+  const page=await browser.newPage();let pending=false;
+  await page.route("**/*.js",async route=>{
+   if(route.request().url().includes("mpegts")){pending=true;await new Promise<void>(resolve=>{releaseImport=resolve;});}
+   await route.continue();
+  });
+  await page.goto(`${baseURL}/playwright/event-lineup-live?transport=${encodeURIComponent(transport.url)}`);
+  await page.getByRole("button",{name:"Next slot",exact:true}).click();
+  await page.getByRole("button",{name:"Play Lineup live"}).click();
+  await expect.poll(()=>pending).toBe(true);
+  await page.getByRole("button",{name:"replace",exact:true}).click();
+  await expect(page.locator("[data-current]")).toHaveAttribute("data-current","b-new");
+  releaseImport();
+  await expect.poll(()=>page.locator("video").evaluate(video=>(video as HTMLVideoElement).currentTime)).toBeGreaterThan(1);
+  await page.getByRole("button",{name:"After end",exact:true}).click();
+  await page.getByRole("button",{name:"Pause",exact:true}).click();
+  await page.getByRole("button",{name:"Play",exact:true}).click();
+  await expect(page.locator("[data-current]")).toHaveAttribute("data-current","b-new");
+  await expect(page.locator("video")).toHaveCount(1);
+  await expect.poll(()=>page.locator("video").evaluate(video=>(video as HTMLVideoElement).paused)).toBe(false);
+  expect((await(await fetch(`${transport.url}/stats`)).json()).opened).toBe(1);
+ }finally{releaseImport();try{await browser.close();}finally{await transport.close();}}
+});

@@ -19,7 +19,9 @@ changes unmount the lineup session. There is no subscription per performer.
 `EventLineupSession` owns one current source and at most one prepared next source.
 A generation check runs before creating an asynchronous source and again before
 accepting playback results. Projection edits, manual selection and disposal
-invalidate prepared requests. Pause also invalidates initial transport imports and
+invalidate prepared requests. A pending current connection reconciles its captured
+slot again when accepted, so a unique replacement key remains the active final
+slot for overtime pause/resume. Pause also invalidates initial transport imports and
 source play attempts awaiting audio-context resume. Sources are owned before
 awaiting playback, so hiding a source or unmounting releases them even when
 resume or play completion never resolves. Exact slot keys retain source identity. Replaced
@@ -118,3 +120,27 @@ the earlier error remains unclassified. The failed report is preserved as
 `playwright-artifacts/task-5-isolated-final.json`, with its extracted failure in
 `event-playback-proof/firefox-unclassified-error.json`. The clean follow-up does
 not establish that this error is fixed.
+
+## Transport cancellation ownership
+
+The shared transport uses mpegts.js 1.8.1's supported customLoader interface.
+`VrcdnFetchLoader` owns fetch, the response reader, and all cancellation promises.
+It keeps range/seek headers, configured headers, credentials, referrer policy,
+redirect notification, byte offsets, content length, EOF and HTTP/read errors.
+The mpegts parser, media-source player, stash buffering and public controls remain
+unchanged. This loader serves the current HTTP(S) VRCDN MPEG-TS callers with Fetch
+and ReadableStream; it does not add WebSocket or legacy XHR transport support.
+
+A deterministic Firefox browser test held a naturally fulfilled response until
+after player unmount. The original library then called body.cancel without
+returning or handling its promise, producing an uncaught native AbortError from
+FetchStreamLoader.open. The maintained loader handles rejected cancellation only
+for its owned cleanup; active HTTP/read errors still reach the player error
+callback. No global rejection filter is installed. Reader cancellation and late
+response fulfillment are generation-scoped so obsolete callbacks cannot change a
+new request.
+
+This reproduces and fixes a concrete teardown leak consistent with the historical
+Object symptom. The historical recording did not retain the exception fields, so
+its exact identity remains unprovable. Preserve that failed artifact alongside
+the cancellation RED/GREEN evidence; a clean rerun alone is not the explanation.

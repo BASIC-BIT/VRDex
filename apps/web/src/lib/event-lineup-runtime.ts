@@ -130,7 +130,9 @@ export class EventLineupSession {
     try {
       const source = await createObservedVrcdnSource(context, this.viewer, slot.stream.questUrl, () => !this.disposed && token === (prepared ? this.nextGeneration : this.currentGeneration));
       if (this.disposed || token !== (prepared ? this.nextGeneration : this.currentGeneration)) { source.release(); return; }
-      const connection = { slot, source, evidence: clearPlaybackEvidence(performance.now()) };
+      const acceptedSlot = prepared ? slot : reconcileSlot(slot, this.event.slots);
+      if (!acceptedSlot || (!prepared && acceptedSlot.key !== this.selected?.key)) { source.release(); return; }
+      const connection = { slot: acceptedSlot, source, evidence: clearPlaybackEvidence(performance.now()) };
       if (prepared) { this.next = connection; source.video.hidden = true; }
       else { this.current = connection; source.gain.gain.value = 1; }
       this.mount.append(source.video);
