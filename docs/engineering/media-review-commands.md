@@ -288,7 +288,9 @@ state yields a durable refusal. Legacy boolean wrappers remain available.
 Single browser decisions, rebase, withdrawal and publication retain exact pending
 input/key after response loss and expose Retry. Opposing controls stay locked.
 Unresolved single-review cards remain mounted even if the committed item leaves
-the reactive queue. Pending recovery survives reactive updates in the mounted
+the reactive queue. Publication cards remain mounted while their command is
+unresolved, including when the own-inventory row changes to approved before a
+lost publish response is recovered. Pending recovery survives reactive updates in the mounted
 page, not a full browser reload.
 
 Upload and collection MCP failures use allowlisted bounded codes and structured

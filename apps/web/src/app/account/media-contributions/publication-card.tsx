@@ -19,8 +19,10 @@ import {
 
 export function PublicationCard({
   submissionId,
+  onPendingChange,
 }: {
   submissionId: Id<"profileMediaSubmissions">;
+  onPendingChange?: (pending: boolean) => void;
 }) {
   const detail = useQuery(api.profileMediaSubmissions.publisherDetail, {
     submissionId,
@@ -34,6 +36,7 @@ export function PublicationCard({
       detail={detail}
       declare={(input) => declare({ ...input, submissionId })}
       publish={(input) => publish({ ...input, submissionId })}
+      onPendingChange={onPendingChange}
     />
   );
 }
@@ -47,10 +50,12 @@ export function PublicationCardView({
   detail,
   declare,
   publish,
+  onPendingChange,
 }: {
   detail: ReviewDetail | null | undefined;
   declare: (input: PublicationEvidence) => Promise<CommandReceipt>;
   publish: (input: MediaPublication) => Promise<CommandReceipt>;
+  onPendingChange?: (pending: boolean) => void;
 }) {
   const [confirmed, setConfirmed] = useState({
     identityConfirmed: false,
@@ -79,6 +84,7 @@ export function PublicationCardView({
             ...(kind === "declare" ? confirmed : {}),
           };
     setPending({ kind, input });
+    onPendingChange?.(true);
     try {
       const receipt =
         kind === "declare"
@@ -93,7 +99,10 @@ export function PublicationCardView({
             ? "Independent review required"
             : reviewDecisionMessage(receipt).message,
       );
-      if (receipt.operationState !== "in_progress") setPending(null);
+      if (receipt.operationState !== "in_progress") {
+        setPending(null);
+        onPendingChange?.(false);
+      }
     } catch {
       setMessage("Outcome unknown");
     } finally {

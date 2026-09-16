@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { it } from "node:test";
 import { convexTest } from "convex-test";
-import { internal } from "../../convex/_generated/api";
+import { api, internal } from "../../convex/_generated/api";
 import { createAndUpload } from "./_mediaReviewFixture";
 import {
   schema,
@@ -19,6 +19,134 @@ const modules = {
     import("../../convex/contributionBatches"),
 };
 process.env.VRDEX_CONTRIBUTION_BATCHES_ENABLED = "true";
+it("replays direct completion after actual batch payload purge with retained authority metadata", async () => {
+  const f = await fixture();
+  process.env.VRDEX_CONTRIBUTION_UPLOADS_ENABLED = "true";
+  process.env.VRDEX_MEDIA_UPLOAD_CLEANUP_READY = "true";
+  process.env.VRDEX_MEDIA_CLEANUP_URL = "https://example.test/cleanup";
+  process.env.VRDEX_MEDIA_CLEANUP_TOKEN = "test";
+  process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED = "true";
+  await f.t.mutation(internal.contributionBatches.append, {
+    ...f.authority,
+    batchId: f.batch.batchId,
+    items: [
+      {
+        kind: "media",
+        itemKey: "image",
+        source: f.item.source,
+        profileId: f.s.profileId,
+        expectedUpdatedAt: NOW,
+        placement: "profile_image",
+        transport: "url",
+        sourceUrl: "https://example.test/image.png",
+        credit: "Artist",
+        contentType: "image/png",
+        byteLength: 512,
+        sha256: "a".repeat(64),
+      },
+    ],
+  });
+  const { transport, ...upload } = await f.t.mutation(
+    internal.contributionBatches.mediaRequest,
+    {
+      ...f.authority,
+      batchId: f.batch.batchId,
+      itemKey: "image",
+      expectedRevision: 1,
+    },
+  );
+  const begun = await f.t.mutation(internal.contributionUploads.begin, {
+    ...f.authority,
+    ...upload,
+  });
+  assert.ok(begun.intentId);
+  const claim = {
+    ...f.authority,
+    intentId: begun.intentId,
+    processingToken: "worker",
+    idempotencyKey: "complete",
+  };
+  await f.t.mutation(internal.contributionUploads.claim, claim);
+  const complete = {
+    ...claim,
+    mimeType: "image/webp",
+    byteSize: 100,
+    contentSha256: "b".repeat(64),
+    width: 10,
+    height: 10,
+    sourceMimeType: "image/png",
+    sourceByteSize: 512,
+    sourceContentSha256: "a".repeat(64),
+    downloadMimeType: "image/png",
+    downloadByteSize: 200,
+    downloadContentSha256: "b".repeat(64),
+  };
+  const receipt = await f.t.mutation(
+    internal.contributionUploads.complete,
+    complete,
+  );
+  const submission = (await f.t.run((ctx) =>
+    ctx.db.query("profileMediaSubmissions").first(),
+  ))!;
+  await f.t
+    .withIdentity(f.s.contributorIdentity)
+    .mutation(api.profileMediaSubmissions.withdraw, {
+      submissionId: submission._id,
+    });
+  await f.t.mutation(internal.contributionBatches.archive, {
+    ...f.authority,
+    batchId: f.batch.batchId,
+  });
+  await f.t.run((ctx) =>
+    ctx.db.patch(f.batch.batchId, { payloadCleanupAfter: Date.now() - 1 }),
+  );
+  assert.deepEqual(
+    await f.t.mutation(internal.contributionOperations.expirePayloads, {}),
+    { expired: 1, held: 0, scanned: 1 },
+  );
+  const revision = (await f.t.run((ctx) =>
+    ctx.db.query("contributionItemRevisions").first(),
+  ))!;
+  assert.equal(revision.payload, "");
+  assert.equal(revision.kind, "media");
+  assert.deepEqual(
+    (await f.t.mutation(internal.contributionUploads.claim, claim)).receipt,
+    receipt,
+  );
+  assert.deepEqual(
+    await f.t.mutation(internal.contributionUploads.complete, complete),
+    receipt,
+  );
+  assert.equal(
+    (
+      await f.t.mutation(internal.contributionUploads.claim, {
+        ...claim,
+        idempotencyKey: "different",
+      })
+    ).receipt?.code,
+    "UPLOAD_IDEMPOTENCY_CONFLICT",
+  );
+  await assert.rejects(
+    f.t.mutation(internal.contributionUploads.claim, {
+      ...claim,
+      actorUserId: f.s.moderatorUserId,
+    }),
+    /UNAVAILABLE/,
+  );
+  await f.t.run((ctx) => ctx.db.patch(f.tokenId, { status: "revoked" }));
+  await assert.rejects(
+    f.t.mutation(internal.contributionUploads.claim, claim),
+    /DELEGATION/,
+  );
+  await f.t.run(async (ctx) => {
+    await ctx.db.patch(f.tokenId, { status: "active" });
+    await ctx.db.patch(revision._id, { kind: undefined });
+  });
+  await assert.rejects(
+    f.t.mutation(internal.contributionUploads.claim, claim),
+    /UPLOAD_BATCH_UNAVAILABLE/,
+  );
+});
 it("replays committed and refused receipts after actual archived payload expiry", async () => {
   for (const refused of [false, true]) {
     const f = await fixture();
@@ -289,10 +417,16 @@ it("merges destinations, preserves provenance, replays durable receipts and reje
     items: [{ ...f.item, itemKey: "stale" }],
   });
   const staleInput = { ...input, itemKey: "stale" };
-  const stale = await f.t.mutation(internal.contributionBatches.submit, staleInput);
+  const stale = await f.t.mutation(
+    internal.contributionBatches.submit,
+    staleInput,
+  );
   assert.equal(stale.operationState, "refused");
   assert.equal(stale.code, "PROFILE_CHANGED");
-  assert.deepEqual(await f.t.mutation(internal.contributionBatches.submit, staleInput), stale);
+  assert.deepEqual(
+    await f.t.mutation(internal.contributionBatches.submit, staleInput),
+    stale,
+  );
 });
 it("does not publish private evidence or ambiguous identities and archives without losing receipts", async () => {
   const f = await fixture();
@@ -533,10 +667,19 @@ it("resumes a partially submitted mixed collection without creating a second pro
     ...input,
     itemKey: "new",
   });
-  const refusal = await f.t.mutation(internal.contributionBatches.submit, { ...input, itemKey: "links" });
+  const refusal = await f.t.mutation(internal.contributionBatches.submit, {
+    ...input,
+    itemKey: "links",
+  });
   assert.equal(refusal.operationState, "refused");
   assert.equal(refusal.code, "PROFILE_CHANGED");
-  assert.deepEqual(await f.t.mutation(internal.contributionBatches.submit, { ...input, itemKey: "links" }), refusal);
+  assert.deepEqual(
+    await f.t.mutation(internal.contributionBatches.submit, {
+      ...input,
+      itemKey: "links",
+    }),
+    refusal,
+  );
   assert.deepEqual(
     await f.t.mutation(internal.contributionBatches.submit, {
       ...input,

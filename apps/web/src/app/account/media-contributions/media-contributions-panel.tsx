@@ -21,6 +21,17 @@ const statusLabel = {
 } as const;
 
 export function MediaContributionsPanel() {
+  const [pendingPublications, setPendingPublications] = useState<Set<string>>(
+    new Set(),
+  );
+  function retainPublication(submissionId: string, pending: boolean) {
+    setPendingPublications((previous) => {
+      const next = new Set(previous);
+      if (pending) next.add(submissionId);
+      else next.delete(submissionId);
+      return next;
+    });
+  }
   const access = useQuery(api.profileMediaSubmissions.getReviewAccess);
   const inventory = usePaginatedQuery(
     api.profileMediaSubmissions.listMinePage,
@@ -82,10 +93,16 @@ export function MediaContributionsPanel() {
                 <dd>{submission.credit}</dd>
               </div>
             </dl>
-            {access?.canPublishMedia &&
-            submission.publisherTargetAvailable &&
-            ["submitted", "under_review"].includes(submission.status) ? (
-              <PublicationCard submissionId={submission.submissionId} />
+            {pendingPublications.has(submission.submissionId) ||
+            (access?.canPublishMedia &&
+              submission.publisherTargetAvailable &&
+              ["submitted", "under_review"].includes(submission.status)) ? (
+              <PublicationCard
+                submissionId={submission.submissionId}
+                onPendingChange={(pending) =>
+                  retainPublication(submission.submissionId, pending)
+                }
+              />
             ) : null}
             {submission.status === "approved" ? (
               <p className="mt-3 text-sm text-muted">

@@ -5,6 +5,58 @@ import {
   prepareStorybookVisualPage,
   captureStorybookScreenshot,
 } from "./storybook-components";
+test("parent inventory retains publication recovery after reactive approval @storybook-visual", async ({
+  page,
+}, testInfo) => {
+  await prepareStorybookVisualPage(page);
+  const candidate = await sharp({
+    create: { width: 320, height: 320, channels: 3, background: "#173e35" },
+  })
+    .png()
+    .toBuffer();
+  await page.route(
+    "**/api/account/media-contributions/submissions/fixture/file?version=*",
+    (route) => route.fulfill({ contentType: "image/png", body: candidate }),
+  );
+  await gotoComponentStory(
+    page,
+    "account-trusted-publication--reactive-inventory",
+  );
+  await expect(
+    page.getByRole("img", { name: "Candidate", exact: true }),
+  ).toHaveJSProperty("naturalWidth", 320);
+  await page.getByRole("button", { name: "Publish", exact: true }).click();
+  await expect(page.getByText("Approved", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Outcome unknown", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByLabel("Identity confirmed")).toBeDisabled();
+  for (const name of ["Publish", "Confirm evidence", "Independent review"])
+    await expect(
+      page.getByRole("button", { name, exact: true }),
+    ).toBeDisabled();
+  await expect(
+    page.getByRole("img", { name: "Candidate", exact: true }),
+  ).toHaveJSProperty("naturalWidth", 320);
+  await captureStorybookScreenshot(
+    page,
+    testInfo,
+    "parent-publication-recovery",
+  );
+  await page.getByRole("button", { name: "Retry", exact: true }).click();
+  const calls = JSON.parse(
+    (await page.getByTestId("inventory-commands").textContent())!,
+  );
+  expect(calls).toHaveLength(2);
+  expect(calls[1]).toEqual(calls[0]);
+  expect(calls[1].expectedReviewVersion).toBe("v1");
+  await expect(
+    page.getByRole("button", { name: "Retry", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByText("Trusted publication", { exact: true }),
+  ).toBeVisible();
+});
 test("trusted publication keeps declarations and publish separate @storybook-visual", async ({
   page,
 }, testInfo) => {

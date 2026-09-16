@@ -54,7 +54,11 @@ attempt and release processing once. Unknown transport, timeout, HTTP 408/429
 and server failures reopen same-key acquisition under the matching lease; a
 stale worker cannot reset or fail a successor. Retained bytes stay charged until
 confirmed deletion. Completion recovery requires the exact completion key and
-current OAuth/resource authority; admission replay also rechecks current target
+current OAuth/resource authority. Terminal batch-linked completion replay checks
+retained revision kind and batch ownership independently of the private payload,
+so actual payload expiry does not hide the receipt. Missing retained kind after
+purge fails closed; unfinished work still requires the full manifest. Admission
+replay also rechecks current target
 access, including owner loss.
 
 Upload tickets bound URLs, field names/values/count and safe-integer expiry.

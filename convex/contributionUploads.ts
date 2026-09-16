@@ -1,4 +1,8 @@
-import { validateBatchMedia, linkBatchMedia } from "./contributionBatches";
+import {
+  validateBatchMedia,
+  linkBatchMedia,
+  requireContributionBatch,
+} from "./contributionBatches";
 import { ConvexError, v } from "convex/values";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -167,6 +171,20 @@ async function reservation(
   if (row.batchRevisionId) {
     const rev = await ctx.db.get(row.batchRevisionId);
     if (!rev) throw new ConvexError({ code: "UPLOAD_BATCH_UNAVAILABLE" });
+    if (row.receipt && (rev.kind !== undefined || !rev.payload)) {
+      await requireContributionBatch(
+        ctx,
+        { ...args, batchId: rev.batchId },
+        true,
+      );
+      // Terminal replay needs retained scope/ownership, not the private manifest.
+      // Missing kind is not inferred from the reservation or receipt.
+      if (rev.actorUserId !== args.actorUserId || rev.kind !== "media")
+        throw new ConvexError({ code: "UPLOAD_BATCH_UNAVAILABLE" });
+      return row;
+    }
+    // Unfinished work, or a legacy unpurged revision without retained kind,
+    // still requires validation of the original manifest.
     await validateBatchMedia(
       ctx,
       args,
@@ -315,7 +333,8 @@ export const begin = internalMutation({
       if (previous) {
         if (previous.receipt.operationState === "refused")
           return { receipt: previous.receipt };
-        if (!previous.intentId) throw new ConvexError({ code: "UPLOAD_BATCH_UNAVAILABLE" });
+        if (!previous.intentId)
+          throw new ConvexError({ code: "UPLOAD_BATCH_UNAVAILABLE" });
         old = await ctx.db
           .query("contributionUploadReservations")
           .withIndex("by_intentId", (q) => q.eq("intentId", previous.intentId!))
@@ -354,7 +373,8 @@ export const begin = internalMutation({
       if (old.state !== "pending" || old.expiresAt <= Date.now())
         throw new ConvexError({ code: "UPLOAD_UNAVAILABLE" });
       const intent = await ctx.db.get(old.intentId);
-      if (!intent?.quarantineStorageKey) throw new ConvexError({ code: "UPLOAD_UNAVAILABLE" });
+      if (!intent?.quarantineStorageKey)
+        throw new ConvexError({ code: "UPLOAD_UNAVAILABLE" });
       return {
         intentId: old.intentId,
         expiresAt: old.expiresAt,

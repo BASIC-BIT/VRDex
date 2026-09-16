@@ -2,6 +2,9 @@ import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import type { ReviewDetail } from "@vrdex/api-contracts";
 import { PublicationCardView } from "../app/account/media-contributions/publication-card";
+import { MediaContributionsPanel } from "../app/account/media-contributions/media-contributions-panel";
+import { ConvexProvider, ConvexReactClient } from "convex/react";
+import { getFunctionName, type FunctionReference } from "convex/server";
 const fixture: ReviewDetail = {
   submissionId: "fixture",
   profileId: "profile",
@@ -83,3 +86,67 @@ type Story = StoryObj<typeof meta>;
 export const ExplicitCommands: Story = {};
 
 export const Uncertain: Story = { render: () => <Fixture loseResponse /> };
+
+function ReactiveInventoryFixture() {
+  const [calls, setCalls] = useState<unknown[]>([]);
+  const [client] = useState(() => {
+    const value = new ConvexReactClient("http://127.0.0.1:3210");
+    const listeners = new Set<() => void>();
+    let approved = false;
+    Object.defineProperty(value, "watchQuery", {
+      value: (query: FunctionReference<"query">) => ({
+        onUpdate: (listener: () => void) => {
+          listeners.add(listener);
+          return () => {
+            listeners.delete(listener);
+          };
+        },
+        localQueryLogs: () => [],
+        journal: () => undefined,
+        localQueryResult: () => {
+          const name = getFunctionName(query);
+          if (name.endsWith(":getReviewAccess"))
+            return { canPublishMedia: true };
+          const row = {
+            ...fixture,
+            status: approved ? "approved" : "submitted",
+            reviewVersion: approved ? "v2" : "v1",
+            publisherTargetAvailable: true,
+            publicationMethod: approved ? "trusted_publisher" : undefined,
+          };
+          if (name.endsWith(":publisherDetail")) return row;
+          return { page: [row], isDone: true, continueCursor: "" };
+        },
+      }),
+    });
+    Object.defineProperty(value, "mutation", {
+      value: async (_mutation: unknown, input: unknown) => {
+        setCalls((previous) => [...previous, input]);
+        if (!approved) {
+          approved = true;
+          listeners.forEach((listener) => listener());
+          throw new Error("Publication committed, response lost");
+        }
+        return {
+          operationId: "publish-once",
+          operationState: "committed",
+          resourceId: "fixture",
+        };
+      },
+    });
+    return value;
+  });
+  return (
+    <ConvexProvider client={client}>
+      <div className="mx-auto max-w-4xl p-4">
+        <MediaContributionsPanel />
+        <output className="sr-only" data-testid="inventory-commands">
+          {JSON.stringify(calls)}
+        </output>
+      </div>
+    </ConvexProvider>
+  );
+}
+export const ReactiveInventory: Story = {
+  render: () => <ReactiveInventoryFixture />,
+};
