@@ -93,8 +93,8 @@ export class EventLineupSession {
     this.state.started = true; this.state.paused = false;
     if (this.state.following) {
       const scheduled = this.scheduleSlot();
-      // The active final source may continue after posted end, including a pause/resume.
-      const overtime = this.event.endAt !== undefined && Date.now() >= this.event.endAt && this.current?.slot.key === this.event.slots.at(-1)?.key;
+      // Reconciled selection survives transport recovery and overtime pause/resume.
+      const overtime = this.event.endAt !== undefined && Date.now() >= this.event.endAt && this.selected !== undefined && this.selected.key === this.event.slots.at(-1)?.key;
       if (!overtime) this.select(scheduled);
     }
     this.resetEvidence();

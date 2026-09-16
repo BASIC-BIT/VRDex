@@ -145,7 +145,7 @@ for (const engine of [chromium, firefox]) {
    await page.waitForTimeout(100);expect(await current()).toBe("a");
    await page.getByRole("button",{name:"unpublish",exact:true}).click();
    await expect.poll(async()=>(await stats()).active).toBe(0);
-   for (const barrier of ["missing","overlap"]) {
+   for (const barrier of ["missing"]) {
     expect((await stats()).denied,"before silent case").toBe(0);
    await goto("silent");await start();
     await page.getByRole("button",{name:barrier,exact:true}).click();

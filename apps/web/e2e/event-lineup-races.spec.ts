@@ -94,7 +94,7 @@ test("@fixture stale initial context rejection preserves a newer Play",async({ba
  }finally{try{await browser.close();}finally{await transport.close();}}
 });
 
-test("@fixture pending final slot replacement preserves overtime resume",async({baseURL})=>{
+test("@fixture pending final slot replacement survives pause before overtime connection",async({baseURL})=>{
  test.skip(process.env.EVENT_PLAYBACK_PROOF!=="true","Opt-in local transport");test.setTimeout(30000);
  const {startProofServer}=await(new Function("url","return import(url)"))(pathToFileURL(path.resolve("../../scripts/event-playback-proof.mjs")).href);
  const transport=await startProofServer();const browser=await chromium.launch();
@@ -111,14 +111,79 @@ test("@fixture pending final slot replacement preserves overtime resume",async({
   await expect.poll(()=>pending).toBe(true);
   await page.getByRole("button",{name:"replace",exact:true}).click();
   await expect(page.locator("[data-current]")).toHaveAttribute("data-current","b-new");
-  releaseImport();
-  await expect.poll(()=>page.locator("video").evaluate(video=>(video as HTMLVideoElement).currentTime)).toBeGreaterThan(1);
+
   await page.getByRole("button",{name:"After end",exact:true}).click();
   await page.getByRole("button",{name:"Pause",exact:true}).click();
   await page.getByRole("button",{name:"Play",exact:true}).click();
   await expect(page.locator("[data-current]")).toHaveAttribute("data-current","b-new");
+  releaseImport();
+  await expect.poll(()=>page.locator("video").evaluate(video=>(video as HTMLVideoElement).currentTime)).toBeGreaterThan(1);
   await expect(page.locator("video")).toHaveCount(1);
   await expect.poll(()=>page.locator("video").evaluate(video=>(video as HTMLVideoElement).paused)).toBe(false);
   expect((await(await fetch(`${transport.url}/stats`)).json()).opened).toBe(1);
  }finally{releaseImport();try{await browser.close();}finally{await transport.close();}}
+});
+
+
+for (const kind of ["silent", "audible"]) test(`@fixture ordered overlap ${kind} uses later boundary`, async ({baseURL}) => {
+ test.skip(process.env.EVENT_PLAYBACK_PROOF!=="true","Opt-in local transport");test.setTimeout(45000);
+ const {startProofServer}=await(new Function("url","return import(url)"))(pathToFileURL(path.resolve("../../scripts/event-playback-proof.mjs")).href);
+ const transport=await startProofServer();const browser=await chromium.launch();
+ try {
+  const page=await browser.newPage();
+  await page.goto(`${baseURL}/playwright/event-lineup-live?transport=${encodeURIComponent(transport.url)}&kind=${kind}`);
+  await page.getByRole("button",{name:"overlap",exact:true}).click();
+  await page.getByRole("button",{name:"Play Lineup live"}).click();
+  await expect.poll(()=>page.locator("video").evaluate(v=>(v as HTMLVideoElement).currentTime)).toBeGreaterThan(1);
+  await page.getByRole("button",{name:"Just before eligible",exact:true}).click();
+  await page.waitForTimeout(1200);
+  expect((await(await fetch(`${transport.url}/stats`)).json()).active).toBe(1);
+  await page.getByRole("button",{name:"Exactly eligible",exact:true}).click();
+  await expect.poll(async()=>(await(await fetch(`${transport.url}/stats`)).json()).opened).toBe(2);
+  if(kind==="audible") {
+   await page.waitForTimeout(1500);
+   await expect(page.locator("[data-current]")).toHaveAttribute("data-current","a");
+   await fetch(`${transport.url}/control?id=current&state=eof`,{method:"POST"});
+  }
+  await expect(page.locator("[data-current]")).toHaveAttribute("data-current","b",{timeout:20000});
+  await page.getByRole("button",{name:"Unmount",exact:true}).click();
+  await expect.poll(async()=>(await(await fetch(`${transport.url}/stats`)).json()).active).toBe(0);
+ }finally{try{await browser.close();}finally{await transport.close();}}
+});
+
+
+test("@fixture failed final reconnect retains overtime selection across pause", async ({baseURL}) => {
+ test.skip(process.env.EVENT_PLAYBACK_PROOF!=="true","Opt-in local transport");test.setTimeout(45000);
+ const {startProofServer}=await(new Function("url","return import(url)"))(pathToFileURL(path.resolve("../../scripts/event-playback-proof.mjs")).href);
+ const transport=await startProofServer();const browser=await chromium.launch();
+ try {
+  const page=await browser.newPage();
+  await page.addInitScript(()=>{
+   const create=AudioContext.prototype.createMediaElementSource;
+   Object.assign(window,{rejectReconnect:false});
+   AudioContext.prototype.createMediaElementSource=function(video){
+    if((window as unknown as {rejectReconnect:boolean}).rejectReconnect) throw new Error("Fixture reconnect unavailable");
+    return create.call(this,video);
+   };
+  });
+  await page.goto(`${baseURL}/playwright/event-lineup-live?transport=${encodeURIComponent(transport.url)}`);
+  await page.getByRole("button",{name:"Next slot",exact:true}).click();
+  await page.getByRole("button",{name:"Play Lineup live"}).click();
+  await expect.poll(()=>page.locator("video").evaluate(v=>(v as HTMLVideoElement).currentTime)).toBeGreaterThan(1);
+  await page.getByRole("button",{name:"After end",exact:true}).click();
+  await page.evaluate(()=>Object.assign(window,{rejectReconnect:true}));
+  await fetch(`${transport.url}/control?id=next&state=eof`,{method:"POST"});
+  await expect(page.locator("video")).toHaveCount(0,{timeout:20000});
+  await page.getByRole("button",{name:"Pause",exact:true}).click();
+  await page.getByRole("button",{name:"Play",exact:true}).click();
+  await expect(page.locator("[data-current]")).toHaveAttribute("data-current","b");
+  await page.evaluate(()=>Object.assign(window,{rejectReconnect:false}));
+  await expect.poll(()=>page.locator("video").evaluate(v=>(v as HTMLVideoElement).currentTime),{timeout:15000}).toBeGreaterThan(1);
+  await page.getByRole("button",{name:"hide",exact:true}).click();
+  await expect(page.locator("video")).toHaveCount(0);
+  await page.getByRole("button",{name:"Play",exact:true}).click();
+  await expect(page.locator("[data-current]")).not.toHaveAttribute("data-current","b");
+  await page.waitForTimeout(1200);
+  expect((await(await fetch(`${transport.url}/stats`)).json()).active).toBe(0);
+ }finally{try{await browser.close();}finally{await transport.close();}}
 });

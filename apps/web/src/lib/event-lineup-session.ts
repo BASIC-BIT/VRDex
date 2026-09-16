@@ -12,7 +12,7 @@ export function reconcileSlot(previous: LineupSlot, slots: readonly LineupSlot[]
 export function nextSlot(current: LineupSlot, slots: readonly LineupSlot[]): LineupSlot | undefined {
   const index = slots.findIndex(slot => slot.key === current.key);
   if (index < 0 || slots.filter(slot => slot.key === current.key).length !== 1) return undefined;
-  // An ordered sequence must not invent a winner for simultaneous or overlapping slots.
-  if (slots.some((slot, i) => i > 0 && (slot.startAt <= slots[i-1].startAt || (slots[i-1].endAt ?? slot.startAt) > slot.startAt))) return undefined;
+  // Established playback can traverse overlaps; equal starts still have no ordered winner.
+  if (slots.some((slot, i) => i > 0 && slot.startAt <= slots[i-1].startAt)) return undefined;
   return slots[index + 1];
 }

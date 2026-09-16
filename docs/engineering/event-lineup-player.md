@@ -44,8 +44,10 @@ subtracted. Current playback retains its slot identity across schedule boundarie
 A healthy source is never cut off because its posted end has passed.
 
 Only the immediate next slot can be prepared. Missing, freeform and unplayable
-slots are barriers. Out-of-order or overlapping schedules do not automatically
+slots are barriers. Out-of-order or simultaneous-start schedules do not automatically
 advance. Eligibility is the later of current end and next start, minus 120 seconds.
+Ordered overlaps use that same later boundary for an established current selection.
+Joining during simultaneous active intervals still refuses an ambiguous selection.
 If current end is absent, next start provides the handoff boundary only.
 
 Each decoded source routes through an analyser and source gain before the shared
@@ -68,7 +70,9 @@ decisions and releases preparation. Play rejection leaves the shared Play action
 
 Manual selection disables following. Return to live re-evaluates the scheduled
 slot. Resuming following also re-evaluates it, except an already-active final slot
-can resume after posted event end. New sessions after event end are refused. There
+can resume after posted event end, including while its transport is being recovered.
+The reconciled selected slot retains this identity through failed or pending connections.
+Removed or changed sources lose it. New sessions after event end are refused. There
 is no automatic wraparound.
 
 ## Browser visibility

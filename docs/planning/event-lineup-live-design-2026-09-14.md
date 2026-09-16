@@ -222,3 +222,31 @@ not silent removal of connected-silence handling.
 - [Existing event routing](event-routing-and-authoring.md)
 
 Prior live checks are dated September 12; no new live-state claim is made here.
+
+## Page and action journey
+
+Existing routes provide discovery, community event navigation, direct event links,
+sign-in, editing and publication. This feature adds roster copy actions and
+performer-sequence playback on the event page. These changes are locally verified;
+this diagram does not claim deployment. No purchase step applies.
+
+```mermaid
+flowchart TD
+  Discovery[Event discovery] --> Event[Public event page]
+  Community[Community page] --> Event
+  Direct[Direct event link] --> Event
+  Organizer[Organizer] --> Auth[Sign in]
+  Auth --> Editor[Community event editor]
+  Editor --> Publish[Publish]
+  Publish --> Event
+  Event --> Copy[Copy selected PC or Quest link]
+  Event --> Play[Play during watch window]
+  Play --> Follow[Follow lineup by default]
+  Follow --> Manual[Select performer manually]
+  Manual --> Live[Return to live]
+  Live --> Follow
+```
+
+Copy actions and the follow/manual loop belong to this feature. Event-stream mode
+retains its existing player. Longer-term multi-stage and shared switching remain
+outside this slice and are not additional steps in this journey.
