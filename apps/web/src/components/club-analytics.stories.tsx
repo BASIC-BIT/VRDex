@@ -179,6 +179,8 @@ class AnalyticsFixtureClient extends ConvexReactClient {
     else if (name === "clubProviderReads:get")
       result = {
         state: "succeeded",
+        fresh: true,
+        remainingFreshMs: 60_000,
         result: { items: [], nextOffset: null, observedAt: this.now },
         errorCode: null,
       };

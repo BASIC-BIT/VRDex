@@ -33,6 +33,25 @@ is older than 30 seconds and rechecks membership and grants. If the data itself
 ages beyond that margin during refresh, it records an explicit read failure
 instead of sending stale evidence that leaves the request running.
 
+`clubProviderReads.get` returns server-authoritative `fresh` and
+`remainingFreshMs` for the stored observation. The duration is zero for failed,
+absent, future-dated or expired evidence. The 60-second boundary is expired.
+The query still rechecks the requester, feature, epoch and collector access.
+
+The browser supplies a unique `freshnessNonce` per mount or refresh attempt,
+including when `request` returns a previously used request ID. Convex caches
+queries by their arguments and elapsed wall time does not invalidate them.
+The nonce forces a new server evaluation; it grants no authority or lifetime.
+It is optional for existing query callers, which must not treat a cached
+duration as new evidence. The shared hook measures elapsed time with
+`performance.now()`, starting before the query, so client clock offsets and
+transport delay cannot prolong readiness. Rerenders and repeated results retain
+that start. `observedAt` is provenance, not a timestamp to compare to the device
+clock. A pending or running read gets one new evaluation after success, with
+actions disabled until it arrives. Null, failed, stale and denied results
+immediately disable readiness. Operation execution retains its independent
+server authorization and freshness checks.
+
 Backend tests cover unauthorized reads, feature defaults and updates, fenced
 snapshot rejection, freshness, identity mismatch, credential rotation, expired
 leases, role ID validation and cross-club role rejection. Provider writes and

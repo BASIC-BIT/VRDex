@@ -89,6 +89,8 @@ class InvitationFixtureClient extends ConvexReactClient {
       const request = this.reads.get(String(args.requestId))!;
       result = {
         state: "succeeded",
+        fresh: true,
+        remainingFreshMs: 60_000,
         result: {
           items: [
             {
@@ -112,6 +114,8 @@ class InvitationFixtureClient extends ConvexReactClient {
     } else if (name === "clubProviderReads:get")
       result = {
         state: "succeeded",
+        fresh: true,
+        remainingFreshMs: 60_000,
         result: {
           items: [
             {

@@ -62,6 +62,8 @@ class InstanceFixtureClient extends ConvexReactClient {
       if (!read) throw new Error("Missing live instance request");
       result = {
         state: "succeeded",
+        fresh: true,
+        remainingFreshMs: 60_000,
         errorCode: null,
         result: {
           items: [

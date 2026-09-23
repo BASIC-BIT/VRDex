@@ -15,6 +15,53 @@ const modules = {
 };
 const ref = (name: string) =>
   makeFunctionReference<any>(`clubProviderReads:${name}`);
+it("server freshness reports remaining observation lifetime for each evaluation", async (test) => {
+  const now = 1_800_000_000_000;
+  test.mock.timers.enable({ apis: ["Date", "setTimeout"], now });
+  const s = await setup();
+  const requestId = await s.owner.mutation(ref("request"), {
+    communityProfileId: s.communityProfileId,
+    params: { kind: "members", n: 10, offset: 0 },
+  });
+  const evaluate = (nonce: string) =>
+    s.owner.query(ref("get"), { requestId, freshnessNonce: nonce });
+  assert.equal((await evaluate("pending")).remainingFreshMs, 0);
+  assert.equal((await evaluate("pending-again")).fresh, false);
+  await s.t.run((ctx) =>
+    ctx.db.patch(requestId, {
+      state: "succeeded",
+      collectorAccountId: s.collectorAccountId,
+      credentialGeneration: 1,
+      result: { items: [], nextOffset: null, observedAt: now - 45_000 },
+    }),
+  );
+  const first = await evaluate("first");
+  assert.equal(first.fresh, true);
+  assert.equal(first.remainingFreshMs, 15_000);
+  test.mock.timers.tick(10_000);
+  const refreshed = await evaluate("refresh-same-request");
+  assert.equal(refreshed.result.observedAt, first.result.observedAt);
+  assert.equal(refreshed.remainingFreshMs, 5_000);
+  test.mock.timers.tick(5_000);
+  assert.equal((await evaluate("at-expiry")).fresh, false);
+  assert.equal((await evaluate("at-expiry-duration")).remainingFreshMs, 0);
+  for (const [state, observedAt] of [
+    ["succeeded", Date.now() + 1],
+    ["failed", Date.now()],
+  ] as const) {
+    await s.t.run((ctx) =>
+      ctx.db.patch(requestId, {
+        state,
+        result: { items: [], nextOffset: null, observedAt },
+      }),
+    );
+    const invalid = await evaluate(state);
+    assert.equal(invalid.fresh, false);
+    assert.equal(invalid.remainingFreshMs, 0);
+  }
+  await s.t.run((ctx) => ctx.db.patch(requestId, { expiresAt: Date.now() }));
+  assert.equal(await evaluate("expired-row"), null);
+});
 it("queued reads wake idle integrations without clearing provider backoff", async (test) => {
   test.mock.timers.enable({ apis: ["setTimeout"] });
   for (const hasBackoff of [false, true]) {

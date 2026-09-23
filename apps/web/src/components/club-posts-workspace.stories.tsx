@@ -54,6 +54,7 @@ class PostsFixtureClient extends ConvexReactClient {
       result = {
         state: "succeeded",
         fresh: true,
+        remainingFreshMs: 60_000,
         errorCode: null,
         result: {
           items: [

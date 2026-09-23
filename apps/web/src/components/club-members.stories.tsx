@@ -99,6 +99,7 @@ class MembersFixtureClient extends ConvexReactClient {
             result: null,
             errorCode: "provider_read_failed",
             fresh: false,
+            remainingFreshMs: 0,
           }
         : {
             state: "succeeded",
@@ -110,6 +111,7 @@ class MembersFixtureClient extends ConvexReactClient {
             },
             errorCode: null,
             fresh: true,
+            remainingFreshMs: 60_000,
           };
     } else throw new Error(`Unmocked ${name}`);
     this.cache.set(key, result);

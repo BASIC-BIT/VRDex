@@ -356,7 +356,11 @@ export const request = mutation({
   },
 });
 export const get = query({
-  args: { requestId: v.id("clubProviderReadRequests") },
+  args: {
+    requestId: v.id("clubProviderReadRequests"),
+    // A new attempt must evaluate server time instead of reusing a cached query.
+    freshnessNonce: v.optional(v.string()),
+  },
   returns: v.union(
     v.null(),
     v.object({
@@ -369,11 +373,13 @@ export const get = query({
       result: v.union(providerReadPage, v.null()),
       errorCode: v.union(v.string(), v.null()),
       fresh: v.boolean(),
+      remainingFreshMs: v.number(),
     }),
   ),
   handler: async (ctx, args) => {
+    const now = Date.now();
     const row = await ctx.db.get(args.requestId);
-    if (!row || row.expiresAt <= Date.now()) return null;
+    if (!row || row.expiresAt <= now) return null;
     const actor = await resolveClubActor(ctx, row.communityProfileId);
     requireClubPermission(actor, readRequirement(row.params.kind).permission);
     if (actor.subject?.tokenIdentifier !== row.subject.tokenIdentifier)
@@ -396,12 +402,16 @@ export const get = query({
       )
     )
       throw new Error("Read access expired.");
+    const remainingFreshMs =
+      row.state === "succeeded" && row.result && row.result.observedAt <= now
+        ? Math.max(0, row.result.observedAt + READ_FRESH_MS - now)
+        : 0;
     return {
       state: row.state,
       result: row.result ?? null,
       errorCode: row.errorCode ?? null,
-      fresh:
-        !!row.result && Date.now() - row.result.observedAt <= READ_FRESH_MS,
+      fresh: remainingFreshMs > 0,
+      remainingFreshMs,
     };
   },
 });
