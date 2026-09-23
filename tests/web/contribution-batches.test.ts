@@ -45,5 +45,3 @@ it("returns the same item receipt for first URL submission and authorized cross-
     assert.notEqual(first.operationId,reservation.receipt.operationId);
   `], { cwd: process.cwd(), env: { ...process.env, TSX_TSCONFIG_PATH: "apps/web/tsconfig.json" }, stdio: "pipe" });
 });
-
-
