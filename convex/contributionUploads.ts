@@ -668,7 +668,7 @@ export const settleSigning = internalMutation({
     signingToken: v.string(),
     succeeded: v.boolean(),
   },
-  returns: v.null(),
+  returns: v.boolean(),
   handler: async (ctx, args) => {
     const row = await ctx.db
       .query("contributionUploadReservations")
@@ -682,8 +682,9 @@ export const settleSigning = internalMutation({
       await ctx.db.patch(row._id, { signingToken: undefined });
       if (!args.succeeded)
         await failReservation(ctx, row, "UPLOAD_TARGET_UNAVAILABLE");
+      return true;
     }
-    return null;
+    return false;
   },
 });
 // Only the acquisition owner may reopen its reservation. Retained bytes and

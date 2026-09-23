@@ -155,14 +155,18 @@ export function createMcpMediaUploadHandlers(deps: LocalUploadDependencies) {
         });
         return target;
       } catch {
-        await admin()
+        const settled = await admin()
           .mutation(internal.contributionUploads.settleSigning, {
             intentId: admitted.intentId,
             signingToken,
             succeeded: false,
           })
           .catch(() => null);
-        throw new Error("UPLOAD_TARGET_UNAVAILABLE");
+        throw new Error(
+          settled === true
+            ? "UPLOAD_TARGET_UNAVAILABLE"
+            : "UPLOAD_ACQUISITION_RETRY",
+        );
       }
     },
     async complete(input: unknown, acquire?: () => Promise<void>) {

@@ -5,6 +5,7 @@ const setup = `
 import assert from "node:assert/strict";
 import { convexTest } from "convex-test";
 import { internal } from "./convex/_generated/api.js";
+import { getFunctionName } from "convex/server";
 import { schema, modules as baseModules, seed, NOW } from "./tests/backend/_mediaReviewFixture.ts";
 import { createMcpMediaUploadHandlers } from "./apps/web/src/lib/server/mcp-media-upload.ts";
 import { completeMcpProfileMediaSubmissionImport } from "./apps/web/src/lib/server/profile-media-mcp-import.ts";
@@ -48,7 +49,7 @@ it("failed presigning releases processing once and preserves its same-key refusa
   probe(`
     const h = createMcpMediaUploadHandlers({authority: async () => authority, admin,
       target: async () => { throw Error("private signing credentials"); }});
-    await assert.rejects(h.begin(input));
+    await assert.rejects(h.begin(input), {message: "UPLOAD_TARGET_UNAVAILABLE"});
     const failed = await read();
     assert.equal(failed.reservation.state, "failed");
     assert.ok(failed.capacity.every(row => row.processing === 0));
@@ -80,14 +81,115 @@ it("concurrent and replay signing failures cannot cancel a successful transfer",
     release();
     const success = await first;
     assert.equal(success.transfer.url, transfer.url);
-    await assert.rejects(failing.begin(input));
+    await assert.rejects(failing.begin(input), {message: "UPLOAD_ACQUISITION_RETRY"});
     const row = await read();
     assert.equal(row.reservation.state, "pending");
     assert.equal(row.reservation.receipt, undefined);
     assert.ok(row.capacity.every(row => row.processing === 1));
+    assert.deepEqual(await h.begin(input), success);
+    assert.deepEqual((await read()).capacity, row.capacity);
     const claim = await t.mutation(internal.contributionUploads.claim, {...authority,
       intentId: success.intentId, idempotencyKey: "complete", processingToken: "worker"});
     assert.equal(claim.intentId, success.intentId);
+  `);
+});
+
+for (const settledBeforeLoss of [false, true]) {
+  it(`unacknowledged failure settlement stays retryable, committed=${settledBeforeLoss}`, () => {
+    probe(`
+      const unreliableAdmin = {mutation: async (ref, args) => {
+        if (getFunctionName(ref) === "contributionUploads:settleSigning") {
+          if (${settledBeforeLoss}) await t.mutation(ref, args);
+          throw Error("private settlement transport details");
+        }
+        return t.mutation(ref, args);
+      }};
+      const h = createMcpMediaUploadHandlers({authority: async () => authority, admin: unreliableAdmin,
+        target: async () => {throw Error("private credentials");}});
+      await assert.rejects(h.begin(input), {message: "UPLOAD_ACQUISITION_RETRY"});
+      const state = await read();
+      assert.equal(state.reservation.state, ${settledBeforeLoss} ? "failed" : "pending");
+      assert.ok(state.capacity.every(row => row.processing === (${settledBeforeLoss} ? 0 : 1)));
+      assert.ok(state.capacity.every(row => row.bytes > 0));
+      const reliable = createMcpMediaUploadHandlers({authority: async () => authority, admin,
+        target: async () => {throw Error("must not sign before the stored outcome is replayed");}});
+      const replay = await reliable.begin(input);
+      assert.equal(replay.operationState, ${settledBeforeLoss} ? "refused" : "in_progress");
+      assert.deepEqual((await read()).capacity, state.capacity);
+    `);
+  });
+}
+
+it("lost success acknowledgement cannot terminally reject a live target and same-key retry recovers", () => {
+  probe(`
+    const unreliableAdmin = {mutation: async (ref, args) => {
+      const result = await t.mutation(ref, args);
+      if (getFunctionName(ref) === "contributionUploads:settleSigning" && args.succeeded)
+        throw Error("private acknowledgement details");
+      return result;
+    }};
+    const transfer = {url: "https://storage.example.test", fields: {key: "private"}};
+    const h = createMcpMediaUploadHandlers({authority: async () => authority, admin: unreliableAdmin,
+      target: async () => transfer});
+    await assert.rejects(h.begin(input), {message: "UPLOAD_ACQUISITION_RETRY"});
+    const before = await read();
+    assert.equal(before.reservation.state, "pending");
+    assert.equal(before.reservation.signingToken, undefined);
+    assert.ok(before.capacity.every(row => row.processing === 1));
+    const retry = createMcpMediaUploadHandlers({authority: async () => authority, admin, target: async () => transfer});
+    const target = await retry.begin(input);
+    assert.equal(target.intentId, before.intent._id);
+    assert.equal(target.transfer.url, transfer.url);
+    assert.deepEqual((await read()).capacity, before.capacity);
+  `);
+});
+
+it("registered upload begin reports terminal signing failure only for its own settled admission", () => {
+  probe(`
+    import { createVrdexMcpHandler } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+    delete process.env.VRDEX_PROFILE_ASSET_BUCKET;
+    delete process.env.VRDEX_ASSET_BUCKET;
+    const h = createMcpMediaUploadHandlers({authority: async () => authority, admin,
+      target: async () => ({url: "https://storage.example.test", fields: {key: "private"}})});
+    await h.begin(input);
+    const before = await read();
+    const handler = createVrdexMcpHandler({adminConvex: admin, verifyContributorEmail: async () => true});
+    const authInfo = {token: "private-token", clientId: "client", scopes: ["mcp:write", "assets:contribute"],
+      resource: new URL("https://example.test/mcp"),
+      extra: {subjectType: "user", userId: s.contributorUserId, tokenId: "token", requestId: "request"}};
+    async function call(idempotencyKey) {
+      const response = await handler.fetch(new Request("https://example.test/mcp", {
+        method: "POST", headers: {accept: "application/json, text/event-stream", "content-type": "application/json"},
+        body: JSON.stringify({jsonrpc: "2.0", id: 1, method: "tools/call", params: {
+          name: "vrdex_media_upload_begin", arguments: {...input, idempotencyKey},
+        }}),
+      }), {authInfo});
+      const text = await response.text();
+      const result = JSON.parse(text.split(/\\r?\\n/).find(line => line.startsWith("data: "))?.slice(6) ?? text).result;
+      assert.deepEqual(JSON.parse(result.content[0].text), result.structuredContent);
+      assert.doesNotMatch(JSON.stringify(result), /private|bucket|credentials|signingToken/);
+      return result.structuredContent;
+    }
+    const replay = await call(input.idempotencyKey);
+    assert.equal(replay.code, "UPLOAD_ACQUISITION_RETRY");
+    assert.equal(replay.operationState, "in_progress");
+    assert.equal(replay.retryable, true);
+    assert.equal(replay.nextAction, "retry_same_key");
+    assert.deepEqual((await read()).capacity, before.capacity);
+    // Admit the independent signing-failure case outside the actor burst window.
+    await t.run(ctx => ctx.db.patch(before.submission._id, {createdAt: Date.now() - 86400000}));
+    const firstFailure = await call("new-key");
+    assert.equal(firstFailure.code, "UPLOAD_TARGET_UNAVAILABLE");
+    assert.equal(firstFailure.operationState, "refused");
+    assert.equal(firstFailure.retryable, false);
+    const afterFailure = await read();
+    assert.ok(afterFailure.capacity.every(row => row.processing === 1));
+    assert.ok(afterFailure.capacity.every(row => row.bytes > before.capacity.find(old => old.scope === row.scope).bytes));
+    const terminalReplay = await call("new-key");
+    assert.equal(terminalReplay.code, "UPLOAD_TARGET_UNAVAILABLE");
+    assert.equal(terminalReplay.operationState, "refused");
+    assert.deepEqual((await read()).capacity, afterFailure.capacity);
+    await handler.close();
   `);
 });
 

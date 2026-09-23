@@ -54,6 +54,8 @@ Successful admission contains only intent ID, expiry, and the POST URL/form fiel
 
 The initial signing request holds a private fence until target generation settles. Concurrent admission replay returns `in_progress`. Signing failure records `UPLOAD_TARGET_UNAVAILABLE` and releases processing once; same-key replay returns that refusal. Signing failures after a target was issued cannot cancel its reservation. Bytes stay charged until confirmed cleanup.
 
+The adapter reports a terminal signing failure only after the backend acknowledges that it failed the matching pending reservation. Replay signing failures and unacknowledged settlement return `UPLOAD_ACQUISITION_RETRY` with same-key retry guidance. A later replay reads the stored result, including a refusal whose acknowledgement was lost. A failed settlement RPC alone does not confirm a terminal outcome.
+
 ## URL acquisition recovery
 
 The HTTP classifier and tool callbacks require transport and resource scopes.

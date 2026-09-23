@@ -31,7 +31,7 @@ it("seals the single-read candidate despite quarantine overwrites and returns th
             assert.equal(targetCreated, true);
             assert.deepEqual(args, { intentId: "intent", signingToken, succeeded: true });
             signingSettlements++;
-            return null;
+            return true;
           case "contributionUploads:claim": return receipt ? { receipt } : { intentId: "intent", quarantineStorageKey: "quarantine", sourceStorageKey: "source", downloadStorageKey: "download", storageKey: "display", ...declaration };
           case "contributionUploads:complete":
             assert.equal(args.sourceContentSha256, declaration.sha256);
