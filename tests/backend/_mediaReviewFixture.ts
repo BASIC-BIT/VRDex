@@ -8,6 +8,7 @@ export const modules = {
   "../../convex/profileAssets.ts": () => import("../../convex/profileAssets"),
   "../../convex/profileMediaSubmissions.ts": () =>
     import("../../convex/profileMediaSubmissions"),
+  "../../convex/mcpToolEvents.ts": () => import("../../convex/mcpToolEvents"),
 };
 export const schema =
   (schemaModule as unknown as { default?: typeof schemaModule }).default ??

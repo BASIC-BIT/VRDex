@@ -345,10 +345,10 @@ consent remain manual or use a provider-approved non-interactive mechanism.
 
 ## Promoting Production
 
-Vercel's Git integration builds production deployments but does not alias them
-to `vrdex.net`. The live site therefore stays on whatever build was last
-promoted, and a merged change can sit unreleased indefinitely with nothing
-reporting it.
+Vercel's Git integration builds production deployments. Whether it aliases a
+new build to `vrdex.net` depends on provider configuration, so inspect the live
+alias for each release. During PR #343, the production deployment was already
+aliased before manual promotion.
 
 That is not hypothetical: during the Clerk cutover, Convex production deployed
 the Clerk backend while `vrdex.net` kept serving the pre-Clerk bundle, whose
@@ -361,8 +361,8 @@ Promote with the `Promote Production Web` workflow:
 gh workflow run production-promote.yml -f deployment_url=https://vr-dex-<id>-basicbit.vercel.app
 ```
 
-Find the candidate with `vercel ls`, taking the newest `Ready` deployment whose
-environment is `Production`.
+Find the exact intended commit with `vercel ls` and deployment metadata. Verify
+that deployment is `Ready` and its environment is `Production` before promotion.
 
 Dispatch is manual on purpose. The preflight can show a build is not obviously
 broken; it cannot show that releasing it is wanted.

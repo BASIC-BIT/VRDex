@@ -92,6 +92,7 @@ Then read the issue-specific and area-specific docs that actually apply to the t
 - recycle loops are appropriate when work is sloppy, unclear, under-verified, or only partially aligned with the issue
 - the goal is to raise quality quickly, especially for newer contributors, not to create ceremony for its own sake
 - future review-loop automation should plug into this workflow rather than replace contributor judgment
+- When a user merges a PR, refresh ordinary comments, inline threads, formal reviews, checks, and mutable review summaries. Refresh them again before reporting deployment complete. Keep pending reviews and late findings visible in the repair loop after merge; this does not add a merge or deployment approval gate.
 
 ## Branch protection and org controls
 
