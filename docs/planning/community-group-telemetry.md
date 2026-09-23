@@ -86,7 +86,7 @@ Compaction may remove redundant heartbeats only after an equivalent rollup exist
 
 ## Security and operations
 
-- `manage_integrations` authorizes connect, disconnect, private dashboard reads, event association, and visibility changes.
+- `manage_integrations` authorizes connection management. Event association requires `manage_events`; association lists also require recap visibility. Private dashboard reads admit owners and staff with category-specific projections. Visibility changes require ownership. See the [current staff boundary](../backend/club-staff-workspace.md#data-visibility).
 - The real-provider proof never persists service-account passwords or verification codes. It stores only the session cookies, immutable account ID, and save time in the account-scoped operating-system credential vault; malformed, expired, or mismatched sessions are removed. `--fresh-login` bypasses the saved session, `--clear-session` deletes it, and `--auth-from-env` remains a trusted development escape hatch that bypasses the vault.
 - The disabled production worker contract supports one account session secret in AWS Secrets Manager, with Convex storing only its ARN/reference and generation. Activating durable session storage requires explicit provider approval; passwords and TOTP seeds are never stored.
 - Logs and audit records contain status classes, request counts, sanitized error categories, and opaque account aliases; raw headers, cookies, credentials, provider payloads, and private observations are excluded.

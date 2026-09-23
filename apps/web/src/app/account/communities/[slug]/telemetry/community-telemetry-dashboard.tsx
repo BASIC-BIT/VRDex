@@ -73,13 +73,13 @@ export type TelemetryDashboardData = {
     bucketStartAt: number;
     bucketEndAt: number;
     currentPopulation?: number;
-    activeInstanceCount: number;
-    peakConcurrency: number;
-    playerMinutes: number;
-    coverageRatio: number;
+    activeInstanceCount?: number;
+    peakConcurrency?: number;
+    playerMinutes?: number;
+    coverageRatio?: number;
     groupMemberCount?: number;
     groupMemberGrowth?: number;
-    worldDistribution: Array<{ vrchatWorldId: string; samples: number }>;
+    worldDistribution?: Array<{ vrchatWorldId: string; samples: number }>;
   }>;
   coverage: Array<{
     startedAt: number;
@@ -105,7 +105,7 @@ export type TelemetryDashboardData = {
   }>;
   events: Array<{
     _id: string;
-    slug: string;
+    slug?: string;
     title: string;
     startAt: number;
     endAt?: number;
@@ -234,18 +234,20 @@ function CommunityTelemetryDashboardContent({
   communitySlug,
   fixtureData,
   canManageIntegrations = false,
+  canManageEvents = false,
 }: {
   communitySlug: string;
   fixtureData?: TelemetryDashboardData;
   canManageIntegrations?: boolean;
+  canManageEvents?: boolean;
 }) {
   const { isAuthenticated, isLoading: isAuthLoading } = useConvexAuth();
-  const liveData = useQuery(
+  const liveData: TelemetryDashboardData | null | undefined = useQuery(
     api.communityTelemetry.getPrivateDashboard,
     fixtureData || isAuthLoading || !isAuthenticated
       ? "skip"
       : { communitySlug },
-  ) as TelemetryDashboardData | null | undefined;
+  );
   const data = fixtureData ?? liveData;
   const associateEventInstance = useMutation(
     api.communityTelemetry.associateEventInstance,
@@ -284,17 +286,15 @@ function CommunityTelemetryDashboardContent({
       }));
     const grain = rangeHours === 168 ? "hour" : "day";
     return data.rollups
-      .filter(
+      .flatMap(
         (rollup) =>
           rollup.grain === grain &&
           rollup.bucketStartAt >= cutoff &&
           rollup.currentPopulation !== undefined &&
-          rollup.coverageRatio > 0,
-      )
-      .map((rollup) => ({
-        at: rollup.bucketStartAt,
-        value: rollup.currentPopulation ?? rollup.peakConcurrency,
-      }));
+          rollup.coverageRatio !== undefined && rollup.coverageRatio > 0
+            ? [{ at: rollup.bucketStartAt, value: rollup.currentPopulation }]
+            : [],
+      );
   }, [cutoff, data, population, rangeHours]);
   const activeInstancePoints = useMemo(() => {
     if (!data) return [];
@@ -306,17 +306,16 @@ function CommunityTelemetryDashboardContent({
       }));
     const grain = rangeHours === 168 ? "hour" : "day";
     return data.rollups
-      .filter(
+      .flatMap(
         (rollup) =>
           rollup.grain === grain &&
           rollup.bucketStartAt >= cutoff &&
           rollup.currentPopulation !== undefined &&
-          rollup.coverageRatio > 0,
-      )
-      .map((rollup) => ({
-        at: rollup.bucketStartAt,
-        value: rollup.activeInstanceCount,
-      }));
+          rollup.activeInstanceCount !== undefined &&
+          rollup.coverageRatio !== undefined && rollup.coverageRatio > 0
+            ? [{ at: rollup.bucketStartAt, value: rollup.activeInstanceCount }]
+            : [],
+      );
   }, [cutoff, data, population, rangeHours]);
 
   async function perform(action: () => Promise<unknown>, success: string) {
@@ -675,12 +674,12 @@ function CommunityTelemetryDashboardContent({
                       </p>
                       <p className="mt-1 text-muted">
                         Peak {formatNumber(recap.peakConcurrency)} ·{" "}
-                        {formatNumber(recap.playerMinutes / 60, 1)} player hours
+                        {formatNumber(recap.playerMinutes === undefined ? undefined : recap.playerMinutes / 60, 1)} player hours
                         ·{" "}
                         {formatNumber(
                           (recap.bucketEndAt - recap.bucketStartAt) / 60_000,
                         )}{" "}
-                        min · {formatNumber(recap.coverageRatio * 100, 1)}%
+                        min · {formatNumber(recap.coverageRatio === undefined ? undefined : recap.coverageRatio * 100, 1)}%
                         coverage
                       </p>
                     </div>
@@ -728,7 +727,7 @@ function CommunityTelemetryDashboardContent({
         </div>
       ) : null}
 
-      {canRead("event_recaps") && canManageIntegrations ? (
+      {canRead("event_recaps") && canManageEvents ? (
         <Card padding="lg">
           <SectionHeading description="Confirm a session explicitly. Automated suggestions remain private until reviewed.">
             Event associations
@@ -940,10 +939,12 @@ export function CommunityTelemetryDashboard({
   communitySlug,
   fixtureData,
   canManageIntegrations = false,
+  canManageEvents = false,
 }: {
   communitySlug: string;
   fixtureData?: TelemetryDashboardData;
   canManageIntegrations?: boolean;
+  canManageEvents?: boolean;
 }) {
   return (
     <CommunityTelemetryDashboardErrorBoundary communitySlug={communitySlug}>
@@ -951,6 +952,7 @@ export function CommunityTelemetryDashboard({
         communitySlug={communitySlug}
         fixtureData={fixtureData}
         canManageIntegrations={canManageIntegrations}
+        canManageEvents={canManageEvents}
       />
     </CommunityTelemetryDashboardErrorBoundary>
   );

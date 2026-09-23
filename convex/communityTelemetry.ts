@@ -1,6 +1,7 @@
 import { resolveClubActor, readClubVisibility, canReadCategory, requireClubPermission } from "./_clubAccess";
-import { CLUB_CATEGORIES, LEGACY_CATEGORY_MAP } from "./_clubModel";
+import { CLUB_CATEGORIES, LEGACY_CATEGORY_MAP, clubCategory } from "./_clubModel";
 import { ConvexError, v } from "convex/values";
+import schema from "./schema";
 
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -20,6 +21,8 @@ import {
   TELEMETRY_ROLLUP_VERSION,
   computePopulationMetrics,
   coverageStateValidator,
+  collectorAccountStateValidator,
+  publicTelemetrySettingsValidator,
   eventInstanceAssociationStateValidator,
   redactProviderText,
   telemetryIntegrationStateValidator,
@@ -1509,18 +1512,54 @@ async function telemetryDashboardData(ctx: QueryCtx, profile: Doc<"profiles">, n
     coverage: coverage.reverse(),
     rollups,
     associations,
-    events: events.map((event) => ({
-      _id: event._id,
-      slug: event.slug,
-      title: event.title,
-      startAt: event.startAt,
-      endAt: event.endAt,
-    })),
+    events,
   };
 }
 
 export const getPrivateDashboard = query({
   args: { communitySlug: v.string(), now: v.optional(v.number()) },
+  returns: v.union(v.null(), v.object({
+    readableCategories: v.array(clubCategory),
+    community: v.object({ slug: v.string(), displayName: v.string() }),
+    integration: v.object({
+      state: telemetryIntegrationStateValidator,
+      groupVisibility: v.optional(vrchatGroupVisibilityValidator),
+      joinPolicy: v.optional(vrchatGroupJoinPolicyValidator),
+      vrchatGroupId: v.optional(v.string()),
+      lastSuccessfulObservationAt: v.optional(v.number()),
+      freshness: v.union(v.literal("current"), v.literal("stale")),
+      publicMetrics: v.optional(publicTelemetrySettingsValidator),
+      collector: v.optional(v.union(v.null(), v.object({
+        accountAlias: v.string(), vrchatUserId: v.string(), state: collectorAccountStateValidator,
+      }))),
+    }),
+    summary: v.object({
+      currentPopulation: v.optional(v.number()), activeInstanceCount: v.optional(v.number()),
+      peakConcurrency: v.optional(v.number()), playerHours: v.optional(v.number()),
+      coverageRatio: v.optional(v.number()), groupMemberCount: v.optional(v.number()),
+      groupMemberGrowth: v.optional(v.number()),
+      worlds: v.optional(v.array(v.object({ worldId: v.string(), samples: v.number(), population: v.number() }))),
+    }),
+    sessions: v.array(v.object({ ...schema.tables.instanceSessions.validator.fields, _id: v.id("instanceSessions"), _creationTime: v.number() })),
+    population: v.array(v.object({ ...schema.tables.communityPopulationObservations.validator.fields, _id: v.id("communityPopulationObservations"), _creationTime: v.number() })),
+    instancePopulation: v.array(v.object({ ...schema.tables.instancePopulationObservations.validator.fields, _id: v.id("instancePopulationObservations"), _creationTime: v.number() })),
+    memberCounts: v.array(v.object({ ...schema.tables.communityMemberCountObservations.validator.fields, _id: v.id("communityMemberCountObservations"), _creationTime: v.number() })),
+    coverage: v.array(v.object({ ...schema.tables.collectionCoverageWindows.validator.fields, _id: v.id("collectionCoverageWindows"), _creationTime: v.number() })),
+    rollups: v.array(v.object({
+      ...schema.tables.communityTelemetryRollups.validator.fields,
+      _id: v.id("communityTelemetryRollups"), _creationTime: v.number(),
+      activeInstanceCount: v.optional(v.number()), peakConcurrency: v.optional(v.number()),
+      playerMinutes: v.optional(v.number()), coverageRatio: v.optional(v.number()),
+      worldDistribution: v.optional(schema.tables.communityTelemetryRollups.validator.fields.worldDistribution),
+    })),
+    associations: v.array(v.object({
+      _id: v.id("eventInstanceAssociations"), eventId: v.id("events"), sessionId: v.id("instanceSessions"),
+      state: eventInstanceAssociationStateValidator, confidence: v.number(),
+    })),
+    events: v.array(v.object({
+      _id: v.id("events"), slug: v.optional(v.string()), title: v.string(), startAt: v.number(), endAt: v.optional(v.number()),
+    })),
+  })),
   handler: async (ctx, args) => {
     const profile = await ctx.db
       .query("profiles")
@@ -1535,6 +1574,19 @@ export const getPrivateDashboard = query({
     const data = await telemetryDashboardData(ctx, profile, args.now ?? Date.now());
     if(!data) return null;
     const integrationsAllowed = actor.kind === "owner" || actor.permissions.includes("manage_integrations");
+    const associationsAllowed = allowed("event_recaps") &&
+      (actor.kind === "owner" || actor.permissions.includes("manage_events"));
+    // Resolve canonical recap events independently of the bounded event picker and
+    // association history. Rollup generation already requires confirmed sessions.
+    const recapEventIds = [...new Set(data.rollups.flatMap(rollup =>
+      rollup.grain === "event" && rollup.eventId ? [rollup.eventId] : []))];
+    const recapEvents = allowed("event_recaps") && !associationsAllowed
+      ? (await Promise.all(recapEventIds.map(id => ctx.db.get(id)))).filter(
+        (event): event is Doc<"events"> => event !== null &&
+          event.communityProfileId === profile._id && event.publicationState === "published",
+      )
+      : [];
+    const visibleRecapIds = new Set(recapEvents.map(event => event._id));
     const {groupVisibility,joinPolicy,vrchatGroupId,publicMetrics,collector,...safeIntegration} = data.integration;
     return {
       ...data,
@@ -1551,12 +1603,12 @@ export const getPrivateDashboard = query({
       instancePopulation: allowed("instance_history") ? data.instancePopulation:[],
       memberCounts: allowed("group_size") ? data.memberCounts:[],
       coverage: allowed("population_history") || allowed("instance_history") ? data.coverage:[],
-      rollups: data.rollups.filter(rollup => rollup.grain === "event" ? allowed("event_recaps") : allowed("population_history") || allowed("group_size") || allowed("membership_movement")).map(rollup => {
+      rollups: data.rollups.filter(rollup => rollup.grain === "event" ? allowed("event_recaps") && (associationsAllowed || (rollup.eventId !== undefined && visibleRecapIds.has(rollup.eventId))) : allowed("population_history") || allowed("group_size") || allowed("membership_movement")).map(rollup => {
         const {currentPopulation,activeInstanceCount,peakConcurrency,playerMinutes,coverageRatio,worldDistribution,groupMemberCount,groupMemberGrowth,...metadata}=rollup;
         return {...metadata,...(rollup.grain === "event" || allowed("population_history") ? {currentPopulation,activeInstanceCount,peakConcurrency,playerMinutes,coverageRatio,worldDistribution}:{}),...(allowed("group_size")?{groupMemberCount}:{}),...(allowed("membership_movement")?{groupMemberGrowth}:{})};
       }),
-      associations: allowed("event_recaps") ? data.associations:[],
-      events: allowed("event_recaps") ? data.events:[],
+      associations: associationsAllowed ? data.associations.map(({_id, eventId, sessionId, state, confidence}) => ({_id, eventId, sessionId, state, confidence})) : [],
+      events: (associationsAllowed ? data.events : recapEvents).map(({_id, slug, title, startAt, endAt}) => ({_id, slug, title, startAt, endAt})),
     };
   },
 });

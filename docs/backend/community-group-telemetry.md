@@ -6,7 +6,7 @@ This backend implements the aggregate-only slice of [epic #176](https://github.c
 
 ## Control plane
 
-The [club workspace](club-staff-workspace.md) separates action permissions from analytics visibility. Connection and event-association actions retain their integration capability gate. Private dashboard reads admit owners and staff, then filter each data category. Publication settings are owner-controlled.
+The [club workspace](club-staff-workspace.md) separates action permissions from analytics visibility. Connection actions require `manage_integrations`; event-association actions require `manage_events`. Private dashboard reads admit owners and staff, then filter each data category. Publication settings are owner-controlled.
 
 `communityVrchatIntegrations` is the community-owned lifecycle record. Connect allocates one healthy account only while `assignedGroupCount < capacity - reservedHeadroom`; Convex mutation serialization prevents concurrent over-allocation. The same VRChat group cannot be active on two community profiles. Disconnect immediately disables collection and public fields, then a fenced `disconnecting` assignment makes the service account leave the group before releasing account capacity. Reconnect resets freshness and opens a new `telemetryEpochStartedAt`; private and public projections filter observations, sessions, coverage, associations, and rollups to that epoch so a previous group's retained history cannot appear under the new connection. Ingestion also refuses to reuse an open session from an older epoch.
 

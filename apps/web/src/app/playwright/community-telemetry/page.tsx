@@ -65,6 +65,25 @@ export default async function CommunityTelemetryPreviewPage({
   }
   const previewFixture = state === "disconnected"
     ? { ...fixture, integration: { ...fixture.integration, state: "disconnected" } }
+    : state === "recap-only" || state === "integration-only"
+    ? {
+        ...fixture,
+        readableCategories: ["event_recaps"],
+        integration: state === "integration-only" ? fixture.integration : {
+          state: fixture.integration.state,
+          freshness: fixture.integration.freshness,
+          lastSuccessfulObservationAt: now,
+        },
+        associations: [], sessions: [], population: [], instancePopulation: [],
+        memberCounts: [], coverage: [], summary: {},
+        rollups: fixture.rollups.filter(rollup => rollup.grain === "event").map(rollup => ({
+          eventId: rollup.eventId, grain: rollup.grain, bucketStartAt: rollup.bucketStartAt,
+          bucketEndAt: rollup.bucketEndAt, currentPopulation: rollup.currentPopulation,
+          activeInstanceCount: rollup.activeInstanceCount, peakConcurrency: rollup.peakConcurrency,
+          playerMinutes: rollup.playerMinutes, coverageRatio: rollup.coverageRatio,
+          worldDistribution: rollup.worldDistribution,
+        })),
+      }
     : fixture;
-  return <PageShell><PageContainer max="6xl"><CommunityTelemetryDashboard communitySlug="the-faceless" fixtureData={previewFixture} canManageIntegrations /></PageContainer></PageShell>;
+  return <PageShell><PageContainer max="6xl"><CommunityTelemetryDashboard communitySlug="the-faceless" fixtureData={previewFixture} canManageIntegrations={state !== "event-manager" && state !== "recap-only"} canManageEvents={state !== "recap-only" && state !== "integration-only"} /></PageContainer></PageShell>;
 }

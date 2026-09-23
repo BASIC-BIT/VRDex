@@ -240,8 +240,14 @@ describe("community telemetry review regressions", () => {
         communityProfileId,
         ...rollup(startedAt, "day"),
       });
+      const eventId = await ctx.db.insert("events", {
+        slug: "published-recap", title: "Published recap", sortTitle: "published recap",
+        startAt: startedAt, communityProfileId, sourceType: "manual", sourceLabel: "test",
+        eventStatus: "scheduled", publicationState: "published", updatedAt: startedAt,
+      });
       await ctx.db.insert("communityTelemetryRollups", {
         communityProfileId,
+        eventId,
         ...rollup(startedAt, "event"),
       });
       return startedAt;

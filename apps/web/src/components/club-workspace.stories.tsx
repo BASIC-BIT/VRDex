@@ -164,6 +164,7 @@ export const Home: Story = {
               communitySlug="afterhours"
               fixtureData={telemetry}
               canManageIntegrations
+              canManageEvents
             />
           </ClubWorkspaceView>
         </PageContainer>

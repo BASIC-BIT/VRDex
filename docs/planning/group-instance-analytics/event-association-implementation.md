@@ -8,13 +8,15 @@ Q23 is implemented through this deliberate path: after an event-created instance
 
 Pending time and world suggestions are reviewed on the club Analytics page by staff with `manage_events` and access to event recaps. The list is private, paginated, and scoped to the current group connection. A valid suggestion can be confirmed or rejected; a stale suggestion can only be rejected. Review updates the list. Staff with instance history access can open the instance and return to the same Analytics context.
 
+The legacy private dashboard follows the same manager-plus-recap gate for association records and unpublished event-selection context. Every returned association omits actor subjects and unused audit fields. Recap-only staff receive published, same-community event labels and rollups; canonical events are resolved by recap event ID so the latest-event and association limits cannot hide older valid recaps. Suggested and rejected associations do not generate recaps. The separate confirmed-association query on instance detail remains available to event managers regardless of recap visibility. Integration management alone grants no association access.
+
 ```mermaid
 flowchart LR
   A[Club workspace link] --> B{Signed in?}
   D[Direct Analytics link] --> B
   B -- No --> C[Sign in] --> E[Club Analytics]
   B -- Yes --> E
-  E --> F[Event associations]
+  E -- Owner or event manager with recap access --> F[Event associations]
   F -- Instance history readable --> G[Inspect instance] --> F
   F --> H[Confirm or reject] --> F
   F --> E

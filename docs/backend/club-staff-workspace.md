@@ -30,6 +30,8 @@ Until a visibility row exists, existing integration publication flags supply the
 
 The public projection continues to suppress telemetry after disconnect. Permanent retention does not make retained data public and does not bypass connection-epoch filtering.
 
+Recap visibility alone permits published, same-community event recaps. The compatibility `getPrivateDashboard` query returns their event labels and rollups, with independent membership-field visibility. Association records and unpublished event-picker context additionally require ownership or `manage_events`. Its association projection includes only record, event and session IDs, state and confidence, never actor subjects or audit metadata. The separate `getInstanceEventAssociation` management-context query retains its `manage_events` gate independently of recap visibility.
+
 `migrations.runBackfillClubDataVisibility` is the explicit migration runner. It fills missing visibility documents from the legacy settings and leaves existing documents unchanged. It is intentionally absent from `runAll`. Deploying the additive schema is not evidence that the migration ran; verify the intended deployment and migration outcome before removing legacy fields or fallback reads. The owner-only `setPublicMetric` compatibility entry point updates category visibility during this transition.
 
 ## Routes
