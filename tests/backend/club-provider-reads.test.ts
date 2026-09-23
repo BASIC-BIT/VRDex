@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import { it } from "node:test";
 import { convexTest } from "convex-test";
 import schemaModule from "../../convex/schema";
+import { defaultClubVisibility } from "../../convex/_clubModel";
 import { makeFunctionReference } from "convex/server";
 const schema =
   (schemaModule as unknown as { default?: typeof schemaModule }).default ??
   schemaModule;
 const modules = {
+  "../../convex/clubAnalytics.ts": () => import("../../convex/clubAnalytics"),
   "../../convex/clubProviderReads.ts": () =>
     import("../../convex/clubProviderReads"),
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
@@ -414,12 +416,59 @@ it("instance destination reads require instances feature without analytics or me
       updatedAt: Date.now(),
     });
   });
+  await s.t.run((ctx) =>
+    ctx.db.insert("communityDataVisibility", {
+      communityProfileId: s.communityProfileId,
+      categories: {
+        ...defaultClubVisibility(),
+        instance_history: { audience: "owner", staffRoleIds: null },
+      },
+      updatedAt: Date.now(),
+    }),
+  );
   const staff = s.t.withIdentity(subject);
   const args = {
     communityProfileId: s.communityProfileId,
     params: { kind: "instances", n: 10, offset: 0 },
   };
-  assert.ok(await staff.mutation(ref("request"), args));
+  const item = {
+    id: "live-instance",
+    name: "Observatory",
+    worldId: "wrld_11111111-1111-1111-1111-111111111111",
+    instanceId: "123~group(grp_test)",
+  };
+  // Both management-only staff and an owner can read live destinations with analytics off.
+  for (const actor of [staff, s.owner]) {
+    const requestId = await actor.mutation(ref("request"), args);
+    const { authority, ...worker } = s.snapshot;
+    const job = await s.t.mutation(ref("claim"), worker);
+    assert.equal(job.requestId, requestId);
+    await s.t.mutation(ref("complete"), {
+      ...worker,
+      requestId,
+      claimToken: job.claimToken,
+      authority,
+      result: { items: [item], nextOffset: null, observedAt: Date.now() },
+    });
+    assert.deepEqual(
+      (await actor.query(ref("get"), { requestId })).result.items,
+      [item],
+    );
+  }
+  await assert.rejects(
+    staff.query(makeFunctionReference<any>("clubAnalytics:listInstances"), {
+      communitySlug: "connection-club",
+      kind: "live",
+      paginationOpts: { numItems: 10, cursor: null },
+    }),
+  );
+  const staffRequestId = await staff.mutation(ref("request"), args);
+  await s.t.run((ctx) => ctx.db.patch(s.roleId, { permissions: [] }));
+  await assert.rejects(staff.mutation(ref("request"), args));
+  await assert.rejects(staff.query(ref("get"), { requestId: staffRequestId }));
+  await s.t.run((ctx) =>
+    ctx.db.patch(s.roleId, { permissions: ["manage_instances"] }),
+  );
   await assert.rejects(
     staff.mutation(ref("request"), {
       ...args,

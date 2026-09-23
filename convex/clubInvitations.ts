@@ -107,7 +107,8 @@ export const lists = query({
       )
       .paginate(args.paginationOpts);
     return {
-      ...result,
+      isDone: result.isDone,
+      continueCursor: result.continueCursor,
       page: result.page.map(({ _id, name, recipients, revision }) => ({
         _id,
         name,

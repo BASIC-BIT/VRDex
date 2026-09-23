@@ -333,6 +333,84 @@ export function InstanceCreateForm({
   );
 }
 
+function LiveInstanceManagement({
+  communityProfileId,
+}: {
+  communityProfileId: Id<"profiles">;
+}) {
+  const [offset, setOffset] = useState(0);
+  const instances = useClubProviderRead(communityProfileId, {
+    kind: "instances",
+    n: 100,
+    offset,
+  });
+  return (
+    <section className="grid gap-3" aria-label="Live instances">
+      <div className="flex justify-end">
+        <Button
+          size="sm"
+          disabled={instances.loading}
+          onClick={instances.refresh}
+        >
+          Refresh instances
+        </Button>
+      </div>
+      {instances.error ? (
+        <Notice variant="error" role="alert">
+          {instances.error}
+        </Notice>
+      ) : null}
+      {instances.loading ? (
+        <Notice role="status">Loading instances…</Notice>
+      ) : null}
+      {instances.data?.items.map((instance) => (
+        <div
+          key={JSON.stringify([
+            instance.id,
+            instance.worldId,
+            instance.instanceId,
+          ])}
+          className="min-w-0 border-t border-border pt-3"
+        >
+          <p className="text-sm font-medium">
+            {instance.name ?? "VRChat instance"}
+          </p>
+          <p className="mt-1 break-all text-xs text-muted">
+            {instance.worldId}
+          </p>
+          <p className="mt-1 break-all text-xs text-muted">
+            {instance.instanceId}
+          </p>
+          {instance.worldId && instance.instanceId ? (
+            <CloseInstanceAction
+              worldId={instance.worldId}
+              instanceId={instance.instanceId}
+            />
+          ) : null}
+        </div>
+      ))}
+      <div className="flex flex-wrap gap-3">
+        {offset > 0 ? (
+          <Button
+            disabled={instances.loading}
+            onClick={() => setOffset(Math.max(0, offset - 100))}
+          >
+            Previous instances
+          </Button>
+        ) : null}
+        {instances.data?.nextOffset != null ? (
+          <Button
+            disabled={instances.loading}
+            onClick={() => setOffset(instances.data!.nextOffset!)}
+          >
+            Next instances
+          </Button>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
 function InstanceOperations() {
   const workspace = useClubWorkspace();
   const communityProfileId = workspace.community._id;
@@ -370,6 +448,7 @@ function InstanceOperations() {
           {showCreate ? "Hide form" : "New instance"}
         </Button>
       </div>
+      <LiveInstanceManagement communityProfileId={communityProfileId} />
       {showCreate ? (
         <>
           <InstanceCreateForm

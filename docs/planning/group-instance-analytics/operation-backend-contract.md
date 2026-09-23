@@ -104,3 +104,38 @@ subsequent uncertainty remains indeterminate and is never blindly retried.
 The claim's `executeBefore` also caps the worker deadline, so an authorization
 response that arrives after the action's 15-minute grace cannot start a write,
 even when its request-budget reservation has not expired.
+
+## Live instance management
+
+The Instances route exposes provider-live instances inside Instance management
+when the actor is the owner or has `manage_instances` and the connection enables
+`instances`. The existing `clubProviderReads` request/get path supplies those
+rows independently of the analytics feature and `instance_history` visibility.
+Refresh, errors and bounded provider pagination use the shared read behavior.
+
+Each row displays the world and instance IDs beside the existing normal-close
+confirmation. Confirmation queues the exact displayed destination through
+`clubOperations.enqueue`; provider and actor authorization are still rechecked
+at execution. Queued closure is not evidence that the provider closed it.
+
+Telemetry-backed live/past lists and detail retain their existing category
+checks and peak/average presentation. The management list creates no telemetry
+sessions or historical observations.
+
+```mermaid
+flowchart LR
+  A[Workspace navigation] --> C[Instances]
+  B[Direct Instances link] --> S[Sign in and return]
+  S --> C
+  C --> P{Owner or manage_instances and instances enabled}
+  P --> L[Provider-live instances]
+  L --> R[Refresh or page]
+  R --> L
+  L --> F[Review target and confirm closure]
+  F --> Q[Closure queued]
+  Q --> L
+  C --> H{instance_history readable}
+  H --> T[Recorded live and past instances]
+  T --> D[Instance detail]
+  D --> C
+```

@@ -127,6 +127,48 @@ it("batch history filters current permissions and preserves pagination after hid
     }),
   );
 });
+it("authorized saved lists return only declared fields across empty, populated and deleted pages", async () => {
+  const { owner, communityProfileId } = await setup();
+  const read = (cursor: string | null = null) =>
+    owner.query(ref("lists"), {
+      communityProfileId,
+      paginationOpts: { numItems: 1, cursor },
+    });
+  const empty = await read();
+  assert.deepEqual(Object.keys(empty).sort(), [
+    "continueCursor",
+    "isDone",
+    "page",
+  ]);
+  assert.deepEqual(empty.page, []);
+  assert.equal(empty.isDone, true);
+  const ids = [];
+  for (const [name, recipients] of [
+    ["First", [first]],
+    ["Second", [second]],
+  ] as const) {
+    ids.push(
+      await owner.mutation(ref("saveList"), {
+        communityProfileId,
+        name,
+        recipients: [...recipients],
+      }),
+    );
+  }
+  const pageOne = await read();
+  assert.deepEqual(pageOne.page, [
+    { _id: ids[0], name: "First", recipients: [first], revision: 1 },
+  ]);
+  assert.equal(pageOne.isDone, false);
+  const pageTwo = await read(pageOne.continueCursor);
+  assert.deepEqual(pageTwo.page, [
+    { _id: ids[1], name: "Second", recipients: [second], revision: 1 },
+  ]);
+  assert.equal(pageTwo.isDone, true);
+  for (const listId of ids)
+    await owner.mutation(ref("removeList"), { communityProfileId, listId });
+  assert.deepEqual((await read()).page, []);
+});
 async function setup() {
   const t = convexTest({ schema, modules });
   const now = Date.now();

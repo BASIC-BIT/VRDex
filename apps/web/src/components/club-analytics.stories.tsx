@@ -176,6 +176,12 @@ class AnalyticsFixtureClient extends ConvexReactClient {
       result = this.associatedEvent
         ? { eventId: "fixture-event", title: "Afterhours 043" }
         : null;
+    else if (name === "clubProviderReads:get")
+      result = {
+        state: "succeeded",
+        result: { items: [], nextOffset: null, observedAt: this.now },
+        errorCode: null,
+      };
     else if (name === "clubProviderReads:listEvents")
       result = page([
         {
@@ -211,6 +217,8 @@ class AnalyticsFixtureClient extends ConvexReactClient {
     mutation: Mutation,
     ...args: ArgsAndOptions<Mutation, MutationOptions<FunctionArgs<Mutation>>>
   ): Promise<FunctionReturnType<Mutation>> {
+    if (getFunctionName(mutation) === "clubProviderReads:request")
+      return "fixture-read" as FunctionReturnType<Mutation>;
     const value = args[0] as Record<string, unknown> | undefined;
     if (
       getFunctionName(mutation) === "communityTelemetry:associateEventInstance"
