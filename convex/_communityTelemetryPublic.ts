@@ -54,11 +54,10 @@ export async function getPublicCommunityTelemetry(
     .query("communityVrchatIntegrations")
     .withIndex("by_communityProfileId", (query) => query.eq("communityProfileId", communityProfileId))
     .first();
-  if (!integration) return null;
+  if (!integration || (integration.enabledFeatures && !integration.enabledFeatures.includes("analytics"))) return null;
   const visibility = await readClubVisibility(db, communityProfileId);
   const publicMetrics = { currentPopulation: visibility.current_population.audience === "public", populationHistory: visibility.population_history.audience === "public", groupMemberCount: visibility.group_size.audience === "public", groupMemberGrowth: visibility.membership_movement.audience === "public", eventRecaps: visibility.event_recaps.audience === "public" };
   if (
-    !integration ||
     integration.state === "disconnecting" ||
     integration.state === "disconnected" ||
     !Object.values(publicMetrics).some(Boolean)
@@ -103,7 +102,7 @@ export async function getPublicCommunityTelemetry(
       ...publicRollup(rollup, publicMetrics),
     };
   }))).filter((recap) => recap !== null);
-  const freshness = (!integration.enabledFeatures || integration.enabledFeatures.includes("analytics")) && integration.lastSuccessfulObservationAt !== undefined &&
+  const freshness = integration.lastSuccessfulObservationAt !== undefined &&
     now - integration.lastSuccessfulObservationAt <= CURRENT_FRESHNESS_MS ? "current" as const : "stale" as const;
 
   return {

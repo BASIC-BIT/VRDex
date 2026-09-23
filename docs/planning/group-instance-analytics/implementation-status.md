@@ -8,6 +8,8 @@ Updated September 14, 2026. Integration checkout: `codex/club-staff-workspace`. 
 
 PR #341 is published and undergoing iterative review. The latest local fixes preserve distinct-club discovery with multiple roles, reject unavailable collectors, hide anonymous movement when analytics is disabled, and revalidate dependent invitation event associations. Malformed or inaccessible instance links retain a Back control; stale event suggestions can be dismissed but not confirmed. Reconnection retains supported saved group settings, and membership-history-only staff can discover Analytics. Review fixes remain subject to current-head CI and AI review. BASIC approved the edited exact copy on September 16, 2026. The live release evidence below remains outstanding.
 
+September 23 local follow-up: the shared public telemetry projection now returns no telemetry while analytics is explicitly disabled, including retained history, member metrics, and event recaps. Public community and profile reads share the correction, while authorized private dashboard history remains available. Focused backend and profile/API contract checks are recorded in the Task 7 handoff. This local change has not been published or verified against a hosted deployment.
+
 ## Earlier implementation checkpoint
 
 Local implementation is committed through `4cc95baf0`, following `dcdc0e044` for the complete workspace. The full backend suite passed again after the final security fixes on September 14. All provider-read caches now invalidate after bot reassignment or credential rotation and reject disabled/inactive accounts. Public membership history also respects profile publication visibility.

@@ -15,6 +15,7 @@ const modules = {
   "../../convex/_communityTelemetry.ts": () => import("../../convex/_communityTelemetry"),
   "../../convex/communityTelemetry.ts": () => import("../../convex/communityTelemetry"),
   "../../convex/clubAnalytics.ts": () => import("../../convex/clubAnalytics"),
+  "../../convex/profiles.ts": () => import("../../convex/profiles"),
 };
 const schema = (schemaModule as unknown as { default?: typeof schemaModule }).default ?? schemaModule;
 const NOW = Date.parse("2026-07-21T12:00:00.000Z");
@@ -136,6 +137,109 @@ describe("community telemetry control plane", () => {
       t.query(api.communityTelemetry.getPrivateDashboard, { communitySlug: "faceless", now: NOW }),
       /do not have access/,
     );
+  });
+
+  it("hides retained public telemetry when analytics is disabled while owners and staff keep history", async () => {
+    const t = convexTest({ schema, modules });
+    const communityProfileId = await seedCommunity(t);
+    await registerAccount(t);
+    const integrationId = await t.withIdentity(identity).mutation(api.communityTelemetry.connectGroup, {
+      communitySlug: "faceless",
+      vrchatGroupId: "grp_00000000-0000-4000-8000-000000000001",
+      groupVisibility: "public",
+      joinPolicy: "free",
+    });
+    const ownerIdentity = await t.run(async (ctx) => {
+      const integration = (await ctx.db.get(integrationId))!;
+      const startAt = integration.telemetryEpochStartedAt ?? integration.createdAt;
+      const observedAt = startAt + 120_000;
+      const ownerClerkUserId = newClerkUserId();
+      const ownerId = await ctx.db.insert("users", {
+        clerkUserId: ownerClerkUserId,
+        email: "telemetry-owner@example.test",
+        emailVerificationTime: NOW,
+      });
+      await ctx.db.insert("profileOwners", {
+        profileId: communityProfileId, userId: ownerId, roleKey: "owner", state: "active",
+        grantedAt: NOW, updatedAt: NOW,
+      });
+      await ctx.db.patch(integrationId, {
+        enabledFeatures: ["analytics", "posts"],
+        lastSuccessfulObservationAt: observedAt,
+        publicMetrics: {
+          currentPopulation: true, populationHistory: true, groupMemberCount: true,
+          groupMemberGrowth: true, eventRecaps: true,
+        },
+      });
+      await ctx.db.insert("communityPopulationObservations", {
+        integrationId, idempotencyKey: "public-disable-population", totalPopulation: 17,
+        activeInstanceCount: 2, worldDistribution: [], observedAt,
+        source: "first_party", collectorVersion: "test-v1", coverageState: "observed", fencingToken: 1,
+      });
+      for (const [index, memberCount] of [100, 105].entries()) {
+        await ctx.db.insert("communityMemberCountObservations", {
+          integrationId, communityProfileId, idempotencyKey: `public-disable-member-${index}`,
+          vrchatGroupId: integration.vrchatGroupId, memberCount,
+          observedAt: observedAt - (1 - index) * 60_000,
+          source: "first_party", collectorVersion: "test-v1", coverageState: "observed", fencingToken: 1,
+        });
+      }
+      const eventId = await ctx.db.insert("events", {
+        slug: "retained-recap", title: "Retained Recap", sortTitle: "retained recap",
+        startAt: startAt + 30_000, endAt: observedAt, communityProfileId,
+        sourceType: "manual", sourceLabel: "test", eventStatus: "scheduled",
+        publicationState: "published", publishedAt: startAt, updatedAt: startAt,
+      });
+      for (const grain of ["hour", "event"] as const) {
+        await ctx.db.insert("communityTelemetryRollups", {
+          communityProfileId, ...(grain === "event" ? { eventId } : {}), grain,
+          bucketStartAt: startAt + 30_000, bucketEndAt: observedAt,
+          rollupVersion: "community-telemetry-v1", currentPopulation: 17,
+          activeInstanceCount: 2, peakConcurrency: 18, playerMinutes: 60,
+          coverageRatio: 1, groupMemberCount: 105, groupMemberGrowth: 5,
+          worldDistribution: [], computedAt: observedAt,
+        });
+      }
+      return { subject: ownerClerkUserId, issuer: "test", emailVerified: true };
+    });
+    const now = await t.run(async (ctx) => (await ctx.db.get(integrationId))!.lastSuccessfulObservationAt! + 1_000);
+    const publicRead = () => t.query(api.communityTelemetry.getPublicForCommunity, { communitySlug: "faceless", now });
+    const profileRead = () => t.query(api.profiles.getPublicBySlug, { slug: "faceless", now });
+    const enabled = await publicRead();
+    assert.equal(enabled?.currentPopulation?.value, 17);
+    assert.equal(enabled?.populationHistory?.[0]?.groupMemberGrowth, 5);
+    assert.equal(enabled?.groupMemberCount?.value, 105);
+    assert.equal(enabled?.groupMemberGrowth?.value, 5);
+    assert.equal(enabled?.eventRecaps?.[0]?.groupMemberCount, 105);
+    assert.equal(enabled?.eventRecaps?.[0]?.groupMemberGrowth, 5);
+    assert.deepEqual((await profileRead())?.telemetry, enabled);
+
+    for (const enabledFeatures of [["posts"], []] as const) {
+      await t.run((ctx) => ctx.db.patch(integrationId, { enabledFeatures: [...enabledFeatures] }));
+      assert.equal(await publicRead(), null);
+      assert.equal((await profileRead())?.telemetry, undefined);
+      const ownerHistory = await t.withIdentity(ownerIdentity).query(api.communityTelemetry.getPrivateDashboard, {
+        communitySlug: "faceless", now,
+      });
+      const staffHistory = await t.withIdentity(identity).query(api.communityTelemetry.getPrivateDashboard, {
+        communitySlug: "faceless", now,
+      });
+      for (const history of [ownerHistory, staffHistory]) {
+        assert.equal(history?.population.length, 1);
+        assert.equal(history?.memberCounts.length, 2);
+        assert.equal(history?.rollups.length, 2);
+      }
+    }
+    await t.run((ctx) => ctx.db.patch(integrationId, { enabledFeatures: undefined }));
+    assert.equal((await publicRead())?.eventRecaps?.length, 1);
+    const staleHistory = await t.query(api.communityTelemetry.getPublicForCommunity, {
+      communitySlug: "faceless", now: now + 7 * 60_000,
+    });
+    assert.equal(staleHistory?.freshness, "stale");
+    assert.equal(staleHistory?.currentPopulation, undefined);
+    assert.equal(staleHistory?.populationHistory?.length, 1);
+    await t.run((ctx) => ctx.db.patch(integrationId, { enabledFeatures: ["analytics"] }));
+    assert.equal((await profileRead())?.telemetry?.populationHistory?.length, 1);
   });
 
   it("allows the singleton community owner to manage telemetry without a delegated authority row", async () => {
@@ -451,8 +555,7 @@ describe("community telemetry control plane", () => {
     const disabledCurrent = await t.query(api.communityTelemetry.getPublicForCommunity, {
       communitySlug: "faceless", now: claimAt + 2_000,
     });
-    assert.equal(disabledCurrent?.freshness, "stale");
-    assert.equal("currentPopulation" in disabledCurrent!, false);
+    assert.equal(disabledCurrent, null);
     await t.run(ctx => ctx.db.patch(integrationId, { enabledFeatures: ["analytics", "posts"] }));
     assert.equal("groupMemberCount" in publicCurrent!, false);
     const publicAtQuietCadence = await t.query(api.communityTelemetry.getPublicForCommunity, {

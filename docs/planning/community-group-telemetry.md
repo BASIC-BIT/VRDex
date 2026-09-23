@@ -12,6 +12,7 @@ Implementation contract for [epic #176](https://github.com/BASIC-BIT/VRDex/issue
 - Service-account proof authentication uses a tokenized loopback browser on the operator's workstation. Passwords and verification codes stay in that process. The resulting session cookies, immutable account ID, and save time are stored under an account alias in the operating-system credential vault, validated before reuse, and never written to a plaintext fallback.
 - Collection is continuous and aggregate-only: group member count, visible group instances, world/instance identifiers, and population counts.
 - Private operator analytics ship first. Every public telemetry surface defaults off and is controlled independently by an authorized community operator.
+- Disabling analytics stops all public telemetry immediately, including previously opted-in historical metrics and event recaps. Authorized owners and staff retain private history; enabling analytics again restores the existing public visibility choices.
 - Missing or stale coverage is data quality, not zero attendance.
 - Person-level presence and VRCX donation are separate data families. Aggregate records do not contain usernames.
 
