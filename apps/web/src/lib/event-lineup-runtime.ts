@@ -28,7 +28,8 @@ export class EventLineupSession {
   private playRequest = 0;
   private lastSnapshot?: LineupSnapshot;
   private timer: ReturnType<typeof setInterval>;
-  constructor(private event: LineupEvent, private mount: HTMLElement, private notify: (state: LineupSnapshot) => void) {
+  constructor(private event: LineupEvent, private mount: HTMLElement, private notify: (state: LineupSnapshot) => void,
+    private createSource = createObservedVrcdnSource) {
     this.timer = setInterval(() => this.tick(), 100);
     document.addEventListener("visibilitychange", this.resetEvidence);
   }
@@ -136,7 +137,7 @@ export class EventLineupSession {
     const context = this.context;
     const request = this.playRequest;
     try {
-      const source = await createObservedVrcdnSource(context, this.viewer, slot.stream.questUrl, () => !this.disposed && token === (prepared ? this.nextGeneration : this.currentGeneration));
+      const source = await this.createSource(context, this.viewer, slot.stream.questUrl, () => !this.disposed && token === (prepared ? this.nextGeneration : this.currentGeneration));
       if (this.disposed || token !== (prepared ? this.nextGeneration : this.currentGeneration)) { source.release(); return; }
       const acceptedSlot = prepared ? slot : reconcileSlot(slot, this.event.slots);
       if (!acceptedSlot || (!prepared && acceptedSlot.key !== this.selected?.key)) { source.release(); return; }
@@ -166,9 +167,10 @@ export class EventLineupSession {
     const visible = document.visibilityState === "visible";
     if (!this.selected && this.state.following) this.select(this.scheduleSlot());
     const active = this.current;
-    const candidate = this.selected && this.state.following ? nextSlot(this.selected, this.event.slots) : undefined;
+    const scheduleNow = Date.now();
+    const candidate = this.selected && this.state.following ? nextSlot(this.selected, this.event.slots, scheduleNow) : undefined;
     const eligibleAt = this.selected && candidate ? handoffEligibleAt(this.selected, candidate) : Infinity;
-    const eligible = visible && Date.now() >= eligibleAt && !!candidate?.stream;
+    const eligible = visible && scheduleNow >= eligibleAt && !!candidate?.stream;
     if (!eligible && (this.next || this.nextPending)) this.releaseNext();
     for (const connection of [active, this.next]) {
       if (!connection) continue;
@@ -177,7 +179,7 @@ export class EventLineupSession {
     if (active) {
       this.state.connected = active.evidence.progressing;
       this.state.unavailable = !active.evidence.progressing && active.evidence.failureSince !== undefined && at - active.evidence.failureSince >= 1000;
-      if (this.next && shouldHandoff({ scheduleNow: Date.now(), observationNow: at, eligibleAt,
+      if (this.next && shouldHandoff({ scheduleNow, observationNow: at, eligibleAt,
         following: this.state.following, paused: this.state.paused, nextReady: this.next.source.ready(),
         evidence: active.evidence, silenceDurationMs: AUDIO_SILENCE_DURATION_MS })) {
         active.source.gain.gain.value = 0; this.releaseCurrent();

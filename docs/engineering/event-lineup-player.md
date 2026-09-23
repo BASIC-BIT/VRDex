@@ -55,6 +55,11 @@ Eligibility is the later of current end and next start, minus 120 seconds.
 Ordered overlaps use that same later boundary for an established current selection.
 Joining during simultaneous active intervals still refuses an ambiguous selection.
 If current end is absent, next start provides the handoff boundary only.
+An immediate next slot whose effective interval has ended is no longer a
+candidate for preparation or handoff. Its explicit end, or the following slot's
+start when its end is absent, closes that interval. It remains a barrier, so
+following never skips ahead to a later performer. A prepared source is released
+if that interval ends while the healthy current source continues overtime.
 
 Each decoded source routes through an analyser and source gain before the shared
 viewer gain. Prepared source gain is zero. Three consecutive progressing samples
