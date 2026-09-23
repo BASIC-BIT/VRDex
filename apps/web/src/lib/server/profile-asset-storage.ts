@@ -110,16 +110,16 @@ export async function createProfileAssetDirectUploadTarget(input: {
   byteSize: number;
   expiresAt: number;
 }) {
+  const expiresIn = Math.min(10 * 60, Math.floor((input.expiresAt - Date.now()) / 1_000));
+  if (!Number.isFinite(expiresIn) || expiresIn < 1) {
+    throw new Error("Profile asset upload intent has expired.");
+  }
   const config = storageConfig();
 
   if (config === null) {
     throw new Error("Profile asset storage is not configured.");
   }
 
-  const expiresIn = Math.max(
-    1,
-    Math.min(10 * 60, Math.floor((input.expiresAt - Date.now()) / 1_000)),
-  );
   return await createPresignedPost(s3Client(config), {
     Bucket: config.bucket,
     Key: input.storageKey,

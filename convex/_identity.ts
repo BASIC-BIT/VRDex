@@ -171,3 +171,14 @@ export async function ensureUser(ctx: MutationCtx) {
 
   return (await ctx.db.get(existing._id))!;
 }
+
+/** Fresh server-side delegated-user email attestation, allowing bounded clock skew. */
+export function isCurrentEmailVerificationAttestation(
+  attestedAt: number | undefined,
+  now = Date.now(),
+) {
+  if (attestedAt === undefined || !Number.isSafeInteger(attestedAt))
+    return false;
+  const age = now - attestedAt;
+  return age >= -30_000 && age <= 2 * 60 * 1_000;
+}

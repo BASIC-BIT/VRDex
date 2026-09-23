@@ -132,3 +132,12 @@ Concrete boundary:
 - required provider values should be listed by name and environment when they exist
 - manually bootstrapped provider objects should link to their owning docs, Terraform stack, or follow-up issue
 - unsupported deployment shapes should be omitted unless a linked issue or ADR owns the path
+
+## Contributor collection rollout
+
+Collection intake stays disabled by default. Use the checked-in policy and
+[contributor checkpoint](../testing/contributor-collection-checkpoint.md) for
+deployment-scoped variables, configuration ownership, bounded accounting
+backfill, storage reconciliation, grant operations and rollback. Proposed higher
+limits are restricted to a dedicated synthetic identity until separately approved
+measured rollout. Keep cleanup and old/new record readers running during pause.

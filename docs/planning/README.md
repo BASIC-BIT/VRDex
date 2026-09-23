@@ -22,6 +22,8 @@ Planning docs capture product, architecture, roadmap, and backlog decisions befo
 - `docs/planning/restreaming-media-control.md` - restreaming, VRCDN-first media control, worker architecture, CDN economics, and Discord operator-control direction
 - `docs/planning/genre-graph.md` - genre ontology, alias normalization, and recommendation graph direction
 - `docs/planning/seed-import-model.md` - reviewed partner/list seed-import model and fake fixture shape
+- [Trusted contributors and bulk contributions](./trusted-contributors-and-bulk-contributions.md) - proposed contribution capacity, attainable trust, local-upload bridge, ordinary MCP collections, and website/MCP media review
+- [Contributor upload and review implementation plan](../superpowers/plans/2026-09-12-contributor-upload-and-review.md) - one PR with three internal phases covering shared review, local uploads and collections, bounded trusted publication, and measured capacity
 - `docs/planning/mock-profile-fixtures.md` - mock profile fixture strategy, consented showcase allowlists, and group representation direction
 - `docs/planning/onboarding-seed-access.md` - minimum viable seed-import, private lookup, beta access, and handoff onboarding path
 - `docs/planning/world-discovery.md` - world pages, creator attribution, active-world discovery, and creator-commerce boundaries
