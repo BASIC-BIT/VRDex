@@ -37,12 +37,13 @@ class ReadFixtureClient extends ConvexReactClient {
   private readonly evaluatedKeys = new Set<string>();
   holdNewEvaluations = false;
   private readonly startedAt = performance.now();
-  private observedAt = this.serverNow() - 45_000;
+  private observedAt: number;
   private generation = 0;
   mode: Mode = "succeeded";
 
-  constructor() {
+  constructor(initialAgeMs: number) {
     super("https://fixture.invalid");
+    this.observedAt = this.serverNow() - initialAgeMs;
   }
   private serverNow() {
     return 1_800_000_000_000 + performance.now() - this.startedAt;
@@ -56,10 +57,13 @@ class ReadFixtureClient extends ConvexReactClient {
     this.cache.clear();
     this.fixtureListeners.forEach((listener) => listener());
   }
-  replay() {
+  replay(remainingFreshMs?: number) {
     for (const [key, result] of this.cache) {
       if (result && !(result instanceof Error))
-        this.cache.set(key, structuredClone(result));
+        this.cache.set(key, {
+          ...structuredClone(result),
+          ...(remainingFreshMs === undefined ? {} : { remainingFreshMs }),
+        });
     }
     this.fixtureListeners.forEach((listener) => listener());
   }
@@ -146,8 +150,8 @@ function Read({ offset }: { offset: number | null }) {
     </>
   );
 }
-function Fixture() {
-  const [client] = useState(() => new ReadFixtureClient());
+function Fixture({ initialAgeMs = 45_000 }: { initialAgeMs?: number }) {
+  const [client] = useState(() => new ReadFixtureClient(initialAgeMs));
   const [mount, setMount] = useState(0);
   const [render, setRender] = useState(0);
   const [offset, setOffset] = useState<number | null>(0);
@@ -157,6 +161,8 @@ function Fixture() {
       <output>{render}</output>
       <button onClick={() => setRender((n) => n + 1)}>Rerender</button>
       <button onClick={() => client.replay()}>Replay</button>
+      <button onClick={() => client.replay(120_000)}>Replay larger duration</button>
+      <button onClick={() => client.change("succeeded")}>Reevaluate</button>
       <button onClick={() => setMount((n) => n + 1)}>Remount</button>
       <button onClick={() => setOffset(1)}>Next page</button>
       <button onClick={() => setOffset(null)}>Clear params</button>
@@ -181,3 +187,4 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 export const Freshness: Story = {};
+export const NewObservation: Story = { args: { initialAgeMs: 0 } };

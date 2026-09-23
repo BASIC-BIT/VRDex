@@ -30,6 +30,12 @@ export function useClubProviderRead(
     attempt?: { nonce: string; startedAt: number };
   } | null>(null);
   const [pendingNonce, setPendingNonce] = useState<string | null>(null);
+  const [observation, setObservation] = useState<{
+    nonce: string;
+    requestId: Id<"clubProviderReadRequests">;
+    observedAt: number;
+    deadline: number;
+  } | null>(null);
   const [freshDeadline, setFreshDeadline] = useState(0);
   useEffect(() => {
     const [profile, parameters] = JSON.parse(key) as [
@@ -93,11 +99,20 @@ export function useClubProviderRead(
     | null
     | undefined;
   const read = result && !(result instanceof Error) ? result : null;
+  const observationResult = read?.result;
   const pending = read?.state === "pending" || read?.state === "running";
   if (pending && attempt && pendingNonce !== attempt.nonce)
     setPendingNonce(attempt.nonce);
+  const sameAttempt =
+    attempt !== undefined &&
+    attempt.nonce === observation?.nonce &&
+    requestId === observation?.requestId;
   const needsFreshEvaluation =
-    read?.state === "succeeded" && attempt?.nonce === pendingNonce;
+    read?.state === "succeeded" &&
+    (attempt?.nonce === pendingNonce ||
+      (sameAttempt &&
+        observationResult != null &&
+        observationResult.observedAt !== observation?.observedAt));
   useEffect(() => {
     if (!needsFreshEvaluation) return;
     // The observation happened after this subscription began. Re-evaluate once
@@ -112,12 +127,27 @@ export function useClubProviderRead(
         : current,
     );
   }, [key, needsFreshEvaluation]);
-  // Anchor before the query, conservatively charging transport time. Replayed
-  // values and rerenders use the same anchor, never a new full freshness window.
+  // Accept the first deadline once per attempt and observation. Reactive query
+  // updates have already aged the remainder, so do not charge that time again.
+  // Replays, including larger durations, cannot renew the accepted deadline.
+  const eligible =
+    attempt &&
+    requestId &&
+    read?.state === "succeeded" &&
+    read.fresh &&
+    observationResult &&
+    read.remainingFreshMs > 0 &&
+    !needsFreshEvaluation;
+  if (eligible && !sameAttempt)
+    setObservation({
+      nonce: attempt.nonce,
+      requestId,
+      observedAt: observationResult.observedAt,
+      // Anchor before the query, conservatively charging transport time.
+      deadline: attempt.startedAt + read.remainingFreshMs,
+    });
   const deadline =
-    attempt && read?.state === "succeeded" && read.fresh && read.result
-      ? attempt.startedAt + read.remainingFreshMs
-      : 0;
+    eligible && sameAttempt && observation ? observation.deadline : 0;
   useEffect(() => {
     const remaining = deadline - performance.now();
     // Synchronize readiness with the external monotonic clock after evaluation.

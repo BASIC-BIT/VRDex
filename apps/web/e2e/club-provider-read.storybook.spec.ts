@@ -12,6 +12,104 @@ async function open(page: Page, skew = 0) {
 const act = (page: Page) =>
   page.getByRole("button", { name: "Act", exact: true });
 
+async function openNewObservation(page: Page) {
+  const time = new Date(1_800_000_000_000);
+  await page.clock.install({ time });
+  await page.clock.pauseAt(time);
+  await page.goto(
+    "/iframe.html?id=clubs-provider-read--new-observation&viewMode=story",
+  );
+  await expect(act(page)).toBeEnabled();
+}
+
+test("reactive reevaluations preserve the first observation deadline @storybook-visual", async ({
+  page,
+}) => {
+  await openNewObservation(page);
+  await page.clock.runFor(30_000);
+  await page.getByRole("button", { name: "Reevaluate", exact: true }).click();
+  await expect(act(page)).toBeEnabled();
+  await page.clock.runFor(15_000);
+  await page.getByRole("button", { name: "Reevaluate", exact: true }).click();
+  await expect(act(page)).toBeEnabled();
+  await page.getByRole("button", { name: "Replay", exact: true }).click();
+  await page.clock.runFor(14_999);
+  await expect(act(page)).toBeEnabled();
+  await page.clock.runFor(1);
+  await expect(act(page)).toBeDisabled();
+  await page.getByRole("button", { name: "Replay", exact: true }).click();
+  await expect(act(page)).toBeDisabled();
+  await page.clock.runFor(1);
+  await expect(act(page)).toBeDisabled();
+});
+
+test("larger replayed durations cannot extend or revive the accepted deadline @storybook-visual", async ({
+  page,
+}) => {
+  await openNewObservation(page);
+  await page.clock.runFor(30_000);
+  await page
+    .getByRole("button", { name: "Replay larger duration", exact: true })
+    .click();
+  await page.clock.runFor(29_999);
+  await expect(act(page)).toBeEnabled();
+  await page.clock.runFor(1);
+  await expect(act(page)).toBeDisabled();
+  await page
+    .getByRole("button", { name: "Replay larger duration", exact: true })
+    .click();
+  await expect(act(page)).toBeDisabled();
+});
+
+test("changed observations require a new evaluation and get their own deadline @storybook-visual", async ({
+  page,
+}) => {
+  await openNewObservation(page);
+  await page.clock.runFor(30_000);
+  await page
+    .getByRole("button", { name: "Hold evaluation", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Complete read", exact: true })
+    .click();
+  await expect(act(page)).toBeDisabled();
+  await page
+    .getByRole("button", { name: "Release evaluation", exact: true })
+    .click();
+  await expect(act(page)).toBeEnabled();
+  await page.clock.runFor(30_000);
+  await page.getByRole("button", { name: "Reevaluate", exact: true }).click();
+  await expect(act(page)).toBeEnabled();
+  await page.clock.runFor(29_999);
+  await expect(act(page)).toBeEnabled();
+  await page.clock.runFor(1);
+  await expect(act(page)).toBeDisabled();
+});
+
+for (const action of ["Refresh", "Next page"]) {
+  test(`${action} invalidates the accepted deadline until a new nonce evaluates @storybook-visual`, async ({
+    page,
+  }) => {
+    await openNewObservation(page);
+    await page.clock.runFor(30_000);
+    await page.getByRole("button", { name: "Reevaluate", exact: true }).click();
+    await expect(act(page)).toBeEnabled();
+    await page
+      .getByRole("button", { name: "Hold evaluation", exact: true })
+      .click();
+    await page.getByRole("button", { name: action, exact: true }).click();
+    await expect(act(page)).toBeDisabled();
+    await page
+      .getByRole("button", { name: "Release evaluation", exact: true })
+      .click();
+    await expect(act(page)).toBeEnabled();
+    await page.clock.runFor(29_999);
+    await expect(act(page)).toBeEnabled();
+    await page.clock.runFor(1);
+    await expect(act(page)).toBeDisabled();
+  });
+}
+
 for (const skew of [-3_600_000, 3_600_000]) {
   test(`server-aged result expires with client clock skew ${skew} @storybook-visual`, async ({
     page,

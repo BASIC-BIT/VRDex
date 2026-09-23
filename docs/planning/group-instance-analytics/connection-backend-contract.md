@@ -45,11 +45,15 @@ The nonce forces a new server evaluation; it grants no authority or lifetime.
 It is optional for existing query callers, which must not treat a cached
 duration as new evidence. The shared hook measures elapsed time with
 `performance.now()`, starting before the query, so client clock offsets and
-transport delay cannot prolong readiness. Rerenders and repeated results retain
-that start. `observedAt` is provenance, not a timestamp to compare to the device
-clock. A pending or running read gets one new evaluation after success, with
-actions disabled until it arrives. Null, failed, stale and denied results
-immediately disable readiness. Operation execution retains its independent
+transport delay cannot prolong readiness. The hook accepts the first deadline
+for each attempt nonce, request ID and observation timestamp. Reactive updates
+for that same observation retain the deadline even when the server returns a
+smaller remainder. Replayed results, including larger durations, cannot extend
+or revive it. `observedAt` identifies the observation; it is never compared to
+the device clock. A changed observation or a pending/running read that succeeds
+gets a new nonce evaluation, with actions disabled until it arrives.
+Null, failed, stale and denied results immediately disable readiness.
+Operation execution retains its independent
 server authorization and freshness checks.
 
 Backend tests cover unauthorized reads, feature defaults and updates, fenced
