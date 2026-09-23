@@ -135,6 +135,10 @@ test("profile submission writes through to public profile and discovery @flow", 
     await captureRouteScreenshot(page, testInfo, "profile-submission-flow-submit-success");
 
     await profileLink.click();
+    await page.waitForURL(
+      (url) => url.pathname === `/${createdSlug}`,
+      { timeout: 15_000 },
+    );
     await expect(page.getByRole("heading", { name: displayName })).toBeVisible();
     if (!process.env.PLAYWRIGHT_BASE_URL) {
       // Provenance is rendered now, in the ownership aside rather than above the
