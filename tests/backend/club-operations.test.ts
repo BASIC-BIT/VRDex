@@ -1735,3 +1735,216 @@ it("rejects bulk bans and invalid provider targets before persisting a batch", a
     0,
   );
 });
+
+it("immediate schedules use server time and preserve the original time on replay", async (test) => {
+  const s = await setup();
+  await s.t.run((ctx) =>
+    ctx.db.patch(s.integrationId, {
+      enabledFeatures: ["membership_management"],
+    }),
+  );
+  const now = Date.now();
+  test.mock.method(Date, "now", () => now);
+  const args = {
+    communityProfileId: s.communityProfileId,
+    requestId: "immediate_replay",
+    payloads: [
+      {
+        kind: "invite_member",
+        targetUserId: "usr_33333333-3333-3333-3333-333333333333",
+      },
+    ],
+    schedule: { kind: "immediate" },
+  };
+  const ids = await s.owner.mutation(ref("enqueue"), args);
+  const original = await s.t.run((ctx) => ctx.db.get(ids[0]));
+  assert.equal(original!.dueAt, now);
+  assert.equal(original!.readyAt, now);
+  assert.equal(original!.createdAt, now);
+  test.mock.method(Date, "now", () => now + 3600000);
+  assert.deepEqual(await s.owner.mutation(ref("enqueue"), args), ids);
+  assert.deepEqual(await s.t.run((ctx) => ctx.db.get(ids[0])), original);
+  await assert.rejects(
+    s.owner.mutation(ref("enqueue"), {
+      ...args,
+      schedule: { kind: "fixed", dueAt: now },
+    }),
+    /request/i,
+  );
+  await assert.rejects(
+    s.owner.mutation(ref("enqueue"), {
+      ...args,
+      payloads: [
+        {
+          ...args.payloads[0],
+          targetUserId: "usr_44444444-4444-4444-4444-444444444444",
+        },
+      ],
+    }),
+    /request/i,
+  );
+  await assert.rejects(
+    s.owner.mutation(ref("enqueue"), {
+      ...args,
+      requestId: "past_fixed",
+      schedule: { kind: "fixed", dueAt: now },
+    }),
+    /Invalid execution time/,
+  );
+  const future = now + 7200000;
+  const fixedIds = await s.owner.mutation(ref("enqueue"), {
+    ...args,
+    requestId: "future_fixed",
+    schedule: { kind: "fixed", dueAt: future },
+  });
+  assert.equal(
+    (await s.t.run((ctx) => ctx.db.get(fixedIds[0])))!.dueAt,
+    future,
+  );
+});
+
+it("immediate dependent invitations retain review, server ordering and event cancellation", async () => {
+  const s = await queued();
+  const creation = {
+    kind: "create_instance",
+    worldId: "wrld_44444444-4444-4444-4444-444444444444",
+    access: "members",
+    region: "us",
+  } as const;
+  const eventId = await s.t.run(async (ctx) => {
+    const eventId = await ctx.db.insert("events", {
+      slug: "immediate-event",
+      title: "Immediate event",
+      sortTitle: "event",
+      communityProfileId: s.communityProfileId,
+      startAt: Date.now() + 3600000,
+      sourceType: "manual",
+      sourceLabel: "test",
+      eventStatus: "scheduled",
+      publicationState: "published",
+      updatedAt: Date.now(),
+    });
+    await ctx.db.patch(s.operationId, {
+      payload: creation,
+      eventId,
+      schedule: { kind: "fixed", dueAt: Date.now() + 3600000, eventId },
+      dueAt: Date.now() + 3600000,
+      readyAt: Date.now() + 3600000,
+    });
+    return eventId;
+  });
+  const args = {
+    communityProfileId: s.communityProfileId,
+    requestId: "immediate_dependency",
+    payloads: [
+      {
+        kind: "invite_to_created_instance",
+        creationOperationId: s.operationId,
+        creationRevision: 1,
+        targetUserId: "usr_55555555-5555-5555-5555-555555555555",
+      },
+    ],
+    schedule: { kind: "immediate" },
+  };
+  await assert.rejects(
+    s.owner.mutation(ref("enqueue"), args),
+    /before instance creation/,
+  );
+  await s.owner.mutation(ref("edit"), {
+    operationId: s.operationId,
+    payload: creation,
+    schedule: { kind: "immediate", eventId },
+  });
+  await assert.rejects(
+    s.owner.mutation(ref("enqueue"), args),
+    /Instance creation is unavailable/,
+  );
+  args.payloads[0].creationRevision = 2;
+  const [inviteId] = await s.owner.mutation(ref("enqueue"), args);
+  const invite = await s.t.run((ctx) => ctx.db.get(inviteId));
+  assert.equal(invite!.dependencyRevision, 2);
+  assert.equal(invite!.eventId, eventId);
+  const parent = await s.t.run((ctx) => ctx.db.get(s.operationId));
+  assert.ok(invite!.dueAt >= parent!.dueAt);
+  assert.deepEqual(parent!.schedule, { kind: "immediate", eventId });
+  const revisions = await s.t.run((ctx) =>
+    ctx.db.query("clubOperationRevisions").take(10),
+  );
+  assert.equal(revisions[0].schedule.kind, "fixed");
+  await s.t.run(async (ctx) => {
+    await ctx.db.patch(s.operationId, {
+      state: "succeeded",
+      result: { worldId: creation.worldId, instanceId: "123" },
+    });
+    await ctx.db.patch(eventId, { startAt: Date.now() + 7200000 });
+  });
+  const [secondInvite] = await s.owner.mutation(ref("enqueue"), {
+    ...args,
+    requestId: "immediate_after_success",
+  });
+  assert.ok(
+    (await s.t.run((ctx) => ctx.db.get(secondInvite)))!.dueAt <
+      Date.now() + 60000,
+  );
+  await s.t.run((ctx) => ctx.db.patch(eventId, { eventStatus: "cancelled" }));
+  await assert.rejects(
+    s.owner.mutation(ref("enqueue"), {
+      ...args,
+      requestId: "explicit_cancelled",
+      schedule: { kind: "immediate", eventId },
+    }),
+    /unavailable/i,
+  );
+  assert.equal(await s.t.mutation(ref("claim"), s.worker), null);
+  assert.equal(
+    (await s.t.run((ctx) => ctx.db.get(inviteId)))!.state,
+    "cancelled",
+  );
+});
+
+it("internal enqueue replay compares payload values independent of key order", async () => {
+  const s = await queued();
+  const { enqueueClubOperations } = await import("../../convex/clubOperations");
+  const payload = {
+    kind: "publish_post",
+    title: "Order",
+    text: "Body",
+    visibility: "group",
+    sendNotification: false,
+    roleIds: ["grol_11111111-1111-1111-1111-111111111111"],
+    imageId: undefined,
+  } as const;
+  const args = {
+    communityProfileId: s.communityProfileId,
+    requestId: "key_order_replay",
+    payloads: [{ ...payload, roleIds: [...payload.roleIds] }],
+    schedule: { kind: "immediate" as const },
+  };
+  const ids = await s.owner.run((ctx) => enqueueClubOperations(ctx, args));
+  const reordered = {
+    ...args,
+    payloads: [
+      {
+        roleIds: [...payload.roleIds],
+        text: payload.text,
+        title: payload.title,
+        visibility: payload.visibility,
+        sendNotification: false,
+        kind: payload.kind,
+      },
+    ],
+  };
+  assert.deepEqual(
+    await s.owner.run((ctx) => enqueueClubOperations(ctx, reordered)),
+    ids,
+  );
+  await assert.rejects(
+    s.owner.run((ctx) =>
+      enqueueClubOperations(ctx, {
+        ...reordered,
+        payloads: [{ ...reordered.payloads[0], roleIds: [] }],
+      }),
+    ),
+    /Request ID already used/,
+  );
+});

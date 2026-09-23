@@ -223,6 +223,9 @@ class AnalyticsFixtureClient extends ConvexReactClient {
     if (getFunctionName(mutation) === "clubProviderReads:request")
       return "fixture-read" as FunctionReturnType<Mutation>;
     const value = args[0] as Record<string, unknown> | undefined;
+    if (getFunctionName(mutation) === "clubOperations:enqueue" &&
+      (value?.schedule as {kind: string})?.kind !== "immediate")
+      throw new Error("Expected immediate schedule");
     if (
       getFunctionName(mutation) === "communityTelemetry:associateEventInstance"
     )

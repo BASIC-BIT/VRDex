@@ -390,3 +390,48 @@ it("scheduled invitation enqueue uses the caller reviewed creation revision", as
   assert.equal(job!.dependencyRevision, 2);
   assert.equal(job!.payload.creationRevision, 2);
 });
+
+it("immediate batches replay stable server times and reject changed review inputs", async (test) => {
+  const { t, owner, communityProfileId } = await setup();
+  const now = Date.now();
+  test.mock.method(Date, "now", () => now);
+  const args = {
+    communityProfileId,
+    requestId: "immediate_batch",
+    reviewedRecipients: [first, second],
+    destination: { kind: "group" },
+    schedule: { kind: "immediate" },
+  };
+  const id = await owner.mutation(ref("enqueue"), args);
+  const original = await t.run(async (ctx) => {
+    const batch = await ctx.db.get(id);
+    return Promise.all(
+      batch!.operationIds.map((operationId) => ctx.db.get(operationId)),
+    );
+  });
+  assert.ok(
+    original.every((job) => job!.dueAt === now && job!.readyAt === now),
+  );
+  test.mock.method(Date, "now", () => now + 3600000);
+  assert.equal(await owner.mutation(ref("enqueue"), args), id);
+  assert.deepEqual(
+    await t.run((ctx) =>
+      Promise.all(original.map((job) => ctx.db.get(job!._id))),
+    ),
+    original,
+  );
+  for (const change of [
+    { reviewedRecipients: [first] },
+    {
+      destination: {
+        kind: "instance",
+        worldId: "wrld_11111111-1111-1111-1111-111111111111",
+        instanceId: "123",
+      },
+    },
+    { schedule: { kind: "fixed", dueAt: now + 7200000 } },
+  ])
+    await assert.rejects(
+      owner.mutation(ref("enqueue"), { ...args, ...change }),
+    );
+});

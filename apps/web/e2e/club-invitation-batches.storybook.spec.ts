@@ -124,7 +124,7 @@ test("invitation list editing and frozen review @storybook-visual", async ({
   });
   await page.getByRole("button", { name: "Confirm invitations" }).click();
   await expect(page.getByTestId("queued-review")).toHaveText(
-    "2 recipients · group · fixed",
+    "2 recipients · group · immediate",
   );
   await page.getByLabel("Saved list").selectOption("list-one");
   await page.getByRole("button", { name: "Delete list", exact: true }).click();
@@ -152,7 +152,10 @@ test("instance-only staff review a creation with event-relative timing @storyboo
     page.getByRole("link", { name: "Open assigned bot in VRChat" }),
   ).toHaveAttribute("href", `https://vrchat.com/home/user/${alice}`);
   await page.getByRole("button", { name: "Review invitations", exact: true }).click();
-  await expect(page.getByRole("alert")).toContainText("Invitation time must be at or after instance creation.");
+  await expect(page.getByRole("region", { name: "Review invitations" })).toContainText("Now");
+  await page.getByRole("button", { name: "Confirm invitations" }).click();
+  await expect(page.getByRole("alert")).toContainText("Invitations cannot run before instance creation.");
+  await page.getByRole("button", { name: "Back to edit" }).click();
   await page.getByLabel("Send invitations").selectOption("event");
   await page
     .getByRole("combobox", { name: "Event", exact: true })
@@ -205,3 +208,22 @@ test("changed creation requires a fresh invitation review @storybook-visual", as
   await page.getByRole("button", { name: "Confirm invitations" }).click();
   await expect(page.getByTestId("queued-review")).toHaveAttribute("data-creation-revision", "8");
 });
+
+for (const skew of [-3600000, 3600000]) {
+  test(`immediate invitation review with skew ${skew} @storybook-visual`, async ({
+    page,
+  }) => {
+    await page.clock.setFixedTime(new Date(Date.now() + skew));
+    await page.goto(
+      "/iframe.html?id=clubs-invitation-batches--composer&viewMode=story",
+    );
+    await page.getByLabel("Saved list").selectOption("list-one");
+    await page
+      .getByRole("button", { name: "Review invitations", exact: true })
+      .click();
+    await page.getByRole("button", { name: "Confirm invitations" }).click();
+    await expect(page.getByTestId("queued-review")).toHaveText(
+      "2 recipients · group · immediate",
+    );
+  });
+}

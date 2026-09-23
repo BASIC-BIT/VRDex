@@ -354,7 +354,12 @@ function OperationEditor({
           event.preventDefault();
           setError(null);
           const schedule: Schedule =
-            scheduleKind === "fixed"
+            scheduleKind === "immediate"
+              ? {
+                  kind: "immediate",
+                  ...(eventId ? { eventId: eventId as Id<"events"> } : {}),
+                }
+              : scheduleKind === "fixed"
               ? {
                   kind: "fixed",
                   dueAt: new Date(dueAt).getTime(),
@@ -416,6 +421,7 @@ function OperationEditor({
                 setScheduleKind(event.target.value as typeof scheduleKind)
               }
             >
+              <option value="immediate">Now</option>
               <option value="fixed">Fixed time</option>
               <option value="event_relative">Relative to event</option>
             </Select>
@@ -449,7 +455,7 @@ function OperationEditor({
                 onChange={(event) => setDueAt(event.target.value)}
               />
             </Field>
-          ) : (
+          ) : scheduleKind === "event_relative" ? (
             <Field>
               Minutes after event start
               <Input
@@ -464,7 +470,7 @@ function OperationEditor({
                 }
               />
             </Field>
-          )}
+          ) : null}
         </div>
         {events.status === "CanLoadMore" ? (
           <Button type="button" onClick={() => events.loadMore(25)}>

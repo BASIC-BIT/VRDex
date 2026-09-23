@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { v, convexToJson } from "convex/values";
 import { internal } from "./_generated/api";
 import { recordClubOperationFailure } from "./_clubNotifications";
 import { syncClubEventOperationPage } from "./_clubOperationEvents";
@@ -144,9 +144,8 @@ async function scheduleTime(
   ctx: MutationCtx,
   communityProfileId: Id<"profiles">,
   schedule: Doc<"clubOperations">["schedule"],
+  now: number,
 ) {
-  const now = Date.now();
-  let dueAt: number;
   if (
     schedule.kind === "event_relative" &&
     (!Number.isSafeInteger(schedule.offsetMs) ||
@@ -161,10 +160,12 @@ async function scheduleTime(
       event.eventStatus === "cancelled")
   )
     throw new Error("Event unavailable for this club.");
-  dueAt =
+  const dueAt =
     schedule.kind === "fixed"
       ? schedule.dueAt
-      : event!.startAt + schedule.offsetMs;
+      : schedule.kind === "immediate"
+        ? now
+        : event!.startAt + schedule.offsetMs;
   if (
     !Number.isSafeInteger(dueAt) ||
     dueAt < now - LATE_GRACE_MS ||
@@ -301,9 +302,10 @@ export async function enqueueClubOperations(
   if (prior.length) {
     if (
       prior[0].createdBy.tokenIdentifier !== actor.subject!.tokenIdentifier ||
-      JSON.stringify(prior.map((j) => j.payload)) !==
-        JSON.stringify(args.payloads) ||
-      JSON.stringify(prior[0].schedule) !== JSON.stringify(args.schedule)
+      JSON.stringify(convexToJson(prior.map((j) => j.payload))) !==
+        JSON.stringify(convexToJson(args.payloads)) ||
+      JSON.stringify(convexToJson(prior[0].schedule)) !==
+        JSON.stringify(convexToJson(args.schedule))
     )
       throw new Error("Request ID already used.");
     return prior.map((j) => j._id);
@@ -353,11 +355,16 @@ export async function enqueueClubOperations(
     )
       throw new Error("Feature disabled.");
   }
-  const dueAt = await scheduleTime(ctx, args.communityProfileId, args.schedule);
+  const now = Date.now();
+  const dueAt = await scheduleTime(
+    ctx,
+    args.communityProfileId,
+    args.schedule,
+    now,
+  );
   for (const dependency of dependencies.values())
     if (dueAt < (await effectiveDueAt(ctx, dependency)))
       throw new Error("Invitations cannot run before instance creation.");
-  const now = Date.now();
   const ids: Id<"clubOperations">[] = [];
   for (const payload of args.payloads) {
     const eventId =
@@ -434,10 +441,12 @@ export const edit = mutation({
         job.dependencyRevision !== job.payload.creationRevision)
     )
       throw new Error("Instance creation is unavailable.");
+    const now = Date.now();
     const dueAt = await scheduleTime(
       ctx,
       job.communityProfileId,
       args.schedule,
+      now,
     );
     if (dependency && dueAt < (await effectiveDueAt(ctx, dependency)))
       throw new Error("Invitations cannot run before instance creation.");
@@ -448,7 +457,7 @@ export const edit = mutation({
       payload: job.payload,
       schedule: job.schedule,
       dueAt: job.dueAt,
-      createdAt: Date.now(),
+      createdAt: now,
     });
     await patchOperation(ctx, job._id, {
       payload: args.payload,
@@ -462,7 +471,7 @@ export const edit = mutation({
       preflightAttempts: undefined,
       actor: actor.subject!,
       revision: job.revision + 1,
-      updatedAt: Date.now(),
+      updatedAt: now,
     });
     await ctx.db.patch(integration._id, {
       nextPollAt: Math.min(integration.nextPollAt ?? dueAt, dueAt),

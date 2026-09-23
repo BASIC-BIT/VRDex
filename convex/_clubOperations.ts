@@ -60,6 +60,10 @@ export const clubOperationPayload = v.union(
 export type OperationPayload = Infer<typeof clubOperationPayload>;
 export const operationSchedule = v.union(
   v.object({
+    kind: v.literal("immediate"),
+    eventId: v.optional(v.id("events")),
+  }),
+  v.object({
     kind: v.literal("fixed"),
     dueAt: v.number(),
     eventId: v.optional(v.id("events")),

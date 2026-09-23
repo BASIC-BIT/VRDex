@@ -89,3 +89,52 @@ test("staff can edit their own action but cannot edit another actor's action wit
     page.getByRole("button", { name: "Cancel action", exact: true }),
   ).toHaveCount(1);
 });
+
+test("immediate scheduled editor saves Now and preserves explicit timing choices @storybook-visual", async ({
+  page,
+}, testInfo) => {
+  await page.clock.setFixedTime(new Date("2026-09-23T10:00:00Z"));
+  await page.goto("/iframe.html?id=clubs-scheduled--immediate&viewMode=story");
+  await page
+    .getByRole("button", { name: "Edit action", exact: true })
+    .first()
+    .click();
+  await expect(page.getByLabel("Timing", { exact: true })).toHaveValue(
+    "immediate",
+  );
+  await expect(page.getByLabel("Execution time", { exact: true })).toHaveCount(
+    0,
+  );
+  await expect(
+    page.getByLabel("Minutes after event start", { exact: true }),
+  ).toHaveCount(0);
+  await page.getByLabel("Title", { exact: true }).fill("Immediate edit");
+  await page.screenshot({
+    path: `../../.cache/artifacts/immediate-editor-${testInfo.project.name}.png`,
+    fullPage: true,
+  });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page.getByRole("button", { name: "Save action", exact: true }).click();
+  await expect(page.getByText("Immediate edit", { exact: true })).toBeVisible();
+  await page
+    .getByRole("button", { name: "Edit action", exact: true })
+    .first()
+    .click();
+  await expect(page.getByLabel("Timing", { exact: true })).toHaveValue(
+    "immediate",
+  );
+  await page.getByLabel("Timing", { exact: true }).selectOption("fixed");
+  await page
+    .getByLabel("Execution time", { exact: true })
+    .fill("2026-09-24T19:30");
+  await page.getByRole("button", { name: "Save action", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Edit action", exact: true })
+    .first()
+    .click();
+  await expect(page.getByLabel("Timing", { exact: true })).toHaveValue("fixed");
+});

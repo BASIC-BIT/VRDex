@@ -76,8 +76,9 @@ export function PostEditor({
         offsetMs: Number(offset) * 60000,
       };
     }
-    const dueAt = timing === "now" ? Date.now() : new Date(date).getTime();
-    if (!Number.isFinite(dueAt) || (timing !== "now" && dueAt <= Date.now()))
+    if (timing === "now") return { kind: "immediate" };
+    const dueAt = new Date(date).getTime();
+    if (!Number.isFinite(dueAt) || dueAt <= Date.now())
       throw new Error("Choose a future date and time.");
     return { kind: "fixed", dueAt };
   };
@@ -290,9 +291,10 @@ function PostsContent() {
       key: string;
       draft?: Draft;
       content: Content;
+      queueAttempt?: { content: Content; schedule: Schedule; draft: Draft };
     } | null>(null),
     [deleting, setDeleting] = useState<
-      (ProviderItem & { requestId: string; dueAt: number }) | null
+      (ProviderItem & { requestId: string }) | null
     >(null),
     [busy, setBusy] = useState(false),
     [notice, setNotice] = useState<string | null>(null),
@@ -361,7 +363,7 @@ function PostsContent() {
             setBusy(true);
             try {
               const draft = await persist(c);
-              setEditing({ ...editing, draft, content: c });
+              setEditing({ ...editing, draft, content: c, queueAttempt: undefined });
               setNotice("Draft saved.");
             } finally {
               setBusy(false);
@@ -370,8 +372,18 @@ function PostsContent() {
           onQueue={async (c, schedule) => {
             setBusy(true);
             try {
-              const draft = await persist(c);
-              setEditing({ ...editing, draft, content: c });
+              const previous = editing.queueAttempt;
+              const unchanged =
+                previous &&
+                JSON.stringify([previous.content, previous.schedule]) ===
+                  JSON.stringify([c, schedule]);
+              const draft = unchanged ? previous.draft : await persist(c);
+              setEditing({
+                ...editing,
+                draft,
+                content: c,
+                queueAttempt: { content: c, schedule, draft },
+              });
               await queue({
                 communityProfileId,
                 draftId: draft.id,
@@ -510,7 +522,6 @@ function PostsContent() {
                     setDeleting({
                       ...p,
                       requestId: crypto.randomUUID(),
-                      dueAt: Date.now(),
                     })
                   }
                 >
@@ -555,7 +566,7 @@ function PostsContent() {
                     communityProfileId,
                     requestId: deleting.requestId,
                     payloads: [{ kind: "delete_post", postId: deleting.id }],
-                    schedule: { kind: "fixed", dueAt: deleting.dueAt },
+                    schedule: { kind: "immediate" },
                   });
                   setDeleting(null);
                   setNotice("Post deletion queued.");

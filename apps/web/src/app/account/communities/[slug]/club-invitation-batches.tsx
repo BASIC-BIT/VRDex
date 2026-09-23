@@ -164,14 +164,17 @@ export function InvitationComposer({
         offsetMs: minutes * 60000,
       };
       timeLabel = `${event.title}: ${metricTime(event.startAt + minutes * 60000)} (${minutes} minutes from start)`;
+    } else if (timing === "now") {
+      schedule = { kind: "immediate" };
+      timeLabel = "Now";
     } else {
-      const dueAt = timing === "now" ? Date.now() : new Date(date).getTime();
-      if (!Number.isFinite(dueAt) || (timing !== "now" && dueAt <= Date.now()))
+      const dueAt = new Date(date).getTime();
+      if (!Number.isFinite(dueAt) || dueAt <= Date.now())
         throw new Error("Choose a future invitation time.");
       schedule = { kind: "fixed", dueAt };
-      timeLabel = timing === "now" ? "Now" : metricTime(dueAt);
+      timeLabel = metricTime(dueAt);
     }
-    if (target.kind === "scheduled_instance") {
+    if (target.kind === "scheduled_instance" && schedule.kind !== "immediate") {
       const creation = creations.find(
         (item) => item.id === target.creationOperationId,
       )!;

@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 test("normal close requires confirmation and reports queued only @storybook-visual", async ({
   page,
 }) => {
+  await page.clock.setFixedTime(new Date(Date.now() - 3600000));
   await page.goto("/iframe.html?id=clubs-analytics--instances&viewMode=story");
   await page
     .getByRole("button", { name: "Midnight Atrium", exact: true })
@@ -108,3 +109,28 @@ test("invalid world and missing event do not submit @storybook-visual", async ({
   await expect(page.getByRole("alert")).toHaveText("Select an event.");
   await expect(page.getByTestId("submitted-payload")).toHaveText("");
 });
+
+for (const skew of [-3600000, 3600000]) {
+  test(`immediate creation preserves selected event with skew ${skew} @storybook-visual`, async ({
+    page,
+  }) => {
+    await page.clock.setFixedTime(new Date(Date.now() + skew));
+    await page.goto(
+      "/iframe.html?id=clubs-instance-actions--create&viewMode=story",
+    );
+    await page
+      .getByLabel("VRChat world ID")
+      .fill("wrld_11111111-1111-1111-1111-111111111111");
+    await page.getByLabel("Linked event").selectOption("fixture-event");
+    await page
+      .getByRole("button", { name: "Create instance", exact: true })
+      .click();
+    const submitted = JSON.parse(
+      (await page.getByTestId("submitted-payload").textContent()) ?? "{}",
+    );
+    expect(submitted.schedule).toEqual({
+      kind: "immediate",
+      eventId: "fixture-event",
+    });
+  });
+}

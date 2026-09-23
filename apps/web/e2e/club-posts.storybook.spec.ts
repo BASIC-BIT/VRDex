@@ -98,3 +98,42 @@ test("post preview and explicit scheduled confirmation @storybook-visual", async
   });
   expect(errors).toEqual([]);
 });
+
+for (const skew of [-3600000, 3600000]) {
+  test(`immediate post retries saved revision after lost queue response with skew ${skew} @storybook-visual`, async ({
+    page,
+  }) => {
+    await page.clock.setFixedTime(new Date(Date.now() + skew));
+    await page.goto(
+      "/iframe.html?id=clubs-posts-workspace--lost-queue-response&viewMode=story",
+    );
+    await page.getByRole("button", { name: "New post", exact: true }).click();
+    await page
+      .getByRole("textbox", { name: "Title", exact: true })
+      .fill("Retry post");
+    await page
+      .getByRole("textbox", { name: "Post", exact: true })
+      .fill("Same reviewed content.");
+    await page
+      .getByRole("button", { name: "Publish now", exact: true })
+      .click();
+    await page.getByRole("button", { name: "Confirm", exact: true }).click();
+    await expect(page.getByRole("alert")).toHaveText("Queue response lost");
+    await page.clock.setFixedTime(new Date(Date.now() + skew + 3600000));
+    await page.getByRole("button", { name: "Confirm", exact: true }).click();
+    await expect(page.getByRole("status")).toHaveText("Post queued.");
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    await page.getByRole("button", { name: "Delete", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Confirm deletion", exact: true })
+      .click();
+    await expect(page.getByRole("status")).toHaveText("Post deletion queued.");
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Queue changes", exact: true })
+      .click();
+    await page.getByRole("button", { name: "Confirm", exact: true }).click();
+    await expect(page.getByRole("status")).toHaveText("Post queued.");
+    await expect(page.getByRole("alert")).toHaveCount(0);
+  });
+}

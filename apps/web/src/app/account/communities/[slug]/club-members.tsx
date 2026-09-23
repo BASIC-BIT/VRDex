@@ -171,7 +171,7 @@ function MembersContent({
         communityProfileId,
         requestId: crypto.randomUUID(),
         payloads,
-        schedule: { kind: "fixed", dueAt: Date.now() },
+        schedule: { kind: "immediate" },
       },
       targets,
       ...((kind === "assign_role" || kind === "remove_role") && selectedRole

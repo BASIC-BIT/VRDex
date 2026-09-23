@@ -115,6 +115,8 @@ function Fixture({ instanceOnly = false, mutableCreation = false }: { instanceOn
           if (review.destination.kind === "scheduled_instance") {
             if (review.destination.creationRevision !== creationRevision)
               throw new Error("Instance creation is unavailable.");
+            if (review.schedule.kind === "immediate")
+              throw new Error("Invitations cannot run before instance creation.");
             setQueuedRevision(review.destination.creationRevision);
           }
           setQueued(

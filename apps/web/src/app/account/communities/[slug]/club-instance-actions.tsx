@@ -89,13 +89,12 @@ export function InstanceCreateForm({
         (!Number.isInteger(offset) || Math.abs(offset) > 525600)
       )
         throw new Error("Choose an offset within one year.");
-      const dueAt =
-        when === "fixed"
-          ? new Date(fixedAt).getTime()
-          : when === "event_relative"
-            ? selected!.startAt + offset * 60_000
-            : Date.now();
-      if (!Number.isFinite(dueAt) || (when !== "now" && dueAt <= Date.now()))
+      if (
+        when !== "now" &&
+        (scheduledAt === null ||
+          !Number.isFinite(scheduledAt) ||
+          scheduledAt <= Date.now())
+      )
         throw new Error("Choose a future time.");
       const key = JSON.stringify([
         worldId,
@@ -129,11 +128,16 @@ export function InstanceCreateForm({
                   eventId: selected!.id,
                   offsetMs: offset * 60_000,
                 }
-              : {
-                  kind: "fixed",
-                  dueAt,
-                  ...(selected ? { eventId: selected.id } : {}),
-                },
+              : when === "now"
+                ? {
+                    kind: "immediate",
+                    ...(selected ? { eventId: selected.id } : {}),
+                  }
+                : {
+                    kind: "fixed",
+                    dueAt: new Date(fixedAt).getTime(),
+                    ...(selected ? { eventId: selected.id } : {}),
+                  },
         };
       setPending(true);
       await onSubmit(retry.current.payload, retry.current.schedule);
@@ -588,7 +592,7 @@ export function CloseInstanceAction({
                     communityProfileId: workspace.community._id,
                     requestId: crypto.randomUUID(),
                     payloads: [{ kind: "close_instance", worldId, instanceId }],
-                    schedule: { kind: "fixed", dueAt: Date.now() },
+                    schedule: { kind: "immediate" },
                   };
                   await enqueue(retry.current);
                   retry.current = null;

@@ -157,3 +157,17 @@ test("stale member pages disable new actions until refresh @storybook-visual", a
     page.getByText("Refresh to continue.", { exact: true }),
   ).toBeVisible();
 });
+
+for (const skew of [-3600000, 3600000]) {
+  test(`immediate member action with skew ${skew} @storybook-visual`, async ({
+    page,
+  }) => {
+    await page.clock.setFixedTime(new Date(Date.now() + skew));
+    await page.goto("/iframe.html?id=clubs-members--owner&viewMode=story");
+    await page.getByLabel("Search members").fill("Riley");
+    await page.getByRole("button", { name: "Search", exact: true }).click();
+    await page.getByRole("button", { name: "Ban member", exact: true }).click();
+    await page.getByRole("button", { name: "Confirm action" }).click();
+    await expect(page.getByText("Queued", { exact: true })).toBeVisible();
+  });
+}

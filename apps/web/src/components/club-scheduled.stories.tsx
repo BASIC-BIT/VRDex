@@ -59,8 +59,16 @@ class ScheduledFixtureClient extends ConvexReactClient {
       read: false,
     },
   ];
-  constructor(private readonly pagedNotifications = false) {
+  constructor(
+    private readonly pagedNotifications = false,
+    immediate = false,
+  ) {
     super("https://fixture.invalid");
+    if (immediate)
+      Object.assign(this.jobs[0], {
+        schedule: { kind: "immediate" },
+        dueAt: Date.now(),
+      });
   }
   private result(name: string, args?: unknown) {
     const key = name + JSON.stringify(args);
@@ -142,12 +150,14 @@ class ScheduledFixtureClient extends ConvexReactClient {
 function ScheduledFixture({
   staff = false,
   pagedNotifications = false,
+  immediate = false,
 }: {
   staff?: boolean;
   pagedNotifications?: boolean;
+  immediate?: boolean;
 }) {
   const [client] = useState(
-    () => new ScheduledFixtureClient(pagedNotifications),
+    () => new ScheduledFixtureClient(pagedNotifications, immediate),
   );
   const data: WorkspaceData = {
     community: {
@@ -196,4 +206,8 @@ export const Owner: Story = { render: () => <ScheduledFixture /> };
 export const Staff: Story = { render: () => <ScheduledFixture staff /> };
 export const OlderNotifications: Story = {
   render: () => <ScheduledFixture pagedNotifications />,
+};
+
+export const Immediate: Story = {
+  render: () => <ScheduledFixture immediate />,
 };

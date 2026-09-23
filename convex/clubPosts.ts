@@ -220,8 +220,6 @@ export const queue = mutation({
   returns: v.id("clubOperations"),
   handler: async (ctx, args) => {
     const draft = await owned(ctx, args);
-    if (draft.queuedRevision === draft.revision && draft.operationId)
-      return draft.operationId;
     const content = {
       title: draft.title,
       text: draft.text,

@@ -7,6 +7,22 @@ within the club and retries return the existing IDs when the actor and content
 match. Bulk operations are limited to invitations, request decisions and role
 assignments. Bans and removals remain individual actions.
 
+Immediate requests use `schedule: { kind: "immediate", eventId? }`. The enqueue
+transaction stores its server time as `dueAt` and `readyAt` once, after checking
+request-ID equality. Identical retries return the same IDs and timestamps, even
+after the grace window. Changed payloads or schedules under that ID reject.
+Fixed timestamps and event-relative offsets retain their existing meanings;
+legacy fixed rows remain valid. Editing a pending action to `immediate` records
+the previous revision and sets a new server-derived due time. Optional event
+association still enforces club ownership and cancellation. Event movement only
+rebases event-relative schedules, never a committed immediate due time.
+
+The post composer retains the saved draft revision when retrying unchanged
+content and timing after an ambiguous queue response. Queue replay validates the
+same schedule through the shared request comparison. Dependent invitations keep
+the reviewed creation revision and cannot precede its effective due time;
+immediate timing is checked on the server, independent of the browser clock.
+
 `edit` only changes pending actions. The editor needs the original and new
 underlying permissions; editing another person's action additionally requires
 `manage_scheduled_actions` unless the editor is the owner. The edit stores the

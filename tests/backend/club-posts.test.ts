@@ -227,3 +227,40 @@ it("preserves the provider post target and notification choice for queued edits"
   assert.equal(operation?.payload.postId, providerPostId);
   assert.equal(operation?.payload.sendNotification, true);
 });
+
+it("immediate post queue replays its saved revision and rejects changed timing", async (test) => {
+  const { t, publisher, communityProfileId } = await setup();
+  const now = Date.now();
+  test.mock.method(Date, "now", () => now);
+  const draft = await publisher.mutation(ref("save"), {
+    communityProfileId,
+    clientId: "immediate_post",
+    content: {
+      ...content,
+      roleIds: ["grol_11111111-1111-1111-1111-111111111111"],
+    },
+  });
+  const args = {
+    communityProfileId,
+    draftId: draft.id,
+    expectedRevision: draft.revision,
+    schedule: { kind: "immediate" },
+  };
+  const id = await publisher.mutation(ref("queue"), args);
+  const original = await t.run((ctx) => ctx.db.get(id));
+  assert.equal(original!.dueAt, now);
+  test.mock.method(Date, "now", () => now + 3600000);
+  assert.equal(await publisher.mutation(ref("queue"), args), id);
+  assert.deepEqual(await t.run((ctx) => ctx.db.get(id)), original);
+  assert.equal(
+    (await t.run((ctx) => ctx.db.get(draft.id)))!.revision,
+    draft.revision,
+  );
+  await assert.rejects(
+    publisher.mutation(ref("queue"), {
+      ...args,
+      schedule: { kind: "fixed", dueAt: now + 7200000 },
+    }),
+    /request/i,
+  );
+});

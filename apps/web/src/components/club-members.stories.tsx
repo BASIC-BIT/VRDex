@@ -146,6 +146,7 @@ class MembersFixtureClient extends ConvexReactClient {
       this.requests.set(id, value.params as ProviderReadParams);
       result = id;
     } else if (name === "clubOperations:enqueue") {
+      if ((value.schedule as {kind: string}).kind !== "immediate") throw new Error("Expected immediate schedule");
       const ids: string[] = [];
       for (const payload of value.payloads as Array<Record<string, unknown>>) {
         const id = `fixture-operation-${this.jobs.length}`;

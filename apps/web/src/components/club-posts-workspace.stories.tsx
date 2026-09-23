@@ -33,7 +33,8 @@ class PostsFixtureClient extends ConvexReactClient {
   private cache = new Map<string, unknown>();
   private fixtureListeners = new Set<() => void>();
   private drafts: FixtureDraft[] = [];
-  constructor() {
+  private lostQueueResponse = false;
+  constructor(private readonly loseQueueResponse = false) {
     super("https://fixture.invalid");
   }
   result(name: string, args: Record<string, unknown>) {
@@ -100,6 +101,10 @@ class PostsFixtureClient extends ConvexReactClient {
     if (name === "clubProviderReads:request") result = "read-posts";
     else if (name === "clubPosts:save") {
       const existing = this.drafts.find((d) => d.id === value.draftId);
+      if (existing?.operationId)
+        throw new Error(
+          "This draft has been queued. Manage its scheduled action instead.",
+        );
       const d: FixtureDraft = {
         id: existing?.id ?? `draft-${this.drafts.length}`,
         content: value.content as Record<string, unknown>,
@@ -112,6 +117,11 @@ class PostsFixtureClient extends ConvexReactClient {
       this.drafts = [d, ...this.drafts.filter((old) => old.id !== d.id)];
       result = d;
     } else if (name === "clubPosts:queue") {
+      if ((value.schedule as { kind: string }).kind !== "immediate")
+        throw new Error("Expected immediate schedule");
+      const draft = this.drafts.find((d) => d.id === value.draftId);
+      if (draft?.revision !== value.expectedRevision)
+        throw new Error("Draft revision changed");
       this.drafts = this.drafts.map((d) =>
         d.id === value.draftId
           ? {
@@ -123,17 +133,28 @@ class PostsFixtureClient extends ConvexReactClient {
           : d,
       );
       result = "operation-post";
+      if (this.loseQueueResponse && !this.lostQueueResponse) {
+        this.lostQueueResponse = true;
+        throw new Error("Queue response lost");
+      }
     } else if (name === "clubPosts:remove")
       this.drafts = this.drafts.filter((d) => d.id !== value.draftId);
-    else if (name === "clubOperations:enqueue") result = ["operation-delete"];
-    else throw new Error(`Unmocked Posts mutation ${name}`);
+    else if (name === "clubOperations:enqueue") {
+      if ((value.schedule as { kind: string }).kind !== "immediate")
+        throw new Error("Expected immediate schedule");
+      result = ["operation-delete"];
+    } else throw new Error(`Unmocked Posts mutation ${name}`);
     this.cache.clear();
     this.fixtureListeners.forEach((callback) => callback());
     return result as FunctionReturnType<Mutation>;
   }
 }
-function Workspace() {
-  const [client] = useState(() => new PostsFixtureClient());
+function Workspace({
+  loseQueueResponse = false,
+}: {
+  loseQueueResponse?: boolean;
+}) {
+  const [client] = useState(() => new PostsFixtureClient(loseQueueResponse));
   const data: WorkspaceData = {
     community: {
       _id: "fixture-club" as Id<"profiles">,
@@ -172,3 +193,5 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 export const Owner: Story = {};
+
+export const LostQueueResponse: Story = { args: { loseQueueResponse: true } };
