@@ -20,7 +20,7 @@ import {
   type FunctionReturnType,
 } from "convex/server";
 import { ClubConnection } from "@/app/account/communities/[slug]/club-connection";
-import { ClubAnalytics } from "@/app/account/communities/[slug]/club-analytics";
+import { ClubAnalytics, ClubAnalyticsContent } from "@/app/account/communities/[slug]/club-analytics";
 import { ClubInstances } from "@/app/account/communities/[slug]/club-instances";
 import {
   ClubWorkspaceView,
@@ -96,6 +96,7 @@ class AnalyticsFixtureClient extends ConvexReactClient {
       result = {
         startAt: start,
         endAt: end,
+        now: Date.now(),
         complete: true,
         population: {
           peak,
@@ -109,6 +110,7 @@ class AnalyticsFixtureClient extends ConvexReactClient {
           observedAt: end - 300_000,
           netChange: 3,
           continuous: index % 7 !== 3,
+          continuousUntil: null,
         },
       };
     } else if (name === "clubAnalytics:getMembershipCoverage") {
@@ -609,4 +611,114 @@ export const PopulationDelayed: Story = {
 };
 export const AuthorityDelayed: Story = {
   render: () => <DisplayFreshnessFixture kind="connection" initial="delayed" />,
+};
+
+// Static collector evidence with an independent simulated server clock. Cached
+// results survive owner remounts; only a new query nonce forces new evaluation.
+class MembershipClockClient extends AnalyticsFixtureClient {
+  readonly serverStart = Date.UTC(2026, 8, 23, 12);
+  private readonly started = performance.now();
+  private readonly membershipClockResults = new Map<string, unknown>();
+  private readonly membershipClockListeners = new Set<() => void>();
+  holdNew = false;
+  refresh() {
+    this.membershipClockResults.clear();
+    this.membershipClockListeners.forEach((listener) => listener());
+  }
+  override watchQuery<Query extends FunctionReference<"query">>(
+    query: Query,
+    ...args: ArgsAndOptions<Query, WatchQueryOptions>
+  ): Watch<FunctionReturnType<Query>> {
+    if (getFunctionName(query) !== "clubAnalytics:getBucket")
+      return super.watchQuery(query, ...args);
+    const input = args[0] as {
+      startAt: number;
+      endAt: number;
+      freshnessNonce?: string;
+    };
+    const key = JSON.stringify(input);
+    return {
+      onUpdate: (callback) => {
+        this.membershipClockListeners.add(callback);
+        return () => this.membershipClockListeners.delete(callback);
+      },
+      localQueryResult: () => {
+        if (!this.membershipClockResults.has(key)) {
+          if (this.holdNew) return undefined;
+          const now = this.serverStart + performance.now() - this.started;
+          const historical = input.endAt <= this.serverStart;
+          this.membershipClockResults.set(key, {
+            startAt: input.startAt,
+            endAt: input.endAt,
+            now,
+            complete: true,
+            population: null,
+            membership: {
+              lastValue: historical ? 2400 : 2430,
+              observedAt: historical ? input.endAt - 60_000 : this.serverStart,
+              netChange: null,
+              continuous: historical || now <= this.serverStart + 600_000,
+              continuousUntil: historical ? null : this.serverStart + 600_000,
+            },
+          });
+        }
+        return this.membershipClockResults.get(key) as FunctionReturnType<Query>;
+      },
+      journal: () => undefined,
+    };
+  }
+}
+function MembershipClockFixture() {
+  const [client] = useState(() => new MembershipClockClient());
+  const [ownerKey, remount] = useState(0);
+  usePathname.mockReturnValue("/account/communities/afterhours");
+  useSearchParams.mockReturnValue(
+    new URLSearchParams("from=2026-09-22&to=2026-09-23") as ReturnType<
+      typeof useSearchParams
+    >,
+  );
+  return (
+    <ConvexProvider client={client}>
+      <button onClick={() => client.refresh()}>Reactive refresh</button>
+      <button
+        onClick={() => {
+          client.holdNew = true;
+        }}
+      >
+        Hold new evaluations
+      </button>
+      <button
+        onClick={() => {
+          client.holdNew = false;
+          client.refresh();
+        }}
+      >
+        Release evaluations
+      </button>
+      <button onClick={() => remount((value) => value + 1)}>
+        Remount range
+      </button>
+      <ClubWorkspaceView
+        data={workspace}
+        pathname="/account/communities/afterhours"
+      >
+        <ClubAnalyticsContent
+          key={ownerKey}
+          currentFresh={false}
+          context={{
+            now: client.serverStart,
+            epochStartedAt: client.serverStart - 86400_000,
+            current: {},
+            readableCategories: ["group_size"],
+            preferences: { widgets: ["membership"], rangeDays: 7 },
+            clubDefaults: { widgets: ["membership"], rangeDays: 7 },
+            savedPersonal: false,
+          }}
+        />
+      </ClubWorkspaceView>
+    </ConvexProvider>
+  );
+}
+export const MembershipClock: Story = {
+  render: () => <MembershipClockFixture />,
 };

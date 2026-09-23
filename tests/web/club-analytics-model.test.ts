@@ -78,3 +78,9 @@ test("membership range isolates partial days and preserves unknown days", () => 
   const points = membershipRangePoints(days);
   assert.deepEqual(points.map(p => p.value), [100, null, 101, null, 102, 103]);
 });
+
+test("expired live membership coverage disconnects only its span and preserves known values", () => {
+  const days = [0, 1, 2].map((day) => ({ startAt: day * 86400_000, membership: { lastValue: 100 + day, continuous: true, continuousUntil: day === 2 ? 1000 : null } }));
+  assert.deepEqual(membershipRangePoints(days, true).map(point => point.value), [100, 101, 102]);
+  assert.deepEqual(membershipRangePoints(days, false).map(point => point.value), [100, 101, null, 102]);
+});

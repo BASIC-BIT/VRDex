@@ -254,9 +254,10 @@ export const getContext = query({
 });
 
 export const getBucket = query({
-  args: { ...base, ...range },
+  args: { ...base, ...range, freshnessNonce: v.optional(v.string()) },
   returns: v.object({
     ...range,
+    now: v.number(),
     complete: v.boolean(),
     population: v.union(summary, v.null()),
     membership: v.union(
@@ -266,14 +267,17 @@ export const getBucket = query({
         observedAt: v.union(v.number(), v.null()),
         netChange: v.union(v.number(), v.null()),
         continuous: v.boolean(),
+        continuousUntil: v.union(v.number(), v.null()),
       }),
     ),
   }),
   handler: async (ctx, args) => {
     checkedRange(args.startAt, args.endAt, 26 / 24);
+    const now = Date.now();
     const state = await context(ctx, args.communitySlug);
     if (!state.integration || args.endAt <= state.epoch)
       return {
+        now,
         startAt: args.startAt,
         endAt: args.endAt,
         complete: true,
@@ -289,6 +293,7 @@ export const getBucket = query({
         observedAt: number | null;
         netChange: number | null;
         continuous: boolean;
+        continuousUntil: number | null;
       } | null = null,
       complete = true;
     if (state.allowed("population_history")) {
@@ -352,15 +357,38 @@ export const getBucket = query({
         .order("desc")
         .first();
       const coverage = state.allowed("group_size")
-        ? await membershipCoverage(ctx, integrationId, startAt, endAt, state.epoch)
+        ? await membershipCoverage(
+            ctx,
+            integrationId,
+            startAt,
+            endAt,
+            state.epoch,
+          )
         : null;
       if (coverage && !coverage.complete) complete = false;
-      const continuous = !!coverage?.intervals.some(interval =>
-        interval.startAt <= startAt && interval.endAt >= Math.min(endAt, Date.now()));
-      const visibleLatest = latest?.coverageState === "observed" &&
-        (latest.observedAt >= startAt || continuous) ? latest : null;
+      const coveringInterval =
+        startAt <= now
+          ? coverage?.intervals.find(
+              (interval) =>
+                interval.startAt <= startAt &&
+                interval.endAt >= Math.min(endAt, now),
+            )
+          : undefined;
+      const continuous = !!coveringInterval;
+      // Fully covered historical days never age out. Open-day continuity keeps
+      // the original collection deadline, independently of query rerenders.
+      const continuousUntil =
+        coveringInterval && coveringInterval.endAt < endAt
+          ? coveringInterval.endAt
+          : null;
+      const visibleLatest =
+        latest?.coverageState === "observed" &&
+        (latest.observedAt >= startAt || continuous)
+          ? latest
+          : null;
       membership = {
         continuous,
+        continuousUntil,
         lastValue: state.allowed("group_size")
           ? (visibleLatest?.memberCount ?? null)
           : null,
@@ -374,6 +402,7 @@ export const getBucket = query({
       };
     }
     return {
+      now,
       startAt: args.startAt,
       endAt: args.endAt,
       complete,

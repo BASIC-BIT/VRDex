@@ -589,3 +589,24 @@ it("late poll timestamps cannot reopen an explicit failure interval", async () =
   const coverage = await s.owner.query(api.clubAnalytics.getMembershipCoverage, { communitySlug: "analytics", startAt: epoch, endAt: epoch + 86400_000 });
   assert.deepEqual(coverage.intervals, [{ startAt: epoch, endAt: epoch + 120_000 }]);
 });
+
+it("live member continuity has a server deadline while fully covered historical days do not expire", async (test) => {
+  const { transitionCoverage, MEMBERSHIP_POLL_GAP_MS } = await import("../../convex/_collectionCoverage");
+  const s = await setup();
+  let now = epoch + 86400_000 + 3600_000;
+  test.mock.method(Date, "now", () => now);
+  await s.t.run(async ctx => {
+    for (let at = epoch; at <= now; at += 300_000) await transitionCoverage(ctx, s.integrationId, "observed", at, "first_party", "test");
+  });
+  const args = { communitySlug: "analytics", startAt: epoch + 86400_000, endAt: epoch + 2 * 86400_000 };
+  const initial = await s.owner.query(api.clubAnalytics.getBucket, args);
+  assert.equal(initial.now, now);
+  assert.equal(initial.membership?.continuous, true);
+  assert.equal(initial.membership?.continuousUntil, now + MEMBERSHIP_POLL_GAP_MS);
+  const historical = await s.owner.query(api.clubAnalytics.getBucket, { communitySlug: "analytics", startAt: epoch, endAt: epoch + 86400_000 });
+  assert.equal(historical.membership?.continuous, true);
+  assert.equal(historical.membership?.continuousUntil, null);
+  now += MEMBERSHIP_POLL_GAP_MS + 1;
+  const expired = await s.owner.query(api.clubAnalytics.getBucket, { ...args, freshnessNonce: "new-attempt" });
+  assert.equal(expired.membership?.continuous, false);
+});

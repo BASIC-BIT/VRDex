@@ -152,9 +152,17 @@ export function membershipChartPoints(
 export function membershipRangePoints(
   buckets: readonly {
     startAt: number;
-    membership: { lastValue: number | null; continuous: boolean } | null;
+    membership: {
+      lastValue: number | null;
+      continuous: boolean;
+      continuousUntil?: number | null;
+    } | null;
   }[],
+  liveCoverageFresh = true,
 ) {
+  const continuous = (bucket: (typeof buckets)[number]) =>
+    bucket.membership?.continuous &&
+    (bucket.membership.continuousUntil == null || liveCoverageFresh);
   const points: Array<{ at: number; value: number | null; label: string }> = [];
   for (const [index, bucket] of buckets.entries()) {
     const previous = buckets[index - 1];
@@ -162,10 +170,7 @@ export function membershipRangePoints(
       month: "short",
       day: "numeric",
     });
-    if (
-      previous &&
-      (!previous.membership?.continuous || !bucket.membership?.continuous)
-    )
+    if (previous && (!continuous(previous) || !continuous(bucket)))
       points.push({
         at: (previous.startAt + bucket.startAt) / 2,
         value: null,

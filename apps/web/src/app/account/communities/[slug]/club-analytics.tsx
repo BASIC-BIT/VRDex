@@ -230,8 +230,10 @@ function DailyDetail({
     { communitySlug, startAt, endAt, kind },
     { initialNumItems: 500 },
   );
-  const memberCoverage = useQuery(api.clubAnalytics.getMembershipCoverage,
-    kind === "members" ? { communitySlug, startAt, endAt } : "skip");
+  const memberCoverage = useQuery(
+    api.clubAnalytics.getMembershipCoverage,
+    kind === "members" ? { communitySlug, startAt, endAt } : "skip",
+  );
   const { status, loadMore } = query;
   useEffect(() => {
     if (status === "CanLoadMore") loadMore(500);
@@ -336,6 +338,9 @@ export function ClubAnalyticsContent({
   const [customize, setCustomize] = useState(false);
   const can = (category: (typeof context.readableCategories)[number]) =>
     context.readableCategories.includes(category);
+  const membershipAttempt = useClubDisplayAttempt(
+    JSON.stringify([communitySlug, location.from, location.to]),
+  );
   const bucketQueries = useMemo(
     () =>
       Object.fromEntries(
@@ -343,11 +348,16 @@ export function ClubAnalyticsContent({
           day.key,
           {
             query: api.clubAnalytics.getBucket,
-            args: { communitySlug, startAt: day.startAt, endAt: day.endAt },
+            args: {
+              communitySlug,
+              startAt: day.startAt,
+              endAt: day.endAt,
+              freshnessNonce: membershipAttempt.attempt.nonce,
+            },
           },
         ]),
       ),
-    [communitySlug, days],
+    [communitySlug, days, membershipAttempt.attempt.nonce],
   );
   const bucketResults = useQueries(bucketQueries) as Record<
     string,
@@ -380,7 +390,19 @@ export function ClubAnalyticsContent({
       day: "numeric",
     }),
   }));
-  const memberPoints = membershipRangePoints(loaded);
+  const expiringMembership = loaded.find(
+    (bucket) => bucket.membership?.continuousUntil != null,
+  );
+  // Reuse the server-calibrated monotonic timer. New reactive server evaluations
+  // change the remaining duration, never the original absolute expiry.
+  const membershipCoverageFresh = useClubDisplayFreshness(
+    membershipAttempt,
+    expiringMembership?.now ?? (loading ? undefined : null),
+    expiringMembership?.now,
+    (expiringMembership?.membership?.continuousUntil ?? 0) -
+      (expiringMembership?.now ?? 0),
+  );
+  const memberPoints = membershipRangePoints(loaded, membershipCoverageFresh);
   const selectDay = (at: number) =>
     update({ day: localDateKey(new Date(at)), instance: null });
   return (
@@ -531,7 +553,7 @@ export function ClubAnalyticsContent({
                     ) : (
                       <ClubChart
                         points={memberPoints}
-                      showIsolatedPoints
+                        showIsolatedPoints
                         label="Group members"
                         onSelect={selectDay}
                       />

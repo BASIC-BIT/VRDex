@@ -67,7 +67,9 @@ export async function transitionCoverage(
 }
 
 /** Compact, category-safe coverage. Legacy windows have no internal gap proof.
- * Read at most 1001 small window rows plus one boundary row per local day. */
+ * Read at most 1001 small window rows plus one boundary row per local day.
+ * Keep the inferred poll deadline, including its remaining allowance, so a
+ * client can expire live continuity without waiting for a database write. */
 export async function membershipCoverage(
   ctx: QueryCtx,
   integrationId: Id<"communityVrchatIntegrations">,
@@ -102,7 +104,6 @@ export async function membershipCoverage(
     const left = Math.max(startAt, row.startedAt);
     const right = Math.min(
       endAt,
-      Date.now(),
       row.endedAt ?? Infinity,
       row.observedThroughAt + MEMBERSHIP_POLL_GAP_MS,
     );
