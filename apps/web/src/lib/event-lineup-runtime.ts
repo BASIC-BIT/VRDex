@@ -1,10 +1,10 @@
 import { createObservedVrcdnSource, type ObservedVrcdnSource } from "./vrcdn-observed-source";
 import { clearPlaybackEvidence, observeAudio, AUDIO_SILENCE_DURATION_MS } from "./event-audio-observation";
 import { joinSlot, handoffEligibleAt, shouldHandoff } from "./event-playback";
-import { nextSlot, reconcileSlot, type LineupSlot } from "./event-lineup-session";
+import { followingSlot, nextSlot, reconcileSlot, type LineupSlot } from "./event-lineup-session";
 
 export type LineupEvent = { title: string; startAt: number; doorsOpenAt?: number; endAt?: number; slots: LineupSlot[] };
-export type LineupSnapshot = { started: boolean; following: boolean; paused: boolean; muted: boolean; volume: number; current?: string; connected: boolean; unavailable: boolean };
+export type LineupSnapshot = { started: boolean; following: boolean; paused: boolean; muted: boolean; volume: number; current?: string; connected: boolean; unavailable: boolean; nextPlaybackBlocked?: boolean };
 type Connection = { slot: LineupSlot; source: ObservedVrcdnSource; evidence: ReturnType<typeof clearPlaybackEvidence> };
 const backoff = [1000, 2000, 4000, 10000];
 
@@ -19,6 +19,7 @@ export class EventLineupSession {
   private nextGeneration = 0;
   private currentPending = false;
   private nextPending = false;
+  private nextPlayPending = false;
   private currentRetryAt = 0;
   private nextRetryAt = 0;
   private currentAttempt = 0;
@@ -45,6 +46,7 @@ export class EventLineupSession {
   };
   private releaseNext() {
     const released = !!this.next;
+    this.state.nextPlaybackBlocked = false; this.nextPlayPending = false;
     this.nextGeneration++; this.nextPending = false; this.next?.source.release(); this.next = undefined;
     this.nextAttempt = 0;
     this.nextRetryAt = released ? performance.now() + backoff[0] : 0;
@@ -114,6 +116,24 @@ export class EventLineupSession {
     });
     this.tick(); this.emit();
   }
+  retryNextPlayback() {
+    const connection = this.next;
+    if (this.disposed || this.state.paused || !this.state.nextPlaybackBlocked || !connection || this.nextPlayPending) return;
+    // Recheck expiry and projection ownership before accepting the viewer gesture.
+    const candidate = this.selected && nextSlot(this.selected, this.event.slots, Date.now());
+    if (!this.state.following || candidate?.key !== connection.slot.key) { this.releaseNext(); this.emit(); return; }
+    const generation = this.nextGeneration;
+    const request = this.playRequest;
+    this.nextPlayPending = true;
+    void connection.source.play().then(accepted => {
+      if (this.disposed || generation !== this.nextGeneration || request !== this.playRequest || connection !== this.next) return;
+      this.nextPlayPending = false;
+      this.state.nextPlaybackBlocked = !accepted;
+      connection.evidence = clearPlaybackEvidence(performance.now());
+      this.nextRetryAt = performance.now() + backoff[0];
+      this.emit();
+    });
+  }
   pause() {
     this.playRequest++;
     if (this.currentPending && !this.current) { this.currentGeneration++; this.currentPending = false; }
@@ -147,6 +167,7 @@ export class EventLineupSession {
       this.mount.append(source.video);
       void source.play().then(accepted => {
         if (this.disposed || request !== this.playRequest || token !== (prepared ? this.nextGeneration : this.currentGeneration)) return;
+        if (prepared) this.state.nextPlaybackBlocked = !accepted;
         if (!accepted && !prepared) { this.state.paused = true; this.state.unavailable = false; this.releaseNext(); }
         this.emit();
       });
@@ -166,11 +187,21 @@ export class EventLineupSession {
     const at = performance.now();
     const visible = document.visibilityState === "visible";
     if (!this.selected && this.state.following) this.select(this.scheduleSlot());
-    const active = this.current;
     const scheduleNow = Date.now();
+    if (visible && this.state.following && this.current) {
+      // Identity can advance without stopping or duplicating an unchanged stream.
+      // Inspect expired rows too, but never traverse a different or missing source.
+      let successor = this.selected && followingSlot(this.selected, this.event.slots);
+      while (successor?.stream && successor.stream.streamId === this.current.slot.stream?.streamId &&
+        scheduleNow >= Math.max(this.selected!.endAt ?? successor.startAt, successor.startAt)) {
+        this.select(successor);
+        successor = followingSlot(successor, this.event.slots);
+      }
+    }
+    const active = this.current;
     const candidate = this.selected && this.state.following ? nextSlot(this.selected, this.event.slots, scheduleNow) : undefined;
     const eligibleAt = this.selected && candidate ? handoffEligibleAt(this.selected, candidate) : Infinity;
-    const eligible = visible && scheduleNow >= eligibleAt && !!candidate?.stream;
+    const eligible = visible && scheduleNow >= eligibleAt && !!candidate?.stream && candidate.stream.streamId !== this.selected?.stream?.streamId;
     if (!eligible && (this.next || this.nextPending)) this.releaseNext();
     for (const connection of [active, this.next]) {
       if (!connection) continue;
@@ -179,7 +210,7 @@ export class EventLineupSession {
     if (active) {
       this.state.connected = active.evidence.progressing;
       this.state.unavailable = !active.evidence.progressing && active.evidence.failureSince !== undefined && at - active.evidence.failureSince >= 1000;
-      if (this.next && shouldHandoff({ scheduleNow, observationNow: at, eligibleAt,
+      if (this.next && !this.state.nextPlaybackBlocked && !this.nextPlayPending && shouldHandoff({ scheduleNow, observationNow: at, eligibleAt,
         following: this.state.following, paused: this.state.paused, nextReady: this.next.source.ready(),
         evidence: active.evidence, silenceDurationMs: AUDIO_SILENCE_DURATION_MS })) {
         active.source.gain.gain.value = 0; this.releaseCurrent();
@@ -190,7 +221,7 @@ export class EventLineupSession {
         this.resetEvidence(); this.emit(); return;
       }
     }
-    if (eligible && candidate && !this.nextPending && at >= this.nextRetryAt && (!this.next || (this.next.evidence.failureSince !== undefined && at - this.next.evidence.failureSince >= 1000))) {
+    if (eligible && candidate && !this.state.nextPlaybackBlocked && !this.nextPlayPending && !this.nextPending && at >= this.nextRetryAt && (!this.next || (this.next.evidence.failureSince !== undefined && at - this.next.evidence.failureSince >= 1000))) {
       this.next?.source.release(); this.next = undefined; void this.connect(candidate, true);
     }
     if (visible && this.selected?.stream && !this.currentPending && at >= this.currentRetryAt && (!active || (active.evidence.failureSince !== undefined && at - active.evidence.failureSince >= 1000))) {

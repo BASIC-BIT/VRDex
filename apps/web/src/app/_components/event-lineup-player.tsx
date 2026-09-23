@@ -50,6 +50,7 @@ export function EventLineupPlayer({ event }: { event: LineupEvent }) {
         <option value="">Select performer</option>
         {event.slots.map(slot => <option key={slot.key} value={slot.key}>{slot.label ?? slot.key}{slot.stream ? "" : " (Unavailable)"}</option>)}
       </select>
+      {state.nextPlaybackBlocked && <button type="button" className="rounded-control border border-white/30 px-3 py-2 text-sm" aria-label="Enable next performer playback" onClick={() => session.current?.retryNextPlayback()}>Enable playback</button>}
       {state.following ? <span className="text-sm">Following lineup</span> : <button type="button" className="rounded-control border border-white/30 px-3 py-2 text-sm" onClick={() => session.current?.live()}>Return to live</button>}
     </div>
   </div>;

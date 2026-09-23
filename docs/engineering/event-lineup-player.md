@@ -44,7 +44,7 @@ teardown attempts every transport step even if an earlier step throws.
 
 Wall time selects schedule candidates. Monotonic `performance.now()` timestamps
 measure audio progress and failure intervals. The two clock domains are never
-subtracted. Current playback retains its slot identity across schedule boundaries.
+subtracted. Current playback retains its source across schedule boundaries.
 A healthy source is never cut off because its posted end has passed.
 
 Only the immediate next slot can be prepared. Missing, freeform and unplayable
@@ -57,9 +57,15 @@ Joining during simultaneous active intervals still refuses an ambiguous selectio
 If current end is absent, next start provides the handoff boundary only.
 An immediate next slot whose effective interval has ended is no longer a
 candidate for preparation or handoff. Its explicit end, or the following slot's
-start when its end is absent, closes that interval. It remains a barrier, so
+start when its end is absent, closes that interval. A different-source slot remains a barrier, so
 following never skips ahead to a later performer. A prepared source is released
 if that interval ends while the healthy current source continues overtime.
+
+Consecutive slots with the same normalized stream ID advance logical identity at
+`max(current.endAt ?? next.startAt, next.startAt)`. They retain the current media
+connection and never prepare a duplicate. After a delayed or hidden observation,
+following can catch up across consecutive expired same-source slots. Different,
+missing or unplayable sources and ambiguous ordering still block that traversal.
 
 Each decoded source routes through an analyser and source gain before the shared
 viewer gain. Prepared source gain is zero. Three consecutive progressing samples
@@ -81,7 +87,24 @@ preparation retry count and deadline for the next candidate. Replacing a prepare
 observes the first retry interval to avoid immediate reconnect bursts after
 pause/resume or edits. A pending `video.play()` promise cannot block retries.
 Failed next-source attempts retain the current source. Pause disables transition
-decisions and releases preparation. Play rejection leaves the shared Play action.
+decisions and releases preparation. Current-source play rejection leaves the shared
+Play action. A rejected prepared
+source remains muted and owned, with automatic reconnects suspended. The
+`Enable playback` control retries that exact source under a viewer gesture while
+current audio continues. Successful retry must still produce three progressing
+samples before normal handoff is allowed. Projection changes, manual selection,
+pause, candidate expiry, hidden-document release and disposal clear rejection
+state and invalidate pending retry callbacks.
+
+```mermaid
+flowchart LR
+  Event[Event page or direct event link] --> Play[Play]
+  Play --> Current[Current audio continues]
+  Current --> Rejected[Prepared playback rejected]
+  Rejected --> Enable[Enable playback]
+  Enable --> Ready[Prepared source decodes while muted]
+  Ready --> Handoff[Normal failure or silence handoff]
+```
 
 Manual selection disables following. Return to live re-evaluates the scheduled
 slot. Resuming following also re-evaluates it, except an already-active final slot

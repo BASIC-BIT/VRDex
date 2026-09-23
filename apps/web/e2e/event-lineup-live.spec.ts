@@ -266,3 +266,78 @@ for (const engine of [chromium, firefox]) {
   }finally{try{await info.attach(`recovery-background-${engine.name()}.json`,{body:JSON.stringify(evidence,null,2),contentType:"application/json"});await browser?.close();}finally{await transport.close();}}
  });
 }
+
+for (const engine of [chromium, firefox]) {
+ test(`@fixture prepared playback rejection recovery ${engine.name()}`, async ({ baseURL }, info) => {
+  test.skip(process.env.EVENT_PLAYBACK_PROOF !== "true", "Opt-in local transport");
+  test.setTimeout(120_000);
+  const { startProofServer } = await (new Function("url", "return import(url)"))(pathToFileURL(path.resolve("../../scripts/event-playback-proof.mjs")).href);
+  const transport = await startProofServer();
+  let browser: Browser | undefined;
+  try {
+   browser = await engine.launch();
+   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+   const errors: string[] = [];
+   page.on("pageerror", error => errors.push(error.message));
+   await page.addInitScript(() => {
+    const probe = { attempts: 0, enabled: false, gains: [] as GainNode[] };
+    const Native = window.AudioContext;
+    class Context extends Native {
+     createGain() { const gain = super.createGain(); probe.gains.push(gain); return gain; }
+    }
+    const play = HTMLMediaElement.prototype.play;
+    HTMLMediaElement.prototype.play = function () {
+     if (this.hidden) {
+      probe.attempts++;
+      if (!probe.enabled) return Promise.reject(new DOMException("Prepared source fixture rejection", "NotAllowedError"));
+     }
+     return play.call(this);
+    };
+    document.addEventListener("click", event => {
+     if ((event.target as Element)?.closest("button")?.textContent === "Enable playback") probe.enabled = true;
+    }, true);
+    Object.assign(window, { AudioContext: Context, preparedProbe: probe });
+   });
+   await page.goto(`${baseURL}/playwright/event-lineup-live?transport=${encodeURIComponent(transport.url)}`);
+   await page.getByRole("button", { name: "Play Lineup live" }).click();
+   const current = page.locator("video:not([hidden])");
+   await expect.poll(() => current.evaluate(video => (video as HTMLVideoElement).currentTime), { timeout: 20000 }).toBeGreaterThan(1);
+   await page.getByRole("button", { name: "Eligible", exact: true }).click();
+   const enable = page.getByRole("button", { name: "Enable next performer playback", exact: true });
+   await expect(enable).toBeVisible();
+   const before = await current.evaluate(video => (video as HTMLVideoElement).currentTime);
+   await page.waitForTimeout(2500);
+   expect(await current.evaluate(video => (video as HTMLVideoElement).currentTime)).toBeGreaterThan(before);
+   expect(await page.locator("[data-current]").getAttribute("data-current")).toBe("a");
+   expect(await page.evaluate(() => {
+    const probe = (window as unknown as { preparedProbe: { attempts: number; gains: GainNode[] } }).preparedProbe;
+    return { attempts: probe.attempts, gains: probe.gains.map(gain => gain.gain.value) };
+   })).toEqual({ attempts: 1, gains: [1, 1, 0] });
+   for (const [name, width, height] of [["desktop", 1280, 900], ["mobile", 390, 844]] as const) {
+    await page.setViewportSize({ width, height });
+    await expect(enable).toBeVisible();
+    const button = await enable.boundingBox();
+    const player = await page.locator("[data-current]").boundingBox();
+    expect(button!.y).toBeGreaterThanOrEqual(player!.y);
+    expect(button!.y + button!.height).toBeLessThanOrEqual(player!.y + player!.height);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    const screenshot = info.outputPath(`prepared-rejection-${name}-${engine.name()}.png`);
+    await page.screenshot({ path: screenshot, fullPage: true });
+    await info.attach(`prepared-rejection-${name}`, { path: screenshot, contentType: "image/png" });
+   }
+   await enable.click();
+   await expect(enable).toHaveCount(0);
+   await expect.poll(() => page.locator("video[hidden]").evaluate(video => (video as HTMLVideoElement).currentTime), { timeout: 20000 }).toBeGreaterThan(1);
+   expect(await page.locator("[data-current]").getAttribute("data-current")).toBe("a");
+   expect(await page.evaluate(() => (window as unknown as { preparedProbe: { gains: GainNode[] } }).preparedProbe.gains.map(gain => gain.gain.value))).toEqual([1, 1, 0]);
+   await current.evaluate(video => (video as HTMLVideoElement).pause());
+   await expect(page.locator("[data-current]")).toHaveAttribute("data-current", "b", { timeout: 15000 });
+   expect(await page.evaluate(() => (window as unknown as { preparedProbe: { attempts: number; gains: GainNode[] } }).preparedProbe.attempts)).toBe(2);
+   expect(await page.evaluate(() => (window as unknown as { preparedProbe: { gains: GainNode[] } }).preparedProbe.gains.map(gain => gain.gain.value))).toEqual([1, 0, 1]);
+   await page.getByRole("button", { name: "Unmount", exact: true }).click();
+   await expect.poll(async () => (await (await fetch(`${transport.url}/stats`)).json()).active).toBe(0);
+   expect(errors).toEqual([]);
+   await info.attach("transport-stats", { body: JSON.stringify(await (await fetch(`${transport.url}/stats`)).json()), contentType: "application/json" });
+  } finally { await browser?.close(); await transport.close(); }
+ });
+}
