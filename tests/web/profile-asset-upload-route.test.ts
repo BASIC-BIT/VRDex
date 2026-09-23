@@ -16,12 +16,22 @@ it("seals the single-read candidate despite quarantine overwrites and returns th
       assert.throws(() => assertLocalUploadCandidate(object, declaration), /SOURCE_MISMATCH/);
     }
     let quarantine = original, reads = 0, receipt;
+    let signingToken, targetCreated = false, signingSettlements = 0;
     const stored = new Map();
     const handler = createMcpMediaUploadHandlers({
       authority: async () => ({ actorUserId: "user", oauthClientId: "client", oauthTokenId: "token", emailVerified: true, emailVerificationAttestedAt: Date.now() }),
       admin: { mutation: async (fn, args) => {
         switch (getFunctionName(fn)) {
-          case "contributionUploads:begin": return { intentId: "intent", expiresAt: Date.now() + 600000, quarantineStorageKey: "quarantine", contentType: "image/png", byteLength: original.length };
+          case "contributionUploads:begin":
+            assert.equal(typeof args.signingToken, "string");
+            assert.ok(args.signingToken.length > 0 && args.signingToken.length <= 128);
+            signingToken = args.signingToken;
+            return { intentId: "intent", expiresAt: Date.now() + 600000, quarantineStorageKey: "quarantine", contentType: "image/png", byteLength: original.length };
+          case "contributionUploads:settleSigning":
+            assert.equal(targetCreated, true);
+            assert.deepEqual(args, { intentId: "intent", signingToken, succeeded: true });
+            signingSettlements++;
+            return null;
           case "contributionUploads:claim": return receipt ? { receipt } : { intentId: "intent", quarantineStorageKey: "quarantine", sourceStorageKey: "source", downloadStorageKey: "download", storageKey: "display", ...declaration };
           case "contributionUploads:complete":
             assert.equal(args.sourceContentSha256, declaration.sha256);
@@ -29,11 +39,17 @@ it("seals the single-read candidate despite quarantine overwrites and returns th
           default: throw new Error("Unexpected mutation");
         }
       } },
-      target: async ({ storageKey }) => ({ url: "https://bucket.example.test/", fields: { key: storageKey, policy: "signed" } }),
+      target: async ({ storageKey }) => {
+        assert.equal(typeof signingToken, "string");
+        assert.equal(signingSettlements, 0);
+        targetCreated = true;
+        return { url: "https://bucket.example.test/", fields: { key: storageKey, policy: "signed" } };
+      },
       read: async () => { reads++; const body = quarantine; quarantine = replacement; return { body, contentType: "image/png" }; },
       put: async ({ storageKey, body }) => { if (stored.has(storageKey)) assert.deepEqual(stored.get(storageKey), body); else stored.set(storageKey, body); },
     });
     const target = await handler.begin({ mode: "contributor", profileId: "profile", expectedUpdatedAt: 1, placement: "profile_image", ...declaration, credit: "Artist", sourceDescription: "Artist local original", idempotencyKey: "begin" });
+    assert.equal(signingSettlements, 1, "The target must not escape before signing settlement");
     assert.deepEqual(Object.keys(target).sort(), ["expiresAt", "intentId", "transfer"]);
     assert.deepEqual(target.transfer.fields, { key: "quarantine", policy: "signed" });
     assert.equal(target.transfer.fileField, "file");
@@ -44,6 +60,7 @@ it("seals the single-read candidate despite quarantine overwrites and returns th
     assert.equal(reads, 1);
     assert.deepEqual(stored.get("source"), original);
     assert.equal(stored.size, 3);
+    assert.equal(signingSettlements, 1, "Completion and replay must not settle signing again");
     let failedToken;
     const uncertain = createMcpMediaUploadHandlers({
       authority: async () => ({ actorUserId: "user", oauthClientId: "client", oauthTokenId: "token", emailVerified: true, emailVerificationAttestedAt: Date.now() }),

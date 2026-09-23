@@ -188,5 +188,3 @@ it("throttle reopening cannot clear a successor lease and retry still requires a
     await assert.rejects(t.mutation(internal.profileMediaSubmissions.claimMcpMediaSubmissionImport, lease));
   `);
 });
-
-
