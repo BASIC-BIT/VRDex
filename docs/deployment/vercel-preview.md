@@ -326,22 +326,62 @@ Production auth status, pending cutover:
 
 ### Production authenticated account smoke
 
-The `Deployed Health Checks` workflow always runs the production read-only route smoke when `VRDEX_PRODUCTION_SMOKE_BASE_URL` or a deployment status URL is available. It can also run a gated authenticated account smoke when the repository has an explicit stable production base URL and a pre-authenticated production test-account storage state.
+The `Deployed Health Checks` workflow runs the production public route smoke when
+`VRDEX_PRODUCTION_SMOKE_BASE_URL` or a deployment status URL is available. The
+authenticated account smoke requires an explicit manual dispatch. Configuring its
+secret does not enable authenticated checks on schedules, pushes, or deployments.
 
-Repository settings for the authenticated lane:
+Repository settings for the authenticated smoke:
 
-- variable `VRDEX_PRODUCTION_SMOKE_BASE_URL=https://vrdex.net`: required so auth cookies target the stable public domain instead of a generated Vercel deployment URL
-- `VRDEX_PRODUCTION_AUTH_SMOKE_PROVIDER` is retired: the account page no longer renders linked providers, because Clerk shows them only inside its own profile modal. The smoke asserts the management affordance instead of a provider label
-- secret `VRDEX_PRODUCTION_AUTH_SMOKE_STORAGE_STATE_B64`: base64-encoded Playwright `storageState` JSON from a dedicated production test account that has completed OAuth sign-in
+- variable `VRDEX_PRODUCTION_SMOKE_BASE_URL=https://vrdex.net`: the stable public domain that matches the captured cookies
+- secret `VRDEX_PRODUCTION_AUTH_SMOKE_STORAGE_STATE_B64`: base64-encoded Playwright `storageState` JSON for a dedicated production Clerk test account
+- `VRDEX_PRODUCTION_AUTH_SMOKE_PROVIDER` is retired. The account page exposes Clerk's management affordance rather than linked-provider labels
 
-This smoke does not enable production E2E helpers, does not mutate data, and does not store OAuth provider passwords in CI. It checks that the pre-authenticated production account can load `/account`, sees a sign-out control, and reaches the sign-in management affordance. Refresh the storage-state secret by manually signing in as the dedicated test account and exporting Playwright storage state before the session expires or after Clerk configuration changes.
+The deployment operator owns the test account, state capture, and secret renewal.
+Use an account without administrative roles, organization memberships, or ownership
+of real profiles. The repository secret grants that account's browser session;
+it must contain only the dedicated account's Clerk state. Do not put account
+passwords, OAuth credentials, Clerk API keys, or sign-in tickets in this secret.
+Keep production E2E helpers disabled.
 
-This lane validates the signed-in production account path only. It deliberately
-does **not** verify provider linkage: Clerk renders linked providers inside its
-own profile modal, and driving a vendor modal from a production smoke would be
-brittle. Do not cite this lane as evidence that provider linking works. It is
-also not a full automated provider-login robot; credential entry and fresh
-consent remain manual or use a provider-approved non-interactive mechanism.
+To capture or renew the state:
+
+1. Start an isolated browser context and sign in to `https://vrdex.net` as the
+   dedicated account. Email sign-in, a linked provider, or an explicitly
+   authorized short-lived Clerk sign-in ticket can establish the session.
+2. Confirm the expected account on `/account`, then export the context's Clerk
+   cookies with Playwright `storageState`. Include the HttpOnly `__client` cookie
+   on `clerk.vrdex.net`, including any instance-suffixed cookies actually present.
+   App-domain `__session` and `__refresh` cookies alone do not establish the full
+   client session. Exclude unrelated cookies and browser storage.
+3. Close the capture context and wait until the captured session JWT expires.
+   Load the exported state in a fresh browser context and run the existing
+   `production-auth.smoke.spec.ts` through `pnpm test:e2e:hosted:auth-smoke`, with
+   `PLAYWRIGHT_BASE_URL=https://vrdex.net`, `PLAYWRIGHT_SKIP_WEBSERVERS=true`,
+   `VRDEX_PRODUCTION_AUTH_SMOKE_MODE=manual-one-shot`, and the encoded state in
+   `VRDEX_PRODUCTION_AUTH_SMOKE_STORAGE_STATE_B64`. Confirm that the authenticated
+   test actually ran and passed. This proves refresh works beyond the captured
+   short-lived JWT.
+4. Store the verified encoded state as the repository secret. Keep raw state and
+   cookies out of logs, committed files, screenshots, and CI artifacts. Pass the
+   value to the secret manager through a protected input such as stdin.
+5. Dispatch the production smoke and inspect the authenticated step's result:
+
+   ```sh
+   gh workflow run deployed-health.yml --repo BASIC-BIT/VRDex --ref main -f target=production-smoke -f production_auth=true
+   ```
+
+The workflow fails an explicit authenticated request if the canonical base URL or
+secret is missing. Use `target=production-smoke` for this check; `target=all` also
+runs staging mutation checks. The operator must replace the state when the Clerk
+session expires, is revoked, or becomes invalid after configuration changes.
+Neither the smoke nor the workflow renews the repository secret.
+
+The smoke checks that `/account` shows a sign-out control and the sign-in
+management affordance. It makes no profile edits or other authored data writes.
+Normal authenticated page loading may provision or refresh the test account's
+Convex identity row. It does not verify OAuth consent, provider linkage, or the
+sign-in method used to obtain the session.
 
 ## Promoting Production
 
