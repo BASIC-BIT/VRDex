@@ -1,3 +1,4 @@
+import { eventProfileStreamChoices } from "./_eventPlayback";
 import { ConvexError, v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
@@ -117,6 +118,7 @@ const eventDraftArgs = {
   posterImageUrl: v.optional(v.string()),
   bannerImageUrl: v.optional(v.string()),
   thumbnailImageUrl: v.optional(v.string()),
+  watchMode: v.optional(v.union(v.literal("event_stream"), v.literal("performer_sequence"))),
   watchSurfaceEnabled: v.optional(v.boolean()),
   mediaLinks: v.optional(
     v.array(
@@ -142,6 +144,7 @@ const eventDraftArgs = {
   slotLinks: v.optional(
     v.array(
       v.object({
+        selectedStreamId: v.optional(v.union(v.string(), v.null())),
         personSlug: v.optional(v.string()),
         displayLabel: v.string(),
         roleLabel: v.optional(v.string()),
@@ -739,8 +742,19 @@ async function replaceEventSlots(
       ? undefined
       : await getPublishedPersonBySlug(db, slot.personSlug);
 
+    // An unchanged stored choice may have become unavailable since authoring.
+    // Retain it, but validate every new choice against discovery-visible links.
+    if (slot.selectedStreamId !== undefined && slot.selectedStreamId !== preservedSlot?.selectedStreamId) {
+      const sourceProfile = profile ?? (preservedSlot?.personProfileId === undefined ? null : await db.get(preservedSlot.personProfileId));
+      if (sourceProfile == null || !canReadProfile("public", sourceProfile) ||
+          !eventProfileStreamChoices(sourceProfile).some((choice) => choice.streamId === slot.selectedStreamId)) {
+        throw new Error("Selected stream must belong to the performer's public streams.");
+      }
+    }
+
     if (preservedSlot !== undefined) {
       await db.patch(preservedSlot._id, {
+        selectedStreamId: slot.selectedStreamId,
         eventStartAt,
         position: slot.position,
         startAt: slot.startAt,
@@ -760,6 +774,7 @@ async function replaceEventSlots(
     }
 
     await db.insert("eventSlots", {
+      ...optionalValue("selectedStreamId", slot.selectedStreamId),
       eventId,
       eventStartAt,
       position: slot.position,
@@ -897,6 +912,7 @@ function toApiManagedEventSummary(event: Doc<"events">, community: Doc<"profiles
     sourceLabel: event.sourceLabel,
     publicationState: event.publicationState,
     status: event.eventStatus,
+    watchMode: event.watchMode ?? "event_stream",
     watchSurfaceEnabled: event.watchSurfaceEnabled ?? false,
     createdAt: event.createdAt,
     publishedAt: event.publishedAt,
@@ -1018,6 +1034,7 @@ async function updateCommunityEventForApiOwnerRecord(
       posterImageUrl: event.posterImageUrl,
       bannerImageUrl: event.bannerImageUrl,
       thumbnailImageUrl: event.thumbnailImageUrl,
+      watchMode: event.watchMode ?? "event_stream",
       watchSurfaceEnabled: event.watchSurfaceEnabled ?? false,
       mediaLinks: event.mediaLinks ?? [],
     }),
@@ -1109,6 +1126,7 @@ async function insertCommunityEventRecord(
     ...optionalValue("posterImageUrl", input.posterImageUrl),
     ...optionalValue("bannerImageUrl", input.bannerImageUrl),
     ...optionalValue("thumbnailImageUrl", input.thumbnailImageUrl),
+    watchMode: input.watchMode,
     watchSurfaceEnabled: input.watchSurfaceEnabled,
     mediaLinks: input.mediaLinks,
     sourceType: "community",
@@ -1217,6 +1235,7 @@ async function updateCommunityEventRecord(
     ...(shouldUpdate("posterImageUrl") ? { posterImageUrl: input.posterImageUrl } : {}),
     ...(shouldUpdate("bannerImageUrl") ? { bannerImageUrl: input.bannerImageUrl } : {}),
     ...(shouldUpdate("thumbnailImageUrl") ? { thumbnailImageUrl: input.thumbnailImageUrl } : {}),
+    ...(shouldUpdate("watchMode") ? { watchMode: input.watchMode } : {}),
     ...(shouldUpdate("watchSurfaceEnabled") ? { watchSurfaceEnabled: input.watchSurfaceEnabled } : {}),
     ...(shouldUpdate("mediaLinks") ? { mediaLinks: input.mediaLinks } : {}),
     ...(shouldUpdate("sourceLabel") ? { sourceLabel: input.sourceLabel } : {}),
@@ -3576,5 +3595,17 @@ export const markEventMediaWorkerEnded = mutation({
       sessionId: session._id,
       status,
     };
+  },
+});
+
+// Event authoring can only select streams already exposed on discovery surfaces.
+export const getPersonStreamChoices = query({
+  args: { slug: v.string() },
+  returns: v.array(v.object({ streamId: v.string(), pcUrl: v.string(), questUrl: v.string() })),
+  handler: async (ctx, args) => {
+    if (args.slug.length > 64) return [];
+    const profile = await ctx.db.query("profiles").withIndex("by_slug", (q) => q.eq("slug", args.slug)).unique();
+    if (profile === null || profile.profileType !== "person" || !canReadProfile("public", profile)) return [];
+    return eventProfileStreamChoices(profile);
   },
 });
