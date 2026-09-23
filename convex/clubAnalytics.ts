@@ -680,6 +680,59 @@ export const getInstanceSummaryPage = query({
   },
 });
 
+export const listAssociationSuggestions = query({
+  args: { ...base, paginationOpts: paginationOptsValidator },
+  returns: v.object({
+    page: v.array(v.object({
+      id: v.id("eventInstanceAssociations"),
+      eventTitle: v.union(v.string(), v.null()),
+      sessionId: v.union(v.id("instanceSessions"), v.null()),
+      worldName: v.union(v.string(), v.null()),
+      openedAt: v.union(v.number(), v.null()),
+      confidence: v.number(),
+      canConfirm: v.boolean(),
+    })),
+    isDone: v.boolean(),
+    continueCursor: v.string(),
+  }),
+  handler: async (ctx, args) => {
+    const state = await context(ctx, args.communitySlug);
+    if (state.actor.kind !== "owner" && !state.actor.permissions.includes("manage_events"))
+      throw new Error("You do not have access to this action.");
+    requireCategory(state, "event_recaps");
+    if (!state.integration ||
+      (state.integration.enabledFeatures && !state.integration.enabledFeatures.includes("analytics")))
+      return { page: [], isDone: true, continueCursor: "" };
+    const result = await ctx.db.query("eventInstanceAssociations")
+      .withIndex("by_communityProfileId_state", (q) =>
+        q.eq("communityProfileId", state.community._id).eq("state", "suggested"))
+      .paginate(checkedPagination(args.paginationOpts));
+    const page = await Promise.all(result.page.map(async (association) => {
+      const [event, session] = await Promise.all([
+        ctx.db.get(association.eventId),
+        ctx.db.get(association.sessionId),
+      ]);
+      const world = session?.worldId ? await ctx.db.get(session.worldId) : null;
+      const confirmed = session ? await ctx.db.query("eventInstanceAssociations")
+        .withIndex("by_sessionId_state", (q) => q.eq("sessionId", session._id).eq("state", "confirmed"))
+        .first() : null;
+      const validSession = !!session && session.communityProfileId === state.community._id &&
+        session.integrationId === state.integration!._id && session.openedAt >= state.epoch;
+      const validEvent = !!event && event.communityProfileId === state.community._id;
+      return {
+        id: association._id,
+        eventTitle: validEvent ? event.title : null,
+        sessionId: validSession ? session._id : null,
+        worldName: validSession ? world?.displayName ?? null : null,
+        openedAt: validSession ? session.openedAt : null,
+        confidence: association.confidence,
+        canConfirm: validEvent && validSession && (!confirmed || confirmed.eventId === association.eventId),
+      };
+    }));
+    return { page, isDone: result.isDone, continueCursor: result.continueCursor };
+  },
+});
+
 export const listEventRecaps = query({
   args: { ...base, ...range, paginationOpts: paginationOptsValidator },
   returns: v.object({

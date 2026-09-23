@@ -14,6 +14,7 @@ const modules = {
   "../../convex/_communityAuthority.ts": () => import("../../convex/_communityAuthority"),
   "../../convex/_communityTelemetry.ts": () => import("../../convex/_communityTelemetry"),
   "../../convex/communityTelemetry.ts": () => import("../../convex/communityTelemetry"),
+  "../../convex/clubAnalytics.ts": () => import("../../convex/clubAnalytics"),
 };
 const schema = (schemaModule as unknown as { default?: typeof schemaModule }).default ?? schemaModule;
 const NOW = Date.parse("2026-07-21T12:00:00.000Z");
@@ -824,10 +825,26 @@ describe("community telemetry control plane", () => {
       .withIndex("by_eventId_state", (query) => query.eq("eventId", seeded.eventId).eq("state", "suggested"))
       .collect());
     assert.ok(suggestion);
+    const suggestionPage = { communitySlug: "faceless", paginationOpts: { numItems: 10, cursor: null } };
+    await assert.rejects(t.query(api.clubAnalytics.listAssociationSuggestions, suggestionPage), /access/);
+    const visibleSuggestions = await t.withIdentity(identity).query(api.clubAnalytics.listAssociationSuggestions, suggestionPage);
+    assert.equal(visibleSuggestions.page.some((row) => row.id === suggestion._id), true);
+    assert.equal(visibleSuggestions.page.find((row) => row.id === suggestion._id)?.canConfirm, true);
+    await t.run(ctx => ctx.db.patch(integrationId, { enabledFeatures: ["instances"] }));
+    assert.deepEqual((await t.withIdentity(identity).query(api.clubAnalytics.listAssociationSuggestions, suggestionPage)).page, []);
+    await t.run(ctx => ctx.db.patch(integrationId, { enabledFeatures: ["analytics", "instances"] }));
+    const visibilityId = await t.run(async (ctx) => ctx.db.insert("communityDataVisibility", {
+      communityProfileId,
+      categories: { current_population: { audience: "staff", staffRoleIds: null }, population_history: { audience: "staff", staffRoleIds: null }, group_size: { audience: "staff", staffRoleIds: null }, instance_history: { audience: "staff", staffRoleIds: null }, membership_movement: { audience: "staff", staffRoleIds: null }, individual_membership_history: { audience: "owner", staffRoleIds: null }, event_recaps: { audience: "owner", staffRoleIds: null } },
+      updatedAt: Date.now(),
+    }));
+    await assert.rejects(t.withIdentity(identity).query(api.clubAnalytics.listAssociationSuggestions, suggestionPage), /access to this category/);
+    await t.run(ctx => ctx.db.delete(visibilityId));
     await t.withIdentity(identity).mutation(api.communityTelemetry.reviewAssociationSuggestion, {
       communitySlug: "faceless", associationId: suggestion._id, state: "rejected",
     });
     assert.equal((await t.run((ctx) => ctx.db.get(suggestion._id)))?.state, "rejected");
+    assert.equal((await t.withIdentity(identity).query(api.clubAnalytics.listAssociationSuggestions, suggestionPage)).page.some((row) => row.id === suggestion._id), false);
     assert.deepEqual(await t.mutation(internal.communityTelemetry.suggestEventAssociations, {
       eventId: seeded.eventId,
       now: dayStart + 6 * 60_000,
@@ -844,6 +861,7 @@ describe("community telemetry control plane", () => {
         communitySlug: "faceless", associationId: confirmedAssociations[0]!, state,
       }), /access to this action/);
     }
+    await assert.rejects(t.withIdentity(identity).query(api.clubAnalytics.listAssociationSuggestions, suggestionPage), /access to this action/);
     await t.run(async (ctx) => {
       const authority = await ctx.db.query("communityAuthorities").withIndex("by_communityProfileId_state", q => q.eq("communityProfileId", communityProfileId).eq("state", "active")).first();
       await ctx.db.patch(authority!._id, { capabilities: ["manage_events"] });

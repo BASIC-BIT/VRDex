@@ -40,6 +40,10 @@ class AnalyticsFixtureClient extends ConvexReactClient {
   private clubDefaults = this.preferences;
   private personal = false;
   private associatedEvent = false;
+  private suggestions = [
+    { id: "fixture-suggestion-1", eventTitle: "Afterhours 043", sessionId: "fixture-session-2", worldName: "Afterhours Lounge", openedAt: this.now - 3 * 86400_000, confidence: 0.75, canConfirm: true },
+    { id: "fixture-suggestion-2", eventTitle: "Afterhours 043", sessionId: null, worldName: null, openedAt: null, confidence: 0.75, canConfirm: false },
+  ];
   constructor() {
     super("https://fixture.invalid");
   }
@@ -160,6 +164,8 @@ class AnalyticsFixtureClient extends ConvexReactClient {
           coverageRatio: 0.97,
         },
       ]);
+    else if (name === "clubAnalytics:listAssociationSuggestions")
+      result = page(this.suggestions);
     else if (name === "clubProviderReads:context")
       result = {
         enabledFeatures: ["instances"],
@@ -210,6 +216,9 @@ class AnalyticsFixtureClient extends ConvexReactClient {
       getFunctionName(mutation) === "communityTelemetry:associateEventInstance"
     )
       this.associatedEvent = true;
+    if (getFunctionName(mutation) === "communityTelemetry:reviewAssociationSuggestion" && value) {
+      this.suggestions = this.suggestions.filter((suggestion) => suggestion.id !== value.associationId);
+    }
     if (
       getFunctionName(mutation) === "clubAnalytics:savePreferences" &&
       value
@@ -263,9 +272,11 @@ const workspace: WorkspaceData = {
 function AnalyticsFixture({
   mode = "home",
   initialInstance,
+  canManageEvents = true,
 }: {
   mode?: "home" | "analytics" | "instances";
   initialInstance?: string;
+  canManageEvents?: boolean;
 }) {
   const [client] = useState(() => new AnalyticsFixtureClient());
   const [href, setHref] = useState(
@@ -281,7 +292,7 @@ function AnalyticsFixture({
     <ConvexProvider client={client}>
       <PageShell>
         <PageContainer max="7xl">
-          <ClubWorkspaceView data={workspace} pathname={url.pathname}>
+          <ClubWorkspaceView data={canManageEvents ? workspace : { ...workspace, actor: { kind: "staff", roleIds: [], permissions: ["manage_integrations"] } }} pathname={url.pathname}>
             {mode === "instances" ? (
               <ClubInstances />
             ) : (
@@ -302,6 +313,9 @@ type Story = StoryObj<typeof meta>;
 export const Home: Story = { render: () => <AnalyticsFixture /> };
 export const Analytics: Story = {
   render: () => <AnalyticsFixture mode="analytics" />,
+};
+export const AnalyticsWithoutEventManagement: Story = {
+  render: () => <AnalyticsFixture mode="analytics" canManageEvents={false} />,
 };
 export const Instances: Story = {
   render: () => <AnalyticsFixture mode="instances" />,

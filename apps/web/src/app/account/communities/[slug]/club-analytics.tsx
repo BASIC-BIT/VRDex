@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { CheckboxField, Field, Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { ClubChart, metricNumber, metricTime } from "./club-chart";
+import { ClubAssociationSuggestions } from "./club-association-suggestions";
 import {
   ClubInstanceDetail,
   ClubInstanceList,
@@ -594,6 +595,11 @@ export function ClubAnalyticsContent({
               );
             return null;
           })}
+          {mode === "analytics" ? (
+            <ClubAssociationSuggestions
+              onSelectInstance={(instance) => update({ instance })}
+            />
+          ) : null}
         </div>
       </div>
     </>

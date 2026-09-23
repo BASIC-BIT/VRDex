@@ -1,4 +1,34 @@
 import { expect, test } from "@playwright/test";
+
+test("event managers review private suggestions from Analytics @storybook-visual", async ({ page, isMobile }) => {
+  await page.goto("/iframe.html?id=clubs-analytics--analytics&viewMode=story");
+  await expect(page.getByRole("heading", { name: "Analytics", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Event associations", exact: true })).toBeVisible();
+  await expect(page.getByText("Suggested match · 75% confidence")).toHaveCount(2);
+  const stale = page.getByText("Instance unavailable.").locator("..").locator("..");
+  await expect(stale.getByRole("button", { name: "Confirm" })).toBeDisabled();
+  await page.screenshot({
+    path: `../../.cache/artifacts/suggestion-review-${isMobile ? "mobile" : "desktop"}.png`,
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: /Afterhours Lounge/ }).click();
+  await expect(page.getByText("Data completeness", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Back to instances" }).click();
+  await expect(page.getByText("Suggested match · 75% confidence")).toHaveCount(2);
+  await page.getByRole("button", { name: "Confirm", exact: true }).first().click();
+  await expect(page.getByText("Suggestion confirmed.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Suggested match · 75% confidence")).toHaveCount(1);
+  await page.getByRole("button", { name: "Reject", exact: true }).click();
+  await expect(page.getByText("Suggestion rejected.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Suggested match · 75% confidence")).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test("staff without event management cannot see suggestions @storybook-visual", async ({ page }) => {
+  await page.goto("/iframe.html?id=clubs-analytics--analytics-without-event-management&viewMode=story");
+  await expect(page.getByRole("heading", { name: "Analytics", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Event associations", exact: true })).toHaveCount(0);
+});
 for (const kind of ["invalid", "unreadable"]) {
   test(`${kind} instance link retains a working Back button @storybook-visual`, async ({
     page,

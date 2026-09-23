@@ -6,6 +6,20 @@ The existing confirmed association and event-rollup model is reused. Association
 
 Q23 is implemented through this deliberate path: after an event-created instance is observed, staff can select its actual instance detail and associate the event. Successful operation results retain their event identifier and destination, but there is no automatic destination-to-session matching in this change. An unobserved instance cannot acquire invented analytics. Broader comparison reports remain candidate scope.
 
+Pending time and world suggestions are reviewed on the club Analytics page by staff with `manage_events` and access to event recaps. The list is private, paginated, and scoped to the current group connection. A valid suggestion can be confirmed or rejected; a stale suggestion can only be rejected. Review updates the list, and the instance link returns to the same Analytics context.
+
+```mermaid
+flowchart LR
+  A[Club workspace link] --> B{Signed in?}
+  D[Direct Analytics link] --> B
+  B -- No --> C[Sign in] --> E[Club Analytics]
+  B -- Yes --> E
+  E --> F[Event associations]
+  F --> G[Inspect instance] --> F
+  F --> H[Confirm or reject] --> F
+  F --> E
+```
+
 Verification: telemetry backend tests cover denied anonymous and integration-only callers, authorized event staff, stale epochs, foreign events, conflicting confirmed associations and recap recomputation. Desktop/mobile Storybook interaction selects an event, associates it and displays the persisted fixture response. Screenshots in `.cache/artifacts/event-association-desktop.png` and `event-association-mobile.png` were visually inspected: no overlap or clipping, population remains prominent. Web typecheck passes. These checks do not prove a hosted authenticated journey or real provider observation.
 
 New exact user-visible utility strings: `Event`, `Select event`, `Associate event`, `Load more events`, `Event: {title}`, `Event associated.`, `Association failed.`. Public-copy approval remains part of the program's release review.
