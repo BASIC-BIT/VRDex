@@ -117,34 +117,53 @@ export function createMcpMediaUploadHandlers(deps: LocalUploadDependencies) {
     },
     async begin(input: unknown) {
       const request = localUploadRequestSchema.parse(input);
+      const signingToken = randomUUID();
       const admitted = await admin().mutation(
         internal.contributionUploads.begin,
         {
           ...request,
+          signingToken,
           profileId: request.profileId as Id<"profiles">,
           ...(await deps.authority()),
         },
       );
       if ("receipt" in admitted)
         return commandReceiptSchema.parse(admitted.receipt);
-      const transfer = await (
-        deps.target ?? createProfileAssetDirectUploadTarget
-      )({
-        storageKey: admitted.quarantineStorageKey,
-        contentType: admitted.contentType,
-        byteSize: admitted.byteLength,
-        expiresAt: admitted.expiresAt,
-      });
-      return localUploadTargetSchema.parse({
-        intentId: admitted.intentId,
-        expiresAt: admitted.expiresAt,
-        transfer: {
-          method: "POST",
-          url: transfer.url,
-          fields: transfer.fields,
-          fileField: "file",
-        },
-      });
+      try {
+        const transfer = await (
+          deps.target ?? createProfileAssetDirectUploadTarget
+        )({
+          storageKey: admitted.quarantineStorageKey,
+          contentType: admitted.contentType,
+          byteSize: admitted.byteLength,
+          expiresAt: admitted.expiresAt,
+        });
+        const target = localUploadTargetSchema.parse({
+          intentId: admitted.intentId,
+          expiresAt: admitted.expiresAt,
+          transfer: {
+            method: "POST",
+            url: transfer.url,
+            fields: transfer.fields,
+            fileField: "file",
+          },
+        });
+        await admin().mutation(internal.contributionUploads.settleSigning, {
+          intentId: admitted.intentId,
+          signingToken,
+          succeeded: true,
+        });
+        return target;
+      } catch {
+        await admin()
+          .mutation(internal.contributionUploads.settleSigning, {
+            intentId: admitted.intentId,
+            signingToken,
+            succeeded: false,
+          })
+          .catch(() => null);
+        throw new Error("UPLOAD_TARGET_UNAVAILABLE");
+      }
     },
     async complete(input: unknown, acquire?: () => Promise<void>) {
       const request = localUploadCompleteSchema.parse(input);

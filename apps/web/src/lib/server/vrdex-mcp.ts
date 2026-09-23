@@ -3319,6 +3319,19 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
           result: indeterminate ? "indeterminate" : "denied",
           toolName: "vrdex_profile_media_submit",
         });
+        if (
+          error instanceof McpProfileMediaImportError &&
+          error.code === "CONTRIBUTION_HOST_RATE"
+        ) {
+          return {
+            ...mcpJsonResult(commandReceiptSchema, actionableReceipt({
+              operationId: String(prepared.submissionId),
+              operationState: "in_progress",
+              code: "CONTRIBUTION_HOST_RATE",
+            })),
+            isError: true as const,
+          };
+        }
         return {
           content: [{
             type: "text" as const,

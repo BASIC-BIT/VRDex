@@ -200,6 +200,7 @@ async function reservation(
 export const begin = internalMutation({
   args: {
     ...authorityArgs,
+    signingToken: v.optional(v.string()),
     mode: v.union(v.literal("owner"), v.literal("contributor")),
     profileId: v.id("profiles"),
     expectedUpdatedAt: v.number(),
@@ -232,8 +233,14 @@ export const begin = internalMutation({
       oauthTokenId: _token,
       emailVerified: _verified,
       emailVerificationAttestedAt: _at,
+      signingToken,
       ...input
     } = args;
+    if (
+      signingToken !== undefined &&
+      (!signingToken || signingToken.length > 128)
+    )
+      throw new ConvexError({ code: "UPLOAD_INPUT_INVALID" });
     const request = localUploadRequestSchema.parse(input);
     await authorize(ctx, args, request.mode);
     const hasBatch =
@@ -372,6 +379,15 @@ export const begin = internalMutation({
     if (old) {
       if (old.state !== "pending" || old.expiresAt <= Date.now())
         throw new ConvexError({ code: "UPLOAD_UNAVAILABLE" });
+      // Only the first request may issue a target until its signing outcome is
+      // recorded. A failed concurrent request must not cancel a usable target.
+      if (old.signingToken)
+        return {
+          receipt: {
+            operationId: String(old.intentId),
+            operationState: "in_progress" as const,
+          },
+        };
       const intent = await ctx.db.get(old.intentId);
       if (!intent?.quarantineStorageKey)
         throw new ConvexError({ code: "UPLOAD_UNAVAILABLE" });
@@ -510,6 +526,7 @@ export const begin = internalMutation({
       chargedBytes: charge,
       quarantineBytes: request.byteLength,
       processing: true,
+      signingToken,
       state: "pending",
       expiresAt,
       cleanupAfter: expiresAt + 24 * 60 * 60 * 1000,
@@ -656,6 +673,30 @@ export const fail = internalMutation({
       .unique();
     if (row && row.processingToken === args.processingToken)
       await failReservation(ctx, row, "UPLOAD_VALIDATION_FAILED");
+    return null;
+  },
+});
+export const settleSigning = internalMutation({
+  args: {
+    intentId: v.id("profileAssetUploadIntents"),
+    signingToken: v.string(),
+    succeeded: v.boolean(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("contributionUploadReservations")
+      .withIndex("by_intentId", (q) => q.eq("intentId", args.intentId))
+      .unique();
+    if (
+      row?.state === "pending" &&
+      !row.receipt &&
+      row.signingToken === args.signingToken
+    ) {
+      await ctx.db.patch(row._id, { signingToken: undefined });
+      if (!args.succeeded)
+        await failReservation(ctx, row, "UPLOAD_TARGET_UNAVAILABLE");
+    }
     return null;
   },
 });

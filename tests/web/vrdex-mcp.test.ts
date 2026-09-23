@@ -23,6 +23,7 @@ it("registered upload tools preserve actionable uncertainty, validation, capacit
     async function call(code){failure=code;const response=await handler.fetch(new Request("https://app.example.test/mcp",{method:"POST",headers:{accept:"application/json, text/event-stream","content-type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:1,method:"tools/call",params:{name:"vrdex_media_upload_complete",arguments:{intentId:"intent",idempotencyKey:"same"}}})}),{authInfo});const text=await response.text();const result=JSON.parse(text.split(/\\r?\\n/).find(l=>l.startsWith("data: "))?.slice(6)??text);return result.result;}
     const uncertain=await call("UPLOAD_COMPLETION_UNCERTAIN");assert.equal(uncertain.structuredContent.operationState,"in_progress");assert.equal(uncertain.structuredContent.nextAction,"retry_same_key");
     const validation=await call("UPLOAD_VALIDATION_FAILED");assert.equal(validation.structuredContent.operationState,"refused");assert.equal(validation.structuredContent.nextAction,"correct_input");
+    const signing=await call("UPLOAD_TARGET_UNAVAILABLE");assert.equal(signing.structuredContent.operationState,"refused");assert.equal(signing.structuredContent.code,"UPLOAD_TARGET_UNAVAILABLE");
     const capacity=await call("CONTRIBUTION_ACTOR_OPEN_LIMIT");assert.equal(capacity.structuredContent.retryCategory,"capacity");
     const stale=await call("UPLOAD_TARGET_CHANGED");assert.equal(stale.structuredContent.nextAction,"inspect_current");
     const unknown=await call("private secret https://host/?token=secret");assert.equal(unknown.structuredContent.operationState,"in_progress");assert.doesNotMatch(JSON.stringify(unknown),/private|secret|host/);
@@ -2226,6 +2227,7 @@ describe("VRDex MCP server", () => {
           query: async () => null,
         },
         completeProfileMediaSubmissionImport: async () => {
+          if (mode === "host_rate") throw new McpProfileMediaImportError("private source signature", "indeterminate", "CONTRIBUTION_HOST_RATE");
           throw new McpProfileMediaImportError("transport ended after maybe committing", "indeterminate");
         },
         verifyContributorEmail: async () => true,
@@ -2262,13 +2264,16 @@ describe("VRDex MCP server", () => {
       const processing = await submit(45, "operator-key-processing");
       mode = "import_uncertain";
       const importUncertain = await submit(46, "operator-key-import");
+      mode = "host_rate";
+      const hostRate = await submit(47, "operator-key-throttle");
 
-      console.log(JSON.stringify({ importUncertain, prepareUncertain, processing }));
+      console.log(JSON.stringify({ importUncertain, prepareUncertain, processing, hostRate }));
     `);
     const result = JSON.parse(output) as {
       importUncertain: string;
       prepareUncertain: string;
       processing: string;
+      hostRate: string;
     };
 
     // An unknown commit outcome sends the operator to status and back to the
@@ -2281,6 +2286,14 @@ describe("VRDex MCP server", () => {
 
     assert.match(result.importUncertain, /Check your media submission status, then replay only the same idempotency key/);
     assert.doesNotMatch(result.importUncertain, /new idempotency key/);
+    const rate = JSON.parse(result.hostRate.split(/\r?\n/).find((line) => line.startsWith("data: "))?.slice(6) ?? result.hostRate).result;
+    assert.equal(rate.structuredContent.code, "CONTRIBUTION_HOST_RATE");
+    assert.equal(rate.structuredContent.operationState, "in_progress");
+    assert.equal(rate.structuredContent.retryable, true);
+    assert.equal(rate.structuredContent.nextAction, "retry_same_key");
+    assert.equal(rate.structuredContent.retryAfterMs, 60000);
+    assert.deepEqual(JSON.parse(rate.content[0].text), rate.structuredContent);
+    assert.doesNotMatch(JSON.stringify(rate), /private|operator review|Do not retry automatically/);
   });
 
   it("reports a Clerk verification failure as nothing submitted with same-key retry guidance", () => {

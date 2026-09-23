@@ -870,6 +870,7 @@ export default defineSchema({
     state: v.union(v.literal("pending"), v.literal("processing"), v.literal("committed"), v.literal("failed")),
     receipt: v.optional(v.object({ operationId: v.string(), operationState: v.union(v.literal("committed"), v.literal("refused"), v.literal("in_progress")), resourceId: v.optional(v.string()), code: v.optional(v.string()) })),
     processingToken: v.optional(v.string()), completionKey: v.optional(v.string()),
+    signingToken: v.optional(v.string()),
     cleanupAfter: v.number(), cleanupToken: v.optional(v.string()), cleanupLeaseUntil: v.optional(v.number()),
     expiresAt: v.number(), createdAt: v.number(),
   }).index("by_intentId", ["intentId"])

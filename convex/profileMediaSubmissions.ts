@@ -941,6 +941,44 @@ export const hasDuplicateMcpMediaSubmissionImport = internalQuery({
   },
 });
 
+// A host throttle occurs before acquisition. Reopen only this worker's lease
+// and refund the unused attempt, leaving its admitted capacity and bytes intact.
+export const retryMcpMediaSubmissionImport = internalMutation({
+  args: {
+    intentId: v.id("profileAssetUploadIntents"),
+    processingToken: v.string(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const intent = await ctx.db.get(args.intentId);
+    if (
+      !intent ||
+      intent.purpose !== "community_proposal" ||
+      intent.state !== "pending" ||
+      intent.mcpFailureCode !== undefined ||
+      intent.processingToken !== args.processingToken ||
+      !intent.mcpActorUserId ||
+      !intent.targetSubmissionId
+    ) {
+      return false;
+    }
+    const submission = await ctx.db.get(intent.targetSubmissionId);
+    if (
+      submission?.status !== "upload_pending" ||
+      submission.submitterUserId !== intent.mcpActorUserId
+    ) {
+      return false;
+    }
+    await ctx.db.patch(intent._id, {
+      processingToken: undefined,
+      processingStartedAt: undefined,
+      processingAttempts: Math.max(0, (intent.processingAttempts ?? 1) - 1),
+      updatedAt: Date.now(),
+    });
+    return true;
+  },
+});
+
 export const failMcpMediaSubmissionImport = internalMutation({
   args: {
     intentId: v.id("profileAssetUploadIntents"),

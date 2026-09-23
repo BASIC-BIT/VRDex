@@ -8,6 +8,8 @@ Run `node --conditions=import --import tsx --test tests/backend/contribution-upl
 
 The backend tests cover admission replay, source mismatch, concurrent finalization, legacy-token refusal, revoked OAuth, lost ownership, suppressed targets, capacity downgrade, expiry, cleanup confirmation, and legal holds. The web adapter test validates real synthetic image bytes with injected storage. It overwrites quarantine during sealing and after commit, then verifies that replay returns the same receipt without reading quarantine again. This is a local simulation, not proof of an S3 transfer.
 
+Run `node --import tsx --test tests/web/contribution-adapter-recovery.test.ts` for adapter recovery against the in-memory Convex backend. It covers signing failure, concurrent same-key signing, replay authority, worker fences, and legacy source-host throttling followed by same-key completion.
+
 ## Dedicated S3 proof
 
 An operator must approve the exact dedicated test bucket before execution. Do not use a production bucket or provision resources from this script. Supply dedicated credentials through the ordinary AWS credential chain, or an explicitly authorized Vercel OIDC role. The script performs writes and deletes only four generated keys under `profile-assets/proof/local-upload/<random-id>/`.
@@ -45,7 +47,11 @@ Reservations initially charge two source-sized objects plus two 12 MiB derivativ
 
 Successful admission contains only intent ID, expiry, and the POST URL/form fields with `fileField: "file"`. Quota refusal instead returns a stable terminal command receipt before any upload or counter write. Only the random quarantine key is exposed in those form fields. The complete command accepts the intent ID and idempotency key, revalidates delegation, and returns a durable receipt. The backend requires `mcp:write` plus `assets:write` for owner mode or `assets:contribute` for contributor mode. Contributor completion creates a private proposal regardless of other grants. Owner mode uses existing owner asset finalization.
 
+The initial signing request holds a private fence until target generation settles. Concurrent admission replay returns `in_progress`. Signing failure records `UPLOAD_TARGET_UNAVAILABLE` and releases processing once; same-key replay returns that refusal. Signing failures after a target was issued cannot cancel its reservation. Bytes stay charged until confirmed cleanup.
+
 ## URL acquisition recovery
+
+Legacy proposal imports treat source-host throttling as transient. Before any source fetch or storage write, the matching worker reopens its lease and refunds the unused processing attempt. The proposal remains `upload_pending` and the same key may resume after the host window resets. The hosted handler returns `CONTRIBUTION_HOST_RATE`, `in_progress`, `retry_same_key`, and a bounded 60-second retry delay in structured content and matching JSON text. Admitted capacity stays charged, and retry rechecks live OAuth and target authority.
 
 URL acquisition first claims a fenced processing lease, before fetching,
 validating declared bytes/type/digest or writing quarantine data. Permanent
