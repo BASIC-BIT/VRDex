@@ -591,6 +591,7 @@ export function CloseInstanceAction({
                     schedule: { kind: "fixed", dueAt: Date.now() },
                   };
                   await enqueue(retry.current);
+                  retry.current = null;
                   setMessage("Closure queued.");
                   setConfirm(false);
                 } catch {

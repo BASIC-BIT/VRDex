@@ -21,12 +21,19 @@ import {
 } from "@/app/account/communities/[slug]/club-workspace";
 import type { Id } from "../../../../convex/_generated/dataModel";
 
-type Mode = "owner" | "staff" | "denied" | "disabled" | "read-error";
+type Mode =
+  | "owner"
+  | "staff"
+  | "denied"
+  | "disabled"
+  | "read-error"
+  | "enqueue-error-once";
 // Storybook-only transport. Unexpected calls fail instead of contacting a provider.
 class InstanceFixtureClient extends ConvexReactClient {
   private cache = new Map<string, unknown>();
   private reads = new Map<string, { offset: number }>();
   private requestCount = 0;
+  private enqueueCount = 0;
   constructor(
     private mode: Mode,
     private record: (value: unknown) => void,
@@ -108,15 +115,21 @@ class InstanceFixtureClient extends ConvexReactClient {
     }
     if (name === "clubOperations:enqueue") {
       this.record(value);
+      this.enqueueCount++;
+      if (this.mode === "enqueue-error-once" && this.enqueueCount === 1)
+        throw new Error("Ambiguous enqueue failure");
       return ["operation-one"] as FunctionReturnType<Mutation>;
     }
     throw new Error(`Unmocked instance mutation: ${name}`);
   }
 }
 function Workspace({ mode }: { mode: Mode }) {
-  const [submission, setSubmission] = useState<unknown>(null);
+  const [submissions, setSubmissions] = useState<unknown[]>([]);
   const [client] = useState(
-    () => new InstanceFixtureClient(mode, setSubmission),
+    () =>
+      new InstanceFixtureClient(mode, (value) =>
+        setSubmissions((previous) => [...previous, value]),
+      ),
   );
   const data: WorkspaceData = {
     community: {
@@ -148,7 +161,10 @@ function Workspace({ mode }: { mode: Mode }) {
         >
           <ClubInstances />
           <output hidden data-testid="submitted-close">
-            {JSON.stringify(submission)}
+            {JSON.stringify(submissions.at(-1) ?? null)}
+          </output>
+          <output hidden data-testid="submitted-close-attempts">
+            {JSON.stringify(submissions)}
           </output>
         </ClubWorkspaceView>
       </div>
@@ -173,4 +189,7 @@ export const InstancesDisabled: Story = {
 };
 export const ReadError: Story = {
   render: () => <Workspace mode="read-error" />,
+};
+export const EnqueueErrorOnce: Story = {
+  render: () => <Workspace mode="enqueue-error-once" />,
 };

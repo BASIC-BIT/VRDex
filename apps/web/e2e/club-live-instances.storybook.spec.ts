@@ -1,5 +1,55 @@
 import { test, expect } from "@playwright/test";
 
+async function closeAttempts(page: import("@playwright/test").Page) {
+  return JSON.parse(
+    (await page.getByTestId("submitted-close-attempts").textContent()) ?? "[]",
+  ) as Array<{
+    requestId: string;
+    communityProfileId: string;
+    payloads: unknown[];
+    schedule: unknown;
+  }>;
+}
+
+test("two deliberate closures of the same live instance use separate requests", async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(new Date("2026-09-22T23:00:00Z"));
+  await page.goto(
+    "/iframe.html?id=clubs-live-instance-management--owner-analytics-off&viewMode=story",
+  );
+  const live = page.getByRole("region", { name: "Live instances" });
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    await live.getByRole("button", { name: "Close instance" }).click();
+    await live.getByRole("button", { name: "Confirm closure" }).click();
+    await expect.poll(async () => (await closeAttempts(page)).length).toBe(attempt);
+    await expect(live.getByText("Closure queued.", { exact: true })).toBeVisible();
+  }
+  const [first, second] = await closeAttempts(page);
+  expect(first.requestId).not.toBe(second.requestId);
+  expect({ ...second, requestId: first.requestId }).toEqual(first);
+});
+
+test("ambiguous closure failure retries the same request and payload", async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(new Date("2026-09-22T23:00:00Z"));
+  await page.goto(
+    "/iframe.html?id=clubs-live-instance-management--enqueue-error-once&viewMode=story",
+  );
+  const live = page.getByRole("region", { name: "Live instances" });
+  await live.getByRole("button", { name: "Close instance" }).click();
+  await live.getByRole("button", { name: "Confirm closure" }).click();
+  await expect(
+    live.getByText("Unable to queue closure. Try again.", { exact: true }),
+  ).toBeVisible();
+  await live.getByRole("button", { name: "Confirm closure" }).click();
+  await expect.poll(async () => (await closeAttempts(page)).length).toBe(2);
+  await expect(live.getByText("Closure queued.", { exact: true })).toBeVisible();
+  const [first, second] = await closeAttempts(page);
+  expect(second).toEqual(first);
+});
+
 for (const scenario of ["owner-analytics-off", "management-only-staff"]) {
   test(`${scenario} can review and close a provider-live instance @storybook-visual`, async ({
     page,
