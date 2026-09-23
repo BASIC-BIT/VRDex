@@ -234,6 +234,16 @@ URLs, storage fields, processing state, review notes, or another contributor's
 submissions. This tool is hosted-only because the local stdio package has no
 matching public API route.
 
+Hosted reviewer reads are `vrdex_media_review_list`,
+`vrdex_media_review_get`, and `vrdex_media_review_preview`. They require
+`mcp:read` plus `assets:review:read` and a user-delegated session with a current
+verified email. List returns only the authorized queue. Detail returns the
+candidate provenance, current placement and opaque review version. Preview
+accepts that version and returns native MCP image content from the matching
+stored candidate as a bounded PNG. It does not fetch the original source URL,
+and it never returns storage identifiers or moderator identity fields outside
+the caller's authorized projection.
+
 A configured credential also registers four approval-gated write tools:
 `vrdex_event_create`, `vrdex_event_update`, `vrdex_profile_update`, and
 `vrdex_profile_submit`. They use the existing

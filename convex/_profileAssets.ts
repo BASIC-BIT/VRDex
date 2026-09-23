@@ -1,3 +1,4 @@
+import { settleLegacyContribution, assertCapacityNotRevoked } from "./_contributionCapacity";
 import { ConvexError, type GenericId } from "convex/values";
 import { automaticProfileImage } from "./_profileImageFallback";
 
@@ -221,27 +222,42 @@ function validateProfileAssetGalleryPlacements(
   }
 }
 
-function validateProfileAssetPosition(value: number | undefined): number | undefined {
+function validateProfileAssetPosition(
+  value: number | undefined,
+): number | undefined {
   if (value !== undefined && (!Number.isSafeInteger(value) || value < 0)) {
     throw new Error("Profile media position must be a nonnegative integer.");
   }
   return value;
 }
 
-export async function assertProfileAssetCapacity(
+export async function hasProfileAssetCapacity(
   db: DatabaseReader,
   profileId: Id<"profiles">,
   additionalCount = 1,
 ) {
   const activeAssets = await db
     .query("profileAssets")
-    .withIndex("by_profileId_state_visibility", (query) =>
-      query.eq("profileId", profileId).eq("state", "active").eq("visibility", "public"),
+    .withIndex("by_profileId_state_visibility", (q) =>
+      q
+        .eq("profileId", profileId)
+        .eq("state", "active")
+        .eq("visibility", "public"),
     )
-    .collect();
-
-  if (activeAssets.length + additionalCount > PROFILE_ASSET_MAX_ACTIVE_COUNT) {
-    throw new Error(`Profiles can have up to ${PROFILE_ASSET_MAX_ACTIVE_COUNT} active media items.`);
+    .take(PROFILE_ASSET_MAX_ACTIVE_COUNT + 1);
+  return (
+    activeAssets.length + additionalCount <= PROFILE_ASSET_MAX_ACTIVE_COUNT
+  );
+}
+export async function assertProfileAssetCapacity(
+  db: DatabaseReader,
+  profileId: Id<"profiles">,
+  additionalCount = 1,
+) {
+  if (!(await hasProfileAssetCapacity(db, profileId, additionalCount))) {
+    throw new Error(
+      `Profiles can have up to ${PROFILE_ASSET_MAX_ACTIVE_COUNT} active media items.`,
+    );
   }
 }
 
@@ -740,6 +756,7 @@ export async function consumeProfileAssetUploads(
     uploads: ProfileAssetUploadInput[];
     source: Doc<"profileAssets">["source"];
     approvedSubmissionId?: Id<"profileMediaSubmissions">;
+    bridgeAuthorized?: boolean;
     now: number;
   },
 ): Promise<Id<"profileAssets">[]> {
@@ -749,7 +766,7 @@ export async function consumeProfileAssetUploads(
   for (const upload of input.uploads) {
     const intent = await db.get(upload.intentId);
 
-    if (intent === null || intent.uploadToken !== upload.uploadToken) {
+    if (intent === null || (intent.issuer === "mcp_local" && !input.bridgeAuthorized && input.approvedSubmissionId === undefined) || intent.uploadToken !== upload.uploadToken) {
       throw new Error("Profile media upload intent was not found.");
     }
 
@@ -913,6 +930,7 @@ export async function finalizeProfileAssetUploadIntentUpload(
   input: {
     intentId: Id<"profileAssetUploadIntents">;
     uploadToken: string;
+    bridgeAuthorized?: boolean;
     processingToken: string;
     mimeType: string;
     byteSize: number;
@@ -932,6 +950,7 @@ export async function finalizeProfileAssetUploadIntentUpload(
 
   if (
     intent === null ||
+    (intent.issuer === "mcp_local" && !input.bridgeAuthorized) ||
     intent.uploadToken !== input.uploadToken ||
     intent.processingToken !== input.processingToken
   ) {
@@ -940,6 +959,11 @@ export async function finalizeProfileAssetUploadIntentUpload(
 
   if (intent.state !== "pending" || intent.expiresAt < input.now) {
     throw new ConvexError("Profile media upload intent is no longer pending.");
+  }
+  if(intent.purpose === "community_proposal"){
+    if(process.env.VRDEX_CONTRIBUTION_INTAKE_PAUSED === "true")throw new Error("CONTRIBUTION_INTAKE_PAUSED");
+    const contribution=intent.targetSubmissionId?await db.get(intent.targetSubmissionId):null;
+    if(contribution)await assertCapacityNotRevoked(db,contribution.submitterUserId,contribution.createdAt);
   }
 
   if (intent.targetProfileId !== undefined && intent.purpose !== "community_proposal") {
@@ -959,11 +983,13 @@ export async function finalizeProfileAssetUploadIntentUpload(
   }
 
   if (intent.targetProfileId !== undefined && input.contentSha256 !== undefined) {
-    const existingAssets = await db
+    const existingAsset = await db
       .query("profileAssets")
-      .withIndex("by_profileId", (query) => query.eq("profileId", intent.targetProfileId!))
-      .collect();
-    if (existingAssets.some((asset) => asset.contentSha256 === input.contentSha256)) {
+      .withIndex("by_profileId_contentSha256_state", (query) =>
+        query.eq("profileId", intent.targetProfileId!).eq("contentSha256", input.contentSha256!),
+      )
+      .first();
+    if (existingAsset !== null) {
       throw new ConvexError("This image already exists in the profile media kit.");
     }
   }
@@ -1018,6 +1044,7 @@ export async function finalizeProfileAssetUploadIntentUpload(
         throw new ConvexError("This image was already proposed for the profile.");
       }
     }
+    await settleLegacyContribution(db,intent,input);
     await db.patch(submission._id, {
       status: "submitted",
       ...(input.contentSha256 !== undefined ? { contentSha256: input.contentSha256 } : {}),
@@ -1087,6 +1114,7 @@ export async function finalizeProfileAssetUploadIntentUpload(
     : intent;
   const assetIds = await consumeProfileAssetUploads(db, {
     profileId: intent.targetProfileId,
+    bridgeAuthorized: input.bridgeAuthorized,
     requestedBy: intent.requestedBy,
     uploads: [
       {

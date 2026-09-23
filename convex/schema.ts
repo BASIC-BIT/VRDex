@@ -2,6 +2,7 @@ import { clubPermission, clubVisibility, clubSubject } from "./_clubModel";
 import { providerReadParams, providerReadPage } from "./_clubProviderReads";
 import { integrationFeature, storedAuthority } from "./_clubConnection";
 import {clubOperationPayload,operationSchedule,operationState} from "./_clubOperations";
+import { contributionTables } from "./_contributionTables";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
@@ -424,6 +425,9 @@ const accountFeature = v.union(
   v.literal("super_admin"),
   v.literal("view_private_seed_lookup"),
   v.literal("use_temporal_parsing_beta"),
+  v.literal("media_reviewer"),
+  v.literal("trusted_publisher"),
+  v.literal("trusted_contributor"),
 );
 
 const temporalParseJobStatus = v.union(
@@ -714,6 +718,7 @@ export default defineSchema({
     .index("by_subject_createdAt", ["subject.tokenIdentifier", "createdAt"])
     .index("by_integration_state_createdAt", ["integrationId", "state", "createdAt"])
     .index("by_expiresAt", ["expiresAt"]),
+  ...contributionTables,
   profileLinkDestinationReferences: defineTable({ key: v.string(), profileId: v.id("profiles") }).index("by_key_profile", ["key", "profileId"]).index("by_profile", ["profileId"]),
   profileLinkDestinations: defineTable({
     key: v.string(),
@@ -796,6 +801,7 @@ export default defineSchema({
     .index("by_creationSource_claimState", ["creationSource", "claimState"])
     .index("by_profileType_sortName", ["profileType", "sortName"]),
   profileAssetUploadIntents: defineTable({
+    issuer: v.optional(v.union(v.literal("legacy"), v.literal("mcp_local"))),
     uploadToken: v.string(),
     requestedBy: authSubject,
     targetProfileId: v.optional(v.id("profiles")),
@@ -864,7 +870,61 @@ export default defineSchema({
       "mcpIdempotencyKeyHash",
     ])
     .index("by_requestedBy", ["requestedBy.tokenIdentifier"]),
+  contributionCapacity: defineTable({
+    scope: v.string(), bytes: v.number(), processing: v.number(),
+    byteLimit: v.optional(v.number()), processingLimit: v.optional(v.number()),
+  }).index("by_scope", ["scope"]),
+  contributionUploadReservations: defineTable({
+    intentId: v.id("profileAssetUploadIntents"), actorUserId: v.id("users"),
+    batchRevisionId: v.optional(v.id("contributionItemRevisions")),
+    allowanceId: v.optional(v.id("contributionCapacityRequests")),
+    profileId: v.id("profiles"), oauthClientId: v.string(),
+    idempotencyKey: v.string(), fingerprint: v.string(),
+    mode: v.union(v.literal("owner"), v.literal("contributor")),
+    expectedUpdatedAt: v.number(), declaredBytes: v.number(), declaredType: v.string(), sha256: v.string(),
+    capacityRevokedAt: v.optional(v.number()), publishedBytes: v.optional(v.number()), ledgerVersion: v.optional(v.number()),
+    chargedBytes: v.number(), quarantineBytes: v.number(), processing: v.boolean(),
+    state: v.union(v.literal("pending"), v.literal("processing"), v.literal("committed"), v.literal("failed")),
+    receipt: v.optional(v.object({ operationId: v.string(), operationState: v.union(v.literal("committed"), v.literal("refused"), v.literal("in_progress")), resourceId: v.optional(v.string()), code: v.optional(v.string()) })),
+    processingToken: v.optional(v.string()), completionKey: v.optional(v.string()),
+    signingToken: v.optional(v.string()),
+    cleanupAfter: v.number(), cleanupToken: v.optional(v.string()), cleanupLeaseUntil: v.optional(v.number()),
+    expiresAt: v.number(), createdAt: v.number(),
+  }).index("by_intentId", ["intentId"])
+    .index("by_actor_client_key", ["actorUserId", "oauthClientId", "idempotencyKey"])
+    .index("by_actor_createdAt", ["actorUserId", "createdAt"])
+    .index("by_cleanupAfter", ["cleanupAfter"]),
+  mediaReviewRebases: defineTable({
+    submissionId:v.id("profileMediaSubmissions"),actorUserId:v.id("users"),
+    priorTargetUpdatedAt:v.number(),currentTargetUpdatedAt:v.number(),
+    priorPlacementAssetId:v.optional(v.id("profileAssets")),currentPlacementAssetId:v.optional(v.id("profileAssets")),
+    priorTargetSnapshot:v.string(),currentTargetSnapshot:v.string(),currentPlacementSnapshot:v.string(),
+    priorReviewVersion:v.string(),reviewRevision:v.number(),createdAt:v.number(),
+  }).index("by_submissionId",["submissionId"]),
+  mediaReviewReceipts: defineTable({
+    actorUserId: v.id("users"), idempotencyKey: v.string(), inputHash: v.string(),
+    submissionId: v.id("profileMediaSubmissions"),
+    receipt: v.object({ operationId: v.string(), operationState: v.union(v.literal("committed"), v.literal("refused"), v.literal("in_progress")), resourceId: v.optional(v.string()), code: v.optional(v.string()) }),
+    createdAt: v.number(),
+  }).index("by_actorUserId_idempotencyKey", ["actorUserId", "idempotencyKey"]),
+  mediaPublicationEvidence: defineTable({
+    submissionId: v.id("profileMediaSubmissions"), actorUserId: v.id("users"),
+    candidateVersion: v.string(), identityConfirmed: v.boolean(), attributionConfirmed: v.boolean(),
+    publicationPermitted: v.boolean(), noKnownRestrictions: v.boolean(), createdAt: v.number(),
+  }).index("by_submissionId", ["submissionId"]),
+  mediaPublicationRestrictions: defineTable({
+    profileId: v.id("profiles"), contentSha256: v.optional(v.string()),
+    submissionId: v.id("profileMediaSubmissions"), actorUserId: v.id("users"),
+    kind: v.union(v.literal("rejection"), v.literal("suppression"), v.literal("dispute"), v.literal("identity")),
+    correctionOfOperationId: v.optional(v.string()), createdAt: v.number(),
+  }).index("by_profileId_kind", ["profileId", "kind"]).index("by_contentSha256", ["contentSha256"]),
   profileMediaSubmissions: defineTable({
+    publicationEvidenceId: v.optional(v.id("mediaPublicationEvidence")),
+    publicationMethod: v.optional(v.union(v.literal("trusted_publisher"), v.literal("independent_review"))),
+    publicationActorUserId: v.optional(v.id("users")),
+    publicationEvidenceRevision: v.optional(v.string()), publicationOperationId: v.optional(v.string()),
+    priorRestrictionId: v.optional(v.id("mediaPublicationRestrictions")),
+    reviewRevision: v.optional(v.number()),
     profileId: v.id("profiles"),
     targetProfileSlug: v.string(),
     targetProfileDisplayName: v.string(),
@@ -873,7 +933,9 @@ export default defineSchema({
     uploadIntentId: v.optional(v.id("profileAssetUploadIntents")),
     requestedPlacement: profileAssetPlacement,
     originalFileName: v.optional(v.string()),
-    sourceUrl: v.string(),
+    sourceUrl: v.optional(v.string()),
+    sourceKind: v.optional(v.union(v.literal("url"), v.literal("local"))),
+    sourceDescription: v.optional(v.string()),
     label: v.optional(v.string()),
     altText: v.optional(v.string()),
     credit: v.string(),
@@ -905,11 +967,14 @@ export default defineSchema({
     .index("by_submitterUserId_status_expiresAt", ["submitterUserId", "status", "expiresAt"])
     .index("by_submitterUserId_createdAt", ["submitterUserId", "createdAt"])
     .index("by_status_createdAt", ["status", "createdAt"])
+    .index("by_status_expiresAt", ["status", "expiresAt"])
     .index("by_blobDeleteAfter", ["blobDeleteAfter"])
     .index("by_cleanupEligibility_blobDeleteAfter", ["blobDeletedAt", "legalHoldAt", "blobDeleteAfter"])
     .index("by_profileId_contentSha256_status", ["profileId", "contentSha256", "status"])
     .index("by_profileId_contentSha256_createdAt", ["profileId", "contentSha256", "createdAt"])
-    .index("by_contentSha256", ["contentSha256"]),
+    .index("by_contentSha256", ["contentSha256"])
+    .index("by_contentSha256_status", ["contentSha256", "status"])
+    .index("by_publicationMethod_actor", ["publicationMethod", "publicationActorUserId"]),
   profileAssets: defineTable({
     profileId: v.id("profiles"),
     storageKey: v.string(),
@@ -944,6 +1009,8 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_profileId", ["profileId"])
+    .index("by_contentSha256_suppressed", ["contentSha256", "moderatorSuppressedAt"])
+    .index("by_profileId_contentSha256_state", ["profileId", "contentSha256", "state"])
     .index("by_profileId_state_visibility", ["profileId", "state", "visibility"]),
   profileAssetPlacements: defineTable({
     profileId: v.id("profiles"),
@@ -960,6 +1027,7 @@ export default defineSchema({
       "position",
     ])
     .index("by_profileId_state", ["profileId", "state"])
+    .index("by_assetId_state_placement", ["assetId", "state", "placement"])
     .index("by_assetId", ["assetId"]),
   profileAssetDisplayPreferences: defineTable({
     profileId: v.id("profiles"),
