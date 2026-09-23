@@ -6,7 +6,7 @@ The existing confirmed association and event-rollup model is reused. Association
 
 Q23 is implemented through this deliberate path: after an event-created instance is observed, staff can select its actual instance detail and associate the event. Successful operation results retain their event identifier and destination, but there is no automatic destination-to-session matching in this change. An unobserved instance cannot acquire invented analytics. Broader comparison reports remain candidate scope.
 
-Pending time and world suggestions are reviewed on the club Analytics page by staff with `manage_events` and access to event recaps. The list is private, paginated, and scoped to the current group connection. A valid suggestion can be confirmed or rejected; a stale suggestion can only be rejected. Review updates the list, and the instance link returns to the same Analytics context.
+Pending time and world suggestions are reviewed on the club Analytics page by staff with `manage_events` and access to event recaps. The list is private, paginated, and scoped to the current group connection. A valid suggestion can be confirmed or rejected; a stale suggestion can only be rejected. Review updates the list. Staff with instance history access can open the instance and return to the same Analytics context.
 
 ```mermaid
 flowchart LR
@@ -15,7 +15,7 @@ flowchart LR
   B -- No --> C[Sign in] --> E[Club Analytics]
   B -- Yes --> E
   E --> F[Event associations]
-  F --> G[Inspect instance] --> F
+  F -- Instance history readable --> G[Inspect instance] --> F
   F --> H[Confirm or reject] --> F
   F --> E
 ```

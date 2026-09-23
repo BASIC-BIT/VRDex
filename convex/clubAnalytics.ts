@@ -726,7 +726,7 @@ export const listAssociationSuggestions = query({
         worldName: validSession ? world?.displayName ?? null : null,
         openedAt: validSession ? session.openedAt : null,
         confidence: association.confidence,
-        canConfirm: validEvent && validSession && (!confirmed || confirmed.eventId === association.eventId),
+        canConfirm: validEvent && validSession && !confirmed,
       };
     }));
     return { page, isDone: result.isDone, continueCursor: result.continueCursor };

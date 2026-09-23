@@ -1767,7 +1767,7 @@ export const reviewAssociationSuggestion = mutation({
       const existing = await ctx.db.query("eventInstanceAssociations")
         .withIndex("by_sessionId_state", (query) => query.eq("sessionId", association.sessionId).eq("state", "confirmed"))
         .first();
-      if (existing && existing.eventId !== association.eventId) throw new Error("Instance is already confirmed for another event.");
+      if (existing && existing._id !== association._id) throw new Error("Instance is already confirmed.");
     }
     const requiresRollupRecompute = args.state === "confirmed" || association.state === "confirmed";
     await ctx.db.patch(association._id, { state: args.state, actor, reviewedAt: now, updatedAt: now });

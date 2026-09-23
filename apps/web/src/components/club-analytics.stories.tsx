@@ -273,10 +273,12 @@ function AnalyticsFixture({
   mode = "home",
   initialInstance,
   canManageEvents = true,
+  canReadInstances = true,
 }: {
   mode?: "home" | "analytics" | "instances";
   initialInstance?: string;
   canManageEvents?: boolean;
+  canReadInstances?: boolean;
 }) {
   const [client] = useState(() => new AnalyticsFixtureClient());
   const [href, setHref] = useState(
@@ -288,11 +290,22 @@ function AnalyticsFixture({
     url.searchParams as ReturnType<typeof useSearchParams>,
   );
   getRouter().push.mockImplementation((next) => setHref(next));
+  const fixtureWorkspace: WorkspaceData = {
+    ...workspace,
+    actor: canManageEvents
+      ? canReadInstances
+        ? workspace.actor
+        : { kind: "staff", roleIds: [], permissions: ["manage_events"] }
+      : { kind: "staff", roleIds: [], permissions: ["manage_integrations"] },
+    readableCategories: canReadInstances
+      ? workspace.readableCategories
+      : workspace.readableCategories.filter((category) => category !== "instance_history"),
+  };
   return (
     <ConvexProvider client={client}>
       <PageShell>
         <PageContainer max="7xl">
-          <ClubWorkspaceView data={canManageEvents ? workspace : { ...workspace, actor: { kind: "staff", roleIds: [], permissions: ["manage_integrations"] } }} pathname={url.pathname}>
+          <ClubWorkspaceView data={fixtureWorkspace} pathname={url.pathname}>
             {mode === "instances" ? (
               <ClubInstances />
             ) : (
@@ -316,6 +329,9 @@ export const Analytics: Story = {
 };
 export const AnalyticsWithoutEventManagement: Story = {
   render: () => <AnalyticsFixture mode="analytics" canManageEvents={false} />,
+};
+export const AnalyticsWithoutInstanceHistory: Story = {
+  render: () => <AnalyticsFixture mode="analytics" canReadInstances={false} />,
 };
 export const Instances: Story = {
   render: () => <AnalyticsFixture mode="instances" />,

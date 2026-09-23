@@ -29,6 +29,20 @@ test("staff without event management cannot see suggestions @storybook-visual", 
   await expect(page.getByRole("heading", { name: "Analytics", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Event associations", exact: true })).toHaveCount(0);
 });
+
+test("event managers without instance history can review suggestions without a detail link @storybook-visual", async ({ page, isMobile }) => {
+  await page.goto("/iframe.html?id=clubs-analytics--analytics-without-instance-history&viewMode=story");
+  await expect(page.getByRole("heading", { name: "Event associations", exact: true })).toBeVisible();
+  await expect(page.getByText(/Afterhours Lounge/)).toBeVisible();
+  await expect(page.getByRole("button", { name: /Afterhours Lounge/ })).toHaveCount(0);
+  await page.screenshot({
+    path: `../../.cache/artifacts/suggestion-review-limited-${isMobile ? "mobile" : "desktop"}.png`,
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: "Confirm", exact: true }).first().click();
+  await expect(page.getByText("Suggestion confirmed.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Suggested match · 75% confidence")).toHaveCount(1);
+});
 for (const kind of ["invalid", "unreadable"]) {
   test(`${kind} instance link retains a working Back button @storybook-visual`, async ({
     page,

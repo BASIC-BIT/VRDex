@@ -17,6 +17,7 @@ export function ClubAssociationSuggestions({
   const workspace = useClubWorkspace();
   const allowed = workspace.readableCategories.includes("event_recaps") &&
     (workspace.actor.kind === "owner" || workspace.actor.permissions.includes("manage_events"));
+  const canReadInstances = workspace.readableCategories.includes("instance_history");
   const suggestions = usePaginatedQuery(
     api.clubAnalytics.listAssociationSuggestions,
     allowed ? { communitySlug: workspace.community.slug } : "skip",
@@ -37,11 +38,16 @@ export function ClubAssociationSuggestions({
             <p className="mt-1 text-muted">
               Suggested match · {Math.round(suggestion.confidence * 100)}% confidence
             </p>
-            {suggestion.sessionId ? (
+            {suggestion.sessionId && canReadInstances ? (
               <Button size="sm" variant="ghost" className="mt-1" onClick={() => onSelectInstance(suggestion.sessionId!)}>
                 {suggestion.worldName ?? "Instance detail"}
                 {suggestion.openedAt ? ` · ${metricTime(suggestion.openedAt)}` : ""}
               </Button>
+            ) : suggestion.sessionId ? (
+              <p className="mt-1 text-muted">
+                {suggestion.worldName ?? "Instance detail"}
+                {suggestion.openedAt ? ` · ${metricTime(suggestion.openedAt)}` : ""}
+              </p>
             ) : <p className="mt-1 text-muted">Instance unavailable.</p>}
           </div>
           <div className="flex gap-2">

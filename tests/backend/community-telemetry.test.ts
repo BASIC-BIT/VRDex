@@ -793,6 +793,12 @@ describe("community telemetry control plane", () => {
     await t.withIdentity(identity).mutation(api.communityTelemetry.reviewAssociationSuggestion, {
       communitySlug: "faceless", associationId: confirmedAssociations[0]!, state: "confirmed",
     });
+    await t.withIdentity(identity).mutation(api.communityTelemetry.reviewAssociationSuggestion, {
+      communitySlug: "faceless", associationId: confirmedAssociations[0]!, state: "confirmed",
+    });
+    assert.equal((await t.run((ctx) => ctx.db.query("eventInstanceAssociations")
+      .withIndex("by_sessionId_state", (q) => q.eq("sessionId", seeded.sessions[0]!).eq("state", "confirmed"))
+      .collect())).length, 1);
     const eventRollupId = await t.mutation(internal.communityTelemetry.recomputeRollup, {
       communityProfileId, eventId: seeded.eventId, grain: "event",
       bucketStartAt: dayStart + 60_000, bucketEndAt: dayStart + 4 * 60_000, now: dayStart + 5 * 60_000,
@@ -830,6 +836,17 @@ describe("community telemetry control plane", () => {
     const visibleSuggestions = await t.withIdentity(identity).query(api.clubAnalytics.listAssociationSuggestions, suggestionPage);
     assert.equal(visibleSuggestions.page.some((row) => row.id === suggestion._id), true);
     assert.equal(visibleSuggestions.page.find((row) => row.id === suggestion._id)?.canConfirm, true);
+    const competingConfirmation = await t.run(async (ctx) => {
+      const { _id, _creationTime, ...fields } = suggestion;
+      return ctx.db.insert("eventInstanceAssociations", { ...fields, state: "confirmed" });
+    });
+    assert.equal((await t.withIdentity(identity).query(api.clubAnalytics.listAssociationSuggestions, suggestionPage))
+      .page.find((row) => row.id === suggestion._id)?.canConfirm, false);
+    await assert.rejects(t.withIdentity(identity).mutation(api.communityTelemetry.reviewAssociationSuggestion, {
+      communitySlug: "faceless", associationId: suggestion._id, state: "confirmed",
+    }), /already confirmed/);
+    assert.equal((await t.run((ctx) => ctx.db.get(suggestion._id)))?.state, "suggested");
+    await t.run((ctx) => ctx.db.delete(competingConfirmation));
     await t.run(ctx => ctx.db.patch(integrationId, { enabledFeatures: ["instances"] }));
     assert.deepEqual((await t.withIdentity(identity).query(api.clubAnalytics.listAssociationSuggestions, suggestionPage)).page, []);
     await t.run(ctx => ctx.db.patch(integrationId, { enabledFeatures: ["analytics", "instances"] }));
