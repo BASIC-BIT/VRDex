@@ -15,8 +15,11 @@ Load more notifications, so newer unrelated or dismissed rows cannot hide older
 accessible failures. Notification links open Scheduled actions, including for
 invitation-only staff who do not have member-directory permission.
 
-Email uses the existing AWS SES transport. Enable only after exact copy approval
-and verification of the deployment's sender and IAM permissions:
+Email uses the existing AWS SES transport. BASIC approved the exact subject and
+body on September 16, 2026; see the [release review](release-review.md#copy-status).
+Deployment enablement still requires separate approval and verification of the
+deployment's sender and IAM permissions. An actual delivery test also requires
+separate authorization.
 
 - `VRDEX_CLUB_OPERATION_EMAIL_ENABLED=true`: Convex deployment opt-in, default off.
 
@@ -46,7 +49,7 @@ return to pending. Each pending scan examines at most 100 due rows. An ineligibl
 prefix is deferred, allowing subsequent scans to reach later notices. Batch,
 revision, outcome and recipient deduplication suppresses repeated batch email.
 
-Proposed email copy, not yet approved for shipping:
+Approved email copy:
 
 - Subject: `VRDex action needs attention`
 - Body: `An action needs your attention. Sign in to review it: {account URL}`
