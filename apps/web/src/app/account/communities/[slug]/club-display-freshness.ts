@@ -61,9 +61,9 @@ export function useClubDisplayFreshness(
   useEffect(() => {
     if (deadline === null) return;
     const remaining = deadline - performance.now();
-    if (remaining < 0) return;
-    // The existing display windows include the exact TTL boundary.
-    const timer = setTimeout(tick, Math.ceil(remaining) + 1);
+    // The existing display windows include the exact TTL boundary. If expiry
+    // passed since render, still repaint instead of leaving that commit fresh.
+    const timer = setTimeout(tick, Math.max(0, Math.ceil(remaining) + 1));
     return () => clearTimeout(timer);
   }, [deadline]);
   // Recheck the external clock on every render, including before a suspended

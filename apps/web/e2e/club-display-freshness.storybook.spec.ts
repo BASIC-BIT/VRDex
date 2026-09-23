@@ -50,6 +50,22 @@ for (const kind of ["population", "authority"] as const) {
       fullPage: true,
     });
   });
+  test(`${kind} expiry between render and passive effect clears the display @storybook-visual`, async ({
+    page,
+  }) => {
+    await open(page);
+    await expect(value(page)).toBeVisible();
+    await page.clock.runFor(10);
+    await click(page, "Expire during effects");
+    // The fixture confirms the positive DOM committed before advancing time.
+    // No query update or user interaction is allowed to repair the display.
+    await expect(page.locator("html")).toHaveAttribute(
+      "data-fresh-before-effect",
+      "true",
+    );
+    await page.clock.runFor(1);
+    await expect(value(page)).toHaveCount(0);
+  });
   test(`${kind} query delay consumes the remaining lifetime @storybook-visual`, async ({
     page,
   }) => {

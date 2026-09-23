@@ -4,7 +4,7 @@ import {
   usePathname,
   useSearchParams,
 } from "@storybook/nextjs-vite/navigation.mock";
-import { useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import {
   ConvexProvider,
   ConvexReactClient,
@@ -374,6 +374,9 @@ class DisplayFixtureClient extends AnalyticsFixtureClient {
     if (mode === "aged")
       this.observedAt =
         this.serverNow() - (this.kind === "analytics" ? 345_000 : 45_000);
+    if (mode === "near-expiry")
+      this.observedAt =
+        this.serverNow() - (this.kind === "analytics" ? 360_000 : 60_000) + 1;
     if (mode === "future") this.observedAt = this.serverNow() + 1;
     this.values.clear();
     this.displayListeners.forEach((callback) => callback());
@@ -474,6 +477,24 @@ function DisplayFreshnessFixture({
   const [allowed, setAllowed] = useState(true);
   const [attempts, inspect] = useState(0);
   const [, rerender] = useState(0);
+  const [delayEffect, setDelayEffect] = useState(false);
+  useLayoutEffect(() => {
+    if (!delayEffect) return;
+    // Simulate a main-thread delay after the fresh DOM commit but before the
+    // query owner's passive timer effect, without causing another render.
+    const label = kind === "analytics" ? "112" : "Connected";
+    const wasFresh = Array.from(document.querySelectorAll("p, span")).some(
+      (node) => node.textContent === label,
+    );
+    document.documentElement.dataset.freshBeforeEffect = String(wasFresh);
+    const originalNow = performance.now;
+    const now = originalNow.bind(performance);
+    performance.now = () => now() + 2;
+    return () => {
+      performance.now = originalNow;
+      delete document.documentElement.dataset.freshBeforeEffect;
+    };
+  }, [delayEffect, kind]);
   usePathname.mockReturnValue("/account/communities/afterhours");
   useSearchParams.mockReturnValue(
     new URLSearchParams() as ReturnType<typeof useSearchParams>,
@@ -535,6 +556,14 @@ function DisplayFreshnessFixture({
         </button>
         <button onClick={() => inspect(client.attempts.size)}>
           Inspect attempts
+        </button>
+        <button
+          onClick={() => {
+            client.change("near-expiry");
+            setDelayEffect(true);
+          }}
+        >
+          Expire during effects
         </button>
         <output aria-label="Attempt count">{attempts}</output>
       </div>
