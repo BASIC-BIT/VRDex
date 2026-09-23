@@ -8,6 +8,10 @@ import { Button } from "@/components/ui/button";
 import { Card, SectionHeading } from "@/components/ui/card";
 import { Field, Input, Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
+import {
+  useClubDisplayAttempt,
+  useClubDisplayFreshness,
+} from "./club-display-freshness";
 import { ClubConnectionFeatures } from "./club-connection-features";
 import {
   ClubAccessNotice,
@@ -212,9 +216,18 @@ export function ClubConnection() {
   const allowed =
     data.actor.kind === "owner" ||
     data.actor.permissions.includes("manage_integrations");
+  const timing = useClubDisplayAttempt(allowed ? data.community._id : null);
   const connection = useQuery(
     api.clubConnection.get,
-    allowed ? { communityProfileId: data.community._id } : "skip",
+    allowed
+      ? { communityProfileId: data.community._id, freshnessNonce: timing.attempt.nonce }
+      : "skip",
+  );
+  const authorityFresh = useClubDisplayFreshness(
+    timing,
+    connection === null ? null : connection?.now,
+    connection?.authority?.observedAt,
+    60_000,
   );
   const setFeatures = useMutation(api.clubConnection.setFeatures);
   const setRoles = useMutation(api.clubConnection.setProviderRoleAllowlist);
@@ -229,6 +242,7 @@ export function ClubConnection() {
         <ClubConnectionFeatures
           data={data}
           connection={connection}
+          authorityFresh={authorityFresh}
           actions={{ setFeatures, setRoles }}
         />
       ) : null}

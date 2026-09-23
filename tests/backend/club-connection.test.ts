@@ -12,6 +12,17 @@ const modules = {
 };
 const ref = (name: string) =>
   makeFunctionReference<any>(`clubConnection:${name}`);
+it("returns server timing for nonce-backed connection reads without renewing authority", async () => {
+  const s = await setup();
+  await s.t.mutation(ref("recordAuthority"), s.snapshot);
+  const before = Date.now();
+  const result = await s.owner.query(ref("get"), {
+    communityProfileId: s.communityProfileId,
+    freshnessNonce: "display-attempt",
+  });
+  assert.ok(result.now >= before && result.now <= Date.now());
+  assert.equal(result.authority.observedAt, s.snapshot.authority.observedAt);
+});
 it("denies role configuration across clubs and expired worker leases", async () => {
   const s = await setup();
   const foreignRole = await s.t.run(async (ctx) => {

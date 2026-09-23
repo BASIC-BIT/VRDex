@@ -29,10 +29,14 @@ async function access(ctx: QueryCtx | MutationCtx, id: Id<"profiles">) {
   return actor;
 }
 export const get = query({
-  args: { communityProfileId: v.id("profiles") },
+  args: {
+    communityProfileId: v.id("profiles"),
+    freshnessNonce: v.optional(v.string()),
+  },
   returns: v.union(
     v.null(),
     v.object({
+      now: v.number(),
       integrationId: v.id("communityVrchatIntegrations"),
       enabledFeatures: v.array(integrationFeature),
       authority: v.union(v.null(), ownMemberAuthority),
@@ -69,7 +73,8 @@ export const get = query({
       .query("collectorFleetSettings")
       .withIndex("by_key", (q) => q.eq("key", "global"))
       .unique();
-    const authority = currentClubAuthority(integration, account, Date.now());
+    const now = Date.now();
+    const authority = currentClubAuthority(integration, account, now);
     const enabledFeatures = enabledClubFeatures(integration);
     const active =
       integration.state === "active" &&
@@ -78,6 +83,7 @@ export const get = query({
       !fleet?.killSwitchEnabled &&
       (account?.state === "ready" || account?.state === "degraded");
     return {
+      now,
       integrationId: integration._id,
       enabledFeatures,
       authority,

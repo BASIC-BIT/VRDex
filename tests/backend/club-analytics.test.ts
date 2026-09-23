@@ -13,6 +13,15 @@ const modules = {
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
 };
 const epoch = Date.UTC(2026, 2, 1);
+it("accepts a display attempt nonce and returns server evaluation time", async () => {
+  const s = await setup();
+  const before = Date.now();
+  const result = await s.owner.query(api.clubAnalytics.getContext, {
+    communitySlug: "analytics",
+    freshnessNonce: "display-attempt",
+  });
+  assert.ok(result.now >= before && result.now <= Date.now());
+});
 async function setup() {
   const t = convexTest({ schema, modules });
   const owner = {

@@ -19,6 +19,7 @@ import {
   type FunctionReference,
   type FunctionReturnType,
 } from "convex/server";
+import { ClubConnection } from "@/app/account/communities/[slug]/club-connection";
 import { ClubAnalytics } from "@/app/account/communities/[slug]/club-analytics";
 import { ClubInstances } from "@/app/account/communities/[slug]/club-instances";
 import {
@@ -76,7 +77,7 @@ class AnalyticsFixtureClient extends ConvexReactClient {
     let result: unknown;
     if (name === "clubAnalytics:getContext")
       result = {
-        now: this.now,
+        now: Date.now(),
         epochStartedAt: this.now - 100 * 86400_000,
         current: {
           population: 112,
@@ -353,4 +354,221 @@ export const UnreadableInstance: Story = {
   render: () => (
     <AnalyticsFixture mode="instances" initialInstance="unreadable" />
   ),
+};
+
+// Real query owners with an argument-keyed cache; no server is contacted.
+class DisplayFixtureClient extends AnalyticsFixtureClient {
+  private values = new Map<string, unknown>();
+  private displayListeners = new Set<() => void>();
+  readonly attempts = new Set<string>();
+  private readonly origin = performance.now();
+  private observedAt = 1_800_000_000_000;
+  mode = "fresh";
+  holdNew = false;
+  serverNow() {
+    return 1_800_000_000_000 + performance.now() - this.origin;
+  }
+  change(mode: string) {
+    this.mode = mode;
+    if (mode === "replace") this.observedAt = this.serverNow();
+    if (mode === "aged")
+      this.observedAt =
+        this.serverNow() - (this.kind === "analytics" ? 345_000 : 45_000);
+    if (mode === "future") this.observedAt = this.serverNow() + 1;
+    this.values.clear();
+    this.displayListeners.forEach((callback) => callback());
+  }
+  constructor(
+    readonly kind: "analytics" | "connection",
+    initial: string,
+  ) {
+    super();
+    this.change(initial === "delayed" ? "aged" : initial);
+    this.holdNew = initial === "delayed";
+  }
+  override watchQuery<Query extends FunctionReference<"query">>(
+    query: Query,
+    ...args: ArgsAndOptions<Query, WatchQueryOptions>
+  ): Watch<FunctionReturnType<Query>> {
+    const name = getFunctionName(query);
+    if (name !== "clubAnalytics:getContext" && name !== "clubConnection:get")
+      return super.watchQuery(query, ...args);
+    const key = JSON.stringify([name, args[0]]);
+    return {
+      onUpdate: (callback) => {
+        this.displayListeners.add(callback);
+        return () => this.displayListeners.delete(callback);
+      },
+      localQueryResult: () => {
+        if (this.holdNew && !this.attempts.has(key)) return undefined;
+        this.attempts.add(key);
+        if (!this.values.has(key)) {
+          const now = this.serverNow();
+          const authority =
+            this.mode === "revoked"
+              ? null
+              : {
+                  groupId: "grp_fixture",
+                  userId: "usr_fixture",
+                  membershipStatus: "member",
+                  permissions: ["*"],
+                  observedAt: this.mode === "invalid" ? NaN : this.observedAt,
+                };
+          const result =
+            this.mode === "loading"
+              ? undefined
+              : this.kind === "analytics"
+                ? {
+                    now,
+                    epochStartedAt: 0,
+                    current: ["absent", "revoked", "disabled"].includes(
+                      this.mode,
+                    )
+                      ? {}
+                      : {
+                          population: 112,
+                          observedAt:
+                            this.mode === "invalid" ? NaN : this.observedAt,
+                        },
+                    readableCategories: ["current_population"],
+                    preferences: { widgets: ["current"], rangeDays: 7 },
+                    clubDefaults: { widgets: ["current"], rangeDays: 7 },
+                    savedPersonal: false,
+                  }
+                : this.mode === "absent"
+                  ? null
+                  : {
+                      now,
+                      integrationId: "fixture-integration",
+                      authority,
+                      enabledFeatures:
+                        this.mode === "disabled" ? [] : ["analytics"],
+                      features: [
+                        {
+                          feature: "analytics",
+                          enabled: this.mode !== "disabled",
+                          ready: this.mode !== "not-ready",
+                          missingPermissions: [],
+                        },
+                      ],
+                      roles: [],
+                    };
+          this.values.set(key, result);
+        }
+        return this.values.get(key) as FunctionReturnType<Query>;
+      },
+      journal: () => undefined,
+    };
+  }
+}
+function DisplayFreshnessFixture({
+  kind,
+  initial = "fresh",
+}: {
+  kind: "analytics" | "connection";
+  initial?: string;
+}) {
+  const [client] = useState(() => new DisplayFixtureClient(kind, initial));
+  const [ownerKey, remount] = useState(0);
+  const [scope, setScope] = useState(false);
+  const [allowed, setAllowed] = useState(true);
+  const [attempts, inspect] = useState(0);
+  const [, rerender] = useState(0);
+  usePathname.mockReturnValue("/account/communities/afterhours");
+  useSearchParams.mockReturnValue(
+    new URLSearchParams() as ReturnType<typeof useSearchParams>,
+  );
+  const data: WorkspaceData = {
+    ...workspace,
+    community: {
+      ...workspace.community,
+      _id: (scope ? "other-club" : "fixture-club") as Id<"profiles">,
+      slug: scope ? "other" : "afterhours",
+    },
+    actor: allowed
+      ? workspace.actor
+      : { kind: "staff", roleIds: [], permissions: [] },
+  };
+  return (
+    <ConvexProvider client={client}>
+      <div>
+        {[
+          "fresh",
+          "aged",
+          "replace",
+          "future",
+          "absent",
+          "revoked",
+          "loading",
+          "disabled",
+          "not-ready",
+          "invalid",
+        ].map((mode) => (
+          <button key={mode} onClick={() => client.change(mode)}>
+            {mode}
+          </button>
+        ))}
+        <button onClick={() => rerender((value) => value + 1)}>Rerender</button>
+        <button onClick={() => remount((value) => value + 1)}>
+          Remount owner
+        </button>
+        <button
+          onClick={() => {
+            client.holdNew = true;
+          }}
+        >
+          Hold new evaluations
+        </button>
+        <button
+          onClick={() => {
+            client.holdNew = false;
+            client.change(client.mode);
+          }}
+        >
+          Release evaluations
+        </button>
+        <button onClick={() => setScope((value) => !value)}>
+          Change scope
+        </button>
+        <button onClick={() => setAllowed((value) => !value)}>
+          Toggle access
+        </button>
+        <button onClick={() => inspect(client.attempts.size)}>
+          Inspect attempts
+        </button>
+        <output aria-label="Attempt count">{attempts}</output>
+      </div>
+      <ClubWorkspaceView data={data} pathname="/account/communities/afterhours">
+        {kind === "analytics" ? (
+          <ClubAnalytics key={ownerKey} />
+        ) : (
+          <ClubConnection key={ownerKey} />
+        )}
+      </ClubWorkspaceView>
+    </ConvexProvider>
+  );
+}
+export const PopulationFreshness: Story = {
+  render: () => <DisplayFreshnessFixture kind="analytics" />,
+};
+export const AuthorityFreshness: Story = {
+  render: () => <DisplayFreshnessFixture kind="connection" />,
+};
+export const PopulationAged: Story = {
+  render: () => <DisplayFreshnessFixture kind="analytics" initial="aged" />,
+};
+export const AuthorityAged: Story = {
+  render: () => <DisplayFreshnessFixture kind="connection" initial="aged" />,
+};
+export const PopulationAbsent: Story = {
+  render: () => <DisplayFreshnessFixture kind="analytics" initial="absent" />,
+};
+export const AuthorityAbsent: Story = {
+  render: () => <DisplayFreshnessFixture kind="connection" initial="absent" />,
+};
+export const PopulationDelayed: Story = {
+  render: () => <DisplayFreshnessFixture kind="analytics" initial="delayed" />,
+};
+export const AuthorityDelayed: Story = {
+  render: () => <DisplayFreshnessFixture kind="connection" initial="delayed" />,
 };

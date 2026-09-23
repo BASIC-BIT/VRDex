@@ -2,6 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  useClubDisplayAttempt,
+  useClubDisplayFreshness,
+} from "./club-display-freshness";
+import {
   useMutation,
   usePaginatedQuery,
   useQueries,
@@ -319,9 +323,11 @@ function Metric({
 
 export function ClubAnalyticsContent({
   context,
+  currentFresh,
   mode = "home",
 }: {
   context: Context;
+  currentFresh: boolean;
   mode?: "home" | "analytics";
 }) {
   const workspace = useClubWorkspace();
@@ -330,14 +336,6 @@ export function ClubAnalyticsContent({
     context.preferences.rangeDays,
   );
   const [customize, setCustomize] = useState(false);
-  const [clock, setClock] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setClock(Date.now()), 30_000);
-    return () => clearInterval(timer);
-  }, []);
-  const currentFresh =
-    context.current.observedAt !== undefined &&
-    clock - context.current.observedAt <= 6 * 60_000;
   const can = (category: (typeof context.readableCategories)[number]) =>
     context.readableCategories.includes(category);
   const bucketQueries = useMemo(
@@ -612,10 +610,24 @@ export function ClubAnalytics({
   mode?: "home" | "analytics";
 }) {
   const workspace = useClubWorkspace();
+  const timing = useClubDisplayAttempt(workspace.community.slug);
   const context = useQuery(api.clubAnalytics.getContext, {
     communitySlug: workspace.community.slug,
+    freshnessNonce: timing.attempt.nonce,
   });
+  const currentFresh = useClubDisplayFreshness(
+    timing,
+    context?.now,
+    context?.current.observedAt,
+    360_000,
+  );
   if (context === undefined)
     return <Notice role="status">Loading analytics…</Notice>;
-  return <ClubAnalyticsContent context={context} mode={mode} />;
+  return (
+    <ClubAnalyticsContent
+      context={context}
+      currentFresh={currentFresh}
+      mode={mode}
+    />
+  );
 }

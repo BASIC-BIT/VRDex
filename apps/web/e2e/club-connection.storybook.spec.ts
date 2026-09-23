@@ -26,7 +26,7 @@ test("primary connection keeps additional links in profile editing @storybook-vi
   });
 });
 
-test("connection feature toggles remain independent and permission evidence expires @storybook-visual", async ({
+test("connection feature toggles remain independent @storybook-visual", async ({
   page,
 }) => {
   await page.clock.install();
@@ -49,14 +49,6 @@ test("connection feature toggles remain independent and permission evidence expi
   await expect(
     page.getByRole("checkbox", { name: "Instances", exact: true }),
   ).toBeChecked();
-  await page.clock.fastForward(61_000);
-  await expect(page.getByText("Connected", { exact: true })).toHaveCount(0);
-  await expect(
-    page.getByText("Awaiting permission check", { exact: true }),
-  ).toHaveCount(3);
-  await expect(
-    page.getByText("Manage group announcements", { exact: true }),
-  ).toHaveCount(0);
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,

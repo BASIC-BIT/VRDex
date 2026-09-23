@@ -56,6 +56,33 @@ Null, failed, stale and denied results immediately disable readiness.
 Operation execution retains its independent
 server authorization and freshness checks.
 
+The analytics population and connection authority displays use separate
+360,000 ms and 60,000 ms windows. These two windows include the exact expiry
+boundary. `clubAnalytics.getContext` and `clubConnection.get` accept an optional
+`freshnessNonce`; connection results also return `now`, captured once for both
+authority validation and the response. Existing callers may omit the nonce.
+
+Each mounted query owner creates a nonce and records `performance.now()` before
+subscribing. Its first non-null server `now` fixes the calibration for that
+attempt. The display deadline is query start plus the signed difference between
+`observedAt + window` and that initial server time. Rerenders, child remounts and
+reactive results with a newer `now` retain the calibration. New observations use
+their own timestamps against that same calibration; their signed offsets must
+not be clamped. Timers and renders check the same monotonic deadline, so device
+wall-clock offsets or changes cannot extend either window. Initial query delay
+is charged conservatively and can shorten the displayed lifetime.
+
+A query-owner remount, scope change or return from a skipped connection query
+uses a new nonce to avoid treating a cached result as a fresh calibration.
+Before calibration, freshness is false. Analytics can calibrate an empty result
+from its server `now`. An initially null connection has no server time; the first
+later integration triggers one new nonce-backed query before authority can be
+fresh. A later null or missing observation retains an established calibration,
+but immediately suppresses the positive display. Invalid or future-dated
+observation timestamps are rejected. Current category access, server absence,
+authority rejection, enabled features and readiness still control what appears.
+Display freshness does not replace any backend operation gate.
+
 Backend tests cover unauthorized reads, feature defaults and updates, fenced
 snapshot rejection, freshness, identity mismatch, credential rotation, expired
 leases, role ID validation and cross-club role rejection. Provider writes and

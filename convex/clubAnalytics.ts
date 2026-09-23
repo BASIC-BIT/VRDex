@@ -169,7 +169,7 @@ async function projectSession(ctx: QueryCtx, session: Doc<"instanceSessions">) {
 }
 
 export const getContext = query({
-  args: base,
+  args: { ...base, freshnessNonce: v.optional(v.string()) },
   returns: v.object({
     epochStartedAt: v.union(v.number(), v.null()),
     now: v.number(),

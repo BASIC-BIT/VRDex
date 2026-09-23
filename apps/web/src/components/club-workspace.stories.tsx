@@ -237,6 +237,7 @@ function ConnectionFeatureFixture({
   expired?: boolean;
 }) {
   const [connection, setConnection] = useState<ConnectionFeatures>(() => ({
+    now: Date.now(),
     integrationId: "fixture-integration" as Id<"communityVrchatIntegrations">,
     enabledFeatures: [
       "analytics",
@@ -304,6 +305,7 @@ function ConnectionFeatureFixture({
             <ClubConnectionFeatures
               data={viewData}
               connection={connection}
+              authorityFresh={!expired}
               actions={{
                 setFeatures: async (args) => {
                   setConnection((previous) => ({

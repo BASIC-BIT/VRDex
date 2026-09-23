@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { api } from "@convex-generated-api";
 import { Button } from "@/components/ui/button";
@@ -94,27 +94,14 @@ function RoleAllowlist({
 export function ClubConnectionFeatures({
   data,
   connection,
+  authorityFresh: fresh,
   actions,
 }: {
   data: WorkspaceData;
   connection: ConnectionFeatures;
+  authorityFresh: boolean;
   actions: Actions;
 }) {
-  const [now, setNow] = useState(Date.now);
-  const observedAt = connection.authority?.observedAt;
-  useEffect(() => {
-    if (observedAt === undefined) return;
-    const timeout = setTimeout(
-      () => setNow(Date.now()),
-      Math.max(0, observedAt + 60_001 - Date.now()),
-    );
-    return () => clearTimeout(timeout);
-  }, [observedAt]);
-  const currentTime = Math.max(now, Date.now());
-  const fresh =
-    observedAt !== undefined &&
-    observedAt <= currentTime &&
-    currentTime - observedAt <= 60_000;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   if (
