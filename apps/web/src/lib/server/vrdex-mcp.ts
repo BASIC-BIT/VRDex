@@ -2494,7 +2494,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
     const toolName = operation === "begin" ? "vrdex_media_upload_begin" : "vrdex_media_upload_complete";
     server.registerTool(toolName, {
       title: operation === "begin" ? "Begin Media Upload" : "Complete Media Upload",
-      description: operation === "begin" ? "Reserve a local image upload and return its multipart transfer fields." : "Seal an uploaded image as owner media or a private contribution.",
+      description: operation === "begin" ? "Reserve a local image upload and return its multipart transfer fields." : "Finalize an uploaded image as owner media or a private contribution.",
       inputSchema: operation === "begin" ? localUploadRequestSchema : localUploadCompleteSchema,
       outputSchema: operation === "begin" ? mcpOutputSchema(z.union([localUploadTargetSchema,commandReceiptSchema])) : mcpOutputSchema(commandReceiptSchema),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
