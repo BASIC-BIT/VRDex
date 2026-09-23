@@ -1055,6 +1055,28 @@ function hostedMcpWriteOutcome(response: unknown): "accepted" | "denied" | "inde
   return "accepted";
 }
 
+const mcpMediaReviewWriteToolNames = new Set<string>([
+  ...mediaReviewWriteToolNames,
+  ...mediaSubmissionWriteToolNames,
+  "vrdex_media_submission_publish",
+  "vrdex_media_submission_declare",
+]);
+const definiteMediaReviewErrorCodes = new Set([
+  "MEDIA_DELEGATION_DENIED",
+  "MEDIA_EMAIL_UNVERIFIED",
+  "MEDIA_CONTRIBUTIONS_DISABLED",
+  "MEDIA_REVIEW_ACCESS_REQUIRED",
+  "MEDIA_MODERATOR_REQUIRED",
+  "MEDIA_SELF_REVIEW",
+  "MEDIA_PROFILE_CHANGED",
+]);
+
+function isDefiniteHostedMediaReviewDenial(toolName: string, error: unknown) {
+  if (!mcpMediaReviewWriteToolNames.has(toolName)) return false;
+  const code = mcpConvexErrorCode(error);
+  return code !== null && definiteMediaReviewErrorCodes.has(code);
+}
+
 function mcpJsonResult<T>(schema: ResponseSchema<T>, value: unknown) {
   const structuredContent = schema.parse(value);
 
@@ -1941,7 +1963,10 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       await recordHostedMcpWriteInvocation({ ...details, result: hostedMcpWriteOutcome(response) });
       return response;
     } catch (error) {
-      await recordHostedMcpWriteInvocation({ ...details, result: "indeterminate" });
+      await recordHostedMcpWriteInvocation({
+        ...details,
+        result: isDefiniteHostedMediaReviewDenial(toolName, error) ? "denied" : "indeterminate",
+      });
       throw error;
     }
   };

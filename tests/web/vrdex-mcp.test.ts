@@ -38,6 +38,7 @@ it("registered selected review stops at live backend OAuth revocation and denies
   const output = runMcpProbe(`
  import assert from "node:assert/strict";
  import {convexTest} from "convex-test";
+ import {ConvexHttpClient} from "convex/browser";
  import {getFunctionName} from "convex/server";
  import {schema,modules,seed,createAndUpload} from "./tests/backend/_mediaReviewFixture.ts";
  import {internal} from "./convex/_generated/api.js";
@@ -48,12 +49,31 @@ it("registered selected review stops at live backend OAuth revocation and denies
  const token=await t.run(ctx=>ctx.db.insert("oauthAccessTokens",{tokenId:"review",clientId:"client",userId:s.moderatorUserId,subjectType:"user",resource:"https://app.example.test/mcp",scopes:["mcp:read","mcp:write","assets:review:read","assets:review:write"],status:"active",issuedAt:Date.now(),expiresAt:Date.now()+600000}));
  const authority={actorUserId:s.moderatorUserId,emailVerified:true,emailVerificationAttestedAt:Date.now(),oauthTokenId:"review",oauthClientId:"client",oauthResource:"https://app.example.test/mcp"};
  const decisions=[];for(const submissionId of [intent.submissionId,second]){const d=await t.query(internal.profileMediaSubmissions.reviewDetailForMcpActor,{...authority,submissionId});decisions.push({submissionId,expectedReviewVersion:d.reviewVersion,decision:"reject",privateReason:"Examined",publicReason:"Declined",idempotencyKey:String(submissionId)});}
- let writes=0;const handler=createVrdexMcpHandler({verifyContributorEmail:async()=>true,adminConvex:{query:(ref,args)=>t.query(ref,args),mutation:async(ref,args)=>{const result=await t.mutation(ref,args);if(getFunctionName(ref)==="profileMediaSubmissions:decideForMcpActor"&&++writes===1)await t.run(ctx=>ctx.db.patch(token,{status:"revoked"}));return result;}}});
+ const forwardedCodes=[];async function throughHttp(ref,args){try{return await t.mutation(ref,args);}catch(error){if(!error?.data?.code)throw error;forwardedCodes.push(error.data.code);const client=new ConvexHttpClient("https://test.convex.cloud",{fetch:async()=>new Response(JSON.stringify({status:"error",errorMessage:"[Request ID: test] Server Error",errorData:error.data}),{status:560})});return client.mutation(ref,args);}}
+ let writes=0;const handler=createVrdexMcpHandler({verifyContributorEmail:async()=>true,adminConvex:{query:(ref,args)=>t.query(ref,args),mutation:async(ref,args)=>{const result=await throughHttp(ref,args);if(getFunctionName(ref)==="profileMediaSubmissions:decideForMcpActor"&&++writes===1)await t.run(ctx=>ctx.db.patch(token,{status:"revoked"}));return result;}}});
  const authInfo={token:"test",clientId:"client",scopes:["mcp:read","mcp:write","assets:review:read","assets:review:write"],resource:new URL("https://app.example.test/mcp"),extra:{subjectType:"user",userId:s.moderatorUserId,tokenId:"review",requestId:"request"}};
- async function call(name,args){const r=await handler.fetch(new Request("https://app.example.test/mcp",{method:"POST",headers:{accept:"application/json, text/event-stream","content-type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:1,method:"tools/call",params:{name,arguments:args}})}),{authInfo});const text=await r.text();return JSON.parse(text.split(/\\r?\\n/).find(l=>l.startsWith("data: "))?.slice(6)??text).result;}
+ async function call(name,args,target=handler,tokenInfo=authInfo){const r=await target.fetch(new Request("https://app.example.test/mcp",{method:"POST",headers:{accept:"application/json, text/event-stream","content-type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:1,method:"tools/call",params:{name,arguments:args}})}),{authInfo:tokenInfo});const text=await r.text();return JSON.parse(text.split(/\\r?\\n/).find(l=>l.startsWith("data: "))?.slice(6)??text).result;}
  const result=await call("vrdex_media_review_decide_selected",{decisions});assert.equal(result.structuredContent.receipts[0].operationState,"committed");assert.notEqual(result.structuredContent.receipts[1].operationState,"committed");assert.equal((await t.run(ctx=>ctx.db.get(second))).status,"submitted");assert.equal(writes,1);
  const events=await t.run(ctx=>ctx.db.query("mcpToolEvents").collect());const event=events.find(row=>row.toolName==="vrdex_media_review_decide_selected");assert.equal(event?.result,"indeterminate");assert.equal(event?.actorUserId,s.moderatorUserId);assert.equal(event?.oauthClientId,"client");assert.equal(event?.oauthTokenId,"review");assert.equal(event?.requestId,"request");
- assert.equal((await call("vrdex_media_review_decide",decisions[0])).isError,true);
+ const revoked=await call("vrdex_media_review_decide",decisions[0]);assert.equal(revoked.isError,true);assert.equal(forwardedCodes.at(-1),"MEDIA_DELEGATION_DENIED");
+ let decideEvents=(await t.run(ctx=>ctx.db.query("mcpToolEvents").collect())).filter(row=>row.toolName==="vrdex_media_review_decide");assert.equal(decideEvents.at(-1)?.result,"denied");assert.equal(decideEvents.at(-1)?.actorUserId,s.moderatorUserId);
+ await t.run(ctx=>ctx.db.insert("oauthAccessTokens",{tokenId:"contributor-review",clientId:"client",userId:s.contributorUserId,subjectType:"user",resource:"https://app.example.test/mcp",scopes:["mcp:write","assets:review:write"],status:"active",issuedAt:Date.now(),expiresAt:Date.now()+600000}));
+ const contributorAuth={...authInfo,scopes:["mcp:write","assets:review:write"],extra:{...authInfo.extra,userId:s.contributorUserId,tokenId:"contributor-review"}};
+ const noAccess=await call("vrdex_media_review_decide",decisions[0],handler,contributorAuth);assert.equal(noAccess.isError,true);assert.equal(forwardedCodes.at(-1),"MEDIA_REVIEW_ACCESS_REQUIRED");
+ decideEvents=(await t.run(ctx=>ctx.db.query("mcpToolEvents").collect())).filter(row=>row.toolName==="vrdex_media_review_decide");assert.equal(decideEvents.at(-1)?.result,"denied");assert.equal(decideEvents.at(-1)?.actorUserId,s.contributorUserId);
+ await t.run(ctx=>ctx.db.patch(token,{status:"active"}));
+ const unverifiedHandler=createVrdexMcpHandler({verifyContributorEmail:async()=>false,adminConvex:{query:(ref,args)=>t.query(ref,args),mutation:throughHttp}});
+ const unverified=await call("vrdex_media_review_decide",decisions[0],unverifiedHandler);assert.equal(unverified.isError,true);assert.equal(forwardedCodes.at(-1),"MEDIA_EMAIL_UNVERIFIED");
+ decideEvents=(await t.run(ctx=>ctx.db.query("mcpToolEvents").collect())).filter(row=>row.toolName==="vrdex_media_review_decide");assert.equal(decideEvents.at(-1)?.result,"denied");
+ const transportHandler=createVrdexMcpHandler({verifyContributorEmail:async()=>true,adminConvex:{query:(ref,args)=>t.query(ref,args),mutation:(ref,args)=>getFunctionName(ref)==="profileMediaSubmissions:decideForMcpActor"?Promise.reject(new Error("transport lost")):t.mutation(ref,args)}});
+ const transport=await call("vrdex_media_review_decide",decisions[0],transportHandler);assert.equal(transport.isError,true);
+ decideEvents=(await t.run(ctx=>ctx.db.query("mcpToolEvents").collect())).filter(row=>row.toolName==="vrdex_media_review_decide");assert.equal(decideEvents.at(-1)?.result,"indeterminate");
+ const malformedHandler=createVrdexMcpHandler({verifyContributorEmail:async()=>true,adminConvex:{query:(ref,args)=>t.query(ref,args),mutation:(ref,args)=>getFunctionName(ref)==="profileMediaSubmissions:decideForMcpActor"?Promise.resolve({invalid:"receipt"}):t.mutation(ref,args)}});
+ const malformed=await call("vrdex_media_review_decide",decisions[0],malformedHandler);assert.equal(malformed.isError,true);
+ decideEvents=(await t.run(ctx=>ctx.db.query("mcpToolEvents").collect())).filter(row=>row.toolName==="vrdex_media_review_decide");assert.equal(decideEvents.at(-1)?.result,"indeterminate");
+ await transportHandler.close();
+ await malformedHandler.close();
+ await unverifiedHandler.close();
  await handler.close();console.log("live selected revocation passed");
  `);
   assert.match(output, /live selected revocation passed/);
