@@ -62,7 +62,11 @@ submitted or completed artifacts. A cancellation signal remains effective
 across continuation pages even if the event is reinstated immediately.
 
 Dependent invitations keep the reviewed `invite_to_created_instance` payload
-and selected creation ID unchanged. Only a succeeded creation in the same
+and selected creation ID unchanged. They also store the selected creation's
+revision at enqueue or edit. A later creation edit rejects remaining dependent
+invitations at claim or final authorization, even if the creation returns to
+the same destination. Older pending invitations without a stored revision are
+rejected and must be recreated for review. Only a succeeded creation in the same
 integration epoch can supply the concrete destination returned to the worker.
 The destination must match the planned world and connected group; failures and
 unknown outcomes never substitute another instance. Submission rechecks the

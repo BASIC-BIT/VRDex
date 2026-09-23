@@ -220,7 +220,9 @@ async function resolvedOperation(
     !dependency ||
     dependency.integrationId !== job.integrationId ||
     dependency.epochStartedAt !== job.epochStartedAt ||
-    dependency.payload.kind !== "create_instance"
+    dependency.payload.kind !== "create_instance" ||
+    job.dependencyRevision === undefined ||
+    dependency.revision !== job.dependencyRevision
   )
     return { status: "rejected", code: "dependency_unavailable" };
   // Event association is part of the reviewed dependency. A later creation edit
@@ -368,7 +370,10 @@ export async function enqueueClubOperations(
         batchId: args.requestId,
         payload,
         ...(payload.kind === "invite_to_created_instance"
-          ? { dependencyId: payload.creationOperationId }
+          ? {
+              dependencyId: payload.creationOperationId,
+              dependencyRevision: dependencies.get(payload.creationOperationId)!.revision,
+            }
           : {}),
         schedule: args.schedule,
         ...(eventId ? { eventId } : {}),
@@ -434,6 +439,7 @@ export const edit = mutation({
       schedule: args.schedule,
       eventId: args.schedule.eventId ?? dependency?.eventId,
       dependencyId: dependency?._id,
+      dependencyRevision: dependency?.revision,
       dueAt,
       readyAt: dueAt,
       retryAt: undefined,
