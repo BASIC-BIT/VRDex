@@ -373,7 +373,7 @@ it("scheduled invitation enqueue uses the caller reviewed creation revision", as
   const reviewed = page.page.find((row: { id: string }) => row.id === creationOperationId);
   assert.equal(reviewed.revision, 1);
   await owner.mutation(operations("edit"), {
-    operationId: creationOperationId, payload: { ...creation, access: "plus" }, schedule,
+    operationId: creationOperationId, expectedRevision: reviewed.revision, payload: { ...creation, access: "plus" }, schedule,
   });
   const input = { communityProfileId, requestId: "review_batch", reviewedRecipients: [first],
     destination: { kind: "scheduled_instance", creationOperationId, creationRevision: reviewed.revision }, schedule };

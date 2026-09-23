@@ -26,6 +26,8 @@ import {
 } from "./club-instances";
 import { ClubRangeControls, useClubRange } from "./club-range";
 import {
+  membershipChartPoints,
+  membershipRangePoints,
   homeWidgetLabels,
   localDateKey,
   moveWidget,
@@ -228,27 +230,23 @@ function DailyDetail({
     { communitySlug, startAt, endAt, kind },
     { initialNumItems: 500 },
   );
+  const memberCoverage = useQuery(api.clubAnalytics.getMembershipCoverage,
+    kind === "members" ? { communitySlug, startAt, endAt } : "skip");
   const { status, loadMore } = query;
   useEffect(() => {
     if (status === "CanLoadMore") loadMore(500);
   }, [status, loadMore]);
-  if (query.status !== "Exhausted")
+  if (query.status !== "Exhausted" || (kind === "members" && !memberCoverage))
     return <Notice role="status">Loading complete day…</Notice>;
   const points =
     kind === "population"
       ? observedChartPoints(query.results)
-      : query.results.map((point) => ({
-          at: point.at,
-          value: point.value,
-          label: new Date(point.at).toLocaleTimeString(undefined, {
-            hour: "2-digit",
-            minute: "2-digit",
-            timeZoneName: "short",
-          }),
-        }));
+      : membershipChartPoints(query.results, memberCoverage?.intervals ?? []);
+
   return (
     <ClubChart
       points={points}
+      showIsolatedPoints={kind === "members"}
       label={kind === "population" ? "People" : "Group members"}
     />
   );
@@ -382,14 +380,7 @@ export function ClubAnalyticsContent({
       day: "numeric",
     }),
   }));
-  const memberPoints = loaded.map((bucket) => ({
-    at: bucket.startAt,
-    value: bucket.membership?.lastValue ?? null,
-    label: new Date(bucket.startAt).toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric",
-    }),
-  }));
+  const memberPoints = membershipRangePoints(loaded);
   const selectDay = (at: number) =>
     update({ day: localDateKey(new Date(at)), instance: null });
   return (
@@ -540,6 +531,7 @@ export function ClubAnalyticsContent({
                     ) : (
                       <ClubChart
                         points={memberPoints}
+                      showIsolatedPoints
                         label="Group members"
                         onSelect={selectDay}
                       />

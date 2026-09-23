@@ -94,6 +94,12 @@ describe("community telemetry control plane", () => {
   it("schedules telemetry rollups without scheduling raw-history deletion", () => {
     const crons = (cronsModule as unknown as { default?: typeof cronsModule }).default ?? cronsModule;
     const jobs = JSON.parse(crons.export());
+    for (const state of ["pending", "claimed"]) {
+      const deadline = jobs[`expire unsent club operations: ${state}`];
+      assert.equal(deadline.name, "clubOperations:expireUnsent");
+      assert.deepEqual(deadline.args, [{ state }]);
+      assert.equal(deadline.schedule.minutes, 1);
+    }
     assert.ok(jobs["community telemetry rollups"]);
     assert.equal(jobs["community telemetry raw compaction"], undefined);
     assert.equal(JSON.stringify(jobs).includes("scheduleTelemetryCompaction"), false);
@@ -959,10 +965,42 @@ describe("community telemetry control plane", () => {
       updatedAt: Date.now(),
     }));
     await assert.rejects(t.withIdentity(identity).query(api.clubAnalytics.listAssociationSuggestions, suggestionPage), /access to this category/);
-    await t.run(ctx => ctx.db.delete(visibilityId));
-    await t.withIdentity(identity).mutation(api.communityTelemetry.reviewAssociationSuggestion, {
-      communitySlug: "faceless", associationId: suggestion._id, state: "rejected",
+    const reviewSnapshot = await t.run(async ctx => ({
+      association: await ctx.db.get(suggestion._id),
+      rollups: await ctx.db.query("communityAnalyticsRollups").collect(),
+      audit: await ctx.db.query("communityTelemetryAuditEvents").collect(),
+      scheduled: await ctx.db.system.query("_scheduled_functions").collect(),
+    }));
+    for (const state of ["confirmed", "rejected"] as const) {
+      await assert.rejects(t.withIdentity(identity).mutation(api.communityTelemetry.reviewAssociationSuggestion, {
+        communitySlug: "faceless", associationId: suggestion._id, state,
+      }), /access to this category/);
+      assert.deepEqual(await t.run(async ctx => ({
+        association: await ctx.db.get(suggestion._id),
+        rollups: await ctx.db.query("communityAnalyticsRollups").collect(),
+        audit: await ctx.db.query("communityTelemetryAuditEvents").collect(),
+        scheduled: await ctx.db.system.query("_scheduled_functions").collect(),
+      })), reviewSnapshot);
+    }
+    const reviewOwner = { subject: "review-owner", issuer: "test", tokenIdentifier: "test|review-owner" };
+    const reviewOwnerGrant = await t.run(async ctx => {
+      const userId = await ctx.db.insert("users", { clerkUserId: reviewOwner.subject });
+      return ctx.db.insert("profileOwners", { profileId: communityProfileId, userId, roleKey: "owner", state: "active", grantedAt: Date.now(), updatedAt: Date.now() });
     });
+    for (const state of ["confirmed", "rejected"] as const) {
+      await t.withIdentity(reviewOwner).mutation(api.communityTelemetry.reviewAssociationSuggestion, {
+        communitySlug: "faceless", associationId: suggestion._id, state,
+      });
+      assert.equal((await t.run(ctx => ctx.db.get(suggestion._id)))?.state, state);
+    }
+    await t.run(ctx => ctx.db.delete(reviewOwnerGrant));
+    await t.run(ctx => ctx.db.delete(visibilityId));
+    for (const state of ["confirmed", "rejected"] as const) {
+      await t.withIdentity(identity).mutation(api.communityTelemetry.reviewAssociationSuggestion, {
+        communitySlug: "faceless", associationId: suggestion._id, state,
+      });
+      assert.equal((await t.run(ctx => ctx.db.get(suggestion._id)))?.state, state);
+    }
     assert.equal((await t.run((ctx) => ctx.db.get(suggestion._id)))?.state, "rejected");
     assert.equal((await t.withIdentity(identity).query(api.clubAnalytics.listAssociationSuggestions, suggestionPage)).page.some((row) => row.id === suggestion._id), false);
     assert.deepEqual(await t.mutation(internal.communityTelemetry.suggestEventAssociations, {

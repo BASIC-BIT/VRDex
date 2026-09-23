@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  membershipChartPoints,
+  membershipRangePoints,
   dashboardBounds,
   dashboardHref,
   dashboardLocation,
@@ -59,4 +61,20 @@ test("widget reorder preserves hidden widgets and respects boundaries", () => {
     ["membership", "activity", "instances"],
   );
   assert.deepEqual(moveWidget(["activity"], "activity", 1), ["activity"]);
+});
+
+test("membership charts break on collection gaps while retaining sparse observations", () => {
+  const points = [0, 6, 12, 18].map(hour => ({ at: hour * 3600_000, value: 100 + hour, coverage: "observed" }));
+  assert.equal(membershipChartPoints(points, [{ startAt: 0, endAt: 24 * 3600_000 }]).filter(p => p.value === null).length, 0);
+  const gaps = membershipChartPoints(points, [{ startAt: 0, endAt: 7 * 3600_000 }, { startAt: 11 * 3600_000, endAt: 24 * 3600_000 }]);
+  assert.deepEqual(gaps.filter(p => p.value !== null).map(p => p.value), [100, 106, 112, 118]);
+  assert.deepEqual(gaps.filter(p => p.value === null).map(p => p.at), [7 * 3600_000, 11 * 3600_000]);
+  assert.ok(membershipChartPoints(points, []).some(p => p.value === null));
+  assert.equal(membershipChartPoints([{ at: 0, value: 99, coverage: "unknown" }], []).at(0)?.value, null);
+});
+
+test("membership range isolates partial days and preserves unknown days", () => {
+  const days = [true, false, true, true].map((continuous, i) => ({ startAt: i * 86400_000, membership: { lastValue: 100 + i, continuous } }));
+  const points = membershipRangePoints(days);
+  assert.deepEqual(points.map(p => p.value), [100, null, 101, null, 102, 103]);
 });

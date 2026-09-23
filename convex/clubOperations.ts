@@ -1057,3 +1057,75 @@ export const complete = internalMutation({
     return { recorded: true };
   },
 });
+
+// Independent of collector authorization and leases. Paginate in immutable
+// creation order so future work cannot starve older overdue rows.
+export const expireUnsent = internalMutation({
+  args: {
+    state: v.union(v.literal("pending"), v.literal("claimed")),
+    cursor: v.optional(v.string()),
+    scanStartedAt: v.optional(v.number()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const scanStartedAt = args.scanStartedAt ?? now;
+    const page = await ctx.db
+      .query("clubOperations")
+      .withIndex("by_state_createdAt", (q) =>
+        q.eq("state", args.state).lte("createdAt", scanStartedAt),
+      )
+      .paginate({ numItems: 100, cursor: args.cursor ?? null });
+    for (const job of page.page) {
+      // A submitted marker must never be treated as an unsent attempt, even if
+      // a legacy row has an inconsistent state. Its uncertainty is separate.
+      if (job.submittedAt !== undefined) continue;
+      const event = job.eventId ? await ctx.db.get(job.eventId) : null;
+      if (
+        job.eventId &&
+        (!event ||
+          event.communityProfileId !== job.communityProfileId ||
+          event.eventStatus === "cancelled")
+      ) {
+        await patchOperation(ctx, job._id, {
+          state: "cancelled",
+          claim: undefined,
+          code: !event ? "event_deleted" : "event_cancelled",
+          completedAt: now,
+          updatedAt: now,
+        });
+        continue;
+      }
+      const dueAt =
+        job.schedule.kind === "event_relative" && event
+          ? event.startAt + job.schedule.offsetMs
+          : job.dueAt;
+      if (now - dueAt > LATE_GRACE_MS) {
+        await patchOperation(ctx, job._id, {
+          state: "missed",
+          claim: undefined,
+          dueAt,
+          code: "late_window_elapsed",
+          completedAt: now,
+          updatedAt: now,
+        });
+      } else if (dueAt !== job.dueAt) {
+        // Match the event fanout hook: a changed time invalidates old claims.
+        await patchOperation(ctx, job._id, {
+          state: "pending",
+          claim: undefined,
+          dueAt,
+          readyAt: Math.max(dueAt, job.retryAt ?? 0),
+          updatedAt: now,
+        });
+      }
+    }
+    if (!page.isDone)
+      await ctx.scheduler.runAfter(0, internal.clubOperations.expireUnsent, {
+        state: args.state,
+        cursor: page.continueCursor,
+        scanStartedAt,
+      });
+    return null;
+  },
+});

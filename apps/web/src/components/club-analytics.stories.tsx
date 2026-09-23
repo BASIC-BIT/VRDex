@@ -108,8 +108,14 @@ class AnalyticsFixtureClient extends ConvexReactClient {
           lastValue: 2360 + index * 3,
           observedAt: end - 300_000,
           netChange: 3,
+          continuous: index % 7 !== 3,
         },
       };
+    } else if (name === "clubAnalytics:getMembershipCoverage") {
+      result = { complete: true, intervals: [
+        { startAt: start, endAt: start + 91 * 300_000 },
+        { startAt: start + 104 * 300_000, endAt: end },
+      ] };
     } else if (
       name === "clubAnalytics:getSeries" ||
       name === "clubAnalytics:getInstanceSeries"

@@ -477,3 +477,115 @@ describe("club analytics range and permissions", () => {
     );
   });
 });
+
+describe("membership polling coverage", () => {
+  it("keeps healthy sparse counts connected and splits explicit and silent outages", async () => {
+    const { transitionCoverage } = await import("../../convex/_collectionCoverage");
+    const s = await setup();
+    const poll = (at: number, state: "observed" | "degraded" = "observed") => s.t.run(ctx => transitionCoverage(ctx, s.integrationId, state, epoch + at, "first_party", "test"));
+    for (let at = 0; at <= 6 * 3600_000; at += 300_000) await poll(at);
+    let windows = await s.t.run(ctx => ctx.db.query("collectionCoverageWindows").collect());
+    assert.equal(windows.length, 1);
+    assert.equal(windows[0].observedThroughAt, epoch + 6 * 3600_000);
+    await poll(6 * 3600_000 + 60_000, "degraded");
+    await poll(6 * 3600_000 + 120_000);
+    await poll(7 * 3600_000);
+    windows = await s.t.run(ctx => ctx.db.query("collectionCoverageWindows").collect());
+    assert.equal(windows.length, 4);
+    assert.equal(windows[0].endedAt, epoch + 6 * 3600_000 + 60_000);
+    assert.equal(windows[2].endedAt, epoch + 6 * 3600_000 + 720_000);
+    const coverage = await s.staff.query(api.clubAnalytics.getMembershipCoverage, { communitySlug: "analytics", startAt: epoch, endAt: epoch + 86400_000 });
+    assert.equal(coverage.intervals.length, 3);
+    assert.deepEqual(Object.keys(coverage).sort(), ["complete", "intervals"]);
+    assert.deepEqual(Object.keys(coverage.intervals[0]).sort(), ["endAt", "startAt"]);
+  });
+
+  it("does not carry old membership across an unobserved day or trust legacy windows", async () => {
+    const s = await setup();
+    await s.t.run(async ctx => {
+      await ctx.db.insert("communityMemberCountObservations", { integrationId: s.integrationId, communityProfileId: s.communityProfileId, idempotencyKey: "old-count", vrchatGroupId: "grp_example", memberCount: 101, observedAt: epoch, source: "first_party", collectorVersion: "test", coverageState: "observed", fencingToken: 1 });
+      await ctx.db.insert("collectionCoverageWindows", { integrationId: s.integrationId, state: "observed", source: "first_party", collectorVersion: "legacy", startedAt: epoch, updatedAt: epoch + 3 * 86400_000 });
+    });
+    const day = await s.owner.query(api.clubAnalytics.getBucket, { communitySlug: "analytics", startAt: epoch + 86400_000, endAt: epoch + 2 * 86400_000 });
+    assert.equal(day.membership?.lastValue, null);
+    assert.equal(day.membership?.continuous, false);
+    const original = await s.owner.query(api.clubAnalytics.getBucket, { communitySlug: "analytics", startAt: epoch, endAt: epoch + 86400_000 });
+    assert.equal(original.membership?.lastValue, 101);
+    assert.equal(original.membership?.continuous, false);
+  });
+});
+
+it("membership continuity allows the full quiet dispatch bound and starts fresh after legacy coverage", async () => {
+  const { transitionCoverage, MEMBERSHIP_POLL_GAP_MS } = await import("../../convex/_collectionCoverage");
+  const s = await setup();
+  await s.t.run(ctx => ctx.db.insert("collectionCoverageWindows", { integrationId: s.integrationId, state: "observed", source: "first_party", collectorVersion: "legacy", startedAt: epoch, updatedAt: epoch }));
+  for (const at of [epoch + 1, epoch + 1 + MEMBERSHIP_POLL_GAP_MS, epoch + 2 + 2 * MEMBERSHIP_POLL_GAP_MS]) {
+    await s.t.run(ctx => transitionCoverage(ctx, s.integrationId, "observed", at, "first_party", "test"));
+  }
+  const rows = await s.t.run(ctx => ctx.db.query("collectionCoverageWindows").collect());
+  assert.equal(rows.length, 3);
+  assert.equal(rows[0].observedThroughAt, undefined);
+  assert.equal(rows[1].observedThroughAt, epoch + 1 + MEMBERSHIP_POLL_GAP_MS);
+  assert.equal(rows[1].endedAt, epoch + 1 + 2 * MEMBERSHIP_POLL_GAP_MS);
+});
+
+it("membership coverage is bounded and private to group-size readers", async () => {
+  const { CLUB_CATEGORIES } = await import("../../convex/_clubModel");
+  const s = await setup();
+  const visibilityId = await s.t.run(ctx => ctx.db.insert("communityDataVisibility", {
+    communityProfileId: s.communityProfileId,
+    categories: Object.fromEntries(CLUB_CATEGORIES.map(category => [category, { audience: category === "group_size" ? "staff" : "owner", staffRoleIds: null }])) as any,
+    updatedAt: epoch,
+  }));
+  await s.t.run(async ctx => {
+    for (let i = 0; i < 1001; i++) await ctx.db.insert("collectionCoverageWindows", { integrationId: s.integrationId, state: "observed", source: "first_party", collectorVersion: "test", startedAt: epoch + i * 1000, observedThroughAt: epoch + i * 1000, endedAt: epoch + i * 1000 + 500, updatedAt: epoch + i * 1000 });
+  });
+  const args = { communitySlug: "analytics", startAt: epoch, endAt: epoch + 86400_000 };
+  assert.deepEqual(await s.staff.query(api.clubAnalytics.getMembershipCoverage, args), { complete: false, intervals: [] });
+  const bucket = await s.staff.query(api.clubAnalytics.getBucket, args);
+  assert.equal(bucket.complete, false);
+  assert.equal(bucket.population, null);
+  assert.equal(bucket.membership?.continuous, false);
+  await s.t.run(async ctx => {
+    const row = (await ctx.db.get(visibilityId))!;
+    await ctx.db.patch(visibilityId, { categories: { ...row.categories, group_size: { audience: "owner", staffRoleIds: null } } });
+  });
+  await assert.rejects(s.staff.query(api.clubAnalytics.getMembershipCoverage, args), /access to this category/);
+});
+
+it("membership day boundaries require observed coverage and retain exact sparse series", async () => {
+  const { transitionCoverage } = await import("../../convex/_collectionCoverage");
+  const s = await setup();
+  const midnight = epoch + 86400_000;
+  await s.t.run(async ctx => {
+    for (const at of [midnight - 6 * 3600_000, midnight, midnight + 6 * 3600_000]) await ctx.db.insert("communityMemberCountObservations", { integrationId: s.integrationId, communityProfileId: s.communityProfileId, idempotencyKey: `sample-${at}`, vrchatGroupId: "grp_example", memberCount: 100, observedAt: at, source: "first_party", collectorVersion: "test", coverageState: "observed", fencingToken: 1 });
+    await transitionCoverage(ctx, s.integrationId, "observed", midnight - 60_000, "first_party", "test");
+    await transitionCoverage(ctx, s.integrationId, "degraded", midnight + 60_000, "first_party", "test");
+    await transitionCoverage(ctx, s.integrationId, "observed", midnight + 6 * 3600_000, "first_party", "test");
+  });
+  const args = { communitySlug: "analytics", startAt: midnight, endAt: midnight + 86400_000 };
+  const coverage = await s.owner.query(api.clubAnalytics.getMembershipCoverage, args);
+  assert.deepEqual(coverage.intervals[0], { startAt: midnight, endAt: midnight + 60_000 });
+  assert.equal(coverage.intervals[1].startAt, midnight + 6 * 3600_000);
+  const series = await s.owner.query(api.clubAnalytics.getSeries, { ...args, kind: "members", paginationOpts: { numItems: 100, cursor: null } });
+  assert.deepEqual(series.page.map(point => point.at), [midnight, midnight + 6 * 3600_000]);
+  const bucket = await s.owner.query(api.clubAnalytics.getBucket, args);
+  assert.equal(bucket.membership?.lastValue, 100);
+  assert.equal(bucket.membership?.continuous, false);
+  await s.t.run(ctx => ctx.db.patch(s.integrationId, { telemetryEpochStartedAt: midnight + 60_001 }));
+  const nextEpoch = await s.owner.query(api.clubAnalytics.getMembershipCoverage, args);
+  assert.equal(nextEpoch.intervals.length, 1);
+  assert.equal(nextEpoch.intervals[0].startAt, midnight + 6 * 3600_000);
+});
+
+it("late poll timestamps cannot reopen an explicit failure interval", async () => {
+  const { transitionCoverage } = await import("../../convex/_collectionCoverage");
+  const s = await setup();
+  await s.t.run(async ctx => {
+    await transitionCoverage(ctx, s.integrationId, "observed", epoch, "first_party", "test");
+    await transitionCoverage(ctx, s.integrationId, "degraded", epoch + 120_000, "first_party", "test");
+    await transitionCoverage(ctx, s.integrationId, "observed", epoch + 60_000, "first_party", "test");
+  });
+  const coverage = await s.owner.query(api.clubAnalytics.getMembershipCoverage, { communitySlug: "analytics", startAt: epoch, endAt: epoch + 86400_000 });
+  assert.deepEqual(coverage.intervals, [{ startAt: epoch, endAt: epoch + 120_000 }]);
+});

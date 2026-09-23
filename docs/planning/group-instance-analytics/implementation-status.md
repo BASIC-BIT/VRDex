@@ -10,6 +10,8 @@ PR #341 is published and undergoing iterative review. The latest local fixes pre
 
 September 23 local follow-up: the shared public telemetry projection now returns no telemetry while analytics is explicitly disabled, including retained history, member metrics, and event recaps. Public community and profile reads share the correction, while authorized private dashboard history remains available. Focused backend and profile/API contract checks are recorded in the Task 7 handoff. This local change has not been published or verified against a hosted deployment.
 
+September 23 Task 8 local follow-up: suggestion confirmation and rejection now recheck current recap access. Independent minute-based bounded scans expire unsent work beyond its current 15-minute grace even without a collector, including preexisting rows. Private membership day and range charts use compact poll coverage and break across explicit or silent outages; legacy windows retain exact observations without inferred continuity. The Task 8 report records scoped backend/model checks, desktop/mobile segmentation and screenshots, types, lint and documentation checks. Hosted deployment, provider behavior and exact-head remote readiness remain unverified.
+
 ## Earlier implementation checkpoint
 
 Local implementation is committed through `4cc95baf0`, following `dcdc0e044` for the complete workspace. The full backend suite passed again after the final security fixes on September 14. All provider-read caches now invalidate after bot reassignment or credential rotation and reject disabled/inactive accounts. Public membership history also respects profile publication visibility.

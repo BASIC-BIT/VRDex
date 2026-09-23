@@ -167,3 +167,26 @@ test("instance list emphasizes population and opens detail @storybook-visual", a
     ),
   ).toBe(true);
 });
+
+test("membership lines segment collection gaps in range and selected day @storybook-visual", async ({ page, isMobile }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await page.goto("/iframe.html?id=clubs-analytics--home&viewMode=story");
+  await page.getByLabel("Select month").fill("2026-08");
+  const chart = page.getByRole("group", { name: "Group members", exact: true });
+  const segments = () => chart.locator(".recharts-line-curve").evaluateAll(paths => paths.reduce((count, path) => count + (path.getAttribute("d")?.match(/M/g)?.length ?? 0), 0));
+  await expect.poll(segments).toBeGreaterThan(1);
+  await expect(chart.locator('circle[r="3"]').first()).toBeVisible();
+  await chart.scrollIntoViewIfNeeded();
+  await chart.screenshot({ path: `../../.cache/artifacts/task8-membership-range-${isMobile ? "mobile" : "desktop"}.png` });
+  await page.getByLabel("Inspect day", { exact: true }).fill("2026-08-01");
+  await expect.poll(segments).toBe(2);
+  await chart.scrollIntoViewIfNeeded();
+  await chart.screenshot({ path: `../../.cache/artifacts/task8-membership-day-${isMobile ? "mobile" : "desktop"}.png` });
+  await chart.locator("..").getByRole("button", { name: "Show data table" }).click();
+  await expect(chart.locator("..").getByRole("cell", { name: "Unknown", exact: true }).first()).toBeVisible();
+  await page.getByRole("button", { name: "Back to range" }).click();
+  await expect.poll(segments).toBeGreaterThan(2);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect(errors).toEqual([]);
+});

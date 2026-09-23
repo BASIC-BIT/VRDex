@@ -1,3 +1,4 @@
+import { membershipCoverage } from "./_collectionCoverage";
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import {
@@ -264,6 +265,7 @@ export const getBucket = query({
         lastValue: v.union(v.number(), v.null()),
         observedAt: v.union(v.number(), v.null()),
         netChange: v.union(v.number(), v.null()),
+        continuous: v.boolean(),
       }),
     ),
   }),
@@ -286,6 +288,7 @@ export const getBucket = query({
         lastValue: number | null;
         observedAt: number | null;
         netChange: number | null;
+        continuous: boolean;
       } | null = null,
       complete = true;
     if (state.allowed("population_history")) {
@@ -348,12 +351,21 @@ export const getBucket = query({
         )
         .order("desc")
         .first();
+      const coverage = state.allowed("group_size")
+        ? await membershipCoverage(ctx, integrationId, startAt, endAt, state.epoch)
+        : null;
+      if (coverage && !coverage.complete) complete = false;
+      const continuous = !!coverage?.intervals.some(interval =>
+        interval.startAt <= startAt && interval.endAt >= Math.min(endAt, Date.now()));
+      const visibleLatest = latest?.coverageState === "observed" &&
+        (latest.observedAt >= startAt || continuous) ? latest : null;
       membership = {
+        continuous,
         lastValue: state.allowed("group_size")
-          ? (latest?.memberCount ?? null)
+          ? (visibleLatest?.memberCount ?? null)
           : null,
         observedAt: state.allowed("group_size")
-          ? (latest?.observedAt ?? null)
+          ? (visibleLatest?.observedAt ?? null)
           : null,
         netChange:
           state.allowed("membership_movement") && before && latest
@@ -368,6 +380,19 @@ export const getBucket = query({
       population,
       membership,
     };
+  },
+});
+
+export const getMembershipCoverage = query({
+  args: { ...base, ...range },
+  returns: v.object({ complete: v.boolean(), intervals: v.array(v.object(range)) }),
+  handler: async (ctx, args) => {
+    checkedRange(args.startAt, args.endAt, 26 / 24);
+    const state = await context(ctx, args.communitySlug);
+    requireCategory(state, "group_size");
+    if (!state.integration || args.endAt <= state.epoch)
+      return { complete: true, intervals: [] };
+    return membershipCoverage(ctx, state.integration._id, Math.max(args.startAt, state.epoch), args.endAt, state.epoch);
   },
 });
 

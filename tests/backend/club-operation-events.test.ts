@@ -302,3 +302,33 @@ it("a deleted event cancels remaining work through the same hook", async () => {
   assert.equal(rows.filter((r) => r.code === "event_deleted").length, 2);
   assert.equal(rows.filter((r) => r.state === "submitted").length, 1);
 });
+
+it("independent deadline pages cover legacy rows beyond future work and cancel current events", async () => {
+  const s = await jobs(205);
+  const sweep = makeFunctionReference<any>("clubOperations:expireUnsent");
+  await s.t.run(async ctx => {
+    await ctx.db.patch(s.eventId, { startAt: Date.now() - 3600_000 });
+    // Earlier future jobs must not starve the old overdue tail.
+    const rows = await ctx.db.query("clubOperations").take(300);
+    for (const row of rows.slice(2, 104)) await ctx.db.patch(row._id, { eventId: undefined, schedule: { kind: "fixed", dueAt: Date.now() + 86400_000 }, dueAt: Date.now() + 86400_000 });
+    await ctx.db.delete(s.leaseId);
+  });
+  await s.t.mutation(sweep, { state: "pending" });
+  await s.t.mutation(sweep, { state: "claimed" });
+  await drain(s.t);
+  let rows = await s.t.run(ctx => ctx.db.query("clubOperations").take(300));
+  assert.equal(rows.filter(row => row.state === "missed").length, 102);
+  assert.equal(rows.filter(row => row.state === "pending").length, 102);
+  assert.equal(rows.filter(row => row.state === "submitted").length, 1);
+  await s.t.run(async ctx => {
+    await ctx.db.patch(s.eventId, { eventStatus: "cancelled" });
+    const pending = rows.find(row => row.state === "pending")!;
+    await ctx.db.patch(pending._id, { eventId: s.eventId });
+  });
+  await s.t.mutation(sweep, { state: "pending" });
+  await drain(s.t);
+  rows = await s.t.run(ctx => ctx.db.query("clubOperations").take(300));
+  assert.equal(rows.filter(row => row.state === "cancelled").length, 1);
+  const notices = await s.t.run(ctx => ctx.db.query("clubOperationNotifications").take(300));
+  assert.equal(notices.length, 102);
+});

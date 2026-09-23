@@ -104,3 +104,78 @@ export function moveWidget(
   [result[index], result[destination]] = [result[destination]!, result[index]!];
   return result;
 }
+
+type MembershipInterval = { startAt: number; endAt: number };
+
+export function membershipChartPoints(
+  observations: readonly { at: number; value: number; coverage: string }[],
+  intervals: readonly MembershipInterval[],
+) {
+  const points: Array<{ at: number; value: number | null; label: string }> = [];
+  const label = (at: number) =>
+    new Date(at).toLocaleTimeString(undefined, {
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZoneName: "short",
+    });
+  for (const [index, point] of observations.entries()) {
+    const previous = observations[index - 1];
+    if (previous && previous.at < point.at) {
+      let cursor = previous.at;
+      const gaps: MembershipInterval[] = [];
+      for (const interval of intervals) {
+        if (interval.endAt <= cursor || interval.startAt >= point.at) continue;
+        if (interval.startAt > cursor)
+          gaps.push({ startAt: cursor, endAt: interval.startAt });
+        cursor = Math.max(cursor, interval.endAt);
+      }
+      if (cursor < point.at) gaps.push({ startAt: cursor, endAt: point.at });
+      for (const gap of gaps) {
+        // Keep both real observations even when coverage begins/ends at them.
+        const inset = Math.min(1, (point.at - previous.at) / 3);
+        for (const at of new Set([
+          Math.max(previous.at + inset, gap.startAt),
+          Math.min(point.at - inset, gap.endAt),
+        ]))
+          points.push({ at, value: null, label: label(at) });
+      }
+    }
+    points.push({
+      at: point.at,
+      value: point.coverage === "observed" ? point.value : null,
+      label: label(point.at),
+    });
+  }
+  return points;
+}
+
+export function membershipRangePoints(
+  buckets: readonly {
+    startAt: number;
+    membership: { lastValue: number | null; continuous: boolean } | null;
+  }[],
+) {
+  const points: Array<{ at: number; value: number | null; label: string }> = [];
+  for (const [index, bucket] of buckets.entries()) {
+    const previous = buckets[index - 1];
+    const label = new Date(bucket.startAt).toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+    });
+    if (
+      previous &&
+      (!previous.membership?.continuous || !bucket.membership?.continuous)
+    )
+      points.push({
+        at: (previous.startAt + bucket.startAt) / 2,
+        value: null,
+        label,
+      });
+    points.push({
+      at: bucket.startAt,
+      value: bucket.membership?.lastValue ?? null,
+      label,
+    });
+  }
+  return points;
+}

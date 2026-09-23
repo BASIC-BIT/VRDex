@@ -1,3 +1,4 @@
+import { transitionCoverage } from "./_collectionCoverage";
 import { resolveClubActor, readClubVisibility, canReadCategory, requireClubPermission } from "./_clubAccess";
 import { CLUB_CATEGORIES, LEGACY_CATEGORY_MAP, clubCategory } from "./_clubModel";
 import { ConvexError, v } from "convex/values";
@@ -208,40 +209,6 @@ async function assertLease(
     throw new Error("Collector lease is stale or unavailable.");
   }
   return lease;
-}
-
-async function transitionCoverage(
-  ctx: MutationCtx,
-  integrationId: Id<"communityVrchatIntegrations">,
-  state: "observed" | "estimated" | "stale" | "unknown" | "degraded",
-  at: number,
-  source: "first_party" | "vrcpop" | "vrcx",
-  collectorVersion: string,
-  reason?: string,
-  requestStatusClass?: string,
-) {
-  const latest = await ctx.db
-    .query("collectionCoverageWindows")
-    .withIndex("by_integrationId_startedAt", (q) => q.eq("integrationId", integrationId))
-    .order("desc")
-    .first();
-  if (latest && latest.endedAt === undefined && latest.state === state && latest.reason === reason) {
-    await ctx.db.patch(latest._id, { updatedAt: at, ...(requestStatusClass ? { requestStatusClass } : {}) });
-    return latest._id;
-  }
-  if (latest && latest.endedAt === undefined) {
-    await ctx.db.patch(latest._id, { endedAt: at, updatedAt: at });
-  }
-  return ctx.db.insert("collectionCoverageWindows", {
-    integrationId,
-    state,
-    source,
-    collectorVersion,
-    startedAt: at,
-    updatedAt: at,
-    ...(reason ? { reason: reason.slice(0, 160) } : {}),
-    ...(requestStatusClass ? { requestStatusClass } : {}),
-  });
 }
 
 async function audit(
@@ -1817,7 +1784,11 @@ export const reviewAssociationSuggestion = mutation({
     const association = await ctx.db.get(args.associationId);
     const actor = await requireSubject(ctx);
     if (!profile || profile.profileType !== "community") throw new Error("You do not have access to this action.");
-    requireClubPermission(await resolveClubActor(ctx, profile._id), "manage_events");
+    const clubActor = await resolveClubActor(ctx, profile._id);
+    requireClubPermission(clubActor, "manage_events");
+    const visibility = await readClubVisibility(ctx.db, profile._id);
+    if (!canReadCategory(clubActor, visibility, "event_recaps"))
+      throw new Error("You do not have access to this category.");
     if (!association || association.communityProfileId !== profile._id) throw new Error("Association was not found.");
     const [session, event, integration] = await Promise.all([ctx.db.get(association.sessionId), ctx.db.get(association.eventId), integrationForCommunity(ctx, profile._id)]);
     if (args.state === "confirmed" && (!session || !event || session.communityProfileId !== profile._id || event.communityProfileId !== profile._id || !integration || session.integrationId !== integration._id || session.openedAt < (integration.telemetryEpochStartedAt ?? integration.createdAt))) throw new Error("Event or instance belongs to another group connection.");

@@ -38,11 +38,13 @@ export function ClubChart({
   label,
   kind = "line",
   onSelect,
+  showIsolatedPoints = false,
 }: {
   points: ClubChartPoint[];
   label: string;
   kind?: "bar" | "line";
   onSelect?: (at: number) => void;
+  showIsolatedPoints?: boolean;
 }) {
   const [table, setTable] = useState(false);
   if (!points.some((point) => point.value !== null))
@@ -103,7 +105,33 @@ export function ClubChart({
                 type="linear"
                 stroke="var(--accent)"
                 strokeWidth={2}
-                dot={false}
+                dot={
+                  showIsolatedPoints
+                    ? ({
+                        cx,
+                        cy,
+                        index,
+                      }: {
+                        cx?: number;
+                        cy?: number;
+                        index?: number;
+                      }) => {
+                        const position = index ?? -1;
+                        const isolated =
+                          points[position]?.value != null &&
+                          points[position - 1]?.value == null &&
+                          points[position + 1]?.value == null;
+                        return (
+                          <circle
+                            cx={cx}
+                            cy={cy}
+                            r={isolated ? 3 : 0}
+                            fill="var(--accent)"
+                          />
+                        );
+                      }
+                    : false
+                }
                 activeDot={{ r: 4 }}
                 connectNulls={false}
                 isAnimationActive={false}

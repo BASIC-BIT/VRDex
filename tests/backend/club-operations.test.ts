@@ -2204,3 +2204,89 @@ it("HTTP worker failure forwards analytics-only phase without disabling manageme
   assert.equal(integration!.state, "active");
   assert.equal(integration!.backoffUntil, undefined);
 });
+
+for (const unavailable of ["disabled", "killed", "no-lease", "expired-claim"] as const) {
+  it(`independent deadline sweep expires unsent work with ${unavailable}`, async (test) => {
+    const s = await queued();
+    const job = (await s.t.run(ctx => ctx.db.get(s.operationId)))!;
+    await s.t.run(async ctx => {
+      if (unavailable === "disabled") await ctx.db.patch(s.collectorAccountId, { state: "retired" });
+      if (unavailable === "killed") await ctx.db.insert("collectorFleetSettings", { key: "global", globalRequestsPerMinute: 100, killSwitchEnabled: true, updatedAt: Date.now() });
+      if (unavailable === "no-lease") await ctx.db.delete(s.leaseId);
+      if (unavailable === "expired-claim") await ctx.db.patch(job._id, { state: "claimed", claim: { nonce: "expired", collectorAccountId: s.collectorAccountId, credentialGeneration: 1, workerId: "worker", fencingToken: 1, expiresAt: job.dueAt + 1 } });
+    });
+    test.mock.method(Date, "now", () => job.dueAt + 15 * 60_000);
+    await s.t.mutation(ref("expireUnsent"), { state: unavailable === "expired-claim" ? "claimed" : "pending" });
+    assert.equal((await s.t.run(ctx => ctx.db.get(job._id)))!.state, unavailable === "expired-claim" ? "claimed" : "pending");
+    test.mock.method(Date, "now", () => job.dueAt + 15 * 60_000 + 1);
+    await s.t.mutation(ref("expireUnsent"), { state: unavailable === "expired-claim" ? "claimed" : "pending" });
+    // The bounded first pass schedules the claimed pass.
+    test.mock.timers.tick(0);
+    await s.t.finishInProgressScheduledFunctions();
+    const expired = (await s.t.run(ctx => ctx.db.get(job._id)))!;
+    assert.equal(expired.state, "missed");
+    assert.equal(expired.code, "late_window_elapsed");
+    assert.equal(expired.claim, undefined);
+    await s.t.mutation(ref("expireUnsent"), { state: unavailable === "expired-claim" ? "claimed" : "pending" });
+    const notifications = await s.t.run(ctx => ctx.db.query("clubOperationNotifications").collect());
+    assert.equal(notifications.length, 1);
+    assert.equal(notifications[0].outcome, "missed");
+  });
+}
+
+for (const kind of ["immediate", "fixed", "event_relative"] as const) {
+  it(`deadline sweep respects a revision-aware ${kind} edit and current event timing`, async (test) => {
+    const s = await queued();
+    const original = (await s.t.run(ctx => ctx.db.get(s.operationId)))!;
+    const editAt = original.dueAt + 10 * 60_000;
+    test.mock.method(Date, "now", () => editAt);
+    const eventId = await s.t.run(ctx => ctx.db.insert("events", { slug: "deadline-event", title: "Deadline event", sortTitle: "deadline event", sourceType: "manual", sourceLabel: "test", communityProfileId: s.communityProfileId, startAt: editAt + 3600_000, publicationState: "published", eventStatus: "scheduled", updatedAt: editAt }));
+    const schedule = kind === "immediate" ? { kind } : kind === "fixed" ? { kind, dueAt: editAt + 3600_000 } : { kind, eventId, offsetMs: 0 };
+    await s.owner.mutation(ref("edit"), { operationId: s.operationId, expectedRevision: 1, payload: original.payload, schedule });
+    test.mock.method(Date, "now", () => original.dueAt + 15 * 60_000 + 1);
+    await s.t.mutation(ref("expireUnsent"), { state: "pending", scanStartedAt: editAt });
+    assert.equal((await s.t.run(ctx => ctx.db.get(s.operationId)))!.state, "pending");
+    let dueAt = (await s.t.run(ctx => ctx.db.get(s.operationId)))!.dueAt;
+    if (kind === "event_relative") {
+      // Simulate an event update before its asynchronous rebase page arrives.
+      await s.t.run(ctx => ctx.db.patch(eventId, { startAt: dueAt + 3600_000 }));
+      test.mock.method(Date, "now", () => dueAt + 15 * 60_000 + 1);
+      await s.t.mutation(ref("expireUnsent"), { state: "pending" });
+      assert.equal((await s.t.run(ctx => ctx.db.get(s.operationId)))!.state, "pending");
+      await s.t.run(ctx => ctx.db.patch(eventId, { startAt: dueAt - 3600_000 }));
+      dueAt -= 3600_000;
+    }
+    test.mock.method(Date, "now", () => dueAt + 15 * 60_000 + 1);
+    await s.t.mutation(ref("expireUnsent"), { state: "pending" });
+    assert.equal((await s.t.run(ctx => ctx.db.get(s.operationId)))!.state, "missed");
+  });
+}
+
+it("deadline sweep preserves cancelled, submitted and terminal work and serializes with submission", async (test) => {
+  const s = await queued();
+  const original = (await s.t.run(ctx => ctx.db.get(s.operationId)))!;
+  await s.t.mutation(ref("claim"), s.worker);
+  const claimed = (await s.t.run(ctx => ctx.db.get(s.operationId)))!;
+  const target = { ...s.worker, operationId: s.operationId, nonce: claimed.claim!.nonce };
+  await s.t.mutation(ref("authorizeSubmission"), { ...target, authority: s.authority });
+  const submitted = (await s.t.run(ctx => ctx.db.get(s.operationId)))!;
+  assert.equal(submitted.state, "submitted");
+  test.mock.method(Date, "now", () => original.dueAt + 15 * 60_000 + 1);
+  for (const state of ["pending", "claimed"] as const) await s.t.mutation(ref("expireUnsent"), { state });
+  assert.deepEqual(await s.t.run(ctx => ctx.db.get(s.operationId)), submitted);
+  for (const state of ["cancelled", "succeeded", "rejected", "indeterminate", "missed"] as const) {
+    await s.t.run(ctx => ctx.db.patch(s.operationId, { state }));
+    const before = await s.t.run(ctx => ctx.db.get(s.operationId));
+    for (const unsent of ["pending", "claimed"] as const) await s.t.mutation(ref("expireUnsent"), { state: unsent });
+    assert.deepEqual(await s.t.run(ctx => ctx.db.get(s.operationId)), before);
+  }
+  // The reverse transaction order clears the claim before authorization.
+  await s.t.run(ctx => ctx.db.patch(s.operationId, { state: "claimed", submittedAt: undefined, claim: claimed.claim }));
+  await s.t.mutation(ref("expireUnsent"), { state: "claimed" });
+  assert.equal((await s.t.run(ctx => ctx.db.get(s.operationId)))!.state, "missed");
+  await s.t.run(ctx => ctx.db.patch(s.leaseId, { expiresAt: Date.now() + 60_000 }));
+  const outcome = await s.t.mutation(ref("authorizeSubmission"), { ...target, authority: { ...s.authority, observedAt: Date.now() } });
+  assert.equal(outcome.authorized, false);
+  assert.equal(outcome.code, "claim_unavailable");
+  assert.equal((await s.t.run(ctx => ctx.db.query("clubOperationNotifications").collect())).length, 1);
+});

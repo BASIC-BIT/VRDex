@@ -244,3 +244,11 @@ flowchart LR
   T --> D[Instance detail]
   D --> C
 ```
+
+## Independent unsent deadlines
+
+Two Convex crons start a scan every minute, separately for `pending` and `claimed` work. Each transaction reads at most 100 rows in immutable creation order and schedules its cursor continuation immediately. A scan fixes its creation-time cutoff so newly enqueued work cannot prolong it indefinitely. Future jobs cannot starve an overdue tail. The same path covers existing rows after deployment; no live migration or per-row callback backfill is required.
+
+Each visited row rechecks its current event and due time. Missing, foreign or cancelled events cancel unsent work. Event-relative work uses the current event start plus offset even before an event-rebase continuation reaches it. A changed future due time clears an obsolete claim. Revision-aware immediate/fixed/event-relative edits need no callback re-arming because each scan reads the current row. Only `now > current dueAt + 15 minutes` becomes `missed`, with `late_window_elapsed` and the existing operation/revision/outcome notification dedupe. Exact-boundary work remains eligible.
+
+The scan needs no healthy integration, collector account, worker key, lease or poll. It never authorizes a provider write. Submitted rows and rows carrying a submission marker are excluded; exact-claim two-minute indeterminate recovery remains separate. Convex transaction serialization prevents a submission and expiry from both winning. Terminal rows are not revisited. Timing is eventual: normally the next one-minute scan, plus scheduler/continuation delay under load. There is no hard one-minute completion SLA for an arbitrarily large backlog.

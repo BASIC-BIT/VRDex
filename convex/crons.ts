@@ -4,6 +4,16 @@ import { internal } from "./_generated/api";
 
 const crons = cronJobs();
 
+// Each pass also covers rows created before independent deadline recovery.
+for (const state of ["pending", "claimed"] as const) {
+  crons.interval(
+    `expire unsent club operations: ${state}`,
+    { minutes: 1 },
+    internal.clubOperations.expireUnsent,
+    { state },
+  );
+}
+
 // Delivery is inert until the documented email opt-in is configured.
 crons.interval(
   "deliver club operation notifications",
