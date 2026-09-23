@@ -1,4 +1,9 @@
+"use client";
+import { useQuery } from "convex/react";
 import Link from "next/link";
+import type { FunctionReturnType } from "convex/server";
+import { api } from "@convex-generated-api";
+import { EventPerformerLinks } from "./event-performer-links";
 
 import {
   actionCardVariants,
@@ -9,7 +14,6 @@ import {
 import { buttonVariants } from "@/components/ui/button";
 import { Card, Eyebrow } from "@/components/ui/card";
 import { BrandLink, PageContainer, PageNav, PageShell } from "@/components/ui/page-shell";
-import { Table, TableCell, TableFrame, TableHead, TableHeaderCell } from "@/components/ui/table";
 import { cn } from "@/lib/cn";
 import { safeImageBackground } from "@/lib/safe-image";
 import { publicEventPath } from "@/lib/event-path";
@@ -17,7 +21,7 @@ import {
   avatarFrameStyle,
   type AvatarAppearance,
 } from "@/lib/avatar-appearance";
-import { EventWatchSurface } from "./event-watch-surface";
+import { EventWatchForEvent } from "./event-live-watch";
 import { vrcdnPlaybackHref } from "../../../../../convex/_vrcdnLinks";
 import {
   ViewerLocalEventDateTime,
@@ -40,6 +44,9 @@ type ProfileTrustLabel =
   | "unclaimed"
   | "claimed_unverified"
   | "claimed_verified";
+
+type ProjectedEvent = NonNullable<FunctionReturnType<typeof api.events.getPublicBySlug>>;
+export type EventOutboundLinks = ProjectedEvent["participants"][number]["outboundLinks"];
 
 type DiscordTimestampSet = {
   shortTime: string;
@@ -94,6 +101,7 @@ export type PublicEvent = Omit<PublicEventPreview, "worlds"> & {
   id: string;
   slug: string;
   watchSurfaceEnabled: boolean;
+  watchMode?: ProjectedEvent["watchMode"];
   authoredBannerImageUrl?: string;
   authoredThumbnailImageUrl?: string;
   authoredMediaLinks: Array<{
@@ -124,6 +132,7 @@ export type PublicEvent = Omit<PublicEventPreview, "worlds"> & {
     slug: string;
     displayName: string;
     roleLabel: string;
+    outboundLinks?: EventOutboundLinks;
     trustLabel: ProfileTrustLabel;
     imageUrl?: string;
     avatarAppearance?: AvatarAppearance;
@@ -134,6 +143,8 @@ export type PublicEvent = Omit<PublicEventPreview, "worlds"> & {
     };
   }>;
   slots: Array<{
+    playbackKey?: string;
+    stream?: ProjectedEvent["slots"][number]["stream"];
     position: number;
     startAt: number;
     endAt?: number;
@@ -143,6 +154,7 @@ export type PublicEvent = Omit<PublicEventPreview, "worlds"> & {
     performer?: {
       slug: string;
       displayName: string;
+      outboundLinks?: EventOutboundLinks;
       trustLabel: ProfileTrustLabel;
       imageUrl?: string;
       avatarAppearance?: AvatarAppearance;
@@ -289,7 +301,13 @@ export function EventBackendNotice({ kind }: { kind: "missing-url" | "error" }) 
   );
 }
 
-export function EventPublicPage({ event }: { event: PublicEvent }) {
+export function EventPublicPage({ event: initialEvent }: { event: PublicEvent }) {
+  const projection = useQuery(api.events.getPublicBySlug, { slug: initialEvent.slug });
+  const event = projection === undefined ? initialEvent : projection;
+  return event ? <EventPublicPageContent event={event} /> : null;
+}
+
+function EventPublicPageContent({ event }: { event: PublicEvent }) {
   const bannerStyle = safeImageBackground(event.bannerImageUrl, eventPosterOverlay);
   const sourceUrl = safeHttpsUrl(event.source.url);
   const eventPath = publicEventPath(event);
@@ -339,13 +357,7 @@ export function EventPublicPage({ event }: { event: PublicEvent }) {
           </div>
 
           <div className="grid gap-4">
-            <EventWatchSurface
-              doorsOpenAt={event.doorsOpenAt}
-              endAt={event.endAt}
-              enabled={event.watchSurfaceEnabled && event.status !== "cancelled"}
-              mediaLinks={event.mediaLinks}
-              startAt={event.startAt}
-            />
+            <EventWatchForEvent event={event} />
 
             <Card surface="white">
               <Eyebrow>Place</Eyebrow>
@@ -387,53 +399,20 @@ export function EventPublicPage({ event }: { event: PublicEvent }) {
         {event.slots.length > 0 ? (
           <Card surface="white">
             <Eyebrow>Schedule</Eyebrow>
-            <div className="mt-5">
-              <TableFrame>
-                <div className="grid divide-y divide-border text-sm sm:hidden">
-                  {event.slots.map((slot) => (
-                    <div className="grid gap-2 px-4 py-3" key={`${slot.position}-${slot.startAt}-${slot.displayLabel}-mobile`}>
-                      <ViewerLocalEventTimeRange className="font-medium" endAt={slot.endAt} startAt={slot.startAt} />
-                      <div>
-                        {slot.performer ? (
-                          <Link className={inlineActionClassName} href={`/${slot.performer.slug}`}>
-                            {slot.displayLabel}
-                          </Link>
-                        ) : (
-                          <span className="font-semibold tracking-[-0.02em]">{slot.displayLabel}</span>
-                        )}
-                      </div>
-                      <div className="text-muted">{slot.roleLabel}</div>
-                    </div>
-                  ))}
-                </div>
-                <Table className="hidden sm:table">
-                  <TableHead>
-                    <tr>
-                      <TableHeaderCell>Time</TableHeaderCell>
-                      <TableHeaderCell>Session</TableHeaderCell>
-                      <TableHeaderCell>Details</TableHeaderCell>
-                    </tr>
-                  </TableHead>
-                  <tbody className="divide-y divide-border">
-                    {event.slots.map((slot) => (
-                      <tr className="align-top" key={`${slot.position}-${slot.startAt}-${slot.displayLabel}`}>
-                        <TableCell className="whitespace-nowrap font-medium"><ViewerLocalEventTimeRange endAt={slot.endAt} startAt={slot.startAt} /></TableCell>
-                        <TableCell>
-                          {slot.performer ? (
-                            <Link className={inlineActionClassName} href={`/${slot.performer.slug}`}>
-                              {slot.displayLabel}
-                            </Link>
-                          ) : (
-                            <span className="font-semibold tracking-[-0.02em]">{slot.displayLabel}</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-muted">{slot.roleLabel}</TableCell>
-                      </tr>
-                    ))}
-                  </tbody>
-                </Table>
-              </TableFrame>
-            </div>
+            <ol className="mt-5 divide-y divide-border">
+              {event.slots.map((slot) => (
+                <li className="grid min-w-0 gap-3 py-5 first:pt-0 sm:grid-cols-[10rem_minmax(0,1fr)]" key={slot.playbackKey ?? `${slot.position}-${slot.startAt}`}>
+                  <ViewerLocalEventTimeRange className="text-sm font-medium" endAt={slot.endAt} startAt={slot.startAt} />
+                  <div className="min-w-0">
+                    {slot.performer ? (
+                      <Link className={cn(inlineActionClassName, "[overflow-wrap:anywhere]")} href={`/${slot.performer.slug}`}>{slot.displayLabel}</Link>
+                    ) : <span className="font-semibold">{slot.displayLabel}</span>}
+                    <div className="mt-1 text-sm text-muted">{slot.roleLabel}</div>
+                    <EventPerformerLinks links={slot.performer?.outboundLinks ?? []} />
+                  </div>
+                </li>
+              ))}
+            </ol>
           </Card>
         ) : null}
 
@@ -442,16 +421,19 @@ export function EventPublicPage({ event }: { event: PublicEvent }) {
             <Eyebrow>Participants</Eyebrow>
             <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {event.participants.map((participant) => (
-                <Link className={cn(actionCardVariants({ padding: "lg", variant: "accent" }), "flex items-center gap-3")} href={`/${participant.slug}`} key={participant.slug}>
-                  <EntityImage appearance={participant.avatarAppearance} imageUrl={participant.imageUrl} label={participant.displayName} />
-                  <span className="min-w-0">
-                    <span className="block text-lg font-semibold tracking-[-0.03em] text-accent-strong underline decoration-accent/45 underline-offset-4 group-hover:decoration-accent">
-                      {participant.displayName}
+                <div className="min-w-0" key={participant.slug}>
+                  <Link className={cn(actionCardVariants({ padding: "lg", variant: "accent" }), "flex items-center gap-3")} href={`/${participant.slug}`}>
+                    <EntityImage appearance={participant.avatarAppearance} imageUrl={participant.imageUrl} label={participant.displayName} />
+                    <span className="min-w-0">
+                      <span className="block text-lg font-semibold tracking-[-0.03em] text-accent-strong underline decoration-accent/45 underline-offset-4 group-hover:decoration-accent">
+                        {participant.displayName}
+                      </span>
+                      <span className="mt-2 block text-muted">{participant.roleLabel}</span>
+                      <span className={actionMetaClassName}>Profile</span>
                     </span>
-                    <span className="mt-2 block text-muted">{participant.roleLabel}</span>
-                    <span className={actionMetaClassName}>Profile</span>
-                  </span>
-                </Link>
+                  </Link>
+                  <EventPerformerLinks links={participant.outboundLinks ?? []} />
+                </div>
               ))}
             </div>
           </Card>

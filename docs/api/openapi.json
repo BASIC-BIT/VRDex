@@ -5851,6 +5851,13 @@
               }
             ]
           },
+          "watchMode": {
+            "type": "string",
+            "enum": [
+              "event_stream",
+              "performer_sequence"
+            ]
+          },
           "watchSurfaceEnabled": {
             "type": "boolean"
           },
@@ -5937,6 +5944,18 @@
             "items": {
               "type": "object",
               "properties": {
+                "selectedStreamId": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 2,
+                      "maxLength": 128
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "personSlug": {
                   "type": "string",
                   "minLength": 1,
@@ -6050,6 +6069,13 @@
             "type": "string",
             "format": "uri"
           },
+          "watchMode": {
+            "type": "string",
+            "enum": [
+              "event_stream",
+              "performer_sequence"
+            ]
+          },
           "watchSurfaceEnabled": {
             "type": "boolean"
           },
@@ -6136,6 +6162,18 @@
             "items": {
               "type": "object",
               "properties": {
+                "selectedStreamId": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 2,
+                      "maxLength": 128
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "personSlug": {
                   "type": "string",
                   "minLength": 1,
@@ -6857,6 +6895,14 @@
               "cancelled"
             ]
           },
+          "watchMode": {
+            "default": "event_stream",
+            "type": "string",
+            "enum": [
+              "event_stream",
+              "performer_sequence"
+            ]
+          },
           "watchSurfaceEnabled": {
             "type": "boolean"
           },
@@ -6884,6 +6930,7 @@
           "sourceLabel",
           "publicationState",
           "status",
+          "watchMode",
           "watchSurfaceEnabled",
           "updatedAt"
         ],
@@ -9962,7 +10009,70 @@
           },
           "worlds": {
             "type": "array",
-            "items": {}
+            "items": {
+              "type": "object",
+              "properties": {
+                "displayName": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "slug": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 160
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "heroImageUrl": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "association": {
+                  "type": "object",
+                  "properties": {
+                    "sourceType": {
+                      "type": "string",
+                      "enum": [
+                        "manual",
+                        "community",
+                        "partner",
+                        "import",
+                        "ai_suggested"
+                      ],
+                      "description": "Public event source class."
+                    },
+                    "confirmationState": {
+                      "type": "string",
+                      "const": "confirmed"
+                    },
+                    "confirmedAt": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "sourceType",
+                    "confirmationState"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "displayName",
+                "slug",
+                "tags",
+                "association"
+              ],
+              "additionalProperties": {}
+            }
           },
           "authoredMediaLinks": {
             "type": "array",
@@ -10055,11 +10165,475 @@
           },
           "participants": {
             "type": "array",
-            "items": {}
+            "items": {
+              "type": "object",
+              "properties": {
+                "slug": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 160
+                },
+                "displayName": {
+                  "type": "string"
+                },
+                "trustLabel": {
+                  "type": "string",
+                  "enum": [
+                    "community_submitted",
+                    "unclaimed",
+                    "claimed_unverified",
+                    "claimed_verified"
+                  ]
+                },
+                "imageUrl": {
+                  "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                },
+                "avatarAppearance": {
+                  "type": "object",
+                  "properties": {
+                    "borderColor": {
+                      "type": "string"
+                    },
+                    "borderEnabled": {
+                      "type": "boolean"
+                    },
+                    "borderSoftnessPx": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "borderWidthPx": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "radiusPercent": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 50
+                    }
+                  },
+                  "required": [
+                    "borderColor",
+                    "borderEnabled",
+                    "borderSoftnessPx",
+                    "borderWidthPx",
+                    "radiusPercent"
+                  ],
+                  "additionalProperties": {},
+                  "description": "Bounded public avatar presentation hints."
+                },
+                "outboundLinks": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "labelMode": {
+                        "type": "string",
+                        "enum": [
+                          "automatic",
+                          "custom"
+                        ]
+                      },
+                      "destination": {
+                        "type": "object",
+                        "properties": {
+                          "targetKey": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "vrchat_user",
+                              "vrchat_group",
+                              "discord_guild"
+                            ]
+                          },
+                          "entityId": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "artworkUrl": {
+                            "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "pending",
+                              "resolved",
+                              "unavailable",
+                              "invalid"
+                            ]
+                          },
+                          "observedAt": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "targetKey",
+                          "kind",
+                          "status"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "source": {
+                        "type": "string"
+                      },
+                      "type": {
+                        "type": "string"
+                      },
+                      "url": {
+                        "type": "string",
+                        "format": "uri"
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "url"
+                    ],
+                    "additionalProperties": {},
+                    "description": "A public outbound link."
+                  }
+                },
+                "roleLabel": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "sourceType": {
+                      "type": "string",
+                      "enum": [
+                        "manual",
+                        "community",
+                        "partner",
+                        "import",
+                        "ai_suggested"
+                      ],
+                      "description": "Public event source class."
+                    },
+                    "url": {
+                      "type": "string",
+                      "format": "uri"
+                    }
+                  },
+                  "required": [
+                    "label",
+                    "sourceType"
+                  ],
+                  "additionalProperties": {},
+                  "description": "Public event source summary."
+                }
+              },
+              "required": [
+                "slug",
+                "displayName",
+                "trustLabel",
+                "outboundLinks",
+                "roleLabel",
+                "source"
+              ],
+              "additionalProperties": false
+            }
           },
           "slots": {
             "type": "array",
-            "items": {}
+            "items": {
+              "type": "object",
+              "properties": {
+                "playbackKey": {
+                  "type": "string"
+                },
+                "position": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "startAt": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "endAt": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "displayLabel": {
+                  "type": "string"
+                },
+                "roleLabel": {
+                  "type": "string"
+                },
+                "discord": {
+                  "type": "object",
+                  "properties": {
+                    "shortTime": {
+                      "type": "string"
+                    },
+                    "longTime": {
+                      "type": "string"
+                    },
+                    "shortDate": {
+                      "type": "string"
+                    },
+                    "longDate": {
+                      "type": "string"
+                    },
+                    "shortDateTime": {
+                      "type": "string"
+                    },
+                    "longDateTime": {
+                      "type": "string"
+                    },
+                    "relative": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "shortTime",
+                    "longTime",
+                    "shortDate",
+                    "longDate",
+                    "shortDateTime",
+                    "longDateTime",
+                    "relative"
+                  ],
+                  "additionalProperties": false
+                },
+                "performer": {
+                  "type": "object",
+                  "properties": {
+                    "slug": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 160
+                    },
+                    "displayName": {
+                      "type": "string"
+                    },
+                    "trustLabel": {
+                      "type": "string",
+                      "enum": [
+                        "community_submitted",
+                        "unclaimed",
+                        "claimed_unverified",
+                        "claimed_verified"
+                      ]
+                    },
+                    "imageUrl": {
+                      "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                    },
+                    "avatarAppearance": {
+                      "type": "object",
+                      "properties": {
+                        "borderColor": {
+                          "type": "string"
+                        },
+                        "borderEnabled": {
+                          "type": "boolean"
+                        },
+                        "borderSoftnessPx": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "borderWidthPx": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "radiusPercent": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 50
+                        }
+                      },
+                      "required": [
+                        "borderColor",
+                        "borderEnabled",
+                        "borderSoftnessPx",
+                        "borderWidthPx",
+                        "radiusPercent"
+                      ],
+                      "additionalProperties": {},
+                      "description": "Bounded public avatar presentation hints."
+                    },
+                    "outboundLinks": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "label": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "labelMode": {
+                            "type": "string",
+                            "enum": [
+                              "automatic",
+                              "custom"
+                            ]
+                          },
+                          "destination": {
+                            "type": "object",
+                            "properties": {
+                              "targetKey": {
+                                "type": "string"
+                              },
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "vrchat_user",
+                                  "vrchat_group",
+                                  "discord_guild"
+                                ]
+                              },
+                              "entityId": {
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "artworkUrl": {
+                                "$ref": "#/components/schemas/AbsoluteOrRootRelativeUrl"
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "pending",
+                                  "resolved",
+                                  "unavailable",
+                                  "invalid"
+                                ]
+                              },
+                              "observedAt": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              }
+                            },
+                            "required": [
+                              "targetKey",
+                              "kind",
+                              "status"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "source": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "string"
+                          },
+                          "url": {
+                            "type": "string",
+                            "format": "uri"
+                          }
+                        },
+                        "required": [
+                          "label",
+                          "url"
+                        ],
+                        "additionalProperties": {},
+                        "description": "A public outbound link."
+                      }
+                    }
+                  },
+                  "required": [
+                    "slug",
+                    "displayName",
+                    "trustLabel",
+                    "outboundLinks"
+                  ],
+                  "additionalProperties": false
+                },
+                "source": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "sourceType": {
+                      "type": "string",
+                      "enum": [
+                        "manual",
+                        "community",
+                        "partner",
+                        "import",
+                        "ai_suggested"
+                      ],
+                      "description": "Public event source class."
+                    },
+                    "url": {
+                      "type": "string",
+                      "format": "uri"
+                    }
+                  },
+                  "required": [
+                    "label",
+                    "sourceType"
+                  ],
+                  "additionalProperties": {},
+                  "description": "Public event source summary."
+                },
+                "stream": {
+                  "type": "object",
+                  "properties": {
+                    "streamId": {
+                      "type": "string",
+                      "minLength": 2,
+                      "maxLength": 128
+                    },
+                    "pcUrl": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "questUrl": {
+                      "type": "string",
+                      "format": "uri"
+                    }
+                  },
+                  "required": [
+                    "streamId",
+                    "pcUrl",
+                    "questUrl"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "playbackKey",
+                "position",
+                "startAt",
+                "displayLabel",
+                "roleLabel",
+                "discord",
+                "source"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "watchMode": {
+            "default": "event_stream",
+            "type": "string",
+            "enum": [
+              "event_stream",
+              "performer_sequence"
+            ]
           },
           "watchSurfaceEnabled": {
             "type": "boolean"
@@ -10071,6 +10645,7 @@
           "startAt",
           "title",
           "id",
+          "watchMode",
           "watchSurfaceEnabled"
         ],
         "additionalProperties": {},
