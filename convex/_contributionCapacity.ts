@@ -21,6 +21,25 @@ export function reservationBytes(sourceBytes: number) {
     2 * PROFILE_ASSET_UPLOAD_MAX_BYTES
   );
 }
+export function localUploadModes(env: Record<string, string | undefined> = process.env) {
+  const ready = env.VRDEX_CONTRIBUTION_UPLOADS_ENABLED === "true" &&
+    env.VRDEX_MEDIA_UPLOAD_CLEANUP_READY === "true" &&
+    !!env.VRDEX_MEDIA_CLEANUP_URL && !!env.VRDEX_MEDIA_CLEANUP_TOKEN;
+  return {
+    owner: ready && env.VRDEX_PROFILE_MEDIA_KIT_ENABLED === "true",
+    contributor: ready && env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED === "true",
+  };
+}
+// Includes archived and legacy envelopes. A bounded read also handles rows created
+// before envelope admission existed, without an unbounded migration transaction.
+export async function retainedBatchUsage(db: DatabaseReader, actor: Id<"users">, limit: number) {
+  const page = await db.query("contributionBatches")
+    .withIndex("by_actor_key", q => q.eq("actorUserId", actor)).paginate({
+      cursor: null, numItems: limit + 1, maximumRowsRead: limit + 1,
+      maximumBytesRead: 8 * 1024 * 1024,
+    });
+  return { count: page.page.length, isLowerBound: !page.isDone || page.pageStatus === "SplitRequired" };
+}
 export async function effectiveContributionPolicy(
   db: DatabaseReader,
   actor: Id<"users">,

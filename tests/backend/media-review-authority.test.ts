@@ -49,6 +49,19 @@ it("projects and versions the automatic image used by the public profile", async
   await t.run(async (ctx) => {
     const destination = await ctx.db.query("profileLinkDestinations").first();
     assert.ok(destination);
+    await ctx.db.patch(destination._id, {
+      leaseToken: "refresh", leaseExpiresAt: Date.now() + 60000,
+      leaseWorker: { collectorAccountId: "collector", workerId: "worker", workerKeyHash: "hash" },
+      workDueAt: Date.now(), nextAttemptAt: Date.now(), lastReferencedAt: Date.now(),
+    });
+  });
+  const leased = await actor.query(api.profileMediaSubmissions.reviewDetail, {
+    submissionId: intent.submissionId,
+  });
+  assert.equal(leased?.reviewVersion, before.reviewVersion);
+  await t.run(async (ctx) => {
+    const destination = await ctx.db.query("profileLinkDestinations").first();
+    assert.ok(destination);
     await ctx.db.patch(destination._id, { observedAt: 2 });
   });
   const after = await actor.query(api.profileMediaSubmissions.reviewDetail, {

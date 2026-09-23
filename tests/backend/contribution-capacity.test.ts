@@ -126,6 +126,31 @@ it("discovers effective baseline limits without intake and keeps capacity separa
   const before = await t.query(internal.contributionCapacity.get, authority);
   assert.equal(before.limits.openActor, 3);
   assert.equal(before.reservation, false);
+  const gates = {
+    VRDEX_CONTRIBUTION_UPLOADS_ENABLED: "true", VRDEX_MEDIA_UPLOAD_CLEANUP_READY: "true",
+    VRDEX_MEDIA_CLEANUP_URL: "https://example.test/cleanup", VRDEX_MEDIA_CLEANUP_TOKEN: "test",
+    VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED: "true", VRDEX_PROFILE_MEDIA_KIT_ENABLED: "true",
+  };
+  const previous = Object.fromEntries(Object.keys(gates).map(key => [key, process.env[key]]));
+  try {
+    Object.assign(process.env, gates);
+    assert.equal((await t.query(internal.contributionCapacity.get, authority)).features.localUploads, true);
+    for (const key of Object.keys(gates).filter(key => key !== "VRDEX_PROFILE_MEDIA_KIT_ENABLED")) {
+      delete process.env[key];
+      assert.equal((await t.query(internal.contributionCapacity.get, authority)).features.localUploads, false, key);
+      Object.assign(process.env, gates);
+    }
+    delete process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED;
+    const contributorOnly = await t.query(internal.contributionCapacity.get, authority);
+    assert.equal(contributorOnly.features.localUploads, true);
+    assert.deepEqual(contributorOnly.features.localUploadModes, { owner: false, contributor: true });
+    assert.equal(contributorOnly.usage.retainedBatches, 0);
+    assert.equal(contributorOnly.limits.retainedBatches, 1000);
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+  }
   await t.run((ctx) =>
     ctx.db.insert("contributionCapacity", {
       scope: `actor:${s.contributorUserId}`,

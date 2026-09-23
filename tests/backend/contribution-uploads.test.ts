@@ -24,6 +24,16 @@ process.env.VRDEX_MEDIA_CLEANUP_URL =
 process.env.VRDEX_MEDIA_CLEANUP_TOKEN = "test-only";
 process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED = "true";
 process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "true";
+it("identifies the stored upload mode scope before claiming with an alternative grant", async () => {
+  for (const mode of ["owner", "contributor"] as const) {
+    const f = await fixture(mode);
+    const requiredScope = mode === "owner" ? "assets:write" : "assets:contribute";
+    await f.t.run(ctx => ctx.db.patch(f.tokenId, { scopes: ["mcp:write", mode === "owner" ? "assets:contribute" : "assets:write"] }));
+    await assert.rejects(f.t.mutation(internal.contributionUploads.claim, f.claimInput), {
+      data: { code: "UPLOAD_DELEGATION_DENIED", requiredScope },
+    });
+  }
+});
 it("recovers completed upload only with the exact completion key and replays admission result", async () => {
   const f = await fixture();
   await f.t.mutation(internal.contributionUploads.claim, f.claimInput);

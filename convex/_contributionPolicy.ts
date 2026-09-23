@@ -17,6 +17,7 @@ const baseline = {
   actorBytes: 144 * MiB,
   targetBytes: 96 * MiB,
   activeRows: 1000,
+  retainedBatches: 1000,
   retainedRevisions: 10000,
 };
 const ordinary = {
@@ -38,6 +39,7 @@ const trusted = {
   actorProcessing: 4,
   actorBytes: 20 * GiB,
   activeRows: 10000,
+  retainedBatches: 10000,
   retainedRevisions: 100000,
 };
 export function resolveContributionPolicy(

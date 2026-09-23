@@ -22,6 +22,37 @@ const modules = {
 process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED = "true";
 process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED = "true";
 
+it("reserves derivatives for pending legacy uploads and settles all retained variants", async () => {
+  const t = convexTest({ schema, modules }), s = await seed(t);
+  const intent = await t.withIdentity(s.contributorIdentity).mutation(
+    api.profileMediaSubmissions.createUploadIntent, {
+      profileId: s.profileId, requestedPlacement: "profile_image",
+      originalFileName: "source.png", mimeType: "image/png", byteSize: 512,
+      sourceUrl: "https://example.test/source", credit: "Artist",
+      expectedProfileUpdatedAt: (await t.run(ctx => ctx.db.get(s.profileId)))!.updatedAt,
+    },
+  );
+  await t.run(async ctx => {
+    for (const row of await ctx.db.query("contributionUploadReservations").collect()) await ctx.db.delete(row._id);
+    for (const row of await ctx.db.query("contributionCapacity").collect()) await ctx.db.delete(row._id);
+  });
+  await t.mutation(internal.contributionOperations.backfillSubmissions, { cursor: null });
+  const reservation = (await t.run(ctx => ctx.db.query("contributionUploadReservations").unique()))!;
+  assert.equal(reservation.chargedBytes, 2 * 512 + 2 * 12 * 1024 * 1024);
+  await t.mutation(internal.profileAssets.claimUploadIntentForStorage, {
+    intentId: intent.intentId, uploadToken: intent.uploadToken, processingToken: "legacy",
+  });
+  await t.mutation(internal.profileAssets.markUploadIntentUploaded, {
+    intentId: intent.intentId, uploadToken: intent.uploadToken, processingToken: "legacy",
+    mimeType: "image/webp", byteSize: 200, contentSha256: "display", width: 10, height: 10,
+    sourceMimeType: "image/png", sourceByteSize: 512, sourceContentSha256: "source",
+    downloadMimeType: "image/png", downloadByteSize: 400, downloadContentSha256: "download",
+  });
+  const settled = (await t.run(ctx => ctx.db.get(reservation._id)))!;
+  assert.equal(settled.chargedBytes, 1112);
+  assert.equal(settled.processing, false);
+});
+
 it("backfills consumed approved legacy media as committed and never leases published keys", async () => {
   const t = convexTest({ schema, modules }),
     s = await seed(t);

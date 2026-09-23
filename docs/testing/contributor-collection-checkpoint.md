@@ -53,6 +53,24 @@ reason (`collection`, `reconsideration`, `temporary_batch`); own request status 
 available through `vrdex_contribution_capacity_requests`. These are ordinary MCP
 operations, not admin-only scripts. They remain available during intake pause.
 
+Retained batch envelopes have a separate quota, including empty, archived and
+legacy batches. The bound is 1,000 for baseline/ordinary actors and 10,000 for
+synthetic trusted actors, matching the active-row policy scale. Current trust
+determines admission. Archiving does not release this quota, and an existing
+caller key still replays at or above the bound. `BATCH_ENVELOPE_LIMIT` refuses
+new keys without deleting audit or receipt rows. No counter backfill is needed.
+Admission and capacity discovery paginate at most the current limit plus one
+indexed batch rows with an 8 MiB byte budget. A final document may cross that
+budget; its 1 MiB document ceiling leaves headroom under the transaction limit.
+`usage.retainedBatchesIsLowerBound` marks any incomplete count. If the page ends
+before proving a count below quota, `BATCH_ENVELOPE_COUNT_INCOMPLETE` refuses new
+keys. Existing keys still replay. Operators can inspect oversized legacy cleanup
+metadata and sum every `reconcilePage(kind: "batches")` page for the exact count;
+reconciliation also uses the byte budget and at most 40 rows per page. Exact
+reconciliation alone does not override admission or delete retained records.
+Batch reconciliation counts active rows only in non-archived batches. Revision
+reconciliation excludes rows whose private payload has expired.
+
 The separately granted `trusted_contributor` feature conveys capacity only.
 `accountFeatureGrants.grant` can link a request ID; revoke and expiry use the
 existing internal grant operations. No migration creates grants. Temporary batch
@@ -120,6 +138,8 @@ initial fetch requests; SSRF/redirect restrictions remain in the fetch adapter.
    untracked legacy records and unknown sizes block elevated rollout. Backfill
    conservatively reserves unknown legacy sizes. Do not certify accounting from
    a database-only inventory.
+   Pending legacy submissions reserve declared source bytes plus worst-case
+   derivative capacity, then settle actual source/download/display bytes on seal.
 4. Prove cleanup retries, held-object exclusion, published transfer, lost-response
    replay and intake pause on the exact approved dedicated deployment. Archived
    private manifest payloads expire after 30 days, except unresolved review and

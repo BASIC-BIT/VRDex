@@ -73,7 +73,46 @@ it("compares the effective alternate managed slot for person and community witho
         ?.storageKey,
       "alternate.png",
     );
+    const reviewer = t.withIdentity(s.moderatorIdentity);
+    const storageArgs = { submissionId: intent.submissionId, assetId, expectedReviewVersion: d!.reviewVersion };
+    assert.equal((await reviewer.query(api.profileMediaSubmissions.getCurrentForStorage, storageArgs))?.storageKey, "alternate.png");
+    assert.equal(await reviewer.query(api.profileMediaSubmissions.getCurrentForStorage, { ...storageArgs, expectedReviewVersion: "stale" }), null);
+    await assert.rejects(t.withIdentity(s.contributorIdentity).query(api.profileMediaSubmissions.getCurrentForStorage, storageArgs), /ACCESS_REQUIRED/);
+    await t.run(ctx => ctx.db.patch(s.profileId, { publicSurfacingState: "opted_out" }));
+    const privateDetail = await reviewer.query(api.profileMediaSubmissions.reviewDetail, { submissionId: intent.submissionId });
+    const privateArgs = { ...storageArgs, expectedReviewVersion: privateDetail!.reviewVersion };
+    assert.equal((await reviewer.query(api.profileMediaSubmissions.getCurrentForStorage, privateArgs))?.storageKey, "alternate.png");
+    assert.equal(await reviewer.query(api.profileMediaSubmissions.getCurrentForStorage, storageArgs), null);
+    await t.run(async ctx => {
+      await ctx.db.patch(s.profileId, { claimState: "claimed_verified" });
+      await ctx.db.insert("profileOwners", { profileId: s.profileId, userId: s.contributorUserId, roleKey: "owner", state: "active", grantedAt: NOW, updatedAt: NOW });
+    });
+    const owner = t.withIdentity(s.contributorIdentity);
+    const ownerDetail = await owner.query(api.profileMediaSubmissions.reviewDetail, { submissionId: intent.submissionId });
+    assert.equal((await owner.query(api.profileMediaSubmissions.getCurrentForStorage, { ...storageArgs, expectedReviewVersion: ownerDetail!.reviewVersion }))?.storageKey, "alternate.png");
   }
+});
+it("binds assigned current-image reads to the reviewed asset and current target authority", async () => {
+  const f = await fixture();
+  const assetId = await f.t.run(async ctx => {
+    const id = await ctx.db.insert("profileAssets", {
+      profileId: f.s.profileId, storageKey: "current.webp", mimeType: "image/webp", byteSize: 100,
+      visibility: "public", state: "active", source: "owner_authored", uploadedAt: NOW, updatedAt: NOW,
+      uploadedBy: { issuer: "test", subject: "owner", tokenIdentifier: "test:owner" },
+    });
+    await ctx.db.insert("profileAssetPlacements", { profileId: f.s.profileId, assetId: id, placement: "profile_image", position: 0, state: "active", updatedAt: NOW });
+    return id;
+  });
+  const detail = await f.actor.query(api.profileMediaSubmissions.reviewDetail, { submissionId: f.intent.submissionId });
+  const args = { submissionId: f.intent.submissionId, assetId, expectedReviewVersion: detail!.reviewVersion };
+  assert.equal((await f.actor.query(api.profileMediaSubmissions.getCurrentForStorage, args))?.storageKey, "current.webp");
+  await f.t.run(ctx => ctx.db.patch(f.assignmentId, { active: false }));
+  await assert.rejects(f.actor.query(api.profileMediaSubmissions.getCurrentForStorage, args), /ACCESS_REQUIRED/);
+  await f.t.run(async ctx => {
+    await ctx.db.patch(f.assignmentId, { active: true });
+    await ctx.db.patch(f.s.profileId, { publicSurfacingState: "opted_out" });
+  });
+  await assert.rejects(f.actor.query(api.profileMediaSubmissions.getCurrentForStorage, args), /ACCESS_REQUIRED/);
 });
 it("keeps assignment revoke and regrant actor reason history", async () => {
   const f = await fixture();

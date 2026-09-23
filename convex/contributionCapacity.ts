@@ -4,7 +4,7 @@ import {
   contributionAuthorityArgs,
   authorizeContribution,
 } from "./_contributionAuth";
-import { effectiveContributionPolicy } from "./_contributionCapacity";
+import { effectiveContributionPolicy, localUploadModes, retainedBatchUsage } from "./_contributionCapacity";
 import { getAccountFeatureAccess } from "./_accountFeatures";
 import { readScopedCursor, writeScopedCursor } from "./_reviewCursor";
 import { resolveContributionPolicy } from "./_contributionPolicy";
@@ -16,6 +16,8 @@ export const get = internalQuery({
   handler: async (ctx, args) => {
     const token = await authorizeContribution(ctx, args, false);
     const policy = await effectiveContributionPolicy(ctx.db, args.actorUserId);
+    const uploadModes = localUploadModes();
+    const envelopes = await retainedBatchUsage(ctx.db, args.actorUserId, policy.limits.retainedBatches);
     const open = await openSubmissionCountForUser(
       ctx,
       args.actorUserId,
@@ -72,7 +74,8 @@ export const get = internalQuery({
       features: {
         bulk: policy.bulkEnabled,
         paused: policy.paused,
-        localUploads: process.env.VRDEX_CONTRIBUTION_UPLOADS_ENABLED === "true",
+        localUploads: uploadModes.contributor,
+        localUploadModes: uploadModes,
       },
       scopes: token.scopes,
       usage: {
@@ -80,6 +83,8 @@ export const get = internalQuery({
         processing: usage?.processing ?? 0,
         open,
         activeRows: manifest?.activeRows ?? 0,
+        retainedBatches: envelopes.count,
+        retainedBatchesIsLowerBound: envelopes.isLowerBound,
         retainedRevisions: manifest?.retainedRevisions ?? 0,
         retainedMetadataBytes: manifest?.retainedBytes ?? 0,
         creations24h: active.length,

@@ -2,6 +2,7 @@ import { canReadProfile } from "./_profilePermissions";
 import {
   effectiveContributionPolicy,
   batchAllowance,
+  retainedBatchUsage,
 } from "./_contributionCapacity";
 import {
   activeBatchAssignment,
@@ -215,6 +216,12 @@ export const create = internalMutation({
       if (old.label !== input.label) throw new ConvexError({ code: "BATCH_CONFLICT" });
       return batchView(old);
     }
+    const policy = await effectiveContributionPolicy(ctx.db, args.actorUserId);
+    const envelopes = await retainedBatchUsage(ctx.db, args.actorUserId, policy.limits.retainedBatches);
+    if (envelopes.count >= policy.limits.retainedBatches)
+      throw new ConvexError({ code: "BATCH_ENVELOPE_LIMIT" });
+    if (envelopes.isLowerBound)
+      throw new ConvexError({ code: "BATCH_ENVELOPE_COUNT_INCOMPLETE" });
     const id = await ctx.db.insert("contributionBatches", {
       actorUserId: args.actorUserId,
       ...input,
@@ -684,6 +691,7 @@ export const reconcilePage = internalQuery({
     activeRows: v.number(),
     retainedRevisions: v.number(),
     retainedBytes: v.number(),
+    retainedBatches: v.number(),
   }),
   handler: async (ctx, args) => {
     await authorizeContribution(ctx, args, false);
@@ -695,13 +703,14 @@ export const reconcilePage = internalQuery({
       const p = await ctx.db
         .query("contributionBatches")
         .withIndex("by_actor_archived", (q) =>
-          q.eq("actorUserId", args.actorUserId).eq("archived", false),
+          q.eq("actorUserId", args.actorUserId),
         )
-        .paginate({ numItems: 40, cursor });
+        .paginate({ numItems: 40, cursor, maximumRowsRead: 40, maximumBytesRead: 8 * 1024 * 1024 });
       return {
         cursor: writeScopedCursor(p.continueCursor, scope),
         isDone: p.isDone,
-        activeRows: p.page.reduce((n, b) => n + b.rowCount, 0),
+        activeRows: p.page.reduce((n, b) => n + (b.archived ? 0 : b.rowCount), 0),
+        retainedBatches: p.page.length,
         retainedRevisions: 0,
         retainedBytes: 0,
       };
@@ -714,7 +723,8 @@ export const reconcilePage = internalQuery({
       cursor: writeScopedCursor(p.continueCursor, scope),
       isDone: p.isDone,
       activeRows: 0,
-      retainedRevisions: p.page.length,
+      retainedBatches: 0,
+      retainedRevisions: p.page.filter((r) => r.payloadExpiredAt === undefined).length,
       retainedBytes: p.page.reduce((n, r) => n + r.bytes, 0),
     };
   },

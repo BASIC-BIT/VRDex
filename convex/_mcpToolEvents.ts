@@ -21,6 +21,8 @@ export const mcpToolNameValidator = v.union(
   v.literal("vrdex_media_review_get"),
   v.literal("vrdex_media_submission_get"),
   v.literal("vrdex_media_submission_preview"),
+  v.literal("vrdex_get_my_media_submission"),
+  v.literal("vrdex_media_review_assignments"),
   v.literal("vrdex_media_review_preview"),
   v.literal("vrdex_media_review_decide"),
   v.literal("vrdex_media_review_rebase"),

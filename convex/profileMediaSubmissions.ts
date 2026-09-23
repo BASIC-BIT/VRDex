@@ -2210,6 +2210,22 @@ async function authorizedCurrentStorage(
     artworkKey: key,
   };
 }
+export const getCurrentForStorage = query({
+  args: { submissionId, assetId: v.id("profileAssets"), expectedReviewVersion: v.string() },
+  handler: async (ctx, args) => {
+    assertContributionsEnabled();
+    const actor = await browserReviewActor(ctx);
+    const detail = await authorizedReviewDetail(ctx, args.submissionId, actor);
+    if (detail?.reviewVersion !== args.expectedReviewVersion ||
+      detail.currentImage?.kind !== "managed" || detail.currentImage.assetId !== args.assetId)
+      return null;
+    const current = await authorizedCurrentStorage(ctx, args.submissionId, actor, false);
+    return current && "storageKey" in current ? {
+      storageKey: current.storageKey, mimeType: current.mimeType,
+      profileDisplayName: current.profileDisplayName,
+    } : null;
+  },
+});
 export const currentForMcpActor = internalQuery({
   args: {
     ...reviewActorAttestationArgs,

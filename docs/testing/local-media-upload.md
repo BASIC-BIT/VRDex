@@ -35,6 +35,11 @@ The form remains reusable until expiry. Finalization is a separate authenticated
 
 Existing `VRDEX_PROFILE_MEDIA_KIT_ENABLED` and `VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED` still gate their respective modes. Existing Next storage bucket, region, and OIDC configuration supplies storage authority. Convex only calls the authenticated Next worker, never the storage role directly.
 
+Capacity discovery reports `features.localUploads` for contributor mode and
+`features.localUploadModes` for both modes. These values use the same upload,
+cleanup-readiness, cleanup URL/token and mode-specific feature gates as admission.
+They describe configuration readiness, not a reservation or a grant of authority.
+
 To recreate or rotate the worker token, generate a new random secret, update both server secret stores in a coordinated operation, then prove the worker route rejects the previous token and accepts the new one. Disable intake readiness during a mismatched-token interval. No secret values belong in source control. Hosted provisioning and rotation require separate approval.
 
 The ten-minute cron claims at most 20 upload obligations and 20 proposal obligations. A claim contains server-selected keys and a deletion token. The worker confirms an obligation only after all its keys were deleted successfully. Failed and abandoned writes remain byte-charged until confirmation. Upload cleanup starts 24 hours after transfer expiry to allow bounded server work and in-flight transfers to settle. Daily tombstone sweeps reconcile late quarantine writes and failed-intent writes. Legal holds exclude deletion and cannot be added while a deletion token is outstanding. The existing browser admin cleanup adapters remain available.
@@ -50,6 +55,21 @@ Successful admission contains only intent ID, expiry, and the POST URL/form fiel
 The initial signing request holds a private fence until target generation settles. Concurrent admission replay returns `in_progress`. Signing failure records `UPLOAD_TARGET_UNAVAILABLE` and releases processing once; same-key replay returns that refusal. Signing failures after a target was issued cannot cancel its reservation. Bytes stay charged until confirmed cleanup.
 
 ## URL acquisition recovery
+
+The HTTP classifier and tool callbacks require transport and resource scopes.
+Collection reads accept either contribution grant or `assets:review:read`;
+collection writes accept either contribution grant. Append and revise require
+the grant for each supplied item kind. Upload begin requires the grant for its
+declared mode. Submit and complete recheck stored revision kind or upload mode
+in Convex and return a recoverable insufficient-scope challenge when the token
+needs the other grant. Alternative grants are not cumulative requirements.
+Backend ownership, assignment, verification and target restrictions still apply.
+
+Reviewer current-image URLs bind the submission, managed asset and inspected
+review version. The authenticated route reuses detail authority, including
+private-target super-admin and owner access and public-target assigned-reviewer
+limits. Background artwork leases do not change a review version; destination
+identity, status, artwork or observation changes still invalidate it.
 
 Legacy proposal imports treat source-host throttling as transient. Before any source fetch or storage write, the matching worker reopens its lease and refunds the unused processing attempt. The proposal remains `upload_pending` and the same key may resume after the host window resets. The hosted handler returns `CONTRIBUTION_HOST_RATE`, `in_progress`, `retry_same_key`, and a bounded 60-second retry delay in structured content and matching JSON text. Admitted capacity stays charged, and retry rechecks live OAuth and target authority.
 

@@ -42,10 +42,12 @@ describe("media review view model", () => {
       profileId: "profile-1",
       profileSlug: "fixture",
       profileIsPublic: false,
+      submissionId: "submission-1",
+      reviewVersion: "revision-1",
       currentPlacement: { assetId: "asset-1" },
       currentAvatarImageUrl: null,
       currentAutomaticImageUrl: null,
-    }), "/api/account/media-kit/profile-1/assets/asset-1/file");
+    }), "/api/account/media-review/submissions/submission-1/file?image=current&assetId=asset-1&reviewVersion=revision-1");
     assert.equal(reviewPlacementImage({
       profileId: "profile-1",
       profileSlug: "fixture",

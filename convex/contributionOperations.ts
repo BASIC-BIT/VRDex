@@ -274,7 +274,9 @@ export const backfillSubmissions = internalMutation({
       const bytes =
         submission.blobDeletedAt !== undefined
           ? 0
-          : known || reservationBytes(12 * 1024 * 1024);
+          : processing
+            ? reservationBytes(intent.byteSize ?? 12 * 1024 * 1024)
+            : known || reservationBytes(12 * 1024 * 1024);
       const privateBytes = published ? 0 : bytes;
       await changeContributionCharge(
         ctx.db,

@@ -46,6 +46,8 @@ export function reviewDecisionMessage(
 }
 
 export function reviewPlacementImage(input: {
+  submissionId?: string;
+  reviewVersion?: string;
   profileId: string;
   profileSlug: string;
   profileIsPublic: boolean;
@@ -57,6 +59,9 @@ export function reviewPlacementImage(input: {
   currentAvatarImageUrl: string | null;
   currentAutomaticImageUrl: string | null;
 }) {
+  const privateImage = (assetId: string) => input.submissionId && input.reviewVersion
+    ? `/api/account/media-review/submissions/${encodeURIComponent(input.submissionId)}/file?${new URLSearchParams({ image: "current", assetId, reviewVersion: input.reviewVersion })}`
+    : null;
   if (
     input.currentImage?.kind === "legacy" ||
     input.currentImage?.kind === "automatic"
@@ -65,12 +70,12 @@ export function reviewPlacementImage(input: {
   if (input.currentImage?.kind === "managed")
     return input.profileIsPublic
       ? `/api/v0/profiles/${encodeURIComponent(input.profileSlug)}/assets/${input.currentImage.assetId}/file`
-      : `/api/account/media-kit/${input.profileId}/assets/${input.currentImage.assetId}/file`;
+      : privateImage(input.currentImage.assetId);
   if (input.currentImage === null) return null;
   if (input.currentPlacement === null) {
     return input.currentAvatarImageUrl ?? input.currentAutomaticImageUrl;
   }
   return input.profileIsPublic
     ? `/api/v0/profiles/${encodeURIComponent(input.profileSlug)}/assets/${input.currentPlacement.assetId}/file`
-    : `/api/account/media-kit/${input.profileId}/assets/${input.currentPlacement.assetId}/file`;
+    : privateImage(input.currentPlacement.assetId);
 }

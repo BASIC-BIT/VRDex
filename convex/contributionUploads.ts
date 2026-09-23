@@ -30,6 +30,7 @@ import {
   contributionChargeRefusal,
   batchAllowance,
   assertCapacityNotRevoked,
+  localUploadModes,
 } from "./_contributionCapacity";
 
 const authorityArgs = {
@@ -67,12 +68,7 @@ async function authorize(
   args: Authority,
   mode: "owner" | "contributor",
 ) {
-  if (
-    process.env.VRDEX_CONTRIBUTION_UPLOADS_ENABLED !== "true" ||
-    process.env.VRDEX_MEDIA_UPLOAD_CLEANUP_READY !== "true" ||
-    !process.env.VRDEX_MEDIA_CLEANUP_URL ||
-    !process.env.VRDEX_MEDIA_CLEANUP_TOKEN
-  )
+  if (!localUploadModes()[mode])
     throw new ConvexError({ code: "UPLOAD_DISABLED" });
   if (
     !args.emailVerified ||
@@ -91,10 +87,7 @@ async function authorize(
     token.clientId !== args.oauthClientId ||
     token.status !== "active" ||
     token.expiresAt <= Date.now() ||
-    !token.scopes.includes("mcp:write") ||
-    !token.scopes.includes(
-      mode === "owner" ? "assets:write" : "assets:contribute",
-    )
+    !token.scopes.includes("mcp:write")
   )
     throw new ConvexError({ code: "UPLOAD_DELEGATION_DENIED" });
   if (token.applicationId) {
@@ -107,16 +100,9 @@ async function authorize(
     if (!client || client.status !== "active")
       throw new ConvexError({ code: "UPLOAD_DELEGATION_DENIED" });
   }
-  if (
-    mode === "contributor" &&
-    process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED !== "true"
-  )
-    throw new ConvexError({ code: "UPLOAD_DISABLED" });
-  if (
-    mode === "owner" &&
-    process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED !== "true"
-  )
-    throw new ConvexError({ code: "UPLOAD_DISABLED" });
+  const requiredScope = mode === "owner" ? "assets:write" : "assets:contribute";
+  if (!token.scopes.includes(requiredScope))
+    throw new ConvexError({ code: "UPLOAD_DELEGATION_DENIED", requiredScope });
 }
 async function target(
   ctx: MutationCtx,

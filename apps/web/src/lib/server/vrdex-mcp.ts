@@ -170,14 +170,14 @@ const mcpWriteToolResourceScopes: Record<(typeof mcpWriteToolNames)[number], Api
   vrdex_media_submission_withdraw: "assets:contribute",
   vrdex_media_submission_publish: "assets:publish",
   vrdex_media_submission_declare: "assets:publish",
-  vrdex_contribution_capacity_request: "mcp:write",
-  vrdex_contribution_batch_create: "mcp:write",
-  vrdex_contribution_batch_append: "mcp:write",
-  vrdex_contribution_batch_archive: "mcp:write",
-  vrdex_contribution_item_submit: "mcp:write",
-  vrdex_contribution_item_revise: "mcp:write",
-  vrdex_media_upload_begin: "mcp:write",
-  vrdex_media_upload_complete: "mcp:write",
+  vrdex_contribution_capacity_request: "assets:contribute",
+  vrdex_contribution_batch_create: "assets:contribute",
+  vrdex_contribution_batch_append: "assets:contribute",
+  vrdex_contribution_batch_archive: "assets:contribute",
+  vrdex_contribution_item_submit: "assets:contribute",
+  vrdex_contribution_item_revise: "assets:contribute",
+  vrdex_media_upload_begin: "assets:contribute",
+  vrdex_media_upload_complete: "assets:contribute",
 };
 /**
  * Reads of the caller's own inventory, which no anonymous session can serve.
@@ -194,18 +194,22 @@ const mcpOwnedReadToolNames = [
   "vrdex_contribution_batch_items",
   "vrdex_list_my_profiles",
   "vrdex_list_my_media_submissions",
+  "vrdex_get_my_media_submission",
+  "vrdex_media_review_assignments",
   ...mediaReviewReadToolNames,
   "vrdex_media_submission_get",
   "vrdex_media_submission_preview",
 ] as const;
 const mcpOwnedReadToolScopes: Record<(typeof mcpOwnedReadToolNames)[number], ApiScope> = {
-  vrdex_contribution_capacity: "mcp:read",
-  vrdex_contribution_capacity_requests: "mcp:read",
-  vrdex_contribution_status: "mcp:read",
-  vrdex_contribution_batch_get: "mcp:read",
-  vrdex_contribution_batch_items: "mcp:read",
+  vrdex_contribution_capacity: "assets:contribute",
+  vrdex_contribution_capacity_requests: "assets:contribute",
+  vrdex_contribution_status: "assets:contribute",
+  vrdex_contribution_batch_get: "assets:contribute",
+  vrdex_contribution_batch_items: "assets:contribute",
   vrdex_list_my_profiles: "profile:read",
   vrdex_list_my_media_submissions: "assets:contribute",
+  vrdex_get_my_media_submission: "assets:contribute",
+  vrdex_media_review_assignments: "assets:review:read",
   vrdex_media_submission_get: "assets:publish",
   vrdex_media_submission_preview: "assets:publish",
   vrdex_media_review_list: "assets:review:read",
@@ -851,18 +855,45 @@ export function mcpToolCallNamesFromPayload(payload: unknown) {
   return toolNames;
 }
 
-export function requiredHostedMcpScopesForToolNames(toolNames: readonly string[]): ApiScope[] {
+function contributionResourceScopeOptions(toolName: string, input?: unknown): ApiScope[][] | null {
+  if (toolName === "vrdex_media_upload_begin" && isRecord(input)) {
+    if (input.mode === "owner") return [["assets:write"]];
+    if (input.mode === "contributor") return [["assets:contribute"]];
+  }
+  if (toolName === "vrdex_media_upload_begin" || toolName === "vrdex_media_upload_complete")
+    return [["assets:contribute"], ["assets:write"]];
+  if (!toolName.startsWith("vrdex_contribution_")) return null;
+  const items = isRecord(input)
+    ? toolName === "vrdex_contribution_batch_append" && Array.isArray(input.items)
+      ? input.items : toolName === "vrdex_contribution_item_revise" ? [input.item] : []
+    : [];
+  const scopes: ApiScope[] = [];
+  for (const item of items) {
+    if (!isRecord(item)) continue;
+    if (item.kind === "media") scopes.push("assets:contribute");
+    if (item.kind === "profile_create" || item.kind === "profile_links") scopes.push("profile:contribute");
+  }
+  if (scopes.length) return [[...new Set(scopes)]];
+  return [["assets:contribute"], ["profile:contribute"],
+    ...(mcpOwnedReadToolNameSet.has(toolName) ? [["assets:review:read" as const]] : [])];
+}
+function resourceScopesForTool(toolName: string, grantedScopes: readonly string[], input?: unknown): ApiScope[] {
+  const options = contributionResourceScopeOptions(toolName, input);
+  if (options) return options.find(scopes => scopes.every(scope => grantedScopes.includes(scope))) ?? options[0];
+  return [mcpOwnedReadToolNameSet.has(toolName)
+    ? mcpOwnedReadToolScopes[toolName as (typeof mcpOwnedReadToolNames)[number]]
+    : mcpWriteToolResourceScopes[toolName as (typeof mcpWriteToolNames)[number]]];
+}
+export function requiredHostedMcpScopesForToolNames(toolNames: readonly string[], grantedScopes: readonly string[] = [], toolArguments: readonly unknown[] = []): ApiScope[] {
   const writeToolsCalled = toolNames.filter((toolName) => mcpWriteToolNameSet.has(toolName));
   const readToolRequested = toolNames.some((toolName) => !mcpWriteToolNameSet.has(toolName));
-  const ownedReadScopes = toolNames
-    .filter((toolName) => mcpOwnedReadToolNameSet.has(toolName))
-    .map((toolName) => mcpOwnedReadToolScopes[toolName as (typeof mcpOwnedReadToolNames)[number]]);
+  const ownedReadScopes = toolNames.flatMap((name, index) => mcpOwnedReadToolNameSet.has(name)
+    ? resourceScopesForTool(name, grantedScopes, toolArguments[index]) : []);
   const writeScopes = writeToolsCalled.length > 0
     ? [
         "mcp:write" as const,
-        ...writeToolsCalled.map(
-          (toolName) => mcpWriteToolResourceScopes[toolName as (typeof mcpWriteToolNames)[number]],
-        ),
+        ...toolNames.flatMap((name, index) => mcpWriteToolNameSet.has(name)
+          ? resourceScopesForTool(name, grantedScopes, toolArguments[index]) : []),
       ]
     : [];
   return [...new Set([
@@ -969,11 +1000,12 @@ async function boundedMcpToolCallNamesFromRequest(request: Request) {
   }
 
   try {
-    return {
-      toolNames: mcpToolCallNamesFromPayload(
-        JSON.parse(new TextDecoder().decode(bytes)) as unknown,
-      ),
-    };
+    const payload: unknown = JSON.parse(new TextDecoder().decode(bytes));
+    const messages = Array.isArray(payload) ? payload : [payload];
+    const toolArguments = messages.flatMap(message =>
+      isRecord(message) && message.method === "tools/call" && isRecord(message.params) && isKnownMcpToolName(message.params.name)
+        ? [message.params.arguments] : []);
+    return { toolNames: mcpToolCallNamesFromPayload(payload), toolArguments };
   } catch {
     return { toolNames: [] as string[] };
   }
@@ -1220,6 +1252,20 @@ function mcpOwnedReadUnauthorized(toolName: (typeof mcpOwnedReadToolNames)[numbe
     isError: true as const,
   };
 }
+function contributionScopeChallenge(scopes: readonly string[]) {
+  return {
+    content: [{ type: "text" as const, text: "CONTRIBUTION_SCOPE_REQUIRED" }],
+    isError: true as const,
+    _meta: { "mcp/www_authenticate": [`Bearer error="insufficient_scope", scope="${scopes.join(" ")}"`] },
+  };
+}
+function contributionScopeError(error: unknown) {
+  if (!isRecord(error) || !isRecord(error.data) ||
+    (error.data.code !== "BATCH_DELEGATION_DENIED" && error.data.code !== "UPLOAD_DELEGATION_DENIED")) return null;
+  const scope = error.data.requiredScope;
+  return scope === "assets:contribute" || scope === "assets:write" || scope === "profile:contribute"
+    ? contributionScopeChallenge(["mcp:write", scope]) : null;
+}
 
 function mcpEventWriteIndeterminate(operation: "create" | "update") {
   return {
@@ -1408,6 +1454,7 @@ async function authenticateMcpBearerToken(
   requiredScopes: readonly string[],
   routeClass: "authenticated_mcp" | "authenticated_mcp_write",
   dependencies: HostedMcpAuthorizationDependencies = {},
+  resolveScopes?: (grantedScopes: readonly string[]) => readonly ApiScope[],
 ) {
   if (!oauthAccessTokenSigningConfigured()) {
     if (!looksLikeCompactJwt(tokenValue)) {
@@ -1444,6 +1491,7 @@ async function authenticateMcpBearerToken(
     };
   }
 
+  requiredScopes = resolveScopes?.(tokenScopes) ?? requiredScopes;
   if (!hasRequiredScopes(tokenScopes, requiredScopes)) {
     const scopeDescription = oauthScopeString(requiredScopes);
 
@@ -1727,7 +1775,8 @@ export async function authorizeHostedMcpRequest(
   // challenge that tells a client which grant to go and obtain.
   const requiredScopes: readonly ApiScope[] =
     toolNames.length > 0
-      ? requiredHostedMcpScopesForToolNames(toolNames)
+      ? requiredHostedMcpScopesForToolNames(toolNames, [],
+        "toolArguments" in parsedRequest ? parsedRequest.toolArguments : [])
       : bearerToken === null || request.method !== "POST"
         ? [...mcpRequiredScopes]
         : [];
@@ -1769,6 +1818,8 @@ export async function authorizeHostedMcpRequest(
           requiredScopes,
           authenticatedRouteClass,
           dependencies,
+          scopes => toolNames.length ? requiredHostedMcpScopesForToolNames(toolNames, scopes,
+            "toolArguments" in parsedRequest ? parsedRequest.toolArguments : []) : requiredScopes,
         );
 
   if (!authentication.ok) {
@@ -2403,14 +2454,10 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
         },
       },
       async (input: unknown) => {
-        const principal = hostedMcpPrincipal(options.authInfo, [
-          read ? "mcp:read" : "mcp:write",
-        ]);
+        const required = requiredHostedMcpScopesForToolNames([toolName], options.authInfo?.scopes, [input]);
+        const principal = hostedMcpPrincipal(options.authInfo, required);
         if (!principal)
-          return {
-            content: [{ type: "text" as const, text: "BATCH_UNAVAILABLE" }],
-            isError: true,
-          };
+          return contributionScopeChallenge(required);
         try {
           const handlers = createMcpContributionHandlers({
             admin: adminConvex(),
@@ -2431,6 +2478,8 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
             : raw;
           return { content: [{ type: "text" as const, text: JSON.stringify(result) }], structuredContent: result };
         } catch (error) {
+          const challenge = contributionScopeError(error);
+          if (challenge) return challenge;
           const value = input as { idempotencyKey?: string; itemKey?: string };
           return safeCommandError(
             error,
@@ -2451,8 +2500,9 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       _meta: { securitySchemes: mcpWriteSecuritySchemes(toolName) },
     }, async (input: unknown) => {
-      const principal = principalFor(toolName);
-      if (principal === null) return mcpWriteUnauthorized(toolName);
+      const required = requiredHostedMcpScopesForToolNames([toolName], options.authInfo?.scopes, [input]);
+      const principal = hostedMcpPrincipal(options.authInfo, required);
+      if (principal === null) return contributionScopeChallenge(required);
       try {
         const handlers = createMcpMediaUploadHandlers({
           admin: adminConvex(),
@@ -2463,6 +2513,8 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
           const result = "operationState" in raw ? actionableReceipt(raw) : raw;
         return { content: [{ type: "text" as const, text: JSON.stringify(result) }], structuredContent: result };
       } catch (error) {
+        const challenge = contributionScopeError(error);
+        if (challenge) return challenge;
         return safeCommandError(
             error,
             (input as { idempotencyKey: string }).idempotencyKey,
@@ -2532,10 +2584,7 @@ export function buildVrdexMcpServer(options: VrdexMcpServerOptions = {}) {
           assigned ? "assets:review:read" : "assets:contribute",
         ]);
         if (!principal)
-          return {
-            content: [{ type: "text" as const, text: "MEDIA_UNAVAILABLE" }],
-            isError: true,
-          };
+          return contributionScopeChallenge(["mcp:read", assigned ? "assets:review:read" : "assets:contribute"]);
         const authority = {
           actorUserId: principal.userId,
           oauthClientId: principal.clientId,

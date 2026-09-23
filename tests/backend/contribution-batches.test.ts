@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { it } from "node:test";
 import { convexTest } from "convex-test";
+import { retainedBatchUsage } from "../../convex/_contributionCapacity";
 import { api, internal } from "../../convex/_generated/api";
 import { createAndUpload } from "./_mediaReviewFixture";
 import {
@@ -19,6 +20,83 @@ const modules = {
     import("../../convex/contributionBatches"),
 };
 process.env.VRDEX_CONTRIBUTION_BATCHES_ENABLED = "true";
+it("bounds envelope bytes and refuses incomplete admission counts while retaining replay and exact reconciliation", async () => {
+  const f = await fixture(12 * 1024 * 1024);
+  await f.t.run(async ctx => {
+    for (let n = 0; n < 12; n++) await ctx.db.insert("contributionBatches", {
+      actorUserId: f.s.contributorUserId, idempotencyKey: `large-${n}`, label: "Legacy",
+      archived: true, rowCount: 0, createdAt: n, payloadCleanupCursor: "x".repeat(900000),
+    });
+  });
+  const usage = await f.t.run(ctx => retainedBatchUsage(ctx.db, f.s.contributorUserId, 1000));
+  assert.equal(usage.isLowerBound, true);
+  assert.ok(usage.count < 13);
+  await assert.rejects(f.t.mutation(internal.contributionBatches.create, {
+    ...f.authority, input: { idempotencyKey: "new", label: "Collection" },
+  }), /BATCH_ENVELOPE_COUNT_INCOMPLETE/);
+  assert.equal((await f.t.mutation(internal.contributionBatches.create, {
+    ...f.authority, input: { idempotencyKey: "batch", label: "Collection" },
+  })).batchId, f.batch.batchId);
+  let cursor: string | null = null, count = 0;
+  do {
+    const page = await f.t.query(internal.contributionBatches.reconcilePage, { ...f.authority, kind: "batches", cursor });
+    count += page.retainedBatches;
+    cursor = page.isDone ? null : page.cursor;
+  } while (cursor);
+  assert.equal(count, 13);
+});
+it("identifies the stored revision scope for recovery before submitting with a narrower token", async () => {
+  const f = await fixture();
+  await f.t.mutation(internal.contributionBatches.append, { ...f.authority, batchId: f.batch.batchId, items: [f.item] });
+  await f.t.run(ctx => ctx.db.patch(f.tokenId, { scopes: ["mcp:write", "assets:contribute"] }));
+  await assert.rejects(f.t.mutation(internal.contributionBatches.submit, {
+    ...f.authority, batchId: f.batch.batchId, itemKey: f.item.itemKey, expectedRevision: 1,
+  }), { data: { code: "BATCH_DELEGATION_DENIED", requiredScope: "profile:contribute" } });
+  assert.equal((await f.t.run(ctx => ctx.db.query("contributionItemAttempts").collect())).length, 0);
+});
+it("bounds retained batch envelopes across archive and legacy rows while preserving replay", async () => {
+  const f = await fixture();
+  await f.t.run(async ctx => {
+    for (let n = 1; n < 1000; n++) await ctx.db.insert("contributionBatches", {
+      actorUserId: f.s.contributorUserId, idempotencyKey: `legacy-${n}`, label: "Legacy",
+      archived: true, rowCount: 0, createdAt: n,
+    });
+  });
+  const create = { ...f.authority, input: { idempotencyKey: "over", label: "Over" } };
+  await assert.rejects(f.t.mutation(internal.contributionBatches.create, create), /BATCH_ENVELOPE_LIMIT/);
+  await f.t.mutation(internal.contributionBatches.archive, { ...f.authority, batchId: f.batch.batchId });
+  await assert.rejects(f.t.mutation(internal.contributionBatches.create, create), /BATCH_ENVELOPE_LIMIT/);
+  assert.equal((await f.t.mutation(internal.contributionBatches.create, {
+    ...f.authority, input: { idempotencyKey: "batch", label: "Collection" },
+  })).batchId, f.batch.batchId);
+  let cursor: string | null = null, retainedBatches = 0;
+  do {
+    const page = await f.t.query(internal.contributionBatches.reconcilePage, {
+      ...f.authority, kind: "batches", cursor,
+    });
+    retainedBatches += page.retainedBatches;
+    assert.equal(page.activeRows, 0);
+    cursor = page.isDone ? null : page.cursor;
+  } while (cursor);
+  assert.equal(retainedBatches, 1000);
+  process.env.VRDEX_CONTRIBUTION_POLICY = "synthetic-v1";
+  process.env.CONVEX_DEPLOYMENT = "local:contributor-capacity-proof";
+  try {
+    const grant = await f.t.run(ctx => ctx.db.insert("accountFeatureGrants", {
+      userId: f.s.contributorUserId, feature: "trusted_contributor", state: "active",
+      grantedBy: { tokenIdentifier: "test:operator", issuer: "test", subject: "operator" },
+      grantedAt: Date.now(), updatedAt: Date.now(),
+    }));
+    await f.t.mutation(internal.contributionBatches.create, create);
+    await f.t.run(ctx => ctx.db.patch(grant, { state: "revoked", revokedAt: Date.now() }));
+    await assert.rejects(f.t.mutation(internal.contributionBatches.create, {
+      ...f.authority, input: { idempotencyKey: "downgraded", label: "Over" },
+    }), /BATCH_ENVELOPE_LIMIT/);
+  } finally {
+    delete process.env.VRDEX_CONTRIBUTION_POLICY;
+    delete process.env.CONVEX_DEPLOYMENT;
+  }
+});
 it("replays direct completion after actual batch payload purge with retained authority metadata", async () => {
   const f = await fixture();
   process.env.VRDEX_CONTRIBUTION_UPLOADS_ENABLED = "true";
@@ -109,6 +187,11 @@ it("replays direct completion after actual batch payload purge with retained aut
   ))!;
   assert.equal(revision.payload, "");
   assert.equal(revision.kind, "media");
+  const reconciled = await f.t.query(internal.contributionBatches.reconcilePage, {
+    ...f.authority, kind: "revisions", cursor: null,
+  });
+  assert.equal(reconciled.retainedRevisions, 0);
+  assert.equal(reconciled.retainedBytes, 0);
   assert.deepEqual(
     (await f.t.mutation(internal.contributionUploads.claim, claim)).receipt,
     receipt,
@@ -276,8 +359,8 @@ it("allows correction after actual submission expiry while active attempts stay 
     2,
   );
 });
-async function fixture() {
-  const t = convexTest({ schema, modules });
+async function fixture(bytesRead?: number) {
+  const t = convexTest({ schema, modules, transactionLimits: bytesRead === undefined ? false : { bytesRead } });
   const s = await seed(t);
   const authority = {
     actorUserId: s.contributorUserId,

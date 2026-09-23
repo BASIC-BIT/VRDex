@@ -508,7 +508,11 @@ export async function reviewSnapshot(
     currentAsset,
     currentAutomaticImageUrl,
     authoredPlacements,
-    artworkEvidence,
+    artworkEvidence: artworkEvidence.map((row) => row && ({
+      key: row.key, kind: row.kind, locator: row.locator, provider: row.provider,
+      status: row.status, entityId: row.entityId, artworkSourceUrl: row.artworkSourceUrl,
+      artworkType: row.artworkType, observedAt: row.observedAt,
+    })),
     currentImage,
     effectiveAsset,
     revision: submission.reviewRevision ?? 0,

@@ -78,8 +78,7 @@ export async function authorizeContribution(
     token.clientId !== args.oauthClientId ||
     token.status !== "active" ||
     token.expiresAt <= Date.now() ||
-    !token.scopes.includes(write ? "mcp:write" : "mcp:read") ||
-    (scope && !token.scopes.includes(scope))
+    !token.scopes.includes(write ? "mcp:write" : "mcp:read")
   )
     throw new ConvexError({ code: "BATCH_DELEGATION_DENIED" });
   if (
@@ -101,5 +100,7 @@ export async function authorizeContribution(
     (await ctx.db.get(token.dynamicClientId))?.status !== "active"
   )
     throw new ConvexError({ code: "BATCH_DELEGATION_DENIED" });
+  if (scope && !token.scopes.includes(scope))
+    throw new ConvexError({ code: "BATCH_DELEGATION_DENIED", requiredScope: scope });
   return token;
 }
