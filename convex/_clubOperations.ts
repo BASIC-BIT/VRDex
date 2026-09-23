@@ -15,6 +15,8 @@ export const clubOperationPayload = v.union(
     kind: v.literal("invite_to_created_instance"),
     ...target,
     creationOperationId: v.id("clubOperations"),
+    // Optional for stored legacy rows; new invitations must provide review evidence.
+    creationRevision: v.optional(v.number()),
   }),
   v.object({ kind: v.literal("approve_request"), ...target }),
   v.object({ kind: v.literal("reject_request"), ...target }),

@@ -316,3 +316,35 @@ it("non-staff cannot enumerate lists, preview recipients or inspect outcomes", a
     }),
   );
 });
+
+it("scheduled invitation enqueue uses the caller reviewed creation revision", async () => {
+  const { t, owner, communityProfileId } = await setup();
+  const operations = (name: string) => makeFunctionReference<any>(`clubOperations:${name}`);
+  const schedule = { kind: "fixed", dueAt: Date.now() + 60000 };
+  const creation = { kind: "create_instance", worldId: "wrld_44444444-4444-4444-4444-444444444444", access: "members", region: "us" };
+  const [creationOperationId] = await owner.mutation(operations("enqueue"), {
+    communityProfileId, requestId: "review_creation", payloads: [creation], schedule,
+  });
+  const page = await owner.query(operations("list"), {
+    communityProfileId, paginationOpts: { numItems: 20, cursor: null },
+  });
+  const reviewed = page.page.find((row: { id: string }) => row.id === creationOperationId);
+  assert.equal(reviewed.revision, 1);
+  await owner.mutation(operations("edit"), {
+    operationId: creationOperationId, payload: { ...creation, access: "plus" }, schedule,
+  });
+  const input = { communityProfileId, requestId: "review_batch", reviewedRecipients: [first],
+    destination: { kind: "scheduled_instance", creationOperationId, creationRevision: reviewed.revision }, schedule };
+  await assert.rejects(owner.mutation(ref("enqueue"), input), /Instance creation is unavailable/);
+  await assert.rejects(owner.mutation(operations("enqueue"), {
+    communityProfileId, requestId: "missing_evidence", schedule,
+    payloads: [{ kind: "invite_to_created_instance", creationOperationId, targetUserId: first }],
+  }), /Instance creation is unavailable/);
+  const batchId = await owner.mutation(ref("enqueue"), {
+    ...input, destination: { ...input.destination, creationRevision: 2 },
+  });
+  const batch = await t.run((ctx) => ctx.db.get(batchId));
+  const job = await t.run((ctx) => ctx.db.get(batch!.operationIds[0]));
+  assert.equal(job!.dependencyRevision, 2);
+  assert.equal(job!.payload.creationRevision, 2);
+});

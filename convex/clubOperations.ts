@@ -196,6 +196,8 @@ async function checkedDependency(
     dependency.epochStartedAt !==
       (integration.telemetryEpochStartedAt ?? integration.createdAt) ||
     dependency.payload.kind !== "create_instance" ||
+    payload.creationRevision === undefined ||
+    payload.creationRevision !== dependency.revision ||
     ["rejected", "indeterminate", "cancelled", "missed"].includes(
       dependency.state,
     )
@@ -221,6 +223,8 @@ async function resolvedOperation(
     dependency.integrationId !== job.integrationId ||
     dependency.epochStartedAt !== job.epochStartedAt ||
     dependency.payload.kind !== "create_instance" ||
+    job.payload.creationRevision === undefined ||
+    job.payload.creationRevision !== job.dependencyRevision ||
     job.dependencyRevision === undefined ||
     dependency.revision !== job.dependencyRevision
   )
@@ -372,7 +376,7 @@ export async function enqueueClubOperations(
         ...(payload.kind === "invite_to_created_instance"
           ? {
               dependencyId: payload.creationOperationId,
-              dependencyRevision: dependencies.get(payload.creationOperationId)!.revision,
+              dependencyRevision: payload.creationRevision,
             }
           : {}),
         schedule: args.schedule,
@@ -418,6 +422,17 @@ export const edit = mutation({
       args.payload,
       args.schedule.eventId,
     );
+    // Generic edits do not review a destination. Keep the original contract;
+    // changed or legacy dependencies require cancellation and a fresh invitation.
+    if (
+      args.payload.kind === "invite_to_created_instance" &&
+      job.payload.kind === "invite_to_created_instance" &&
+      (args.payload.creationOperationId !== job.payload.creationOperationId ||
+        args.payload.creationRevision !== job.payload.creationRevision ||
+        job.payload.creationRevision === undefined ||
+        job.dependencyRevision !== job.payload.creationRevision)
+    )
+      throw new Error("Instance creation is unavailable.");
     const dueAt = await scheduleTime(
       ctx,
       job.communityProfileId,
@@ -439,7 +454,7 @@ export const edit = mutation({
       schedule: args.schedule,
       eventId: args.schedule.eventId ?? dependency?.eventId,
       dependencyId: dependency?._id,
-      dependencyRevision: dependency?.revision,
+      dependencyRevision: job.dependencyRevision,
       dueAt,
       readyAt: dueAt,
       retryAt: undefined,
@@ -487,6 +502,7 @@ export const list = query({
     page: v.array(
       v.object({
         id: v.id("clubOperations"),
+        revision: v.number(),
         payload: clubOperationPayload,
         schedule: operationSchedule,
         state: operationState,
@@ -512,7 +528,8 @@ export const list = query({
       .order("desc")
       .paginate(args.paginationOpts);
     return {
-      ...page,
+      isDone: page.isDone,
+      continueCursor: page.continueCursor,
       page: page.page
         .filter(
           (j) =>
@@ -524,6 +541,7 @@ export const list = query({
         )
         .map((j) => ({
           id: j._id,
+          revision: j.revision,
           payload: j.payload,
           schedule: j.schedule,
           state: j.state,

@@ -10,7 +10,7 @@ const bob = "usr_22222222-2222-2222-2222-222222222222";
 type List = FunctionReturnType<
   typeof api.clubInvitations.lists
 >["page"][number];
-function Fixture({ instanceOnly = false }: { instanceOnly?: boolean }) {
+function Fixture({ instanceOnly = false, mutableCreation = false }: { instanceOnly?: boolean; mutableCreation?: boolean }) {
   const [lists, setLists] = useState<List[]>([
     {
       _id: "list-one" as Id<"clubRecipientLists">,
@@ -20,6 +20,8 @@ function Fixture({ instanceOnly = false }: { instanceOnly?: boolean }) {
     },
   ]);
   const [queued, setQueued] = useState("");
+  const [queuedRevision, setQueuedRevision] = useState<number>();
+  const [creationRevision, setCreationRevision] = useState(7);
   return (
     <main className="mx-auto max-w-3xl p-5">
       <h1 className="mb-6 text-3xl font-semibold">Invitations</h1>
@@ -46,9 +48,12 @@ function Fixture({ instanceOnly = false }: { instanceOnly?: boolean }) {
         creations={[
           {
             id: "creation-one" as Id<"clubOperations">,
+            revision: creationRevision,
             payload: {
               kind: "create_instance",
-              worldId: "wrld_33333333-3333-3333-3333-333333333333",
+              worldId: creationRevision === 7
+                ? "wrld_33333333-3333-3333-3333-333333333333"
+                : "wrld_55555555-5555-5555-5555-555555555555",
               region: "us",
               access: "members",
               ageGated: false,
@@ -106,14 +111,24 @@ function Fixture({ instanceOnly = false }: { instanceOnly?: boolean }) {
         onRemoveList={async (id) =>
           setLists((prior) => prior.filter((list) => list._id !== id))
         }
-        onEnqueue={async (review) =>
+        onEnqueue={async (review) => {
+          if (review.destination.kind === "scheduled_instance") {
+            if (review.destination.creationRevision !== creationRevision)
+              throw new Error("Instance creation is unavailable.");
+            setQueuedRevision(review.destination.creationRevision);
+          }
           setQueued(
             `${review.reviewedRecipients.length} recipients · ${review.destination.kind} · ${review.schedule.kind}`,
-          )
-        }
+          );
+        }}
       />
+      {mutableCreation ? (
+        <button onClick={() => setCreationRevision((revision) => revision + 1)}>
+          Change creation
+        </button>
+      ) : null}
       {queued ? (
-        <p data-testid="queued-review" className="mt-5">
+        <p data-testid="queued-review" data-creation-revision={queuedRevision} className="mt-5">
           {queued}
         </p>
       ) : null}
@@ -129,3 +144,5 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 export const Composer: Story = {};
 export const InstanceStaff: Story = { args: { instanceOnly: true } };
+
+export const ChangedCreation: Story = { args: { instanceOnly: true, mutableCreation: true } };

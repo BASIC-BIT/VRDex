@@ -10,6 +10,7 @@ export const invitationDestination = v.union(
   v.object({
     kind: v.literal("scheduled_instance"),
     creationOperationId: v.id("clubOperations"),
+    creationRevision: v.number(),
   }),
 );
 export function normalizeRecipients(values: string[]): string[] {

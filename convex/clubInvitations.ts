@@ -153,6 +153,7 @@ function payloads(
             kind: "invite_to_created_instance",
             targetUserId,
             creationOperationId: destination.creationOperationId,
+            creationRevision: destination.creationRevision,
           },
   );
 }

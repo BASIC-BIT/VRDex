@@ -137,7 +137,11 @@ export function InvitationComposer({
         )
       )
         throw new Error("Choose an instance creation.");
-      target = { kind: "scheduled_instance", creationOperationId: creation.id };
+      target = {
+        kind: "scheduled_instance",
+        creationOperationId: creation.id,
+        creationRevision: creation.revision,
+      };
       destinationLabel = `Instance creation: ${metricTime(creation.dueAt)} · ${creation.payload.worldId}`;
     } else throw new Error("Choose an invitation destination.");
     let schedule: Enqueue["schedule"];

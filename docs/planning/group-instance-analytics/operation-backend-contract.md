@@ -62,12 +62,17 @@ submitted or completed artifacts. A cancellation signal remains effective
 across continuation pages even if the event is reinstated immediately.
 
 Dependent invitations keep the reviewed `invite_to_created_instance` payload
-and selected creation ID unchanged. They also store the selected creation's
-revision at enqueue or edit. A later creation edit rejects remaining dependent
-invitations at claim or final authorization, even if the creation returns to
-the same destination. Older pending invitations without a stored revision are
-rejected and must be recreated for review. Only a succeeded creation in the same
-integration epoch can supply the concrete destination returned to the worker.
+and selected creation ID unchanged. The invitation review freezes the displayed
+creation's revision and sends it with the destination. Enqueue requires that
+caller-reviewed revision to match the selected creation and stores it as
+`dependencyRevision`. Timing and recipient edits preserve that evidence; they
+cannot approve a new creation revision or replace the selected creation. A later
+creation edit rejects remaining dependent invitations at claim or final
+authorization, even if the creation returns to the same destination. Cancel the
+old invitation and use the invitation composer to review and create a new one.
+Older pending invitations without caller review evidence or a stored dependency
+revision fail closed and require the same cancellation and recreation flow.
+Only a succeeded creation in the same integration epoch can supply the concrete destination returned to the worker.
 The destination must match the planned world and connected group; failures and
 unknown outcomes never substitute another instance. Submission rechecks the
 dependency. A linked creation's event association also applies to remaining

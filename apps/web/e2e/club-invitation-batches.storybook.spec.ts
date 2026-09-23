@@ -182,3 +182,26 @@ test("instance-only staff review a creation with event-relative timing @storyboo
     "2 recipients · scheduled_instance · event_relative",
   );
 });
+
+
+test("changed creation requires a fresh invitation review @storybook-visual", async ({ page }) => {
+  await page.goto("/iframe.html?id=clubs-invitation-batches--changed-creation&viewMode=story");
+  await page.getByLabel("Saved list").selectOption("list-one");
+  await page.getByLabel("Destination").selectOption("scheduled_instance");
+  await page.getByRole("combobox", { name: "Instance creation", exact: true }).selectOption("creation-one");
+  await page.getByLabel("Send invitations").selectOption("event");
+  await page.getByRole("combobox", { name: "Event", exact: true }).selectOption("event-one");
+  await page.getByRole("button", { name: "Review invitations", exact: true }).click();
+  const review = page.getByRole("region", { name: "Review invitations" });
+  await expect(review).toContainText("wrld_33333333-3333-3333-3333-333333333333");
+  await page.getByRole("button", { name: "Change creation" }).click();
+  await expect(review).toContainText("wrld_33333333-3333-3333-3333-333333333333");
+  await page.getByRole("button", { name: "Confirm invitations" }).click();
+  await expect(page.getByRole("alert")).toHaveText("Instance creation is unavailable.");
+  await expect(page.getByTestId("queued-review")).toHaveCount(0);
+  await page.getByRole("button", { name: "Back to edit" }).click();
+  await page.getByRole("button", { name: "Review invitations", exact: true }).click();
+  await expect(review).toContainText("wrld_55555555-5555-5555-5555-555555555555");
+  await page.getByRole("button", { name: "Confirm invitations" }).click();
+  await expect(page.getByTestId("queued-review")).toHaveAttribute("data-creation-revision", "8");
+});

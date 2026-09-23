@@ -298,6 +298,7 @@ it("dependent invitations wait for the selected creation and use only its confir
       {
         kind: "invite_to_created_instance",
         creationOperationId: s.operationId,
+        creationRevision: 1,
         targetUserId,
       },
     ],
@@ -367,6 +368,7 @@ it("creation edits invalidate reviewed invitations at claim and final authorizat
         payloads: [{
           kind: "invite_to_created_instance",
           creationOperationId: s.operationId,
+          creationRevision: 1,
           targetUserId,
         }],
         schedule,
@@ -424,119 +426,139 @@ it("creation edits invalidate reviewed invitations at claim and final authorizat
     }
   }
 });
-it("editing a pending invitation reviews the current creation revision", async () => {
+it("ordinary invitation edits preserve review and cannot approve a changed parent", async () => {
   const s = await queued();
   const worldA = "wrld_44444444-4444-4444-4444-444444444444";
   const worldB = "wrld_66666666-6666-6666-6666-666666666666";
   const schedule = { kind: "fixed", dueAt: Date.now() };
+  const creation = { kind: "create_instance", worldId: worldA, access: "members", region: "us" };
   const payload = {
     kind: "invite_to_created_instance",
     creationOperationId: s.operationId,
+    creationRevision: 1,
     targetUserId: "usr_55555555-5555-5555-5555-555555555555",
   };
-  await s.t.run((ctx) =>
-    ctx.db.patch(s.operationId, {
-      payload: { kind: "create_instance", worldId: worldA, access: "members", region: "us" },
-      readyAt: Date.now() + 3600000,
-    }),
-  );
+  await s.t.run((ctx) => ctx.db.patch(s.operationId, {
+    payload: creation, readyAt: Date.now() + 3600000,
+  }));
   const [inviteId] = await s.owner.mutation(ref("enqueue"), {
-    communityProfileId: s.communityProfileId,
-    requestId: "rereview_invite",
-    payloads: [payload],
-    schedule,
+    communityProfileId: s.communityProfileId, requestId: "reviewed_invite",
+    payloads: [payload], schedule,
   });
+  const editedPayload = { ...payload, targetUserId: "usr_77777777-7777-7777-7777-777777777777" };
+  const editedSchedule = { ...schedule, dueAt: schedule.dueAt + 60000 };
   await s.owner.mutation(ref("edit"), {
-    operationId: s.operationId,
-    payload: { kind: "create_instance", worldId: worldB, access: "members", region: "us" },
-    schedule,
+    operationId: inviteId, payload: editedPayload, schedule: editedSchedule,
   });
-  await s.owner.mutation(ref("edit"), {
+  const edited = await s.t.run((ctx) => ctx.db.get(inviteId));
+  assert.equal(edited!.dependencyRevision, 1);
+  assert.deepEqual(edited!.payload, editedPayload);
+  assert.equal(edited!.dueAt, editedSchedule.dueAt);
+  const [otherCreation] = await s.owner.mutation(ref("enqueue"), {
+    communityProfileId: s.communityProfileId, requestId: "other_creation",
+    payloads: [{ ...creation, worldId: worldB }], schedule,
+  });
+  await assert.rejects(s.owner.mutation(ref("edit"), {
     operationId: inviteId,
-    payload,
-    schedule,
+    payload: { ...editedPayload, creationOperationId: otherCreation },
+    schedule: editedSchedule,
+  }), /Instance creation is unavailable/);
+  await s.owner.mutation(ref("cancel"), { operationId: otherCreation });
+  await s.owner.mutation(ref("edit"), {
+    operationId: s.operationId, payload: { ...creation, worldId: worldB }, schedule,
   });
-  const reviewed = await s.t.run((ctx) => ctx.db.get(inviteId));
-  assert.equal(reviewed!.dependencyRevision, 2);
-  await s.t.run((ctx) =>
-    ctx.db.patch(s.operationId, {
-      state: "succeeded",
-      result: {
-        worldId: worldB,
-        instanceId:
-          "123~group(grp_11111111-1111-1111-1111-111111111111)~groupAccessType(members)",
-      },
-    }),
-  );
+  // Neither the generic editor's old payload nor a caller supplying the live
+  // revision can turn a timing/recipient edit into a new destination approval.
+  for (const creationRevision of [1, 2]) {
+    await assert.rejects(s.owner.mutation(ref("edit"), {
+      operationId: inviteId, payload: { ...editedPayload, creationRevision }, schedule,
+    }), /Instance creation is unavailable/);
+  }
+  assert.deepEqual(await s.t.run((ctx) => ctx.db.get(inviteId)), edited);
+  await s.owner.mutation(ref("cancel"), { operationId: inviteId });
+  const [replacement] = await s.owner.mutation(ref("enqueue"), {
+    communityProfileId: s.communityProfileId, requestId: "rereview_invite",
+    payloads: [{ ...editedPayload, creationRevision: 2 }], schedule,
+  });
+  await s.t.run((ctx) => ctx.db.patch(s.operationId, {
+    state: "succeeded", result: { worldId: worldB,
+      instanceId: "123~group(grp_11111111-1111-1111-1111-111111111111)~groupAccessType(members)" },
+  }));
   const claim = await s.t.mutation(ref("claim"), s.worker);
-  assert.equal(claim.operationId, inviteId);
+  assert.equal(claim.operationId, replacement);
   assert.equal(claim.payload.worldId, worldB);
-  assert.deepEqual(
-    await s.t.mutation(ref("authorizeSubmission"), {
-      ...s.worker,
-      operationId: inviteId,
-      nonce: claim.nonce,
-      authority: s.authority,
-      friendship: "friend",
-    }),
-    { authorized: true, code: null },
-  );
+  assert.deepEqual(await s.t.mutation(ref("authorizeSubmission"), {
+    ...s.worker, operationId: replacement, nonce: claim.nonce,
+    authority: s.authority, friendship: "friend",
+  }), { authorized: true, code: null });
 });
 it("older dependent invitations without a reviewed creation revision fail closed", async () => {
-  for (const stage of ["claim", "authorize"] as const) {
-    const s = await queued();
-    const worldId = "wrld_44444444-4444-4444-4444-444444444444";
-    await s.t.run((ctx) =>
-      ctx.db.patch(s.operationId, {
-        payload: { kind: "create_instance", worldId, access: "members", region: "us" },
-        readyAt: Date.now() + 3600000,
-      }),
-    );
-    const [inviteId] = await s.owner.mutation(ref("enqueue"), {
-      communityProfileId: s.communityProfileId,
-      requestId: `older_invite_${stage}`,
-      payloads: [{
-        kind: "invite_to_created_instance",
-        creationOperationId: s.operationId,
-        targetUserId: "usr_55555555-5555-5555-5555-555555555555",
-      }],
-      schedule: { kind: "fixed", dueAt: Date.now() },
-    });
-    await s.t.run((ctx) =>
-      ctx.db.patch(s.operationId, {
-        state: "succeeded",
-        result: {
-          worldId,
-          instanceId:
-            "123~group(grp_11111111-1111-1111-1111-111111111111)~groupAccessType(members)",
-        },
-      }),
-    );
-    let claim;
-    if (stage === "authorize") {
-      claim = await s.t.mutation(ref("claim"), s.worker);
-      assert.equal(claim.operationId, inviteId);
-    }
-    await s.t.run((ctx) =>
-      ctx.db.patch(inviteId, { dependencyRevision: undefined }),
-    );
-    if (stage === "claim")
-      assert.equal(await s.t.mutation(ref("claim"), s.worker), null);
-    else
-      assert.deepEqual(
-        await s.t.mutation(ref("authorizeSubmission"), {
-          ...s.worker,
-          operationId: inviteId,
-          nonce: claim.nonce,
-          authority: s.authority,
-          friendship: "friend",
+  for (const missing of ["caller", "stored"] as const) {
+    for (const stage of ["claim", "authorize"] as const) {
+      const s = await queued();
+      const worldId = "wrld_44444444-4444-4444-4444-444444444444";
+      await s.t.run((ctx) =>
+        ctx.db.patch(s.operationId, {
+          payload: { kind: "create_instance", worldId, access: "members", region: "us" },
+          readyAt: Date.now() + 3600000,
         }),
-        { authorized: false, code: "dependency_unavailable" },
       );
-    assert.equal(
-      (await s.t.run((ctx) => ctx.db.get(inviteId)))!.code,
-      "dependency_unavailable",
-    );
+      const [inviteId] = await s.owner.mutation(ref("enqueue"), {
+        communityProfileId: s.communityProfileId,
+        requestId: `older_invite_${stage}`,
+        payloads: [{
+          kind: "invite_to_created_instance",
+          creationOperationId: s.operationId,
+          creationRevision: 1,
+          targetUserId: "usr_55555555-5555-5555-5555-555555555555",
+        }],
+        schedule: { kind: "fixed", dueAt: Date.now() },
+      });
+      await s.t.run((ctx) =>
+        ctx.db.patch(s.operationId, {
+          state: "succeeded",
+          result: {
+            worldId,
+            instanceId:
+              "123~group(grp_11111111-1111-1111-1111-111111111111)~groupAccessType(members)",
+          },
+        }),
+      );
+      let claim;
+      if (stage === "authorize") {
+        claim = await s.t.mutation(ref("claim"), s.worker);
+        assert.equal(claim.operationId, inviteId);
+      }
+      await s.t.run(async (ctx) => {
+        const job = await ctx.db.get(inviteId);
+        await ctx.db.patch(inviteId, missing === "stored"
+          ? { dependencyRevision: undefined }
+          : { payload: { ...job!.payload, creationRevision: undefined } });
+      });
+      if (stage === "claim") {
+        const job = await s.t.run((ctx) => ctx.db.get(inviteId));
+        await assert.rejects(s.owner.mutation(ref("edit"), {
+          operationId: inviteId, payload: job!.payload, schedule: job!.schedule,
+        }), /Instance creation is unavailable/);
+      }
+      if (stage === "claim")
+        assert.equal(await s.t.mutation(ref("claim"), s.worker), null);
+      else
+        assert.deepEqual(
+          await s.t.mutation(ref("authorizeSubmission"), {
+            ...s.worker,
+            operationId: inviteId,
+            nonce: claim.nonce,
+            authority: s.authority,
+            friendship: "friend",
+          }),
+          { authorized: false, code: "dependency_unavailable" },
+        );
+      assert.equal(
+        (await s.t.run((ctx) => ctx.db.get(inviteId)))!.code,
+        "dependency_unavailable",
+      );
+    }
   }
 });
 it("creation event reassociation rejects reviewed dependent invitations at claim and final authorization", async () => {
@@ -584,6 +606,7 @@ it("creation event reassociation rejects reviewed dependent invitations at claim
         {
           kind: "invite_to_created_instance",
           creationOperationId: s.operationId,
+          creationRevision: 1,
           targetUserId: "usr_55555555-5555-5555-5555-555555555555",
         },
       ],
@@ -655,6 +678,7 @@ it("dependent invitations cannot precede creation and later parent timing change
   const payload = {
     kind: "invite_to_created_instance",
     creationOperationId: s.operationId,
+    creationRevision: 1,
     targetUserId: "usr_55555555-5555-5555-5555-555555555555",
   };
   const args = {
@@ -749,6 +773,7 @@ it("failed or foreign creation never substitutes another destination", async () 
       {
         kind: "invite_to_created_instance",
         creationOperationId: s.operationId,
+        creationRevision: 1,
         targetUserId: "usr_55555555-5555-5555-5555-555555555555",
       },
     ],
@@ -770,6 +795,7 @@ it("failed or foreign creation never substitutes another destination", async () 
         {
           kind: "invite_to_created_instance",
           creationOperationId: s.operationId,
+          creationRevision: 1,
           targetUserId: "usr_55555555-5555-5555-5555-555555555555",
         },
       ],
