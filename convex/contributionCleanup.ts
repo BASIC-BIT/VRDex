@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internalAction, internalMutation } from "./_generated/server";
 import { changeContributionCharge } from "./_contributionCapacity";
 import { failReservation } from "./contributionUploads";
+import { validMediaCleanupUrl } from "./_mediaCleanupUrl";
 import {
   prepareDueBlobCleanupCore,
   markBlobCleanupCompleteCore,
@@ -151,14 +152,8 @@ export const sweep = internalAction({
     const token = process.env.VRDEX_MEDIA_CLEANUP_TOKEN;
     if (!url || !token) return { configured: false, ok: false };
     try {
-      const target = new URL(url);
-      if (
-        target.protocol !== "https:" ||
-        target.username ||
-        target.password ||
-        target.pathname !== "/api/internal/media-cleanup"
-      )
-        return { configured: true, ok: false };
+      const target = validMediaCleanupUrl(url);
+      if (!target) return { configured: true, ok: false };
       const response = await fetch(target, {
         method: "POST",
         headers: { authorization: `Bearer ${token}` },

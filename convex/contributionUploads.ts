@@ -284,6 +284,13 @@ export const begin = internalMutation({
       return { receipt: priorRefusal.receipt };
     }
     const refuse = async (code: string) => {
+      const refusals = await ctx.db.query("contributionAdmissionRefusals")
+        .withIndex("by_actor_client_key", q => q.eq("actorUserId", actorUserId))
+        .paginate({ cursor: null, numItems: 256, maximumRowsRead: 256,
+          maximumBytesRead: 8 * 1024 * 1024 });
+      if (refusals.page.length >= 256 || !refusals.isDone ||
+          refusals.pageStatus === "SplitRequired")
+        throw new ConvexError({ code: "UPLOAD_REFUSAL_RECEIPT_LIMIT" });
       const result = {
         operationId: crypto.randomUUID(),
         operationState: "refused" as const,
