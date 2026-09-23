@@ -87,7 +87,7 @@ it("rechecks role access and routes a revoked initiator to the current owner", a
           import("../../convex/_generated/api"),
       },
     });
-    await t.run(async (ctx) => {
+    const { roleId, assignmentId } = await t.run(async (ctx) => {
       const now = Date.now();
       const issuer = process.env.CLERK_JWT_ISSUER_DOMAIN!;
       const actor = {
@@ -114,6 +114,7 @@ it("rechecks role access and routes a revoked initiator to the current owner", a
         email: "owner@example.com",
         emailVerificationTime: now,
       });
+      await ctx.db.insert("users", { clerkUserId: "staff" });
       await ctx.db.insert("profileOwners", {
         profileId: profile,
         userId: user,
@@ -197,6 +198,7 @@ it("rechecks role access and routes a revoked initiator to the current owner", a
         });
         await recordClubOperationFailure(ctx, operationId);
       }
+      return { roleId: role, assignmentId: assignment };
     });
     const claim = makeFunctionReference<"mutation">(
       "clubNotifications:claimEmail",
@@ -270,6 +272,49 @@ it("rechecks role access and routes a revoked initiator to the current owner", a
     });
     assert.equal(later.page.length, 4);
     assert.equal(later.isDone, true);
+    const markReadRef = makeFunctionReference<"mutation">(
+      "clubNotifications:markRead",
+    );
+    const staff = t.withIdentity({
+      subject: "staff",
+      issuer: process.env.CLERK_JWT_ISSUER_DOMAIN!,
+      tokenIdentifier: `${process.env.CLERK_JWT_ISSUER_DOMAIN}|staff`,
+    });
+    const readState = async (identity: typeof owner) => {
+      const result = await identity.query(listRef, {
+        communityProfileId,
+        paginationOpts: { numItems: 100, cursor: page.continueCursor },
+      });
+      return result.page.find((row: { id: typeof first.id }) => row.id === first.id)?.read;
+    };
+    // Revocation routes the notice to the owner, who dismisses it.
+    assert.equal(await readState(owner), false);
+    assert.equal(await readState(staff), undefined);
+    await owner.mutation(markReadRef, { notificationId: first.id });
+    await owner.mutation(markReadRef, { notificationId: first.id });
+    assert.equal(await readState(owner), true);
+
+    // Restoring the initiator's permission routes the same notice back to staff.
+    await t.run(async (ctx) => {
+      await ctx.db.patch(roleId, { permissions: ["publish_posts"] });
+      await ctx.db.patch(assignmentId, { state: "active" });
+    });
+    assert.equal(await readState(owner), undefined);
+    assert.equal(await readState(staff), false);
+    await staff.mutation(markReadRef, { notificationId: first.id });
+    await staff.mutation(markReadRef, { notificationId: first.id });
+    assert.equal(await readState(staff), true);
+
+    // Losing access again returns the notice to the owner without losing the read state.
+    await t.run(async (ctx) => {
+      await ctx.db.patch(assignmentId, { state: "revoked" });
+      assert.deepEqual((await ctx.db.get(first.id))!.readBy, [
+        `${process.env.CLERK_JWT_ISSUER_DOMAIN}|owner`,
+        `${process.env.CLERK_JWT_ISSUER_DOMAIN}|staff`,
+      ]);
+    });
+    assert.equal(await readState(owner), true);
+    assert.equal(await readState(staff), undefined);
   } finally {
     if (old === undefined) delete process.env.CLERK_JWT_ISSUER_DOMAIN;
     else process.env.CLERK_JWT_ISSUER_DOMAIN = old;

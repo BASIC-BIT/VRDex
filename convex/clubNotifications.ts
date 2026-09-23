@@ -82,7 +82,9 @@ export const markRead = mutation({
     const recipient = await notificationRecipient(ctx.db, job);
     if (recipient?.tokenIdentifier !== actor.subject.tokenIdentifier)
       return null;
-    await ctx.db.patch(row._id, { readBy: [actor.subject.tokenIdentifier] });
+    const readBy = [...new Set([...row.readBy, actor.subject.tokenIdentifier])];
+    if (readBy.length !== row.readBy.length)
+      await ctx.db.patch(row._id, { readBy });
     return null;
   },
 });

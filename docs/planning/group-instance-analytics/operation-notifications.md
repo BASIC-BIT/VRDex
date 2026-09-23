@@ -7,6 +7,7 @@ error text. Reads recheck current club authority and the operation permission.
 If the initiator has lost club access, the current owner receives the notice.
 If the initiator remains staff but lacks the operation permission, the content
 is withheld. Read state does not transfer to a new owner recipient.
+Each recipient's dismissal remains recorded if authority later returns to them.
 
 In-app history uses cursor pagination, with current recipient checks on each
 scanned page. An empty filtered page retains its continuation and the UI offers
