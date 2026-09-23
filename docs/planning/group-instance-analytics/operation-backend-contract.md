@@ -26,6 +26,37 @@ Worker sequence, using the current integration lease and credential:
    status for that exact claim. `rejectClaim` records a definite failure that
    occurred before submission.
 
+Completion records the already-submitted attempt using its stored integration,
+epoch, collector account, worker ID, fencing token and nonce. The worker must
+still authenticate with that account's current worker key and matching VRChat
+identity. The mutation rechecks the current key in its transaction. A disconnect,
+new connection epoch, integration/fleet/account kill switch, account quarantine,
+reassignment, credential-generation change or expired/replaced lease does not
+discard an authenticated result for that exact submitted claim. Its recorded
+credential generation remains historical evidence. This exception permits only
+terminal completion through disabled-account HTTP admission; claim,
+authorization, rejection before submission and deferral retain their existing
+execution gates. Completion cannot authorize another provider write.
+The exception covers every disabled account state, including provisioning,
+degraded, cooldown, auth_required, quarantined, retiring and retired. A replacement
+worker key can report the original exact claim; the superseded key cannot.
+
+Authorization schedules recovery at the claim's existing two-minute submission
+expiry. The internal callback checks the submitted state, nonce and exact expiry
+before recording `indeterminate` with `submission_outcome_unknown`. Recovery
+runs independently of account or connection health and never requeues the write.
+Revoked worker keys remain unauthorized. If the result cannot be authenticated,
+the scheduled callback records uncertainty without guessing the provider outcome.
+A result arriving while the exact claim is still submitted may be recorded even
+after its lease or claim expiry. Once completion or expiry recovery has recorded
+a terminal state, duplicate and late results cannot overwrite it.
+
+Submissions authorized before scheduled recovery was deployed have no callback.
+Their existing claim-time expiry sweep remains available when collection resumes;
+disconnected legacy rows need an operator to invoke the same guarded recovery
+with the stored operation ID, nonce and expiry. No legacy row is automatically
+replayed or declared successful.
+
 An expired claimed action may be reclaimed with a new nonce. An expired
 submitted action becomes indeterminate and is never automatically requeued.
 When the worker receives authorization but a final budget, deadline, or shutdown

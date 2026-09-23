@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 import { recordClubOperationFailure } from "./_clubNotifications";
 import { syncClubEventOperationPage } from "./_clubOperationEvents";
 import { paginationOptsValidator } from "convex/server";
@@ -821,12 +822,22 @@ export const authorizeSubmission = internalMutation({
       ),
     );
     if (!decision.allowed) return reject(decision.reason!);
+    const expiresAt = now + 120_000;
     await patchOperation(ctx, job._id, {
       state: "submitted",
       submittedAt: now,
-      claim: { ...job.claim, expiresAt: now + 120_000 },
+      claim: { ...job.claim, expiresAt },
       updatedAt: now,
     });
+    await ctx.scheduler.runAt(
+      expiresAt,
+      internal.clubOperations.expireSubmission,
+      {
+        operationId: job._id,
+        nonce: job.claim.nonce,
+        expiresAt,
+      },
+    );
     return { authorized: true, code: null };
   },
 });
@@ -949,6 +960,33 @@ export const syncEventSchedule = internalMutation({
     return null;
   },
 });
+// Recovery must not depend on a disconnected or revoked worker claiming again.
+export const expireSubmission = internalMutation({
+  args: {
+    operationId: v.id("clubOperations"),
+    nonce: v.string(),
+    expiresAt: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const job = await ctx.db.get(args.operationId);
+    const now = Date.now();
+    if (
+      job?.state !== "submitted" ||
+      job.claim?.nonce !== args.nonce ||
+      job.claim.expiresAt !== args.expiresAt ||
+      args.expiresAt > now
+    )
+      return null;
+    await patchOperation(ctx, job._id, {
+      state: "indeterminate",
+      code: "submission_outcome_unknown",
+      completedAt: now,
+      updatedAt: now,
+    });
+    return null;
+  },
+});
 export const complete = internalMutation({
   args: {
     ...worker,
@@ -970,17 +1008,22 @@ export const complete = internalMutation({
   },
   returns: v.object({ recorded: v.boolean() }),
   handler: async (ctx, args) => {
-    const bound = await binding(ctx, args);
+    // A submitted claim records a past attempt. Its epoch, generation and lease
+    // are historical evidence, but the reporting worker key must still be current.
+    // Recheck it in this transaction to close rotations after HTTP authentication.
+    const account = await ctx.db.get(args.collectorAccountId);
     const job = await ctx.db.get(args.operationId);
     if (
-      !bound ||
+      !account ||
+      account.workerKeyHash !== args.workerKeyHash ||
       !job ||
       job.integrationId !== args.integrationId ||
+      job.epochStartedAt !== args.epochStartedAt ||
       job.state !== "submitted" ||
       job.claim?.nonce !== args.nonce ||
+      job.claim.collectorAccountId !== args.collectorAccountId ||
       job.claim.workerId !== args.workerId ||
-      job.claim.fencingToken !== args.fencingToken ||
-      job.claim.credentialGeneration !== bound.account.credentialGeneration
+      job.claim.fencingToken !== args.fencingToken
     )
       return { recorded: false };
     if (args.code && args.code.length > 100)

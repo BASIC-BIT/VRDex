@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
-import { it, after } from "node:test";
+import { it, after, beforeEach } from "node:test";
 import { convexTest } from "convex-test";
-import { makeFunctionReference } from "convex/server";
+import { getFunctionName, makeFunctionReference } from "convex/server";
+import type { ActionCtx } from "../../convex/_generated/server";
 import schemaModule from "../../convex/schema";
 const schema =
   (schemaModule as unknown as { default?: typeof schemaModule }).default ??
@@ -15,6 +16,7 @@ const modules = {
 };
 const ref = (name: string) =>
   makeFunctionReference<any>(`clubOperations:${name}`);
+beforeEach((test) => test.mock.timers.enable({ apis: ["setTimeout"] }));
 const oldIssuer = process.env.CLERK_JWT_ISSUER_DOMAIN;
 process.env.CLERK_JWT_ISSUER_DOMAIN = "https://test.clerk.accounts.dev";
 after(() => {
@@ -174,6 +176,533 @@ async function queued() {
   };
   return { ...s, operationId: ids[0], worker, authority };
 }
+async function workerKeyHash(key: string) {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(key),
+  );
+  return [...new Uint8Array(digest)]
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+async function submittedOverHttp() {
+  const s = await queued();
+  const key = "submitted-operation-worker-key-".repeat(2);
+  const hash = await workerKeyHash(key);
+  await s.t.run((ctx) =>
+    ctx.db.patch(s.collectorAccountId, { workerKeyHash: hash }),
+  );
+  const request = async (
+    operation: string,
+    extra: Record<string, unknown> = {},
+    accountId = s.collectorAccountId,
+    bearer = key,
+  ) =>
+    s.t.fetch("/telemetry/worker", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${bearer}`,
+        "content-type": "application/json",
+        "x-vrdex-collector-account": accountId,
+      },
+      body: JSON.stringify({
+        operation,
+        workerId: s.worker.workerId,
+        vrchatUserId: s.authority.userId,
+        integrationId: s.integrationId,
+        fencingToken: s.worker.fencingToken,
+        epochStartedAt: s.worker.epochStartedAt,
+        ...extra,
+      }),
+    });
+  const claimed = await request("club_operation_claim");
+  assert.equal(claimed.status, 200);
+  const claim = await claimed.json();
+  const target = { operationId: s.operationId, nonce: claim.nonce };
+  const authorized = await request("club_operation_authorize", {
+    ...target,
+    authority: s.authority,
+  });
+  assert.deepEqual(await authorized.json(), { authorized: true, code: null });
+  return {
+    ...s,
+    worker: { ...s.worker, workerKeyHash: hash },
+    key,
+    hash,
+    request,
+    target,
+  };
+}
+
+for (const change of [
+  "disconnect",
+  "new_epoch",
+  "integration_kill",
+  "fleet_kill",
+  "account_kill",
+  "account_quarantine",
+  "reassignment",
+  "credential_generation",
+  "lease_released",
+  "lease_replaced",
+  "lease_expired",
+  "claim_expired",
+] as const) {
+  it(`HTTP records an exact submitted result after ${change}`, async () => {
+    const s = await submittedOverHttp();
+    const telemetry = (name: string) =>
+      makeFunctionReference<any>(`communityTelemetry:${name}`);
+    if (change === "integration_kill")
+      await s.t.mutation(telemetry("setIntegrationKillSwitch"), {
+        integrationId: s.integrationId,
+        enabled: true,
+      });
+    else if (change === "fleet_kill")
+      await s.t.mutation(telemetry("configureFleet"), {
+        killSwitchEnabled: true,
+        globalRequestsPerMinute: 30,
+      });
+    else if (change === "account_kill" || change === "account_quarantine")
+      await s.t.mutation(telemetry("setCollectorAccountState"), {
+        collectorAccountId: s.collectorAccountId,
+        state: change === "account_quarantine" ? "quarantined" : "ready",
+        killSwitchEnabled: change === "account_kill",
+      });
+    else if (change === "credential_generation")
+      await s.t.mutation(telemetry("registerCollectorAccount"), {
+        vrchatUserId: s.authority.userId,
+        accountAlias: "rotated",
+        secretRef: "secret://rotated",
+        workerKeyHash: s.hash,
+      });
+    else
+      await s.t.run(async (ctx) => {
+        if (change === "disconnect")
+          await ctx.db.patch(s.integrationId, {
+            state: "disconnected",
+            assignedCollectorAccountId: undefined,
+          });
+        if (change === "new_epoch")
+          await ctx.db.patch(s.integrationId, {
+            telemetryEpochStartedAt: s.worker.epochStartedAt + 1,
+          });
+        if (change === "reassignment") {
+          const original = (await ctx.db.get(s.collectorAccountId))!;
+          const { _id, _creationTime, ...account } = original;
+          const replacement = await ctx.db.insert("collectorAccounts", {
+            ...account,
+            vrchatUserId: "usr_replacement",
+          });
+          await ctx.db.patch(s.integrationId, {
+            assignedCollectorAccountId: replacement,
+          });
+        }
+        if (change === "lease_released")
+          await ctx.db.patch(s.leaseId, { state: "released" });
+        if (change === "lease_replaced")
+          await ctx.db.patch(s.leaseId, {
+            workerId: "replacement",
+            fencingToken: 2,
+          });
+        if (change === "lease_expired")
+          await ctx.db.patch(s.leaseId, { expiresAt: 0 });
+        if (change === "claim_expired") {
+          const job = (await ctx.db.get(s.operationId))!;
+          await ctx.db.patch(s.operationId, {
+            claim: { ...job.claim!, expiresAt: 0 },
+          });
+        }
+      });
+    // No lifecycle change grants another submission or a release of submitted work.
+    for (const operation of [
+      "club_operation_authorize",
+      "club_operation_reject",
+      "club_operation_defer",
+    ]) {
+      const response = await s.request(operation, {
+        ...s.target,
+        authority: s.authority,
+        code: "rate_limit",
+        retryAfterMs: 1000,
+      });
+      if (response.status !== 423) {
+        assert.equal(response.status, 200, await response.clone().text());
+        const result = await response.json();
+        assert.notEqual(result.authorized, true);
+        assert.notEqual(result.recorded, true);
+        assert.equal(result.retryAt ?? null, null);
+      }
+    }
+    const response = await s.request("club_operation_complete", {
+      ...s.target,
+      status: "succeeded",
+      result: { postId: "post_recorded" },
+    });
+    assert.equal(response.status, 200, await response.clone().text());
+    assert.deepEqual(await response.json(), { recorded: true });
+    const job = (await s.t.run((ctx) => ctx.db.get(s.operationId)))!;
+    assert.equal(job.state, "succeeded");
+    assert.equal(job.result?.postId, "post_recorded");
+    assert.equal(job.claim?.credentialGeneration, 1);
+    const duplicate = await s.request("club_operation_complete", {
+      ...s.target,
+      status: "rejected",
+      code: "late_conflict",
+    });
+    assert.deepEqual(await duplicate.json(), { recorded: false });
+    assert.equal(
+      (await s.t.run((ctx) => ctx.db.get(s.operationId)))!.state,
+      "succeeded",
+    );
+  });
+}
+
+it("HTTP completion rejects every mismatched stored claim field and revoked credentials", async () => {
+  const s = await submittedOverHttp();
+  const other = await s.t.run(async (ctx) => {
+    const { _id, _creationTime, ...account } = (await ctx.db.get(
+      s.collectorAccountId,
+    ))!;
+    const accountId = await ctx.db.insert("collectorAccounts", account);
+    const {
+      _id: integrationId,
+      _creationTime: creationTime,
+      ...integration
+    } = (await ctx.db.get(s.integrationId))!;
+    return {
+      accountId,
+      integrationId: await ctx.db.insert(
+        "communityVrchatIntegrations",
+        integration,
+      ),
+    };
+  });
+  for (const mismatch of [
+    { nonce: "wrong" },
+    { workerId: "wrong" },
+    { fencingToken: 2 },
+    { epochStartedAt: s.worker.epochStartedAt + 1 },
+    { integrationId: other.integrationId },
+  ]) {
+    const response = await s.request("club_operation_complete", {
+      ...s.target,
+      status: "succeeded",
+      ...mismatch,
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { recorded: false });
+  }
+  const crossAccount = await s.request(
+    "club_operation_complete",
+    { ...s.target, status: "succeeded" },
+    other.accountId,
+  );
+  assert.deepEqual(await crossAccount.json(), { recorded: false });
+  const wrongIdentity = await s.request("club_operation_complete", {
+    ...s.target,
+    status: "succeeded",
+    vrchatUserId: "wrong",
+  });
+  assert.equal(wrongIdentity.status, 401);
+  await s.t.run((ctx) =>
+    ctx.db.patch(s.collectorAccountId, {
+      workerKeyHash: "a".repeat(64),
+      credentialGeneration: 2,
+    }),
+  );
+  const revoked = await s.request("club_operation_complete", {
+    ...s.target,
+    status: "succeeded",
+  });
+  assert.equal(revoked.status, 401);
+  // Mutation authentication closes the race after HTTP authentication.
+  assert.deepEqual(
+    await s.t.mutation(ref("complete"), {
+      ...s.worker,
+      ...s.target,
+      status: "succeeded",
+    }),
+    { recorded: false },
+  );
+  assert.equal(
+    (await s.t.run((ctx) => ctx.db.get(s.operationId)))!.state,
+    "submitted",
+  );
+});
+
+for (const state of [
+  "provisioning",
+  "degraded",
+  "cooldown",
+  "auth_required",
+  "quarantined",
+  "retiring",
+  "retired",
+] as const) {
+  it(`HTTP allows only submitted completion from a ${state} account`, async () => {
+    const s = await submittedOverHttp();
+    await s.t.mutation(
+      makeFunctionReference<any>("communityTelemetry:setCollectorAccountState"),
+      {
+        collectorAccountId: s.collectorAccountId,
+        state,
+      },
+    );
+    for (const operation of [
+      "club_operation_claim",
+      "club_operation_authorize",
+      "club_operation_reject",
+      "club_operation_defer",
+      "heartbeat",
+      "budget",
+    ]) {
+      const response = await s.request(operation, {
+        ...s.target,
+        authority: s.authority,
+        code: "rate_limit",
+        retryAfterMs: 1000,
+      });
+      assert.equal(response.status, 423);
+      assert.deepEqual(await response.json(), { error: "collector_disabled" });
+    }
+    const wrongIdentity = await s.request("club_operation_complete", {
+      ...s.target,
+      status: "succeeded",
+      vrchatUserId: "wrong",
+    });
+    assert.equal(wrongIdentity.status, 401);
+    const wrongClaim = await s.request("club_operation_complete", {
+      ...s.target,
+      status: "succeeded",
+      nonce: "wrong",
+    });
+    assert.deepEqual(await wrongClaim.json(), { recorded: false });
+    const response = await s.request("club_operation_complete", {
+      ...s.target,
+      status: "rejected",
+      code: "submission_not_attempted",
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { recorded: true });
+    assert.equal(
+      (await s.t.run((ctx) => ctx.db.get(s.operationId)))!.state,
+      "rejected",
+    );
+  });
+}
+
+it("HTTP replacement worker key can report only the exact historical submitted claim", async () => {
+  const s = await submittedOverHttp();
+  const replacementKey = "replacement-operation-key-".repeat(2);
+  await s.t.mutation(
+    makeFunctionReference<any>("communityTelemetry:registerCollectorAccount"),
+    {
+      vrchatUserId: s.authority.userId,
+      accountAlias: "rotated",
+      secretRef: "secret://rotated",
+      workerKeyHash: await workerKeyHash(replacementKey),
+    },
+  );
+  const revoked = await s.request("club_operation_complete", {
+    ...s.target,
+    status: "succeeded",
+  });
+  assert.equal(revoked.status, 401);
+  for (const mismatch of [
+    { nonce: "wrong" },
+    { workerId: "replacement_worker" },
+    { fencingToken: 2 },
+    { epochStartedAt: s.worker.epochStartedAt + 1 },
+  ]) {
+    const response = await s.request(
+      "club_operation_complete",
+      { ...s.target, status: "succeeded", ...mismatch },
+      s.collectorAccountId,
+      replacementKey,
+    );
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { recorded: false });
+  }
+  const wrongIdentity = await s.request(
+    "club_operation_complete",
+    { ...s.target, status: "succeeded", vrchatUserId: "wrong" },
+    s.collectorAccountId,
+    replacementKey,
+  );
+  assert.equal(wrongIdentity.status, 401);
+  const exact = await s.request(
+    "club_operation_complete",
+    { ...s.target, status: "succeeded", result: { postId: "post_recorded" } },
+    s.collectorAccountId,
+    replacementKey,
+  );
+  assert.deepEqual(await exact.json(), { recorded: true });
+  const stored = (await s.t.run((ctx) => ctx.db.get(s.operationId)))!;
+  assert.equal(stored.claim!.credentialGeneration, 1);
+  assert.equal(
+    (await s.t.run((ctx) => ctx.db.get(s.collectorAccountId)))!
+      .credentialGeneration,
+    2,
+  );
+});
+
+it("HTTP completion rejects a key rotated while its body is being read", async (test) => {
+  const s = await submittedOverHttp();
+  const readJson = Request.prototype.json;
+  let bodyReads = 0;
+  // The actual request reaches body parsing after the first real auth query.
+  test.mock.method(Request.prototype, "json", async function (this: Request) {
+    const body = await readJson.call(this);
+    bodyReads++;
+    await s.t.mutation(
+      makeFunctionReference<any>("communityTelemetry:registerCollectorAccount"),
+      {
+        vrchatUserId: s.authority.userId,
+        accountAlias: "rotated",
+        secretRef: "secret://rotated",
+        workerKeyHash: "a".repeat(64),
+      },
+    );
+    return body;
+  });
+  const response = await s.request("club_operation_complete", {
+    ...s.target,
+    status: "succeeded",
+  });
+  assert.equal(bodyReads, 1);
+  assert.equal(response.status, 401);
+  assert.deepEqual(await response.json(), { error: "unauthorized" });
+  assert.equal(
+    (await s.t.run((ctx) => ctx.db.get(s.operationId)))!.state,
+    "submitted",
+  );
+});
+
+it("HTTP completion rejects rotation after admission and before the real completion mutation", async (test) => {
+  const s = await submittedOverHttp();
+  const httpModule = await import("../../convex/http");
+  const router =
+    (httpModule.default as unknown as { default?: typeof httpModule.default })
+      .default ?? httpModule.default;
+  const [handler] = router.lookup("/telemetry/worker", "POST")!;
+  const action = handler as unknown as {
+    _handler: (ctx: ActionCtx, request: Request) => Promise<Response>;
+  };
+  const original = action._handler;
+  let rotations = 0;
+  // Run the real HTTP handler and real auth queries, injecting a competing
+  // registration immediately before dispatch to the real completion mutation.
+  test.mock.method(action, "_handler", (ctx: ActionCtx, request: Request) =>
+    original(
+      {
+        ...ctx,
+        runMutation: async (reference, args) => {
+          if (getFunctionName(reference) === "clubOperations:complete") {
+            rotations++;
+            await ctx.runMutation(
+              makeFunctionReference<any>(
+                "communityTelemetry:registerCollectorAccount",
+              ),
+              {
+                vrchatUserId: s.authority.userId,
+                accountAlias: "rotated",
+                secretRef: "secret://rotated",
+                workerKeyHash: "b".repeat(64),
+              },
+            );
+          }
+          return ctx.runMutation(reference, args);
+        },
+      },
+      request,
+    ),
+  );
+  const response = await s.request("club_operation_complete", {
+    ...s.target,
+    status: "succeeded",
+  });
+  assert.equal(rotations, 1);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { recorded: false });
+  assert.equal(
+    (await s.t.run((ctx) => ctx.db.get(s.operationId)))!.state,
+    "submitted",
+  );
+});
+
+it("scheduled submission recovery works after disconnect and worker key revocation", async (test) => {
+  const s = await submittedOverHttp();
+  const job = (await s.t.run((ctx) => ctx.db.get(s.operationId)))!;
+  const scheduled = await s.t.run((ctx) =>
+    ctx.db.system.query("_scheduled_functions").collect(),
+  );
+  assert.equal(scheduled.length, 1);
+  assert.equal(scheduled[0].scheduledTime, job.claim!.expiresAt);
+  await s.t.run(async (ctx) => {
+    await ctx.db.patch(s.integrationId, { state: "disconnected" });
+    await ctx.db.patch(s.collectorAccountId, {
+      workerKeyHash: "b".repeat(64),
+      killSwitchEnabled: true,
+    });
+  });
+  // The scheduled function must run without any future authenticated claim request.
+  test.mock.method(Date, "now", () => job.claim!.expiresAt);
+  test.mock.timers.tick(120_000);
+  await s.t.finishInProgressScheduledFunctions();
+  const expired = (await s.t.run((ctx) => ctx.db.get(s.operationId)))!;
+  assert.equal(expired.state, "indeterminate");
+  assert.equal(expired.code, "submission_outcome_unknown");
+  assert.deepEqual(expired.claim, job.claim);
+  // Even a now-authenticated exact late result cannot replace terminal uncertainty.
+  await s.t.run((ctx) =>
+    ctx.db.patch(s.collectorAccountId, { workerKeyHash: s.hash }),
+  );
+  const late = await s.request("club_operation_complete", {
+    ...s.target,
+    status: "succeeded",
+  });
+  assert.deepEqual(await late.json(), { recorded: false });
+  assert.equal(
+    (await s.t.run((ctx) => ctx.db.get(s.operationId)))!.state,
+    "indeterminate",
+  );
+});
+
+it("submission recovery checks the recorded nonce and expiry and preserves terminal results", async (test) => {
+  const s = await submittedOverHttp();
+  const job = (await s.t.run((ctx) => ctx.db.get(s.operationId)))!;
+  const expiry = {
+    operationId: s.operationId,
+    nonce: job.claim!.nonce,
+    expiresAt: job.claim!.expiresAt,
+  };
+  await s.t.mutation(ref("expireSubmission"), expiry);
+  assert.equal(
+    (await s.t.run((ctx) => ctx.db.get(s.operationId)))!.state,
+    "submitted",
+  );
+  test.mock.method(Date, "now", () => expiry.expiresAt);
+  for (const mismatch of [
+    { nonce: "stale" },
+    { expiresAt: expiry.expiresAt - 1 },
+  ]) {
+    await s.t.mutation(ref("expireSubmission"), { ...expiry, ...mismatch });
+    assert.equal(
+      (await s.t.run((ctx) => ctx.db.get(s.operationId)))!.state,
+      "submitted",
+    );
+  }
+  const completed = await s.request("club_operation_complete", {
+    ...s.target,
+    status: "succeeded",
+  });
+  assert.deepEqual(await completed.json(), { recorded: true });
+  await s.t.mutation(ref("expireSubmission"), expiry);
+  assert.equal(
+    (await s.t.run((ctx) => ctx.db.get(s.operationId)))!.state,
+    "succeeded",
+  );
+});
 it("HTTP operation routes pass real mutation validators and fence the reported epoch", async () => {
   for (const completion of ["complete", "reject", "defer"]) {
     const s = await queued();

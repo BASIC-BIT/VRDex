@@ -39,12 +39,14 @@ const telemetryWorker = httpAction(async (ctx, request) => {
   if (!authorizationRecord || !safeEqual(authorizationRecord.workerKeyHash, presentedHash)) {
     return json({ error: "unauthorized" }, 401);
   }
-  if (!authorizationRecord.enabled) return json({ error: "collector_disabled" }, 423);
-
   const body = await request.json().catch(() => null) as Record<string, unknown> | null;
   if (!body || typeof body.operation !== "string" || typeof body.workerId !== "string") {
     return json({ error: "invalid_request" }, 400);
   }
+  // Only recording a past submitted attempt may outlive account shutdown.
+  // The completion mutation still authenticates the current key and exact claim.
+  const completingClubOperation = body.operation === "club_operation_complete";
+  if (!authorizationRecord.enabled && !completingClubOperation) return json({ error: "collector_disabled" }, 423);
   // Re-read after the body, not only before it. The first check happens before
   // an attacker-controlled read of unbounded length, so a request authenticated
   // with a superseded key could hold its body open across a rotation and then
@@ -59,7 +61,7 @@ const telemetryWorker = httpAction(async (ctx, request) => {
   if (!currentAuthorization || !safeEqual(currentAuthorization.workerKeyHash, presentedHash)) {
     return json({ error: "unauthorized" }, 401);
   }
-  if (!currentAuthorization.enabled) return json({ error: "collector_disabled" }, 423);
+  if (!currentAuthorization.enabled && !completingClubOperation) return json({ error: "collector_disabled" }, 423);
 
   // The worker reports the VRChat identity recorded in its own secret. Pairing
   // one collector id with another account's secret ARN otherwise started a task
