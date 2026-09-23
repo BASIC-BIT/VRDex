@@ -2,7 +2,7 @@
 
 Goal: implement and verify the entire accepted first-release specification. A completed local slice is not completion of this goal. Source requirements are the [discovery decisions](../group-instance-analytics-discovery-2026-09-08.md), [staff design](2026-09-10-club-staff-and-visibility-design.md) and approved dashboard preview. Later locked decisions supersede earlier candidate text.
 
-Updated September 14, 2026. Integration checkout: `codex/club-staff-workspace`. No hosted release or live provider proof has occurred in this program.
+Updated September 23, 2026. Integration checkout: `codex/club-staff-workspace`. No hosted release or live provider proof has occurred in this program.
 
 ## PR review checkpoint, September 16, 2026
 
