@@ -1,6 +1,6 @@
 import { setTimeout as sleep } from "node:timers/promises";
 
-import { VrchatClient } from "./vrchat-client.mjs";
+import { VrchatClient, VrchatProviderError } from "./vrchat-client.mjs";
 import { refreshClubAuthority } from "./club-authority.mjs";
 import { collectMembershipPage } from "./membership-collection.mjs";
 import { budgetedClubProvider } from "./club-request-budget.mjs";
@@ -171,14 +171,18 @@ async function checkClubReads(assignment, integrationBudget, deadline) {
   if (!job) return;
   const client = budgetedClubProvider({ provider, control, assignment, accountBudget, integrationBudget, pause: pauseWithHeartbeats, shouldStop: () => stopping, deadline });
   const adapter = new ClubProvider({ client, groupId: job.groupId, expectedUserId: secret.vrchatUserId });
-  const outcome = await readClubProviderJob(job, adapter);
+  const { httpStatus, retryAfterMs, ...outcome } = await readClubProviderJob(job, adapter);
   await control.send("club_read_complete", { ...scope, requestId: job.requestId, claimToken: job.claimToken, ...outcome });
   if (outcome.errorCode === "authentication") await reportDeadSession();
+  if (["rate_limit", "membership"].includes(outcome.errorCode))
+    throw new VrchatProviderError("Club read stopped collection.", { category: outcome.errorCode, status: httpStatus, retryAfterMs });
 }
 
 async function checkClubOperations(assignment, integrationBudget, deadline) {
   const outcome = await executeClubOperation({ assignment, provider, control, expectedUserId: secret.vrchatUserId, accountBudget, integrationBudget, pause: pauseWithHeartbeats, shouldStop: () => stopping, deadline });
   if (outcome.code === "authentication") await reportDeadSession();
+  if (["rate_limit", "membership"].includes(outcome.code))
+    throw new VrchatProviderError("Club operation stopped collection.", { category: outcome.code, status: outcome.httpStatus, retryAfterMs: outcome.retryAfterMs });
 }
 
 async function collect(assignment) {

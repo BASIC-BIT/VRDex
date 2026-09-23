@@ -154,6 +154,14 @@ Such failures still increment failure evidence and transition analytics coverage
 but do not degrade the connection or set its backoff. The next management pass
 remains due within one minute. Coverage and last successful observation continue
 to expose stale/unknown analytics despite the active management connection.
+Management wrappers record the operation or read outcome before propagating a
+rate-limit or membership-loss stop to the collector. The existing failure path
+then records connection backoff using the provider's retry interval. A submitted
+operation result stays recorded and is never replayed by this propagation.
+Provider status and retry timing travel only in local helper results; read
+completion strips them before sending its strict control-plane payload. Fresh,
+correctly scoped inactive membership is distinct from missing operation-specific
+permissions, so a permission-only rejection still permits independent features.
 Ordinary connection failures and shared throttling/authentication retain their
 existing lifecycle/backoff handling. Local/shared budgets, stopping, lease
 fencing and execution-time human/provider authorization remain mandatory.

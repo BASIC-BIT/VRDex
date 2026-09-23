@@ -43,13 +43,19 @@ export async function executeClubOperation({ assignment, provider, control, expe
   });
   const adapter = new ClubProvider({ client, groupId: assignment.vrchatGroupId, expectedUserId, clock });
   let outcome = await adapter.execute(job.payload, { onPreflight: value => { evidence = value; } });
+  // Keep bounded provider failure metadata for the collector after recording
+  // the job outcome. It is not part of the control-plane completion payload.
+  const failure = {
+    ...(outcome.httpStatus ? { httpStatus: outcome.httpStatus } : {}),
+    ...(Number.isFinite(outcome.retryAfterMs) ? { retryAfterMs: outcome.retryAfterMs } : {}),
+  };
   if (!submitted) {
     if (["timeout", "network", "rate_limit", "transient"].includes(outcome.code)) {
       const deferred = await control.send("club_operation_defer", { ...claim, code: outcome.code, retryAfterMs: outcome.retryAfterMs ?? 60_000 });
-      return { processed: true, status: deferred?.retryAt ? "pending" : "rejected", code: outcome.code };
+      return { processed: true, status: deferred?.retryAt ? "pending" : "rejected", code: outcome.code, ...failure };
     }
     await control.send("club_operation_reject", { ...claim, code: outcome.code ?? "preflight_failed" });
-    return { processed: true, status: "rejected", code: outcome.code };
+    return { processed: true, status: "rejected", code: outcome.code, ...failure };
   }
   if (!transportAttempted) {
     outcome = { status: "rejected", code: "submission_not_attempted" };
@@ -62,5 +68,5 @@ export async function executeClubOperation({ assignment, provider, control, expe
   await control.send("club_operation_complete", { ...claim, status: outcome.status,
     ...(outcome.code ? { code: outcome.code } : {}), ...(Object.keys(result).length ? { result } : {}),
   });
-  return { processed: true, status: outcome.status, code: outcome.code };
+  return { processed: true, status: outcome.status, code: outcome.code, ...failure };
 }

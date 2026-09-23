@@ -106,12 +106,12 @@ export async function readClubProviderJob(job, provider, clock = Date.now) {
     if (
       authority.groupId !== job.groupId ||
       authority.userId !== job.expectedUserId ||
-      authority.membershipStatus !== "member" ||
       !Number.isFinite(authority.observedAt) ||
       authority.observedAt > clock() ||
       clock() - authority.observedAt > 60_000
     )
       throw new Error("provider_authority");
+    if (authority.membershipStatus !== "member") throw new Error("membership");
     if (
       requirement
         .slice(1)
@@ -197,6 +197,10 @@ export async function readClubProviderJob(job, provider, clock = Date.now) {
         typeof code === "string" && /^[a-z_]{1,64}$/.test(code)
           ? code
           : "provider_read_failed",
+      // Local collector metadata, removed before recording the strict read result.
+      ...(Number.isInteger(error?.status) && error.status >= 400 && error.status < 600
+        ? { httpStatus: error.status } : {}),
+      ...(Number.isFinite(error?.retryAfterMs) ? { retryAfterMs: error.retryAfterMs } : {}),
     };
   }
 }

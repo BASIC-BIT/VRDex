@@ -113,7 +113,7 @@ test("instance picker strips population and roster data and checks current membe
   });
   assert.equal(
     (await readClubProviderJob(request, provider, () => now)).errorCode,
-    "provider_authority",
+    "membership",
   );
   assert.equal(reads, 1);
 });
@@ -224,4 +224,14 @@ test("rejects broken paging and never returns arbitrary provider error text", as
   assert.deepEqual(await readClubProviderJob(job, provider, () => now), {
     errorCode: "provider_read_failed",
   });
+});
+
+test("membership loss is reported only after scope and freshness are validated", async () => {
+  for (const invalid of [{ userId: "other" }, { groupId: "other" }, { observedAt: 0 }]) {
+    const result = await readClubProviderJob(job, {
+      readAuthority: async () => ({ ...authority, membershipStatus: "inactive", ...invalid }),
+      readPage: async () => { assert.fail("invalid authority must not fetch private rows"); },
+    }, () => now);
+    assert.equal(result.errorCode, "provider_authority");
+  }
 });
