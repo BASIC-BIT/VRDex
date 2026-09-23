@@ -923,6 +923,7 @@ it("creation edits invalidate reviewed invitations at claim and final authorizat
         ? { ...creation, worldId: worldB }
         : { ...creation, access: "plus" };
       await s.owner.mutation(ref("edit"), {
+        expectedRevision: 1,
         operationId: s.operationId,
         payload: editedCreation,
         schedule,
@@ -977,6 +978,7 @@ it("ordinary invitation edits preserve review and cannot approve a changed paren
   const editedPayload = { ...payload, targetUserId: "usr_77777777-7777-7777-7777-777777777777" };
   const editedSchedule = { ...schedule, dueAt: schedule.dueAt + 60000 };
   await s.owner.mutation(ref("edit"), {
+    expectedRevision: 1,
     operationId: inviteId, payload: editedPayload, schedule: editedSchedule,
   });
   const edited = await s.t.run((ctx) => ctx.db.get(inviteId));
@@ -988,18 +990,21 @@ it("ordinary invitation edits preserve review and cannot approve a changed paren
     payloads: [{ ...creation, worldId: worldB }], schedule,
   });
   await assert.rejects(s.owner.mutation(ref("edit"), {
+    expectedRevision: 2,
     operationId: inviteId,
     payload: { ...editedPayload, creationOperationId: otherCreation },
     schedule: editedSchedule,
   }), /Instance creation is unavailable/);
   await s.owner.mutation(ref("cancel"), { operationId: otherCreation });
   await s.owner.mutation(ref("edit"), {
+    expectedRevision: 1,
     operationId: s.operationId, payload: { ...creation, worldId: worldB }, schedule,
   });
   // Neither the generic editor's old payload nor a caller supplying the live
   // revision can turn a timing/recipient edit into a new destination approval.
   for (const creationRevision of [1, 2]) {
     await assert.rejects(s.owner.mutation(ref("edit"), {
+      expectedRevision: 2,
       operationId: inviteId, payload: { ...editedPayload, creationRevision }, schedule,
     }), /Instance creation is unavailable/);
   }
@@ -1067,6 +1072,7 @@ it("older dependent invitations without a reviewed creation revision fail closed
       if (stage === "claim") {
         const job = await s.t.run((ctx) => ctx.db.get(inviteId));
         await assert.rejects(s.owner.mutation(ref("edit"), {
+          expectedRevision: 1,
           operationId: inviteId, payload: job!.payload, schedule: job!.schedule,
         }), /Instance creation is unavailable/);
       }
@@ -1160,6 +1166,7 @@ it("creation event reassociation rejects reviewed dependent invitations at claim
       await s.t.run((ctx) => ctx.db.patch(s.operationId, { state: "pending" }));
     }
     await s.owner.mutation(ref("edit"), {
+      expectedRevision: 1,
       operationId: s.operationId,
       payload,
       schedule: { kind: "fixed", dueAt, eventId: eventB },
@@ -1226,6 +1233,7 @@ it("dependent invitations cannot precede creation and later parent timing change
   });
   await assert.rejects(
     s.owner.mutation(ref("edit"), {
+      expectedRevision: 1,
       operationId: id,
       payload,
       schedule: args.schedule,
@@ -1556,6 +1564,7 @@ it("editing another actor's job requires scheduling authority and reattributes e
   const schedule = { kind: "fixed", dueAt: Date.now() };
   await assert.rejects(
     staff.mutation(ref("edit"), {
+      expectedRevision: 1,
       operationId: s.operationId,
       payload,
       schedule,
@@ -1567,6 +1576,7 @@ it("editing another actor's job requires scheduling authority and reattributes e
     }),
   );
   await staff.mutation(ref("edit"), {
+    expectedRevision: 1,
     operationId: s.operationId,
     payload,
     schedule,
@@ -1851,6 +1861,7 @@ it("immediate dependent invitations retain review, server ordering and event can
     /before instance creation/,
   );
   await s.owner.mutation(ref("edit"), {
+    expectedRevision: 1,
     operationId: s.operationId,
     payload: creation,
     schedule: { kind: "immediate", eventId },
@@ -2017,4 +2028,179 @@ it("immediate request replay rejects another authorized actor", async () => {
       .tokenIdentifier,
     subject.tokenIdentifier,
   );
+});
+it("pending edits reject another authorized editor's obsolete revision without side effects", async () => {
+  const s = await queued();
+  const subject = {
+    subject: "editor",
+    issuer: "https://test.clerk.accounts.dev",
+    tokenIdentifier: "https://test.clerk.accounts.dev|editor",
+  };
+  const worldA = "wrld_11111111-1111-1111-1111-111111111111";
+  const worldB = "wrld_22222222-2222-2222-2222-222222222222";
+  const payload = {
+    kind: "create_instance",
+    worldId: worldA,
+    access: "members",
+    region: "use",
+  };
+  await s.t.run(async (ctx) => {
+    await ctx.db.insert("users", { clerkUserId: "editor" });
+    await ctx.db.patch(s.roleId, {
+      permissions: ["manage_instances", "manage_scheduled_actions"],
+    });
+    await ctx.db.insert("communityAuthorities", {
+      communityProfileId: s.communityProfileId,
+      subject,
+      subjectTokenIdentifier: subject.tokenIdentifier,
+      roleId: s.roleId,
+      state: "active",
+      grantedAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    await ctx.db.patch(s.operationId, { payload });
+  });
+  const other = s.t.withIdentity(subject);
+  const original = await s.t.run((ctx) => ctx.db.get(s.operationId));
+  await s.owner.mutation(ref("edit"), {
+    operationId: s.operationId,
+    expectedRevision: original!.revision,
+    payload: { ...payload, worldId: worldB },
+    schedule: { kind: "immediate" },
+  });
+  const before = await s.t.run(async (ctx) => ({
+    job: await ctx.db.get(s.operationId),
+    revisions: await ctx.db.query("clubOperationRevisions").collect(),
+    integration: await ctx.db.get(s.integrationId),
+  }));
+  await assert.rejects(
+    other.mutation(ref("edit"), {
+      operationId: s.operationId,
+      expectedRevision: original!.revision,
+      payload,
+      schedule: { kind: "fixed", dueAt: Date.now() + 1200000 },
+    }),
+    /Refresh to continue/,
+  );
+  assert.deepEqual(
+    await s.t.run(async (ctx) => ({
+      job: await ctx.db.get(s.operationId),
+      revisions: await ctx.db.query("clubOperationRevisions").collect(),
+      integration: await ctx.db.get(s.integrationId),
+    })),
+    before,
+  );
+  await other.mutation(ref("edit"), {
+    operationId: s.operationId,
+    expectedRevision: before.job!.revision,
+    payload: before.job!.payload,
+    schedule: { kind: "immediate" },
+  });
+  const after = await s.t.run((ctx) => ctx.db.get(s.operationId));
+  assert.equal(after!.revision, original!.revision + 2);
+  assert.deepEqual(after!.payload, { ...payload, worldId: worldB });
+});
+it("telemetry-only failures preserve management availability and fresh authorization", async () => {
+  const s = await queued();
+  await s.t.run((ctx) =>
+    ctx.db.patch(s.integrationId, { enabledFeatures: ["analytics", "posts"] }),
+  );
+  const now = Date.now();
+  const failure = makeFunctionReference<any>(
+    "communityTelemetry:recordPollFailure",
+  );
+  for (let i = 0; i < 5; i++)
+    await s.t.mutation(failure, {
+      integrationId: s.integrationId,
+      collectorAccountId: s.collectorAccountId,
+      workerId: "worker",
+      fencingToken: 1,
+      telemetryOnly: true,
+      statusClass: "403",
+      coverageState: "unknown",
+      detail: "visibility",
+      collectorVersion: "test",
+      nextPollAt: now + 3600000,
+      backoffUntil: now + 3600000,
+      now: now + i,
+    });
+  const state = await s.t.run(async (ctx) => ({
+    integration: await ctx.db.get(s.integrationId),
+    coverage: await ctx.db.query("collectionCoverageWindows").collect(),
+  }));
+  assert.equal(state.integration!.state, "active");
+  assert.equal(state.integration!.consecutiveFailures, 5);
+  assert.equal(state.integration!.backoffUntil, undefined);
+  assert.equal(state.integration!.nextPollAt, now + 4 + 60000);
+  assert.equal(state.coverage.at(-1)!.state, "unknown");
+  const claim = await s.t.mutation(ref("claim"), s.worker);
+  assert.equal(claim.operationId, s.operationId);
+  await s.t.run((ctx) =>
+    ctx.db.patch(s.integrationId, { enabledFeatures: ["analytics"] }),
+  );
+  const denied = await s.t.mutation(ref("authorizeSubmission"), {
+    ...s.worker,
+    operationId: s.operationId,
+    nonce: claim.nonce,
+    authority: s.authority,
+  });
+  assert.equal(denied.authorized, false);
+});
+for (const [statusClass, detail] of [
+  ["401", "authentication"],
+  ["429", "rate_limit"],
+  ["403", "membership"],
+]) {
+  it(`telemetry-only flag cannot suppress ${detail} lifecycle and backoff`, async () => {
+    const s = await queued();
+    const now = Date.now();
+    await s.t.run((ctx) =>
+      ctx.db.patch(s.integrationId, {
+        enabledFeatures: ["analytics", "posts"],
+        consecutiveFailures: 2,
+      }),
+    );
+    await s.t.mutation(
+      makeFunctionReference<any>("communityTelemetry:recordPollFailure"),
+      {
+        integrationId: s.integrationId,
+        collectorAccountId: s.collectorAccountId,
+        workerId: "worker",
+        fencingToken: 1,
+        telemetryOnly: true,
+        statusClass,
+        detail,
+        coverageState: "degraded",
+        collectorVersion: "test",
+        now,
+        nextPollAt: now + 300000,
+        backoffUntil: now + 300000,
+      },
+    );
+    const state = await s.t.run(async (ctx) => ({
+      integration: await ctx.db.get(s.integrationId),
+      account: await ctx.db.get(s.collectorAccountId),
+    }));
+    assert.equal(
+      state.integration!.state,
+      statusClass === "401" ? "auth_required" : "degraded",
+    );
+    assert.equal(state.integration!.backoffUntil, now + 300000);
+    if (statusClass === "401")
+      assert.equal(state.account!.state, "auth_required");
+  });
+}
+
+it("HTTP worker failure forwards analytics-only phase without disabling management", async () => {
+  const s = await submittedOverHttp();
+  await s.t.run((ctx) => ctx.db.patch(s.integrationId, { consecutiveFailures: 2 }));
+  const response = await s.request("failure", {
+    telemetryOnly: true, statusClass: "403", detail: "visibility", coverageState: "unknown",
+    collectorVersion: "test", nextPollAt: Date.now() + 3600000, backoffUntil: Date.now() + 3600000,
+  });
+  assert.equal(response.status, 200);
+  const integration = await s.t.run((ctx) => ctx.db.get(s.integrationId));
+  assert.equal(integration!.consecutiveFailures, 3);
+  assert.equal(integration!.state, "active");
+  assert.equal(integration!.backoffUntil, undefined);
 });

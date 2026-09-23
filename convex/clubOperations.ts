@@ -408,6 +408,7 @@ export async function enqueueClubOperations(
 export const edit = mutation({
   args: {
     operationId: v.id("clubOperations"),
+    expectedRevision: v.number(),
     payload: clubOperationPayload,
     schedule: operationSchedule,
   },
@@ -420,6 +421,8 @@ export const edit = mutation({
       throw new Error("Changing the action type requires a new action.");
     const actor = await resolveClubActor(ctx, job.communityProfileId);
     editPermission(actor, job);
+    if (args.expectedRevision !== job.revision)
+      throw new Error("Refresh to continue.");
     human(actor, args.payload);
     const integration = await ctx.db.get(job.integrationId);
     if (!integration) throw new Error("Connection unavailable.");

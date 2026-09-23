@@ -22,6 +22,7 @@ type EventOption = {
   title: string;
   startAt: number;
   status: string;
+  vrchatWorldId: string | null;
 };
 const worldIdPattern =
   /^wrld_[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}$/i;
@@ -43,6 +44,7 @@ export function InstanceCreateForm({
   ) => Promise<unknown>;
 }) {
   const [worldId, setWorldId] = useState("");
+  const [worldOverridden, setWorldOverridden] = useState(false);
   const [access, setAccess] = useState<CreatePayload["access"]>("members");
   const [region, setRegion] = useState<CreatePayload["region"]>("use");
   const [ageGated, setAgeGated] = useState(false);
@@ -163,7 +165,10 @@ export function InstanceCreateForm({
         VRChat world ID
         <Input
           value={worldId}
-          onChange={(event) => setWorldId(event.target.value)}
+          onChange={(event) => {
+            setWorldId(event.target.value);
+            setWorldOverridden(true);
+          }}
           placeholder="wrld_…"
           required
         />
@@ -256,7 +261,14 @@ export function InstanceCreateForm({
           Linked event
           <Select
             value={eventId}
-            onChange={(event) => setEventId(event.target.value)}
+            onChange={(event) => {
+              const nextEventId = event.target.value;
+              setEventId(nextEventId);
+              if (!worldOverridden)
+                setWorldId(
+                  events.find((item) => item.id === nextEventId)?.vrchatWorldId ?? "",
+                );
+            }}
           >
             <option value="">Standalone instance</option>
             {events

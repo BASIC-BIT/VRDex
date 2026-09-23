@@ -1395,6 +1395,7 @@ export const recordPollFailure = internalMutation({
     workerId: v.string(),
     fencingToken: v.number(),
     statusClass: v.string(),
+    telemetryOnly: v.optional(v.boolean()),
     coverageState: coverageStateValidator,
     nextPollAt: v.number(),
     backoffUntil: v.optional(v.number()),
@@ -1408,15 +1409,21 @@ export const recordPollFailure = internalMutation({
     const integration = await ctx.db.get(args.integrationId);
     if (!integration) throw new Error("Integration was not found.");
     const failures = integration.consecutiveFailures + 1;
+    // Aggregate/history failures affect coverage, not independently enabled management.
+    // Authentication, throttling and membership failures retain lifecycle/backoff semantics.
+    const telemetryOnly = args.telemetryOnly === true && integration.state === "active" &&
+      integration.enabledFeatures?.some((feature) => feature !== "analytics") === true &&
+      !["401", "429", "authentication", "rate_limit", "membership"].includes(args.statusClass) &&
+      !["authentication", "rate_limit", "membership"].includes(args.detail ?? "");
     const state = integration.state === "disconnecting"
       ? "disconnecting"
-      : args.statusClass === "401" ? "auth_required" : failures >= 3 ? "degraded" : integration.state;
+      : telemetryOnly ? integration.state : args.statusClass === "401" ? "auth_required" : failures >= 3 ? "degraded" : integration.state;
     await ctx.db.patch(integration._id, {
       state,
       lastAttemptAt: now,
-      nextPollAt: args.nextPollAt,
+      nextPollAt: telemetryOnly ? Math.min(args.nextPollAt, now + 60_000) : args.nextPollAt,
       consecutiveFailures: failures,
-      ...(args.backoffUntil ? { backoffUntil: args.backoffUntil } : {}),
+      ...(!telemetryOnly && args.backoffUntil ? { backoffUntil: args.backoffUntil } : {}),
       updatedAt: now,
     });
     await transitionCoverage(

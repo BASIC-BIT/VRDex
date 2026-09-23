@@ -102,6 +102,27 @@ export const context = query({
   },
 });
 
+/** A bounded review hint, never an arbitrary choice from a truncated association set. */
+async function confirmedEventWorld(ctx: QueryCtx, eventId: Id<"events">) {
+  const links = await ctx.db
+    .query("eventWorlds")
+    .withIndex("by_eventId", (q) => q.eq("eventId", eventId))
+    .take(21);
+  if (links.length > 20) return null;
+  const confirmed = links.filter(
+    (link) => link.confirmationState === "confirmed",
+  );
+  if (confirmed.length !== 1) return null;
+  const world = await ctx.db.get(confirmed[0].worldId);
+  const worldId = world?.vrchatWorldId;
+  return worldId &&
+    /^wrld_[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}$/i.test(
+      worldId,
+    )
+    ? worldId
+    : null;
+}
+
 export const listEvents = query({
   args: {
     communityProfileId: v.id("profiles"),
@@ -114,6 +135,7 @@ export const listEvents = query({
         title: v.string(),
         startAt: v.number(),
         status: v.string(),
+        vrchatWorldId: v.union(v.string(), v.null()),
       }),
     ),
     isDone: v.boolean(),
@@ -149,12 +171,15 @@ export const listEvents = query({
       .order("desc")
       .paginate(args.paginationOpts);
     return {
-      page: result.page.map((event) => ({
-        id: event._id,
-        title: event.title,
-        startAt: event.startAt,
-        status: event.eventStatus,
-      })),
+      page: await Promise.all(
+        result.page.map(async (event) => ({
+          id: event._id,
+          title: event.title,
+          startAt: event.startAt,
+          status: event.eventStatus,
+          vrchatWorldId: await confirmedEventWorld(ctx, event._id),
+        })),
+      ),
       isDone: result.isDone,
       continueCursor: result.continueCursor,
     };

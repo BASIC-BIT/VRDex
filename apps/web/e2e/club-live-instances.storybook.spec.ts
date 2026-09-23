@@ -129,7 +129,7 @@ for (const scenario of ["owner-analytics-off", "management-only-staff"]) {
             "123~group(grp_44444444-4444-4444-4444-444444444444)~region(use)",
         },
       ],
-      schedule: { kind: "fixed", dueAt: now.getTime() },
+      schedule: { kind: "immediate" },
     });
     await live
       .getByRole("button", { name: "Next instances", exact: true })

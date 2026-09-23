@@ -138,3 +138,38 @@ test("immediate scheduled editor saves Now and preserves explicit timing choices
     .click();
   await expect(page.getByLabel("Timing", { exact: true })).toHaveValue("fixed");
 });
+test("an obsolete editor must close and reopen before saving a newer revision @storybook-visual", async ({
+  page,
+}) => {
+  await page.goto(
+    "/iframe.html?id=clubs-scheduled--concurrent-edit&viewMode=story",
+  );
+  await page
+    .getByRole("button", { name: "Edit action", exact: true })
+    .first()
+    .click();
+  await page.getByLabel("Title", { exact: true }).fill("Stale title");
+  await page.getByRole("button", { name: "Simulate other editor" }).click();
+  await expect(
+    page.getByText("Updated by Morgan", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Save action", exact: true }).click();
+  await expect(page.getByRole("alert")).toHaveText("Refresh to continue.");
+  await expect(page.getByLabel("Title", { exact: true })).toHaveValue(
+    "Stale title",
+  );
+  await page.getByRole("button", { name: "Save action", exact: true }).click();
+  await expect(page.getByRole("alert")).toHaveText("Refresh to continue.");
+  await page.getByRole("button", { name: "Cancel edit", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Edit action", exact: true })
+    .first()
+    .click();
+  await expect(page.getByLabel("Title", { exact: true })).toHaveValue(
+    "Updated by Morgan",
+  );
+  await page.getByLabel("Title", { exact: true }).fill("Reviewed title");
+  await page.getByRole("button", { name: "Save action", exact: true }).click();
+  await expect(page.getByText("Reviewed title", { exact: true })).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});

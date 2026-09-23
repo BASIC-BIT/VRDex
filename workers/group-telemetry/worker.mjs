@@ -182,35 +182,76 @@ async function checkClubOperations(assignment, integrationBudget, deadline) {
 }
 
 async function collect(assignment) {
-  const lease = { integrationId: assignment.integrationId, fencingToken: assignment.fencingToken };
+  const lease = {
+    integrationId: assignment.integrationId,
+    fencingToken: assignment.fencingToken,
+  };
   const now = Date.now();
-  const requestCost = assignment.state === "active" ? 2 : 4;
+  const deadline = now + 240_000;
+  let phase = "connection";
   let integrationBudget = integrationBudgets.get(assignment.integrationId);
-  if (!integrationBudget || integrationBudget.limit !== assignment.requestsPerMinute) {
+  if (
+    !integrationBudget ||
+    integrationBudget.limit !== assignment.requestsPerMinute
+  ) {
     integrationBudget = new RequestBudget(assignment.requestsPerMinute);
     integrationBudgets.set(assignment.integrationId, integrationBudget);
   }
-  try {
-    if (assignment.state === "active" && assignment.enabledFeatures && !assignment.enabledFeatures.includes("analytics")) {
-      await checkClubOperations(assignment, integrationBudget, now + 240_000);
-      await checkClubReads(assignment, integrationBudget, now + 240_000);
-      await refreshClubAuthority({ assignment, provider, control, expectedUserId: secret.vrchatUserId, accountBudget, integrationBudget });
-      await control.send("defer", { ...lease, nextPollAt: now + randomPollDelayMs(false), now });
-      return;
-    }
+  async function reserve(requestCost) {
+    if (stopping || Date.now() >= deadline) return false;
+    const reservedAt = Date.now();
     const localRetryAfterMs = Math.max(
-      accountBudget.retryAfterMs(requestCost, now),
-      integrationBudget.retryAfterMs(requestCost, now),
+      accountBudget.retryAfterMs(requestCost, reservedAt),
+      integrationBudget.retryAfterMs(requestCost, reservedAt),
     );
     if (localRetryAfterMs > 0) {
-      await control.send("defer", { ...lease, nextPollAt: now + localRetryAfterMs, now });
-      return;
+      await control.send("defer", {
+        ...lease,
+        nextPollAt: reservedAt + localRetryAfterMs,
+        now: reservedAt,
+      });
+      return false;
     }
-    const reservation = await control.send("budget", { ...lease, requestCount: requestCost, now });
-    if (!reservation.granted) return;
-    accountBudget.tryConsume(requestCost, now);
-    integrationBudget.tryConsume(requestCost, now);
+    const reservation = await control.send("budget", {
+      ...lease,
+      requestCount: requestCost,
+      now: reservedAt,
+    });
+    if (!reservation.granted) return false;
+    accountBudget.tryConsume(requestCost, reservedAt);
+    integrationBudget.tryConsume(requestCost, reservedAt);
+    return !stopping && Date.now() < deadline;
+  }
+  async function refreshReadiness() {
+    try {
+      return await refreshClubAuthority({
+        assignment,
+        provider,
+        control,
+        expectedUserId: secret.vrchatUserId,
+        accountBudget,
+        integrationBudget,
+      });
+    } catch (error) {
+      if (
+        ["authentication", "rate_limit", "membership"].includes(
+          error?.category,
+        ) ||
+        /^Control plane (401|403|429):/.test(error?.message ?? "")
+      )
+        throw error;
+      // A readiness-only failure does not invalidate a recorded aggregate poll.
+      logEvent({
+        event: "club_authority_refresh_failed",
+        category: boundedProviderCategory(error?.category),
+      });
+      return { refreshed: false };
+    }
+  }
+  try {
+    if (stopping) return;
     if (assignment.state === "disconnecting") {
+      if (!(await reserve(1))) return;
       await provider.leaveGroup(assignment.vrchatGroupId);
       await control.send("membership", {
         ...lease,
@@ -223,6 +264,8 @@ async function collect(assignment) {
       return;
     }
     if (assignment.state !== "active") {
+      // getGroup, optional joinGroup, then getGroup after the join.
+      if (!(await reserve(3))) return;
       const membership = await provider.connectGroup(assignment.vrchatGroupId);
       await control.send("membership", {
         ...lease,
@@ -233,35 +276,105 @@ async function collect(assignment) {
         now: Date.now(),
       });
       if (membership.state !== "active") return;
+      assignment = { ...assignment, state: membership.state };
     }
-    const snapshot = await provider.readAggregateSnapshot(assignment.vrchatGroupId);
-    const nextPollAt = snapshot.observedAt + randomPollDelayMs(snapshot.instances.length > 0);
-    await control.send("ingest", {
-      ...lease,
-      pollId: pollId(assignment.integrationId, snapshot.observedAt),
-      observedAt: snapshot.observedAt,
-      collectorVersion: COLLECTOR_PROTOCOL_VERSION,
-      groupMemberCount: snapshot.group.memberCount,
-      instances: snapshot.instances,
-      nextPollAt,
-    });
-    attempts.delete(assignment.integrationId);
+    // Management has its own fresh authorization and per-request budget guards.
+    // Run it before optional analytics so endpoint outages cannot consume its deadline.
+    phase = "management";
+    if (stopping || Date.now() >= deadline) return;
+    await checkClubOperations(assignment, integrationBudget, deadline);
+    if (stopping || Date.now() >= deadline) return;
+    await checkClubReads(assignment, integrationBudget, deadline);
+    if (stopping || Date.now() >= deadline) return;
+    if (
+      assignment.enabledFeatures &&
+      !assignment.enabledFeatures.includes("analytics")
+    ) {
+      await refreshReadiness();
+      if (stopping || Date.now() >= deadline) return;
+      await control.send("defer", {
+        ...lease,
+        nextPollAt: Date.now() + randomPollDelayMs(false),
+        now: Date.now(),
+      });
+      return;
+    }
+    phase = "analytics";
+    if (!(await reserve(2))) return;
+    let telemetryError;
     try {
-      await checkClubOperations(assignment, integrationBudget, now + 240_000);
-      await checkClubReads(assignment, integrationBudget, now + 240_000);
-      const refreshed = await refreshClubAuthority({ assignment, provider, control, expectedUserId: secret.vrchatUserId, accountBudget, integrationBudget });
-      const auditProvider = budgetedClubProvider({ provider, control, assignment, accountBudget, integrationBudget, pause: pauseWithHeartbeats, shouldStop: () => stopping, deadline: now + 240_000 });
-      await collectMembershipPage({ assignment, authority: refreshed.authority, provider: auditProvider, control, expectedUserId: secret.vrchatUserId, accountBudget, integrationBudget, requestBudgeted: true });
+      const snapshot = await provider.readAggregateSnapshot(
+        assignment.vrchatGroupId,
+      );
+      const nextPollAt =
+        snapshot.observedAt + randomPollDelayMs(snapshot.instances.length > 0);
+      await control.send("ingest", {
+        ...lease,
+        pollId: pollId(assignment.integrationId, snapshot.observedAt),
+        observedAt: snapshot.observedAt,
+        collectorVersion: COLLECTOR_PROTOCOL_VERSION,
+        groupMemberCount: snapshot.group.memberCount,
+        instances: snapshot.instances,
+        nextPollAt,
+      });
+      attempts.delete(assignment.integrationId);
     } catch (error) {
-      // A readiness refresh does not invalidate an already recorded telemetry poll.
-      logEvent({ event: "club_authority_refresh_failed", category: boundedProviderCategory(error?.category) });
-      if (error?.category === "authentication") await reportDeadSession();
+      // Stop immediately for shared/account or membership faults. Ordinary
+      // aggregate/ingest failures still allow the independent readiness refresh.
+      if (
+        ["authentication", "rate_limit", "membership"].includes(
+          error?.category,
+        ) ||
+        /^Control plane (401|403|429):/.test(error?.message ?? "")
+      )
+        throw error;
+      telemetryError = error;
     }
+    if (stopping || Date.now() >= deadline) {
+      if (telemetryError) throw telemetryError;
+      return;
+    }
+    phase = "management";
+    const refreshed = await refreshReadiness();
+    phase = "analytics";
+    if (telemetryError) throw telemetryError;
+    if (stopping || Date.now() >= deadline) return;
+    const auditProvider = budgetedClubProvider({
+      provider,
+      control,
+      assignment,
+      accountBudget,
+      integrationBudget,
+      pause: pauseWithHeartbeats,
+      shouldStop: () => stopping,
+      deadline,
+    });
+    await collectMembershipPage({
+      assignment,
+      authority: refreshed.authority,
+      provider: auditProvider,
+      control,
+      expectedUserId: secret.vrchatUserId,
+      accountBudget,
+      integrationBudget,
+      requestBudgeted: true,
+    });
   } catch (error) {
     const attempt = (attempts.get(assignment.integrationId) ?? 0) + 1;
     attempts.set(assignment.integrationId, attempt);
     const failure = failureDisposition(error, attempt);
-    await control.send("failure", { ...lease, ...failure, collectorVersion: COLLECTOR_PROTOCOL_VERSION, now: Date.now() });
+    const telemetryOnly =
+      phase === "analytics" &&
+      assignment.enabledFeatures?.some((feature) => feature !== "analytics") ===
+        true &&
+      !["authentication", "rate_limit", "membership"].includes(error?.category);
+    await control.send("failure", {
+      ...lease,
+      ...failure,
+      telemetryOnly,
+      collectorVersion: COLLECTOR_PROTOCOL_VERSION,
+      now: Date.now(),
+    });
     if (failure.stopAccount) {
       logEvent(collectorAuthRequiredEvent());
       stopping = true;

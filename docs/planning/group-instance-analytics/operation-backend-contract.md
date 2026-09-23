@@ -23,7 +23,11 @@ same schedule through the shared request comparison. Dependent invitations keep
 the reviewed creation revision and cannot precede its effective due time;
 immediate timing is checked on the server, independent of the browser clock.
 
-`edit` only changes pending actions. The editor needs the original and new
+`edit` only changes pending actions and requires `expectedRevision`, captured when
+the editor opens. A mismatched revision rejects transactionally with `Refresh to
+continue.` before executable fields, integration wakeups or revision history
+change. Close and reopen the editor to review the current payload and schedule;
+reactive queue updates never rebase the stale form. The editor needs the original and new
 underlying permissions; editing another person's action additionally requires
 `manage_scheduled_actions` unless the editor is the owner. The edit stores the
 previous revision and makes the editor the new authorizing subject. `cancel`
@@ -130,6 +134,30 @@ and scheduled UI. Provider writes are not
 verified by backend state-machine tests. These APIs do not bypass provider
 transport checks.
 
+## Independent collection phases
+
+After membership connection or recovery, the collector uses the effective active
+state to dispatch operations and provider reads before optional analytics.
+Readiness refresh runs even when aggregate collection or ingest fails. It follows
+the aggregate reservation when analytics is enabled, preserving aggregate polls
+at the two-request minimum budget. Shared authentication, rate-limit and
+membership faults stop the pass before another provider read. Assignments without `analytics` skip aggregate reads, ingest and
+membership history even on their first successful connection. Missing feature
+settings retain legacy analytics collection. Waiting membership and disconnect
+transitions keep their lifecycle behavior.
+
+The authenticated worker failure message accepts optional `telemetryOnly`.
+Only aggregate/history phase failures may set it, excluding authentication,
+rate limits and membership loss. The backend independently enforces those
+exclusions and requires an active integration with another enabled feature.
+Such failures still increment failure evidence and transition analytics coverage,
+but do not degrade the connection or set its backoff. The next management pass
+remains due within one minute. Coverage and last successful observation continue
+to expose stale/unknown analytics despite the active management connection.
+Ordinary connection failures and shared throttling/authentication retain their
+existing lifecycle/backoff handling. Local/shared budgets, stopping, lease
+fencing and execution-time human/provider authorization remain mandatory.
+
 ## Worker request budgets
 
 The worker authenticates its VRChat user, then reserves one shared account and
@@ -165,6 +193,17 @@ confirmation. Confirmation queues the exact displayed destination through
 `clubOperations.enqueue`; provider and actor authorization are still rechecked
 at execution. Queued closure is not evidence that the provider closed it.
 
+For event-linked creation, the authorized paginated event picker adds only a
+nullable `vrchatWorldId`. It reads at most 21 event-world links per event; more
+than 20 links is treated as ambiguous. Exactly one confirmed link with a valid
+VRChat world ID prefills the existing editable world field. Missing, unconfirmed,
+ambiguous or invalid world data yields no prefill. Switching events replaces or
+clears the previous event-derived value. A deliberate staff edit takes precedence
+across later event changes, including standalone selection. Event-relative timing
+still uses the selected event start plus the reviewed offset, with the existing
+minus-30-minute initial offset; event selection does not change the timing mode.
+Creation linkage remains separate from manual observed-session association.
+
 Telemetry-backed live/past lists and detail retain their existing category
 checks and peak/average presentation. The management list creates no telemetry
 sessions or historical observations.
@@ -175,6 +214,17 @@ flowchart LR
   B[Direct Instances link] --> S[Sign in and return]
   S --> C
   C --> P{Owner or manage_instances and instances enabled}
+  P --> N[New instance]
+  N --> E{Linked event or standalone}
+  E --> V[Review known world or enter world]
+  V --> O[Review timing and options]
+  O --> J[Creation queued]
+  J --> SA[Scheduled actions]
+  SA --> ED[Open editor with reviewed revision]
+  ED --> SV{Current revision}
+  SV -->|Yes| SA
+  SV -->|No| RE[Close and reopen to review current values]
+  RE --> ED
   P --> L[Provider-live instances]
   L --> R[Refresh or page]
   R --> L

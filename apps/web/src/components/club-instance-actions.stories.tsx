@@ -19,6 +19,28 @@ function FormFixture() {
                 title: "Afterhours Friday",
                 startAt: eventStartAt,
                 status: "scheduled",
+                vrchatWorldId: "wrld_11111111-1111-1111-1111-111111111111",
+              },
+              {
+                id: "second-event" as Id<"events">,
+                title: "Saturday session",
+                startAt: eventStartAt + 86400_000,
+                status: "scheduled",
+                vrchatWorldId: "wrld_22222222-2222-2222-2222-222222222222",
+              },
+              {
+                id: "missing-world" as Id<"events">,
+                title: "World pending",
+                startAt: eventStartAt,
+                status: "scheduled",
+                vrchatWorldId: null,
+              },
+              {
+                id: "ambiguous-world" as Id<"events">,
+                title: "Multiple worlds",
+                startAt: eventStartAt,
+                status: "scheduled",
+                vrchatWorldId: null,
               },
             ]}
             roles={[

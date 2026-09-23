@@ -35,6 +35,7 @@ function Fixture({ instanceOnly = false, mutableCreation = false }: { instanceOn
             title: "Friday Afterhours",
             startAt: Date.UTC(2030, 8, 20, 22),
             status: "scheduled",
+            vrchatWorldId: null,
           },
         ]}
         instances={[

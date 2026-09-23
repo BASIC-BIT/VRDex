@@ -310,6 +310,7 @@ const telemetryWorker = httpAction(async (ctx, request) => {
       await ctx.runMutation(functions.recordPollFailure, {
         ...common,
         statusClass: body.statusClass,
+        telemetryOnly: body.telemetryOnly,
         coverageState: body.coverageState,
         nextPollAt: body.nextPollAt,
         backoffUntil: body.backoffUntil,

@@ -31,7 +31,7 @@ const subject = (token: string) => ({
 class ScheduledFixtureClient extends ConvexReactClient {
   private readonly fixtureListeners = new Set<() => void>();
   private readonly cache = new Map<string, unknown>();
-  private readonly jobs = (
+  private jobs = (
     ["pending", "pending", "indeterminate", "missed"] as const
   ).map((state, index) => ({
     id: `fixture-operation-${index}`,
@@ -48,6 +48,7 @@ class ScheduledFixtureClient extends ConvexReactClient {
     dueAt: Date.now() + 86400_000,
     actor: subject(index === 0 ? "fixture" : "other"),
     batchId: `batch-${index}`,
+    revision: 1,
     state: state as string,
     code: null,
   }));
@@ -69,6 +70,19 @@ class ScheduledFixtureClient extends ConvexReactClient {
         schedule: { kind: "immediate" },
         dueAt: Date.now(),
       });
+  }
+  simulateOtherEditor() {
+    this.jobs = this.jobs.map((job, index) =>
+      index === 0
+        ? {
+            ...job,
+            revision: job.revision + 1,
+            payload: { ...job.payload, title: "Updated by Morgan" },
+          }
+        : job,
+    );
+    this.cache.clear();
+    this.fixtureListeners.forEach((callback) => callback());
   }
   private result(name: string, args?: unknown) {
     const key = name + JSON.stringify(args);
@@ -127,7 +141,10 @@ class ScheduledFixtureClient extends ConvexReactClient {
     if (name === "clubOperations:edit") {
       const job = this.jobs.find((job) => job.id === value.operationId);
       if (job) {
+        if (job.revision !== value.expectedRevision)
+          throw new Error("Refresh to continue.");
         Object.assign(job, {
+          revision: job.revision + 1,
           payload: value.payload,
           schedule: value.schedule,
           actor: subject("fixture"),
@@ -151,10 +168,12 @@ function ScheduledFixture({
   staff = false,
   pagedNotifications = false,
   immediate = false,
+  conflict = false,
 }: {
   staff?: boolean;
   pagedNotifications?: boolean;
   immediate?: boolean;
+  conflict?: boolean;
 }) {
   const [client] = useState(
     () => new ScheduledFixtureClient(pagedNotifications, immediate),
@@ -189,6 +208,11 @@ function ScheduledFixture({
             data={data}
             pathname="/account/communities/afterhours/scheduled"
           >
+            {conflict ? (
+              <button onClick={() => client.simulateOtherEditor()}>
+                Simulate other editor
+              </button>
+            ) : null}
             <ClubScheduled />
           </ClubWorkspaceView>
         </PageContainer>
@@ -210,4 +234,8 @@ export const OlderNotifications: Story = {
 
 export const Immediate: Story = {
   render: () => <ScheduledFixture immediate />,
+};
+
+export const ConcurrentEdit: Story = {
+  render: () => <ScheduledFixture conflict />,
 };

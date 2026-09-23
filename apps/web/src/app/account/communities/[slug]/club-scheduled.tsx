@@ -305,6 +305,7 @@ function OperationEditor({
 }) {
   const workspace = useClubWorkspace();
   const [payload, setPayload] = useState(operation.payload);
+  const [expectedRevision] = useState(operation.revision);
   const [scheduleKind, setScheduleKind] = useState(operation.schedule.kind);
   const [dueAt, setDueAt] = useState(localDateTime(operation.dueAt));
   const [eventId, setEventId] = useState(operation.schedule.eventId ?? "");
@@ -372,7 +373,12 @@ function OperationEditor({
                 };
           setBusy(true);
           try {
-            await save({ operationId: operation.id, payload, schedule });
+            await save({
+              operationId: operation.id,
+              expectedRevision,
+              payload,
+              schedule,
+            });
             onClose();
           } catch (cause) {
             setError(

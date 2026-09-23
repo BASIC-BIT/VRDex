@@ -779,3 +779,77 @@ it("rejects invalid paging and removes expired operational cache without touchin
   await s.t.mutation(ref("expire"), { requestId });
   assert.equal(await s.t.run((ctx) => ctx.db.get(requestId)), null);
 });
+it("event picker projects only a single confirmed bounded VRChat world", async (test) => {
+  test.mock.timers.enable({ apis: ["setTimeout"] });
+  const s = await setup();
+  await s.t.run(async (ctx) => {
+    for (const [name, count, confirmed] of [
+      ["known", 1, true],
+      ["missing", 0, true],
+      ["ambiguous", 2, true],
+      ["unconfirmed", 1, false],
+      ["overflow", 21, true],
+    ] as const) {
+      const eventId = await ctx.db.insert("events", {
+        slug: name,
+        title: name,
+        sortTitle: name,
+        startAt: Date.now(),
+        communityProfileId: s.communityProfileId,
+        sourceType: "manual",
+        sourceLabel: "test",
+        eventStatus: "scheduled",
+        publicationState: "draft_private",
+        updatedAt: Date.now(),
+      });
+      for (let i = 0; i < count; i++) {
+        const worldId = await ctx.db.insert("worlds", {
+          slug: `${name}-${i}`,
+          displayName: name,
+          sortName: name,
+          tags: [],
+          vrchatWorldId: `wrld_${String(i + 1).padStart(8, "0")}-1111-1111-1111-111111111111`,
+          visibilityStatus: "public",
+          platformCompatibility: [],
+          media: [],
+          creatorAttributions: [],
+          outboundLinks: [],
+          publicationState: "published",
+          creationSource: "self",
+          updatedAt: Date.now(),
+        });
+        await ctx.db.insert("eventWorlds", {
+          eventId,
+          worldId,
+          eventStartAt: Date.now(),
+          eventEndAt: Date.now() + 3600000,
+          eventPublicationState: "draft_private",
+          eventStatus: "scheduled",
+          sourceType: "manual",
+          confidence: 1,
+          confirmationState: confirmed ? "confirmed" : "unconfirmed",
+          updatedAt: Date.now(),
+        });
+      }
+    }
+  });
+  const result = await s.owner.query(ref("listEvents"), {
+    communityProfileId: s.communityProfileId,
+    paginationOpts: { numItems: 25, cursor: null },
+  });
+  const values = Object.fromEntries(
+    result.page.map(
+      (event: { title: string; vrchatWorldId: string | null }) => [
+        event.title,
+        event.vrchatWorldId,
+      ],
+    ),
+  );
+  assert.deepEqual(values, {
+    known: "wrld_00000001-1111-1111-1111-111111111111",
+    missing: null,
+    ambiguous: null,
+    unconfirmed: null,
+    overflow: null,
+  });
+});

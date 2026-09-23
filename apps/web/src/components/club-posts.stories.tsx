@@ -19,6 +19,7 @@ function Preview() {
             title: "Friday Afterhours",
             startAt: Date.UTC(2026, 8, 18, 22),
             status: "scheduled",
+            vrchatWorldId: null,
           },
         ]}
         onSave={async () => setStatus("Draft saved.")}
