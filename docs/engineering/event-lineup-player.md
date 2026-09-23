@@ -91,7 +91,9 @@ decisions and releases preparation. Current-source play rejection leaves the sha
 Play action. A rejected prepared
 source remains muted and owned, with automatic reconnects suspended. The
 `Enable playback` control retries that exact source under a viewer gesture while
-current audio continues. Successful retry must still produce three progressing
+current audio continues. Another gesture supersedes a pending retry on the same
+source. Only the latest attempt can change pending or blocked state, and handoff
+waits for that attempt to settle. Successful retry must still produce three progressing
 samples before normal handoff is allowed. Projection changes, manual selection,
 pause, candidate expiry, hidden-document release and disposal clear rejection
 state and invalidate pending retry callbacks.

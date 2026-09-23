@@ -120,7 +120,7 @@ async function runtimeFixture(slots: ConstructorParameters<typeof EventLineupSes
     await session.play(); await settle();
     await run({ session, sources,
       async step(time, duration = 100) { wall = time; for (let elapsed = 0; elapsed < duration; elapsed += 100) { clock += 100; tick(); await settle(); } },
-      allowNext() { rejected = false; },
+      allowNext() { rejected = false; nextResult = undefined; },
       deferNext() { let finish!: (accepted: boolean) => void; nextResult = new Promise(resolve => { finish = resolve; }); return finish; },
       rejectNext() { rejected = true; }, silence() { quiet = true; }, visibility(value) { document.visibilityState = value; },
     });
@@ -204,13 +204,41 @@ test("viewer retry plays the retained next source, preserves current identity, t
     assert.equal(session.state.current, "b"); assert.equal(sources[1].gain.gain.value, 1);
   });
 });
+for (const oldAccepted of [true, false]) test(`a second gesture supersedes pending playback despite an older ${oldAccepted ? "acceptance" : "rejection"}`, async () => {
+  await runtimeFixture([repeated[0], { ...repeated[1], stream: stream("different") }], async ({ session, sources, step, rejectNext, deferNext, allowNext, silence }) => {
+    rejectNext(); await step(at(20, 58));
+    const finishOld = deferNext(); session.retryNextPlayback();
+    allowNext(); session.retryNextPlayback(); await settle();
+    assert.equal(session.state.nextPlaybackBlocked, false);
+    assert.equal(sources.length, 2); assert.equal(sources[1].plays, 3);
+    assert.equal(sources[0].gain.gain.value, 1); assert.equal(sources[1].gain.gain.value, 0);
+    finishOld(oldAccepted); await settle();
+    assert.equal(session.state.nextPlaybackBlocked, false);
+    silence(); await step(at(20, 58), 1400);
+    assert.equal(session.state.current, "b"); assert.equal(sources[1].gain.gain.value, 1);
+  });
+});
+test("an obsolete acceptance cannot clear the newer gesture's pending or blocked state", async () => {
+  await runtimeFixture([repeated[0], { ...repeated[1], stream: stream("different") }], async ({ session, sources, step, rejectNext, deferNext, allowNext, silence }) => {
+    rejectNext(); await step(at(20, 58));
+    const finishOld = deferNext(); session.retryNextPlayback();
+    allowNext(); const finishLatest = deferNext(); session.retryNextPlayback();
+    finishOld(true); await settle(); silence(); await step(at(20, 58), 8000);
+    assert.equal(session.state.nextPlaybackBlocked, true);
+    assert.equal(session.state.current, "a"); assert.equal(sources.length, 2);
+    assert.equal(sources[1].gain.gain.value, 0);
+    finishLatest(true); await settle(); await step(at(20, 58), 1400);
+    assert.equal(session.state.current, "b"); assert.equal(sources[1].gain.gain.value, 1);
+  });
+});
 for (const action of ["pause", "manual", "projection", "expiry", "dispose"] as const) {
   test(`pending rejected-source gesture cannot restore state after ${action}`, async () => {
     const slots = [repeated[0], { ...repeated[1], stream: stream("different") }];
     await runtimeFixture(slots, async ({ session, sources, step, rejectNext, deferNext }) => {
       rejectNext(); await step(at(20, 58));
-      const finish = deferNext(); session.retryNextPlayback(); session.retryNextPlayback();
-      assert.equal(sources[1].plays, 2);
+      const finishFirst = deferNext(); session.retryNextPlayback();
+      const finishSecond = deferNext(); session.retryNextPlayback();
+      assert.equal(sources[1].plays, 3);
       if (action === "pause") session.pause();
       if (action === "manual") session.manual("a");
       if (action === "projection") session.update({ title: "Event", startAt: at(20), slots });
@@ -218,7 +246,7 @@ for (const action of ["pause", "manual", "projection", "expiry", "dispose"] as c
       if (action === "dispose") session.dispose();
       assert.equal(session.state.nextPlaybackBlocked, false);
       assert.equal(sources[1].released, true);
-      finish(false); await settle();
+      finishSecond(false); finishFirst(true); await settle();
       assert.equal(session.state.nextPlaybackBlocked, false);
       assert.equal(session.state.current, "a"); assert.equal(sources[1].gain.gain.value, 0);
     });

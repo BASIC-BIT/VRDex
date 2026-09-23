@@ -290,6 +290,7 @@ for (const engine of [chromium, firefox]) {
      if (this.hidden) {
       probe.attempts++;
       if (!probe.enabled) return Promise.reject(new DOMException("Prepared source fixture rejection", "NotAllowedError"));
+      if (probe.attempts === 2) return new Promise<void>(() => {});
      }
      return play.call(this);
     };
@@ -326,13 +327,17 @@ for (const engine of [chromium, firefox]) {
     await info.attach(`prepared-rejection-${name}`, { path: screenshot, contentType: "image/png" });
    }
    await enable.click();
+   await expect.poll(() => page.evaluate(() => (window as unknown as { preparedProbe: { attempts: number } }).preparedProbe.attempts)).toBe(2);
+   await expect(enable).toBeVisible();
+   expect(await page.locator("[data-current]").getAttribute("data-current")).toBe("a");
+   await enable.click();
    await expect(enable).toHaveCount(0);
    await expect.poll(() => page.locator("video[hidden]").evaluate(video => (video as HTMLVideoElement).currentTime), { timeout: 20000 }).toBeGreaterThan(1);
    expect(await page.locator("[data-current]").getAttribute("data-current")).toBe("a");
    expect(await page.evaluate(() => (window as unknown as { preparedProbe: { gains: GainNode[] } }).preparedProbe.gains.map(gain => gain.gain.value))).toEqual([1, 1, 0]);
    await current.evaluate(video => (video as HTMLVideoElement).pause());
    await expect(page.locator("[data-current]")).toHaveAttribute("data-current", "b", { timeout: 15000 });
-   expect(await page.evaluate(() => (window as unknown as { preparedProbe: { attempts: number; gains: GainNode[] } }).preparedProbe.attempts)).toBe(2);
+   expect(await page.evaluate(() => (window as unknown as { preparedProbe: { attempts: number; gains: GainNode[] } }).preparedProbe.attempts)).toBe(3);
    expect(await page.evaluate(() => (window as unknown as { preparedProbe: { gains: GainNode[] } }).preparedProbe.gains.map(gain => gain.gain.value))).toEqual([1, 0, 1]);
    await page.getByRole("button", { name: "Unmount", exact: true }).click();
    await expect.poll(async () => (await (await fetch(`${transport.url}/stats`)).json()).active).toBe(0);

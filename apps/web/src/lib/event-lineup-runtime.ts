@@ -20,6 +20,7 @@ export class EventLineupSession {
   private currentPending = false;
   private nextPending = false;
   private nextPlayPending = false;
+  private nextPlayAttempt = 0;
   private currentRetryAt = 0;
   private nextRetryAt = 0;
   private currentAttempt = 0;
@@ -118,15 +119,17 @@ export class EventLineupSession {
   }
   retryNextPlayback() {
     const connection = this.next;
-    if (this.disposed || this.state.paused || !this.state.nextPlaybackBlocked || !connection || this.nextPlayPending) return;
+    if (this.disposed || this.state.paused || !this.state.nextPlaybackBlocked || !connection) return;
     // Recheck expiry and projection ownership before accepting the viewer gesture.
     const candidate = this.selected && nextSlot(this.selected, this.event.slots, Date.now());
     if (!this.state.following || candidate?.key !== connection.slot.key) { this.releaseNext(); this.emit(); return; }
     const generation = this.nextGeneration;
     const request = this.playRequest;
+    // A fresh gesture supersedes an unresolved play on the same retained source.
+    const attempt = ++this.nextPlayAttempt;
     this.nextPlayPending = true;
     void connection.source.play().then(accepted => {
-      if (this.disposed || generation !== this.nextGeneration || request !== this.playRequest || connection !== this.next) return;
+      if (this.disposed || attempt !== this.nextPlayAttempt || generation !== this.nextGeneration || request !== this.playRequest || connection !== this.next) return;
       this.nextPlayPending = false;
       this.state.nextPlaybackBlocked = !accepted;
       connection.evidence = clearPlaybackEvidence(performance.now());
