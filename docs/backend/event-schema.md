@@ -393,3 +393,13 @@ Public world and Home activity surfaces should continue to use only:
 - HTTPS-filtered public URLs
 
 Automatic world inference, live VRChat presence, scraped popularity, and private attendance data remain non-goals for this slice.
+
+## Performer streams and roster links
+
+Events optionally store `watchMode` (`event_stream` or `performer_sequence`). Missing values retain `event_stream`. Each slot optionally stores a normalized `selectedStreamId`, never copied profile links or playback URLs. Slot input `null` clears the choice; omitting a choice on a replacement row uses automatic resolution. Omitting schedule collections on an API/MCP update preserves their rows and choices.
+
+Public detail slots include a stable row `playbackKey` and an optional `stream` with `streamId`, `pcUrl`, and `questUrl`. An explicit choice resolves only while that stream remains visible. An absent choice resolves only with one distinct live VRCDN stream. PC/Quest variants count once. Direct video files do not become live stream choices. Repeated appearances and freeform rows remain separate schedule entries. Cancelled events expose no resolved playable slots.
+
+Event roster `outboundLinks` use the shared profile URL projection with the `discovery` visibility surface, matching event imagery. Unlisted links remain visible on their profile page but do not appear on event rosters or in event stream choices. Hidden performer identities disappear while their authored slot and saved choice remain available for authorized preservation. New selections must belong to the currently public performer; an unchanged saved selection can remain unavailable after source changes.
+
+The authorized editor loader adds `selectedStreamId` and `streamChoices` to each slot, alongside the existing association snapshot. `events.getPersonStreamChoices({ slug })` supports a newly selected person with the same public discovery-safe choices. It uses one indexed profile lookup and returns an empty list for missing, hidden, or non-person profiles. No event editing authority grants access to private profile links.

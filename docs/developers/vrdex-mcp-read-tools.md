@@ -380,3 +380,7 @@ The standalone local package gate is now cleared for the read-only slice:
 routes instead of website scraping. [#78](https://github.com/BASIC-BIT/VRDex/issues/78)
 remains the prototype issue for compatibility validation, registry publishing,
 and any future authenticated write tools.
+
+## Event roster playback fields
+
+`vrdex_get_event` returns effective `watchMode`, participants and slot performers with discovery-visible `outboundLinks`, and typed schedule rows. Each row includes `playbackKey`; playable rows additionally expose `stream: { streamId, pcUrl, questUrl }`. Rows without a resolvable choice still appear. Saved explicit choices that disappear are never replaced automatically. Hosted MCP and stdio use the same public event schema in structured and text output. This extends the existing event tool, not the search-document rendering contract.

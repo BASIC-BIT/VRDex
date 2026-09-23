@@ -1,3 +1,14 @@
+export const lineupRoster = {
+  watchMode: "performer_sequence",
+  participants: [{ slug: "performer", displayName: "Performer", trustLabel: "unclaimed", roleLabel: "DJ",
+    outboundLinks: [{ label: "Stream", url: "vrcdn:alpha" }], source: { label: "VRDex", sourceType: "manual" } }],
+  slots: [{ playbackKey: "slot_alpha", position: 0, startAt: 1798761600000, displayLabel: "Set", roleLabel: "DJ",
+    discord: { shortTime: "t", longTime: "T", shortDate: "d", longDate: "D", shortDateTime: "f", longDateTime: "F", relative: "R" },
+    performer: { slug: "performer", displayName: "Performer", trustLabel: "unclaimed", outboundLinks: [{ label: "Stream", url: "vrcdn:alpha" }] },
+    stream: { streamId: "alpha", pcUrl: "rtspt://stream.vrcdn.live/live/alpha", questUrl: "https://stream.vrcdn.live/live/alpha.live.ts" },
+    source: { label: "VRDex", sourceType: "manual" } }],
+};
+
 import assert from "node:assert/strict";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
@@ -203,6 +214,7 @@ async function handleFixtureRequest(
       ...eventPreview("created-club-night"),
       id: "event_created",
       watchSurfaceEnabled: false,
+      ...lineupRoster,
     });
 
     return;
@@ -213,6 +225,7 @@ async function handleFixtureRequest(
       ...eventPreview(),
       id: "event_1",
       watchSurfaceEnabled: false,
+      ...lineupRoster,
     });
 
     return;

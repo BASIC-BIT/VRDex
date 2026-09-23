@@ -1107,6 +1107,7 @@ export default defineSchema({
     posterImageUrl: v.optional(v.string()),
     bannerImageUrl: v.optional(v.string()),
     thumbnailImageUrl: v.optional(v.string()),
+    watchMode: v.optional(v.union(v.literal("event_stream"), v.literal("performer_sequence"))),
     watchSurfaceEnabled: v.optional(v.boolean()),
     mediaLinks: v.optional(
       v.array(
@@ -1220,6 +1221,7 @@ export default defineSchema({
       "eventEndAt",
     ]),
   eventSlots: defineTable({
+    selectedStreamId: v.optional(v.string()),
     eventId: v.id("events"),
     eventStartAt: v.number(),
     position: v.number(),
