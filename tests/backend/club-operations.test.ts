@@ -1911,7 +1911,10 @@ it("internal enqueue replay compares payload values independent of key order", a
     text: "Body",
     visibility: "group",
     sendNotification: false,
-    roleIds: ["grol_11111111-1111-1111-1111-111111111111"],
+    roleIds: [
+      "grol_11111111-1111-1111-1111-111111111111",
+      "grol_22222222-2222-2222-2222-222222222222",
+    ],
     imageId: undefined,
   } as const;
   const args = {
@@ -1946,5 +1949,72 @@ it("internal enqueue replay compares payload values independent of key order", a
       }),
     ),
     /Request ID already used/,
+  );
+  await assert.rejects(
+    s.owner.run((ctx) =>
+      enqueueClubOperations(ctx, {
+        ...reordered,
+        payloads: [
+          { ...reordered.payloads[0], roleIds: [...payload.roleIds].reverse() },
+        ],
+      }),
+    ),
+    /Request ID already used/,
+  );
+});
+
+it("immediate request replay rejects another authorized actor", async () => {
+  const s = await queued();
+  const subject = {
+    subject: "staff",
+    issuer: "https://test.clerk.accounts.dev",
+    tokenIdentifier: "https://test.clerk.accounts.dev|staff",
+  };
+  await s.t.run(async (ctx) => {
+    await ctx.db.insert("users", { clerkUserId: "staff" });
+    await ctx.db.patch(s.roleId, { permissions: ["publish_posts"] });
+    await ctx.db.insert("communityAuthorities", {
+      communityProfileId: s.communityProfileId,
+      subject,
+      subjectTokenIdentifier: subject.tokenIdentifier,
+      roleId: s.roleId,
+      state: "active",
+      grantedAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+  });
+  const staff = s.t.withIdentity(subject);
+  const args = {
+    communityProfileId: s.communityProfileId,
+    requestId: "immediate_actor_replay",
+    payloads: [
+      {
+        kind: "publish_post",
+        title: "Reviewed post",
+        text: "Same content",
+        visibility: "group",
+        sendNotification: false,
+      },
+    ],
+    schedule: { kind: "immediate" },
+  };
+  const ids = await s.owner.mutation(ref("enqueue"), args);
+  const original = await s.t.run((ctx) => ctx.db.get(ids[0]));
+  await assert.rejects(
+    staff.mutation(ref("enqueue"), args),
+    /Request ID already used/,
+  );
+  assert.deepEqual(await s.t.run((ctx) => ctx.db.get(ids[0])), original);
+  assert.deepEqual(await s.owner.mutation(ref("enqueue"), args), ids);
+  // A fresh request succeeds, proving the rejected replay was not a permission denial.
+  const staffIds = await staff.mutation(ref("enqueue"), {
+    ...args,
+    requestId: "immediate_staff_request",
+  });
+  assert.notEqual(staffIds[0], ids[0]);
+  assert.equal(
+    (await s.t.run((ctx) => ctx.db.get(staffIds[0])))!.createdBy
+      .tokenIdentifier,
+    subject.tokenIdentifier,
   );
 });
