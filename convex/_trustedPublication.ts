@@ -195,7 +195,8 @@ export async function publicationCommand(
     const [
       identityRestriction,
       disputeRestriction,
-      contentRestriction,
+      contentRejection,
+      contentSuppression,
       priorRejected,
       suppressedAsset,
     ] = await Promise.all([
@@ -214,8 +215,16 @@ export async function publicationCommand(
       submission.contentSha256
         ? ctx.db
             .query("mediaPublicationRestrictions")
-            .withIndex("by_contentSha256", (q) =>
-              q.eq("contentSha256", submission.contentSha256),
+            .withIndex("by_contentSha256_kind", (q) =>
+              q.eq("contentSha256", submission.contentSha256).eq("kind", "rejection"),
+            )
+            .first()
+        : null,
+      submission.contentSha256
+        ? ctx.db
+            .query("mediaPublicationRestrictions")
+            .withIndex("by_contentSha256_kind", (q) =>
+              q.eq("contentSha256", submission.contentSha256).eq("kind", "suppression"),
             )
             .first()
         : null,
@@ -241,7 +250,7 @@ export async function publicationCommand(
         : null,
     ]);
     const restriction =
-      identityRestriction ?? disputeRestriction ?? contentRestriction;
+      identityRestriction ?? disputeRestriction ?? contentRejection ?? contentSuppression;
     if (restriction)
       await ctx.db.patch(submission._id, {
         priorRestrictionId: restriction._id,

@@ -163,6 +163,18 @@ export async function reviewerContext(
   return { user, subject, access, ownsProfile };
 }
 
+async function privateReplacementRequiresElevatedAccess(
+  ctx: Pick<QueryCtx, "db">,
+  profileId: Id<"profiles">,
+  assetId: Id<"profileAssets"> | undefined,
+  elevated: boolean,
+) {
+  if (assetId === undefined || elevated) return false;
+  const asset = await ctx.db.get(assetId);
+  return asset !== null && asset.profileId === profileId &&
+    asset.state === "active" && asset.visibility !== "public";
+}
+
 export const legacyDecisionArgs = {
   submissionId,
   decision: v.union(v.literal("approve"), v.literal("reject")),
@@ -213,7 +225,7 @@ export async function applyReviewDecision(
   ) {
     throw new Error("The target profile is no longer public.");
   }
-  const { subject, user, ownsProfile } = await reviewerContext(
+  const { subject, user, ownsProfile, access } = await reviewerContext(
     ctx,
     profile,
     actor,
@@ -288,6 +300,10 @@ export async function applyReviewDecision(
       "The profile media placement changed. Refresh before deciding.",
     );
   }
+  if (await privateReplacementRequiresElevatedAccess(
+    ctx, profile._id, currentPlacement?.assetId,
+    ownsProfile || access.superAdmin,
+  )) throw new Error("Private replacement requires profile owner or admin access.");
   if (intent.contentSha256 !== undefined) {
     const existing = await ctx.db
       .query("profileAssets")
@@ -563,7 +579,7 @@ export async function decideReviewCommand(
     throw new Error("Media contribution unavailable.");
   // Revalidate authority before receipt lookup: losing ownership or the reviewer
   // grant also loses access to historical operation results.
-  await reviewerContext(ctx, profile, actor, submission);
+  const authority = await reviewerContext(ctx, profile, actor, submission);
   const inputHash = await hash(args);
   const previous = await ctx.db
     .query("mediaReviewReceipts")
@@ -614,6 +630,11 @@ export async function decideReviewCommand(
     code = "public_reason_required";
   else if (args.decision === "approve" && snapshot.candidate.rendition === null)
     code = "candidate_unavailable";
+  if (code === undefined && args.decision === "approve" &&
+    await privateReplacementRequiresElevatedAccess(
+      ctx, profile._id, snapshot.currentPlacement?.assetId,
+      authority.ownsProfile || authority.access.superAdmin,
+    )) code = "private_replacement_requires_owner_or_admin";
   if (code === undefined && args.decision === "approve") {
     if (
       (profile.profileType === "person" &&
