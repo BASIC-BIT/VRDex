@@ -37,6 +37,12 @@ export function reviewDecisionMessage(
       conflict: true,
     };
   }
+  if (receipt.code === "private_replacement_requires_owner_or_admin") {
+    return {
+      message: "Only the profile owner or a site admin can approve this replacement.",
+      conflict: false,
+    };
+  }
   return {
     message: receipt.code
       ? `Decision refused: ${receipt.code}.`
