@@ -20,7 +20,7 @@ const collector = source.slice(
 const bot = "usr_00000000-0000-0000-0000-000000000001";
 const group = "grp_00000000-0000-0000-0000-000000000001";
 
-async function run(jobKind, fault, stage = "preflight") {
+async function run(jobKind, fault, stage = "preflight", retryAfterMs = 300000) {
   const calls = [],
     recorded = [];
   const startedAt = Date.now();
@@ -50,7 +50,7 @@ async function run(jobKind, fault, stage = "preflight") {
           throw new VrchatProviderError("limited", {
             status: 429,
             category: "rate_limit",
-            retryAfterMs: 300000,
+            retryAfterMs,
           });
         if (fault === "authentication")
           throw new VrchatProviderError("expired", {
@@ -114,7 +114,7 @@ async function run(jobKind, fault, stage = "preflight") {
         if (op === "budget") return { granted: true };
         if (op === "club_operation_authorize") return { authorized: true };
         if (op === "club_operation_defer")
-          return { retryAt: Date.now() + 300000 };
+          return { retryAt: retryAfterMs > 900000 ? null : Date.now() + retryAfterMs };
         return { recorded: true };
       },
     },
@@ -147,6 +147,23 @@ async function run(jobKind, fault, stage = "preflight") {
     enabledFeatures: ["analytics", "posts"],
   });
   return { calls, recorded, startedAt };
+}
+
+for (const retryAfterMs of [30 * 60_000, 60 * 60_000]) {
+  test(`real operation wrapper preserves ${retryAfterMs}ms backoff after terminal deferral`, async () => {
+    const { calls, recorded, startedAt } = await run("operation", "rate_limit", "preflight", retryAfterMs);
+    const deferred = recorded.filter(x => x.op === "club_operation_defer");
+    assert.equal(deferred.length, 1);
+    assert.equal(deferred[0].args.retryAfterMs, retryAfterMs);
+    const failure = recorded.find(x => x.op === "failure");
+    assert.equal(failure.args.statusClass, "429");
+    assert.ok(failure.args.backoffUntil >= startedAt + retryAfterMs);
+    assert.ok(calls.indexOf("club_operation_defer") < calls.indexOf("failure"));
+    assert.equal(calls.filter(x => x.startsWith("/")).length, 1);
+    for (const forbidden of ["provider-write", "club_read_claim", "aggregate", "readiness", "history"])
+      assert.ok(!calls.includes(forbidden));
+    assert.equal(calls.at(-1), "release");
+  });
 }
 
 for (const jobKind of ["operation", "read"]) {

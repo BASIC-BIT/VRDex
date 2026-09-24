@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { executeClubOperation } from "./club-operation-jobs.mjs";
 import { RequestBudget } from "./runtime.mjs";
-import { VrchatProviderError } from "./vrchat-client.mjs";
+import { VrchatClient, VrchatProviderError } from "./vrchat-client.mjs";
 const groupId = "grp_00000000-0000-0000-0000-000000000001";
 const botId = "usr_00000000-0000-0000-0000-000000000001";
 const targetId = "usr_00000000-0000-0000-0000-000000000003";
@@ -113,6 +113,22 @@ test("transient preflight failures defer only work that has not been submitted",
   assert.equal(order.includes("club_operation_authorize"), false);
   assert.equal(order.includes("provider-write"), false);
 });
+
+for (const minutes of [30, 60]) {
+  test(`HTTP Retry-After of ${minutes} minutes survives the real operation wrapper`, async () => {
+    const { args, sends, order } = setup();
+    let requests = 0;
+    args.provider = new VrchatClient({ authCookie: "fixture-cookie", userAgent: "VRDex/test",
+      fetcher: async () => { requests++; return new Response(null, { status: 429, headers: { "retry-after": String(minutes * 60) } }); },
+    });
+    const result = await executeClubOperation(args);
+    assert.equal(result.httpStatus, 429);
+    assert.equal(result.retryAfterMs, minutes * 60_000);
+    assert.equal(sends.at(-1).body.retryAfterMs, minutes * 60_000);
+    assert.equal(requests, 1);
+    assert.equal(order.includes("club_operation_authorize"), false);
+  });
+}
 
 test("an instance that closes during a budget wait receives no invitation", async () => {
   const { args, order } = setup();

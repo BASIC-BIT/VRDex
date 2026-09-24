@@ -141,6 +141,56 @@ async function setup() {
     },
   };
 }
+it("preflight retry validation retains zero, short and exact-deadline delays", async test => {
+  const now = Date.now();
+  test.mock.method(Date, "now", () => now);
+  for (const delay of [-1, Infinity, NaN]) {
+    const s = await queued();
+    const claim = await s.t.mutation(ref("claim"), s.worker);
+    await assert.rejects(s.t.mutation(ref("deferClaim"), { ...s.worker, operationId: s.operationId, nonce: claim.nonce, code: "rate_limit", retryAfterMs: delay }), /Invalid preflight retry delay/);
+    assert.equal((await s.t.run(ctx => ctx.db.get(s.operationId)))!.state, "claimed");
+  }
+  for (const delay of [0, 1000, 15 * 60_000]) {
+    const s = await queued();
+    const claim = await s.t.mutation(ref("claim"), s.worker);
+    const result = await s.t.mutation(ref("deferClaim"), { ...s.worker, operationId: s.operationId, nonce: claim.nonce, code: "rate_limit", retryAfterMs: delay });
+    assert.deepEqual(result, { recorded: true, retryAt: now + Math.max(1000, delay) });
+    assert.equal((await s.t.run(ctx => ctx.db.get(s.operationId)))!.state, "pending");
+    assert.deepEqual(await s.t.run(ctx => ctx.db.query("clubOperationNotifications").collect()), []);
+  }
+});
+it("long provider delays settle the exact claim once without truncating backoff", async () => {
+  for (const retryAfterMs of [30 * 60_000, 60 * 60_000, Number.MAX_VALUE]) {
+    const s = await queued();
+    const claim = await s.t.mutation(ref("claim"), s.worker);
+    const args = { ...s.worker, operationId: s.operationId, nonce: claim.nonce,
+      code: "rate_limit", retryAfterMs };
+    assert.deepEqual(await s.t.mutation(ref("deferClaim"), args), { recorded: true, retryAt: null });
+    assert.deepEqual(await s.t.mutation(ref("deferClaim"), args), { recorded: false, retryAt: null });
+    const job = await s.t.run(ctx => ctx.db.get(s.operationId));
+    assert.equal(job!.state, "missed");
+    assert.equal(job!.code, "late_window_elapsed");
+    assert.equal(job!.claim, undefined);
+    assert.equal(job!.retryAt, undefined);
+    const notices = await s.t.run(ctx => ctx.db.query("clubOperationNotifications").collect());
+    assert.equal(notices.length, 1);
+    assert.equal(notices[0].outcome, "missed");
+    assert.equal(await s.t.mutation(ref("claim"), s.worker), null);
+    if (retryAfterMs !== Number.MAX_VALUE) {
+      const now = Date.now();
+      await s.t.mutation(makeFunctionReference<any>("communityTelemetry:recordPollFailure"), {
+        integrationId: s.integrationId, collectorAccountId: s.collectorAccountId,
+        workerId: s.worker.workerId, fencingToken: s.worker.fencingToken,
+        statusClass: "429", coverageState: "degraded", detail: "rate_limit",
+        nextPollAt: now + retryAfterMs, backoffUntil: now + retryAfterMs,
+        collectorVersion: "test", now,
+      });
+      const integration = await s.t.run(ctx => ctx.db.get(s.integrationId));
+      assert.equal(integration!.backoffUntil, now + retryAfterMs);
+      assert.equal(integration!.nextPollAt, now + retryAfterMs);
+    }
+  }
+});
 async function queued() {
   const s = await setup();
   await s.t.run((ctx) =>

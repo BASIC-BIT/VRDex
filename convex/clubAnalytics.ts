@@ -48,6 +48,8 @@ const sessionView = v.object({
   closedAt: v.union(v.number(), v.null()),
   lastObservedAt: v.number(),
   state: v.union(v.literal("open"), v.literal("closed")),
+  now: v.number(),
+  liveObservedAt: v.union(v.number(), v.null()),
 });
 const pageReturn = v.object({
   page: v.array(point),
@@ -155,7 +157,54 @@ async function preferencesFor(
     )
     .unique();
 }
-async function projectSession(ctx: QueryCtx, session: Doc<"instanceSessions">) {
+async function sessionLiveness(
+  ctx: QueryCtx,
+  state: Awaited<ReturnType<typeof context>>,
+  now: number,
+) {
+  const integration = state.integration;
+  if (
+    !integration ||
+    integration.killSwitchEnabled ||
+    !["active", "degraded"].includes(integration.state) ||
+    (integration.enabledFeatures && !integration.enabledFeatures.includes("analytics"))
+  )
+    return (_session: Doc<"instanceSessions">): number | null => null;
+  // A later group success cannot renew an unseen session. Retain the most
+  // recent explicit stop even when collection has since resumed.
+  const stops = await Promise.all(
+    (["estimated", "stale", "unknown", "degraded"] as const).map((coverage) =>
+      ctx.db
+        .query("collectionCoverageWindows")
+        .withIndex("by_integrationId_state_startedAt", (q) =>
+          q.eq("integrationId", integration._id)
+            .eq("state", coverage)
+            .gte("startedAt", state.epoch)
+            .lte("startedAt", now),
+        )
+        .order("desc")
+        .first(),
+    ),
+  );
+  const stoppedAt = Math.max(
+    state.epoch,
+    ...stops.map((row) => row?.startedAt ?? state.epoch),
+  );
+  return (session: Doc<"instanceSessions">): number | null =>
+    session.state === "open" &&
+    session.openedAt >= state.epoch &&
+    session.lastObservedAt >= Math.max(session.openedAt, stoppedAt) &&
+    session.lastObservedAt <= now &&
+    now - session.lastObservedAt <= CURRENT_FRESHNESS_MS
+      ? session.lastObservedAt
+      : null;
+}
+async function projectSession(
+  ctx: QueryCtx,
+  session: Doc<"instanceSessions">,
+  now: number,
+  liveObservedAt: number | null,
+) {
   const world = session.worldId ? await ctx.db.get(session.worldId) : null;
   return {
     id: session._id,
@@ -166,6 +215,8 @@ async function projectSession(ctx: QueryCtx, session: Doc<"instanceSessions">) {
     closedAt: session.closedAt ?? null,
     lastObservedAt: session.lastObservedAt,
     state: session.state,
+    now,
+    liveObservedAt,
   };
 }
 
@@ -518,10 +569,22 @@ export const getSeries = query({
   },
 });
 
+// Empty filtered pages still need a clock without changing pagination arguments.
+export const getInstanceListClock = query({
+  args: { ...base, freshnessNonce: v.string() },
+  returns: v.number(),
+  handler: async (ctx, args) => {
+    const state = await context(ctx, args.communitySlug);
+    requireCategory(state, "instance_history");
+    return Date.now();
+  },
+});
+
 export const listInstances = query({
   args: {
     ...base,
-    kind: v.union(v.literal("live"), v.literal("past")),
+    kind: v.union(v.literal("live"), v.literal("past"), v.literal("history")),
+    freshnessNonce: v.optional(v.string()),
     paginationOpts: paginationOptsValidator,
   },
   returns: v.object({
@@ -534,20 +597,27 @@ export const listInstances = query({
     requireCategory(state, "instance_history");
     if (!state.integration)
       return { page: [], isDone: true, continueCursor: "" };
+    const now = Date.now();
+    const liveObservedAt = await sessionLiveness(ctx, state, now);
     const result = await ctx.db
       .query("instanceSessions")
-      .withIndex("by_integrationId_state", (q) =>
+      .withIndex("by_communityProfileId_openedAt", (q) =>
         q
-          .eq("integrationId", state.integration!._id)
-          .eq("state", args.kind === "live" ? "open" : "closed"),
+          .eq("communityProfileId", state.community._id)
+          .gte("openedAt", state.epoch),
       )
       .order("desc")
       .paginate(checkedPagination(args.paginationOpts));
     return {
       page: await Promise.all(
         result.page
-          .filter((session) => session.openedAt >= state.epoch)
-          .map((session) => projectSession(ctx, session)),
+          .filter((session) =>
+            session.integrationId === state.integration!._id &&
+            (args.kind === "live"
+              ? liveObservedAt(session) !== null
+              : args.kind === "past" ? session.state === "closed" : true),
+          )
+          .map((session) => projectSession(ctx, session, now, liveObservedAt(session))),
       ),
       isDone: result.isDone,
       continueCursor: result.continueCursor,
@@ -572,7 +642,7 @@ async function requireSession(
   return { state, session };
 }
 export const getInstance = query({
-  args: { ...base, sessionId: v.string() },
+  args: { ...base, sessionId: v.string(), freshnessNonce: v.optional(v.string()) },
   returns: v.union(sessionView, v.null()),
   handler: async (ctx, args) => {
     const state = await context(ctx, args.communitySlug);
@@ -587,7 +657,9 @@ export const getInstance = query({
       session.openedAt < state.epoch
     )
       return null;
-    return projectSession(ctx, session);
+    const now = Date.now();
+    const liveObservedAt = await sessionLiveness(ctx, state, now);
+    return projectSession(ctx, session, now, liveObservedAt(session));
   },
 });
 export const getInstanceSeries = query({

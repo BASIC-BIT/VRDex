@@ -591,7 +591,7 @@ export function ClubAnalyticsContent({
                   <SectionTitle>Recent instances</SectionTitle>
                   <ClubInstanceList
                     communitySlug={communitySlug}
-                    kind="past"
+                    kind="history"
                     compact
                     onSelect={(instance) => update({ instance })}
                   />

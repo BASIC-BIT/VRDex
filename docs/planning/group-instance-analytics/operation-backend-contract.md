@@ -196,6 +196,8 @@ when the actor is the owner or has `manage_instances` and the connection enables
 rows independently of the analytics feature and `instance_history` visibility.
 Refresh, errors and bounded provider pagination use the shared read behavior.
 
+Provider rows, their closure confirmations and the next-page cursor are available only while the existing provider-read hook reports fresh evidence. At the separate 60-second provider-read expiry, retained data displays Refresh to continue and keeps Refresh instances available. Stale rows unmount, including an already-open confirmation. A new read restores eligible rows without restoring the prior confirmation. Analytics-disabled owners and management-only staff retain this independent path.
+
 Each row displays the world and instance IDs beside the existing normal-close
 confirmation. Confirmation queues the exact displayed destination through
 `clubOperations.enqueue`; provider and actor authorization are still rechecked
@@ -212,9 +214,7 @@ still uses the selected event start plus the reviewed offset, with the existing
 minus-30-minute initial offset; event selection does not change the timing mode.
 Creation linkage remains separate from manual observed-session association.
 
-Telemetry-backed live/past lists and detail retain their existing category
-checks and peak/average presentation. The management list creates no telemetry
-sessions or historical observations.
+Telemetry-backed Live and complete Instance history lists retain their category checks and peak/average hierarchy. Home Recent instances also uses complete history. Fresh sessions may appear in both lists. Direct detail and list rows require current per-session evidence for Still open and for telemetry-detail closure. Mounted expiry changes unconfirmed closure to Unknown and removes an open confirmation while retaining metrics and navigation. The management list creates no telemetry sessions or historical observations.
 
 ```mermaid
 flowchart LR
@@ -237,15 +237,27 @@ flowchart LR
   L --> R[Refresh or page]
   R --> L
   L --> F[Review target and confirm closure]
+  L -->|Provider evidence expires| RF[Refresh to continue]
+  RF --> R
   F --> Q[Closure queued]
   Q --> L
   C --> H{instance_history readable}
-  H --> T[Recorded live and past instances]
-  T --> D[Instance detail]
+  H --> T[Fresh telemetry Live]
+  H --> IH[Complete Instance history]
+  IH --> D[Instance detail]
+  T --> D
+  DL[Direct instance link after sign in] --> D
+  D --> TF{Fresh session evidence and permitted}
+  TF -->|Yes| TC[Close confirmation]
+  TF -->|No or expiry| U[Unknown close time and retained metrics]
   D --> C
 ```
 
 ## Independent unsent deadlines
+
+Finite nonnegative preflight retry delays are accepted even above the 15-minute action grace. The mutation compares the full provider delay with remaining grace before deriving a retry timestamp, so extreme finite delays safely settle as missed rather than overflowing or shortening backoff. A delay beyond grace records `missed/late_window_elapsed`, clears the exact claim and emits one existing deduplicated terminal notice. An exact-deadline retry remains eligible. The real operation wrapper carries the original provider Retry-After to collector failure recording, which stops further provider work for a shared 429. Submitted work is never deferred or replayed.
+
+Batch invitation cancellation resolves the current actor once in its mutation and passes each already-loaded current job to the shared cancellation helper. The helper checks expected community equality and current payload/original-actor edit permissions before cancellation. Single-operation cancellation still loads the current job and actor once. Pending and claimed targets cancel together or the whole transaction rolls back; submitted targets remain submitted. Cancelled targets create no failure notices. The regression measures bounded authority lookup at 100 recipients and 100 staff roles; it does not claim a reproduced hosted transaction-limit failure.
 
 Two Convex crons start a scan every minute, separately for `pending` and `claimed` work. Each transaction reads at most 100 rows in immutable creation order and schedules its cursor continuation immediately. A scan fixes its creation-time cutoff so newly enqueued work cannot prolong it indefinitely. Future jobs cannot starve an overdue tail. The same path covers existing rows after deployment; no live migration or per-row callback backfill is required.
 

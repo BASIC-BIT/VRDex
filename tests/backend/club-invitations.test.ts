@@ -4,6 +4,7 @@ import { convexTest } from "convex-test";
 import { makeFunctionReference } from "convex/server";
 import schemaModule from "../../convex/schema";
 import { normalizeRecipients } from "../../convex/_clubInvitations";
+import { cancel as cancelBatch } from "../../convex/clubInvitations";
 const schema =
   (schemaModule as unknown as { default?: typeof schemaModule }).default ??
   schemaModule;
@@ -23,6 +24,106 @@ after(() => {
 });
 const first = "usr_11111111-1111-1111-1111-111111111111",
   second = "usr_22222222-2222-2222-2222-222222222222";
+async function cancellationSetup(count = 100) {
+  const s = await setup();
+  const subject = { subject: "canceller", issuer: "https://test.clerk.accounts.dev",
+    tokenIdentifier: "https://test.clerk.accounts.dev|canceller" };
+  const roles = await s.t.run(async ctx => {
+    await ctx.db.insert("users", { clerkUserId: subject.subject });
+    const ids = [];
+    for (let index = 0; index < 100; index++) {
+      const roleId = await ctx.db.insert("communityRoles", {
+        communityProfileId: s.communityProfileId, key: `role${index}`, label: `Role ${index}`,
+        description: "x".repeat(500), permissions: index === 0 ? ["invite_group_members"] : [],
+        assignableRoleIds: [], state: "active", createdAt: Date.now(), updatedAt: Date.now(),
+      });
+      ids.push(roleId);
+      await ctx.db.insert("communityAuthorities", {
+        communityProfileId: s.communityProfileId, subject, subjectTokenIdentifier: subject.tokenIdentifier,
+        roleId, roleKey: `role${index}`, roleLabel: `Role ${index}`, state: "active",
+        grantedAt: Date.now(), updatedAt: Date.now(),
+      });
+    }
+    return ids;
+  });
+  const staff = s.t.withIdentity(subject);
+  const batchId = await staff.mutation(ref("enqueue"), {
+    communityProfileId: s.communityProfileId, requestId: "bounded_cancel_batch",
+    reviewedRecipients: Array.from({ length: count }, (_, i) => `usr_11111111-1111-1111-1111-${String(i).padStart(12, "0")}`),
+    destination: { kind: "group" }, schedule: { kind: "fixed", dueAt: Date.now() + 60_000 },
+  });
+  const batch = await s.t.run(ctx => ctx.db.get(batchId));
+  return { ...s, staff, subject, roleId: roles[0], batchId, operationIds: batch!.operationIds };
+}
+it("maximum batch cancellation resolves current authority once with many roles", async () => {
+  const s = await cancellationSetup();
+  await s.t.run(async ctx => {
+    await ctx.db.patch(s.operationIds[0], { state: "submitted", submittedAt: Date.now() });
+    await ctx.db.patch(s.operationIds[1], { state: "claimed" });
+  });
+  const queries = new Map<string, number>();
+  const reads = new Map<string, number>();
+  await s.staff.run(async ctx => {
+    const db = new Proxy(ctx.db, { get(target, property) {
+      if (property === "query") return (table: string) => {
+        queries.set(table, (queries.get(table) ?? 0) + 1);
+        return target.query(table as never);
+      };
+      if (property === "get") return (id: string) => {
+        reads.set(id, (reads.get(id) ?? 0) + 1);
+        return target.get(id as never);
+      };
+      return Reflect.get(target, property);
+    } });
+    await (cancelBatch as any)._handler({ ...ctx, db }, { batchId: s.batchId });
+  });
+  assert.equal(queries.get("communityAuthorities"), 1);
+  assert.equal(queries.get("communityRoles"), 1);
+  // The cancellation patch's existing notification bookkeeping rereads cancelled
+  // jobs once. There must be no second preauthorization read per job.
+  assert.equal(reads.get(s.operationIds[1]), 2);
+  const jobs = await s.t.run(ctx => Promise.all(s.operationIds.map(id => ctx.db.get(id))));
+  assert.equal(jobs[0]!.state, "submitted");
+  assert.ok(jobs.slice(1).every(job => job!.state === "cancelled"));
+  await s.staff.mutation(ref("cancel"), { batchId: s.batchId });
+  assert.deepEqual(await s.t.run(ctx => ctx.db.query("clubOperationNotifications").collect()), []);
+});
+it("batch cancellation checks each current payload, original actor and community atomically", async () => {
+  for (const change of ["revoked", "payload", "actor", "community"] as const) {
+    const s = await cancellationSetup(2);
+    const original = await s.t.run(ctx => ctx.db.get(s.operationIds[1]));
+    await s.t.run(async ctx => {
+      if (change === "revoked") await ctx.db.patch(s.roleId, { permissions: [] });
+      if (change === "payload") await ctx.db.patch(s.operationIds[1], {
+        payload: { kind: "close_instance", worldId: "wrld_11111111-1111-1111-1111-111111111111", instanceId: "123" },
+      });
+      if (change === "actor") await ctx.db.patch(s.operationIds[1], {
+        actor: { ...s.subject, subject: "other", tokenIdentifier: `${s.subject.issuer}|other` },
+      });
+      if (change === "community") {
+        const profile = await ctx.db.get(s.communityProfileId);
+        const { _id, _creationTime, ...fields } = profile!;
+        const other = await ctx.db.insert("profiles", { ...fields, slug: "other-club" });
+        await ctx.db.patch(s.operationIds[1], { communityProfileId: other });
+        // Make the current actor owner there too: the expected-community guard
+        // must reject even when an independent authorization would succeed.
+        const owner = await ctx.db.query("profileOwners").first();
+        const { _id: ownerId, _creationTime: created, ...ownerFields } = owner!;
+        await ctx.db.insert("profileOwners", { ...ownerFields, profileId: other });
+      }
+    });
+    const caller = change === "community" ? s.owner : s.staff;
+    await assert.rejects(caller.mutation(ref("cancel"), { batchId: s.batchId }));
+    const jobs = await s.t.run(ctx => Promise.all(s.operationIds.map(id => ctx.db.get(id))));
+    assert.ok(jobs.every(job => job!.state === "pending"), `${change} denial must roll back earlier cancellation`);
+    if (change === "actor") {
+      await s.t.run(ctx => ctx.db.patch(s.roleId, { permissions: ["invite_group_members", "manage_scheduled_actions"] }));
+      await s.staff.mutation(ref("cancel"), { batchId: s.batchId });
+      assert.equal((await s.t.run(ctx => ctx.db.get(original!._id)))!.state, "cancelled");
+    }
+    assert.deepEqual(await s.t.run(ctx => ctx.db.query("clubOperationNotifications").collect()), []);
+  }
+});
 it("batch history filters current permissions and preserves pagination after hidden rows", async () => {
   const { t, owner, communityProfileId } = await setup();
   const ids = [];

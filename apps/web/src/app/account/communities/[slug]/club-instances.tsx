@@ -20,6 +20,12 @@ import {
 } from "./club-chart";
 import { useClubWorkspace } from "./club-workspace";
 import { ClubEventAssociation } from "./club-event-association";
+import {
+  useClubDisplayAttempt,
+  useClubDisplayFreshness,
+  useClubDisplayFreshnesses,
+} from "./club-display-freshness";
+import { CURRENT_FRESHNESS_MS } from "../../../../../../../convex/_communityTelemetry";
 import { useClubRange } from "./club-range";
 import {
   ClubInstanceActions,
@@ -35,6 +41,8 @@ export type InstanceRow = {
   closedAt: number | null;
   lastObservedAt: number;
   state: "open" | "closed";
+  now: number;
+  liveObservedAt: number | null;
 };
 
 export function observedChartPoints(points: SeriesPoint[]): ClubChartPoint[] {
@@ -90,10 +98,14 @@ function InstanceMetricsRow({
   session,
   communitySlug,
   onSelect,
+  fresh,
+  kind,
 }: {
   session: InstanceRow;
   communitySlug: string;
   onSelect: (id: string) => void;
+  fresh: boolean;
+  kind: "live" | "history";
 }) {
   const endAt = Math.max(
     session.openedAt + 1,
@@ -120,6 +132,7 @@ function InstanceMetricsRow({
         : null,
     [status, metrics.results, session.openedAt, endAt],
   );
+  if (kind === "live" && !fresh) return null;
   return (
     <div className="grid gap-4 border-b border-border py-5 md:grid-cols-[minmax(0,1fr)_5rem_5rem_minmax(9rem,0.6fr)_minmax(9rem,0.6fr)] md:items-center">
       <div className="min-w-0">
@@ -156,7 +169,7 @@ function InstanceMetricsRow({
         <span className="md:hidden">Closed · </span>
         {session.closedAt
           ? metricTime(session.closedAt)
-          : session.state === "open"
+          : fresh
             ? "Still open"
             : "Unknown"}
       </div>
@@ -171,14 +184,28 @@ export function ClubInstanceList({
   compact = false,
 }: {
   communitySlug: string;
-  kind: "live" | "past";
+  kind: "live" | "history";
   onSelect: (id: string) => void;
   compact?: boolean;
 }) {
+  const display = useClubDisplayAttempt(`${communitySlug}:${kind}`);
+  const serverNow = useQuery(api.clubAnalytics.getInstanceListClock, {
+    communitySlug,
+    freshnessNonce: display.attempt.nonce,
+  });
   const query = usePaginatedQuery(
     api.clubAnalytics.listInstances,
-    { communitySlug, kind },
+    { communitySlug, kind, freshnessNonce: display.attempt.nonce },
     { initialNumItems: compact ? 3 : 10 },
+  );
+  const freshness = useClubDisplayFreshnesses(
+    display,
+    serverNow,
+    query.results.map((session) => ({
+      observedAt: session.liveObservedAt ?? undefined,
+      serverNow: session.now,
+    })),
+    CURRENT_FRESHNESS_MS,
   );
   return (
     <div className="min-w-0">
@@ -189,12 +216,14 @@ export function ClubInstanceList({
         <span>Opened</span>
         <span>Closed</span>
       </div>
-      {query.results.map((session) => (
+      {query.results.map((session, index) => (
         <InstanceMetricsRow
           key={session.id}
           communitySlug={communitySlug}
           session={session}
           onSelect={onSelect}
+          fresh={freshness[index]!}
+          kind={kind}
         />
       ))}
       {query.status === "LoadingFirstPage" ? (
@@ -225,10 +254,12 @@ function InstanceDetailContent({
   communitySlug,
   session,
   onBack,
+  fresh,
 }: {
   communitySlug: string;
   session: InstanceRow;
   onBack: () => void;
+  fresh: boolean;
 }) {
   const metrics = useInstancePoints(communitySlug, session);
   return (
@@ -239,7 +270,7 @@ function InstanceDetailContent({
       <Card padding="lg" className="min-w-0">
         <SectionTitle>{session.worldName ?? "Instance detail"}</SectionTitle>
         <ClubEventAssociation sessionId={session.id} />
-        {session.state === "open" ? (
+        {fresh ? (
           <CloseInstanceAction
             worldId={session.worldId}
             instanceId={session.providerInstanceId}
@@ -273,7 +304,7 @@ function InstanceDetailContent({
             <p className="mt-2 text-sm">
               {session.closedAt
                 ? metricTime(session.closedAt)
-                : session.state === "open"
+                : fresh
                   ? "Still open"
                   : "Unknown"}
             </p>
@@ -347,10 +378,18 @@ function InstanceDetailQuery({
   sessionId: string;
   onBack: () => void;
 }) {
+  const display = useClubDisplayAttempt(`${communitySlug}:${sessionId}`);
   const session = useQuery(api.clubAnalytics.getInstance, {
     communitySlug,
     sessionId,
+    freshnessNonce: display.attempt.nonce,
   });
+  const fresh = useClubDisplayFreshness(
+    display,
+    session?.now,
+    session?.liveObservedAt ?? undefined,
+    CURRENT_FRESHNESS_MS,
+  );
   if (session === undefined)
     return (
       <div className="grid gap-4">
@@ -364,6 +403,7 @@ function InstanceDetailQuery({
       communitySlug={communitySlug}
       session={session}
       onBack={onBack}
+      fresh={fresh}
     />
   );
 }
@@ -389,10 +429,10 @@ export function ClubInstances() {
           {!canReadHistory ? (
             <Notice variant="warning">Instance history is restricted.</Notice>
           ) : (
-            (["live", "past"] as const).map((kind) => (
+            (["live", "history"] as const).map((kind) => (
               <Card key={kind} padding="lg" className="min-w-0">
                 <SectionTitle>
-                  {kind === "live" ? "Live instances" : "Past instances"}
+                  {kind === "live" ? "Live instances" : "Instance history"}
                 </SectionTitle>
                 <ClubInstanceList
                   communitySlug={workspace.community.slug}

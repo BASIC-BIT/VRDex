@@ -10,6 +10,16 @@ async function closeAttempts(page: import("@playwright/test").Page) {
     schedule: unknown;
   }>;
 }
+test("server-stale provider data offers refresh without rows or closure", async ({ page }) => {
+  await page.goto("/iframe.html?id=clubs-live-instance-management--stale&viewMode=story");
+  const live = page.getByRole("region", { name: "Live instances", exact: true });
+  await expect(live.getByText("Refresh to continue.", { exact: true })).toBeVisible();
+  await expect(live.getByText("The Observatory", { exact: true })).toHaveCount(0);
+  await expect(live.getByRole("button", { name: "Close instance", exact: true })).toHaveCount(0);
+  await expect(live.getByRole("button", { name: "Next instances" })).toHaveCount(0);
+  await live.getByRole("button", { name: "Refresh instances" }).click();
+  await expect(live.getByText("The Observatory", { exact: true })).toBeVisible();
+});
 
 test("two deliberate closures of the same live instance use separate requests", async ({
   page,
@@ -51,6 +61,33 @@ test("ambiguous closure failure retries the same request and payload", async ({
 });
 
 for (const scenario of ["owner-analytics-off", "management-only-staff"]) {
+  test(`${scenario} expires provider rows and open closure without a query update`, async ({ page }) => {
+    const time = new Date("2026-09-22T23:00:00Z");
+    await page.clock.install({ time });
+    await page.clock.pauseAt(time);
+    await page.goto(`/iframe.html?id=clubs-live-instance-management--${scenario}&viewMode=story`);
+    const live = page.getByRole("region", { name: "Live instances", exact: true });
+    await expect(live.getByText("The Observatory", { exact: true })).toBeVisible();
+    await live.getByRole("button", { name: "Close instance", exact: true }).click();
+    await expect(live.getByRole("button", { name: "Confirm closure" })).toBeVisible();
+    await page.clock.runFor(59_999);
+    await expect(live.getByRole("button", { name: "Confirm closure" })).toBeVisible();
+    await page.clock.runFor(1);
+    await expect(live.getByText("The Observatory", { exact: true })).toHaveCount(0);
+    await expect(live.getByRole("button", { name: "Confirm closure" })).toHaveCount(0);
+    await expect(live.getByRole("button", { name: "Close instance", exact: true })).toHaveCount(0);
+    await expect(live.getByRole("button", { name: "Next instances" })).toHaveCount(0);
+    await expect(live.getByText("Refresh to continue.", { exact: true })).toBeVisible();
+    await expect(live.getByRole("button", { name: "Refresh instances" })).toBeEnabled();
+    expect(await closeAttempts(page)).toEqual([]);
+    await page.screenshot({ path: `../../.cache/artifacts/task9-provider-expired-${scenario}-${test.info().project.name}.png`, fullPage: true });
+    await live.getByRole("button", { name: "Refresh instances" }).click();
+    await expect(live.getByText("The Observatory", { exact: true })).toBeVisible();
+    await expect(live.getByRole("button", { name: "Confirm closure" })).toHaveCount(0);
+    await live.getByRole("button", { name: "Close instance", exact: true }).click();
+    await live.getByRole("button", { name: "Confirm closure" }).click();
+    await expect.poll(async () => (await closeAttempts(page)).length).toBe(1);
+  });
   test(`${scenario} can review and close a provider-live instance @storybook-visual`, async ({
     page,
   }) => {

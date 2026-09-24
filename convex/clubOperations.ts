@@ -494,6 +494,16 @@ export async function cancelClubOperation(
   const job = await ctx.db.get(args.operationId);
   if (!job) throw new Error("Action not found.");
   const actor = await resolveClubActor(ctx, job.communityProfileId);
+  return cancelLoadedClubOperation(ctx, job, actor, job.communityProfileId);
+}
+export async function cancelLoadedClubOperation(
+  ctx: MutationCtx,
+  job: Doc<"clubOperations">,
+  actor: ClubActor,
+  expectedCommunityProfileId: Id<"profiles">,
+) {
+  if (job.communityProfileId !== expectedCommunityProfileId)
+    throw new Error("Action not found.");
   editPermission(actor, job);
   if (job.state === "cancelled") return null;
   if (job.state !== "pending" && job.state !== "claimed")
@@ -888,21 +898,17 @@ export const deferClaim = internalMutation({
       job.claim.expiresAt <= now
     )
       return { recorded: false, retryAt: null };
-    if (
-      !Number.isFinite(args.retryAfterMs) ||
-      args.retryAfterMs < 0 ||
-      args.retryAfterMs > LATE_GRACE_MS
-    )
+    if (!Number.isFinite(args.retryAfterMs) || args.retryAfterMs < 0)
       throw new Error("Invalid preflight retry delay.");
     const attempts = (job.preflightAttempts ?? 0) + 1;
-    const retryAt = now + Math.max(1000, args.retryAfterMs);
-    if (retryAt > job.dueAt + LATE_GRACE_MS || attempts >= 3) {
+    const delay = Math.max(1000, args.retryAfterMs);
+    // Compare before adding: extreme finite provider delays must settle missed
+    // work without deriving an invalid retry timestamp or shortening backoff.
+    const late = delay > job.dueAt + LATE_GRACE_MS - now;
+    if (late || attempts >= 3) {
       await patchOperation(ctx, job._id, {
-        state: retryAt > job.dueAt + LATE_GRACE_MS ? "missed" : "rejected",
-        code:
-          retryAt > job.dueAt + LATE_GRACE_MS
-            ? "late_window_elapsed"
-            : "preflight_retries_exhausted",
+        state: late ? "missed" : "rejected",
+        code: late ? "late_window_elapsed" : "preflight_retries_exhausted",
         preflightAttempts: attempts,
         claim: undefined,
         completedAt: now,
@@ -910,6 +916,7 @@ export const deferClaim = internalMutation({
       });
       return { recorded: true, retryAt: null };
     }
+    const retryAt = now + delay;
     await patchOperation(ctx, job._id, {
       state: "pending",
       claim: undefined,

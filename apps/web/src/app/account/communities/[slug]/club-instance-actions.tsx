@@ -379,7 +379,10 @@ function LiveInstanceManagement({
       {instances.loading ? (
         <Notice role="status">Loading instances…</Notice>
       ) : null}
-      {instances.data?.items.map((instance) => (
+      {instances.data && !instances.fresh && !instances.loading && !instances.error ? (
+        <Notice>Refresh to continue.</Notice>
+      ) : null}
+      {instances.fresh && instances.data?.items.map((instance) => (
         <div
           key={JSON.stringify([
             instance.id,
@@ -414,7 +417,7 @@ function LiveInstanceManagement({
             Previous instances
           </Button>
         ) : null}
-        {instances.data?.nextOffset != null ? (
+        {instances.fresh && instances.data?.nextOffset != null ? (
           <Button
             disabled={instances.loading}
             onClick={() => setOffset(instances.data!.nextOffset!)}

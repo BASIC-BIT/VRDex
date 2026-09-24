@@ -11,7 +11,7 @@ import {
 } from "./_clubOperations";
 import {
   enqueueClubOperations,
-  cancelClubOperation,
+  cancelLoadedClubOperation,
   canManageClubOperation,
 } from "./clubOperations";
 import { clubOperationRequirement } from "./_clubOperationPolicy";
@@ -338,11 +338,11 @@ export const cancel = mutation({
   handler: async (ctx, args) => {
     const batch = await ctx.db.get(args.batchId);
     if (!batch) throw new Error("Batch unavailable.");
-    await access(ctx, batch.communityProfileId);
+    const actor = await access(ctx, batch.communityProfileId);
     for (const operationId of batch.operationIds) {
       const job = await ctx.db.get(operationId);
       if (job && ["pending", "claimed"].includes(job.state))
-        await cancelClubOperation(ctx, { operationId });
+        await cancelLoadedClubOperation(ctx, job, actor, batch.communityProfileId);
     }
     return null;
   },

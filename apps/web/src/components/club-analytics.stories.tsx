@@ -66,6 +66,8 @@ class AnalyticsFixtureClient extends ConvexReactClient {
         ? this.now
         : this.now - (index + 1) * 86400_000 + 4 * 3600_000,
       state: live ? "open" : "closed",
+      now: Date.now(),
+      liveObservedAt: live ? this.now : null,
     });
     const page = (values: unknown[]) => ({
       page: values,
@@ -135,6 +137,7 @@ class AnalyticsFixtureClient extends ConvexReactClient {
           }),
         ),
       );
+    else if (name === "clubAnalytics:getInstanceListClock") result = Date.now();
     else if (name === "clubAnalytics:listInstances")
       result = page(
         args.kind === "live"

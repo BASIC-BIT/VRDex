@@ -10,9 +10,136 @@ const schema =
 const modules = {
   "../../convex/clubAnalytics.ts": () => import("../../convex/clubAnalytics"),
   "../../convex/clubStaff.ts": () => import("../../convex/clubStaff"),
+  "../../convex/communityTelemetry.ts": () => import("../../convex/communityTelemetry"),
   "../../convex/_generated/api.ts": () => import("../../convex/_generated/api"),
 };
 const epoch = Date.UTC(2026, 2, 1);
+it("instance list clock requires category access and returns only fresh server time even without rows or integration", async test => {
+  let now = epoch;
+  test.mock.method(Date, "now", () => now);
+  const s = await setup();
+  const args = { communitySlug: "analytics", freshnessNonce: "first-owner" };
+  assert.equal(await s.owner.query(api.clubAnalytics.getInstanceListClock, args), now);
+  await s.owner.mutation(api.clubStaff.setCategoryVisibility, { communitySlug: "analytics", category: "instance_history", audience: "owner", staffRoleIds: null });
+  await assert.rejects(s.staff.query(api.clubAnalytics.getInstanceListClock, args));
+  await s.owner.mutation(api.clubStaff.setCategoryVisibility, { communitySlug: "analytics", category: "instance_history", audience: "staff", staffRoleIds: null });
+  assert.equal(await s.staff.query(api.clubAnalytics.getInstanceListClock, args), now);
+  await s.t.run(ctx => ctx.db.delete(s.integrationId));
+  now += 600_000;
+  assert.equal(await s.owner.query(api.clubAnalytics.getInstanceListClock, { ...args, freshnessNonce: "remount" }), now);
+  await s.owner.mutation(api.clubStaff.setCategoryVisibility, { communitySlug: "analytics", category: "instance_history", audience: "owner", staffRoleIds: null });
+  await assert.rejects(s.staff.query(api.clubAnalytics.getInstanceListClock, args));
+  await assert.rejects(s.t.query(api.clubAnalytics.getInstanceListClock, args));
+});
+async function freshSessionSetup() {
+  const s = await setup();
+  const sessionId = await s.t.run(ctx => ctx.db.insert("instanceSessions", {
+    integrationId: s.integrationId, communityProfileId: s.communityProfileId,
+    providerInstanceId: "current", providerLocation: "wrld_example:current", vrchatWorldId: "wrld_example",
+    source: "first_party", state: "open", openedAt: epoch, lastObservedAt: epoch + 60_000,
+    consecutiveMisses: 0, updatedAt: epoch + 60_000,
+  }));
+  await s.owner.mutation(api.clubStaff.setCategoryVisibility, {
+    communitySlug: "analytics", category: "instance_history", audience: "staff", staffRoleIds: null,
+  });
+  return { ...s, sessionId };
+}
+it("session liveness is observed, current, inclusive at six minutes and separately retained", async test => {
+  let now = epoch + 60_000;
+  test.mock.method(Date, "now", () => now);
+  const s = await freshSessionSetup();
+  const raw = await s.t.run(ctx => ctx.db.get(s.sessionId));
+  for (const actor of [s.owner, s.staff]) {
+    for (const state of ["active", "degraded"] as const) {
+      await s.t.run(ctx => ctx.db.patch(s.integrationId, { state }));
+      for (const age of [0, 360_000, 360_001, -1]) {
+        now = epoch + 60_000 + age;
+        const live = age >= 0 && age <= 360_000;
+        const detail = await actor.query(api.clubAnalytics.getInstance, { communitySlug: "analytics", sessionId: s.sessionId, freshnessNonce: `attempt-${age}` });
+        assert.equal(detail!.liveObservedAt, live ? raw!.lastObservedAt : null);
+        assert.equal(detail!.now, now);
+        assert.equal(detail!.state, "open");
+        assert.equal(detail!.closedAt, null);
+        const list = await actor.query(api.clubAnalytics.listInstances, { communitySlug: "analytics", kind: "live", paginationOpts: { numItems: 10, cursor: null } });
+        assert.equal(list.page.length, live ? 1 : 0);
+        const history = await actor.query(api.clubAnalytics.listInstances, { communitySlug: "analytics", kind: "history", paginationOpts: { numItems: 10, cursor: null } });
+        assert.equal(history.page.length, 1);
+      }
+    }
+  }
+  assert.deepEqual(await s.t.run(ctx => ctx.db.get(s.sessionId)), raw);
+});
+it("session freshness ignores group-only success and revokes on collection stop, feature and connection changes", async test => {
+  let now = epoch + 61_000;
+  test.mock.method(Date, "now", () => now);
+  const s = await freshSessionSetup();
+  const detail = () => s.owner.query(api.clubAnalytics.getInstance, { communitySlug: "analytics", sessionId: s.sessionId });
+  const original = await s.t.run(ctx => ctx.db.get(s.sessionId));
+  await s.t.run(ctx => ctx.db.insert("collectionCoverageWindows", {
+    integrationId: s.integrationId, state: "unknown", startedAt: now, updatedAt: now,
+    source: "first_party", collectorVersion: "disconnect", reason: "disconnected",
+  }));
+  assert.equal((await detail())!.liveObservedAt, null);
+  now += 1000;
+  await s.t.run(async ctx => {
+    await ctx.db.insert("collectionCoverageWindows", { integrationId: s.integrationId, state: "observed", startedAt: now, updatedAt: now, observedThroughAt: now, source: "first_party", collectorVersion: "test" });
+    await ctx.db.insert("communityPopulationObservations", { integrationId: s.integrationId, idempotencyKey: "fresh-group", totalPopulation: 100, activeInstanceCount: 1, worldDistribution: [], observedAt: now, source: "first_party", collectorVersion: "test", coverageState: "observed", fencingToken: 1 });
+  });
+  assert.equal((await detail())!.liveObservedAt, null, "a new group poll cannot revive an unseen session");
+  assert.deepEqual(await s.t.run(ctx => ctx.db.get(s.sessionId)), original);
+  await s.t.run(ctx => ctx.db.patch(s.sessionId, { lastObservedAt: now }));
+  assert.equal((await detail())!.liveObservedAt, now);
+  for (const patch of [{ enabledFeatures: [] }, { state: "disconnecting" }, { state: "auth_required" }, { killSwitchEnabled: true }] as const) {
+    await s.t.run(ctx => ctx.db.patch(s.integrationId, patch));
+    assert.equal((await detail())!.liveObservedAt, null);
+    await s.t.run(ctx => ctx.db.patch(s.integrationId, { state: "active", killSwitchEnabled: false, enabledFeatures: ["analytics"] }));
+  }
+  await s.owner.mutation(api.communityTelemetry.disconnectGroup, { communitySlug: "analytics" });
+  assert.equal((await detail())!.liveObservedAt, null);
+  assert.equal((await detail())!.state, "open");
+  assert.equal((await detail())!.closedAt, null);
+  await s.owner.mutation(api.clubStaff.setCategoryVisibility, { communitySlug: "analytics", category: "instance_history", audience: "owner", staffRoleIds: null });
+  assert.equal(await s.staff.query(api.clubAnalytics.getInstance, { communitySlug: "analytics", sessionId: s.sessionId }), null);
+  await assert.rejects(s.staff.query(api.clubAnalytics.listInstances, { communitySlug: "analytics", kind: "history", paginationOpts: { numItems: 1, cursor: null } }));
+  await assert.rejects(s.staff.query(api.clubAnalytics.getInstanceSeries, { communitySlug: "analytics", sessionId: s.sessionId, startAt: epoch, endAt: now, paginationOpts: { numItems: 1, cursor: null } }));
+});
+it("complete chronological history retains mixed lifecycle rows and live empty-page continuation", async test => {
+  const now = epoch + 600_000;
+  test.mock.method(Date, "now", () => now);
+  const s = await freshSessionSetup();
+  const rows = await s.t.run(async ctx => {
+    const template = (await ctx.db.get(s.sessionId))!;
+    const { _id, _creationTime, ...fields } = template;
+    const ids = [s.sessionId];
+    // Creation order deliberately differs from openedAt order.
+    for (const row of [
+      { state: "closed" as const, openedAt: epoch + 2000, lastObservedAt: now, closedAt: now },
+      { state: "open" as const, openedAt: epoch + 1000, lastObservedAt: now },
+      { state: "open" as const, openedAt: epoch + 3000, lastObservedAt: epoch + 60_000 },
+      { state: "open" as const, openedAt: epoch - 1, lastObservedAt: now },
+    ]) ids.push(await ctx.db.insert("instanceSessions", { ...fields, ...row }));
+    return ids;
+  });
+  const collect = async (kind: "history" | "live") => {
+    let cursor: string | null = null;
+    const ids = []; let emptyContinuation = false;
+    for (let pageIndex = 0; pageIndex < 10; pageIndex++) {
+      const result = await s.owner.query(api.clubAnalytics.listInstances, { communitySlug: "analytics", kind, paginationOpts: { numItems: 1, cursor } });
+      ids.push(...result.page.map(row => row.id));
+      if (result.isDone) return { ids, emptyContinuation };
+      if (!result.page.length) emptyContinuation = true;
+      assert.notEqual(result.continueCursor, cursor);
+      cursor = result.continueCursor;
+    }
+    assert.fail("pagination did not finish");
+  };
+  assert.deepEqual((await collect("history")).ids, [rows[3], rows[1], rows[2], rows[0]]);
+  const live = await collect("live");
+  assert.deepEqual(live.ids, [rows[2]]);
+  assert.equal(live.emptyContinuation, true);
+  assert.equal(await s.owner.query(api.clubAnalytics.getInstance, { communitySlug: "analytics", sessionId: rows[4] }), null);
+  assert.equal((await s.owner.query(api.clubAnalytics.getInstance, { communitySlug: "analytics", sessionId: rows[1] }))!.closedAt, now);
+});
 it("accepts a display attempt nonce and returns server evaluation time", async () => {
   const s = await setup();
   const before = Date.now();

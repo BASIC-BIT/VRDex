@@ -27,6 +27,7 @@ type Mode =
   | "denied"
   | "disabled"
   | "read-error"
+  | "stale"
   | "enqueue-error-once";
 // Storybook-only transport. Unexpected calls fail instead of contacting a provider.
 class InstanceFixtureClient extends ConvexReactClient {
@@ -51,6 +52,8 @@ class InstanceFixtureClient extends ConvexReactClient {
         permittedProviderRoleIds: [],
         protectedUserIds: [],
       };
+    else if (name === "clubAnalytics:getInstanceListClock" && this.mode === "owner")
+      result = Date.now();
     else if (
       name === "clubOperations:list" ||
       name === "clubProviderReads:listEvents" ||
@@ -62,8 +65,8 @@ class InstanceFixtureClient extends ConvexReactClient {
       if (!read) throw new Error("Missing live instance request");
       result = {
         state: "succeeded",
-        fresh: true,
-        remainingFreshMs: 60_000,
+        fresh: this.mode !== "stale" || this.requestCount > 1,
+        remainingFreshMs: this.mode === "stale" && this.requestCount === 1 ? 0 : 60_000,
         errorCode: null,
         result: {
           items: [
@@ -192,6 +195,7 @@ export const InstancesDisabled: Story = {
 export const ReadError: Story = {
   render: () => <Workspace mode="read-error" />,
 };
+export const Stale: Story = { render: () => <Workspace mode="stale" /> };
 export const EnqueueErrorOnce: Story = {
   render: () => <Workspace mode="enqueue-error-once" />,
 };

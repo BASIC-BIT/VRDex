@@ -60,7 +60,7 @@ for (const kind of ["invalid", "unreadable"]) {
       .getByRole("button", { name: "Back to instances", exact: true })
       .click();
     await expect(
-      page.getByText("Past instances", { exact: true }),
+      page.getByText("Instance history", { exact: true }),
     ).toBeVisible();
   });
 }
@@ -136,7 +136,7 @@ test("instance list emphasizes population and opens detail @storybook-visual", a
   isMobile,
 }) => {
   await page.goto("/iframe.html?id=clubs-analytics--instances&viewMode=story");
-  await expect(page.getByText("Past instances", { exact: true })).toBeVisible();
+  await expect(page.getByText("Instance history", { exact: true })).toBeVisible();
   await expect(page.getByText("Coverage", { exact: true })).toHaveCount(0);
   await expect(page.getByText("State", { exact: true })).toHaveCount(0);
   await page
@@ -160,7 +160,7 @@ test("instance list emphasizes population and opens detail @storybook-visual", a
     fullPage: true,
   });
   await page.getByRole("button", { name: "Back to instances" }).click();
-  await expect(page.getByText("Past instances", { exact: true })).toBeVisible();
+  await expect(page.getByText("Instance history", { exact: true })).toBeVisible();
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,

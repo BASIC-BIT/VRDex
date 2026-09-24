@@ -17,9 +17,28 @@ export function useClubDisplayAttempt(scope: Attempt["scope"]) {
 }
 
 export function useClubDisplayFreshness(
-  { attempt, restart }: ReturnType<typeof useClubDisplayAttempt>,
+  display: ReturnType<typeof useClubDisplayAttempt>,
   serverNow: number | null | undefined,
   observedAt: number | undefined,
+  ttl: number,
+) {
+  return useClubDisplayFreshnesses(
+    display,
+    serverNow,
+    [{ observedAt, serverNow }],
+    ttl,
+  )[0]!;
+}
+
+// A paginated list shares one fixed calibration, including rows first returned
+// by later pages or reactive updates. Only their observation deadlines differ.
+export function useClubDisplayFreshnesses(
+  { attempt, restart }: ReturnType<typeof useClubDisplayAttempt>,
+  serverNow: number | null | undefined,
+  observations: Array<{
+    observedAt: number | undefined;
+    serverNow: number | null | undefined;
+  }>,
   ttl: number,
 ) {
   const [calibration, setCalibration] = useState<{
@@ -43,21 +62,33 @@ export function useClubDisplayFreshness(
     // query when an integration appears instead of charging the entire wait.
     if (needsRestart) restart();
   }, [needsRestart, restart]);
-  const eligible =
+  const calibrated =
     sameAttempt &&
     !needsRestart &&
     calibration.serverNow !== undefined &&
     Number.isFinite(calibration.serverNow) &&
     serverNow != null &&
-    Number.isFinite(serverNow) &&
-    observedAt !== undefined &&
-    Number.isFinite(observedAt) &&
-    observedAt <= serverNow;
+    Number.isFinite(serverNow);
   // Keep the signed offset: later observations can postdate the calibration.
   // A reactive query's newer `now` must not be added to total elapsed time.
-  const deadline = eligible
-    ? attempt.startedAt + (observedAt + ttl - calibration.serverNow!)
-    : null;
+  const deadlines = observations.map(({ observedAt, serverNow: observedServerNow }) =>
+    calibrated &&
+    observedAt !== undefined &&
+    Number.isFinite(observedAt) &&
+    observedServerNow != null &&
+    Number.isFinite(observedServerNow) &&
+    observedAt <= observedServerNow
+      ? attempt.startedAt + (observedAt + ttl - calibration.serverNow!)
+      : null,
+  );
+  // Recheck the external clock on every render, including suspended timers.
+  // eslint-disable-next-line react-hooks/purity
+  const current = performance.now();
+  const fresh = deadlines.map((deadline) => deadline !== null && current <= deadline);
+  const pending = deadlines.filter(
+    (deadline): deadline is number => deadline !== null && deadline >= current,
+  );
+  const deadline = pending.length ? Math.min(...pending) : null;
   useEffect(() => {
     if (deadline === null) return;
     const remaining = deadline - performance.now();
@@ -66,8 +97,5 @@ export function useClubDisplayFreshness(
     const timer = setTimeout(tick, Math.max(0, Math.ceil(remaining) + 1));
     return () => clearTimeout(timer);
   }, [deadline]);
-  // Recheck the external clock on every render, including before a suspended
-  // expiry timer has had a chance to run. Never expose stale positive state.
-  // eslint-disable-next-line react-hooks/purity
-  return deadline !== null && performance.now() <= deadline;
+  return fresh;
 }
