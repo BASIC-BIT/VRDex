@@ -3187,6 +3187,69 @@ it("advertises bounded private collection companions and no seed operator method
   assert.equal(tools.some((t) =>/seed.*(publish|import)/i.test(t.name??"")),false,
    );
 });
+it("registered publication and withdrawal record definite backend refusals", () => {
+  const output = runMcpProbe(`
+    import assert from "node:assert/strict";
+    import { convexTest } from "convex-test";
+    import { ConvexHttpClient } from "convex/browser";
+    import { schema, modules, seed, createAndUpload } from "./tests/backend/_mediaReviewFixture.ts";
+    import { createVrdexMcpHandler } from "./apps/web/src/lib/server/vrdex-mcp.ts";
+    process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED="true";
+    process.env.VRDEX_PROFILE_MEDIA_DIRECT_UPLOAD_ENABLED="true";
+    process.env.VRDEX_PROFILE_MEDIA_KIT_ENABLED="true";
+    const t=convexTest({schema,modules}),s=await seed(t);
+    const {intent}=await createAndUpload(t,s);
+    const grantId=await t.run(ctx=>ctx.db.insert("accountFeatureGrants",{
+      userId:s.contributorUserId,feature:"trusted_publisher",state:"active",
+      grantedBy:{tokenIdentifier:"test:operator",issuer:"test",subject:"operator"},
+      grantedAt:Date.now(),updatedAt:Date.now(),
+    }));
+    await t.run(async ctx=>{
+      for(const [tokenId,userId,scope] of [["publisher",s.contributorUserId,"assets:publish"],["other",s.moderatorUserId,"assets:contribute"]])
+        await ctx.db.insert("oauthAccessTokens",{tokenId,clientId:"client",userId,subjectType:"user",resource:"https://app.example.test/mcp",scopes:["mcp:write",scope],status:"active",issuedAt:Date.now(),expiresAt:Date.now()+600000});
+      await ctx.db.patch(grantId,{state:"revoked"});
+    });
+    const forwarded=[];
+    async function throughHttp(ref,args){
+      try{return await t.mutation(ref,args)}catch(error){
+        if(!error?.data?.code)throw error;
+        forwarded.push({code:error.data.code,message:error.data.message});
+        const client=new ConvexHttpClient("https://test.convex.cloud",{fetch:async()=>new Response(JSON.stringify({status:"error",errorMessage:"[Request ID: test] Server Error",errorData:error.data}),{status:560})});
+        return client.mutation(ref,args);
+      }
+    }
+    const handler=createVrdexMcpHandler({verifyContributorEmail:async()=>true,adminConvex:{query:(ref,args)=>t.query(ref,args),mutation:throughHttp}});
+    const auth=(userId,tokenId,scope)=>({token:"test",clientId:"client",scopes:["mcp:write",scope],resource:new URL("https://app.example.test/mcp"),extra:{subjectType:"user",userId,tokenId,requestId:"request"}});
+    async function call(name,args,authInfo){
+      const response=await handler.fetch(new Request("https://app.example.test/mcp",{method:"POST",headers:{accept:"application/json, text/event-stream","content-type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:1,method:"tools/call",params:{name,arguments:args}})}),{authInfo});
+      const body=await response.text();
+      return JSON.parse(body.split(/\\r?\\n/).find(line=>line.startsWith("data: "))?.slice(6)??body).result;
+    }
+    const publisher=auth(s.contributorUserId,"publisher","assets:publish");
+    const other=auth(s.moderatorUserId,"other","assets:contribute");
+    const args={submissionId:intent.submissionId,expectedReviewVersion:"stale",idempotencyKey:"attempt"};
+    const cases=[
+      ["vrdex_media_submission_publish",args,publisher,"MEDIA_PUBLISH_ACCESS_REQUIRED","Trusted publication access is required."],
+      ["vrdex_media_submission_declare",{...args,identityConfirmed:true,attributionConfirmed:true,publicationPermitted:true,noKnownRestrictions:true},publisher,"MEDIA_PUBLISH_ACCESS_REQUIRED","Trusted publication access is required."],
+      ["vrdex_media_submission_withdraw",args,other,"MEDIA_RESOURCE_UNAVAILABLE","SUBMISSION_UNAVAILABLE"],
+    ];
+    for(const [name,input,who,code,message] of cases){
+      if(name==="vrdex_media_submission_declare")await t.run(ctx=>ctx.db.delete(grantId));
+      const result=await call(name,input,who);assert.equal(result.isError,true,name);
+      assert.deepEqual(forwarded.at(-1),{code,message},name);
+      const events=(await t.run(ctx=>ctx.db.query("mcpToolEvents").collect())).filter(row=>row.toolName===name);
+      assert.equal(events.at(-1)?.result,"denied",name);
+    }
+    await t.run(ctx=>ctx.db.delete(intent.submissionId));
+    const missing=await call("vrdex_media_submission_publish",{...args,idempotencyKey:"missing"},publisher);
+    assert.equal(missing.isError,true);
+    assert.deepEqual(forwarded.at(-1),{code:"MEDIA_RESOURCE_UNAVAILABLE",message:"Media contribution unavailable."});
+    const events=(await t.run(ctx=>ctx.db.query("mcpToolEvents").collect())).filter(row=>row.toolName==="vrdex_media_submission_publish");
+    assert.equal(events.at(-1)?.result,"denied");
+    await handler.close();console.log("publication and withdrawal refusals passed");
+  `);
+  assert.match(output, /publication and withdrawal refusals passed/);
+});
 
 it("registered capacity and upload callbacks persist outcomes without fabricating a refusal operation", () => {
   const output = runMcpProbe(`

@@ -1069,6 +1069,9 @@ const definiteMediaReviewErrorCodes = new Set([
   "MEDIA_MODERATOR_REQUIRED",
   "MEDIA_SELF_REVIEW",
   "MEDIA_PROFILE_CHANGED",
+  "MEDIA_PUBLISH_ACCESS_REQUIRED",
+  "MEDIA_RESOURCE_UNAVAILABLE",
+  "MEDIA_REVIEW_ACTOR_UNAVAILABLE",
 ]);
 
 function isDefiniteHostedMediaReviewDenial(toolName: string, error: unknown) {

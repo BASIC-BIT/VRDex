@@ -1,6 +1,7 @@
 import { transferPublishedCharge } from "./_contributionCapacity";
 import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { ConvexError } from "convex/values";
 import { getAccountFeatureAccess } from "./_accountFeatures";
 import {
   assertReviewActorVerified,
@@ -72,7 +73,10 @@ export async function requirePublisher(
     profile.publicationState !== "published" ||
     profile.publicSurfacingState !== "public"
   )
-    throw new Error("Trusted publication access is required.");
+    throw new ConvexError({
+      code: "MEDIA_PUBLISH_ACCESS_REQUIRED",
+      message: "Trusted publication access is required.",
+    });
   return access;
 }
 
@@ -138,7 +142,10 @@ export async function publicationCommand(
   const submission = id ? await ctx.db.get(id) : null;
   const profile = submission ? await ctx.db.get(submission.profileId) : null;
   if (!submission || !profile)
-    throw new Error("Media contribution unavailable.");
+    throw new ConvexError({
+      code: "MEDIA_RESOURCE_UNAVAILABLE",
+      message: "Media contribution unavailable.",
+    });
   const access = await requirePublisher(ctx, actor, submission, profile);
   const inputHash = await digest({
     command: declaration ? "declare" : "publish",

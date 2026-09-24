@@ -85,7 +85,11 @@ export async function trustedReviewActor(
       throw new ConvexError({ code: "MEDIA_DELEGATION_DENIED" });
   }
   const user = await ctx.db.get(userId);
-  if (user === null) throw new Error("Review actor unavailable.");
+  if (user === null)
+    throw new ConvexError({
+      code: "MEDIA_REVIEW_ACTOR_UNAVAILABLE",
+      message: "Review actor unavailable.",
+    });
   return {
     user,
     emailVerified:
@@ -589,7 +593,10 @@ export async function decideReviewCommand(
   const profile =
     submission === null ? null : await ctx.db.get(submission.profileId);
   if (submission === null || profile === null)
-    throw new Error("Media contribution unavailable.");
+    throw new ConvexError({
+      code: "MEDIA_RESOURCE_UNAVAILABLE",
+      message: "Media contribution unavailable.",
+    });
   // Revalidate authority before receipt lookup: losing ownership or the reviewer
   // grant also loses access to historical operation results.
   const authority = await reviewerContext(ctx, profile, actor, submission);
@@ -796,7 +803,10 @@ export async function rebaseReviewCommand(
   const submission = id ? await ctx.db.get(id) : null;
   const profile = submission ? await ctx.db.get(submission.profileId) : null;
   if (!submission || !profile)
-    throw new Error("Media contribution unavailable.");
+    throw new ConvexError({
+      code: "MEDIA_RESOURCE_UNAVAILABLE",
+      message: "Media contribution unavailable.",
+    });
   await reviewerContext(ctx, profile, actor, submission);
   const inputHash = await hash({ command: "rebase", ...args });
   const previous = await ctx.db
