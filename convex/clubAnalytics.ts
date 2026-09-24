@@ -188,7 +188,10 @@ async function sessionLiveness(
   );
   const stoppedAt = Math.max(
     state.epoch,
-    ...stops.map((row) => row?.startedAt ?? state.epoch),
+    // Repeated failures coalesce into updatedAt. Closing a stop window sets it
+    // to the recovery time, a conservative bound for late session evidence.
+    // An observation at or after recovery can still establish current liveness.
+    ...stops.map((row) => row?.updatedAt ?? state.epoch),
   );
   return (session: Doc<"instanceSessions">): number | null =>
     session.state === "open" &&

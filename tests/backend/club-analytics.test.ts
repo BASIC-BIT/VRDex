@@ -69,6 +69,60 @@ it("session liveness is observed, current, inclusive at six minutes and separate
   }
   assert.deepEqual(await s.t.run(ctx => ctx.db.get(s.sessionId)), raw);
 });
+it("session liveness retains coalesced stop evidence through late observations and group-only recovery", async test => {
+  const { transitionCoverage } = await import("../../convex/_collectionCoverage");
+  const t1 = epoch + 60_000, t2 = epoch + 120_000, t3 = epoch + 180_000,
+    t4 = epoch + 240_000, t5 = epoch + 300_000;
+  let now = t3;
+  test.mock.method(Date, "now", () => now);
+  const s = await freshSessionSetup();
+  const poll = (at: number, state: "unknown" | "observed") => s.t.run(ctx =>
+    transitionCoverage(ctx, s.integrationId, state, at, "first_party", "test",
+      state === "unknown" ? "timeout" : undefined));
+  const assertLive = async (expected: number | null) => {
+    const raw = await s.t.run(ctx => ctx.db.get(s.sessionId));
+    for (const actor of [s.owner, s.staff]) {
+      const detail = await actor.query(api.clubAnalytics.getInstance, { communitySlug: "analytics", sessionId: s.sessionId });
+      assert.equal(detail!.liveObservedAt, expected);
+      const live = await actor.query(api.clubAnalytics.listInstances, { communitySlug: "analytics", kind: "live", paginationOpts: { numItems: 10, cursor: null } });
+      assert.equal(live.page.length, expected === null ? 0 : 1);
+      const history = await actor.query(api.clubAnalytics.listInstances, { communitySlug: "analytics", kind: "history", paginationOpts: { numItems: 10, cursor: null } });
+      assert.equal(history.page.length, 1);
+      assert.equal(history.page[0]!.lastObservedAt, raw!.lastObservedAt);
+      assert.equal(history.page[0]!.state, "open");
+      assert.equal(history.page[0]!.closedAt, null);
+    }
+    assert.deepEqual(await s.t.run(ctx => ctx.db.get(s.sessionId)), raw);
+  };
+  await poll(t1, "unknown");
+  await poll(t3, "unknown");
+  await poll(t2, "observed");
+  await s.t.run(ctx => ctx.db.patch(s.sessionId, { lastObservedAt: t2 }));
+  const windows = await s.t.run(ctx => ctx.db.query("collectionCoverageWindows").collect());
+  assert.equal(windows.length, 1);
+  assert.equal(windows[0]!.startedAt, t1);
+  assert.equal(windows[0]!.updatedAt, t3);
+  await assertLive(null);
+
+  now = t4;
+  await poll(t4, "observed"); // The group recovers without seeing this session.
+  const closedStop = await s.t.run(ctx => ctx.db.get(windows[0]!._id));
+  assert.equal(closedStop!.endedAt, t4);
+  assert.equal(closedStop!.updatedAt, t4);
+  await assertLive(null);
+  // Closure overwrites the last-failure time. Use its recovery boundary as a
+  // conservative bound instead of reviving late evidence from inside the gap.
+  await poll(t4 - 1, "observed");
+  await s.t.run(ctx => ctx.db.patch(s.sessionId, { lastObservedAt: t4 - 1 }));
+  await assertLive(null);
+  await s.t.run(ctx => ctx.db.patch(s.sessionId, { lastObservedAt: t4 }));
+  await assertLive(t4);
+
+  now = t5;
+  await poll(t5, "observed");
+  await s.t.run(ctx => ctx.db.patch(s.sessionId, { lastObservedAt: t5 }));
+  await assertLive(t5);
+});
 it("session freshness ignores group-only success and revokes on collection stop, feature and connection changes", async test => {
   let now = epoch + 61_000;
   test.mock.method(Date, "now", () => now);
