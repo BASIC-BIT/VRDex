@@ -23,6 +23,14 @@ export const localUploadRequestSchema = z.strictObject({
   itemKey: z.string().min(1).max(128).optional(),
   expectedItemRevision: z.number().int().min(1).max(5).optional(),
   idempotencyKey: z.string().min(1).max(128),
+}).refine(
+  (input) => Boolean(input.sourceUrl?.trim() || input.sourceDescription),
+  { message: "UPLOAD_PROVENANCE_REQUIRED" },
+).meta({
+  anyOf: [
+    { required: ["sourceUrl"], properties: { sourceUrl: { pattern: "\\S" } } },
+    { required: ["sourceDescription"], properties: { sourceDescription: { pattern: "\\S" } } },
+  ],
 });
 export const localUploadCompleteSchema = z.strictObject({
   intentId: z.string().min(1).max(200),

@@ -82,10 +82,14 @@ export async function trustedReviewActor(
       (token.dynamicClientId &&
         (await ctx.db.get(token.dynamicClientId))?.status !== "active")
     )
-      throw new Error("MEDIA_DELEGATION_DENIED");
+      throw new ConvexError({ code: "MEDIA_DELEGATION_DENIED" });
   }
   const user = await ctx.db.get(userId);
-  if (user === null) throw new Error("Review actor unavailable.");
+  if (user === null)
+    throw new ConvexError({
+      code: "MEDIA_REVIEW_ACTOR_UNAVAILABLE",
+      message: "Review actor unavailable.",
+    });
   return {
     user,
     emailVerified:
@@ -110,7 +114,10 @@ export async function browserReviewActor(
 }
 export function assertReviewActorVerified(actor: ReviewActor) {
   if (!actor.user.email || actor.emailVerified !== true)
-    throw new Error("A verified email address is required for media review.");
+    throw new ConvexError({
+      code: "MEDIA_EMAIL_UNVERIFIED",
+      message: "A verified email address is required for media review.",
+    });
 }
 export const reviewActorAttestationArgs = {
   oauthTokenId: v.optional(v.string()),
@@ -121,7 +128,10 @@ export const reviewActorAttestationArgs = {
 };
 function assertContributionsEnabled() {
   if (process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED !== "true")
-    throw new Error("Profile media contributions are not enabled.");
+    throw new ConvexError({
+      code: "MEDIA_CONTRIBUTIONS_DISABLED",
+      message: "Profile media contributions are not enabled.",
+    });
 }
 function sanitizeNote(value: string | undefined, maxLength: number) {
   return value?.trim().replace(/\s+/g, " ").slice(0, maxLength) || undefined;
@@ -156,11 +166,24 @@ export async function reviewerContext(
     });
   }
   if (!access.superAdmin && !assigned && profile.claimState === "unclaimed") {
-    throw new Error(
-      "Only a moderator can review media for an unclaimed profile.",
-    );
+    throw new ConvexError({
+      code: "MEDIA_MODERATOR_REQUIRED",
+      message: "Only a moderator can review media for an unclaimed profile.",
+    });
   }
   return { user, subject, access, ownsProfile };
+}
+
+async function privateReplacementRequiresElevatedAccess(
+  ctx: Pick<QueryCtx, "db">,
+  profileId: Id<"profiles">,
+  assetId: Id<"profileAssets"> | undefined,
+  elevated: boolean,
+) {
+  if (assetId === undefined || elevated) return false;
+  const asset = await ctx.db.get(assetId);
+  return asset !== null && asset.profileId === profileId &&
+    asset.state === "active" && asset.visibility !== "public";
 }
 
 export const legacyDecisionArgs = {
@@ -213,21 +236,27 @@ export async function applyReviewDecision(
   ) {
     throw new Error("The target profile is no longer public.");
   }
-  const { subject, user, ownsProfile } = await reviewerContext(
+  const { subject, user, ownsProfile, access } = await reviewerContext(
     ctx,
     profile,
     actor,
     submission,
   );
   if (submission.submitterUserId === user._id) {
-    throw new Error("You cannot decide your own media contribution.");
+    throw new ConvexError({
+      code: "MEDIA_SELF_REVIEW",
+      message: "You cannot decide your own media contribution.",
+    });
   }
   if (
     profile.updatedAt !== args.expectedProfileUpdatedAt ||
     (args.decision === "approve" &&
       profile.updatedAt !== submission.targetProfileUpdatedAt)
   ) {
-    throw new Error("The target profile changed. Refresh before deciding.");
+    throw new ConvexError({
+      code: "MEDIA_PROFILE_CHANGED",
+      message: "The target profile changed. Refresh before deciding.",
+    });
   }
   const privateReason = sanitizeNote(args.privateReason, 1_000);
   if (privateReason === undefined)
@@ -288,6 +317,10 @@ export async function applyReviewDecision(
       "The profile media placement changed. Refresh before deciding.",
     );
   }
+  if (await privateReplacementRequiresElevatedAccess(
+    ctx, profile._id, currentPlacement?.assetId,
+    ownsProfile || access.superAdmin,
+  )) throw new Error("Private replacement requires profile owner or admin access.");
   if (intent.contentSha256 !== undefined) {
     const existing = await ctx.db
       .query("profileAssets")
@@ -560,10 +593,13 @@ export async function decideReviewCommand(
   const profile =
     submission === null ? null : await ctx.db.get(submission.profileId);
   if (submission === null || profile === null)
-    throw new Error("Media contribution unavailable.");
+    throw new ConvexError({
+      code: "MEDIA_RESOURCE_UNAVAILABLE",
+      message: "Media contribution unavailable.",
+    });
   // Revalidate authority before receipt lookup: losing ownership or the reviewer
   // grant also loses access to historical operation results.
-  await reviewerContext(ctx, profile, actor, submission);
+  const authority = await reviewerContext(ctx, profile, actor, submission);
   const inputHash = await hash(args);
   const previous = await ctx.db
     .query("mediaReviewReceipts")
@@ -614,6 +650,11 @@ export async function decideReviewCommand(
     code = "public_reason_required";
   else if (args.decision === "approve" && snapshot.candidate.rendition === null)
     code = "candidate_unavailable";
+  if (code === undefined && args.decision === "approve" &&
+    await privateReplacementRequiresElevatedAccess(
+      ctx, profile._id, snapshot.currentPlacement?.assetId,
+      authority.ownsProfile || authority.access.superAdmin,
+    )) code = "private_replacement_requires_owner_or_admin";
   if (code === undefined && args.decision === "approve") {
     if (
       (profile.profileType === "person" &&
@@ -762,7 +803,10 @@ export async function rebaseReviewCommand(
   const submission = id ? await ctx.db.get(id) : null;
   const profile = submission ? await ctx.db.get(submission.profileId) : null;
   if (!submission || !profile)
-    throw new Error("Media contribution unavailable.");
+    throw new ConvexError({
+      code: "MEDIA_RESOURCE_UNAVAILABLE",
+      message: "Media contribution unavailable.",
+    });
   await reviewerContext(ctx, profile, actor, submission);
   const inputHash = await hash({ command: "rebase", ...args });
   const previous = await ctx.db

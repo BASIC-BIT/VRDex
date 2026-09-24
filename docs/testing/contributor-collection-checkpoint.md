@@ -87,6 +87,17 @@ quarantine and derivatives, and are released only after confirmed deletion.
 Published objects transfer to a separate published-storage counter. Deployment
 byte admission includes that counter. Held objects remain charged.
 
+Fresh admission refusals are limited to 256 retained receipts per actor across
+OAuth clients. Existing receipt replay and successful upload admission remain
+available at the limit. A further fresh refusal returns
+`UPLOAD_REFUSAL_RECEIPT_LIMIT` with no durable operation ID or receipt; it is
+not a status-queryable command outcome. The indexed count reads at most 256
+rows and 8 MiB; an incomplete read fails closed. Historical receipts remain
+retained. Expired source-host minute counters are removed in bounded scheduled
+pages, with continuation for a full page. Pending-request limits count only
+unexpired batch allowances, and approval permits one active allowance per
+batch. Expired historical approvals remain available for audit.
+
 `contributionOperations.inventory` is an internal super-admin paginated query
 (at most 40 reservations) returning object-key inventory, page totals, pending
 age, cleanup lag, reviewed count in the past day, failed reserved bytes and an

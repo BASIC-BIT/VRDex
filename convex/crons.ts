@@ -104,5 +104,6 @@ crons.daily(
 crons.interval("reconcile media upload objects", { minutes: 10 }, internal.contributionCleanup.sweep, {});
 
 crons.interval("expire archived contribution payloads", { minutes: 10 }, internal.contributionOperations.expirePayloads, {});
+crons.interval("expire contribution source-host counters", { minutes: 10 }, internal.contributionCapacity.sweepExpiredHostFetches, {});
 
 export default crons;

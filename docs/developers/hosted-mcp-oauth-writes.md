@@ -188,6 +188,10 @@ validated address, including redirects to another host. Redirect count,
 timeout, size, MIME, and decoded-image checks still apply. It sends no browser
 cookies, authorization headers, or referrer from the source request.
 
+`vrdex_media_upload_begin` requires a nonblank source URL or a source
+description. A local file can use the description without a URL. Mixed media
+and profile batch appends require both contribution grants.
+
 A completed same-request replay works after source expiry without fetching
 again. An unfinished import still needs a usable URL. A changed query is a
 different request. After a definite terminal source refusal, use a fresh URL
@@ -336,7 +340,13 @@ intentional same-key recovery safe but do not authorize automatic retry.
   filenames, hashes, storage keys, processing tokens, or upload credentials.
 - `mcpToolEvents` records accepted, denied, indeterminate, or readback-warning outcomes
   without request bodies, raw keys, tokens, event content, or network
-  identities.
+  identities. Known precommit media review, publication, and withdrawal
+  authority or resource refusals are denied. Transport failures, unknown errors,
+  and failures after a write may have committed remain indeterminate.
+  For selected decisions, any `in_progress` receipt makes the aggregate
+  indeterminate; otherwise any refused receipt makes it denied, including when
+  another item committed. A write-event recording failure does not change the
+  command response.
 - Existing OAuth validation events cover invalid, expired, revoked,
   wrong-resource, and under-scoped tokens.
 - Authorization-code exchange failures log only a bounded rejection category;

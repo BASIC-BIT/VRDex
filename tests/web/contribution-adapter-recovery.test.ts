@@ -40,7 +40,7 @@ function probe(script: string) {
     cwd: process.cwd(), encoding: "utf8", stdio: "pipe",
     env: { ...process.env, TSX_TSCONFIG_PATH: "apps/web/tsconfig.json",
       VRDEX_CONTRIBUTION_UPLOADS_ENABLED: "true", VRDEX_MEDIA_UPLOAD_CLEANUP_READY: "true",
-      VRDEX_MEDIA_CLEANUP_URL: "https://example.test/cleanup", VRDEX_MEDIA_CLEANUP_TOKEN: "test-only",
+      VRDEX_MEDIA_CLEANUP_URL: "https://example.test/api/internal/media-cleanup", VRDEX_MEDIA_CLEANUP_TOKEN: "test-only",
       VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED: "true", VRDEX_PROFILE_MEDIA_KIT_ENABLED: "true" },
   });
 }

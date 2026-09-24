@@ -51,6 +51,7 @@ const codes = new Set([
   "UPLOAD_EXPIRED",
   "UPLOAD_IDEMPOTENCY_CONFLICT",
   "UPLOAD_RESERVATION_EXCEEDED",
+  "UPLOAD_REFUSAL_RECEIPT_LIMIT",
   "UPLOAD_UNAVAILABLE",
   "CONTRIBUTION_HOST_RATE",
   "CONTRIBUTION_ACTOR_OPEN_LIMIT",
@@ -148,6 +149,11 @@ export function safeCommandError(error: unknown, operationId: string) {
         : undefined;
   const code =
     typeof raw === "string" && codes.has(raw) ? raw : "COMMAND_OUTCOME_UNKNOWN";
+  if (code === "UPLOAD_REFUSAL_RECEIPT_LIMIT")
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify({ code }) }],
+      isError: true as const,
+    };
   const uncertain = [
     "COMMAND_OUTCOME_UNKNOWN",
     "UPLOAD_COMPLETION_UNCERTAIN",

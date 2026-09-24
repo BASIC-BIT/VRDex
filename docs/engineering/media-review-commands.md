@@ -135,6 +135,12 @@ mutation may have committed before response loss. Retrying preserves the exact
 key and input and retrieves the authoritative backend receipt.
 The browser retains failed selections and shows their individual outcomes;
 reselection after inspecting current context creates a deliberate new command.
+Approval of a proposal that replaces an active private managed asset requires
+the profile owner or a super-admin. An assigned reviewer can reject it, but
+cannot approve a replacement for an asset whose bytes are unavailable in the
+current preview. This applies to receipt commands and older direct decisions,
+including proposals submitted through URL intake. Refused receipt commands keep
+their result for exact-key retries.
 
 MCP preview accepts optional `target: "candidate" | "current"` (candidate by
 default). Candidate and managed-current previews read the download rendition
@@ -199,6 +205,8 @@ suppressed assets are checked by indexed digest as well. An unrelated digest is
 not refused solely because the target once had a rejection. Matching new history
 is linked through `priorRestrictionId`. Byte-different variants are not identified
 perceptually; the explicit no-known-restrictions declaration remains required.
+The digest lookup considers only rejection and suppression records. An identity or
+dispute record for another target cannot block identical bytes on this target.
 Admin `recordPublicationDispute` records identity/dispute restrictions. Existing
 suppression records a correction linked to the published operation; legal-hold and
 cleanup authority are unchanged. These records do not contain private reasons.

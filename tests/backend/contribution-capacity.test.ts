@@ -128,13 +128,18 @@ it("discovers effective baseline limits without intake and keeps capacity separa
   assert.equal(before.reservation, false);
   const gates = {
     VRDEX_CONTRIBUTION_UPLOADS_ENABLED: "true", VRDEX_MEDIA_UPLOAD_CLEANUP_READY: "true",
-    VRDEX_MEDIA_CLEANUP_URL: "https://example.test/cleanup", VRDEX_MEDIA_CLEANUP_TOKEN: "test",
+    VRDEX_MEDIA_CLEANUP_URL: "https://example.test/api/internal/media-cleanup", VRDEX_MEDIA_CLEANUP_TOKEN: "test",
     VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED: "true", VRDEX_PROFILE_MEDIA_KIT_ENABLED: "true",
   };
   const previous = Object.fromEntries(Object.keys(gates).map(key => [key, process.env[key]]));
   try {
     Object.assign(process.env, gates);
     assert.equal((await t.query(internal.contributionCapacity.get, authority)).features.localUploads, true);
+    for (const url of ["https://example.test/cleanup", "http://example.test/api/internal/media-cleanup", "https://user:pass@example.test/api/internal/media-cleanup", "not-a-url"]) {
+      process.env.VRDEX_MEDIA_CLEANUP_URL = url;
+      assert.deepEqual((await t.query(internal.contributionCapacity.get, authority)).features.localUploadModes, { owner: false, contributor: false });
+    }
+    Object.assign(process.env, gates);
     for (const key of Object.keys(gates).filter(key => key !== "VRDEX_PROFILE_MEDIA_KIT_ENABLED")) {
       delete process.env[key];
       assert.equal((await t.query(internal.contributionCapacity.get, authority)).features.localUploads, false, key);

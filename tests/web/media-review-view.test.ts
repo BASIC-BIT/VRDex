@@ -21,6 +21,21 @@ describe("media review view model", () => {
     }, "approve"), { message: "Approved.", conflict: false });
   });
 
+  it("explains when only the owner or a site admin can approve a private replacement", () => {
+    const result = reviewDecisionMessage({
+      operationId: "op-1",
+      operationState: "refused",
+      resourceId: "submission-1",
+      code: "private_replacement_requires_owner_or_admin",
+    }, "approve");
+
+    assert.deepEqual(result, {
+      message: "Only the profile owner or a site admin can approve this replacement.",
+      conflict: false,
+    });
+    assert.doesNotMatch(result.message, /private_replacement_requires_owner_or_admin/);
+  });
+
   it("prefers the managed current placement and falls back to the legacy avatar", () => {
     assert.equal(reviewPlacementImage({
       profileId: "profile-1",

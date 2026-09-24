@@ -14,7 +14,7 @@ it("returns the same item receipt for first URL submission and authorized cross-
     process.env.VRDEX_CONTRIBUTION_BATCHES_ENABLED="true";
     process.env.VRDEX_CONTRIBUTION_UPLOADS_ENABLED="true";
     process.env.VRDEX_MEDIA_UPLOAD_CLEANUP_READY="true";
-    process.env.VRDEX_MEDIA_CLEANUP_URL="https://example.test/cleanup";
+    process.env.VRDEX_MEDIA_CLEANUP_URL="https://example.test/api/internal/media-cleanup";
     process.env.VRDEX_MEDIA_CLEANUP_TOKEN="test";
     process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED="true";
     const modules={...baseModules,"../../convex/contributionCapacity.ts":()=>import("./convex/contributionCapacity.ts"),"../../convex/contributionBatches.ts":()=>import("./convex/contributionBatches.ts"),"../../convex/contributionUploads.ts":()=>import("./convex/contributionUploads.ts")};

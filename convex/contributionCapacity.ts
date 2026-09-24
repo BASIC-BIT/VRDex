@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery } from "./_generated/server";
+import { internal } from "./_generated/api";
 import {
   contributionAuthorityArgs,
   authorizeContribution,
@@ -177,13 +178,22 @@ export const request = internalMutation({
       args.expiresAt !== undefined
     )
       throw new Error("CAPACITY_REQUEST_INVALID");
-    const pending = await ctx.db
+    const pendingTrust = await ctx.db
       .query("contributionCapacityRequests")
-      .withIndex("by_actor_state", (q) =>
-        q.eq("actorUserId", args.actorUserId).eq("state", "pending"),
+      .withIndex("by_actor_state_kind_expiresAt", (q) =>
+        q.eq("actorUserId", args.actorUserId).eq("state", "pending").eq("kind", "trusted_contributor"),
       )
       .take(20);
-    if (pending.length >= 20) throw new Error("CAPACITY_REQUEST_LIMIT");
+    if (pendingTrust.length >= 20) throw new Error("CAPACITY_REQUEST_LIMIT");
+    const pendingAllowances = await ctx.db
+      .query("contributionCapacityRequests")
+      .withIndex("by_actor_state_kind_expiresAt", (q) =>
+        q.eq("actorUserId", args.actorUserId).eq("state", "pending")
+          .eq("kind", "batch_allowance").gt("expiresAt", Date.now()),
+      )
+      .take(20 - pendingTrust.length);
+    if (pendingTrust.length + pendingAllowances.length >= 20)
+      throw new Error("CAPACITY_REQUEST_LIMIT");
     const {
       actorUserId,
       key,
@@ -268,6 +278,20 @@ export const decideRequest = internalMutation({
       throw new Error("USE_ACCOUNT_FEATURE_GRANT");
     if (request.kind === "trusted_contributor" && args.decision === "revoked")
       throw new Error("USE_ACCOUNT_FEATURE_REVOKE");
+    if (args.decision === "approved" && request.kind === "batch_allowance") {
+      if (request.state !== "pending" || !request.batchId ||
+        request.expiresAt === undefined || request.expiresAt <= Date.now())
+        throw new Error("CAPACITY_REQUEST_UNAVAILABLE");
+      const batch = await ctx.db.get(request.batchId);
+      if (!batch || batch.archived || batch.actorUserId !== request.actorUserId)
+        throw new Error("CAPACITY_REQUEST_UNAVAILABLE");
+      const active = await ctx.db.query("contributionCapacityRequests")
+        .withIndex("by_batch_state_expiresAt", q =>
+          q.eq("batchId", request.batchId).eq("state", "approved")
+            .gt("expiresAt", Date.now()))
+        .take(1);
+      if (active.length) throw new Error("CAPACITY_ALLOWANCE_CONFLICT");
+    }
     await ctx.db.patch(request._id, {
       state: args.decision,
       decisionReason: args.reason,
@@ -397,5 +421,20 @@ export const claimSourceFetch = internalMutation({
         count: 1,
       });
     return { allowed: true };
+  },
+});
+// Source-host minute counters are disposable. Continue bounded pages until the
+// expired backlog is gone, even when one cron pass finds more than a page.
+export const sweepExpiredHostFetches = internalMutation({
+  args: {},
+  returns: v.number(),
+  handler: async (ctx) => {
+    const expired = await ctx.db.query("contributionHostFetches")
+      .withIndex("by_window", q => q.lt("window", Math.floor(Date.now() / 60000)))
+      .take(100);
+    for (const row of expired) await ctx.db.delete(row._id);
+    if (expired.length === 100)
+      await ctx.scheduler.runAfter(0, internal.contributionCapacity.sweepExpiredHostFetches, {});
+    return expired.length;
   },
 });

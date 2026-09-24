@@ -109,6 +109,7 @@ it("bounds collection metadata, rejects unknown decisions, and requires exact ta
       expectedUpdatedAt: 1,
       placement: "primary_logo",
       credit: "Artist",
+      sourceDescription: "Artist supplied original",
       contentType: "image/png",
       byteLength: 10,
       sha256: "a".repeat(64),
@@ -118,4 +119,23 @@ it("bounds collection metadata, rejects unknown decisions, and requires exact ta
       idempotencyKey: "upload",
     }).success,
   );
+});
+
+it("requires source URL or description for a local upload", () => {
+  const input = {
+    mode: "contributor" as const,
+    profileId: "profile",
+    expectedUpdatedAt: 1,
+    placement: "profile_image" as const,
+    contentType: "image/png" as const,
+    byteLength: 1,
+    sha256: "a".repeat(64),
+    credit: "Artist",
+    idempotencyKey: "upload",
+  };
+  assert.equal(localUploadRequestSchema.safeParse(input).success, false);
+  assert.equal(localUploadRequestSchema.safeParse({ ...input, sourceUrl: "   " }).success, false);
+  assert.equal(localUploadRequestSchema.safeParse({ ...input, sourceUrl: "https://artist.example/source" }).success, true);
+  assert.equal(localUploadRequestSchema.safeParse({ ...input, sourceDescription: "Artist original" }).success, true);
+  assert.equal(localUploadRequestSchema.safeParse({ ...input, sourceUrl: "", sourceDescription: "Artist original" }).success, true);
 });

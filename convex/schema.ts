@@ -917,7 +917,8 @@ export default defineSchema({
     submissionId: v.id("profileMediaSubmissions"), actorUserId: v.id("users"),
     kind: v.union(v.literal("rejection"), v.literal("suppression"), v.literal("dispute"), v.literal("identity")),
     correctionOfOperationId: v.optional(v.string()), createdAt: v.number(),
-  }).index("by_profileId_kind", ["profileId", "kind"]).index("by_contentSha256", ["contentSha256"]),
+  }).index("by_profileId_kind", ["profileId", "kind"]).index("by_contentSha256", ["contentSha256"])
+    .index("by_contentSha256_kind", ["contentSha256", "kind"]),
   profileMediaSubmissions: defineTable({
     publicationEvidenceId: v.optional(v.id("mediaPublicationEvidence")),
     publicationMethod: v.optional(v.union(v.literal("trusted_publisher"), v.literal("independent_review"))),
