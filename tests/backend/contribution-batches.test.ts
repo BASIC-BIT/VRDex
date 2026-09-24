@@ -101,7 +101,7 @@ it("replays direct completion after actual batch payload purge with retained aut
   const f = await fixture();
   process.env.VRDEX_CONTRIBUTION_UPLOADS_ENABLED = "true";
   process.env.VRDEX_MEDIA_UPLOAD_CLEANUP_READY = "true";
-  process.env.VRDEX_MEDIA_CLEANUP_URL = "https://example.test/cleanup";
+  process.env.VRDEX_MEDIA_CLEANUP_URL = "https://example.test/api/internal/media-cleanup";
   process.env.VRDEX_MEDIA_CLEANUP_TOKEN = "test";
   process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED = "true";
   await f.t.mutation(internal.contributionBatches.append, {
@@ -791,7 +791,7 @@ it("links media admission and completion to one exact revision and follows a cre
   const f = await fixture();
   process.env.VRDEX_CONTRIBUTION_UPLOADS_ENABLED = "true";
   process.env.VRDEX_MEDIA_UPLOAD_CLEANUP_READY = "true";
-  process.env.VRDEX_MEDIA_CLEANUP_URL = "https://example.test/cleanup";
+  process.env.VRDEX_MEDIA_CLEANUP_URL = "https://example.test/api/internal/media-cleanup";
   process.env.VRDEX_MEDIA_CLEANUP_TOKEN = "test";
   process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED = "true";
   const create = {
@@ -950,7 +950,7 @@ it("replays pending URL admission and rejects cross-item upload keys", async () 
   const f = await fixture();
   process.env.VRDEX_CONTRIBUTION_UPLOADS_ENABLED = "true";
   process.env.VRDEX_MEDIA_UPLOAD_CLEANUP_READY = "true";
-  process.env.VRDEX_MEDIA_CLEANUP_URL = "https://example.test/cleanup";
+  process.env.VRDEX_MEDIA_CLEANUP_URL = "https://example.test/api/internal/media-cleanup";
   process.env.VRDEX_MEDIA_CLEANUP_TOKEN = "test";
   process.env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED = "true";
   const media = {
@@ -1003,6 +1003,43 @@ it("replays pending URL admission and rejects cross-item upload keys", async () 
     }),
     /CONFLICT/,
   );
+});
+
+it("does not create a linked item attempt when the actor's refusal budget is full", async () => {
+  const f = await fixture();
+  Object.assign(process.env, {
+    VRDEX_CONTRIBUTION_UPLOADS_ENABLED: "true",
+    VRDEX_MEDIA_UPLOAD_CLEANUP_READY: "true",
+    VRDEX_MEDIA_CLEANUP_URL: "https://example.test/api/internal/media-cleanup",
+    VRDEX_MEDIA_CLEANUP_TOKEN: "test",
+    VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED: "true",
+  });
+  await f.t.mutation(internal.contributionBatches.append, {
+    ...f.authority, batchId: f.batch.batchId, items: [{
+      kind: "media", itemKey: "image", source: f.item.source,
+      profileId: f.s.profileId, expectedUpdatedAt: NOW, placement: "profile_image",
+      transport: "local", credit: "Artist", contentType: "image/png",
+      byteLength: 512, sha256: "a".repeat(64),
+    }],
+  });
+  const { transport: _transport, ...request } = await f.t.mutation(
+    internal.contributionBatches.mediaRequest,
+    { ...f.authority, batchId: f.batch.batchId, itemKey: "image", expectedRevision: 1 },
+  );
+  await f.t.run(async ctx => {
+    for (let i = 0; i < 256; i++) await ctx.db.insert("contributionAdmissionRefusals", {
+      actorUserId: f.s.contributorUserId, clientId: "client", key: `old-${i}`,
+      fingerprint: "old", receipt: { operationId: `old-${i}`,
+        operationState: "refused", code: "CONTRIBUTION_ACTOR_BYTES" }, createdAt: 1,
+    });
+    await ctx.db.insert("contributionCapacity", {
+      scope: `actor:${f.s.contributorUserId}`, bytes: 0, processing: 0, byteLimit: 0,
+    });
+  });
+  await assert.rejects(f.t.mutation(internal.contributionUploads.begin, {
+    ...f.authority, ...request,
+  }), /UPLOAD_REFUSAL_RECEIPT_LIMIT/);
+  assert.equal((await f.t.run(ctx => ctx.db.query("contributionItemAttempts").collect())).length, 0);
 });
 
 it("rolls publication back when storing its receipt unexpectedly fails", async () => {

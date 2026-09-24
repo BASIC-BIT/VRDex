@@ -1,11 +1,10 @@
 name: Promote Production Web
 
-# Vercel's Git integration builds production deployments but does not alias them
-# to vrdex.net, so the live site can sit on an older build indefinitely. That is
-# how the Clerk cutover ended up half-applied: Convex production had already
-# deployed the Clerk backend while vrdex.net still served the pre-Clerk bundle,
-# whose sign-in called Convex Auth functions that no longer existed. Every read
-# path returned 200 the whole time.
+# Vercel's Git integration builds production deployments. Alias behavior depends
+# on provider configuration, so inspect vrdex.net for each release and select
+# the exact intended commit. During the Clerk cutover Convex production had
+# deployed the Clerk backend while vrdex.net still served the pre-Clerk bundle.
+# During PR #343 the production deployment was already aliased before promotion.
 #
 # Manual on purpose. Promotion is the moment real users move to a new build, and
 # the checks below cannot prove a release is *wanted* — only that it is not

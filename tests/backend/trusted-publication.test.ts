@@ -398,6 +398,52 @@ it("keeps unrelated rejection eligible but prevents fresh URLs and item keys eva
   });
   assert.equal((await g.publish()).code, "independent_review_required");
 });
+for (const kind of ["identity", "dispute"] as const) {
+  it(`does not apply another profile's ${kind} restriction to identical bytes`, async () => {
+    const f = await fixture();
+    await f.declare();
+    await f.t.run(async (ctx) => {
+      const target = (await ctx.db.get(f.s.profileId))!;
+      const { _id, _creationTime, ...fields } = target;
+      const otherProfileId = await ctx.db.insert("profiles", {
+        ...fields,
+        slug: `other-${kind}`,
+      });
+      await ctx.db.insert("mediaPublicationRestrictions", {
+        profileId: otherProfileId,
+        submissionId: f.intent.submissionId,
+        contentSha256: "proposal-hash",
+        kind,
+        actorUserId: f.s.moderatorUserId,
+        createdAt: Date.now(),
+      });
+    });
+    assert.equal((await f.publish()).operationState, "committed");
+  });
+}
+for (const kind of ["rejection", "suppression"] as const) {
+  it(`applies another profile's ${kind} restriction to identical bytes`, async () => {
+    const f = await fixture();
+    await f.declare();
+    await f.t.run(async (ctx) => {
+      const target = (await ctx.db.get(f.s.profileId))!;
+      const { _id, _creationTime, ...fields } = target;
+      const otherProfileId = await ctx.db.insert("profiles", {
+        ...fields,
+        slug: `other-${kind}`,
+      });
+      await ctx.db.insert("mediaPublicationRestrictions", {
+        profileId: otherProfileId,
+        submissionId: f.intent.submissionId,
+        contentSha256: "proposal-hash",
+        kind,
+        actorUserId: f.s.moderatorUserId,
+        createdAt: Date.now(),
+      });
+    });
+    assert.equal((await f.publish()).code, "independent_review_required");
+  });
+}
 it("invalidates declarations on changed credit or source and records correction lineage", async () => {
   const f = await fixture();
   await f.declare();

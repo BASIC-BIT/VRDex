@@ -3,6 +3,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseWriter, DatabaseReader } from "./_generated/server";
 import { getAccountFeatureAccess } from "./_accountFeatures";
 import { resolveContributionPolicy } from "./_contributionPolicy";
+import { validMediaCleanupUrl } from "./_mediaCleanupUrl";
 import {
   PROFILE_ASSET_UPLOAD_MAX_BYTES,
   validateProfileAssetByteSize,
@@ -24,7 +25,7 @@ export function reservationBytes(sourceBytes: number) {
 export function localUploadModes(env: Record<string, string | undefined> = process.env) {
   const ready = env.VRDEX_CONTRIBUTION_UPLOADS_ENABLED === "true" &&
     env.VRDEX_MEDIA_UPLOAD_CLEANUP_READY === "true" &&
-    !!env.VRDEX_MEDIA_CLEANUP_URL && !!env.VRDEX_MEDIA_CLEANUP_TOKEN;
+    !!validMediaCleanupUrl(env.VRDEX_MEDIA_CLEANUP_URL) && !!env.VRDEX_MEDIA_CLEANUP_TOKEN;
   return {
     owner: ready && env.VRDEX_PROFILE_MEDIA_KIT_ENABLED === "true",
     contributor: ready && env.VRDEX_PROFILE_MEDIA_SUBMISSIONS_ENABLED === "true",
@@ -116,17 +117,13 @@ export async function batchAllowance(
   if (resolveContributionPolicy().version !== "synthetic-v1") return null;
   const rows = await db
     .query("contributionCapacityRequests")
-    .withIndex("by_batch_state", (q) =>
-      q.eq("batchId", batchId).eq("state", "approved"),
+    .withIndex("by_batch_state_expiresAt", (q) =>
+      q.eq("batchId", batchId).eq("state", "approved").gt("expiresAt", Date.now()),
     )
     .take(2);
   if (rows.length > 1) throw new ConvexError({ code: "CAPACITY_ALLOWANCE_CONFLICT" });
   const row = rows[0];
-  return row?.actorUserId === actor &&
-    row.expiresAt !== undefined &&
-    row.expiresAt > Date.now()
-    ? row
-    : null;
+  return row?.actorUserId === actor ? row : null;
 }
 export async function assertCapacityNotRevoked(
   db: DatabaseReader,

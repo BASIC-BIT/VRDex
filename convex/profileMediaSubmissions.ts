@@ -1687,7 +1687,10 @@ async function withdrawCommand(
   const id = ctx.db.normalizeId("profileMediaSubmissions", args.submissionId);
   const submission = id ? await ctx.db.get(id) : null;
   if (!submission || submission.submitterUserId !== actor.user._id)
-    throw new Error("SUBMISSION_UNAVAILABLE");
+    throw new ConvexError({
+      code: "MEDIA_RESOURCE_UNAVAILABLE",
+      message: "SUBMISSION_UNAVAILABLE",
+    });
   const inputHash = await hash({ command: "withdraw", ...args });
   const previous = await ctx.db
     .query("mediaReviewReceipts")

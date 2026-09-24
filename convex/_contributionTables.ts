@@ -57,13 +57,16 @@ export const contributionTables = {
   })
     .index("by_actor_key", ["actorUserId", "key"])
     .index("by_actor_state", ["actorUserId", "state"])
+    .index("by_actor_state_kind_expiresAt", ["actorUserId", "state", "kind", "expiresAt"])
     .index("by_batch_state", ["batchId", "state"])
+    .index("by_batch_state_expiresAt", ["batchId", "state", "expiresAt"])
     .index("by_state", ["state"]),
   contributionHostFetches: defineTable({
     host: v.string(),
     window: v.number(),
     count: v.number(),
-  }).index("by_host_window", ["host", "window"]),
+  }).index("by_host_window", ["host", "window"])
+    .index("by_window", ["window"]),
   contributionBatches: defineTable({
     actorUserId: v.id("users"),
     idempotencyKey: v.string(),

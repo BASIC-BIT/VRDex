@@ -496,6 +496,63 @@ async function fixture() {
   });
   return { t, s, intent, ...ids, actor: t.withIdentity(s.moderatorIdentity) };
 }
+it("refuses assigned approval of a private replacement with a stable receipt, including the legacy decision", async () => {
+  const f = await fixture();
+  const assetId = await f.t.run(async (ctx) => {
+    const id = await ctx.db.insert("profileAssets", {
+      profileId: f.s.profileId,
+      storageKey: "private.webp",
+      mimeType: "image/webp",
+      byteSize: 100,
+      visibility: "private",
+      state: "active",
+      source: "owner_authored",
+      uploadedAt: NOW,
+      updatedAt: NOW,
+      uploadedBy: { issuer: "test", subject: "owner", tokenIdentifier: "test:owner" },
+    });
+    await ctx.db.insert("profileAssetPlacements", {
+      profileId: f.s.profileId, assetId: id, placement: "profile_image",
+      position: 0, state: "active", updatedAt: NOW,
+    });
+    await ctx.db.patch(f.intent.submissionId, { targetPlacementAssetId: id });
+    return id;
+  });
+  const detail = await f.actor.query(api.profileMediaSubmissions.reviewDetail, {
+    submissionId: f.intent.submissionId,
+  });
+  assert.ok(detail);
+  assert.equal(detail.currentPlacement?.assetId, assetId);
+  assert.equal(await f.actor.query(api.profileMediaSubmissions.getCurrentForStorage, {
+    submissionId: f.intent.submissionId,
+    assetId,
+    expectedReviewVersion: detail.reviewVersion,
+  }), null);
+  const command = {
+    submissionId: f.intent.submissionId,
+    expectedReviewVersion: detail.reviewVersion,
+    decision: "approve" as const,
+    privateReason: "Reviewed",
+    idempotencyKey: "private-replacement",
+  };
+  const refused = await f.actor.mutation(api.profileMediaSubmissions.decideWithReceipt, command);
+  assert.equal(refused.operationState, "refused");
+  assert.equal(refused.code, "private_replacement_requires_owner_or_admin");
+  assert.deepEqual(await f.actor.mutation(api.profileMediaSubmissions.decideWithReceipt, command), refused);
+  await assert.rejects(f.actor.mutation(api.profileMediaSubmissions.decide, {
+    submissionId: f.intent.submissionId,
+    decision: "approve",
+    expectedProfileUpdatedAt: NOW,
+    privateReason: "Reviewed",
+  }), /private replacement/i);
+  assert.equal((await f.t.run((ctx) => ctx.db.get(assetId)))?.state, "active");
+  assert.equal((await f.t.run((ctx) => ctx.db.get(f.intent.submissionId)))?.status, "submitted");
+  await f.t.run((ctx) => ctx.db.patch(f.grantId, { feature: "super_admin" }));
+  const approved = await f.actor.mutation(api.profileMediaSubmissions.decideWithReceipt, {
+    ...command, idempotencyKey: "admin-private-replacement",
+  });
+  assert.equal(approved.operationState, "committed");
+});
 it("requires fresh separate grant and exact assignment on detail, candidate and receipt replay", async () => {
   const f = await fixture();
   const args = { submissionId: f.intent.submissionId };
