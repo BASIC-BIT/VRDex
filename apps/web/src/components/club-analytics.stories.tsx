@@ -85,6 +85,7 @@ class AnalyticsFixtureClient extends ConvexReactClient {
           population: 112,
           activeInstances: 2,
           groupMemberCount: 2430,
+          groupMemberObservedAt: this.now - 6 * 3600_000,
           observedAt: this.now,
         },
         readableCategories: workspace.readableCategories,

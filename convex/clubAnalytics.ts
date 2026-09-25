@@ -169,7 +169,10 @@ async function sessionLiveness(
     !["active", "degraded"].includes(integration.state) ||
     (integration.enabledFeatures && !integration.enabledFeatures.includes("analytics"))
   )
-    return (_session: Doc<"instanceSessions">): number | null => null;
+    return {
+      stoppedAt: Infinity,
+      observedAt: (_session: Doc<"instanceSessions">): number | null => null,
+    };
   // A later group success cannot renew an unseen session. Retain the most
   // recent explicit stop even when collection has since resumed.
   const stops = await Promise.all(
@@ -193,14 +196,14 @@ async function sessionLiveness(
     // An observation at or after recovery can still establish current liveness.
     ...stops.map((row) => row?.updatedAt ?? state.epoch),
   );
-  return (session: Doc<"instanceSessions">): number | null =>
+  return { stoppedAt, observedAt: (session: Doc<"instanceSessions">): number | null =>
     session.state === "open" &&
     session.openedAt >= state.epoch &&
     session.lastObservedAt >= Math.max(session.openedAt, stoppedAt) &&
     session.lastObservedAt <= now &&
     now - session.lastObservedAt <= CURRENT_FRESHNESS_MS
       ? session.lastObservedAt
-      : null;
+      : null };
 }
 async function projectSession(
   ctx: QueryCtx,
@@ -232,6 +235,7 @@ export const getContext = query({
       population: v.optional(v.number()),
       activeInstances: v.optional(v.number()),
       groupMemberCount: v.optional(v.number()),
+      groupMemberObservedAt: v.optional(v.number()),
       observedAt: v.optional(v.number()),
     }),
     readableCategories: v.array(clubCategory),
@@ -295,7 +299,7 @@ export const getContext = query({
               observedAt: population.observedAt,
             }
           : {}),
-        ...(members ? { groupMemberCount: members.memberCount } : {}),
+        ...(members ? { groupMemberCount: members.memberCount, groupMemberObservedAt: members.observedAt } : {}),
       },
       readableCategories: CLUB_CATEGORIES.filter(state.allowed),
       preferences: personal
@@ -601,7 +605,31 @@ export const listInstances = query({
     if (!state.integration)
       return { page: [], isDone: true, continueCursor: "" };
     const now = Date.now();
-    const liveObservedAt = await sessionLiveness(ctx, state, now);
+    const liveness = await sessionLiveness(ctx, state, now);
+    const liveObservedAt = liveness.observedAt;
+    const opts = checkedPagination(args.paginationOpts);
+    if (args.kind === "live") {
+      if (!Number.isFinite(liveness.stoppedAt))
+        return { page: [], isDone: true, continueCursor: "" };
+      const result = await ctx.db.query("instanceSessions")
+        .withIndex("by_integrationId_state_lastObservedAt", q => q
+          .eq("integrationId", state.integration!._id)
+          .eq("state", "open")
+          .gte("lastObservedAt", Math.max(now - CURRENT_FRESHNESS_MS, liveness.stoppedAt))
+          .lte("lastObservedAt", now))
+        .filter(q => q.and(
+          q.gte(q.field("openedAt"), state.epoch),
+          q.gte(q.field("lastObservedAt"), q.field("openedAt")),
+        ))
+        .order("desc")
+        .paginate(opts);
+      return {
+        page: await Promise.all(result.page.map(session =>
+          projectSession(ctx, session, now, liveObservedAt(session)))),
+        isDone: result.isDone,
+        continueCursor: result.continueCursor,
+      };
+    }
     const result = await ctx.db
       .query("instanceSessions")
       .withIndex("by_communityProfileId_openedAt", (q) =>
@@ -610,7 +638,7 @@ export const listInstances = query({
           .gte("openedAt", state.epoch),
       )
       .order("desc")
-      .paginate(checkedPagination(args.paginationOpts));
+      .paginate(opts);
     return {
       page: await Promise.all(
         result.page
@@ -661,7 +689,7 @@ export const getInstance = query({
     )
       return null;
     const now = Date.now();
-    const liveObservedAt = await sessionLiveness(ctx, state, now);
+    const liveObservedAt = (await sessionLiveness(ctx, state, now)).observedAt;
     return projectSession(ctx, session, now, liveObservedAt(session));
   },
 });
@@ -889,50 +917,81 @@ export const listEventRecaps = query({
     requireCategory(state, "event_recaps");
     if (!state.integration || args.endAt <= state.epoch)
       return { page: [], isDone: true, continueCursor: "" };
-    const result = await ctx.db
-      .query("communityTelemetryRollups")
-      .withIndex("by_communityProfileId_grain_bucketStartAt", (q) =>
-        q
+    const opts = checkedPagination(args.paginationOpts);
+    const startAt = Math.max(args.startAt, state.epoch);
+    let anchor: { at: number; createdAt: number; id: Id<"communityTelemetryRollups"> } | null = null;
+    if (opts.cursor) {
+      try {
+        const parsed: unknown = JSON.parse(opts.cursor);
+        if (typeof parsed !== "object" || parsed === null) throw new Error();
+        const fields = parsed as Record<string, unknown>;
+        const id = typeof fields.id === "string"
+          ? ctx.db.normalizeId("communityTelemetryRollups", fields.id) : null;
+        if (!id || !Number.isSafeInteger(fields.at) || !Number.isFinite(fields.createdAt) ||
+          (fields.at as number) < startAt || (fields.at as number) >= args.endAt)
+          throw new Error();
+        anchor = { at: fields.at as number, createdAt: fields.createdAt as number, id };
+      } catch {
+        throw new Error("InvalidCursor: recap cursor.");
+      }
+    }
+    const page = [];
+    let scanned = 0;
+    let isDone = false;
+    // Convex permits one .paginate() per query. Walk a bounded indexed range
+    // with a row cursor so hidden event rollups cannot consume visible slots.
+    while (page.length < opts.numItems && scanned < 1000 && !isDone) {
+      const chunkSize = Math.min(100, Math.max(20, (opts.numItems - page.length) * 4), 1000 - scanned);
+      const boundary = anchor;
+      const indexed = ctx.db.query("communityTelemetryRollups")
+        .withIndex("by_communityProfileId_grain_bucketStartAt", q => q
           .eq("communityProfileId", state.community._id)
           .eq("grain", "event")
-          .gte("bucketStartAt", Math.max(args.startAt, state.epoch))
-          .lt("bucketStartAt", args.endAt),
-      )
-      .order("desc")
-      .paginate(checkedPagination(args.paginationOpts));
-    const page = [];
-    for (const row of result.page) {
-      if (!row.eventId) continue;
-      const event = await ctx.db.get(row.eventId);
-      if (
-        !event ||
-        event.communityProfileId !== state.community._id ||
-        event.publicationState !== "published"
-      )
-        continue;
-      page.push({
-        id: row._id,
-        eventId: event._id,
-        title: event.title,
-        slug: event.slug ?? null,
-        startAt: row.bucketStartAt,
-        endAt: row.bucketEndAt,
-        peak: row.peakConcurrency,
-        playerHours: row.playerMinutes / 60,
-        coverageRatio: row.coverageRatio,
-        ...(state.allowed("group_size") && row.groupMemberCount !== undefined
-          ? { groupMemberCount: row.groupMemberCount }
-          : {}),
-        ...(state.allowed("membership_movement") &&
-        row.groupMemberGrowth !== undefined
-          ? { netChange: row.groupMemberGrowth }
-          : {}),
-      });
+          .gte("bucketStartAt", startAt)
+          .lte("bucketStartAt", Math.min(args.endAt - 1, boundary?.at ?? Infinity)))
+        .order("desc");
+      const rows = await (boundary ? indexed.filter(q => q.or(
+          q.lt(q.field("bucketStartAt"), boundary.at),
+          q.and(q.eq(q.field("bucketStartAt"), boundary.at),
+            q.or(q.lt(q.field("_creationTime"), boundary.createdAt),
+              q.and(q.eq(q.field("_creationTime"), boundary.createdAt),
+                q.lt(q.field("_id"), boundary.id)))),
+        )) : indexed).take(chunkSize);
+      if (!rows.length) { isDone = true; break; }
+      let consumed = 0;
+      for (const row of rows) {
+        anchor = { at: row.bucketStartAt, createdAt: row._creationTime, id: row._id };
+        scanned++;
+        consumed++;
+        if (!row.eventId) continue;
+        const event = await ctx.db.get(row.eventId);
+        if (!event || event.communityProfileId !== state.community._id ||
+          event.publicationState !== "published") continue;
+        page.push({
+          id: row._id,
+          eventId: event._id,
+          title: event.title,
+          slug: event.slug ?? null,
+          startAt: row.bucketStartAt,
+          endAt: row.bucketEndAt,
+          peak: row.peakConcurrency,
+          playerHours: row.playerMinutes / 60,
+          coverageRatio: row.coverageRatio,
+          ...(state.allowed("group_size") && row.groupMemberCount !== undefined
+            ? { groupMemberCount: row.groupMemberCount }
+            : {}),
+          ...(state.allowed("membership_movement") && row.groupMemberGrowth !== undefined
+            ? { netChange: row.groupMemberGrowth }
+            : {}),
+        });
+        if (page.length === opts.numItems) break;
+      }
+      if (consumed === rows.length && rows.length < chunkSize) isDone = true;
     }
     return {
       page,
-      isDone: result.isDone,
-      continueCursor: result.continueCursor,
+      isDone,
+      continueCursor: anchor ? JSON.stringify(anchor) : "",
     };
   },
 });

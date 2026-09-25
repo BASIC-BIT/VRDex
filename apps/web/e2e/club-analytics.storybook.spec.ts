@@ -72,6 +72,12 @@ test("dashboard charts, drilldown and preferences @storybook-visual", async ({
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/iframe.html?id=clubs-analytics--home&viewMode=story");
+  const memberCard = page.getByText("Group members", { exact: true }).first().locator("..");
+  await expect(memberCard.getByText(/^Observed /)).toBeVisible();
+  const populationCard = page.getByText("People now", { exact: true }).locator("..");
+  expect(await memberCard.getByText(/^Observed /).textContent()).not.toBe(
+    await populationCard.getByText(/^Observed /).textContent(),
+  );
   await expect(
     page.getByText("Total group membership", { exact: true }),
   ).toBeVisible();

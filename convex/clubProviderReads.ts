@@ -163,11 +163,12 @@ export const listEvents = query({
       args.paginationOpts.numItems > 100
     )
       throw new Error("Invalid page size.");
-    const result = await ctx.db
-      .query("events")
-      .withIndex("by_communityProfileId_startAt", (q) =>
-        q.eq("communityProfileId", args.communityProfileId),
-      )
+    const canManageEvents = actor.kind === "owner" || actor.permissions.includes("manage_events");
+    const result = await (canManageEvents
+      ? ctx.db.query("events").withIndex("by_communityProfileId_startAt", (q) =>
+          q.eq("communityProfileId", args.communityProfileId))
+      : ctx.db.query("events").withIndex("by_communityProfileId_publicationState_startAt", (q) =>
+          q.eq("communityProfileId", args.communityProfileId).eq("publicationState", "published")))
       .order("desc")
       .paginate(args.paginationOpts);
     return {

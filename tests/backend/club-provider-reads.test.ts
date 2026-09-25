@@ -319,6 +319,44 @@ it("event picker paginates only the current club and instance roles need no memb
     }),
   );
 });
+it("event picker hides drafts from instance staff while filling published pages", async test => {
+  test.mock.timers.enable({ apis: ["setTimeout"] });
+  const s = await setup();
+  const now = Date.now();
+  const subject = {
+    subject: "instance-event-staff", issuer: "https://test.clerk.accounts.dev",
+    tokenIdentifier: "https://test.clerk.accounts.dev|instance-event-staff",
+  };
+  await s.t.run(async ctx => {
+    await ctx.db.insert("users", { clerkUserId: subject.subject });
+    await ctx.db.patch(s.roleId, { permissions: ["manage_instances"] });
+    await ctx.db.insert("communityAuthorities", {
+      communityProfileId: s.communityProfileId, subject,
+      subjectTokenIdentifier: subject.tokenIdentifier,
+      roleId: s.roleId, roleKey: "staff", roleLabel: "Staff",
+      state: "active", grantedAt: now, updatedAt: now,
+    });
+    for (const [title, offset, publicationState] of [
+      ["Published older", 1, "published"],
+      ["Private", 2, "draft_private"],
+      ["Published newer", 3, "published"],
+    ] as const) await ctx.db.insert("events", {
+      title, sortTitle: title.toLowerCase(), startAt: now + offset * 60_000,
+      communityProfileId: s.communityProfileId, sourceType: "manual",
+      sourceLabel: "test", eventStatus: "scheduled", publicationState,
+      updatedAt: now,
+    });
+  });
+  const staff = s.t.withIdentity(subject);
+  const args = { communityProfileId: s.communityProfileId, paginationOpts: { numItems: 1, cursor: null as string | null } };
+  const first = await staff.query(ref("listEvents"), args);
+  assert.deepEqual(first.page.map((event: { title: string }) => event.title), ["Published newer"]);
+  const second = await staff.query(ref("listEvents"), { ...args, paginationOpts: { numItems: 1, cursor: first.continueCursor } });
+  assert.deepEqual(second.page.map((event: { title: string }) => event.title), ["Published older"]);
+  assert.equal(second.isDone, true);
+  const owner = await s.owner.query(ref("listEvents"), { ...args, paginationOpts: { numItems: 3, cursor: null } });
+  assert.deepEqual(owner.page.map((event: { title: string }) => event.title), ["Published newer", "Private", "Published older"]);
+});
 async function setup() {
   process.env.CLERK_JWT_ISSUER_DOMAIN = "https://test.clerk.accounts.dev";
   const t = convexTest({ schema, modules });

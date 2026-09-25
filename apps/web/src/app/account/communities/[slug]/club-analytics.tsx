@@ -268,6 +268,11 @@ function EventRecaps({
     { communitySlug, startAt, endAt },
     { initialNumItems: 5 },
   );
+  const { status, results, loadMore } = query;
+  useEffect(() => {
+    if (status === "CanLoadMore" && results.length === 0)
+      loadMore(5);
+  }, [status, results.length, loadMore]);
   return (
     <Card padding="lg" className="min-w-0">
       <SectionTitle>Event recaps</SectionTitle>
@@ -287,12 +292,12 @@ function EventRecaps({
       ))}
       {query.status === "LoadingFirstPage" ? (
         <Notice className="mt-4">Loading recaps…</Notice>
-      ) : query.results.length === 0 ? (
+      ) : query.results.length === 0 && query.status === "Exhausted" ? (
         <Notice className="mt-4" variant="dashed">
           No event recaps in this range.
         </Notice>
       ) : null}
-      {query.status === "CanLoadMore" ? (
+      {query.status === "CanLoadMore" && query.results.length > 0 ? (
         <Button className="mt-4" onClick={() => query.loadMore(5)}>
           Load more recaps
         </Button>
@@ -486,6 +491,11 @@ export function ClubAnalyticsContent({
                     <Metric
                       label="Group members"
                       value={context.current.groupMemberCount}
+                      detail={
+                        context.current.groupMemberObservedAt
+                          ? `Observed ${metricTime(context.current.groupMemberObservedAt)}`
+                          : undefined
+                      }
                     />
                   ) : null}
                   {can("population_history") ? (

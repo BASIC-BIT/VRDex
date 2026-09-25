@@ -1160,6 +1160,7 @@ export default defineSchema({
       "endAt",
     ])
     .index("by_communityProfileId_startAt", ["communityProfileId", "startAt"])
+    .index("by_communityProfileId_publicationState_startAt", ["communityProfileId", "publicationState", "startAt"])
     .index("by_communityProfileId_publicationState_eventStatus_startAt", [
       "communityProfileId",
       "publicationState",
@@ -1746,6 +1747,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_integrationId_state", ["integrationId", "state"])
+    .index("by_integrationId_state_lastObservedAt", ["integrationId", "state", "lastObservedAt"])
     .index("by_integrationId_providerInstanceId_state", ["integrationId", "providerInstanceId", "state"])
     .index("by_integrationId_providerLocation_state", ["integrationId", "providerLocation", "state"])
     .index("by_integrationId_providerLocation_state_openedAt", [

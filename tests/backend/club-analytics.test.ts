@@ -146,6 +146,12 @@ it("session freshness ignores group-only success and revokes on collection stop,
   for (const patch of [{ enabledFeatures: [] }, { state: "disconnecting" }, { state: "auth_required" }, { killSwitchEnabled: true }] as const) {
     await s.t.run(ctx => ctx.db.patch(s.integrationId, patch));
     assert.equal((await detail())!.liveObservedAt, null);
+    const live = await s.owner.query(api.clubAnalytics.listInstances, {
+      communitySlug: "analytics", kind: "live",
+      paginationOpts: { numItems: 1, cursor: null },
+    });
+    assert.deepEqual(live.page, []);
+    assert.equal(live.isDone, true);
     await s.t.run(ctx => ctx.db.patch(s.integrationId, { state: "active", killSwitchEnabled: false, enabledFeatures: ["analytics"] }));
   }
   await s.owner.mutation(api.communityTelemetry.disconnectGroup, { communitySlug: "analytics" });
@@ -157,7 +163,7 @@ it("session freshness ignores group-only success and revokes on collection stop,
   await assert.rejects(s.staff.query(api.clubAnalytics.listInstances, { communitySlug: "analytics", kind: "history", paginationOpts: { numItems: 1, cursor: null } }));
   await assert.rejects(s.staff.query(api.clubAnalytics.getInstanceSeries, { communitySlug: "analytics", sessionId: s.sessionId, startAt: epoch, endAt: now, paginationOpts: { numItems: 1, cursor: null } }));
 });
-it("complete chronological history retains mixed lifecycle rows and live empty-page continuation", async test => {
+it("complete chronological history retains mixed lifecycle rows and fills live pages", async test => {
   const now = epoch + 600_000;
   test.mock.method(Date, "now", () => now);
   const s = await freshSessionSetup();
@@ -190,9 +196,33 @@ it("complete chronological history retains mixed lifecycle rows and live empty-p
   assert.deepEqual((await collect("history")).ids, [rows[3], rows[1], rows[2], rows[0]]);
   const live = await collect("live");
   assert.deepEqual(live.ids, [rows[2]]);
-  assert.equal(live.emptyContinuation, true);
+  assert.equal(live.emptyContinuation, false);
   assert.equal(await s.owner.query(api.clubAnalytics.getInstance, { communitySlug: "analytics", sessionId: rows[4] }), null);
   assert.equal((await s.owner.query(api.clubAnalytics.getInstance, { communitySlug: "analytics", sessionId: rows[1] }))!.closedAt, now);
+});
+it("first live page finds a long-running instance behind newer closed and stale rows", async test => {
+  const now = epoch + 600_000;
+  test.mock.method(Date, "now", () => now);
+  const s = await freshSessionSetup();
+  await s.t.run(async ctx => {
+    await ctx.db.patch(s.sessionId, { lastObservedAt: now });
+    const { _id, _creationTime, ...fields } = (await ctx.db.get(s.sessionId))!;
+    for (let index = 1; index <= 12; index++)
+      await ctx.db.insert("instanceSessions", {
+        ...fields, providerInstanceId: `closed-${index}`,
+        openedAt: epoch + index * 1000, state: "closed", closedAt: now,
+      });
+    await ctx.db.insert("instanceSessions", {
+      ...fields, providerInstanceId: "stale-open",
+      openedAt: epoch + 13_000, lastObservedAt: epoch + 60_000,
+    });
+  });
+  const live = await s.owner.query(api.clubAnalytics.listInstances, {
+    communitySlug: "analytics", kind: "live",
+    paginationOpts: { numItems: 1, cursor: null },
+  });
+  assert.deepEqual(live.page.map(row => row.id), [s.sessionId]);
+  assert.equal(live.isDone, true);
 });
 it("accepts a display attempt nonce and returns server evaluation time", async () => {
   const s = await setup();
@@ -202,6 +232,77 @@ it("accepts a display attempt nonce and returns server evaluation time", async (
     freshnessNonce: "display-attempt",
   });
   assert.ok(result.now >= before && result.now <= Date.now());
+});
+it("reports when the latest retained group member count was observed", async test => {
+  test.mock.method(Date, "now", () => epoch + 8 * 3600_000);
+  const s = await setup();
+  await s.t.run(ctx => ctx.db.insert("communityMemberCountObservations", {
+    integrationId: s.integrationId, communityProfileId: s.communityProfileId,
+    idempotencyKey: "quiet-count", vrchatGroupId: "grp_example",
+    memberCount: 101, observedAt: epoch + 3600_000, source: "first_party",
+    collectorVersion: "test", coverageState: "observed", fencingToken: 1,
+  }));
+  const current = (await s.owner.query(api.clubAnalytics.getContext, {
+    communitySlug: "analytics", freshnessNonce: "quiet-day",
+  })).current;
+  assert.equal(current.groupMemberCount, 101);
+  assert.equal(current.groupMemberObservedAt, epoch + 3600_000);
+  assert.equal(current.observedAt, undefined);
+});
+it("event recaps fill visible pages past hidden newer rows and preserve equal-time cursors", async () => {
+  const s = await setup();
+  await s.t.run(async ctx => {
+    for (const [title, offset, publicationState] of [
+      ["Published older", 1000, "published"],
+      ["Published tie one", 3000, "published"],
+      ["Published tie two", 3000, "published"],
+      ["Hidden newest", 4000, "draft_private"],
+    ] as const) {
+      const eventId = await ctx.db.insert("events", {
+        title, sortTitle: title.toLowerCase(), startAt: epoch + offset,
+        communityProfileId: s.communityProfileId, sourceType: "manual",
+        sourceLabel: "test", eventStatus: "scheduled", publicationState,
+        updatedAt: epoch,
+      });
+      await ctx.db.insert("communityTelemetryRollups", {
+        communityProfileId: s.communityProfileId, eventId, grain: "event",
+        bucketStartAt: epoch + offset, bucketEndAt: epoch + offset + 1000,
+        rollupVersion: "community-telemetry-v1", activeInstanceCount: 1,
+        peakConcurrency: 10, playerMinutes: 10, coverageRatio: 1,
+        worldDistribution: [], computedAt: epoch + offset + 1000,
+      });
+    }
+    const hiddenEventId = await ctx.db.insert("events", {
+      title: "More hidden", sortTitle: "more hidden", startAt: epoch + 5000,
+      communityProfileId: s.communityProfileId, sourceType: "manual",
+      sourceLabel: "test", eventStatus: "scheduled",
+      publicationState: "draft_private", updatedAt: epoch,
+    });
+    for (let index = 0; index < 25; index++)
+      await ctx.db.insert("communityTelemetryRollups", {
+        communityProfileId: s.communityProfileId, eventId: hiddenEventId,
+        grain: "event", bucketStartAt: epoch + 5000 + index,
+        bucketEndAt: epoch + 6000 + index,
+        rollupVersion: "community-telemetry-v1", activeInstanceCount: 1,
+        peakConcurrency: 1, playerMinutes: 1, coverageRatio: 1,
+        worldDistribution: [], computedAt: epoch + 6000 + index,
+      });
+  });
+  let cursor: string | null = null;
+  const titles: string[] = [];
+  for (let index = 0; index < 5; index++) {
+    const result = await s.owner.query(api.clubAnalytics.listEventRecaps, {
+      communitySlug: "analytics", startAt: epoch, endAt: epoch + 86400_000,
+      paginationOpts: { numItems: 1, cursor },
+    });
+    titles.push(...result.page.map(row => row.title));
+    if (result.isDone) break;
+    assert.equal(result.page.length, 1, "a visible recap must fill each nonterminal page");
+    assert.notEqual(result.continueCursor, cursor);
+    if (index === 0) await s.t.run(ctx => ctx.db.delete(result.page[0]!.id));
+    cursor = result.continueCursor;
+  }
+  assert.deepEqual(titles, ["Published tie two", "Published tie one", "Published older"]);
 });
 async function setup() {
   const t = convexTest({ schema, modules });
