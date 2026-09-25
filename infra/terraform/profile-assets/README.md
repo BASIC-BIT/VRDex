@@ -22,10 +22,12 @@ It creates:
 The role ARN is not a secret, but it is stored as a sensitive Vercel environment variable so hosted runtime configuration stays consistently masked.
 
 Production keeps the existing bucket and IAM resource addresses. The production
-role trusts only the Vercel `production` subject. The staging role trusts only
-`staging`, and its S3 policy is limited to the separate staging bucket. The
-existing staging custom environment variable resources are updated in place to
-point to that bucket and role. Staging's CORS defaults to `staging.vrdex.net`
+role trusts only the Vercel `production` subject. The staging role trusts the
+exact names of the custom environments receiving its variables, and its S3
+policy is limited to the separate staging bucket. Terraform checks that the
+configured environment IDs resolve to those names before changing the role.
+The existing staging custom environment variable resources are updated in place
+to point to that bucket and role. Staging's CORS defaults to `staging.vrdex.net`
 and `*.vercel.app`. The production CORS defaults no longer include
 `staging.vrdex.net`.
 
@@ -48,7 +50,9 @@ The required `direct_upload_site_origin` input adds the deployment's canonical H
 
 CI reads `TERRAFORM_PROFILE_ASSETS_STAGING_SITE_ORIGIN` for staging bucket CORS, defaulting to `https://staging.vrdex.net`. Set it to the staging site's HTTPS origin when hosting staging under another domain.
 
-Hosted staging custom environments are opt-in. Set repository variable `TERRAFORM_PROFILE_ASSETS_STAGING_CUSTOM_ENVIRONMENT_IDS` to an HCL list such as `["env_..."]` when CI should manage staging profile asset env vars.
+If additional staging custom environments use other browser domains, set `TERRAFORM_PROFILE_ASSETS_STAGING_ALLOWED_ORIGINS` to an HCL list containing each additional HTTPS origin, for example `["https://staging-eu.example.com", "https://*.vercel.app"]`. This overrides the Terraform variable's default list, so include `https://*.vercel.app` if Vercel preview URLs must keep working. The staging site origin above is always included separately.
+
+Hosted staging custom environments are opt-in. Set repository variable `TERRAFORM_PROFILE_ASSETS_STAGING_CUSTOM_ENVIRONMENT_IDS` to an HCL list such as `["env_..."]` when CI should manage staging profile asset env vars. The matching OIDC environment name defaults to `staging`. If the custom environment has another name, or multiple environments share the staging bucket, set `TERRAFORM_PROFILE_ASSETS_STAGING_CUSTOM_ENVIRONMENT_NAMES` to an HCL list of their exact names, such as `["staging", "staging-eu"]`. Terraform resolves each name in the Vercel project and requires the resulting IDs to equal the configured ID set. Keep the two lists in sync; a mismatch blocks apply.
 
 The hosted BASIC BIT Vercel OIDC claims use the team slug `basicbit`. Do not
 substitute the display name or an older hyphenated slug when configuring
@@ -61,7 +65,7 @@ Before enabling that gate, apply `infra/terraform/state-mgmt` so the GitHub Acti
 
 1. Apply the updated `infra/terraform/state-mgmt` bootstrap stack from a trusted local operator machine.
 2. Set GitHub repository variable `TERRAFORM_PROFILE_ASSETS_SITE_ORIGIN` to the deployment's canonical HTTPS origin.
-3. Set GitHub repository variable `TERRAFORM_PROFILE_ASSETS_STAGING_SITE_ORIGIN` if the staging site uses another domain. Set `TERRAFORM_PROFILE_ASSETS_STAGING_CUSTOM_ENVIRONMENT_IDS` if hosted staging env vars should be managed.
+3. Set GitHub repository variable `TERRAFORM_PROFILE_ASSETS_STAGING_SITE_ORIGIN` if the staging site uses another domain. Add any other staging domains to `TERRAFORM_PROFILE_ASSETS_STAGING_ALLOWED_ORIGINS`. Set `TERRAFORM_PROFILE_ASSETS_STAGING_CUSTOM_ENVIRONMENT_IDS` if hosted staging env vars should be managed. If any managed environment is named differently from `staging`, also set `TERRAFORM_PROFILE_ASSETS_STAGING_CUSTOM_ENVIRONMENT_NAMES` to the matching names.
 4. Set GitHub repository variable `TERRAFORM_PROFILE_ASSETS_ENABLED=true`.
 5. Run the Terraform workflow for stack `profile-assets` with `apply=true`, or let the next successful `main` baseline apply it.
 6. Redeploy staging immediately after apply so its functions receive the new bucket and role. The production role's narrowed trust takes effect during apply, so existing staging deployments may briefly fail S3 requests until the staging redeploy is serving traffic. Keep the staging upload and contribution flags off during this interval.

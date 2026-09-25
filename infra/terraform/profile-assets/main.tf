@@ -15,7 +15,8 @@ locals {
   vercel_oidc_issuer_url  = "https://${local.vercel_oidc_issuer_path}"
   vercel_oidc_audience    = "https://vercel.com/${var.vercel_team_slug}"
   production_oidc_subject = "owner:${var.vercel_team_slug}:project:${var.vercel_project_name}:environment:production"
-  staging_oidc_subject    = "owner:${var.vercel_team_slug}:project:${var.vercel_project_name}:environment:staging"
+  staging_oidc_names      = length(var.staging_custom_environment_ids) > 0 ? var.staging_custom_environment_names : toset(["staging"])
+  staging_oidc_subjects   = [for name in local.staging_oidc_names : "owner:${var.vercel_team_slug}:project:${var.vercel_project_name}:environment:${name}"]
 
   runtime_env_comment = "VRDex private profile asset storage managed by infra/terraform/profile-assets."
   runtime_env_values = {
@@ -43,6 +44,14 @@ locals {
 
 data "tls_certificate" "vercel_oidc" {
   url = local.vercel_oidc_issuer_url
+}
+
+data "vercel_custom_environment" "staging" {
+  for_each = length(var.staging_custom_environment_ids) > 0 ? var.staging_custom_environment_names : toset([])
+
+  project_id = data.vercel_project.web.id
+  team_id    = var.vercel_team_id
+  name       = each.value
 }
 
 resource "aws_s3_bucket" "profile_assets" {
@@ -323,7 +332,7 @@ data "aws_iam_policy_document" "vercel_profile_assets_staging_assume_role" {
     condition {
       test     = "StringEquals"
       variable = "${local.vercel_oidc_issuer_path}:sub"
-      values   = [local.staging_oidc_subject]
+      values   = local.staging_oidc_subjects
     }
   }
 }
@@ -332,6 +341,13 @@ resource "aws_iam_role" "vercel_profile_assets_staging" {
   name               = var.staging_runtime_role_name
   assume_role_policy = data.aws_iam_policy_document.vercel_profile_assets_staging_assume_role.json
   tags               = merge(local.tags, { Environment = "staging" })
+
+  lifecycle {
+    precondition {
+      condition     = toset([for environment in data.vercel_custom_environment.staging : environment.id]) == var.staging_custom_environment_ids || length(var.staging_custom_environment_ids) == 0
+      error_message = "staging_custom_environment_ids must match the Vercel custom environments named by staging_custom_environment_names."
+    }
+  }
 }
 
 data "aws_iam_policy_document" "vercel_profile_assets" {

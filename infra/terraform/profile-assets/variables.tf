@@ -90,9 +90,20 @@ variable "manage_production_environment" {
 }
 
 variable "staging_custom_environment_ids" {
-  description = "Vercel custom environment IDs for staging-like environments that should receive profile asset env vars. Empty leaves custom environments unmanaged."
+  description = "Vercel custom environment IDs for the named staging environments that should receive profile asset env vars. Empty leaves custom environments unmanaged."
   type        = set(string)
   default     = []
+}
+
+variable "staging_custom_environment_names" {
+  description = "Exact Vercel custom environment names paired with staging_custom_environment_ids for OIDC trust. Defaults to the hosted staging environment."
+  type        = set(string)
+  default     = ["staging"]
+
+  validation {
+    condition     = length(var.staging_custom_environment_names) > 0 && alltrue([for name in var.staging_custom_environment_names : trimspace(name) == name && name != ""])
+    error_message = "staging_custom_environment_names must contain one or more nonempty environment names without surrounding whitespace."
+  }
 }
 
 variable "tags" {
