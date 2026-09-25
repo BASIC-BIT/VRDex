@@ -12,7 +12,12 @@ Run `node --import tsx --test tests/web/contribution-adapter-recovery.test.ts` f
 
 ## Dedicated S3 proof
 
-An operator must approve the exact dedicated test bucket before execution. Do not use a production bucket or provision resources from this script. Supply dedicated credentials through the ordinary AWS credential chain, or an explicitly authorized Vercel OIDC role. The script performs writes and deletes only four generated keys under `profile-assets/proof/local-upload/<random-id>/`.
+Provision and review the dedicated non-production bucket through [`infra/terraform/profile-assets-proof`](https://github.com/BASIC-BIT/VRDex/blob/main/infra/terraform/profile-assets-proof/README.md). Use its `proof_bucket_name` output as the exact approved bucket. In the same PowerShell session used for the identity check, proof, and cleanup check, clear `VRDEX_PROFILE_ASSET_ROLE_ARN`; when set, the proof script assumes that role instead of using the checked AWS credential chain. Before running the proof, refresh `aws sts get-caller-identity` and confirm its account matches the intended account and the output bucket name `vrdex-profile-assets-proof-${account_id}`. The currently authenticated default credential chain is allowed for this reviewed, bucket-scoped operation; a named profile is optional. Do not use the production profile asset bucket or provision resources from the proof script. The script performs writes and deletes only four generated keys under `profile-assets/proof/local-upload/<random-id>/`.
+
+```powershell
+Remove-Item Env:VRDEX_PROFILE_ASSET_ROLE_ARN -ErrorAction SilentlyContinue
+aws sts get-caller-identity --query '{Account:Account,Arn:Arn}' --output table
+```
 
 Set `VRDEX_PROFILE_ASSET_BUCKET` to that exact bucket, `VRDEX_PROFILE_ASSET_REGION` to its region, and `VRDEX_MEDIA_PROOF_CONFIRM=dedicated-test-bucket`. Run:
 
@@ -21,6 +26,14 @@ node --import tsx scripts/prove-local-media-upload.ts --approved-test-bucket=EXA
 ```
 
 The script transfers a synthetic PNG through a presigned multipart POST, reuses the form for an overwrite before sealing, seals server-selected keys with conditional writes, then overwrites quarantine again. It verifies immutable source readback, identical-write replay, refusal of conflicting sealed writes, and S3 rejection of a mismatched byte length. It deletes its generated keys in `finally`. It never sends VRDex OAuth credentials or cookies to S3.
+
+The script awaits deletion of all four keys in `finally`; a zero exit code means that cleanup call succeeded. Confirm the printed `prefix` is empty afterward with the same approved credential chain:
+
+```powershell
+aws s3api list-objects-v2 --bucket EXACT_APPROVED_BUCKET --prefix 'PRINTED_PREFIX/' --query KeyCount --output text
+```
+
+The result must be `0`. The dedicated bucket expires objects under `profile-assets/proof/local-upload/` after seven days as a fallback; other prefixes have no expiration rule. Keep the proof bucket name out of hosted runtime variables.
 
 The form remains reusable until expiry. Finalization is a separate authenticated, single-commit database command. The storage proof does not exercise a hosted MCP client or its OAuth grant. That combined client proof remains a separately authorized staging checkpoint.
 

@@ -6,22 +6,28 @@ data "vercel_project" "web" {
 }
 
 locals {
-  asset_bucket_name = var.asset_bucket_name != null ? var.asset_bucket_name : "vrdex-profile-assets-${data.aws_caller_identity.current.account_id}"
-  object_prefix     = "profile-assets/"
-  storage_probe_key = "${local.object_prefix}.vrdex-storage-probe"
+  asset_bucket_name         = var.asset_bucket_name != null ? var.asset_bucket_name : "vrdex-profile-assets-${data.aws_caller_identity.current.account_id}"
+  staging_asset_bucket_name = var.staging_asset_bucket_name != null ? var.staging_asset_bucket_name : "vrdex-profile-assets-staging-${data.aws_caller_identity.current.account_id}"
+  object_prefix             = "profile-assets/"
+  storage_probe_key         = "${local.object_prefix}.vrdex-storage-probe"
 
   vercel_oidc_issuer_path = "oidc.vercel.com/${var.vercel_team_slug}"
   vercel_oidc_issuer_url  = "https://${local.vercel_oidc_issuer_path}"
   vercel_oidc_audience    = "https://vercel.com/${var.vercel_team_slug}"
-  vercel_oidc_subjects = [
-    for environment in var.vercel_runtime_environments : "owner:${var.vercel_team_slug}:project:${var.vercel_project_name}:environment:${environment}"
-  ]
+  production_oidc_subject = "owner:${var.vercel_team_slug}:project:${var.vercel_project_name}:environment:production"
+  staging_oidc_names      = length(var.staging_custom_environment_ids) > 0 ? var.staging_custom_environment_names : toset(["staging"])
+  staging_oidc_subjects   = [for name in local.staging_oidc_names : "owner:${var.vercel_team_slug}:project:${var.vercel_project_name}:environment:${name}"]
 
   runtime_env_comment = "VRDex private profile asset storage managed by infra/terraform/profile-assets."
   runtime_env_values = {
     VRDEX_PROFILE_ASSET_BUCKET   = aws_s3_bucket.profile_assets.bucket
     VRDEX_PROFILE_ASSET_REGION   = var.aws_region
     VRDEX_PROFILE_ASSET_ROLE_ARN = aws_iam_role.vercel_profile_assets.arn
+  }
+  staging_runtime_env_values = {
+    VRDEX_PROFILE_ASSET_BUCKET   = aws_s3_bucket.profile_assets_staging.bucket
+    VRDEX_PROFILE_ASSET_REGION   = var.aws_region
+    VRDEX_PROFILE_ASSET_ROLE_ARN = aws_iam_role.vercel_profile_assets_staging.arn
   }
 
   standard_vercel_targets = var.manage_production_environment ? { production = ["production"] } : {}
@@ -40,9 +46,49 @@ data "tls_certificate" "vercel_oidc" {
   url = local.vercel_oidc_issuer_url
 }
 
+data "vercel_custom_environment" "staging" {
+  for_each = length(var.staging_custom_environment_ids) > 0 ? var.staging_custom_environment_names : toset([])
+
+  project_id = data.vercel_project.web.id
+  team_id    = var.vercel_team_id
+  name       = each.value
+}
+
 resource "aws_s3_bucket" "profile_assets" {
   bucket = local.asset_bucket_name
   tags   = local.tags
+}
+
+resource "aws_s3_bucket" "profile_assets_staging" {
+  bucket = local.staging_asset_bucket_name
+  tags   = merge(local.tags, { Environment = "staging" })
+}
+
+resource "aws_s3_bucket_public_access_block" "profile_assets_staging" {
+  bucket = aws_s3_bucket.profile_assets_staging.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_ownership_controls" "profile_assets_staging" {
+  bucket = aws_s3_bucket.profile_assets_staging.id
+
+  rule {
+    object_ownership = "BucketOwnerEnforced"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "profile_assets_staging" {
+  bucket = aws_s3_bucket.profile_assets_staging.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
 }
 
 resource "aws_s3_bucket_public_access_block" "profile_assets" {
@@ -77,6 +123,10 @@ locals {
     var.direct_upload_allowed_origins,
     toset([var.direct_upload_site_origin]),
   )
+  staging_direct_upload_allowed_origins = setunion(
+    var.staging_direct_upload_allowed_origins,
+    toset([var.staging_direct_upload_site_origin]),
+  )
 }
 
 resource "aws_s3_bucket_cors_configuration" "profile_assets" {
@@ -91,8 +141,50 @@ resource "aws_s3_bucket_cors_configuration" "profile_assets" {
   }
 }
 
+resource "aws_s3_bucket_cors_configuration" "profile_assets_staging" {
+  bucket = aws_s3_bucket.profile_assets_staging.id
+
+  cors_rule {
+    allowed_headers = ["*"]
+    allowed_methods = ["POST"]
+    allowed_origins = local.staging_direct_upload_allowed_origins
+    expose_headers  = ["ETag"]
+    max_age_seconds = 600
+  }
+}
+
 resource "aws_s3_bucket_lifecycle_configuration" "profile_assets" {
   bucket = aws_s3_bucket.profile_assets.id
+
+  rule {
+    id     = "expire-unused-destination-thumbnails"
+    status = "Enabled"
+
+    filter {
+      prefix = "profile-assets/destination-thumbnails/"
+    }
+
+    expiration {
+      days = 90
+    }
+  }
+
+  rule {
+    id     = "expire-abandoned-quarantine-uploads"
+    status = "Enabled"
+
+    filter {
+      prefix = "profile-assets/quarantine/"
+    }
+
+    expiration {
+      days = 2
+    }
+  }
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "profile_assets_staging" {
+  bucket = aws_s3_bucket.profile_assets_staging.id
 
   rule {
     id     = "expire-unused-destination-thumbnails"
@@ -151,6 +243,36 @@ resource "aws_s3_bucket_policy" "profile_assets" {
   policy = data.aws_iam_policy_document.profile_assets_bucket.json
 }
 
+data "aws_iam_policy_document" "profile_assets_staging_bucket" {
+  statement {
+    sid    = "DenyInsecureTransport"
+    effect = "Deny"
+
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+
+    actions = ["s3:*"]
+
+    resources = [
+      aws_s3_bucket.profile_assets_staging.arn,
+      "${aws_s3_bucket.profile_assets_staging.arn}/*",
+    ]
+
+    condition {
+      test     = "Bool"
+      variable = "aws:SecureTransport"
+      values   = ["false"]
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "profile_assets_staging" {
+  bucket = aws_s3_bucket.profile_assets_staging.id
+  policy = data.aws_iam_policy_document.profile_assets_staging_bucket.json
+}
+
 resource "aws_iam_openid_connect_provider" "vercel" {
   url             = local.vercel_oidc_issuer_url
   client_id_list  = [local.vercel_oidc_audience]
@@ -179,7 +301,7 @@ data "aws_iam_policy_document" "vercel_profile_assets_assume_role" {
     condition {
       test     = "StringEquals"
       variable = "${local.vercel_oidc_issuer_path}:sub"
-      values   = local.vercel_oidc_subjects
+      values   = [local.production_oidc_subject]
     }
   }
 }
@@ -188,6 +310,44 @@ resource "aws_iam_role" "vercel_profile_assets" {
   name               = var.runtime_role_name
   assume_role_policy = data.aws_iam_policy_document.vercel_profile_assets_assume_role.json
   tags               = local.tags
+}
+
+data "aws_iam_policy_document" "vercel_profile_assets_staging_assume_role" {
+  statement {
+    effect = "Allow"
+
+    principals {
+      type        = "Federated"
+      identifiers = [aws_iam_openid_connect_provider.vercel.arn]
+    }
+
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "${local.vercel_oidc_issuer_path}:aud"
+      values   = [local.vercel_oidc_audience]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "${local.vercel_oidc_issuer_path}:sub"
+      values   = local.staging_oidc_subjects
+    }
+  }
+}
+
+resource "aws_iam_role" "vercel_profile_assets_staging" {
+  name               = var.staging_runtime_role_name
+  assume_role_policy = data.aws_iam_policy_document.vercel_profile_assets_staging_assume_role.json
+  tags               = merge(local.tags, { Environment = "staging" })
+
+  lifecycle {
+    precondition {
+      condition     = toset([for environment in data.vercel_custom_environment.staging : environment.id]) == var.staging_custom_environment_ids || length(var.staging_custom_environment_ids) == 0
+      error_message = "staging_custom_environment_ids must match the Vercel custom environments named by staging_custom_environment_names."
+    }
+  }
 }
 
 data "aws_iam_policy_document" "vercel_profile_assets" {
@@ -224,6 +384,37 @@ resource "aws_iam_role_policy" "vercel_profile_assets" {
   policy = data.aws_iam_policy_document.vercel_profile_assets.json
 }
 
+data "aws_iam_policy_document" "vercel_profile_assets_staging" {
+  statement {
+    sid       = "CheckProfileAssetStorageProbe"
+    actions   = ["s3:ListBucket"]
+    resources = [aws_s3_bucket.profile_assets_staging.arn]
+
+    condition {
+      test     = "StringEquals"
+      variable = "s3:prefix"
+      values   = [local.storage_probe_key]
+    }
+  }
+
+  statement {
+    sid = "ReadAndWriteProfileAssets"
+    actions = [
+      "s3:DeleteObject",
+      "s3:GetObject",
+      "s3:PutObject",
+    ]
+
+    resources = ["${aws_s3_bucket.profile_assets_staging.arn}/${local.object_prefix}*"]
+  }
+}
+
+resource "aws_iam_role_policy" "vercel_profile_assets_staging" {
+  name   = "profile-assets-s3-access"
+  role   = aws_iam_role.vercel_profile_assets_staging.id
+  policy = data.aws_iam_policy_document.vercel_profile_assets_staging.json
+}
+
 resource "vercel_project_environment_variable" "profile_assets_standard" {
   for_each = {
     for pair in setproduct(keys(local.runtime_env_values), keys(local.standard_vercel_targets)) : "${pair[0]}_${pair[1]}" => {
@@ -244,10 +435,10 @@ resource "vercel_project_environment_variable" "profile_assets_standard" {
 
 resource "vercel_project_environment_variable" "profile_assets_staging_custom" {
   for_each = {
-    for pair in setproduct(keys(local.runtime_env_values), var.staging_custom_environment_ids) : "${pair[0]}_${pair[1]}" => {
+    for pair in setproduct(keys(local.staging_runtime_env_values), var.staging_custom_environment_ids) : "${pair[0]}_${pair[1]}" => {
       key                   = pair[0]
       custom_environment_id = pair[1]
-      value                 = local.runtime_env_values[pair[0]]
+      value                 = local.staging_runtime_env_values[pair[0]]
     }
   }
 

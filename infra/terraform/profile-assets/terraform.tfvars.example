@@ -5,6 +5,9 @@ direct_upload_site_origin = "https://vrdex.net"
 
 # Optional override. Defaults to vrdex-profile-assets-${account_id}.
 # asset_bucket_name = "vrdex-profile-assets-123456789012"
+# staging_asset_bucket_name = "vrdex-profile-assets-staging-123456789012"
+# staging_direct_upload_allowed_origins = ["https://staging-eu.example.com", "https://*.vercel.app"]
 
 # Production is managed by default. Staging uses the hosted custom environment ID below.
 staging_custom_environment_ids = ["env_1iR8Tk53UMEhsbEgONsgGhzl9hX9"]
+# staging_custom_environment_names = ["staging"] # Default. Set exact names if IDs point elsewhere.
