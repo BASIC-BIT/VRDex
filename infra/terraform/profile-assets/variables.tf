@@ -20,7 +20,6 @@ variable "direct_upload_allowed_origins" {
   description = "Additional browser origins allowed to POST one-time profile-media uploads directly to private S3."
   type        = set(string)
   default = [
-    "https://staging.vrdex.net",
     "https://vrdex.net",
     "https://www.vrdex.net",
     "https://*.vercel.app",

@@ -12,9 +12,10 @@ Run `node --import tsx --test tests/web/contribution-adapter-recovery.test.ts` f
 
 ## Dedicated S3 proof
 
-Provision and review the dedicated non-production bucket through [`infra/terraform/profile-assets-proof`](../../infra/terraform/profile-assets-proof/README.md). Use its `proof_bucket_name` output as the exact approved bucket. Before running the proof, refresh `aws sts get-caller-identity` and confirm its account matches the intended account and the output bucket name `vrdex-profile-assets-proof-${account_id}`. The currently authenticated default credential chain is allowed for this reviewed, bucket-scoped operation; a named profile is optional. Do not use the production profile asset bucket or provision resources from the proof script. The script performs writes and deletes only four generated keys under `profile-assets/proof/local-upload/<random-id>/`.
+Provision and review the dedicated non-production bucket through [`infra/terraform/profile-assets-proof`](https://github.com/BASIC-BIT/VRDex/blob/main/infra/terraform/profile-assets-proof/README.md). Use its `proof_bucket_name` output as the exact approved bucket. In the same PowerShell session used for the identity check, proof, and cleanup check, clear `VRDEX_PROFILE_ASSET_ROLE_ARN`; when set, the proof script assumes that role instead of using the checked AWS credential chain. Before running the proof, refresh `aws sts get-caller-identity` and confirm its account matches the intended account and the output bucket name `vrdex-profile-assets-proof-${account_id}`. The currently authenticated default credential chain is allowed for this reviewed, bucket-scoped operation; a named profile is optional. Do not use the production profile asset bucket or provision resources from the proof script. The script performs writes and deletes only four generated keys under `profile-assets/proof/local-upload/<random-id>/`.
 
 ```powershell
+Remove-Item Env:VRDEX_PROFILE_ASSET_ROLE_ARN -ErrorAction SilentlyContinue
 aws sts get-caller-identity --query '{Account:Account,Arn:Arn}' --output table
 ```
 

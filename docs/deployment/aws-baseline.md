@@ -122,7 +122,7 @@ staging storage probe and exact staging bucket binding before enabling staged
 upload or contribution flags.
 
 Local media upload verification uses a separate non-production bucket defined by
-[`infra/terraform/profile-assets-proof`](../../infra/terraform/profile-assets-proof/README.md).
+[`infra/terraform/profile-assets-proof`](https://github.com/BASIC-BIT/VRDex/blob/main/infra/terraform/profile-assets-proof/README.md).
 Its state key is `profile-assets-proof/terraform.tfstate` and its account-derived
 bucket name is `vrdex-profile-assets-proof-${account_id}` in `us-east-1`.
 The proof bucket blocks public access, enforces bucket ownership, uses SSE-S3,
