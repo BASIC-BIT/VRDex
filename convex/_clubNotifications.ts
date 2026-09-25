@@ -30,6 +30,30 @@ export async function notificationRecipient(
   };
 }
 
+// The caller keeps this cache for one Convex transaction only. Authority cannot
+// change during that transaction, but must be checked again on the next call.
+export function createNotificationRecipientCache(db: DatabaseReader) {
+  const cache = new Map<string, ReturnType<typeof notificationRecipient>>();
+  return (job: Doc<"clubOperations">) => {
+    const permission = clubOperationRequirement(
+      policyOperation(job.payload, "unknown"),
+    ).permission;
+    const key = JSON.stringify([
+      job.communityProfileId,
+      job.actor.subject,
+      job.actor.issuer,
+      job.actor.tokenIdentifier,
+      permission,
+    ]);
+    let result = cache.get(key);
+    if (!result) {
+      result = notificationRecipient(db, job);
+      cache.set(key, result);
+    }
+    return result;
+  };
+}
+
 export async function recordClubOperationFailure(
   ctx: MutationCtx,
   operationId: Id<"clubOperations">,

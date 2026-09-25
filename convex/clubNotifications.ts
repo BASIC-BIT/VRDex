@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import { query, mutation, internalMutation } from "./_generated/server";
 import { resolveClubActor } from "./_clubAccess";
-import { notificationRecipient } from "./_clubNotifications";
+import { createNotificationRecipientCache, notificationRecipient } from "./_clubNotifications";
 
 export const list = query({
   args: {
@@ -41,11 +41,12 @@ export const list = query({
       .order("desc")
       .paginate(args.paginationOpts);
     const result = [];
+    const recipientFor = createNotificationRecipientCache(ctx.db);
     for (const row of rows.page) {
       const job = await ctx.db.get(row.operationId);
       if (!job || job.revision !== row.revision || job.state !== row.outcome)
         continue;
-      const recipient = await notificationRecipient(ctx.db, job);
+      const recipient = await recipientFor(job);
       if (recipient?.tokenIdentifier !== actor.subject.tokenIdentifier)
         continue;
       result.push({
@@ -116,6 +117,7 @@ export const claimEmail = internalMutation({
         q.eq("emailState", "pending").lte("emailNextAttemptAt", Date.now()),
       )
       .take(100);
+    const recipientFor = createNotificationRecipientCache(ctx.db);
     for (const row of rows) {
       await ctx.db.patch(row._id, {
         emailNextAttemptAt: Date.now() + 3_600_000,
@@ -123,7 +125,7 @@ export const claimEmail = internalMutation({
       const job = await ctx.db.get(row.operationId);
       if (!job || job.revision !== row.revision || job.state !== row.outcome)
         continue;
-      const recipient = await notificationRecipient(ctx.db, job);
+      const recipient = await recipientFor(job);
       if (!recipient) continue;
       const previous = await ctx.db
         .query("clubOperationNotifications")

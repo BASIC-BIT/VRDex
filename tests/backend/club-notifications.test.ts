@@ -6,7 +6,7 @@ import type { Id } from "../../convex/_generated/dataModel";
 import { convexTest } from "convex-test";
 import { makeFunctionReference } from "convex/server";
 import schemaModule from "../../convex/schema";
-import { notificationRecipient } from "../../convex/_clubNotifications";
+import { createNotificationRecipientCache, notificationRecipient } from "../../convex/_clubNotifications";
 import type { Doc } from "../../convex/_generated/dataModel";
 
 it("records only terminal actionable outcomes and deduplicates each revision/outcome", async () => {
@@ -151,6 +151,12 @@ it("rechecks role access and routes a revoked initiator to the current owner", a
         (await notificationRecipient(ctx.db, job))?.subject,
         "staff",
       );
+      const recipientFor = createNotificationRecipientCache(ctx.db);
+      assert.equal((await recipientFor(job))?.subject, "staff");
+      assert.equal(await recipientFor({
+        ...job, payload: { kind: "close_instance" },
+      }), null);
+      assert.equal((await recipientFor(job))?.subject, "staff");
       await ctx.db.patch(role, { permissions: [] });
       assert.equal(await notificationRecipient(ctx.db, job), null);
       await ctx.db.patch(assignment, { state: "revoked" });
@@ -315,6 +321,49 @@ it("rechecks role access and routes a revoked initiator to the current owner", a
     });
     assert.equal(await readState(owner), true);
     assert.equal(await readState(staff), undefined);
+
+    const floodJobs = await t.run(async (ctx) => {
+      const notice = (await ctx.db.get(first.id))!;
+      const source = (await ctx.db.get(notice.operationId))!;
+      const { _id, _creationTime, ...base } = source;
+      const jobs = [];
+      for (let index = 0; index < 100; index++) {
+        const operationId = await ctx.db.insert("clubOperations", {
+          ...base,
+          batchId: "flood-batch",
+          requestId: `flood-${index}`,
+        });
+        await recordClubOperationFailure(ctx, operationId);
+        jobs.push(operationId);
+      }
+      return jobs;
+    });
+    await t.run(async (ctx) => {
+      let authorityReads = 0;
+      const countingDb = new Proxy(ctx.db, {
+        get(target, property) {
+          if (property === "query")
+            return (table: string) => {
+              if (table === "communityAuthorities") authorityReads++;
+              return (target.query as (table: string) => unknown)(table);
+            };
+          return Reflect.get(target, property);
+        },
+      }) as typeof ctx.db;
+      const recipientFor = createNotificationRecipientCache(countingDb);
+      for (const operationId of floodJobs)
+        assert.equal((await recipientFor((await ctx.db.get(operationId))!))?.subject, "owner");
+      assert.equal(authorityReads, 1);
+    });
+    assert.equal((await t.mutation(claim, {}))?.email, "owner@example.com");
+    assert.equal(await t.mutation(claim, {}), null);
+    await t.run(async (ctx) => {
+      const notices = await ctx.db.query("clubOperationNotifications")
+        .withIndex("by_batch_recipient", q => q.eq("communityProfileId", communityProfileId)
+          .eq("batchId", "flood-batch")).take(101);
+      assert.equal(notices.filter(row => row.emailState === "submitted").length, 1);
+      assert.equal(notices.filter(row => row.emailState === "suppressed").length, 99);
+    });
   } finally {
     if (old === undefined) delete process.env.CLERK_JWT_ISSUER_DOMAIN;
     else process.env.CLERK_JWT_ISSUER_DOMAIN = old;

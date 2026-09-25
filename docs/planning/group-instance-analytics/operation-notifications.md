@@ -48,6 +48,9 @@ for an hour become indeterminate on a subsequent bounded claim scan; they never
 return to pending. Each pending scan examines at most 100 due rows. An ineligible
 prefix is deferred, allowing subsequent scans to reach later notices. Batch,
 revision, outcome and recipient deduplication suppresses repeated batch email.
+Each scan reuses a recipient authority decision for the same club, actor and
+operation permission within that transaction. A later scan checks authority
+again, so role or ownership changes still affect delivery.
 
 Approved email copy:
 
