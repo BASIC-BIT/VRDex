@@ -44,7 +44,7 @@ export default async function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body
-        className={`${spaceGrotesk.variable} ${ibmPlexMono.variable} antialiased`}
+        className={`${spaceGrotesk.variable} ${ibmPlexMono.variable} flex min-h-screen flex-col antialiased`}
       >
         <PostHogProvider>
           <ConvexClientProvider>

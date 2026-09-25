@@ -3,22 +3,12 @@
 import Link, { type LinkProps } from "next/link";
 import { useRouter } from "next/navigation";
 import { useFeatureFlagEnabled, usePostHog } from "posthog-js/react";
-import {
-  type FormEvent,
-  type ReactNode,
-  useDeferredValue,
-  useEffect,
-  useId,
-  useRef,
-  useState,
-} from "react";
+import { type FormEvent, type ReactNode, useId, useState } from "react";
 
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
-import {
-  type SearchResultFilter,
-  searchSuggestionHref,
-} from "./search-view-state";
+import { type SearchResultFilter } from "./search-view-state";
+import { type SearchSuggestion, useSearchSuggestions } from "./use-search-suggestions";
 import {
   captureProductEvent,
   type DiscoveryAnalyticsSurface,
@@ -35,20 +25,6 @@ type TrackedDiscoveryProperties = {
   event_card_clicked: { entity_type: "event"; surface: DiscoveryAnalyticsSurface };
   featured_card_clicked: { entity_type: string; surface: "featured" };
   search_result_clicked: { entity_type: string; profile_type?: string; surface: DiscoveryAnalyticsSurface };
-};
-
-type SearchSuggestion = {
-  entityType: string;
-  profileType?: string;
-  routePath: string;
-  slug: string;
-  subtitle?: string;
-  title: string;
-};
-
-type FetchedSearchSuggestions = {
-  query: string;
-  results: SearchSuggestion[];
 };
 
 export function DiscoveryFeatureGate({
@@ -82,58 +58,11 @@ export function DiscoverySearchForm({
   const router = useRouter();
   const isInverse = tone === "inverse";
   const [query, setQuery] = useState(defaultQuery ?? "");
-  const normalizedQuery = query.trim();
-  const deferredQuery = useDeferredValue(normalizedQuery);
-  const [fetchedSuggestions, setFetchedSuggestions] = useState<FetchedSearchSuggestions | null>(null);
-  const [activeIndex, setActiveIndex] = useState(-1);
   const [isOpen, setIsOpen] = useState(false);
   const listboxId = useId();
-  const suggestionRequestId = useRef(0);
-  const suggestions = fetchedSuggestions?.query === normalizedQuery
-    ? fetchedSuggestions.results
-    : [];
-  const visibleSuggestions =
-    normalizedQuery.length > 0 && normalizedQuery !== defaultQuery?.trim() ? suggestions : [];
-
-  useEffect(() => {
-    const requestId = ++suggestionRequestId.current;
-
-    if (deferredQuery.length < 1 || deferredQuery === defaultQuery?.trim()) {
-      return;
-    }
-
-    const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => {
-      fetch(searchSuggestionHref(deferredQuery, filter), {
-        cache: "no-store",
-        signal: controller.signal,
-      })
-        .then(async (response) => response.ok
-          ? await response.json() as { results: SearchSuggestion[] }
-          : { results: [] })
-        .then((data) => {
-          if (requestId !== suggestionRequestId.current) {
-            return;
-          }
-
-          setFetchedSuggestions({ query: deferredQuery, results: data.results });
-          setActiveIndex(-1);
-        })
-        .catch((error: unknown) => {
-          if (
-            requestId === suggestionRequestId.current &&
-            !(error instanceof DOMException && error.name === "AbortError")
-          ) {
-            setFetchedSuggestions({ query: deferredQuery, results: [] });
-          }
-        });
-    }, 180);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-      controller.abort();
-    };
-  }, [defaultQuery, deferredQuery, filter]);
+  const { activeIndex, reset, setActiveIndex, suggestions } = useSearchSuggestions(query, filter, {
+    skipWhenEqualTo: defaultQuery,
+  });
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     const formData = new FormData(event.currentTarget);
@@ -161,7 +90,7 @@ export function DiscoverySearchForm({
           aria-activedescendant={activeIndex >= 0 ? `${listboxId}-${activeIndex}` : undefined}
           aria-autocomplete="list"
           aria-controls={listboxId}
-          aria-expanded={isOpen && visibleSuggestions.length > 0}
+          aria-expanded={isOpen && suggestions.length > 0}
           className={cn(
             "min-h-14 w-full rounded-control border px-5 text-base outline-none focus-visible:ring-2",
             isInverse
@@ -179,7 +108,7 @@ export function DiscoverySearchForm({
             setIsOpen(true);
             setActiveIndex(-1);
             if (!nextQuery.trim()) {
-              setFetchedSuggestions(null);
+              reset();
             }
           }}
           onFocus={() => setIsOpen(true)}
@@ -189,31 +118,31 @@ export function DiscoverySearchForm({
               setActiveIndex(-1);
               return;
             }
-            if (event.key === "ArrowDown" && visibleSuggestions.length > 0) {
+            if (event.key === "ArrowDown" && suggestions.length > 0) {
               event.preventDefault();
               setIsOpen(true);
-              setActiveIndex((current) => (current + 1) % visibleSuggestions.length);
+              setActiveIndex((current) => (current + 1) % suggestions.length);
               return;
             }
-            if (event.key === "ArrowUp" && visibleSuggestions.length > 0) {
+            if (event.key === "ArrowUp" && suggestions.length > 0) {
               event.preventDefault();
               setIsOpen(true);
-              setActiveIndex((current) => current <= 0 ? visibleSuggestions.length - 1 : current - 1);
+              setActiveIndex((current) => current <= 0 ? suggestions.length - 1 : current - 1);
               return;
             }
-            if (event.key === "Enter" && activeIndex >= 0 && visibleSuggestions[activeIndex]) {
+            if (event.key === "Enter" && activeIndex >= 0 && suggestions[activeIndex]) {
               event.preventDefault();
-              selectSuggestion(visibleSuggestions[activeIndex]);
+              selectSuggestion(suggestions[activeIndex]);
             }
           }}
         />
-        {isOpen && visibleSuggestions.length > 0 ? (
+        {isOpen && suggestions.length > 0 ? (
           <div
             className="absolute z-30 mt-2 grid w-full overflow-hidden rounded-card border border-border bg-surface shadow-panel"
             id={listboxId}
             role="listbox"
           >
-            {visibleSuggestions.map((result, index) => (
+            {suggestions.map((result, index) => (
               <button
                 aria-selected={activeIndex === index}
                 className={cn(
