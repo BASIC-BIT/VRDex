@@ -122,4 +122,4 @@ export const permissionLabels = {
 export type ClubPermission = keyof typeof permissionLabels;
 export const availablePermissions: readonly string[] = Object.keys(
   permissionLabels,
-).filter((permission) => permission !== "export_analytics");
+).filter((permission) => permission !== "export_analytics" && permission !== "edit_community_profile");

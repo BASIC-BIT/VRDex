@@ -1,9 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  availablePermissions,
   clubNavigation,
   invitationSignInHref,
 } from "../../apps/web/src/app/account/communities/[slug]/club-workspace-model";
+
+test("profile editing is not offered as a new staff permission", () => {
+  assert.equal(availablePermissions.includes("edit_community_profile"), false);
+});
 import { isProtectedRoute } from "../../apps/web/src/lib/protected-route-redirect";
 
 test("staff navigation never grants owner-only settings or unheld actions", () => {

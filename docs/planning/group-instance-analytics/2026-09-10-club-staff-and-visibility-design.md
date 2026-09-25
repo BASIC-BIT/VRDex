@@ -47,7 +47,7 @@ One validator, `clubPermission`, replaces `communityCapability`. Values and thei
 
 | Permission | Label in editor | Gates | Available in slice 1 |
 | --- | --- | --- | --- |
-| `edit_community_profile` | Edit community profile | existing profile and short-link mutations | yes |
+| `edit_community_profile` | Edit community profile | legacy short-link grants only; profile editor is owner-only | deferred |
 | `manage_events` | Manage events | existing events mutations | yes |
 | `manage_event_media` | Manage event media | existing events mutations | yes |
 | `view_event_operations` | View event operations | existing events queries | yes |

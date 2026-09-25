@@ -543,12 +543,27 @@ export const list = query({
     if (actor.kind === "none") throw new Error("Club access required.");
     if (args.paginationOpts.numItems < 1 || args.paginationOpts.numItems > 100)
       throw new Error("Invalid page size.");
-    const page = await ctx.db
+    const visibleKinds = ([
+      ["approve_request", "approve_join_requests"], ["reject_request", "approve_join_requests"],
+      ["invite_member", "invite_group_members"], ["cancel_member_invite", "invite_group_members"],
+      ["remove_member", "remove_group_members"], ["ban_member", "manage_bans"],
+      ["unban_member", "manage_bans"], ["assign_role", "assign_vrchat_roles"],
+      ["remove_role", "assign_vrchat_roles"], ["publish_post", "publish_posts"],
+      ["edit_post", "publish_posts"], ["delete_post", "publish_posts"],
+      ["create_instance", "manage_instances"], ["close_instance", "manage_instances"],
+      ["invite_to_instance", "manage_instances"], ["invite_to_created_instance", "manage_instances"],
+    ] as const).filter(([, permission]) => actor.permissions.includes(permission)).map(([kind]) => kind);
+    if (actor.kind !== "owner" && visibleKinds.length === 0)
+      return { page: [], isDone: true, continueCursor: "" };
+    const operationQuery = ctx.db
       .query("clubOperations")
       .withIndex("by_community_createdAt", (q) =>
         q.eq("communityProfileId", args.communityProfileId),
       )
-      .order("desc")
+      .order("desc");
+    const page = await (actor.kind === "owner"
+      ? operationQuery
+      : operationQuery.filter(q => q.or(...visibleKinds.map(kind => q.eq(q.field("payload.kind"), kind)))))
       .paginate(args.paginationOpts);
     return {
       isDone: page.isDone,

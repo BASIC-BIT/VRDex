@@ -14,6 +14,10 @@ Legacy capability grants remain readable during this additive transition. Do not
 
 The initial implementation bounds roles and assignments: at most 100 active roles per club, 100 assignments per recipient and 500 active assignments per club. Invitation acceptance checks the resulting totals transactionally. An already-oversized legacy roster returns a bounded list with a truncation indicator so the owner can revoke assignments; role deletion requires reducing that roster first. These are implementation limits, not membership limits for the connected VRChat group.
 
+Staff invitations are cursor paginated in the staff screen so older pending links remain discoverable and revocable. Staff workspace discovery seeks at most 100 distinct clubs and stops after a bounded assignment/role read budget in unusually large invalid rosters, reporting that more may exist. The account screen does not page beyond that discovery result yet.
+
+`edit_community_profile` remains readable in legacy role data, but new role grants and starter roles omit it until the profile editor supports staff authority. The profile editor remains owner-only.
+
 ## Invitations
 
 `communityStaffInvitations` stores a SHA-256 token hash. Creation returns the raw token once. Links expire after seven days and can be accepted once. The invitation preview exposes only community identity, offered role labels and expiration.

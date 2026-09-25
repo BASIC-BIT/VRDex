@@ -226,6 +226,35 @@ async function queued() {
   };
   return { ...s, operationId: ids[0], worker, authority };
 }
+it("paginates authorized operations past newer hidden actions", async () => {
+  const s = await queued();
+  const subject = {
+    subject: "staff", issuer: "https://test.clerk.accounts.dev",
+    tokenIdentifier: "https://test.clerk.accounts.dev|staff",
+  };
+  await s.t.run(async ctx => {
+    await ctx.db.insert("users", { clerkUserId: "staff" });
+    await ctx.db.patch(s.roleId, { permissions: ["publish_posts"] });
+    await ctx.db.insert("communityAuthorities", {
+      communityProfileId: s.communityProfileId, subject,
+      subjectTokenIdentifier: subject.tokenIdentifier, roleId: s.roleId,
+      state: "active", grantedAt: Date.now(), updatedAt: Date.now(),
+    });
+    const { _id, _creationTime, ...row } = (await ctx.db.get(s.operationId))!;
+    void _id; void _creationTime;
+    for (let index = 0; index < 25; index++)
+      await ctx.db.insert("clubOperations", {
+        ...row, requestId: `hidden-${index}`,
+        payload: { kind: "create_instance", worldId: "wrld_44444444-4444-4444-4444-444444444444", access: "members", region: "us" },
+      });
+  });
+  const page = await s.t.withIdentity(subject).query(ref("list"), {
+    communityProfileId: s.communityProfileId,
+    paginationOpts: { numItems: 10, cursor: null },
+  });
+  assert.deepEqual(page.page.map((row: { id: string }) => row.id), [s.operationId]);
+  assert.equal(page.isDone, true);
+});
 async function workerKeyHash(key: string) {
   const digest = await crypto.subtle.digest(
     "SHA-256",

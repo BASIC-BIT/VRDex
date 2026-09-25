@@ -184,6 +184,62 @@ describe("club staff and visibility", () => {
     assert.equal(result.hasMore, true);
   });
 
+  it("pages past 100 pending staff invitations so an older link can be revoked", async () => {
+    const { t, ownerClient, owner, communityProfileId, event } = await setup();
+    const ids = await t.run(async ctx => {
+      const rows = [];
+      for (let index = 0; index < 120; index++) {
+        rows.push(await ctx.db.insert("communityStaffInvitations", {
+          communityProfileId, tokenHash: `hash-${index}`, roleIds: [event._id],
+          createdBySubject: owner, createdAt: Date.now(), expiresAt: Date.now() + 86400_000,
+          state: "pending",
+        }));
+      }
+      return rows;
+    });
+    const first = await ownerClient.query(api.clubStaff.listStaffInvitations, {
+      communitySlug: "test-club", paginationOpts: { numItems: 50, cursor: null },
+    });
+    const second = await ownerClient.query(api.clubStaff.listStaffInvitations, {
+      communitySlug: "test-club", paginationOpts: { numItems: 50, cursor: first.continueCursor },
+    });
+    const third = await ownerClient.query(api.clubStaff.listStaffInvitations, {
+      communitySlug: "test-club", paginationOpts: { numItems: 50, cursor: second.continueCursor },
+    });
+    assert.equal(first.page.length, 50);
+    assert.equal(second.page.length, 50);
+    assert.equal(third.page.length, 20);
+    assert.equal(third.isDone, true);
+    assert.ok(third.page.some(row => row._id === ids[0]));
+    await ownerClient.mutation(api.clubStaff.revokeStaffInvitation, {
+      communitySlug: "test-club", invitationId: ids[0]!,
+    });
+    assert.equal((await t.run(ctx => ctx.db.get(ids[0]!)))?.state, "revoked");
+  });
+
+  it("does not offer profile editing in new staff roles", async () => {
+    const { ownerClient, admin } = await setup();
+    assert.equal(admin.permissions.includes("edit_community_profile"), false);
+    await assert.rejects(ownerClient.mutation(api.clubStaff.saveRole, {
+      communitySlug: "test-club", label: "Profile editor",
+      permissions: ["edit_community_profile"], assignableRoleIds: [],
+    }), /Invalid role details/);
+  });
+
+  it("keeps a legacy profile grant when an existing role is edited", async () => {
+    const { t, ownerClient, admin } = await setup();
+    await t.run(ctx => ctx.db.patch(admin._id, {
+      permissions: [...admin.permissions, "edit_community_profile"],
+    }));
+    await ownerClient.mutation(api.clubStaff.saveRole, {
+      communitySlug: "test-club", roleId: admin._id, label: "Renamed admin",
+      permissions: ["manage_staff"], assignableRoleIds: [],
+    });
+    const saved = await t.run(ctx => ctx.db.get(admin._id));
+    assert.equal(saved?.label, "Renamed admin");
+    assert.deepEqual(saved?.permissions, ["manage_staff", "edit_community_profile"]);
+  });
+
   it("grants multiple roles atomically and consumes invitations once", async () => {
     const { t, ownerClient, recipient, admin, event } = await setup();
     const invite = await ownerClient.mutation(

@@ -150,7 +150,6 @@ function Workspace({ mode }: { mode: Mode }) {
     roles: [],
     assignments: [],
     hasMoreAssignments: false,
-    invitations: [],
     actionLog: [],
     visibility: null,
     integration: null,

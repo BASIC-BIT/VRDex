@@ -37,6 +37,10 @@ export const CLUB_PERMISSIONS: ClubPermission[] = [
   "manage_scheduled_actions",
   "export_analytics",
 ];
+// Profile editing is still owner-only. Keep the key readable for legacy grants,
+// but do not offer a new staff grant until the profile editor supports it.
+export const ASSIGNABLE_CLUB_PERMISSIONS: ClubPermission[] =
+  CLUB_PERMISSIONS.filter(permission => permission !== "edit_community_profile");
 export const clubCategory = v.union(
   v.literal("current_population"),
   v.literal("population_history"),

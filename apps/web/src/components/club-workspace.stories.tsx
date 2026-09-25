@@ -84,7 +84,6 @@ const data: WorkspaceData = {
     },
   ],
   hasMoreAssignments: false,
-  invitations: [],
   actionLog: [],
   integration: null,
   connectionState: "active",
@@ -355,6 +354,7 @@ export const Staff: Story = {
         >
           <ClubStaffView
             data={data}
+            invitations={{ results: [], status: "Exhausted", loadMore: () => undefined }}
             actions={{
               seed: noop,
               save: noop,
@@ -369,6 +369,33 @@ export const Staff: Story = {
     </PageShell>
   ),
 };
+const staffInvitations = Array.from({ length: 101 }, (_, index) => ({
+  _id: `fixture-invite-${index}` as Id<"communityStaffInvitations">,
+  roleIds: [adminId],
+  createdAt: now - index * 1000,
+  expiresAt: Date.now() + 7 * 86400_000,
+  state: "pending" as const,
+  createdBySubject: subject,
+}));
+function StaffInvitationsFixture() {
+  const [count, setCount] = useState(50);
+  return (
+    <PageShell><PageContainer max="7xl">
+      <ClubWorkspaceView data={data} pathname="/account/communities/afterhours/staff">
+        <ClubStaffView
+          data={data}
+          actions={{ seed: noop, save: noop, delete: async () => [], invite: async () => ({ token: "fixture-invitation" }), revokeInvite: noop, revokeAssignment: noop }}
+          invitations={{
+            results: staffInvitations.slice(0, count),
+            status: count < staffInvitations.length ? "CanLoadMore" : "Exhausted",
+            loadMore: (more) => setCount(previous => Math.min(staffInvitations.length, previous + more)),
+          }}
+        />
+      </ClubWorkspaceView>
+    </PageContainer></PageShell>
+  );
+}
+export const StaffInvitations: Story = { render: () => <StaffInvitationsFixture /> };
 export const Visibility: Story = {
   render: () => (
     <PageShell>

@@ -1,6 +1,7 @@
 "use client";
 
-import { useMutation } from "convex/react";
+import { useMutation, usePaginatedQuery } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
 import { useEffect, useRef, useState } from "react";
 import { api } from "@convex-generated-api";
 import type { Id } from "../../../../../../../convex/_generated/dataModel";
@@ -21,6 +22,12 @@ import {
 } from "./club-workspace-model";
 
 type Role = WorkspaceData["roles"][number];
+type StaffInvitation = FunctionReturnType<typeof api.clubStaff.listStaffInvitations>["page"][number];
+export type StaffInvitationPage = {
+  results: StaffInvitation[];
+  status: "LoadingFirstPage" | "LoadingMore" | "CanLoadMore" | "Exhausted";
+  loadMore: (count: number) => void;
+};
 type RoleInput = {
   roleId?: Id<"communityRoles">;
   label: string;
@@ -57,7 +64,7 @@ function RoleEditor({
   const [label, setLabel] = useState(role?.label ?? "");
   const [description, setDescription] = useState(role?.description ?? "");
   const [permissions, setPermissions] = useState<ClubPermission[]>(
-    role?.permissions ?? [],
+    (role?.permissions ?? []).filter(permission => permission !== "edit_community_profile"),
   );
   const [assignable, setAssignable] = useState<Id<"communityRoles">[]>(
     role?.assignableRoleIds ?? [],
@@ -97,7 +104,7 @@ function RoleEditor({
       <fieldset>
         <legend className="mb-3 text-sm font-medium">Permissions</legend>
         <div className="grid gap-2 sm:grid-cols-2">
-          {Object.entries(permissionLabels).map(([key, text]) => (
+          {Object.entries(permissionLabels).filter(([key]) => key !== "edit_community_profile").map(([key, text]) => (
             <CheckboxField
               key={key}
               checked={permissions.includes(key as ClubPermission)}
@@ -164,9 +171,11 @@ function RoleEditor({
 export function ClubStaffView({
   data,
   actions,
+  invitations,
 }: {
   data: WorkspaceData;
   actions: StaffActions;
+  invitations: StaffInvitationPage;
 }) {
   const owner = data.actor.kind === "owner";
   const allowed = owner || data.actor.permissions.includes("manage_staff");
@@ -382,11 +391,13 @@ export function ClubStaffView({
           </div>
         ) : null}
         <h3 className="mt-7 text-sm font-semibold">Invitations</h3>
-        {data.invitations.length === 0 ? (
+        {invitations.status === "LoadingFirstPage" ? (
+          <p className="mt-3 text-sm text-muted">Loading invitations…</p>
+        ) : invitations.results.length === 0 ? (
           <p className="mt-3 text-sm text-muted">No invitations</p>
         ) : (
           <div className="mt-3 grid gap-3">
-            {data.invitations.map((invitation) => {
+            {invitations.results.map((invitation) => {
               const state =
                 invitation.state === "pending" &&
                 invitation.expiresAt <= Date.now()
@@ -430,6 +441,11 @@ export function ClubStaffView({
                 </div>
               );
             })}
+            {invitations.status === "CanLoadMore" ? (
+              <Button size="sm" className="w-fit" onClick={() => invitations.loadMore(50)}>
+                Load more invitations
+              </Button>
+            ) : null}
           </div>
         )}
       </Card>
@@ -596,6 +612,12 @@ export function ClubStaffView({
 
 export function ClubStaff() {
   const data = useClubWorkspace();
+  const invitations = usePaginatedQuery(
+    api.clubStaff.listStaffInvitations,
+    data.actor.kind === "owner" || data.actor.permissions.includes("manage_staff")
+      ? { communitySlug: data.community.slug } : "skip",
+    { initialNumItems: 50 },
+  );
   const seed = useMutation(api.clubStaff.seedPresetRoles);
   const save = useMutation(api.clubStaff.saveRole);
   const remove = useMutation(api.clubStaff.deleteRole);
@@ -606,6 +628,7 @@ export function ClubStaff() {
   return (
     <ClubStaffView
       data={data}
+      invitations={invitations}
       actions={{
         seed: () => seed({ communitySlug }),
         save: (input) => save({ communitySlug, ...input }),

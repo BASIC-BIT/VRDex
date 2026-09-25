@@ -198,6 +198,8 @@ Refresh, errors and bounded provider pagination use the shared read behavior.
 
 Provider rows, their closure confirmations and the next-page cursor are available only while the existing provider-read hook reports fresh evidence. At the separate 60-second provider-read expiry, retained data displays Refresh to continue and keeps Refresh instances available. Stale rows unmount, including an already-open confirmation. A new read restores eligible rows without restoring the prior confirmation. Analytics-disabled owners and management-only staff retain this independent path.
 
+The Invitations instance picker follows the same 60-second provider-read deadline. An existing review cannot be confirmed after its destination read expires or disappears from a fresh result. The staff action list filters permitted operation kinds before cursor pagination, then checks each result again before returning it. This filter scans the community-created index; a dedicated permission index may be needed for very large action histories.
+
 Each row displays the world and instance IDs beside the existing normal-close
 confirmation. Confirmation queues the exact displayed destination through
 `clubOperations.enqueue`; provider and actor authorization are still rechecked

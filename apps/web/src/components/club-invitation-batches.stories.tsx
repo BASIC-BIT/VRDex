@@ -10,7 +10,7 @@ const bob = "usr_22222222-2222-2222-2222-222222222222";
 type List = FunctionReturnType<
   typeof api.clubInvitations.lists
 >["page"][number];
-function Fixture({ instanceOnly = false, mutableCreation = false }: { instanceOnly?: boolean; mutableCreation?: boolean }) {
+function Fixture({ instanceOnly = false, mutableCreation = false, expiringInstance = false, omittedInstance = false }: { instanceOnly?: boolean; mutableCreation?: boolean; expiringInstance?: boolean; omittedInstance?: boolean }) {
   const [lists, setLists] = useState<List[]>([
     {
       _id: "list-one" as Id<"clubRecipientLists">,
@@ -22,6 +22,8 @@ function Fixture({ instanceOnly = false, mutableCreation = false }: { instanceOn
   const [queued, setQueued] = useState("");
   const [queuedRevision, setQueuedRevision] = useState<number>();
   const [creationRevision, setCreationRevision] = useState(7);
+  const [instancesFresh, setInstancesFresh] = useState(true);
+  const [instancePresent, setInstancePresent] = useState(true);
   return (
     <main className="mx-auto max-w-3xl p-5">
       <h1 className="mb-6 text-3xl font-semibold">Invitations</h1>
@@ -38,14 +40,15 @@ function Fixture({ instanceOnly = false, mutableCreation = false }: { instanceOn
             vrchatWorldId: null,
           },
         ]}
-        instances={[
+        instances={instancePresent ? [
           {
             id: "visible-instance",
             name: "The Observatory",
             worldId: "wrld_33333333-3333-3333-3333-333333333333",
             instanceId: "123~group(grp_44444444-4444-4444-4444-444444444444)",
           },
-        ]}
+        ] : []}
+        instancesFresh={instancesFresh}
         creations={[
           {
             id: "creation-one" as Id<"clubOperations">,
@@ -130,6 +133,18 @@ function Fixture({ instanceOnly = false, mutableCreation = false }: { instanceOn
           Change creation
         </button>
       ) : null}
+      {expiringInstance ? (
+        <>
+          <button onClick={() => setInstancesFresh(false)}>Expire instance check</button>
+          <button onClick={() => setInstancesFresh(true)}>Refresh instance check</button>
+        </>
+      ) : null}
+      {omittedInstance ? (
+        <>
+          <button onClick={() => setInstancePresent(false)}>Omit instance</button>
+          <button onClick={() => setInstancePresent(true)}>Restore instance</button>
+        </>
+      ) : null}
       {queued ? (
         <p data-testid="queued-review" data-creation-revision={queuedRevision} className="mt-5">
           {queued}
@@ -149,3 +164,5 @@ export const Composer: Story = {};
 export const InstanceStaff: Story = { args: { instanceOnly: true } };
 
 export const ChangedCreation: Story = { args: { instanceOnly: true, mutableCreation: true } };
+export const ExpiringInstance: Story = { args: { instanceOnly: true, expiringInstance: true } };
+export const OmittedInstance: Story = { args: { instanceOnly: true, omittedInstance: true } };

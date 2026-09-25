@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   useConvex,
   useMutation,
@@ -39,6 +39,7 @@ export function InvitationComposer({
   lists,
   events,
   instances,
+  instancesFresh,
   creations,
   canGroup,
   canInstance,
@@ -56,6 +57,7 @@ export function InvitationComposer({
   lists: RecipientList[];
   events: Event[];
   instances: ProviderItem[];
+  instancesFresh: boolean;
   creations: Operation[];
   canGroup: boolean;
   canInstance: boolean;
@@ -118,6 +120,7 @@ export function InvitationComposer({
       target = { kind: "group" };
       destinationLabel = "Primary group";
     } else if (destination === "instance" && canInstance) {
+      if (!instancesFresh) throw new Error("Instance unavailable.");
       const instance = instances.find((item) => item.id === instanceId);
       if (!instance?.worldId || !instance.instanceId)
         throw new Error("Choose an instance.");
@@ -198,6 +201,17 @@ export function InvitationComposer({
       requestId: crypto.randomUUID(),
     });
   };
+  const reviewedInstance = review?.destination.kind === "instance" ? review.destination : null;
+  const reviewedInstanceUnavailable = reviewedInstance !== null &&
+    (!instancesFresh || !instances.some(item =>
+      item.worldId === reviewedInstance.worldId &&
+      item.instanceId === reviewedInstance.instanceId));
+  useEffect(() => {
+    if (instanceId && (!instancesFresh || reviewedInstanceUnavailable ||
+      !instances.some(item => item.id === instanceId)))
+      setInstanceId("");
+    if (reviewedInstanceUnavailable) setReview(null);
+  }, [instanceId, instances, instancesFresh, reviewedInstanceUnavailable]);
   return (
     <div className="grid gap-6">
       {error ? (
@@ -239,6 +253,9 @@ export function InvitationComposer({
                 Invitations wait for this instance creation to succeed.
               </p>
             ) : null}
+            {reviewedInstanceUnavailable ? (
+              <Notice>Instance unavailable.</Notice>
+            ) : null}
             {review.destination.kind !== "group" && botUrl ? (
               <a
                 className="w-fit text-sm underline"
@@ -263,7 +280,7 @@ export function InvitationComposer({
             <div className="flex flex-wrap gap-2">
               <Button
                 variant="primary"
-                disabled={busy}
+                disabled={busy || !!reviewedInstanceUnavailable}
                 onClick={() =>
                   void run(async () => {
                     await onEnqueue(review);
@@ -807,7 +824,8 @@ function InvitationsContent() {
         <InvitationComposer
           lists={lists.results}
           events={events.results}
-          instances={instances.data?.items ?? []}
+          instances={instances.fresh ? instances.data?.items ?? [] : []}
+          instancesFresh={instances.fresh}
           creations={creations.results}
           canGroup={canGroup}
           canInstance={canInstance}
@@ -858,6 +876,9 @@ function InvitationsContent() {
               {instances.loading ? (
                 <p className="text-sm text-muted">Loading instances…</p>
               ) : null}
+              {instances.data && !instances.fresh ? (
+                <Notice>Instance unavailable.</Notice>
+              ) : null}
               <div className="flex flex-wrap gap-2">
                 <Button
                   size="sm"
@@ -874,7 +895,7 @@ function InvitationsContent() {
                     Previous instances
                   </Button>
                 ) : null}
-                {instances.data?.nextOffset != null ? (
+                {instances.fresh && instances.data?.nextOffset != null ? (
                   <Button
                     size="sm"
                     onClick={() => setOffset(instances.data!.nextOffset!)}

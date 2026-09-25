@@ -1,6 +1,7 @@
 import schema from "./schema";
 import { clubVisibility, clubSubject } from "./_clubModel";
 import { v } from "convex/values";
+import { paginationOptsValidator } from "convex/server";
 import { mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -22,10 +23,12 @@ import {
   type ClubCategory,
   CLUB_CATEGORIES,
   CLUB_PERMISSIONS,
+  ASSIGNABLE_CLUB_PERMISSIONS,
   clubAudience,
   clubCategory,
   clubPermission,
 } from "./_clubModel";
+import { getActiveProfileOwner } from "./_profileOwnership";
 
 function sameSubject(
   a: ClubActor["subject"],
@@ -67,10 +70,38 @@ export const listStaffWorkspaces = query({
       afterCommunity = row.communityProfileId;
     }
     const workspaces: Array<{ slug: string; displayName: string }> = [];
+    let discoveryReads = 0;
     for (const communityProfileId of communityIds) {
-      const actor = await resolveClubActor(ctx, communityProfileId);
-      // Owned communities already appear in the account's owned-profile list.
-      if (actor.kind !== "staff") continue;
+      // Reserve room for the next bounded club scan. An unusually large set of
+      // invalid assignments yields a partial result instead of exhausting a query.
+      if (discoveryReads >= 2_000) { hasMore = true; break; }
+      // Reuse the indexed subject assignment range instead of resolving every
+      // club through its full role and authority collections again.
+      const owner = await getActiveProfileOwner(ctx.db, communityProfileId);
+      if (owner?.userId === session.userId) continue;
+      const assignments = await ctx.db.query("communityAuthorities")
+        .withIndex("by_subjectTokenIdentifier_state_communityProfileId", q => q
+          .eq("subjectTokenIdentifier", session.subject.tokenIdentifier)
+          .eq("state", "active")
+          .eq("communityProfileId", communityProfileId))
+        .take(101);
+      discoveryReads += assignments.length;
+      const canonical = assignments.filter(row =>
+        row.subject.subject === session.subject.subject &&
+        row.subject.issuer === session.subject.issuer);
+      const legacyGrant = canonical.some(row =>
+        !row.roleId && row.capabilities?.some(permission =>
+          permission === "manage_profile" || CLUB_PERMISSIONS.includes(permission as typeof CLUB_PERMISSIONS[number])));
+      let assignedActiveRole = false;
+      for (const roleId of legacyGrant ? [] : new Set(canonical.flatMap(row => row.roleId ? [row.roleId] : []))) {
+        discoveryReads++;
+        const role = await ctx.db.get(roleId);
+        if (role?.communityProfileId === communityProfileId && role.state === "active") {
+          assignedActiveRole = true;
+          break;
+        }
+      }
+      if (!legacyGrant && !assignedActiveRole) continue;
       const community = await ctx.db.get(communityProfileId);
       if (community?.profileType !== "community" || !community.slug) continue;
       workspaces.push({
@@ -131,21 +162,6 @@ const workspaceReturn = v.union(
     roles: v.array(roleDoc),
     assignments: v.array(assignmentDoc),
     hasMoreAssignments: v.boolean(),
-    invitations: v.array(
-      v.object({
-        _id: v.id("communityStaffInvitations"),
-        roleIds: v.array(v.id("communityRoles")),
-        createdAt: v.number(),
-        expiresAt: v.number(),
-        state: v.union(
-          v.literal("pending"),
-          v.literal("accepted"),
-          v.literal("revoked"),
-          v.literal("expired"),
-        ),
-        createdBySubject: clubSubject,
-      }),
-    ),
     actionLog: v.array(actionDoc),
     visibility: v.union(v.null(), clubVisibility),
     integration: v.union(v.null(), integrationDoc),
@@ -153,6 +169,14 @@ const workspaceReturn = v.union(
     readableCategories: v.array(clubCategory),
   }),
 );
+const staffInvitationView = v.object({
+  _id: v.id("communityStaffInvitations"),
+  roleIds: v.array(v.id("communityRoles")),
+  createdAt: v.number(),
+  expiresAt: v.number(),
+  state: v.union(v.literal("pending"), v.literal("expired")),
+  createdBySubject: clubSubject,
+});
 async function context(ctx: QueryCtx | MutationCtx, slug: string) {
   const community = await ctx.db
     .query("profiles")
@@ -272,15 +296,6 @@ export const getWorkspace = query({
           .take(501)
       : [];
 
-    const invites = staffAccess
-      ? await ctx.db
-          .query("communityStaffInvitations")
-          .withIndex("by_communityProfileId_state", (q) =>
-            q.eq("communityProfileId", community._id).eq("state", "pending"),
-          )
-          .order("desc")
-          .take(100)
-      : [];
     const connection = await ctx.db
       .query("communityVrchatIntegrations")
       .withIndex("by_communityProfileId", (q) =>
@@ -315,16 +330,6 @@ export const getWorkspace = query({
       roles,
       assignments: assignments.slice(0, 500),
       hasMoreAssignments: assignments.length > 500,
-      invitations: invites.map(
-        ({ _id, roleIds, createdAt, expiresAt, state, createdBySubject }) => ({
-          _id,
-          roleIds,
-          createdAt,
-          expiresAt,
-          state: expiresAt <= Date.now() ? ("expired" as const) : state,
-          createdBySubject,
-        }),
-      ),
       actionLog:
         actor.kind === "owner"
           ? await ctx.db
@@ -344,6 +349,34 @@ export const getWorkspace = query({
     };
   },
 });
+export const listStaffInvitations = query({
+  args: { ...base, paginationOpts: paginationOptsValidator },
+  returns: v.object({
+    page: v.array(staffInvitationView),
+    isDone: v.boolean(),
+    continueCursor: v.string(),
+  }),
+  handler: async (ctx, args) => {
+    const { community, actor } = await context(ctx, args.communitySlug);
+    if (actor.kind !== "owner" && !actor.permissions.includes("manage_staff"))
+      throw new Error("You do not have access to this action.");
+    if (args.paginationOpts.numItems < 1 || args.paginationOpts.numItems > 100)
+      throw new Error("Invalid page size.");
+    const page = await ctx.db.query("communityStaffInvitations")
+      .withIndex("by_communityProfileId_state", q =>
+        q.eq("communityProfileId", community._id).eq("state", "pending"))
+      .order("desc")
+      .paginate(args.paginationOpts);
+    return {
+      isDone: page.isDone,
+      continueCursor: page.continueCursor,
+      page: page.page.map(({ _id, roleIds, createdAt, expiresAt, createdBySubject }) => ({
+        _id, roleIds, createdAt, expiresAt, createdBySubject,
+        state: expiresAt <= Date.now() ? "expired" as const : "pending" as const,
+      })),
+    };
+  },
+});
 export const seedPresetRoles = mutation({
   args: base,
   returns: v.null(),
@@ -360,7 +393,7 @@ export const seedPresetRoles = mutation({
       .first();
     if (existing) return null;
     for (const [presetKey, label, permissions] of [
-      ["admin", "Admin", CLUB_PERMISSIONS],
+      ["admin", "Admin", ASSIGNABLE_CLUB_PERMISSIONS],
       [
         "moderator",
         "Moderator",
@@ -429,6 +462,11 @@ export const saveRole = mutation({
     )
       throw new Error("Invalid role details.");
     const roles = await roleSet(ctx, community._id, args.assignableRoleIds);
+    const existingRole = args.roleId ? roles.find(role => role._id === args.roleId) : null;
+    if (args.permissions.some(permission =>
+      !ASSIGNABLE_CLUB_PERMISSIONS.includes(permission) &&
+      !(permission === "edit_community_profile" && existingRole?.permissions.includes(permission))))
+      throw new Error("Invalid role details.");
     if (
       args.roleId &&
       (!roles.some((r) => r._id === args.roleId) ||
@@ -440,7 +478,11 @@ export const saveRole = mutation({
     const fields = {
       label,
       description: args.description?.trim(),
-      permissions: [...new Set(args.permissions)],
+      permissions: [...new Set([
+        ...args.permissions,
+        ...(existingRole?.permissions.includes("edit_community_profile")
+          ? ["edit_community_profile" as const] : []),
+      ])],
       assignableRoleIds: args.assignableRoleIds,
       updatedAt: Date.now(),
     };

@@ -3,6 +3,45 @@ import path from "node:path";
 const alice = "usr_11111111-1111-1111-1111-111111111111";
 const bob = "usr_22222222-2222-2222-2222-222222222222";
 
+test("an expired instance read cannot confirm an open invitation review @storybook-visual", async ({ page }) => {
+  await page.goto("/iframe.html?id=clubs-invitation-batches--expiring-instance&viewMode=story");
+  await page.getByLabel("Saved list").selectOption("list-one");
+  await page.getByRole("combobox", { name: "Instance", exact: true }).selectOption("visible-instance");
+  await page.getByRole("button", { name: "Review invitations", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Confirm invitations" })).toBeEnabled();
+  await page.getByRole("button", { name: "Expire instance check" }).click();
+  await expect(page.getByRole("button", { name: "Confirm invitations" })).toHaveCount(0);
+  await expect(page.getByRole("combobox", { name: "Instance", exact: true })).toHaveValue("");
+  await page.getByRole("button", { name: "Refresh instance check" }).click();
+  await expect(page.getByRole("button", { name: "Confirm invitations" })).toHaveCount(0);
+  await expect(page.getByTestId("queued-review")).toHaveCount(0);
+});
+
+test("a fresh result missing the reviewed instance clears its selection @storybook-visual", async ({ page }) => {
+  await page.goto("/iframe.html?id=clubs-invitation-batches--omitted-instance&viewMode=story");
+  await page.getByLabel("Saved list").selectOption("list-one");
+  await page.getByRole("combobox", { name: "Instance", exact: true }).selectOption("visible-instance");
+  await page.getByRole("button", { name: "Review invitations", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Confirm invitations" })).toBeEnabled();
+  await page.getByRole("button", { name: "Omit instance" }).click();
+  await expect(page.getByRole("button", { name: "Confirm invitations" })).toHaveCount(0);
+  await expect(page.getByRole("combobox", { name: "Instance", exact: true })).toHaveValue("");
+  await page.getByRole("button", { name: "Restore instance" }).click();
+  await expect(page.getByRole("button", { name: "Confirm invitations" })).toHaveCount(0);
+  await expect(page.getByLabel("VRChat user IDs")).toHaveValue(`${alice}\n${bob}`);
+});
+
+test("staff can load older pending invitations past the first hundred @storybook-visual", async ({ page }) => {
+  await page.goto("/iframe.html?id=clubs-workspace--staff-invitations&viewMode=story");
+  const revoke = page.getByRole("button", { name: "Revoke invitation" });
+  await expect(revoke).toHaveCount(50);
+  await page.getByRole("button", { name: "Load more invitations" }).click();
+  await expect(revoke).toHaveCount(100);
+  await page.getByRole("button", { name: "Load more invitations" }).click();
+  await expect(revoke).toHaveCount(101);
+  await expect(page.getByRole("button", { name: "Load more invitations" })).toHaveCount(0);
+});
+
 test("individual invitation eligibility requires an explicit check @storybook-visual", async ({
   page,
   isMobile,

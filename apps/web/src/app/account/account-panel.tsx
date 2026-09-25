@@ -109,17 +109,17 @@ function ConnectedAccountPanel() {
         </div>
       </section>
 
-      {staffWorkspaces && staffWorkspaces.workspaces.length > 0 ? (
+      {staffWorkspaces && (staffWorkspaces.workspaces.length > 0 || staffWorkspaces.hasMore) ? (
         <section aria-labelledby="staff-clubs-heading" className="border-t border-border py-8 ph-no-capture" data-ph-no-capture>
           <h2 id="staff-clubs-heading" className="text-2xl font-semibold">Staff clubs</h2>
-          <ul className="mt-5 divide-y divide-border border-y border-border">
+          {staffWorkspaces.workspaces.length > 0 ? <ul className="mt-5 divide-y divide-border border-y border-border">
             {staffWorkspaces.workspaces.map((club) => (
               <li key={club.slug} className="flex flex-wrap items-center justify-between gap-3 py-4">
                 <span className="font-medium">{club.displayName}</span>
                 <Link className={buttonVariants({ size: "sm", variant: "secondary" })} href={`/account/communities/${encodeURIComponent(club.slug)}`}>Club workspace</Link>
               </li>
             ))}
-          </ul>
+          </ul> : null}
           {staffWorkspaces.hasMore ? <Notice className="mt-4">Some staff clubs are not shown here.</Notice> : null}
         </section>
       ) : null}

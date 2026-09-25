@@ -198,7 +198,6 @@ function MembersFixture({
     roles: [],
     assignments: [],
     hasMoreAssignments: false,
-    invitations: [],
     actionLog: [],
     visibility: null,
     integration: null,

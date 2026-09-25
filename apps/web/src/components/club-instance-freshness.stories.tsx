@@ -118,7 +118,7 @@ function SessionFixture({ mode = "owner", variant = "normal" }: { mode?: "owner"
   const data: WorkspaceData = {
     community: { _id: "club-one" as Id<"profiles">, slug: "afterhours", displayName: "Afterhours" },
     actor: { kind: mode === "owner" && !revoked ? "owner" : "staff", roleIds: [], permissions: mode !== "history" && !revoked ? ["manage_instances"] : [] },
-    roles: [], assignments: [], hasMoreAssignments: false, invitations: [], actionLog: [], visibility: null,
+    roles: [], assignments: [], hasMoreAssignments: false, actionLog: [], visibility: null,
     integration: null, connectionState: "active", readableCategories: ["instance_history"],
   };
   return <ConvexProvider client={client}>
