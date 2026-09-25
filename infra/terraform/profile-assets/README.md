@@ -4,13 +4,13 @@ This stack provisions private S3-backed profile media-kit storage and the Vercel
 
 It creates:
 
-- a private S3 bucket for profile assets under `profile-assets/`
+- separate private production and hosted staging S3 buckets for profile assets under `profile-assets/`
 - S3 Block Public Access
 - S3 Object Ownership with ACLs disabled through `BucketOwnerEnforced`
 - default SSE-S3 bucket encryption
 - an S3 bucket policy that denies non-TLS requests
 - a Vercel OIDC identity provider in AWS IAM
-- a least-privilege IAM role for Vercel functions
+- separate least-privilege IAM roles for production and staging Vercel functions
 - Vercel environment variables for production and the hosted staging custom environment
 
 ## Managed Environment Variables
@@ -20,6 +20,13 @@ It creates:
 - `VRDEX_PROFILE_ASSET_ROLE_ARN`
 
 The role ARN is not a secret, but it is stored as a sensitive Vercel environment variable so hosted runtime configuration stays consistently masked.
+
+Production keeps the existing bucket and IAM resource addresses. The production
+role trusts only the Vercel `production` subject. The staging role trusts only
+`staging`, and its S3 policy is limited to the separate staging bucket. The
+existing staging custom environment variable resources are updated in place to
+point to that bucket and role. Staging's CORS defaults to `staging.vrdex.net`
+and `*.vercel.app`; the production CORS settings are unchanged.
 
 ## Destination thumbnail cache
 
@@ -54,8 +61,8 @@ Before enabling that gate, apply `infra/terraform/state-mgmt` so the GitHub Acti
 3. Set GitHub repository variable `TERRAFORM_PROFILE_ASSETS_STAGING_CUSTOM_ENVIRONMENT_IDS` if hosted staging env vars should be managed.
 4. Set GitHub repository variable `TERRAFORM_PROFILE_ASSETS_ENABLED=true`.
 5. Run the Terraform workflow for stack `profile-assets` with `apply=true`, or let the next successful `main` baseline apply it.
-6. Redeploy the Vercel production and staging environments so functions receive the new environment variables.
-7. Probe `/api/v0/profile-assets/upload-intents/probe`; a configured environment should no longer return `501`.
+6. Redeploy staging immediately after apply so its functions receive the new bucket and role. The production role's narrowed trust takes effect during apply, so existing staging deployments may briefly fail S3 requests until the staging redeploy is serving traffic. Keep the staging upload and contribution flags off during this interval.
+7. Redeploy production if its environment values changed, then probe `/api/v0/profile-assets/upload-intents/probe` on both hosted environments and verify each uses its own bucket before staging uploads.
 
 The probe is anonymous, but the standard public API rate limit and bearer-query
 rejection still apply. Use it for bounded deployment checks rather than a tight

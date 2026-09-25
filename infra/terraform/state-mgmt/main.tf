@@ -1,8 +1,10 @@
 locals {
-  state_bucket_arn         = "arn:aws:s3:::${var.state_bucket_name}"
-  profile_asset_bucket     = var.profile_asset_bucket_name != null ? var.profile_asset_bucket_name : "vrdex-profile-assets-${data.aws_caller_identity.current.account_id}"
-  profile_asset_bucket_arn = "arn:aws:s3:::${local.profile_asset_bucket}"
-  vercel_oidc_provider_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/oidc.vercel.com/${var.vercel_team_slug}"
+  state_bucket_arn                 = "arn:aws:s3:::${var.state_bucket_name}"
+  profile_asset_bucket             = var.profile_asset_bucket_name != null ? var.profile_asset_bucket_name : "vrdex-profile-assets-${data.aws_caller_identity.current.account_id}"
+  profile_asset_bucket_arn         = "arn:aws:s3:::${local.profile_asset_bucket}"
+  staging_profile_asset_bucket     = var.staging_profile_asset_bucket_name != null ? var.staging_profile_asset_bucket_name : "vrdex-profile-assets-staging-${data.aws_caller_identity.current.account_id}"
+  staging_profile_asset_bucket_arn = "arn:aws:s3:::${local.staging_profile_asset_bucket}"
+  vercel_oidc_provider_arn         = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/oidc.vercel.com/${var.vercel_team_slug}"
   vercel_oidc_provider_arns = distinct(concat(
     [local.vercel_oidc_provider_arn],
     [
@@ -10,7 +12,8 @@ locals {
       "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/oidc.vercel.com/${slug}"
     ],
   ))
-  profile_asset_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.profile_asset_runtime_role_name}"
+  profile_asset_role_arn         = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.profile_asset_runtime_role_name}"
+  staging_profile_asset_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.staging_profile_asset_runtime_role_name}"
 
   tags = merge(
     {
@@ -272,7 +275,7 @@ data "aws_iam_policy_document" "github_actions_terraform" {
       "s3:DeleteLifecycleConfiguration",
     ]
 
-    resources = [local.profile_asset_bucket_arn]
+    resources = [local.profile_asset_bucket_arn, local.staging_profile_asset_bucket_arn]
   }
 
   statement {
@@ -322,7 +325,7 @@ data "aws_iam_policy_document" "github_actions_terraform" {
       "iam:UpdateAssumeRolePolicy",
     ]
 
-    resources = [local.profile_asset_role_arn]
+    resources = [local.profile_asset_role_arn, local.staging_profile_asset_role_arn]
   }
 }
 

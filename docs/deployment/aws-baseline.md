@@ -109,7 +109,28 @@ Terraform/runtime baseline:
 - Terraform stack: `infra/terraform/profile-assets`
 - Terraform state key: `profile-assets/terraform.tfstate`
 - Hosted bucket name default: `vrdex-profile-assets-${account_id}`
-- Hosted runtime auth: Vercel OIDC, scoped to the `vr-dex-web` project and the allowed production/staging environments
+- Hosted staging bucket name default: `vrdex-profile-assets-staging-${account_id}`
+- Hosted runtime auth: separate Vercel OIDC roles scoped to the `vr-dex-web` project's production and staging environments respectively
+
+The existing production bucket and runtime role remain in place. The staging
+custom environment variables must point to the staging bucket and staging role
+before hosted upload testing. Apply the updated `state-mgmt` CI permissions,
+review the `profile-assets` plan, then apply and redeploy staging promptly.
+Existing staging deployments can briefly lose S3 access after production role
+trust narrows and before the new staging deployment is serving. Verify the
+staging storage probe and exact staging bucket binding before enabling staged
+upload or contribution flags.
+
+Local media upload verification uses a separate non-production bucket defined by
+[`infra/terraform/profile-assets-proof`](../../infra/terraform/profile-assets-proof/README.md).
+Its state key is `profile-assets-proof/terraform.tfstate` and its account-derived
+bucket name is `vrdex-profile-assets-proof-${account_id}` in `us-east-1`.
+The proof bucket blocks public access, enforces bucket ownership, uses SSE-S3,
+and denies non-TLS requests. Only `profile-assets/proof/local-upload/` expires
+after seven days. It has no Vercel configuration or production bucket access.
+Terraform CI validates this stack only. An operator reviews its local plan and
+applies it with approved credentials before running the
+[local upload proof](../testing/local-media-upload.md).
 
 The first owner-facing gallery keeps at most 12 active public assets per
 profile. Deletion is recoverable metadata state; it does not synchronously
@@ -163,6 +184,7 @@ Current stacks:
 - `infra/terraform/posthog`: hosted PostHog project metadata
 - `infra/terraform/vercel`: hosted Vercel PostHog client environment variables
 - `infra/terraform/profile-assets`: private S3 asset bucket, Vercel OIDC IAM role, and hosted profile asset env vars
+- `infra/terraform/profile-assets-proof`: dedicated non-production S3 upload proof bucket; CI validation only, operator plan/apply
 - `infra/terraform/docs-site`: hosted docs Vercel project/domain and Route 53 DNS
 - `infra/terraform/restream-worker`: validation-only hosted worker benchmark foundation; CI validates it but does not plan or apply it
 - `infra/terraform/vrclinking-adapter`: VRCLinking proof adapter Lambda, Function URL, execution role, and log group. Deployed and live; CI validates but does not plan it, because planning needs the built artifact and the shared-secret ARN. Applied manually with `-var-file=environments/production.tfvars`, which is mandatory — see the stack README

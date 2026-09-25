@@ -10,6 +10,12 @@ variable "asset_bucket_name" {
   default     = null
 }
 
+variable "staging_asset_bucket_name" {
+  description = "Optional separate S3 bucket name for hosted staging profile assets. Defaults to vrdex-profile-assets-staging plus account id."
+  type        = string
+  default     = null
+}
+
 variable "direct_upload_allowed_origins" {
   description = "Additional browser origins allowed to POST one-time profile-media uploads directly to private S3."
   type        = set(string)
@@ -31,10 +37,33 @@ variable "direct_upload_site_origin" {
   }
 }
 
+variable "staging_direct_upload_allowed_origins" {
+  description = "Additional browser origins allowed to POST staging profile-media uploads directly to the staging bucket."
+  type        = set(string)
+  default     = ["https://*.vercel.app"]
+}
+
+variable "staging_direct_upload_site_origin" {
+  description = "Canonical browser origin for hosted staging, always included in staging bucket CORS."
+  type        = string
+  default     = "https://staging.vrdex.net"
+
+  validation {
+    condition     = can(regex("^https://[^/]+$", var.staging_direct_upload_site_origin))
+    error_message = "staging_direct_upload_site_origin must be one HTTPS origin without a path."
+  }
+}
+
 variable "runtime_role_name" {
   description = "IAM role name assumed by Vercel functions through OIDC for profile asset S3 access."
   type        = string
   default     = "vrdex-vercel-profile-assets"
+}
+
+variable "staging_runtime_role_name" {
+  description = "IAM role name assumed only by the hosted staging Vercel environment for staging profile assets."
+  type        = string
+  default     = "vrdex-vercel-profile-assets-staging"
 }
 
 variable "vercel_team_id" {
@@ -53,12 +82,6 @@ variable "vercel_project_name" {
   description = "Existing Vercel project name for apps/web. OIDC trust is scoped to this project name."
   type        = string
   default     = "vr-dex-web"
-}
-
-variable "vercel_runtime_environments" {
-  description = "Vercel deployment environment names allowed to assume the profile asset runtime role."
-  type        = set(string)
-  default     = ["production", "staging"]
 }
 
 variable "manage_production_environment" {
