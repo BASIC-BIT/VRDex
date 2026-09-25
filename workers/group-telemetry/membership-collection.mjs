@@ -18,6 +18,10 @@ export async function collectMembershipPage({ assignment, authority, provider, c
     scan = await control.send("membership_scan_resume", scope);
   }
   if (!scan || scan.complete) return { collected: false };
+  if (scan.phase === "finalize") {
+    await control.send("membership_scan_finalize", { ...scope, scanId: scan.scanId, pageNumber: scan.nextPage });
+    return { collected: true };
+  }
   if (!requestBudgeted) {
     if (accountBudget.retryAfterMs(1, now) > 0 || integrationBudget.retryAfterMs(1, now) > 0) return { collected: false };
     if (!(await control.send("budget", { integrationId: assignment.integrationId, fencingToken: assignment.fencingToken, requestCount: 1, now }))?.granted) return { collected: false };
@@ -28,6 +32,6 @@ export async function collectMembershipPage({ assignment, authority, provider, c
     n: 100, offset: scan.nextOffset, startDate: new Date(scan.startAt).toISOString(), endDate: new Date(scan.endAt).toISOString(),
   });
   const events = normalizeMembershipAuditPage(result.items, { groupId: scope.groupId, startAt: scan.startAt, endAt: scan.endAt });
-  await control.send("membership_scan_page", { ...scope, scanId: scan.scanId, pageNumber: scan.nextPage, events, sourceCount: result.items.length, exhausted: result.nextOffset === null });
+  await control.send("membership_scan_page", { ...scope, scanId: scan.scanId, pageNumber: scan.nextPage, phase: scan.phase, events, rawAuditIds: result.items.map(item => item.id), sourceCount: result.items.length, exhausted: result.nextOffset === null });
   return { collected: true };
 }

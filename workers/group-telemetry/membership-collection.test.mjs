@@ -13,7 +13,7 @@ function fixture({ fail = false, granted = true } = {}) {
     accountBudget: new RequestBudget(10), integrationBudget: new RequestBudget(10),
     control: { async send(op, body) {
       sends.push({ op, body });
-      if (op === "membership_scan_resume") return { scanId: "scan", startAt: 1000, endAt: 3000, nextOffset: 100, nextPage: 1, complete: false };
+      if (op === "membership_scan_resume") return { scanId: "scan", startAt: 1000, endAt: 3000, nextOffset: 100, nextPage: 1, phase: "collect", complete: false };
       return { granted };
     } },
     provider: { async request(path) {
@@ -32,6 +32,8 @@ test("resumes persisted offset and advances raw count even when upper-boundary e
   assert.deepEqual(page.events, []);
   assert.equal(page.sourceCount, 1);
   assert.equal(page.pageNumber, 1);
+  assert.equal(page.phase, "collect");
+  assert.deepEqual(page.rawAuditIds, ["audit1"]);
   assert.equal(page.exhausted, true);
 });
 test("provider failure never marks a page exhausted and budget denial never reads", async () => {
@@ -50,4 +52,19 @@ test("disabled analytics or stale grants do not touch audit collection", async (
     assert.equal((await collectMembershipPage(args)).collected, false);
     assert.equal(sends.length, 0);
   }
+});
+test("finalizes a verified page without another provider request", async () => {
+  const { args, sends, reads } = fixture();
+  args.control.send = async (op, body) => {
+    sends.push({ op, body });
+    if (op === "membership_scan_resume") return {
+      scanId: "scan", startAt: 1000, endAt: 3000,
+      nextOffset: 0, nextPage: 2, phase: "finalize", complete: false,
+    };
+    return { complete: true };
+  };
+  assert.deepEqual(await collectMembershipPage(args), { collected: true });
+  assert.deepEqual(reads, []);
+  assert.deepEqual(sends.find(value => value.op === "membership_scan_finalize").body.pageNumber, 2);
+  assert.equal(sends.some(value => value.op === "budget"), false);
 });

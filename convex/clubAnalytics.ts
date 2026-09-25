@@ -630,13 +630,17 @@ export const listInstances = query({
         continueCursor: result.continueCursor,
       };
     }
-    const result = await ctx.db
-      .query("instanceSessions")
-      .withIndex("by_communityProfileId_openedAt", (q) =>
-        q
-          .eq("communityProfileId", state.community._id)
-          .gte("openedAt", state.epoch),
-      )
+    const sessions = args.kind === "past"
+      ? ctx.db.query("instanceSessions")
+          .withIndex("by_integrationId_state_openedAt", q => q
+            .eq("integrationId", state.integration!._id)
+            .eq("state", "closed")
+            .gte("openedAt", state.epoch))
+      : ctx.db.query("instanceSessions")
+          .withIndex("by_communityProfileId_openedAt", q => q
+            .eq("communityProfileId", state.community._id)
+            .gte("openedAt", state.epoch));
+    const result = await sessions
       .order("desc")
       .paginate(opts);
     return {

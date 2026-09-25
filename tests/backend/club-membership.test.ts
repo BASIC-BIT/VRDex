@@ -12,6 +12,7 @@ const modules = {
 };
 const begin = makeFunctionReference<"mutation">("clubMembership:beginScan");
 const ingest = makeFunctionReference<"mutation">("clubMembership:ingestBatch");
+const finalize = makeFunctionReference<"mutation">("clubMembership:finalizeScanPage");
 const resume = makeFunctionReference<"mutation">("clubMembership:resumeScan");
 const bucket = makeFunctionReference<"query">(
   "clubMembership:getMovementBucket",
@@ -19,6 +20,14 @@ const bucket = makeFunctionReference<"query">(
 const activity = makeFunctionReference<"query">("clubMembership:listActivity");
 const start = Date.UTC(2026, 2, 1),
   end = start + 3600_000;
+async function finishScan(t: ReturnType<typeof convexTest>, scanId: string, worker?: { workerId: string; fencingToken: number }) {
+  for (;;) {
+    const scan = await t.mutation(resume, worker ?? {});
+    assert.equal(scan?.phase, "finalize");
+    const result = await t.mutation(finalize, { scanId, pageNumber: scan.nextPage, ...(worker ?? {}) });
+    if (result.complete) return;
+  }
+}
 
 it("stops new audit scans after analytics is disabled", async () => {
   const { t, integrationId } = await setup();
@@ -48,6 +57,8 @@ it("disabling analytics hides public movement while preserving authorized histor
   await t.mutation(ingest, {
     scanId,
     pageNumber: 0,
+    phase: "collect",
+    rawAuditIds: ["retained_join"],
     events: [
       {
         auditId: "retained_join",
@@ -57,6 +68,11 @@ it("disabling analytics hides public movement while preserving authorized histor
     ],
     exhausted: true,
   });
+  await t.mutation(ingest, {
+    scanId, pageNumber: 0, phase: "verify", rawAuditIds: ["retained_join"],
+    sourceCount: 1, events: [{ auditId: "retained_join", eventType: "group.member.join", occurredAt: start + 1 }], exhausted: true,
+  });
+  await finishScan(t, scanId);
   const args = { communitySlug: "club", startAt: start, endAt: end };
   assert.deepEqual(await t.query(bucket, args), {
     joins: 1,
@@ -108,12 +124,11 @@ it("never treats a coverage gap as zero, merges adjacent scans and hides disconn
       startAt,
       endAt,
     });
-    await t.mutation(ingest, {
-      scanId,
-      pageNumber: 0,
-      events: [],
-      exhausted: true,
-    });
+    for (const phase of ["collect", "verify"] as const)
+      await t.mutation(ingest, {
+        scanId, pageNumber: 0, phase, rawAuditIds: [], events: [], exhausted: true,
+      });
+    await finishScan(t, scanId);
   }
   assert.equal(
     (
@@ -132,12 +147,11 @@ it("never treats a coverage gap as zero, merges adjacent scans and hides disconn
     startAt: start + 1000,
     endAt: start + 2000,
   });
-  await t.mutation(ingest, {
-    scanId,
-    pageNumber: 0,
-    events: [],
-    exhausted: true,
-  });
+  for (const phase of ["collect", "verify"] as const)
+    await t.mutation(ingest, {
+      scanId, pageNumber: 0, phase, rawAuditIds: [], events: [], exhausted: true,
+    });
+  await finishScan(t, scanId);
   assert.deepEqual(
     await t.query(bucket, {
       communitySlug: "club",
@@ -313,9 +327,11 @@ it("reauthorizes key, collector and lease in each transaction and rebinds resuma
   const page = {
     scanId,
     pageNumber: 0,
+    phase: "collect" as const,
     events: [],
     exhausted: false,
     sourceCount: 100,
+    rawAuditIds: Array.from({ length: 100 }, (_, index) => `raw-${index}`),
   };
   await t.mutation(ingest, page);
   const resumed = await t.mutation(resume, {});
@@ -364,9 +380,23 @@ it("reauthorizes key, collector and lease in each transaction and rebinds resuma
     pageNumber: 1,
     exhausted: true,
     sourceCount: 0,
+    rawAuditIds: [],
     workerId: "new-worker",
     fencingToken: 2,
   });
+  const verifying = await t.mutation(resume, {
+    workerId: "new-worker", fencingToken: 2,
+  });
+  assert.equal(verifying.phase, "verify");
+  assert.equal(verifying.nextOffset, 0);
+  await t.mutation(ingest, {
+    ...page, phase: "verify", workerId: "new-worker", fencingToken: 2,
+  });
+  await t.mutation(ingest, {
+    ...page, pageNumber: 1, phase: "verify", exhausted: true,
+    sourceCount: 0, rawAuditIds: [], workerId: "new-worker", fencingToken: 2,
+  });
+  await finishScan(t, scanId, { workerId: "new-worker", fencingToken: 2 });
   assert.equal(
     (await t.mutation(resume, { workerId: "new-worker", fencingToken: 2 }))
       .complete,
@@ -378,7 +408,7 @@ it("rejects foreign scan IDs even with an otherwise valid collector lease", asyn
   const scanId = await t.mutation(begin, { startAt: start, endAt: end });
   await t.run((ctx) => ctx.db.patch(scanId, { groupId: "grp_foreign" }));
   await assert.rejects(
-    t.mutation(ingest, { scanId, pageNumber: 0, events: [], exhausted: true }),
+    t.mutation(ingest, { scanId, pageNumber: 0, phase: "collect", rawAuditIds: [], events: [], exhausted: true }),
     /Foreign/,
   );
   await t.run((ctx) =>
@@ -409,13 +439,15 @@ it("requires complete ordered scans, deduplicates immutable IDs and preserves un
     targetUserId: "usr_person",
   }));
   await assert.rejects(
-    t.mutation(ingest, { scanId, pageNumber: 1, events: [], exhausted: true }),
+    t.mutation(ingest, { scanId, pageNumber: 1, phase: "collect", rawAuditIds: [], events: [], exhausted: true }),
     /sequence/,
   );
   await t.mutation(ingest, {
     scanId,
     pageNumber: 0,
-    events: events.reverse(),
+    phase: "collect",
+    rawAuditIds: [...events].reverse().map((item) => item.auditId),
+    events: [...events].reverse(),
     exhausted: false,
   });
   assert.deepEqual(
@@ -426,7 +458,14 @@ it("requires complete ordered scans, deduplicates immutable IDs and preserves un
     }),
     { joins: null, departures: null, complete: false },
   );
-  await t.mutation(ingest, { scanId, pageNumber: 1, events, exhausted: true });
+  await t.mutation(ingest, { scanId, pageNumber: 1, phase: "collect", rawAuditIds: events.map((item) => item.auditId), events, exhausted: true });
+  assert.deepEqual(
+    await t.query(bucket, { communitySlug: "club", startAt: start, endAt: end }),
+    { joins: null, departures: null, complete: false },
+  );
+  await t.mutation(ingest, { scanId, pageNumber: 0, phase: "verify", rawAuditIds: [...events].reverse().map((item) => item.auditId), sourceCount: events.length, events: [...events].reverse(), exhausted: false });
+  await t.mutation(ingest, { scanId, pageNumber: 1, phase: "verify", rawAuditIds: events.map((item) => item.auditId), sourceCount: events.length, events, exhausted: true });
+  await finishScan(t, scanId);
   assert.deepEqual(
     await t.query(bucket, {
       communitySlug: "club",
@@ -458,6 +497,39 @@ it("requires complete ordered scans, deduplicates immutable IDs and preserves un
   );
   assert.equal(rows.length, 6);
 });
+it("restarts coverage when an inserted audit entry shifts offset pages", async () => {
+  const { t, owner } = await setup();
+  const scanId = await t.mutation(begin, { startAt: start, endAt: end });
+  async function page(phase: "collect" | "verify", pageNumber: number, ids: string[], exhausted: boolean) {
+    await t.mutation(ingest, {
+      scanId, phase, pageNumber, rawAuditIds: ids, sourceCount: ids.length,
+      events: ids.map((auditId) => ({ auditId, eventType: "group.member.join", occurredAt: start + 1 })),
+      exhausted,
+    });
+  }
+  const movement = () => t.query(bucket, { communitySlug: "club", startAt: start, endAt: end });
+  await page("collect", 0, ["G", "D"], false);
+  await page("collect", 1, ["D", "C"], true);
+  assert.deepEqual(await movement(), { joins: null, departures: null, complete: false });
+  await page("verify", 0, ["X", "D"], false);
+  await page("verify", 1, ["C", "B"], false);
+  await page("verify", 2, ["A"], true);
+  assert.equal((await t.mutation(resume, {})).phase, "collect");
+  assert.deepEqual(await movement(), { joins: null, departures: null, complete: false });
+  for (const phase of ["collect", "verify"] as const) {
+    await page(phase, 0, ["X", "D"], false);
+    await page(phase, 1, ["C", "B"], false);
+    await page(phase, 2, ["A"], true);
+  }
+  assert.deepEqual(await movement(), { joins: null, departures: null, complete: false });
+  await finishScan(t, scanId);
+  assert.deepEqual(await movement(), { joins: 5, departures: 0, complete: true });
+  const visible = await owner.query(activity, {
+    communitySlug: "club", startAt: start, endAt: end,
+    paginationOpts: { numItems: 10, cursor: null },
+  });
+  assert.equal(visible.page.some(item => item.auditId === "G"), false);
+});
 it("rejects foreign scopes, stale epochs and conflicting provider IDs without deleting history", async () => {
   const { t, integrationId } = await setup();
   await assert.rejects(
@@ -485,6 +557,8 @@ it("rejects foreign scopes, stale epochs and conflicting provider IDs without de
   await t.mutation(ingest, {
     scanId,
     pageNumber: 0,
+    phase: "collect",
+    rawAuditIds: ["one"],
     events: [item],
     exhausted: false,
   });
@@ -492,6 +566,8 @@ it("rejects foreign scopes, stale epochs and conflicting provider IDs without de
     t.mutation(ingest, {
       scanId,
       pageNumber: 1,
+      phase: "collect",
+      rawAuditIds: ["one"],
       events: [{ ...item, eventType: "group.member.leave" }],
       exhausted: true,
     }),
@@ -501,7 +577,7 @@ it("rejects foreign scopes, stale epochs and conflicting provider IDs without de
     ctx.db.patch(integrationId, { telemetryEpochStartedAt: end }),
   );
   await assert.rejects(
-    t.mutation(ingest, { scanId, pageNumber: 1, events: [], exhausted: true }),
+    t.mutation(ingest, { scanId, pageNumber: 1, phase: "collect", rawAuditIds: [], events: [], exhausted: true }),
     /scope/,
   );
   assert.deepEqual(

@@ -1645,12 +1645,22 @@ export default defineSchema({
     endAt: v.number(),
     nextPage: v.number(),
     nextOffset: v.optional(v.number()),
+    phase: v.optional(v.union(v.literal("collect"), v.literal("verify"), v.literal("finalize"))),
+    passHash: v.optional(v.number()),
+    referenceHash: v.optional(v.number()),
+    referenceCount: v.optional(v.number()),
+    finalPageCount: v.optional(v.number()),
     workerId: v.optional(v.string()),
     fencingToken: v.optional(v.number()),
     complete: v.boolean(),
     createdAt: v.number(),
   }).index("by_scope_complete", ["integrationId", "epochStartedAt", "complete"])
     .index("by_scope_window", ["integrationId", "epochStartedAt", "startAt", "endAt"]),
+  communityMembershipVerificationPages: defineTable({
+    scanId: v.id("communityMembershipScans"),
+    pageNumber: v.number(),
+    auditIds: v.array(v.string()),
+  }).index("by_scan_page", ["scanId", "pageNumber"]),
   communityMembershipEvents: defineTable({
     integrationId: v.id("communityVrchatIntegrations"),
     epochStartedAt: v.number(),
@@ -1661,8 +1671,10 @@ export default defineSchema({
     targetUserId: v.optional(v.string()),
     targetDisplayName: v.optional(v.string()),
     receivedAt: v.number(),
+    verified: v.boolean(),
   }).index("by_audit", ["integrationId", "epochStartedAt", "auditId"])
-    .index("by_time", ["integrationId", "epochStartedAt", "occurredAt"]),
+    .index("by_time", ["integrationId", "epochStartedAt", "occurredAt"])
+    .index("by_verified_time", ["integrationId", "epochStartedAt", "verified", "occurredAt"]),
   communityMembershipCoverage: defineTable({
     integrationId: v.id("communityVrchatIntegrations"),
     epochStartedAt: v.number(),
@@ -1747,6 +1759,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_integrationId_state", ["integrationId", "state"])
+    .index("by_integrationId_state_openedAt", ["integrationId", "state", "openedAt"])
     .index("by_integrationId_state_lastObservedAt", ["integrationId", "state", "lastObservedAt"])
     .index("by_integrationId_providerInstanceId_state", ["integrationId", "providerInstanceId", "state"])
     .index("by_integrationId_providerLocation_state", ["integrationId", "providerLocation", "state"])

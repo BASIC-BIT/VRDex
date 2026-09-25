@@ -270,11 +270,12 @@ const telemetryWorker = httpAction(async (ctx, request) => {
       } as never);
       return json({ ok: true });
     }
-    if (body.operation === "membership_scan_begin" || body.operation === "membership_scan_page" || body.operation === "membership_scan_resume") {
+    if (body.operation === "membership_scan_begin" || body.operation === "membership_scan_page" || body.operation === "membership_scan_resume" || body.operation === "membership_scan_finalize") {
       const scope = {...common, workerKeyHash: presentedHash, epochStartedAt: body.epochStartedAt, groupId: body.groupId};
       if (body.operation === "membership_scan_begin") return json(await ctx.runMutation(internal.clubMembership.beginScan, {...scope,startAt:body.startAt,endAt:body.endAt} as never));
       if (body.operation === "membership_scan_resume") return json(await ctx.runMutation(internal.clubMembership.resumeScan, scope as never));
-      return json(await ctx.runMutation(internal.clubMembership.ingestBatch, {...scope,scanId:body.scanId,pageNumber:body.pageNumber,events:body.events,exhausted:body.exhausted,sourceCount:body.sourceCount} as never));
+      if (body.operation === "membership_scan_finalize") return json(await ctx.runMutation(internal.clubMembership.finalizeScanPage, {...scope,scanId:body.scanId,pageNumber:body.pageNumber} as never));
+      return json(await ctx.runMutation(internal.clubMembership.ingestBatch, {...scope,scanId:body.scanId,pageNumber:body.pageNumber,events:body.events,exhausted:body.exhausted,sourceCount:body.sourceCount,rawAuditIds:body.rawAuditIds,phase:body.phase} as never));
     }
     if (body.operation === "budget") {
       const result = await ctx.runMutation(functions.reserveRequestBudget, {

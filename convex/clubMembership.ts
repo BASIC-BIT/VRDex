@@ -84,6 +84,7 @@ const scanResult = v.object({
   endAt: v.number(),
   nextPage: v.number(),
   nextOffset: v.number(),
+  phase: v.union(v.literal("collect"), v.literal("verify"), v.literal("finalize")),
   complete: v.boolean(),
 });
 function projectScan(scan: {
@@ -92,6 +93,7 @@ function projectScan(scan: {
   endAt: number;
   nextPage: number;
   nextOffset?: number;
+  phase?: "collect" | "verify" | "finalize";
   complete: boolean;
 }) {
   return {
@@ -100,6 +102,7 @@ function projectScan(scan: {
     endAt: scan.endAt,
     nextPage: scan.nextPage,
     nextOffset: scan.nextOffset ?? 0,
+    phase: scan.phase ?? "collect",
     complete: scan.complete,
   };
 }
@@ -163,6 +166,8 @@ export const beginScan = internalMutation({
       workerId: args.workerId,
       fencingToken: args.fencingToken,
       nextOffset: 0,
+      phase: "collect",
+      passHash: 2166136261,
       nextPage: 0,
       complete: false,
       createdAt: Date.now(),
@@ -170,7 +175,15 @@ export const beginScan = internalMutation({
   },
 });
 // Only the authenticated worker control plane may call these internal endpoints.
-// A terminal page certifies the fixed scan window, never a moving now boundary.
+// A terminal verification pass certifies the fixed scan window, never a moving now boundary.
+function hashAuditIds(seed: number, ids: string[]) {
+  let hash = seed;
+  for (const id of ids) {
+    for (const char of `${id.length}:${id}|`)
+      hash = Math.imul(hash ^ char.charCodeAt(0), 16777619) >>> 0;
+  }
+  return hash;
+}
 export const ingestBatch = internalMutation({
   args: {
     ...scope,
@@ -180,6 +193,8 @@ export const ingestBatch = internalMutation({
     events: v.array(event),
     exhausted: v.boolean(),
     sourceCount: v.optional(v.number()),
+    rawAuditIds: v.array(v.string()),
+    phase: v.union(v.literal("collect"), v.literal("verify")),
   },
   returns: v.object({ inserted: v.number(), complete: v.boolean() }),
   handler: async (ctx, args) => {
@@ -207,6 +222,15 @@ export const ingestBatch = internalMutation({
       sourceCount > 100
     )
       throw new Error("Invalid source page count.");
+    if (args.rawAuditIds.length !== sourceCount ||
+        args.rawAuditIds.some((id) => !id || id.length > 200))
+      throw new Error("Invalid raw audit IDs.");
+    const rawIds = new Set(args.rawAuditIds);
+    if (rawIds.size !== args.rawAuditIds.length ||
+        args.events.some((item) => !rawIds.has(item.auditId)))
+      throw new Error("Membership events must come from the raw audit page.");
+    if (args.phase !== (scan.phase ?? "collect"))
+      throw new Error("Membership scan phase changed.");
     if (args.pageNumber < scan.nextPage)
       return { inserted: 0, complete: scan.complete };
     if (scan.complete || args.pageNumber !== scan.nextPage)
@@ -249,49 +273,93 @@ export const ingestBatch = internalMutation({
         epochStartedAt: scan.epochStartedAt,
         groupId: scan.groupId,
         receivedAt: Date.now(),
+        verified: false,
       });
       inserted++;
     }
-    if (args.exhausted) {
-      for (
-        let day = Math.floor(scan.startAt / DAY_MS) * DAY_MS;
-        day < scan.endAt;
-        day += DAY_MS
-      ) {
-        const prior = await ctx.db
-          .query("communityMembershipCoverage")
-          .withIndex("by_day", (q) =>
-            q
-              .eq("integrationId", scan.integrationId)
-              .eq("epochStartedAt", scan.epochStartedAt)
-              .eq("day", day),
-          )
-          .unique();
-        const intervals = mergeCoverage([
-          ...(prior?.intervals ?? []),
-          {
-            startAt: Math.max(day, scan.startAt),
-            endAt: Math.min(day + DAY_MS, scan.endAt),
-          },
-        ]);
-        if (prior)
-          await ctx.db.patch(prior._id, { intervals, updatedAt: Date.now() });
-        else
-          await ctx.db.insert("communityMembershipCoverage", {
-            integrationId: scan.integrationId,
-            epochStartedAt: scan.epochStartedAt,
-            day,
-            intervals,
-            updatedAt: Date.now(),
-          });
+    if (args.phase === "verify") {
+      const existingPage = await ctx.db.query("communityMembershipVerificationPages")
+        .withIndex("by_scan_page", q => q.eq("scanId", scan._id).eq("pageNumber", args.pageNumber))
+        .unique();
+      const auditIds = args.events.map(item => item.auditId);
+      if (existingPage) await ctx.db.patch(existingPage._id, { auditIds });
+      else await ctx.db.insert("communityMembershipVerificationPages", {
+        scanId: scan._id, pageNumber: args.pageNumber, auditIds,
+      });
+    }
+    const passHash = hashAuditIds(scan.passHash ?? 2166136261, args.rawAuditIds);
+    const verified = args.exhausted && args.phase === "verify" &&
+      scan.referenceHash === passHash && scan.referenceCount === (scan.nextOffset ?? 0) + sourceCount;
+    if (args.exhausted && args.phase === "collect") {
+      await ctx.db.patch(scan._id, {
+        phase: "verify", referenceHash: passHash,
+        referenceCount: (scan.nextOffset ?? 0) + sourceCount,
+        passHash: 2166136261, nextPage: 0, nextOffset: 0,
+      });
+    } else if (args.exhausted && verified) {
+      await ctx.db.patch(scan._id, {
+        phase: "finalize", finalPageCount: scan.nextPage + 1,
+        nextPage: 0, nextOffset: 0,
+      });
+    } else if (args.exhausted) {
+      // Changed provider pages are retried from the start. Never certify a shifted scan.
+      await ctx.db.patch(scan._id, {
+        phase: "collect", referenceHash: undefined, referenceCount: undefined,
+        passHash: 2166136261, nextPage: 0, nextOffset: 0,
+      });
+    } else {
+      await ctx.db.patch(scan._id, {
+        passHash, nextPage: scan.nextPage + 1,
+        nextOffset: (scan.nextOffset ?? 0) + sourceCount,
+        complete: verified,
+      });
+    }
+    return { inserted, complete: false };
+  },
+});
+export const finalizeScanPage = internalMutation({
+  args: { ...scope, ...workerScope, scanId: v.id("communityMembershipScans"), pageNumber: v.number() },
+  returns: v.object({ complete: v.boolean() }),
+  handler: async (ctx, args) => {
+    const scan = await ctx.db.get(args.scanId);
+    if (!scan) throw new Error("Unknown membership scan.");
+    await authorizeWorker(ctx, args);
+    if (scan.integrationId !== args.integrationId || scan.epochStartedAt !== args.epochStartedAt ||
+        scan.groupId !== args.groupId || scan.workerId !== args.workerId || scan.fencingToken !== args.fencingToken)
+      throw new Error("Foreign or stale membership scan.");
+    if (scan.phase !== "finalize" || !scan.finalPageCount ||
+        !Number.isSafeInteger(args.pageNumber) || args.pageNumber !== scan.nextPage)
+      throw new Error("Membership finalization out of sequence.");
+    const page = await ctx.db.query("communityMembershipVerificationPages")
+      .withIndex("by_scan_page", q => q.eq("scanId", scan._id).eq("pageNumber", args.pageNumber))
+      .unique();
+    if (!page) throw new Error("Missing verified membership page.");
+    for (const auditId of page.auditIds) {
+      const item = await ctx.db.query("communityMembershipEvents")
+        .withIndex("by_audit", q => q.eq("integrationId", scan.integrationId)
+          .eq("epochStartedAt", scan.epochStartedAt).eq("auditId", auditId)).unique();
+      if (!item) throw new Error("Missing verified membership event.");
+      if (!item.verified) await ctx.db.patch(item._id, { verified: true });
+    }
+    await ctx.db.delete(page._id);
+    const complete = args.pageNumber + 1 === scan.finalPageCount;
+    if (complete) {
+      for (let day = Math.floor(scan.startAt / DAY_MS) * DAY_MS; day < scan.endAt; day += DAY_MS) {
+        const prior = await ctx.db.query("communityMembershipCoverage")
+          .withIndex("by_day", q => q.eq("integrationId", scan.integrationId)
+            .eq("epochStartedAt", scan.epochStartedAt).eq("day", day)).unique();
+        const intervals = mergeCoverage([...(prior?.intervals ?? []), {
+          startAt: Math.max(day, scan.startAt), endAt: Math.min(day + DAY_MS, scan.endAt),
+        }]);
+        if (prior) await ctx.db.patch(prior._id, { intervals, updatedAt: Date.now() });
+        else await ctx.db.insert("communityMembershipCoverage", {
+          integrationId: scan.integrationId, epochStartedAt: scan.epochStartedAt,
+          day, intervals, updatedAt: Date.now(),
+        });
       }
     }
-    await ctx.db.patch(scan._id, {
-      nextPage: scan.nextPage + 1,
-      nextOffset: (scan.nextOffset ?? 0) + sourceCount,
-      complete: args.exhausted,
-    });
-    return { inserted, complete: args.exhausted };
+    await ctx.db.patch(scan._id, { nextPage: scan.nextPage + 1, complete });
+    return { complete };
   },
 });
 export const resumeScan = internalMutation({
@@ -405,10 +473,11 @@ export const getMovementBucket = query({
       return unknown;
     const rows = await ctx.db
       .query("communityMembershipEvents")
-      .withIndex("by_time", (q) =>
+      .withIndex("by_verified_time", (q) =>
         q
           .eq("integrationId", state.integrationId)
           .eq("epochStartedAt", state.epochStartedAt)
+          .eq("verified", true)
           .gte("occurredAt", args.startAt)
           .lt("occurredAt", args.endAt),
       )
@@ -448,10 +517,11 @@ export const listActivity = query({
     if (!state) return { page: [], isDone: true, continueCursor: "" };
     const result = await ctx.db
       .query("communityMembershipEvents")
-      .withIndex("by_time", (q) =>
+      .withIndex("by_verified_time", (q) =>
         q
           .eq("integrationId", state.integrationId)
           .eq("epochStartedAt", state.epochStartedAt)
+          .eq("verified", true)
           .gte("occurredAt", args.startAt)
           .lt("occurredAt", args.endAt),
       )

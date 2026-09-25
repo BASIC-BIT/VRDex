@@ -758,6 +758,43 @@ describe("club analytics range and permissions", () => {
       null,
     );
   });
+  it("fills past pages from closed sessions behind newer open sessions", async () => {
+    const { t, owner, communityProfileId, integrationId } = await setup();
+    const closed = await t.run(async ctx => {
+      const ids = [];
+      for (let index = 0; index < 3; index++)
+        ids.push(await ctx.db.insert("instanceSessions", {
+          integrationId, communityProfileId,
+          providerInstanceId: `closed-${index}`,
+          providerLocation: `wrld_example:closed-${index}`,
+          vrchatWorldId: "wrld_example", source: "first_party", state: "closed",
+          openedAt: epoch + index * 1000, lastObservedAt: epoch + 20_000,
+          closedAt: epoch + 21_000, consecutiveMisses: 3, updatedAt: epoch + 21_000,
+        }));
+      for (let index = 0; index < 12; index++)
+        await ctx.db.insert("instanceSessions", {
+          integrationId, communityProfileId,
+          providerInstanceId: `open-${index}`,
+          providerLocation: `wrld_example:open-${index}`,
+          vrchatWorldId: "wrld_example", source: "first_party", state: "open",
+          openedAt: epoch + 30_000 + index * 1000,
+          lastObservedAt: epoch + 60_000, consecutiveMisses: 0, updatedAt: epoch + 60_000,
+        });
+      return ids;
+    });
+    const first = await owner.query(api.clubAnalytics.listInstances, {
+      communitySlug: "analytics", kind: "past",
+      paginationOpts: { numItems: 2, cursor: null },
+    });
+    assert.deepEqual(first.page.map(row => row.id), [closed[2], closed[1]]);
+    assert.equal(first.isDone, false);
+    const second = await owner.query(api.clubAnalytics.listInstances, {
+      communitySlug: "analytics", kind: "past",
+      paginationOpts: { numItems: 2, cursor: first.continueCursor },
+    });
+    assert.deepEqual(second.page.map(row => row.id), [closed[0]]);
+    assert.equal(second.isDone, true);
+  });
 });
 
 describe("membership polling coverage", () => {
