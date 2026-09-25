@@ -107,7 +107,7 @@ class InvitationFixtureClient extends ConvexReactClient {
             },
           ],
           nextOffset: null,
-          observedAt: Date.now(),
+          observedAt: Number(request.observedAt),
         },
         errorCode: null,
       };
@@ -126,7 +126,7 @@ class InvitationFixtureClient extends ConvexReactClient {
             },
           ],
           nextOffset: null,
-          observedAt: Date.now(),
+          observedAt: Number(this.reads.get(String(args.requestId))?.observedAt),
         },
         errorCode: null,
       };
@@ -177,7 +177,7 @@ class InvitationFixtureClient extends ConvexReactClient {
     if (name === "clubProviderReads:request") {
       const params = value.params as Record<string, unknown>;
       const id = `read-${params.kind}-${params.userId ?? "instances"}`;
-      this.reads.set(id, params);
+      this.reads.set(id, { ...params, observedAt: Date.now() });
       result = id;
     } else if (name === "clubInvitations:saveList") {
       const prior = this.lists.find((list) => list._id === value.listId);

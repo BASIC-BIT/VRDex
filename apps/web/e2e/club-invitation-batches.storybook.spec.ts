@@ -65,6 +65,7 @@ test("individual invitation eligibility requires an explicit check @storybook-vi
   ).toHaveCount(2);
   await rows.nth(0).getByRole("button", { name: "Check eligibility" }).click();
   await expect(rows.nth(0)).toContainText("Invitation check passed");
+  await expect(page.getByRole("button", { name: "Confirm invitations" })).toBeEnabled();
   await expect(rows.nth(1)).toContainText("Eligibility not checked");
   await rows.nth(1).getByRole("button", { name: "Check eligibility" }).click();
   await expect(rows.nth(1)).toContainText("Not friends with bot");
