@@ -20,8 +20,8 @@ Suggested execution: validate input size/type and contributor identity; pass tex
 
 ## Open questions for product and evaluation
 
-1. Which fields are required to submit a partial event, and which can remain unresolved for community review? In particular, should lineups with names but no matched person IDs be valid?
-2. What is the source-of-truth timezone when a poster omits it, and how should ambiguous DST times or cross-midnight sets appear in review?
+1. BASIC now allows almost all fields to remain partial in a private draft and a date-only event to publish with time TBA. The remaining publication minimum recommendation is community, identifying title, and event date. In particular, lineups with names but no matched person IDs should remain useful public labels rather than being discarded.
+2. What is the source-of-truth timezone when a poster omits it, and how should ambiguous DST times or cross-midnight sets appear in contributor review?
 3. Should a draft retain the source poster, source text, and field-level evidence, and for how long? This affects both reviewer trust and storage/privacy policy.
 4. What is the acceptable quality and cost threshold? Build a representative fixture set of clear, dense, ambiguous, and deliberately misleading posters; measure field accuracy, false identity matches, latency, tokens, and cost before picking a model/detail level.
 5. How many lookup attempts should one intake allow, and should community lookup be preselected from the page or performed by the model when the contributor enters from a general event flow?
