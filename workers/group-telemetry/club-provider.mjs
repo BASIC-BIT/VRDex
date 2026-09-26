@@ -175,13 +175,23 @@ export class ClubProvider {
   async execute(operation, { onPreflight } = {}) {
     let submitted = false;
     try {
-      const plan = this.plan(operation);
+      let plan = this.plan(operation);
       const authority = await this.readAuthority();
       if (authority.membershipStatus !== "member") fail("membership");
       if (plan.permissions.some((permission) => !authority.permissions.includes("*") && !authority.permissions.includes(permission))) fail("provider_permissions");
       const changesProtectedMember = ["assign_role", "remove_role", "remove_member", "ban_member", "unban_member"].includes(operation.kind);
       if (changesProtectedMember && [this.expectedUserId, authority.ownerUserId].includes(operation.targetUserId)) fail("protected_target");
-      if (plan.roleIds.some((roleId) => !authority.roles.some((role) => role.id === roleId))) fail("role_scope");
+      const currentRoleIds = plan.roleIds.map((roleId) => {
+        const role = authority.roles.find((candidate) => candidate.id.toLowerCase() === roleId.toLowerCase());
+        if (!role) fail("role_scope");
+        return role.id;
+      });
+      if (currentRoleIds.some((id, index) => id !== plan.roleIds[index])) {
+        if (operation.kind === "assign_role" || operation.kind === "remove_role")
+          plan = this.plan({ ...operation, roleId: currentRoleIds[0] });
+        else
+          plan = this.plan({ ...operation, roleIds: currentRoleIds });
+      }
       if (operation.kind === "create_instance" && operation.access === "public" && authority.group.privacy !== "default") fail("group_visibility");
       if (operation.kind === "close_instance") await this.readDestination(operation);
       let friendship, eligibilityObservedAt;
@@ -220,7 +230,7 @@ export class ClubProvider {
       if (op.kind === "ban_member" || op.kind === "unban_member") { path = `${this.base}/bans${op.kind === "unban_member" ? `/${target}` : ""}`; method = op.kind === "ban_member" ? "POST" : "DELETE"; body = op.kind === "ban_member" ? { userId: op.targetUserId } : undefined; permissions = ["group-members-manage", "group-bans-manage"]; }
       if (op.kind === "assign_role" || op.kind === "remove_role") { roleIds = [id(op.roleId, "grol")]; path = `${this.base}/members/${target}/roles/${enc(op.roleId)}`; method = op.kind === "assign_role" ? "PUT" : "DELETE"; permissions = ["group-members-manage", "group-roles-assign"]; }
       if (op.kind === "ban_member" || op.kind === "unban_member") validate = (result) => { this.scoped(result); if (result.groupId !== this.groupId || result.userId !== op.targetUserId) fail("schema_drift"); id(result.id, "gmem"); };
-      if (op.kind === "assign_role" || op.kind === "remove_role") validate = (result) => { const granted = ids(result, "grol"); if (granted.includes(op.roleId) !== (op.kind === "assign_role")) fail("schema_drift"); };
+      if (op.kind === "assign_role" || op.kind === "remove_role") validate = (result) => { const granted = ids(result, "grol"); if (granted.some((roleId) => roleId.toLowerCase() === op.roleId.toLowerCase()) !== (op.kind === "assign_role")) fail("schema_drift"); };
     } else if (["publish_post", "edit_post", "delete_post"].includes(op.kind)) {
       keys(op, ["kind", ...(op.kind !== "publish_post" ? ["postId"] : []), ...(op.kind !== "delete_post" ? ["title", "text", "visibility", "sendNotification", "imageId", "roleIds"] : [])]);
       path = `${this.base}/posts${op.kind !== "publish_post" ? `/${enc(id(op.postId, "not"))}` : ""}`;

@@ -18,7 +18,7 @@ type Actions = {
   ) => Promise<unknown>;
   setRoles: (
     args: FunctionArgs<typeof api.clubConnection.setProviderRoleAllowlist>,
-  ) => Promise<unknown>;
+  ) => Promise<number>;
 };
 const labels = {
   analytics: "Analytics",
@@ -42,6 +42,7 @@ function RoleAllowlist({
   save: Actions["setRoles"];
 }) {
   const [value, setValue] = useState(role.providerRoleIds.join(", "));
+  const [expectedUpdatedAt, setExpectedUpdatedAt] = useState(role.updatedAt);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   return (
@@ -52,11 +53,13 @@ function RoleAllowlist({
         setBusy(true);
         setError(null);
         try {
-          await save({
+          const updatedAt = await save({
             communityProfileId,
             roleId: role.roleId,
             providerRoleIds: value.split(/[\s,]+/).filter(Boolean),
+            expectedUpdatedAt,
           });
+          setExpectedUpdatedAt(updatedAt);
         } catch (cause) {
           setError(
             cause instanceof Error ? cause.message : "Unable to save roles.",

@@ -1,4 +1,18 @@
 import { expect, test } from "@playwright/test";
+test("staff can edit a lower-case saved role against upper-case provider IDs @storybook-visual", async ({ page }) => {
+  await page.goto("/iframe.html?id=clubs-scheduled--mixed-case-role-edit&viewMode=story");
+  await page.getByRole("button", { name: "Edit action", exact: true }).first().click();
+  await expect(page.getByRole("option", { name: "DJ", exact: true })).toHaveCount(1);
+  await expect(page.getByRole("combobox", { name: "VRChat role" })).toHaveValue("grol_AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA");
+  await expect(page.getByRole("button", { name: "Save action", exact: true })).toBeEnabled();
+  await page.screenshot({
+    path: `../../.cache/artifacts/scheduled-mixed-case-role-${test.info().project.name}.png`,
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: "Save action", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Save action", exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("Submitted role ID")).toHaveText("grol_AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA");
+});
 test("older notifications appear automatically after empty filtered pages @storybook-visual", async ({
   page,
 }, testInfo) => {

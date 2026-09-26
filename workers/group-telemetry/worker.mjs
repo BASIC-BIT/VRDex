@@ -388,6 +388,37 @@ async function collect(assignment) {
   }
 }
 
+async function collectNextAssignment(setPhase) {
+  const assignmentResponse = stopping
+    ? { assignments: [] }
+    // A collection can wait across several request-budget windows. Claim only
+    // the lease being processed so the next one starts with a fresh deadline.
+    : await control.send("claim", { limit: 1, now: Date.now() }, { requirePayload: true });
+  const { assignments = [], destinationWorkDueAt } = assignmentResponse;
+  let assignmentCount = 0;
+  for (const assignment of assignments) {
+    let enteredCollect = false;
+    try {
+      if (stopping) break;
+      await heartbeat();
+      if (stopping) break;
+      setPhase("telemetry_collection");
+      enteredCollect = true;
+      assignmentCount += 1;
+      await collect(assignment);
+    } finally {
+      // collect releases its own lease. A stop or heartbeat failure before it
+      // starts must hand the just-claimed lease back explicitly.
+      if (!enteredCollect)
+        await control.send("release", {
+          integrationId: assignment.integrationId,
+          fencingToken: assignment.fencingToken,
+        }).catch(() => undefined);
+    }
+  }
+  return { assignmentCount, destinationWorkDueAt };
+}
+
 /**
  * Hands back attempts that were claimed but never read.
  *
@@ -644,17 +675,7 @@ while (!stopping) {
     // those integrations unpolled anyway.
     const proofCount = stopping ? 0 : await checkProofs();
     loopPhase = "assignment_claim";
-    const assignmentResponse = stopping
-      ? { assignments: [] }
-      : await control.send("claim", { limit: 10, now: Date.now() }, { requirePayload: true });
-
-    const { assignments = [], destinationWorkDueAt } = assignmentResponse;
-    for (const assignment of assignments) {
-      if (stopping) break;
-      await heartbeat();
-      loopPhase = "telemetry_collection";
-      await collect(assignment);
-    }
+    const { assignmentCount, destinationWorkDueAt } = await collectNextAssignment((phase) => { loopPhase = phase; });
     loopPhase = "destination_metadata";
     // Metadata is read after proof and telemetry work and shares the proof
     // reservation ceiling. Public page traffic cannot consume provider slots.
@@ -665,7 +686,7 @@ while (!stopping) {
       isStopping: () => stopping, reportDeadSession, pauseWithHeartbeats, logEvent,
     });
     controlFailures = 0;
-    await pause(assignments.length > 0 || proofCount > 0 || destinationCount > 0 ? 1_000 : 10_000);
+    await pause(assignmentCount > 0 || proofCount > 0 || destinationCount > 0 ? 1_000 : 10_000);
   } catch (error) {
     controlFailures += 1;
     logEvent(collectorLoopFailureEvent(error, loopPhase, controlFailures));

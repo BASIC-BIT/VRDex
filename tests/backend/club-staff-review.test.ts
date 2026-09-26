@@ -272,6 +272,7 @@ describe("independent staff boundary checks", () => {
         await ownerClient.mutation(api.clubStaff.deleteRole, {
           communitySlug: "test-club",
           roleId: event._id,
+          expectedUpdatedAt: event.updatedAt,
         });
       if (reason === "already-held") {
         const prior = await ownerClient.mutation(

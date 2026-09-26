@@ -89,6 +89,7 @@ Assignable sets default to empty. Delegation is inert until the owner grants it,
 Presets are ordinary roles after seeding: the owner can rename, edit, or delete them. `presetKey` only lets the editor show "Started from the Admin preset". A role cannot list itself as assignable.
 
 Deleting a role revokes every active assignment of it, removes it from every other role's assignable set, and removes it from every visibility category's role list. A category whose role list becomes empty by deletion falls back to owner only, and the response names the categories that changed so the page can say so.
+The delete confirmation submits the role's `updatedAt` from when it opened. If another tab changes the role, deletion fails before revoking assignments or changing visibility.
 
 Only the owner creates, edits, or deletes roles.
 The role editor keeps the `updatedAt` value shown when editing began. An edit must submit that value, and `saveRole` rejects it if the role changed meanwhile. Every successful role edit advances `updatedAt` beyond its previous value, even when two edits occur in the same millisecond. This prevents a stale tab from restoring permissions or assignable roles removed by another edit.

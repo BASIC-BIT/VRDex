@@ -39,7 +39,7 @@ type RoleInput = {
 export type StaffActions = {
   seed: () => Promise<unknown>;
   save: (input: RoleInput) => Promise<unknown>;
-  delete: (roleId: Id<"communityRoles">) => Promise<unknown>;
+  delete: (roleId: Id<"communityRoles">, expectedUpdatedAt: number) => Promise<unknown>;
   invite: (roleIds: Id<"communityRoles">[]) => Promise<{ token: string }>;
   revokeInvite: (
     invitationId: Id<"communityStaffInvitations">,
@@ -555,7 +555,7 @@ export function ClubStaffView({
                     onClick={async () => {
                       let changed: Array<keyof typeof categoryLabels> = [];
                       const deleted = await perform(async () => {
-                        const result = await actions.delete(role._id);
+                        const result = await actions.delete(deleting._id, deleting.updatedAt);
                         if (Array.isArray(result))
                           changed = result.filter(
                             (item): item is keyof typeof categoryLabels =>
@@ -634,7 +634,7 @@ export function ClubStaff() {
       actions={{
         seed: () => seed({ communitySlug }),
         save: (input) => save({ communitySlug, ...input }),
-        delete: (roleId) => remove({ communitySlug, roleId }),
+        delete: (roleId, expectedUpdatedAt) => remove({ communitySlug, roleId, expectedUpdatedAt }),
         invite: (roleIds) => invite({ communitySlug, roleIds }),
         revokeInvite: (invitationId) =>
           revokeInvite({ communitySlug, invitationId }),

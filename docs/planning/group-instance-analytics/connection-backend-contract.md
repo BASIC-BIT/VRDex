@@ -7,6 +7,15 @@ analytics alone. Feature selection does not grant staff or bot permissions.
 
 `setFeatures` has the same human gate. `setProviderRoleAllowlist` is owner-only,
 accepts existing active VRDex roles in that club and bounded VRChat role IDs.
+It lowercases provider role IDs before deduplication and storage. The caller
+must submit the role's displayed `updatedAt`; a stale full-list replacement is
+rejected. Successful saves return the new `updatedAt` for the next edit.
+Provider reads and queued actions may use different letter casing for the
+same role ID. Staff pickers and dispatch authorization compare IDs without
+case sensitivity, including both assignment and removal.
+Before a provider write, the worker resolves role IDs against the current
+provider role list and submits the provider's current spelling. It still
+rejects IDs outside that list.
 These IDs constrain later role assignments; saving them performs no provider
 write and does not prove the provider role exists. Dispatch must resolve the
 current provider role and reject changes to the bot's own roles.

@@ -44,6 +44,7 @@ it("denies role configuration across clubs and expired worker leases", async () 
       communityProfileId: s.communityProfileId,
       roleId: foreignRole,
       providerRoleIds: [],
+      expectedUpdatedAt: 0,
     }),
   );
   await s.t.run((ctx) =>
@@ -200,6 +201,7 @@ it("integration staff configure features but cannot expand provider role grants"
       communityProfileId: s.communityProfileId,
       roleId: s.roleId,
       providerRoleIds: [],
+      expectedUpdatedAt: 0,
     }),
   );
   await s.t.run((ctx) => ctx.db.patch(s.roleId, { state: "deleted" }));
@@ -272,10 +274,12 @@ it("records only bound fresh fenced own-member snapshots and invalidates credent
 it("owner sets bounded provider role IDs on an existing local role", async () => {
   const s = await setup();
   const providerRoleIds = ["grol_11111111-1111-1111-1111-111111111111"];
+  const original = (await s.t.run(ctx => ctx.db.get(s.roleId)))!;
   await s.owner.mutation(ref("setProviderRoleAllowlist"), {
     communityProfileId: s.communityProfileId,
     roleId: s.roleId,
     providerRoleIds,
+    expectedUpdatedAt: original.updatedAt,
   });
   assert.deepEqual(
     (
@@ -290,6 +294,40 @@ it("owner sets bounded provider role IDs on an existing local role", async () =>
       communityProfileId: s.communityProfileId,
       roleId: s.roleId,
       providerRoleIds: ["arbitrary"],
+      expectedUpdatedAt: (await s.t.run(ctx => ctx.db.get(s.roleId)))!.updatedAt,
     }),
   );
+});
+it("normalizes provider roles and rejects a stale allowlist from another tab", async () => {
+  const s = await setup();
+  const upper = "grol_AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA";
+  const lower = upper.toLowerCase();
+  const original = (await s.owner.query(ref("get"), {
+    communityProfileId: s.communityProfileId,
+  })).roles[0];
+  const firstUpdatedAt = await s.owner.mutation(ref("setProviderRoleAllowlist"), {
+    communityProfileId: s.communityProfileId, roleId: s.roleId,
+    expectedUpdatedAt: original.updatedAt, providerRoleIds: [upper, lower],
+  });
+  let stored = (await s.t.run(ctx => ctx.db.get(s.roleId)))!;
+  assert.deepEqual(stored.permittedProviderRoleIds, [lower]);
+  assert.equal(stored.updatedAt, firstUpdatedAt);
+  assert.ok(stored.updatedAt > original.updatedAt);
+
+  const firstTab = (await s.owner.query(ref("get"), {
+    communityProfileId: s.communityProfileId,
+  })).roles[0];
+  const secondTab = { ...firstTab };
+  await s.owner.mutation(ref("setProviderRoleAllowlist"), {
+    communityProfileId: s.communityProfileId, roleId: s.roleId,
+    expectedUpdatedAt: firstTab.updatedAt, providerRoleIds: [],
+  });
+  stored = (await s.t.run(ctx => ctx.db.get(s.roleId)))!;
+  await assert.rejects(s.owner.mutation(ref("setProviderRoleAllowlist"), {
+    communityProfileId: s.communityProfileId, roleId: s.roleId,
+    expectedUpdatedAt: secondTab.updatedAt,
+    providerRoleIds: secondTab.providerRoleIds,
+  }), /Refresh to continue/);
+  assert.deepEqual((await s.t.run(ctx => ctx.db.get(s.roleId)))!, stored);
+  assert.deepEqual(stored.permittedProviderRoleIds, []);
 });

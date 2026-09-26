@@ -93,6 +93,23 @@ test("member operations select only documented endpoints and response shapes", a
     assert.equal(calls.filter((call) => call.method).length, 1);
   }
 });
+test("mixed-case role UUIDs use the current provider ID for assign and remove", async () => {
+  const providerRoleId = "grol_AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA";
+  const savedRoleId = providerRoleId.toLowerCase();
+  for (const kind of ["assign_role", "remove_role"]) {
+    const { adapter, calls } = fixture({
+      roles: [{ id: providerRoleId, groupId }],
+      response: kind === "assign_role" ? [savedRoleId] : [],
+    });
+    const result = await adapter.execute({ kind, targetUserId: uid(3), roleId: savedRoleId });
+    assert.equal(result.status, "succeeded", kind);
+    assert.equal(calls.at(-1).path, `/groups/${groupId}/members/${uid(3)}/roles/${providerRoleId}`);
+    assert.equal(calls.filter(call => call.method).length, 1);
+  }
+  const invalid = fixture({ roles: [{ id: providerRoleId, groupId }] });
+  assert.equal((await invalid.adapter.execute({ kind: "assign_role", targetUserId: uid(3), roleId: providerRoleId.replace("grol_", "GROL_") })).status, "rejected");
+  assert.equal(invalid.calls.filter(call => call.method).length, 0);
+});
 test("post create/edit use modern posts and explicit notification choice; delete preserves target", async () => {
   for (const kind of ["publish_post", "edit_post", "delete_post"]) {
     const operation = { kind, ...(kind !== "publish_post" ? { postId } : {}), ...(kind !== "delete_post" ? { title: "Tonight", text: "Doors open", visibility: "group", sendNotification: false, roleIds: [roleId] } : {}) };

@@ -53,6 +53,7 @@ export const get = query({
           roleId: v.id("communityRoles"),
           label: v.string(),
           providerRoleIds: v.array(v.string()),
+          updatedAt: v.number(),
         }),
       ),
     }),
@@ -109,6 +110,7 @@ export const get = query({
           roleId: r._id,
           label: r.label,
           providerRoleIds: r.permittedProviderRoleIds ?? [],
+          updatedAt: r.updatedAt,
         }),
       ),
     };
@@ -143,8 +145,9 @@ export const setProviderRoleAllowlist = mutation({
     communityProfileId: v.id("profiles"),
     roleId: v.id("communityRoles"),
     providerRoleIds: v.array(v.string()),
+    expectedUpdatedAt: v.number(),
   },
-  returns: v.null(),
+  returns: v.number(),
   handler: async (ctx, args) => {
     const actor = await access(ctx, args.communityProfileId);
     if (actor.kind !== "owner")
@@ -156,16 +159,19 @@ export const setProviderRoleAllowlist = mutation({
       role.state !== "active"
     )
       throw new Error("Role not found.");
+    if (args.expectedUpdatedAt !== role.updatedAt)
+      throw new Error("Refresh to continue.");
     if (
       args.providerRoleIds.length > 100 ||
       args.providerRoleIds.some((id) => !/^grol_[a-f0-9-]{36}$/i.test(id))
     )
       throw new Error("Invalid provider role IDs.");
+    const updatedAt = Math.max(Date.now(), role.updatedAt + 1);
     await ctx.db.patch(role._id, {
-      permittedProviderRoleIds: [...new Set(args.providerRoleIds)],
-      updatedAt: Math.max(Date.now(), role.updatedAt + 1),
+      permittedProviderRoleIds: [...new Set(args.providerRoleIds.map(id => id.toLowerCase()))],
+      updatedAt,
     });
-    return null;
+    return updatedAt;
   },
 });
 export const recordAuthority = internalMutation({

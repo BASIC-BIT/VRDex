@@ -231,9 +231,11 @@ export const Reconnect: Story = { render: () => <ReconnectFixture /> };
 function ConnectionFeatureFixture({
   staff = false,
   expired = false,
+  staleRole = false,
 }: {
   staff?: boolean;
   expired?: boolean;
+  staleRole?: boolean;
 }) {
   const [connection, setConnection] = useState<ConnectionFeatures>(() => ({
     now: Date.now(),
@@ -278,10 +280,11 @@ function ConnectionFeatureFixture({
       },
     ],
     roles: [
-      { roleId: adminId, label: "Admin", providerRoleIds: [] },
-      { roleId: moderatorId, label: "Moderator", providerRoleIds: [] },
+      { roleId: adminId, label: "Admin", providerRoleIds: staleRole ? ["grol_aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"] : [], updatedAt: now },
+      { roleId: moderatorId, label: "Moderator", providerRoleIds: [], updatedAt: now },
     ],
   }));
+  const [submittedRoleToken, setSubmittedRoleToken] = useState<number | null>(null);
   const viewData: WorkspaceData = staff
     ? {
         ...data,
@@ -301,6 +304,16 @@ function ConnectionFeatureFixture({
         >
           <div className="grid gap-6">
             <h1 className="text-3xl font-semibold">Group connection</h1>
+            {staleRole ? <>
+              <button type="button" onClick={() => setConnection(previous => ({
+                ...previous,
+                roles: previous.roles.map(role => role.roleId === adminId ? {
+                  ...role, providerRoleIds: [], updatedAt: role.updatedAt + 1,
+                } : role),
+              }))}>Simulate other tab</button>
+              <output aria-label="Stored provider roles">{connection.roles[0]?.providerRoleIds.join(", ")}</output>
+              <output aria-label="Submitted role token">{submittedRoleToken ?? "none"}</output>
+            </> : null}
             <ClubConnectionFeatures
               data={viewData}
               connection={connection}
@@ -317,14 +330,20 @@ function ConnectionFeatureFixture({
                   }));
                 },
                 setRoles: async (args) => {
+                  setSubmittedRoleToken(args.expectedUpdatedAt);
+                  const currentRole = connection.roles.find(role => role.roleId === args.roleId);
+                  if (staleRole && args.expectedUpdatedAt !== currentRole?.updatedAt)
+                    throw new Error("Refresh to continue.");
+                  const updatedAt = args.expectedUpdatedAt + 1;
                   setConnection((previous) => ({
                     ...previous,
                     roles: previous.roles.map((role) =>
                       role.roleId === args.roleId
-                        ? { ...role, providerRoleIds: args.providerRoleIds }
+                        ? { ...role, providerRoleIds: args.providerRoleIds, updatedAt }
                         : role,
                     ),
                   }));
+                  return updatedAt;
                 },
               }}
             />
@@ -342,6 +361,9 @@ export const ConnectionFeaturesStaff: Story = {
 };
 export const ConnectionFeaturesExpired: Story = {
   render: () => <ConnectionFeatureFixture expired />,
+};
+export const ConnectionFeaturesStaleRole: Story = {
+  render: () => <ConnectionFeatureFixture staleRole />,
 };
 
 export const Staff: Story = {
@@ -369,9 +391,10 @@ export const Staff: Story = {
     </PageShell>
   ),
 };
-function StaffStaleRoleFixture() {
+function StaffStaleRoleFixture({ deleting = false }: { deleting?: boolean }) {
   const [workspace, setWorkspace] = useState<WorkspaceData>(data);
   const [submittedToken, setSubmittedToken] = useState<number | null>(null);
+  const [submittedDeletionToken, setSubmittedDeletionToken] = useState<number | null>(null);
   const role = workspace.roles[0]!;
   return (
     <PageShell><PageContainer max="7xl">
@@ -386,6 +409,7 @@ function StaffStaleRoleFixture() {
       }))}>Simulate other tab</button>
       <output aria-label="Stored role permissions">{role.permissions.join(", ")}</output>
       <output aria-label="Submitted role token">{submittedToken ?? "none"}</output>
+      {deleting ? <output aria-label="Submitted deletion token">{submittedDeletionToken ?? "none"}</output> : null}
       <ClubWorkspaceView data={workspace} pathname="/account/communities/afterhours/staff">
         <ClubStaffView
           data={workspace}
@@ -397,7 +421,12 @@ function StaffStaleRoleFixture() {
               if (input.expectedUpdatedAt !== role.updatedAt)
                 throw new Error("Refresh to continue.");
             },
-            delete: async () => [],
+            delete: async (_roleId, expectedUpdatedAt) => {
+              setSubmittedDeletionToken(expectedUpdatedAt);
+              if (expectedUpdatedAt !== role.updatedAt)
+                throw new Error("Refresh to continue.");
+              return [];
+            },
             invite: async () => ({ token: "fixture-invitation" }),
             revokeInvite: noop,
             revokeAssignment: noop,
@@ -408,6 +437,7 @@ function StaffStaleRoleFixture() {
   );
 }
 export const StaffStaleRole: Story = { render: () => <StaffStaleRoleFixture /> };
+export const StaffStaleDeletion: Story = { render: () => <StaffStaleRoleFixture deleting /> };
 const staffInvitations = Array.from({ length: 101 }, (_, index) => ({
   _id: `fixture-invite-${index}` as Id<"communityStaffInvitations">,
   roleIds: [adminId],

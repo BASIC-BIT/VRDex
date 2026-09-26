@@ -65,12 +65,22 @@ class ScheduledFixtureClient extends ConvexReactClient {
     private readonly pagedNotifications = false,
     immediate = false,
     private readonly clockAhead = false,
+    private readonly roleEdit = false,
+    private readonly onRoleSubmitted: (roleId: string) => void = () => undefined,
   ) {
     super("https://fixture.invalid");
     if (immediate)
       Object.assign(this.jobs[0], {
         schedule: { kind: "immediate" },
         dueAt: Date.now(),
+      });
+    if (roleEdit)
+      Object.assign(this.jobs[0], {
+        payload: {
+          kind: "assign_role",
+          targetUserId: "usr_00000000-0000-0000-0000-000000000001",
+          roleId: "grol_aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        },
       });
   }
   simulateOtherEditor() {
@@ -96,6 +106,20 @@ class ScheduledFixtureClient extends ConvexReactClient {
     let result: unknown;
     if (name === "clubOperations:list")
       result = { page: this.jobs, isDone: true, continueCursor: "" };
+    else if (name === "clubProviderReads:context")
+      result = { permittedProviderRoleIds: ["grol_aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"] };
+    else if (name === "clubProviderReads:get")
+      result = {
+        state: "succeeded",
+        result: {
+          items: [{ id: "grol_AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA", name: "DJ" }],
+          nextOffset: null,
+          observedAt: Date.now(),
+        },
+        errorCode: null,
+        fresh: true,
+        remainingFreshMs: 60_000,
+      };
     else if (name === "clubProviderReads:listEvents")
       result = {
         page: [
@@ -159,7 +183,11 @@ class ScheduledFixtureClient extends ConvexReactClient {
   ): Promise<FunctionReturnType<Mutation>> {
     const name = getFunctionName(mutation);
     const value = args[0] as Record<string, unknown>;
+    if (name === "clubProviderReads:request")
+      return "fixture-role-read" as FunctionReturnType<Mutation>;
     if (name === "clubOperations:edit") {
+      if (this.roleEdit && typeof (value.payload as { roleId?: unknown }).roleId === "string")
+        this.onRoleSubmitted((value.payload as { roleId: string }).roleId);
       const job = this.jobs.find((job) => job.id === value.operationId);
       if (job) {
         if (job.revision !== value.expectedRevision)
@@ -196,6 +224,7 @@ function ScheduledFixture({
   conflict = false,
   clockAhead = false,
   mutableEvent = false,
+  roleEdit = false,
 }: {
   staff?: boolean;
   pagedNotifications?: boolean;
@@ -203,9 +232,11 @@ function ScheduledFixture({
   conflict?: boolean;
   clockAhead?: boolean;
   mutableEvent?: boolean;
+  roleEdit?: boolean;
 }) {
+  const [submittedRoleId, setSubmittedRoleId] = useState("");
   const [client] = useState(
-    () => new ScheduledFixtureClient(pagedNotifications, immediate, clockAhead),
+    () => new ScheduledFixtureClient(pagedNotifications, immediate, clockAhead, roleEdit, setSubmittedRoleId),
   );
   const data: WorkspaceData = {
     community: {
@@ -214,10 +245,10 @@ function ScheduledFixture({
       displayName: "Afterhours",
     },
     actor: {
-      kind: staff ? "staff" : "owner",
+      kind: staff || roleEdit ? "staff" : "owner",
       subject: subject("fixture"),
       roleIds: [],
-      permissions: staff ? ["publish_posts"] : [],
+      permissions: roleEdit ? ["assign_vrchat_roles"] : staff ? ["publish_posts"] : [],
     },
     roles: [],
     assignments: [],
@@ -246,6 +277,7 @@ function ScheduledFixture({
                 Move event during submit
               </button>
             ) : null}
+            {roleEdit ? <output aria-label="Submitted role ID">{submittedRoleId || "none"}</output> : null}
             <ClubScheduled />
           </ClubWorkspaceView>
         </PageContainer>
@@ -277,4 +309,7 @@ export const ClockAhead: Story = {
 };
 export const MovedEvent: Story = {
   render: () => <ScheduledFixture mutableEvent />,
+};
+export const MixedCaseRoleEdit: Story = {
+  render: () => <ScheduledFixture roleEdit />,
 };

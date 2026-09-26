@@ -475,6 +475,7 @@ describe("club staff and visibility", () => {
       await ownerClient.mutation(api.clubStaff.deleteRole, {
         communitySlug: "test-club",
         roleId: event._id,
+        expectedUpdatedAt: event.updatedAt,
       }),
       ["group_size"],
     );
@@ -489,6 +490,40 @@ describe("club staff and visibility", () => {
         .query(api.clubStaff.getWorkspace, { communitySlug: "test-club" }),
       null,
     );
+  });
+  it("rejects a stale deletion after another tab edits the role", async () => {
+    const { t, ownerClient, recipient, event } = await setup();
+    const original = (await ownerClient.query(api.clubStaff.getWorkspace, {
+      communitySlug: "test-club",
+    }))!.roles.find(role => role._id === event._id)!;
+    const invite = await ownerClient.mutation(api.clubStaff.createStaffInvitation, {
+      communitySlug: "test-club", roleIds: [event._id],
+    });
+    await t.withIdentity(recipient).mutation(api.clubStaff.acceptStaffInvitation, {
+      communitySlug: "test-club", token: invite.token,
+    });
+    await ownerClient.mutation(api.clubStaff.setCategoryVisibility, {
+      communitySlug: "test-club", category: "group_size",
+      audience: "staff", staffRoleIds: [event._id],
+    });
+    await ownerClient.mutation(api.clubStaff.saveRole, {
+      communitySlug: "test-club", roleId: event._id,
+      expectedUpdatedAt: original.updatedAt,
+      label: "Renamed event staff", permissions: original.permissions,
+      assignableRoleIds: original.assignableRoleIds,
+    });
+    const edited = (await t.run(ctx => ctx.db.get(event._id)))!;
+    assert.ok(edited.updatedAt > original.updatedAt);
+    await assert.rejects(ownerClient.mutation(api.clubStaff.deleteRole, {
+      communitySlug: "test-club", roleId: event._id,
+      expectedUpdatedAt: original.updatedAt,
+    }), /Refresh to continue/);
+    const workspace = (await ownerClient.query(api.clubStaff.getWorkspace, {
+      communitySlug: "test-club",
+    }))!;
+    assert.equal(workspace.roles.find(role => role._id === event._id)?.label, "Renamed event staff");
+    assert.equal(workspace.assignments.length, 1);
+    assert.equal(workspace.visibility?.group_size.audience, "staff");
   });
   it("denies a same-token staff identity with a different issuer", async () => {
     const { t, ownerClient, recipient, event, communityProfileId } =

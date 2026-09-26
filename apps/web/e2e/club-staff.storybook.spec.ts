@@ -15,3 +15,17 @@ test("a role editor keeps its displayed revision after a second tab changes perm
     fullPage: true,
   });
 });
+
+test("a stale delete confirmation preserves a concurrently edited role @storybook-visual", async ({ page }) => {
+  await page.goto("/iframe.html?id=clubs-workspace--staff-stale-deletion&viewMode=story");
+  await page.getByRole("button", { name: "Delete role" }).first().click();
+  await page.getByRole("button", { name: "Simulate other tab" }).click();
+  await page.getByRole("button", { name: "Confirm delete" }).click();
+  await expect(page.getByRole("alert")).toContainText("Refresh to continue.");
+  await expect(page.getByLabel("Submitted deletion token")).toHaveText(String(Date.UTC(2026, 8, 12, 21)));
+  await expect(page.getByText("Admin", { exact: true }).first()).toBeVisible();
+  await page.screenshot({
+    path: `../../.cache/artifacts/club-stale-role-deletion-${test.info().project.name}.png`,
+    fullPage: true,
+  });
+});

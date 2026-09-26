@@ -166,7 +166,7 @@ function MembersContent({
   );
   const allowedRoles =
     roles.data?.items.filter(
-      (role) => owner || permittedRoles.includes(role.id),
+      (role) => owner || permittedRoles.some(id => id.toLowerCase() === role.id.toLowerCase()),
     ) ?? [];
   const selectedRole = allowedRoles.find((role) => role.id === roleId);
   const currentMember = member.data?.items[0] ?? detail;

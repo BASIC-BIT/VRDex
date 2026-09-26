@@ -512,12 +512,15 @@ export const saveRole = mutation({
   },
 });
 export const deleteRole = mutation({
-  args: { ...base, roleId: v.id("communityRoles") },
+  args: { ...base, roleId: v.id("communityRoles"), expectedUpdatedAt: v.number() },
   returns: v.array(clubCategory),
   handler: async (ctx, args) => {
     const { community, actor } = await context(ctx, args.communitySlug);
     owner(actor);
     const roles = await roleSet(ctx, community._id, [args.roleId]);
+    const deletingRole = roles.find(role => role._id === args.roleId)!;
+    if (args.expectedUpdatedAt !== deletingRole.updatedAt)
+      throw new Error("Refresh to continue.");
     const rows = await ctx.db
       .query("communityAuthorities")
       .withIndex("by_communityProfileId_state", (q) =>

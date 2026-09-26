@@ -41,7 +41,12 @@ describe("club provider operation authority", () => {
     const base = authority({ permissions: ["assign_vrchat_roles"], permittedProviderRoleIds: ["grol_allowed"] });
     base.provider!.permissions = ["group-roles-assign", "group-members-manage"];
     assert.equal(assessClubOperation(base, { kind: "assign_role", targetUserId: "usr_target", roleId: "grol_allowed" }).allowed, true);
+    assert.equal(assessClubOperation(base, { kind: "assign_role", targetUserId: "usr_target", roleId: "GROL_ALLOWED" }).allowed, true);
+    assert.equal(assessClubOperation(base, { kind: "remove_role", targetUserId: "usr_target", roleId: "GROL_ALLOWED" }).allowed, true);
+    assert.equal(assessClubOperation({ ...base, permittedProviderRoleIds: ["GROL_ALLOWED"] }, { kind: "assign_role", targetUserId: "usr_target", roleId: "grol_allowed" }).allowed, true);
+    assert.equal(assessClubOperation({ ...base, permittedProviderRoleIds: ["GROL_ALLOWED"] }, { kind: "remove_role", targetUserId: "usr_target", roleId: "grol_allowed" }).allowed, true);
     assert.equal(assessClubOperation(base, { kind: "assign_role", targetUserId: "usr_target", roleId: "grol_other" }).reason, "role_not_assignable");
+    assert.equal(assessClubOperation(base, { kind: "remove_role", targetUserId: "usr_target", roleId: "GROL_OTHER" }).reason, "role_not_assignable");
     assert.equal(assessClubOperation(base, { kind: "remove_role", targetUserId: "usr_bot", roleId: "grol_allowed" }).reason, "protected_target");
     assert.equal(assessClubOperation(base, { kind: "remove_role", targetUserId: "USR_BOT", roleId: "grol_allowed" }).reason, "protected_target");
     assert.equal(assessClubOperation({ ...base, actorKind: "owner" }, { kind: "assign_role", targetUserId: "usr_bot", roleId: "grol_allowed" }).reason, "protected_target");

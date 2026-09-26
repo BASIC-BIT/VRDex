@@ -71,7 +71,7 @@ function PayloadFields({
           <Select
             aria-label="VRChat role"
             required
-            value={payload.roleId}
+            value={roleOptions.find(role => role.id.toLowerCase() === payload.roleId.toLowerCase())?.id ?? payload.roleId}
             onChange={(event) =>
               setPayload({ ...payload, roleId: event.target.value })
             }
@@ -332,11 +332,11 @@ function OperationEditor({
     roles.data?.items.filter(
       (role) =>
         workspace.actor.kind === "owner" ||
-        roleContext?.permittedProviderRoleIds.includes(role.id),
+        roleContext?.permittedProviderRoleIds.some(id => id.toLowerCase() === role.id.toLowerCase()),
     ) ?? [];
   const invalidRole =
     isRoleEdit &&
-    (!roles.fresh || !roleOptions.some((role) => role.id === payload.roleId));
+    (!roles.fresh || !roleOptions.some((role) => role.id.toLowerCase() === payload.roleId.toLowerCase()));
   const events = usePaginatedQuery(
     api.clubProviderReads.listEvents,
     { communityProfileId: workspace.community._id },
@@ -395,7 +395,9 @@ function OperationEditor({
             await save({
               operationId: operation.id,
               expectedRevision,
-              payload,
+              payload: "roleId" in payload
+                ? { ...payload, roleId: roleOptions.find(role => role.id.toLowerCase() === payload.roleId.toLowerCase())?.id ?? payload.roleId }
+                : payload,
               schedule,
               reviewedDueAt,
             });

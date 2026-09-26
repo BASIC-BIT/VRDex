@@ -29,7 +29,7 @@ import type {
 
 const user = (index: number) =>
   `usr_00000000-0000-0000-0000-${String(index).padStart(12, "0")}`;
-const djRole = "grol_00000000-0000-0000-0000-000000000001";
+const djRole = "grol_aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1";
 const adminRole = "grol_00000000-0000-0000-0000-000000000002";
 class MembersFixtureClient extends ConvexReactClient {
   private readonly fixtureListeners = new Set<() => void>();
@@ -41,6 +41,7 @@ class MembersFixtureClient extends ConvexReactClient {
     private readonly readFailure: boolean,
     private permissions: WorkspaceData["actor"]["permissions"],
     private readonly directoryReadFailure: boolean,
+    private readonly mixedCaseRoles: boolean,
   ) {
     super("https://fixture.invalid");
   }
@@ -72,7 +73,7 @@ class MembersFixtureClient extends ConvexReactClient {
       let items: ProviderItem[] = [];
       if (params.kind === "roles")
         items = [
-          { id: djRole, name: "DJ" },
+          { id: this.mixedCaseRoles ? `grol_${djRole.slice(5).toUpperCase()}` : djRole, name: "DJ" },
           { id: adminRole, name: "Group admin" },
         ];
       else if (params.kind === "member")
@@ -196,12 +197,14 @@ function MembersFixture({
   directoryReadFailure = false,
   permissions,
   permissionSwitch = false,
+  mixedCaseRoles = false,
 }: {
   staff?: boolean;
   readFailure?: boolean;
   directoryReadFailure?: boolean;
   permissions?: WorkspaceData["actor"]["permissions"];
   permissionSwitch?: boolean;
+  mixedCaseRoles?: boolean;
 }) {
   const [limited, setLimited] = useState(false);
   const actorPermissions = useMemo<WorkspaceData["actor"]["permissions"]>(
@@ -210,7 +213,7 @@ function MembersFixture({
       : []),
     [permissions, staff, limited],
   );
-  const [client] = useState(() => new MembersFixtureClient(staff, readFailure, actorPermissions, directoryReadFailure));
+  const [client] = useState(() => new MembersFixtureClient(staff, readFailure, actorPermissions, directoryReadFailure, mixedCaseRoles));
   useLayoutEffect(() => client.setPermissions(actorPermissions), [client, actorPermissions]);
   const data: WorkspaceData = {
     community: {
@@ -260,6 +263,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 export const Owner: Story = { render: () => <MembersFixture /> };
 export const Staff: Story = { render: () => <MembersFixture staff /> };
+export const StaffMixedCaseRoles: Story = { render: () => <MembersFixture staff mixedCaseRoles /> };
 export const RoleOnly: Story = {
   render: () => <MembersFixture staff permissions={["assign_vrchat_roles"]} />,
 };

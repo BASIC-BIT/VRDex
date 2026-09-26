@@ -157,6 +157,23 @@ test("stale member pages disable new actions until refresh @storybook-visual", a
     page.getByText("Refresh to continue.", { exact: true }),
   ).toBeVisible();
 });
+test("staff can select uppercase provider roles against lowercase grants @storybook-visual", async ({ page }) => {
+  await page.goto("/iframe.html?id=clubs-members--staff-mixed-case-roles&viewMode=story");
+  await page.getByRole("checkbox", { name: "Select Riley", exact: true }).check();
+  const role = page.getByLabel("VRChat role", { exact: true });
+  await expect(page.getByRole("option", { name: "DJ", exact: true })).toHaveCount(1);
+  await role.selectOption({ label: "DJ" });
+  await expect(role).toHaveValue("grol_AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAA1");
+  await expect(page.getByRole("button", { name: "Assign selected", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Remove selected role", exact: true })).toBeEnabled();
+  await page.getByRole("button", { name: "Assign selected", exact: true }).click();
+  await page.getByRole("button", { name: "Confirm action" }).click();
+  await expect(page.getByText("Queued", { exact: true })).toBeVisible();
+  await page.screenshot({
+    path: `../../.cache/artifacts/member-mixed-case-role-${test.info().project.name}.png`,
+    fullPage: true,
+  });
+});
 
 for (const story of ["owner-directory-unavailable", "mixed-role-directory-unavailable"]) {
   test(`${story} keeps direct actions available when the directory fails @storybook-visual`, async ({ page }) => {
