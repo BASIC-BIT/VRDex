@@ -4,6 +4,8 @@ import { internal } from "./_generated/api";
 
 const crons = cronJobs();
 
+crons.hourly("expire abandoned event intake drafts", { minuteUTC: 45 }, internal.eventIntake.expireDrafts, {});
+
 crons.hourly(
   "community telemetry rollups",
   { minuteUTC: 10 },

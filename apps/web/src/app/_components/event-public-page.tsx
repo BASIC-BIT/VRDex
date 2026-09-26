@@ -29,7 +29,7 @@ import {
   ViewerLocalEventTimeRange,
 } from "./viewer-local-event-times";
 
-type EventSourceType = "manual" | "community" | "partner" | "import" | "ai_suggested";
+type EventSourceType = "manual" | "community" | "partner" | "import" | "ai_suggested" | "contributor";
 type EventMediaLinkType =
   | "event_page"
   | "watch"

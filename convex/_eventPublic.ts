@@ -19,7 +19,7 @@ const EVENT_ASSOCIATION_LIMIT = 80;
 const EVENT_ASSOCIATION_SCAN_LIMIT = 500;
 const EVENT_PREVIEW_MAX_LIMIT = EVENT_ASSOCIATION_LIMIT;
 
-type PublicEventSourceType = "manual" | "community" | "partner" | "import" | "ai_suggested";
+type PublicEventSourceType = "manual" | "community" | "partner" | "import" | "ai_suggested" | "contributor";
 type PublicEventMediaLinkType =
   | "event_page"
   | "watch"
@@ -65,6 +65,7 @@ type PublicEventSlotRecord = {
 };
 
 export type PublicEventPreview = {
+  venueLabel?: string;
   slug?: string;
   title: string;
   startAt?: number;
@@ -330,6 +331,7 @@ export function toPublicEventPreviewFromRecord(
   return {
     ...optionalField("slug", event.slug),
     title: event.title,
+    ...optionalField("venueLabel", event.venueLabel),
     ...publicEventSchedule(event),
     status: event.eventStatus,
     source: {

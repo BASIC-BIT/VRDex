@@ -5,7 +5,7 @@ import { EntityImage } from "@/components/ui/entity-image";
 import { Notice } from "@/components/ui/notice";
 import { ViewerLocalEventDateTime } from "./viewer-local-event-times";
 
-type EventSourceType = "manual" | "community" | "partner" | "import" | "ai_suggested";
+type EventSourceType = "manual" | "community" | "partner" | "import" | "ai_suggested" | "contributor";
 
 export type PublicActiveWorld = {
   slug: string;

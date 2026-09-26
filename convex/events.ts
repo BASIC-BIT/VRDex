@@ -516,7 +516,7 @@ async function recordEventAuditEvent(
   });
 }
 
-async function replaceEventWorldLink(
+export async function replaceEventWorldLink(
   db: DatabaseWriter,
   event: Doc<"events">,
   world: Doc<"worlds"> | undefined,
@@ -573,7 +573,7 @@ async function replaceEventWorldLink(
     eventSortEndAt: eventSortEndAt(event),
     eventPublicationState: event.publicationState,
     eventStatus: event.eventStatus,
-    sourceType: "community",
+    sourceType: event.sourceType,
     confidence: 1,
     confirmationState: "confirmed",
     confirmedAt: now,

@@ -31,7 +31,7 @@ type WorldLinkType =
   | "generic_store"
   | "other";
 type WorldLinkSource = "owner_authored" | "reviewed" | "partner_provided" | "community_submitted";
-type EventSourceType = "manual" | "community" | "partner" | "import" | "ai_suggested";
+type EventSourceType = "manual" | "community" | "partner" | "import" | "ai_suggested" | "contributor";
 
 type PublicWorldEventPreview = {
   slug?: string;

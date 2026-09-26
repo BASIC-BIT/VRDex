@@ -422,7 +422,7 @@ export function createEventSearchDocument(
       { values: [event.communityName, indexedCommunity?.displayName], weight: 5 },
       { values: worldTerms, weight: 4 },
       { values: context.roleLabels ?? [], weight: 3 },
-      { values: [event.summary, event.timezone, sourceUrl], weight: 1 },
+      { values: [event.summary, event.venueLabel, event.timezone, sourceUrl], weight: 1 },
     ]),
     exactTokens: exactTokens([
       event.title,

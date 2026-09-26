@@ -86,6 +86,10 @@ describe("browser auth-session authorization boundary", () => {
   it("guards every browser-authenticated Convex action before external work", () => {
     const actionInventory = new Map<string, string[]>([
       [
+        "convex/eventIntake.ts",
+        ["internal.eventIntake.currentIntakeActor", "requireUser(ctx)"],
+      ],
+      [
         // Purpose-scoped Discord OAuth round-trip: every action here reads the
         // browser session before it exchanges a code or touches Discord.
         "convex/discordVerification.ts",

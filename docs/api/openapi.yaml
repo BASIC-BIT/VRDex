@@ -3997,6 +3997,7 @@ components:
             - partner
             - import
             - ai_suggested
+            - contributor
           description: Public event source class.
         sourceLabel:
           type: string
@@ -4469,6 +4470,7 @@ components:
                 - import
                 - moderator
                 - ai_suggested
+                - contributor
               description: Public source or provenance class.
             submittedAt:
               type: integer
@@ -4987,6 +4989,7 @@ components:
                 - import
                 - moderator
                 - ai_suggested
+                - contributor
               description: Public source or provenance class.
             submittedAt:
               type: integer
@@ -6137,6 +6140,7 @@ components:
                     - partner
                     - import
                     - ai_suggested
+                    - contributor
                   description: Public event source class.
                 url:
                   type: string
@@ -6150,6 +6154,8 @@ components:
               type: integer
               minimum: 0
               maximum: 9007199254740991
+            venueLabel:
+              type: string
             scheduleKind:
               type: string
               const: timed
@@ -6298,6 +6304,7 @@ components:
                     - partner
                     - import
                     - ai_suggested
+                    - contributor
                   description: Public event source class.
                 url:
                   type: string
@@ -6309,6 +6316,8 @@ components:
               description: Public event source summary.
             startAt:
               not: {}
+            venueLabel:
+              type: string
             scheduleKind:
               type: string
               const: date_only
@@ -6465,6 +6474,7 @@ components:
                     - partner
                     - import
                     - ai_suggested
+                    - contributor
                   description: Public event source class.
                 url:
                   type: string
@@ -6478,6 +6488,8 @@ components:
               type: integer
               minimum: 0
               maximum: 9007199254740991
+            venueLabel:
+              type: string
             scheduleKind:
               type: string
               const: timed
@@ -6530,6 +6542,7 @@ components:
                           - partner
                           - import
                           - ai_suggested
+                          - contributor
                         description: Public event source class.
                       confirmationState:
                         type: string
@@ -6737,6 +6750,7 @@ components:
                           - partner
                           - import
                           - ai_suggested
+                          - contributor
                         description: Public event source class.
                       url:
                         type: string
@@ -7063,6 +7077,7 @@ components:
                           - partner
                           - import
                           - ai_suggested
+                          - contributor
                         description: Public event source class.
                       url:
                         type: string
@@ -7222,6 +7237,7 @@ components:
                     - partner
                     - import
                     - ai_suggested
+                    - contributor
                   description: Public event source class.
                 url:
                   type: string
@@ -7233,6 +7249,8 @@ components:
               description: Public event source summary.
             startAt:
               not: {}
+            venueLabel:
+              type: string
             scheduleKind:
               type: string
               const: date_only
@@ -7285,6 +7303,7 @@ components:
                           - partner
                           - import
                           - ai_suggested
+                          - contributor
                         description: Public event source class.
                       confirmationState:
                         type: string
@@ -7492,6 +7511,7 @@ components:
                           - partner
                           - import
                           - ai_suggested
+                          - contributor
                         description: Public event source class.
                       url:
                         type: string
@@ -7818,6 +7838,7 @@ components:
                           - partner
                           - import
                           - ai_suggested
+                          - contributor
                         description: Public event source class.
                       url:
                         type: string
@@ -8001,6 +8022,7 @@ components:
                 - import
                 - moderator
                 - ai_suggested
+                - contributor
               description: Public source or provenance class.
             submittedAt:
               type: integer
@@ -8111,6 +8133,7 @@ components:
                       - partner
                       - import
                       - ai_suggested
+                      - contributor
                     description: Public event source class.
                   url:
                     type: string
@@ -8230,6 +8253,7 @@ components:
                       - partner
                       - import
                       - ai_suggested
+                      - contributor
                     description: Public event source class.
                   url:
                     type: string
@@ -8403,6 +8427,7 @@ components:
                         - partner
                         - import
                         - ai_suggested
+                        - contributor
                       description: Public event source class.
                     url:
                       type: string
@@ -8416,6 +8441,8 @@ components:
                   type: integer
                   minimum: 0
                   maximum: 9007199254740991
+                venueLabel:
+                  type: string
                 scheduleKind:
                   type: string
                   const: timed
@@ -8529,6 +8556,7 @@ components:
                         - partner
                         - import
                         - ai_suggested
+                        - contributor
                       description: Public event source class.
                     url:
                       type: string
@@ -8540,6 +8568,8 @@ components:
                   description: Public event source summary.
                 startAt:
                   not: {}
+                venueLabel:
+                  type: string
                 scheduleKind:
                   type: string
                   const: date_only

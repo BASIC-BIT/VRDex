@@ -50,11 +50,11 @@ export const ProfileCreationSourceSchema = z
   .meta({ description: "How the profile was originally created." });
 
 export const PublicSourceTypeSchema = z
-  .enum(["manual", "owner", "community", "partner", "import", "moderator", "ai_suggested"])
+  .enum(["manual", "owner", "community", "partner", "import", "moderator", "ai_suggested", "contributor"])
   .meta({ description: "Public source or provenance class." });
 
 export const PublicEventSourceTypeSchema = z
-  .enum(["manual", "community", "partner", "import", "ai_suggested"])
+  .enum(["manual", "community", "partner", "import", "ai_suggested", "contributor"])
   .meta({ description: "Public event source class." });
 
 export const SourceSummarySchema = z
@@ -420,6 +420,7 @@ const PublicEventPreviewObject = z
     slotCount: z.number().int().nonnegative().optional(),
     source: PublicEventSourceSchema,
     startAt: timestampMs.optional(),
+    venueLabel: z.string().optional(),
     scheduleKind: z.enum(["timed", "date_only"]).optional(),
     eventDate: EventDateSchema.optional(),
     status: z.enum(["scheduled", "cancelled"]).optional(),

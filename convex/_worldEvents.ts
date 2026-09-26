@@ -12,7 +12,7 @@ const ACTIVE_WORLD_QUERY_SCAN_LIMIT = 500;
 const ACTIVE_WORLD_ASSOCIATION_LIMIT = 20;
 const ACTIVE_WORLD_MAX_LIMIT = 6;
 
-type PublicEventSourceType = "manual" | "community" | "partner" | "import" | "ai_suggested";
+type PublicEventSourceType = "manual" | "community" | "partner" | "import" | "ai_suggested" | "contributor";
 
 type PublicWorldEventRecord = {
   event: Doc<"events">;

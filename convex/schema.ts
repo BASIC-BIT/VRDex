@@ -354,6 +354,7 @@ const profilePublicSection = v.union(
 );
 
 const eventSourceType = v.union(
+  v.literal("contributor"),
   v.literal("manual"),
   v.literal("community"),
   v.literal("partner"),
@@ -362,6 +363,7 @@ const eventSourceType = v.union(
 );
 
 const discoverySourceType = v.union(
+  v.literal("contributor"),
   v.literal("owner"),
   v.literal("community"),
   v.literal("partner"),
@@ -1093,7 +1095,34 @@ export default defineSchema({
     .index("by_slug", ["slug"])
     .index("by_vrchatWorldId", ["vrchatWorldId"])
     .index("by_publicationState_sortName", ["publicationState", "sortName"]),
+  eventIntakeDrafts: defineTable({
+    actorUserId: v.id("users"), version: v.number(),
+    // Validated by the shared strict EventIntakePatchSchema on every read/write.
+    fields: v.any(),
+    provenance: v.array(v.object({ field: v.string(), kind: v.union(v.literal("contributor"), v.literal("tentative")), version: v.number() })),
+    publishedReceiptId: v.optional(v.id("eventContributionReceipts")),
+    createdAt: v.number(), updatedAt: v.number(), expiresAt: v.number(),
+  }).index("by_actor_updatedAt", ["actorUserId", "updatedAt"])
+    .index("by_actor_expiresAt", ["actorUserId", "expiresAt"])
+    .index("by_expiresAt", ["expiresAt"]),
+  eventContributionReceipts: defineTable({
+    actorUserId: v.id("users"), draftId: v.id("eventIntakeDrafts"), draftVersion: v.number(),
+    eventId: v.id("events"), eventPath: v.string(), communityProfileId: v.id("profiles"),
+    fingerprint: v.string(), createdAt: v.number(),
+  }).index("by_actor_createdAt", ["actorUserId", "createdAt"])
+    .index("by_community_createdAt", ["communityProfileId", "createdAt"])
+    .index("by_eventId", ["eventId"]),
+  eventIntakePublishRequests: defineTable({
+    actorUserId: v.id("users"), idempotencyKey: v.string(), draftId: v.id("eventIntakeDrafts"),
+    draftVersion: v.number(), receiptId: v.id("eventContributionReceipts"), createdAt: v.number(),
+  }).index("by_actor_key", ["actorUserId", "idempotencyKey"])
+    .index("by_actor_createdAt", ["actorUserId", "createdAt"]),
   events: defineTable({
+    venueLabel: v.optional(v.string()),
+    contributorUserId: v.optional(v.id("users")),
+    contributionVersion: v.optional(v.number()),
+    contributionFingerprint: v.optional(v.string()),
+    contributorEditsClosedAt: v.optional(v.number()),
     slug: v.optional(v.string()),
     title: v.string(),
     sortTitle: v.string(),
@@ -1135,6 +1164,8 @@ export default defineSchema({
   })
     .index("by_slug", ["slug"])
     .index("by_publicationState_startAt", ["publicationState", "startAt"])
+    .index("by_contributionFingerprint", ["contributionFingerprint"])
+    .index("by_communityProfileId_eventDate", ["communityProfileId", "eventDate"])
     .index("by_publicationState_sortAt", ["publicationState", "sortAt"])
     .index("by_publicationState_eventStatus_sortAt", ["publicationState", "eventStatus", "sortAt"])
     .index("by_communityProfileId_sortAt", ["communityProfileId", "sortAt"])
